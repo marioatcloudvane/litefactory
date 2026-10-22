@@ -17,10 +17,18 @@ litefactory standards proposal create first --file changes.json
   "base_revision": 0,
   "operations": [
     {"kind":"category.add","category":{"id":"go","name":"Go","description":"Go guidance"}},
-    {"kind":"standard.add","standard":{"id":"errors","title":"Handle errors","body":"Return useful errors.","category_ids":["go"]}}
+    {"kind":"standard.add","standard":{"id":"GO-001","category_id":"go","rule":"MUST return errors with context","description":"Wrap errors with what failed.","evidence":"The PR wraps returned errors.","scope":"Go repositories","check":"manual","applies_to":["story-worker"]}}
   ]
 }
 ```
+
+A standard is one structured rule: `id`, exactly one `category_id`, a `rule`
+starting with `MUST `, `description`, `evidence`, `scope`, `check`
+(`automated`, `semi_automated` or `manual`), the optional `exception_policy`
+and `applies_to`, the agent roles that read it. A role granted standards by its
+graph node reads exactly the standards whose `applies_to` names it.
+`standards book render [--role ROLE]` prints the current book as agents read it,
+followed by how many standards apply to each role and sit in each category.
 
 Zero means the empty, unpublished base. For later proposals use the revision ID
 from `standards book current`. Stable IDs survive replacements. Operation kinds
@@ -90,14 +98,18 @@ Ordinary runs get no standards tools and no standards instructions. Book access
 is opt-in per role and declared in the workflow DOT: a node attribute
 `lf_standards="<role>[,<role>]"` names the roles that may read the book. The
 canonical teams grant it to the Implement story worker, the Plan technical role
-and the Validate architecture reviewer only. Those roles get the read-only tools
-`standards_categories_list`, `standards_select` and `standards_read` and may
+and the Validate architecture reviewer only. Such a role gets one read-only
+tool, `standards_read`, which returns the published standards whose
+`applies_to` names that role, rendered and paged by `next_cursor`. It may
 consult them; nothing requires a call, and there is no completion gate. The run's
 book is pinned on its first standards call, so later calls in the same run read
 the same revision. An empty or unavailable book shows in the tool reply and the
 work simply continues.
 
-Category pages default to 25 entries and permit at most 100. Results are bounded
+The analysts (prevention, drift and log) still discover categories, select
+them and read the selected standards; their category pages also show how many
+standards apply to each role and sit in each category. Category pages default
+to 25 entries and permit at most 100. Results are bounded
 to 32 KiB including both MCP content copies; follow explicit cursors until
 complete. Body ranges use UTF-8-safe byte offsets, total lengths and digests.
 Initial canonical snapshot capture is capped at 16 MiB; calls retain the existing
@@ -129,8 +141,9 @@ accepts a JSON array through `--file`, with `question_id`, `text` and optional
 `"replace": true`). Question IDs and earlier answers survive restarts.
 
 `edit SESSION --expected-version N --file FILE|-` accepts a JSON object with
-optional `title`, `body`, `category_ids` and `context_category_ids`. Title, body
-and category edits remain authoritative on later continuations. The context
+optional `category_id`, `rule`, `description`, `evidence`, `scope`, `check`,
+`applies_to` and `context_category_ids`. Field edits remain authoritative on
+later continuations. The context
 filter narrows what the assistant receives; it does not change category IDs by
 name. `list`, `show` and `questions` inspect saved work; `show --version N`
 reads an earlier version. Add `--json` for full structured state, including

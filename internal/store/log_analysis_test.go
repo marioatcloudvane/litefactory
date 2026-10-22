@@ -16,7 +16,7 @@ func createLogAnalysisFixture(t *testing.T, db *DB, id string) LogAnalysis {
 	return a
 }
 func logAnalysisCandidateFixture(key, id string) LogAnalysisCandidate {
-	return LogAnalysisCandidate{Key: key, Proposal: StandardsProposalVersion{ProposalID: id, SchemaVersion: 1, Author: "log analyst", ChangeDigest: "change-" + id, ResultDigest: "result-" + id, Operations: []StandardsOperation{{Kind: "standard_add", Standard: &StandardsStandard{ID: "new-standard", Title: "Practice", Body: "Guidance"}}}}}
+	return LogAnalysisCandidate{Key: key, Proposal: StandardsProposalVersion{ProposalID: id, SchemaVersion: 1, Author: "log analyst", ChangeDigest: "change-" + id, ResultDigest: "result-" + id, Operations: []StandardsOperation{{Kind: "standard_add", Standard: &StandardsStandard{ID: "new-standard", Rule: "MUST Practice", Description: "Guidance", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", AppliesTo: []string{"story-worker"}}}}}}
 }
 
 func TestLogAnalysisAtomicBatchAndReceiptRecovery(t *testing.T) {
@@ -246,7 +246,7 @@ func TestLogAnalysisLinksPreserveProducedVersionAfterHumanEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposal.Operations[0].Standard.Body = "Human review changed the guidance"
+	proposal.Operations[0].Standard.Description = "Human review changed the guidance"
 	proposal.ChangeDigest = "human-changed"
 	proposal.ResultDigest = "human-result"
 	proposal.Author = "human-reviewer"
@@ -259,7 +259,7 @@ func TestLogAnalysisLinksPreserveProducedVersionAfterHumanEdit(t *testing.T) {
 		t.Fatalf("analysis links followed mutable head: %#v %v", links, err)
 	}
 	produced, err := db.GetStandardsProposal(t.Context(), links[0].ProposalID, links[0].Version)
-	if err != nil || produced.Version != 1 || produced.ChangeDigest != candidate.Proposal.ChangeDigest || produced.Operations[0].Standard.Body == edited.Operations[0].Standard.Body {
+	if err != nil || produced.Version != 1 || produced.ChangeDigest != candidate.Proposal.ChangeDigest || produced.Operations[0].Standard.Description == edited.Operations[0].Standard.Description {
 		t.Fatalf("analysis-produced version changed: %#v %v", produced, err)
 	}
 	recovered, err := db.GetLogAnalysisReceipt(t.Context(), a.ID, f.RequestID)

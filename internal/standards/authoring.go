@@ -58,9 +58,13 @@ type AuthoringAnswer struct {
 
 // AuthoringEdit revises authoritative draft fields or narrows retained context.
 type AuthoringEdit struct {
-	Title              *string   `json:"title,omitempty"`
-	Body               *string   `json:"body,omitempty"`
-	CategoryIDs        *[]string `json:"category_ids,omitempty"`
+	CategoryID         *string   `json:"category_id,omitempty"`
+	Rule               *string   `json:"rule,omitempty"`
+	Description        *string   `json:"description,omitempty"`
+	Evidence           *string   `json:"evidence,omitempty"`
+	Scope              *string   `json:"scope,omitempty"`
+	Check              *string   `json:"check,omitempty"`
+	AppliesTo          *[]string `json:"applies_to,omitempty"`
 	ContextCategoryIDs *[]string `json:"context_category_ids,omitempty"`
 }
 
@@ -180,8 +184,7 @@ func (s *Authoring) List(ctx context.Context, limit int) ([]AuthoringSession, er
 	return out, nil
 }
 func (s *Authoring) save(ctx context.Context, v AuthoringSession) (AuthoringSession, error) {
-	v.Draft.CategoryIDs = append([]string{}, v.Draft.CategoryIDs...)
-	slices.Sort(v.Draft.CategoryIDs)
+	v.Draft.AppliesTo = sortedRoles(v.Draft.AppliesTo)
 	expected := v.Version
 	v.Version++
 	r, e := s.Store.SaveStandardsAuthoring(ctx, authorRecord(v), expected)
@@ -346,34 +349,37 @@ func (s *Authoring) Edit(ctx context.Context, id string, expected int64, in Auth
 		v.CategoryFilter = append([]string{}, *in.ContextCategoryIDs...)
 		v.Context = AuthoringContext{}
 	}
-	if in.Title == nil && in.Body == nil && in.CategoryIDs == nil && in.ContextCategoryIDs == nil {
-		return v, ErrInvalid
+	if in.CategoryID != nil {
+		if e = authorCategories(v.Base, []string{*in.CategoryID}); e != nil {
+			return v, e
+		}
 	}
-	for _, f := range []string{"title", "body", "category_ids"} {
-		set := false
-		switch f {
-		case "title":
-			if in.Title != nil {
-				v.Draft.Title = *in.Title
-				set = true
-			}
-		case "body":
-			if in.Body != nil {
-				v.Draft.Body = *in.Body
-				set = true
-			}
-		case "category_ids":
-			if in.CategoryIDs != nil {
-				if e = authorCategories(v.Base, *in.CategoryIDs); e != nil {
-					return v, e
-				}
-				v.Draft.CategoryIDs = *in.CategoryIDs
-				set = true
-			}
+	fields := []struct {
+		name string
+		set  bool
+		edit func()
+	}{
+		{"category_id", in.CategoryID != nil, func() { v.Draft.CategoryID = *in.CategoryID }},
+		{"rule", in.Rule != nil, func() { v.Draft.Rule = *in.Rule }},
+		{"description", in.Description != nil, func() { v.Draft.Description = *in.Description }},
+		{"evidence", in.Evidence != nil, func() { v.Draft.Evidence = *in.Evidence }},
+		{"scope", in.Scope != nil, func() { v.Draft.Scope = *in.Scope }},
+		{"check", in.Check != nil, func() { v.Draft.Check = *in.Check }},
+		{"applies_to", in.AppliesTo != nil, func() { v.Draft.AppliesTo = *in.AppliesTo }},
+	}
+	edited := in.ContextCategoryIDs != nil
+	for _, f := range fields {
+		if !f.set {
+			continue
 		}
-		if set && !slices.Contains(v.Overrides, f) {
-			v.Overrides = append(v.Overrides, f)
+		edited = true
+		f.edit()
+		if !slices.Contains(v.Overrides, f.name) {
+			v.Overrides = append(v.Overrides, f.name)
 		}
+	}
+	if !edited {
+		return v, ErrInvalid
 	}
 	v.Diagnostics = nil
 	v.Status = "draft"
@@ -495,7 +501,7 @@ func (s *Authoring) Rebase(ctx context.Context, id string, expected int64, chose
 	v.Context = AuthoringContext{}
 	_, v.Diagnostics = authorValidate(v)
 	for _, c := range changes {
-		if c.Entity == "standard" && c.ID == v.TargetID || c.Entity == "category" && slices.Contains(v.Draft.CategoryIDs, c.ID) {
+		if c.Entity == "standard" && c.ID == v.TargetID || c.Entity == "category" && v.Draft.CategoryID == c.ID {
 			v.Questions = append(v.Questions, AuthoringQuestion{ID: authorID("q-"), Text: "Confirm the retained draft remains appropriate after rebase change to " + c.Entity + " " + c.ID, State: "pending", CreatedVersion: v.Version + 1})
 		}
 	}
@@ -574,9 +580,13 @@ type authorQuestionOutput struct {
 }
 type authorDraftOutput struct {
 	SchemaVersion        int                    `json:"schema_version"`
-	Title                string                 `json:"title"`
-	Body                 string                 `json:"body"`
-	CategoryIDs          []string               `json:"category_ids"`
+	CategoryID           string                 `json:"category_id"`
+	Rule                 string                 `json:"rule"`
+	Description          string                 `json:"description"`
+	Evidence             string                 `json:"evidence"`
+	Scope                string                 `json:"scope"`
+	Check                string                 `json:"check"`
+	AppliesTo            []string               `json:"applies_to"`
 	Questions            []authorQuestionOutput `json:"questions"`
 	SupersedeQuestionIDs []string               `json:"supersede_question_ids,omitempty"`
 	Notes                string                 `json:"notes,omitempty"`
@@ -589,7 +599,7 @@ func authorPrompt(role, kind string, data any) (string, error) {
 	}
 	schema := `{"schema_version":1,"category_ids":["offered category ID"],"reason":"why relevant"}`
 	if kind == "draft" {
-		schema = `{"schema_version":1,"title":"text","body":"Markdown","category_ids":["supplied category ID"],"questions":[{"text":"missing information","options":[],"follow_up_to":"optional existing question ID"}],"supersede_question_ids":["optional pending question ID"],"notes":"brief explanation"}`
+		schema = `{"schema_version":1,"category_id":"supplied category ID","rule":"MUST ...","description":"rule, purpose, expected implementation, short examples","evidence":"artifact that demonstrates compliance","scope":"systems, repositories, stacks or stages","check":"automated|semi_automated|manual","applies_to":["agent role name"],"questions":[{"text":"missing information","options":[],"follow_up_to":"optional existing question ID"}],"supersede_question_ids":["optional pending question ID"],"notes":"brief explanation"}`
 	}
 	p := role + "\nOperation: " + kind + "\nRequired response schema: " + schema + "\nUntrusted data:\n" + string(b)
 	if len(p) > 256<<10 {
@@ -686,7 +696,7 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 		if e = json.Unmarshal(raw, &fields); e == nil {
 			required := []string{"schema_version", "category_ids", "reason"}
 			if kind == "draft" {
-				required = []string{"schema_version", "title", "body", "category_ids", "questions"}
+				required = []string{"schema_version", "category_id", "rule", "description", "evidence", "scope", "check", "applies_to", "questions"}
 			}
 			for _, key := range required {
 				value, ok := fields[key]
@@ -725,12 +735,7 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 	v.Context = AuthoringContext{CategoryIDs: ids, Reason: reason, Standards: []Standard{}, Coverage: []string{}}
 	for _, item := range v.Base.Standards {
 		selected := item.ID == v.TargetID
-		for _, c := range item.CategoryIDs {
-			if slices.Contains(ids, c) {
-				selected = true
-			}
-		}
-		if selected {
+		if selected || slices.Contains(ids, item.CategoryID) {
 			v.Context.Standards = append(v.Context.Standards, item)
 			v.Context.Coverage = append(v.Context.Coverage, item.ID)
 		}
@@ -758,7 +763,7 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 		err = fmt.Errorf("invalid model response: draft schema/limits")
 		return
 	}
-	if err = authorCategories(Snapshot{Categories: offered}, output.CategoryIDs); err != nil {
+	if err = authorCategories(Snapshot{Categories: offered}, []string{output.CategoryID}); err != nil {
 		return
 	}
 	for _, qid := range output.SupersedeQuestionIDs {
@@ -789,17 +794,23 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 		}
 		v.Questions = append(v.Questions, AuthoringQuestion{ID: authorID("q-"), Text: q.Text, Options: q.Options, FollowUpTo: q.FollowUpTo, State: "pending", CreatedVersion: expected + 1})
 	}
-	if !slices.Contains(v.Overrides, "title") {
-		v.Draft.Title = output.Title
+	for _, f := range []struct {
+		name string
+		take func()
+	}{
+		{"category_id", func() { v.Draft.CategoryID = output.CategoryID }},
+		{"rule", func() { v.Draft.Rule = output.Rule }},
+		{"description", func() { v.Draft.Description = output.Description }},
+		{"evidence", func() { v.Draft.Evidence = output.Evidence }},
+		{"scope", func() { v.Draft.Scope = output.Scope }},
+		{"check", func() { v.Draft.Check = output.Check }},
+		{"applies_to", func() { v.Draft.AppliesTo = output.AppliesTo }},
+	} {
+		if !slices.Contains(v.Overrides, f.name) {
+			f.take()
+		}
 	}
-	if !slices.Contains(v.Overrides, "body") {
-		v.Draft.Body = output.Body
-	}
-	if !slices.Contains(v.Overrides, "category_ids") {
-		v.Draft.CategoryIDs = output.CategoryIDs
-	}
-	v.Draft.CategoryIDs = append([]string{}, v.Draft.CategoryIDs...)
-	slices.Sort(v.Draft.CategoryIDs)
+	v.Draft.AppliesTo = sortedRoles(v.Draft.AppliesTo)
 	_, v.Diagnostics = authorValidate(v)
 	v.Notes = output.Notes
 	v.Status = "draft"

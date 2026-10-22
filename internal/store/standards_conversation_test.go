@@ -126,7 +126,7 @@ func TestStandardsConversationTrustedProvenanceRetained(t *testing.T) {
 	if _, e = db.ApproveStandardsProposal(ctx, a); e != nil {
 		t.Fatal(e)
 	}
-	rev, e := db.PublishStandardsProposalWithProvenance(ctx, p, StandardsSnapshot{Standards: []StandardsStandard{{ID: "s", Title: "Title", Body: "Body", CategoryIDs: []string{}}}}, "owner", "discord-owner:123:456:790")
+	rev, e := db.PublishStandardsProposalWithProvenance(ctx, p, StandardsSnapshot{Categories: []StandardsCategory{{ID: "c", Name: "C"}}, Standards: []StandardsStandard{{ID: "s", Rule: "MUST Title", Description: "Body", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "c", AppliesTo: []string{"story-worker"}}}}, "owner", "discord-owner:123:456:790")
 	if e != nil {
 		t.Fatal(e)
 	}

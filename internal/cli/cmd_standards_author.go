@@ -21,7 +21,7 @@ start ID --intent TEXT [--target STANDARD] [--categories ID,ID]
 list; show ID [--version N]; questions ID [--version N]
 answer ID --expected-version N --question ID --answer TEXT [--replace]
 answer ID --expected-version N --file FILE|- (JSON array of answers)
-edit ID --expected-version N --file FILE|- (JSON title, body, category_ids, context_category_ids fields)
+edit ID --expected-version N --file FILE|- (JSON category_id, rule, description, evidence, scope, check, applies_to, context_category_ids fields)
 continue|validate|complete ID --expected-version N
 rebase ID --expected-version N --revision REVISION
 All commands accept --json. Start also accepts --file FILE|- for intent text.
@@ -241,7 +241,7 @@ func decodeAuthorInput(env *Env, path string, dst any) error {
 func writeAuthorText(out io.Writer, result any) error {
 	switch v := result.(type) {
 	case standards.AuthoringSession:
-		if _, err := fmt.Fprintf(out, "Session %s version %d (%s, %s)\nTarget: %s\nBase: revision %d, schema %d, digest %s\nTitle: %s\nCategories: %v\n%s\nOperator fields: %v\nContext categories: %v\nContext reason: %s\nCoverage: %v\n", v.ID, v.Version, v.Mode, v.Status, v.TargetID, v.BaseRevision, v.BaseSchema, v.BaseDigest, v.Draft.Title, v.Draft.CategoryIDs, v.Draft.Body, v.Overrides, v.Context.CategoryIDs, v.Context.Reason, v.Context.Coverage); err != nil {
+		if _, err := fmt.Fprintf(out, "Session %s version %d (%s, %s)\nTarget: %s\nBase: revision %d, schema %d, digest %s\n%s\nOperator fields: %v\nContext categories: %v\nContext reason: %s\nCoverage: %v\n", v.ID, v.Version, v.Mode, v.Status, v.TargetID, v.BaseRevision, v.BaseSchema, v.BaseDigest, standards.Render(v.Base.Categories, []standards.Standard{v.Draft}), v.Overrides, v.Context.CategoryIDs, v.Context.Reason, v.Context.Coverage); err != nil {
 			return err
 		}
 		for _, q := range v.Questions {

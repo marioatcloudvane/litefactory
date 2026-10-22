@@ -26,7 +26,7 @@ func exceptionFixture(t *testing.T, policy *standards.ExceptionPolicy) (*Service
 		t.Fatal(err)
 	}
 	book := standards.Service{Store: db, OwnerID: 42}
-	p, err := book.Create(ctx, "book", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "category", Name: "Category"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "standard", Title: "Standard", Body: "Guidance", CategoryIDs: []string{"category"}, ExceptionPolicy: policy}}})
+	p, err := book.Create(ctx, "book", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "category", Name: "Category"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "standard", Rule: "MUST Standard", Description: "Guidance", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "category", ExceptionPolicy: policy, AppliesTo: []string{"story-worker"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

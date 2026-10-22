@@ -9,18 +9,19 @@ import (
 // StandardsAttribute names the optional node attribute that lets the listed
 // roles read the standards book. Its value is a comma-separated list of role
 // markdown names; each must be the node's own lf_agent_markdown or one of its
-// lf_roles. A role that is not listed gets no standards tools. The grant is
+// lf_roles. A role that is not listed gets no standards tool. The grant is
 // read-only, optional and advisory: the factory never requires a call.
 const StandardsAttribute = "lf_standards"
 
-// StandardsReadGranted reports whether the node declares standards book access
-// for role. An absent or empty attribute grants nothing.
-func StandardsReadGranted(attrs map[string]string, role string) bool {
+// StandardsRole returns role when the node grants it the standards read, or ""
+// when it does not. An absent or empty attribute grants nothing. The returned
+// name selects the standards whose applies_to lists it.
+func StandardsRole(attrs map[string]string, role string) string {
 	role = strings.TrimSpace(role)
-	if role == "" {
-		return false
+	if role == "" || !slices.Contains(standardsRoles(attrs), role) {
+		return ""
 	}
-	return slices.Contains(standardsRoles(attrs), role)
+	return role
 }
 
 func standardsRoles(attrs map[string]string) []string {

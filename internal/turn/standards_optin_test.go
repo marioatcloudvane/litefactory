@@ -82,14 +82,14 @@ func TestOrdinaryRunGetsNoStandardsToolsOrPreamble(t *testing.T) {
 	}
 }
 
-// A granted role gets the read-only tools, but no preamble and no gate: the
+// A granted role gets the one read-only tool, but no preamble and no gate: the
 // book is pinned only when the role chooses to look, and an empty book is
 // reported in the tool reply rather than stopping the run.
 func TestGrantedRoleGetsOptionalStandardsTools(t *testing.T) {
 	for _, mode := range []string{"plan", "validate", "implement"} {
 		t.Run(mode, func(t *testing.T) {
 			prep, db := lifecycleMCPPreparation(t, mode)
-			prepared, spec, err := prepareMCPWith(t.Context(), prep, agent.Request{Mode: mode, Invocation: agent.InvocationResearchNode}, nil, nil, true)
+			prepared, spec, err := prepareMCPWith(t.Context(), prep, agent.Request{Mode: mode, Invocation: agent.InvocationResearchNode}, nil, nil, "story-worker")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -99,8 +99,8 @@ func TestGrantedRoleGetsOptionalStandardsTools(t *testing.T) {
 				}
 			}()
 			for _, name := range standardsToolNames {
-				if !slices.Contains(spec.PermittedTools(), name) {
-					t.Fatalf("granted %s role lacks %s: %v", mode, name, spec.PermittedTools())
+				if slices.Contains(spec.PermittedTools(), name) != (name == "standards_read") {
+					t.Fatalf("granted %s role has the wrong standards tools: %v", mode, spec.PermittedTools())
 				}
 			}
 			root := fmt.Sprint(prep.run.ID)
@@ -108,15 +108,18 @@ func TestGrantedRoleGetsOptionalStandardsTools(t *testing.T) {
 				t.Fatalf("book was captured before the role asked: %v", err)
 			}
 			client := submission.Client{DescriptorPath: spec.DescriptorPath()}
-			reply, err := client.Call(t.Context(), "standards_categories_list", json.RawMessage(`{}`))
+			reply, err := client.Call(t.Context(), "standards_read", json.RawMessage(`{}`))
 			if err != nil || reply.Error != "" {
 				t.Fatalf("empty book refused the call: %v %s", err, reply.Error)
 			}
-			var page standards.CategoryPage
+			var page struct {
+				Status standards.RuntimeStatus `json:"status"`
+				Text   string                  `json:"text"`
+			}
 			if err := json.Unmarshal(reply.Result, &page); err != nil {
 				t.Fatal(err)
 			}
-			if page.Status.Integrity == "verified" || len(page.Categories) != 0 {
+			if page.Status.Integrity == "verified" || page.Text != "" {
 				t.Fatalf("empty book reported content: %+v", page)
 			}
 		})
@@ -125,9 +128,10 @@ func TestGrantedRoleGetsOptionalStandardsTools(t *testing.T) {
 	prep, db := lifecycleMCPPreparation(t, "plan")
 	publishRunStandards(t, db, "granted-book", 0, []standards.Operation{
 		{Kind: "category.add", Category: &standards.Category{ID: "go", Name: "Go"}},
-		{Kind: "standard.add", Standard: &standards.Standard{ID: "errors", Title: "Errors", Body: "Wrap errors with context.\n", CategoryIDs: []string{"go"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "errors", Rule: "MUST wrap errors", Description: "Wrap errors with context.\n", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"story-worker"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "design", Rule: "MUST name the seams", Description: "Name the seams.\n", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"plan-technical"}}},
 	})
-	prepared, spec, err := prepareMCPWith(t.Context(), prep, agent.Request{Mode: "plan", Invocation: agent.InvocationResearchNode}, nil, nil, true)
+	prepared, spec, err := prepareMCPWith(t.Context(), prep, agent.Request{Mode: "plan", Invocation: agent.InvocationResearchNode}, nil, nil, "plan-technical")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,16 +141,16 @@ func TestGrantedRoleGetsOptionalStandardsTools(t *testing.T) {
 		}
 	}()
 	client := submission.Client{DescriptorPath: spec.DescriptorPath()}
-	reply, err := client.Call(t.Context(), "standards_categories_list", json.RawMessage(`{}`))
+	reply, err := client.Call(t.Context(), "standards_read", json.RawMessage(`{}`))
 	if err != nil || reply.Error != "" {
-		t.Fatalf("categories: %v %s", err, reply.Error)
+		t.Fatalf("read: %v %s", err, reply.Error)
 	}
-	var page standards.CategoryPage
+	var page standards.RolePage
 	if err := json.Unmarshal(reply.Result, &page); err != nil {
 		t.Fatal(err)
 	}
-	if page.Status.Integrity != "verified" || len(page.Categories) != 1 {
-		t.Fatalf("published book not offered: %+v", page)
+	if page.Status.Integrity != "verified" || !slices.Equal(page.StandardIDs, []string{"design"}) || !strings.Contains(page.Text, "(design)") || strings.Contains(page.Text, "(errors)") {
+		t.Fatalf("published book not offered by role: %+v", page)
 	}
 }
 
@@ -183,7 +187,7 @@ func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 			roles := strings.Split(node.Attrs["lf_roles"], ",")
 			roles = append(roles, node.Attrs["lf_agent_markdown"])
 			for _, role := range roles {
-				if graphexec.StandardsReadGranted(node.Attrs, role) {
+				if graphexec.StandardsRole(node.Attrs, role) != "" {
 					granted = append(granted, role)
 				}
 			}
@@ -221,7 +225,7 @@ func TestStandardsGrantFollowsPinnedNode(t *testing.T) {
 			if _, ok := w.definition.Profile.Node(node); !ok {
 				t.Fatalf("%s graph has no node %s", mode, node)
 			}
-			if got := w.nodeGrantsStandards(&agent.Request{Graph: &agent.GraphInvocation{Node: node}}); got != granted {
+			if got := w.nodeStandardsRole(&agent.Request{Graph: &agent.GraphInvocation{Node: node}}) != ""; got != granted {
 				t.Fatalf("%s node %s granted=%v, want %v", mode, node, got, granted)
 			}
 		}
@@ -231,7 +235,7 @@ func TestStandardsGrantFollowsPinnedNode(t *testing.T) {
 		t.Fatal("validate review node missing")
 	}
 	for role, granted := range map[string]bool{agent.ReviewRoleArchitecture: true, agent.ReviewRoleCode: false, agent.ReviewRoleAcceptance: false} {
-		if got := graphexec.StandardsReadGranted(review.Attrs, "validate-"+role); got != granted {
+		if got := graphexec.StandardsRole(review.Attrs, "validate-"+role) != ""; got != granted {
 			t.Fatalf("validate %s reviewer granted=%v, want %v", role, got, granted)
 		}
 	}

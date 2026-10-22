@@ -141,7 +141,7 @@ func (a *ConversationStandards) Read(ctx context.Context, r messaging.StandardsR
 			v = revision.Snapshot.Categories
 		}
 		if e == nil && r.Operation == "book.standards" {
-			v = revision.Snapshot.Standards
+			return messaging.StandardsResult{Text: standards.Render(revision.Snapshot.Categories, revision.Snapshot.Standards) + standards.FormatLoad(revision.Snapshot), References: map[string]string{"kind": "book", "revision": strconv.FormatInt(revision.ID, 10), "digest": revision.Digest}}, nil
 		}
 	case "book.history":
 		v, e = a.Book.History(ctx)
@@ -238,15 +238,14 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 		v, e = a.Authoring.Answer(ctx, args["id"], version, []standards.AuthoringAnswer{{QuestionID: args["question_id"], Text: args["text"], Replace: args["replace"] == "true"}})
 	case "author.edit":
 		edit := standards.AuthoringEdit{}
-		if x, ok := args["title"]; ok {
-			edit.Title = &x
+		for name, field := range map[string]**string{"category_id": &edit.CategoryID, "rule": &edit.Rule, "description": &edit.Description, "evidence": &edit.Evidence, "scope": &edit.Scope, "check": &edit.Check} {
+			if x, ok := args[name]; ok {
+				*field = &x
+			}
 		}
-		if x, ok := args["body"]; ok {
-			edit.Body = &x
-		}
-		if x, ok := args["category_ids"]; ok {
-			c := standardsCategories(x)
-			edit.CategoryIDs = &c
+		if x, ok := args["applies_to"]; ok {
+			roles := standardsCategories(x)
+			edit.AppliesTo = &roles
 		}
 		v, e = a.Authoring.Edit(ctx, args["id"], version, edit)
 	case "author.continue":
@@ -602,20 +601,18 @@ func standardsEditOperations(ops []standards.Operation, args map[string]string) 
 	}
 	standard := *ops[selected].Standard
 	changed := false
-	if value, ok := args["title"]; ok {
-		standard.Title = value
-		changed = true
+	for name, field := range map[string]*string{"category_id": &standard.CategoryID, "rule": &standard.Rule, "description": &standard.Description, "evidence": &standard.Evidence, "scope": &standard.Scope, "check": &standard.Check} {
+		if value, ok := args[name]; ok {
+			*field = value
+			changed = true
+		}
 	}
-	if value, ok := args["body"]; ok {
-		standard.Body = value
-		changed = true
-	}
-	if value, ok := args["category_ids"]; ok {
-		standard.CategoryIDs = standardsCategories(value)
+	if value, ok := args["applies_to"]; ok {
+		standard.AppliesTo = standardsCategories(value)
 		changed = true
 	}
 	if !changed {
-		return nil, errors.New("standards: clarify proposed title, body or category edit")
+		return nil, errors.New("standards: clarify which proposed standard field to edit")
 	}
 	out := append([]standards.Operation(nil), ops...)
 	out[selected].Standard = &standard

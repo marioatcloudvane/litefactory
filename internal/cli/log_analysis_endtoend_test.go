@@ -89,7 +89,7 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 		t.Fatal(err)
 	}
 	bookService := &standards.Service{Store: db, OwnerID: 71}
-	seed, err := bookService.Create(t.Context(), "analysis-seed", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "review", Title: "Review", Body: "Review changes before publication.", CategoryIDs: []string{"quality"}}}})
+	seed, err := bookService.Create(t.Context(), "analysis-seed", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "review", Rule: "MUST Review", Description: "Review changes before publication.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func (r *analysisFixtureRunner) RunLogAnalyst(ctx context.Context, request agent
 	if len(evidence.Records) != 1 || !evidence.Coverage.EndOfSource || evidence.Records[0].Redactions == 0 {
 		t.Fatalf("evidence=%+v", evidence)
 	}
-	payload := map[string]any{"request_id": "fixture-supported-report", "report": map[string]any{"disposition": "proposals", "reason": "One observed review practice supports scoped guidance.", "findings": []any{map[string]any{"key": "relevant-checks", "observation": "A relevant package check caught a regression before review.", "benefit": "Running relevant checks before review may catch regressions earlier.", "uncertainty": "One run does not establish a universal rule or independent repeated incidents.", "citations": []logevidence.Citation{evidence.Records[0].Citation}, "change": standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "package-checks", Title: "Check relevant packages", Body: "Run relevant package checks before requesting review.", CategoryIDs: []string{"quality"}}}}}}}
+	payload := map[string]any{"request_id": "fixture-supported-report", "report": map[string]any{"disposition": "proposals", "reason": "One observed review practice supports scoped guidance.", "findings": []any{map[string]any{"key": "relevant-checks", "observation": "A relevant package check caught a regression before review.", "benefit": "Running relevant checks before review may catch regressions earlier.", "uncertainty": "One run does not establish a universal rule or independent repeated incidents.", "citations": []logevidence.Citation{evidence.Records[0].Citation}, "change": standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "package-checks", Rule: "MUST Check relevant packages", Description: "Run relevant package checks before requesting review.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}}}}}}
 	r.report, _ = json.Marshal(payload)
 	preflight := analysisDecode[struct {
 		Valid bool `json:"valid"`

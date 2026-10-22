@@ -25,22 +25,24 @@ func standardsSessionConsumerKey(sessionID int64, mode, node string) string {
 	return fmt.Sprintf("session:%d:%s", sessionID, standardsConsumerKey(mode, node))
 }
 
-// StandardsToolService exposes advisory retrieval only, under factory identities.
+// StandardsToolService offers a role the published standards that apply to it.
 // It is installed only for roles whose graph node grants book access; nothing
 // requires a call. The book is pinned on first use, so a role that never asks
 // costs nothing and an empty or unavailable book only shows in the tool reply.
 type StandardsToolService struct {
 	runtime standards.Runtime
 	binding store.ResultBinding
+	role    string
 	bind    sync.Once
 }
 
-// NewStandardsToolService copies immutable scope; arguments never select a run or consumer.
-func NewStandardsToolService(runtime *standards.Runtime, binding store.ResultBinding) (*StandardsToolService, error) {
-	if runtime == nil || runtime.Store == nil || runtime.RootRunID == "" || runtime.ConsumerKey == "" || runtime.AttemptID != binding.Attempt {
-		return nil, errors.New("standards tools require matching trusted attempt scope")
+// NewStandardsToolService copies immutable scope; arguments never select a run,
+// consumer or role.
+func NewStandardsToolService(runtime *standards.Runtime, binding store.ResultBinding, role string) (*StandardsToolService, error) {
+	if runtime == nil || runtime.Store == nil || runtime.RootRunID == "" || runtime.ConsumerKey == "" || runtime.AttemptID != binding.Attempt || strings.TrimSpace(role) == "" {
+		return nil, errors.New("standards tools require matching trusted attempt scope and role")
 	}
-	return &StandardsToolService{runtime: *runtime, binding: binding}, nil
+	return &StandardsToolService{runtime: *runtime, binding: binding, role: role}, nil
 }
 
 // pin retains the current published book for this invocation on first use. An
@@ -54,17 +56,17 @@ func (s *StandardsToolService) pin(ctx context.Context) {
 // Binding returns the immutable factory attempt scope.
 func (s *StandardsToolService) Binding() store.ResultBinding { return s.binding }
 
-// PermissionMaterial binds the root and consumer to the attempt lease.
+// PermissionMaterial binds the root, consumer and role to the attempt lease.
 func (s *StandardsToolService) PermissionMaterial() ([]byte, error) {
 	return json.Marshal(struct {
-		Binding                 store.ResultBinding
-		Root, Consumer, Version string
-	}{s.binding, s.runtime.RootRunID, s.runtime.ConsumerKey, "retained-standards-v1"})
+		Binding                       store.ResultBinding
+		Root, Consumer, Role, Version string
+	}{s.binding, s.runtime.RootRunID, s.runtime.ConsumerKey, s.role, "retained-standards-v2"})
 }
 
-// Registrations exposes retrieval operations without management authority.
+// Registrations exposes the one read without management authority.
 func (s *StandardsToolService) Registrations() []FamilyRegistration {
-	return []FamilyRegistration{{Name: "standards_categories_list", Owner: s, Handle: s.categories}, {Name: "standards_select", Owner: s, Handle: s.selectCategories}, {Name: "standards_read", Owner: s, Handle: s.read}}
+	return []FamilyRegistration{{Name: "standards_read", Owner: s, Handle: s.read}}
 }
 func standardsReply(id string, value any) (json.RawMessage, error) {
 	raw, err := json.Marshal(value)
@@ -76,14 +78,13 @@ func standardsReply(id string, value any) (json.RawMessage, error) {
 		return nil, err
 	}
 	if len(encoded) > 32<<10 {
-		return nil, errors.New("standards encoded result exceeds 32 KiB; retained selection or metadata is too large")
+		return nil, errors.New("standards encoded result exceeds 32 KiB")
 	}
 	return raw, nil
 }
-func (s *StandardsToolService) categories(ctx context.Context, id string, raw []byte) (json.RawMessage, error) {
+func (s *StandardsToolService) read(ctx context.Context, id string, raw []byte) (json.RawMessage, error) {
 	var a struct {
-		PageSize int    `json:"page_size"`
-		Cursor   string `json:"cursor"`
+		Cursor string `json:"cursor"`
 	}
 	if err := decodeMCPArguments(raw, &a); err != nil {
 		return nil, err
@@ -92,53 +93,7 @@ func (s *StandardsToolService) categories(ctx context.Context, id string, raw []
 	if len(a.Cursor) > 4096 {
 		return nil, standards.ErrInvalid
 	}
-	out, err := s.runtime.Categories(ctx, a.PageSize, a.Cursor)
-	if err != nil {
-		return s.failure(ctx, id, err)
-	}
-	out.Status = s.observeStatus(ctx, out.Status)
-	return standardsReply(id, out)
-}
-func (s *StandardsToolService) selectCategories(ctx context.Context, id string, raw []byte) (json.RawMessage, error) {
-	var a struct {
-		ExpectedVersion *int64    `json:"expected_version"`
-		CategoryIDs     *[]string `json:"category_ids"`
-		Reason          string    `json:"reason"`
-	}
-	if err := decodeMCPArguments(raw, &a); err != nil {
-		return nil, err
-	}
-	s.pin(ctx)
-	if a.ExpectedVersion == nil || a.CategoryIDs == nil || len(*a.CategoryIDs) > 100 || strings.TrimSpace(a.Reason) == "" || len(a.Reason) > 512 {
-		return nil, standards.ErrInvalid
-	}
-	for _, id := range *a.CategoryIDs {
-		if id == "" || len(id) > 256 {
-			return nil, standards.ErrInvalid
-		}
-	}
-	out, err := s.runtime.Select(ctx, *a.ExpectedVersion, *a.CategoryIDs, a.Reason)
-	if err != nil {
-		return s.failure(ctx, id, err)
-	}
-	out = s.observeStatus(ctx, out)
-	return standardsReply(id, standards.BoundedStatus(out))
-}
-func (s *StandardsToolService) read(ctx context.Context, id string, raw []byte) (json.RawMessage, error) {
-	var a struct {
-		SelectionVersion int64  `json:"selection_version"`
-		SelectionDigest  string `json:"selection_digest"`
-		Cursor           string `json:"cursor"`
-		Complete         bool   `json:"complete"`
-	}
-	if err := decodeMCPArguments(raw, &a); err != nil {
-		return nil, err
-	}
-	s.pin(ctx)
-	if a.SelectionVersion < 1 || len(a.SelectionDigest) == 0 || len(a.SelectionDigest) > 128 || len(a.Cursor) > 4096 {
-		return nil, standards.ErrInvalid
-	}
-	out, err := s.runtime.Read(ctx, a.SelectionVersion, a.SelectionDigest, a.Cursor, a.Complete)
+	out, err := s.runtime.ForRole(ctx, s.role, a.Cursor)
 	if err != nil {
 		return s.failure(ctx, id, err)
 	}
@@ -151,9 +106,6 @@ func (s *StandardsToolService) failure(ctx context.Context, id string, cause err
 		return nil, ctx.Err()
 	}
 	code := "standards_failure"
-	if errors.Is(cause, store.ErrStandardsConflict) {
-		code = "selection_conflict"
-	}
 	if errors.Is(cause, standards.ErrInvalid) {
 		code = "invalid_arguments"
 	}

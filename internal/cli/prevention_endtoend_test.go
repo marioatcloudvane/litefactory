@@ -32,7 +32,7 @@ func TestPreventionAnalysisMainPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	book := &standards.Service{Store: db, OwnerID: 71}
-	p, err := book.Create(t.Context(), "initial-prevention", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "test-checks", Title: "Test checks", Body: "Check relevant behavior.", CategoryIDs: []string{"quality"}}}})
+	p, err := book.Create(t.Context(), "initial-prevention", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "test-checks", Rule: "MUST Test checks", Description: "Check relevant behavior.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func (r *preventionMainPathRunner) Run(ctx context.Context, _ prevention.Invocat
 		}
 	}
 	result := prevention.Result{SchemaVersion: 1, Findings: []prevention.Finding{
-		{Issue: 123, Expected: "One delivery", Actual: "Two deliveries after retry", Cause: "Retries lacked an idempotency guard", CauseBasis: "recorded", Uncertainty: "Recorded diagnosis is not independent proof; other retry paths may differ", PreventionRationale: "A durable idempotency key prevents duplicate side effects during retries", BugEvidence: bugs[123], CauseEvidence: []string{cause}, Outcome: "proposed", Proposals: []standards.Operation{{Kind: "standard.add", Standard: &standards.Standard{ID: "retry-idempotency", Title: "Guard retry side effects", Body: "Use durable idempotency keys and replay tests for retried side effects.", CategoryIDs: []string{"quality"}}}}},
+		{Issue: 123, Expected: "One delivery", Actual: "Two deliveries after retry", Cause: "Retries lacked an idempotency guard", CauseBasis: "recorded", Uncertainty: "Recorded diagnosis is not independent proof; other retry paths may differ", PreventionRationale: "A durable idempotency key prevents duplicate side effects during retries", BugEvidence: bugs[123], CauseEvidence: []string{cause}, Outcome: "proposed", Proposals: []standards.Operation{{Kind: "standard.add", Standard: &standards.Standard{ID: "retry-idempotency", Rule: "MUST Guard retry side effects", Description: "Use durable idempotency keys and replay tests for retried side effects.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}}}},
 		{Issue: 124, Expected: "Request succeeds", Actual: "Timeout", Uncertainty: "Cause unknown", BugEvidence: bugs[124], MissingEvidence: []string{"Missing root-cause evidence and a demonstrated prevention mechanism"}, Outcome: "insufficient_evidence"},
 	}}
 	diagnostics, err := s.Preflight(ctx, result)

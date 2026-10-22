@@ -70,6 +70,7 @@ func Commands() []*Command {
 		newStandardsCommand("book", "history"),
 		newStandardsCommand("book", "show"),
 		newStandardsCommand("book", "diff"),
+		newStandardsCommand("book", "render"),
 
 		newTeamCommand("install"),
 		newTeamCommand("clone"),

@@ -28,7 +28,7 @@ func sessionFixture(t *testing.T, published ...bool) *Session {
 	}
 	if len(published) > 0 && published[0] {
 		svc := &standards.Service{Store: db, OwnerID: 1}
-		p, e := svc.Create(ctx, "fixture", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "correctness", Name: "Correctness"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "existing", Title: "Check input", Body: strings.Repeat("Validate state. ", 100), CategoryIDs: []string{"correctness"}}}})
+		p, e := svc.Create(ctx, "fixture", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "correctness", Name: "Correctness"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "existing", Rule: "MUST Check input", Description: strings.Repeat("Validate state. ", 100), Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "correctness", AppliesTo: []string{"story-worker"}}}})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -67,7 +67,7 @@ func TestSessionInvalidDraftAndDegradedGuidance(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	result := Result{SchemaVersion: 1, Findings: []Finding{{Issue: 1, Expected: "Completion", Actual: "Failure", Cause: "State validation missing", CauseBasis: "recorded", Uncertainty: "Diagnosis remains a recorded judgment", PreventionRationale: "Validate state before mutation", BugEvidence: []string{"bug"}, CauseEvidence: []string{"cause"}, Outcome: "proposed", Proposals: []standards.Operation{{Kind: "standard.add", Standard: &standards.Standard{ID: "new", Title: "Validate state", Body: "Check state before mutation", CategoryIDs: []string{"correctness"}}}}}}}
+	result := Result{SchemaVersion: 1, Findings: []Finding{{Issue: 1, Expected: "Completion", Actual: "Failure", Cause: "State validation missing", CauseBasis: "recorded", Uncertainty: "Diagnosis remains a recorded judgment", PreventionRationale: "Validate state before mutation", BugEvidence: []string{"bug"}, CauseEvidence: []string{"cause"}, Outcome: "proposed", Proposals: []standards.Operation{{Kind: "standard.add", Standard: &standards.Standard{ID: "new", Rule: "MUST Validate state", Description: "Check state before mutation", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "correctness", AppliesTo: []string{"story-worker"}}}}}}}
 	ds, _, err := s.validate(ctx, result)
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +196,7 @@ func TestSessionPartialGuidanceCannotValidateProposal(t *testing.T) {
 	if err != nil || status.Integrity != "verified" || status.RetrievalStatus != "partial" {
 		t.Fatal(status, err)
 	}
-	result := Result{SchemaVersion: 1, Findings: []Finding{{Issue: 1, Expected: "Completion", Actual: "Failure", Cause: "Validation missing", CauseBasis: "recorded", Uncertainty: "Recorded judgment", PreventionRationale: "Validate state", BugEvidence: []string{"bug"}, CauseEvidence: []string{"cause"}, Outcome: "proposed", Proposals: []standards.Operation{{Kind: "standard.add", Standard: &standards.Standard{ID: "new", Title: "Check state", Body: "Validate before mutation", CategoryIDs: []string{"correctness"}}}}}}}
+	result := Result{SchemaVersion: 1, Findings: []Finding{{Issue: 1, Expected: "Completion", Actual: "Failure", Cause: "Validation missing", CauseBasis: "recorded", Uncertainty: "Recorded judgment", PreventionRationale: "Validate state", BugEvidence: []string{"bug"}, CauseEvidence: []string{"cause"}, Outcome: "proposed", Proposals: []standards.Operation{{Kind: "standard.add", Standard: &standards.Standard{ID: "new", Rule: "MUST Check state", Description: "Validate before mutation", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "correctness", AppliesTo: []string{"story-worker"}}}}}}}
 	ds, _, err := s.validate(ctx, result)
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +300,7 @@ func TestBrokerChargesAllEarlyRefusalsAndWithholdsCallerText(t *testing.T) {
 }
 
 func TestReceiptContainsOnlyExactProposalReferences(t *testing.T) {
-	p := store.StandardsProposalVersion{ProposalID: "proposal", Version: 2, BaseRevision: 4, ChangeDigest: "change", ResultDigest: "result", Operations: []store.StandardsOperation{{Kind: "standard.add", Standard: &store.StandardsStandard{ID: "large", Body: strings.Repeat("unnecessary proposal content", 5000)}}}}
+	p := store.StandardsProposalVersion{ProposalID: "proposal", Version: 2, BaseRevision: 4, ChangeDigest: "change", ResultDigest: "result", Operations: []store.StandardsOperation{{Kind: "standard.add", Standard: &store.StandardsStandard{ID: "large", Description: strings.Repeat("unnecessary proposal content", 5000), Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", AppliesTo: []string{"story-worker"}}}}}
 	got := receipt(store.PreventionAnalysis{ID: "analysis", ResultDigest: "accepted", Proposals: []store.StandardsProposalVersion{p}}, "request")
 	raw := marshal(got)
 	if encodedSize(got) > 8<<10 || strings.Contains(string(raw), "unnecessary proposal content") || len(got.Proposals) != 1 || got.Proposals[0] != proposalReference(p) {

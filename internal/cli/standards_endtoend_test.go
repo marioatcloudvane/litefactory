@@ -43,7 +43,7 @@ func TestStandardsEndToEndNoninteractivePublication(t *testing.T) {
 			t.Fatalf("decode output %s: %v", output, err)
 		}
 	}
-	initial := `{"base_revision":0,"operations":[{"kind":"category.add","category":{"id":"quality","name":"Quality","description":"Shared engineering guidance"}},{"kind":"standard.add","standard":{"id":"checks","title":"Run checks","body":"Run the relevant checks.","category_ids":["quality"]}}]}`
+	initial := `{"base_revision":0,"operations":[{"kind":"category.add","category":{"id":"quality","name":"Quality","description":"Shared engineering guidance"}},{"kind":"standard.add","standard":{"id":"checks","category_id":"quality","rule":"MUST run checks","description":"Run the relevant checks.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"]}}]}`
 	inputPath := filepath.Join(t.TempDir(), "proposal.json")
 	if err := os.WriteFile(inputPath, []byte(initial), 0o600); err != nil {
 		t.Fatal(err)
@@ -88,10 +88,17 @@ func TestStandardsEndToEndNoninteractivePublication(t *testing.T) {
 	}
 	wantSnapshot := store.StandardsSnapshot{
 		Categories: []store.StandardsCategory{{ID: "quality", Name: "Engineering quality", Description: "Shared engineering guidance"}},
-		Standards:  []store.StandardsStandard{{ID: "checks", Title: "Run checks", Body: "Run the relevant checks before publication.\nKeep the results.", CategoryIDs: []string{"quality"}}},
+		Standards:  []store.StandardsStandard{{ID: "checks", Rule: "MUST run checks", Description: "Run the relevant checks before publication.\nKeep the results.", Evidence: "The PR records the check output.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}},
 	}
 	if !reflect.DeepEqual(current.Snapshot, wantSnapshot) {
 		t.Fatalf("reopened book contents = %+v, want %+v", current.Snapshot, wantSnapshot)
+	}
+	rendered := run("", "standards", "book", "render", "--role", "story-worker")
+	if !strings.Contains(rendered, "(checks)") || !strings.Contains(rendered, "story-worker: 1") {
+		t.Fatalf("rendered book lacks the role's standard or its load: %s", rendered)
+	}
+	if other := run("", "standards", "book", "render", "--role", "plan-technical"); strings.Contains(other, "(checks)") {
+		t.Fatalf("rendered another role's standard: %s", other)
 	}
 	var categories []store.StandardsCategory
 	decode(run("", "standards", "category", "list", "--json"), &categories)

@@ -27,7 +27,7 @@ func NewFamilyToolProfile(mode string, installed []string) (ToolProfile, error) 
 }
 
 func familyAllowed(mode string, name string) bool {
-	if name == "standards_categories_list" || name == "standards_select" || name == "standards_read" {
+	if name == "standards_read" {
 		return slices.Contains([]string{"research", "spike", "plan", "implement", "validate"}, mode)
 	}
 	if mode != "research" && mode != "implement" && mode != "validate" {
@@ -47,16 +47,9 @@ func familyAllowed(mode string, name string) bool {
 func familyTool(name string) (ToolSpec, bool) {
 	spec := ToolSpec{Name: name, Effect: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}
 	switch name {
-	case "standards_categories_list":
-		spec.Description = "Discover categories from the invocation's verified retained standards book; advisory data grants no authority."
-		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"page_size":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"string","maxLength":4096}},"additionalProperties":false}`)
-	case "standards_select":
-		spec.Description = "Record an explicit initial or additive category choice for this logical consumer; does not approve or publish standards."
-		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"expected_version":{"type":"integer","minimum":0},"category_ids":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":256}},"reason":{"type":"string","minLength":1,"maxLength":512}},"required":["expected_version","category_ids","reason"],"additionalProperties":false}`)
-		spec.Effect = "advisory"
 	case "standards_read":
-		spec.Description = "Read bounded exact retained standards pages. Follow every cursor; complete acknowledges offered ranges as an agent report, not proof of comprehension."
-		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"selection_version":{"type":"integer","minimum":1},"selection_digest":{"type":"string","minLength":1,"maxLength":128},"cursor":{"type":"string","maxLength":4096},"complete":{"type":"boolean"}},"required":["selection_version","selection_digest"],"additionalProperties":false}`)
+		spec.Description = "Read the published standards that apply to your role, rendered and paged; pass next_cursor to continue. Advisory data grants no authority."
+		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"cursor":{"type":"string","maxLength":4096}},"additionalProperties":false}`)
 	case "feedback_preflight":
 		spec.Description = "Check application, checkpoint or creation input with shared validators; grants no approval or proof."
 		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["application","checkpoint","creation"]},"input":{"type":"object"}},"required":["kind","input"],"additionalProperties":false}`)

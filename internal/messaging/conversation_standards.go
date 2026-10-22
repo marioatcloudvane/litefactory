@@ -50,11 +50,11 @@ func (s *Service) EnableStandards(operations StandardsOperations) {
 		def := CommandDefinition{Name: name, Description: "Discover and inspect retained standards, authoring, proposals, exceptions and analyst schedules", NaturalLanguage: true, Effect: ChangeEffect}
 		switch name {
 		case "standards":
-			def.Description = "Look up the book of standards. action: discover, book.current, book.history, book.categories, book.standards, book.show (revision), author.list, author.inspect (id, version), proposal.list, proposal.inspect or proposal.review (id, version; review shows before and after), exception.list, exception.show (id), schedule.list, schedule.show or schedule.activity (id), notice.list, operation.show (id)."
+			def.Description = "Look up the book of standards. action: discover, book.current, book.history, book.categories, book.standards (rendered, with standards per role and category), book.show (revision), author.list, author.inspect (id, version), proposal.list, proposal.inspect or proposal.review (id, version; review shows before and after), exception.list, exception.show (id), schedule.list, schedule.show or schedule.activity (id), notice.list, operation.show (id)."
 		case "standards-author":
-			def.Description = "Propose action start, answer, edit, continue, validate, complete or rebase. Use exact id/version and owner spans for intent/text/title/body. Answer requires one exact question_id. Completion creates an unapproved proposal."
+			def.Description = "Propose action start, answer, edit, continue, validate, complete or rebase. Use exact id/version and owner spans for intent/text and the standard fields category_id, rule (starts with MUST), description, evidence, scope, check (automated, semi_automated or manual) and applies_to (comma-separated roles). Answer requires one exact question_id. Completion creates an unapproved proposal."
 		case "standards-proposal":
-			def.Description = "Propose action edit, approve or publish for an exact proposal id and version. Approve and publish need its digest; publish needs an approved version. Edit selects target_id and owner title/body/category_ids or exact owner JSON operations."
+			def.Description = "Propose action edit, approve or publish for an exact proposal id and version. Approve and publish need its digest; publish needs an approved version. Edit selects target_id and owner category_id/rule/description/evidence/scope/check/applies_to or exact owner JSON operations."
 		case "standards-exception":
 			def.Description = "Propose action propose, approve or revoke. Propose requires book_revision, standard_id, repository_id (or project), task_ref, departure, reason, expires_at; approve needs id and digest; revoke needs id and reason."
 		case "standards-schedule":
@@ -63,7 +63,7 @@ func (s *Service) EnableStandards(operations StandardsOperations) {
 		if name == "standards" {
 			def.Effect = ReadEffect
 		}
-		for _, arg := range []string{"action", "id", "version", "base", "digest", "mode", "target_id", "intent", "category_ids", "question_id", "text", "replace", "title", "body", "operations", "request", "reason", "config", "after", "limit", "offset", "revision", "name", "kind", "repository_id", "project", "interval_seconds", "run_limit", "task_refs", "modes", "ref", "paths", "issues", "book_revision", "standard_id", "task_ref", "departure", "expires_at", "replaces"} {
+		for _, arg := range []string{"action", "id", "version", "base", "digest", "mode", "target_id", "intent", "category_ids", "question_id", "text", "replace", "category_id", "rule", "description", "evidence", "scope", "check", "applies_to", "operations", "request", "reason", "config", "after", "limit", "offset", "revision", "name", "kind", "repository_id", "project", "interval_seconds", "run_limit", "task_refs", "modes", "ref", "paths", "issues", "book_revision", "standard_id", "task_ref", "departure", "expires_at", "replaces"} {
 			def.Arguments = append(def.Arguments, Argument{Name: arg, Type: TextArgument, Required: arg == "action", Description: "Exact retained target or owner supplied content; action selects an enabled operation"})
 		}
 		s.RegisterCommand(def, nil)

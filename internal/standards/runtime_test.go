@@ -3,6 +3,7 @@ package standards_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +19,7 @@ func runtimeFixture(t *testing.T) (*standards.Runtime, *store.DB) {
 	p, e := svc.Create(t.Context(), "runtime", 0, []standards.Operation{
 		{Kind: "category.add", Category: &standards.Category{ID: "go", Name: "Go"}},
 		{Kind: "category.add", Category: &standards.Category{ID: "testing", Name: "Testing"}},
-		{Kind: "standard.add", Standard: &standards.Standard{ID: "s", Title: "Rule", Body: strings.Repeat("é", 6000), CategoryIDs: []string{"go", "testing"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "s", Rule: "MUST Rule", Description: strings.Repeat("é", 6000), Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"story-worker"}}},
 	})
 	if e != nil {
 		t.Fatal(e)
@@ -73,8 +74,8 @@ func TestRuntimeSelectionRangesAndExplicitEmpty(t *testing.T) {
 		}
 		cursor = page.NextCursor
 	}
-	if body != strings.Repeat("é", 6000) {
-		t.Fatal("UTF-8 body changed")
+	if !strings.Contains(body, strings.Repeat("é", 6000)) {
+		t.Fatal("UTF-8 description changed")
 	}
 	if _, e = r.Read(ctx, version, d, "", true); e != nil {
 		t.Fatal(e)
@@ -274,5 +275,65 @@ func TestRuntimeMissingSiblingBindingWinsAgainstSlowInitialCapture(t *testing.T)
 	resumed, err := initial.Bind(ctx, true)
 	if err != nil || resumed.Integrity != "unavailable" || resumed.Binding.RevisionID != 0 {
 		t.Fatalf("retry replaced unavailable binding: %+v %v", resumed, err)
+	}
+}
+
+func TestRuntimeForRoleOffersOnlyStandardsThatApply(t *testing.T) {
+	svc, _, db := publicationServices(t)
+	standard := func(id, category string, roles ...string) standards.Operation {
+		return standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: id, CategoryID: category, Rule: "MUST rule " + id, Description: strings.Repeat("d", 9000), Evidence: "Evidence.", Scope: "All repositories.", Check: "automated", AppliesTo: roles}}
+	}
+	p, e := svc.Create(t.Context(), "roles", 0, []standards.Operation{
+		{Kind: "category.add", Category: &standards.Category{ID: "sec", Name: "Security"}},
+		{Kind: "category.add", Category: &standards.Category{ID: "tst", Name: "Testing"}},
+		standard("SEC-001", "sec", "story-worker", "plan-technical"),
+		standard("SEC-002", "sec", "validate-architecture"),
+		standard("TST-001", "tst", "story-worker"),
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+	approvePublication(t, svc, p)
+	if _, e = svc.Publish(t.Context(), p.ProposalID, p.Version, p.ChangeDigest); e != nil {
+		t.Fatal(e)
+	}
+	r := &standards.Runtime{Store: db, RootRunID: "7", ConsumerKey: "worker", AttemptID: "attempt-7"}
+	if s, e := r.Bind(t.Context(), true); e != nil || s.Integrity != "verified" {
+		t.Fatalf("bind: %+v %v", s, e)
+	}
+	text, cursor := "", ""
+	var ids []string
+	for {
+		page, e := r.ForRole(t.Context(), "story-worker", cursor)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !standards.FitsMCPResult(page) || page.Start != len(text) {
+			t.Fatalf("page out of bounds or order: %d %d", page.Start, len(text))
+		}
+		ids = page.StandardIDs
+		text += page.Text
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if strings.Join(ids, ",") != "SEC-001,TST-001" || !strings.Contains(text, "(SEC-001)") || !strings.Contains(text, "(TST-001)") || strings.Contains(text, "SEC-002") {
+		t.Fatalf("role read offered the wrong standards: %v", ids)
+	}
+	if _, e = r.ForRole(t.Context(), "plan-technical", cursor); e == nil {
+		t.Fatal("a cursor of another role was accepted")
+	}
+	none, e := r.ForRole(t.Context(), "validate-code", "")
+	if e != nil || len(none.StandardIDs) != 0 || none.Text != "" {
+		t.Fatalf("a role without standards got some: %+v %v", none, e)
+	}
+	page, e := r.Categories(t.Context(), 25, "")
+	if e != nil {
+		t.Fatal(e)
+	}
+	want := standards.Load{Roles: map[string]int{"story-worker": 2, "plan-technical": 1, "validate-architecture": 1}, Categories: map[string]int{"sec": 2, "tst": 1}}
+	if !reflect.DeepEqual(page.Load, want) {
+		t.Fatalf("load %+v, want %+v", page.Load, want)
 	}
 }

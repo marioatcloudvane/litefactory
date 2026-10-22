@@ -26,15 +26,15 @@ func (f *authoringFixture) Answer(_ context.Context, id, prompt string) ([]byte,
 	}
 	f.drafts[id]++
 	if f.drafts[id] == 1 {
-		return []byte(`{"schema_version":1,"title":"Assistant draft","body":"Run checks.","category_ids":["quality"],"questions":[{"text":"Which checks?","options":["Relevant package checks","All checks"]}]}`), nil
+		return []byte(`{"schema_version":1,"category_id":"quality","rule":"MUST assistant draft","description":"Run checks.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[{"text":"Which checks?","options":["Relevant package checks","All checks"]}]}`), nil
 	}
 	if !strings.Contains(prompt, `"answer":"Relevant package checks"`) {
 		f.t.Fatalf("continuation omitted settled answer: %s", prompt)
 	}
-	if !strings.Contains(prompt, `"title":"Operator title"`) {
+	if !strings.Contains(prompt, `"rule":"MUST operator rule"`) {
 		f.t.Fatalf("continuation omitted operator edit: %s", prompt)
 	}
-	return []byte(`{"schema_version":1,"title":"Assistant overwrite","body":"Run relevant package checks before sharing changes.","category_ids":["quality"],"questions":[]}`), nil
+	return []byte(`{"schema_version":1,"category_id":"quality","rule":"MUST assistant overwrite","description":"Run relevant package checks before sharing changes.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[]}`), nil
 }
 
 // Each invocation opens and closes the database, including between asking and
@@ -49,7 +49,7 @@ func TestStandardsAuthorEndToEndNoninteractiveProposal(t *testing.T) {
 		t.Fatal(err)
 	}
 	book := &standards.Service{Store: db, OwnerID: 71}
-	seed, err := book.Create(t.Context(), "seed", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "existing", Title: "Existing guidance", Body: "Keep checks relevant.", CategoryIDs: []string{"quality"}}}})
+	seed, err := book.Create(t.Context(), "seed", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "existing", Rule: "MUST Existing guidance", Description: "Keep checks relevant.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,9 +104,9 @@ func TestStandardsAuthorEndToEndNoninteractiveProposal(t *testing.T) {
 		}
 		question := inspected.Questions[0].ID
 		decode(run("", "standards", "author", "answer", id, "--expected-version", fmt.Sprint(inspected.Version), "--question", question, "--answer", "Relevant package checks", "--json"), &session)
-		decode(run(`{"title":"Operator title"}`, "standards", "author", "edit", id, "--expected-version", fmt.Sprint(session.Version), "--file", "-", "--json"), &session)
+		decode(run(`{"rule":"MUST operator rule"}`, "standards", "author", "edit", id, "--expected-version", fmt.Sprint(session.Version), "--file", "-", "--json"), &session)
 		decode(run("", "standards", "author", "continue", id, "--expected-version", fmt.Sprint(session.Version), "--json"), &session)
-		if session.Draft.Title != "Operator title" || session.Questions[0].ID != question || session.Questions[0].Answer != "Relevant package checks" {
+		if session.Draft.Rule != "MUST operator rule" || session.Questions[0].ID != question || session.Questions[0].Answer != "Relevant package checks" {
 			t.Fatalf("settled work lost: %+v", session)
 		}
 		decode(run("", "standards", "author", "validate", id, "--expected-version", fmt.Sprint(session.Version), "--json"), &session)

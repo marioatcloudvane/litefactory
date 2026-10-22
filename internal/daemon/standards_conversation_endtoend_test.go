@@ -83,12 +83,12 @@ func (f *standardsJourneyAuthor) Answer(_ context.Context, _ string, prompt stri
 	}
 	f.drafts++
 	if f.drafts == 1 {
-		return []byte(`{"schema_version":1,"title":"Relevant checks","body":"Run checks.","category_ids":["quality"],"questions":[{"text":"Which checks?","options":["Relevant package checks","All checks"]}]}`), nil
+		return []byte(`{"schema_version":1,"category_id":"quality","rule":"MUST run relevant checks","description":"Run checks.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[{"text":"Which checks?","options":["Relevant package checks","All checks"]}]}`), nil
 	}
 	if !strings.Contains(prompt, `"answer":"Relevant package checks"`) {
 		return nil, fmt.Errorf("saved answer absent from resumed authoring prompt")
 	}
-	return []byte(`{"schema_version":1,"title":"Relevant checks","body":"Run relevant package checks before sharing changes.","category_ids":["quality"],"questions":[]}`), nil
+	return []byte(`{"schema_version":1,"category_id":"quality","rule":"MUST run relevant checks","description":"Run relevant package checks before sharing changes.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[]}`), nil
 }
 
 type standardsJourneySender struct {
