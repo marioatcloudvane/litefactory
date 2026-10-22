@@ -286,7 +286,7 @@ func TestWithheldStandardsResponseCannotSupportProposal(t *testing.T) {
 	report := reportFor(evidence.Records[0].Citation)
 	report.Disposition = "proposals"
 	report.Findings[0].Benefit = "Earlier relevant checks can catch regressions."
-	report.Findings[0].Change = &standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "checks", Title: "Relevant checks", Body: "Run relevant checks before review.", CategoryIDs: []string{"quality"}}}
+	report.Findings[0].Change = &standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "checks", Rule: "MUST Relevant checks", Description: "Run relevant checks before review.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}}
 	if _, _, err = f.h.validate(t.Context(), report); err == nil || !strings.Contains(err.Error(), "unread selected standards") {
 		t.Fatalf("withheld delivery supported proposal: %v", err)
 	}

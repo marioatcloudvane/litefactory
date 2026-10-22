@@ -77,7 +77,7 @@ func scheduleMainPathFixture(t *testing.T) (config.Paths, store.Repo, store.Run,
 		t.Fatal(err)
 	}
 	bookService := &standards.Service{Store: db, OwnerID: 71}
-	seed, err := bookService.Create(t.Context(), "schedule-seed", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "review", Title: "Review", Body: "Review changes before publication.", CategoryIDs: []string{"quality"}}}})
+	seed, err := bookService.Create(t.Context(), "schedule-seed", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "review", Rule: "MUST Review", Description: "Review changes before publication.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

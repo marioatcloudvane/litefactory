@@ -55,7 +55,7 @@ func authorResponse(q bool) []byte {
 	if q {
 		questions = append(questions, map[string]any{"text": "Which scope?", "options": []string{"all tests"}})
 	}
-	b, _ := json.Marshal(map[string]any{"schema_version": 1, "title": "Safe tests", "body": "Use isolated test data.", "category_ids": []string{"quality"}, "questions": questions, "notes": "Proposal only"})
+	b, _ := json.Marshal(map[string]any{"schema_version": 1, "category_id": "quality", "rule": "MUST use safe tests", "description": "Use isolated test data.", "evidence": "The PR adds isolated tests.", "scope": "All repositories.", "check": "manual", "applies_to": []string{"story-worker"}, "questions": questions, "notes": "Proposal only"})
 	return b
 }
 func TestAuthoringPreservesAnswersOverridesAndRejectsMalformedOutput(t *testing.T) {
@@ -72,13 +72,13 @@ func TestAuthoringPreservesAnswersOverridesAndRejectsMalformedOutput(t *testing.
 	if e != nil {
 		t.Fatal(e)
 	}
-	title := "Operator title"
-	v, e = a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{Title: &title})
+	title := "MUST follow the operator rule"
+	v, e = a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{Rule: &title})
 	if e != nil {
 		t.Fatal(e)
 	}
 	saved := v
-	for _, raw := range []string{`{"schema_version":1,"title":"x","body":"x","category_ids":["quality"],"questions":[{"text":"Which scope?","options":["changed scope"]}]}`, `{"schema_version":1,"schema_version":1}`, `{"schema_version":1,"title":null,"body":"x","category_ids":[],"questions":[]}`, `{"schema_version":1,"title":"x","body":"x","category_ids":[],"questions":[],"approve":true}`, string(authorResponse(false)) + ` {}`} {
+	for _, raw := range []string{`{"schema_version":1,"category_id":"quality","rule":"MUST x","description":"x","evidence":"Evidence.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[{"text":"Which scope?","options":["changed scope"]}]}`, `{"schema_version":1,"schema_version":1}`, `{"schema_version":1,"category_id":"quality","rule":null,"description":"x","evidence":"x","scope":"x","check":"manual","applies_to":[],"questions":[]}`, `{"schema_version":1,"category_id":"quality","rule":"MUST x","description":"x","evidence":"Evidence.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[],"approve":true}`, string(authorResponse(false)) + ` {}`} {
 		a.Runner = authorRunner(func(context.Context, string, string) ([]byte, error) { return []byte(raw), nil })
 		if _, e = a.Continue(t.Context(), v.ID, v.Version); e == nil {
 			t.Fatalf("accepted invalid output %s", raw)
@@ -92,7 +92,7 @@ func TestAuthoringPreservesAnswersOverridesAndRejectsMalformedOutput(t *testing.
 		}
 	}
 	a.Runner = authorRunner(func(_ context.Context, _ string, p string) ([]byte, error) {
-		if !strings.Contains(p, "Operator title") || !strings.Contains(p, "all tests") {
+		if !strings.Contains(p, "MUST follow the operator rule") || !strings.Contains(p, "all tests") {
 			t.Error("missing saved overrides/answers in prompt")
 		}
 		return authorResponse(true), nil
@@ -101,7 +101,7 @@ func TestAuthoringPreservesAnswersOverridesAndRejectsMalformedOutput(t *testing.
 	if e != nil {
 		t.Fatal(e)
 	}
-	if v.Draft.Title != title || len(v.Questions) != 1 || v.Questions[0].ID != qid || v.Questions[0].Answer != "all tests" {
+	if v.Draft.Rule != title || len(v.Questions) != 1 || v.Questions[0].ID != qid || v.Questions[0].Answer != "all tests" {
 		t.Fatalf("settled input lost: %+v", v)
 	}
 	attempts, e := db.ListStandardsAuthoringAttempts(t.Context(), v.ID)
@@ -115,7 +115,7 @@ func TestAuthoringFencesOutputAfterConcurrentEdit(t *testing.T) {
 	v := authorStart(t, a)
 	a.Runner = authorRunner(func(context.Context, string, string) ([]byte, error) {
 		body := "Concurrent operator body"
-		if _, e := a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{Body: &body}); e != nil {
+		if _, e := a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{Description: &body}); e != nil {
 			t.Fatal(e)
 		}
 		return authorResponse(false), nil
@@ -127,7 +127,7 @@ func TestAuthoringFencesOutputAfterConcurrentEdit(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if current.Draft.Body != "Concurrent operator body" || current.Version != v.Version+1 {
+	if current.Draft.Description != "Concurrent operator body" || current.Version != v.Version+1 {
 		t.Fatal("late output overwrote edit")
 	}
 }
@@ -136,7 +136,7 @@ func TestAuthoringNeedsContextAndRecovery(t *testing.T) {
 	a, _ := authorFixture(t)
 	v := authorStart(t, a)
 	huge := strings.Repeat("x", 256<<10)
-	v, e := a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{Body: &huge})
+	v, e := a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{Description: &huge})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -149,12 +149,12 @@ func TestAuthoringNeedsContextAndRecovery(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if v.Status != "needs-context" || v.Draft.Body != huge || len(v.Diagnostics) == 0 || calls != 0 || v.Attempts[0].Outcome != "failed" {
+	if v.Status != "needs-context" || v.Draft.Description != huge || len(v.Diagnostics) == 0 || calls != 0 || v.Attempts[0].Outcome != "failed" {
 		t.Fatal("oversize work/diagnostics not saved")
 	}
 	body := "Use isolated data"
 	ids := []string{"quality"}
-	v, e = a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{Body: &body, ContextCategoryIDs: &ids})
+	v, e = a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{Description: &body, ContextCategoryIDs: &ids})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -198,8 +198,8 @@ func TestAuthoringRebaseRetainsWorkAndCompletionRetry(t *testing.T) {
 	if !reflect.DeepEqual(v.Draft, original.Draft) || v.BaseRevision != next.ID || len(v.RebaseChanges) != 1 {
 		t.Fatal("rebase lost work/inspection")
 	}
-	categories := []string{"quality", "other"}
-	v, e = a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{CategoryIDs: &categories})
+	category := "other"
+	v, e = a.Edit(t.Context(), v.ID, v.Version, standards.AuthoringEdit{CategoryID: &category})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -208,7 +208,7 @@ func TestAuthoringRebaseRetainsWorkAndCompletionRetry(t *testing.T) {
 		t.Fatal(e)
 	}
 	if !reflect.DeepEqual(*done.Operations[0].Standard, v.Draft) {
-		t.Fatalf("proposal differs from inspected multicategory draft: %+v %+v", done.Operations[0].Standard, v.Draft)
+		t.Fatalf("proposal differs from inspected recategorized draft: %+v %+v", done.Operations[0].Standard, v.Draft)
 	}
 	again, e := a.Complete(t.Context(), v.ID, v.Version)
 	if e != nil || again.ProposalID != done.ProposalID || again.ChangeDigest != done.ChangeDigest {
@@ -380,7 +380,7 @@ func TestAuthoringOversizedContextRecoveryDoesNotDuplicateRetainedBook(t *testin
 	largeBody := strings.Repeat("x", 11<<20)
 	seed, err := a.Book.Create(t.Context(), "large-context", head.ID, []standards.Operation{
 		{Kind: "category.add", Category: &standards.Category{ID: "alternate", Name: "Alternate"}},
-		{Kind: "standard.add", Standard: &standards.Standard{ID: "large", Title: "Large retained guidance", Body: largeBody, CategoryIDs: []string{"quality"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "large", Rule: "MUST Large retained guidance", Description: largeBody, Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -397,7 +397,7 @@ func TestAuthoringOversizedContextRecoveryDoesNotDuplicateRetainedBook(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if savedEdit.Original == nil || savedEdit.Original.ID != "large" || savedEdit.Original.Body != largeBody || savedEdit.Draft.Body != largeBody || !reflect.DeepEqual(savedEdit.Draft, *savedEdit.Original) || !reflect.DeepEqual(savedEdit.Base, edit.Base) {
+	if savedEdit.Original == nil || savedEdit.Original.ID != "large" || savedEdit.Original.Description != largeBody || savedEdit.Draft.Description != largeBody || !reflect.DeepEqual(savedEdit.Draft, *savedEdit.Original) || !reflect.DeepEqual(savedEdit.Base, edit.Base) {
 		t.Fatal("large edit target lost original, draft or retained base after reopening")
 	}
 	v := authorStart(t, a)
@@ -405,7 +405,7 @@ func TestAuthoringOversizedContextRecoveryDoesNotDuplicateRetainedBook(t *testin
 	calls := 0
 	a.Runner = authorRunner(func(context.Context, string, string) ([]byte, error) {
 		calls++
-		return []byte(`{"schema_version":1,"title":"Narrowed draft","body":"Use isolated data.","category_ids":["alternate"],"questions":[]}`), nil
+		return []byte(`{"schema_version":1,"category_id":"alternate","rule":"MUST narrow the draft","description":"Use isolated data.","evidence":"Evidence.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[]}`), nil
 	})
 	if _, err = a.Continue(t.Context(), v.ID, v.Version); err == nil || !strings.Contains(err.Error(), "needs-context:") {
 		t.Fatalf("oversized retained context not rejected: %v", err)
@@ -436,7 +436,7 @@ func TestAuthoringOversizedContextRecoveryDoesNotDuplicateRetainedBook(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || recovery.Status != "draft" || len(recovery.Context.Standards) != 0 || len(recovery.Context.Coverage) != 0 || recovery.Draft.Title != "Narrowed draft" {
+	if calls != 1 || recovery.Status != "draft" || len(recovery.Context.Standards) != 0 || len(recovery.Context.Coverage) != 0 || recovery.Draft.Rule != "MUST narrow the draft" {
 		t.Fatal("explicit narrowing did not recover the saved authoring session")
 	}
 }

@@ -36,7 +36,7 @@ func TestDriftEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 		t.Fatal(err)
 	}
 	book := &standards.Service{Store: db, OwnerID: 71}
-	seed, err := book.Create(t.Context(), "seed-guidance", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "architecture", Name: "Architecture"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "bound-work", Title: "Bound work", Body: "Declare work limits.", CategoryIDs: []string{"architecture"}}}})
+	seed, err := book.Create(t.Context(), "seed-guidance", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "architecture", Name: "Architecture"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "bound-work", Rule: "MUST Bound work", Description: "Declare work limits.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "architecture", AppliesTo: []string{"story-worker"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func (f *driftFixtureAnalyst) Run(ctx context.Context, inv *drift.Invocation) er
 	if err := call("standards_read", map[string]any{"selection_version": selection.Selection.Version, "selection_digest": selection.Selection.Digest}, &guidance); err != nil {
 		return err
 	}
-	if guidance.Body != "Declare work limits." || !guidance.Complete {
+	if !strings.Contains(guidance.Body, "Declare work limits.") || !guidance.Complete {
 		return errors.New("fixture did not retrieve exact retained standard body")
 	}
 	if err := call("standards_read", map[string]any{"selection_version": selection.Selection.Version, "selection_digest": selection.Selection.Digest, "acknowledge": true}, nil); err != nil {
@@ -266,7 +266,7 @@ func (f *driftFixtureAnalyst) Run(ctx context.Context, inv *drift.Invocation) er
 	if len(citations) == 0 {
 		return errors.New("fixture received no evidence")
 	}
-	result := map[string]any{"request_id": "fixture-result", "report": map[string]any{"disposition": "proposals", "explanation": "The queue change warrants explicit guidance.", "uncertainty": "Fixture judgment requires human review.", "selection_digest": selection.Selection.Digest, "findings": []any{map[string]any{"observed_drift": "The architecture now queues work.", "reason": "Queue operation needs explicit bounds.", "benefit": "Operators can assess finite work.", "uncertainty": "The ideal ceiling depends on workload.", "citations": citations}}, "candidates": []any{map[string]any{"key": "queue-guidance", "finding": 0, "operation": standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "queue-limits", Title: "Declare queue limits", Body: "Document queue capacity and work limits.", CategoryIDs: []string{"architecture"}}}}}}}
+	result := map[string]any{"request_id": "fixture-result", "report": map[string]any{"disposition": "proposals", "explanation": "The queue change warrants explicit guidance.", "uncertainty": "Fixture judgment requires human review.", "selection_digest": selection.Selection.Digest, "findings": []any{map[string]any{"observed_drift": "The architecture now queues work.", "reason": "Queue operation needs explicit bounds.", "benefit": "Operators can assess finite work.", "uncertainty": "The ideal ceiling depends on workload.", "citations": citations}}, "candidates": []any{map[string]any{"key": "queue-guidance", "finding": 0, "operation": standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "queue-limits", Rule: "MUST Declare queue limits", Description: "Document queue capacity and work limits.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "architecture", AppliesTo: []string{"story-worker"}}}}}}}
 	if err := call("communication_preflight", result, nil); err != nil {
 		return err
 	}

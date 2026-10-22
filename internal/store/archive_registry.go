@@ -290,7 +290,7 @@ var archiveRetained = map[string]ArchiveClass{
 	// The standards book and its immutable proposals span every task family.
 	"standards_book": ArchiveClassGlobal, "standards_revisions": ArchiveClassGlobal,
 	"standards_categories": ArchiveClassGlobal, "standards_standards": ArchiveClassGlobal,
-	"standards_memberships": ArchiveClassGlobal, "standards_proposals": ArchiveClassGlobal,
+	"standards_applies_to": ArchiveClassGlobal, "standards_proposals": ArchiveClassGlobal,
 	"standards_proposal_versions": ArchiveClassGlobal, "standards_approvals": ArchiveClassGlobal,
 	"standards_publications":       ArchiveClassGlobal,
 	"standards_authoring_sessions": ArchiveClassGlobal, "standards_authoring_versions": ArchiveClassGlobal,

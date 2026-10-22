@@ -58,14 +58,10 @@ func (h *invocation) sanitize(ctx context.Context, r Report) (Report, error) {
 		}
 		if f.Change != nil && f.Change.Standard != nil {
 			s := f.Change.Standard
-			if e := clean(&s.ID); e != nil {
-				return r, e
-			}
-			if e := clean(&s.Title); e != nil {
-				return r, e
-			}
-			if e := clean(&s.Body); e != nil {
-				return r, e
+			for _, field := range []*string{&s.ID, &s.Rule, &s.Description, &s.Evidence, &s.Scope} {
+				if e := clean(field); e != nil {
+					return r, e
+				}
 			}
 		}
 	}
@@ -336,7 +332,7 @@ func (h *invocation) catalog(ctx context.Context) (json.RawMessage, error) {
 func reportSchema() json.RawMessage {
 	// The complete closed contract is also shipped with the focused analyst role.
 	citation := `{"type":"object","properties":{"v":{"type":"integer"},"task_ref":{"type":"string"},"run_id":{"type":"integer"},"ordinal":{"type":"integer"},"started_at":{"type":"string"},"stream":{"type":"string"},"start":{"type":"integer"},"end":{"type":"integer"},"digest":{"type":"string"},"policy":{"type":"string"},"excerpt_bytes":{"type":"integer"}},"required":["v","task_ref","run_id","ordinal","started_at","stream","start","end","digest","policy","excerpt_bytes"],"additionalProperties":false}`
-	standard := `{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"},"category_ids":{"type":"array","items":{"type":"string"}}},"required":["id","title","body","category_ids"],"additionalProperties":false}`
+	standard := `{"type":"object","properties":{"id":{"type":"string"},"category_id":{"type":"string"},"rule":{"type":"string"},"description":{"type":"string"},"evidence":{"type":"string"},"scope":{"type":"string"},"check":{"type":"string","enum":["automated","semi_automated","manual"]},"applies_to":{"type":"array","minItems":1,"items":{"type":"string"}}},"required":["id","category_id","rule","description","evidence","scope","check","applies_to"],"additionalProperties":false}`
 	change := `{"type":"object","properties":{"kind":{"type":"string","enum":["standard.add","standard.replace"]},"standard":` + standard + `},"required":["kind","standard"],"additionalProperties":false}`
 	finding := `{"type":"object","properties":{"key":{"type":"string","maxLength":64,"pattern":"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"},"observation":{"type":"string"},"benefit":{"type":"string"},"uncertainty":{"type":"string"},"citations":{"type":"array","maxItems":100,"items":` + citation + `},"change":` + change + `},"required":["key","observation","benefit","uncertainty","citations"],"additionalProperties":false}`
 	report := `{"type":"object","properties":{"disposition":{"type":"string","enum":["proposals","no_warranted_change","insufficient_evidence"]},"reason":{"type":"string"},"findings":{"type":"array","maxItems":100,"items":` + finding + `}},"required":["disposition","reason","findings"],"additionalProperties":false}`

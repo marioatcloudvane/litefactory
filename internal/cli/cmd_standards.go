@@ -9,15 +9,26 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
 type standardsFlags struct {
-	file, digest, proposal, name, description string
-	version, expected                         int64
-	asJSON                                    bool
+	file, digest, proposal, name, description, role string
+	version, expected                               int64
+	asJSON                                          bool
+}
+
+// standardsRendering is the current book as people and agents read it, with
+// its load per role and category.
+type standardsRendering struct {
+	RevisionID int64          `json:"revision_id"`
+	Role       string         `json:"role,omitempty"`
+	Rendered   string         `json:"rendered"`
+	Load       standards.Load `json:"load"`
+	text       string
 }
 
 type standardsInput struct {
@@ -61,6 +72,8 @@ func newStandardsCommand(group, action string) *Command {
 		c.Usage += " --proposal ID --expected-version N"
 	case "category list":
 		c.Usage += " [--proposal ID --version N]"
+	case "book render":
+		c.Usage += " [--role ROLE]"
 	}
 	c.Usage += " [--json]"
 	c.New = func(fs *flag.FlagSet) Handler {
@@ -74,6 +87,9 @@ func newStandardsCommand(group, action string) *Command {
 		switch key {
 		case "proposal show", "proposal validate", "proposal review", "proposal approve", "proposal publish", "category list":
 			fs.Int64Var(&o.version, "version", 0, "exact retained proposal version")
+		}
+		if key == "book render" {
+			fs.StringVar(&o.role, "role", "", "only the standards that apply to this agent role")
 		}
 		if action == "approve" || action == "publish" {
 			fs.StringVar(&o.digest, "digest", "", "exact change digest from review")
@@ -110,6 +126,10 @@ func newStandardsCommand(group, action string) *Command {
 			result, e := runStandards(ctx, env, svc, group, action, args, o)
 			if e != nil {
 				return standardsCommandError(e)
+			}
+			if rendering, ok := result.(standardsRendering); ok && !o.asJSON {
+				_, err := fmt.Fprint(env.Stdout, rendering.text)
+				return err
 			}
 			if err := writeJSON(env, result); err != nil {
 				if group == "proposal" && action == "publish" {
@@ -199,6 +219,22 @@ func runStandards(ctx context.Context, env *Env, svc *standards.Service, group, 
 		return svc.Current(ctx)
 	case "book history":
 		return svc.History(ctx)
+	case "book render":
+		r, err := svc.Current(ctx)
+		if err != nil {
+			return nil, err
+		}
+		items := r.Snapshot.Standards
+		if o.role != "" {
+			items = nil
+			for _, s := range r.Snapshot.Standards {
+				if slices.Contains(s.AppliesTo, o.role) {
+					items = append(items, s)
+				}
+			}
+		}
+		rendered := standards.Render(r.Snapshot.Categories, items)
+		return standardsRendering{RevisionID: r.ID, Role: o.role, Rendered: rendered, Load: standards.BookLoad(r.Snapshot), text: rendered + standards.FormatLoad(r.Snapshot)}, nil
 	case "book show":
 		id, err := parseID(args[0])
 		if err != nil {
@@ -302,6 +338,7 @@ proposal approve|publish ID --version N --digest HASH
 category add|replace ID --proposal ID --expected-version N --name NAME [--description TEXT]
 category remove ID --proposal ID --expected-version N; category list [--proposal ID --version N]
 book current; book history; book show REVISION; book diff FROM TO
+book render [--role ROLE] (the current book as agents read it, with standards per role and category)
 exception propose --operation-key KEY --file FILE|-; exception list [--limit N --offset N]
 exception show|review ID; exception approve ID --digest HASH; exception revoke ID [--reason TEXT]
 analyze logs --repo forge:owner/name (--run ID | --after UTC --before UTC); analyze logs list|show|reread|recover

@@ -398,10 +398,8 @@ func (s *Session) validate(ctx context.Context, result Result) ([]string, []stor
 				add("revised standard must belong to retrieved selection")
 			}
 			if status.Selection != nil {
-				for _, cat := range op.Standard.CategoryIDs {
-					if !slices.Contains(status.Selection.CategoryIDs, cat) {
-						add("proposal category must be selected from pinned standards")
-					}
+				if !slices.Contains(status.Selection.CategoryIDs, op.Standard.CategoryID) {
+					add("proposal category must be selected from pinned standards")
 				}
 			} else {
 				add("proposal requires pinned category selection")
