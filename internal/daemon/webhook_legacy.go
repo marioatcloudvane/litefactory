@@ -8,6 +8,8 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
+	"github.com/cloudvane/litefactory/internal/webhookreg"
 )
 
 // Legacy import requires a verified original connection. Provider verification
@@ -31,16 +33,19 @@ func (d *Daemon) importLegacyWebhookSubscriptions(ctx context.Context, now time.
 		if err != nil {
 			continue
 		}
-		exists := false
-		for _, sub := range subscriptions {
-			if sub.ConnectionVersionID == version.ID {
-				exists = true
+		var existing *store.TicketSubscription
+		for i := range subscriptions {
+			if subscriptions[i].ConnectionVersionID == version.ID {
+				existing = &subscriptions[i]
 				break
 			}
 		}
-		if exists {
+		// An imported legacy row still needs its existing hook adopted, or
+		// webhook recovery never knows the hook and polls every minute.
+		if existing != nil && (existing.RemoteHookID != "" || !existing.DesiredEnabled) {
 			continue
 		}
+		var containerID string
 		key := "legacy/" + repo.Slug()
 		d.webhook.mu.Lock()
 		previous := d.webhook.subscriptionSecretTries[key]
@@ -51,27 +56,39 @@ func (d *Daemon) importLegacyWebhookSubscriptions(ctx context.Context, now time.
 		d.webhook.subscriptionSecretTries[key] = subscriptionSecretAttempt{revision: version.ID, at: now}
 		d.webhook.mu.Unlock()
 		clients, err := d.connections.Clients(ctx, version, 0)
+		if err == nil {
+			var identity ticket.Identity
+			if identity, err = clients.Tickets.ContainerIdentity(ctx, version.Destination); err == nil && (identity.Provider != version.Provider || identity.Origin != version.Origin) {
+				err = errors.New("ticket source identity changed")
+			}
+			containerID = identity.RemoteID
+		}
 		if err != nil {
+			d.log.WarnContext(ctx, "legacy webhook source unverified; polling continues", slog.String("repo", repo.Slug()), slog.Any("error", err))
 			continue
 		}
-		identity, err := clients.Tickets.ContainerIdentity(ctx, version.Destination)
-		if err != nil {
-			continue
+		var saved store.TicketSubscription
+		if existing != nil {
+			saved = *existing
+		} else {
+			saved, err = d.db.ImportLegacyTicketSubscription(ctx, version, containerID)
 		}
-		if identity.Provider != version.Provider || identity.Origin != version.Origin {
-			continue
-		}
-		_, err = d.db.ImportLegacyTicketSubscription(ctx, version, identity.RemoteID)
 		if errors.Is(err, store.ErrNotFound) {
 			token, secretErr := d.webhook.resolver.Resolve(ctx, secrets.KeychainRef(WebhookKeychainService, repo.Slug()))
 			if secretErr != nil || token.Reveal() == "" {
 				d.log.WarnContext(ctx, "webhook signing secret unavailable; polling continues", slog.String("repo", repo.Slug()), slog.String("remedy", "litefactory repo webhook "+repo.Slug()))
 				continue
 			}
-			_, err = d.db.PrepareLegacyTicketSubscription(ctx, version, identity.RemoteID, d.webhook.publicURL)
+			saved, err = d.db.PrepareLegacyTicketSubscription(ctx, version, containerID, d.webhook.publicURL)
+		}
+		if err == nil {
+			registrar := webhookreg.Subscriptions{Store: d.db, Forge: clients.Tickets, Keychain: webhookreg.SystemKeychain{Resolver: d.webhook.resolver}, PublicURL: d.webhook.publicURL}
+			if saved, err = registrar.AdoptLegacyHook(ctx, saved); err == nil && saved.RemoteHookID != "" {
+				d.log.InfoContext(ctx, "legacy webhook adopted", slog.String("repo", repo.Slug()), slog.String("hook", saved.RemoteHookID))
+			}
 		}
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			d.log.WarnContext(ctx, "legacy webhook ownership is unresolved; polling continues", slog.Int64("project", repo.ID))
+			d.log.WarnContext(ctx, "legacy webhook ownership is unresolved; polling continues", slog.Int64("project", repo.ID), slog.Any("error", err))
 		}
 	}
 }
