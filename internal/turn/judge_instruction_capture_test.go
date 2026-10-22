@@ -42,9 +42,7 @@ func TestWorkflowJudgeInstructionsSurvivePackageEditsAndRestore(t *testing.T) {
 	}
 	write(instructionpackage.CataloguePath, catalogue.String())
 	original := map[string]string{
-		instructionpackage.JudgeRolePath:           "Captured challenger role.\n",
-		instructionpackage.JudgePinPrefixPath:      "\nCaptured invocation: ",
-		instructionpackage.JudgeEvidenceSuffixPath: "\nCaptured evidence instructions.\n",
+		instructionpackage.JudgeRolePath: "Captured challenger role.\n",
 	}
 	edited := map[string]string{}
 	for name, body := range original {
@@ -150,11 +148,10 @@ func TestWorkflowJudgeInstructionsSurvivePackageEditsAndRestore(t *testing.T) {
 					t.Fatalf("judge did not retain captured %s before launch", name)
 				}
 			}
-			invocation, marshalErr := json.Marshal(struct{ Target, Focus, RoleDigest string }{durable.Source.Reference, cfg.Requested.Focus, cfg.RoleDigest})
-			mustProgress(t, marshalErr)
-			expected := expectedResources[instructionpackage.JudgeRolePath] + expectedResources[instructionpackage.JudgePinPrefixPath] + string(invocation) + expectedResources[instructionpackage.JudgeEvidenceSuffixPath]
-			if q.Invocation.Prompt != expected {
-				t.Fatalf("provider prompt differs from retained bytes: got %q, want %q", q.Invocation.Prompt, expected)
+			// The provider prompt starts with the retained role bytes; the factory
+			// appends only where to read, never the live package.
+			if role := strings.TrimRight(expectedResources[instructionpackage.JudgeRolePath], "\n"); !strings.HasPrefix(q.Invocation.Prompt, role) {
+				t.Fatalf("provider prompt differs from retained role: got %q, want prefix %q", q.Invocation.Prompt, role)
 			}
 			// Admission has already persisted configuration. A package edit between
 			// primary and fallback attempts must not affect either supplied prompt.

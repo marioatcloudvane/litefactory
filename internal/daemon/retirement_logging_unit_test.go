@@ -13,6 +13,9 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // US-002 AC-007: operator-visible decisions retain structured evidence without
@@ -132,6 +135,52 @@ func TestLogRetirement_ObservationErrorStep(t *testing.T) {
 			}
 			if _, ok := record["git_exit_code"]; tt.name == "non_git" && ok {
 				t.Errorf("non-git error has exit code: %v", record)
+			}
+		})
+	}
+}
+
+// Issue #1029 C3: both line types name the source actually used and carry the
+// bounded error class of a lookup failure, never its raw text.
+func TestLogRetirement_SourceAndErrorClass(t *testing.T) {
+	t.Parallel()
+	const secret = "distinctive-raw-lookup-detail"
+	cases := []struct {
+		name, taskRef, source, class string
+		err                          error
+	}{
+		{name: "linear identity conflict", taskRef: "linear:team-uuid/project-uuid#42", source: "linear_ticket", class: "ticket_identity_conflict", err: fmt.Errorf("%s: %w", secret, store.ErrTicketIdentityConflict)},
+		{name: "linear not found", taskRef: "linear:team-uuid/project-uuid#42", source: "linear_ticket", class: "not_found", err: fmt.Errorf("%s: %w", secret, store.ErrNotFound)},
+		{name: "deferred", taskRef: "linear:team-uuid/project-uuid#42", source: "linear_ticket", class: "deferred", err: fmt.Errorf("%s: %w", secret, daemon.ErrDiscoveryDeferred)},
+		{name: "ticket rate limit", taskRef: "linear:team-uuid/project-uuid#42", source: "linear_ticket", class: "rate_limited", err: fmt.Errorf("%s: %w", secret, &ticket.RateLimitError{})},
+		{name: "github rate limit", taskRef: "github:owner/repo#42", source: "github_get_issue", class: "rate_limited", err: fmt.Errorf("%s: %w", secret, &github.RateLimitError{})},
+		{name: "github other", taskRef: "github:owner/repo#42", source: "github_get_issue", class: "other", err: errors.New(secret)},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			owner, opts, _ := retirementUnitFixture()
+			owner.Session.TaskRef = tt.taskRef
+			e := daemon.RetirementEvaluation{Owner: owner, ObservedAt: opts.Now, IssueError: "issue_lookup_failed", Error: tt.err, Decisions: []daemon.RetirementDecision{
+				{Resource: owner.Session.WorktreePath, Kind: "worktree", Action: "unknown", Reason: "issue_lookup_failed"},
+				{Resource: "refs/heads/" + owner.Session.Branch, Kind: "local_branch", Action: "unknown", Reason: "issue_lookup_failed"},
+			}}
+			var buf bytes.Buffer
+			daemon.LogRetirement(context.Background(), slog.New(slog.NewJSONHandler(&buf, nil)), "sweep-1029", "initial", false, e)
+			if strings.Contains(buf.String(), secret) {
+				t.Fatalf("raw error text logged: %s", buf.String())
+			}
+			decoder := json.NewDecoder(&buf)
+			for i, msg := range []string{"retirement observation", "retirement resource", "retirement resource"} {
+				var record map[string]any
+				if err := decoder.Decode(&record); err != nil {
+					t.Fatalf("record %d absent: %v", i, err)
+				}
+				for key, value := range map[string]any{"msg": msg, "source": tt.source, "error_class": tt.class, "issue_error": "issue_lookup_failed", "git_step": "non_git"} {
+					if record[key] != value {
+						t.Errorf("record %d %s = %#v, want %#v", i, key, record[key], value)
+					}
+				}
 			}
 		})
 	}

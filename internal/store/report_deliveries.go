@@ -102,6 +102,16 @@ func (db *DB) EnsureReportDelivery(ctx context.Context, want ReportDelivery) (Re
 	return out, nil
 }
 
+// UnmarkReportDeliverySent records that a claimed POST provably did not reach
+// the forge, so the delivery is pending again and normal recovery reposts it.
+// Only a delivery without a receipt and not completed is changed.
+func (db *DB) UnmarkReportDeliverySent(ctx context.Context, key string) error {
+	if _, err := db.sql.ExecContext(ctx, `UPDATE report_deliveries SET possibly_sent=0 WHERE delivery_key=? AND comment_id IS NULL AND completed=0`, key); err != nil {
+		return fmt.Errorf("store: unmark report dispatch: %w", err)
+	}
+	return nil
+}
+
 // MarkReportDeliverySent atomically claims the only new POST opportunity. A
 // false result means recovery must look up existing effects, never POST again.
 func (db *DB) MarkReportDeliverySent(ctx context.Context, key string) (bool, error) {

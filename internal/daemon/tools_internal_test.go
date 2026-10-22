@@ -90,7 +90,7 @@ func TestResolveSpikeToolsUsesOnlyExplicitCappedRoleBindings(t *testing.T) {
 	t.Run("ceiling is the fixer role, never implement", func(t *testing.T) {
 		d := profiles(func(p map[string]config.ToolProfile) {})
 		got, ok := d.resolveTools(agent.ModeSpike, claude)
-		if !ok || got.Profile != "spike" || slices.Contains(got.Tools, "Bash") || slices.Contains(got.Tools, "Task") {
+		if !ok || got.Profile != "spike" || !slices.Contains(got.Tools, "Bash") || slices.Contains(got.Tools, "Task") {
 			t.Fatalf("decision=%+v ok=%t", got, ok)
 		}
 		got.Tools[0] = "changed"
@@ -142,7 +142,7 @@ func TestResolveSpikeToolsUsesOnlyExplicitCappedRoleBindings(t *testing.T) {
 	t.Run("investigator wider than fixer fails closed", func(t *testing.T) {
 		d := profiles(func(p map[string]config.ToolProfile) {
 			inv := p[config.SpikeInvestigatorProfile]
-			inv.Claude.Tools = append(slices.Clone(inv.Claude.Tools), "Bash")
+			inv.Claude.Tools = append(slices.Clone(inv.Claude.Tools), "Edit", "Task")
 			p[config.SpikeInvestigatorProfile] = inv
 		})
 		if _, ok := d.resolveTools(agent.ModeSpike, claude); ok {

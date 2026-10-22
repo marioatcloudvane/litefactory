@@ -53,30 +53,18 @@ func (r *controlledJudge) RunJudge(ctx context.Context, q agent.JudgeRequest) (a
 		}
 		return response, err
 	}
-	listed, err := invoke("evidence_list", struct{}{})
-	if err != nil {
+	// The judge reads the pinned result from the context directory and the
+	// code from its working directory, a checkout of the pinned commit.
+	if len(q.Invocation.ReadableDirectories) != 1 {
+		return agent.JudgeRunResult{}, fmt.Errorf("context directories: %v", q.Invocation.ReadableDirectories)
+	}
+	if _, err := os.ReadFile(filepath.Join(q.Invocation.ReadableDirectories[0], "result.md")); err != nil {
 		return agent.JudgeRunResult{}, err
 	}
-	var evidence []agentresult.JudgeEvidence
-	if err = json.Unmarshal(listed.Result, &evidence); err != nil {
-		return agent.JudgeRunResult{}, err
-	}
-	coverage := []string{}
-	gaps := []string{}
-	for _, e := range evidence {
-		if e.Available {
-			coverage = append(coverage, e.ID)
-		} else if e.Essential {
-			gaps = append(gaps, e.Gap)
-		}
-	}
-	if _, err = invoke("evidence_read", map[string]any{"id": "source", "start": 1, "count": 200}); err != nil {
-		return agent.JudgeRunResult{}, err
-	}
-	report := agentresult.JudgeReport{Version: 1, Verdict: "no_material_concerns", Summary: "The controlled assessment reviewed the captured saved Plan.", Coverage: coverage, Uncertainty: []string{}, Findings: []agentresult.JudgeFinding{}}
-	if len(gaps) > 0 {
+	report := agentresult.JudgeReport{Version: 1, Verdict: "no_material_concerns", Summary: "The controlled assessment reviewed the captured saved Plan.", Coverage: []string{"result.md"}, Uncertainty: []string{}, Findings: []agentresult.JudgeFinding{}}
+	if entries, err := os.ReadDir(q.Invocation.WorkingDirectory); err != nil || len(entries) == 0 {
 		report.Verdict = "unable_to_assess"
-		report.Uncertainty = gaps
+		report.Uncertainty = []string{"The repository is not available."}
 	}
 	input := agentresult.JudgeInput{Report: report}
 	checked, err := invoke("communication_preflight", input)

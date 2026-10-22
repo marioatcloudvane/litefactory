@@ -52,7 +52,14 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	if err = validateScopedDoctorRequest(request, operation); err != nil {
 		return agent.DoctorRunResult{}, err
 	}
-	home, err := os.MkdirTemp(request.WorkingDirectory, "claude-private-")
+	// The judge reads its working directory, so its private home (with the
+	// credentials link) lives in the system temp directory instead, outside
+	// every root the judge may read.
+	privateParent := request.WorkingDirectory
+	if operation == "judge" {
+		privateParent = ""
+	}
+	home, err := os.MkdirTemp(privateParent, "claude-private-")
 	if err != nil {
 		return agent.DoctorRunResult{}, err
 	}
@@ -169,8 +176,8 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 	for i := range allowed {
 		allowed[i] = "mcp__litefactory__" + allowed[i]
 	}
-	// Diagnosis exposes only Bash; repair's explicit empty --tools removes every
-	// native tool. Omission would restore the provider default. MCP stays exact.
+	// Diagnosis exposes only Bash; the judge only Read, Grep and Glob; repair's
+	// explicit empty --tools removes every native tool. Omission would restore the provider default. MCP stays exact.
 	// No --bare: it disables OAuth. The private config dir and empty setting
 	// sources already keep hooks, plugins, memory and CLAUDE.md out.
 	tools := ""
@@ -189,6 +196,18 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 			return nil, err
 		}
 		args = append(args, "--settings", settings)
+	}
+	if operation == "judge" {
+		// The judge reads the pinned checkout (its working directory) and the
+		// context directories with Read, Grep and Glob only. Reads are allowed
+		// beneath those roots; dontAsk denies everything else.
+		tools = "Read,Grep,Glob"
+		for _, dir := range append([]string{request.WorkingDirectory}, request.ReadableDirectories...) {
+			allowed = append(allowed, "Read(/"+dir+"/**)")
+		}
+		for _, dir := range request.ReadableDirectories {
+			args = append(args, "--add-dir", dir)
+		}
 	}
 	if request.Thinking != "" {
 		args = append(args, "--effort", string(request.Thinking))

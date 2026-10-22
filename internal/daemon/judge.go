@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -72,11 +71,7 @@ func (d *Daemon) handleJudge(ctx context.Context, t *task, c github.Comment, qua
 		if len(segments) > 0 {
 			provider = config.Kind(segments[len(segments)-1].Agent)
 		}
-		codeURL := ""
-		if remote, parseErr := git.ParseRemoteURL(t.repo.RemoteURL); parseErr == nil {
-			codeURL = "https://github.com/" + remote.Owner + "/" + remote.Name
-		}
-		text, err = d.judge.Execute(ctx, turn.JudgeRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, TicketKey: string(key), RemoteCommentID: remoteCommentID, Root: root, CodeURL: codeURL, TaskProvider: provider, Options: options, Comments: captured, Cutoff: c.CreatedAt})
+		text, err = d.judge.Execute(ctx, turn.JudgeRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, TicketKey: string(key), RemoteCommentID: remoteCommentID, Root: root, TaskProvider: provider, Options: options, Comments: captured, Cutoff: c.CreatedAt})
 		if err != nil {
 			if !errors.Is(err, turn.ErrJudgeSettings) && !errors.Is(err, store.ErrJudgeSourceUnavailable) {
 				return err

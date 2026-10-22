@@ -559,6 +559,106 @@ func TestRecoveryDoctorHoldDefersOnlyAffectedObservation(t *testing.T) {
 	}
 }
 
+// A graph Plan story that is a task of its own receives its observations
+// directly. The parent keeps only its lifecycle debt; it is not woken, made a
+// candidate or asked to resolve the child. A story without its own session is
+// still routed to the parent.
+func TestRecoveryPlanStoryObservationRouting(t *testing.T) {
+	for _, own := range []bool{true, false} {
+		t.Run(fmt.Sprintf("child-session=%t", own), func(t *testing.T) {
+			f, v, q, sessions, onRead := recoveryHoldFixture(t)
+			ctx := t.Context()
+			parent := sessions[0]
+			// #8 has its own admitted session; #6 has none.
+			observed, issueID := 8, int64(80)
+			if !own {
+				observed, issueID = 6, 60
+			}
+			if _, err := f.d.db.AdmitPlanWorkflowPath(ctx, parent.ID, "graph"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.d.db.ReservePlanStory(ctx, parent.TaskRef, "story"); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.d.db.BindPlanStoryIssue(ctx, parent.TaskRef, "story", issueID, observed); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.d.db.AdvanceStoryDiscovery(ctx, parent.ID, observed, 0); err != nil {
+				t.Fatal(err)
+			}
+			var childReads atomic.Int64
+			*onRead = func(r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, fmt.Sprintf("/issues/%d", observed)) {
+					childReads.Add(1)
+				}
+			}
+			observation := store.PendingTicketObservation{RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: v.RemoteID, TicketID: strconv.FormatInt(issueID, 10), TicketKey: strconv.Itoa(observed), ObservedAt: time.Now()}
+
+			// observationParent itself: no provider read for a child that owns its polling.
+			routed, err := f.d.observationParent(f.d.discoveryContext(ctx), q, observation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if own {
+				if routed != nil || childReads.Load() != 0 {
+					t.Fatalf("child with its own session routed to parent: %+v reads=%d", routed, childReads.Load())
+				}
+			} else if routed == nil || routed.session.ID != parent.ID || childReads.Load() != 1 {
+				t.Fatalf("draft child without a session not routed to parent: %+v reads=%d", routed, childReads.Load())
+			}
+			if err := f.d.db.AdvanceStoryDiscovery(ctx, parent.ID, observed, 0); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.d.db.ClearSessionNeedsPoll(ctx, parent.ID); err != nil {
+				t.Fatal(err)
+			}
+			childReads.Store(0)
+
+			// The same observation through the drain.
+			handoffRecoveryHold(t, f.d.db, v, observed)
+			seen := map[int64]*candidate{}
+			q.candidates = nil
+			if err := f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{q.repo.ID: q}, seen); err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range seen {
+				if c.discoveryReservation != nil {
+					c.discoveryReservation.finish()
+				}
+			}
+			gotParent, err := f.d.db.GetSession(ctx, parent.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			owed, err := f.d.db.StoryDiscoveryOwed(ctx, parent.ID, observed)
+			if err != nil || !owed {
+				t.Fatalf("parent lost its lifecycle debt: %v %v", owed, err)
+			}
+			if !own {
+				if len(seen) != 1 || seen[parent.ID] == nil || !gotParent.NeedsPoll {
+					t.Fatalf("draft child without a session not routed to parent: %+v %+v", seen, gotParent)
+				}
+				return
+			}
+			child := sessions[1]
+			gotChild, err := f.d.db.GetSession(ctx, child.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(seen) != 1 || seen[child.ID] == nil || seen[parent.ID] != nil {
+				t.Fatalf("observation not delivered only to the child: %+v", seen)
+			}
+			if gotParent.NeedsPoll || !gotChild.NeedsPoll {
+				t.Fatalf("poll flags parent=%v child=%v", gotParent.NeedsPoll, gotChild.NeedsPoll)
+			}
+			// Only the direct path's own pending-ticket read remains.
+			if childReads.Load() != 1 {
+				t.Fatalf("child issue reads=%d", childReads.Load())
+			}
+		})
+	}
+}
+
 func TestRecoveryDoctorHeldRetainedSession(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(fmt.Sprintf("replacement-enabled=%t", enabled), func(t *testing.T) {

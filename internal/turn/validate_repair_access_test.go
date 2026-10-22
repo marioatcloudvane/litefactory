@@ -104,11 +104,11 @@ func TestValidateReviewersStayReadOnly(t *testing.T) {
 	}
 }
 
-// Spike's fixer keeps its own surface: write access never adds a shell there.
+// Spike's fixer keeps its own surface: a contained shell, never delegation.
 func TestSpikeWriteAccessKeepsTheSpikeFixerSurface(t *testing.T) {
 	node := graphexec.Node{Name: "fix_agent", Attrs: map[string]string{graphexec.AccessAttribute: "write"}}
 	req, err := applyWriteAccess(node, Request{Agent: agent.Kind(store.AgentClaude), ToolProfile: config.SpikeFixerProfile, Tools: []string{"Read", "Edit", "Write", "Bash", "Task"}})
-	if err != nil || !slices.Equal(req.Tools, []string{"Read", "Edit", "Write"}) {
+	if err != nil || !slices.Equal(req.Tools, []string{"Read", "Edit", "Write", "Bash"}) {
 		t.Fatalf("Spike fixer surface: %+v %v", req.Tools, err)
 	}
 }
@@ -123,7 +123,7 @@ func TestValidateReviewerGetsOnlyTheReadOnlyShell(t *testing.T) {
 	req := Request{
 		Agent: agent.Kind(store.AgentClaude), ToolProfile: "validate",
 		Tools:        []string{"Read", "Glob", "Grep", "Task", "Bash", "Edit", "Write", "MultiEdit"},
-		AllowedTools: append([]string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Bash(go test:*)", "Bash(git commit:*)"}, shell...),
+		AllowedTools: []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Bash(go run:*)", "Bash(git commit:*)", "Bash(git diff:*)"},
 	}
 	got, err := applyNodeAccess(policy, reviewer, req)
 	if err != nil {
@@ -138,6 +138,18 @@ func TestValidateReviewerGetsOnlyTheReadOnlyShell(t *testing.T) {
 	surface, ok := requestPermissions(got).Payload.(harness.ToolSurface)
 	if !ok || !surface.ReadOnlyShell {
 		t.Fatalf("reviewer surface is not a read-only shell: %+v", surface)
+	}
+
+	// A Spike investigator (Spike nodes resolve under the mode's profile)
+	// holds the same read-only shell.
+	investigator := req
+	investigator.ToolProfile = string(agent.ModeSpike)
+	got, err = applyNodeAccess(SpikeWorkflowPolicy(), graphexec.Node{Name: "probe_agent", Attrs: map[string]string{graphexec.AccessAttribute: "read"}}, investigator)
+	if err != nil || !slices.Equal(got.Tools, []string{"Read", "Glob", "Grep", "Bash"}) || !slices.Equal(got.AllowedTools, append([]string{"Read", "Glob", "Grep"}, shell...)) {
+		t.Fatalf("investigator: %+v %v", got, err)
+	}
+	if surface, _ := requestPermissions(got).Payload.(harness.ToolSurface); !surface.ReadOnlyShell {
+		t.Fatal("investigator is not a read-only shell")
 	}
 
 	// Other read nodes keep no shell, even when their profile grants Bash.
