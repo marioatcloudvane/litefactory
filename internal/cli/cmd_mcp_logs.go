@@ -88,7 +88,8 @@ func runMCPLogs(ctx context.Context, env *Env, selections []string) (err error) 
 		return err
 	}
 	defer func() { err = errors.Join(err, service.Close()) }()
-	directory, err := os.MkdirTemp("", "lf-log-reader-")
+	// Keep Unix socket paths short even when the system temp directory is long.
+	directory, err := os.MkdirTemp("/tmp", "lf-log-reader-")
 	if err != nil {
 		return err
 	}

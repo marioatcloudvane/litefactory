@@ -183,7 +183,8 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	if err = s.DB.SetLogAnalysisProvenance(live, a.ID, a.Generation, raw(map[string]any{"profile": profile, "model": s.Model, "tools": agent.LogAnalystToolNames()})); err != nil {
 		return a, err
 	}
-	directory, err := os.MkdirTemp("", "lf-la-")
+	// Keep Unix socket paths short even when the system temp directory is long.
+	directory, err := os.MkdirTemp("/tmp", "lf-la-")
 	if err != nil {
 		return a, err
 	}
