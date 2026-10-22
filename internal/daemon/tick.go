@@ -1204,6 +1204,8 @@ type task struct {
 	// workerLog holds immutable admission context for worker lifetime events.
 	workerLog *slog.Logger
 	worker    *workerState
+	// slot is the pool this task's worker holds; nil means the run pool.
+	slot *pool
 
 	// implementCoordinatorHandedOff records this scheduled call's successful graph return.
 	implementCoordinatorHandedOff bool

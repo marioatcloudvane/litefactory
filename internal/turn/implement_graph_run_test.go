@@ -1378,6 +1378,8 @@ func TestImplementCoordinatorResolvesAConflictWithMainThroughTheResolver(t *test
 	if err != nil || !out.ResearchGraph {
 		t.Fatalf("%+v %v", out, err)
 	}
+	// The coordinator rests before the resolver; its stage is owed at once.
+	runOwedImplementStages(t, f, req)
 	trail := implementTrail(t, f)
 	want := []string{"select_path:coordinator", "sync_start:conflict", "sync_start_resolve:success", "sync_start_resolved:resolved", "sync_start:current", "merge:none", "ready:started"}
 	for i, step := range want {
@@ -1421,6 +1423,7 @@ func TestImplementCoordinatorBlockedResolverAsksTheOwnerAndPushesNothing(t *test
 	if _, err := Execute(t.Context(), f.opts, req); err != nil {
 		t.Fatal(err)
 	}
+	runOwedImplementStages(t, f, req)
 	trail := implementTrail(t, f)
 	if trailIndex(trail, "sync_start_resolved:blocked") < 0 || trailIndex(trail, "ready:started") >= 0 {
 		t.Fatalf("a blocked resolver stops before any story starts: %v", trail)
@@ -1752,7 +1755,13 @@ func TestImplementCoordinatorResumeResolvesAConflictWithMainBeforeStoriesStart(t
 	parent, instance, wait = parkAndAskImplementOwner(t, f, req)
 	mainTip := seedMainFeatureConflict(t, f)
 
+	// The daemon closes a runless coordinator dispatch after its run; this
+	// harness does not, and the resumed run parks before the resolver.
+	asked, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
+	mustProgress(t, err)
+	mustProgress(t, f.db.FinishGraphDispatch(t.Context(), asked.ID, time.Now()))
 	replyToImplementOwner(t, f, req, parent, instance, wait)
+	runOwedImplementStages(t, f, req)
 	resumed := afterAsk(t, implementTrail(t, f))
 	want := []string{"sync_start:conflict", "sync_start_resolve:success", "sync_start_resolved:resolved", "sync_start:current"}
 	for i, step := range want {
