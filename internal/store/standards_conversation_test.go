@@ -63,80 +63,14 @@ func TestStandardsConversationAtomicEffectAndReceiptRecovery(t *testing.T) {
 		t.Fatalf("failed effect recorded %#v %v", bad, e)
 	}
 }
-func TestStandardsConversationContextAndGenerationFence(t *testing.T) {
+func TestStandardsConversationGenerationFence(t *testing.T) {
 	db := newTestDB(t)
-	c, e := db.SaveStandardsConversationContext(t.Context(), StandardsConversationContext{Transport: "discord", OwnerID: "1", ChannelID: "2", SelectedJSON: json.RawMessage(`{"session":"s","question":"q"}`), Clarification: "which question?"}, 0)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = db.SaveStandardsConversationContext(t.Context(), c, 0); !errors.Is(e, ErrStandardsConflict) {
-		t.Fatal(e)
-	}
-	got, e := db.GetStandardsConversationContext(t.Context(), "discord", "1", "2")
-	if e != nil || !reflect.DeepEqual(got.SelectedJSON, c.SelectedJSON) || got.Clarification != c.Clarification {
-		t.Fatalf("saved coordination: %#v %v", got, e)
-	}
 	o := conversationTestOperation(t, db, "generation")
-	if _, e = db.StartStandardsConversationGeneration(t.Context(), o.Key, o.RequestDigest); e != nil {
+	if _, e := db.StartStandardsConversationGeneration(t.Context(), o.Key, o.RequestDigest); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = db.StartStandardsConversationGeneration(t.Context(), o.Key, o.RequestDigest); !errors.Is(e, ErrStandardsOperationStarted) {
+	if _, e := db.StartStandardsConversationGeneration(t.Context(), o.Key, o.RequestDigest); !errors.Is(e, ErrStandardsOperationStarted) {
 		t.Fatalf("uncertain generation replay: %v", e)
-	}
-}
-func TestStandardsConversationReviewAtomicConsumptionAndDelivery(t *testing.T) {
-	db := newTestDB(t)
-	r, e := db.SaveStandardsConversationReview(t.Context(), StandardsConversationReview{ID: "review", Transport: "discord", OwnerID: "1", ChannelID: "2", Kind: "proposal", TargetID: "p", TargetVersion: 1, ChangeDigest: "change", ResultDigest: "result", Text: "before\nafter", Parts: []string{"before\n", "after"}, Code: "exact"})
-	if e != nil {
-		t.Fatal(e)
-	}
-	now := time.Now().UTC()
-	if _, e = db.ActivateStandardsConversationReview(t.Context(), r.ID, "1", "2", "prompt", now); !errors.Is(e, ErrStandardsApprovalRequired) {
-		t.Fatalf("partial review enabled approval: %v", e)
-	}
-	if _, e = db.AcknowledgeStandardsConversationReviewPart(t.Context(), r.ID, "1", "2", 1, "part2"); !errors.Is(e, ErrStandardsConflict) {
-		t.Fatalf("out of order review: %v", e)
-	}
-	for i := range r.Parts {
-		if _, e = db.AcknowledgeStandardsConversationReviewPart(t.Context(), r.ID, "1", "2", i, r.Parts[i]); e != nil {
-			t.Fatal(e)
-		}
-	}
-	if _, e = db.ActivateStandardsConversationReview(t.Context(), r.ID, "1", "2", "prompt", now); e != nil {
-		t.Fatal(e)
-	}
-	if _, e = db.ConsumeStandardsConversationReview(t.Context(), r.ID, "other", "2", r.Code, now); !errors.Is(e, ErrStandardsApprovalRequired) {
-		t.Fatalf("wrong owner: %v", e)
-	}
-	if _, e = db.ConsumeStandardsConversationReview(t.Context(), r.ID, "1", "2", r.Code, now.Add(15*time.Minute)); !errors.Is(e, ErrStandardsApprovalRequired) {
-		t.Fatalf("expired: %v", e)
-	}
-	o := conversationTestOperation(t, db, "approval")
-	ctx := WithStandardsConversationOperation(t.Context(), o.Key, o.RequestDigest)
-	ctx = WithStandardsConversationReviewConsumption(ctx, r.ID, "1", "2", r.Code, now)
-	// A failing domain mutation must roll back challenge consumption as well.
-	if _, e = db.SaveStandardsAuthoring(ctx, StandardsAuthoringSession{}, 0); e == nil {
-		t.Fatal("invalid state saved")
-	}
-	check, e := db.GetStandardsConversationReview(t.Context(), r.ID)
-	if e != nil || !check.ConsumedAt.IsZero() {
-		t.Fatalf("failed domain effect consumed gate: %#v %v", check, e)
-	}
-	if _, e = db.SaveStandardsAuthoring(ctx, StandardsAuthoringSession{ID: "saved", Mode: "create", TargetID: "std", Status: "draft", Data: json.RawMessage(`{}`)}, 0); e != nil {
-		t.Fatal(e)
-	}
-	check, e = db.FindStandardsConversationReviewByCode(t.Context(), "discord", "1", "2", r.Code)
-	if e != nil || check.ConsumedAt.IsZero() {
-		t.Fatalf("successful effect did not consume gate: %#v %v", check, e)
-	}
-	if _, e = db.ConsumeStandardsConversationReview(t.Context(), r.ID, "1", "2", r.Code, now); !errors.Is(e, ErrStandardsApprovalRequired) {
-		t.Fatalf("consumed twice: %v", e)
-	}
-	changed := r
-	changed.Parts = []string{"altered"}
-	changed.Text = "altered"
-	if _, e = db.SaveStandardsConversationReview(t.Context(), changed); !errors.Is(e, ErrStandardsConflict) {
-		t.Fatalf("manifest changed: %v", e)
 	}
 }
 func TestStandardsConversationNoticeFencesAndRetainsFailures(t *testing.T) {
@@ -254,54 +188,5 @@ func TestStandardsConversationFailedGenerationRetainsInterruptedEffect(t *testin
 	}
 	if _, err = db.FinishStandardsConversationOperation(t.Context(), o.Key, o.RequestDigest, "interrupted", nil, a.Diagnostic); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestStandardsConversationExpiredChallengeRotationPreservesReview(t *testing.T) {
-	db := newTestDB(t)
-	r, err := db.SaveStandardsConversationReview(t.Context(), StandardsConversationReview{ID: "review-refresh", Transport: "discord", OwnerID: "1", ChannelID: "2", Kind: "proposal", TargetID: "proposal", TargetVersion: 7, ChangeDigest: "change", ResultDigest: "result", Text: "full before and after", Parts: []string{"full before and after"}, Code: "old-code"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	if _, err = db.AcknowledgeStandardsConversationReviewPart(t.Context(), r.ID, r.OwnerID, r.ChannelID, 0, "body"); err != nil {
-		t.Fatal(err)
-	}
-	active, err := db.ActivateStandardsConversationReview(t.Context(), r.ID, r.OwnerID, r.ChannelID, "old-prompt", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.RefreshStandardsConversationReviewChallenge(t.Context(), r.ID, r.OwnerID, r.ChannelID, "new-code", now.Add(time.Minute)); !errors.Is(err, ErrStandardsApprovalRequired) {
-		t.Fatalf("live challenge rotated: %v", err)
-	}
-	expired := now.Add(15 * time.Minute)
-	refreshed, err := db.RefreshStandardsConversationReviewChallenge(t.Context(), r.ID, r.OwnerID, r.ChannelID, "new-code", expired)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if refreshed.ManifestDigest != r.ManifestDigest || refreshed.Text != r.Text || !reflect.DeepEqual(refreshed.PartDigests, r.PartDigests) || !reflect.DeepEqual(refreshed.RemoteIDs, active.RemoteIDs) || !refreshed.ExpiresAt.IsZero() || refreshed.PromptRemoteID != "" {
-		t.Fatalf("rotation changed review or kept old gate: %#v", refreshed)
-	}
-	if _, err = db.FindStandardsConversationReviewByCode(t.Context(), r.Transport, r.OwnerID, r.ChannelID, "old-code"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("old challenge still indexed: %v", err)
-	}
-	found, err := db.FindStandardsConversationReviewByCode(t.Context(), r.Transport, r.OwnerID, r.ChannelID, "new-code")
-	if err != nil || found.ManifestDigest != r.ManifestDigest {
-		t.Fatalf("new code lost manifest: %#v %v", found, err)
-	}
-	if _, err = db.ConsumeStandardsConversationReview(t.Context(), r.ID, r.OwnerID, r.ChannelID, "new-code", expired); !errors.Is(err, ErrStandardsApprovalRequired) {
-		t.Fatalf("rotated prompt not delivered: %v", err)
-	}
-	if _, err = db.ActivateStandardsConversationReview(t.Context(), r.ID, r.OwnerID, r.ChannelID, "new-prompt", expired); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.ConsumeStandardsConversationReview(t.Context(), r.ID, r.OwnerID, r.ChannelID, "old-code", expired); !errors.Is(err, ErrStandardsApprovalRequired) {
-		t.Fatalf("old code approved: %v", err)
-	}
-	if _, err = db.ConsumeStandardsConversationReview(t.Context(), r.ID, r.OwnerID, r.ChannelID, "new-code", expired); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.RefreshStandardsConversationReviewChallenge(t.Context(), r.ID, r.OwnerID, r.ChannelID, "third-code", expired.Add(time.Hour)); !errors.Is(err, ErrStandardsApprovalRequired) {
-		t.Fatalf("consumed gate rotated: %v", err)
 	}
 }

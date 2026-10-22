@@ -67,13 +67,12 @@ func (r *MCPRuntime) Validate() error {
 }
 
 type preparedMCP struct {
-	standardsGuidance string
-	runtime           *MCPRuntime
-	service           *AgentResultService
-	guard             *AttemptGuard
-	broker            *submission.Broker
-	resultBroker      *submission.Broker
-	activity          *ActivityService
+	runtime      *MCPRuntime
+	service      *AgentResultService
+	guard        *AttemptGuard
+	broker       *submission.Broker
+	resultBroker *submission.Broker
+	activity     *ActivityService
 }
 
 func (p *preparedMCP) close(ctx context.Context) error {
@@ -97,7 +96,6 @@ func (p *preparedMCP) closeTransports(ctx context.Context) error {
 func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (result *agent.RunResult, err error) {
 	runtime := prep.mcpRuntime
 	if runtime == nil {
-		req.Prompt += refreshStandardsGuidance(ctx, prep, "")
 		return runPreparedProvider(ctx, prep, req)
 	}
 	supported, ok := prep.runner.(interface{ SupportsMCP() bool })
@@ -111,11 +109,6 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	// Legacy/unmanaged engineering has no checkpoint owner. It must retain the
 	// legacy tool behavior rather than inventing managed story identities.
 	if (req.Mode == "implement" || req.Mode == "validate" || (req.Mode == "plan" && prep.planSubmission != nil)) && session == nil {
-		standardsGuidance := refreshStandardsGuidance(ctx, prep, "")
-		req.Prompt += standardsGuidance
-		if standardsGuidance != "" {
-			req.Prompt += standardsDeliveryGuidance(nil)
-		}
 		req.Prompt += "\nCompatibility route: this unmanaged or submission-v1 scope retains its existing frozen workflow and required output. Use the supported owner story-contract upgrade/admission flow before adopting shared completion; this launch does not implicitly upgrade persisted versions.\n"
 		return runPreparedProvider(ctx, prep, req)
 	}
@@ -131,14 +124,6 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	if err != nil {
 		return nil, fmt.Errorf("prepare MCP guidance: %w", err)
 	}
-	req.Prompt += p.standardsGuidance
-	if p.standardsGuidance != "" {
-		var tools []string
-		if req.MCPLaunch != nil {
-			tools = req.MCPLaunch.PermittedTools()
-		}
-		req.Prompt += standardsDeliveryGuidance(tools)
-	}
 	req.Prompt += guidance
 	if err := p.bindFinalRoute(ctx, &req, session); err != nil {
 		return nil, err
@@ -148,7 +133,7 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 }
 
 // runPreparedProvider records the exact prompt sent to the provider, including
-// per-attempt standards guidance and the cold-fallback path.
+// the cold-fallback path.
 func runPreparedProvider(ctx context.Context, prep *preparation, req agent.Request) (*agent.RunResult, error) {
 	prep.request.Prompt = req.Prompt
 	prep.prompt = req.Prompt
@@ -156,7 +141,7 @@ func runPreparedProvider(ctx context.Context, prep *preparation, req agent.Reque
 }
 
 func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (*preparedMCP, *agent.MCPLaunchSpec, error) {
-	return prepareMCPWith(ctx, prep, req, session, nil)
+	return prepareMCPWith(ctx, prep, req, session, nil, false)
 }
 
 // resultOverride replaces the generic trusted resolver and grants of one launch
@@ -178,7 +163,7 @@ type resultOverride struct {
 	Attempt string
 }
 
-func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession, override *resultOverride) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
+func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession, override *resultOverride, standardsRead bool) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
 	runtime := prep.mcpRuntime
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -294,7 +279,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	if err != nil {
 		return nil, nil, err
 	}
-	p := &preparedMCP{runtime: runtime, service: service, standardsGuidance: refreshStandardsGuidance(ctx, prep, attempt)}
+	p := &preparedMCP{runtime: runtime, service: service}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, p.close(context.WithoutCancel(ctx)))
@@ -358,21 +343,17 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		return nil, nil, err
 	}
 	families := FamilyDispatcherOptions{Service: service, Receipts: receipts, Feedback: feedback, Evidence: evidence, WithoutEvidence: withoutEvidence}
-	root, consumer := prep.standardsRoot, prep.standardsConsumer
-	if root == "" {
-		root = fmt.Sprint(prep.run.ID)
-	}
-	if consumer == "" {
-		consumer = standardsSessionConsumerKey(prep.session.ID, req.Mode, "")
+	// Only a role whose graph node grants it may read the standards book. The
+	// tools are optional: nothing in the prompt or the result route asks for them.
+	if standardsRead && !runtime.DisableMCP {
+		consumer := standardsSessionConsumerKey(prep.session.ID, req.Mode, "")
 		if req.Graph != nil {
 			consumer = standardsSessionConsumerKey(prep.session.ID, req.Mode, req.Graph.Node)
 		}
-	}
-	standardsService, standardsErr := NewStandardsToolService(&standards.Runtime{Store: o.DB, RootRunID: root, ConsumerKey: consumer, AttemptID: attempt}, service.Binding())
-	if standardsErr != nil {
-		return nil, nil, standardsErr
-	}
-	if !runtime.DisableMCP {
+		standardsService, err := NewStandardsToolService(&standards.Runtime{Store: o.DB, RootRunID: fmt.Sprint(prep.run.ID), ConsumerKey: consumer, AttemptID: attempt}, service.Binding())
+		if err != nil {
+			return nil, nil, err
+		}
 		families.Registrations = append(families.Registrations, standardsService.Registrations()...)
 	}
 

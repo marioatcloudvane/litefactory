@@ -285,18 +285,7 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 	if !strings.Contains(reviewText, "Run relevant package checks before sharing changes.") {
 		t.Fatalf("complete review body absent: %s", reviewText)
 	}
-	// The approval code is a deterministic host prompt, never provider output.
-	marker := "approve standards "
-	index := strings.LastIndex(reviewText, marker)
-	if index < 0 {
-		t.Fatalf("exact approval challenge absent: %s", reviewText)
-	}
-	fields := strings.Fields(reviewText[index+len(marker):])
-	if len(fields) == 0 {
-		t.Fatal("approval challenge has no code")
-	}
-	code := strings.Trim(fields[0], "`.*\"'")
-	say(marker + code)
+	change("standards-proposal", "approve", fmt.Sprintf("Approve proposal %s version %d with digest %s.", proposal.ProposalID, proposal.Version, proposal.ChangeDigest), map[string]string{"id": proposal.ProposalID, "version": fmt.Sprint(proposal.Version), "digest": proposal.ChangeDigest})
 	reviewed, err := book.Inspect(ctx, proposal.ProposalID, proposal.Version)
 	if err != nil {
 		t.Fatal(err)

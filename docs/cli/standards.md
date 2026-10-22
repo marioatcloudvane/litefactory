@@ -86,26 +86,16 @@ The existing explicit forget operation removes them together with the forgotten
 runs, so a later reused run identity cannot inherit old guidance. It leaves the
 shared published book intact.
 
-Before substantive work, agents use `standards_categories_list` to discover the
-retained categories, `standards_select` to record relevant category IDs and a
-short reason, and `standards_read` to retrieve the selected standards. Category
-choice is an agent assertion; it grants no permissions. An explicit empty choice
-is valid and differs from unavailable guidance or no selection. Additions retain
-previous choices and use the expected version returned by the service. On a lost
-reply, recover the retained selection reference and reread the same revision.
-Damaged retained selections have a separate corruption status. Tools refuse to
-read or extend them and never replace their book.
-
-One owner request and its graph, fallback and automatic recovery launches share
-one immutable book. A coordinator that starts work mechanically before any agent
-run uses its immutable graph launch as the invocation anchor (shown as a negative
-invocation ID). Factory-launched story workers inherit that anchor across their
-separate sessions; each work item keeps its own selection. A new owner
-request binds anew and supersedes standards from the prior conversation context.
-On resume, agents restore selections and reread bodies from the retained book.
-Unavailable, corrupt, unsupported or oversized books remain explicit while work
-continues under existing controls; failures never mean an empty book. Disabled
-MCP is reported as unavailable delivery, without enabling tools.
+Ordinary runs get no standards tools and no standards instructions. Book access
+is opt-in per role and declared in the workflow DOT: a node attribute
+`lf_standards="<role>[,<role>]"` names the roles that may read the book. The
+canonical teams grant it to the Implement story worker, the Plan technical role
+and the Validate architecture reviewer only. Those roles get the read-only tools
+`standards_categories_list`, `standards_select` and `standards_read` and may
+consult them; nothing requires a call, and there is no completion gate. The run's
+book is pinned on its first standards call, so later calls in the same run read
+the same revision. An empty or unavailable book shows in the tool reply and the
+work simply continues.
 
 Category pages default to 25 entries and permit at most 100. Results are bounded
 to 32 KiB including both MCP content copies; follow explicit cursors until

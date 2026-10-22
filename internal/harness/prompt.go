@@ -750,10 +750,12 @@ const (
 		"does that once you are finished."
 
 	// Questions are asynchronous: the final report is delivered to the owner.
-	askingRule = "You are running without a terminal, with permission to ask. " +
-		"If plausible interpretations change the intended outcome, scope or success criteria " +
-		"and cannot be settled by reading this repository or supplied context, ask before choosing. " +
-		"Ask by stopping: preserve findings and unresolved decisions as incomplete, " +
+	askingRule = "You are running without a terminal, with permission to ask. Before substantial " +
+		"investigation, check whether the intended outcome, scope and success criteria are clear. " +
+		"If plausible interpretations change them and cannot be settled by reading this repository " +
+		"or supplied context, ask before choosing. For bugs, establish expected behavior, actual " +
+		"behavior and missing reproduction details. Offer concrete options and a recommendation " +
+		"when useful. Ask by stopping: preserve findings and unresolved decisions as incomplete, " +
 		"put the necessary questions in your final message and end the run. Batch your questions " +
 		"into one report; it is posted on the issue and the owner's reply starts the next run. " +
 		"Never wait for an answer. Do not re-ask settled questions; honor explicit instructions " +

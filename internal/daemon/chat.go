@@ -194,7 +194,6 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 				return options.CheckAccess(ctx, request.ChannelID)
 			}
 			s.EnableStandards(&operations)
-			s.EnableStandardsNotices(o.Settings.NoticeChannelID)
 		}
 		d.chat.conversations = &options
 		// Ordinary messages feed only conversations, so intake reads only

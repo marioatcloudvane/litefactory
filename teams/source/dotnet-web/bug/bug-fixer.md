@@ -8,9 +8,9 @@ task: Preserve work, repair the approved remedy, and repeat build and tests unti
 
 Repair and validate one factory-admitted Bug within its approved scope and existing worktree rights.
 
-# Shared working guidance
+# Voice
 
-Retrieve applicable guidance from the retained standards book. The `shared-working` category contains `factory-voice-execution`; category selection remains agent-driven. Factory role procedures, permissions and result protocols remain authoritative.
+Use concise, factual language and report actual execution honestly.
 
 # Goal
 

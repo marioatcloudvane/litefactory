@@ -135,6 +135,9 @@ func validateNode(node Node, mode agent.Workflow, registry Registry) []error {
 	if err := validateInvokeAttrs(node.Attrs); err != nil {
 		faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
 	}
+	if err := validateStandardsAttr(node); err != nil {
+		faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
+	}
 	if node.Terminal {
 		if node.Action != "" || len(node.Outcomes) != 0 {
 			faults = append(faults, fmt.Errorf("terminal node %q must not have action or outcomes", node.Name))
