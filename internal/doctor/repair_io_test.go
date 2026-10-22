@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -289,5 +292,137 @@ func TestDoctorApplyRetainsRestartUncertaintyWithoutReplay(t *testing.T) {
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != "corrected issue notes\n" {
 		t.Fatal("repair data lost", err)
+	}
+}
+
+// refusingConsumeEffects refuses consume_comment with the given error.
+type refusingConsumeEffects struct{ err error }
+
+func (e refusingConsumeEffects) Execute(_ context.Context, _ naming.Ref, _ store.DoctorRepair, step store.DoctorRepairStep, _ string) (store.DoctorRepairStep, error) {
+	return step, e.err
+}
+func (refusingConsumeEffects) Verify(context.Context, naming.Ref, store.DoctorRepairStep) error {
+	return nil
+}
+
+type cancelledConsumeRunner struct{}
+
+func (cancelledConsumeRunner) IsolationEvidence(context.Context, string) (string, error) {
+	return "scoped-only", nil
+}
+func (cancelledConsumeRunner) RunRepair(ctx context.Context, _ Invocation, tools *RepairTools, _ *ResultService) (InvocationOutcome, error) {
+	_, err := tools.ApplyTyped(ctx, 1, "consume_comment")
+	if ctx.Err() != nil {
+		return InvocationOutcome{}, ctx.Err()
+	}
+	return InvocationOutcome{}, err
+}
+
+// C4, C5: a refused consume_comment step keeps a fixed, step-specific reason
+// with the next action; the attempt records the same reason, and only the log
+// carries the redacted cause.
+func TestConsumeRefusalRetainsStepCategoryAndLogsCause(t *testing.T) {
+	cases := []struct {
+		name, category string
+		err            error
+	}{
+		{"reply not posted", "doctor reply could not be posted", fmt.Errorf("%w: %w", ErrRepairReplyNotPosted, errors.New("POST 503 doctor-secret-canary-001"))},
+		{"fenced claim", "repair state changed since approval", store.ErrDoctorFenced},
+		{"watermark drift", "inputs drifted: comment watermark changed", fmt.Errorf("%w: %w", ErrRepairCommentDrifted, errors.New("drift"))},
+		{"uncertain replay", "doctor reply outcome uncertain; refusing replay", ErrRepairReplyUncertain},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := doctorIOService(t)
+			var logs strings.Builder
+			s.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+			ctx := t.Context()
+			repo, err := s.DB.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := s.DB.GetOrCreateSession(ctx, repo, 686)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err = s.DB.BootstrapWatermark(ctx, session.ID, 10); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = s.DB.RecordComment(ctx, store.Comment{SessionID: session.ID, ForgeCommentID: 11, AuthorHandle: "owner", AuthorUserID: 7, Body: "repair", CreatedAt: time.Now(), Classification: store.ClassificationInstruction}); err != nil {
+				t.Fatal(err)
+			}
+			ref, err := naming.ParseRef(session.TaskRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			evidence, err := s.DB.ReadDoctorEvidence(ctx, ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			conversation, err := s.DB.BeginDoctorAttempt(ctx, ref.String(), store.DoctorAttempt{ID: "consume-proposer", SourceID: "consume-source", OwnerText: "Diagnose", PromptVersion: PromptVersion, GuideVersion: GuideVersion})
+			if err != nil {
+				t.Fatal(err)
+			}
+			captured, err := json.Marshal(evidence)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = s.DB.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "consume-proposer", Provider: "claude", ConfiguredModel: "fixture", Evidence: string(captured)}); err != nil {
+				t.Fatal(err)
+			}
+			results, err := BindResults(ctx, s.DB, "consume-proposer", evidence, s.Redactor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "Comment is stuck.", Uncertainty: "Local rows only.", Evidence: []string{"comment:11"}}}, Proposal: []RepairStep{{Number: 1, Target: "comment:11", Precondition: "Watermark 10", Change: "Consume comment 11", Reason: "Unblock the task", Reversibility: "Backed up watermark", Rollback: "Restore watermark", Action: &store.DoctorRepairAction{Kind: "consume_comment", Before: "10", After: "11"}}}}}
+			retainLegacyRepairDiagnosis(t, results, "consume-proposal", input)
+			pid, _, err := s.DB.DoctorProposalReference(ctx, conversation.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = s.DB.PresentDoctorProposal(ctx, ref.String(), "consume-presentation", pid); err != nil {
+				t.Fatal(err)
+			}
+			s.RepairEffects = refusingConsumeEffects{err: c.err}
+			s.RepairRunner = cancelledConsumeRunner{}
+			s.RepairEnvironment = repairFixtureEnvironment{}
+			want := "step 1 consume_comment: " + c.category + ". Run /doctor check to re-diagnose against the current state before approving another repair."
+			if _, err = s.Apply(ctx, ApplyRequest{Target: ref, SourceID: "consume-apply", Principal: "local-owner", PresentationID: "consume-presentation"}); err == nil {
+				t.Fatal("refused consume accepted")
+			}
+			saved, err := s.DB.ReadDoctorRepair(ctx, ref.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if saved.State != "failed" || saved.Failure != want {
+				t.Fatalf("repair %s failure %q, want %q", saved.State, saved.Failure, want)
+			}
+			if body := RenderConversation(Conversation{Repair: &saved}); !strings.Contains(body, "Unresolved: "+want) {
+				t.Fatalf("owner reply lacks the reason: %s", body)
+			}
+			attempts, err := s.DB.DoctorAttempts(ctx, conversation.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, attempt := range attempts {
+				if attempt.SourceID == "repair:"+saved.ID {
+					found = true
+					if attempt.Failure != want {
+						t.Fatalf("attempt reason %q, want %q", attempt.Failure, want)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("repair attempt missing")
+			}
+			logged := logs.String()
+			if !strings.Contains(logged, "doctor repair step refused") || !strings.Contains(logged, "repair_id="+saved.ID) || !strings.Contains(logged, "step=1") || !strings.Contains(logged, "kind=consume_comment") || strings.Contains(logged, "doctor-secret-canary-001") {
+				t.Fatalf("refusal log: %s", logged)
+			}
+			if c.name == "reply not posted" && !strings.Contains(logged, "POST 503") {
+				t.Fatalf("refusal log lacks the redacted cause: %s", logged)
+			}
+		})
 	}
 }

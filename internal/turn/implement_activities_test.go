@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
@@ -135,6 +137,56 @@ type implementFixture struct {
 	auth     ImplementAuthority
 	lockDir  string
 	bindings ImplementBindings
+	logs     *implementLogCapture
+}
+
+// implementLogCapture records the log records an activity writes.
+type implementLogCapture struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (c *implementLogCapture) Enabled(context.Context, slog.Level) bool { return true }
+func (c *implementLogCapture) Handle(_ context.Context, r slog.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.records = append(c.records, r.Clone())
+	return nil
+}
+func (c *implementLogCapture) WithAttrs([]slog.Attr) slog.Handler { return c }
+func (c *implementLogCapture) WithGroup(string) slog.Handler      { return c }
+
+// warnings returns each WARN record's message and attributes.
+func (c *implementLogCapture) warnings() []map[string]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []map[string]string
+	for _, r := range c.records {
+		if r.Level != slog.LevelWarn {
+			continue
+		}
+		attrs := map[string]string{"msg": r.Message}
+		r.Attrs(func(a slog.Attr) bool {
+			attrs[a.Key] = a.Value.String()
+			return true
+		})
+		out = append(out, attrs)
+	}
+	return out
+}
+
+// onePark asserts exactly one merge-park WARN record for story and returns it.
+func (c *implementLogCapture) onePark(t *testing.T, story, branch string) map[string]string {
+	t.Helper()
+	warnings := c.warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("want one WARN record, got %v", warnings)
+	}
+	w := warnings[0]
+	if w["msg"] != "implement story parked at merge" || w["story"] != story || w["integration_branch"] != branch || w["reason"] == "" {
+		t.Fatalf("park log = %v", w)
+	}
+	return w
 }
 
 func newImplementFixture(t *testing.T, stories ...ImplementStory) *implementFixture {
@@ -147,7 +199,7 @@ func newImplementFixture(t *testing.T, stories ...ImplementStory) *implementFixt
 	if err := db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	f := &implementFixture{t: t, db: db, forge: &implementForgeFake{}, repo: &implementRepoFake{merged: true, path: t.TempDir()}, lockDir: t.TempDir()}
+	f := &implementFixture{t: t, db: db, forge: &implementForgeFake{}, repo: &implementRepoFake{merged: true, path: t.TempDir()}, lockDir: t.TempDir(), logs: &implementLogCapture{}}
 	f.auth = ImplementAuthority{Parent: implementParent, Generation: 1, Stories: stories, IntegrationBranch: "lf/1-feature"}
 	f.bindings = ImplementBindings{
 		DB: db, Forge: f.forge, Redactor: redact.New(redact.Options{Environ: []string{}}), LockDir: f.lockDir, Repo: f.repo,
@@ -183,7 +235,7 @@ func (f *implementFixture) ready() (ActivityResult, implementReadyOutput) {
 
 func (f *implementFixture) merge() (ActivityResult, implementMergeOutput, error) {
 	f.t.Helper()
-	res, err := ImplementMergeActivity{f.bindings}.Execute(f.t.Context(), Options{}, f.req())
+	res, err := ImplementMergeActivity{f.bindings}.Execute(f.t.Context(), Options{Logger: slog.New(f.logs)}, f.req())
 	var out implementMergeOutput
 	if err == nil {
 		if e := json.Unmarshal(res.Output, &out); e != nil {
@@ -417,8 +469,114 @@ func TestImplementMergeParksWithAPlainReason(t *testing.T) {
 			if len(f.repo.pushes) != 0 || f.forge.posts != 0 || f.repo.closed != 1 {
 				t.Fatalf("a parked story must not push or post: pushes=%v posts=%d closed=%d", f.repo.pushes, f.forge.posts, f.repo.closed)
 			}
+			if w := f.logs.onePark(t, "story-001", "lf/1-feature"); w["reason"] != out.Reason {
+				t.Fatalf("logged reason %q, want %q", w["reason"], out.Reason)
+			}
 		})
 	}
+}
+
+// A conflict without collected paths keeps the generic reason, and the story
+// still goes back to its worker.
+func TestImplementMergeConflictWithoutPathsKeepsTheGenericReason(t *testing.T) {
+	f := newImplementFixture(t, implementStories(1, nil)...)
+	f.ready()
+	f.drive("story-001", store.ImplementDone, implementClock)
+	f.repo.mergeErr = fmt.Errorf("x: %w", git.ErrMergeConflict)
+	res, out, err := f.merge()
+	const generic = "the story conflicts with the work already merged; its worker is started again to resolve the conflict"
+	if err != nil || res.Outcome != "parked" || out.Reason != generic {
+		t.Fatalf("%s %+v %v", res.Outcome, out, err)
+	}
+	if row := f.row("story-001"); row.State != store.ImplementWaiting || row.GuidanceQuestion != generic {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestImplementConflictReasonIsBoundedByBytes(t *testing.T) {
+	long := func(n int, fill string) string { return strings.Repeat(fill, n) }
+	many := make([]string, 40)
+	for i := range many {
+		many[i] = fmt.Sprintf("%03d/%s", i, long(251, "a"))
+	}
+	multibyte := make([]string, 60)
+	for i := range multibyte {
+		multibyte[i] = fmt.Sprintf("%02d/%s", i, long(40, "ü€"))
+	}
+	cases := map[string]struct {
+		paths   []string
+		omitted int
+	}{
+		"many long paths":         {many, -1},
+		"one path over the limit": {[]string{long(5000, "x")}, 1},
+		"multibyte paths":         {multibyte, -1},
+		"short paths":             {[]string{"docs/cli/standards.md", "internal/cli/commands.go"}, 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			reason := implementConflictReason(tc.paths)
+			if len(reason) > implementReasonLimit || !utf8.ValidString(reason) {
+				t.Fatalf("reason is %d bytes (valid UTF-8 %t)", len(reason), utf8.ValidString(reason))
+			}
+			listed := 0
+			for _, p := range tc.paths {
+				if strings.Contains(reason, p) {
+					listed++
+				}
+			}
+			omitted := len(tc.paths) - listed
+			if tc.omitted >= 0 && omitted != tc.omitted {
+				t.Fatalf("omitted %d, want %d: %q", omitted, tc.omitted, reason)
+			}
+			if tc.omitted < 0 && (omitted == 0 || listed == 0) {
+				t.Fatalf("listed %d omitted %d: the bound should both list and omit", listed, omitted)
+			}
+			switch {
+			case omitted == 0:
+				if strings.Contains(reason, " more") {
+					t.Fatalf("unexpected suffix: %q", reason)
+				}
+			case listed == 0:
+				if !strings.Contains(reason, fmt.Sprintf(" in %d path", omitted)) {
+					t.Fatalf("suffix does not count %d paths: %q", omitted, reason)
+				}
+			default:
+				if !strings.Contains(reason, fmt.Sprintf(" and %d more;", omitted)) {
+					t.Fatalf("suffix does not count %d paths: %q", omitted, reason)
+				}
+			}
+			// No path is cut: whatever appears of a path appears whole.
+			for _, p := range tc.paths {
+				if !strings.Contains(reason, p) && len(p) > 20 && strings.Contains(reason, p[:20]) {
+					t.Fatalf("path %q was cut", p[:20])
+				}
+			}
+		})
+	}
+	if got := implementConflictReason(nil); got != "the story conflicts with the work already merged; its worker is started again to resolve the conflict" {
+		t.Fatalf("generic reason = %q", got)
+	}
+}
+
+// Very long conflicting paths still park and restart the story.
+func TestImplementMergeConflictWithLongPathsStillRestarts(t *testing.T) {
+	paths := make([]string, 30)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("%02d/%s", i, strings.Repeat("p", 252))
+	}
+	paths = append(paths, strings.Repeat("q", 5000))
+	f := newImplementFixture(t, implementStories(1, nil)...)
+	f.ready()
+	f.drive("story-001", store.ImplementDone, implementClock)
+	f.repo.mergeErr = &implementMergeConflict{err: fmt.Errorf("x: %w", git.ErrMergeConflict), paths: paths}
+	res, out, err := f.merge()
+	if err != nil || res.Outcome != "parked" || !strings.Contains(out.Reason, paths[0]) || len(out.Reason) > implementReasonLimit {
+		t.Fatalf("%s %d-byte reason, %v", res.Outcome, len(out.Reason), err)
+	}
+	if row := f.row("story-001"); row.State != store.ImplementWaiting || row.GuidanceQuestion != out.Reason {
+		t.Fatalf("row = %+v", row)
+	}
+	f.logs.onePark(t, "story-001", "lf/1-feature")
 }
 
 func TestImplementMergeNextDoneStoryGetsItsTurnAfterAPark(t *testing.T) {

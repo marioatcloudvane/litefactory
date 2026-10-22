@@ -26,8 +26,10 @@ import (
 // max_concurrent_runs turn workers. That setting is validated against
 // [MinConcurrentRuns]..[MaxConcurrentRuns] and refused, never clamped, outside
 // it (AC-PAR-6.1). Doctor adds one reserved diagnostic worker, independently
-// bounded and joined by the same Quiesce/shutdown mechanism. The ceiling is
-// twenty-one; doctor stop and discovery run on the existing tick goroutine.
+// bounded and joined by the same Quiesce/shutdown mechanism, and the Implement
+// coordinator lane adds one reserved bookkeeping worker, joined the same way.
+// The ceiling is twenty-two; doctor stop and discovery run on the existing tick
+// goroutine.
 //
 // Termination condition, as one named thing: [Daemon.Quiesce]. Every worker
 // ends on one of three bounded conditions — its comment list is exhausted, a
@@ -182,10 +184,14 @@ func (p *pool) quiesce(ctx context.Context) error {
 // Shutdown deliberately does not come through here: see [pool.wait] for why
 // that path must not take a context at all.
 func (d *Daemon) Quiesce(ctx context.Context) error {
-	if d.doctor.pool == nil {
-		return d.pool.quiesce(ctx)
+	err := d.pool.quiesce(ctx)
+	if d.doctor.pool != nil {
+		err = errors.Join(err, d.doctor.pool.quiesce(ctx))
 	}
-	return errors.Join(d.pool.quiesce(ctx), d.doctor.pool.quiesce(ctx))
+	if d.coordinator != nil {
+		err = errors.Join(err, d.coordinator.quiesce(ctx))
+	}
+	return err
 }
 
 // runSlots lends the daemon's run-slot pool to work a running turn starts by

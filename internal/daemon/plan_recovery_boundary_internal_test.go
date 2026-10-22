@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -353,5 +355,80 @@ func TestPlanRecoveryCandidateLessShell(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+// A busy parent story-progress lock seen by daemon recovery or Plan admission is
+// durable work for a later tick, not a failed turn (#997).
+func TestPlanRecoveryBusyParentDefers(t *testing.T) {
+	f := newPublicationIO(t)
+	ctx := t.Context()
+	ref, err := naming.ParseRef(f.session.TaskRef)
+	publicationMust(t, err)
+	state := planbrief.PlanState{SharedRevision: "shared"}
+	rev, _, err := state.ProposeStorySet([]planbrief.PlanStorySetEntry{{ID: "one", Name: "First", Intent: "First story"}, {ID: "two", Name: "Second", Intent: "Second story"}})
+	publicationMust(t, err)
+	_, err = state.PromoteStorySet(rev)
+	publicationMust(t, err)
+	_, err = f.db.SavePlanWorkflowState(ctx, ref.String(), 0, state)
+	publicationMust(t, err)
+	for _, key := range []string{"story-001", "story-002"} {
+		_, err = f.db.ReservePlanStory(ctx, ref.String(), key)
+		publicationMust(t, err)
+	}
+	_, err = f.db.AdmitPlanWorkflowPath(ctx, f.session.ID, "graph")
+	publicationMust(t, err)
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		http.Error(w, "unexpected request", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	client, err := github.New(github.Options{APIBase: srv.URL + "/", HTTPClient: srv.Client(), Token: secrets.NewToken("fixture")})
+	publicationMust(t, err)
+	f.d.forge = client
+	lockDir := f.runtime.Paths.StoryProgressLocksDir()
+	publicationMust(t, os.MkdirAll(lockDir, 0700))
+	release, err := f.db.LockStoryProgress(ctx, ref.String(), lockDir)
+	publicationMust(t, err)
+	defer func() { publicationMust(t, release()) }()
+	newTask := func() *task {
+		return &task{ref: ref, session: f.session, issue: github.Issue{ID: 2780, Number: 278, State: "open"}, forgeRepo: github.RepoFromRef(ref), log: f.d.log, worker: &workerState{}}
+	}
+
+	work := newTask()
+	err = f.d.recoverPlanStories(ctx, work)
+	if !errors.Is(err, store.ErrStoryProgressBusy) || requests != 0 {
+		t.Fatalf("shell recovery under a busy parent: err=%v requests=%d", err, requests)
+	}
+	f.d.stopped(ctx, work, "could not reconcile Plan stories", err)
+	if work.worker.status != workerDeferred || work.prepareFailureRecorded || f.d.prepFailures.items[f.session.ID].Attempts != 0 {
+		t.Fatalf("busy parent counted as failure: status=%v recorded=%v failures=%+v", work.worker.status, work.prepareFailureRecorded, f.d.prepFailures.items[f.session.ID])
+	}
+
+	admission := fmt.Errorf("admit plan execution: %w", err)
+	owner := newTask()
+	owner.commentUnderWay = 5001
+	if got := f.d.leave(ctx, owner, f.d.log, "could not prepare Plan", admission); got != nil {
+		t.Fatalf("owner comment leave=%v", got)
+	}
+	if owner.worker.status != workerDeferred || owner.prepareFailureRecorded || f.d.prepFailures.items[f.session.ID].Attempts != 0 {
+		t.Fatalf("busy Plan admission counted as failure: status=%v failures=%+v", owner.worker.status, f.d.prepFailures.items[f.session.ID])
+	}
+	graph := newTask()
+	graph.commentUnderWay = store.GraphDispatch{ID: 9}.TriggerID()
+	// A graph dispatch still sees the cause, so it is requeued for a later tick.
+	if got := f.d.leave(ctx, graph, f.d.log, "could not prepare Plan", admission); !errors.Is(got, store.ErrStoryProgressBusy) {
+		t.Fatalf("graph dispatch leave=%v", got)
+	}
+	if graph.worker.status != workerDeferred || f.d.prepFailures.items[f.session.ID].Attempts != 0 {
+		t.Fatalf("busy graph dispatch counted as failure: status=%v failures=%+v", graph.worker.status, f.d.prepFailures.items[f.session.ID])
+	}
+
+	// Any other error keeps today's failure accounting.
+	other := newTask()
+	f.d.stopped(ctx, other, "could not reconcile Plan stories", errors.New("transport unavailable"))
+	if other.worker.status != workerFailed || f.d.prepFailures.items[f.session.ID].Attempts != 1 {
+		t.Fatalf("ordinary failure not counted: status=%v failures=%+v", other.worker.status, f.d.prepFailures.items[f.session.ID])
 	}
 }

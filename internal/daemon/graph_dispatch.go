@@ -28,11 +28,22 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 	workerCtx := ctx
 	ctx, cancel := d.tickPhaseContext(ctx)
 	defer cancel()
-	pending, err := d.db.ListDueGraphDispatches(ctx, at.UTC(), graphDispatchLimit)
+	// Coordinator bookkeeping is selected on its own first, so story dispatches
+	// blocked on run capacity cannot keep it out of this tick's window.
+	coordinators, err := d.db.ListDueCoordinatorGraphDispatches(ctx, at.UTC(), graphDispatchLimit)
 	if err != nil {
 		return err
 	}
-	for _, dispatch := range pending {
+	general, err := d.db.ListDueGraphDispatches(ctx, at.UTC(), graphDispatchLimit)
+	if err != nil {
+		return err
+	}
+	seen := make(map[int64]bool, len(coordinators)+len(general))
+	for _, dispatch := range append(coordinators, general...) {
+		if seen[dispatch.ID] {
+			continue
+		}
+		seen[dispatch.ID] = true
 		ctx := sessionContext(ctx, dispatch.SessionID)
 		if d.bug != nil {
 			if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
@@ -90,14 +101,21 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			log.DebugContext(ctx, "graph step waits for this task's in-flight turn")
 			continue
 		}
-		if !d.pool.try() {
+		slot, deferral, err := d.graphStepSlot(ctx, dispatch)
+		if err != nil {
+			d.inflight.leave(session.ID)
+			return err
+		}
+		if slot == nil {
 			d.inflight.leave(session.ID)
 			result.Deferred++
+			log.InfoContext(ctx, "graph step deferred for capacity", slog.String("reason", deferral))
 			continue
 		}
+		t.slot = slot
 		reserved, ok, err := d.db.ReserveGraphDispatch(ctx, dispatch.ID, at.UTC())
 		if err != nil || !ok {
-			d.pool.done()
+			slot.done()
 			d.inflight.leave(session.ID)
 			if err != nil {
 				return err
@@ -110,6 +128,43 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		result.Dispatched++
 	}
 	return nil
+}
+
+// graphStepSlot takes the slot a due dispatch runs on, or reports why none was
+// free. Implement coordinator bookkeeping tries its reserved slot first and
+// falls back to the run pool; an agent stage, a step that cannot be classified,
+// and every other dispatch use the run pool only.
+func (d *Daemon) graphStepSlot(ctx context.Context, dispatch store.GraphDispatch) (*pool, string, error) {
+	if d.coordinator != nil {
+		coordinator, err := d.implementCoordinatorDispatch(ctx, dispatch)
+		if err != nil {
+			return nil, "", err
+		}
+		if coordinator && !d.graphStepRunsAgent(ctx, dispatch) {
+			if d.coordinator.try() {
+				return d.coordinator, "", nil
+			}
+			if d.pool.try() {
+				return d.pool, "", nil
+			}
+			return nil, "reserved coordinator slot and run pool full", nil
+		}
+	}
+	if d.pool.try() {
+		return d.pool, "", nil
+	}
+	return nil, "run pool full", nil
+}
+
+// graphStepRunsAgent classifies a dispatch by its node in the retained graph. A
+// step that cannot be classified counts as an agent step.
+func (d *Daemon) graphStepRunsAgent(ctx context.Context, dispatch store.GraphDispatch) bool {
+	runsAgent, err := turn.GraphDispatchRunsAgent(ctx, d.db, dispatch)
+	if err != nil {
+		d.log.DebugContext(ctx, "graph step not classified; treating it as an agent step", slog.Int64("graph_dispatch_id", dispatch.ID), slog.Any("error", err))
+		return true
+	}
+	return runsAgent
 }
 
 // graphChainLimit bounds how many owed stages one worker runs back to back.
@@ -142,6 +197,11 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 				t.recordWorkerError(err)
 				t.log.ErrorContext(ctx, "read the owed graph stage", slog.Any("error", err))
 			}
+			return
+		}
+		// The reserved coordinator slot carries bookkeeping only; an agent
+		// stage is left to the tick, which starts it on the run pool.
+		if t.slot != nil && t.slot == d.coordinator && d.graphStepRunsAgent(ctx, dispatch) {
 			return
 		}
 		session, err := d.db.GetSession(ctx, dispatch.SessionID)

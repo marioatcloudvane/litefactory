@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -673,5 +674,61 @@ func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Coordinator dispatches are selected on their own: only due pending
+// dispatches of an Implement instance whose session is no story's worker,
+// oldest first and bounded by the limit.
+func TestListDueCoordinatorGraphDispatchesSelectsOnlyCoordinators(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db := newTestDB(t)
+	now := graphTestTime().Add(time.Hour)
+	implement := graphTestDefinition(t, db)
+	research, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "core", Mode: "research", ProfileVersion: 1, Path: "core/research.dot", Digest: strings.Repeat("b", 64), CreatedAt: graphTestTime()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	park := func(issue int, definition GraphDefinition, due time.Time) GraphDispatch {
+		t.Helper()
+		s := testSession(t, db, issue)
+		i, err := db.CreateGraphInstance(ctx, GraphInstance{SessionID: s.ID, DefinitionID: definition.ID, CurrentNode: "work", StartedAt: graphTestTime(), NextDueAt: graphTestTime()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := db.ParkGraphInstance(ctx, i.ID, "work", due, graphTestTime())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	worker := park(1, implement, graphTestTime())
+	if err := db.EnsureImplementStories(ctx, "github:o/r#1", 1, []ImplementStorySeed{{Key: "one", Branch: "lf/one"}}, implementT0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := move(t, db, "one", ImplementWaiting, ImplementRunning, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetImplementWorkerSession(ctx, "github:o/r#1", 1, "one", worker.SessionID, implementT0); err != nil {
+		t.Fatal(err)
+	}
+	park(2, research, graphTestTime())
+	later := park(3, implement, graphTestTime().Add(2*time.Minute))
+	older := park(4, implement, graphTestTime().Add(time.Minute))
+	park(5, implement, now.Add(time.Minute))
+
+	got, err := db.ListDueCoordinatorGraphDispatches(ctx, now, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != older.ID || got[1].ID != later.ID {
+		t.Fatalf("want coordinators [%d %d] oldest first, got %+v", older.ID, later.ID, got)
+	}
+	if got, err = db.ListDueCoordinatorGraphDispatches(ctx, now, 1); err != nil || len(got) != 1 || got[0].ID != older.ID {
+		t.Fatalf("limit bounds the selection: %+v %v", got, err)
+	}
+	if _, err = db.ListDueCoordinatorGraphDispatches(ctx, now, 0); !errors.Is(err, ErrGraphInvariant) {
+		t.Fatalf("a non-positive limit is refused: %v", err)
 	}
 }
