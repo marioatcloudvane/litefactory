@@ -20,7 +20,7 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 	}
 	r, err := s.db.ClaimConversationReply(ctx, s.transport, at)
 	if errors.Is(err, store.ErrNotFound) {
-		return s.StandardsNoticeStep(ctx, at)
+		return false, nil
 	}
 	if err != nil {
 		return false, err
