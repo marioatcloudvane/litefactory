@@ -1229,6 +1229,251 @@
       "checksum": "41d5763de16544cbc8cb73c393d6ecfc7d39018b1080f90bb8fc3520ea9b9197"
     },
     {
+      "name": "Go development",
+      "slug": "go-development",
+      "version": "1.0.3",
+      "description": "Go development team: workflows and scoped litefactory rules for Go repositories.",
+      "tags": [
+        "go"
+      ],
+      "download": "go-development/v1.0.3",
+      "files": [
+        {
+          "path": "GENERATED.md",
+          "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
+        },
+        {
+          "path": "bug/bug-analyst.md",
+          "sha256": "004700ebf74cd9b517ab228ace3f0e3be6004d3e83b31bdd72db48dd22f7ed85"
+        },
+        {
+          "path": "bug/bug-fixer.md",
+          "sha256": "ee19091f2363ecbeddf50c6fa08e034846f0a3a12271c9453c6b8679f36afc4e"
+        },
+        {
+          "path": "bug/bug.dot",
+          "sha256": "d5a666c47c9990eb3fa9df1fc5935d2fcdfda76b37a170da2258806b93055901"
+        },
+        {
+          "path": "bug/skills/bug-analysis-result/SKILL.md",
+          "sha256": "ce8d92f5e7cc817daa4f018e2732a562deefed1cf1b7f699fac9be66dc39aabb"
+        },
+        {
+          "path": "bug/skills/bug-analysis-result/result.md",
+          "sha256": "c34f7d4ed59786fe4d9d431ce900db21eab45e4081c4c294f4ab74c52cb18030"
+        },
+        {
+          "path": "bug/skills/bug-repair-result/SKILL.md",
+          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
+        },
+        {
+          "path": "bug/skills/bug-repair-result/result.md",
+          "sha256": "3667e21870e11e1a4cf33990c34740e3e502405a05d84a33f09c771a98a1247d"
+        },
+        {
+          "path": "bug/skills/litefactory-rules/SKILL.md",
+          "sha256": "904cee1354a48b101e8a2b154a126a884bed2a881ee27a60177855210460c04c"
+        },
+        {
+          "path": "bug/skills/litefactory-rules/litefactory.md",
+          "sha256": "047b2d691218ac721cfc56fdf4f849571f0f7d91803570a4c5d80a6e64adde05"
+        },
+        {
+          "path": "implement/implement.dot",
+          "sha256": "80a765aa9d54585370a5ca3db164969e584c9c23148e2d90358cbcd0dd608264"
+        },
+        {
+          "path": "implement/skills/implement-result/SKILL.md",
+          "sha256": "dcc693c4fd7c41ad8d5f2152e128f7e2a8359c558903d1cc595b9afc68e3ae8c"
+        },
+        {
+          "path": "implement/skills/implement-result/node-result.md",
+          "sha256": "432f584ba11cb0ebd5d4fe1eee4447a3af16c3c827fa7b609f8a79dc1c6cc8e2"
+        },
+        {
+          "path": "implement/skills/litefactory-rules/SKILL.md",
+          "sha256": "904cee1354a48b101e8a2b154a126a884bed2a881ee27a60177855210460c04c"
+        },
+        {
+          "path": "implement/skills/litefactory-rules/litefactory.md",
+          "sha256": "047b2d691218ac721cfc56fdf4f849571f0f7d91803570a4c5d80a6e64adde05"
+        },
+        {
+          "path": "implement/story-worker.md",
+          "sha256": "0f8a1ecd9a18f369b7d068b410ec6bd76121aecdc66c7f52323bd46c379b575d"
+        },
+        {
+          "path": "implement/sync-resolver.md",
+          "sha256": "f5a645866991f9be75fc2613c9e42b251cf538d33225a4d7b0180ce086435f26"
+        },
+        {
+          "path": "plan/plan-acceptance.md",
+          "sha256": "157869b680e7adcecb053710a4c637fc5a385a61c4c8c8baea02ff06aee15926"
+        },
+        {
+          "path": "plan/plan-set.md",
+          "sha256": "8dd87ab6b9c96db282f7a0d79de6815ddb97c271f136e329f767557673722b3d"
+        },
+        {
+          "path": "plan/plan-story.md",
+          "sha256": "a1f17b29a90206961eb0e207c34a4f10953c5f7ed9d2edf8e45fb2bced96a47d"
+        },
+        {
+          "path": "plan/plan-technical.md",
+          "sha256": "97b8c1003c60966ae5aafc1f05303533625e4f4ae4cfb8393f849f6ba30487e3"
+        },
+        {
+          "path": "plan/plan.dot",
+          "sha256": "4d70266c2e15f07ed698347bd584e7a892a77ac22661b4d4dfd966dca4db59ca"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
+          "sha256": "bc0f3a3b32f4c4820d524abfe6175b79ada2afa98fe4b4971eecaa2ab5bae53d"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/implementation-engineer.md",
+          "sha256": "82a9498fcd00a08974f3c85e150c80eebdc1ef11fa530dbfad11c111048dff16"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/integration-test-engineer.md",
+          "sha256": "feb809e23fc66d804d3198697ee63ddcdcf46c659b75ae683acff1b30642a545"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/unit-test-engineer.md",
+          "sha256": "9e5fbf0df3756261f07e8a528dfb9e658a59e66ea99fecb3e0e199ae37637be6"
+        },
+        {
+          "path": "plan/skills/plan-agent-setup-guidance/SKILL.md",
+          "sha256": "c4b8ac1eff5fee2a0bb77e6a779f6936e5958abb0c77b0d2c6b22b80fed8a6b1"
+        },
+        {
+          "path": "plan/skills/plan-evidence/SKILL.md",
+          "sha256": "39866d68b32e5b998e735302c3af447336e5406f6d57430a10b881efbf85254d"
+        },
+        {
+          "path": "plan/skills/plan-evidence/node-result.md",
+          "sha256": "5c40550c3f9cfb914f45c0b69439e07851031a2839f0ecfbaa4dc938fdb1d286"
+        },
+        {
+          "path": "plan/skills/plan-evidence/projection.md",
+          "sha256": "ad35476da207ae35130d0a7265c71019975067b79ea130c8459a84cdb9e469d8"
+        },
+        {
+          "path": "plan/skills/plan-go-guidance/SKILL.md",
+          "sha256": "8c09e6609b9a2adae6f49cd448ed36a3dae9c2e4d4f83fccd55e7617085034e7"
+        },
+        {
+          "path": "plan/skills/plan-story-set/SKILL.md",
+          "sha256": "b8dab81a34dfff79f623a4f3587d16049050d7017b5d862406f62bbd6733a575"
+        },
+        {
+          "path": "plan/skills/plan-story-shaping/SKILL.md",
+          "sha256": "fe5fc8ac8d0fe5e116d4d221132f6cc1ca2a39b2b51d213e92dd2691bba8675d"
+        },
+        {
+          "path": "plan/skills/plan-technical-shaping/SKILL.md",
+          "sha256": "6f0da23fb08839576dab93f98e0cdb3748bcd62775a99c10c97c3450afc1feb4"
+        },
+        {
+          "path": "research/research.dot",
+          "sha256": "8580df52e259ce30ffbbd164923b7a9553114303933b73242eb0e0e978f7fe54"
+        },
+        {
+          "path": "research/research.md",
+          "sha256": "e7ba7e0a397f7e589e7e8b53072d54faa84368330c4b3fe6671bdb7a363165cf"
+        },
+        {
+          "path": "research/shaping.md",
+          "sha256": "fb93bee34d575995035968ff94239e4a131037fc89ee3eae1824a88695b0b625"
+        },
+        {
+          "path": "research/skills/research-evidence/SKILL.md",
+          "sha256": "bf90961a8b1e01df99039071d1baaa7552f8f17175073df8afd0382b17650ff9"
+        },
+        {
+          "path": "research/skills/research-evidence/evidence.md",
+          "sha256": "6a60ccc8c1dbdf69ee1988c5e850e383d4070637301fd8084449b8e05c57780f"
+        },
+        {
+          "path": "research/skills/research-evidence/node-result.md",
+          "sha256": "a6b148a4ad0c92e9e25350200fd90d3182d7de8c14e7398c0568fbda3b30bcac"
+        },
+        {
+          "path": "spike/skills/spike-result/SKILL.md",
+          "sha256": "e5bf45567a3e415e474b8178deafb6e0b678efa5e5ddbd778bb9f7a6a18c1ebd"
+        },
+        {
+          "path": "spike/skills/spike-result/node-result.md",
+          "sha256": "e2b842997e085e2bf2435cfe6a6393de4e5a56f44ce0c3e9fd0ed1bd67d7dcd8"
+        },
+        {
+          "path": "spike/spike-fixer.md",
+          "sha256": "92d9dad53af9cb17a0a74f320fa199a1dd8c3c4fd7dac5df553c34ef807c77a6"
+        },
+        {
+          "path": "spike/spike-investigator.md",
+          "sha256": "c90a6044f777a4f8eccdfbd41bfe2c7c22c77c1f6f95f2ff6b92336f1bb5e074"
+        },
+        {
+          "path": "spike/spike.dot",
+          "sha256": "388f3ee163354899d7c393ae1079065f1716f546bb933b8bbbcfbf35fc4c996f"
+        },
+        {
+          "path": "stack-profile.json",
+          "sha256": "628e6522bab5c36efc9060fd8bbc21b20c89cdeff1be840c7f125ec4d34435dd"
+        },
+        {
+          "path": "team.config",
+          "sha256": "b16c875d208c77742c72ea48caeaf42950b4fbb0b13fb62d93724b8ad48aec67"
+        },
+        {
+          "path": "validate/skills/litefactory-rules/SKILL.md",
+          "sha256": "904cee1354a48b101e8a2b154a126a884bed2a881ee27a60177855210460c04c"
+        },
+        {
+          "path": "validate/skills/litefactory-rules/litefactory.md",
+          "sha256": "047b2d691218ac721cfc56fdf4f849571f0f7d91803570a4c5d80a6e64adde05"
+        },
+        {
+          "path": "validate/skills/validate-repair-report/SKILL.md",
+          "sha256": "57c6cb0e7d6e26ff5dbb6f183a9dc30d02b5df57a1c58fc0607258f77b8acae8"
+        },
+        {
+          "path": "validate/skills/validate-repair-report/node-result.md",
+          "sha256": "c1fb75efe2885d4f4fb271b8a36c15a667536255f5ccf0cc2da2808f47c50f95"
+        },
+        {
+          "path": "validate/skills/validate-review/SKILL.md",
+          "sha256": "008b01ac5fbeacba0aea8bb9109cfb53755a810ccfee0e394800babaa78896dd"
+        },
+        {
+          "path": "validate/skills/validate-review/node-result.md",
+          "sha256": "77ba705ce46d89426979a68d1095bb108e1599b7643fb7fa7cdee81b383dd638"
+        },
+        {
+          "path": "validate/validate-acceptance.md",
+          "sha256": "23bfdc3d4c90d0431b7846aa53a649e86c5da2116cd910a2f4da9a4a077febf9"
+        },
+        {
+          "path": "validate/validate-architecture.md",
+          "sha256": "86747a9ad49c67bd8275427478c292b7c262e626cdcb5b91a7fc3051049d062e"
+        },
+        {
+          "path": "validate/validate-code.md",
+          "sha256": "d4ff26a2b278a7c7c045717f5b49f11187f420190f50c02ca8709d768ef82a03"
+        },
+        {
+          "path": "validate/validate-repair.md",
+          "sha256": "1828d4f96e585a27992dc3ac4baab13915ac7fd2fb2413eb88f29926bdff846c"
+        },
+        {
+          "path": "validate/validate.dot",
+          "sha256": "5d2aacdf8a92ec39c6b42c1b19ffadb565d3139b9345a0ecb521cf74332cbb4e"
+        }
+      ],
+      "checksum": "b44ed4e5c0b50982615807f18fbed406cec9ca131ae28502f6cb85a123c1ed03"
+    },
+    {
       "name": "Python FastAPI with React",
       "slug": "python-fastapi",
       "version": "1.0.0",
@@ -2058,6 +2303,291 @@
         }
       ],
       "checksum": "855257dd7126b007e8504c472860bfcc2bb0f249416c1e7295446fe97a4b45fd"
+    },
+    {
+      "name": "Python FastAPI with React",
+      "slug": "python-fastapi",
+      "version": "1.0.3",
+      "description": "Python FastAPI backend and React TypeScript Vite frontend with captured stack guidance and locked check recipes.",
+      "tags": [
+        "python",
+        "fastapi",
+        "react",
+        "typescript",
+        "vite"
+      ],
+      "download": "python-fastapi/v1.0.3",
+      "files": [
+        {
+          "path": "GENERATED.md",
+          "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
+        },
+        {
+          "path": "bug/bug-analyst.md",
+          "sha256": "004700ebf74cd9b517ab228ace3f0e3be6004d3e83b31bdd72db48dd22f7ed85"
+        },
+        {
+          "path": "bug/bug-fixer.md",
+          "sha256": "ee19091f2363ecbeddf50c6fa08e034846f0a3a12271c9453c6b8679f36afc4e"
+        },
+        {
+          "path": "bug/bug.dot",
+          "sha256": "01d0afc78a95e0e2cdab990841231286986360d2661b0c141d0cc17fd584f1f8"
+        },
+        {
+          "path": "bug/skills/bug-analysis-result/SKILL.md",
+          "sha256": "ce8d92f5e7cc817daa4f018e2732a562deefed1cf1b7f699fac9be66dc39aabb"
+        },
+        {
+          "path": "bug/skills/bug-analysis-result/result.md",
+          "sha256": "47e9509b22127a9755b4cc753b752a61fa462da110ce9f6f50cf8768143a3047"
+        },
+        {
+          "path": "bug/skills/bug-repair-result/SKILL.md",
+          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
+        },
+        {
+          "path": "bug/skills/bug-repair-result/result.md",
+          "sha256": "a90a1f9060e060be2637cc6e24caaa9b45adf958b1af240c1dff5fcbc7c1622f"
+        },
+        {
+          "path": "bug/skills/python-fastapi-stack/SKILL.md",
+          "sha256": "0f7399f23f50937bbd9fccfb9a123c80f311416eaf7109e05befd9bd3dd20931"
+        },
+        {
+          "path": "bug/skills/python-fastapi-stack/python-fastapi.md",
+          "sha256": "821aa210c7a54061c6c795e028368fc80ddb6490cd01f3d9e30bd7c95e8f5200"
+        },
+        {
+          "path": "bug/skills/python-fastapi-stack/react-typescript-vite.md",
+          "sha256": "bd63c2d6fce4232b224968ff0182cf862f2efd0c5cc60c5e17a21ebdb589e08b"
+        },
+        {
+          "path": "bug/skills/python-fastapi-stack/supported-versions.md",
+          "sha256": "a83288f4a670c3a03d3ff3e8b0e30647ebad4db8619f3cb094c166c792a944e0"
+        },
+        {
+          "path": "implement/implement.dot",
+          "sha256": "d5c78b146e0efd02acf291a6bf477ecd798a715a39c84aaa593f1904ac87d0c8"
+        },
+        {
+          "path": "implement/skills/implement-result/SKILL.md",
+          "sha256": "dcc693c4fd7c41ad8d5f2152e128f7e2a8359c558903d1cc595b9afc68e3ae8c"
+        },
+        {
+          "path": "implement/skills/implement-result/node-result.md",
+          "sha256": "432f584ba11cb0ebd5d4fe1eee4447a3af16c3c827fa7b609f8a79dc1c6cc8e2"
+        },
+        {
+          "path": "implement/skills/python-fastapi-stack/SKILL.md",
+          "sha256": "0f7399f23f50937bbd9fccfb9a123c80f311416eaf7109e05befd9bd3dd20931"
+        },
+        {
+          "path": "implement/skills/python-fastapi-stack/python-fastapi.md",
+          "sha256": "821aa210c7a54061c6c795e028368fc80ddb6490cd01f3d9e30bd7c95e8f5200"
+        },
+        {
+          "path": "implement/skills/python-fastapi-stack/react-typescript-vite.md",
+          "sha256": "bd63c2d6fce4232b224968ff0182cf862f2efd0c5cc60c5e17a21ebdb589e08b"
+        },
+        {
+          "path": "implement/skills/python-fastapi-stack/supported-versions.md",
+          "sha256": "a83288f4a670c3a03d3ff3e8b0e30647ebad4db8619f3cb094c166c792a944e0"
+        },
+        {
+          "path": "implement/story-worker.md",
+          "sha256": "91956f0fdc28f57542ae33e501d8ca696ea43f112ddb6f1c39b436412185800a"
+        },
+        {
+          "path": "implement/sync-resolver.md",
+          "sha256": "ea2fa9dd6e17f8ea6cd305999b75e9f9d9d0d4bbfa9b0134a0f2fe24c222050e"
+        },
+        {
+          "path": "plan/plan-acceptance.md",
+          "sha256": "157869b680e7adcecb053710a4c637fc5a385a61c4c8c8baea02ff06aee15926"
+        },
+        {
+          "path": "plan/plan-set.md",
+          "sha256": "80849327974d2e2297c5f6849f3394e95314089ef77df36400b5d1a45f5070c6"
+        },
+        {
+          "path": "plan/plan-story.md",
+          "sha256": "eb741fb8a72bfda2772eb17991118bc5c83160693ca42ebd278859428bb21ae2"
+        },
+        {
+          "path": "plan/plan-technical.md",
+          "sha256": "f3d283b11e245d7b77bb65655e56b4903bfb591c9410cdb23d0a2318bcf3fb6f"
+        },
+        {
+          "path": "plan/plan.dot",
+          "sha256": "a872196c16c5433cdef0e559ae86eca07f865806bf4465c5d9561cc2bd7028b9"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
+          "sha256": "bc0f3a3b32f4c4820d524abfe6175b79ada2afa98fe4b4971eecaa2ab5bae53d"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/implementation-engineer.md",
+          "sha256": "82a9498fcd00a08974f3c85e150c80eebdc1ef11fa530dbfad11c111048dff16"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/integration-test-engineer.md",
+          "sha256": "feb809e23fc66d804d3198697ee63ddcdcf46c659b75ae683acff1b30642a545"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/unit-test-engineer.md",
+          "sha256": "9e5fbf0df3756261f07e8a528dfb9e658a59e66ea99fecb3e0e199ae37637be6"
+        },
+        {
+          "path": "plan/skills/plan-agent-setup-guidance/SKILL.md",
+          "sha256": "c4b8ac1eff5fee2a0bb77e6a779f6936e5958abb0c77b0d2c6b22b80fed8a6b1"
+        },
+        {
+          "path": "plan/skills/plan-evidence/SKILL.md",
+          "sha256": "39866d68b32e5b998e735302c3af447336e5406f6d57430a10b881efbf85254d"
+        },
+        {
+          "path": "plan/skills/plan-evidence/node-result.md",
+          "sha256": "5c40550c3f9cfb914f45c0b69439e07851031a2839f0ecfbaa4dc938fdb1d286"
+        },
+        {
+          "path": "plan/skills/plan-evidence/projection.md",
+          "sha256": "ad35476da207ae35130d0a7265c71019975067b79ea130c8459a84cdb9e469d8"
+        },
+        {
+          "path": "plan/skills/plan-python-fastapi-guidance/SKILL.md",
+          "sha256": "f9e0ee12abf6ae7fa2838ad4918c188feee488d8b14492f9ee8686973c539b88"
+        },
+        {
+          "path": "plan/skills/plan-python-fastapi-guidance/backend.md",
+          "sha256": "821aa210c7a54061c6c795e028368fc80ddb6490cd01f3d9e30bd7c95e8f5200"
+        },
+        {
+          "path": "plan/skills/plan-python-fastapi-guidance/frontend.md",
+          "sha256": "bd63c2d6fce4232b224968ff0182cf862f2efd0c5cc60c5e17a21ebdb589e08b"
+        },
+        {
+          "path": "plan/skills/plan-python-fastapi-guidance/supported-versions.md",
+          "sha256": "a83288f4a670c3a03d3ff3e8b0e30647ebad4db8619f3cb094c166c792a944e0"
+        },
+        {
+          "path": "plan/skills/plan-story-set/SKILL.md",
+          "sha256": "b8dab81a34dfff79f623a4f3587d16049050d7017b5d862406f62bbd6733a575"
+        },
+        {
+          "path": "plan/skills/plan-story-shaping/SKILL.md",
+          "sha256": "fe5fc8ac8d0fe5e116d4d221132f6cc1ca2a39b2b51d213e92dd2691bba8675d"
+        },
+        {
+          "path": "plan/skills/plan-technical-shaping/SKILL.md",
+          "sha256": "6f0da23fb08839576dab93f98e0cdb3748bcd62775a99c10c97c3450afc1feb4"
+        },
+        {
+          "path": "research/research.dot",
+          "sha256": "d70410db904f1f467dfd618de9b299c92786cdde4d637688226d0b96e5f09ca2"
+        },
+        {
+          "path": "research/research.md",
+          "sha256": "3d61b234f92f807438f5ae6f51107c9d34530bab10dbd65e17e54da4e04c2b76"
+        },
+        {
+          "path": "research/shaping.md",
+          "sha256": "ccf210b768b2ec48e636ce4452164b112160f9844b936f508dc576485bce0b1f"
+        },
+        {
+          "path": "research/skills/research-evidence/SKILL.md",
+          "sha256": "bf90961a8b1e01df99039071d1baaa7552f8f17175073df8afd0382b17650ff9"
+        },
+        {
+          "path": "research/skills/research-evidence/evidence.md",
+          "sha256": "6a60ccc8c1dbdf69ee1988c5e850e383d4070637301fd8084449b8e05c57780f"
+        },
+        {
+          "path": "research/skills/research-evidence/node-result.md",
+          "sha256": "a6b148a4ad0c92e9e25350200fd90d3182d7de8c14e7398c0568fbda3b30bcac"
+        },
+        {
+          "path": "spike/skills/spike-result/SKILL.md",
+          "sha256": "e5bf45567a3e415e474b8178deafb6e0b678efa5e5ddbd778bb9f7a6a18c1ebd"
+        },
+        {
+          "path": "spike/skills/spike-result/node-result.md",
+          "sha256": "e2b842997e085e2bf2435cfe6a6393de4e5a56f44ce0c3e9fd0ed1bd67d7dcd8"
+        },
+        {
+          "path": "spike/spike-fixer.md",
+          "sha256": "28b2feaa00e7a2a0d35c1e7f8c1f57404c9efb6734c7c4e2fa4e89d93498738a"
+        },
+        {
+          "path": "spike/spike-investigator.md",
+          "sha256": "11a3259b8adaed270f81ac9a08c58f348f2c781e1a4713e81115f04b2efd7ad9"
+        },
+        {
+          "path": "spike/spike.dot",
+          "sha256": "71cf3cfdc6537265e1d9cb34409ae60b21f2646958a773126b367763e8f26bc4"
+        },
+        {
+          "path": "stack-profile.json",
+          "sha256": "d16830588ecf446ee3d607dd58f89ad471eaa63d90b04a4b168a313e9c166582"
+        },
+        {
+          "path": "team.config",
+          "sha256": "b16c875d208c77742c72ea48caeaf42950b4fbb0b13fb62d93724b8ad48aec67"
+        },
+        {
+          "path": "validate/skills/python-fastapi-stack/SKILL.md",
+          "sha256": "0f7399f23f50937bbd9fccfb9a123c80f311416eaf7109e05befd9bd3dd20931"
+        },
+        {
+          "path": "validate/skills/python-fastapi-stack/python-fastapi.md",
+          "sha256": "821aa210c7a54061c6c795e028368fc80ddb6490cd01f3d9e30bd7c95e8f5200"
+        },
+        {
+          "path": "validate/skills/python-fastapi-stack/react-typescript-vite.md",
+          "sha256": "bd63c2d6fce4232b224968ff0182cf862f2efd0c5cc60c5e17a21ebdb589e08b"
+        },
+        {
+          "path": "validate/skills/python-fastapi-stack/supported-versions.md",
+          "sha256": "a83288f4a670c3a03d3ff3e8b0e30647ebad4db8619f3cb094c166c792a944e0"
+        },
+        {
+          "path": "validate/skills/validate-repair-report/SKILL.md",
+          "sha256": "57c6cb0e7d6e26ff5dbb6f183a9dc30d02b5df57a1c58fc0607258f77b8acae8"
+        },
+        {
+          "path": "validate/skills/validate-repair-report/node-result.md",
+          "sha256": "11a0e21fc50639f2a20b954fcbff0c8bebc3c7da4abe4cc17b3e8fa74d593380"
+        },
+        {
+          "path": "validate/skills/validate-review/SKILL.md",
+          "sha256": "008b01ac5fbeacba0aea8bb9109cfb53755a810ccfee0e394800babaa78896dd"
+        },
+        {
+          "path": "validate/skills/validate-review/node-result.md",
+          "sha256": "77ba705ce46d89426979a68d1095bb108e1599b7643fb7fa7cdee81b383dd638"
+        },
+        {
+          "path": "validate/validate-acceptance.md",
+          "sha256": "f805597c063c01ce58853f93c2698f784627c03dd25f8e1078bfe02ae99e7e14"
+        },
+        {
+          "path": "validate/validate-architecture.md",
+          "sha256": "416c4d630983b291d031c7d8bbd090343b048fa8ccb16eaa9d3718bce2607452"
+        },
+        {
+          "path": "validate/validate-code.md",
+          "sha256": "c431d819f7801ddf862915b9cb4f29819fbfe6fb8e90810cc8e56aef5a9ca55f"
+        },
+        {
+          "path": "validate/validate-repair.md",
+          "sha256": "7ea54b28632ffaf461efeba98766bb1a2baafe033bb979e3827f60f40cb98144"
+        },
+        {
+          "path": "validate/validate.dot",
+          "sha256": "a89e807b4b695baf35e35dce0eea61d56fd60b8f168dbb81d120485c4035b8c3"
+        }
+      ],
+      "checksum": "a505dac52683a70314aedea0ffeebf890c6d86e8b6595351040ecd4ab89d2b28"
     },
     {
       "name": "Swift iOS",
