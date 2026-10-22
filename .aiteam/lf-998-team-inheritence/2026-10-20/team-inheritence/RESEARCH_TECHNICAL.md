@@ -47,3 +47,13 @@ Evidence:
 
 - `internal/teamsource/implement/story-worker.md`
 - `internal/teamsource/python-fastapi/implement/story-worker.md`
+
+## f6
+
+Go-only files today: the litefactory rules skill (identical 7-line entry and 99-line rules file in bug, implement and validate), one 12-line go plan guidance skill, and the stack profile.
+
+Evidence:
+
+- `internal/teamsource/implement/skills/litefactory-rules/litefactory.md`
+- `internal/teamsource/plan/skills/plan-go-guidance/SKILL.md`
+- `internal/teamsource/stack-profile.json`
