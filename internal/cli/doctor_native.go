@@ -22,6 +22,7 @@ import (
 // configureDoctorNative resolves installed provider transports only. Their
 // provider-owned isolation attestations still gate every diagnosis/repair launch.
 func configureDoctorNative(ctx context.Context, service *doctor.Service, env *Env) error {
+	service.BuildVersion = env.Version
 	executable, err := os.Executable()
 	if err != nil {
 		return err

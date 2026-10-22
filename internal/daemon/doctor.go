@@ -541,7 +541,7 @@ func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
 	var conversation doctor.Conversation
 	var runErr error
 	if c.Operation == "apply" {
-		operation, readErr := d.db.ReadDoctorRepair(ctx, c.TaskRef)
+		operation, readErr := d.db.DoctorCommandRepair(ctx, c.ID)
 		if readErr != nil {
 			return readErr
 		}
@@ -553,11 +553,12 @@ func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
 		if runErr == nil && operation.State == "restart_pending" {
 			_, runErr = d.doctor.service.DispatchRepairRestart(ctx, ref)
 		}
-		conversation, err = d.doctor.service.ReadConversation(context.WithoutCancel(ctx), ref)
-		runErr = errors.Join(runErr, err)
-	} else {
-		conversation, runErr = d.doctor.service.Diagnose(ctx, doctor.DiagnoseRequest{Target: ref, Instructions: c.Instructions, SourceID: c.SourceID()})
+		if errors.Is(runErr, store.ErrDoctorBusy) {
+			return d.db.RequeueDoctorBusy(context.WithoutCancel(ctx), c.ID)
+		}
+		return d.finishDoctorApply(context.WithoutCancel(ctx), c, runErr)
 	}
+	conversation, runErr = d.doctor.service.Diagnose(ctx, doctor.DiagnoseRequest{Target: ref, Instructions: c.Instructions, SourceID: c.SourceID()})
 	if errors.Is(runErr, store.ErrDoctorBusy) {
 		return d.db.RequeueDoctorBusy(context.WithoutCancel(ctx), c.ID)
 	}
@@ -610,18 +611,23 @@ func (d *Daemon) recoverDoctor(ctx context.Context) error {
 			continue
 		}
 		if c.Operation == "apply" {
-			// A writing invocation is never replayed after process loss.
-			if _, reconcileErr := d.doctor.service.ReconcileRepair(commandCtx, ref); reconcileErr != nil {
-				failures = append(failures, reconcileErr)
+			operation, readErr := d.db.DoctorCommandRepair(commandCtx, c.ID)
+			if errors.Is(readErr, store.ErrNotFound) {
+				failures = append(failures, d.finishDoctorApply(ctx, c, nil))
 				continue
 			}
-			conversation, readErr := d.doctor.service.ReadConversation(commandCtx, ref)
 			if readErr != nil {
 				failures = append(failures, readErr)
 				continue
 			}
-			body := "Doctor repair was interrupted; retained status requires review. No writing-agent replay occurred.\n\n" + doctor.RenderConversation(conversation)
-			failures = append(failures, d.db.CompleteDoctorCommand(ctx, c.ID, body, conversation.Conversation.ID))
+			// Only unfinished originating operations need observation; never replay a writer.
+			if operation.State != "completed" && operation.State != "failed" && operation.State != "recovered" && operation.State != "restart_pending" && operation.State != "stopped" && operation.State != "needs_review" {
+				if _, err = d.doctor.service.ReconcileRepair(commandCtx, ref, operation.ID); err != nil {
+					failures = append(failures, err)
+					continue
+				}
+			}
+			failures = append(failures, d.finishDoctorApply(ctx, c, nil))
 			continue
 		}
 		conversation, err := d.doctor.service.RecoverSource(commandCtx, ref, c.SourceID())
