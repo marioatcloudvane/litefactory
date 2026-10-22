@@ -28,6 +28,33 @@ litefactory <command> [<subcommand>] [arguments] [flags]
 
 `--help` and `--version` exit with `0`.
 
+## Standards book
+
+All `standards` commands emit JSON and use the initialized local database. See
+[Standards book](standards.md) for input examples, exact-review requirements and
+storage/recovery limits.
+
+| Command | Arguments and flags |
+| --- | --- |
+| `standards` | Show the workflow and usage guidance. |
+| `standards proposal create` | `<id> --file FILE` (`-` reads stdin). |
+| `standards proposal edit` | `<id> --expected-version N --file FILE`. Replaces the full change set and base. |
+| `standards proposal list` | List current proposal versions. |
+| `standards proposal show` | `<id> [--version N]`. Include exact retained approval and publication. |
+| `standards proposal validate` / `review` | `<id> --version N`. Review includes complete before/after changes and digests. |
+| `standards proposal approve` / `publish` | `<id> --version N --digest HASH`. Resolve the configured owner locally. |
+| `standards category add` / `replace` | `<id> --proposal ID --expected-version N --name NAME [--description TEXT]`. |
+| `standards category remove` | `<id> --proposal ID --expected-version N`. |
+| `standards category list` | `[--proposal ID --version N]`. Defaults to the published book. |
+| `standards book current` / `history` | Inspect complete revisions and provenance. |
+| `standards book show` | `<id>`. Inspect a retained revision. |
+| `standards book diff` | `<from> <to>`. Zero selects the empty unpublished base. |
+
+Every command accepts `--json` explicitly. Invalid changes, missing records,
+unpublished state, stale references, absent exact approval and storage failures
+exit with `1`. Missing local setup or configured owner exits with `3`; malformed
+input or flags exit with `2`.
+
 ## Initialization and repositories
 
 ### `init`

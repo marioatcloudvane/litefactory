@@ -25,6 +25,8 @@ func TestCloneMethodSetIsTheAllowlist(t *testing.T) {
 	want := []string{
 		// The S-6 command allowlist.
 		"ConfigGet",
+		"DriftChanges", // Bounded pinned net tree comparison; no worktree or ref writes.
+		"DriftBlob",    // Bounded immutable object read; no LFS expansion.
 		"Fetch",
 		// Stack admission reads one bounded regular override blob at an exact
 		// commit. It writes no index, worktree, object or ref.

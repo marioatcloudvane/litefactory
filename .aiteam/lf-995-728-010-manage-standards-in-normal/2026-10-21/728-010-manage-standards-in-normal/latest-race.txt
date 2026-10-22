@@ -1,0 +1,3 @@
+ok  	github.com/cloudvane/litefactory/internal/messaging	139.658s
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	(cached)
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	(cached)

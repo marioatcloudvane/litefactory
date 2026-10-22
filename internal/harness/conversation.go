@@ -224,6 +224,7 @@ func adoptLegacyConversationSession(legacyHome, configDir, cwd, session string) 
 	if !info.Mode().IsRegular() {
 		return errors.New("invalid legacy conversation session")
 	}
+	//nolint:gosec // Factory-owned legacy home and project key; session is a validated identity and source is a regular file.
 	data, err := os.ReadFile(source)
 	if err != nil {
 		return err
@@ -232,6 +233,7 @@ func adoptLegacyConversationSession(legacyHome, configDir, cwd, session string) 
 		return err
 	}
 	partial := target + ".adopt"
+	//nolint:gosec // Destination is derived from the factory config directory and validated session identity, never transcript content.
 	if err = os.WriteFile(partial, data, 0o600); err != nil {
 		return err
 	}

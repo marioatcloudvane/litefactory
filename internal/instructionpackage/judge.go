@@ -15,11 +15,14 @@ const (
 var legacyJudgeResourcePaths = []string{"resources/judge/evidence-suffix.md", "resources/judge/pin-prefix.md"}
 
 func capturePaths(role string) []string {
-	return []string{CataloguePath, rolePath(role)}
+	paths := []string{CataloguePath, rolePath(role)}
+	if role == StandardsAuthorRole {
+		paths = append(paths, StandardsAuthorSchemaPath)
+	}
+	return paths
 }
 
-// retainedCapturePaths is the closure a retained capture may carry: today's,
-// or the historical challenger closure with its two resource files.
+// retainedCapturePaths accepts current closures and historical judge resources.
 func retainedCapturePaths(role string, files int) []string {
 	paths := capturePaths(role)
 	if role == JudgeRole && files == len(paths)+len(legacyJudgeResourcePaths) {
