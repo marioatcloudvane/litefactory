@@ -246,10 +246,8 @@ func retireFinishedPlanLaunch(ctx context.Context, o Options, req Request, resul
 	if req.Trigger.PlanReply != nil {
 		return result, true, &PlanReplyRefusal{Reason: planAnswerNotApplied, Err: fmt.Errorf("plan launch of comment %d is bound to finished instance %d", req.Trigger.CommentID, id)}
 	}
-	out := result
-	out.ResearchGraph = true
-	out.Reason = planAnswerNotApplied
-	return out, true, nil
+	out, err := prelaunchRefused(ctx, o, result, planAnswerNotApplied)
+	return out, true, err
 }
 
 // releaseParkedWithoutAgent keeps a fresh owner comment from binding to a Plan
