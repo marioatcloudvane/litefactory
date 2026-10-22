@@ -117,3 +117,13 @@ Reusable infrastructure already separates local work, report delivery and remote
 Evidence:
 
 - `internal/turn/graph_stops.go:33`
+
+## f13
+
+Shaping inspection confirms Validate recognizes distinct ticket and code owners and holds code-owner shipping until ticket acceptance decisions settle; legacy row repair snapshots task-scoped rows and rejects mutations that strand related graph work.
+
+Evidence:
+
+- `internal/turn/validate_resolve.go:245`
+- `internal/store/doctor_repair_rows.go:65`
+- `internal/store/doctor_repair_rows.go:176`
