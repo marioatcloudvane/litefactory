@@ -561,7 +561,7 @@ func (r *planGraphRuntime) policy() WorkflowPolicy {
 		if err := specs.Register(graphexec.PlanStorySpec()); err != nil {
 			return err
 		}
-		return activities.Register(graphexec.PlanStoryAction, planGraphHandler(r.effect))
+		return activities.Register(graphexec.PlanStoryAction, planStoryEffect{r: r})
 	}
 	return p
 }
@@ -682,7 +682,30 @@ func (r *planGraphRuntime) control(ctx context.Context, _ Options, a ActivityReq
 	return ActivityResult{Outcome: outcome}, nil
 }
 
-func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
+// planStoryEffect is the production lf_plan_story handler. ExecuteNodeAction
+// takes the parent story-progress lock through it before reserving an attempt,
+// so a busy parent defers the step without spending node limit or budget.
+type planStoryEffect struct {
+	r      *planGraphRuntime
+	locked bool
+}
+
+func (e planStoryEffect) Execute(ctx context.Context, o Options, a ActivityRequest) (ActivityResult, error) {
+	return e.r.effect(ctx, o, a, e.locked)
+}
+
+func (e planStoryEffect) lockParent(ctx context.Context) (func() error, error) {
+	return lockPlanStory(ctx, 250*time.Millisecond, planStoryLockWait, func() (func() error, error) {
+		return e.r.opts.DB.LockStoryProgress(ctx, e.r.parentRef.String(), e.r.opts.MCP.Paths.StoryProgressLocksDir())
+	})
+}
+
+func (e planStoryEffect) withParentLocked() ActivityHandler {
+	e.locked = true
+	return e
+}
+
+func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequest, locked bool) (ActivityResult, error) {
 	node, _, err := r.load(ctx, a)
 	if err != nil {
 		return ActivityResult{}, err
@@ -706,7 +729,7 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 		return ActivityResult{}, err
 	}
 	h := PlanStoryActivity{DB: r.opts.DB, Forge: forge, Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
-	receipt, err := h.Apply(ctx, authority, request)
+	receipt, err := h.apply(ctx, authority, request, locked)
 	if err != nil {
 		return ActivityResult{}, err
 	}
