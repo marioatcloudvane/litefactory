@@ -12,7 +12,7 @@ import (
 )
 
 // RunChat narrows the existing doctor gate to a response-only invocation: empty
-// native tools and MCP catalog, isolated settings, ephemeral private home, no
+// native tools and MCP catalog, isolated settings, the factory's persistent claude home, no
 // repository context and no conversation persistence. Owner text is stdin only.
 func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agent.ChatResult, err error) {
 	if err := request.Validate(); err != nil {
@@ -21,22 +21,23 @@ func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agen
 	if proof, e := r.DoctorIsolation(ctx); e != nil || proof == "" {
 		return agent.ChatResult{}, agent.ErrDoctorIsolationUnverified
 	}
-	home, err := os.MkdirTemp(request.WorkingDirectory, "chat-private-")
+	// The factory's persistent claude home, never removed; chat has no native
+	// tools, so nothing in the run can read it. Per-run files stay in scratch.
+	configDir, err := r.persistentClaudeHome()
 	if err != nil {
 		return agent.ChatResult{}, err
 	}
-	defer func() { err = errors.Join(err, os.RemoveAll(home)) }()
-	if r.osHome != "" {
-		if err = linkCredentials(home, r.osHome); err != nil {
-			return agent.ChatResult{}, err
-		}
+	scratch, err := os.MkdirTemp(request.WorkingDirectory, "chat-run-")
+	if err != nil {
+		return agent.ChatResult{}, err
 	}
-	mcpPath := filepath.Join(home, "mcp.json")
+	defer func() { err = errors.Join(err, os.RemoveAll(scratch)) }()
+	mcpPath := filepath.Join(scratch, "mcp.json")
 	if err = os.WriteFile(mcpPath, []byte(`{"mcpServers":{}}`), 0600); err != nil {
 		return agent.ChatResult{}, err
 	}
 	args := chatArguments(request.Model, mcpPath)
-	env := append(providerprocess.DoctorEnvironment(r.environ, home), "CLAUDE_CONFIG_DIR="+home)
+	env := r.persistentClaudeEnv(scratch, configDir)
 	collector := newUsageCaptureCollector(ctx, request.Usage, "", false)
 	var result agent.ChatResult
 	terminal, failed, tools := false, false, false

@@ -62,11 +62,8 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	// after the config dir; a throwaway dir per run has no such item, so every
 	// run fell back to the linked .credentials.json, spent its rotating refresh
 	// token, and stored the new tokens under a dir that was then deleted.
-	configDir := r.claudeConfigDir
-	if configDir == "" {
-		return agent.DoctorRunResult{}, errors.New("doctor provider requires the factory claude config dir")
-	}
-	if _, err = EnsureClaudeConfigDir(configDir, r.osHome); err != nil {
+	configDir, err := r.persistentClaudeHome()
+	if err != nil {
 		return agent.DoctorRunResult{}, err
 	}
 	if operation == "judge" {
@@ -103,13 +100,7 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	if err = os.WriteFile(mcpPath, encoded, 0600); err != nil {
 		return agent.DoctorRunResult{}, err
 	}
-	env := providerprocess.DoctorEnvironment(r.environ, scratch)
-	// HOME is the operator's: macOS `security` finds the login keychain (and so
-	// the config dir's refreshed credentials) only through the real HOME.
-	if r.osHome != "" {
-		env = overrideEnv(env, []string{"HOME=" + r.osHome})
-	}
-	env = append(env, ClaudeConfigDirEnv+"="+configDir)
+	env := r.persistentClaudeEnv(scratch, configDir)
 	if operation == "" {
 		env = append(env, "GIT_OPTIONAL_LOCKS=0", "CLAUDE_CODE_TMPDIR="+request.WorkingDirectory, "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1")
 	}
@@ -347,4 +338,34 @@ func tailExcerpt(text string, limit int) string {
 		cut++
 	}
 	return "…" + text[cut:]
+}
+
+// persistentClaudeHome returns the factory's persistent Claude config dir, the
+// same CLAUDE_CONFIG_DIR every workflow run uses, after ensuring it exists with
+// its credentials link. Isolated provider paths (judge, doctor, repair, chat,
+// conversation) use it too (#1057): on macOS Claude keeps refreshed OAuth
+// tokens in a keychain item named after the config dir, so a throwaway dir
+// falls back to the linked .credentials.json, spends its rotating refresh
+// token, and strands the new tokens under a dir that is then deleted. The
+// caller must never remove it, and must keep it out of every tool's reach.
+func (r *Runner) persistentClaudeHome() (string, error) {
+	if r.claudeConfigDir == "" {
+		return "", errors.New("isolated claude provider requires the factory claude config dir")
+	}
+	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
+		return "", err
+	}
+	return r.claudeConfigDir, nil
+}
+
+// persistentClaudeEnv is the isolated provider environment: DoctorEnvironment
+// with TMPDIR in the per-run scratch dir, HOME the operator's (macOS `security`
+// finds the login keychain, and so the config dir's credentials, only through
+// the real HOME), and CLAUDE_CONFIG_DIR the persistent home.
+func (r *Runner) persistentClaudeEnv(scratch, configDir string) []string {
+	env := providerprocess.DoctorEnvironment(r.environ, scratch)
+	if r.osHome != "" {
+		env = overrideEnv(env, []string{"HOME=" + r.osHome})
+	}
+	return append(env, ClaudeConfigDirEnv+"="+configDir)
 }
