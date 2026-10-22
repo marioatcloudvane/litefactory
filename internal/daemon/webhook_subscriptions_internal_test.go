@@ -181,6 +181,8 @@ func TestLegacySecretWithoutRecordedHookAdmitsVerifiedSource(t *testing.T) {
 					_, _ = w.Write([]byte(`{"id":7,"login":"bot"}`))
 				case "/repos/acme/legacy":
 					_, _ = w.Write([]byte(`{"id":101,"full_name":"acme/legacy","has_issues":true}`))
+				case "/repos/acme/legacy/hooks":
+					_, _ = w.Write([]byte(`[{"id":55,"active":true,"events":["issues","issue_comment","sub_issues"],"config":{"url":"https://callback.invalid` + webhook.Path + `","content_type":"json","insecure_ssl":"0"}}]`))
 				default:
 					t.Errorf("unexpected remote call %s", r.URL.Path)
 					http.NotFound(w, r)
@@ -267,11 +269,13 @@ func TestLegacySecretWithoutRecordedHookAdmitsVerifiedSource(t *testing.T) {
 			if len(hints) != 1 || hints[0].versionID != v.ID || hints[0].repoID != repo.ID {
 				t.Fatalf("wrong routing: %+v", hints)
 			}
-			if _, err := f.d.db.GetRepoWebhook(t.Context(), repo.ID); !errors.Is(err, store.ErrNotFound) {
-				t.Fatalf("daemon claimed remote hook: %v", err)
+			// The one hook with this installation's callback is adopted, so
+			// recovery knows it; the daemon only read it.
+			if hook, err := f.d.db.GetRepoWebhook(t.Context(), repo.ID); err != nil || hook.HookID != 55 {
+				t.Fatalf("existing hook not adopted: %+v %v", hook, err)
 			}
 			subs, err := f.d.db.ListTicketSubscriptions(t.Context(), repo.ID)
-			if err != nil || len(subs) != 1 || subs[0].RemoteHookID != "" {
+			if err != nil || len(subs) != 1 || subs[0].RemoteHookID != "55" {
 				t.Fatalf("subscriptions: %+v %v", subs, err)
 			}
 			sub := subs[0]
