@@ -11,7 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/meterview"
 )
 
-var meterArgumentNames = []string{"project", "task", "mode", "agent", "model", "from", "to", "details", "page"}
+var meterArgumentNames = []string{"project", "task", "mode", "agent", "model", "from", "to", "by", "details", "page"}
 var priceArgumentNames = []string{"agent", "model", "page"}
 
 func (s *Service) registerMeter() {
@@ -23,6 +23,7 @@ func (s *Service) registerMeter() {
 		{Name: "model", Type: TextArgument, Description: "Actual model filter"},
 		{Name: "from", Type: TextArgument, Description: "Inclusive RFC3339 time or YYYY-MM-DD (UTC)"},
 		{Name: "to", Type: TextArgument, Description: "Exclusive RFC3339 time or YYYY-MM-DD (UTC)"},
+		{Name: "by", Type: TextArgument, Description: "Split cost by mode, agent, model and/or run (comma-separated), with total and unavailable rows"},
 		{Name: "details", Type: BooleanArgument, Description: "Include invocation detail rows"},
 		{Name: "page", Type: IntegerArgument, Description: "Report page number, starting at 1"},
 	}}, s.meter)
@@ -67,6 +68,13 @@ func meterRequest(args map[string]string) (meterview.Request, int, error) {
 		}
 		r.Details = raw == "true"
 	}
+	if raw, ok := args["by"]; ok {
+		by, err := meterview.ParseBreakdown(raw)
+		if err != nil || len(by) == 0 {
+			return r, 0, errors.New("by accepts mode, agent, model and run")
+		}
+		r.By = by
+	}
 	page, err := requestedPage(args)
 	return r, page, err
 }
@@ -101,7 +109,15 @@ func (s *Service) meter(ctx context.Context, m Message, at time.Time) (string, e
 	if err != nil {
 		return assessed(ctx, s.reportError(ctx, "meter", err), presentation.ReportableError)
 	}
-	rows, err := s.protectReportLines(bounded, append(view.GroupLines(), view.DetailLines()...))
+	rowLines := append(view.GroupLines(), view.DetailLines()...)
+	if len(request.By) > 0 {
+		breakdown, breakdownErr := meterview.ReadBreakdown(bounded, s.db, request, request.By)
+		if breakdownErr != nil {
+			return assessed(ctx, s.reportError(ctx, "meter", breakdownErr), presentation.ReportableError)
+		}
+		rowLines = append(breakdown.Lines(), view.DetailLines()...)
+	}
+	rows, err := s.protectReportLines(bounded, rowLines)
 	if err != nil {
 		return assessed(ctx, s.reportError(ctx, "meter", err), presentation.ReportableError)
 	}

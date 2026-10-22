@@ -51,8 +51,8 @@ for argument in "$@"; do
  if [ "$codex_resume" = yes ] && [ "$argument" = - ]; then resume=$previous; fi
  previous=$argument
 done
-state=${CLAUDE_CONFIG_DIR:-$CODEX_HOME}
-state=${state%%/home}
+# Per-conversation state: the provider runs in <state>/scratch.
+state=$(dirname "$(pwd -P)")
 [ -n "$state" ] || exit 20
 step=0
 if [ -f "$state/fixture-step" ]; then step=$(cat "$state/fixture-step"); fi

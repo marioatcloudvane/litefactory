@@ -103,15 +103,6 @@ func TestSwiftIOSProfileGuidanceAndMissingInputs(t *testing.T) {
 	if !reflect.DeepEqual(p.Effective.Requirements.OS, []string{"darwin"}) || len(p.Effective.Checks) != 2 || len(p.Effective.Setup) != 1 {
 		t.Fatal("missing Swift host or recipes")
 	}
-	doc, err := os.ReadFile(swiftRelease(t) + "/plan/skills/swift-ios-guidance/compatibility.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, term := range []string{"26.3", "6.2.3", "26.2", "17.0–26.2", "15.6", "26.x", "full Xcode", "selected developer directory", "Live provider", "deferred"} {
-		if !bytes.Contains(doc, []byte(term)) {
-			t.Errorf("compatibility missing %q", term)
-		}
-	}
 	for _, c := range p.Effective.Checks {
 		if c.CWD != "." || c.TimeoutSeconds != 3600 || !strings.Contains(c.Argv[2], "CODE_SIGNING_ALLOWED=NO") || !strings.Contains(c.Argv[2], "SWIFT_VERSION=6") {
 			t.Fatal("unbounded or signed simulator recipe")

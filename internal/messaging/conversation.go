@@ -31,15 +31,22 @@ type ConversationProvider interface {
 // ConversationBinding names an opted-in channel and its explicitly selected provider.
 type ConversationBinding struct{ Channel, Name, Provider, Model string }
 
+// ConversationReasoner is the model and native effort a consult runs with.
+type ConversationReasoner struct{ Model, Effort string }
+
 // ConversationOptions is installed before workers start. Context selection belongs
 // to the caller and conveys data only. Access is rechecked before every external effect.
 type ConversationOptions struct {
-	Instructions    *instructionpackage.Package
-	Factory         bool
-	Bindings        []ConversationBinding
-	StateRoot       string
-	Providers       map[string]ConversationProvider
-	Models          map[string]string
+	Instructions *instructionpackage.Package
+	Factory      bool
+	Bindings     []ConversationBinding
+	StateRoot    string
+	Providers    map[string]ConversationProvider
+	Models       map[string]string
+	// Reasoners selects the consult model per provider kind, normally the
+	// flagship tier with high effort. A missing entry falls back to the
+	// binding's model with the native default effort.
+	Reasoners       map[string]ConversationReasoner
 	CheckAccess     func(context.Context, string) error
 	PreparedContext func(context.Context, string) (string, error)
 }
@@ -50,14 +57,18 @@ type conversationRuntime struct {
 	channels     []string
 	providers    map[string]ConversationProvider
 	models       map[string]string
+	reasoners    map[string]ConversationReasoner
 	root, worker string
 	check        func(context.Context, string) error
 	prepared     func(context.Context, string) (string, error)
 	instructions *instructionpackage.Package
-	factory      bool
-	next         int
-	accessMu     sync.Mutex
-	accessAfter  map[string]time.Time
+	// current is the capture of instructions as this daemon started; retained
+	// bindings move onto it at their next turn boundary.
+	current     *instructionpackage.ConversationCapture
+	factory     bool
+	next        int
+	accessMu    sync.Mutex
+	accessAfter map[string]time.Time
 }
 
 // EnableConversations installs an exclusive ordinary-message route. Failed
@@ -85,12 +96,22 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 	for name, model := range options.Models {
 		r.models[name] = model
 	}
+	r.reasoners = make(map[string]ConversationReasoner, len(options.Reasoners))
+	for name, reasoner := range options.Reasoners {
+		r.reasoners[name] = reasoner
+	}
 	for _, b := range options.Bindings {
 		if b.Model != "" {
 			r.models[b.Provider] = b.Model
 		}
 	}
 	defer s.conversations.Store(r)
+	if current, diagnostics, err := r.instructions.CaptureConversation(ctx); err == nil {
+		r.current = current
+		s.logConversationInstructionDiagnostics(ctx, diagnostics)
+	} else if s.Logger != nil {
+		s.Logger.WarnContext(ctx, "conversation instruction capture unavailable; retained bindings keep their instructions")
+	}
 	var failures []error
 	if err := s.migrateConversationInstructions(ctx, at); err != nil {
 		failures = append(failures, err)
@@ -141,15 +162,6 @@ func neverLaunched(state string) bool {
 
 func noNativeIdentityPause(reason string) bool {
 	return reason == "turn unfinished with no saved native identity; no replacement session created" || reason == "interrupted turn has no saved native session; continuity unavailable"
-}
-
-func (s *Service) conversationBound(channel string) bool {
-	r := s.conversations.Load()
-	if r == nil {
-		return false
-	}
-	_, ok := r.bindings[channel]
-	return ok
 }
 
 func (s *Service) ensureConversation(ctx context.Context, r *conversationRuntime, b ConversationBinding, at time.Time) error {
@@ -230,6 +242,7 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 		if c.HealthReason != "" {
 			continue
 		}
+		s.refreshConversationInstructions(ctx, r, c.ID, at)
 		instructions, instructionErr := s.restoreConversationInstructions(ctx, c.ID, at)
 		if instructionErr != nil {
 			return false, instructionErr

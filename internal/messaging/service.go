@@ -131,9 +131,6 @@ type Service struct {
 	Instructions           prompts.Resolver
 	InstructionDiagnostics prompts.Sink
 	stepMu                 sync.Mutex
-	presentationEnabled    bool
-	replyModel             ReplyModel
-	replyHistory           ask.HistoryReader
 	// Protect sanitizes generated text before persistence and delivery.
 	Protect func(context.Context, string) (string, error)
 	// Logger records terminal failures without remote response bodies.
@@ -150,23 +147,22 @@ type Service struct {
 	ask              *ask.Service
 	diagnosis        Diagnosis
 	research         ResearchAnswers
-	privateOptions   map[string]map[string]string
 	drafter          *feature.Drafter
 	confirmer        FeatureConfirmer
-	interpreter      Interpreter
 	conversations    atomic.Pointer[conversationRuntime]
 }
 
 // New copies admission rules and registers help, health, status and details.
+// Only /details is a transport command; the others serve the conversation.
 func New(db *store.DB, transport, owner string, channels []string, sender Transport, status StatusReader) *Service {
-	s := &Service{db: db, transport: transport, owner: owner, channels: make(map[string]bool), sender: sender, status: status, wake: make(chan struct{}, 1), commands: make(map[string]Handler), definitions: make(map[string]CommandDefinition), privateOptions: make(map[string]map[string]string)}
+	s := &Service{db: db, transport: transport, owner: owner, channels: make(map[string]bool), sender: sender, status: status, wake: make(chan struct{}, 1), commands: make(map[string]Handler), definitions: make(map[string]CommandDefinition)}
 	for _, c := range channels {
 		s.channels[c] = true
 	}
 	s.RegisterCommand(CommandDefinition{Name: "help", NaturalLanguage: true, Effect: ReadEffect, Description: "List factory commands"}, s.help)
 	s.RegisterCommand(CommandDefinition{Name: "health", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory health"}, s.health)
 	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "Read a selected task, or factory health and running/owner-waiting tasks", Arguments: []Argument{{Name: "project", Type: TextArgument, Description: "Registered project"}, {Name: "issue", Type: IntegerArgument, Description: "Known GitHub issue number"}, {Name: "task", Type: IntegerArgument, Description: "Known GitHub task number"}}}, s.summary)
-	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show saved raw details for an answer or previous legacy reply", Arguments: []Argument{{Name: "answer", Type: TextArgument, Description: "Saved answer reference; omit for latest answer"}}}, s.details)
+	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show saved raw details for a conversation answer", Arguments: []Argument{{Name: "answer", Type: TextArgument, Description: "Saved answer reference; omit for latest answer"}}}, nil)
 	s.registerMeter()
 	return s
 }
@@ -198,14 +194,24 @@ func (s *Service) Declarations() []CommandDefinition {
 	return out
 }
 
-// ReplyLimit reserves space for a raw label before paginating command results.
+// SlashCommands returns the only transport command, /details. Ordinary
+// messages in a bound channel go to the conversation instead.
+func (s *Service) SlashCommands() []CommandDefinition {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	def, ok := s.definitions["details"]
+	if !ok {
+		return nil
+	}
+	def.Arguments = append([]Argument(nil), def.Arguments...)
+	return []CommandDefinition{def}
+}
+
+// ReplyLimit is the transport's message size used to paginate command results.
 func (s *Service) ReplyLimit() int {
 	limit := presentation.MessageLimit
 	if sender, ok := s.sender.(interface{ ReplyLimit() int }); ok && sender.ReplyLimit() > 0 {
 		limit = sender.ReplyLimit()
-	}
-	if s.presentationEnabled {
-		limit = max(1, limit-replySize("\n\nRaw result."))
 	}
 	return limit
 }
@@ -233,72 +239,29 @@ func (s *Service) Notify() {
 	}
 }
 
-// Admit rejects channel before owner and persists only accepted commands.
+// Admit rejects channel before owner and persists only /details requests.
+// Other commands from the owner are allowed but never inserted.
 func (s *Service) Admit(ctx context.Context, m Message, at time.Time) (allowed, inserted bool, err error) {
 	if m.Transport != s.transport || !s.channels[m.Channel] || m.Sender != s.owner {
 		return false, false, nil
 	}
+	if m.Command != "details" {
+		return true, false, nil
+	}
 	r := store.ChatReply{Transport: m.Transport, MessageID: m.ID, ChannelRef: m.Channel, Command: m.Command, Arguments: m.Arguments, CreatedAt: at}
-	if s.presentationEnabled {
-		r.PresentationState = "pending"
-	}
-	if m.Command == "details" {
-		if !validArguments(m.Arguments, []string{"answer"}) || len(m.Arguments["answer"]) > 128 || strings.ContainsAny(m.Arguments["answer"], "\r\n") {
-			r.ReplyText = "Please give the answer reference printed on the reply."
-			r.OutcomeStatus = string(presentation.Refusal)
-		} else {
-			inserted, err = s.db.AdmitConversationDetails(ctx, r, s.owner, m.Arguments["answer"], at)
-			return true, inserted, err
-		}
-	}
-
-	if m.Command == "ask" && (strings.TrimSpace(m.Arguments["question"]) == "" || len(m.Arguments["question"]) > 8192 || len(m.Arguments["project"]) > 256 || !validArguments(m.Arguments, []string{"question", "project"})) {
-		r.ReplyText = ask.TurnPrefix(m.Arguments["question"], m.Arguments["project"]) + "Please give a question up to 8192 bytes and an optional project up to 256 bytes."
-		r.Arguments = nil
+	if !validArguments(m.Arguments, []string{"answer"}) || len(m.Arguments["answer"]) > 128 || strings.ContainsAny(m.Arguments["answer"], "\r\n") {
+		r.ReplyText = "Please give the answer reference printed on the reply."
 		r.OutcomeStatus = string(presentation.Refusal)
-	}
-	if m.Command == "answer" || m.Command == "diagnose" {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		r.Arguments = make(map[string]string)
-		for k, v := range m.Arguments {
-			if k == "project" || k == "issue" || (m.Command == "answer" && k == "revision") {
-				r.Arguments[k] = v
-			}
-		}
 		inserted, err = s.db.AdmitChatReply(ctx, r)
-		if inserted && err == nil {
-			options := make(map[string]string)
-			for k, v := range m.Arguments {
-				options[k] = v
-			}
-			s.privateOptions[m.Transport+":"+m.ID] = options
-		}
 		return true, inserted, err
 	}
-
-	if m.Command == "draft" && (len(m.Arguments["note"]) > 2000 || len(m.Arguments["project"]) > 256 || !validArguments(m.Arguments, []string{"note", "project"})) {
-		r.ReplyText = "Please give a note up to 2000 bytes and optional project up to 256 bytes."
-		r.Arguments = nil
-		r.OutcomeStatus = string(presentation.Refusal)
-	}
-	if m.Command == "confirm" && (len(m.Arguments["code"]) != 8 || !validArguments(m.Arguments, []string{"code"})) {
-		r.ReplyText = "Please give the 8-character preview code with /confirm."
-		r.Arguments = nil
-		r.OutcomeStatus = string(presentation.Refusal)
-	}
-	if r.ReplyText != "" && s.Protect != nil {
-		r.ReplyText, err = s.Protect(ctx, r.ReplyText)
-		if err != nil {
-			return true, false, err
-		}
-	}
-	inserted, err = s.db.AdmitChatReply(ctx, r)
+	inserted, err = s.db.AdmitConversationDetails(ctx, r, s.owner, m.Arguments["answer"], at)
 	return true, inserted, err
 }
 
-// Step performs one due delivery without sleeping. Ambiguous sends are retried
-// best effort; the adapter's deduplication window is not a permanent guarantee.
+// Step performs one due /details delivery without sleeping. Ambiguous sends are
+// retried best effort; the adapter's deduplication window is not a permanent
+// guarantee. Rows of retired commands are closed without delivery.
 func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	s.stepMu.Lock()
 	defer s.stepMu.Unlock()
@@ -309,7 +272,10 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if r.Command == "details" && r.ReplyText == "" {
+	if r.Command != "details" || !at.Before(r.CreatedAt.Add(24*time.Hour)) {
+		return true, s.finish(ctx, r, true, at)
+	}
+	if r.ReplyText == "" {
 		selected, e := s.db.ConversationDetailsSelection(ctx, r)
 		if e != nil && !errors.Is(e, store.ErrNotFound) {
 			return true, e
@@ -325,155 +291,20 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 				defer cancel()
 				return true, s.answerDetails(work, r, selected, at)
 			}
-			r.ReplyText = "Answer details are unavailable or access is denied."
-			r.OutcomeStatus = string(presentation.Refusal)
-			if err := s.db.SaveChatReply(ctx, r, r.ReplyText); err != nil {
-				return true, err
-			}
+			r.ReplyText = detailsDenied
+		} else {
+			r.ReplyText = detailsRefusal
 		}
-	}
-
-	originalReply := r.ReplyText
-	if r.Command == "ask" || r.Command == "draft" || r.Command == "confirm" {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
-		defer cancel()
-	}
-	if !at.Before(r.CreatedAt.Add(24 * time.Hour)) {
-		s.mu.Lock()
-		delete(s.privateOptions, r.Transport+":"+r.MessageID)
-		s.mu.Unlock()
-		r.OutcomeStatus = string(presentation.Uncertain)
-		if err = s.finishNaturalOutcome(ctx, r, "The request expired. Check the target for any prior effect before requesting it again.", at); err != nil {
-			return true, err
-		}
-		return true, s.finish(ctx, r, true, at)
-	}
-	stopTyping := func() {}
-	if strings.HasPrefix(r.MessageID, "nl") {
-		stopTyping = s.typing(ctx, r.ChannelRef)
-		defer stopTyping()
-	}
-	if _, err = s.prepareNaturalExecution(ctx, &r, at); err != nil {
-		return true, err
-	}
-	text := r.ReplyText
-	if text != "" && text != originalReply {
-		if err = s.db.SaveChatReply(ctx, r, text); err != nil {
+		r.OutcomeStatus = string(presentation.Refusal)
+		if err := s.db.SaveChatReply(ctx, r, r.ReplyText); err != nil {
 			return true, err
 		}
 	}
-	if text == "" {
-		s.mu.RLock()
-		h := s.commands[r.Command]
-		s.mu.RUnlock()
-		switch {
-		case r.Command == "draft" || r.Command == "confirm":
-			r, text, err = s.featureReply(ctx, r, at)
-			if err != nil {
-				return true, err
-			}
-		case r.Command == "ask":
-			r, text, err = s.answer(ctx, r, at)
-			if err != nil {
-				return true, err
-			}
-		case h == nil:
-			text = "unknown command, try /help"
-			r.OutcomeStatus = string(presentation.Refusal)
-		default:
-			s.mu.Lock()
-			if options, ok := s.privateOptions[r.Transport+":"+r.MessageID]; ok {
-				r.Arguments = options
-				delete(s.privateOptions, r.Transport+":"+r.MessageID)
-			}
-			s.mu.Unlock()
-			handlerCtx, source := presentation.WithAssessment(ctx)
-			text, err = h(handlerCtx, Message{Transport: r.Transport, ID: r.MessageID, Channel: r.ChannelRef, Command: r.Command, Arguments: r.Arguments}, at)
-			r.OutcomeStatus = string(source.Status)
-			if source.RepoID > 0 {
-				r.ResolvedRepoID = source.RepoID
-			}
-			if errors.Is(err, errDeferredDiagnosis) {
-				return true, nil
-			}
-			if err != nil {
-				return true, s.retry(ctx, r, at, 0)
-			}
-		}
-		if s.Protect != nil {
-			text, err = s.Protect(ctx, text)
-			if err != nil {
-				return true, s.retry(ctx, r, at, 0)
-			}
-		}
-		if err := s.db.SaveChatReply(ctx, r, text); err != nil {
-			return true, err
-		}
-	}
-	if err = s.finishNaturalOutcome(ctx, r, text, at); err != nil {
-		return true, err
-	}
-	if r.PresentationState == "pending" {
-		r, err = s.db.ReadChatReply(ctx, r.Transport, r.MessageID)
-		if err != nil {
-			return true, err
-		}
-		r, err = s.present(ctx, r, text)
-		if err != nil {
-			return true, err
-		}
-		text = r.ReplyText
-	}
-	// The posted reply clears the indicator; no refresh may follow it.
-	stopTyping()
-	target := Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID, Protected: r.Command == "natural"}
-	var d Delivery
-	// A narrated reply shows only its narration; its raw text stays stored
-	// for /details. Fallback and /details replies carry the raw attachment.
-	attach := r.ReplyAttachment != "" && r.PresentationState != string(presentation.Narrated)
-	if _, ok := s.sender.(ReplyTransport); !ok && attach {
-		raw, e := inlineRaw(r)
-		if e != nil {
-			return true, s.finish(ctx, r, true, at)
-		}
-		if e = s.db.InlineChatPresentation(ctx, r, raw); e != nil {
-			return true, e
-		}
-		r.ReplyAttachment = ""
-		r.ReplyText = raw
-		text = raw
-		attach = false
-	}
-	if rich, ok := s.sender.(ReplyTransport); ok && attach {
-		d = rich.DeliverReply(ctx, target, presentation.Payload{Content: text, Attachment: &presentation.Attachment{Name: presentation.RawFilename, Content: r.ReplyAttachment}})
-	} else {
-		d = s.sender.Deliver(ctx, target, text)
-	}
-	if d.AttachmentRejected && attach {
-		raw, inlineErr := inlineRaw(r)
-		if inlineErr != nil {
-			return true, s.finish(ctx, r, true, at)
-		}
-		if err = s.db.InlineChatPresentation(ctx, r, raw); err != nil {
-			return true, err
-		}
-		return true, s.retry(ctx, r, at, 0)
-	}
+	target := Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID}
+	d := s.sender.Deliver(ctx, target, r.ReplyText)
 	outcome, level := "retry", slog.LevelInfo
 	switch {
 	case d.Confirmed:
-		if r.Command == "natural" && d.PromptID != "" {
-			proposal, lookupErr := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.ChannelRef)
-			if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) {
-				return true, lookupErr
-			}
-			if lookupErr == nil && proposal.State == "awaiting_confirmation" && r.MessageID == "nl:"+proposal.SourceID {
-				if err = s.db.BindNaturalPrompt(ctx, proposal, d.PromptID); err != nil {
-					return true, err
-				}
-			}
-		}
 		outcome, err = "confirmed", s.db.FinishChatReply(ctx, r, false, at)
 	case d.Permanent:
 		outcome, level, err = "failed", slog.LevelWarn, s.db.FinishChatReply(ctx, r, true, at)
@@ -509,7 +340,8 @@ func (s *Service) Purge(ctx context.Context, at time.Time) error {
 	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at), s.db.PurgeNaturalChat(ctx, at), s.db.PurgeConversationBodies(ctx, at), s.db.PurgeConversationEvidence(ctx, at))
 }
 func (s *Service) help(ctx context.Context, _ Message, _ time.Time) (string, error) {
-	return assessed(ctx, "/"+strings.Join(s.Commands(), ", /"), presentation.Success)
+	// Only /details is a slash command; everything else is asked for in the conversation.
+	return assessed(ctx, "Ask me in plain words. I can look up or do: "+strings.Join(s.Commands(), ", ")+". For the raw details of an answer, use /details.", presentation.Success)
 }
 func (s *Service) health(ctx context.Context, _ Message, at time.Time) (string, error) {
 	v, err := s.status.Read(ctx, at)
@@ -645,7 +477,7 @@ func (s *Service) taskSummary(ctx context.Context) string {
 
 // taskStatus uses retained state; absent facts stay explicitly unavailable.
 func (s *Service) taskStatus(ctx context.Context, session store.Session, task ask.Task) (string, error) {
-	mode, stage, waiting := "unavailable", "unavailable", "none recorded"
+	mode, stage, waiting, state := "unavailable", "unavailable", "none recorded", task.State
 	runs, err := s.db.RecentTaskRuns(ctx, session.ID, 3)
 	if err != nil {
 		return "", err
@@ -673,11 +505,42 @@ func (s *Service) taskStatus(ctx context.Context, session store.Session, task as
 		if mode == "" {
 			mode = "unavailable"
 		}
+		if instance.Status == store.GraphRunning {
+			// A running graph supersedes the failed flag an earlier attempt left.
+			if state == string(store.SessionFailed) {
+				state = "in progress (an earlier attempt failed; work resumed)"
+			}
+			dispatch, err := s.db.LatestGraphDispatch(ctx, instance.ID)
+			switch {
+			case err == nil && dispatch.Status == "pending":
+				stage += ", next step due " + dispatch.DueAt.UTC().Format(time.RFC3339)
+			case err == nil && (dispatch.Status == "reserved" || dispatch.Status == "running"):
+				stage += ", next step starting"
+			case err != nil && !errors.Is(err, store.ErrNotFound):
+				return "", err
+			}
+		}
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}
-	if len(task.PlanStages) > 0 {
-		stage += "; " + strings.Join(task.PlanStages, "; ")
+	var stories []store.ImplementStory
+	if mode == "implement" {
+		if stories, err = s.db.LatestImplementStories(ctx, session.TaskRef); err != nil {
+			return "", err
+		}
+	}
+	progress := ""
+	if len(stories) > 0 {
+		var parked string
+		progress, parked, err = s.implementProgress(ctx, stories)
+		if err != nil {
+			return "", err
+		}
+		if parked != "" {
+			waiting = "owner — " + parked
+		}
+	} else if len(task.PlanStages) > 0 {
+		stage += "; plan stories: " + strings.Join(task.PlanStages, "; ")
 	}
 	if task.OwnerWait != nil {
 		waiting = "owner — " + task.OwnerWait.Workflow + " " + task.OwnerWait.Kind
@@ -685,7 +548,7 @@ func (s *Service) taskStatus(ctx context.Context, session store.Session, task as
 	if task.OwnerBlocked != "" {
 		waiting = "owner — parked: " + task.OwnerBlocked
 	}
-	text := fmt.Sprintf("%s: %s. Mode: %s. Stage: %s. Waiting on: %s. Recent runs (newest first, limit 3):", task.Reference, task.State, mode, stage, waiting)
+	text := fmt.Sprintf("%s: %s. Mode: %s. Stage: %s.%s Waiting on: %s. Recent runs on this task (newest first, limit 3):", task.Reference, state, mode, stage, progress, waiting)
 	if len(runs) == 0 {
 		text += " unavailable."
 	}
@@ -693,4 +556,76 @@ func (s *Service) taskStatus(ctx context.Context, session store.Session, task as
 		text += fmt.Sprintf(" %d: %s (%s);", run.Ordinal, run.Status, run.Mode)
 	}
 	return text, nil
+}
+
+// implementProgress reports a feature's Implement ledger from the local store:
+// per-story state of the newest generation with story issue numbers, failed
+// attempts and the latest failure, plus active runs on the story tasks. It
+// also returns the first parked story, which waits on the owner.
+func (s *Service) implementProgress(ctx context.Context, stories []store.ImplementStory) (string, string, error) {
+	counts := map[string]int{}
+	var lines, active []string
+	parked := ""
+	for _, story := range stories {
+		counts[story.State]++
+		label, latest := story.Key, ""
+		if story.WorkerSession > 0 {
+			worker, err := s.db.GetSession(ctx, story.WorkerSession)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return "", "", err
+			}
+			if err == nil {
+				label += fmt.Sprintf(" (#%d)", worker.IssueNumber)
+				run, err := s.db.LatestTaskRun(ctx, worker.ID)
+				if err != nil && !errors.Is(err, store.ErrNotFound) {
+					return "", "", err
+				}
+				switch {
+				case err == nil && (run.Status == store.RunRunning || run.Status == store.RunPrelaunch):
+					active = append(active, fmt.Sprintf("#%d run %d (%s) running since %s", worker.IssueNumber, run.Ordinal, run.Mode, run.StartedAt.UTC().Format(time.RFC3339)))
+				case err == nil && story.State == store.ImplementRunning:
+					latest = fmt.Sprintf(", no active run (latest run %d %s)", run.Ordinal, run.Status)
+				}
+			}
+		}
+		line := label + " " + story.State + latest
+		if story.Attempts > 0 {
+			line += fmt.Sprintf(", %d failed attempts", story.Attempts)
+		}
+		if story.State == store.ImplementParked {
+			line += ", parked: " + statusExcerpt(story.Reason)
+			if parked == "" {
+				parked = label + " parked: " + statusExcerpt(story.Reason)
+			}
+		}
+		if story.State != store.ImplementParked && story.State != store.ImplementMerged && story.GuidanceQuestion != "" && story.Guidance == "" {
+			line += ", restarted after: " + statusExcerpt(story.GuidanceQuestion)
+		}
+		if story.LastFailure != "" && story.State != store.ImplementMerged {
+			line += ", last failure: " + statusExcerpt(story.LastFailure)
+		}
+		lines = append(lines, line)
+	}
+	var tally []string
+	for _, state := range []string{store.ImplementMerged, store.ImplementDone, store.ImplementRunning, store.ImplementWaiting, store.ImplementParked} {
+		if counts[state] > 0 {
+			tally = append(tally, fmt.Sprintf("%d %s", counts[state], state))
+		}
+	}
+	text := fmt.Sprintf(" Implementation stories (generation %d, %d total): %s. Per story: %s.", stories[0].Generation, len(stories), strings.Join(tally, ", "), strings.Join(lines, "; "))
+	if len(active) == 0 {
+		text += " Active story runs: none."
+	} else {
+		text += " Active story runs: " + strings.Join(active, "; ") + "."
+	}
+	return text, parked, nil
+}
+
+// statusExcerpt keeps a ledger reason on one bounded line.
+func statusExcerpt(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if bounded, cut := boundedConversationText(text, 200); cut {
+		return bounded + "…"
+	}
+	return text
 }

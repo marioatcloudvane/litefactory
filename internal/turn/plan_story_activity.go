@@ -118,8 +118,18 @@ func planRequestMarker(r graphexec.PlanStoryRequest) string {
 	return fmt.Sprintf("<!-- lf:plan-request digest=%x -->", sha256.Sum256([]byte(r.RequestID)))
 }
 
+// planStoryLockWait bounds the in-process wait for the parent story-progress
+// lock. A package variable only so tests can shorten it.
+var planStoryLockWait = 60 * time.Second
+
 // Apply serializes the parent without holding a SQL transaction across I/O.
-func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r graphexec.PlanStoryRequest) (receipt PlanStoryReceipt, err error) {
+func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r graphexec.PlanStoryRequest) (PlanStoryReceipt, error) {
+	return h.apply(ctx, a, r, false)
+}
+
+// apply with locked set runs under a parent story-progress lock its caller
+// already holds; flock is per open file, so it must not acquire it again.
+func (h PlanStoryActivity) apply(ctx context.Context, a PlanStoryAuthority, r graphexec.PlanStoryRequest, locked bool) (receipt PlanStoryReceipt, err error) {
 	receipt = PlanStoryReceipt{RequestID: r.RequestID, Story: r.Draft.Key, Candidate: r.Candidate}
 	if h.DB == nil || h.Forge == nil || h.Redactor == nil || h.LockDir == "" {
 		return receipt, errors.New("plan story dependencies missing")
@@ -133,13 +143,15 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	if a.Parent == "" || a.ParentNumber < 1 || a.ParentID < 1 || a.SelectedKey != r.Draft.Key || a.Candidate != r.Candidate || a.Stage != r.Stage {
 		return receipt, errors.New("foreign or unbound Plan story request")
 	}
-	unlock, err := lockPlanStory(ctx, 250*time.Millisecond, 60*time.Second, func() (func() error, error) {
-		return h.DB.LockStoryProgress(ctx, a.Parent, h.LockDir)
-	})
-	if err != nil {
-		return receipt, err
+	if !locked {
+		unlock, lockErr := lockPlanStory(ctx, 250*time.Millisecond, planStoryLockWait, func() (func() error, error) {
+			return h.DB.LockStoryProgress(ctx, a.Parent, h.LockDir)
+		})
+		if lockErr != nil {
+			return receipt, lockErr
+		}
+		defer func() { err = errors.Join(err, unlock()) }()
 	}
-	defer func() { err = errors.Join(err, unlock()) }()
 	raw, err := json.Marshal(r)
 	if err != nil {
 		return receipt, err

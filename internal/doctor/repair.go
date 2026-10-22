@@ -34,6 +34,33 @@ var (
 	repairGenericFailure        = "Approved repair tool failed or was refused; no further steps may run"
 )
 
+// Fixed consume_comment categories. A consume failure wraps one of them with %w;
+// only the category is retained, never the cause text.
+var (
+	ErrRepairCommentDrifted  = errors.New("inputs drifted: comment watermark changed")
+	ErrRepairStateChanged    = errors.New("repair state changed since approval")
+	ErrRepairReplyNotPosted  = errors.New("doctor reply could not be posted")
+	ErrRepairReplyUncertain  = errors.New("doctor reply outcome uncertain; refusing replay")
+	consumeFailureCategories = []error{ErrRepairCommentDrifted, ErrRepairStateChanged, ErrRepairReplyNotPosted, ErrRepairReplyUncertain}
+	repairNextAction         = "Run /doctor check to re-diagnose against the current state before approving another repair."
+)
+
+// consumeRefusalReason returns the fixed, step-specific text to retain for a
+// refused consume_comment step, with what the owner can do next.
+func consumeRefusalReason(number int, kind string, err error) string {
+	category := repairGenericFailure
+	for _, known := range consumeFailureCategories {
+		if errors.Is(err, known) {
+			category = known.Error()
+			break
+		}
+	}
+	if category == repairGenericFailure && errors.Is(err, store.ErrDoctorFenced) {
+		category = ErrRepairStateChanged.Error()
+	}
+	return fmt.Sprintf("step %d %s: %s. %s", number, kind, category, repairNextAction)
+}
+
 // RepairConflictError carries a fixed category with the repository paths that
 // conflicted. Only the category and paths are retained, never the cause text.
 type RepairConflictError struct {
@@ -178,16 +205,18 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (operation st
 		if e == nil {
 			reason = body.String()
 		}
-		if attemptID != "" {
-			_ = s.DB.FailDoctorAttempt(cleanup, attemptID, "failed", reason)
-		}
-		var fenceErr error
 		if typed {
 			// A tool refusal fences first and cancels the run; keep its fixed
 			// reason instead of the resulting cancellation text.
 			if current, e := s.DB.ReadDoctorRepair(cleanup, request.Target.String()); e == nil && current.ID == operation.ID && current.Fenced && current.Failure != "" {
 				reason = current.Failure
 			}
+		}
+		if attemptID != "" {
+			_ = s.DB.FailDoctorAttempt(cleanup, attemptID, "failed", reason)
+		}
+		var fenceErr error
+		if typed {
 			fenceErr = s.DB.SettleDoctorTypedRepair(cleanup, operation.ID, false, reason)
 		} else {
 			fenceErr = s.stopRepair(cleanup, request.Target, reason)
@@ -335,7 +364,6 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (operation st
 	}
 	meterErr := s.DB.FinishMeterAttempt(cleanup, meter.ID, meterOutcome, string(coverage.Status), coverage.Version, coverage.SourceFormat, coverage.Diagnostics)
 	if runErr != nil || meterErr != nil {
-		_ = s.DB.FailDoctorAttempt(cleanup, id, "failed", "Repair invocation failed; consult retained repair journal")
 		return fail(errors.Join(runErr, meterErr))
 	}
 	if outcome.RequestID == "" {
@@ -472,8 +500,13 @@ func (t *RepairTools) ApplyTyped(ctx context.Context, number int, kind string) (
 		// Do not retain untrusted arguments or raw store errors in the outcome.
 		current, readErr := t.service.DB.ReadDoctorRepair(cleanup, t.target.String())
 		err = errors.Join(err, readErr)
+		reason := repairRefusalReason(err)
+		if kind == "consume_comment" {
+			reason = consumeRefusalReason(number, kind, err)
+			t.logRefusal(cleanup, number, kind, err)
+		}
 		if readErr == nil && current.ID == t.operation && !current.Fenced {
-			err = errors.Join(err, t.service.DB.StopDoctorRepair(cleanup, t.target.String(), repairRefusalReason(err)))
+			err = errors.Join(err, t.service.DB.StopDoctorRepair(cleanup, t.target.String(), reason))
 			t.service.mu.Lock()
 			active, ok := t.service.active[t.target.String()]
 			t.service.mu.Unlock()
@@ -484,6 +517,21 @@ func (t *RepairTools) ApplyTyped(ctx context.Context, number int, kind string) (
 		}
 	}
 	return step, err
+}
+
+// logRefusal records the redacted cause of a refused step; the retained
+// failure keeps only its fixed category.
+func (t *RepairTools) logRefusal(ctx context.Context, number int, kind string, cause error) {
+	if t.service.Logger == nil {
+		return
+	}
+	detail := "details unavailable"
+	if t.service.Redactor != nil {
+		if body, e := t.service.Redactor.Apply(ctx, cause.Error(), 8192); e == nil {
+			detail = body.String()
+		}
+	}
+	t.service.Logger.WarnContext(ctx, "doctor repair step refused", "repair_id", t.operation, "step", number, "kind", kind, "error", detail)
 }
 
 // Backup creates the declared original copy, refusing undeclared handles.

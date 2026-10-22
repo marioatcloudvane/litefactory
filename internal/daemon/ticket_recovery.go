@@ -90,9 +90,13 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 	if err != nil {
 		return false, err
 	}
-	container, err := discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "recovery-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
-		return clients.Tickets.ContainerIdentity(ctx, version.Destination)
-	})
+	// A settled scope observation spends no discovery budget step.
+	container, hit, err := cachedContainerIdentity(ctx, version.ID, 0)
+	if !hit {
+		container, err = discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "recovery-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
+			return tickContainerIdentity(ctx, clients.Tickets, version.ID, 0, version.Destination)
+		})
+	}
 	if err != nil {
 		return false, err
 	}
@@ -420,9 +424,13 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 				q.log.WarnContext(ctx, "pending source credentials unavailable")
 				continue
 			}
-			container, e = discoveryCall(readCtx, d, discoveryKey(targetQueue.forgeRepo, "pending-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
-				return clients.Tickets.ContainerIdentity(ctx, version.Destination)
-			})
+			var hit bool
+			container, hit, e = cachedContainerIdentity(readCtx, version.ID, actorID)
+			if !hit {
+				container, e = discoveryCall(readCtx, d, discoveryKey(targetQueue.forgeRepo, "pending-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
+					return tickContainerIdentity(ctx, clients.Tickets, version.ID, actorID, version.Destination)
+				})
+			}
 			if e != nil {
 				failedSources[observation.ConnectionVersionID] = true
 				if !d.scopedQuotaDeferred(readCtx, e) {
@@ -592,8 +600,10 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 		number = int(slot)
 	}
 	parent, err := d.db.ManagedParentForChild(ctx, q.repo.ID, number)
+	graphPlanChild := false
 	if errors.Is(err, store.ErrNotFound) {
 		parent, err = d.db.GraphPlanParentForChild(ctx, q.repo.ID, number)
+		graphPlanChild = err == nil
 	}
 	if errors.Is(err, store.ErrNotFound) && observation.Provider == ticket.Linear {
 		ref := ticket.Ref{Identity: ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}, Locator: ticket.Locator{Provider: observation.Provider, Origin: observation.Origin, Container: observation.Container, Key: observation.TicketID}}
@@ -639,6 +649,29 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 	}
 	if held {
 		return nil, errRecoveryDoctorHeld
+	}
+	// A live graph Plan story that is a task of its own answers its own
+	// comments. Its observation goes straight to the child's session; the
+	// parent only keeps the story owed for its next lifecycle sweep, as the
+	// listing path does, and is neither woken nor made a candidate. Linear
+	// story routing is unchanged.
+	if graphPlanChild && observation.Provider == ticket.GitHub {
+		story, live, err := d.db.GraphPlanStoryAt(ctx, q.repo.ID, number)
+		if err != nil {
+			return nil, err
+		}
+		if live && story.Parent == parent {
+			_, err := d.db.GetSessionByTicket(ctx, ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID})
+			if err == nil {
+				if err := d.db.MarkStoryDiscoveryPending(ctx, session.ID, number); err != nil {
+					return nil, err
+				}
+				return nil, nil
+			}
+			if !errors.Is(err, store.ErrNotFound) {
+				return nil, err
+			}
+		}
 	}
 	clients, err := d.connections.Clients(ctx, version, snapshot.ActorID)
 	if err != nil {

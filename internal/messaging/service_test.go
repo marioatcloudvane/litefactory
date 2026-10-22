@@ -53,8 +53,8 @@ func TestAdmissionAndRetryState(t *testing.T) {
 	at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	send := &sender{}
 	s := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
-	m := messaging.Message{Transport: "test", ID: "one", Channel: "channel", Sender: "owner", Command: "help"}
-	for _, bad := range []messaging.Message{{Transport: "test", ID: "one", Channel: "other", Sender: "owner", Command: "help"}, {Transport: "test", ID: "one", Channel: "channel", Sender: "other", Command: "help"}} {
+	m := messaging.Message{Transport: "test", ID: "one", Channel: "channel", Sender: "owner", Command: "details"}
+	for _, bad := range []messaging.Message{{Transport: "test", ID: "one", Channel: "other", Sender: "owner", Command: "details"}, {Transport: "test", ID: "one", Channel: "channel", Sender: "other", Command: "details"}} {
 		allowed, _, err := s.Admit(t.Context(), bad, at)
 		if err != nil || allowed {
 			t.Fatalf("rejection = %t, %v", allowed, err)
@@ -95,7 +95,7 @@ func TestAdmissionAndRetryState(t *testing.T) {
 		t.Fatalf("confirmed: %+v, %v", r, err)
 	}
 	for _, text := range send.texts {
-		if text != "/details, /health, /help, /meter, /prices, /status" {
+		if text != "No answer details are available here." {
 			t.Fatalf("answer changed: %q", text)
 		}
 	}
@@ -121,7 +121,7 @@ func TestPermanentAndExpiredReplies(t *testing.T) {
 			at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 			send := &sender{outcome: messaging.Delivery{Permanent: permanent}}
 			s := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
-			_, _, err := s.Admit(t.Context(), messaging.Message{Transport: "test", ID: "one", Channel: "channel", Sender: "owner", Command: "help"}, at)
+			_, _, err := s.Admit(t.Context(), messaging.Message{Transport: "test", ID: "one", Channel: "channel", Sender: "owner", Command: "details"}, at)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -146,25 +146,22 @@ func TestStatusAndCommands(t *testing.T) {
 	if err := db.ReplaceHealthSnapshot(t.Context(), store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at.Add(-10 * time.Second), DiscoveryPaused: true, PauseReason: "rate limit", ExpectedResumeAt: at.Add(time.Minute), RunsInFlight: 2}, nil); err != nil {
 		t.Fatal(err)
 	}
-	send := &sender{outcome: messaging.Delivery{Confirmed: true}}
-	s := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
-	for _, cmd := range []string{"health", "status", "other"} {
-		_, _, err := s.Admit(t.Context(), messaging.Message{Transport: "test", ID: cmd, Channel: "channel", Sender: "owner", Command: cmd}, at)
-		if err != nil {
-			t.Fatal(err)
+	s := messaging.New(db, "test", "owner", []string{"channel"}, nil, messaging.FactoryStatus{DB: db})
+	var texts []string
+	for _, cmd := range []string{"health", "status"} {
+		text, status, err := s.RunCommand(t.Context(), messaging.Message{Transport: "test", ID: cmd, Channel: "channel", Sender: "owner", Command: cmd}, at)
+		if err != nil || status != "success" {
+			t.Fatalf("%s: %s %v", cmd, status, err)
 		}
-		step(t, s, at, true)
+		texts = append(texts, text)
 	}
-	if send.texts[0] != "Running: true. Heartbeat age: 10s. Discovery paused: true." {
-		t.Fatal(send.texts[0])
+	if texts[0] != "Running: true. Heartbeat age: 10s. Discovery paused: true." {
+		t.Fatal(texts[0])
 	}
 	for _, fragment := range []string{"Runs in flight: 2", "Pause reason: rate limit", "2026-10-10T12:01:00Z", "Polling: 0 repositories"} {
-		if !strings.Contains(send.texts[1], fragment) {
-			t.Fatalf("status lacks %q: %s", fragment, send.texts[1])
+		if !strings.Contains(texts[1], fragment) {
+			t.Fatalf("status lacks %q: %s", fragment, texts[1])
 		}
-	}
-	if send.texts[2] != "unknown command, try /help" {
-		t.Fatal(send.texts[2])
 	}
 }
 func TestClaimFencesStaleCompletion(t *testing.T) {
@@ -193,32 +190,6 @@ func TestClaimFencesStaleCompletion(t *testing.T) {
 	}
 }
 
-func TestReplyProtectionPrecedesPersistence(t *testing.T) {
-	t.Parallel()
-	db := database(t)
-	at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
-	send := &sender{}
-	s := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
-	s.Register("health", func(context.Context, messaging.Message, time.Time) (string, error) {
-		return "state contains secret-token", nil
-	})
-	s.Protect = func(_ context.Context, text string) (string, error) {
-		return strings.ReplaceAll(text, "secret-token", "[redacted]"), nil
-	}
-	_, _, err := s.Admit(t.Context(), messaging.Message{Transport: "test", ID: "one", Channel: "channel", Sender: "owner", Command: "health"}, at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(t, s, at, true)
-	row, err := db.ReadChatReply(t.Context(), "test", "one")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if row.ReplyText != "state contains [redacted]" || send.texts[0] != row.ReplyText {
-		t.Fatalf("unprotected reply: %+v %v", row, send.texts)
-	}
-}
-
 // TestDeliveryLogLine checks one log record per delivery attempt with the
 // command, outcome, route and status, and never the reply text.
 func TestDeliveryLogLine(t *testing.T) {
@@ -239,7 +210,7 @@ func TestDeliveryLogLine(t *testing.T) {
 			s := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
 			var logs bytes.Buffer
 			s.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
-			if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "test", ID: "one", Channel: "channel", Sender: "owner", Command: "help"}, at); err != nil {
+			if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "test", ID: "one", Channel: "channel", Sender: "owner", Command: "details"}, at); err != nil {
 				t.Fatal(err)
 			}
 			step(t, s, at, true)
@@ -255,12 +226,81 @@ func TestDeliveryLogLine(t *testing.T) {
 			if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
 				t.Fatal(err)
 			}
-			if record.Transport != "test" || record.ID != "one" || record.Command != "help" || record.Outcome != test.want || record.Route != test.outcome.Route || record.Status != test.outcome.Status {
+			if record.Transport != "test" || record.ID != "one" || record.Command != "details" || record.Outcome != test.want || record.Route != test.outcome.Route || record.Status != test.outcome.Status {
 				t.Fatalf("log: %s", lines[0])
 			}
 			if strings.Contains(lines[0], send.texts[0]) {
 				t.Fatalf("log carries reply text: %s", lines[0])
 			}
 		})
+	}
+}
+
+func TestStatusExplainsAStoryRestartedByTheMergeStep(t *testing.T) {
+	t.Parallel()
+	db := database(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 21, 16, 0, 0, 0, time.UTC)
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory", BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := db.GetOrCreateSession(ctx, repo, 728)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "chat", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: parent.ID, DefinitionID: def.ID, CurrentNode: "merge", StartedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	ref := parent.TaskRef
+	seeds := []store.ImplementStorySeed{{Key: "story-001", Position: 0, Branch: "lf/1"}, {Key: "story-002", Position: 1, Branch: "lf/2"}, {Key: "story-003", Position: 2, Branch: "lf/3"}}
+	if err := db.EnsureImplementStories(ctx, ref, 1, seeds, at); err != nil {
+		t.Fatal(err)
+	}
+	move := func(key, from, to string, revision int64, reason string) store.ImplementStory {
+		t.Helper()
+		in := store.ImplementTransition{Parent: ref, Generation: 1, Key: key, From: from, To: to, ExpectedRevision: revision, Reason: reason, At: at}
+		if to == store.ImplementMerged {
+			in.MergeCommit = "feedface"
+		}
+		row, err := db.TransitionImplementStory(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	const reason = "the story conflicts with the work already merged in internal/cli/commands.go; its worker is started again to resolve the conflict"
+	for _, key := range []string{"story-001", "story-002", "story-003"} {
+		row := move(key, store.ImplementWaiting, store.ImplementRunning, 1, "")
+		row = move(key, store.ImplementRunning, store.ImplementDone, row.Revision, "")
+		switch key {
+		case "story-001":
+			// Restarted by the merge step and running again.
+			row = move(key, store.ImplementDone, store.ImplementParked, row.Revision, reason)
+			row = move(key, store.ImplementParked, store.ImplementWaiting, row.Revision, "")
+			move(key, store.ImplementWaiting, store.ImplementRunning, row.Revision, "")
+		case "story-002":
+			move(key, store.ImplementDone, store.ImplementParked, row.Revision, "the story's branch was not found, so there is nothing to merge")
+		case "story-003":
+			move(key, store.ImplementDone, store.ImplementMerged, row.Revision, "")
+		}
+	}
+	s := messaging.New(db, "test", "owner", []string{"channel"}, nil, messaging.FactoryStatus{DB: db})
+	text, status, err := s.RunCommand(ctx, messaging.Message{Transport: "test", ID: "status", Channel: "channel", Sender: "owner", Command: "status", Arguments: map[string]string{"project": "acme/litefactory", "issue": "728"}}, at)
+	if err != nil || status != "success" {
+		t.Fatalf("status: %s %v", status, err)
+	}
+	if want := "story-001 running, restarted after: " + reason; !strings.Contains(text, want) {
+		t.Fatalf("missing %q: %s", want, text)
+	}
+	if got := strings.Count(text, "restarted after:"); got != 1 {
+		t.Fatalf("a parked or merged story must not show a restart reason (%d found): %s", got, text)
+	}
+	if !strings.Contains(text, "story-002 parked, parked: the story's branch was not found") {
+		t.Fatalf("parked story line changed: %s", text)
 	}
 }

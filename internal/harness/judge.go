@@ -13,7 +13,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
-// RunJudge uses the scoped broker transport with every native tool disabled.
+// RunJudge uses the scoped broker transport with only the read-only native
+// tools Read, Grep and Glob, confined to the pinned checkout and context files.
 // This separate gate neither opens nor alters diagnosis isolation.
 func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (agent.JudgeRunResult, error) {
 	if err := request.Validate(); err != nil {

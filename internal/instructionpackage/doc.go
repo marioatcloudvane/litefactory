@@ -1,10 +1,9 @@
 // Package instructionpackage supplies a versioned, checked instruction baseline,
 // read-only owner overlays, and retained role captures. The production catalogue
 // contains the native conversation, factory envelope, correction and action-outcome
-// roles, the judge challenger with its fixed pin/evidence resources, plus
+// roles, the judge challenger, plus
 // merge-conflict-advisor, schedule-proposal-advisor, mode-classifier,
-// doctor-diagnosis and doctor-repair, and the five chat roles: chat-ask, chat-draft,
-// chat-intent-interpreter, chat-reply-writer and chat-reply-checker. Doctor roles
+// doctor-diagnosis and doctor-repair, and the chat-draft role. Doctor roles
 // select factory-fixed skills.
 // Change the shipped version whenever shipped bytes change. Agent names are
 // lowercase words joined by hyphens, without extensions, and select only
@@ -12,7 +11,8 @@
 //
 // Package metadata.yaml contains schema: 1 and a nonblank version string;
 // catalogue.yaml is a YAML sequence of registered role names. Role files are
-// agents/<name>.md; the challenger closure also includes resources/judge files.
+// agents/<name>.md. Captures retained before the challenger lost its
+// resources/judge files still restore with them.
 // Skill files are skills/<name>/SKILL.md with declared requires/resources.
 // Metadata and each text file are limited to 1 MiB, total
 // baseline/capture content to 16 MiB, and shipped inventory to 4096 files.
