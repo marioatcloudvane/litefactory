@@ -6,31 +6,27 @@ Add inheritance so a team (e.g. python) can inherit from a main team, so generic
 
 ## Decisions
 
-_No decisions have been settled yet._
+- **d1** — The base is a new generic team in the team folder, marked abstract so it is never installable. (owner, q1)
+- **d2** — A child may remove an inherited file through an explicit exclude list. (owner, q2)
+- **d3** — Workflows (graphs), roles and skills are all inherited. (owner)
+
 
 ## Assumptions
 
-- **a1** — Build-time resolution keeps releases self-contained and immutable. The installer takes finished packages, so no loader change is needed.
-- **a2** — Whole-file override is enough; merge is not needed.
+- **a1** — Build-time resolution keeps releases self-contained and immutable; the installer takes finished packages, so no loader change is needed.
+- **a2** — Whole-file override handles real stack logic; merge is not needed.
 - **a3** — The base is pinned by living in the same repository; no version pinning.
+- **a4** — Child sizes (about 18 python, 10 go) are estimates from the python comparison; swift and dotnet were not compared in detail and swift may need more overrides.
 
 
 ## Open questions
 
-### q1 — What should the main (base) team be?
+### q3 — May the base use simple {{variables}} so child teams stay tiny?
 
 _Asked of: Product Owner Questions_
 
-- **a** — A new generic base source that is not released itself. Go, python, dotnet and swift all inherit from it. Cleanest; one extra folder.  *(recommended)*
-- **b** — The go team is the base and the others inherit from it. Less work now, but go-specific content leaks into every team.
-- **c** — Any team may name any other as base; there is no fixed main.
-
-### q2 — Can a child team remove an inherited file?
-
-_Asked of: Technical Questions_
-
-- **a** — Yes, through an explicit list of excluded paths in the child's metadata.  *(recommended)*
-- **b** — No, children can only add or replace files.
+- **a** — Yes. The child declares a few variables (team name, stack skill, example command) and the build fills them in. Children stay at about 18 and 10 files. Recommended.  *(recommended)*
+- **b** — No. Whole-file override only. Every workflow graph and about 20 roles that differ by one line must be copied into each child, so python stays near 45 files and inheritance saves little.
 
 ## Research documents
 

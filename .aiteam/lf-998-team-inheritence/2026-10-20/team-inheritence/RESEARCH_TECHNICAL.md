@@ -13,21 +13,23 @@ Evidence:
 
 ## f2
 
-Role files are partly identical across teams (validate-code, bug-fixer, research, plan-story); story-worker, shaping and swift roles differ.
+Compared python to go file by file: 67 python files; 26 byte-identical to go, 25 differ by 2 to 8 lines (team name in the graph, stack skill name, 'Go' versus 'implementation' wording, one example command), 16 are python-only stack skill files.
 
 Evidence:
 
-- `teams/source/dotnet-web/validate/validate-code.md`
-- `teams/swift-ios/v1.0.1/validate/validate-code.md`
+- `internal/teamsource/python-fastapi`
+- `internal/teamsource/implement/implement.dot`
+- `internal/teamsource/python-fastapi/implement/implement.dot`
 
 ## f3
 
-Correction: python and swift sources exist as subfolders of the go source folder, each with its own release metadata. Dotnet source is under a separate folder.
+Python and swift sources are subfolders of the go source folder, each with its own release metadata and stack profile. Dotnet source is under a separate folder.
 
 Evidence:
 
 - `internal/teamsource/python-fastapi/release.json`
 - `internal/teamsource/swift-ios/release.json`
+- `teams/source/dotnet-web/release.json`
 
 ## f4
 
@@ -36,3 +38,12 @@ No shared guidance tree; skills are duplicated per mode. Published versions are 
 Evidence:
 
 - `internal/teamsource/README.md`
+
+## f5
+
+Real stack logic in roles is small: the implementation story worker (race flags, lint recipes) differs materially; most other role differences are wording.
+
+Evidence:
+
+- `internal/teamsource/implement/story-worker.md`
+- `internal/teamsource/python-fastapi/implement/story-worker.md`
