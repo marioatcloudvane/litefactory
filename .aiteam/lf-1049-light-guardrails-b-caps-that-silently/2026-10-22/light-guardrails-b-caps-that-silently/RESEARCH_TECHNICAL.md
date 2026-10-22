@@ -121,3 +121,11 @@ Git reader explicitly falls back to statistics on non-cancellation errors if the
 Evidence:
 
 - `internal/git/validate_repair.go:36`
+
+## f16
+
+Existing defaults retain worktrees for 14 days and logs and archives for 30 days, so worktree placement alone cannot promise evidence for the lifetime of retained records.
+
+Evidence:
+
+- `internal/config/config.go:573`
