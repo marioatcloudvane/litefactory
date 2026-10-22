@@ -216,7 +216,7 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 			return errors.New("doctor target is not a verified issue")
 		}
 		if _, err := d.admitDoctor(ctx, repo, issue, c); err != nil {
-			return err
+			return fmt.Errorf("doctor command on issue #%d, comment %d: %w", entry.IssueNumber, c.ID, err)
 		}
 	}
 	next := page.NextPage
@@ -486,6 +486,8 @@ func (d *Daemon) doctorControls(ctx context.Context) error {
 				body += " Repair " + blocking.ID + " for this task is still in state " + blocking.State + "."
 			} else if err != nil && !errors.Is(err, store.ErrNotFound) {
 				return err
+			} else {
+				body += " There is no current proposal to apply; `/doctor <instructions>` asks for a fresh diagnosis."
 			}
 		}
 		if c.Operation != "stop" {

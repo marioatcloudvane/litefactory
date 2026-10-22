@@ -180,7 +180,9 @@ func (db *DB) AdmitDoctorCommand(ctx context.Context, c DoctorCommand) (DoctorCo
 			}
 			var repair DoctorRepair
 			approval := DoctorApproval{ID: c.RepairApprovalID, SourceID: "github-doctor-apply:" + strconv.FormatInt(out.ID, 10), Principal: "github-owner:" + strconv.FormatInt(c.ActorID, 10), TaskRef: c.TaskRef, InboxID: out.ID}
-			if err := reserveDoctorRepairTx(ctx, tx, approval, &repair); err != nil {
+			// Without a current proposal there is nothing to approve; admit
+			// unreserved so the control path answers instead of failing intake.
+			if err := reserveDoctorRepairTx(ctx, tx, approval, &repair); err != nil && !errors.Is(err, ErrDoctorNoProposal) {
 				return err
 			}
 		}
