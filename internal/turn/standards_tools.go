@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/cloudvane/litefactory/internal/mcpadapter"
 	"github.com/cloudvane/litefactory/internal/standards"
@@ -12,10 +14,25 @@ import (
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
+func standardsConsumerKey(mode, node string) string {
+	if node != "" {
+		return "node:" + node + ":role:" + mode
+	}
+	return "role:" + mode
+}
+
+func standardsSessionConsumerKey(sessionID int64, mode, node string) string {
+	return fmt.Sprintf("session:%d:%s", sessionID, standardsConsumerKey(mode, node))
+}
+
 // StandardsToolService exposes advisory retrieval only, under factory identities.
+// It is installed only for roles whose graph node grants book access; nothing
+// requires a call. The book is pinned on first use, so a role that never asks
+// costs nothing and an empty or unavailable book only shows in the tool reply.
 type StandardsToolService struct {
 	runtime standards.Runtime
 	binding store.ResultBinding
+	bind    sync.Once
 }
 
 // NewStandardsToolService copies immutable scope; arguments never select a run or consumer.
@@ -24,6 +41,14 @@ func NewStandardsToolService(runtime *standards.Runtime, binding store.ResultBin
 		return nil, errors.New("standards tools require matching trusted attempt scope")
 	}
 	return &StandardsToolService{runtime: *runtime, binding: binding}, nil
+}
+
+// pin retains the current published book for this invocation on first use. An
+// existing retained binding is kept, so later calls read the same book.
+func (s *StandardsToolService) pin(ctx context.Context) {
+	s.bind.Do(func() {
+		_, _ = s.runtime.Bind(ctx, true)
+	})
 }
 
 // Binding returns the immutable factory attempt scope.
@@ -63,6 +88,7 @@ func (s *StandardsToolService) categories(ctx context.Context, id string, raw []
 	if err := decodeMCPArguments(raw, &a); err != nil {
 		return nil, err
 	}
+	s.pin(ctx)
 	if len(a.Cursor) > 4096 {
 		return nil, standards.ErrInvalid
 	}
@@ -82,6 +108,7 @@ func (s *StandardsToolService) selectCategories(ctx context.Context, id string, 
 	if err := decodeMCPArguments(raw, &a); err != nil {
 		return nil, err
 	}
+	s.pin(ctx)
 	if a.ExpectedVersion == nil || a.CategoryIDs == nil || len(*a.CategoryIDs) > 100 || strings.TrimSpace(a.Reason) == "" || len(a.Reason) > 512 {
 		return nil, standards.ErrInvalid
 	}
@@ -107,6 +134,7 @@ func (s *StandardsToolService) read(ctx context.Context, id string, raw []byte) 
 	if err := decodeMCPArguments(raw, &a); err != nil {
 		return nil, err
 	}
+	s.pin(ctx)
 	if a.SelectionVersion < 1 || len(a.SelectionDigest) == 0 || len(a.SelectionDigest) > 128 || len(a.Cursor) > 4096 {
 		return nil, standards.ErrInvalid
 	}

@@ -1,5 +1,8 @@
 # Shared guidance migration account
 
+Reference material only. The role and skill edits this migration made were
+reverted; roles keep their own guidance and nothing loads these files.
+
 This directory contains review artifacts, not runtime instructions. The factory does
 not load these files as a book, publish them during upgrade, or use them as fallback
 advice. Publication and adoption are separate owner operations; see [rollout](rollout.md).

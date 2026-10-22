@@ -131,19 +131,17 @@ references. Answers and edits use a preview and a separate confirmation; answeri
 a question never approves the resulting proposal. The same saved work is visible
 through the standards CLI.
 
-Request a complete review of one exact proposal version before approving it.
-Continue the saved review when it spans several batches. Only after every review
-part has been acknowledged does the factory offer an approval code. Explicitly
-approve that code; a bare “yes”, a reaction, a summary or an analyst notice does
-not approve standards. Approval expires after 15 minutes, and changed terms need
-a fresh review. Publication is a separate request and confirmation for that exact
-approved proposal. Its result identifies the published book revision.
+Ask to see the review of one exact proposal version to read its before and after.
+Approving it is an ordinary proposal: the factory shows the exact proposal id,
+version and digest, and your confirmation (a reply of yes, or the confirmation
+code) approves exactly that version. Publication is a separate request and
+confirmation for the approved proposal. Its result identifies the published book
+revision.
 
 After an interrupted reply, inspect the saved operation or draft before trying
 again. A committed operation can succeed even when delivery fails; recovery uses
 its original receipt. Interrupted generation requires explicit continuation.
-Selected references and operation receipts survive ordinary restart and delivered
-chat-body cleanup. Missing references never silently select the latest proposal.
+Operation receipts survive ordinary restart and delivered chat-body cleanup. Missing references never silently select the latest proposal.
 SQLite uses NORMAL synchronization: this recovery covers ordinary process
 interruption, not power loss, storage loss or administrator changes.
 
