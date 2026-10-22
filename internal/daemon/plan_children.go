@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -132,6 +134,17 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			}
 			continue
 		} else if task && child.State == "open" {
+			// A child that already has its own session owns its polling; handing
+			// it over again on every sweep re-verified it remotely and re-woke it
+			// for each comment the child wrote. Only the first handoff remains.
+			if handed, err := d.planChildSessionExists(ctx, t, story); err != nil {
+				return false, err
+			} else if handed {
+				if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
+					return false, err
+				}
+				continue
+			}
 			// Transfer durable polling responsibility before retiring the parent's
 			// discovery debt, including observations received while awaiting review.
 			session, err := d.managedChildSession(obsCtx, t.repo, story.Parent, story.IssueNumber, story.IssueID)
@@ -284,4 +297,43 @@ func planParentTitleKey(issue github.Issue, forge string) string {
 		return "story"
 	}
 	return fmt.Sprint(issue.Number)
+}
+
+// planChildSessionExists reports, from the store alone, whether a graph Plan
+// story already has its own session. The child's ticket identity is built from
+// the parent's admitted ticket connection, the way managedChildSession and the
+// recovery drain identify it.
+func (d *Daemon) planChildSessionExists(ctx context.Context, t *task, story store.GraphPlanStory) (bool, error) {
+	if d.connections == nil || story.IssueID <= 0 {
+		return false, nil
+	}
+	snapshot, err := d.db.GetExecutionSnapshot(ctx, t.session.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	version, err := d.db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
+	if err != nil {
+		return false, err
+	}
+	identity := ticket.Identity{Provider: version.Provider, Origin: version.Origin, RemoteID: strconv.FormatInt(story.IssueID, 10)}
+	if version.Provider == ticket.Linear {
+		identity, err = d.db.TicketIdentityForSlot(ctx, "issue", story.IssueID)
+		if errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	session, err := d.db.GetSessionByTicket(ctx, identity)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return session.RepoID == t.repo.ID, nil
 }
