@@ -1,25 +1,15 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging"
-	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -46,8 +36,9 @@ func (f *chatDoctorFixture) Diagnose(ctx context.Context, r doctor.DiagnoseReque
 	return doctor.Conversation{Diagnosis: &doctor.Diagnosis{Findings: []doctor.Finding{{Explanation: "The question is waiting for its owner."}}, CoverageGaps: []string{"No deployment evidence."}, Questions: []string{"Which boundary?"}, Proposal: []doctor.RepairStep{{Change: "private repair details"}}}}, nil
 }
 
-// The owner journey uses signed Discord intake, the durable sender, the real
-// wait claim and dispatch allocation, and a read-only doctor seam.
+// The owner journey drives the research ports the way the conversation's
+// confirmed diagnose, question and answer actions do, with the real wait claim,
+// dispatch allocation and a read-only doctor seam.
 func TestChatResearchOwnerJourney(t *testing.T) {
 	f := newResearchRecoveryFixture(t)
 	ctx := t.Context()
@@ -65,65 +56,34 @@ func TestChatResearchOwnerJourney(t *testing.T) {
 	forge := &doctorTestForge{issue: github.Issue{Number: 342, State: "open"}}
 	d.forge, d.log = forge, slog.New(slog.DiscardHandler)
 	d.doctor.pool = newPool(1)
-	var replyMu sync.Mutex
-	var delivered []string
-	replies := func() []string { replyMu.Lock(); defer replyMu.Unlock(); return append([]string(nil), delivered...) }
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Content string `json:"content"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Error(err)
-		}
-		replyMu.Lock()
-		delivered = append(delivered, body.Content)
-		replyMu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		_, err := w.Write([]byte(`{"id":"900"}`))
-		if err != nil {
-			t.Error(err)
-		}
-	}))
-	defer api.Close()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	researchRecoveryCheck(t, err)
 	at := time.Now().UTC()
-	a := discord.New(discord.Options{ApplicationID: "app", PublicKey: pub, APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
-	s := messaging.New(f.db, "discord", "7", []string{"2"}, a, messaging.FactoryStatus{DB: f.db})
+	s := messaging.New(f.db, "discord", "7", []string{"2"}, nil, messaging.FactoryStatus{DB: f.db})
 	fake := &chatDoctorFixture{}
-	d.chat = &chatRuntime{service: s, adapter: a, diagnoser: fake, redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=chat-owner-secret"}}), notes: map[string]string{}}
-	s.EnableResearch(chatResearch{d}, chatResearch{d})
-	send := func(id, command string, options map[string]string) string {
+	d.chat = &chatRuntime{service: s, diagnoser: fake, redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=chat-owner-secret"}}), notes: map[string]string{}}
+	research := chatResearch{d}
+	ref := f.session.TaskRef
+	// diagnose defers a claimed request row and queues its private note, as the
+	// diagnose handler does; deliver confirms the saved completion.
+	diagnose := func(id string) {
 		t.Helper()
-		var typed []map[string]any
-		for name, value := range options {
-			var v any = value
-			kind := 3
-			if name == "issue" {
-				kind = 4
-				number, e := strconv.Atoi(value)
-				researchRecoveryCheck(t, e)
-				v = number
-			}
-			typed = append(typed, map[string]any{"name": name, "type": kind, "value": v})
-		}
-		body, e := json.Marshal(map[string]any{"id": id, "application_id": "app", "type": 2, "token": "token-" + id, "channel_id": "2", "user": map[string]string{"id": "7"}, "data": map[string]any{"name": command, "type": 1, "options": typed}})
+		_, e := f.db.AdmitChatReply(ctx, store.ChatReply{Transport: "discord", MessageID: id, ChannelRef: "2", Command: "diagnose", CreatedAt: at})
 		researchRecoveryCheck(t, e)
-		timestamp := strconv.FormatInt(at.Unix(), 10)
-		r := httptest.NewRequest(http.MethodPost, discord.Path, bytes.NewReader(body))
-		r.Header.Set("X-Signature-Timestamp", timestamp)
-		r.Header.Set("X-Signature-Ed25519", hex.EncodeToString(ed25519.Sign(priv, append([]byte(timestamp), body...))))
-		w := httptest.NewRecorder()
-		a.Handler(s).ServeHTTP(w, r)
-		if w.Code != http.StatusOK {
-			t.Fatalf("intake: %d %s", w.Code, w.Body.String())
-		}
-		return w.Body.String()
+		_, e = f.db.ClaimChatReply(ctx, "discord", at)
+		researchRecoveryCheck(t, e)
+		researchRecoveryCheck(t, f.db.DeferChatDiagnosis(ctx, "discord", id, ref, at))
+		researchRecoveryCheck(t, research.Queue(ctx, messaging.DiagnosisRequest{Target: ref, Note: "private owner note", SourceID: "chat:discord:" + id}))
 	}
-	base := map[string]string{"project": "research", "issue": "342"}
-	send("10", "diagnose", base)
-	_, err = s.Step(ctx, at)
-	researchRecoveryCheck(t, err)
+	deliver := func(id string) store.ChatReply {
+		t.Helper()
+		claim, e := f.db.ClaimChatReply(ctx, "discord", time.Now().Add(time.Second))
+		researchRecoveryCheck(t, e)
+		if claim.MessageID != id {
+			t.Fatalf("claimed %s, want %s", claim.MessageID, id)
+		}
+		researchRecoveryCheck(t, f.db.FinishChatReply(ctx, claim, false, time.Now()))
+		return claim
+	}
+	diagnose("10")
 	if !d.doctor.pool.try() {
 		t.Fatal("slot unexpectedly busy")
 	}
@@ -143,44 +103,35 @@ func TestChatResearchOwnerJourney(t *testing.T) {
 	fake.busy = false
 	d.dispatchChatDiagnosis(ctx, at)
 	d.doctor.pool.wait()
-	_, err = s.Step(ctx, time.Now().Add(time.Second))
-	researchRecoveryCheck(t, err)
-	if len(forge.posts) != 0 || len(replies()) != 1 || !strings.Contains(replies()[0], "Coverage gaps") || !strings.Contains(replies()[0], "Open questions") || !strings.Contains(replies()[0], "only be reviewed on the issue") || strings.Contains(replies()[0], "private repair details") {
-		t.Fatalf("diagnosis writes or rendering: %v %v", forge.posts, replies())
+	result := deliver("10").ReplyText
+	if len(forge.posts) != 0 || !strings.Contains(result, "Coverage gaps") || !strings.Contains(result, "Open questions") || !strings.Contains(result, "only be reviewed on the issue") || strings.Contains(result, "private repair details") {
+		t.Fatalf("diagnosis writes or rendering: %v %q", forge.posts, result)
 	}
-	send("11", "question", base)
-	_, err = s.Step(ctx, at)
+	question, err := research.Current(ctx, ref)
 	researchRecoveryCheck(t, err)
 	token := questionToken("chat-question")
-	if len(token) != 12 || !strings.Contains(replies()[len(replies())-1], "Which boundary?\nToken: "+token) {
-		t.Fatalf("question: %v", replies())
+	if len(token) != 12 || question.Text != "Which boundary?" || question.Token != token {
+		t.Fatalf("question: %+v", question)
 	}
-	answer := map[string]string{"project": "research", "issue": "342", "revision": "old-token", "text": "Use the existing boundary. chat-owner-secret"}
-	send("12", "answer", answer)
-	_, err = s.Step(ctx, at)
+	text := "Use the existing boundary. chat-owner-secret"
+	answer, err := research.Answer(ctx, ref, "old-token", text, at)
 	researchRecoveryCheck(t, err)
-	if !strings.Contains(replies()[len(replies())-1], "does not match") || !strings.Contains(replies()[len(replies())-1], token) {
-		t.Fatalf("stale answer: %v", replies())
+	if !strings.Contains(answer.Reason, "does not match") || answer.Token != token {
+		t.Fatalf("stale answer: %+v", answer)
 	}
-	answer["revision"] = token
 	forge.issue.State = "closed"
-	send("15", "answer", answer)
-	_, err = s.Step(ctx, at)
+	answer, err = research.Answer(ctx, ref, token, text, at)
 	researchRecoveryCheck(t, err)
-	if !strings.Contains(replies()[len(replies())-1], "issue is closed") || !strings.Contains(replies()[len(replies())-1], token) {
-		t.Fatalf("closed issue: %v", replies())
+	if !strings.Contains(answer.Reason, "issue is closed") || answer.Token != token {
+		t.Fatalf("closed issue: %+v", answer)
 	}
 	forge.issue.State = "open"
 	watermark, found, err := f.db.GetWatermark(ctx, f.session.ID)
 	researchRecoveryCheck(t, err)
-	send("13", "answer", answer)
-	_, err = s.Step(ctx, at)
+	answer, err = research.Answer(ctx, ref, token, text, at)
 	researchRecoveryCheck(t, err)
-	if replies()[len(replies())-1] != "answer recorded" {
-		t.Fatalf("answer: %v", replies())
-	}
-	if response := send("13", "answer", answer); !strings.Contains(response, "already received") {
-		t.Fatalf("duplicate: %s", response)
+	if answer.Reason != "answer recorded" {
+		t.Fatalf("answer: %+v", answer)
 	}
 	researchRecoveryCheck(t, d.chatResearchNotes(ctx))
 	researchRecoveryCheck(t, d.chatResearchNotes(ctx))
@@ -219,10 +170,8 @@ func TestChatResearchOwnerJourney(t *testing.T) {
 		t.Fatalf("continuation: %+v", wait)
 	}
 	// A stopped provider invocation keeps its durable target, but not its raw
-	// note or interaction token. A replacement service uses one restart retry.
-	send("14", "diagnose", base)
-	_, err = s.Step(ctx, at)
-	researchRecoveryCheck(t, err)
+	// note. A restarted daemon uses one restart retry.
+	diagnose("14")
 	fake.started = make(chan struct{})
 	interrupted, cancel := context.WithCancel(ctx)
 	d.dispatchChatDiagnosis(interrupted, at)
@@ -235,18 +184,14 @@ func TestChatResearchOwnerJourney(t *testing.T) {
 		t.Fatalf("interrupted diagnosis: %+v", r)
 	}
 	fake.started = nil
-	restartedAdapter := discord.New(discord.Options{ApplicationID: "app", PublicKey: pub, APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
-	restarted := messaging.New(f.db, "discord", "7", []string{"2"}, restartedAdapter, messaging.FactoryStatus{DB: f.db})
-	d.chat.service, d.chat.adapter = restarted, restartedAdapter
-	restarted.EnableResearch(chatResearch{d}, chatResearch{d})
+	d.chat.service = messaging.New(f.db, "discord", "7", []string{"2"}, nil, messaging.FactoryStatus{DB: f.db})
 	researchRecoveryCheck(t, f.db.RecoverChatDiagnoses(ctx, "discord", at))
 	d.dispatchChatDiagnosis(ctx, at)
 	d.doctor.pool.wait()
-	_, err = restarted.Step(ctx, time.Now().Add(time.Second))
-	researchRecoveryCheck(t, err)
 	if fake.sources[len(fake.sources)-1] != "chat:discord:14:retry" || len(forge.posts) != 1 {
 		t.Fatalf("restart duplicated an effect: %v %v", fake.sources, forge.posts)
 	}
+	deliver("14")
 	r, err = f.db.ReadChatReply(ctx, "discord", "14")
 	researchRecoveryCheck(t, err)
 	if r.State != "confirmed" || r.TargetRef != "" {

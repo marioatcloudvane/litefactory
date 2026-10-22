@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -310,7 +311,7 @@ func TestSpikeFixOnlySmallStartsTheWriteFixer(t *testing.T) {
 			t.Fatalf("stages=%v", s.stages)
 		}
 		surface, ok := s.requests["fix_agent"].Permissions.Payload.(harness.ToolSurface)
-		if !ok || strings.Join(surface.Tools, ",") != "Read,Glob,Grep,Edit,Write" {
+		if !ok || strings.Join(surface.Tools, ",") != "Read,Glob,Grep,Edit,Write,Bash" || surface.ReadOnlyShell || !slices.Contains(surface.AllowedTools, "Bash(go test:*)") {
 			t.Fatalf("fixer tools: %+v", s.requests["fix_agent"].Permissions)
 		}
 		if s.requests["fix_agent"].MayAsk || !s.requests["probe_agent"].MayAsk {
@@ -353,7 +354,7 @@ func TestSpikeFixPassedRecordsFixedThenReportsOnce(t *testing.T) {
 	}
 }
 
-func TestSpikeFixFailedCheckIsUnverifiedWithoutIssueOrRetry(t *testing.T) {
+func TestSpikeFixFailedCheckRepairsOnceThenIsUnverified(t *testing.T) {
 	s := &spikeFix{t: t}
 	s.run(func(s *spikeFix) {
 		s.command = func(argv []string) bugchecks.CommandResult {
@@ -365,11 +366,33 @@ func TestSpikeFixFailedCheckIsUnverifiedWithoutIssueOrRetry(t *testing.T) {
 	if !strings.Contains(s.note(), "Status: `fix_unverified`") || len(reports) != 1 || !strings.Contains(reports[0], "not ready") {
 		t.Fatalf("note=%q reports=%v", s.note(), reports)
 	}
-	if s.ran("fix_agent") != 1 || len(s.commands) != 1 || s.issues.creates != 0 {
-		t.Fatalf("a failed check retried or filed: stages=%v commands=%v creates=%d", s.stages, s.commands, s.issues.creates)
+	if s.ran("fix_agent") != 1 || s.ran("refix_agent") != 1 || len(s.commands) != 2 || s.issues.creates != 0 {
+		t.Fatalf("want one repair and one recheck: stages=%v commands=%v creates=%d", s.stages, s.commands, s.issues.creates)
+	}
+	if prompt := s.requests["refix_agent"].Prompt; !strings.Contains(prompt, "FAIL TestFlag") || !strings.Contains(prompt, "project check reported test failure") {
+		t.Fatal("the repair pass did not receive the failed check")
 	}
 	if _, err := os.Stat(filepath.Join(s.worktree(), "a.go")); err != nil {
 		t.Fatal("the unverified patch was discarded")
+	}
+}
+
+func TestSpikeFixRepairThatPassesTheRecheckIsFixed(t *testing.T) {
+	s := &spikeFix{t: t}
+	checks := 0
+	s.run(func(s *spikeFix) {
+		s.command = func(argv []string) bugchecks.CommandResult {
+			checks++
+			if checks == 1 {
+				one := 1
+				return bugchecks.CommandResult{Outcome: "failed", Exit: &one, Output: "FAIL TestFlag"}
+			}
+			zero := 0
+			return bugchecks.CommandResult{Outcome: "passed", Exit: &zero, Output: "ok"}
+		}
+	})
+	if !strings.Contains(s.note(), "Status: `fixed`") || len(s.reports()) != 1 || s.ran("refix_agent") != 1 {
+		t.Fatalf("stages=%v note=%q reports=%v", s.stages, s.note(), s.reports())
 	}
 }
 
@@ -509,7 +532,9 @@ func dropNodes(dot string, names ...string) string {
 	return strings.Join(kept, "\n")
 }
 
-var fixNodes = []string{"fix_agent", "fix_wants_owner", "fix_check", "note_fixed", "note_fix_unverified", "note_fix_too_big", "note_fix_blocked", "issue_too_big", "report_fix"}
+var fixNodes = append([]string{"fix_agent", "fix_wants_owner", "fix_check", "note_fixed", "note_fix_too_big", "note_fix_blocked", "issue_too_big", "report_fix"}, refixNodes...)
+
+var refixNodes = []string{"refix_agent", "refix_wants_owner", "recheck", "note_refixed", "note_refix_unverified", "note_refix_too_big", "note_refix_blocked", "issue_refix_too_big", "report_refix"}
 
 func TestSpikeFixDotSwapsChangeThePathWithoutGoChange(t *testing.T) {
 	t.Run("small routed to the proposal note never runs the fixer", func(t *testing.T) {
@@ -563,8 +588,8 @@ func TestSpikeFixDotSwapsChangeThePathWithoutGoChange(t *testing.T) {
 				return bugchecks.CommandResult{Outcome: "failed", Exit: &one}
 			}
 			s.graph = func(dot string) string {
-				dot = strings.Replace(dot, "fix_check           -> note_fix_unverified [lf_on=\"failed\"];", "fix_check           -> note_fixed          [lf_on=\"failed\"];", 1)
-				return dropNodes(dot, "note_fix_unverified")
+				dot = strings.Replace(dot, "fix_check           -> refix_agent         [lf_on=\"failed\"];", "fix_check           -> note_fixed          [lf_on=\"failed\"];", 1)
+				return dropNodes(dot, refixNodes...)
 			}
 		})
 		out, err := s.dispatchOwed()

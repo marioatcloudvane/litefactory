@@ -81,11 +81,19 @@ func TestConversationRedactionCannotChangeCapturedInstructionIdentity(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	captured := encodedInstructionText(t, capture.Factory())
+	replaced := false
 	run.s.Protect = func(_ context.Context, text string) (string, error) {
-		return strings.ReplaceAll(text, "private owner conversation", "redacted conversation"), nil
+		if strings.Contains(text, captured) {
+			replaced = true
+		}
+		return strings.ReplaceAll(text, captured, "redacted instructions"), nil
 	}
 	if _, err := run.invoke(t.Context(), string(raw)); err == nil || !strings.Contains(err.Error(), "conflicts with retained instructions") {
 		t.Fatalf("redaction changed captured instructions: %v", err)
+	}
+	if !replaced {
+		t.Fatal("redaction stub never saw the captured instructions")
 	}
 	if provider.calls != 0 {
 		t.Fatal("changed instructions launched provider")
@@ -99,11 +107,23 @@ func TestConversationRedactionCannotChangeCapturedInstructionIdentity(t *testing
 func TestConversationRedactionCannotJournalChangedCorrection(t *testing.T) {
 	provider := &factoryUnitProvider{outputs: []string{"invalid envelope"}}
 	run, _ := factoryUnitRun(t, provider)
+	capture, err := run.s.restoreConversationInstructions(t.Context(), run.c.ID, run.at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	correction := encodedInstructionText(t, capture.Correction())
+	replaced := false
 	run.s.Protect = func(_ context.Context, text string) (string, error) {
-		return strings.ReplaceAll(text, "Previous output failed strict validation.", "Changed correction instructions."), nil
+		if strings.Contains(text, correction) {
+			replaced = true
+		}
+		return strings.ReplaceAll(text, correction, "Changed correction instructions."), nil
 	}
 	if err := run.s.runFactoryConversation(t.Context(), run.c, run.b, run.t, run.at); err == nil || !strings.Contains(err.Error(), "conflicts with retained instructions") {
 		t.Fatalf("changed correction instructions accepted: %v", err)
+	}
+	if !replaced {
+		t.Fatal("redaction stub never saw the captured correction")
 	}
 	if provider.calls != 1 {
 		t.Fatalf("changed correction reached further model call: calls=%d", provider.calls)
@@ -120,4 +140,19 @@ func TestConversationRedactionCannotJournalChangedCorrection(t *testing.T) {
 	if err != nil || turn.State != run.t.State {
 		t.Fatalf("changed correction consumed unfinished input: %+v %v", turn, err)
 	}
+}
+
+// encodedInstructionText returns captured instruction text in the JSON-escaped
+// form the provider prompt carries, so redaction stubs target the runtime
+// capture rather than a literal phrase.
+func encodedInstructionText(t *testing.T, text string) string {
+	t.Helper()
+	encoded, err := json.Marshal(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) < 3 {
+		t.Fatal("captured instruction text is empty")
+	}
+	return string(encoded[1 : len(encoded)-1])
 }

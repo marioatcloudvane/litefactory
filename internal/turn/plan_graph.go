@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -80,6 +81,9 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if route == "legacy" {
 		return result, false, nil
 	}
+	if out, retired, retireErr := retireFinishedPlanLaunch(ctx, o, req, result); retired || retireErr != nil {
+		return out, true, retireErr
+	}
 	specs, err := PlanSpecs()
 	if err != nil {
 		return result, true, err
@@ -108,6 +112,9 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		return result, true, err
 	}
 	r.ownerID = ownerID
+	if err = r.releaseParkedWithoutAgent(ctx, definition.Profile); err != nil {
+		return result, true, err
+	}
 	r.discussion = req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.ownerID && ParseCommand(req.Trigger.Body).Kind == KindFreeText
 	feature, featureErr := o.DB.GetManagedFeature(ctx, r.parentRef.String())
 	if featureErr != nil && !errors.Is(featureErr, store.ErrNotFound) {
@@ -202,6 +209,96 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		r.logNotice(r.reportStop(ctx, admission.Instance.ID), "plan-stopped")
 	}
 	return out, true, err
+}
+
+// planAnswerNotApplied is posted for an input bound to a Plan instance that
+// finished without applying it. It names no internal state.
+const planAnswerNotApplied = "This answer was not applied; please post it again."
+
+// planParkedHold bounds how long an owner comment waits for a Plan instance
+// parked at a non-agent step to finish through its own scheduled retry.
+const planParkedHold = 15 * time.Minute
+
+// errPlanStepFinishing defers an owner comment while a parked Plan step can
+// still finish on its own; the daemon keeps the comment pending and retries it.
+var errPlanStepFinishing = errors.New("a Plan step of this task is still finishing; this comment is taken up after it")
+
+// retireFinishedPlanLaunch answers an input whose retained launch is bound to an
+// instance that is no longer running. Replaying that launch can never reach an
+// agent, so the input is retired with a visible reason instead of retried. It
+// runs before any saved capture is restored, so an unrestorable capture of a
+// finished launch is retired too.
+func retireFinishedPlanLaunch(ctx context.Context, o Options, req Request, result Result) (Result, bool, error) {
+	if store.IsGraphTrigger(req.Trigger.CommentID) {
+		return result, false, nil
+	}
+	id, found, err := o.DB.WorkflowLaunchInstance(ctx, req.SessionID, req.Trigger.CommentID)
+	if err != nil || !found {
+		return result, false, err
+	}
+	instance, err := o.DB.GetGraphInstance(ctx, id)
+	if err != nil {
+		return result, false, err
+	}
+	if instance.Status == store.GraphRunning {
+		return result, false, nil
+	}
+	if req.Trigger.PlanReply != nil {
+		return result, true, &PlanReplyRefusal{Reason: planAnswerNotApplied, Err: fmt.Errorf("plan launch of comment %d is bound to finished instance %d", req.Trigger.CommentID, id)}
+	}
+	out := result
+	out.ResearchGraph = true
+	out.Reason = planAnswerNotApplied
+	return out, true, nil
+}
+
+// releaseParkedWithoutAgent keeps a fresh owner comment from binding to a Plan
+// instance parked at a non-agent step: that instance's remaining path may end
+// without an agent pass, and the comment would never reach an agent. While the
+// instance can still move through its own scheduled retry, and for at most
+// planParkedHold after the comment, the comment is deferred. After that the
+// parked instance is cancelled, so the launch starts a successor whose agent
+// pass receives the comment.
+func (r *planGraphRuntime) releaseParkedWithoutAgent(ctx context.Context, profile *graphexec.Profile) error {
+	trigger := r.req.Trigger
+	if trigger.CommentID <= 0 || store.IsGraphTrigger(trigger.CommentID) {
+		return nil
+	}
+	launched, err := r.opts.DB.HasWorkflowLaunch(ctx, r.req.SessionID, trigger.CommentID)
+	if err != nil || launched {
+		return err
+	}
+	instance, err := r.opts.DB.LatestWorkflowInstance(ctx, r.req.SessionID, "plan")
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if instance.Status != store.GraphRunning || instance.CurrentNode == profile.Start {
+		return nil
+	}
+	if node, ok := profile.Node(instance.CurrentNode); !ok || node.Action == ResearchAgentAction {
+		return nil
+	}
+	attempts, err := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+	if err != nil {
+		return err
+	}
+	for _, attempt := range attempts {
+		if attempt.Status == store.GraphPending || attempt.Status == store.GraphRunning {
+			// A step in flight is left to the existing active-invocation guard.
+			return nil
+		}
+	}
+	if !instance.NextDueAt.IsZero() && r.opts.MCP.Now().Before(trigger.CreatedAt.Add(planParkedHold)) {
+		return errPlanStepFinishing
+	}
+	reason := fmt.Sprintf("plan instance parked at %s with no agent step left; an owner comment starts the next pass", instance.CurrentNode)
+	if err = r.opts.DB.CancelWorkflowGraphs(context.WithoutCancel(ctx), r.req.SessionID, "plan", reason, r.opts.MCP.Now()); err != nil {
+		return fmt.Errorf("release plan parking without an agent step: %w", err)
+	}
+	return nil
 }
 
 // releaseMismatchedParking ends a parked instance whose next agent stage is no
@@ -464,7 +561,7 @@ func (r *planGraphRuntime) policy() WorkflowPolicy {
 		if err := specs.Register(graphexec.PlanStorySpec()); err != nil {
 			return err
 		}
-		return activities.Register(graphexec.PlanStoryAction, planGraphHandler(r.effect))
+		return activities.Register(graphexec.PlanStoryAction, planStoryEffect{r: r})
 	}
 	return p
 }
@@ -585,7 +682,30 @@ func (r *planGraphRuntime) control(ctx context.Context, _ Options, a ActivityReq
 	return ActivityResult{Outcome: outcome}, nil
 }
 
-func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
+// planStoryEffect is the production lf_plan_story handler. ExecuteNodeAction
+// takes the parent story-progress lock through it before reserving an attempt,
+// so a busy parent defers the step without spending node limit or budget.
+type planStoryEffect struct {
+	r      *planGraphRuntime
+	locked bool
+}
+
+func (e planStoryEffect) Execute(ctx context.Context, o Options, a ActivityRequest) (ActivityResult, error) {
+	return e.r.effect(ctx, o, a, e.locked)
+}
+
+func (e planStoryEffect) lockParent(ctx context.Context) (func() error, error) {
+	return lockPlanStory(ctx, 250*time.Millisecond, planStoryLockWait, func() (func() error, error) {
+		return e.r.opts.DB.LockStoryProgress(ctx, e.r.parentRef.String(), e.r.opts.MCP.Paths.StoryProgressLocksDir())
+	})
+}
+
+func (e planStoryEffect) withParentLocked() ActivityHandler {
+	e.locked = true
+	return e
+}
+
+func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequest, locked bool) (ActivityResult, error) {
 	node, _, err := r.load(ctx, a)
 	if err != nil {
 		return ActivityResult{}, err
@@ -609,7 +729,7 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 		return ActivityResult{}, err
 	}
 	h := PlanStoryActivity{DB: r.opts.DB, Forge: forge, Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
-	receipt, err := h.Apply(ctx, authority, request)
+	receipt, err := h.apply(ctx, authority, request, locked)
 	if err != nil {
 		return ActivityResult{}, err
 	}

@@ -1,12 +1,7 @@
-package discord_test
+package messaging_test
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,15 +11,13 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/messaging"
-	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/meterview"
-	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// TestMeterOwnerJourney follows signed slash commands through admission, the
-// durable inbox and a fake Discord API, using real frozen usage and prices.
-func TestMeterOwnerJourney(t *testing.T) {
+// TestMeterAndPricesReaders runs the meter, prices and help readers the way the
+// conversation does, using real frozen usage and prices.
+func TestMeterAndPricesReaders(t *testing.T) {
 	ctx := t.Context()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "meter.db"))
 	if err != nil {
@@ -95,73 +88,30 @@ func TestMeterOwnerJourney(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Now().UTC().Truncate(time.Second).Add(time.Minute)
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var replies []string
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			var data struct {
-				Content string `json:"content"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-				t.Error(err)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			replies = append(replies, data.Content)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer api.Close()
-	adapter := discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("fake"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
-	service := messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
-	if err := adapter.Register(ctx, service.Declarations()...); err != nil {
-		t.Fatal(err)
-	}
-	handler := adapter.Handler(service)
-	nextID := 100
-	command := func(name string, options ...map[string]any) string {
+	service := messaging.New(db, "discord", "2", []string{"3"}, nil, messaging.FactoryStatus{DB: db})
+	type option struct{ name, value string }
+	command := func(name string, options ...option) string {
 		t.Helper()
-		nextID++
-		payload := map[string]any{"id": strconv.Itoa(nextID), "application_id": "1", "type": 2, "token": "fake-interaction", "channel_id": "3", "member": map[string]any{"user": map[string]any{"id": "2"}}, "data": map[string]any{"name": name, "type": 1, "options": options}}
-		encoded, err := json.Marshal(payload)
+		args := map[string]string{}
+		for _, o := range options {
+			args[o.name] = o.value
+		}
+		reply, _, err := service.RunCommand(ctx, messaging.Message{Transport: "discord", ID: "100", Channel: "3", Sender: "2", Command: name, Arguments: args}, at)
 		if err != nil {
 			t.Fatal(err)
 		}
-		before := len(replies)
-		w := signed(t, handler, private, at, encoded)
-		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":5`) {
-			t.Fatalf("ack: %d %s", w.Code, w.Body)
-		}
-		if len(replies) != before {
-			t.Fatal("report delivered before deferred acknowledgement")
-		}
-		more, err := service.Step(ctx, at)
-		if err != nil || !more {
-			t.Fatalf("delivery: %t %v", more, err)
-		}
-		if len(replies) != before+1 {
-			t.Fatalf("expected one reply, got %d", len(replies)-before)
-		}
-		reply := replies[before]
 		if utf8.RuneCountInString(reply) > 2000 {
 			t.Fatalf("reply exceeds Discord limit: %d", utf8.RuneCountInString(reply))
 		}
 		return reply
 	}
-	text := func(name, value string) map[string]any {
-		return map[string]any{"name": name, "type": 3, "value": value}
-	}
-	integer := func(name string, value int) map[string]any {
-		return map[string]any{"name": name, "type": 4, "value": value}
-	}
+	text := func(name, value string) option { return option{name, value} }
+	integer := func(name string, value int) option { return option{name, strconv.Itoa(value)} }
 	for _, scope := range []struct {
 		project string
 		task    int
 	}{{"", 0}, {"acme/one", 0}, {"acme/one", 1}} {
-		opts := []map[string]any{}
+		opts := []option{}
 		if scope.project != "" {
 			opts = append(opts, text("project", scope.project))
 		}
@@ -191,7 +141,7 @@ func TestMeterOwnerJourney(t *testing.T) {
 	if !strings.Contains(filtered, "input_uncached: 36;") {
 		t.Fatal(filtered)
 	}
-	details := []map[string]any{text("project", "acme/one"), integer("task", 1), {"name": "details", "type": 5, "value": true}}
+	details := []option{text("project", "acme/one"), integer("task", 1), {"details", "true"}}
 	first := command("meter", details...)
 	if !strings.Contains(first, "page 1 of ") || !strings.Contains(first, "next: /meter project:acme/one task:1 details:true page:2") {
 		t.Fatalf("missing next-page command: %s", first)
@@ -204,7 +154,7 @@ func TestMeterOwnerJourney(t *testing.T) {
 	if !strings.Contains(out, "last valid page is") {
 		t.Fatal(out)
 	}
-	for _, opts := range [][]map[string]any{{integer("task", 1)}, {text("project", "acme/missing")}, {text("from", "bad-date")}} {
+	for _, opts := range [][]option{{integer("task", 1)}, {text("project", "acme/missing")}, {text("from", "bad-date")}} {
 		reply := command("meter", opts...)
 		if strings.Contains(reply, "Price revisions:") || strings.Contains(reply, "\n") {
 			t.Fatalf("expected short argument error: %s", reply)
@@ -219,7 +169,7 @@ func TestMeterOwnerJourney(t *testing.T) {
 		t.Fatal(priceReply)
 	}
 	help := command("help")
-	if !strings.Contains(help, "/meter") || !strings.Contains(help, "/prices") {
+	if !strings.Contains(help, "meter") || !strings.Contains(help, "prices") || strings.Contains(help, "/meter") {
 		t.Fatal(help)
 	}
 }

@@ -1808,8 +1808,10 @@ func requestPermissions(req Request) agent.Permissions {
 			Payload: harness.ToolSurface{
 				Tools: req.Tools, AllowedTools: req.AllowedTools,
 				// A validate surface holding Bash is a reviewer's read-only
-				// shell: the runner refuses everything AllowedTools does not name.
-				ReadOnlyShell: req.ToolProfile == "validate" && slices.Contains(req.Tools, "Bash"),
+				// shell, and so is a Spike read node's: the runner refuses
+				// everything AllowedTools does not name and keeps the worktree
+				// unwritable. A Spike write node (the fixer) is not one.
+				ReadOnlyShell: slices.Contains(req.Tools, "Bash") && (req.ToolProfile == "validate" || (req.ToolProfile == string(agent.ModeSpike) && !req.nodeWrite)),
 			},
 		}
 	}

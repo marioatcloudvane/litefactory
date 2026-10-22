@@ -1847,7 +1847,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 // Either way the session keeps its backlog flag, which is what brings the next
 // tick back to it.
 func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
-	if isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) {
+	if isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) || isParentBusy(err) {
 		t.recordWorkerStatus(workerDeferred)
 		return
 	}
@@ -1864,6 +1864,12 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 	}
 }
 
+// isParentBusy reports a Plan parent's story-progress lock held by another
+// writer: durable work left for a later tick, not a failed turn.
+func isParentBusy(err error) bool {
+	return errors.Is(err, store.ErrStoryProgressBusy)
+}
+
 // prepareFailed counts a turn that ended without consuming its trigger, and
 // says so once when a task stops looking like it is between attempts and
 // starts looking stuck.
@@ -1871,7 +1877,7 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 // A worker can expose the same error through leave and stopped. Count that
 // attempt once; report recovery owns its own independent deadline.
 func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) bool {
-	if t.prepareFailureRecorded || isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) || ctx.Err() != nil {
+	if t.prepareFailureRecorded || isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) || isParentBusy(err) || ctx.Err() != nil {
 		return false
 	}
 	t.prepareFailureRecorded = true
@@ -3206,7 +3212,11 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	if err == nil {
 		return nil
 	}
-	t.recordWorkerError(err)
+	if isParentBusy(err) {
+		t.recordWorkerStatus(workerDeferred)
+	} else {
+		t.recordWorkerError(err)
+	}
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 		// Shutdown, not a failure of this comment. Ending the tick is what the
 		// signal asked for.

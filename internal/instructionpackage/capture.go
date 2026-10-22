@@ -157,7 +157,7 @@ func validateCapture(data CaptureData) error {
 	if !validDigest(data.ShippedDigest) || !validDigest(data.EffectiveDigest) || !validDigest(data.Integrity) {
 		return fmt.Errorf("invalid capture digest")
 	}
-	expectedPaths := capturePaths(data.Role)
+	expectedPaths := retainedCapturePaths(data.Role, len(data.Files))
 	hasSkills := len(selectedSkills(data.Role)) != 0
 	if len(data.Files) < 2 || len(data.Files) > MaxFiles {
 		return fmt.Errorf("invalid capture file count")

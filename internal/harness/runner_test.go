@@ -1716,7 +1716,7 @@ func TestValidateRequestBoundsTheReviewerShell(t *testing.T) {
 	}
 	for name, surface := range map[string]ToolSurface{
 		"Bash without read-only shell": {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash(git diff:*)"}},
-		"rule outside the list":        {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash(go test:*)"}, ReadOnlyShell: true},
+		"rule outside the list":        {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash(go run:*)"}, ReadOnlyShell: true},
 		"bare Bash rule":               {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash"}, ReadOnlyShell: true},
 		"editing tool":                 {Tools: []string{"Read", "Bash", "Edit"}, AllowedTools: []string{"Read"}, ReadOnlyShell: true},
 	} {

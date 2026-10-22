@@ -125,13 +125,30 @@ func defaultAllowedTools() []string {
 		// the Edit tool and its permission rules. Verified: `sed -n '2,3p' f`
 		// is allowed and `sed -i '' 's/a/b/' f` is denied with f unchanged.
 		//
-		// cat and tee stay out for the reason given above at mkdir, and awk
-		// stays out because its program text can redirect into a file.
+		// tee stays out for the reason given above at mkdir, and awk stays out
+		// because its program text can redirect into a file.
 		"Bash(grep:*)",
 		"Bash(sed -n:*)",
 		"Bash(head:*)",
 		"Bash(tail:*)",
 		"Bash(wc:*)",
+		// The rest of the everyday read and inspection set (issue #984: light
+		// guardrails, agents get the read access their job needs). Under
+		// PermissionMode "auto" these were already reachable through the
+		// classifier; listing them stops a run paying a judgement for every
+		// ls. The commit, push and stash bans stay deny rules in the settings
+		// document, so nothing here reaches the forge.
+		"Bash(ls:*)",
+		"Bash(cat:*)",
+		"Bash(find:*)",
+		"Bash(diff:*)",
+		"Bash(rg:*)",
+		"Bash(git blame:*)",
+		"Bash(git grep:*)",
+		// The project's own check entry points and the common Go linter.
+		"Bash(make check:*)",
+		"Bash(make test:*)",
+		"Bash(golangci-lint:*)",
 	}
 }
 
@@ -429,20 +446,24 @@ func validatePermissionProfiles(c *Config) []error {
 }
 
 // BugRoleClaudeTools is the complete Claude tool surface a Bug or Spike role
-// may be granted. The analyst and investigator only read. The Bug fixer works
-// like an Implement engineer: it edits, runs the build and tests itself and may
+// may be granted. The Bug analyst only reads. The Spike investigator reads and
+// may run commands (tests, scripts) through the read-only shell: its run is
+// sandboxed so the worktree stays unwritable. The Bug fixer works like an
+// Implement engineer: it edits, runs the build and tests itself and may
 // delegate or look things up; the factory's own check stays the final gate.
-// The Spike fixer edits but has no shell, delegation or network tools. The
-// Validate repair agent fixes a failing suite like the Bug fixer, so it gets
-// the Bug fixer's surface.
+// The Spike fixer edits and runs the build and tests itself, with no
+// delegation or network tools. The Validate repair agent fixes a failing suite
+// like the Bug fixer, so it gets the Bug fixer's surface.
 func BugRoleClaudeTools(role string) []string {
 	switch role {
-	case "bug-analyst", SpikeInvestigatorProfile:
+	case "bug-analyst":
 		return []string{"Read", "Glob", "Grep"}
+	case SpikeInvestigatorProfile:
+		return []string{"Read", "Glob", "Grep", "Bash"}
 	case "bug-fixer", ValidateRepairProfile:
 		return []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write", "Bash", "Task", "SendMessage", "WebFetch", "WebSearch"}
 	case SpikeFixerProfile:
-		return []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write"}
+		return []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write", "Bash"}
 	default:
 		return nil
 	}
@@ -505,27 +526,46 @@ func validateBugRoleProfile(c *Config, name string, profile ToolProfile) []error
 	return errs
 }
 
-// ValidateReviewerShellRules is the fixed list of read-only Bash permission
-// rules a Claude Validate reviewer may hold. The validate profile may grant
-// Bash only together with rules from this list, and a reviewer run that holds
-// Bash is started with a permission mode that refuses every command and tool
-// --allowedTools does not name, so the list is the reviewer's shell boundary.
-// Each call returns a fresh slice.
+// ValidateReviewerShellRules is the fixed list of Bash permission rules a
+// read-only shell holds: a Claude Validate reviewer, and the Spike
+// investigator. The validate profile may grant Bash only together with rules
+// from this list, and a run holding the read-only shell is started with a
+// permission mode that refuses every command --allowedTools does not name,
+// inside an OS sandbox in which the worktree is not writable (see
+// harness.ReadOnlyShellPermissionMode). The list is therefore the shell's
+// command boundary and the sandbox its write boundary.
+//
+// It holds the everyday read and inspection commands plus the build, test,
+// vet and lint commands of the shipped stacks (Go, python-fastapi, swift-ios,
+// dotnet-web), so a reviewer can check a claim by running the code instead of
+// reading it (issue #984). A command that tries to write into the worktree
+// fails with "operation not permitted"; caches and temporary files go to a
+// private directory outside it. Each call returns a fresh slice.
 func ValidateReviewerShellRules() []string {
 	return []string{
+		// Read-only git.
 		"Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git ls-tree:*)",
-		"Bash(git grep:*)", "Bash(git status:*)", "Bash(git rev-parse:*)",
-		"Bash(cat:*)", "Bash(head:*)", "Bash(ls:*)", "Bash(wc:*)", "Bash(rg:*)",
+		"Bash(git grep:*)", "Bash(git status:*)", "Bash(git rev-parse:*)", "Bash(git blame:*)",
+		"Bash(git merge-base:*)", "Bash(git rev-list:*)",
+		// Read and inspection.
+		"Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(ls:*)", "Bash(wc:*)", "Bash(rg:*)",
+		"Bash(grep:*)", "Bash(find:*)", "Bash(sed -n:*)", "Bash(diff:*)",
+		// Build, test, vet and lint: the project checks.
+		"Bash(go test:*)", "Bash(go vet:*)", "Bash(go build:*)", "Bash(gofmt -l:*)", "Bash(gofmt -d:*)",
+		"Bash(golangci-lint:*)", "Bash(make check:*)", "Bash(make test:*)",
+		"Bash(pytest:*)", "Bash(python -m pytest:*)", "Bash(python3 -m pytest:*)", "Bash(ruff check:*)",
+		"Bash(swift build:*)", "Bash(swift test:*)", "Bash(xcodebuild:*)",
+		"Bash(dotnet build:*)", "Bash(dotnet test:*)",
 	}
 }
 
 // validateClaudeValidateProfile keeps Validate read-only by construction.
-// Claude has no filesystem sandbox equivalent to Codex's read-only mode, and
-// under the default permission mode --allowedTools is additive and not a
+// Under the default permission mode --allowedTools is additive and not a
 // boundary. Bash is therefore accepted only with rules from
 // [ValidateReviewerShellRules]; a reviewer run holding it is started in a
-// permission mode that refuses everything those rules do not name. Edits,
-// other Bash rules and a bare Bash rule stay rejected.
+// permission mode that refuses everything those rules do not name, inside a
+// sandbox that refuses writes to the worktree. Edits, other Bash rules and a
+// bare Bash rule stay rejected.
 func validateClaudeValidateProfile(stanza *ToolProfileClaude) []error {
 	readOnlyTools := toolSet([]string{"Read", "Glob", "Grep", "Task", "Bash"})
 	readOnlyRules := toolSet(append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...))

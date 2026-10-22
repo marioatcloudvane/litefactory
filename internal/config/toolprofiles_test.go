@@ -45,7 +45,8 @@ func TestValidateProfileRejectsMutatingAuthority(t *testing.T) {
 		{"Claude Edit surface", func(p *ToolProfile) { p.Claude.Tools = []string{"Read", "Glob", "Grep", "Task", "Edit"} }, []string{`permissions["validate"].claude.tools`, `"Edit"`, "read-only"}},
 		{"Claude Write surface", func(p *ToolProfile) { p.Claude.Tools = []string{"Read", "Glob", "Grep", "Task", "Write"} }, []string{`permissions["validate"].claude.tools`, `"Write"`, "read-only"}},
 		{"Claude bare Bash permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash"} }, []string{`permissions["validate"].claude.allowed_tools`, `"Bash"`, "read-only"}},
-		{"Claude test permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(go test:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(go test:*)", "read-only"}},
+		{"Claude go run permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(go run:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(go run:*)", "read-only"}},
+		{"Claude in-place sed permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(sed:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(sed:*)", "read-only"}},
 		{"Claude git write permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(git commit:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(git commit:*)", "read-only"}},
 		{"Claude Edit permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Edit"} }, []string{`permissions["validate"].claude.allowed_tools`, `"Edit"`, "read-only"}},
 		{"Claude Write permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Write"} }, []string{`permissions["validate"].claude.allowed_tools`, `"Write"`, "read-only"}},
@@ -82,6 +83,64 @@ func TestValidateProfileAcceptsReadOnlyReviewerShell(t *testing.T) {
 	for _, want := range []string{"Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(rg:*)"} {
 		if !slices.Contains(ValidateReviewerShellRules(), want) {
 			t.Errorf("reviewer shell rules lack %q", want)
+		}
+	}
+}
+
+// A reviewer checks a claim by running the code: the read-only shell holds the
+// everyday read tools and every shipped stack's build and test commands, and
+// nothing that writes, installs, deletes or reaches the forge.
+func TestReadOnlyShellRunsChecksAndNothingMutating(t *testing.T) {
+	rules := ValidateReviewerShellRules()
+	for _, want := range []string{
+		"Bash(go test:*)", "Bash(go vet:*)", "Bash(go build:*)", "Bash(sed -n:*)", "Bash(tail:*)",
+		"Bash(find:*)", "Bash(git blame:*)", "Bash(git log:*)", "Bash(diff:*)",
+		"Bash(pytest:*)", "Bash(swift test:*)", "Bash(dotnet test:*)",
+	} {
+		if !slices.Contains(rules, want) {
+			t.Errorf("read-only shell lacks %s", want)
+		}
+	}
+	for _, rule := range rules {
+		assertNoMutatingRule(t, "read-only shell", rule)
+		for _, writer := range []string{"Bash(sed:", "Bash(go run", "Bash(go generate", "Bash(gofmt:", "Bash(mkdir", "Bash(make:"} {
+			if strings.HasPrefix(rule, writer) {
+				t.Errorf("read-only shell grants writing rule %s", rule)
+			}
+		}
+	}
+}
+
+// Implement keeps its Go tooling and gains the common read set, still without
+// network, package-install, destructive or forge-writing commands.
+func TestImplementAllowlistReadsWithoutMutatingTheForge(t *testing.T) {
+	rules := defaultAllowedTools()
+	for _, want := range []string{
+		"Bash(go test:*)", "Bash(go vet:*)", "Bash(go build:*)",
+		"Bash(ls:*)", "Bash(find:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(sed -n:*)",
+		"Bash(wc:*)", "Bash(diff:*)", "Bash(git blame:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(golangci-lint:*)",
+	} {
+		if !slices.Contains(rules, want) {
+			t.Errorf("implement allowlist lacks %s", want)
+		}
+	}
+	for _, rule := range rules {
+		assertNoMutatingRule(t, "implement", rule)
+	}
+}
+
+func assertNoMutatingRule(t *testing.T, surface, rule string) {
+	t.Helper()
+	if rule == "Bash" || rule == "Bash(*)" {
+		t.Errorf("%s grants an unqualified shell", surface)
+	}
+	for _, banned := range []string{
+		"Bash(rm", "Bash(curl", "Bash(wget", "Bash(ssh", "Bash(gh", "Bash(npm", "Bash(pip", "Bash(brew",
+		"Bash(go get", "Bash(go install", "Bash(go mod", "Bash(git push", "Bash(git commit", "Bash(git add",
+		"Bash(git reset", "Bash(git checkout", "Bash(git stash", "Bash(git clean", "Bash(sudo", "Bash(chmod",
+	} {
+		if strings.HasPrefix(rule, banned) {
+			t.Errorf("%s grants %s", surface, rule)
 		}
 	}
 }

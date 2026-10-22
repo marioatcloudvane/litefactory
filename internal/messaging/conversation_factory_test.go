@@ -3,6 +3,7 @@ package messaging
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -521,8 +522,16 @@ func TestFactoryConversationCorrectionAccessRetry(t *testing.T) {
 	if worked, err := r.s.ConversationStep(t.Context(), at.Add(time.Minute)); err != nil || !worked {
 		t.Fatalf("retry: %t %v", worked, err)
 	}
-	if p.calls != 2 || !strings.Contains(p.prompts[1], "Previous output failed strict validation") {
+	capture, err := r.s.restoreConversationInstructions(t.Context(), r.c.ID, r.at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.calls != 2 {
 		t.Fatalf("correction replay: %+v", p)
+	}
+	var replayed factoryConversationPrompt
+	if err := json.Unmarshal([]byte(p.prompts[1]), &replayed); err != nil || replayed.Correction == "" || replayed.Correction != capture.Correction() {
+		t.Fatalf("correction replay: %+v %v", p, err)
 	}
 }
 
@@ -555,9 +564,50 @@ func TestFactoryConversationReportedDiagnosticsCorrection(t *testing.T) {
 			if correct && !strings.Contains(reply.ReplyText, "Planning is done") {
 				t.Fatal(reply.ReplyText)
 			}
-			if !correct && !strings.Contains(reply.ReplyText, "couldn't get a clear answer") {
+			if !correct && !strings.Contains(reply.ReplyText, "format check") {
 				t.Fatal(reply.ReplyText)
 			}
+			var corrected factoryConversationPrompt
+			if err := json.Unmarshal([]byte(p.prompts[1]), &corrected); err != nil || corrected.Correction == "" || corrected.CorrectionReason == "" {
+				t.Fatalf("correction carries no reason: %+v %v", corrected, err)
+			}
 		}
+	}
+}
+
+// The grounded answer the bot gave on 2026-10-21 for "where is the
+// implementation for 728 at?" was rejected twice because it said "recent runs
+// (8, 9 and 10)". Plain wording around run numbers is accepted on first try.
+func TestFactoryConversationAcceptsPlainStatusAnswer(t *testing.T) {
+	answer := `{"version":1,"kind":"answer","blocks":[{"text":"I'm assuming litefactory for #728. It is marked as failed, and it is in implement mode, at a stage that is still listed as running. It has eleven stories. Nothing is recorded as waiting on you or anyone else."},{"text":"The three most recent runs (8, 9 and 10) were all planning runs, and all three succeeded."}]}`
+	p := &factoryUnitProvider{outputs: []string{answer}}
+	r, at := factoryUnitRun(t, p)
+	if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.calls != 1 || !strings.Contains(reply.ReplyText, "assuming litefactory") {
+		t.Fatalf("calls=%d reply=%q", p.calls, reply.ReplyText)
+	}
+}
+
+// Noise around the single protocol object, like the stray tool tag and prose
+// the bot emitted on 2026-10-21, no longer costs the correction.
+func TestFactoryConversationToleratesNoiseAroundObject(t *testing.T) {
+	noisy := "<invoke name=\"x\">\n</invoke>\n```\n\nLet me check first.\n\n{\"version\":1,\"kind\":\"answer\",\"text\":\"Nothing is running right now.\"}"
+	p := &factoryUnitProvider{outputs: []string{noisy}}
+	r, at := factoryUnitRun(t, p)
+	if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.calls != 1 || !strings.Contains(reply.ReplyText, "Nothing is running right now.") || strings.Contains(reply.ReplyText, "invoke") {
+		t.Fatalf("calls=%d reply=%q", p.calls, reply.ReplyText)
 	}
 }

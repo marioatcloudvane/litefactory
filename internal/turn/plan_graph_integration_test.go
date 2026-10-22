@@ -465,6 +465,79 @@ func TestPlanGraphIntegration_LaterNodesUseTheRetainedAcceptedResult(t *testing.
 	}
 }
 
+// #997 AC-4: a parent story-progress lock still busy past the wait parks the
+// story at story_draft with no failure comment and no attempt; the next
+// dispatch after release writes the draft.
+func TestPlanGraphIntegration_BusyParentParksStoryDraftUntilReleased(t *testing.T) {
+	previous := planStoryLockWait
+	planStoryLockWait = 50 * time.Millisecond
+	defer func() { planStoryLockWait = previous }()
+	f, remote, base, forge, calls := graphPlanAgentFixture(t, func(s planAgentStep) (*agent.RunResult, error) {
+		good := integrationDone(integrationCreateRequest(s.story), "busy parent draft")
+		_, accepted := s.call("communication_submit", submitBytes(t, good))
+		if !accepted.Validation.Valid || accepted.Receipt == nil {
+			t.Fatalf("submission not accepted: %+v", accepted)
+		}
+		return agentDone(t, good), nil
+	})
+	f.opts.GraphRetryDelay = time.Second
+	release, err := f.db.LockStoryProgress(t.Context(), f.ref().String(), f.opts.MCP.Paths.StoryProgressLocksDir())
+	mustProgress(t, err)
+	released := false
+	defer func() {
+		if !released {
+			mustProgress(t, release())
+		}
+	}()
+	out, err := Execute(t.Context(), f.opts, base)
+	if err != nil || out.Err != nil {
+		t.Fatalf("busy parent failed the turn: %v %v %s", err, out.Err, f.logs.String())
+	}
+	for _, post := range forge.all() {
+		if strings.Contains(post.body, "could not finish this step") || strings.Contains(post.body, "reply on this issue") {
+			t.Fatalf("busy parent posted a failure comment: %q", post.body)
+		}
+	}
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
+	mustProgress(t, err)
+	if instance.Status != store.GraphRunning || instance.CurrentNode != "story_draft" || instance.NextDueAt.IsZero() {
+		t.Fatalf("instance not parked at story_draft: %+v", instance)
+	}
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	mustProgress(t, err)
+	for _, attempt := range attempts {
+		if attempt.Node == "story_draft" {
+			t.Fatalf("busy parent reserved a story_draft attempt: %+v", attempt)
+		}
+	}
+	if remote.creates != 0 {
+		t.Fatalf("story written under a busy parent: %d", remote.creates)
+	}
+	mustProgress(t, release())
+	released = true
+	out, ran, err := runDueGraphStep(t, f, base)
+	if !ran || err != nil || out.Err != nil {
+		t.Fatalf("next dispatch: ran=%v %v %v %s", ran, err, out.Err, f.logs.String())
+	}
+	if *calls != 1 || remote.creates != 1 {
+		t.Fatalf("agent calls=%d story effects=%d", *calls, remote.creates)
+	}
+	transitions, err := f.db.ListGraphTransitions(t.Context(), instance.ID)
+	mustProgress(t, err)
+	applied := false
+	for _, tr := range transitions {
+		applied = applied || (tr.FromNode == "story_draft" && tr.OnOutcome == "applied")
+	}
+	if !applied {
+		t.Fatalf("story_draft did not apply after release: %+v", transitions)
+	}
+	draft, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001")
+	mustProgress(t, err)
+	if draft.IssueID == 0 || draft.Candidate == "" {
+		t.Fatalf("plan story draft not recorded: %+v", draft)
+	}
+}
+
 // IT-005-2 (AC-003): an ask reaches the owner through the retained result: the
 // published comment carries the retained comment and the retained question text,
 // and no story is created.
