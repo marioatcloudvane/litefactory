@@ -600,8 +600,10 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 		number = int(slot)
 	}
 	parent, err := d.db.ManagedParentForChild(ctx, q.repo.ID, number)
+	graphPlanChild := false
 	if errors.Is(err, store.ErrNotFound) {
 		parent, err = d.db.GraphPlanParentForChild(ctx, q.repo.ID, number)
+		graphPlanChild = err == nil
 	}
 	if errors.Is(err, store.ErrNotFound) && observation.Provider == ticket.Linear {
 		ref := ticket.Ref{Identity: ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}, Locator: ticket.Locator{Provider: observation.Provider, Origin: observation.Origin, Container: observation.Container, Key: observation.TicketID}}
@@ -647,6 +649,29 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 	}
 	if held {
 		return nil, errRecoveryDoctorHeld
+	}
+	// A live graph Plan story that is a task of its own answers its own
+	// comments. Its observation goes straight to the child's session; the
+	// parent only keeps the story owed for its next lifecycle sweep, as the
+	// listing path does, and is neither woken nor made a candidate. Linear
+	// story routing is unchanged.
+	if graphPlanChild && observation.Provider == ticket.GitHub {
+		story, live, err := d.db.GraphPlanStoryAt(ctx, q.repo.ID, number)
+		if err != nil {
+			return nil, err
+		}
+		if live && story.Parent == parent {
+			_, err := d.db.GetSessionByTicket(ctx, ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID})
+			if err == nil {
+				if err := d.db.MarkStoryDiscoveryPending(ctx, session.ID, number); err != nil {
+					return nil, err
+				}
+				return nil, nil
+			}
+			if !errors.Is(err, store.ErrNotFound) {
+				return nil, err
+			}
+		}
 	}
 	clients, err := d.connections.Clients(ctx, version, snapshot.ActorID)
 	if err != nil {
