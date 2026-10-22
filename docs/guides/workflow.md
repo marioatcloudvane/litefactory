@@ -88,3 +88,20 @@ reserved lanes; agents and nested work use shared capacity. These limits cover
 factory-managed local execution in one daemon, not distributed quotas, provider
 rate limits or parallel subprocesses inside an admitted activity. Restart still
 requires existing interrupted-work reconciliation before readmission.
+
+### Standards book access
+
+A node grants optional, read-only access to the standards book with
+`lf_standards`, a comma-separated list of the roles it runs that may read it:
+its own `lf_agent_markdown`, or names from its `lf_roles`. Any other name is
+refused when the graph is admitted.
+
+```dot
+worker_agent [lf_action="lf_agent", lf_agent_markdown="story-worker", lf_standards="story-worker", /* ... */];
+review [lf_action="lf_validate_review", lf_roles="validate-acceptance,validate-code,validate-architecture", lf_standards="validate-architecture", /* ... */];
+```
+
+Granted roles get the standards tools and may consult them; nothing requires a
+call. Roles without the grant get no standards tools. The canonical teams grant
+it to the Implement story worker, Plan technical and the Validate architecture
+reviewer.

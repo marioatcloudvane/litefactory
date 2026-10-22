@@ -253,6 +253,7 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		current = withoutStandardsGrant(t, current)
 		if w == "bug" {
 			current = legacyBugSourceWithoutSyncGate(t, current)
 		}
