@@ -957,6 +957,49 @@ func TestImplementWorkerResolvesAConflictWithItsParentsBranch(t *testing.T) {
 	}
 }
 
+// A story the merge step restarted after a conflict (guidance_question holds
+// the merge reason, guidance is empty) gets the conflicting paths in its
+// worker prompt: preparation starts the merge of its parent's branch.
+func TestImplementWorkerRestartedByTheMergeStepSeesTheConflictInItsPrompt(t *testing.T) {
+	var prompt string
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompt = req.Prompt
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // story and merged sibling\n"), 0o600))
+		submitLiveResult(t, req, implementCompletedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	ctx := t.Context()
+	const reason = "the story conflicts with the work already merged in shared.go; its worker is started again to resolve the conflict"
+	row := implementWorkerRow(t, f)
+	for _, move := range []struct{ from, to, reason string }{
+		{store.ImplementRunning, store.ImplementDone, ""},
+		{store.ImplementDone, store.ImplementParked, reason},
+		{store.ImplementParked, store.ImplementWaiting, ""},
+		{store.ImplementWaiting, store.ImplementRunning, ""},
+	} {
+		var err error
+		row, err = f.db.TransitionImplementStory(ctx, store.ImplementTransition{Parent: implementTaskParent, Generation: 1, Key: "story-001", From: move.from, To: move.to, ExpectedRevision: row.Revision, Reason: move.reason, At: implementClock})
+		mustProgress(t, err)
+	}
+	mustProgress(t, f.db.SetImplementWorkerSession(ctx, implementTaskParent, 1, "story-001", f.session.ID, implementClock))
+	if row = implementWorkerRow(t, f); row.GuidanceQuestion != reason || row.Guidance != "" {
+		t.Fatalf("seeded row = %+v, want the merge step's restart", row)
+	}
+	seedStoryParentConflict(t, f)
+
+	out, err := Execute(t.Context(), f.opts, req)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("%+v %v", out, err)
+	}
+	for _, want := range []string{"## Merge conflict to resolve", `- "shared.go"`} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the restarted worker's prompt lacks %q", want)
+		}
+	}
+}
+
 // A worker that cannot resolve the conflict parks the story naming the file;
 // the owner's restart starts the worker again on the merge still in progress,
 // with the reply as guidance, instead of failing the turn.
