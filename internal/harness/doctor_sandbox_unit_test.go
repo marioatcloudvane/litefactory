@@ -19,7 +19,7 @@ func TestDoctorArgumentsRequireSandboxAndOnlyBash(t *testing.T) {
 	}
 	profile := &agent.DoctorSandbox{Version: agent.DoctorSandboxVersion, ScratchDirectory: dir, ReadableRoots: []string{"/"}, DeniedReadPaths: []string{"/factory/config.yaml", "/factory/secrets", "/operator/.claude", "/operator/.ssh", "/operator/.config/gh"}}
 	request := agent.DoctorRequest{Attempt: "attempt", Model: "flagship", Prompt: "inspect", WorkingDirectory: dir, MCPLaunch: spec, Sandbox: profile}
-	args, err := doctorArguments(request, filepath.Join(dir, "private-provider", "mcp.json"))
+	args, err := doctorArguments(request, filepath.Join(dir, "private-provider", "mcp.json"), "/factory/claude-home")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestDoctorArgumentsRequireSandboxAndOnlyBash(t *testing.T) {
 	if !slices.Equal(encoded.Sandbox.Filesystem.AllowWrite, []string{dir}) || len(encoded.Sandbox.Network.Allowed) != 0 || !slices.Equal(encoded.Sandbox.Network.Denied, []string{"*"}) || encoded.Sandbox.Network.Unix || encoded.Sandbox.Network.Local {
 		t.Fatalf("writable/network ceiling widened: %s", args[i+1])
 	}
-	for _, path := range append(profile.DeniedReadPaths, filepath.Join(dir, "private-provider")) {
+	for _, path := range append(profile.DeniedReadPaths, filepath.Join(dir, "private-provider"), "/factory/claude-home") {
 		if !slices.Contains(encoded.Sandbox.Filesystem.DenyRead, path) {
 			t.Fatalf("credential readable: %s", path)
 		}
@@ -80,7 +80,7 @@ func TestDoctorArgumentsRequireSandboxAndOnlyBash(t *testing.T) {
 		t.Fatal("system temp fallback writable")
 	}
 	request.Sandbox = nil
-	if _, err := doctorArguments(request, "/fixture/mcp.json"); err == nil {
+	if _, err := doctorArguments(request, "/fixture/mcp.json", "/factory/claude-home"); err == nil {
 		t.Fatal("sandbox omission accepted")
 	}
 	// Missing policy refuses before the native fixture could create a marker.

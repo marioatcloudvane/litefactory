@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,21 +54,34 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 		return agent.ConversationResult{}, err
 	}
 	phase = "directory_preparation"
-	home, scratch, err := providerprocess.PrepareConversationDirectory(request.StateDirectory)
+	// The factory's persistent claude home holds credentials and native
+	// sessions; it is never removed, and conversations run with no tools, so
+	// nothing in the turn can read it. The per-conversation scratch dir stays
+	// the working directory, so --resume finds the session under its key.
+	configDir, err := r.persistentClaudeHome()
 	if err != nil {
 		return agent.ConversationResult{}, err
 	}
-	if r.osHome != "" {
-		if err = linkCredentials(home, r.osHome); err != nil {
+	legacyHome, scratch, err := providerprocess.PrepareConversationDirectory(request.StateDirectory)
+	if err != nil {
+		return agent.ConversationResult{}, err
+	}
+	if request.Session.Resume != "" {
+		if err = adoptLegacyConversationSession(legacyHome, configDir, scratch, request.Session.Resume); err != nil {
 			return agent.ConversationResult{}, err
 		}
 	}
-	mcp := filepath.Join(home, "mcp.json")
+	run, err := os.MkdirTemp(request.StateDirectory, "run-")
+	if err != nil {
+		return agent.ConversationResult{}, err
+	}
+	defer func() { failure = errors.Join(failure, os.RemoveAll(run)) }()
+	mcp := filepath.Join(run, "mcp.json")
 	if err = os.WriteFile(mcp, []byte(`{"mcpServers":{}}`), 0600); err != nil {
 		return agent.ConversationResult{}, err
 	}
 	args := conversationArguments(request, mcp)
-	env := append(providerprocess.DoctorEnvironment(r.environ, home), "CLAUDE_CONFIG_DIR="+home, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+	env := append(r.persistentClaudeEnv(run, configDir), "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	result := agent.ConversationResult{Session: request.Session}
@@ -183,4 +197,43 @@ func (r *Runner) logConversationVersion(ctx context.Context, phase, version stri
 	if r.logger != nil {
 		r.logger.InfoContext(ctx, "conversation provider version", "provider", "claude", "phase", phase, "version", version[:end])
 	}
+}
+
+// adoptLegacyConversationSession copies a session transcript that an earlier
+// release kept under the conversation's private home into the persistent
+// claude home, so conversations started before #1057 still resume. It copies
+// only when the persistent home lacks the session, and never deletes.
+func adoptLegacyConversationSession(legacyHome, configDir, cwd, session string) error {
+	if !agent.ConversationIdentity(session) {
+		return agent.ErrConversationSessionMissing
+	}
+	name := session + ".jsonl"
+	project := filepath.Join("projects", transcriptProjectKey(cwd))
+	target := filepath.Join(configDir, project, name)
+	if _, err := os.Lstat(target); err == nil || !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	source := filepath.Join(legacyHome, project, name)
+	info, err := os.Lstat(source)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("invalid legacy conversation session")
+	}
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return err
+	}
+	partial := target + ".adopt"
+	if err = os.WriteFile(partial, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(partial, target)
 }
