@@ -32,8 +32,8 @@ for argument in "$@"; do
  fi
 done
 if [ "$1" = sandbox ]; then printf '%%s\n' 'conversation-isolation-verified'; exit 0; fi
-state=${CLAUDE_CONFIG_DIR:-$CODEX_HOME}
-state=${state%%/home}
+# Per-conversation state: the provider runs in <state>/scratch.
+state=$(dirname "$(pwd -P)")
 step=0
 if [ -f "$state/instruction-step" ]; then step=$(cat "$state/instruction-step"); fi
 step=$((step + 1))

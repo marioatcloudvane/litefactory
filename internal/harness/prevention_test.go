@@ -14,7 +14,7 @@ func TestPreventionBrokerOnlyArgumentsAndLowerTurnLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := agent.DoctorRequest{Attempt: "analysis-attempt", Model: "fixture", Prompt: "data on stdin", WorkingDirectory: dir, MCPLaunch: spec, TurnLimit: 7}
-	args, err := scopedDoctorArguments(req, filepath.Join(dir, "mcp.json"), "prevention")
+	args, err := scopedDoctorArguments(req, filepath.Join(dir, "mcp.json"), "/factory/claude-home", "prevention")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestPreventionBrokerOnlyArgumentsAndLowerTurnLimit(t *testing.T) {
 		t.Fatal("source instructions entered argv")
 	}
 	req.TurnLimit = 25
-	if _, err = scopedDoctorArguments(req, "/tmp/mcp.json", "prevention"); err == nil {
+	if _, err = scopedDoctorArguments(req, "/tmp/mcp.json", "/factory/claude-home", "prevention"); err == nil {
 		t.Fatal("unbounded turns accepted")
 	}
 	wrong, err := agent.NewMCPLaunchSpec("/usr/bin/true", filepath.Join(dir, "descriptor.json"), "analysis-attempt", agent.DoctorToolNames()...)
@@ -42,7 +42,7 @@ func TestPreventionBrokerOnlyArgumentsAndLowerTurnLimit(t *testing.T) {
 	}
 	req.MCPLaunch = wrong
 	req.TurnLimit = 7
-	if _, err = scopedDoctorArguments(req, "/tmp/mcp.json", "prevention"); err == nil {
+	if _, err = scopedDoctorArguments(req, "/tmp/mcp.json", "/factory/claude-home", "prevention"); err == nil {
 		t.Fatal("diagnosis SQL tools crossed advisory boundary")
 	}
 }
