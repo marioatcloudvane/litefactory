@@ -82,7 +82,7 @@ func TestRecoverCommittedLogReportBeforeNewWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidate := store.LogAnalysisCandidate{Key: "practice", Proposal: store.StandardsProposalVersion{ProposalID: "recovered-proposal", SchemaVersion: 1, Author: "log analyst", ChangeDigest: "original-change", ResultDigest: "original-result", Operations: []store.StandardsOperation{{Kind: "standard_add", Standard: &store.StandardsStandard{ID: "checks", Rule: "MUST Checks", Description: "Run relevant checks.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", AppliesTo: []string{"story-worker"}}}}}}
-	original, err := svc.DB.FinalizeLogAnalysis(t.Context(), store.LogAnalysisFinalization{AnalysisID: a.ID, Generation: a.Generation, RequestID: "committed-report", RequestDigest: "committed-digest", Report: raw(loganalysis.Report{Disposition: "proposals", Reason: "One cited practice supports scoped guidance."}), State: "completed", Disposition: "proposals", Candidates: []store.LogAnalysisCandidate{candidate}})
+	original, err := svc.DB.FinalizeLogAnalysis(t.Context(), store.LogAnalysisFinalization{AnalysisID: a.ID, Generation: a.Generation, RequestID: "committed-report", RequestDigest: "committed-digest", Report: raw(loganalysis.Report{Summary: "One cited practice supports scoped guidance."}), State: "completed", Disposition: "proposals", Candidates: []store.LogAnalysisCandidate{candidate}})
 	if err != nil {
 		t.Fatal(err)
 	}

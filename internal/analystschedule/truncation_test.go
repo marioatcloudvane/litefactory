@@ -16,7 +16,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
-func TestReconcileTruncatedLogEventAtEOFRemainsUnresolved(t *testing.T) {
+// What the analyst read is a fact shown with its result; a truncated excerpt
+// does not leave an accepted report's source unresolved.
+func TestReconcileAcceptedLogReportCoversTruncatedSource(t *testing.T) {
 	root := t.TempDir()
 	svc, occurrence, now := typedScheduleFixture(t, Config{Name: "Truncated evidence", Kind: "logs", RunLimit: 1}, root, nil)
 	repo, err := svc.DB.GetRepo(t.Context(), occurrence.RepositoryID)
@@ -81,27 +83,27 @@ func TestReconcileTruncatedLogEventAtEOFRemainsUnresolved(t *testing.T) {
 	if _, err = svc.DB.RecordLogAnalysisEvidence(t.Context(), store.LogAnalysisEvidence{AnalysisID: analysis.ID, Generation: analysis.Generation, CallKey: "truncated-eof", Metadata: raw(evidence)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = svc.DB.FinalizeLogAnalysis(t.Context(), store.LogAnalysisFinalization{AnalysisID: analysis.ID, Generation: analysis.Generation, RequestID: "accepted-incomplete", RequestDigest: "truncated-report", Report: raw(loganalysis.Report{Disposition: "insufficient_evidence", Reason: "The offered event was truncated."}), State: "incomplete", Disposition: "insufficient_evidence"}); err != nil {
+	if _, err = svc.DB.FinalizeLogAnalysis(t.Context(), store.LogAnalysisFinalization{AnalysisID: analysis.ID, Generation: analysis.Generation, RequestID: "accepted", RequestDigest: "truncated-report", Report: raw(loganalysis.Report{Summary: "One run, no pattern.", NoChangeReason: "A single occurrence."}), State: "completed", Disposition: "no_warranted_change"}); err != nil {
 		t.Fatal(err)
 	}
-	assertUnresolved := func() {
+	assertCovered := func() {
 		t.Helper()
 		current, err := svc.DB.GetAnalystOccurrence(t.Context(), occurrence.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if current.State != "incomplete" || current.Disposition != "insufficient_evidence" || len(current.Works) != 1 {
-			t.Fatalf("incomplete analysis lost its source: %+v", current)
+		if current.State != "completed" || current.Disposition != "no_warranted_change" || len(current.Works) != 1 {
+			t.Fatalf("accepted analysis was downgraded: %+v", current)
 		}
 		work := current.Works[0]
-		if work.Covered || work.State != "unresolved" || work.Reason == "" || !work.Offered {
-			t.Fatalf("truncated evidence was not retained as an offered unresolved source: %+v", work)
+		if !work.Covered || work.State != "covered" || !work.Offered {
+			t.Fatalf("accepted report did not cover its offered source: %+v", work)
 		}
 	}
 	if err = svc.Recover(t.Context(), now.Add(leaseDuration+time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	assertUnresolved()
+	assertCovered()
 	path := svc.DB.Path()
 	if err = svc.DB.Close(); err != nil {
 		t.Fatal(err)
@@ -111,9 +113,9 @@ func TestReconcileTruncatedLogEventAtEOFRemainsUnresolved(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = svc.DB.Close() })
-	assertUnresolved()
+	assertCovered()
 	if err = svc.Recover(t.Context(), now.Add(2*leaseDuration)); err != nil {
 		t.Fatal(err)
 	}
-	assertUnresolved()
+	assertCovered()
 }

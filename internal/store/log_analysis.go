@@ -446,11 +446,12 @@ func (db *DB) InterruptLogAnalysis(ctx context.Context, id string, generation in
 		if a.Generation != generation {
 			return ErrLogAnalysisConflict
 		}
+		// The host speaks only for itself: no proposals and no findings.
 		report, e := json.Marshal(struct {
-			Disposition string            `json:"disposition"`
-			Reason      string            `json:"reason"`
-			Findings    []json.RawMessage `json:"findings"`
-		}{Disposition: "not_evaluated", Reason: reason, Findings: []json.RawMessage{}})
+			Summary   string            `json:"summary"`
+			Proposals []json.RawMessage `json:"proposals"`
+			NotBook   []json.RawMessage `json:"not_book"`
+		}{Summary: "Not evaluated: " + reason, Proposals: []json.RawMessage{}, NotBook: []json.RawMessage{}})
 		if e != nil {
 			return e
 		}

@@ -21,7 +21,7 @@ import (
 )
 
 func TestNormalizeScopeAndLowerOnlyLimits(t *testing.T) {
-	original := Request{RepositoryIDs: []int64{2, 1, 2}, RunIDs: []int64{3, 3}, Limits: Limits{ReportBytes: 128 << 10, Proposals: 10, Calls: 8, Bytes: 20 << 10, Seconds: 3, Evidence: logevidence.Limits{Runs: 1, Records: 2, Rows: 3, Calls: 2, Bytes: 4 << 10, Digests: 1}}}
+	original := Request{RepositoryIDs: []int64{2, 1, 2}, RunIDs: []int64{3, 3}, Limits: Limits{ReportBytes: 128 << 10, Proposals: 3, Calls: 8, Bytes: 20 << 10, Seconds: 3, Evidence: logevidence.Limits{Runs: 1, Records: 2, Rows: 3, Calls: 2, Bytes: 4 << 10, Digests: 1}}}
 	got, err := normalized(original)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,11 @@ func newOutcomeFixture(t *testing.T, published, interval bool) *outcomeFixture {
 		if e = os.WriteFile(path, []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"The relevant check detected a regression."}]}}`+"\n"), 0o600); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = db.FinishRun(t.Context(), run.ID, store.RunOutcome{Status: store.RunSucceeded, FinishedAt: time.Now().Add(-time.Second)}); e != nil {
+		outcome := store.RunOutcome{Status: store.RunSucceeded, FinishedAt: time.Now().Add(-time.Second)}
+		if i == 0 {
+			outcome.Status = store.RunFailed
+		}
+		if _, e = db.FinishRun(t.Context(), run.ID, outcome); e != nil {
 			t.Fatal(e)
 		}
 		runs = append(runs, run.ID)
@@ -149,7 +153,25 @@ func (f *outcomeFixture) call(t *testing.T, name string, args any) logevidence.R
 	return v
 }
 func reportFor(c logevidence.Citation) Report {
-	return Report{Disposition: "no_warranted_change", Reason: "The observed practice already provides the expected benefit in this narrow scope.", Findings: []Finding{{Key: "practice", Observation: "The check found a regression.", Uncertainty: "Only one observed run.", Citations: []logevidence.Citation{c}}}}
+	return Report{Summary: "One failed run; no repeated cause.", NoChangeReason: "A single occurrence is not a pattern.", NotBook: []NotBook{}, Proposals: []Proposal{}}
+}
+
+// incident offers the fixture's failed-run incident and returns its ID.
+func (f *outcomeFixture) incident(t *testing.T) string {
+	t.Helper()
+	listed := f.call(t, "incidents_list", map[string]any{})
+	if len(listed.Incidents) == 0 {
+		t.Fatalf("fixture offered no incident: %+v", listed)
+	}
+	return listed.Incidents[0].ID
+}
+
+func proposalFor(id string, c logevidence.Citation) Proposal {
+	return Proposal{
+		Operation:     standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "TST-001", CategoryID: "quality", Rule: "MUST run the relevant checks before review", Description: "Run the package checks the change touches.", Evidence: "Check output in the run.", Scope: "All repositories.", Check: "semi_automated", AppliesTo: []string{"story-worker"}}},
+		Justification: Justification{IncidentIDs: []string{id}, Tasks: []string{"fixture/service#1"}, Cost: "One failed run.", WhyItPrevents: "The regression is caught before review.", LoadAfter: "story-worker 0 -> 1"},
+		Citations:     []logevidence.Citation{c},
+	}
 }
 
 func TestOutcomeRejectsUnOfferedCitationAndAcceptsVerifiedEmptySelection(t *testing.T) {
@@ -159,50 +181,103 @@ func TestOutcomeRejectsUnOfferedCitationAndAcceptsVerifiedEmptySelection(t *test
 		t.Fatal(evidence)
 	}
 	report := reportFor(evidence.Records[0].Citation)
-	if _, state, err := f.h.validate(t.Context(), report); err != nil || state != "completed" {
-		t.Fatalf("verified explicit empty selection rejected: state=%s error=%v", state, err)
+	report.Proposals = []Proposal{proposalFor(f.incident(t), evidence.Records[0].Citation)}
+	if candidates, err := f.h.validate(t.Context(), report); err != nil || len(candidates) != 1 {
+		t.Fatalf("supported proposal rejected: %v", err)
 	}
-	report.Findings[0].Citations[0].Digest = strings.Repeat("a", 64)
-	if _, _, err := f.h.validate(t.Context(), report); err == nil {
+	report.Proposals[0].Citations[0].Digest = strings.Repeat("a", 64)
+	if _, err := f.h.validate(t.Context(), report); err == nil {
 		t.Fatal("accepted a citation never offered by this invocation")
 	}
 }
-func TestOutcomeDegradedStandardsAndUnreadCoverage(t *testing.T) {
-	t.Run("degraded book", func(t *testing.T) {
-		f := newOutcomeFixture(t, false, false)
-		evidence := f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0]})
-		report := reportFor(evidence.Records[0].Citation)
-		if _, _, err := f.h.validate(t.Context(), report); err == nil {
-			t.Fatal("unavailable standards supported no-change conclusion")
+
+func TestResultValidationKeepsToDataIntegrity(t *testing.T) {
+	f := newOutcomeFixture(t, true, false)
+	evidence := f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0]})
+	c := evidence.Records[0].Citation
+	id := f.incident(t)
+	several := func(n int) []Proposal {
+		out := []Proposal{}
+		for i := range n {
+			p := proposalFor(id, c)
+			s := *p.Operation.Standard
+			s.ID = fmt.Sprintf("TST-%03d", i+1)
+			p.Operation.Standard = &s
+			out = append(out, p)
 		}
-		report.Disposition = "insufficient_evidence"
-		report.Reason = "Retained standards are unavailable; observations cannot support a guidance decision."
-		if candidates, state, err := f.h.validate(t.Context(), report); err != nil || len(candidates) != 0 || state != "completed" {
-			t.Fatalf("degraded observations=%v state=%s error=%v", candidates, state, err)
+		return out
+	}
+	for name, change := range map[string]func(*Report){
+		"more than three proposals":  func(r *Report) { r.Proposals = several(4) },
+		"no change without a reason": func(r *Report) { r.NoChangeReason = "" },
+		"unknown incident": func(r *Report) {
+			r.Proposals = several(1)
+			r.Proposals[0].Justification.IncidentIDs = []string{"bug-404"}
+		},
+		"unknown not-book incident": func(r *Report) {
+			r.NotBook = []NotBook{{Kind: NotBookFactoryDefect, Target: "graph", Finding: "x", IncidentIDs: []string{"bug-404"}}}
+		},
+		"invalid structured standard": func(r *Report) {
+			r.Proposals = several(1)
+			r.Proposals[0].Operation.Standard.Rule = "Should run checks"
+		},
+		"missing category": func(r *Report) { r.Proposals = several(1); r.Proposals[0].Operation.Standard.CategoryID = "missing" },
+		"not-book kind": func(r *Report) {
+			r.NotBook = []NotBook{{Kind: "other", Target: "x", Finding: "y", IncidentIDs: []string{id}}}
+		},
+	} {
+		report := reportFor(c)
+		change(&report)
+		if _, err := f.h.validate(t.Context(), report); err == nil {
+			t.Fatalf("%s accepted", name)
 		}
-	})
-	t.Run("explicit unread run", func(t *testing.T) {
-		f := newOutcomeFixture(t, true, false)
-		report := Report{Disposition: "insufficient_evidence", Reason: "The requested run was not examined."}
-		if _, state, err := f.h.validate(t.Context(), report); err != nil || state != "incomplete" {
-			t.Fatalf("unread scope state=%s error=%v", state, err)
-		}
-	})
-	t.Run("unknown interval remainder", func(t *testing.T) {
-		f := newOutcomeFixture(t, true, true)
-		page := f.call(t, "runs_list", map[string]any{"limit": 1})
-		if page.NextCursor == "" || len(page.Runs) != 1 {
-			t.Fatalf("expected bounded discovery continuation: %+v", page)
-		}
-		evidence := f.call(t, "run_logs_read", map[string]any{"run_id": page.Runs[0].RunID})
-		report := reportFor(evidence.Records[0].Citation)
-		report.Disposition = "insufficient_evidence"
-		report.Reason = "Discovery stopped with an unknown remainder."
-		if _, state, err := f.h.validate(t.Context(), report); err != nil || state != "incomplete" {
-			t.Fatalf("unknown remainder state=%s error=%v", state, err)
-		}
-	})
+	}
+	report := reportFor(c)
+	report.Proposals = several(3)
+	report.NotBook = []NotBook{{Kind: NotBookRolePrompt, Target: "story-worker", Finding: "Its prompt omits the check step.", IncidentIDs: []string{id}}}
+	if candidates, err := f.h.validate(t.Context(), report); err != nil || len(candidates) != 3 {
+		t.Fatalf("three proposals with a not-book finding rejected: %d %v", len(candidates), err)
+	}
+	report = reportFor(c)
+	report.Proposals = several(1)
+	report.Proposals[0].NewCategory = &standards.Category{ID: "testing", Name: "Testing", Description: "Checks before review."}
+	report.Proposals[0].Operation.Standard.CategoryID = "testing"
+	if candidates, err := f.h.validate(t.Context(), report); err != nil || len(candidates) != 1 || len(candidates[0].Proposal.Operations) != 2 {
+		t.Fatalf("category.add with its standard rejected: %+v %v", candidates, err)
+	}
 }
+
+func TestEmptyBookAcceptsFirstCategoryAndStandard(t *testing.T) {
+	f := newOutcomeFixture(t, false, false)
+	evidence := f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0]})
+	report := reportFor(evidence.Records[0].Citation)
+	report.Proposals = []Proposal{proposalFor(f.incident(t), evidence.Records[0].Citation)}
+	report.Proposals[0].NewCategory = &standards.Category{ID: "quality", Name: "Quality", Description: "Quality checks."}
+	candidates, err := f.h.validate(t.Context(), report)
+	if err != nil || len(candidates) != 1 || candidates[0].Proposal.BaseRevision != 0 {
+		t.Fatalf("empty book refused a first proposal: %+v %v", candidates, err)
+	}
+}
+
+func TestUnreadRunsDoNotDowngradeTheResult(t *testing.T) {
+	f := newOutcomeFixture(t, true, true)
+	reply, err := f.h.communication(t.Context(), "submit", "communication_submit", raw(contribution{RequestID: "nothing-read", Report: reportFor(logevidence.Citation{})}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt store.LogAnalysisReceipt
+	if err = json.Unmarshal(reply, &receipt); err != nil || receipt.State != "completed" || receipt.Disposition != "no_warranted_change" {
+		t.Fatalf("unread scope changed the analyst's result: %s %v", reply, err)
+	}
+	view, err := f.h.service.Inspect(t.Context(), f.h.a.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Invocation.State != "completed" || len(view.Read.RawReads) != 0 || len(view.Read.Digests) != 0 {
+		t.Fatalf("inspection=%+v", view)
+	}
+}
+
 func TestOuterBudgetCountsEncodedEnvelopeAndPreservesFinalReserve(t *testing.T) {
 	f := newOutcomeFixture(t, true, false)
 	payload := raw(map[string]string{"body": strings.Repeat("x", 1024)})
@@ -260,67 +335,6 @@ func TestMalformedCommunicationChargesEncodedRefusal(t *testing.T) {
 	}
 }
 
-func TestWithheldStandardsResponseCannotSupportProposal(t *testing.T) {
-	f := newOutcomeFixture(t, true, false)
-	evidence := f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0]})
-	status, err := f.h.book.Status(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	saved, err := f.h.service.DB.GetLogAnalysis(t.Context(), f.h.a.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	remaining := (f.h.q.Limits.Bytes - (8 << 10)) - saved.OutboundBytes
-	if err = f.h.charge(t.Context(), 0, remaining, false); err != nil {
-		t.Fatal(err)
-	}
-	_, err = f.h.handle(t.Context(), submission.Request{Method: "tools/call", RequestID: "withheld-standards", Payload: raw(map[string]any{"name": "standards_read", "arguments": map[string]any{"selection_version": status.Selection.Version, "selection_digest": status.Selection.Digest, "ack": true}})})
-	if err != nil {
-		t.Fatal(err)
-	}
-	status, err = f.h.book.Status(t.Context())
-	if err != nil || status.RetrievalStatus != "retrieved" {
-		t.Fatalf("fixture acknowledgment not persisted: %+v error=%v", status, err)
-	}
-	report := reportFor(evidence.Records[0].Citation)
-	report.Disposition = "proposals"
-	report.Findings[0].Benefit = "Earlier relevant checks can catch regressions."
-	report.Findings[0].Change = &standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "checks", Rule: "MUST Relevant checks", Description: "Run relevant checks before review.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}}
-	if _, _, err = f.h.validate(t.Context(), report); err == nil || !strings.Contains(err.Error(), "unread selected standards") {
-		t.Fatalf("withheld delivery supported proposal: %v", err)
-	}
-	links, err := f.h.service.DB.ListLogAnalysisProposalLinks(t.Context(), f.h.a.ID)
-	if err != nil || len(links) != 0 {
-		t.Fatalf("withheld delivery created proposals: %+v error=%v", links, err)
-	}
-}
-
-func TestCitationRereadCannotSatisfyWholeRunCoverage(t *testing.T) {
-	f := newOutcomeFixture(t, true, false)
-	// Obtain an authentic locator without offering a whole-run page through this
-	// analyst invocation's host ledger.
-	data, err := f.h.reader.Handle(t.Context(), submission.Request{Method: "tools/call", RequestID: "locator", Payload: raw(map[string]any{"name": "run_logs_read", "arguments": map[string]any{"run_id": f.runs[0]}})})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var source logevidence.Result
-	if err = json.Unmarshal(data, &source); err != nil || len(source.Records) != 1 {
-		t.Fatalf("locator=%s error=%v", data, err)
-	}
-	cited := f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0], "citation": source.Records[0].Citation})
-	report := reportFor(cited.Records[0].Citation)
-	report.Disposition = "insufficient_evidence"
-	report.Reason = "A citation reread does not examine the complete requested run."
-	if _, state, err := f.h.validate(t.Context(), report); err != nil || state != "incomplete" {
-		t.Fatalf("citation-only pass state=%s error=%v", state, err)
-	}
-	report.Disposition = "no_warranted_change"
-	if _, _, err = f.h.validate(t.Context(), report); err == nil {
-		t.Fatal("citation-only page supported a complete no-change conclusion")
-	}
-}
-
 type refusalRunner struct{ calls int }
 
 func (r *refusalRunner) LogAnalystIsolation(context.Context) (string, error) {
@@ -357,7 +371,7 @@ func TestUnsupportedStartRetainsHostFailureAndStartKey(t *testing.T) {
 				t.Fatal(err)
 			}
 			var report Report
-			if err = json.Unmarshal(reportRaw, &report); err != nil || report.Disposition != "not_evaluated" || report.Reason == "" || len(report.Findings) != 0 {
+			if err = json.Unmarshal(reportRaw, &report); err != nil || report.Summary == "" || len(report.Proposals) != 0 {
 				t.Fatalf("host report=%s error=%v", reportRaw, err)
 			}
 			second, err := s.Start(t.Context(), q)
@@ -445,20 +459,6 @@ func TestEvidenceSelectorsDiscardUnknownFieldsAndRedactKnownText(t *testing.T) {
 	}
 }
 
-func TestReaderFailureRetainsGapAfterEarlierCompleteRead(t *testing.T) {
-	f := newOutcomeFixture(t, true, false)
-	page := f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0]})
-	if err := f.h.reader.Close(); err != nil {
-		t.Fatal(err)
-	}
-	f.callRefusedEvidence(t)
-	report := reportFor(page.Records[0].Citation)
-	report.Disposition = "insufficient_evidence"
-	if _, state, err := f.h.validate(t.Context(), report); err != nil || state != "incomplete" {
-		t.Fatalf("late reader failure erased host coverage gap: state=%s error=%v", state, err)
-	}
-}
-
 func TestOuterBudgetExhaustionDoesNotResumeWithSmallerRequest(t *testing.T) {
 	f := newOutcomeFixture(t, true, false)
 	if err := f.h.charge(t.Context(), 0, f.h.q.Limits.Bytes, false); !errors.Is(err, store.ErrLogAnalysisBudget) {
@@ -526,7 +526,7 @@ func TestCatalogVerificationGatesDataAndSubmission(t *testing.T) {
 	for _, name := range []string{"run_logs_read", "communication_submit"} {
 		args := any(map[string]any{"run_id": f.runs[0]})
 		if name == "communication_submit" {
-			args = map[string]any{"request_id": "ungated-submit", "report": Report{Disposition: "insufficient_evidence", Reason: "No authorized delivery occurred."}}
+			args = map[string]any{"request_id": "ungated-submit", "report": reportFor(logevidence.Citation{})}
 		}
 		reply, callErr := f.h.handle(t.Context(), submission.Request{Method: "tools/call", RequestID: "ungated-" + name, Payload: raw(map[string]any{"name": name, "arguments": args})})
 		var refused struct {
@@ -562,8 +562,9 @@ func TestOutcomeToolsAreRecordedAndOffsetReadsDoNotCoverRuns(t *testing.T) {
 	if err = os.WriteFile(run.LogPath, []byte(two), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if listed := f.call(t, "incidents_list", map[string]any{}); listed.Coverage.Incomplete {
-		t.Fatalf("empty incident list reported a gap: %+v", listed)
+	listed := f.call(t, "incidents_list", map[string]any{})
+	if len(listed.Incidents) == 0 {
+		t.Fatalf("failed run not listed: %+v", listed)
 	}
 	digest := f.call(t, "run_digest_read", map[string]any{"run_id": f.runs[0]})
 	if len(digest.Digest) != 2 || digest.Digest[1].Offset == 0 {
@@ -574,27 +575,15 @@ func TestOutcomeToolsAreRecordedAndOffsetReadsDoNotCoverRuns(t *testing.T) {
 		t.Fatalf("offset read=%+v", window)
 	}
 	report := reportFor(window.Records[0].Citation)
-	report.Disposition = "insufficient_evidence"
-	if _, state, err := f.h.validate(t.Context(), report); err != nil || state != "incomplete" {
-		t.Fatalf("offset window counted as whole-run coverage: state=%s error=%v", state, err)
+	report.NotBook = []NotBook{{Kind: NotBookFactoryDefect, Target: "runner", Finding: "The run failed after its check passed.", IncidentIDs: []string{listed.Incidents[0].ID}, Citations: []logevidence.Citation{window.Records[0].Citation}}}
+	if _, err = f.h.validate(t.Context(), report); err != nil {
+		t.Fatalf("offset citation refused: %v", err)
 	}
-	f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0]})
-	if _, state, err := f.h.validate(t.Context(), report); err != nil || state != "completed" {
-		t.Fatalf("full read with offered citation: state=%s error=%v", state, err)
-	}
-	rows, err := allEvidence(t.Context(), f.h.service.DB, f.h.a.ID)
+	view, err := f.h.service.Inspect(t.Context(), f.h.a.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tools := map[string]bool{}
-	for _, row := range rows {
-		var v Evidence
-		if err = json.Unmarshal(row.Metadata, &v); err != nil {
-			t.Fatal(err)
-		}
-		tools[v.Tool] = true
-	}
-	if !tools["incidents_list"] || !tools["run_digest_read"] {
-		t.Fatalf("outcome tools missing from the ledger: %v", tools)
+	if view.Read.IncidentsOffered != len(listed.Incidents) || !reflect.DeepEqual(view.Read.Digests, []int64{f.runs[0]}) || !reflect.DeepEqual(view.Read.RawReads, []int64{f.runs[0]}) {
+		t.Fatalf("reading=%+v", view.Read)
 	}
 }

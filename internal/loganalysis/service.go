@@ -58,9 +58,9 @@ func normalized(q Request) (Request, error) {
 		q.Limits.ReportBytes = 128 << 10
 	}
 	if q.Limits.Proposals == 0 {
-		q.Limits.Proposals = 10
+		q.Limits.Proposals = maxProposals
 	}
-	if q.Limits.ReportBytes < 1 || q.Limits.ReportBytes > 128<<10 || q.Limits.Proposals < 1 || q.Limits.Proposals > 10 {
+	if q.Limits.ReportBytes < 1 || q.Limits.ReportBytes > 128<<10 || q.Limits.Proposals < 1 || q.Limits.Proposals > maxProposals {
 		return q, errors.New("report and proposal limits may only be lowered")
 	}
 	if q.Limits.Calls == 0 {
@@ -384,6 +384,9 @@ func (h *invocation) handle(ctx context.Context, q submission.Request) (out json
 			var r logevidence.Result
 			if e = json.Unmarshal(v, &r); e == nil {
 				meta := Evidence{Tool: call.Name, Selector: selector, Status: r.Status, Runs: r.Runs, Coverage: r.Coverage, Next: r.NextCursor != "", Budget: r.Budget}
+				for _, in := range r.Incidents {
+					meta.Incidents = append(meta.Incidents, in.ID)
+				}
 				for _, rec := range r.Records {
 					meta.Citations = append(meta.Citations, rec.Citation)
 					meta.Events = append(meta.Events, OfferedEvent{rec.Citation, rec.Redactions, rec.Truncated})
@@ -578,6 +581,52 @@ func allEvidence(ctx context.Context, db *store.DB, id string) ([]store.LogAnaly
 	}
 }
 
+// reading lists what the analyst received. It records facts and judges nothing.
+func reading(rows []store.LogAnalysisEvidence) (Reading, error) {
+	out := Reading{Digests: []int64{}, RawReads: []int64{}}
+	incidents, listed := map[string]bool{}, map[int64]bool{}
+	digests, reads := map[int64]bool{}, map[int64]bool{}
+	for _, row := range rows {
+		var v Evidence
+		if e := json.Unmarshal(row.Metadata, &v); e != nil {
+			return out, e
+		}
+		switch v.Status {
+		case "budget_exhausted":
+			out.BudgetExhausted = true
+		case "delivery_withheld":
+			out.Withheld++
+		}
+		for _, id := range v.Incidents {
+			incidents[id] = true
+		}
+		var selector struct {
+			RunID int64 `json:"run_id"`
+		}
+		_ = json.Unmarshal(v.Selector, &selector)
+		switch v.Tool {
+		case "runs_list":
+			for _, run := range v.Runs {
+				listed[run.RunID] = true
+			}
+		case "run_digest_read":
+			if v.Status == "ok" && !digests[selector.RunID] {
+				digests[selector.RunID] = true
+				out.Digests = append(out.Digests, selector.RunID)
+			}
+		case "run_logs_read":
+			if len(v.Citations) > 0 && !reads[selector.RunID] {
+				reads[selector.RunID] = true
+				out.RawReads = append(out.RawReads, selector.RunID)
+			}
+		}
+	}
+	out.IncidentsOffered, out.RunsListed = len(incidents), len(listed)
+	slices.Sort(out.Digests)
+	slices.Sort(out.RawReads)
+	return out, nil
+}
+
 // Inspect pages host evidence while keeping the immutable report and exact links.
 func (s *Service) Inspect(ctx context.Context, id string, after int64, limit int) (Inspection, error) {
 	var out Inspection
@@ -587,6 +636,14 @@ func (s *Service) Inspect(ctx context.Context, id string, after int64, limit int
 		return out, e
 	}
 	out.Standards, e = s.book(id).Inspect(ctx)
+	if e != nil {
+		return out, e
+	}
+	rows, e := allEvidence(ctx, s.DB, id)
+	if e != nil {
+		return out, e
+	}
+	out.Read, e = reading(rows)
 	if e != nil {
 		return out, e
 	}

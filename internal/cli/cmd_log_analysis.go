@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/loganalysis"
 	"github.com/cloudvane/litefactory/internal/logevidence"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/standards"
 )
 
 func newLogAnalysisCommand(action string) *Command {
@@ -53,7 +55,7 @@ func newLogAnalysisCommand(action string) *Command {
 			fs.StringVar(&key, "start-key", "", "idempotent caller identity; retry never relaunches")
 			fs.IntVar(&evidenceRuns, "evidence-runs", 0, "lower raw-read run ceiling (default 20)")
 			fs.IntVar(&reportBytes, "report-bytes", 0, "lower submitted report byte ceiling (default 131072)")
-			fs.IntVar(&proposals, "proposals", 0, "lower proposed standard ceiling (default 10)")
+			fs.IntVar(&proposals, "proposals", 0, "lower proposed standard ceiling (default 3)")
 			fs.IntVar(&calls, "calls", 0, "lower whole-analysis call ceiling (default 120)")
 			fs.IntVar(&bytes, "bytes", 0, "lower encoded outbound byte ceiling (default 1048576)")
 			fs.IntVar(&seconds, "seconds", 0, "lower wall time in seconds (default 1800)")
@@ -111,30 +113,14 @@ func newLogAnalysisCommand(action string) *Command {
 				if asJSON {
 					return writeJSON(env, view)
 				}
-				if _, e = fmt.Fprintf(env.Stdout, "Analysis %s: %s / %s\nRequested scope: %s\nLimits: %s\nBook: revision %d digest %s (%s); selection %s; retrieval %s\nUsage: %d calls, %d encoded bytes\nReason: %s\n", view.Invocation.ID, view.Invocation.State, view.Invocation.Disposition, view.Invocation.Scope, view.Invocation.Limits, view.Standards.Status.Binding.RevisionID, view.Standards.Status.Binding.Digest, view.Standards.Status.Integrity, view.Standards.Status.SelectionStatus, view.Standards.Status.RetrievalStatus, view.Invocation.Calls, view.Invocation.OutboundBytes, view.Invocation.Reason); e != nil {
-					return e
-				}
-				if selection := view.Standards.Status.Selection; selection != nil {
-					if _, e = fmt.Fprintf(env.Stdout, "Selected standards: version %d digest %s; categories %v; standards %v\n", selection.Version, selection.Digest, selection.CategoryIDs, selection.StandardIDs); e != nil {
-						return e
+				var categories []standards.Category
+				if binding, be := rt.db.GetAnalystStandardsBinding(ctx, view.Invocation.ID); be == nil && len(binding.SnapshotBytes) > 0 {
+					var snap standards.Snapshot
+					if json.Unmarshal(binding.SnapshotBytes, &snap) == nil {
+						categories = snap.Categories
 					}
 				}
-				for _, row := range view.Evidence {
-					if _, e = fmt.Fprintf(env.Stdout, "Coverage %d: %s\n", row.ID, row.Metadata); e != nil {
-						return e
-					}
-				}
-				if len(view.Report) > 0 {
-					if _, e = fmt.Fprintf(env.Stdout, "Findings: %s\n", view.Report); e != nil {
-						return e
-					}
-				}
-				for _, p := range view.Proposals {
-					if _, e = fmt.Fprintf(env.Stdout, "Unapproved proposal %s version %d base %d change digest %s result digest %s (%s)\n", p.ProposalID, p.Version, p.BaseRevision, p.ChangeDigest, p.ResultDigest, p.CandidateKey); e != nil {
-						return e
-					}
-				}
-				_, e = fmt.Fprintf(env.Stdout, "Next evidence cursor: %d\n%s\n", view.EvidenceNext, logAnalysisUsage)
+				_, e = io.WriteString(env.Stdout, renderLogAnalysis(view, categories))
 				return e
 			case "recover":
 				// Never relaunch a retained invocation. Only an expired retained deadline may be fenced.
@@ -247,9 +233,72 @@ const logAnalysisUsage = `Start: standards analyze logs --repo forge:owner/name 
 Inspect: standards analyze logs list; standards analyze logs show ID [--json] [--after ROW --limit N].
 Reread: standards analyze logs reread ID --citation JSON. This is a separate bounded owner-authorized pass.
 Recovery: standards analyze logs recover ID after its deadline; accepted results remain unchanged. A start-key retry only returns the original invocation.
-Defaults: 400 discovery rows (runs and incidents), 40 condensed run views, raw reads from 20 runs and 100 records, 80 data calls, 768 KiB encoded evidence; one model invocation, 30 minutes, 120 broker calls, 1 MiB encoded outbound data, 128 KiB report, ten proposals. Limits may only be lowered.
-Requested, discovered, offered and cited evidence differ; unread runs, unknown interval remainder, omissions and exhausted limits are coverage gaps. EOF describes retained source only.
-Retained references do not extend log retention. Rereads may report missing or changed sources. Known-secret redaction cannot remove every unknown secret or personal detail.
-Observations and proposals do not establish root cause; repeated messages need not be independent incidents. Proposals require separate human review, approval and publication.
-Execution state differs from finding disposition: proposals, no warranted change, insufficient evidence or not evaluated. Provider failure is an execution failure.
-SQLite WAL synchronous=NORMAL may lose recent commits on power failure. A new explicit analysis may charge again and yield different findings.`
+The analyst decides what to read and what to conclude; show lists what it actually read next to its result. It proposes at most three standards, which stay unapproved until the owner reviews them.
+Defaults: 400 discovery rows (runs and incidents), 40 condensed run views, raw reads from 20 runs and 100 records, 80 data calls, 768 KiB encoded evidence; one model invocation, 30 minutes, 120 broker calls, 1 MiB encoded outbound data, 128 KiB report. Limits may only be lowered.
+Known-secret redaction cannot remove every unknown secret or personal detail. Retained references do not extend log retention.`
+
+// renderLogAnalysis shows a report for the owner: what was read, the
+// proposed standards as the agents would read them, and the other findings.
+func renderLogAnalysis(view loganalysis.Inspection, categories []standards.Category) string {
+	var b strings.Builder
+	a := view.Invocation
+	fmt.Fprintf(&b, "Analysis %s: %s / %s\nScope: %s\n", a.ID, a.State, a.Disposition, a.Scope)
+	status := view.Standards.Status
+	fmt.Fprintf(&b, "Book: revision %d (%s); selection %s; retrieval %s\n", status.Binding.RevisionID, status.Integrity, status.SelectionStatus, status.RetrievalStatus)
+	read := view.Read
+	fmt.Fprintf(&b, "Read: %d incidents, %d runs listed, digests of %d runs %v, raw excerpts from %d runs %v", read.IncidentsOffered, read.RunsListed, len(read.Digests), read.Digests, len(read.RawReads), read.RawReads)
+	if read.Withheld > 0 {
+		fmt.Fprintf(&b, "; %d deliveries withheld", read.Withheld)
+	}
+	if read.BudgetExhausted {
+		b.WriteString("; budget exhausted")
+	}
+	fmt.Fprintf(&b, "\nUsage: %d calls, %d encoded bytes\n", a.Calls, a.OutboundBytes)
+	var report loganalysis.Report
+	if len(view.Report) == 0 || json.Unmarshal(view.Report, &report) != nil {
+		fmt.Fprintf(&b, "No report. %s\n", a.Reason)
+		return b.String()
+	}
+	fmt.Fprintf(&b, "\nSummary\n%s\n", strings.TrimSpace(report.Summary))
+	links := map[string]string{}
+	for _, l := range view.Proposals {
+		links[l.CandidateKey] = fmt.Sprintf("unapproved proposal %s version %d", l.ProposalID, l.Version)
+	}
+	for i, p := range report.Proposals {
+		link := links[fmt.Sprintf("proposal-%d", i+1)]
+		fmt.Fprintf(&b, "\nProposal %d: %s, %s\n\n", i+1, p.Operation.Kind, link)
+		known := categories
+		if p.NewCategory != nil {
+			fmt.Fprintf(&b, "New category %s: %s. %s\n\n", p.NewCategory.ID, p.NewCategory.Name, p.NewCategory.Description)
+			known = append([]standards.Category{*p.NewCategory}, categories...)
+		}
+		if p.Operation.Standard != nil {
+			b.WriteString(standards.Render(known, []standards.Standard{*p.Operation.Standard}))
+		}
+		j := p.Justification
+		fmt.Fprintf(&b, "Incidents: %s\nTasks: %s\nCost: %s\nWhy it prevents: %s\nLoad after: %s\n", strings.Join(j.IncidentIDs, ", "), strings.Join(j.Tasks, ", "), j.Cost, j.WhyItPrevents, j.LoadAfter)
+		writeCitations(&b, p.Citations)
+	}
+	if len(report.NotBook) > 0 {
+		b.WriteString("\nNot for the book (Bug candidates for the owner)\n")
+		for _, n := range report.NotBook {
+			fmt.Fprintf(&b, "- %s, %s: %s\n  Incidents: %s\n", n.Kind, n.Target, n.Finding, strings.Join(n.IncidentIDs, ", "))
+			writeCitations(&b, n.Citations)
+		}
+	}
+	if len(report.Proposals) == 0 && report.NoChangeReason != "" {
+		fmt.Fprintf(&b, "\nNo change: %s\n", report.NoChangeReason)
+	}
+	return b.String()
+}
+
+func writeCitations(b *strings.Builder, citations []logevidence.Citation) {
+	if len(citations) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(citations))
+	for _, c := range citations {
+		parts = append(parts, fmt.Sprintf("run %d [%d:%d]", c.RunID, c.Start, c.End))
+	}
+	fmt.Fprintf(b, "  Citations: %s\n", strings.Join(parts, ", "))
+}

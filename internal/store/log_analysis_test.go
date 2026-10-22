@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -206,14 +207,14 @@ func TestLogAnalysisInterruptionRetainsHostOnlyReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	var report struct {
-		Disposition string            `json:"disposition"`
-		Reason      string            `json:"reason"`
-		Findings    []json.RawMessage `json:"findings"`
+		Summary   string            `json:"summary"`
+		Proposals []json.RawMessage `json:"proposals"`
+		NotBook   []json.RawMessage `json:"not_book"`
 	}
 	if err = json.Unmarshal(raw, &report); err != nil {
 		t.Fatal(err)
 	}
-	if report.Disposition != "not_evaluated" || report.Reason != "provider interrupted before submission" || len(report.Findings) != 0 {
+	if !strings.Contains(report.Summary, "provider interrupted before submission") || len(report.Proposals) != 0 || len(report.NotBook) != 0 {
 		t.Fatalf("unexpected host report: %s", raw)
 	}
 	receipt, err := db.GetLogAnalysisReceipt(t.Context(), a.ID, "host-interrupted")
