@@ -199,7 +199,7 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 	if err := decoder.Decode(&cfg); err != nil {
 		return "", fmt.Errorf("decode judge launch configuration: %w", err)
 	}
-	if _, err := validateJudgeInstructions(cfg); err != nil {
+	if err := validateJudgeInstructions(cfg); err != nil {
 		return "", err
 	}
 	if err := ctx.Err(); err != nil {
@@ -287,7 +287,7 @@ func savedJudgeText(raw []byte) (string, error) {
 }
 
 func (s *JudgeService) launch(ctx context.Context, q store.JudgeRequest, cfg *judgeConfiguration, workspace *judgeWorkspace, invocation config.JudgeInvocation) (report agentresult.JudgeReport, returnedErr error) {
-	if _, err := validateJudgeInstructions(*cfg); err != nil {
+	if err := validateJudgeInstructions(*cfg); err != nil {
 		return report, err
 	}
 	if err := ctx.Err(); err != nil {

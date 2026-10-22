@@ -9,7 +9,7 @@ import (
 func TestJudgeExplicitBinding(t *testing.T) {
 	p := &Profile{Mode: agent.ModeResearch, Nodes: []Node{
 		{Name: "source", Action: "lf_agent"},
-		{Name: "judge", Action: JudgeAction, Limit: 1, Outcomes: []string{"success", "failed"}, Attrs: map[string]string{"lf_source": "source", "lf_agent": "other", "lf_budget": "2"}},
+		{Name: "judge", Action: JudgeAction, Limit: 1, Outcomes: []string{"success", "failed"}, Attrs: map[string]string{"lf_source": "source", "lf_agent": "other", "lf_budget": "2", "lf_slot_budget": "3"}},
 		{Name: "publish", Action: "lf_comment", Outcomes: []string{"published"}, Attrs: map[string]string{"lf_kind": "advisory", "lf_source": "judge"}},
 	}}
 	if err := ValidateJudgeGraph(p); err != nil {
