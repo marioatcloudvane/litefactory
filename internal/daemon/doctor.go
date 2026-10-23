@@ -415,6 +415,22 @@ func (d *Daemon) doctorCommandContext(ctx context.Context, commandID int64) (con
 	return context.WithValue(ctx, doctorSourceContextKey{}, source), nil
 }
 
+// doctorApplyHeld reports the rate-limit hold of the command's source
+// connection. It is checked before the source is read, which the hold refuses.
+func (d *Daemon) doctorApplyHeld(ctx context.Context, commandID int64) (bool, error) {
+	if d.connections != nil {
+		source, err := d.db.GetDoctorCommandSource(ctx, commandID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return false, err
+		}
+		if err == nil {
+			ctx = context.WithValue(ctx, doctorSourceContextKey{}, source)
+		}
+	}
+	_, held := d.connectionHold(ctx, d.quotaNow(ctx))
+	return held, nil
+}
+
 func (d *Daemon) doctorSourceClient(ctx context.Context, source store.DoctorCommandSource) (*github.Client, error) {
 	if source.ConnectionVersionID <= 0 || source.PublisherID <= 0 {
 		return nil, errors.New("doctor source lacks a verified publishing identity")
@@ -532,6 +548,17 @@ func (d *Daemon) dispatchDoctor(ctx context.Context) {
 	}()
 }
 func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
+	if c.Operation == "apply" {
+		// An approved repair posts through the command's connection; it waits in
+		// the inbox, without spending an attempt, while that hold stands.
+		held, err := d.doctorApplyHeld(ctx, c.ID)
+		if err != nil {
+			return err
+		}
+		if held {
+			return d.db.RequeueDoctorBusy(context.WithoutCancel(ctx), c.ID)
+		}
+	}
 	ctx, err := d.doctorCommandContext(ctx, c.ID)
 	if err != nil {
 		return err

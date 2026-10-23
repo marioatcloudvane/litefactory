@@ -912,3 +912,79 @@ func TestDoctorInterruptedRefusedApplyHasBoundedReply(t *testing.T) {
 		t.Fatal(forge.posts)
 	}
 }
+
+// C6: while the rate-limit hold of the apply command's source connection
+// stands, runDoctor does not call Apply; the command returns to the inbox
+// without spending an attempt and the reserved repair waits unchanged. After the hold
+// expires, the next dispatch reaches Apply.
+func TestDoctorApplyWaitsForConnectionHold(t *testing.T) {
+	f := newDoctorProjectFixture(t, true)
+	d, ctx := f.d, t.Context()
+	f.d.connections.SetRequestContext(d.bindQuotaRequest)
+	ref, err := naming.ParseRef(f.session.TaskRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticketRef := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: f.connection.Origin, RemoteID: "10406"}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: f.connection.Origin, Container: "team/tickets", Key: "406"}}
+	admitted, err := d.db.AdmitDoctorCommand(ctx, store.DoctorCommand{RepoID: f.repo.ID, TaskRef: f.session.TaskRef, IssueID: 10406, IssueNumber: 406, CommentID: 200, ActorID: 7, CreatedAt: d.now(), Operation: "apply", Source: &store.DoctorCommandSource{ConnectionVersionID: f.connection.ID, PublisherID: 99, Ticket: ticketRef}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := d.db.ReadDoctorEvidence(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := store.DoctorRepairStep{Number: 1, Kind: "poll_flag", Target: fmt.Sprintf("session:%d", f.session.ID), Before: "0", After: "1"}
+	approveEffect(t, d.db, f.session, step, evidence, fmt.Sprintf("github-doctor-apply:%d", admitted.ID))
+	before, err := d.db.ReadDoctorRepair(ctx, ref.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	d.quotas.tick(now)
+	d.quotas.forVersion(f.connection).backoff.fail(now, time.Minute)
+
+	c, err := d.db.ClaimDoctorCommand(ctx, "", false, d.instanceID)
+	if err != nil || c.ID != admitted.ID || c.Attempts != 1 {
+		t.Fatalf("apply not claimed: %+v %v", c, err)
+	}
+	if err = d.runDoctor(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	repair, err := d.db.ReadDoctorRepair(ctx, ref.String())
+	if err != nil || repair.ID != before.ID || repair.State != before.State || repair.Revision != before.Revision || repair.Failure != "" {
+		t.Fatalf("held apply touched the repair: %+v %v", repair, err)
+	}
+	f.publication.mu.Lock()
+	posts := f.publication.posts
+	f.publication.mu.Unlock()
+	if posts != 0 {
+		t.Fatalf("held apply posted %d replies", posts)
+	}
+	// Requeued without spending an attempt: the next claim is its first again.
+	c, err = d.db.ClaimDoctorCommand(ctx, "", false, d.instanceID)
+	if err != nil || c.ID != admitted.ID || c.Attempts != 1 {
+		t.Fatalf("held apply not requeued intact: %+v %v", c, err)
+	}
+
+	d.quotas.tick(now.Add(2 * time.Minute))
+	if err = d.runDoctor(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.db.ClaimDoctorCommand(ctx, "", false, d.instanceID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("apply requeued after the hold expired: %v", err)
+	}
+	// The fixture installs no repair dependencies, so reaching Apply completes the
+	// command with Apply's own refusal.
+	reports, err := d.db.DoctorCommandsNeedingReports(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reached := false
+	for _, report := range reports {
+		reached = reached || (report.ID == admitted.ID && strings.HasPrefix(report.ResultBody, "Doctor apply did not complete: "))
+	}
+	if !reached {
+		t.Fatalf("Apply not reached after the hold expired: %+v", reports)
+	}
+}
