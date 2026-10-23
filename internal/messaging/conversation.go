@@ -271,9 +271,6 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 					notice = "The previous turn was interrupted before its native session identity was saved. Continuity is unavailable; no replacement session was created."
 				}
 				if r.factory {
-					if err := s.recoverStandardsApproval(ctx, c, t, at); err != nil {
-						return true, err
-					}
 					if err := s.recoverStandardsConversationAction(ctx, t, at); err != nil {
 						return true, err
 					}

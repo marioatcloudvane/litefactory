@@ -215,9 +215,6 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		return err
 	}
 	run.savedOutcomes = savedOutcomes
-	if handled, err := run.approveStandards(work); handled || err != nil {
-		return err
-	}
 	// Confirmation and cancellation never enter model interpretation.
 	if handled, err := run.confirm(work); handled || err != nil {
 		return err
@@ -259,16 +256,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err != nil {
 		return err
 	}
-	var contextData struct{ PreparedContext, RecoveryNotice, StandardsClarification string }
+	var contextData struct{ PreparedContext, RecoveryNotice string }
 	if err = json.Unmarshal([]byte(t.Prompt), &contextData); err != nil {
 		contextData.PreparedContext = "Retained prepared context is unavailable."
-	}
-	if s.standards != nil {
-		progress, e := s.db.GetStandardsConversationContext(work, s.transport, s.owner, c.ChannelRef)
-		if e != nil && !errors.Is(e, store.ErrNotFound) {
-			return e
-		}
-		contextData.StandardsClarification = progress.Clarification
 	}
 	contextBytes, err := json.Marshal(contextData)
 	if err != nil {
@@ -353,19 +343,6 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		run.safe = true
 		switch envelope.Kind {
 		case "answer", "clarify":
-			if envelope.Kind == "clarify" && s.standards != nil {
-				progress, e := s.db.GetStandardsConversationContext(work, s.transport, s.owner, c.ChannelRef)
-				if e != nil && !errors.Is(e, store.ErrNotFound) {
-					return e
-				}
-				progress.Transport = s.transport
-				progress.OwnerID = s.owner
-				progress.ChannelID = c.ChannelRef
-				progress.Clarification = envelope.Text
-				if _, e = s.db.SaveStandardsConversationContext(work, progress, progress.Version); e != nil {
-					return e
-				}
-			}
 			text := envelope.Text
 			if savedOutcomes != "" {
 				text += "\n\nSaved action outcome:\n" + savedOutcomes
@@ -380,9 +357,6 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		case "propose":
 			return run.propose(work, inv, envelope, turns)
 		case "lookup":
-			if inv.Command == "standards" && (strings.HasSuffix(inv.Arguments["action"], ".review") || inv.Arguments["action"] == "review.next") {
-				return run.reviewStandards(work, inv)
-			}
 			if lookups >= 3 || run.calls >= run.maxCalls() {
 				break
 			}
@@ -511,18 +485,6 @@ func (r *factoryConversationRun) references(ctx context.Context) ([]Conversation
 		return nil, err
 	}
 	var refs []ConversationReference
-	if r.s.standards != nil {
-		selected, e := r.s.db.GetStandardsConversationContext(ctx, r.s.transport, r.s.owner, r.c.ChannelRef)
-		if e != nil && !errors.Is(e, store.ErrNotFound) {
-			return nil, e
-		}
-		if e == nil && len(selected.SelectedJSON) > 0 {
-			var args map[string]string
-			if json.Unmarshal(selected.SelectedJSON, &args) == nil {
-				refs = append(refs, ConversationReference{ID: "standards-selected-" + strconv.FormatInt(selected.Version, 10), OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: "retained-standards-context", ExpiresAt: r.at.Add(24 * time.Hour), Arguments: args})
-			}
-		}
-	}
 	for _, v := range saved {
 		var args map[string]string
 		if json.Unmarshal([]byte(v.Content), &args) != nil {

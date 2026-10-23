@@ -338,16 +338,26 @@ func (db *DB) AdmitNotices(ctx context.Context, transport string, before, after 
 		if err = chatAffected(result, err); err != nil {
 			return err
 		}
-		for _, n := range notices {
-			if n.Transport != transport || n.MessageID == "" || n.ChannelRef == "" || n.Command == "" || n.TaskRef == "" || n.CreatedAt.IsZero() || n.ReplyText == "" {
-				return errors.New("invalid chat notice")
-			}
-			if _, err = tx.ExecContext(ctx, `INSERT INTO chat_notices(transport,message_id,channel_ref,command,task_ref,state,next_attempt_at,reply_text,created_at) VALUES(?,?,?,?,?,'pending',?,?,?) ON CONFLICT(transport,message_id) DO NOTHING`, n.Transport, n.MessageID, n.ChannelRef, n.Command, n.TaskRef, FormatTime(n.CreatedAt), n.ReplyText, FormatTime(n.CreatedAt)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return insertChatNotices(ctx, tx, transport, notices)
 	})
+}
+
+// QueueChatNotices saves factory messages that no notice source produces, such
+// as the outcome of a log analysis. A repeated message ID is kept once.
+func (db *DB) QueueChatNotices(ctx context.Context, transport string, notices []ChatNotice) error {
+	return db.withTx(ctx, func(tx *sql.Tx) error { return insertChatNotices(ctx, tx, transport, notices) })
+}
+
+func insertChatNotices(ctx context.Context, tx *sql.Tx, transport string, notices []ChatNotice) error {
+	for _, n := range notices {
+		if n.Transport != transport || n.MessageID == "" || n.ChannelRef == "" || n.Command == "" || n.TaskRef == "" || n.CreatedAt.IsZero() || n.ReplyText == "" {
+			return errors.New("invalid chat notice")
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO chat_notices(transport,message_id,channel_ref,command,task_ref,state,next_attempt_at,reply_text,created_at) VALUES(?,?,?,?,?,'pending',?,?,?) ON CONFLICT(transport,message_id) DO NOTHING`, n.Transport, n.MessageID, n.ChannelRef, n.Command, n.TaskRef, FormatTime(n.CreatedAt), n.ReplyText, FormatTime(n.CreatedAt)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ChatNotice shares the reply delivery state without an interaction handle.

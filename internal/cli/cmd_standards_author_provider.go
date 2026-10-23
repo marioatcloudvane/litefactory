@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"log/slog"
 	"os"
 
@@ -9,27 +8,12 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
-	"github.com/cloudvane/litefactory/internal/standards"
+	"github.com/cloudvane/litefactory/internal/projectread"
 )
 
-type standardsAuthoringNative struct {
-	model                                   *response.NativeModel
-	provider, selectedModel, usageReference string
-}
-
-func (r *standardsAuthoringNative) Metadata() (string, string, string) {
-	return r.provider, r.selectedModel, r.usageReference
-}
-
-func (r *standardsAuthoringNative) Answer(ctx context.Context, session, prompt string) ([]byte, error) {
-	return r.model.AnswerAuthoring(ctx, session, prompt)
-}
-
-func (r *standardsAuthoringNative) AnswerAttempt(ctx context.Context, session, attempt, token, prompt string) ([]byte, error) {
-	return r.model.AnswerAuthoring(ctx, session, prompt, attempt, token)
-}
-
-func newStandardsAuthoringRunner(rt *repoRuntime) standards.AuthoringRunner {
+// newStandardsAuthoringRunner answers through the response-only model; reads
+// serves the project of a project-scoped session.
+func newStandardsAuthoringRunner(rt *repoRuntime, reads projectread.Session) *response.Authoring {
 	providers := make(map[string]response.ChatRunner)
 	logger := slog.New(slog.DiscardHandler)
 	environ := os.Environ()
@@ -45,9 +29,5 @@ func newStandardsAuthoringRunner(rt *repoRuntime) standards.AuthoringRunner {
 			providers["codex"] = runner
 		}
 	}
-	r := &standardsAuthoringNative{model: &response.NativeModel{Config: rt.cfg, Paths: rt.paths, Providers: providers, Meter: rt.db}}
-	r.model.AuthoringCall = func(provider, model, ref string) {
-		r.provider, r.selectedModel, r.usageReference = provider, model, ref
-	}
-	return r
+	return &response.Authoring{Model: &response.NativeModel{Config: rt.cfg, Paths: rt.paths, Providers: providers, Meter: rt.db}, Reads: reads}
 }

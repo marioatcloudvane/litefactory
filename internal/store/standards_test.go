@@ -27,12 +27,12 @@ func TestStandardsPublicationAtomicRetryAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := standardsTestProposal(t, db, "first", 0)
-	snapshot := StandardsSnapshot{Categories: []StandardsCategory{{ID: "cat", Name: "Category"}}, Standards: []StandardsStandard{{ID: "s", Title: "Title", Body: "Body", CategoryIDs: []string{"cat"}}}}
+	snapshot := StandardsSnapshot{Categories: []StandardsCategory{{ID: "cat", Name: "Category"}}, Standards: []StandardsStandard{{ID: "s", Rule: "MUST Title", Description: "Body", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "cat", AppliesTo: []string{"story-worker"}}}}
 	// Foreign-key failure after the revision/category insert rolls the entire publication back.
 	broken := snapshot
-	broken.Standards = []StandardsStandard{{ID: "s", Title: "Title", Body: "Body", CategoryIDs: []string{"missing"}}}
+	broken.Standards = []StandardsStandard{{ID: "s", Rule: "MUST Title", Description: "Body", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "missing", AppliesTo: []string{"story-worker"}}}
 	if _, err := db.PublishStandardsProposal(ctx, p, broken, "42"); err == nil {
-		t.Fatal("invalid membership published")
+		t.Fatal("standard with a missing category published")
 	}
 	head, err := db.StandardsHead(ctx)
 	if err != nil || head != 0 {
@@ -50,7 +50,7 @@ func TestStandardsPublicationAtomicRetryAndHistory(t *testing.T) {
 		t.Fatal("published snapshot accepted new category")
 	}
 	next := standardsTestProposal(t, db, "next", first.ID)
-	newer := StandardsSnapshot{Categories: snapshot.Categories, Standards: []StandardsStandard{{ID: "s", Title: "Changed", Body: "New", CategoryIDs: []string{"cat"}}}}
+	newer := StandardsSnapshot{Categories: snapshot.Categories, Standards: []StandardsStandard{{ID: "s", Rule: "MUST Changed", Description: "New", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "cat", AppliesTo: []string{"story-worker"}}}}
 	if _, err := db.PublishStandardsProposal(ctx, next, newer, "42"); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestStandardsCompetingPublications(t *testing.T) {
 	})
 	p1 := standardsTestProposal(t, first, "one", 0)
 	p2 := standardsTestProposal(t, second, "two", 0)
-	snapshot := StandardsSnapshot{Categories: []StandardsCategory{{ID: "cat", Name: "Category"}}, Standards: []StandardsStandard{{ID: "standard", Title: "Title", Body: "Body", CategoryIDs: []string{"cat"}}}}
+	snapshot := StandardsSnapshot{Categories: []StandardsCategory{{ID: "cat", Name: "Category"}}, Standards: []StandardsStandard{{ID: "standard", Rule: "MUST Title", Description: "Body", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "cat", AppliesTo: []string{"story-worker"}}}}
 	type result struct {
 		revision StandardsRevision
 		err      error

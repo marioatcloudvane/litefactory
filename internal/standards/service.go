@@ -19,7 +19,7 @@ import (
 // Category is a stable category in a book snapshot.
 type Category = store.StandardsCategory
 
-// Standard contains Markdown guidance and category memberships.
+// Standard is one structured MUST rule, its category and the roles it applies to.
 type Standard = store.StandardsStandard
 
 // ExceptionPolicy is an immutable published exception eligibility policy.
@@ -73,6 +73,8 @@ type Review struct {
 	Before   Snapshot                       `json:"before"`
 	After    Snapshot                       `json:"after"`
 	Changes  []Change                       `json:"changes"`
+	// Rendered shows every added or replaced standard as it will read.
+	Rendered string `json:"rendered"`
 }
 
 // Problem identifies an invalid field or entity.
@@ -103,12 +105,18 @@ func digest(v any) string {
 func canonical(in Snapshot) Snapshot {
 	out := Snapshot{Categories: append([]Category{}, in.Categories...), Standards: append([]Standard{}, in.Standards...)}
 	for i := range out.Standards {
-		out.Standards[i].CategoryIDs = append([]string{}, out.Standards[i].CategoryIDs...)
-		sort.Strings(out.Standards[i].CategoryIDs)
+		out.Standards[i].AppliesTo = sortedRoles(out.Standards[i].AppliesTo)
 		out.Standards[i].ExceptionPolicy = canonicalPolicy(out.Standards[i].ExceptionPolicy)
 	}
 	sort.Slice(out.Categories, func(i, j int) bool { return out.Categories[i].ID < out.Categories[j].ID })
 	sort.Slice(out.Standards, func(i, j int) bool { return out.Standards[i].ID < out.Standards[j].ID })
+	return out
+}
+
+// sortedRoles copies applies_to in canonical order; it is never nil.
+func sortedRoles(in []string) []string {
+	out := append([]string{}, in...)
+	sort.Strings(out)
 	return out
 }
 func snapshotDigest(in Snapshot) string {
@@ -126,8 +134,7 @@ func canonicalOps(ops []Operation) []Operation {
 		}
 		if out[i].Standard != nil {
 			s := *out[i].Standard
-			s.CategoryIDs = append([]string{}, s.CategoryIDs...)
-			sort.Strings(s.CategoryIDs)
+			s.AppliesTo = sortedRoles(s.AppliesTo)
 			s.ExceptionPolicy = canonicalPolicy(s.ExceptionPolicy)
 			out[i].Standard = &s
 		}
@@ -244,7 +251,14 @@ func (s *Service) review(ctx context.Context, p store.StandardsProposalVersion) 
 	if snapshotDigest(after) != p.ResultDigest {
 		return Review{}, fmt.Errorf("%w: proposal resulting digest mismatch", store.ErrStandardsCorrupt)
 	}
-	return Review{p, before, after, diff(before, after)}, nil
+	changes := diff(before, after)
+	changed := []Standard{}
+	for _, c := range changes {
+		if standard, ok := c.After.(Standard); ok && c.Entity == "standard" {
+			changed = append(changed, standard)
+		}
+	}
+	return Review{p, before, after, changes, Render(after.Categories, changed)}, nil
 }
 func (s *Service) exact(ctx context.Context, id string, version int64, d string) (Review, error) {
 	if s.OwnerID < 1 {
@@ -487,22 +501,6 @@ func VerifyRevision(r store.StandardsRevision) error {
 		return fmt.Errorf("%w: publication binding mismatch", store.ErrStandardsCorrupt)
 	}
 	return nil
-}
-
-// Prepare validates an unapproved proposal against an already verified retained
-// snapshot, without writing or resolving a later published head.
-func Prepare(id string, base int64, before Snapshot, ops []Operation, author string) (store.StandardsProposalVersion, error) {
-	if strings.TrimSpace(id) == "" || base < 1 {
-		return store.StandardsProposalVersion{}, ErrInvalid
-	}
-	if err := validateSnapshot(before); err != nil {
-		return store.StandardsProposalVersion{}, err
-	}
-	after, err := apply(before, ops)
-	if err != nil {
-		return store.StandardsProposalVersion{}, err
-	}
-	return store.StandardsProposalVersion{ProposalID: id, Version: 1, BaseRevision: base, SchemaVersion: 1, Operations: canonicalOps(ops), ChangeDigest: changeDigest(base, ops), ResultDigest: snapshotDigest(after), Author: author}, nil
 }
 
 func (s *Service) provenance() string {

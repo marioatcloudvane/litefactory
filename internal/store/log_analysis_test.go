@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -16,7 +17,7 @@ func createLogAnalysisFixture(t *testing.T, db *DB, id string) LogAnalysis {
 	return a
 }
 func logAnalysisCandidateFixture(key, id string) LogAnalysisCandidate {
-	return LogAnalysisCandidate{Key: key, Proposal: StandardsProposalVersion{ProposalID: id, SchemaVersion: 1, Author: "log analyst", ChangeDigest: "change-" + id, ResultDigest: "result-" + id, Operations: []StandardsOperation{{Kind: "standard_add", Standard: &StandardsStandard{ID: "new-standard", Title: "Practice", Body: "Guidance"}}}}}
+	return LogAnalysisCandidate{Key: key, Proposal: StandardsProposalVersion{ProposalID: id, SchemaVersion: 1, Author: "log analyst", ChangeDigest: "change-" + id, ResultDigest: "result-" + id, Operations: []StandardsOperation{{Kind: "standard_add", Standard: &StandardsStandard{ID: "new-standard", Rule: "MUST Practice", Description: "Guidance", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", AppliesTo: []string{"story-worker"}}}}}}
 }
 
 func TestLogAnalysisAtomicBatchAndReceiptRecovery(t *testing.T) {
@@ -206,14 +207,14 @@ func TestLogAnalysisInterruptionRetainsHostOnlyReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	var report struct {
-		Disposition string            `json:"disposition"`
-		Reason      string            `json:"reason"`
-		Findings    []json.RawMessage `json:"findings"`
+		Summary   string            `json:"summary"`
+		Proposals []json.RawMessage `json:"proposals"`
+		Findings  []json.RawMessage `json:"findings"`
 	}
 	if err = json.Unmarshal(raw, &report); err != nil {
 		t.Fatal(err)
 	}
-	if report.Disposition != "not_evaluated" || report.Reason != "provider interrupted before submission" || len(report.Findings) != 0 {
+	if !strings.Contains(report.Summary, "provider interrupted before submission") || len(report.Proposals) != 0 || len(report.Findings) != 0 {
 		t.Fatalf("unexpected host report: %s", raw)
 	}
 	receipt, err := db.GetLogAnalysisReceipt(t.Context(), a.ID, "host-interrupted")
@@ -246,7 +247,7 @@ func TestLogAnalysisLinksPreserveProducedVersionAfterHumanEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposal.Operations[0].Standard.Body = "Human review changed the guidance"
+	proposal.Operations[0].Standard.Description = "Human review changed the guidance"
 	proposal.ChangeDigest = "human-changed"
 	proposal.ResultDigest = "human-result"
 	proposal.Author = "human-reviewer"
@@ -259,7 +260,7 @@ func TestLogAnalysisLinksPreserveProducedVersionAfterHumanEdit(t *testing.T) {
 		t.Fatalf("analysis links followed mutable head: %#v %v", links, err)
 	}
 	produced, err := db.GetStandardsProposal(t.Context(), links[0].ProposalID, links[0].Version)
-	if err != nil || produced.Version != 1 || produced.ChangeDigest != candidate.Proposal.ChangeDigest || produced.Operations[0].Standard.Body == edited.Operations[0].Standard.Body {
+	if err != nil || produced.Version != 1 || produced.ChangeDigest != candidate.Proposal.ChangeDigest || produced.Operations[0].Standard.Description == edited.Operations[0].Standard.Description {
 		t.Fatalf("analysis-produced version changed: %#v %v", produced, err)
 	}
 	recovered, err := db.GetLogAnalysisReceipt(t.Context(), a.ID, f.RequestID)
@@ -290,5 +291,29 @@ func TestLogAnalysisFailedFenceRollsBackReportAndCandidates(t *testing.T) {
 	}
 	if _, err := db.GetLogAnalysisReport(t.Context(), a.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing interruption fence leaked report: %v", err)
+	}
+}
+
+func TestLogAnalysisFilingSettlesOnce(t *testing.T) {
+	db := newTestDB(t)
+	a := createLogAnalysisFixture(t, db, "A1")
+	if err := db.InterruptLogAnalysis(t.Context(), a.ID, a.Generation, "incomplete", "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	f := LogAnalysisFiling{AnalysisID: "A1", FindingKey: "setup", Destination: "github:acme/app", State: FilingStarted, Title: "t", Body: "b"}
+	if _, err := db.SaveLogAnalysisFiling(t.Context(), f); err != nil {
+		t.Fatal(err)
+	}
+	f.State, f.Reference = FilingFiled, "acme/app#1"
+	if _, err := db.SaveLogAnalysisFiling(t.Context(), f); err != nil {
+		t.Fatal(err)
+	}
+	f.State = FilingStarted
+	if _, err := db.SaveLogAnalysisFiling(t.Context(), f); err == nil {
+		t.Fatal("a filed finding was reopened")
+	}
+	got, err := db.ListLogAnalysisFilings(t.Context(), "A1")
+	if err != nil || len(got) != 1 || got[0].State != FilingFiled || got[0].Reference != "acme/app#1" {
+		t.Fatalf("filings=%+v %v", got, err)
 	}
 }

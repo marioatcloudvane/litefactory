@@ -596,19 +596,8 @@ func (i *Invocation) validate(ctx context.Context, input ResultInput) (acceptedR
 				return invalid("invalid candidate key, finding or operation")
 			}
 			keys[c.Key] = true
-			if c.Operation.Standard == nil || len(c.Operation.Standard.CategoryIDs) == 0 {
-				return invalid("candidate requires existing category membership")
-			}
-			for _, id := range c.Operation.Standard.CategoryIDs {
-				found := false
-				for _, cat := range snap.Categories {
-					if cat.ID == id {
-						found = true
-					}
-				}
-				if !found {
-					return invalid("candidate category is not in pinned book")
-				}
+			if c.Operation.Standard == nil || !slices.ContainsFunc(snap.Categories, func(cat standards.Category) bool { return cat.ID == c.Operation.Standard.CategoryID }) {
+				return invalid("candidate category is not in pinned book")
 			}
 			id := a.ID + "-" + digest([]byte(c.Key))[:16]
 			proposal, e := standards.PrepareProposal(id, binding.RevisionID, snap, []standards.Operation{c.Operation}, "drift:"+a.ID)

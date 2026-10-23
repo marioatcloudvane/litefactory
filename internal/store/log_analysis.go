@@ -152,10 +152,7 @@ func (db *DB) CreateLogAnalysis(ctx context.Context, a LogAnalysis) (LogAnalysis
 			key = a.StartKey
 		}
 		_, e := tx.ExecContext(ctx, `INSERT INTO log_analyses(id,start_key,request_digest,scope_json,limits_json,grant_digest,provenance_json,generation,state,disposition,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, key, a.RequestDigest, string(a.Scope), string(a.Limits), a.GrantDigest, string(a.Provenance), a.Generation, a.State, a.Disposition, FormatTime(a.CreatedAt), FormatTime(a.UpdatedAt))
-		if e != nil {
-			return e
-		}
-		return attachAnalystAllocation(ctx, tx, "logs", a.ID, a.StartKey)
+		return e
 	})
 	return a, err
 }
@@ -218,9 +215,17 @@ func checkLogAnalysisWriter(ctx context.Context, tx *sql.Tx, id string, generati
 }
 
 // ReserveLogAnalysisBudget charges calls and encoded delivery before work; reservations are never refunded.
+
+// Whole-analysis ceilings: one model invocation may make at most this many
+// broker calls (one evidence row each) and receive this many encoded bytes.
+const (
+	LogAnalysisMaxCalls = 120
+	LogAnalysisMaxBytes = 1 << 20
+)
+
 // The host passes its immutable limits, including any reserved communication allowance.
 func (db *DB) ReserveLogAnalysisBudget(ctx context.Context, id string, generation int64, calls, bytes, maxCalls, maxBytes int) error {
-	if calls < 0 || bytes < 0 || maxCalls < 0 || maxCalls > 40 || maxBytes < 0 || maxBytes > 256<<10 {
+	if calls < 0 || bytes < 0 || maxCalls < 0 || maxCalls > LogAnalysisMaxCalls || maxBytes < 0 || maxBytes > LogAnalysisMaxBytes {
 		return ErrLogAnalysisBudget
 	}
 	return db.standardsWrite(ctx, func(tx *sql.Tx) error {
@@ -278,7 +283,7 @@ func (db *DB) RecordLogAnalysisEvidence(ctx context.Context, e LogAnalysisEviden
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM log_analysis_evidence WHERE analysis_id=?`, e.AnalysisID).Scan(&count); err != nil {
 			return err
 		}
-		if count >= 40 {
+		if count >= LogAnalysisMaxCalls {
 			return ErrLogAnalysisBudget
 		}
 		res, err := tx.ExecContext(ctx, `INSERT INTO log_analysis_evidence(analysis_id,generation,call_key,metadata_json,created_at) VALUES(?,?,?,?,?)`, e.AnalysisID, e.Generation, e.CallKey, string(e.Metadata), FormatTime(e.CreatedAt))
@@ -438,11 +443,12 @@ func (db *DB) InterruptLogAnalysis(ctx context.Context, id string, generation in
 		if a.Generation != generation {
 			return ErrLogAnalysisConflict
 		}
+		// The host speaks only for itself: no proposals and no findings.
 		report, e := json.Marshal(struct {
-			Disposition string            `json:"disposition"`
-			Reason      string            `json:"reason"`
-			Findings    []json.RawMessage `json:"findings"`
-		}{Disposition: "not_evaluated", Reason: reason, Findings: []json.RawMessage{}})
+			Summary   string            `json:"summary"`
+			Proposals []json.RawMessage `json:"proposals"`
+			Findings  []json.RawMessage `json:"findings"`
+		}{Summary: "Not evaluated: " + reason, Proposals: []json.RawMessage{}, Findings: []json.RawMessage{}})
 		if e != nil {
 			return e
 		}
@@ -588,7 +594,7 @@ func (db *DB) ReserveLogAnalysisRecoveryBudget(ctx context.Context, id string, o
 		if e = json.Unmarshal(a.Limits, &limits); e != nil {
 			return e
 		}
-		maxCalls, maxBytes := 40, 256<<10
+		maxCalls, maxBytes := LogAnalysisMaxCalls, LogAnalysisMaxBytes
 		if limits.Calls > 0 && limits.Calls < maxCalls {
 			maxCalls = limits.Calls
 		}
@@ -615,4 +621,62 @@ func checkLogAnalysisTransition(result sql.Result, err error) error {
 		return ErrLogAnalysisConflict
 	}
 	return nil
+}
+
+// LogAnalysisFiling records what the host did with one finding marked for filing.
+type LogAnalysisFiling struct {
+	AnalysisID  string    `json:"analysis_id"`
+	FindingKey  string    `json:"finding_key"`
+	Destination string    `json:"destination"`
+	State       string    `json:"state"`
+	Reference   string    `json:"reference,omitempty"`
+	URL         string    `json:"url,omitempty"`
+	Reason      string    `json:"reason,omitempty"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// Filing states. Filed and would_file are settled and never change again.
+const (
+	FilingWouldFile = "would_file"
+	FilingNotFiled  = "not_filed"
+	FilingStarted   = "filing"
+	FilingFiled     = "filed"
+	FilingFailed    = "failed"
+)
+
+// SaveLogAnalysisFiling inserts or advances one filing record. A settled
+// record is refused, so a retry can never file the same finding twice.
+func (db *DB) SaveLogAnalysisFiling(ctx context.Context, f LogAnalysisFiling) (LogAnalysisFiling, error) {
+	if f.AnalysisID == "" || f.FindingKey == "" || f.Destination == "" || f.Title == "" || f.Body == "" {
+		return f, errors.New("log analysis: incomplete filing record")
+	}
+	f.UpdatedAt = nowUTC()
+	_, err := db.sql.ExecContext(ctx, `INSERT INTO log_analysis_filings(analysis_id,finding_key,destination,state,reference,url,reason,title,body,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(analysis_id,finding_key) DO UPDATE SET destination=excluded.destination,state=excluded.state,reference=excluded.reference,url=excluded.url,reason=excluded.reason,title=excluded.title,body=excluded.body,updated_at=excluded.updated_at`,
+		f.AnalysisID, f.FindingKey, f.Destination, f.State, f.Reference, f.URL, f.Reason, f.Title, f.Body, FormatTime(f.UpdatedAt))
+	return f, err
+}
+
+// ListLogAnalysisFilings returns the filing records of one analysis by finding key.
+func (db *DB) ListLogAnalysisFilings(ctx context.Context, id string) ([]LogAnalysisFiling, error) {
+	out := []LogAnalysisFiling{}
+	rows, err := db.sql.QueryContext(ctx, `SELECT analysis_id,finding_key,destination,state,reference,url,reason,title,body,updated_at FROM log_analysis_filings WHERE analysis_id=? ORDER BY finding_key`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f LogAnalysisFiling
+		var updated string
+		if err = rows.Scan(&f.AnalysisID, &f.FindingKey, &f.Destination, &f.State, &f.Reference, &f.URL, &f.Reason, &f.Title, &f.Body, &updated); err != nil {
+			return nil, err
+		}
+		if f.UpdatedAt, err = ParseTime(updated); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }

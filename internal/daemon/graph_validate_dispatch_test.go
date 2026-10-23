@@ -44,7 +44,7 @@ func TestValidateGraphStepRunsInValidateWhateverTheLabelSays(t *testing.T) {
 		t.Fatal(err)
 	}
 	due := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: session.ID, DefinitionID: pin.ID, CurrentNode: "repair_agent", StartedAt: due, NextDueAt: due})
+	instance, err := capturedGraphInstance(t, f.db, store.GraphInstance{SessionID: session.ID, DefinitionID: pin.ID, CurrentNode: "repair_agent", StartedAt: due, NextDueAt: due})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestValidateGraphStepWaitsUntilDue(t *testing.T) {
 		t.Fatal(err)
 	}
 	due := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
-	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: session.ID, DefinitionID: pin.ID, CurrentNode: "repair_agent", StartedAt: due, NextDueAt: due})
+	instance, err := capturedGraphInstance(t, f.db, store.GraphInstance{SessionID: session.ID, DefinitionID: pin.ID, CurrentNode: "repair_agent", StartedAt: due, NextDueAt: due})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func validateStrayDispatchFixture(t *testing.T, dueIn time.Duration, turnFn func
 	def, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "validate", ProfileVersion: 1, Path: "validate/validate.dot", Digest: strings.Repeat("a", 64)})
 	check(err)
 	at := f.clock.peek()
-	instance, err := f.db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: def.ID, CurrentNode: "suite", StartedAt: at})
+	instance, err := capturedGraphInstance(t, f.db, store.GraphInstance{SessionID: session.ID, DefinitionID: def.ID, CurrentNode: "suite", StartedAt: at})
 	check(err)
 	dispatch, err := f.db.ParkGraphInstance(ctx, instance.ID, "suite", at.Add(dueIn), at)
 	check(err)

@@ -690,7 +690,7 @@ func TestValidateSuiteBusyWorkflowWaitsBeyondDispatchLimit(t *testing.T) {
 	}
 }
 
-func TestValidateRetrySelfTransitionParksAfterOneAttempt(t *testing.T) {
+func TestValidateCapacityDeferralParksWithoutAnAttempt(t *testing.T) {
 	a := newAdoptFlow(t)
 	ctx := t.Context()
 	now := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -707,8 +707,8 @@ func TestValidateRetrySelfTransitionParksAfterOneAttempt(t *testing.T) {
 	mustProgress(t, err)
 	instance, err := a.f.db.LatestWorkflowInstance(ctx, a.f.session.ID, "validate")
 	mustProgress(t, err)
-	if instance.CurrentNode != "review" || !instance.NextDueAt.After(now) || a.visits(t, instance.ID, "review") != 1 {
-		t.Fatalf("retry did not yield: %+v", instance)
+	if instance.CurrentNode != "review" || !instance.NextDueAt.After(now) || a.visits(t, instance.ID, "review") != 0 {
+		t.Fatalf("capacity deferral did not yield: %+v", instance)
 	}
 	dispatch, err := a.f.db.LatestGraphDispatch(ctx, instance.ID)
 	mustProgress(t, err)

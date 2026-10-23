@@ -6,29 +6,64 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/projectread"
+	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// AnswerAuthoring shares provider isolation, balanced selection and metering
-// collection with response-only chat, while retaining independent ownership.
-func (m *NativeModel) AnswerAuthoring(ctx context.Context, session, prompt string, fence ...string) ([]byte, error) {
+// Authoring answers standards authoring calls through the response-only model,
+// with its provider isolation, balanced selection and metering. A call scoped
+// to a project also gets that project's read tools.
+type Authoring struct {
+	Model *NativeModel
+	// Reads serves a project's read tools; without a DB it serves none and a
+	// project-scoped call is refused.
+	Reads projectread.Session
+
+	mu                     sync.Mutex
+	provider, model, usage string
+}
+
+// Metadata names the provider, model and usage reference of the last call.
+func (a *Authoring) Metadata() (string, string, string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.provider, a.model, a.usage
+}
+
+// Answer runs one fenced authoring call.
+func (a *Authoring) Answer(ctx context.Context, call standards.AuthoringCall) ([]byte, error) {
+	m := a.Model
 	writer, ok := m.Meter.(interface {
 		StartAuthoringMeterAttempt(context.Context, string, string, string, string, string, string) (store.MeterAttempt, error)
 	})
-	if !ok || session == "" {
+	if !ok || call.Session == "" {
 		return nil, errors.New("standards authoring: metered response-only provider unavailable")
 	}
-	if len(prompt) == 0 || len(prompt) > 256<<10 {
-		return nil, errors.New("standards authoring: prompt exceeds 256 KiB or is empty; narrow category filters")
+	if len(call.Prompt) == 0 || len(call.Prompt) > 256<<10 {
+		return nil, errors.New("standards authoring: prompt exceeds 256 KiB or is empty")
 	}
-	if len(fence) != 2 || fence[0] == "" || fence[1] == "" {
+	if call.Attempt == "" || call.Token == "" {
 		return nil, errors.New("standards authoring: current attempt identity and fencing token required")
 	}
-	raw, err := m.run(ctx, prompt, func(ctx context.Context, provider, model string) (store.MeterAttempt, error) {
-		attempt, err := writer.StartAuthoringMeterAttempt(ctx, session, provider, model, authoringPromptDigest(prompt), fence[0], fence[1])
-		if err == nil && m.AuthoringCall != nil {
-			m.AuthoringCall(provider, model, attempt.ID)
+	var launch *agent.MCPLaunchSpec
+	if call.Project != nil {
+		var stop func() error
+		var err error
+		if launch, stop, err = a.Reads.Start(ctx, *call.Project, call.Attempt); err != nil {
+			return nil, fmt.Errorf("standards authoring: %w", err)
+		}
+		defer func() { _ = stop() }()
+	}
+	raw, err := m.run(ctx, call.Prompt, launch, func(ctx context.Context, provider, model string) (store.MeterAttempt, error) {
+		attempt, err := writer.StartAuthoringMeterAttempt(ctx, call.Session, provider, model, authoringPromptDigest(call.Prompt), call.Attempt, call.Token)
+		if err == nil {
+			a.mu.Lock()
+			a.provider, a.model, a.usage = provider, model, attempt.ID
+			a.mu.Unlock()
 		}
 		return attempt, err
 	})

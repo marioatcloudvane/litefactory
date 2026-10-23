@@ -8,7 +8,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 	"maps"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -18,7 +17,6 @@ import (
 type StandardsOperations interface {
 	Read(context.Context, StandardsRequest) (StandardsResult, error)
 	Execute(context.Context, StandardsRequest) (StandardsResult, error)
-	Review(context.Context, StandardsRequest) (StandardsReview, error)
 }
 
 // StandardsRecovery reconciles retained operations before any attempt to replay.
@@ -41,77 +39,34 @@ type StandardsResult struct {
 	Interrupted bool
 }
 
-// StandardsReview is the complete immutable shared-domain review.
-type StandardsReview struct {
-	Kind, TargetID                   string
-	TargetVersion, BaseRevision      int64
-	ChangeDigest, ResultDigest, Text string
-}
-
 // EnableStandards installs the typed adapter before conversation workers start.
 func (s *Service) EnableStandards(operations StandardsOperations) {
 	s.standards = operations
 	if operations == nil {
 		return
 	}
-	for _, name := range []string{"standards", "standards-author", "standards-proposal", "standards-exception", "standards-schedule"} {
-		def := CommandDefinition{Name: name, Description: "Discover and inspect retained standards, authoring, proposals, exceptions and analyst schedules", NaturalLanguage: true, Effect: ChangeEffect}
+	for _, name := range []string{"standards", "standards-author", "standards-proposal", "standards-exception", "standards-analysis"} {
+		def := CommandDefinition{Name: name, Description: "Discover and inspect retained standards, authoring, proposals, exceptions and log analyses", NaturalLanguage: true, Effect: ChangeEffect}
 		switch name {
 		case "standards":
-			def.Description = "Read standards with action discover, book.current/history/categories/standards/show, author.list/inspect, proposal.list/inspect/review, exception.list/show/review, schedule.list/show/activity, notice.list, operation.show or review.next. Select exact id/version; review.next uses manifest id."
+			def.Description = "Look up the book of standards. action: discover, book.current, book.history, book.categories, book.standards (rendered, with standards per role and category), book.show (revision), author.list, author.inspect (id, version), proposal.list, proposal.inspect or proposal.review (id, version; review shows before and after), exception.list, exception.show (id), analysis.list (recent log analyses with status), analysis.show (id), operation.show (id)."
 		case "standards-author":
-			def.Description = "Propose action start, answer, edit, continue, validate, complete or rebase. Use exact id/version and owner spans for intent/text/title/body. Answer requires one exact question_id. Completion creates an unapproved proposal."
+			def.Description = "Work out one standard with the standards author. action start takes the owner's idea as intent, optionally project (the author then reads its code and recent incidents) and target_id to sharpen an existing standard. continue asks the author for its next draft and questions; it runs in the background and posts the draft here. answer takes id, version, question_id and text. edit sets the owner's own category_id, rule (starts with MUST), description, evidence, scope, check (automated, semi_automated or manual) or applies_to (comma-separated roles). validate checks the draft; complete turns it into an unapproved proposal; rebase moves it onto the current book. All but start need the exact id and version."
 		case "standards-proposal":
-			def.Description = "Propose action edit or publish for exact id/version. Publish also needs digest and is separate from approval. Edit selects target_id and owner title/body/category_ids or exact owner JSON operations."
+			def.Description = "Propose action edit, approve or publish for an exact proposal id and version. Approve and publish need its digest; publish needs an approved version. Edit selects target_id and owner category_id/rule/description/evidence/scope/check/applies_to or exact owner JSON operations."
 		case "standards-exception":
-			def.Description = "Propose action propose or revoke. Propose requires book_revision, standard_id, repository_id, task_ref, departure, reason, expires_at; revoke needs id/reason. Never approve through a proposal."
-		case "standards-schedule":
-			def.Description = "Propose action create, change, enable or disable. Create/change need name, kind, repository_id, interval_seconds and finite run_limit plus explicit scope. Changes need exact id/version. Create disabled; enable separately."
+			def.Description = "Propose action propose, approve or revoke. Propose requires book_revision, standard_id, repository_id (or project), task_ref, departure, reason, expires_at; approve needs id and digest; revoke needs id and reason."
+		case "standards-analysis":
+			def.Description = "Propose action start: a log analysis of one project's runs. Give project and window (for example last 7 days, yesterday or last week) or exact after and before times. dry_run true previews what would be filed. It runs in the background and posts its result here."
 		}
 		if name == "standards" {
 			def.Effect = ReadEffect
 		}
-		for _, arg := range []string{"action", "id", "version", "base", "digest", "mode", "target_id", "intent", "category_ids", "question_id", "text", "replace", "title", "body", "operations", "request", "reason", "config", "after", "limit", "offset", "revision", "name", "kind", "repository_id", "project", "interval_seconds", "run_limit", "task_refs", "modes", "ref", "paths", "issues", "book_revision", "standard_id", "task_ref", "departure", "expires_at", "replaces"} {
+		for _, arg := range []string{"action", "id", "version", "base", "digest", "mode", "target_id", "intent", "category_ids", "question_id", "text", "replace", "category_id", "rule", "description", "evidence", "scope", "check", "applies_to", "operations", "request", "reason", "after", "before", "window", "dry_run", "limit", "offset", "revision", "repository_id", "project", "book_revision", "standard_id", "task_ref", "departure", "expires_at", "replaces"} {
 			def.Arguments = append(def.Arguments, Argument{Name: arg, Type: TextArgument, Required: arg == "action", Description: "Exact retained target or owner supplied content; action selects an enabled operation"})
 		}
 		s.RegisterCommand(def, nil)
 	}
-}
-
-func standardsInterval(value string) string {
-	text := strings.ToLower(strings.TrimSpace(value))
-	for _, entry := range []struct {
-		phrases string
-		seconds int64
-	}{{"hourly|every hour", 3600}, {"daily|every day", 86400}, {"weekly|every week", 604800}} {
-		for _, phrase := range strings.Split(entry.phrases, "|") {
-			if text == phrase {
-				return strconv.FormatInt(entry.seconds, 10)
-			}
-		}
-	}
-	if d, err := time.ParseDuration(text); err == nil && d > 0 && d%time.Second == 0 {
-		return strconv.FormatInt(int64(d/time.Second), 10)
-	}
-	fields := strings.Fields(strings.TrimPrefix(text, "every "))
-	if len(fields) == 2 {
-		n, err := strconv.ParseInt(fields[0], 10, 32)
-		if err == nil && n > 0 {
-			var multiplier int64
-			switch strings.TrimSuffix(fields[1], "s") {
-			case "hour":
-				multiplier = 3600
-			case "day":
-				multiplier = 86400
-			case "week":
-				multiplier = 604800
-			}
-			if multiplier > 0 {
-				return strconv.FormatInt(n*multiplier, 10)
-			}
-		}
-	}
-	return value
 }
 
 func standardsCommand(command string) bool {
@@ -123,7 +78,7 @@ func standardsOperation(inv Invocation) (string, error) {
 	if inv.Command != "standards" {
 		action = strings.TrimPrefix(inv.Command, "standards-") + "." + action
 	}
-	allowed := "book.current book.history book.categories book.standards book.show author.list author.inspect author.start author.answer author.edit author.continue author.validate author.complete author.rebase proposal.list proposal.inspect proposal.review proposal.edit proposal.publish exception.propose exception.show exception.list exception.review exception.revoke schedule.create schedule.show schedule.list schedule.change schedule.enable schedule.disable schedule.activity notice.list operation.show review.next"
+	allowed := "book.current book.history book.categories book.standards book.show author.list author.inspect author.start author.answer author.edit author.continue author.validate author.complete author.rebase proposal.list proposal.inspect proposal.review proposal.edit proposal.approve proposal.publish exception.propose exception.show exception.list exception.approve exception.revoke analysis.start analysis.list analysis.show operation.show"
 	if inv.Command == "standards" && (action == "discover" || action == "help") {
 		return "discover", nil
 	}
@@ -131,7 +86,7 @@ func standardsOperation(inv Invocation) (string, error) {
 		if op != action {
 			continue
 		}
-		read := strings.HasPrefix(op, "book.") || strings.HasSuffix(op, ".inspect") || strings.HasSuffix(op, ".review") || strings.HasSuffix(op, ".show") || strings.HasSuffix(op, ".list") || strings.HasSuffix(op, ".activity") || op == "review.next"
+		read := strings.HasPrefix(op, "book.") || strings.HasSuffix(op, ".inspect") || strings.HasSuffix(op, ".review") || strings.HasSuffix(op, ".show") || strings.HasSuffix(op, ".list")
 		if read == (inv.Command == "standards") {
 			return op, nil
 		}
@@ -145,7 +100,7 @@ func (s *Service) standardsRequest(inv Invocation, channel, message string, at t
 }
 
 func standardsDiscovery() string {
-	return "Standards operations: inspect categories, the published book and history, proposals, authoring sessions, scoped exceptions, analyst schedules and retained notices. Authoring: start, answer a saved question, edit, continue, validate, complete or rebase. Completion creates an unapproved proposal. Request the complete exact proposal or exception review before explicit approval. Publication is a separate confirmed action for one approved version. Schedules are created disabled; enabling is a separate confirmation. Inspect saved operation outcomes before repeating interrupted work."
+	return "Standards operations: inspect categories, the published book and history, proposals, authoring sessions, scoped exceptions and log analyses. Authoring: start, answer a saved question, edit, continue, validate, complete or rebase. Completion creates an unapproved proposal. Approval and publication of one exact proposal version are separate confirmed actions. A log analysis of one project is started as a confirmed action and posts its result here when it finishes. Inspect saved operation outcomes before repeating interrupted work."
 }
 
 func standardsMissingTerms(op string, args map[string]string) string {
@@ -155,23 +110,23 @@ func standardsMissingTerms(op string, args map[string]string) string {
 		required = []string{"intent"}
 	case "author.answer":
 		required = []string{"id", "version", "question_id", "text"}
-	case "author.edit", "author.continue", "author.validate", "author.complete", "author.rebase", "proposal.edit", "schedule.enable", "schedule.disable":
+	case "author.edit", "author.continue", "author.validate", "author.complete", "author.rebase", "proposal.edit":
 		required = []string{"id", "version"}
-	case "proposal.publish":
+	case "proposal.approve", "proposal.publish":
 		required = []string{"id", "version", "digest"}
+	case "exception.approve":
+		required = []string{"id", "digest"}
 	case "exception.revoke":
 		required = []string{"id", "reason"}
 	case "exception.propose":
 		if args["request"] == "" {
 			required = []string{"book_revision", "standard_id", "repository_id", "task_ref", "departure", "reason", "expires_at"}
 		}
-	case "schedule.create", "schedule.change":
-		if op == "schedule.change" {
-			required = append(required, "id", "version")
+	case "analysis.start":
+		if args["repository_id"] == "" {
+			required = append(required, "project")
 		}
-		if args["config"] == "" {
-			required = append(required, "name", "kind", "repository_id", "interval_seconds", "run_limit")
-		}
+		required = append(required, "after", "before")
 	}
 	var missing []string
 	for _, field := range required {
@@ -245,9 +200,6 @@ func (r *factoryConversationRun) lookupStandards(ctx context.Context, inv Invoca
 		result.Complete = false
 		return result, nil, nil //nolint:nilerr // Invalid requests become visible incomplete evidence, never execution.
 	}
-	if strings.HasSuffix(request.Operation, ".review") || request.Operation == "review.next" {
-		return result, nil, errors.New("complete reviews require the standards review delivery path")
-	}
 	var output StandardsResult
 	switch request.Operation {
 	case "discover":
@@ -272,9 +224,6 @@ func (r *factoryConversationRun) lookupStandards(ctx context.Context, inv Invoca
 		result.Gaps = append(result.Gaps, "Shared standards read failed")
 	}
 	result.Result = output.Text
-	if request.Operation == "notice.list" {
-		result.Result += "\n" + r.s.standardsNoticeStatus(ctx)
-	}
 	if bounded, cut := boundedConversationText(result.Result, 16384); cut {
 		result.Result = bounded + "\nAdditional retained content omitted from this bounded lookup; inspect the exact saved target through the shared CLI or request a narrower page."
 		result.Complete = false
@@ -290,18 +239,6 @@ func (r *factoryConversationRun) saveStandardsReference(ctx context.Context, arg
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {
-		return nil, err
-	}
-	selected, err := r.s.db.GetStandardsConversationContext(ctx, r.s.transport, r.s.owner, r.c.ChannelRef)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, err
-	}
-	selected.Transport = r.s.transport
-	selected.OwnerID = r.s.owner
-	selected.ChannelID = r.c.ChannelRef
-	selected.SelectedJSON = raw
-	selected.Clarification = ""
-	if _, err = r.s.db.SaveStandardsConversationContext(ctx, selected, selected.Version); err != nil {
 		return nil, err
 	}
 	ref := store.ConversationReference{ID: r.t.ID + "-standards-" + fmt.Sprint(r.ordinal), TurnID: r.t.ID, Kind: "standards", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}

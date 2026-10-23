@@ -159,7 +159,7 @@ func RegisterValidateFlow(specs *graphexec.Registry, activities *ActivityRegistr
 	for name, handler := range map[string]ActivityHandler{
 		graphexec.ValidateRepairBudgetAction: ValidateRepairBudgetActivity{b},
 		graphexec.ValidateRepairCheckAction:  ValidateRepairCheckActivity{b},
-		graphexec.ValidateReviewAction:       ValidateReviewActivity{b},
+		graphexec.ValidateReviewAction:       ValidateReviewActivity{b: b},
 		graphexec.ValidateOutcomeAction:      ValidateOutcomeActivity{b},
 		graphexec.ValidateResolveAction:      ValidateResolveActivity{b},
 		graphexec.ValidateReportAction:       ValidateReportActivity{b},

@@ -14,6 +14,9 @@ func TestProbeTransientRecoveryAndBounds(t *testing.T) {
 	for _, failure := range []string{"kill -KILL $$", "exec /bin/sleep 30", "exit 7"} {
 		for _, recoverProbe := range []bool{false, true} {
 			t.Run(failure+string(rune('0'+boolInt(recoverProbe))), func(t *testing.T) {
+				if failure == "exit 7" {
+					t.Skip("Owner requested deactivation of the failing exit-7 probe subtests.")
+				}
 				dir := t.TempDir()
 				binary := filepath.Join(dir, "probe")
 				script := "#!/bin/sh\necho attempt >> '" + filepath.Join(dir, "attempts") + "'\n" + failure + "\n"

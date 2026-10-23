@@ -3,9 +3,7 @@ package turn
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"io"
 	"reflect"
@@ -126,141 +124,86 @@ func publishRunStandards(t *testing.T, db *store.DB, proposalID string, base int
 	return revision
 }
 
-// AC-001: overlapping category selection, complete paged retrieval, and a fresh
-// attempt recover the same exact book even after publication advances current.
-func TestStandardsEndToEndRetainedAcrossAttempts(t *testing.T) {
+// A granted role reads exactly the standards whose applies_to names it, paged
+// over the real MCP wire, and a fresh attempt reads the same retained book even
+// after publication advances current.
+func TestStandardsEndToEndRoleReadRetainedAcrossAttempts(t *testing.T) {
 	db, session, options := agentResultFixture(t, "research")
 	body := strings.Repeat("Keep \"quoted\" guidance <safe> & UTF-8: 日本語.\n", 900)
 	first := publishRunStandards(t, db, "initial-run-book", 0, []standards.Operation{
 		{Kind: "category.add", Category: &standards.Category{ID: "go", Name: "Go", Description: "Go implementation"}},
 		{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality", Description: "Verification"}},
-		{Kind: "standard.add", Standard: &standards.Standard{ID: "shared", Title: "Shared checks", Body: body, CategoryIDs: []string{"go", "quality"}}},
-		{Kind: "standard.add", Standard: &standards.Standard{ID: "testing", Title: "Testing", Body: "Run relevant tests.\n", CategoryIDs: []string{"quality"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "GO-001", Rule: "MUST keep shared checks", Description: body, Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"story-worker", "plan-technical"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "TST-001", Rule: "MUST run relevant tests", Description: "Run relevant tests.", Evidence: "Evidence.", Scope: "All repositories.", Check: "automated", CategoryID: "quality", AppliesTo: []string{"story-worker"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "ARC-001", Rule: "MUST respect layering", Description: "Respect layering.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"validate-architecture"}}},
 	})
 	root := strconv.FormatInt(options.Attempt.RunID, 10)
-	const consumer = "story-003:implementation-engineer"
+	const consumer = "node:story:role:implement"
 	runtime := &standards.Runtime{Store: db, RootRunID: root, ConsumerKey: consumer, AttemptID: options.Attempt.Attempt}
-	status, err := runtime.Bind(t.Context(), true)
-	mustProgress(t, err)
-	if status.Integrity != "verified" {
-		t.Fatalf("initial binding: %+v", status)
-	}
 	launch := func(runtime *standards.Runtime) (*standardsWire, *AttemptGuard) {
 		t.Helper()
 		service, err := BindAgentResultService(t.Context(), options)
 		mustProgress(t, err)
 		family := familyResearchOptions(t, db, service)
-		tools, err := NewStandardsToolService(runtime, service.Binding())
+		tools, err := NewStandardsToolService(runtime, service.Binding(), "story-worker")
 		mustProgress(t, err)
 		family.Registrations = tools.Registrations()
 		client, guard, _ := familySocketFixture(t, db, family)
 		wire := newStandardsWire(t, client)
-		catalog := wire.rpc(t, "tools/list", map[string]any{})
-		for _, name := range []string{"standards_categories_list", "standards_select", "standards_read"} {
-			if !strings.Contains(string(catalog), name) {
-				t.Fatalf("missing %s in %s", name, catalog)
-			}
+		catalog := string(wire.rpc(t, "tools/list", map[string]any{}))
+		if !strings.Contains(catalog, "standards_read") || strings.Contains(catalog, "standards_select") || strings.Contains(catalog, "standards_categories_list") {
+			t.Fatalf("role catalog is not the one read: %s", catalog)
 		}
 		return wire, guard
 	}
-	wire, guard := launch(runtime)
-	var categories standards.CategoryPage
-	wire.call(t, "standards_categories_list", map[string]any{"page_size": 1}, &categories)
-	if len(categories.Categories) != 1 || categories.NextCursor == "" || categories.Status.Binding.RevisionID != first.ID {
-		t.Fatalf("first category page: %+v", categories)
-	}
-	var second standards.CategoryPage
-	wire.call(t, "standards_categories_list", map[string]any{"page_size": 1, "cursor": categories.NextCursor}, &second)
-	if len(second.Categories) != 1 || second.NextCursor != "" || categories.Categories[0].ID == second.Categories[0].ID {
-		t.Fatalf("second category page: %+v", second)
-	}
-	var selection standards.RuntimeStatus
-	selectionArgs := map[string]any{"expected_version": 0, "category_ids": []string{"quality", "go", "quality"}, "reason": "Implement Go and verify the story"}
-	wire.call(t, "standards_select", selectionArgs, &selection)
-	if selection.Selection == nil || selection.StandardCount != 2 || selection.CategoryCount != 2 {
-		t.Fatalf("overlap was not deduplicated: %+v", selection)
-	}
-	var retry standards.RuntimeStatus
-	wire.call(t, "standards_select", selectionArgs, &retry)
-	if !reflect.DeepEqual(selection.Selection, retry.Selection) {
-		t.Fatal("selection retry changed retained version")
-	}
-	readAll := func(wire *standardsWire, selected *store.StandardsRunSelection) map[string]string {
+	readAll := func(wire *standardsWire) (string, []string) {
 		t.Helper()
-		bodies := map[string]string{}
-		cursor := ""
-		pages := 0
-		for {
-			var page standards.ReadPage
-			wire.call(t, "standards_read", map[string]any{"selection_version": selected.Version, "selection_digest": selected.Digest, "cursor": cursor}, &page)
-			pages++
+		text, cursor := "", ""
+		var ids []string
+		for pages := 1; ; pages++ {
+			var page standards.RolePage
+			wire.call(t, "standards_read", map[string]any{"cursor": cursor}, &page)
 			if pages > 1000 {
 				t.Fatal("retrieval did not finish")
 			}
-			if page.Status.Binding.RevisionID != first.ID || page.SelectionDigest != selected.Digest || !utf8.ValidString(page.Body) || page.Start != len(bodies[page.StandardID]) || page.End-page.Start != len(page.Body) {
-				t.Fatalf("invalid page: %+v", page)
+			if page.Status.Binding.RevisionID != first.ID || page.Role != "story-worker" || !utf8.ValidString(page.Text) || page.Start != len(text) || page.End-page.Start != len(page.Text) {
+				t.Fatalf("invalid page: %+v", page.Status)
 			}
-			if len(page.Manifest) != 1 || page.Manifest[0].ID != page.StandardID || page.Manifest[0].Title != page.Title || page.Manifest[0].Digest != page.BodyDigest || page.Manifest[0].Bytes != page.Total {
-				t.Fatalf("page manifest does not describe exact selected body: %+v", page.Manifest)
-			}
-			bodies[page.StandardID] += page.Body
-			if page.End == page.Total {
-				hash := sha256.Sum256([]byte(bodies[page.StandardID]))
-				if hex.EncodeToString(hash[:]) != page.BodyDigest {
-					t.Fatalf("body digest mismatch for %s", page.StandardID)
+			text += page.Text
+			ids = page.StandardIDs
+			if page.NextCursor == "" {
+				if pages < 3 || page.End != page.Total {
+					t.Fatal("fixture did not exercise complete paging")
 				}
+				return text, ids
 			}
-			if page.Complete {
-				if page.NextCursor != "" {
-					t.Fatal("complete page carries cursor")
-				}
-				break
-			}
-			if page.NextCursor == "" || page.NextCursor == cursor {
+			if page.NextCursor == cursor {
 				t.Fatal("incomplete page lacks progress")
 			}
 			cursor = page.NextCursor
 		}
-		if pages < 3 {
-			t.Fatal("fixture did not exercise body paging")
-		}
-		var acknowledged standards.ReadPage
-		wire.call(t, "standards_read", map[string]any{"selection_version": selected.Version, "selection_digest": selected.Digest, "complete": true}, &acknowledged)
-		if acknowledged.Status.RetrievalStatus != "retrieved" {
-			t.Fatalf("retrieval not acknowledged: %+v", acknowledged)
-		}
-		return bodies
 	}
-	expected := map[string]string{"shared": body, "testing": "Run relevant tests.\n"}
-	if got := readAll(wire, selection.Selection); !reflect.DeepEqual(got, expected) {
-		t.Fatal("first attempt changed exact selected bodies")
+	wire, guard := launch(runtime)
+	text, ids := readAll(wire)
+	if !reflect.DeepEqual(ids, []string{"GO-001", "TST-001"}) || !strings.Contains(text, body) || strings.Contains(text, "ARC-001") {
+		t.Fatalf("role read the wrong standards: %v", ids)
 	}
-	newer := publishRunStandards(t, db, "newer-run-book", first.ID, []standards.Operation{{Kind: "standard.replace", Standard: &standards.Standard{ID: "shared", Title: "New guidance", Body: "New published content", CategoryIDs: []string{"go", "quality"}}}})
+	newer := publishRunStandards(t, db, "newer-run-book", first.ID, []standards.Operation{{Kind: "standard.replace", Standard: &standards.Standard{ID: "GO-001", Rule: "MUST follow new guidance", Description: "New published content", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"story-worker"}}}})
 	if newer.ID == first.ID {
 		t.Fatal("publication did not advance")
 	}
 	mustProgress(t, guard.Revoke(t.Context(), "replaced"))
 	options.Attempt = agentResultRun(t, db, session, "research", "attempt-2", 2)
 	resumed := &standards.Runtime{Store: db, RootRunID: root, ConsumerKey: consumer, AttemptID: options.Attempt.Attempt}
-	restored, err := resumed.Bind(t.Context(), false)
-	mustProgress(t, err)
-	if restored.Binding.RevisionID != first.ID || restored.Binding.Digest != first.Digest || restored.Selection == nil || restored.Selection.Version != selection.Selection.Version || restored.Selection.Digest != selection.Selection.Digest {
-		t.Fatalf("resume replaced retained book or selection: %+v", restored)
-	}
 	resumedWire, _ := launch(resumed)
-	var rediscovered standards.CategoryPage
-	resumedWire.call(t, "standards_categories_list", map[string]any{}, &rediscovered)
-	if rediscovered.Status.Binding.RevisionID != first.ID || !reflect.DeepEqual(rediscovered.Status.Selection, selection.Selection) {
-		t.Fatalf("MCP resume lost retained identity: %+v", rediscovered)
-	}
-	if got := readAll(resumedWire, restored.Selection); !reflect.DeepEqual(got, expected) {
-		t.Fatal("resumed attempt served newer or changed bodies")
+	if again, _ := readAll(resumedWire); again != text {
+		t.Fatal("resumed attempt served newer or changed standards")
 	}
 }
 
 // Retained reads are reverified even when a private-client retry carries the
 // identical request identity. This wrapper models bytes changing on disk while
-// keeping all selections and observations in the real fixture database.
+// keeping all observations in the real fixture database.
 type standardsCorruptReadStore struct {
 	*store.DB
 	corrupt atomic.Bool
@@ -279,18 +222,14 @@ func TestStandardsToolsRejectForgedScopeAndReverifyReplay(t *testing.T) {
 	db, _, options := agentResultFixture(t, "research")
 	publishRunStandards(t, db, "security-book", 0, []standards.Operation{
 		{Kind: "category.add", Category: &standards.Category{ID: "go", Name: "Go"}},
-		{Kind: "standard.add", Standard: &standards.Standard{ID: "checks", Title: "Checks", Body: strings.Repeat("Exact retained guidance.\n", 900), CategoryIDs: []string{"go"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "checks", Rule: "MUST run checks", Description: strings.Repeat("Exact retained guidance.\n", 1800), Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"story-worker"}}},
 	})
 	retained := &standardsCorruptReadStore{DB: db}
 	runtime := &standards.Runtime{Store: retained, RootRunID: strconv.FormatInt(options.Attempt.RunID, 10), ConsumerKey: "node:engineer", AttemptID: options.Attempt.Attempt}
-	_, err := runtime.Bind(t.Context(), true)
-	mustProgress(t, err)
-	selected, err := runtime.Select(t.Context(), 0, []string{"go"}, "Relevant implementation guidance")
-	mustProgress(t, err)
 	service, err := BindAgentResultService(t.Context(), options)
 	mustProgress(t, err)
 	family := familyResearchOptions(t, db, service)
-	tools, err := NewStandardsToolService(runtime, service.Binding())
+	tools, err := NewStandardsToolService(runtime, service.Binding(), "story-worker")
 	mustProgress(t, err)
 	family.Registrations = tools.Registrations()
 	client, guard, _ := familySocketFixture(t, db, family)
@@ -313,25 +252,21 @@ func TestStandardsToolsRejectForgedScopeAndReverifyReplay(t *testing.T) {
 		mustProgress(t, json.Unmarshal(response.Result, &domain))
 		return domain.Valid != nil && !*domain.Valid
 	}
-	for _, test := range []struct {
-		name string
-		args map[string]any
-	}{
-		{"standards_categories_list", map[string]any{"root_run_id": "foreign"}},
-		{"standards_select", map[string]any{"expected_version": 1, "category_ids": []string{"go"}, "reason": "Try another consumer", "consumer_key": "foreign"}},
-		{"standards_read", map[string]any{"selection_version": selected.Selection.Version, "selection_digest": selected.Selection.Digest, "revision_id": 999}},
-		{"standards_categories_list", map[string]any{"page_size": 101}},
-	} {
-		if response := call(test.name, test.args); !rejected(response) {
-			t.Fatalf("forged or invalid arguments accepted: %s %+v", test.name, test.args)
+	for _, args := range []map[string]any{{"role": "validate-architecture"}, {"root_run_id": "foreign"}, {"consumer_key": "foreign"}} {
+		if response := call("standards_read", args); !rejected(response) {
+			t.Fatalf("forged arguments accepted: %+v", args)
 		}
 	}
-	readArgs := map[string]any{"selection_version": selected.Selection.Version, "selection_digest": selected.Selection.Digest}
-	first := call("standards_read", readArgs)
+	for _, name := range []string{"standards_categories_list", "standards_select"} {
+		if response := call(name, map[string]any{}); response.Error == "" {
+			t.Fatalf("role was offered %s", name)
+		}
+	}
+	first := call("standards_read", map[string]any{})
 	if first.Error != "" {
 		t.Fatalf("initial read failed: %s", first.Error)
 	}
-	var page standards.ReadPage
+	var page standards.RolePage
 	mustProgress(t, json.Unmarshal(first.Result, &page))
 	if page.NextCursor == "" {
 		t.Fatal("fixture did not require paging")
@@ -340,90 +275,32 @@ func TestStandardsToolsRejectForgedScopeAndReverifyReplay(t *testing.T) {
 	mustProgress(t, err)
 	var cursor map[string]any
 	mustProgress(t, json.Unmarshal(raw, &cursor))
-	cursor["Consumer"] = "foreign"
-	raw, err = json.Marshal(cursor)
-	mustProgress(t, err)
-	forged := map[string]any{"selection_version": selected.Selection.Version, "selection_digest": selected.Selection.Digest, "cursor": base64.RawURLEncoding.EncodeToString(raw)}
-	if response := call("standards_read", forged); !rejected(response) {
-		t.Fatal("foreign consumer cursor accepted")
-	}
-	cursor["Consumer"] = runtime.ConsumerKey
-	cursor["Index"] = 1
-	cursor["Offset"] = 0
-	raw, err = json.Marshal(cursor)
-	mustProgress(t, err)
-	forged["cursor"] = base64.RawURLEncoding.EncodeToString(raw)
-	response := call("standards_read", forged)
-	var terminalFailure struct {
-		Valid *bool `json:"valid"`
-	}
-	if response.Error == "" {
-		mustProgress(t, json.Unmarshal(response.Result, &terminalFailure))
-	}
-	if response.Error == "" && (terminalFailure.Valid == nil || *terminalFailure.Valid) {
-		t.Fatal("forged terminal cursor claimed complete retrieval")
+	for field, value := range map[string]any{"Consumer": "foreign", "Selection": "role:validate-architecture"} {
+		forged := map[string]any{}
+		for k, v := range cursor {
+			forged[k] = v
+		}
+		forged[field] = value
+		raw, err = json.Marshal(forged)
+		mustProgress(t, err)
+		if response := call("standards_read", map[string]any{"cursor": base64.RawURLEncoding.EncodeToString(raw)}); !rejected(response) {
+			t.Fatalf("cursor with foreign %s accepted", field)
+		}
 	}
 	retained.corrupt.Store(true)
-	replay := call("standards_read", readArgs)
+	replay := call("standards_read", map[string]any{})
 	var failure struct {
 		Valid  *bool                   `json:"valid"`
 		Status standards.RuntimeStatus `json:"status"`
-		Body   *string                 `json:"body"`
+		Text   *string                 `json:"text"`
 	}
 	mustProgress(t, json.Unmarshal(replay.Result, &failure))
-	if replay.RequestID != first.RequestID || !rejected(replay) || failure.Status.Integrity != "corrupt" || failure.Body != nil || strings.Contains(string(replay.Result), "Exact retained guidance") {
+	if replay.RequestID != first.RequestID || !rejected(replay) || failure.Status.Integrity != "corrupt" || failure.Text != nil || strings.Contains(string(replay.Result), "Exact retained guidance") {
 		t.Fatalf("replay served cached content after corruption: %+v", replay)
 	}
 	retained.corrupt.Store(false)
 	mustProgress(t, guard.Revoke(t.Context(), "closed"))
-	for _, name := range []string{"standards_categories_list", "standards_select", "standards_read"} {
-		if response := call(name, map[string]any{}); response.Error == "" {
-			t.Fatalf("revoked attempt served %s", name)
-		}
-	}
-}
-
-func TestStandardsEncodedMetadataPaging(t *testing.T) {
-	db, _, options := agentResultFixture(t, "research")
-	description := strings.Repeat("\"<>&\n日本語", 350)
-	operations := []standards.Operation{}
-	for _, id := range []string{"a", "b", "c", "d"} {
-		operations = append(operations, standards.Operation{Kind: "category.add", Category: &standards.Category{ID: id, Name: id, Description: description}})
-	}
-	publishRunStandards(t, db, "metadata-book", 0, operations)
-	runtime := &standards.Runtime{Store: db, RootRunID: strconv.FormatInt(options.Attempt.RunID, 10), ConsumerKey: "node:engineer", AttemptID: options.Attempt.Attempt}
-	_, err := runtime.Bind(t.Context(), true)
-	mustProgress(t, err)
-	service, err := BindAgentResultService(t.Context(), options)
-	mustProgress(t, err)
-	family := familyResearchOptions(t, db, service)
-	tools, err := NewStandardsToolService(runtime, service.Binding())
-	mustProgress(t, err)
-	family.Registrations = tools.Registrations()
-	client, _, _ := familySocketFixture(t, db, family)
-	wire := newStandardsWire(t, client)
-	cursor := ""
-	seen := []string{}
-	pages := 0
-	for {
-		var page standards.CategoryPage
-		wire.call(t, "standards_categories_list", map[string]any{"page_size": 100, "cursor": cursor}, &page)
-		pages++
-		for _, category := range page.Categories {
-			if category.Description != description {
-				t.Fatal("category metadata was truncated")
-			}
-			seen = append(seen, category.ID)
-		}
-		if page.NextCursor == "" {
-			break
-		}
-		if page.NextCursor == cursor || len(page.Categories) == 0 || pages > 10 {
-			t.Fatal("category paging did not advance")
-		}
-		cursor = page.NextCursor
-	}
-	if !reflect.DeepEqual(seen, []string{"a", "b", "c", "d"}) || pages < 2 {
-		t.Fatalf("encoded category paging: pages=%d ids=%v", pages, seen)
+	if response := call("standards_read", map[string]any{}); response.Error == "" {
+		t.Fatal("revoked attempt served standards_read")
 	}
 }
