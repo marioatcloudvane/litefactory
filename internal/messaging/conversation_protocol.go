@@ -330,9 +330,14 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 		}
 		inv.Arguments[arg.Name] = value
 	}
+	// A log analysis has one change action; the owner never has to say it.
+	if envelope.Kind == "propose" && envelope.Command == "standards-analysis" && inv.Arguments["action"] == "" {
+		inv.Arguments["action"] = "start"
+	}
 	validated, _, err := validateInvocation(*def, inv)
 	if err != nil {
-		reason = "the command arguments are invalid"
+		// The diagnostics name fields only, never owner content.
+		reason = "the command arguments are invalid: " + strings.ReplaceAll(err.Error(), "\n", "; ")
 		return bad()
 	}
 	if standardsCommand(validated.Command) {

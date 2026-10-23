@@ -141,9 +141,12 @@ func standardsMissingTerms(op string, args map[string]string) string {
 }
 
 func standardsError(err error) string {
-	return fmt.Sprintf("Standards operation failed or conflicted: %v. Inspect the retained target before requesting a new change.", err)
+	return fmt.Sprintf("That didn't go through: %s. Nothing else was changed.", strings.TrimPrefix(err.Error(), "standards: "))
 }
 
+// standardsDisplay is the saved outcome of a standards operation, with the
+// exact operation and references kept for storage and details; the owner
+// reads result.Text.
 func standardsDisplay(result StandardsResult, key string) string {
 	refs, _ := json.Marshal(result.References)
 	text, cut := boundedConversationText(result.Text, 16384)

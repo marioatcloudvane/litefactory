@@ -13,7 +13,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/loganalysis"
 	"github.com/cloudvane/litefactory/internal/messaging"
-	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -32,22 +31,23 @@ type ConversationAnalyses struct {
 	mu      sync.Mutex
 	ctx     context.Context
 	wg      *sync.WaitGroup
-	post    func(ctx context.Context, channel, key, text string) error
+	post    func(ctx context.Context, channel, key, operation, text string) error
 	running map[int64]bool
 }
 
 // serve binds analyses to the chat lifetime: shutdown cancels a running
 // analysis, which the service then records as incomplete.
-func (c *ConversationAnalyses) serve(ctx context.Context, wg *sync.WaitGroup, post func(context.Context, string, string, string) error) {
+func (c *ConversationAnalyses) serve(ctx context.Context, wg *sync.WaitGroup, post func(ctx context.Context, channel, key, operation, text string) error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ctx, c.wg, c.post = ctx, wg, post
 }
 
 // later runs work in the background for the chat lifetime and posts the text
-// it returns to channel. It reports false when nothing can run in the
-// background, so the caller works in the foreground instead.
-func (c *ConversationAnalyses) later(ctx context.Context, channel, key string, work func(context.Context) string) bool {
+// it returns to channel, after the confirmation of operation. It reports false
+// when nothing can run in the background, so the caller works in the
+// foreground instead.
+func (c *ConversationAnalyses) later(ctx context.Context, channel, key, operation string, work func(context.Context) string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.ctx == nil || c.ctx.Err() != nil || c.post == nil {
@@ -65,7 +65,7 @@ func (c *ConversationAnalyses) later(ctx context.Context, channel, key string, w
 		// The message is saved even during shutdown and delivered after restart.
 		saved, done := context.WithTimeout(context.WithoutCancel(run), 10*time.Second)
 		defer done()
-		if e := post(saved, channel, key, text); e != nil && c.Log != nil {
+		if e := post(saved, channel, key, operation, text); e != nil && c.Log != nil {
 			c.Log.WarnContext(saved, "background result could not be queued for the conversation", slog.String("key", key), slog.Any("error", e))
 		}
 	}()
@@ -98,13 +98,14 @@ func (c *ConversationAnalyses) begin(r messaging.StandardsRequest) (messaging.St
 	if project == "" {
 		project = "project " + args["repository_id"]
 	}
+	project = project[strings.LastIndexByte(project, '/')+1:]
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.ctx == nil || c.ctx.Err() != nil || c.post == nil || c.Start == nil {
 		return messaging.StandardsResult{}, errors.New("standards: log analysis is unavailable")
 	}
 	if c.running[repo] {
-		return messaging.StandardsResult{Text: "A log analysis of " + project + " is already running. Its result will be posted here; start another one after it finishes."}, nil
+		return messaging.StandardsResult{Text: "An analysis of " + project + " is already running; I'll post its result here. Start another one once it's done."}, nil
 	}
 	if c.running == nil {
 		c.running = map[int64]bool{}
@@ -112,35 +113,36 @@ func (c *ConversationAnalyses) begin(r messaging.StandardsRequest) (messaging.St
 	c.running[repo] = true
 	c.wg.Add(1)
 	go c.run(c.ctx, c.post, r.ChannelID, r.OperationKey, project, q, dryRun)
-	text := fmt.Sprintf("Started a log analysis of %s for %s to %s. It takes a few minutes; the result will be posted here.", project, q.After.Format(time.RFC3339), q.Before.Format(time.RFC3339))
+	text := fmt.Sprintf("Started the analysis of %s for %s. It takes about 5 minutes; I'll post what I find here.", project, messaging.PlainWindow(args["after"], args["before"], r.At))
 	if dryRun {
-		text += " Dry run: nothing will be filed."
+		text += " It's a dry run, so nothing gets filed."
 	}
 	return messaging.StandardsResult{Text: text, References: map[string]string{"kind": "analysis", "project": project}}, nil
 }
 
-func (c *ConversationAnalyses) run(ctx context.Context, post func(context.Context, string, string, string) error, channel, key, project string, q loganalysis.Request, dryRun bool) {
+func (c *ConversationAnalyses) run(ctx context.Context, post func(ctx context.Context, channel, key, operation, text string) error, channel, key, project string, q loganalysis.Request, dryRun bool) {
 	defer c.wg.Done()
 	defer func() {
 		c.mu.Lock()
 		delete(c.running, q.RepositoryIDs[0])
 		c.mu.Unlock()
 	}()
+	operation := key
 	a, err := c.Start(ctx, q, dryRun)
 	text := ""
 	if a.ID != "" {
 		key = "log-analysis:" + a.ID
 		text, err = c.Report(context.WithoutCancel(ctx), a.ID)
 		if err != nil {
-			text = fmt.Sprintf("Log analysis %s of %s ended (%s), but its report could not be read: %v", a.ID, project, a.State, err)
+			text = fmt.Sprintf("The analysis of %s has ended, but I couldn't read its report. Ask me for it in a moment.", project)
 		}
 	} else {
-		text = fmt.Sprintf("The log analysis of %s could not start: %v", project, err)
+		text = fmt.Sprintf("I couldn't start the analysis of %s: %s. Nothing was filed. Say \"again\" and I'll set it up once more.", project, plainFailure(err.Error()))
 	}
 	// The message is saved even during shutdown and delivered after restart.
 	saved, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if e := post(saved, channel, key, text); e != nil && c.Log != nil {
+	if e := post(saved, channel, key, operation, text); e != nil && c.Log != nil {
 		c.Log.WarnContext(saved, "log analysis result could not be queued for the conversation", slog.String("analysis", a.ID), slog.Any("error", e))
 	}
 }
@@ -167,73 +169,140 @@ func (c *ConversationAnalyses) list(ctx context.Context) (string, error) {
 	return b.String(), nil
 }
 
-// reportLength keeps a posted report to a few Discord messages; the whole
-// report stays available through the CLI.
-const reportLength = 12000
+// reportLength keeps a posted result to a few Discord messages; the full
+// report is a lookup away in the conversation.
+const reportLength = 6000
 
-// renderConversationAnalysis is the owner's view of one saved analysis: the
-// summary, the proposed standards as agents would read them and the findings
-// grouped by who can fix them, each with what became of it.
-func renderConversationAnalysis(view loganalysis.Inspection, categories []standards.Category) string {
-	var b strings.Builder
+// renderConversationAnalysis tells the owner what one saved analysis found,
+// in plain words: what was looked at, the proposed standards, what was filed
+// or is already known, and what to do next. Analysis IDs, states and CLI
+// commands stay in the full report.
+func renderConversationAnalysis(view loganalysis.Inspection) string {
 	a := view.Invocation
-	fmt.Fprintf(&b, "Log analysis %s: %s", a.ID, a.State)
-	if a.Disposition != "" {
-		fmt.Fprintf(&b, " (%s)", a.Disposition)
-	}
-	b.WriteString("\n")
-	var report loganalysis.Report
-	if len(view.Report) == 0 || json.Unmarshal(view.Report, &report) != nil {
-		fmt.Fprintf(&b, "No report. %s\n", a.Reason)
-		return b.String()
-	}
-	fmt.Fprintf(&b, "\nSummary\n%s\n", strings.TrimSpace(report.Summary))
-	links := map[string]string{}
-	for _, l := range view.Proposals {
-		links[l.CandidateKey] = fmt.Sprintf(" (unapproved proposal %s version %d)", l.ProposalID, l.Version)
-	}
-	for i, p := range report.Proposals {
-		fmt.Fprintf(&b, "\nProposed standard %d: %s%s\n", i+1, p.Operation.Kind, links[fmt.Sprintf("proposal-%d", i+1)])
-		known := categories
-		if p.NewCategory != nil {
-			fmt.Fprintf(&b, "New category %s: %s. %s\n", p.NewCategory.ID, p.NewCategory.Name, p.NewCategory.Description)
-			known = append([]standards.Category{*p.NewCategory}, categories...)
-		}
-		if p.Operation.Standard != nil {
-			b.WriteString(standards.Render(known, []standards.Standard{*p.Operation.Standard}))
-		}
-		fmt.Fprintf(&b, "Why it prevents: %s\n", p.Justification.WhyItPrevents)
-	}
 	var scope loganalysis.Scope
 	_ = json.Unmarshal(a.Scope, &scope)
+	subject := "the runs"
+	if names := scopeNames(scope); names != "" {
+		subject = names + "'s runs"
+	}
+	if !scope.Request.After.IsZero() {
+		subject += " for " + messaging.PlainWindow(scope.Request.After.Format(time.RFC3339), scope.Request.Before.Format(time.RFC3339), a.CreatedAt)
+	}
+	var report loganalysis.Report
+	if len(view.Report) == 0 || json.Unmarshal(view.Report, &report) != nil {
+		return fmt.Sprintf("The analysis of %s didn't finish: %s. Nothing was filed. Say \"again\" and I'll set it up once more.", subject, plainFailure(a.Reason))
+	}
+	var b strings.Builder
+	// The analyst's opening paragraph says what it looked at and what
+	// matters; the rest of its summary is in the full report.
+	summary, _, _ := strings.Cut(strings.TrimSpace(report.Summary), "\n\n")
+	fmt.Fprintf(&b, "I went through %s. %s\n", subject, strings.TrimSpace(summary))
+	if n := len(report.Proposals); n > 0 {
+		noun := "a new standard"
+		if n > 1 {
+			noun = fmt.Sprintf("%d new standards", n)
+		}
+		fmt.Fprintf(&b, "\nI'm proposing %s; nothing changes until you approve:\n", noun)
+		for _, p := range report.Proposals {
+			if s := p.Operation.Standard; s != nil {
+				fmt.Fprintf(&b, "- %s", strings.TrimSpace(s.Rule))
+				if why := strings.TrimSpace(p.Justification.WhyItPrevents); why != "" {
+					fmt.Fprintf(&b, " (%s)", strings.TrimSuffix(why, "."))
+				}
+				b.WriteString("\n")
+			}
+		}
+	} else if reason := strings.TrimSpace(report.NoChangeReason); reason != "" && summary == "" {
+		fmt.Fprintf(&b, "\nNo new standard this time: %s\n", reason)
+	}
 	filings := map[string]store.LogAnalysisFiling{}
 	for _, f := range view.Filings {
 		filings[f.FindingKey] = f
 	}
-	for _, group := range []struct{ route, title string }{{"project", "Filed Bugs"}, {"upstream", "Upstream reports"}, {"team", "Suggested team changes"}} {
-		heading := false
-		for _, f := range report.Findings {
-			if loganalysis.Route(scope, f) != group.route {
-				continue
-			}
-			if !heading {
-				heading = true
-				fmt.Fprintf(&b, "\n%s", group.title)
-				if scope.Request.DryRun && group.route != "team" {
-					b.WriteString(" (dry run: nothing was filed)")
-				}
-				b.WriteString("\n")
-			}
-			filing, recorded := filings[f.Key]
-			fmt.Fprintf(&b, "- %s [%s, %s]: %s\n", f.Title, f.Kind, f.Target, loganalysis.FindingStatus(a.ID, scope, f, filing, recorded))
+	var filed, known, open, team []string
+	for _, f := range report.Findings {
+		filing, recorded := filings[f.Key]
+		switch {
+		case recorded && filing.State == store.FilingFiled:
+			filed = append(filed, fmt.Sprintf("%s %s %s", issueNumber(filing.Reference), f.Title, filing.URL))
+		case recorded && filing.State == store.FilingWouldFile:
+			open = append(open, f.Title+" (dry run, not filed)")
+		case recorded:
+			open = append(open, f.Title+" (not filed)")
+		case f.Existing != "":
+			known = append(known, f.Title+" ("+issueNumber(f.Existing)+")")
+		case loganalysis.Route(scope, f) == "team":
+			team = append(team, f.Title)
+		case f.File:
+			open = append(open, f.Title+" (not filed yet)")
+		default:
+			open = append(open, f.Title)
 		}
 	}
-	if len(report.Proposals) == 0 && report.NoChangeReason != "" {
-		fmt.Fprintf(&b, "\nNo change: %s\n", report.NoChangeReason)
+	for _, list := range []struct {
+		title string
+		items []string
+	}{{"I filed", filed}, {"Already known, so not filed again", known}, {"Suggested changes to your own team's roles", team}, {"Also noticed", open}} {
+		if len(list.items) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\n%s:\n", list.title)
+		for _, item := range list.items {
+			b.WriteString("- " + item + "\n")
+		}
 	}
-	text := b.String()
+	text := strings.TrimRight(b.String(), "\n")
 	if len(text) > reportLength {
-		text = strings.ToValidUTF8(text[:reportLength], "") + "\n[shortened]\n"
+		text = strings.ToValidUTF8(text[:reportLength], "") + "…"
 	}
-	return text + "\nFull report: litefactory standards analyze logs show " + a.ID + "\n"
+	next := "Nothing waits for you here."
+	if len(report.Proposals) > 0 {
+		next = "Tell me which proposals to approve, or ask to see them first."
+	}
+	return text + "\n\n" + next + " Ask me for the full report if you want the details."
+}
+
+// scopeNames names the analysed projects.
+func scopeNames(scope loganalysis.Scope) string {
+	var names []string
+	for _, r := range scope.Repositories {
+		names = append(names, r.Name[strings.LastIndexByte(r.Name, '/')+1:])
+	}
+	return strings.Join(names, " and ")
+}
+
+// issueNumber shortens "owner/repo#12" to "#12".
+func issueNumber(reference string) string {
+	if i := strings.LastIndexByte(reference, '#'); i >= 0 {
+		return reference[i:]
+	}
+	return reference
+}
+
+// plainFailure puts a recorded failure cause into plain words.
+func plainFailure(reason string) string {
+	lower := strings.ToLower(reason)
+	has := func(words ...string) bool {
+		for _, w := range words {
+			if strings.Contains(lower, w) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case has("login", "log in", "logged in", "auth", "401", "credential", "api key"):
+		return "the AI provider didn't accept the analyst's login"
+	case has("rate limit", "rate-limit", "429", "quota", "usage limit"):
+		return "the AI provider's rate limit was hit"
+	case has("interrupted", "wall-time", "deadline", "timeout", "timed out"):
+		return "it ran out of time or was interrupted by a restart"
+	case has("terminal result", "without an accepted report"):
+		return "the analyst stopped without handing back a report"
+	case has("mcp is disabled"):
+		return "the analyst's tools are switched off in the factory settings"
+	case has("unavailable"):
+		return "something it needs was unavailable"
+	}
+	return "it stopped before finishing"
 }
