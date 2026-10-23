@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -14,7 +13,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/loganalysis"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
-	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -100,14 +98,7 @@ func newConversationAnalyses(s Setup, connections *projectconnection.Factory, sh
 		if e != nil {
 			return "", e
 		}
-		var categories []standards.Category
-		if binding, be := s.DB.GetAnalystStandardsBinding(ctx, id); be == nil && len(binding.SnapshotBytes) > 0 {
-			var snap standards.Snapshot
-			if json.Unmarshal(binding.SnapshotBytes, &snap) == nil {
-				categories = snap.Categories
-			}
-		}
-		return renderConversationAnalysis(view, categories), nil
+		return renderConversationAnalysis(view), nil
 	}
 	return &ConversationAnalyses{DB: s.DB, Start: start, Report: report, Log: s.Logger}, nil
 }

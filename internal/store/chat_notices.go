@@ -353,7 +353,15 @@ func insertChatNotices(ctx context.Context, tx *sql.Tx, transport string, notice
 		if n.Transport != transport || n.MessageID == "" || n.ChannelRef == "" || n.Command == "" || n.TaskRef == "" || n.CreatedAt.IsZero() || n.ReplyText == "" {
 			return errors.New("invalid chat notice")
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO chat_notices(transport,message_id,channel_ref,command,task_ref,state,next_attempt_at,reply_text,created_at) VALUES(?,?,?,?,?,'pending',?,?,?) ON CONFLICT(transport,message_id) DO NOTHING`, n.Transport, n.MessageID, n.ChannelRef, n.Command, n.TaskRef, FormatTime(n.CreatedAt), n.ReplyText, FormatTime(n.CreatedAt)); err != nil {
+		args := "{}"
+		if n.After != "" {
+			raw, err := json.Marshal(map[string]string{"after": n.After})
+			if err != nil {
+				return err
+			}
+			args = string(raw)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO chat_notices(transport,message_id,channel_ref,command,task_ref,arguments,state,next_attempt_at,reply_text,created_at) VALUES(?,?,?,?,?,?,'pending',?,?,?) ON CONFLICT(transport,message_id) DO NOTHING`, n.Transport, n.MessageID, n.ChannelRef, n.Command, n.TaskRef, args, FormatTime(n.CreatedAt), n.ReplyText, FormatTime(n.CreatedAt)); err != nil {
 			return err
 		}
 	}
@@ -364,7 +372,15 @@ func insertChatNotices(ctx context.Context, tx *sql.Tx, transport string, notice
 type ChatNotice struct {
 	ChatReply
 	TaskRef string
+	// After names a confirmed conversation action (its execution identity):
+	// the notice waits until the conversation has posted that confirmation,
+	// for at most noticeHold.
+	After string
 }
+
+// noticeHold bounds how long a notice waits for its conversation confirmation,
+// so a paused conversation never keeps a result from the owner.
+const noticeHold = time.Hour
 
 // noticeColumns fills the command-only ChatReply fields with neutral values so
 // notices share scanChat without carrying the inbox's command state.
@@ -375,7 +391,7 @@ func (db *DB) ClaimChatNotice(ctx context.Context, transport string, at time.Tim
 	var r ChatReply
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+noticeColumns+` FROM chat_notices WHERE transport=? AND state IN ('pending','sent') AND next_attempt_at<=? ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at)))
+		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+noticeColumns+` FROM chat_notices WHERE transport=? AND state IN ('pending','sent') AND next_attempt_at<=? AND NOT (created_at>? AND EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_conversation_turns t ON t.id=a.turn_id WHERE a.execution_id<>'' AND a.execution_id=json_extract(chat_notices.arguments,'$.after') AND t.delivered_at IS NULL)) ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at), FormatTime(at.Add(-noticeHold))))
 		if err != nil {
 			return err
 		}

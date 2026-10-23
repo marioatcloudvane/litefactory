@@ -151,8 +151,8 @@ func TestStandardsEndToEndRoleReadRetainedAcrossAttempts(t *testing.T) {
 		client, guard, _ := familySocketFixture(t, db, family)
 		wire := newStandardsWire(t, client)
 		catalog := string(wire.rpc(t, "tools/list", map[string]any{}))
-		if !strings.Contains(catalog, "standards_read") || strings.Contains(catalog, "standards_select") || strings.Contains(catalog, "standards_categories_list") {
-			t.Fatalf("role catalog is not the one read: %s", catalog)
+		if !strings.Contains(catalog, "standards_read") || !strings.Contains(catalog, "\"standards_categories\"") || strings.Contains(catalog, "standards_select") || strings.Contains(catalog, "standards_categories_list") {
+			t.Fatalf("role catalog is not the category list and read: %s", catalog)
 		}
 		return wire, guard
 	}

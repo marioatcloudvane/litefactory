@@ -87,10 +87,10 @@ func TestAnnouncePostsALongMessageInOrderedParts(t *testing.T) {
 	before := len(sender.texts)
 	text := strings.Repeat("A finding about the test setup. ", 200)
 	now := time.Now().UTC()
-	if err := s.Announce(ctx, "3", "log-analysis:a1", text, now); err != nil {
+	if err := s.Announce(ctx, "3", "log-analysis:a1", "", text, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Announce(ctx, "3", "log-analysis:a1", text, now); err != nil {
+	if err := s.Announce(ctx, "3", "log-analysis:a1", "", text, now); err != nil {
 		t.Fatal(err)
 	}
 	for {

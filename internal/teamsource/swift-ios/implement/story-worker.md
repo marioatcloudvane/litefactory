@@ -47,7 +47,7 @@ The factory runs you inside a graph it owns. It, not you, decides what happens a
  - The outcome of your submitted result steers the run. `completed` is saved and the story becomes done. `incomplete` gives the story another attempt: the factory runs you again with your reason as the earlier failure, and parks the story and asks the owner only once the attempts are spent. `blocked` parks the story at once with your reason, and the factory asks the owner for you.
  - You cannot ask the owner a question. You cannot approve, publish or move to another mode.
 
-If the standards book has guidance relevant to this work, you may consult it with the standards tools; it is advisory.
+Before you start, list the categories of the standards that apply to you with standards_categories, and read the ones relevant to this work with standards_read. They are MUST rules: follow them. If one cannot be followed here, say so in your result instead of quietly departing from it.
 
 # When You Are Done
 

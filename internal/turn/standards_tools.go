@@ -61,12 +61,13 @@ func (s *StandardsToolService) PermissionMaterial() ([]byte, error) {
 	return json.Marshal(struct {
 		Binding                       store.ResultBinding
 		Root, Consumer, Role, Version string
-	}{s.binding, s.runtime.RootRunID, s.runtime.ConsumerKey, s.role, "retained-standards-v2"})
+	}{s.binding, s.runtime.RootRunID, s.runtime.ConsumerKey, s.role, "retained-standards-v3"})
 }
 
-// Registrations exposes the one read without management authority.
+// Registrations exposes the role's category list and read, without management
+// authority.
 func (s *StandardsToolService) Registrations() []FamilyRegistration {
-	return []FamilyRegistration{{Name: "standards_read", Owner: s, Handle: s.read}}
+	return []FamilyRegistration{{Name: "standards_categories", Owner: s, Handle: s.categories}, {Name: "standards_read", Owner: s, Handle: s.read}}
 }
 func standardsReply(id string, value any) (json.RawMessage, error) {
 	raw, err := json.Marshal(value)
@@ -82,18 +83,33 @@ func standardsReply(id string, value any) (json.RawMessage, error) {
 	}
 	return raw, nil
 }
+func (s *StandardsToolService) categories(ctx context.Context, id string, raw []byte) (json.RawMessage, error) {
+	var a struct{}
+	if err := decodeMCPArguments(raw, &a); err != nil {
+		return nil, err
+	}
+	s.pin(ctx)
+	out, err := s.runtime.CategoriesForRole(ctx, s.role)
+	if err != nil {
+		return s.failure(ctx, id, err)
+	}
+	out.Status = s.observeStatus(ctx, out.Status)
+	return standardsReply(id, out)
+}
+
 func (s *StandardsToolService) read(ctx context.Context, id string, raw []byte) (json.RawMessage, error) {
 	var a struct {
-		Cursor string `json:"cursor"`
+		Categories []string `json:"categories"`
+		Cursor     string   `json:"cursor"`
 	}
 	if err := decodeMCPArguments(raw, &a); err != nil {
 		return nil, err
 	}
 	s.pin(ctx)
-	if len(a.Cursor) > 4096 {
+	if len(a.Cursor) > 4096 || len(a.Categories) > 100 {
 		return nil, standards.ErrInvalid
 	}
-	out, err := s.runtime.ForRole(ctx, s.role, a.Cursor)
+	out, err := s.runtime.ForRole(ctx, s.role, a.Categories, a.Cursor)
 	if err != nil {
 		return s.failure(ctx, id, err)
 	}
@@ -106,7 +122,7 @@ func (s *StandardsToolService) failure(ctx context.Context, id string, cause err
 		return nil, ctx.Err()
 	}
 	code := "standards_failure"
-	if errors.Is(cause, standards.ErrInvalid) {
+	if errors.Is(cause, standards.ErrInvalid) || errors.Is(cause, standards.ErrUnknownCategory) {
 		code = "invalid_arguments"
 	}
 	status, err := s.runtime.Status(ctx)
