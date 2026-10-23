@@ -298,6 +298,21 @@ type judgeReport struct {
 	} `json:"findings"`
 }
 
+// judgeConcerns decodes a stored judge report. ok is false when the report is
+// unreadable or its verdict found nothing wrong.
+func judgeConcerns(report string) (_ judgeReport, ok bool) {
+	var envelope struct {
+		Presentation struct {
+			Report judgeReport `json:"Report"`
+		} `json:"presentation"`
+	}
+	if json.Unmarshal([]byte(report), &envelope) != nil {
+		return judgeReport{}, false
+	}
+	r := envelope.Presentation.Report
+	return r, r.Verdict != "" && r.Verdict != "no_material_concerns"
+}
+
 func (db *DB) judgeIncidents(ctx context.Context, add func(int64, string, LogIncident), byTask map[string]int64) error {
 	return db.incidentRows(ctx, `SELECT j.id,j.task,j.created_at,j.source_node,CAST(j.report AS TEXT),
  (SELECT a.run_id FROM graph_node_attempts a WHERE a.id=j.source_node_attempt_id),
@@ -313,16 +328,11 @@ func (db *DB) judgeIncidents(ctx context.Context, add func(int64, string, LogInc
 		if e := rows.Scan(&id, &task, &at, &node, &report, &nodeRun, &resultRun, &mode, &in.Rounds); e != nil {
 			return e
 		}
-		var envelope struct {
-			Presentation struct {
-				Report judgeReport `json:"Report"`
-			} `json:"presentation"`
-		}
 		// A judge that found nothing wrong recorded no incident.
-		if json.Unmarshal([]byte(report), &envelope) != nil || envelope.Presentation.Report.Verdict == "" || envelope.Presentation.Report.Verdict == "no_material_concerns" {
+		r, ok := judgeConcerns(report)
+		if !ok {
 			return nil
 		}
-		r := envelope.Presentation.Report
 		var b strings.Builder
 		b.WriteString(r.Verdict + ": " + r.Summary)
 		for _, f := range r.Finding {
