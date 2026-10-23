@@ -98,10 +98,16 @@ Ordinary runs get no standards tools and no standards instructions. Book access
 is opt-in per role and declared in the workflow DOT: a node attribute
 `lf_standards="<role>[,<role>]"` names the roles that may read the book. The
 canonical teams grant it to the Implement story worker, the Plan technical role
-and the Validate architecture reviewer only. Such a role gets one read-only
-tool, `standards_read`, which returns the published standards whose
-`applies_to` names that role, rendered and paged by `next_cursor`. It may
-consult them; nothing requires a call, and there is no completion gate. The run's
+and the Validate architecture reviewer only. Such a role gets two read-only
+tools. `standards_categories` lists the categories that hold at least one
+published standard whose `applies_to` names the role, with how many apply to
+it. `standards_read` returns those standards, rendered and paged by
+`next_cursor`; with `categories` it returns only the standards in those
+categories, and a category that holds none for the role is refused with the
+valid ones listed. `applies_to` decides what a role may see; the role picks the
+categories relevant to its work. The role instructions ask it to follow the
+standards as MUST rules, but Go enforces no call and there is no completion
+gate. The run's
 book is pinned on its first standards call, so later calls in the same run read
 the same revision. An empty or unavailable book shows in the tool reply and the
 work simply continues.
