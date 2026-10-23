@@ -2,7 +2,7 @@
 
 ## Request
 
-Re-do the investigation across factory-controlled caps on agent input, beyond the four examples, to improve fault tolerance and agent usability.
+Incorporate the judge's two concerns into the factory-wide input-boundary research: compare standards-reader reuse with a new design and correct Doctor database recovery claims.
 
 ## Decisions
 
@@ -18,12 +18,16 @@ Re-do the investigation across factory-controlled caps on agent input, beyond th
 - **d10** — Withdraw the earlier arbitrary 256 KiB target-body and 16 MiB patch proposals because the owner did not accept them and aggregate framing needs its own budget.
 - **d11** — Do not present inactive helpers, legacy snapshot paths or explicit safety refusals as confirmed silent agent-input loss.
 - **d12** — Propose prioritizing owner guidance and blocking findings, failed commands, investigation tools and conversation continuity in that order.
+- **d13** — Use the standards reader's source-independent range, identity, progress and encoded-budget rules as the reuse baseline rather than introducing another independent evidence paging subsystem.
+- **d14** — Keep standards selection/acknowledgment, log signatures/grants, repository commit rules, redaction and each consumer's storage and authorization outside the common reading contract.
+- **d15** — Treat Doctor database reads as bounded discovery and small-query access, with returned-key row continuation and a separate read-only shell recovery contract for oversized local values.
+- **d16** — Require consumer-level oversized-value, encoded-pressure row-continuation and saved-noninitial-cursor restart regressions without claiming these new acceptance cases have already passed.
 
 
 ## Assumptions
 
 - **a1** — The owner's broader goal is fault tolerance and agent usability across input paths, not removal of resource limits or safety controls.
-- **a2** — Current source at 155c966cad45d98a207607a18c8c41b4d158b60a is the baseline for this pass; prior observations remain historical unless retraced here, and no production incidence claim is made.
+- **a2** — This judge-followup pass inspected source at 19baea2c945d9fc22c5d5f140b28bf453c3c87c2; the broader audit used 155c966cad45d98a207607a18c8c41b4d158b60a, and prior findings retain their historical evidence unless retraced.
 - **a3** — The prior four questions are deferred by the expanded research request rather than answered or approved; no new numeric retention, remote-history or storage policy is inferred.
 - **a4** — A usable recovery route means a capability available to that exact consumer under its existing permissions, not merely that raw source exists somewhere.
 - **a5** — The proposed broader scope is review material; no code or provider behavior beyond the inspected source and listed tests has been accepted.

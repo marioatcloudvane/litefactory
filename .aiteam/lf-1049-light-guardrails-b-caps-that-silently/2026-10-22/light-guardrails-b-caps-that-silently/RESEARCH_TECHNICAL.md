@@ -132,7 +132,7 @@ Evidence:
 
 ## f17
 
-The current research checkout is 155c966cad45d98a207607a18c8c41b4d158b60a; prior checkout claims refer to the earlier pass, not this audit.
+The broad audit used checkout 155c966cad45d98a207607a18c8c41b4d158b60a; the judge-followup pass used 19baea2c945d9fc22c5d5f140b28bf453c3c87c2. These commit identities were observed with git rev-parse, not inferred from a source-file line.
 
 Evidence:
 
@@ -204,27 +204,31 @@ Evidence:
 
 ## f26
 
-Doctor issue_comments fetches 20 comments per page, redacts bodies to 8192 bytes, spends a 60000-byte body budget and may empty more bodies to meet the encoded response bound. All identities and next_page survive, but no comment-ID/body-offset operation recovers the missing remote text; shell/SQL can recover locally stored material only where available.
+Doctor issue_comments returns 20 identities per page but caps bodies at 8192 bytes, spends a shared 60000-byte budget and may empty bodies to fit encoding. It has no body-range read. Local retention is insufficient recovery by itself: database_query also limits SQLite allocation and output to 64 KiB and rows to 200; read-only shell is a distinct capability, not proof of a completed oversized-value read.
 
 Evidence:
 
 - `internal/doctor/read_tools.go:108`
+- `internal/store/doctor_query.go:16`
 
 ## f27
 
-Current Doctor diagnosis uses a live path manifest including shell and read tools, the latest 100 run log paths, and a gap explicitly suggesting a database query for earlier paths. Older 4 KiB-field/96 KiB evidence snapshot limits and 1 MiB/200-line local log collection remain in repair recheck paths, not the main live diagnosis prompt; treating all of those as current input truncation would be a false positive.
+Current Doctor diagnosis uses a live path manifest with shell and read tools and the latest 100 run log paths. Its suggestion to query the database for earlier paths remains subject to database_query's 200-row, 64 KiB and 20-second limits; it does not guarantee complete recovery. Older snapshot caps remain largely in repair recheck paths rather than the live diagnosis prompt.
 
 Evidence:
 
 - `internal/doctor/manifest.go:33`
+- `internal/store/doctor_query.go:16`
 
 ## f28
 
-Doctor memory selects the latest 30 attempts and strips their evidence snapshots, naming both omissions in the prompt. Current diagnosis and proposal are supplied separately; historical owner text still has no dedicated memory paging operation, while the database tool can support targeted recovery.
+Doctor memory selects 30 attempts and strips their evidence snapshots with explicit omission text; current diagnosis and proposal are separate. Targeted SQL may help recover retained history, but the database tool can return empty or partial truncated results for large values and removes rows under output pressure; no unconditional memory-recovery claim is supported.
 
 Evidence:
 
 - `internal/doctor/invoke.go:18`
+- `internal/store/doctor_query.go:64`
+- `internal/doctor/read_tools.go:88`
 
 ## f29
 
@@ -311,3 +315,66 @@ Evidence:
 The owner's latest reply explicitly rejects limiting this work to B1–B4 and requests broad research into capped agent input for fault tolerance and agent usability; it answers none of the previous four product-policy questions.
 
 _No source reference was recorded for this finding._
+
+## f40
+
+The judge review at https://github.com/marioatcloudvane/litefactory/issues/1049#issuecomment-6369191393 raises two medium concerns: missing evaluation of standards continuation reuse and unexamined database recovery limits. Both are supported by this pass's source inspection; the judge did not execute tests or certify exhaustive coverage.
+
+_No source reference was recorded for this finding._
+
+## f41
+
+Standards runtime binds retained book content to the root run, consumer and selection, checks cursor identity and digests against retained state, serves exact UTF-8 byte ranges, and returns source digest, total size and next cursor. Its fit check budgets both raw structured JSON and the escaped JSON text copy with a 1024-byte reserve under a 32 KiB ceiling.
+
+Evidence:
+
+- `internal/standards/runtime.go:100`
+- `internal/standards/runtime.go:449`
+- `internal/standards/runtime.go:512`
+
+## f42
+
+Standards end-to-end tests reassemble quoted multibyte content through broker tools, pin the original book after newer publication and replacement attempt, and reject forged scope and changed content on replay. The retained-across-attempts test reads from the beginning again, so saved noninitial-cursor restart is an additional regression requirement rather than an independently demonstrated result.
+
+Evidence:
+
+- `internal/turn/standards_endtoend_test.go:130`
+- `internal/turn/standards_endtoend_test.go:221`
+
+## f43
+
+Doctor database_query opens a separate read-only query-only connection, accepts one SELECT of at most 16384 bytes, has a 20-second timeout, caps rows at 200 and sets SQLite SQLITE_LIMIT_LENGTH to 65536. SQLITE_TOOBIG can become a successful empty or partial result with Truncated=true; no automatic cursor or continuation position is returned.
+
+Evidence:
+
+- `internal/store/doctor_query.go:16`
+- `internal/store/doctor_query.go:64`
+- `internal/store/doctor_query.go:114`
+
+## f44
+
+Doctor database result redaction can truncate individual fields and a later serialized-size loop removes rows from the end until the result fits 65536 bytes. Therefore the query's requested LIMIT/OFFSET is not evidence that all those rows reached the consumer; continuation must advance only past returned row identities.
+
+Evidence:
+
+- `internal/doctor/read_tools.go:66`
+- `internal/doctor/read_tools.go:88`
+
+## f45
+
+Current Doctor diagnosis exposes a read-only shell surface in addition to the bounded database tool. That supports specifying a separate read-only local large-value recovery route without enlarging the SQL tool's allocation ceiling, but no live agent recovery experiment or new consumer-level large-value shell regression was performed in this pass.
+
+Evidence:
+
+- `internal/harness/doctor.go:24`
+- `internal/doctor/manifest.go:43`
+
+## f46
+
+Existing focused tests passed in this pass for standards UTF-8 ranges, retained content across attempts/publication, stale selection, missing/corrupt binding, role cursor checks, forged scope and replay integrity, plus Doctor query size/row/time limits and write barriers. No implementation or new tests were written.
+
+Evidence:
+
+- `internal/standards/runtime_test.go:38`
+- `internal/turn/standards_endtoend_test.go:130`
+- `internal/store/doctor_query_io_test.go:48`
