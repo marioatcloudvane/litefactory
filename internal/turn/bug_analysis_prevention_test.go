@@ -18,7 +18,6 @@ func TestRenderBugAnalysisShowsPrevention(t *testing.T) {
 		want []string
 	}{
 		{buganalysis.BugPrevention{Kind: "missing_standard", Note: "Check lengths before indexing."}, []string{"Check lengths before indexing."}},
-		{buganalysis.BugPrevention{Kind: "ignored_standard", StandardID: "go-bounds-check", Note: "The rule was skipped."}, []string{"go-bounds-check", "The rule was skipped."}},
 		{buganalysis.BugPrevention{Kind: "one_off", Note: "A typo\nin a fixture."}, []string{"A typo in a fixture."}},
 	}
 	for _, c := range cases {

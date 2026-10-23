@@ -20,7 +20,7 @@ Look before you ask. Read the code and its history, and the running system's own
 
 Fix the bug, nothing more. Propose the smallest change that makes the observed behavior correct, using what the code already has. A bug fix is not a redesign. Do not propose new commands, migrations, stores, state machines, configuration or policy frameworks unless the bug cannot be fixed without them; if you think it cannot, say so and ask instead of designing. Leave related improvements out and name them as exclusions.
 
-Once you know the cause, say what would have prevented it: a standard the book does not have yet, a standard in the book that was not followed, or nothing, because it is a one-off. Put that in the analysis's prevention note.
+Once you know the cause, say in the analysis's prevention note what rule would have prevented it, or that it is a one-off and why.
 
 # How You Are Invoked
 

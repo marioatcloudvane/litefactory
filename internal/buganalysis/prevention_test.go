@@ -33,14 +33,11 @@ func TestBugAnalysisPreventionShape(t *testing.T) {
 		p    buganalysis.BugPrevention
 		ok   bool
 	}{
-		{"missing standard", buganalysis.BugPrevention{Kind: "missing_standard", Note: "A rule to check lengths before indexing would have caught it."}, true},
-		{"ignored standard", buganalysis.BugPrevention{Kind: "ignored_standard", StandardID: "go-bounds-check", Note: "The bounds rule was skipped."}, true},
+		{"missing standard", buganalysis.BugPrevention{Kind: "missing_standard", Note: "Handlers check input length before indexing into it."}, true},
 		{"one-off", buganalysis.BugPrevention{Kind: "one_off", Note: "A typo in a test fixture."}, true},
 		{"unknown kind", buganalysis.BugPrevention{Kind: "maybe", Note: "x"}, false},
+		{"dropped ignored_standard kind", buganalysis.BugPrevention{Kind: "ignored_standard", Note: "x"}, false},
 		{"blank kind", buganalysis.BugPrevention{Note: "x"}, false},
-		{"ignored standard without id", buganalysis.BugPrevention{Kind: "ignored_standard", Note: "x"}, false},
-		{"standard id on missing standard", buganalysis.BugPrevention{Kind: "missing_standard", StandardID: "go-bounds-check", Note: "x"}, false},
-		{"standard id on one-off", buganalysis.BugPrevention{Kind: "one_off", StandardID: "go-bounds-check", Note: "x"}, false},
 		{"blank note", buganalysis.BugPrevention{Kind: "one_off", Note: "  "}, false},
 	}
 	for _, c := range cases {
@@ -65,10 +62,10 @@ func TestBugAnalysisPreventionShape(t *testing.T) {
 func TestBugAnalysisPreventionDecodes(t *testing.T) {
 	t.Parallel()
 	var a buganalysis.BugAnalysis
-	if err := json.Unmarshal([]byte(`{"prevention":{"kind":"ignored_standard","standard_id":"go-bounds-check","note":"The bounds rule was skipped."}}`), &a); err != nil {
+	if err := json.Unmarshal([]byte(`{"prevention":{"kind":"missing_standard","note":"Handlers check input length before indexing into it."}}`), &a); err != nil {
 		t.Fatal(err)
 	}
-	if a.Prevention == nil || a.Prevention.Kind != buganalysis.PreventionIgnoredStandard || a.Prevention.StandardID != "go-bounds-check" || a.Prevention.Note == "" {
+	if a.Prevention == nil || a.Prevention.Kind != buganalysis.PreventionMissingStandard || a.Prevention.Note == "" {
 		t.Fatalf("prevention=%+v", a.Prevention)
 	}
 }

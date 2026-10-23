@@ -95,8 +95,8 @@ func renderBugAnalysis(revision int64, digest string, a buganalysis.BugAnalysis)
 	return b.String()
 }
 
-// preventionLine says in one line whether the book of standards would have
-// prevented the bug, in the analyst's own words.
+// preventionLine says in one line what rule would have prevented the bug, or
+// why it is a one-off, in the analyst's own words.
 func preventionLine(p *buganalysis.BugPrevention) string {
 	if p == nil {
 		return ""
@@ -104,9 +104,7 @@ func preventionLine(p *buganalysis.BugPrevention) string {
 	note := oneLine(p.Note)
 	switch p.Kind {
 	case buganalysis.PreventionMissingStandard:
-		return "no standard covers this yet. " + note
-	case buganalysis.PreventionIgnoredStandard:
-		return "standard `" + oneLine(p.StandardID) + "` was not followed. " + note
+		return "a rule would have caught this. " + note
 	case buganalysis.PreventionOneOff:
 		return "a one-off. " + note
 	}

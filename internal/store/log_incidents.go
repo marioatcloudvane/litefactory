@@ -347,8 +347,8 @@ func bugAnalysis(snapshot string) string {
 		Expected string `json:"expected"`
 		Actual   string `json:"actual"`
 		Cause    string `json:"cause"`
-		// Prevention is the analyst's note on whether a standard would have
-		// prevented the bug; the log analyst aggregates these.
+		// Prevention is the analyst's note on what rule would have prevented
+		// the bug; the log analyst aggregates these against the book.
 		Prevention *buganalysis.BugPrevention `json:"prevention"`
 	}
 	var current struct {
@@ -370,9 +370,6 @@ func bugAnalysis(snapshot string) string {
 	text := "Expected: " + a.Expected + "\nActual: " + a.Actual + "\nCause: " + a.Cause
 	if p := a.Prevention; p != nil && p.Kind != "" {
 		text += "\nPrevention: " + p.Kind
-		if p.StandardID != "" {
-			text += " (" + p.StandardID + ")"
-		}
 		if p.Note != "" {
 			text += ": " + p.Note
 		}

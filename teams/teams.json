@@ -1489,7 +1489,7 @@
         },
         {
           "path": "bug/bug-analyst.md",
-          "sha256": "6804c5e875115abff70013fe038a985be2e288f18a6372d49f8c967eab114e65"
+          "sha256": "512379e444bfa508d55cc0182bb7209e16ce8e31ad9ce89055c1bea17e0c00b7"
         },
         {
           "path": "bug/bug-fixer.md",
@@ -1505,7 +1505,7 @@
         },
         {
           "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "a73ef969452e2ba4ebae900dee4b2be2a158fded47f06b552d9d98fc3ce1dfde"
+          "sha256": "4fb117c5697b44e57a2239a5bb96b9ea167486c578d17833307dc812be932601"
         },
         {
           "path": "bug/skills/bug-repair-result/SKILL.md",
@@ -1716,7 +1716,7 @@
           "sha256": "5d2aacdf8a92ec39c6b42c1b19ffadb565d3139b9345a0ecb521cf74332cbb4e"
         }
       ],
-      "checksum": "ec012e7c91dc3caf22f33039cfcf43792dbe94bf2281bdf718cc0f0b62a3ef97"
+      "checksum": "e87058803d7b743f901d982fd0259787e31fcf83ae0a16b7e473bbc8594654ac"
     },
     {
       "name": "Python FastAPI with React",
@@ -2854,7 +2854,7 @@
         },
         {
           "path": "bug/bug-analyst.md",
-          "sha256": "6804c5e875115abff70013fe038a985be2e288f18a6372d49f8c967eab114e65"
+          "sha256": "512379e444bfa508d55cc0182bb7209e16ce8e31ad9ce89055c1bea17e0c00b7"
         },
         {
           "path": "bug/bug-fixer.md",
@@ -2870,7 +2870,7 @@
         },
         {
           "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "f2e60710412c25876a083ec7d216f49619622c971c84f912514b5db07bd77bef"
+          "sha256": "cbbcb3e3e9a194c348c5e7d399077ee8172e75e94fa38223ca075bfbaec68f49"
         },
         {
           "path": "bug/skills/bug-repair-result/SKILL.md",
@@ -3117,7 +3117,7 @@
           "sha256": "a89e807b4b695baf35e35dce0eea61d56fd60b8f168dbb81d120485c4035b8c3"
         }
       ],
-      "checksum": "4d69e82cf784a3864cc7077fb6239cbc45927eab5d8455edd48a2f44a56e02f4"
+      "checksum": "7f5efca38a2198a31593fbc2d4dc0734b9f96c15f355c1afa44bebd73ce48992"
     },
     {
       "name": "Swift iOS",

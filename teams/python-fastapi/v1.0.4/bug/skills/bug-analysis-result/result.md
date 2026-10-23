@@ -12,7 +12,7 @@ Preflight complete input; correct every diagnostic. Submit, retain request_id, a
 
 `analysis.boundaries` is an optional version-1 typed detail of the immutable remedy: `{ "allowed_paths": ["src/search.py", "src/search_test.go"], "excluded_paths": ["src/ranking.go"] }`. Include the files you expect the fix to change in new review-ready analysis; they guide the fixer and review and do not limit it. These fields are covered by the analysis digest and the same exact owner approval. They never grant tools or authority by themselves.
 
-`analysis.prevention` is optional: `{ "kind": "ignored_standard", "standard_id": "check-input-length", "note": "The input-length standard was not followed in the search handler." }`. Kind is `missing_standard` (no standard covers it yet; say what rule would have prevented it), `ignored_standard` (an existing standard was not followed; name its `standard_id`) or `one_off` (say why no rule would help). `standard_id` appears only with `ignored_standard`. Keep the note to one or two plain sentences.
+`analysis.prevention` is optional: `{ "kind": "missing_standard", "note": "Handlers check input length before indexing into it." }`. Kind is `missing_standard` (the note says what rule would have prevented the bug) or `one_off` (the note says why no rule would help). Keep the note to one or two plain sentences.
 
 A blocked result example, for an obstacle no owner answer removes (a missing reproduction is not one):
 
