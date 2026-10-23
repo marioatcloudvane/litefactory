@@ -20,10 +20,8 @@ type authoringFixture struct {
 	drafts map[string]int
 }
 
-func (f *authoringFixture) Answer(_ context.Context, id, prompt string) ([]byte, error) {
-	if strings.Contains(prompt, "Operation: select\n") {
-		return []byte(`{"schema_version":1,"category_ids":["quality"],"reason":"Relevant shared quality guidance"}`), nil
-	}
+func (f *authoringFixture) Answer(_ context.Context, c standards.AuthoringCall) ([]byte, error) {
+	id, prompt := c.Session, c.Prompt
 	f.drafts[id]++
 	if f.drafts[id] == 1 {
 		return []byte(`{"schema_version":1,"category_id":"quality","rule":"MUST assistant draft","description":"Run checks.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[{"text":"Which checks?","options":["Relevant package checks","All checks"]}]}`), nil

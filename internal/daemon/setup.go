@@ -29,6 +29,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
+	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/repos"
@@ -603,7 +604,16 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			}
 		}
 		book := &standards.Service{Store: s.DB, OwnerID: identities.OwnerUserID}
-		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Runner: &conversationStandardsAuthoring{model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}}}
+		reader := projectread.Reader{DB: s.DB, Git: gitBinary, Redactor: sharedRedactor}
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			return nil, Startup{}, errors.Join(executableErr, lock.Close())
+		}
+		reads := projectread.Session{}
+		if s.Config.Settings.MCPAutoStart {
+			reads = projectread.Session{Reader: reader, RunsRoot: s.Paths.RunsDir(), Executable: executable, Prepare: projectSecrets(s.DB, connections)}
+		}
+		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Reads: reads}}
 		chatOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Analyses: analyses}
 	}
 	daemon, err := New(Options{

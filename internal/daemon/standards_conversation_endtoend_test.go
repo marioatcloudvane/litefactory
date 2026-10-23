@@ -77,10 +77,8 @@ func (f *standardsJourneyProvider) RunConversation(ctx context.Context, r agent.
 
 type standardsJourneyAuthor struct{ drafts int }
 
-func (f *standardsJourneyAuthor) Answer(_ context.Context, _ string, prompt string) ([]byte, error) {
-	if strings.Contains(prompt, "Operation: select\n") {
-		return []byte(`{"schema_version":1,"category_ids":["quality"],"reason":"Shared quality guidance"}`), nil
-	}
+func (f *standardsJourneyAuthor) Answer(_ context.Context, c standards.AuthoringCall) ([]byte, error) {
+	prompt := c.Prompt
 	f.drafts++
 	if f.drafts == 1 {
 		return []byte(`{"schema_version":1,"category_id":"quality","rule":"MUST run relevant checks","description":"Run checks.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[{"text":"Which checks?","options":["Relevant package checks","All checks"]}]}`), nil

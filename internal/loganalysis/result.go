@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
@@ -343,9 +344,6 @@ func (h *invocation) communication(ctx context.Context, correlation, name string
 	return raw(r), e
 }
 
-func objectSchema(properties string, required string) json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{` + properties + `},"required":[` + required + `],"additionalProperties":false}`)
-}
 func (h *invocation) catalog(ctx context.Context) (json.RawMessage, error) {
 	b, e := h.reader.Handle(ctx, submission.Request{Method: "tools/list", RequestID: "catalog", Payload: json.RawMessage(`{}`)})
 	if e != nil {
@@ -358,9 +356,9 @@ func (h *invocation) catalog(ctx context.Context) (json.RawMessage, error) {
 		return nil, e
 	}
 	list.Tools = append(list.Tools,
-		submission.ToolSpec{Name: "standards_categories_list", Description: "List the categories of the book bound for this analysis, with the standard count per category and the load per role.", InputSchema: objectSchema(`"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"string","maxLength":4096}`, ``)},
-		submission.ToolSpec{Name: "standards_select", Description: "Choose the category IDs whose standards you want to read; an empty choice is valid.", InputSchema: objectSchema(`"expected_version":{"type":"integer","minimum":0},"category_ids":{"type":"array","maxItems":100,"items":{"type":"string"}},"reason":{"type":"string","maxLength":512}`, `"expected_version","category_ids","reason"`)},
-		submission.ToolSpec{Name: "standards_read", Description: "Read the selected standards page by page; acknowledge with ack:true after the last page.", InputSchema: objectSchema(`"selection_version":{"type":"integer","minimum":1},"selection_digest":{"type":"string"},"cursor":{"type":"string","maxLength":4096},"ack":{"type":"boolean"}`, `"selection_version","selection_digest"`)})
+		submission.ToolSpec{Name: "standards_categories_list", Description: "List the categories of the book bound for this analysis, with the standard count per category and the load per role.", InputSchema: projectread.ObjectSchema(`"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"string","maxLength":4096}`, ``)},
+		submission.ToolSpec{Name: "standards_select", Description: "Choose the category IDs whose standards you want to read; an empty choice is valid.", InputSchema: projectread.ObjectSchema(`"expected_version":{"type":"integer","minimum":0},"category_ids":{"type":"array","maxItems":100,"items":{"type":"string"}},"reason":{"type":"string","maxLength":512}`, `"expected_version","category_ids","reason"`)},
+		submission.ToolSpec{Name: "standards_read", Description: "Read the selected standards page by page; acknowledge with ack:true after the last page.", InputSchema: projectread.ObjectSchema(`"selection_version":{"type":"integer","minimum":1},"selection_digest":{"type":"string"},"cursor":{"type":"string","maxLength":4096},"ack":{"type":"boolean"}`, `"selection_version","selection_digest"`)})
 	list.Tools = append(list.Tools, checkTools()...)
 	for _, name := range []string{"communication_preflight", "communication_submit"} {
 		description := "Check a report without storing it."
@@ -369,7 +367,7 @@ func (h *invocation) catalog(ctx context.Context) (json.RawMessage, error) {
 		}
 		list.Tools = append(list.Tools, submission.ToolSpec{Name: name, Description: description, InputSchema: reportSchema()})
 	}
-	list.Tools = append(list.Tools, submission.ToolSpec{Name: "communication_receipt", Description: "Look up the receipt of an earlier submit before retrying.", InputSchema: objectSchema(`"request_id":{"type":"string","maxLength":64,"pattern":"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"}`, `"request_id"`)})
+	list.Tools = append(list.Tools, submission.ToolSpec{Name: "communication_receipt", Description: "Look up the receipt of an earlier submit before retrying.", InputSchema: projectread.ObjectSchema(`"request_id":{"type":"string","maxLength":64,"pattern":"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"}`, `"request_id"`)})
 	return raw(list), nil
 }
 func reportSchema() json.RawMessage {
@@ -385,7 +383,7 @@ func reportSchema() json.RawMessage {
 	proposal := `{"type":"object","properties":{"new_category":` + category + `,"operation":` + operation + `,"justification":` + justification + `,"citations":` + citations + `},"required":["operation","justification","citations"],"additionalProperties":false}`
 	finding := `{"type":"object","properties":{"key":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"},"kind":{"type":"string","enum":["project_setup","factory_defect","role_prompt"]},"repository":` + text + `,"target":` + text + `,"title":{"type":"string","maxLength":200},"expected":` + text + `,"actual":` + text + `,"cause":` + text + `,"suggestion":` + text + `,"incident_ids":{"type":"array","minItems":1,"items":{"type":"string"}},"citations":` + citations + `,"existing":` + text + `,"file":{"type":"boolean"}},"required":["key","kind","target","title","expected","actual","cause","suggestion","incident_ids","citations","file"],"additionalProperties":false}`
 	report := `{"type":"object","properties":{"summary":` + text + `,"proposals":{"type":"array","maxItems":3,"items":` + proposal + `},"findings":{"type":"array","maxItems":20,"items":` + finding + `},"no_change_reason":` + text + `},"required":["summary","proposals","findings"],"additionalProperties":false}`
-	return objectSchema(`"request_id":{"type":"string","maxLength":64,"pattern":"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"},"report":`+report, `"request_id","report"`)
+	return projectread.ObjectSchema(`"request_id":{"type":"string","maxLength":64,"pattern":"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"},"report":`+report, `"request_id","report"`)
 }
 
 func (h *invocation) recovery(ctx context.Context, id string, v json.RawMessage) (json.RawMessage, error) {

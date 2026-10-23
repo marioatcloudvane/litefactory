@@ -44,6 +44,34 @@ func (c *ConversationAnalyses) serve(ctx context.Context, wg *sync.WaitGroup, po
 	c.ctx, c.wg, c.post = ctx, wg, post
 }
 
+// later runs work in the background for the chat lifetime and posts the text
+// it returns to channel. It reports false when nothing can run in the
+// background, so the caller works in the foreground instead.
+func (c *ConversationAnalyses) later(ctx context.Context, channel, key string, work func(context.Context) string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ctx == nil || c.ctx.Err() != nil || c.post == nil {
+		return false
+	}
+	run, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(c.ctx, cancel)
+	post := c.post
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		defer stop()
+		defer cancel()
+		text := work(run)
+		// The message is saved even during shutdown and delivered after restart.
+		saved, done := context.WithTimeout(context.WithoutCancel(run), 10*time.Second)
+		defer done()
+		if e := post(saved, channel, key, text); e != nil && c.Log != nil {
+			c.Log.WarnContext(saved, "background result could not be queued for the conversation", slog.String("key", key), slog.Any("error", e))
+		}
+	}()
+	return true
+}
+
 // begin starts one confirmed analysis and returns at once.
 func (c *ConversationAnalyses) begin(r messaging.StandardsRequest) (messaging.StandardsResult, error) {
 	args := r.Arguments

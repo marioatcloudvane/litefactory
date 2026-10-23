@@ -11,13 +11,16 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/projectread"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-const standardsAuthorUsage = `Author one standard without an interactive terminal.
-start ID --intent TEXT [--target STANDARD] [--categories ID,ID]
+const standardsAuthorUsage = `Work out one standard with the standards author.
+start ID --intent TEXT [--project forge:owner/name] [--target STANDARD] [--categories ID,ID]
 list; show ID [--version N]; questions ID [--version N]
 answer ID --expected-version N --question ID --answer TEXT [--replace]
 answer ID --expected-version N --file FILE|- (JSON array of answers)
@@ -25,16 +28,14 @@ edit ID --expected-version N --file FILE|- (JSON category_id, rule, description,
 continue|validate|complete ID --expected-version N
 rebase ID --expected-version N --revision REVISION
 All commands accept --json. Start also accepts --file FILE|- for intent text.
-Inspect the saved version before completion. Completion creates an unapproved proposal;
-review, approval and publication remain separate commands.
-Continuation uses at most two isolated calls, a 120-second deadline, 256 KiB prompts
-and 32 KiB responses. Retained book capture is limited to 16 MiB; each serialized
-saved session version is limited to 64 MiB, including its base, original target and draft.
-Use --categories at start or edit context_category_ids to narrow oversized context.
-After interruption, show the session and explicitly retry continuation when its lease expires.
-Retries may charge again and return different text. Stale bases need deliberate rebase.
-SQLite NORMAL protects ordinary process interruption; power loss can lose recent writes.
-Disk loss and database administrator changes are outside these guarantees.`
+The author reads the published book and pushes back on ideas that are vague, duplicates,
+too broad or common knowledge. With --project it also reads that project's code at its
+current base branch head, pinned at start, and its incidents from the last 30 days.
+--target edits an existing standard; --categories narrows the book the author sees.
+Continue asks the author for the next draft and its questions; your edits and answers are kept.
+Complete creates an unapproved proposal; review, approval and publication remain separate commands.
+After an interruption, show the session and continue again once its attempt lease expires.
+A session based on an older book needs a deliberate rebase.`
 
 func newStandardsAuthorCommand(action string) *Command {
 	return newStandardsAuthorCommandWithRunner(action, nil)
@@ -53,13 +54,14 @@ func newStandardsAuthorCommandWithRunner(action string, runner standards.Authori
 	c.New = func(fs *flag.FlagSet) Handler {
 		var asJSON, replace bool
 		var version, expected, revision int64
-		var intent, target, categories, file, question, answer string
+		var intent, target, categories, file, question, answer, project string
 		fs.BoolVar(&asJSON, "json", false, "emit structured JSON")
 		switch action {
 		case "start":
 			fs.StringVar(&intent, "intent", "", "intended guidance")
 			fs.StringVar(&target, "target", "", "existing standard ID (omit for creation)")
-			fs.StringVar(&categories, "categories", "", "comma-separated retained category filter")
+			fs.StringVar(&categories, "categories", "", "comma-separated category filter for the book the author sees")
+			fs.StringVar(&project, "project", "", "registered forge:owner/name whose code and incidents the author may read")
 			fs.StringVar(&file, "file", "", "intent text file or - for stdin")
 		case "show", "questions":
 			fs.Int64Var(&version, "version", 0, "retained version (default current)")
@@ -107,11 +109,17 @@ func newStandardsAuthorCommandWithRunner(action string, runner standards.Authori
 			if instructionErr != nil {
 				return instructionErr
 			}
-			svc := &standards.Authoring{Store: rt.db, Book: &standards.Service{Store: rt.db, OwnerID: owner.UserID}, Instructions: instructions}
+			reader := projectread.Reader{DB: rt.db, Redactor: redact.New(redact.Options{Logger: env.Logger, Environ: os.Environ()})}
+			if binary, e := git.Resolve(ctx); e == nil {
+				reader.Git = binary
+			}
+			svc := &standards.Authoring{Store: rt.db, Book: &standards.Service{Store: rt.db, OwnerID: owner.UserID}, Instructions: instructions, Projects: reader}
 			if action == "continue" {
 				svc.Runner = runner
 				if svc.Runner == nil {
-					svc.Runner = newStandardsAuthoringRunner(rt)
+					if svc.Runner, err = newStandardsAuthorReads(env, rt, reader); err != nil {
+						return err
+					}
 				}
 			}
 			var result any
@@ -125,12 +133,24 @@ func newStandardsAuthorCommandWithRunner(action string, runner standards.Authori
 					raw, err = readAuthorInput(env, file)
 					intent = string(raw)
 				}
+				var projectID int64
+				if err == nil && project != "" {
+					forge, slug, ok := strings.Cut(project, ":")
+					owner, name, valid := strings.Cut(slug, "/")
+					if !ok || !valid || strings.Contains(name, "/") {
+						return Usagef(c, "--project requires registered forge:owner/name")
+					}
+					var repo store.Repo
+					if repo, err = rt.db.GetRepoBySlug(ctx, forge, owner, name); err == nil {
+						projectID = repo.ID
+					}
+				}
 				if err == nil {
 					mode := "create"
 					if target != "" {
 						mode = "edit"
 					}
-					result, err = svc.Start(ctx, standards.AuthoringStart{ID: args[0], Mode: mode, TargetID: target, Intent: intent, CategoryIDs: authorCategoryIDs(categories)})
+					result, err = svc.Start(ctx, standards.AuthoringStart{ID: args[0], Mode: mode, TargetID: target, Intent: intent, CategoryIDs: authorCategoryIDs(categories), ProjectID: projectID})
 				}
 			case "list":
 				result, err = svc.List(ctx, 100)
@@ -182,6 +202,22 @@ func newStandardsAuthorCommandWithRunner(action string, runner standards.Authori
 		}
 	}
 	return c
+}
+
+// newStandardsAuthorReads builds the author's runner. A project-scoped session
+// reads that project, with its credentials registered for redaction first.
+func newStandardsAuthorReads(env *Env, rt *repoRuntime, reader projectread.Reader) (standards.AuthoringRunner, error) {
+	if !rt.cfg.Settings.MCPAutoStart {
+		return newStandardsAuthoringRunner(rt, projectread.Session{}), nil
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	reads := projectread.Session{Reader: reader, RunsRoot: rt.paths.RunsDir(), Executable: executable, Prepare: func(ctx context.Context, id int64) error {
+		return initializeLogCredentials(ctx, env, rt.db, rt.cfg, []int64{id}, reader.Redactor)
+	}}
+	return newStandardsAuthoringRunner(rt, reads), nil
 }
 
 func authorCategoryIDs(raw string) []string {
@@ -241,8 +277,24 @@ func decodeAuthorInput(env *Env, path string, dst any) error {
 func writeAuthorText(out io.Writer, result any) error {
 	switch v := result.(type) {
 	case standards.AuthoringSession:
-		if _, err := fmt.Fprintf(out, "Session %s version %d (%s, %s)\nTarget: %s\nBase: revision %d, schema %d, digest %s\n%s\nOperator fields: %v\nContext categories: %v\nContext reason: %s\nCoverage: %v\n", v.ID, v.Version, v.Mode, v.Status, v.TargetID, v.BaseRevision, v.BaseSchema, v.BaseDigest, standards.Render(v.Base.Categories, []standards.Standard{v.Draft}), v.Overrides, v.Context.CategoryIDs, v.Context.Reason, v.Context.Coverage); err != nil {
+		categories := v.Base.Categories
+		if v.NewCategory != nil {
+			categories = append([]standards.Category{*v.NewCategory}, categories...)
+			if _, err := fmt.Fprintf(out, "New category %s: %s. %s\n", v.NewCategory.ID, v.NewCategory.Name, v.NewCategory.Description); err != nil {
+				return err
+			}
+		}
+		project := "none (book only)"
+		if p := v.Project; p != nil {
+			project = fmt.Sprintf("%s at %s %s", p.Name, p.Commit, p.Gap)
+		}
+		if _, err := fmt.Fprintf(out, "Session %s version %d (%s, %s)\nTarget: %s\nBase: revision %d, schema %d, digest %s\nProject: %s\n%s\nOperator fields: %v\nCategory filter: %v\n", v.ID, v.Version, v.Mode, v.Status, v.TargetID, v.BaseRevision, v.BaseSchema, v.BaseDigest, project, standards.Render(categories, []standards.Standard{v.Draft}), v.Overrides, v.CategoryFilter); err != nil {
 			return err
+		}
+		if v.Notes != "" {
+			if _, err := fmt.Fprintf(out, "Author's notes: %s\n", v.Notes); err != nil {
+				return err
+			}
 		}
 		for _, q := range v.Questions {
 			if _, err := fmt.Fprintf(out, "Question %s (%s): %s\n  Options: %v\n  Answer: %s\n  Previous answers: %v\n  Follow-up to: %s\n", q.ID, q.State, q.Text, q.Options, q.Answer, q.AnswerHistory, q.FollowUpTo); err != nil {

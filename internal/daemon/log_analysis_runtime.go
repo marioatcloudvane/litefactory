@@ -18,6 +18,23 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
+// projectSecrets registers one project's connection credentials with the
+// shared redactor; loading a connection's clients does that.
+func projectSecrets(db *store.DB, connections *projectconnection.Factory) func(context.Context, int64) error {
+	return func(ctx context.Context, id int64) error {
+		versions, e := db.ListConnections(ctx, id)
+		if e != nil {
+			return errors.New("project credential registry unavailable")
+		}
+		for _, version := range versions {
+			if _, e = connections.Clients(ctx, version, 0); e != nil {
+				return errors.New("project credential redaction could not be initialized")
+			}
+		}
+		return nil
+	}
+}
+
 // newConversationAnalyses wires the log analysis service that
 // `standards analyze logs` uses for analyses the owner starts in the conversation.
 func newConversationAnalyses(s Setup, connections *projectconnection.Factory, sharedRedactor *redact.Redactor, gitBinary *git.Binary) (*ConversationAnalyses, error) {

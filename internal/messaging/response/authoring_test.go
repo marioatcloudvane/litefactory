@@ -9,6 +9,8 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/projectread"
+	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -64,15 +66,14 @@ func TestAuthoringProviderBoundsIsolationAndAttribution(t *testing.T) {
 	verified := &authorRunner{verified: true, answer: []byte(`{"schema_version":1}`)}
 	ledger := &authorLedger{}
 	m := &NativeModel{Config: cfg, Paths: config.NewPaths(t.TempDir()), Providers: map[string]ChatRunner{"codex": closed, "claude": verified}, Meter: ledger}
-	var reference string
-	m.AuthoringCall = func(provider, model, ref string) {
-		if provider != "claude" || model == "" {
-			t.Errorf("missing provenance: %s %s", provider, model)
-		}
-		reference = ref
-	}
-	if _, err = m.AnswerAuthoring(t.Context(), "session", "bounded data", "attempt", "token"); err != nil {
+	a := &Authoring{Model: m}
+	call := standards.AuthoringCall{Session: "session", Attempt: "attempt", Token: "token", Prompt: "bounded data"}
+	if _, err = a.Answer(t.Context(), call); err != nil {
 		t.Fatal(err)
+	}
+	provider, model, reference := a.Metadata()
+	if provider != "claude" || model == "" {
+		t.Errorf("missing provenance: %s %s", provider, model)
 	}
 	if closed.calls != 0 || verified.calls != 1 || ledger.session != "session" || ledger.provider != "claude" || !ledger.finished || reference != "authoring-usage" {
 		t.Fatalf("incorrect isolation or attribution: %+v %+v", verified, ledger)
@@ -80,19 +81,30 @@ func TestAuthoringProviderBoundsIsolationAndAttribution(t *testing.T) {
 	if verified.request.Usage == nil || verified.request.Usage.AttemptID != reference {
 		t.Fatal("usage capture missing")
 	}
+	if verified.request.MCPLaunch != nil {
+		t.Fatal("a session without a project was granted tools")
+	}
 	entries, err := os.ReadDir(m.Paths.DoctorScratchDir())
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("scratch retained: %v %v", entries, err)
 	}
-	if _, err = m.AnswerAuthoring(t.Context(), "session", strings.Repeat("x", (256<<10)+1), "attempt", "token"); err == nil || verified.calls != 1 {
+	// A project-scoped call never runs without its read tools.
+	scoped := call
+	scoped.Project = &projectread.Project{ID: 1, Name: "acme/app"}
+	if _, err = a.Answer(t.Context(), scoped); err == nil || verified.calls != 1 {
+		t.Fatal("project-scoped call ran without project reads")
+	}
+	oversized := call
+	oversized.Prompt = strings.Repeat("x", (256<<10)+1)
+	if _, err = a.Answer(t.Context(), oversized); err == nil || verified.calls != 1 {
 		t.Fatal("oversized prompt launched")
 	}
 	verified.answer = make([]byte, (32<<10)+1)
-	if _, err = m.AnswerAuthoring(t.Context(), "session", "bounded", "attempt", "token"); err == nil {
+	if _, err = a.Answer(t.Context(), call); err == nil {
 		t.Fatal("oversized response accepted")
 	}
 	verified.verified = false
-	if _, err = m.AnswerAuthoring(t.Context(), "session", "bounded", "attempt", "token"); !errors.Is(err, ErrUnavailable) {
+	if _, err = a.Answer(t.Context(), call); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("unverified fallback: %v", err)
 	}
 }
