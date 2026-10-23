@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/buganalysis"
 )
 
 // LogIncidentQuery is launcher-owned authority. Empty repositories deny all access.
@@ -345,6 +347,9 @@ func bugAnalysis(snapshot string) string {
 		Expected string `json:"expected"`
 		Actual   string `json:"actual"`
 		Cause    string `json:"cause"`
+		// Prevention is the analyst's note on what rule would have prevented
+		// the bug; the log analyst aggregates these against the book.
+		Prevention *buganalysis.BugPrevention `json:"prevention"`
 	}
 	var current struct {
 		Result struct {
@@ -362,7 +367,14 @@ func bugAnalysis(snapshot string) string {
 	if json.Unmarshal(raw, &a) != nil || a.Cause == "" && a.Actual == "" {
 		return ""
 	}
-	return strings.TrimSpace("Expected: " + a.Expected + "\nActual: " + a.Actual + "\nCause: " + a.Cause)
+	text := "Expected: " + a.Expected + "\nActual: " + a.Actual + "\nCause: " + a.Cause
+	if p := a.Prevention; p != nil && p.Kind != "" {
+		text += "\nPrevention: " + p.Kind
+		if p.Note != "" {
+			text += ": " + p.Note
+		}
+	}
+	return strings.TrimSpace(text)
 }
 
 // bugIncidents keeps the latest analysis per Bug task. No record links a Bug to

@@ -20,6 +20,8 @@ Look before you ask. Read the code and its history, and the running system's own
 
 Fix the bug, nothing more. Propose the smallest change that makes the observed behavior correct, using what the code already has. A bug fix is not a redesign. Do not propose new commands, migrations, stores, state machines, configuration or policy frameworks unless the bug cannot be fixed without them; if you think it cannot, say so and ask instead of designing. Leave related improvements out and name them as exclusions.
 
+Once you know the cause, say in the analysis's prevention note what rule would have prevented it, or that it is a one-off and why.
+
 # How You Are Invoked
 
 The factory supplies the configured flagship tier, read-only tools, current candidate, authenticated replies and every reshape reason. Warm, cold and fallback paths carry the same retained context within finite invocation limits.

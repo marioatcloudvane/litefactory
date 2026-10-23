@@ -1,7 +1,6 @@
 package standards
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -23,17 +22,4 @@ func PrepareProposal(id string, base int64, before Snapshot, ops []Operation, au
 		return store.StandardsProposalVersion{}, err
 	}
 	return store.StandardsProposalVersion{ProposalID: id, Version: 1, BaseRevision: base, SchemaVersion: 1, Operations: canonicalOps(ops), ChangeDigest: changeDigest(base, ops), ResultDigest: snapshotDigest(after), Author: author}, nil
-}
-
-// Prepare validates an unapproved prevention proposal against its retained base.
-// Persistence stays with the caller so results and proposals can commit together.
-func (s *Service) Prepare(ctx context.Context, id string, base int64, ops []Operation) (store.StandardsProposalVersion, error) {
-	if strings.TrimSpace(id) == "" || base < 1 {
-		return store.StandardsProposalVersion{}, ErrInvalid
-	}
-	before, err := s.base(ctx, base)
-	if err != nil {
-		return store.StandardsProposalVersion{}, err
-	}
-	return PrepareProposal(id, base, before, ops, "prevention-analysis")
 }
