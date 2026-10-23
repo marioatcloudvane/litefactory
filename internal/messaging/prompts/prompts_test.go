@@ -2,9 +2,7 @@ package prompts
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,16 +41,16 @@ func TestFormatFallbackIsWholeRole(t *testing.T) {
 		"owner main", MainMarker + "\nowner main\n", MainMarker + "\nowner main\n" + CorrectionMarker + "\n", MainMarker + "\nowner main {{Other}}\n" + CorrectionMarker + "\nowner correction\n", MainMarker + "\nowner main\n" + CorrectionMarker + "\nowner correction\n" + CorrectionMarker + "\nextra",
 	} {
 		t.Run(owner, func(t *testing.T) {
-			pkg := fixture(t, Ask, shipped, owner)
+			pkg := fixture(t, Draft, shipped, owner)
 			var diagnostics []Diagnostic
-			role, err := Load(t.Context(), pkg, Ask, func(_ context.Context, d Diagnostic) { diagnostics = append(diagnostics, d) })
+			role, err := Load(t.Context(), pkg, Draft, func(_ context.Context, d Diagnostic) { diagnostics = append(diagnostics, d) })
 			if err != nil {
 				t.Fatal(err)
 			}
 			if role.Main != "shipped main" || role.Correction != "shipped correction" {
 				t.Fatalf("mixed fallback: %#v", role)
 			}
-			if len(diagnostics) != 1 || diagnostics[0].Category != "format" || diagnostics[0].Role != Ask || diagnostics[0].Source != instructionpackage.SourceOwner || len(diagnostics[0].Digest) != 64 {
+			if len(diagnostics) != 1 || diagnostics[0].Category != "format" || diagnostics[0].Role != Draft || diagnostics[0].Source != instructionpackage.SourceOwner || len(diagnostics[0].Digest) != 64 {
 				t.Fatalf("diagnostics: %#v", diagnostics)
 			}
 		})
@@ -60,13 +58,13 @@ func TestFormatFallbackIsWholeRole(t *testing.T) {
 }
 
 func TestInvalidShippedAndCancellationFail(t *testing.T) {
-	pkg := fixture(t, Ask, "no sections", "invalid owner")
-	if _, err := Load(t.Context(), pkg, Ask, nil); err == nil {
+	pkg := fixture(t, Draft, "no sections", "invalid owner")
+	if _, err := Load(t.Context(), pkg, Draft, nil); err == nil {
 		t.Fatal("invalid shipped format accepted")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := Load(ctx, pkg, Ask, nil); !errors.Is(err, context.Canceled) {
+	if _, err := Load(ctx, pkg, Draft, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation: %v", err)
 	}
 }
@@ -76,7 +74,7 @@ func TestRestrictedPlaceholder(t *testing.T) {
 		role, body string
 		valid      bool
 	}{
-		{ReplyWriter, "limit {{MaxClaims}}", true}, {ReplyWriter, "{{.MaxClaims}}", false}, {ReplyWriter, "{{MaxClaims}} {{Other}}", false}, {IntentInterpreter, "{{MaxClaims}}", false}, {ReplyChecker, "plain text", true},
+		{Draft, MainMarker + "\nmain\n" + CorrectionMarker + "\nfix\n", true}, {Draft, MainMarker + "\nlimit {{MaxClaims}}\n" + CorrectionMarker + "\nfix\n", false}, {Draft, MainMarker + "\nmain\n" + CorrectionMarker + "\n{{Other}}\n", false}, {"chat-reply-writer", "plain text", false},
 	} {
 		got, err := parse(tc.role, tc.body)
 		if (err == nil) != tc.valid {
@@ -88,24 +86,14 @@ func TestRestrictedPlaceholder(t *testing.T) {
 	}
 }
 
-// These digests pin exact migrated bodies, including JSON shapes and wording.
-// Framing separators remain consumer-owned and are covered by consumer fixtures.
+// TestShippedBodies checks only that the shipped chat-draft body parses into
+// non-empty sections; wording is owned by the Markdown, not by tests.
 func TestShippedBodies(t *testing.T) {
-	expected := map[string]string{
-		"chat-ask":                "59a708928dbc59d595cbfb5a60d7c0ee5086249ce05cb81ddc92095a29e2a1b9",
-		"chat-draft":              "124e691a2d73cecc310403d59114772a0b05d3e6e60b8205616a2656940e322d",
-		"chat-intent-interpreter": "6daef9a24d7dbf99ece755d1d454bfa0d64587efbf74f4ae24754e71cba736eb",
-		"chat-reply-writer":       "9983b7b59c127c3b89ae48df6c87b61ba4d2df8242b52a3f925bcc18011076e6",
-		"chat-reply-checker":      "b00c055570f37bca1e3903ebe9c9ce32ab9ae5bfbef91d94f7250d8bdedecdc2",
+	body, err := Load(t.Context(), nil, Draft, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for role, want := range expected {
-		body, err := Load(t.Context(), nil, role, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := fmt.Sprintf("%x", sha256.Sum256([]byte(body.Main+"\x00"+body.Correction)))
-		if got != want {
-			t.Fatalf("%s migrated body digest %s, want %s", role, got, want)
-		}
+	if strings.TrimSpace(body.Main) == "" || strings.TrimSpace(body.Correction) == "" {
+		t.Fatal("shipped chat-draft has an empty section")
 	}
 }

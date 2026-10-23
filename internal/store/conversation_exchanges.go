@@ -333,3 +333,20 @@ func (db *DB) StartConversationActionReply(ctx context.Context, t ConversationTu
 	})
 	return claimed, err
 }
+
+// LatestConversationTarget reads the newest target reference of a
+// conversation, expired or not: the project and issue it discussed last.
+// Newest mention wins. It is context only; callers re-resolve the project.
+func (db *DB) LatestConversationTarget(ctx context.Context, conversationID string) (ConversationReference, error) {
+	var r ConversationReference
+	var expires string
+	err := db.sql.QueryRowContext(ctx, `SELECT r.id,r.turn_id,r.kind,r.repository,r.target,r.revision,r.content,r.expires_at FROM chat_conversation_references r JOIN chat_conversation_turns t ON t.id=r.turn_id WHERE t.conversation_id=? AND r.kind='target' ORDER BY t.sequence DESC,r.rowid DESC LIMIT 1`, conversationID).Scan(&r.ID, &r.TurnID, &r.Kind, &r.Repository, &r.Target, &r.Revision, &r.Content, &expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, ErrNotFound
+	}
+	if err != nil {
+		return r, err
+	}
+	r.ExpiresAt, err = time.Parse(time.RFC3339Nano, expires)
+	return r, err
+}

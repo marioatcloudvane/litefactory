@@ -122,12 +122,12 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := append(ConversationRoles(), JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair")
-	if pkg.Version() != "1.7.0" || pkg.Digest() == "" {
+	want := append(ConversationRoles(), JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair", StandardsAuthorRole, LogAnalystRole)
+	if pkg.Version() != "1.11.1" || pkg.Digest() == "" {
 		t.Fatal("embedded package must register the migrated roles and advance its version")
 	}
-	if len(pkg.files) != 21 {
-		t.Fatalf("embedded inventory has %d files, want fifteen roles, metadata, catalogue, two judge resources and two doctor skills", len(pkg.files))
+	if len(pkg.files) != 19 {
+		t.Fatalf("embedded inventory has %d files, want fourteen roles, metadata, catalogue, two selected skills and the authoring schema", len(pkg.files))
 	}
 	for _, role := range want {
 		if !slices.Contains(pkg.Roles(), role) {
@@ -137,8 +137,11 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 		if err != nil || capture == nil || len(capture.Instructions()) == 0 {
 			t.Fatalf("capture %s: %v", role, err)
 		}
+		if role == StandardsAuthorRole && len(capture.Resource(StandardsAuthorSchemaPath)) == 0 {
+			t.Fatal("authoring schema missing from retained capture")
+		}
 		if role == JudgeRole {
-			for _, name := range []string{JudgeRolePath, JudgePinPrefixPath, JudgeEvidenceSuffixPath} {
+			for _, name := range []string{JudgeRolePath} {
 				if len(capture.Resource(name)) == 0 {
 					t.Fatalf("missing judge resource %s", name)
 				}
@@ -152,7 +155,7 @@ func TestEmbeddedCatalogueIncludesChatRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"chat-ask", "chat-draft", "chat-intent-interpreter", "chat-reply-writer", "chat-reply-checker"}
+	want := []string{"chat-draft"}
 	if pkg.Version() == "" || pkg.Digest() == "" {
 		t.Fatal("embedded chat catalogue identity mismatch")
 	}

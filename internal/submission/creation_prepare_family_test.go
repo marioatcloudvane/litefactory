@@ -21,7 +21,7 @@ func prepareSpec(t *testing.T, p submission.ToolProfile) (submission.ToolSpec, b
 
 func TestCreationPrepareCatalog_ModeGating(t *testing.T) {
 	t.Parallel()
-	if submission.FamilyCatalogVersion != "families-v4" {
+	if submission.FamilyCatalogVersion != "families-v5" {
 		t.Fatalf("catalog version %q", submission.FamilyCatalogVersion)
 	}
 	for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {

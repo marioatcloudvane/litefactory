@@ -84,6 +84,9 @@ func TestPythonFastAPIReleasePreservesHistoryAndClosure(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if w == "implement" {
+			original = withoutGoStoryWorkerSlotPolicy(t, original)
+		}
 		want := bytes.ReplaceAll(original, []byte(`team="go-development"`), []byte(`team="python-fastapi"`))
 		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",python-fastapi-stack"))
 		if !bytes.Equal(after[current+w+"/"+w+".dot"], want) {

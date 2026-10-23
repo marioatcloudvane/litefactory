@@ -194,6 +194,24 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 	executionCtx, source := presentation.WithAssessment(ctx)
 	if text == "" {
 		switch reply.Command {
+		case "standards-author", "standards-proposal", "standards-exception", "standards-analysis":
+			request, e := s.standardsRequest(p.Invocation, r.c.ChannelRef, r.t.SourceID, r.at)
+			request.OperationKey = s.transport + ":" + r.c.ChannelRef + ":" + reply.MessageID
+			if e != nil {
+				return e
+			}
+			result, e := s.standards.Execute(executionCtx, request)
+			if e != nil {
+				text = standardsError(e)
+			} else {
+				text = standardsDisplay(result, request.OperationKey)
+				if result.Interrupted {
+					reply.OutcomeStatus = string(presentation.Uncertain)
+				}
+				if _, e = r.saveStandardsReference(ctx, result.References); e != nil {
+					return e
+				}
+			}
 		case "draft":
 			var err error
 			text, err = s.conversationDraft(executionCtx, r.c, r.b, r.t, p.Invocation, r.at, r.invoke)

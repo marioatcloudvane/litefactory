@@ -1,0 +1,6 @@
+ok  	github.com/cloudvane/litefactory/internal/agentresult	63.215s
+--- FAIL: TestFilesystemEvidenceFinalDiscoverySettlesOnlyTransientGap (0.03s)
+    --- FAIL: TestFilesystemEvidenceFinalDiscoverySettlesOnlyTransientGap/false (1010.63s)
+        usage_filesystem_evidence_test.go:334: coverage &{Status:partial Diagnostics:[descendant_finalization_incomplete usage_source_read_incomplete] Version:synthetic SourceFormat:exec-jsonl+rollout-token-usage-record-v1}
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/codex	1610.423s

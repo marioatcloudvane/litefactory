@@ -400,9 +400,17 @@ func (rt *implementRuntime) checkEarlyReply(ctx context.Context) error {
 // nothing needs it: stories are running and none is waiting to be merged. A
 // merge that found the branch busy rests briefly before it tries again. In every
 // other case the coordinator runs on, because the ledger, not the graph position,
-// says what is left to do.
+// says what is left to do. The coordinator also rests before an agent stage, due
+// at once: its bookkeeping may run on the reserved coordinator slot, and an
+// agent stage must start on normal run capacity instead.
 func (rt *implementRuntime) parkHook(ctx context.Context, opts Options, instance store.GraphInstance, node graphexec.Node) (ParkDecision, error) {
-	if rt.worker != nil || node.Name != graphexec.ImplementAwaitNode {
+	if rt.worker != nil {
+		return ParkDecision{}, nil
+	}
+	if node.Action == ResearchAgentAction {
+		return ParkDecision{Park: true, Due: rt.now()}, nil
+	}
+	if node.Name != graphexec.ImplementAwaitNode {
 		return ParkDecision{}, nil
 	}
 	rows, err := opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)

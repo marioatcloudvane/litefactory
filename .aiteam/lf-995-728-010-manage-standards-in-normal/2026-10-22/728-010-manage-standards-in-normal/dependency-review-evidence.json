@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "story": "story-010",
+  "approved_revision": "6800ca99895d16a55a9f24f993c5c3317ceab9fc8c36183fd3203d75a979f357",
+  "checked_head": "880de73b141c0d40c1c7105187baaae93774876e",
+  "source": "Read-only GitHub connector issue-comment responses captured during this repair attempt.",
+  "returned_finding": "AC-003 was unverified pending factory/owner verification of the upstream policy contract decision and affected-dependency review.",
+  "records": [
+    {
+      "url": "https://github.com/marioatcloudvane/litefactory/issues/995#issuecomment-6333490522",
+      "comment_id": 6333490522,
+      "author": {
+        "login": "botatcloudvane",
+        "numeric_id": 320954577
+      },
+      "body": "🟡 **Validate · story story-010** · commit `a2f6107a85ca` · revision `f38951edca44`\n\nCriteria: 4 of 5 satisfied · 1 awaiting owner check · plan review: awaiting owner check. Satisfied criteria are ticked in the story body.\n\nCode: accepted · Architecture: 1 finding (awaiting owner check)\n\n**Your part** (give each command as its own comment on the parent #728):\n\n- `AC-003` awaits your check: The shared-service adapter is present in internal/daemon/conversation_standards.go:113 and :200 for retained book, authoring, proposal, exception and schedule operations, with explicit versions and errors. However frozen story-010 AC-003 and its upstream assumptions retain story-004's required facto...\n  `/validate-check f38951edca44 story-010:AC-003 pass|fail -- <evidence>`\n- `plan` awaits your check: The ordinary-message adapter uses shared domain services, exact immutable review, separate approval/publication decisions, durable operation linkage and retained notice delivery (internal/daemon/conversation_standards.go:113; internal/store/standards_conversation.go:201). No listed deviations. Froze...\n  `/validate-check f38951edca44 story-010:plan pass|fail -- <evidence>`\n- `architecture` awaits your check: The messaging/daemon adapters call the same book, authoring, exception and schedule services as the CLI; full review manifests and operation receipts remain store-owned. The passed suite covers owner authority, exact review delivery/challenge consumption and effect recovery. Story-010 explicitly ret...\n  `/validate-check f38951edca44 story-010:architecture pass|fail -- <evidence>`\n\n\n<!-- lf:delivery v=1 key=f3c7a7b2abac8bfc8addf07f2bd8d857f4ff7ed0cd17153cbfe436287737c866 -->"
+    },
+    {
+      "url": "https://github.com/marioatcloudvane/litefactory/issues/728#issuecomment-6320179886",
+      "comment_id": 6320179886,
+      "author": {
+        "login": "marioatcloudvane",
+        "numeric_id": 168662779
+      },
+      "body": "story-004: resume with this owner decision. Story-001 is merged without the exception policy contract, so story-004 adds it itself: an optional, versioned exception policy on the published standard (exceptions allowed or not, eligible repositories/tasks, maximum lifetime; absent policy means no exceptions), accepted by CLI decoding and covered by book verification and history. Existing standards stay valid. Build the policy-enabled fixture for AC-001 and enforce eligibility and lifetime per exact revision for AC-002. No other change to story-001 behaviour, no weakening of factory authority."
+    },
+    {
+      "url": "https://github.com/marioatcloudvane/litefactory/issues/728#issuecomment-6334482437",
+      "comment_id": 6334482437,
+      "author": {
+        "login": "marioatcloudvane",
+        "numeric_id": 168662779
+      },
+      "body": "story-004: The owner confirms the dependency review is covered by the owner decision of 2026-10-21 (policy extension implemented in story-004 itself); treat the Dependency impact row as satisfied and finish AC-002 without waiting for a separate review. story-010: finish as well."
+    }
+  ],
+  "interpretation": "The newer owner confirmation explicitly identifies the earlier policy-extension decision, confirms the Dependency impact review as satisfied and names story-010 continuation. This supplies external evidence for the returned finding; it does not change frozen criteria or record agent-granted acceptance.",
+  "acceptance": "Remains a Validate/factory decision. No validate-check or other approval command was issued by this worker."
+}

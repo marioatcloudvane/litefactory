@@ -27,8 +27,17 @@ func ExecuteResearchWorkflow(ctx context.Context, opts Options, req Request, res
 
 // ExecuteWorkflow advances one admitted mode through the shared durable lifecycle.
 func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Result, definition *teamsource.WorkflowDefinition, admission store.WorkflowAdmission, policy WorkflowPolicy) (Result, error) {
+	if capacity := stepCapacity(ctx); capacity != nil {
+		defer capacity.Release()
+	}
 	if definition == nil || definition.Profile == nil || definition.Profile.Mode != policy.Mode || req.mode() != string(policy.Mode) {
 		return result, errors.New("workflow differs from admitted mode policy")
+	}
+	// An owner comment whose saved launch is bound to a finished instance can
+	// never reach a node again, so it is answered and set aside instead of
+	// retried. Plan retires such inputs earlier (retireFinishedPlanLaunch).
+	if req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(req.Trigger.CommentID) && req.Trigger.PlanReply == nil && policy.Mode != agent.ModePlan && admission.Instance.Status != store.GraphRunning {
+		return prelaunchRefused(ctx, opts, result, planAnswerNotApplied)
 	}
 	if admission.LaunchID == 0 {
 		saved, err := opts.DB.WorkflowCaptureForAdmission(ctx, req.SessionID, req.Trigger.CommentID, string(policy.Mode))
@@ -165,7 +174,9 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		if !ok {
 			return w.finish(ctx, errors.New("research current node is absent from shipped graph"))
 		}
-		if executed && policy.Park != nil && node.Action != ResearchAgentAction {
+		// Park is consulted before agent nodes too: an Implement coordinator
+		// rests before an agent stage so that stage starts on run capacity.
+		if executed && policy.Park != nil {
 			decision, parkErr := policy.Park(ctx, opts, instance, node)
 			if parkErr != nil {
 				return w.finish(ctx, parkErr)
@@ -194,6 +205,15 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				opts.Logger.Info("research graph parked for its next stage",
 					slog.Int64("instance_id", instance.ID), slog.String("node", node.Name))
 				return w.finish(ctx, nil)
+			}
+			admitted, diagnostic, capacityErr := admitGraphCapacity(ctx, opts, instance.ID, w.admission.LaunchID, node.Name, string(definition.Profile.Workflow))
+			if capacityErr != nil {
+				return w.finish(ctx, capacityErr)
+			}
+			if !admitted {
+				opts.Logger.InfoContext(ctx, diagnostic)
+				w.result.GraphDeferred = true
+				return w.finish(ctx, parkCapacityDeferred(ctx, opts, req, instance.ID, node.Name, w.admission.LaunchID))
 			}
 			nodeReq := req
 			nodeReq.researchDefinition, nodeReq.researchNode = definition, node.Name
@@ -250,11 +270,11 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			if e != nil && !errors.Is(e, store.ErrNotFound) {
 				return w.finish(ctx, e)
 			}
-			if e == nil && prior.Status == store.GraphRunning {
+			if e == nil && (prior.Status == store.GraphRunning || prior.Status == store.GraphPending) {
 				resumeID = prior.ID
 			}
 		}
-		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{ResumeAttemptID: resumeID, LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, At: opts.MCP.Now(), RetryDueAt: opts.MCP.Now().Add(opts.GraphRetryDelay)})
+		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{RetainCapacity: true, ResumeAttemptID: resumeID, LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, At: opts.MCP.Now(), RetryDueAt: opts.MCP.Now().Add(opts.GraphRetryDelay)})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}
@@ -265,12 +285,21 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			return w.finish(ctx, w.failed(ctx, scope, step, errors.New(step.Activity.Diagnostic), false))
 		}
 		if step.Deferred || (step.Activity.Outcome == "retry" && step.NextNode == step.Node) {
+			w.result.GraphDeferred = step.Deferred
+			if step.Activity.Diagnostic != "" && opts.Logger != nil {
+				opts.Logger.InfoContext(ctx, step.Activity.Diagnostic)
+			}
 			if opts.GraphRetryDelay <= 0 {
 				return w.finish(ctx, errors.New("graph retry requires a positive host delay"))
 			}
 			now := opts.MCP.Now()
 			spent, _ := store.GraphTriggerDispatch(req.Trigger.CommentID)
-			_, parkErr := opts.DB.ParkCapturedGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, step.NextNode, now.Add(opts.GraphRetryDelay), now, spent, w.admission.LaunchID)
+			var parkErr error
+			if step.Deferred {
+				parkErr = parkCapacityDeferred(ctx, opts, req, instance.ID, step.NextNode, w.admission.LaunchID)
+			} else {
+				_, parkErr = opts.DB.ParkCapturedGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, step.NextNode, now.Add(opts.GraphRetryDelay), now, spent, w.admission.LaunchID)
+			}
 			return w.finish(ctx, parkErr)
 		}
 		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" || step.Status == "waiting_child" {

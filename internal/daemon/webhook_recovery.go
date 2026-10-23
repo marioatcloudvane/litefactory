@@ -137,6 +137,9 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 		state = newHookRecovery(sub, hook)
 		state.version = version.ID
 		d.hookRecovery[q.repo.ID] = state
+		if hook <= 0 || sub.ID == "" {
+			q.log.InfoContext(ctx, "webhook recovery off: no recorded hook; webhooks and ordinary polling cover intake")
+		}
 	}
 	if now.Before(state.next) {
 		return nil
@@ -152,11 +155,10 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 		}
 		return e
 	}
+	// Without a recorded hook there are no deliveries to replay. Polling the
+	// source every minute instead costs API budget the webhook already saves;
+	// ordinary polling stays the backstop for a lost delivery.
 	if hook <= 0 || sub.ID == "" {
-		if err := fallback("hook unavailable"); err != nil {
-			return err
-		}
-		state.next = now.Add(hookRecoveryInterval)
 		return nil
 	}
 	clients, err := d.connections.Clients(ctx, version, 0)
@@ -164,9 +166,13 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 		return err
 	}
 	// Verify the current source's immutable repository identity before hook I/O.
-	identity, err := discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "hook-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
-		return clients.Tickets.ContainerIdentity(ctx, version.Destination)
-	})
+	// A settled scope observation spends no discovery budget step.
+	identity, hit, err := cachedContainerIdentity(ctx, version.ID, 0)
+	if !hit {
+		identity, err = discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "hook-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
+			return tickContainerIdentity(ctx, clients.Tickets, version.ID, 0, version.Destination)
+		})
+	}
 	if err != nil {
 		return err
 	}

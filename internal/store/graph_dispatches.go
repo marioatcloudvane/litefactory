@@ -170,7 +170,11 @@ EXISTS(SELECT 1 FROM graph_dispatches WHERE id=(SELECT MAX(id) FROM graph_dispat
 			return graphInvariant("park disagrees with the instance's current node")
 		}
 		if spent > 0 {
-			if _, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='finished', finished_at=? WHERE id=? AND instance_id=? AND status IN ('reserved','running')`, FormatTime(now), spent, instanceID); err != nil {
+			if _, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='finished', finished_at=? WHERE id=? AND instance_id=? AND
+(status IN ('reserved','running') OR (status='pending' AND node<>? AND EXISTS(
+SELECT 1 FROM graph_node_attempts a JOIN graph_outputs o ON o.node_attempt_id=a.id
+WHERE a.instance_id=graph_dispatches.instance_id AND a.node=graph_dispatches.node
+AND a.status='succeeded' AND o.kind='json' AND o.payload=?)))`, FormatTime(now), spent, instanceID, node, []byte(graphCapacityDeferral)); err != nil {
 				return err
 			}
 		}
@@ -217,6 +221,38 @@ func (db *DB) ListDueGraphDispatches(ctx context.Context, now time.Time, limit i
 	}
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("store: list due graph dispatches: %w", err)
+	}
+	return out, nil
+}
+
+// ListDueCoordinatorGraphDispatches selects due pending dispatches of Implement
+// coordinators, oldest first: Implement instances on a session that is no
+// story's worker. It is selected apart from [DB.ListDueGraphDispatches] so
+// story dispatches blocked on run capacity cannot keep bookkeeping out of a
+// tick's window.
+func (db *DB) ListDueCoordinatorGraphDispatches(ctx context.Context, now time.Time, limit int) ([]GraphDispatch, error) {
+	if limit <= 0 {
+		return nil, graphInvariant("due dispatch limit must be positive")
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches
+		WHERE status='pending' AND due_at<=?
+		AND instance_id IN (SELECT i.id FROM graph_instances i JOIN graph_definitions g ON g.id=i.definition_id WHERE g.mode='implement')
+		AND session_id NOT IN (SELECT worker_session FROM implement_stories WHERE worker_session>0)
+		ORDER BY due_at,id LIMIT ?`, FormatTime(now), limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list due coordinator graph dispatches: %w", err)
+	}
+	defer rows.Close()
+	out := make([]GraphDispatch, 0)
+	for rows.Next() {
+		v, e := scanGraphDispatch(rows)
+		if e != nil {
+			return nil, fmt.Errorf("store: scan due coordinator graph dispatch: %w", e)
+		}
+		out = append(out, v)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list due coordinator graph dispatches: %w", err)
 	}
 	return out, nil
 }
@@ -328,7 +364,11 @@ func (db *DB) FinishGraphDispatch(ctx context.Context, id int64, at time.Time) e
 			}
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='finished', finished_at=? WHERE id=? AND status IN ('reserved','running')`, FormatTime(at), id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='finished', finished_at=? WHERE id=? AND
+(status IN ('reserved','running') OR (status='pending' AND EXISTS(
+SELECT 1 FROM graph_instances i JOIN graph_node_attempts a ON a.instance_id=i.id JOIN graph_outputs o ON o.node_attempt_id=a.id
+WHERE i.id=graph_dispatches.instance_id AND i.status IN ('succeeded','failed','cancelled')
+AND a.node=graph_dispatches.node AND a.status='succeeded' AND o.kind='json' AND o.payload=?)))`, FormatTime(at), id, []byte(graphCapacityDeferral)); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=NULL WHERE id=? AND NOT EXISTS(SELECT 1 FROM graph_dispatches WHERE instance_id=? AND status IN ('pending','reserved','running'))`, instanceID, instanceID)
@@ -530,8 +570,8 @@ func (db *DB) ReconcileGraphDispatch(ctx context.Context, id int64, captureID in
 		err = tx.QueryRowContext(ctx, `SELECT
 EXISTS(SELECT 1 FROM runs WHERE (id=? OR session_id=?) AND status IN ('prelaunch','running')) OR
 EXISTS(SELECT 1 FROM doctor_held_session_owners WHERE session_id=?) OR
-EXISTS(SELECT 1 FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running')) OR
-EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','dispatched','uncertain'))`, d.AllocatedRunID, d.SessionID, d.SessionID, d.InstanceID, d.InstanceID).Scan(&protected)
+EXISTS(SELECT 1 FROM graph_node_attempts a WHERE instance_id=? AND (status='running' OR (status='pending' AND NOT EXISTS(SELECT 1 FROM graph_outputs o WHERE o.node_attempt_id=a.id AND o.kind='json' AND o.payload=?)))) OR
+EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','dispatched','uncertain'))`, d.AllocatedRunID, d.SessionID, d.SessionID, d.InstanceID, []byte(graphCapacityDeferral), d.InstanceID).Scan(&protected)
 		if err != nil || protected {
 			return err
 		}

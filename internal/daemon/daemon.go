@@ -499,6 +499,10 @@ type Daemon struct {
 	prepFailures       prepareFailures
 	diagnosticRedactor *redact.Redactor
 	pool               *pool
+	// coordinator is one reserved slot for Implement coordinator bookkeeping,
+	// so a due merge or await does not wait behind story runs holding pool.
+	// Agent stages never run on it.
+	coordinator *pool
 
 	// holdDiagnostics is owned by candidate selection on the tick goroutine.
 	holdDiagnostics map[int64]candidateHold
@@ -604,6 +608,7 @@ func New(opts Options) (*Daemon, error) {
 		now:              now,
 		ticks:            opts.Ticks,
 		pool:             newPool(maxRuns),
+		coordinator:      newPool(1),
 
 		repoSessionCursor: make(map[int64]int64),
 	}
@@ -733,7 +738,14 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 	if recovery, ok := d.turn.(interface {
 		RecoverWorkflowJudges(context.Context, time.Time) error
 	}); ok {
-		if err := recovery.RecoverWorkflowJudges(ctx, reconciliation.At); err != nil {
+		// Startup bookkeeping is synchronous, but still consumes the declared
+		// step cost in the same shared pool as ordinary execution.
+		reservation := &stepReservation{pool: d.pool}
+		err := func() error {
+			defer reservation.Release()
+			return recovery.RecoverWorkflowJudges(turn.WithStepCapacity(ctx, reservation), reconciliation.At)
+		}()
+		if err != nil {
 			return Reconciled{}, err
 		}
 	}
@@ -1009,6 +1021,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time, immediate bool) {
 	defer d.pool.wait()
 	defer d.doctor.pool.wait()
+	if d.coordinator != nil {
+		defer d.coordinator.wait()
+	}
 	// Deferred last so it runs first: the line is written before the join,
 	// which can wait hours on dispatched workers. A nil error means the tick
 	// source closed.

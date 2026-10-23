@@ -506,3 +506,28 @@ func TestPlanDiscussionDaemon_RefusalsAreVisible(t *testing.T) {
 		})
 	}
 }
+
+// Once the feature has left planning, the parent no longer sweeps its story
+// children as Plan discussion: the stories are locked and their own sessions
+// observe them. The parent stops handing them polling on every turn.
+func TestPlanChildrenSweep_PromotedFeatureDoesNotSweepChildren(t *testing.T) {
+	f, session, _ := countingPlanChildFixture(t)
+	f.settle()
+	if _, err := f.db.GetManagedFeature(t.Context(), session.TaskRef); errors.Is(err, store.ErrNotFound) {
+		if err = f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: session.TaskRef, Generation: 1, State: "planning"}); err != nil {
+			t.Fatal(err)
+		}
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.CompareManagedFeature(t.Context(), store.ManagedFeature{ParentTask: session.TaskRef, Generation: 1, State: "implementing"}, "planning"); err != nil {
+		t.Fatal(err)
+	}
+	handed := strings.Count(f.logs.String(), "plan story polling handed to child")
+	f.forge.addComment(200, 60, owner(), "a comment on the story after promotion")
+	f.settle()
+	f.settle()
+	if got := strings.Count(f.logs.String(), "plan story polling handed to child"); got != handed {
+		t.Fatalf("the parent handed polling to a story of a promoted feature %d more times\n%s", got-handed, f.logs)
+	}
+}

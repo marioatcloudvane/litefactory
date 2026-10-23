@@ -13,6 +13,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -483,5 +485,173 @@ func TestResearchWorkflowSubmittedResultStandsWhateverIsPrinted(t *testing.T) {
 				t.Fatalf("node output is not the retained result: %+v", node)
 			}
 		})
+	}
+}
+
+// #1008 C7/C11/C12: an owner comment whose saved launch was admitted, failed
+// before any run (here a rate limit, then still running), and whose instance
+// then finished, is answered with the not-applied reason on its first replay
+// instead of reaching ExecuteNodeAction. A later comment starts a successor.
+func TestResearchWorkflowFinishedLaunchRetiresOwnerComment(t *testing.T) {
+	calls := 0
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		submitLiveResult(t, req, researchDoneJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledResearchFixture(t, runner)
+	transient := 2
+	f.opts.ResearchDriver = func(ctx context.Context, opts Options, request Request, result Result, definition *teamsource.ResearchDefinition, admission store.ResearchAdmission) (Result, error) {
+		if transient > 0 {
+			transient--
+			return result, &github.RateLimitError{RetryAfter: time.Minute}
+		}
+		return ExecuteResearchWorkflow(ctx, opts, request, result, definition, admission)
+	}
+	for range 2 {
+		out, err := Execute(t.Context(), f.opts, req)
+		var limited *github.RateLimitError
+		if !errors.As(err, &limited) || out.Reason == planAnswerNotApplied || out.Disposition == DispositionPrepareFailed {
+			t.Fatalf("transient failure on a running instance was retired: %+v err=%v", out, err)
+		}
+	}
+	instance, err := f.db.LatestResearchInstance(t.Context(), f.session.ID)
+	mustProgress(t, err)
+	if instance.Status != store.GraphRunning {
+		t.Fatalf("instance not running after transient failures: %+v", instance)
+	}
+	mustProgress(t, f.db.SetGraphInstanceStatus(t.Context(), instance.ID, store.GraphCancelled, time.Time{}, time.Now()))
+
+	out, err := Execute(t.Context(), f.opts, req)
+	if err != nil || out.Err != nil || out.Disposition != DispositionPrepareFailed || out.Reason != planAnswerNotApplied || calls != 0 || forge.attemptCount() != 0 {
+		t.Fatalf("finished launch not retired: %+v calls=%d posts=%d err=%v", out, calls, forge.attemptCount(), err)
+	}
+	if errors.Is(err, store.ErrGraphInstanceTerminal) {
+		t.Fatalf("finished launch reached the node: %v", err)
+	}
+
+	// A different, later owner comment is not affected by A's retirement.
+	next := req
+	next.Trigger.CommentID = req.Trigger.CommentID + 1
+	out, err = Execute(t.Context(), f.opts, next)
+	if err != nil || out.Reason == planAnswerNotApplied || !out.Succeeded() || calls != 1 {
+		t.Fatalf("later comment did not run on a successor: %+v calls=%d err=%v", out, calls, err)
+	}
+	successor, err := f.db.LatestResearchInstance(t.Context(), f.session.ID)
+	mustProgress(t, err)
+	if successor.ID == instance.ID {
+		t.Fatalf("later comment reused the finished instance %d", instance.ID)
+	}
+}
+
+// #1008 C9: a running instance whose saved capture cannot be read keeps the
+// comment pending with an error and no refusal; the finished-launch check
+// never turns a capture failure into retirement.
+func TestResearchWorkflowCaptureFailureOnRunningInstanceStaysPending(t *testing.T) {
+	calls := 0
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		submitLiveResult(t, req, researchDoneJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledResearchFixture(t, runner)
+	broken := true
+	f.opts.ResearchDriver = func(ctx context.Context, opts Options, request Request, result Result, definition *teamsource.ResearchDefinition, admission store.ResearchAdmission) (Result, error) {
+		if broken {
+			admission.LaunchID += 1000
+		}
+		return ExecuteResearchWorkflow(ctx, opts, request, result, definition, admission)
+	}
+	out, err := Execute(t.Context(), f.opts, req)
+	if err == nil || !strings.Contains(err.Error(), "intact retained capture") || out.Reason == planAnswerNotApplied || calls != 0 || forge.attemptCount() != 0 {
+		t.Fatalf("capture failure was not left pending: %+v calls=%d err=%v", out, calls, err)
+	}
+	broken = false
+	out, err = Execute(t.Context(), f.opts, req)
+	if err != nil || !out.Succeeded() || calls != 1 {
+		t.Fatalf("readable capture did not proceed: %+v calls=%d err=%v", out, calls, err)
+	}
+}
+
+// #1008 C5: a factory-private graph dispatch trigger never receives the
+// owner-comment refusal; it keeps its existing error path.
+func TestWorkflowFinishedInstancePrivateTriggerKeepsErrorPath(t *testing.T) {
+	f, forge, req := assembledResearchFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		return nil, errors.New("must not run")
+	}))
+	req.Trigger.CommentID = store.GraphDispatch{ID: 1}.TriggerID()
+	definition := &teamsource.WorkflowDefinition{Profile: &graphexec.Profile{Mode: agent.ModeResearch}}
+	out, err := ExecuteWorkflow(t.Context(), f.opts, req, Result{SessionID: f.session.ID, TriggerCommentID: req.Trigger.CommentID}, definition, store.WorkflowAdmission{Instance: store.GraphInstance{ID: 1, Status: store.GraphSucceeded}}, ResearchWorkflowPolicy())
+	if err == nil || out.Reason == planAnswerNotApplied || out.Disposition == DispositionPrepareFailed || forge.attemptCount() != 0 {
+		t.Fatalf("private trigger was refused as an owner comment: %+v err=%v", out, err)
+	}
+}
+
+// #1008 C7 for Spike: the saved launch is admitted, the turn fails before any
+// run (result authority unavailable), the instance then finishes, and the
+// replay answers the comment instead of failing at the node.
+func TestSpikeWorkflowFinishedLaunchRetiresOwnerComment(t *testing.T) {
+	calls := 0
+	f, forge, req := assembledSpikeFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		calls++
+		return nil, errors.New("a retired comment must not reach an agent")
+	}), "execution: graph\n")
+	authority := f.opts.MCP
+	f.opts.MCP = nil
+	if _, err := Execute(t.Context(), f.opts, req); err == nil || !strings.Contains(err.Error(), "result authority") {
+		t.Fatalf("pre-agent failure not returned: %v", err)
+	}
+	f.opts.MCP = authority
+	instance := spikeInstance(t, f)
+	if instance.Status != store.GraphRunning {
+		t.Fatalf("instance not running after pre-agent failure: %+v", instance)
+	}
+	mustProgress(t, f.db.SetGraphInstanceStatus(t.Context(), instance.ID, store.GraphCancelled, time.Time{}, time.Now()))
+	out, err := Execute(t.Context(), f.opts, req)
+	if err != nil || out.Disposition != DispositionPrepareFailed || out.Reason != planAnswerNotApplied || calls != 0 || forge.attemptCount() != 0 {
+		t.Fatalf("finished Spike launch not retired: %+v calls=%d err=%v", out, calls, err)
+	}
+}
+
+// #1008 C8: while a finished instance of the session still owes a graph
+// comment, a later owner comment is held pending by the existing publication
+// guard (ErrWorkflowEffectsPending) and never gets the not-applied refusal.
+func TestResearchWorkflowIncompletePublicationStaysPending(t *testing.T) {
+	calls := 0
+	f, forge, req := assembledResearchFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		calls++
+		return nil, errors.New("must not run")
+	}))
+	failFirst := true
+	f.opts.ResearchDriver = func(ctx context.Context, opts Options, request Request, result Result, definition *teamsource.ResearchDefinition, admission store.ResearchAdmission) (Result, error) {
+		if failFirst {
+			failFirst = false
+			return result, errors.New("failed before any run")
+		}
+		return ExecuteResearchWorkflow(ctx, opts, request, result, definition, admission)
+	}
+	if _, err := Execute(t.Context(), f.opts, req); err == nil {
+		t.Fatal("pre-run failure was not returned")
+	}
+	ctx := t.Context()
+	instance, err := f.db.LatestResearchInstance(ctx, f.session.ID)
+	mustProgress(t, err)
+	mustProgress(t, f.db.SetGraphInstanceStatus(ctx, instance.ID, store.GraphCancelled, time.Time{}, time.Now()))
+	// Another finished instance of this session owes an undelivered comment.
+	pin, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "validate", ProfileVersion: 1, Path: "validate.dot", Digest: strings.Repeat("a", 64)})
+	mustProgress(t, err)
+	other, err := f.db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: "validate", SessionID: f.session.ID, TriggerID: req.Trigger.CommentID + 100, DefinitionID: pin.ID, Start: "check", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte("{}")})
+	mustProgress(t, err)
+	at := time.Now()
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: other.Instance.ID, Node: "check", StartedAt: at})
+	mustProgress(t, err)
+	mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, attempt.ID, store.GraphCompletion{Status: store.GraphFailed, FinishedAt: at, InstanceStatus: store.GraphFailed}))
+	mustProgress(t, f.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "unpublished-failure", InstanceID: other.Instance.ID, SourceAttemptID: attempt.ID, Node: "failed", Kind: "failure", Candidate: []byte(researchDoneJSON)}))
+
+	next := req
+	next.Trigger.CommentID = req.Trigger.CommentID + 1
+	out, err := Execute(ctx, f.opts, next)
+	if !errors.Is(err, store.ErrWorkflowEffectsPending) || out.Reason == planAnswerNotApplied || out.Disposition == DispositionPrepareFailed || calls != 0 || forge.attemptCount() != 0 {
+		t.Fatalf("incomplete publication did not keep the comment pending: %+v calls=%d posts=%d err=%v", out, calls, forge.attemptCount(), err)
 	}
 }

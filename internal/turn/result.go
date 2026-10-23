@@ -104,6 +104,8 @@ func (d Disposition) String() string {
 // turn that never ran — are left zero, and the documented dispositions say
 // which those are.
 type Result struct {
+	// GraphDeferred retains pending admission without counting an execution failure.
+	GraphDeferred bool
 	// ResearchGraph means publication belongs exclusively to explicit graph
 	// activities; daemon completion must not render a whole-turn report.
 	ResearchGraph bool

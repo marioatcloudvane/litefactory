@@ -24,9 +24,15 @@ func TestConversationCaptureRetainsAllRolesAndPinnedLegacy(t *testing.T) {
 	if captured.Legacy() || !legacy.Legacy() || captured.Digest() == legacy.Digest() {
 		t.Fatal("legacy provenance is absent")
 	}
+	// The reasoner role is optional: the pinned legacy baseline predates it.
+	if captured.Reasoner() == "" || legacy.Reasoner() != "" {
+		t.Fatal("reasoner role must be captured when shipped and absent from the legacy baseline")
+	}
+	// The shipped roles evolve; the pinned legacy roles stay the migration
+	// baseline for conversations bound before instruction capture existed.
 	for _, pair := range [][2]string{{captured.Native(), legacy.Native()}, {captured.Factory(), legacy.Factory()}, {captured.Correction(), legacy.Correction()}, {captured.ActionOutcome(), legacy.ActionOutcome()}} {
-		if pair[0] == "" || pair[0] != pair[1] {
-			t.Fatal("shipped composition differs from pinned legacy")
+		if pair[0] == "" || pair[1] == "" {
+			t.Fatal("conversation role composition is incomplete")
 		}
 	}
 	raw, err := captured.Encode()

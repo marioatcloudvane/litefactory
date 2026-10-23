@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 const (
@@ -39,10 +41,31 @@ type implementMergeOutput struct {
 //	        unchanged. A content conflict moves the story back to waiting so
 //	        its worker resolves it; the others wait for the owner
 //	none    no story is done
-//	retry   the lock is busy or the integration branch moved; nothing changed
+//	retry   the lock is busy, the integration branch moved, or discovery was
+//	        deferred or rate limited; nothing changed
 //
 // A cancelled context, a git outage or a forge outage is an error, never a park.
 func (h ImplementMergeActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (res ActivityResult, err error) {
+	res, err = h.execute(ctx, opts, req)
+	if reason, ok := implementMergeTransient(err); ok {
+		return implementResult("retry", implementMergeOutput{Result: "retry", Reason: reason})
+	}
+	return res, err
+}
+
+// implementMergeTransient reports whether err is a deferral the merge step
+// waits out: local discovery-budget pressure or a forge rate limit.
+func implementMergeTransient(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ticket.ErrDiscoveryDeferred):
+		return "repository discovery was deferred; the merge is tried again shortly", true
+	case errors.Is(err, github.ErrRateLimited):
+		return "the forge is rate limiting requests; the merge is tried again shortly", true
+	}
+	return "", false
+}
+
+func (h ImplementMergeActivity) execute(ctx context.Context, opts Options, req ActivityRequest) (res ActivityResult, err error) {
 	a, err := h.b.bind(ctx, opts, req)
 	if err != nil {
 		return ActivityResult{}, err
@@ -132,10 +155,16 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 			From: store.ImplementDone, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: reason, At: now,
 		})
 	}
+	logPark := func(reason string) {
+		if opts.Logger != nil {
+			opts.Logger.Warn("implement story parked at merge", "parent", a.Parent.String(), "story", story.Key, "integration_branch", a.IntegrationBranch, "reason", reason)
+		}
+	}
 	park := func(reason string) (ActivityResult, error) {
 		if _, err := parkRow(reason); err != nil {
 			return ActivityResult{}, err
 		}
+		logPark(reason)
 		return implementResult("parked", implementMergeOutput{Story: story.Key, Result: "parked", Reason: reason})
 	}
 	// A content conflict is the story worker's to resolve: the story is parked
@@ -152,6 +181,7 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 		}); err != nil {
 			return ActivityResult{}, err
 		}
+		logPark(reason)
 		return implementResult("parked", implementMergeOutput{Story: story.Key, Result: "parked", Reason: reason})
 	}
 
@@ -168,7 +198,12 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 	head, merged, err := scratch.Merge(ctx, story.Branch)
 	switch {
 	case errors.Is(err, git.ErrMergeConflict):
-		return restart("the story conflicts with the work already merged; its worker is started again to resolve the conflict")
+		var conflict *implementMergeConflict
+		var paths []string
+		if errors.As(err, &conflict) {
+			paths = conflict.paths
+		}
+		return restart(implementConflictReason(paths))
 	case errors.Is(err, git.ErrRevisionNotFound):
 		return park("the story's branch was not found, so there is nothing to merge")
 	case err != nil:
@@ -202,6 +237,51 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 		return ActivityResult{}, fmt.Errorf("publish merge of %s: %w", story.Key, err)
 	}
 	return finish(head)
+}
+
+// implementReasonLimit is the store's bound on a park reason, in bytes.
+const implementReasonLimit = 4096
+
+// implementConflictReason renders the restart reason for a merge conflict,
+// naming as many whole conflicting paths, in order, as fit within
+// implementReasonLimit bytes together with the fixed text and the omission
+// suffix. Paths that do not fit are counted, never cut. With no paths it is
+// the generic text.
+func implementConflictReason(paths []string) string {
+	const (
+		head = "the story conflicts with the work already merged"
+		tail = "; its worker is started again to resolve the conflict"
+		in   = " in "
+	)
+	if len(paths) == 0 {
+		return head + tail
+	}
+	// The longest omission text this list can need.
+	longest := max(len(fmt.Sprintf(" and %d more", len(paths))), len(fmt.Sprintf("%d paths", len(paths))))
+	used := len(head) + len(in) + len(tail)
+	var listed []string
+	for _, path := range paths {
+		sep := 0
+		if len(listed) > 0 {
+			sep = len(", ")
+		}
+		if used+sep+len(path)+longest > implementReasonLimit {
+			break
+		}
+		listed = append(listed, path)
+		used += sep + len(path)
+	}
+	list := strings.Join(listed, ", ")
+	switch omitted := len(paths) - len(listed); {
+	case omitted == 0:
+	case len(listed) == 0 && omitted == 1:
+		list = "1 path"
+	case len(listed) == 0:
+		list = fmt.Sprintf("%d paths", omitted)
+	default:
+		list += fmt.Sprintf(" and %d more", omitted)
+	}
+	return head + in + list + tail
 }
 
 // findMergedNote looks for a note naming the result Git established for this story.

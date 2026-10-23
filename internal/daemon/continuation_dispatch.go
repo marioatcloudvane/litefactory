@@ -77,20 +77,23 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 			t.log.DebugContext(ctx, "automatic recovery waits for this task's in-flight turn")
 			continue
 		}
-		if !d.pool.try() {
+		reservation, reason, reserveErr := d.reserveSession(ctx, session.ID)
+		if reserveErr != nil || reservation == nil {
+			t.log.InfoContext(ctx, "continuation deferred for capacity", slog.String("reason", reason), slog.Any("error", reserveErr))
 			d.inflight.leave(session.ID)
 			result.Deferred++
 			continue
 		}
 		reserved, ok, err := d.db.ReserveContinuation(ctx, c.ID, at.UTC())
 		if err != nil || !ok {
-			d.pool.done()
+			reservation.abandon()
 			d.inflight.leave(session.ID)
 			if err != nil {
 				return err
 			}
 			continue
 		}
+		t.capacity = reservation
 		t.continuation = &reserved
 		t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"automatic_continuation"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")

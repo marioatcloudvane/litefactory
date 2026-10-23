@@ -12,6 +12,8 @@ import (
 // PathManifest stores locations, never pre-read contents. Live distinguishes
 // these attempts from retained legacy evidence during result recovery.
 type PathManifest struct {
+	DaemonVersion  string    `json:"daemon_version"`
+	FactorySource  string    `json:"factory_source,omitempty"`
 	SandboxProfile string    `json:"sandbox_profile"`
 	Isolation      string    `json:"isolation"`
 	Live           bool      `json:"live"`
@@ -34,7 +36,11 @@ func (s *Service) pathManifest(ctx context.Context, ref naming.Ref) (PathManifes
 	if err != nil {
 		return PathManifest{}, "", err
 	}
-	m := PathManifest{Live: true, TaskRef: ref.String(), CapturedAt: time.Now().UTC(), FactoryHome: s.Paths.Home(), DaemonLog: s.Paths.DaemonLogPath(), Database: s.DB.Path(), RunLogs: sources.RunLogs, Worktree: sources.Worktree, Tools: append([]string{"shell"}, agent.DoctorToolNames()...), Gaps: []string{}}
+	version := s.BuildVersion
+	if version == "" {
+		version = "unknown"
+	}
+	m := PathManifest{DaemonVersion: version, FactorySource: s.FactorySource, Live: true, TaskRef: ref.String(), CapturedAt: time.Now().UTC(), FactoryHome: s.Paths.Home(), DaemonLog: s.Paths.DaemonLogPath(), Database: s.DB.Path(), RunLogs: sources.RunLogs, Worktree: sources.Worktree, Tools: append([]string{"shell"}, agent.DoctorToolNames()...), Gaps: []string{}}
 	if sources.SessionMissing {
 		m.Gaps = append(m.Gaps, "No workflow session exists for this issue")
 	}

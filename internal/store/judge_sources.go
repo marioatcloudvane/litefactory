@@ -25,7 +25,14 @@ type JudgeSource struct {
 	// NewestLegacy marks a plain selection among mixed-family legacy saves
 	// whose order is the listed order, not a verified commit order.
 	NewestLegacy bool
+	// Label names a saved Bug analysis for the owner ("Bug analysis rev 2"),
+	// numbered in save order within the ticket. Empty for research and Plan.
+	Label string `json:",omitempty"`
 }
+
+// judgeBugAnalysisMode is the judgeSubstantive kind of a saved Bug analysis:
+// a standalone Bug result whose payload carries the analyst's diagnosis.
+const judgeBugAnalysisMode = "bug"
 
 func judgeSubstantive(raw []byte, mode string) bool {
 	var envelope struct {
@@ -40,6 +47,13 @@ func judgeSubstantive(raw []byte, mode string) bool {
 	var payload map[string]json.RawMessage
 	if json.Unmarshal(envelope.Result.Payload[mode], &payload) != nil {
 		return false
+	}
+	if mode == judgeBugAnalysisMode {
+		// Only the analyst's diagnosis is judgeable; repair results carry no analysis.
+		var analysis struct {
+			Cause string `json:"cause"`
+		}
+		return json.Unmarshal(payload["analysis"], &analysis) == nil && strings.TrimSpace(analysis.Cause) != ""
 	}
 	if mode == "research" {
 		for _, key := range []string{"findings", "decisions", "assumptions"} {
@@ -93,9 +107,11 @@ func finishJudgeSource(s *JudgeSource) {
 
 // ListJudgeSources reads retained local revisions only. Legacy saves with no
 // cross-family ordering remain explicit choices when their order is unknowable.
+// Saved Bug analyses (standalone Bug results from the analyst) are sources
+// next to research and Plan; judging one is advisory and never touches Bug work.
 func (db *DB) ListJudgeSources(ctx context.Context, task string) ([]JudgeSource, error) {
 	var out []JudgeSource
-	rows, err := db.sql.QueryContext(ctx, `SELECT a.id,r.revision,a.mode,r.snapshot,COALESCE((SELECT coding_agent FROM meter_attempts m WHERE m.run_id=r.run_id ORDER BY ordinal DESC LIMIT 1),(SELECT agent FROM runs WHERE id=r.run_id),''),COALESCE(c.sequence,0) FROM application_result_revisions r JOIN application_results a ON a.id=r.result_id LEFT JOIN judge_source_commits c ON c.kind='result' AND c.active=1 AND c.source_id=CAST(a.id AS TEXT) AND c.revision=r.revision WHERE a.task=? AND a.workflow='' AND a.mode IN ('research','plan') ORDER BY r.request_row`, task)
+	rows, err := db.sql.QueryContext(ctx, `SELECT a.id,r.revision,CASE WHEN a.workflow='bug' THEN 'bug' ELSE a.mode END,r.snapshot,COALESCE((SELECT coding_agent FROM meter_attempts m WHERE m.run_id=r.run_id ORDER BY ordinal DESC LIMIT 1),(SELECT agent FROM runs WHERE id=r.run_id),''),COALESCE(c.sequence,0) FROM application_result_revisions r JOIN application_results a ON a.id=r.result_id LEFT JOIN judge_source_commits c ON c.kind='result' AND c.active=1 AND c.source_id=CAST(a.id AS TEXT) AND c.revision=r.revision WHERE a.task=? AND ((a.workflow='' AND a.mode IN ('research','plan')) OR (a.workflow='bug' AND a.mode='')) ORDER BY r.request_row`, task)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +122,9 @@ func (db *DB) ListJudgeSources(ctx context.Context, task string) ([]JudgeSource,
 			return nil, errors.Join(err, rows.Close())
 		}
 		if judgeSubstantive(s.Snapshot, s.Kind) {
+			if s.Kind == judgeBugAnalysisMode {
+				s.Label = "Bug analysis"
+			}
 			s.Kind = "result"
 			finishJudgeSource(&s)
 			out = append(out, s)
@@ -230,6 +249,13 @@ func (db *DB) ListJudgeSources(ctx context.Context, task string) ([]JudgeSource,
 		return nil, err
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Sequence < out[j].Sequence })
+	analyses := 0
+	for i := range out {
+		if out[i].Label != "" {
+			analyses++
+			out[i].Label = fmt.Sprintf("Bug analysis rev %d", analyses)
+		}
+	}
 	return out, nil
 }
 
@@ -248,7 +274,7 @@ func (db *DB) ResolveJudgeSource(ctx context.Context, task, target string) (Judg
 		return JudgeSource{}, fmt.Errorf("%w: target %q is unavailable in this ticket.%s", ErrJudgeSourceUnavailable, target, judgeSourceChoices(sources))
 	}
 	if len(sources) == 0 {
-		return JudgeSource{}, fmt.Errorf("%w: no eligible saved research result or Plan exists in this ticket", ErrJudgeSourceUnavailable)
+		return JudgeSource{}, fmt.Errorf("%w: no eligible saved research result, Plan or Bug analysis exists in this ticket", ErrJudgeSourceUnavailable)
 	}
 	last := sources[len(sources)-1]
 	if last.Sequence == 0 {
@@ -273,6 +299,9 @@ func judgeSourceChoices(sources []JudgeSource) string {
 	for i := len(sources) - 1; i >= 0 && count < 5; i-- {
 		b.WriteString(" ")
 		b.WriteString(sources[i].Reference)
+		if sources[i].Label != "" {
+			b.WriteString(" (" + sources[i].Label + ")")
+		}
 		count++
 	}
 	if len(sources) > count {

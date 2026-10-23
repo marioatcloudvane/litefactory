@@ -765,3 +765,48 @@ func TestGraphBugRevalidationExhaustionRepeatsAfterOwnerContinuation(t *testing.
 		syncFinal()
 	}
 }
+
+// #1008 C10: with the production Bug runtime, an owner comment that arrives
+// while the latest standalone Bug instance is terminal is consumed in its first
+// turn on a successor and never fails with the terminal-instance error; a later
+// owner comment is processed the same way. No Bug runtime change is involved.
+func TestGraphBugOwnerCommentAfterTerminalInstanceNeverBlocks(t *testing.T) {
+	calls := 0
+	runner := lifecycleMCPHost(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		raw, err := json.Marshal(map[string]any{"version": 1, "response": "blocked", "result": map[string]any{"outcome": "blocked", "reason": "Controlled evidence needed", "comment": "Diagnosis retained", "payload": map[string]any{"bug": map[string]any{"response": "blocked", "invocation": fmt.Sprintf("analysis:%d:%d", req.Graph.InstanceID, req.Graph.AttemptID), "base_revision": 0, "evidence": []string{"Controlled report"}}}}})
+		mustProgress(t, err)
+		submitLiveResult(t, req, string(raw))
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, FinishedAt: time.Now()}, nil
+	})
+	f, runtime, req := bugBootstrapFixture(t, runner)
+	ctx := t.Context()
+	_, _, err := f.db.BootstrapWatermark(ctx, f.session.ID, 7)
+	mustProgress(t, err)
+	body := req
+	body.Trigger.CommentID = 0
+	original, err := runtime.graphAdmission(ctx, body)
+	mustProgress(t, err)
+	finished := original.Instance.ID
+	for i, comment := range []int64{req.Trigger.CommentID, req.Trigger.CommentID + 1} {
+		mustProgress(t, f.db.SetGraphInstanceStatus(ctx, finished, store.GraphCancelled, time.Time{}, time.Now()))
+		next := req
+		next.Trigger.CommentID = comment
+		_, err = Execute(ctx, f.opts, next)
+		if errors.Is(err, store.ErrGraphInstanceTerminal) {
+			t.Fatalf("comment %d failed on the terminal instance: %v", comment, err)
+		}
+		mustProgress(t, err)
+		wm, _, err := f.db.GetWatermark(ctx, f.session.ID)
+		mustProgress(t, err)
+		if wm.LastCommentID != comment || calls != i+1 {
+			t.Fatalf("comment %d not consumed in its first turn: watermark=%d calls=%d", comment, wm.LastCommentID, calls)
+		}
+		instance, err := f.db.LatestStandaloneBugInstance(ctx, f.session.ID)
+		mustProgress(t, err)
+		if instance.ID == finished {
+			t.Fatalf("comment %d reused terminal instance %d", comment, finished)
+		}
+		finished = instance.ID
+	}
+}

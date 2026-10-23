@@ -30,7 +30,7 @@ func TestSpikeShipsOneCopyOfEachRoleAndOneSkill(t *testing.T) {
 	if len(graphs) != 1 || strings.Join(roles, ",") != "spike-fixer.md,spike-investigator.md" || strings.Join(skills, ",") != "skills/spike-result/SKILL.md" {
 		t.Fatalf("shipped package: graphs=%v roles=%v skills=%v", graphs, roles, skills)
 	}
-	if len(definition.Nodes) != 2 {
-		t.Fatalf("expected the investigator and the fixer, got %v", definition.Nodes)
+	if len(definition.Nodes) != 3 {
+		t.Fatalf("expected the investigator, the fixer and its one repair pass, got %v", definition.Nodes)
 	}
 }

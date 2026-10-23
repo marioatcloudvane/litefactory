@@ -9,9 +9,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -948,7 +950,7 @@ func TestTicketRecoveryPlanStoryWebhookHandoff(t *testing.T) {
 	w.clock.now = time.Now().UTC().Add(time.Minute)
 	w.clock.mu.Unlock()
 	var hideListings atomic.Bool
-	var childReads atomic.Int64
+	var childReads, parentRelationReads atomic.Int64
 	original := w.forge.server.Config.Handler
 	w.forge.server.Config.Handler = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		base := "/repos/" + w.repo.Slug()
@@ -961,6 +963,7 @@ func TestTicketRecoveryPlanStoryWebhookHandoff(t *testing.T) {
 			childReads.Add(1)
 		}
 		if r.URL.Path == base+"/issues/200/parent" {
+			parentRelationReads.Add(1)
 			r = r.Clone(r.Context())
 			r.URL.Path = base + "/issues/" + strconv.Itoa(testIssue)
 		}
@@ -1001,6 +1004,7 @@ func TestTicketRecoveryPlanStoryWebhookHandoff(t *testing.T) {
 	}
 	hideListings.Store(true)
 	reads := childReads.Load()
+	relationReads := parentRelationReads.Load()
 	w.forge.addComment(200, 60, owner(), "/approve-plan story story candidate")
 	w.forge.addComment(200, 70, owner(), "/approve-plan story story candidate")
 	w.forge.addComment(200, 80, owner(), "/approve-plan story story stale")
@@ -1011,7 +1015,12 @@ func TestTicketRecoveryPlanStoryWebhookHandoff(t *testing.T) {
 	}
 	approvedRevision := state.Stories[0].Wait.Revision
 	var applied atomic.Int64
+	delivered := make(chan struct{}, 1)
 	w.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		select {
+		case delivered <- struct{}{}:
+		default:
+		}
 		if req.Trigger.PlanReply == nil || req.Trigger.CommentID != 60 || req.SessionID != story.ID {
 			return turn.Result{}, fmt.Errorf("unexpected approval execution: %+v", req.Trigger)
 		}
@@ -1029,8 +1038,7 @@ func TestTicketRecoveryPlanStoryWebhookHandoff(t *testing.T) {
 		applied.Add(1)
 		return w.ranSuccessfully(ctx, req)
 	})
-	handed := make(chan struct{}, 1)
-	w.logger = slog.New(slog.NewTextHandler(&planHandoffLogWriter{syncBuffer: w.fixture.logs, handed: handed}, nil))
+	w.logger = slog.New(slog.NewTextHandler(w.fixture.logs, nil))
 	w.daemon = newRecoveryDaemon(t, w, origin, "plan-story-webhook", true)
 	w.settle() // Populate the listener's subscription cache before ingress.
 	logStart := len(w.fixture.logs.String())
@@ -1058,12 +1066,13 @@ func TestTicketRecoveryPlanStoryWebhookHandoff(t *testing.T) {
 	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("signed comment delivery: %d\n%s", response.StatusCode, w.fixture.logs)
 	}
-	// The webhook wakes exactly one pass. Wait for its durable handoff before
-	// stopping; no timer tick or listing can poll the child in this interval.
+	// The webhook wakes exactly one pass, and no timer tick or listing can poll
+	// the child in this interval: only direct delivery of the observation to the
+	// child's own session can run its turn now.
 	select {
-	case <-handed:
+	case <-delivered:
 	case <-time.After(10 * time.Second):
-		t.Fatalf("webhook did not hand off polling\n%s", w.fixture.logs)
+		t.Fatalf("webhook observation was not delivered to the child\n%s", w.fixture.logs)
 	}
 	if err := w.daemon.Quiesce(t.Context()); err != nil {
 		t.Fatal(err)
@@ -1072,21 +1081,29 @@ func TestTicketRecoveryPlanStoryWebhookHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	stopped = true
+	reopenRecoveryDatabase(t, w.fixture)
 	w.daemon = newRecoveryDaemon(t, w, origin, "plan-story-retry", false)
 	story, err = w.db.GetSession(t.Context(), story.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !story.NeedsPoll || childReads.Load() != reads {
-		t.Fatalf("parent swept without child polling responsibility: %+v reads=%d/%d\n%s", story, childReads.Load(), reads, w.fixture.logs)
+	if !story.NeedsPoll && childWatermark() >= 90 {
+		t.Fatalf("child polling responsibility lost across restart: %+v watermark=%d\n%s", story, childWatermark(), w.fixture.logs)
 	}
-	if owed, err := w.db.StoryDiscoveryOwed(t.Context(), parent.ID, 200); err != nil || owed {
-		t.Fatalf("successful handoff retained parent debt: %v %v", owed, err)
+	if childReads.Load() == reads {
+		t.Fatalf("child was not polled directly\n%s", w.fixture.logs)
 	}
-	for _, want := range []string{"level=INFO", "plan story polling handed to child", fmt.Sprintf("parent_session=%d", parent.ID), fmt.Sprintf("child_session=%d", story.ID), "issue=200", "reason=open_graph_plan_story"} {
-		if !strings.Contains(w.fixture.logs.String()[logStart:], want) {
-			t.Errorf("missing handoff log %q: %s", want, w.fixture.logs.String()[logStart:])
-		}
+	if p, err := w.db.GetSession(t.Context(), parent.ID); err != nil || p.NeedsPoll {
+		t.Fatalf("child observation woke the parent: %+v %v", p, err)
+	}
+	// The observation leaves the story owed to the parent. The parent's own
+	// scheduled turn may already have repaid it with its lifecycle read; nothing
+	// else may retire it.
+	if owed, err := w.db.StoryDiscoveryOwed(t.Context(), parent.ID, 200); err != nil || (!owed && parentRelationReads.Load() == relationReads) {
+		t.Fatalf("parent lost its lifecycle debt without sweeping: %v %v", owed, err)
+	}
+	if strings.Contains(w.fixture.logs.String()[logStart:], "plan story polling handed to child") {
+		t.Fatalf("parent handed off a child that owns its polling: %s", w.fixture.logs.String()[logStart:])
 	}
 	w.settle() // The next heartbeat must read the child's backlog.
 	state, _, err = w.db.GetPlanWorkflowState(t.Context(), parent.TaskRef)
@@ -1112,23 +1129,6 @@ func TestTicketRecoveryPlanStoryWebhookHandoff(t *testing.T) {
 	if applied.Load() != 1 || childWatermark() != 90 {
 		t.Fatal("restart or duplicate observation reapplied a consumed approval")
 	}
-}
-
-// A log rendezvous observes the persisted handoff without polling worker state.
-type planHandoffLogWriter struct {
-	*syncBuffer
-	handed chan struct{}
-}
-
-func (w *planHandoffLogWriter) Write(p []byte) (int, error) {
-	n, err := w.syncBuffer.Write(p)
-	if bytes.Contains(p, []byte("plan story polling handed to child")) {
-		select {
-		case w.handed <- struct{}{}:
-		default:
-		}
-	}
-	return n, err
 }
 
 func TestTicketRecoveryRetainedPlanStoriesBootstrap(t *testing.T) {
@@ -1414,6 +1414,15 @@ func TestWebhookRecoveryHeartbeatConsumesMissedComment(t *testing.T) {
 				w.forge.mu.Unlock()
 			}
 			w.settle()
+			// Without a recorded hook recovery no longer polls every minute; the
+			// missed comment waits for the ordinary poll.
+			if scenario == "missing-hook" {
+				if len(w.turns.triggers()) != 0 {
+					t.Fatal("recovery polled without a recorded hook")
+				}
+				w.clock.advance(time.Hour)
+				w.settle()
+			}
 			if scenario == "disabled" || scenario == "mismatch" || scenario == "quota" {
 				if posts.Load() != 0 || len(w.turns.triggers()) != 0 {
 					t.Fatal("source/quota refusal permitted recovery effects")
@@ -1471,4 +1480,227 @@ func TestWebhookRecoveryHeartbeatConsumesMissedComment(t *testing.T) {
 			}
 		})
 	}
+}
+
+// planStoryRequests is a webhook fixture with a graph Plan parent and story
+// children #200 and up, whose forge counts requests per method and path and
+// answers each child's parent relation with the parent issue.
+type planStoryRequests struct {
+	w      *webhookFixture
+	origin ticket.Origin
+	source store.ConnectionVersion
+	parent store.Session
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+func newPlanStoryRequests(t *testing.T, stories int, admit bool) *planStoryRequests {
+	t.Helper()
+	p := &planStoryRequests{w: newWebhookFixture(t), counts: map[string]int{}}
+	w := p.w
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	var hideListings atomic.Bool
+	original := w.forge.server.Config.Handler
+	w.forge.server.Config.Handler = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		base := "/repos/" + w.repo.Slug()
+		// Listings stay empty so only the observations under test reach the children.
+		if hideListings.Load() && (r.URL.Path == base+"/issues" || r.URL.Path == base+"/issues/comments") {
+			rw.Header().Set("Content-Type", "application/json")
+			_, _ = rw.Write([]byte(`[]`))
+			return
+		}
+		p.mu.Lock()
+		p.counts[r.Method+" "+r.URL.Path]++
+		p.mu.Unlock()
+		if strings.HasPrefix(r.URL.Path, base+"/issues/") && strings.HasSuffix(r.URL.Path, "/parent") {
+			r = r.Clone(r.Context())
+			r.URL.Path = base + "/issues/" + strconv.Itoa(testIssue)
+		}
+		original.ServeHTTP(rw, r)
+	})
+	p.origin = recoveryProvider(t, w.fixture)
+	p.source = configureRecoverySource(t, w, p.origin)
+	w.daemon = newRecoveryDaemon(t, w, p.origin, "plan-story-requests", false)
+	_, p.parent = seedPlanChildFixture(t, w.fixture, 10000+testIssue, 10200)
+	for n := 201; n < 200+stories; n++ {
+		key := "story-" + strconv.Itoa(n)
+		if _, err := w.db.ReservePlanStory(t.Context(), p.parent.TaskRef, key); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.db.BindPlanStoryIssue(t.Context(), p.parent.TaskRef, key, int64(10000+n), n); err != nil {
+			t.Fatal(err)
+		}
+		w.forge.addIssue(fakeIssue{ID: int64(10000 + n), Number: n, Title: "Story " + strconv.Itoa(n), State: "open", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+	}
+	if admit {
+		for n := 200; n < 200+stories; n++ {
+			child, err := w.db.AdmitManagedChild(t.Context(), p.parent.ID, p.ref(n), "github:"+w.repo.Slug()+"#"+strconv.Itoa(n))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := w.db.BootstrapTicketWatermark(t.Context(), child.ID, 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	hideListings.Store(true)
+	return p
+}
+
+func (p *planStoryRequests) ref(n int) ticket.Ref {
+	return ticket.Ref{Identity: ticket.Identity{Provider: p.source.Provider, Origin: p.origin, RemoteID: strconv.Itoa(10000 + n)}, Locator: ticket.Locator{Provider: p.source.Provider, Origin: p.origin, Container: p.source.Destination, Key: strconv.Itoa(n)}}
+}
+
+func (p *planStoryRequests) take() map[string]int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := p.counts
+	p.counts = map[string]int{}
+	return out
+}
+
+func (p *planStoryRequests) child(t *testing.T, n int) store.Session {
+	t.Helper()
+	session, err := p.w.db.GetSessionByTicket(t.Context(), p.ref(n).Identity)
+	if err != nil {
+		t.Fatalf("child #%d session: %v", n, err)
+	}
+	return session
+}
+
+// The first handoff stays: an open graph story without a session of its own is
+// handed to its child once. A later sweep of the same owed story, with that
+// session existing, neither re-verifies the child remotely nor re-wakes it.
+func TestPlanStoryFirstHandoffOnce(t *testing.T) {
+	p := newPlanStoryRequests(t, 1, false)
+	w := p.w
+	if _, err := w.db.GetSessionByTicket(t.Context(), p.ref(200).Identity); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("child admitted before the handoff: %v", err)
+	}
+	handoffs := func() int { return strings.Count(w.fixture.logs.String(), "plan story polling handed to child") }
+	p.take()
+	w.clock.advance(scheduleInterval)
+	w.settle()
+	first := p.take()
+	child := p.child(t, 200)
+	// The parent's lifecycle read and managedChildSession's Resolve.
+	if handoffs() != 1 || !child.NeedsPoll || first["GET /repos/"+w.repo.Slug()+"/issues/200"] != 2 {
+		t.Fatalf("first handoff: logs=%d child=%+v requests=%v\n%s", handoffs(), child, first, w.fixture.logs)
+	}
+	if owed, err := w.db.StoryDiscoveryOwed(t.Context(), p.parent.ID, 200); err != nil || owed {
+		t.Fatalf("first sweep kept the parent's debt: %v %v", owed, err)
+	}
+	// The child's own poll is not under test here.
+	if err := w.db.ClearSessionNeedsPoll(t.Context(), child.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.db.MarkStoryDiscoveryPending(t.Context(), p.parent.ID, 200); err != nil {
+		t.Fatal(err)
+	}
+	w.clock.advance(scheduleInterval)
+	w.settle()
+	second := p.take()
+	child = p.child(t, 200)
+	// Only the parent's lifecycle read remains.
+	if handoffs() != 1 || child.NeedsPoll || second["GET /repos/"+w.repo.Slug()+"/issues/200"] != 1 || second["GET /repos/"+w.repo.Slug()+"/issues/200/parent"] != 1 {
+		t.Fatalf("repeat handoff: logs=%d child=%+v requests=%v\n%s", handoffs(), child, second, w.fixture.logs)
+	}
+	if owed, err := w.db.StoryDiscoveryOwed(t.Context(), p.parent.ID, 200); err != nil || owed {
+		t.Fatalf("second sweep kept the parent's debt: %v %v", owed, err)
+	}
+}
+
+// Repeated observations of story children that own their polling, interleaved
+// with ordinary scheduling, never dispatch the parent through observationParent
+// and never hand a child over again. The parent's lifecycle reads stay bounded
+// by its own turns; the requests K=4 adds over K=1 all fall on the children.
+func TestPlanStoryObservationRequestCost(t *testing.T) {
+	const stories, ticks = 3, 4
+	var p0Slug string
+	run := func(t *testing.T, k int) (map[string]int, int) {
+		p := newPlanStoryRequests(t, stories, true)
+		w := p.w
+		p0Slug = w.repo.Slug()
+		w.clock.advance(scheduleInterval)
+		w.settle() // The parent's first sweep of never-swept stories.
+		for n := 200; n < 200+stories; n++ {
+			if err := w.db.ClearSessionNeedsPoll(t.Context(), p.child(t, n).ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		logStart := len(w.fixture.logs.String())
+		p.take()
+		total := map[string]int{}
+		parentTurns := 0
+		for tick := range ticks {
+			if tick < k {
+				for n := 200; n < 200+stories; n++ {
+					observation := store.PendingTicketObservation{RepoID: w.repo.ID, ConnectionVersionID: p.source.ID, Provider: p.source.Provider, Origin: p.origin, Container: p.source.Destination, ContainerID: "1", TicketID: strconv.Itoa(10000 + n), TicketKey: strconv.Itoa(n), ObservedAt: w.clock.peek()}
+					if err := w.db.HandoffSubscriptionObservation(t.Context(), recoverySelector, 1, observation); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			before := len(w.fixture.logs.String())
+			w.clock.advance(scheduleInterval)
+			w.settle()
+			requests := p.take()
+			turn := 0
+			for _, line := range strings.Split(w.fixture.logs.String()[before:], "\n") {
+				if !strings.Contains(line, "worker dispatched") || !strings.Contains(line, fmt.Sprintf("session_id=%d ", p.parent.ID)) {
+					continue
+				}
+				turn++
+				if strings.Contains(line, "ticket_recovery") || strings.Contains(line, "webhook") {
+					t.Fatalf("child observation dispatched the parent: %s", line)
+				}
+			}
+			reads := 0
+			for n := 200; n < 200+stories; n++ {
+				reads += requests[fmt.Sprintf("GET /repos/%s/issues/%d/parent", w.repo.Slug(), n)]
+			}
+			if reads > stories*turn {
+				t.Fatalf("tick %d: %d parent relation reads in %d parent turns", tick, reads, turn)
+			}
+			parentTurns += turn
+			for path, count := range requests {
+				total[path] += count
+			}
+		}
+		if strings.Contains(w.fixture.logs.String()[logStart:], "plan story polling handed to child") {
+			t.Fatalf("children that own their polling were handed over again: %s", w.fixture.logs.String()[logStart:])
+		}
+		if parent, err := w.db.GetSession(t.Context(), p.parent.ID); err != nil || parent.NeedsPoll {
+			t.Fatalf("child observations woke the parent: %+v %v", parent, err)
+		}
+		return total, parentTurns
+	}
+	one, oneTurns := run(t, 1)
+	four, fourTurns := run(t, 4)
+	if oneTurns != fourTurns {
+		t.Fatalf("unequal parent turn opportunities: %d %d", oneTurns, fourTurns)
+	}
+	// Child delivery reads the child issues and, for each child worker and the
+	// direct path's container check, the repository identity. The parent's own
+	// issue requests must not grow with child observations.
+	child := regexp.MustCompile(`/issues/20[0-9](/|$)`)
+	repository := "GET /repos/" + p0Slug
+	extra := 0
+	for path, count := range four {
+		if count > one[path] && !child.MatchString(path) && path != repository {
+			t.Errorf("K=4 added %d requests off the children: %s (%d vs %d)", count-one[path], path, count, one[path])
+		}
+		extra += count - one[path]
+	}
+	for path, count := range one {
+		if strings.Contains(path, fmt.Sprintf("/issues/%d", testIssue)) && four[path] != count {
+			t.Errorf("parent issue requests changed with child observations: %s (%d vs %d)", path, four[path], count)
+		}
+	}
+	if extra <= 0 {
+		t.Fatalf("repeated observations reached no child: K=1 %v K=4 %v", one, four)
+	}
+	t.Logf("parent turns=%d K=1 %v K=4 %v", oneTurns, one, four)
 }

@@ -35,6 +35,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/rights"
@@ -56,6 +57,8 @@ type Handler func(ctx context.Context, env *Env, args []string) error
 // Fields may be added as later stories need them (config, store, clock).
 // Adding a field is not a breaking change for existing commands.
 type Env struct {
+	// LogAnalyst replaces only the restricted provider boundary in controlled tests.
+	LogAnalyst agent.LogAnalystRunner
 	// TeamTransport is an HTTP test seam. Nil uses normal system TLS validation.
 	TeamTransport http.RoundTripper
 	// Stdout is where command *results* go. Printing results with

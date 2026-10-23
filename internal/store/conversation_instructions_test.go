@@ -297,3 +297,94 @@ func TestConversationInstructionMigrationMarksOnlyExistingBindings(t *testing.T)
 		t.Fatalf("new binding backfilled: %v", err)
 	}
 }
+
+func TestRefreshConversationCaptureOnlyAtTurnBoundary(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	c, err := db.EnsureConversationWithCapture(ctx, Conversation{Transport: "discord", ChannelRef: "refresh", OwnerID: "owner", Name: "owner", Provider: "claude", StateDir: "/private/refresh"}, []byte(`{"old":true}`), at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained := func() string {
+		t.Helper()
+		raw, legacy, err := db.ReadConversationCapture(ctx, c.ID)
+		if err != nil || legacy {
+			t.Fatalf("read capture: %v legacy=%v", err, legacy)
+		}
+		return string(raw)
+	}
+	if err = db.ActivateNaturalScan(ctx, "refresh", "100"); err != nil {
+		t.Fatal(err)
+	}
+	scan, err := db.ReadNaturalScan(ctx, "refresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.StageNaturalScan(ctx, scan, NaturalScan{ChannelRef: "refresh", Cursor: "100", HighWater: "101"}, []NaturalMessage{{ChannelRef: "refresh", SourceID: "101", OwnerID: "owner", Text: "hello", CreatedAt: at}}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.AdmitConversationTurn(ctx, c.ID, "101", "prompt", at); err != nil {
+		t.Fatal(err)
+	}
+	// A pending turn was admitted with the retained instructions.
+	if ok, err := db.RefreshConversationCapture(ctx, c.ID, []byte(`{"new":true}`), at); err != nil || ok || retained() != `{"old":true}` {
+		t.Fatalf("refresh with a pending turn: ok=%v err=%v", ok, err)
+	}
+	turn, err := db.ClaimConversationTurn(ctx, c.ID, "worker", at, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.RefreshConversationCapture(ctx, c.ID, []byte(`{"new":true}`), at); err != nil || ok || retained() != `{"old":true}` {
+		t.Fatalf("refresh with a running turn: ok=%v err=%v", ok, err)
+	}
+	if err = db.SaveConversationSession(ctx, turn, "11111111-2222-4333-8444-555555555555"); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CompleteConversationTurn(ctx, turn, "completed", "reply", at); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SetConversationHealth(ctx, c.ID, "paused for a reason", at); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.RefreshConversationCapture(ctx, c.ID, []byte(`{"new":true}`), at); err != nil || ok || retained() != `{"old":true}` {
+		t.Fatalf("refresh of a paused binding: ok=%v err=%v", ok, err)
+	}
+	if err = db.SetConversationHealth(ctx, c.ID, "", at); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.RefreshConversationCapture(ctx, c.ID, []byte(`{"new":true}`), at); err != nil || !ok || retained() != `{"new":true}` {
+		t.Fatalf("refresh at a turn boundary: ok=%v err=%v", ok, err)
+	}
+	after, err := db.ReadConversation(ctx, "discord", "refresh")
+	if err != nil || after.ID != c.ID {
+		t.Fatalf("refresh replaced the binding: %+v %v", after, err)
+	}
+}
+
+func TestRefreshConversationCaptureMovesMigratedLegacyBinding(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	c, err := db.EnsureConversation(ctx, Conversation{Transport: "discord", ChannelRef: "legacy", OwnerID: "owner", Name: "legacy", Provider: "claude", StateDir: "/private/legacy"}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.sql.ExecContext(ctx, `INSERT INTO chat_conversation_instruction_legacy(conversation_id) VALUES(?)`, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.RefreshConversationCapture(ctx, c.ID, []byte(`{"new":true}`), at); err != nil || ok {
+		t.Fatalf("refresh before legacy migration: ok=%v err=%v", ok, err)
+	}
+	baseline := ConversationLegacyInstructions{Native: "native", Factory: "factory", Correction: "correction", ActionOutcome: "outcome"}
+	if err = db.BackfillLegacyConversationCapture(ctx, c.ID, []byte(`{"baseline":true}`), baseline, at); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.RefreshConversationCapture(ctx, c.ID, []byte(`{"new":true}`), at); err != nil || !ok {
+		t.Fatalf("refresh of a migrated legacy binding: ok=%v err=%v", ok, err)
+	}
+	raw, legacy, err := db.ReadConversationCapture(ctx, c.ID)
+	if err != nil || legacy || string(raw) != `{"new":true}` {
+		t.Fatalf("refreshed capture=%s legacy=%v err=%v", raw, legacy, err)
+	}
+}

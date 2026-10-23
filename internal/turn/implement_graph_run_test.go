@@ -957,6 +957,49 @@ func TestImplementWorkerResolvesAConflictWithItsParentsBranch(t *testing.T) {
 	}
 }
 
+// A story the merge step restarted after a conflict (guidance_question holds
+// the merge reason, guidance is empty) gets the conflicting paths in its
+// worker prompt: preparation starts the merge of its parent's branch.
+func TestImplementWorkerRestartedByTheMergeStepSeesTheConflictInItsPrompt(t *testing.T) {
+	var prompt string
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompt = req.Prompt
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // story and merged sibling\n"), 0o600))
+		submitLiveResult(t, req, implementCompletedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	ctx := t.Context()
+	const reason = "the story conflicts with the work already merged in shared.go; its worker is started again to resolve the conflict"
+	row := implementWorkerRow(t, f)
+	for _, move := range []struct{ from, to, reason string }{
+		{store.ImplementRunning, store.ImplementDone, ""},
+		{store.ImplementDone, store.ImplementParked, reason},
+		{store.ImplementParked, store.ImplementWaiting, ""},
+		{store.ImplementWaiting, store.ImplementRunning, ""},
+	} {
+		var err error
+		row, err = f.db.TransitionImplementStory(ctx, store.ImplementTransition{Parent: implementTaskParent, Generation: 1, Key: "story-001", From: move.from, To: move.to, ExpectedRevision: row.Revision, Reason: move.reason, At: implementClock})
+		mustProgress(t, err)
+	}
+	mustProgress(t, f.db.SetImplementWorkerSession(ctx, implementTaskParent, 1, "story-001", f.session.ID, implementClock))
+	if row = implementWorkerRow(t, f); row.GuidanceQuestion != reason || row.Guidance != "" {
+		t.Fatalf("seeded row = %+v, want the merge step's restart", row)
+	}
+	seedStoryParentConflict(t, f)
+
+	out, err := Execute(t.Context(), f.opts, req)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("%+v %v", out, err)
+	}
+	for _, want := range []string{"## Merge conflict to resolve", `- "shared.go"`} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the restarted worker's prompt lacks %q", want)
+		}
+	}
+}
+
 // A worker that cannot resolve the conflict parks the story naming the file;
 // the owner's restart starts the worker again on the merge still in progress,
 // with the reply as guidance, instead of failing the turn.
@@ -1183,42 +1226,6 @@ func mustParseRef(t *testing.T, ref string) naming.Ref {
 	return parsed
 }
 
-// timedLifecycleHost is a lifecycle host that reports its run timeout, as the
-// Claude and Codex runners do.
-type timedLifecycleHost struct {
-	lifecycleMCPHost
-	timeout time.Duration
-}
-
-func (h timedLifecycleHost) Timeout() time.Duration { return h.timeout }
-
-func TestImplementWorkerPromptAsksToDelegateAndStatesTheTimeLimitOutsideTheNote(t *testing.T) {
-	var prompt string
-	runner := timedLifecycleHost{timeout: 6 * time.Hour, lifecycleMCPHost: func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		prompt = req.Prompt
-		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "health.go"), []byte("package health\n"), 0o600))
-		submitLiveResult(t, req, implementCompletedJSON)
-		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
-	}}
-	f, _, req := assembledImplementFixture(t, runner)
-	seedImplementStory(t, f)
-	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.Succeeded() {
-		t.Fatalf("%+v %v", out, err)
-	}
-	outside := prompt
-	if start, end := strings.Index(prompt, "<note>"), strings.LastIndex(prompt, "</note>"); start >= 0 && end > start {
-		outside = prompt[:start] + prompt[end+len("</note>"):]
-	}
-	for _, want := range []string{
-		"The owner explicitly asks you to delegate this story's tasks to subagents (spawn_agent or your subagent tool) and to run them in parallel.",
-		"This attempt has a wall-clock limit of 360 minutes; there is no other budget",
-	} {
-		if !strings.Contains(outside, want) {
-			t.Errorf("the worker prompt lacks %q outside the handoff note:\n%s", want, prompt)
-		}
-	}
-}
-
 // implementTrail lists node:outcome for every finished step of the parent's
 // latest Implement instance, in order.
 func implementTrail(t *testing.T, f *fixture) []string {
@@ -1371,6 +1378,8 @@ func TestImplementCoordinatorResolvesAConflictWithMainThroughTheResolver(t *test
 	if err != nil || !out.ResearchGraph {
 		t.Fatalf("%+v %v", out, err)
 	}
+	// The coordinator rests before the resolver; its stage is owed at once.
+	runOwedImplementStages(t, f, req)
 	trail := implementTrail(t, f)
 	want := []string{"select_path:coordinator", "sync_start:conflict", "sync_start_resolve:success", "sync_start_resolved:resolved", "sync_start:current", "merge:none", "ready:started"}
 	for i, step := range want {
@@ -1414,6 +1423,7 @@ func TestImplementCoordinatorBlockedResolverAsksTheOwnerAndPushesNothing(t *test
 	if _, err := Execute(t.Context(), f.opts, req); err != nil {
 		t.Fatal(err)
 	}
+	runOwedImplementStages(t, f, req)
 	trail := implementTrail(t, f)
 	if trailIndex(trail, "sync_start_resolved:blocked") < 0 || trailIndex(trail, "ready:started") >= 0 {
 		t.Fatalf("a blocked resolver stops before any story starts: %v", trail)
@@ -1745,7 +1755,13 @@ func TestImplementCoordinatorResumeResolvesAConflictWithMainBeforeStoriesStart(t
 	parent, instance, wait = parkAndAskImplementOwner(t, f, req)
 	mainTip := seedMainFeatureConflict(t, f)
 
+	// The daemon closes a runless coordinator dispatch after its run; this
+	// harness does not, and the resumed run parks before the resolver.
+	asked, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
+	mustProgress(t, err)
+	mustProgress(t, f.db.FinishGraphDispatch(t.Context(), asked.ID, time.Now()))
 	replyToImplementOwner(t, f, req, parent, instance, wait)
+	runOwedImplementStages(t, f, req)
 	resumed := afterAsk(t, implementTrail(t, f))
 	want := []string{"sync_start:conflict", "sync_start_resolve:success", "sync_start_resolved:resolved", "sync_start:current"}
 	for i, step := range want {

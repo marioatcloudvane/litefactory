@@ -13,6 +13,7 @@ func TestFamilyCatalog_IncrementalInstallation(t *testing.T) {
 		{"issues_comment", "publication"}, {"issues_create_prepare", "input"},
 		{"evidence_submit", "checkpoint"}, {"activity_update", "advisory"},
 		{"activity_get", "read"}, {"receipts_get", "read"},
+		{"standards_read", "read"},
 	}
 	for _, mode := range []string{"research", "implement", "validate", "plan", "spike"} {
 		for _, installed := range families {
@@ -23,6 +24,9 @@ func TestFamilyCatalog_IncrementalInstallation(t *testing.T) {
 					t.Fatal(err)
 				}
 				want := mode == "research" || mode == "implement" || mode == "validate"
+				if installed.name == "standards_read" {
+					want = true
+				}
 				if installed.name == "issues_create_prepare" {
 					want = mode == "research"
 				}

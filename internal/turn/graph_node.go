@@ -21,6 +21,9 @@ import (
 // handler duration. NextDueAt is supplied scheduling policy, never computed here.
 // Callers serialize steps for an instance; in-flight crash recovery is deferred.
 type GraphNodeRequest struct {
+	// RetainCapacity leaves release to the driver after its outer cleanup.
+	// The next node must replace the reservation before executing.
+	RetainCapacity    bool
 	StopOnFailure     bool
 	Profile           *graphexec.Profile
 	Activities        ActivityRegistry
@@ -37,11 +40,19 @@ type GraphNodeRequest struct {
 // GraphNodeResult describes the recorded step. AttemptID is zero for terminals
 // and exhausted limits. Status is the instance status, not the activity outcome.
 type GraphNodeResult struct {
-	// Deferred means suite admission was busy; no attempt was reserved.
+	// Deferred means admission is waiting. AttemptID is zero if no work began.
 	Deferred               bool
 	InstanceID, AttemptID  int64
 	Node, NextNode, Status string
 	Activity               ActivityResult
+}
+
+// parentSerializedActivity serializes on a Plan parent's story-progress lock,
+// which ExecuteNodeAction takes before reserving the attempt.
+type parentSerializedActivity interface {
+	ActivityHandler
+	lockParent(context.Context) (func() error, error)
+	withParentLocked() ActivityHandler
 }
 
 // ExecuteNodeAction performs at most one activity. Reservation commits before
@@ -51,6 +62,9 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	out = GraphNodeResult{InstanceID: req.InstanceID}
 	if opts.DB == nil || req.Profile == nil || req.InstanceID <= 0 || req.RunID < 0 || req.At.IsZero() {
 		return out, errors.New("execute graph node: database, profile, instance and timestamp are required; run ID must be nonnegative")
+	}
+	if capacity := stepCapacity(ctx); capacity != nil && !req.RetainCapacity {
+		defer capacity.Release()
 	}
 	instance, err := opts.DB.GetGraphInstance(ctx, req.InstanceID)
 	if err != nil {
@@ -101,6 +115,15 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		out.Status = store.GraphSucceeded
 		return out, nil
 	}
+	admitted, diagnostic, capacityErr := admitGraphCapacity(ctx, opts, instance.ID, req.LaunchID, node.Name, string(workflow))
+	if capacityErr != nil {
+		return out, capacityErr
+	}
+	if !admitted {
+		out.Deferred = true
+		out.Activity.Diagnostic = diagnostic
+		return out, nil
+	}
 	handler, registered := req.Activities.Resolve(node.Action)
 	if suite, ok := handler.(ValidateSuiteActivity); ok {
 		unlock, lockErr := suite.b.DB.LockSuite(ctx, suite.b.LockDir)
@@ -114,8 +137,55 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		defer func() { err = errors.Join(err, unlock()) }()
 		handler = admittedValidateSuite{suite}
 	}
+	// A busy Plan parent is temporary contention: take its story-progress lock
+	// before reserving, so waiting spends no node attempt or revision budget.
+	if serialized, ok := handler.(parentSerializedActivity); ok && workflow == agent.WorkflowPlan && node.Action == graphexec.PlanStoryAction {
+		unlock, lockErr := serialized.lockParent(ctx)
+		if errors.Is(lockErr, store.ErrStoryProgressBusy) {
+			out.Deferred = true
+			return out, nil
+		}
+		if lockErr != nil {
+			return out, fmt.Errorf("admit plan story parent: %w", lockErr)
+		}
+		defer func() { err = errors.Join(err, unlock()) }()
+		handler = serialized.withParentLocked()
+	}
+	if review, ok := handler.(ValidateReviewActivity); ok {
+		admitted, release, admissionErr := review.admit(ctx, opts, ActivityRequest{InstanceID: instance.ID, Node: node.Name, Attrs: node.Attrs})
+		if admissionErr != nil {
+			return out, admissionErr
+		}
+		if !admitted {
+			out.Deferred = true
+			out.Activity.Outcome = "retry"
+			out.Activity.Diagnostic = review.capacityDiagnostic(ctx, req.Profile, node.Name)
+			return out, nil
+		}
+		if release != nil {
+			defer release()
+			review.initialRelease = release
+			handler = review
+		}
+	}
 	var attempt store.GraphNodeAttempt
+	var deferredAttempt store.GraphNodeAttempt
+	deferredErr := store.ErrNotFound
+	reviewResume := workflow == agent.WorkflowValidate && node.Action == graphexec.ValidateReviewAction
+	judgeResume := req.ResumeAttemptID != 0 && (workflow == agent.WorkflowResearch || workflow == agent.WorkflowPlan) && node.Action == graphexec.JudgeAction
+	if reviewResume || judgeResume {
+		deferredAttempt, deferredErr = opts.DB.ResumeDeferredGraphNodeAttempt(ctx, instance.ID, node.Name, req.At)
+		if deferredErr == nil && judgeResume && deferredAttempt.ID != req.ResumeAttemptID {
+			return out, errors.New("judge capacity resume attempt mismatch")
+		}
+	}
+	if deferredErr != nil && !errors.Is(deferredErr, store.ErrNotFound) {
+		return out, deferredErr
+	}
 	switch {
+	case deferredErr == nil:
+		attempt = deferredAttempt
+
 	case req.ResumeAttemptID != 0:
 		judgeRecovery := (workflow == agent.WorkflowResearch || workflow == agent.WorkflowPlan) && node.Action == graphexec.JudgeAction
 		if (!judgeRecovery && workflow != agent.WorkflowBug) || node.Action == ResearchAgentAction || req.RunID != 0 {
@@ -180,6 +250,13 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	})
 	activity.Output = slices.Clone(activity.Output)
 	out.Activity = activity
+	if activity.Deferred && dispatchErr == nil {
+		if err := opts.DB.DeferGraphNodeAttempt(context.WithoutCancel(ctx), attempt.ID, req.At); err != nil {
+			return out, err
+		}
+		out.Deferred, out.NextNode = true, node.Name
+		return out, nil
+	}
 	if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction && (dispatchErr != nil || (activity.Outcome != "synced" && activity.Outcome != "current")) {
 		out.Activity.Diagnostic = graphBugSyncDiagnostic(activity)
 	}

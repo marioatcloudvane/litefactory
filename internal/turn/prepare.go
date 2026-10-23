@@ -25,6 +25,9 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
+	// standardsRole names the role whose graph node grants it the optional
+	// standards read; empty grants nothing. Nothing requires its use.
+	standardsRole  string
 	stackGuidance  string
 	stackSetup     bool
 	mcpRuntime     *MCPRuntime
@@ -1808,8 +1811,10 @@ func requestPermissions(req Request) agent.Permissions {
 			Payload: harness.ToolSurface{
 				Tools: req.Tools, AllowedTools: req.AllowedTools,
 				// A validate surface holding Bash is a reviewer's read-only
-				// shell: the runner refuses everything AllowedTools does not name.
-				ReadOnlyShell: req.ToolProfile == "validate" && slices.Contains(req.Tools, "Bash"),
+				// shell, and so is a Spike read node's: the runner refuses
+				// everything AllowedTools does not name and keeps the worktree
+				// unwritable. A Spike write node (the fixer) is not one.
+				ReadOnlyShell: slices.Contains(req.Tools, "Bash") && (req.ToolProfile == "validate" || (req.ToolProfile == string(agent.ModeSpike) && !req.nodeWrite)),
 			},
 		}
 	}
