@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -198,7 +199,7 @@ func (f *FactoryDoctorRepairEffects) consume(ctx context.Context, target naming.
 		if errors.Is(e, github.ErrRateLimited) {
 			e = errors.Join(e, f.DB.UnmarkDoctorConsumeDelivery(context.WithoutCancel(ctx), op.ID, step.Number, key))
 		}
-		return step, fmt.Errorf("%w: %w", doctor.ErrRepairReplyNotPosted, e)
+		return step, fmt.Errorf("%w: %w", replyFailure(e), e)
 	}
 	if comment.ID <= 0 || comment.Author.ID != f.BotID {
 		return step, fmt.Errorf("%w: doctor reply lacks trusted bot receipt", doctor.ErrRepairReplyUncertain)
@@ -211,6 +212,22 @@ func (f *FactoryDoctorRepairEffects) consume(ctx context.Context, target naming.
 		return applied, consumeStateFailure(e)
 	}
 	return applied, nil
+}
+
+// replyFailure chooses the fixed category of a failed reply POST from the
+// forge failure's kind: a rate limit or a local hold deferral and a definite
+// refusal prove nothing was posted; anything else leaves the outcome uncertain.
+func replyFailure(e error) error {
+	var githubRate *github.RateLimitError
+	var ticketRate *ticket.RateLimitError
+	var failure *ticket.Failure
+	switch {
+	case errors.Is(e, ticket.ErrDiscoveryDeferred), errors.Is(e, github.ErrRateLimited), errors.As(e, &githubRate), errors.As(e, &ticketRate):
+		return doctor.ErrRepairReplyRateLimited
+	case errors.As(e, &failure) && failure.Kind != ticket.Uncertain:
+		return doctor.ErrRepairReplyRefused
+	}
+	return doctor.ErrRepairReplyOutcomeUncertain
 }
 
 // consumeStateFailure gives a store refusal of the consume step its fixed
