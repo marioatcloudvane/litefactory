@@ -42,6 +42,7 @@ func Commands() []*Command {
 		newLogAnalysisCommand("show"),
 		newLogAnalysisCommand("reread"),
 		newLogAnalysisCommand("recover"),
+		newLogAnalysisCommand("file"),
 		newAnalystScheduleCommand("create"),
 		newAnalystScheduleCommand("list"),
 		newAnalystScheduleCommand("show"),

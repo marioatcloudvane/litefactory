@@ -306,7 +306,7 @@ var archiveRetained = map[string]ArchiveClass{
 	"analyst_occurrences": ArchiveClassGlobal, "analyst_source_work": ArchiveClassGlobal,
 	"analyst_proposal_notices": ArchiveClassGlobal,
 	"log_analyses":             ArchiveClassGlobal, "log_analysis_books": ArchiveClassGlobal,
-	"log_analysis_evidence": ArchiveClassGlobal, "log_analysis_reports": ArchiveClassGlobal,
+	"log_analysis_evidence": ArchiveClassGlobal, "log_analysis_reports": ArchiveClassGlobal, "log_analysis_filings": ArchiveClassGlobal,
 	"log_analysis_proposals": ArchiveClassGlobal,
 	"graph_definitions":      ArchiveClassGlobal,
 	"doctor_attempts":        ArchiveClassGlobal, "doctor_conversations": ArchiveClassGlobal,

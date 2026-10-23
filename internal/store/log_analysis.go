@@ -450,8 +450,8 @@ func (db *DB) InterruptLogAnalysis(ctx context.Context, id string, generation in
 		report, e := json.Marshal(struct {
 			Summary   string            `json:"summary"`
 			Proposals []json.RawMessage `json:"proposals"`
-			NotBook   []json.RawMessage `json:"not_book"`
-		}{Summary: "Not evaluated: " + reason, Proposals: []json.RawMessage{}, NotBook: []json.RawMessage{}})
+			Findings  []json.RawMessage `json:"findings"`
+		}{Summary: "Not evaluated: " + reason, Proposals: []json.RawMessage{}, Findings: []json.RawMessage{}})
 		if e != nil {
 			return e
 		}
@@ -624,4 +624,62 @@ func checkLogAnalysisTransition(result sql.Result, err error) error {
 		return ErrLogAnalysisConflict
 	}
 	return nil
+}
+
+// LogAnalysisFiling records what the host did with one finding marked for filing.
+type LogAnalysisFiling struct {
+	AnalysisID  string    `json:"analysis_id"`
+	FindingKey  string    `json:"finding_key"`
+	Destination string    `json:"destination"`
+	State       string    `json:"state"`
+	Reference   string    `json:"reference,omitempty"`
+	URL         string    `json:"url,omitempty"`
+	Reason      string    `json:"reason,omitempty"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// Filing states. Filed and would_file are settled and never change again.
+const (
+	FilingWouldFile = "would_file"
+	FilingNotFiled  = "not_filed"
+	FilingStarted   = "filing"
+	FilingFiled     = "filed"
+	FilingFailed    = "failed"
+)
+
+// SaveLogAnalysisFiling inserts or advances one filing record. A settled
+// record is refused, so a retry can never file the same finding twice.
+func (db *DB) SaveLogAnalysisFiling(ctx context.Context, f LogAnalysisFiling) (LogAnalysisFiling, error) {
+	if f.AnalysisID == "" || f.FindingKey == "" || f.Destination == "" || f.Title == "" || f.Body == "" {
+		return f, errors.New("log analysis: incomplete filing record")
+	}
+	f.UpdatedAt = nowUTC()
+	_, err := db.sql.ExecContext(ctx, `INSERT INTO log_analysis_filings(analysis_id,finding_key,destination,state,reference,url,reason,title,body,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(analysis_id,finding_key) DO UPDATE SET destination=excluded.destination,state=excluded.state,reference=excluded.reference,url=excluded.url,reason=excluded.reason,title=excluded.title,body=excluded.body,updated_at=excluded.updated_at`,
+		f.AnalysisID, f.FindingKey, f.Destination, f.State, f.Reference, f.URL, f.Reason, f.Title, f.Body, FormatTime(f.UpdatedAt))
+	return f, err
+}
+
+// ListLogAnalysisFilings returns the filing records of one analysis by finding key.
+func (db *DB) ListLogAnalysisFilings(ctx context.Context, id string) ([]LogAnalysisFiling, error) {
+	out := []LogAnalysisFiling{}
+	rows, err := db.sql.QueryContext(ctx, `SELECT analysis_id,finding_key,destination,state,reference,url,reason,title,body,updated_at FROM log_analysis_filings WHERE analysis_id=? ORDER BY finding_key`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f LogAnalysisFiling
+		var updated string
+		if err = rows.Scan(&f.AnalysisID, &f.FindingKey, &f.Destination, &f.State, &f.Reference, &f.URL, &f.Reason, &f.Title, &f.Body, &updated); err != nil {
+			return nil, err
+		}
+		if f.UpdatedAt, err = ParseTime(updated); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }
