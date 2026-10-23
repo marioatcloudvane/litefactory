@@ -102,10 +102,14 @@ func TestDriftRecordedLaunchControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
-	for _, flag := range []string{"--restricted", "--safe-mode", "--disable-slash-commands", "--strict-mcp-config", "--no-chrome"} {
+	for _, flag := range []string{"--restricted", "--disable-slash-commands", "--strict-mcp-config", "--no-chrome"} {
 		if !slices.Contains(args, flag) {
 			t.Fatalf("missing launch control %s", flag)
 		}
+	}
+	// --safe-mode also disables the --mcp-config broker the analyst needs.
+	if slices.Contains(args, "--safe-mode") {
+		t.Fatal("drift analyst launched with --safe-mode")
 	}
 	for flag, want := range map[string]string{"--tools": "", "--setting-sources": "", "--agents": "{}", "--settings": `{"disableAllHooks":true}`} {
 		i := slices.Index(args, flag)
