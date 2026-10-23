@@ -40,13 +40,14 @@ func driftRecordedProvider(t *testing.T, mode string) (*Runner, agent.DriftReque
 	if err != nil {
 		t.Fatal(err)
 	}
+	configDir := filepath.Join(t.TempDir(), "claude-home")
 	help := "--tools --safe-mode --restricted --disable-slash-commands --strict-mcp-config --setting-sources --system-prompt --settings --agents --no-chrome"
 	if mode == "unsupported" {
 		help = "--tools"
 	}
 	script := "#!/bin/sh\nif [ \"$1\" = --help ]; then echo '" + help + "'; exit 0; fi\nif [ \"$1\" = --version ]; then echo 'fixture-version'; exit 0; fi\n" + `
 [ -z "$GH_TOKEN$LF_HOME$ANTHROPIC_API_KEY" ] || exit 90
-[ "$HOME" = "$CLAUDE_CONFIG_DIR" ] || exit 91
+[ "$CLAUDE_CONFIG_DIR" = "` + configDir + `" ] || exit 91
 printf '%s\n' "$@" > "$0.args"
 /bin/cat > "$0.prompt"
 while [ "$#" -gt 0 ]; do
@@ -66,7 +67,7 @@ done
 		t.Fatal(err)
 	}
 	request := agent.DriftRequest{Invocation: agent.DoctorRequest{Attempt: "drift-attempt", Model: "fixture-model", Prompt: "bounded source context", WorkingDirectory: dir, MCPLaunch: spec}}
-	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=fixture-secret", "LF_HOME=unrelated", "ANTHROPIC_API_KEY=fixture-secret"}}
+	runner := &Runner{claudeConfigDir: configDir, binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=fixture-secret", "LF_HOME=unrelated", "ANTHROPIC_API_KEY=fixture-secret"}}
 	return runner, request, binary
 }
 
