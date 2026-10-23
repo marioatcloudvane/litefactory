@@ -16,7 +16,11 @@ func plainFixture(t *testing.T) (*Service, *standardsGateOperations, func(string
 	t.Helper()
 	s, ops, start := standardsGateFixture(t)
 	s.conversations.Load().factory = true
-	return s, ops, start, s.sender.(*standardsDeliverySender)
+	sender, ok := s.sender.(*standardsDeliverySender)
+	if !ok {
+		t.Fatal("fixture sender is not the delivery recorder")
+	}
+	return s, ops, start, sender
 }
 
 // proposeAnalysis runs the propose path for one owner message and delivers

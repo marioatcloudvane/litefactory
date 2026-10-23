@@ -43,6 +43,8 @@ type factoryConversationPrompt struct {
 	ConsultNote string `json:"consult_note,omitempty"`
 	// OpenProposal is the proposal awaiting the owner's yes, if any.
 	OpenProposal *conversationOpenProposal `json:"open_proposal,omitempty"`
+	// AuthorSession is the standards author session this conversation works on.
+	AuthorSession *conversationAuthorSession `json:"author_session,omitempty"`
 }
 
 // conversationOpenProposal is what the agent needs to judge a confirmation:
@@ -92,6 +94,8 @@ type factoryConversationRun struct {
 	consults int
 	// refSuffix keeps the references of reasoner lookups distinct.
 	refSuffix string
+	// authorRef cites the conversation's open author session.
+	authorRef *ConversationReference
 }
 
 // maxCalls is the turn's conversation invocation budget. A consult adds one
@@ -263,6 +267,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		return s.conversationHandled(ctx, t, "Please send a shorter request with the exact action and target. Nothing was authorized.", at)
 	}
 	slices.Reverse(turns)
+	author, err := run.loadAuthor(work)
+	if err != nil {
+		return err
+	}
 	refs, err := run.references(work)
 	if err != nil {
 		return err
@@ -286,7 +294,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if run.focus, err = run.loadFocus(work); err != nil {
 		return err
 	}
-	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes, OpenProposal: open}
+	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes, OpenProposal: open, AuthorSession: author}
 	corrected, lookups, pendingLookup, err := run.resumeBoundary(work, &prompt)
 	if err != nil {
 		return run.failed(ctx, err)
@@ -517,6 +525,9 @@ func (r *factoryConversationRun) references(ctx context.Context) ([]Conversation
 			}
 		}
 		refs = append(refs, ConversationReference{ID: v.ID, OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: v.TurnID, RepoID: repoID, Revision: v.Revision, ExpiresAt: v.ExpiresAt, Arguments: args})
+	}
+	if r.authorRef != nil {
+		refs = append([]ConversationReference{*r.authorRef}, refs...)
 	}
 	return expandStandardsReferences(refs), nil
 }

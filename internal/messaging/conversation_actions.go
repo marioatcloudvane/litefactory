@@ -33,6 +33,9 @@ func (r *factoryConversationRun) propose(ctx context.Context, inv Invocation, en
 	if p.Invocation.Command == "draft" && strings.TrimSpace(p.Invocation.Arguments["note"]) == "" {
 		return s.conversationOutcome(ctx, r.t, "completed", "Please provide the exact feature idea for the proposed draft.", r.at)
 	}
+	if standardsDirect(p.Invocation) {
+		return r.direct(ctx, p)
+	}
 	d, err := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.c.ChannelRef)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
@@ -286,6 +289,47 @@ func (r *factoryConversationRun) authorize(ctx context.Context, d store.NaturalD
 		}
 	}
 	return r.execute(ctx, reply, p)
+}
+
+// standardsDirect reports the author steps that run without a confirmation:
+// they record the owner's own words or ask the author for its next draft.
+// Starting a session (it costs money), turning a draft into a proposal,
+// approval and publication stay confirmed.
+func standardsDirect(inv Invocation) bool {
+	if inv.Command != "standards-author" {
+		return false
+	}
+	switch inv.Arguments["action"] {
+	case "answer", "continue", "edit", "validate", "rebase":
+		return true
+	}
+	return false
+}
+
+// direct runs an author step without a proposal. Its outcome is told like a
+// confirmed action's, and a draft it starts is posted after that reply.
+func (r *factoryConversationRun) direct(ctx context.Context, p naturalPayload) error {
+	s := r.s
+	execution := "nl-direct:" + r.t.ID
+	if err := s.db.SaveConversationActionLink(ctx, r.t, store.ConversationActionLink{TurnID: r.t.ID, ExecutionID: execution}); err != nil {
+		return err
+	}
+	request, err := s.standardsRequest(p.Invocation, r.c.ChannelRef, r.t.SourceID, r.at)
+	if err != nil {
+		return err
+	}
+	request.OperationKey = s.transport + ":" + r.c.ChannelRef + ":" + execution
+	result, err := s.standards.Execute(ctx, request)
+	text := result.Text
+	if err != nil {
+		text = standardsError(err)
+	} else if _, err = r.saveStandardsReference(ctx, result.References); err != nil {
+		return err
+	}
+	if text, err = s.Protect(ctx, text); err != nil {
+		return err
+	}
+	return r.narrate(ctx, text)
 }
 
 // naturalUnavailable answers a confirmation with nothing left to confirm.
