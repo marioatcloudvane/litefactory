@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/drift"
 	"github.com/cloudvane/litefactory/internal/loganalysis"
-	"github.com/cloudvane/litefactory/internal/logevidence"
 	"github.com/cloudvane/litefactory/internal/prevention"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -53,49 +53,24 @@ func (s *Service) reconcile(ctx context.Context, o store.AnalystOccurrence, now 
 				return false, e
 			}
 		}
+		cited := map[int64]bool{}
+		for _, p := range report.Proposals {
+			for _, c := range p.Citations {
+				cited[c.RunID] = true
+			}
+		}
+		for _, n := range report.NotBook {
+			for _, c := range n.Citations {
+				cited[c.RunID] = true
+			}
+		}
+		// The analyst decides what to read; an accepted report covers its scope.
+		accepted := a.State == "completed" && len(view.Report) > 0
 		for i := range o.Works {
 			w := &o.Works[i]
-			pending := false
-			failed := false
-			for _, row := range view.Evidence {
-				var ev loganalysis.Evidence
-				if e = json.Unmarshal(row.Metadata, &ev); e != nil {
-					return false, e
-				}
-				if ev.Tool != "run_logs_read" {
-					continue
-				}
-				var selector logevidence.ReadRequest
-				if e = json.Unmarshal(ev.Selector, &selector); e != nil {
-					return false, e
-				}
-				if selector.RunID != w.RunID {
-					continue
-				}
-				if ev.Status != "ok" || (ev.Coverage.Incomplete && !ev.Coverage.RetentionOnly) || len(ev.Coverage.Omissions) > 0 {
-					failed = true
-				}
-				for _, event := range ev.Events {
-					if event.Truncated {
-						failed = true
-					}
-				}
-				if len(ev.Citations) > 0 {
-					w.Offered = true
-				}
-				if ev.Coverage.EndOfSource && ev.Status == "ok" && selector.Citation == nil && selector.Offset == 0 {
-					w.Covered = true
-				}
-				pending = ev.Next
-			}
-			w.Covered = len(view.Report) > 0 && w.Covered && !pending && !failed
-			for _, f := range report.Findings {
-				for _, citation := range f.Citations {
-					if citation.RunID == w.RunID {
-						w.Cited = true
-					}
-				}
-			}
+			w.Offered = slices.Contains(view.Read.Digests, w.RunID) || slices.Contains(view.Read.RawReads, w.RunID)
+			w.Cited = cited[w.RunID]
+			w.Covered = accepted
 			disposition(w)
 		}
 		for _, p := range view.Proposals {

@@ -61,7 +61,7 @@ func scheduleMainPathFixture(t *testing.T) (config.Paths, store.Repo, store.Run,
 	if err = os.WriteFile(logPath, []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"A package check caught a regression before review. schedule-fixture-token-70391"}]}}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.FinishRun(t.Context(), sourceRun.ID, store.RunOutcome{Status: store.RunSucceeded, FinishedAt: time.Now().Add(-time.Second)}); err != nil {
+	if _, err = db.FinishRun(t.Context(), sourceRun.ID, store.RunOutcome{Status: store.RunFailed, FinishedAt: time.Now().Add(-time.Second)}); err != nil {
 		t.Fatal(err)
 	}
 	// The newer completed run wins a one-run batch. Older terminal work

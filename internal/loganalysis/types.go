@@ -40,21 +40,54 @@ type Scope struct {
 	HighWater int64     `json:"high_water"`
 }
 
-// Finding connects interpretation to exact evidence offered by the host.
-type Finding struct {
-	Key         string                 `json:"key"`
-	Observation string                 `json:"observation"`
-	Benefit     string                 `json:"benefit"`
-	Uncertainty string                 `json:"uncertainty"`
-	Citations   []logevidence.Citation `json:"citations"`
-	Change      *standards.Operation   `json:"change,omitempty"`
+// Justification is the analyst's own case for a proposal.
+type Justification struct {
+	IncidentIDs   []string `json:"incident_ids"`
+	Tasks         []string `json:"tasks"`
+	Cost          string   `json:"cost"`
+	WhyItPrevents string   `json:"why_it_prevents"`
+	LoadAfter     string   `json:"load_after"`
 }
 
-// Report contains model interpretation only; coverage is supplied by the host.
+// Proposal is one proposed standard, optionally with the category it opens.
+type Proposal struct {
+	NewCategory   *standards.Category    `json:"new_category,omitempty"`
+	Operation     standards.Operation    `json:"operation"`
+	Justification Justification          `json:"justification"`
+	Citations     []logevidence.Citation `json:"citations"`
+}
+
+// Kinds of findings that belong outside the book.
+const (
+	NotBookRolePrompt    = "role_prompt"
+	NotBookFactoryDefect = "factory_defect"
+)
+
+// NotBook is a cause the analyst places in a role prompt or the factory.
+type NotBook struct {
+	Kind        string                 `json:"kind"`
+	Target      string                 `json:"target"`
+	Finding     string                 `json:"finding"`
+	IncidentIDs []string               `json:"incident_ids"`
+	Citations   []logevidence.Citation `json:"citations"`
+}
+
+// Report is the analyst's judgement; what it read is recorded by the host.
 type Report struct {
-	Disposition string    `json:"disposition"`
-	Reason      string    `json:"reason"`
-	Findings    []Finding `json:"findings"`
+	Summary        string     `json:"summary"`
+	Proposals      []Proposal `json:"proposals"`
+	NotBook        []NotBook  `json:"not_book"`
+	NoChangeReason string     `json:"no_change_reason,omitempty"`
+}
+
+// Reading is what the analyst actually received, from the evidence ledger.
+type Reading struct {
+	IncidentsOffered int     `json:"incidents_offered"`
+	RunsListed       int     `json:"runs_listed"`
+	Digests          []int64 `json:"digests"`
+	RawReads         []int64 `json:"raw_reads"`
+	Withheld         int     `json:"withheld"`
+	BudgetExhausted  bool    `json:"budget_exhausted"`
 }
 
 // OfferedEvent retains delivery metadata without retaining source bodies.
@@ -71,6 +104,7 @@ type Evidence struct {
 	Selector  json.RawMessage           `json:"selector"`
 	Status    string                    `json:"status"`
 	Runs      []logevidence.RunMetadata `json:"runs,omitempty"`
+	Incidents []string                  `json:"incidents,omitempty"`
 	Citations []logevidence.Citation    `json:"citations,omitempty"`
 	Coverage  logevidence.Coverage      `json:"coverage"`
 	Next      bool                      `json:"has_more"`
@@ -81,6 +115,7 @@ type Evidence struct {
 type Inspection struct {
 	Invocation   store.LogAnalysis               `json:"invocation"`
 	Standards    standards.RunInspection         `json:"standards"`
+	Read         Reading                         `json:"read"`
 	Evidence     []store.LogAnalysisEvidence     `json:"evidence"`
 	EvidenceNext int64                           `json:"evidence_next,omitempty"`
 	Report       json.RawMessage                 `json:"report,omitempty"`
