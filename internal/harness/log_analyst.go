@@ -55,10 +55,11 @@ func (r *Runner) RunLogAnalyst(ctx context.Context, request agent.LogAnalystRequ
 		return agent.LogAnalystRunResult{}, err
 	}
 	defer func() { failure = errors.Join(failure, os.RemoveAll(home)) }()
-	if r.osHome != "" {
-		if err = linkCredentials(home, r.osHome); err != nil {
-			return agent.LogAnalystRunResult{}, err
-		}
+	// The persistent Claude home keeps the refreshed login (#1057); this
+	// private directory only holds the MCP registration and scratch files.
+	configDir, err := r.persistentClaudeHome()
+	if err != nil {
+		return agent.LogAnalystRunResult{}, err
 	}
 	mcp := filepath.Join(home, "mcp.json")
 	registration := map[string]any{"mcpServers": map[string]any{"litefactory": map[string]any{"type": "stdio", "command": request.MCPLaunch.Executable(), "args": request.MCPLaunch.Arguments(), "env": map[string]string{}}}}
@@ -70,7 +71,7 @@ func (r *Runner) RunLogAnalyst(ctx context.Context, request agent.LogAnalystRequ
 		return agent.LogAnalystRunResult{}, err
 	}
 	args := logAnalystArguments(request, mcp)
-	env := append(providerprocess.DoctorEnvironment(r.environ, home), "CLAUDE_CONFIG_DIR="+home, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+	env := append(r.persistentClaudeEnv(home, configDir), "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	collector := newUsageCaptureCollector(ctx, request.Usage, "", false)
