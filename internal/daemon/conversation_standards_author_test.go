@@ -42,14 +42,14 @@ func TestConfirmedAuthoringIsScopedToTheProjectAndPostsItsDraft(t *testing.T) {
 		t.Fatalf("session not scoped to the project: %+v %v", started.Project, err)
 	}
 	out, err := f.adapter.Execute(t.Context(), request("author.continue", "continue", map[string]string{"id": "stubs", "version": strconv.FormatInt(started.Version, 10)}))
-	if err != nil || !strings.Contains(out.Text, "will be posted here") {
+	if err != nil || out.Text == "" || strings.Contains(out.Text, "MUST") {
 		t.Fatalf("continuation did not move to the background: %+v %v", out, err)
 	}
 	if call := <-calls; call.Project == nil || call.Project.Commit != "abc123" {
 		t.Fatalf("author not given the pinned project: %+v", call.Project)
 	}
 	post := <-f.posts
-	if post.channel != "3" || !strings.Contains(post.text, "MUST implement or omit a planned capability") || !strings.Contains(post.text, "Which stage?") || !strings.Contains(post.text, "New category delivery") {
+	if post.channel != "3" || post.operation != "discord:3:nl-exec:continue" || !strings.Contains(post.text, "MUST implement or omit a planned capability") || !strings.Contains(post.text, "Which stage?") || !strings.Contains(post.text, "Delivery") || strings.Contains(post.text, "session stubs") {
 		t.Fatalf("draft not posted: %+v", post)
 	}
 	saved, err := f.adapter.Authoring.Show(t.Context(), "stubs", 0)
