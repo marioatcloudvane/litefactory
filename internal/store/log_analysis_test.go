@@ -209,12 +209,12 @@ func TestLogAnalysisInterruptionRetainsHostOnlyReport(t *testing.T) {
 	var report struct {
 		Summary   string            `json:"summary"`
 		Proposals []json.RawMessage `json:"proposals"`
-		NotBook   []json.RawMessage `json:"not_book"`
+		Findings  []json.RawMessage `json:"findings"`
 	}
 	if err = json.Unmarshal(raw, &report); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(report.Summary, "provider interrupted before submission") || len(report.Proposals) != 0 || len(report.NotBook) != 0 {
+	if !strings.Contains(report.Summary, "provider interrupted before submission") || len(report.Proposals) != 0 || len(report.Findings) != 0 {
 		t.Fatalf("unexpected host report: %s", raw)
 	}
 	receipt, err := db.GetLogAnalysisReceipt(t.Context(), a.ID, "host-interrupted")
@@ -291,5 +291,29 @@ func TestLogAnalysisFailedFenceRollsBackReportAndCandidates(t *testing.T) {
 	}
 	if _, err := db.GetLogAnalysisReport(t.Context(), a.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing interruption fence leaked report: %v", err)
+	}
+}
+
+func TestLogAnalysisFilingSettlesOnce(t *testing.T) {
+	db := newTestDB(t)
+	a := createLogAnalysisFixture(t, db, "A1")
+	if err := db.InterruptLogAnalysis(t.Context(), a.ID, a.Generation, "incomplete", "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	f := LogAnalysisFiling{AnalysisID: "A1", FindingKey: "setup", Destination: "github:acme/app", State: FilingStarted, Title: "t", Body: "b"}
+	if _, err := db.SaveLogAnalysisFiling(t.Context(), f); err != nil {
+		t.Fatal(err)
+	}
+	f.State, f.Reference = FilingFiled, "acme/app#1"
+	if _, err := db.SaveLogAnalysisFiling(t.Context(), f); err != nil {
+		t.Fatal(err)
+	}
+	f.State = FilingStarted
+	if _, err := db.SaveLogAnalysisFiling(t.Context(), f); err == nil {
+		t.Fatal("a filed finding was reopened")
+	}
+	got, err := db.ListLogAnalysisFilings(t.Context(), "A1")
+	if err != nil || len(got) != 1 || got[0].State != FilingFiled || got[0].Reference != "acme/app#1" {
+		t.Fatalf("filings=%+v %v", got, err)
 	}
 }

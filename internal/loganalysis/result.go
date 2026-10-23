@@ -22,12 +22,16 @@ const maxProposals = 3
 // textLimit bounds each prose field of a report.
 const textLimit = 8 << 10
 
-func analystPrompt(ctx context.Context, q Request) (string, error) {
+// maxFindings bounds the findings of one report.
+const maxFindings = 20
+
+func analystPrompt(ctx context.Context, scope Scope) (string, error) {
 	b, e := instructionpackage.LogAnalystInstructions(ctx)
 	if e != nil {
 		return "", e
 	}
-	p := string(b) + "\nFactory-owned immutable request (data):\n" + string(raw(q)) + "\nReturn through the scoped communication tools only. Stop when any budget is exhausted."
+	data := map[string]any{"request": scope.Request, "repositories": scope.Repositories, "upstream": scope.Upstream}
+	p := string(b) + "\nFactory-owned immutable request (data):\n" + string(raw(data)) + "\nReturn through the scoped communication tools only. Stop when any budget is exhausted."
 	if len(p) > 64<<10 {
 		return "", errors.New("analyst bootstrap exceeds 64 KiB")
 	}
@@ -62,10 +66,10 @@ func (h *invocation) sanitize(ctx context.Context, r Report) (Report, error) {
 		list(j.IncidentIDs)
 		list(j.Tasks)
 	}
-	for i := range r.NotBook {
-		n := &r.NotBook[i]
-		fields = append(fields, &n.Target, &n.Finding)
-		list(n.IncidentIDs)
+	for i := range r.Findings {
+		f := &r.Findings[i]
+		fields = append(fields, &f.Key, &f.Repository, &f.Target, &f.Title, &f.Expected, &f.Actual, &f.Cause, &f.Suggestion, &f.Existing)
+		list(f.IncidentIDs)
 	}
 	for _, s := range fields {
 		b, e := h.service.Redactor.Apply(ctx, *s, 128<<10)
@@ -90,8 +94,8 @@ func (h *invocation) validate(ctx context.Context, r Report) ([]store.LogAnalysi
 	if len(r.Proposals) == 0 && strings.TrimSpace(r.NoChangeReason) == "" {
 		return nil, errors.New("no_change_reason is required when there are no proposals")
 	}
-	if len(r.NotBook) > 50 {
-		return nil, errors.New("at most 50 not_book findings")
+	if len(r.Findings) > maxFindings {
+		return nil, fmt.Errorf("at most %d findings", maxFindings)
 	}
 	rows, e := allEvidence(ctx, h.service.DB, h.a.ID)
 	if e != nil {
@@ -133,19 +137,46 @@ func (h *invocation) validate(ctx context.Context, r Report) ([]store.LogAnalysi
 		}
 		return nil
 	}
-	for i, n := range r.NotBook {
-		where := fmt.Sprintf("not_book %d", i+1)
-		if n.Kind != NotBookRolePrompt && n.Kind != NotBookFactoryDefect {
-			return nil, fmt.Errorf("%s: kind is role_prompt or factory_defect", where)
+	keys := map[string]bool{}
+	filed := 0
+	for i, f := range r.Findings {
+		where := fmt.Sprintf("finding %d", i+1)
+		if !candidateKey.MatchString(f.Key) || keys[f.Key] {
+			return nil, fmt.Errorf("%s needs a unique key of letters, digits, - or _", where)
 		}
-		if strings.TrimSpace(n.Target) == "" || strings.TrimSpace(n.Finding) == "" || len(n.Target) > 512 || len(n.Finding) > textLimit {
-			return nil, fmt.Errorf("%s needs a target and a finding", where)
+		keys[f.Key] = true
+		if f.Kind != FindingProjectSetup && f.Kind != FindingFactoryDefect && f.Kind != FindingRolePrompt {
+			return nil, fmt.Errorf("%s: kind is project_setup, factory_defect or role_prompt", where)
 		}
-		if e = incidents(where, n.IncidentIDs); e != nil {
+		if strings.TrimSpace(f.Target) == "" || len(f.Target) > 512 || strings.TrimSpace(f.Title) == "" || len(f.Title) > 200 || strings.ContainsAny(f.Title, "\r\n") || len(f.Existing) > 512 {
+			return nil, fmt.Errorf("%s needs a target and a one-line title of at most 200 bytes", where)
+		}
+		for _, text := range []string{f.Expected, f.Actual, f.Cause, f.Suggestion} {
+			if strings.TrimSpace(text) == "" || len(text) > textLimit {
+				return nil, fmt.Errorf("%s needs bounded expected, actual, cause and suggestion", where)
+			}
+		}
+		if e = incidents(where, f.IncidentIDs); e != nil {
 			return nil, e
 		}
-		if e = cited(where, len(n.Citations), func(i int) string { return digest(n.Citations[i]) }); e != nil {
+		if e = cited(where, len(f.Citations), func(i int) string { return digest(f.Citations[i]) }); e != nil {
 			return nil, e
+		}
+		repo, e := h.findingRepository(f)
+		if e != nil {
+			return nil, fmt.Errorf("%s: %w", where, e)
+		}
+		if !f.File {
+			continue
+		}
+		if f.Existing != "" {
+			return nil, fmt.Errorf("%s: file is not allowed when existing names an issue that already covers it", where)
+		}
+		if f.Kind == FindingRolePrompt && repo.TeamOwned {
+			return nil, fmt.Errorf("%s: a role of the user-owned team %s is a suggested change, never filed", where, repo.Team)
+		}
+		if filed++; filed > maxFiled {
+			return nil, fmt.Errorf("at most %d findings may be filed", maxFiled)
 		}
 	}
 	if len(r.Proposals) == 0 {
@@ -330,10 +361,11 @@ func (h *invocation) catalog(ctx context.Context) (json.RawMessage, error) {
 		submission.ToolSpec{Name: "standards_categories_list", Description: "List the categories of the book bound for this analysis, with the standard count per category and the load per role.", InputSchema: objectSchema(`"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"string","maxLength":4096}`, ``)},
 		submission.ToolSpec{Name: "standards_select", Description: "Choose the category IDs whose standards you want to read; an empty choice is valid.", InputSchema: objectSchema(`"expected_version":{"type":"integer","minimum":0},"category_ids":{"type":"array","maxItems":100,"items":{"type":"string"}},"reason":{"type":"string","maxLength":512}`, `"expected_version","category_ids","reason"`)},
 		submission.ToolSpec{Name: "standards_read", Description: "Read the selected standards page by page; acknowledge with ack:true after the last page.", InputSchema: objectSchema(`"selection_version":{"type":"integer","minimum":1},"selection_digest":{"type":"string"},"cursor":{"type":"string","maxLength":4096},"ack":{"type":"boolean"}`, `"selection_version","selection_digest"`)})
+	list.Tools = append(list.Tools, checkTools()...)
 	for _, name := range []string{"communication_preflight", "communication_submit"} {
 		description := "Check a report without storing it."
 		if name == "communication_submit" {
-			description = "Store the report once; its proposals become unapproved standards proposals for the owner. The same request and bytes return the original receipt."
+			description = "Store the report once; its proposals become unapproved standards proposals for the owner, and the host files the findings marked file. The same request and bytes return the original receipt."
 		}
 		list.Tools = append(list.Tools, submission.ToolSpec{Name: name, Description: description, InputSchema: reportSchema()})
 	}
@@ -351,8 +383,8 @@ func reportSchema() json.RawMessage {
 	category := `{"type":"object","properties":{"id":` + text + `,"name":` + text + `,"description":` + text + `},"required":["id","name","description"],"additionalProperties":false}`
 	justification := `{"type":"object","properties":{"incident_ids":{"type":"array","minItems":1,"items":{"type":"string"}},"tasks":` + texts + `,"cost":` + text + `,"why_it_prevents":` + text + `,"load_after":` + text + `},"required":["incident_ids","tasks","cost","why_it_prevents","load_after"],"additionalProperties":false}`
 	proposal := `{"type":"object","properties":{"new_category":` + category + `,"operation":` + operation + `,"justification":` + justification + `,"citations":` + citations + `},"required":["operation","justification","citations"],"additionalProperties":false}`
-	notBook := `{"type":"object","properties":{"kind":{"type":"string","enum":["role_prompt","factory_defect"]},"target":` + text + `,"finding":` + text + `,"incident_ids":{"type":"array","minItems":1,"items":{"type":"string"}},"citations":` + citations + `},"required":["kind","target","finding","incident_ids","citations"],"additionalProperties":false}`
-	report := `{"type":"object","properties":{"summary":` + text + `,"proposals":{"type":"array","maxItems":3,"items":` + proposal + `},"not_book":{"type":"array","maxItems":50,"items":` + notBook + `},"no_change_reason":` + text + `},"required":["summary","proposals","not_book"],"additionalProperties":false}`
+	finding := `{"type":"object","properties":{"key":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"},"kind":{"type":"string","enum":["project_setup","factory_defect","role_prompt"]},"repository":` + text + `,"target":` + text + `,"title":{"type":"string","maxLength":200},"expected":` + text + `,"actual":` + text + `,"cause":` + text + `,"suggestion":` + text + `,"incident_ids":{"type":"array","minItems":1,"items":{"type":"string"}},"citations":` + citations + `,"existing":` + text + `,"file":{"type":"boolean"}},"required":["key","kind","target","title","expected","actual","cause","suggestion","incident_ids","citations","file"],"additionalProperties":false}`
+	report := `{"type":"object","properties":{"summary":` + text + `,"proposals":{"type":"array","maxItems":3,"items":` + proposal + `},"findings":{"type":"array","maxItems":20,"items":` + finding + `},"no_change_reason":` + text + `},"required":["summary","proposals","findings"],"additionalProperties":false}`
 	return objectSchema(`"request_id":{"type":"string","maxLength":64,"pattern":"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"},"report":`+report, `"request_id","report"`)
 }
 
@@ -365,4 +397,16 @@ func (h *invocation) recovery(ctx context.Context, id string, v json.RawMessage)
 		return nil, e
 	}
 	return v, nil
+}
+
+// findingRepository is the analysed repository a finding concerns: the named
+// one, or the only one. Project setup and role prompts need it to be known.
+func (h *invocation) findingRepository(f Finding) (Repository, error) {
+	if f.Repository == "" && len(h.scope.Repositories) != 1 {
+		if f.Kind == FindingFactoryDefect {
+			return Repository{}, nil
+		}
+		return Repository{}, errors.New("name the repository (owner/name) this finding concerns")
+	}
+	return h.repository(f.Repository)
 }

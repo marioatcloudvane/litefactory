@@ -59,7 +59,7 @@ func (s *Service) reconcile(ctx context.Context, o store.AnalystOccurrence, now 
 				cited[c.RunID] = true
 			}
 		}
-		for _, n := range report.NotBook {
+		for _, n := range report.Findings {
 			for _, c := range n.Citations {
 				cited[c.RunID] = true
 			}

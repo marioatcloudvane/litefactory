@@ -43,7 +43,7 @@ type outcomeFixture struct {
 	runs []int64
 }
 
-func newOutcomeFixture(t *testing.T, published, interval bool) *outcomeFixture {
+func newOutcomeFixture(t *testing.T, published, interval bool, options ...func(*Scope)) *outcomeFixture {
 	t.Helper()
 	root := t.TempDir()
 	db, err := store.Open(t.Context(), filepath.Join(root, "db.sqlite"))
@@ -108,7 +108,11 @@ func newOutcomeFixture(t *testing.T, published, interval bool) *outcomeFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := db.CreateLogAnalysis(t.Context(), store.LogAnalysis{ID: "fixture-analysis", RequestDigest: digest(q), Scope: raw(Scope{Request: q}), Limits: raw(q.Limits), GrantDigest: "fixture-grant"})
+	scope := Scope{Request: q, Repositories: []Repository{{ID: repo.ID, Name: "fixture/service", BaseBranch: "main"}}}
+	for _, option := range options {
+		option(&scope)
+	}
+	a, err := db.CreateLogAnalysis(t.Context(), store.LogAnalysis{ID: "fixture-analysis", RequestDigest: digest(q), Scope: raw(scope), Limits: raw(q.Limits), GrantDigest: "fixture-grant"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +139,7 @@ func newOutcomeFixture(t *testing.T, published, interval bool) *outcomeFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = reader.Close() })
-	return &outcomeFixture{h: &invocation{catalogVerified: true, service: service, a: a, q: q, reader: reader, book: book}, runs: runs}
+	return &outcomeFixture{h: &invocation{catalogVerified: true, service: service, a: a, q: q, scope: scope, reader: reader, book: book}, runs: runs}
 }
 func (f *outcomeFixture) call(t *testing.T, name string, args any) logevidence.Result {
 	t.Helper()
@@ -153,7 +157,7 @@ func (f *outcomeFixture) call(t *testing.T, name string, args any) logevidence.R
 	return v
 }
 func reportFor(c logevidence.Citation) Report {
-	return Report{Summary: "One failed run; no repeated cause.", NoChangeReason: "A single occurrence is not a pattern.", NotBook: []NotBook{}, Proposals: []Proposal{}}
+	return Report{Summary: "One failed run; no repeated cause.", NoChangeReason: "A single occurrence is not a pattern.", Findings: []Finding{}, Proposals: []Proposal{}}
 }
 
 // incident offers the fixture's failed-run incident and returns its ID.
@@ -164,6 +168,10 @@ func (f *outcomeFixture) incident(t *testing.T) string {
 		t.Fatalf("fixture offered no incident: %+v", listed)
 	}
 	return listed.Incidents[0].ID
+}
+
+func findingFor(target, kind, incident string) Finding {
+	return Finding{Key: target, Kind: kind, Target: target, Title: "The " + target + " fails after its check passed", Expected: "The run succeeds.", Actual: "The run is marked failed.", Cause: "Finalization ignores the check result.", Suggestion: "Read the check result before marking the run.", IncidentIDs: []string{incident}, Citations: []logevidence.Citation{}}
 }
 
 func proposalFor(id string, c logevidence.Citation) Proposal {
@@ -214,16 +222,16 @@ func TestResultValidationKeepsToDataIntegrity(t *testing.T) {
 			r.Proposals = several(1)
 			r.Proposals[0].Justification.IncidentIDs = []string{"bug-404"}
 		},
-		"unknown not-book incident": func(r *Report) {
-			r.NotBook = []NotBook{{Kind: NotBookFactoryDefect, Target: "graph", Finding: "x", IncidentIDs: []string{"bug-404"}}}
+		"unknown finding incident": func(r *Report) {
+			r.Findings = []Finding{findingFor("graph", FindingFactoryDefect, "bug-404")}
 		},
 		"invalid structured standard": func(r *Report) {
 			r.Proposals = several(1)
 			r.Proposals[0].Operation.Standard.Rule = "Should run checks"
 		},
 		"missing category": func(r *Report) { r.Proposals = several(1); r.Proposals[0].Operation.Standard.CategoryID = "missing" },
-		"not-book kind": func(r *Report) {
-			r.NotBook = []NotBook{{Kind: "other", Target: "x", Finding: "y", IncidentIDs: []string{id}}}
+		"finding kind": func(r *Report) {
+			r.Findings = []Finding{findingFor("x", "other", id)}
 		},
 	} {
 		report := reportFor(c)
@@ -234,9 +242,9 @@ func TestResultValidationKeepsToDataIntegrity(t *testing.T) {
 	}
 	report := reportFor(c)
 	report.Proposals = several(3)
-	report.NotBook = []NotBook{{Kind: NotBookRolePrompt, Target: "story-worker", Finding: "Its prompt omits the check step.", IncidentIDs: []string{id}}}
+	report.Findings = []Finding{findingFor("story-worker", FindingRolePrompt, id)}
 	if candidates, err := f.h.validate(t.Context(), report); err != nil || len(candidates) != 3 {
-		t.Fatalf("three proposals with a not-book finding rejected: %d %v", len(candidates), err)
+		t.Fatalf("three proposals with a finding rejected: %d %v", len(candidates), err)
 	}
 	report = reportFor(c)
 	report.Proposals = several(1)
@@ -575,7 +583,9 @@ func TestOutcomeToolsAreRecordedAndOffsetReadsDoNotCoverRuns(t *testing.T) {
 		t.Fatalf("offset read=%+v", window)
 	}
 	report := reportFor(window.Records[0].Citation)
-	report.NotBook = []NotBook{{Kind: NotBookFactoryDefect, Target: "runner", Finding: "The run failed after its check passed.", IncidentIDs: []string{listed.Incidents[0].ID}, Citations: []logevidence.Citation{window.Records[0].Citation}}}
+	finding := findingFor("runner", FindingFactoryDefect, listed.Incidents[0].ID)
+	finding.Citations = []logevidence.Citation{window.Records[0].Citation}
+	report.Findings = []Finding{finding}
 	if _, err = f.h.validate(t.Context(), report); err != nil {
 		t.Fatalf("offset citation refused: %v", err)
 	}

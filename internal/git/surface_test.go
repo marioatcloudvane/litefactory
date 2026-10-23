@@ -28,6 +28,11 @@ func TestCloneMethodSetIsTheAllowlist(t *testing.T) {
 		"DriftChanges", // Bounded pinned net tree comparison; no worktree or ref writes.
 		"DriftBlob",    // Bounded immutable object read; no LFS expansion.
 		"Fetch",
+		// Log analysis reads history, files and matches at one exact commit,
+		// byte bounded. They write no index, worktree, object or ref.
+		"PinnedGrep",
+		"PinnedLog",
+		"PinnedRead",
 		// Stack admission reads one bounded regular override blob at an exact
 		// commit. It writes no index, worktree, object or ref.
 		"ReadStackOverrides",

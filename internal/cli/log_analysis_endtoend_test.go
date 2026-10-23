@@ -133,7 +133,7 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 		t.Fatalf("retained book=%+v", view.Standards.Status)
 	}
 	report := analysisDecode[loganalysis.Report](t, view.Report)
-	if len(report.Proposals) != 1 || len(report.Proposals[0].Citations) != 1 || report.Summary == "" || len(report.NotBook) != 1 {
+	if len(report.Proposals) != 1 || len(report.Proposals[0].Citations) != 1 || report.Summary == "" || len(report.Findings) != 1 {
 		t.Fatalf("retained report=%+v", report)
 	}
 	if view.Read.IncidentsOffered != 1 || view.Read.RunsListed != 1 || !reflect.DeepEqual(view.Read.RawReads, []int64{sourceRun.ID}) {
@@ -156,7 +156,7 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 		t.Fatalf("inspection retained secret, private path or source body: %s", viewJSON)
 	}
 	text := runCommand("standards", "analyze", "logs", "show", receipt.AnalysisID)
-	for _, want := range []string{receipt.AnalysisID, "proposals", receipt.Proposals[0].ProposalID, report.Summary, "MUST Check relevant packages (package-checks)", "# Quality", report.Proposals[0].Justification.Cost, report.NotBook[0].Finding, "1 incidents"} {
+	for _, want := range []string{receipt.AnalysisID, "proposals", receipt.Proposals[0].ProposalID, report.Summary, "MUST Check relevant packages (package-checks)", "# Quality", report.Proposals[0].Justification.Cost, "Upstream reports", "not filed: the analyst did not ask to file it", report.Findings[0].Cause, "1 incidents"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text inspection missing %q: %s", want, text)
 		}
@@ -236,7 +236,7 @@ func (r *analysisFixtureRunner) RunLogAnalyst(ctx context.Context, request agent
 		got = append(got, tool.Name)
 	}
 	slices.Sort(got)
-	want := []string{"communication_preflight", "communication_receipt", "communication_submit", "incidents_list", "run_digest_read", "run_logs_read", "runs_list", "standards_categories_list", "standards_read", "standards_select"}
+	want := agent.LogAnalystToolNames()
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("restricted catalog=%v", got)
 	}
@@ -284,7 +284,7 @@ func (r *analysisFixtureRunner) RunLogAnalyst(ctx context.Context, request agent
 			Justification: loganalysis.Justification{IncidentIDs: incident, Tasks: []string{"github:fixture/analysis#1"}, Cost: "One failed run.", WhyItPrevents: "The check runs before review.", LoadAfter: "story-worker 1 -> 2"},
 			Citations:     citations,
 		}},
-		NotBook: []loganalysis.NotBook{{Kind: loganalysis.NotBookFactoryDefect, Target: "runner", Finding: "The run was marked failed after the check passed.", IncidentIDs: incident, Citations: citations}},
+		Findings: []loganalysis.Finding{{Key: "runner", Kind: loganalysis.FindingFactoryDefect, Target: "runner", Title: "Runs are marked failed after their check passed", Expected: "The run succeeds.", Actual: "The run was marked failed after the check passed.", Cause: "Finalization ignores the check result.", Suggestion: "Read the check result first.", IncidentIDs: incident, Citations: citations}},
 	}
 	payload := map[string]any{"request_id": "fixture-supported-report", "report": report}
 	r.report, _ = json.Marshal(payload)

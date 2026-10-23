@@ -18,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/logevidence"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/standards"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 func newLogAnalysisCommand(action string) *Command {
@@ -26,12 +27,12 @@ func newLogAnalysisCommand(action string) *Command {
 		name = "standards analyze logs"
 	}
 	c := &Command{Name: name, Usage: name + " [--json]", Short: "Start or inspect bounded execution-log analysis", Long: logAnalysisUsage}
-	if action == "show" || action == "reread" || action == "recover" {
+	if action == "show" || action == "reread" || action == "recover" || action == "file" {
 		c.Args = ArgSpec{Names: []string{"analysis-id"}, Min: 1}
 		c.Usage = name + " <analysis-id> [--json]"
 	}
 	if action == "start" {
-		c.Usage = name + " --repo forge:owner/name (--run ID | --after UTC --before UTC) [--json]"
+		c.Usage = name + " --repo forge:owner/name (--run ID | --after UTC --before UTC) [--dry-run] [--json]"
 	}
 	if action == "reread" {
 		c.Usage = name + " <analysis-id> --citation JSON"
@@ -39,7 +40,7 @@ func newLogAnalysisCommand(action string) *Command {
 	c.New = func(fs *flag.FlagSet) Handler {
 		var repos, runs, tasks logRepositoryFlags
 		var after, before, key, cursor string
-		var asJSON bool
+		var asJSON, dryRun bool
 		var limit, calls, bytes, seconds, records, rows, dataCalls, evidenceBytes int
 		var evidenceRuns, reportBytes, proposals, digests int
 		var evidenceAfter int64
@@ -53,6 +54,7 @@ func newLogAnalysisCommand(action string) *Command {
 			fs.StringVar(&after, "after", "", "closed UTC interval start (RFC3339 Z)")
 			fs.StringVar(&before, "before", "", "closed UTC interval end (RFC3339 Z)")
 			fs.StringVar(&key, "start-key", "", "idempotent caller identity; retry never relaunches")
+			fs.BoolVar(&dryRun, "dry-run", false, "run the whole analysis but file nothing; show lists what would be filed")
 			fs.IntVar(&evidenceRuns, "evidence-runs", 0, "lower raw-read run ceiling (default 20)")
 			fs.IntVar(&reportBytes, "report-bytes", 0, "lower submitted report byte ceiling (default 131072)")
 			fs.IntVar(&proposals, "proposals", 0, "lower proposed standard ceiling (default 3)")
@@ -122,6 +124,26 @@ func newLogAnalysisCommand(action string) *Command {
 				}
 				_, e = io.WriteString(env.Stdout, renderLogAnalysis(view, categories))
 				return e
+			case "file":
+				// Retries filing for an accepted analysis; settled findings are skipped.
+				a, e := rt.db.GetLogAnalysis(ctx, args[0])
+				if e != nil {
+					return e
+				}
+				var scope loganalysis.Scope
+				if e = json.Unmarshal(a.Scope, &scope); e != nil {
+					return e
+				}
+				configureLogFiling(ctx, env, rt, svc, scope.Request.RepositoryIDs)
+				if e = svc.FileFindings(ctx, a.ID); e != nil {
+					return e
+				}
+				view, e := svc.Inspect(ctx, a.ID, 0, 1)
+				if e != nil {
+					return e
+				}
+				_, e = io.WriteString(env.Stdout, renderLogAnalysis(view, nil))
+				return e
 			case "recover":
 				// Never relaunch a retained invocation. Only an expired retained deadline may be fenced.
 				a, e := rt.db.GetLogAnalysis(ctx, args[0])
@@ -165,7 +187,7 @@ func newLogAnalysisCommand(action string) *Command {
 				}
 				return writeJSON(env, out)
 			case "start":
-				q := loganalysis.Request{StartKey: key, TaskRefs: tasks, Limits: loganalysis.Limits{ReportBytes: reportBytes, Proposals: proposals, Calls: calls, Bytes: bytes, Seconds: seconds, Evidence: logevidence.Limits{Runs: evidenceRuns, Records: records, Rows: rows, Calls: dataCalls, Bytes: evidenceBytes, Digests: digests}}}
+				q := loganalysis.Request{StartKey: key, TaskRefs: tasks, DryRun: dryRun, Limits: loganalysis.Limits{ReportBytes: reportBytes, Proposals: proposals, Calls: calls, Bytes: bytes, Seconds: seconds, Evidence: logevidence.Limits{Runs: evidenceRuns, Records: records, Rows: rows, Calls: dataCalls, Bytes: evidenceBytes, Digests: digests}}}
 				for _, s := range repos {
 					forge, slug, ok := strings.Cut(s, ":")
 					owner, name, valid := strings.Cut(slug, "/")
@@ -200,6 +222,7 @@ func newLogAnalysisCommand(action string) *Command {
 				if err = initializeLogCredentials(ctx, env, rt.db, rt.cfg, q.RepositoryIDs, svc.Redactor); err != nil {
 					return err
 				}
+				configureLogFiling(ctx, env, rt, svc, q.RepositoryIDs)
 				svc.DisableMCP = !rt.cfg.Settings.MCPAutoStart
 				svc.Runner = env.LogAnalyst
 				svc.Model, _ = rt.cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
@@ -229,11 +252,12 @@ func newLogAnalysisCommand(action string) *Command {
 	return c
 }
 
-const logAnalysisUsage = `Start: standards analyze logs --repo forge:owner/name (--run ID [--run ID] | --after UTC --before UTC).
+const logAnalysisUsage = `Start: standards analyze logs --repo forge:owner/name (--run ID [--run ID] | --after UTC --before UTC) [--dry-run].
 Inspect: standards analyze logs list; standards analyze logs show ID [--json] [--after ROW --limit N].
 Reread: standards analyze logs reread ID --citation JSON. This is a separate bounded owner-authorized pass.
 Recovery: standards analyze logs recover ID after its deadline; accepted results remain unchanged. A start-key retry only returns the original invocation.
 The analyst decides what to read and what to conclude; show lists what it actually read next to its result. It proposes at most three standards, which stay unapproved until the owner reviews them.
+Findings are routed by who can fix them: the project's own setup becomes a Bug in its ticket source; litefactory defects and catalogue role prompts become upstream reports, filed only when standards.log_analysis.upstream is configured; a user-owned team's role prompts are suggested changes. At most two findings are filed per analysis, never one an existing issue covers. --dry-run files nothing and shows what would be filed. Retry interrupted filing with: standards analyze logs file ID.
 Defaults: 400 discovery rows (runs and incidents), 40 condensed run views, raw reads from 20 runs and 100 records, 80 data calls, 768 KiB encoded evidence; one model invocation, 30 minutes, 120 broker calls, 1 MiB encoded outbound data, 128 KiB report. Limits may only be lowered.
 Known-secret redaction cannot remove every unknown secret or personal detail. Retained references do not extend log retention.`
 
@@ -252,6 +276,9 @@ func renderLogAnalysis(view loganalysis.Inspection, categories []standards.Categ
 	}
 	if read.BudgetExhausted {
 		b.WriteString("; budget exhausted")
+	}
+	if read.IssueSearches > 0 || read.RepositoryReads > 0 {
+		fmt.Fprintf(&b, "; %d issue searches, %d repository reads", read.IssueSearches, read.RepositoryReads)
 	}
 	fmt.Fprintf(&b, "\nUsage: %d calls, %d encoded bytes\n", a.Calls, a.OutboundBytes)
 	var report loganalysis.Report
@@ -279,13 +306,7 @@ func renderLogAnalysis(view loganalysis.Inspection, categories []standards.Categ
 		fmt.Fprintf(&b, "Incidents: %s\nTasks: %s\nCost: %s\nWhy it prevents: %s\nLoad after: %s\n", strings.Join(j.IncidentIDs, ", "), strings.Join(j.Tasks, ", "), j.Cost, j.WhyItPrevents, j.LoadAfter)
 		writeCitations(&b, p.Citations)
 	}
-	if len(report.NotBook) > 0 {
-		b.WriteString("\nNot for the book (Bug candidates for the owner)\n")
-		for _, n := range report.NotBook {
-			fmt.Fprintf(&b, "- %s, %s: %s\n  Incidents: %s\n", n.Kind, n.Target, n.Finding, strings.Join(n.IncidentIDs, ", "))
-			writeCitations(&b, n.Citations)
-		}
-	}
+	renderFindings(&b, view, report)
 	if len(report.Proposals) == 0 && report.NoChangeReason != "" {
 		fmt.Fprintf(&b, "\nNo change: %s\n", report.NoChangeReason)
 	}
@@ -301,4 +322,77 @@ func writeCitations(b *strings.Builder, citations []logevidence.Citation) {
 		parts = append(parts, fmt.Sprintf("run %d [%d:%d]", c.RunID, c.Start, c.End))
 	}
 	fmt.Fprintf(b, "  Citations: %s\n", strings.Join(parts, ", "))
+}
+
+// renderFindings groups findings by who can fix them: Bugs for the project,
+// upstream reports for litefactory's maintainer and suggested changes to the
+// owner's own team, each with what the host did about it.
+func renderFindings(b *strings.Builder, view loganalysis.Inspection, report loganalysis.Report) {
+	var scope loganalysis.Scope
+	_ = json.Unmarshal(view.Invocation.Scope, &scope)
+	filings := map[string]store.LogAnalysisFiling{}
+	for _, f := range view.Filings {
+		filings[f.FindingKey] = f
+	}
+	for _, group := range []struct{ route, title string }{{"project", "Filed Bugs"}, {"upstream", "Upstream reports"}, {"team", "Suggested team changes"}} {
+		heading := false
+		for _, f := range report.Findings {
+			if loganalysis.Route(scope, f) != group.route {
+				continue
+			}
+			if !heading {
+				heading = true
+				fmt.Fprintf(b, "\n%s", group.title)
+				if scope.Request.DryRun && group.route != "team" {
+					b.WriteString(" (dry run: nothing was filed)")
+				}
+				b.WriteString("\n")
+			}
+			filing, recorded := filings[f.Key]
+			fmt.Fprintf(b, "\n- %s [%s, %s]\n  Status: %s\n", f.Title, f.Kind, f.Target, findingStatus(view.Invocation.ID, scope, f, filing, recorded))
+			if recorded && filing.State != store.FilingFiled || !recorded && group.route == "upstream" && f.Existing == "" {
+				title, body := filing.Title, filing.Body
+				if !recorded {
+					title, body = loganalysis.IssueText(view.Invocation.ID, f, nil, nil)
+				}
+				fmt.Fprintf(b, "  Issue text:\n    Title: %s\n", title)
+				for line := range strings.SplitSeq(strings.TrimRight(body, "\n"), "\n") {
+					fmt.Fprintf(b, "    %s\n", line)
+				}
+				continue
+			}
+			fmt.Fprintf(b, "  Expected: %s\n  Actual: %s\n  Cause: %s\n  Suggestion: %s\n  Incidents: %s\n", f.Expected, f.Actual, f.Cause, f.Suggestion, strings.Join(f.IncidentIDs, ", "))
+			writeCitations(b, f.Citations)
+		}
+	}
+}
+
+func findingStatus(id string, scope loganalysis.Scope, f loganalysis.Finding, filing store.LogAnalysisFiling, recorded bool) string {
+	retry := "; retry with: standards analyze logs file " + id
+	if recorded {
+		switch filing.State {
+		case store.FilingFiled:
+			return fmt.Sprintf("filed as %s %s", filing.Reference, filing.URL)
+		case store.FilingWouldFile:
+			if filing.Reason != "" {
+				return "would file, but could not: " + filing.Reason
+			}
+			return "would file into " + filing.Destination
+		case store.FilingNotFiled:
+			return "not filed: " + filing.Reason
+		case store.FilingStarted:
+			return "filing into " + filing.Destination + " was interrupted" + retry
+		default:
+			return "filing into " + filing.Destination + " failed: " + filing.Reason + retry
+		}
+	}
+	switch {
+	case f.Existing != "":
+		return "already covered by " + f.Existing + "; not filed"
+	case loganalysis.Route(scope, f) == "team":
+		return "suggested change for your own team; never filed"
+	case f.File:
+		return "marked to file; not filed yet" + retry
+	}
+	return "not filed: the analyst did not ask to file it"
 }

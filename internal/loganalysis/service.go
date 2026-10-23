@@ -132,8 +132,13 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	}
 	defer func() { err = errors.Join(err, reader.Close()) }()
 	cutoff, high, grant := reader.Boundary()
+	repositories, err := s.pinRepositories(ctx, q.RepositoryIDs)
+	if err != nil {
+		return a, err
+	}
+	scope := Scope{Request: q, Cutoff: cutoff, HighWater: high, Repositories: repositories, Upstream: s.UpstreamName}
 	id := rand.Text()
-	a, err = s.DB.CreateLogAnalysis(ctx, store.LogAnalysis{ID: id, StartKey: q.StartKey, RequestDigest: digest(q), Scope: raw(Scope{q, cutoff, high}), Limits: raw(q.Limits), GrantDigest: grant})
+	a, err = s.DB.CreateLogAnalysis(ctx, store.LogAnalysis{ID: id, StartKey: q.StartKey, RequestDigest: digest(q), Scope: raw(scope), Limits: raw(q.Limits), GrantDigest: grant})
 	if err != nil {
 		return a, err
 	}
@@ -200,7 +205,7 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	if err != nil {
 		return a, err
 	}
-	h := &invocation{service: s, a: a, q: q, reader: reader, book: book, cancel: cancel, profile: profile}
+	h := &invocation{service: s, a: a, q: q, scope: scope, reader: reader, book: book, cancel: cancel, profile: profile}
 	broker, err := submission.Start(live, submission.Options{Directory: directory, AllowTools: true, AllowResult: true, AttemptReference: a.ID, MaxWorkers: 2, RequestTimeout: 30 * time.Second, Handler: h.handle})
 	if err != nil {
 		return a, err
@@ -214,7 +219,7 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	if err != nil {
 		return a, err
 	}
-	prompt, err := analystPrompt(live, q)
+	prompt, err := analystPrompt(live, scope)
 	if err != nil {
 		return a, err
 	}
@@ -243,6 +248,12 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	// Accepted receipts win even when the provider loses its final response.
 	saved, e := s.DB.GetLogAnalysis(cleanup, a.ID)
 	if e == nil && saved.State != "running" {
+		if saved.State == "completed" {
+			// The accepted report decided what to file; the host only executes it.
+			filing, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			defer stop()
+			provenanceErr = errors.Join(provenanceErr, s.FileFindings(filing, saved.ID))
+		}
 		return saved, provenanceErr
 	}
 	if runErr == nil {
@@ -256,6 +267,7 @@ type invocation struct {
 	service         *Service
 	a               store.LogAnalysis
 	q               Request
+	scope           Scope
 	reader          *logevidence.Service
 	book            *standards.Runtime
 	exhausted       bool
@@ -386,6 +398,10 @@ func (h *invocation) handle(ctx context.Context, q submission.Request) (out json
 				meta := Evidence{Tool: call.Name, Selector: selector, Status: r.Status, Runs: r.Runs, Coverage: r.Coverage, Next: r.NextCursor != "", Budget: r.Budget}
 				for _, in := range r.Incidents {
 					meta.Incidents = append(meta.Incidents, in.ID)
+					if meta.IncidentTasks == nil {
+						meta.IncidentTasks = map[string]string{}
+					}
+					meta.IncidentTasks[in.ID] = in.TaskRef
 				}
 				for _, rec := range r.Records {
 					meta.Citations = append(meta.Citations, rec.Citation)
@@ -394,6 +410,8 @@ func (h *invocation) handle(ctx context.Context, q submission.Request) (out json
 				evidence = &meta
 			}
 		}
+	case "issues_search", "repo_log", "repo_grep", "repo_read":
+		v, evidence, e = h.check(ctx, call.Name, call.Arguments)
 	case "standards_categories_list":
 		var in struct {
 			Limit  int    `json:"limit,omitempty"`
@@ -619,6 +637,10 @@ func reading(rows []store.LogAnalysisEvidence) (Reading, error) {
 				reads[selector.RunID] = true
 				out.RawReads = append(out.RawReads, selector.RunID)
 			}
+		case "issues_search":
+			out.IssueSearches++
+		case "repo_log", "repo_grep", "repo_read":
+			out.RepositoryReads++
 		}
 	}
 	out.IncidentsOffered, out.RunsListed = len(incidents), len(listed)
@@ -662,6 +684,10 @@ func (s *Service) Inspect(ctx context.Context, id string, after int64, limit int
 		return out, e
 	}
 	out.Proposals, e = s.DB.ListLogAnalysisProposalLinks(ctx, id)
+	if e != nil {
+		return out, e
+	}
+	out.Filings, e = s.DB.ListLogAnalysisFilings(ctx, id)
 	return out, e
 }
 
