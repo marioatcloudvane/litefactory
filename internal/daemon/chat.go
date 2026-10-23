@@ -279,8 +279,8 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 		d.startConversations(ctx, wg, time.Now())
 		if d.chat.analyses != nil {
 			service := d.chat.service
-			d.chat.analyses.serve(ctx, wg, func(ctx context.Context, channel, key, text string) error {
-				return service.Announce(ctx, channel, key, text, time.Now())
+			d.chat.analyses.serve(ctx, wg, func(ctx context.Context, channel, key, operation, text string) error {
+				return service.Announce(ctx, channel, key, operation, text, time.Now())
 			})
 		}
 		d.startNaturalIntake(ctx, wg, d.chat.intake)

@@ -35,7 +35,7 @@ func TestProjectResolution(t *testing.T) {
 	}{
 		{"qualified", "one/app", nil, 1, false, ""},
 		{"unique", "unique", nil, 3, false, ""},
-		{"ambiguous", "app", nil, 0, false, "Ambiguous"},
+		{"ambiguous", "app", nil, 0, false, "Which project"},
 		{"missing", "", nil, 0, false, "Please name"},
 		{"unknown", "missing", nil, 0, false, "Unknown"},
 		{"newest history", "", []ask.Turn{{Project: "two/app"}, {Project: "one/app"}}, 2, true, ""},
@@ -50,7 +50,10 @@ func TestProjectResolution(t *testing.T) {
 			if got.Repository.ID != tc.id || got.Inherited != tc.inherited || !strings.Contains(got.Refusal, tc.refusal) {
 				t.Fatalf("resolution: %+v", got)
 			}
-			if tc.id == 0 && !strings.Contains(got.Refusal, "one/app, one/unique, two/app") {
+			if tc.name == "ambiguous" && !strings.Contains(got.Refusal, "one/app or two/app") {
+				t.Fatalf("ambiguity does not name the candidates: %s", got.Refusal)
+			}
+			if tc.id == 0 && tc.name != "ambiguous" && !strings.Contains(got.Refusal, "one/app, one/unique, two/app") {
 				t.Fatalf("missing sorted catalog: %s", got.Refusal)
 			}
 		})

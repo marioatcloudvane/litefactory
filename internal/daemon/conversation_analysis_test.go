@@ -17,7 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-type analysisPost struct{ channel, key, text string }
+type analysisPost struct{ channel, key, operation, text string }
 
 type analysisFixture struct {
 	adapter *ConversationStandards
@@ -54,8 +54,8 @@ func newAnalysisFixture(t *testing.T) *analysisFixture {
 		},
 		Report: func(_ context.Context, id string) (string, error) { return "report of " + id, nil },
 	}
-	analyses.serve(ctx, f.wg, func(_ context.Context, channel, key, text string) error {
-		f.posts <- analysisPost{channel, key, text}
+	analyses.serve(ctx, f.wg, func(_ context.Context, channel, key, operation, text string) error {
+		f.posts <- analysisPost{channel, key, operation, text}
 		return nil
 	})
 	t.Cleanup(f.wg.Wait)
@@ -94,7 +94,7 @@ func TestConfirmedAnalysisRunsInTheBackgroundOncePerProject(t *testing.T) {
 	}
 	f.finish <- nil
 	post := <-f.posts
-	if post.channel != "3" || post.key != "log-analysis:analysis-1" || post.text != "report of analysis-1" {
+	if post.channel != "3" || post.key != "log-analysis:analysis-1" || post.operation != first.OperationKey || post.text != "report of analysis-1" {
 		t.Fatalf("result not posted to the conversation: %+v", post)
 	}
 	f.wg.Wait()
@@ -111,16 +111,36 @@ func TestConfirmedAnalysisRunsInTheBackgroundOncePerProject(t *testing.T) {
 	<-f.posts
 }
 
-func TestFailedAnalysisPostsItsReason(t *testing.T) {
+func TestFailedAnalysisPostsAPlainReasonAndNextStep(t *testing.T) {
 	f := newAnalysisFixture(t)
-	if _, err := f.adapter.Execute(t.Context(), f.request("first")); err != nil {
+	r := f.request("first")
+	if _, err := f.adapter.Execute(t.Context(), r); err != nil {
 		t.Fatal(err)
 	}
 	<-f.starts
-	f.finish <- errors.New("provider unavailable")
+	f.finish <- errors.New("standards: restricted analyst provider unavailable; invocation retained")
 	post := <-f.posts
-	if post.channel != "3" || !strings.Contains(post.text, "provider unavailable") {
-		t.Fatalf("failure reason not posted: %+v", post)
+	if post.channel != "3" || post.operation != r.OperationKey || strings.Contains(post.text, "invocation retained") || !strings.Contains(post.text, "Nothing was filed") || !strings.Contains(post.text, "again") {
+		t.Fatalf("failure not posted plainly with its next step: %+v", post)
+	}
+}
+
+func TestConversationAnalysisFailureIsPlain(t *testing.T) {
+	for reason, cause := range map[string]string{
+		"log analyst provider failed its terminal result": "without handing back a report",
+		"claude: Invalid API key · Please run /login":     "login",
+		"analysis interrupted or wall-time limit reached": "out of time",
+	} {
+		view := loganalysis.Inspection{Invocation: store.LogAnalysis{ID: "FBDJB7S5UEKA5H4BIY53SP7ZAB", State: "failed", Disposition: "not_evaluated", Reason: reason}}
+		text := renderConversationAnalysis(view)
+		for _, internal := range []string{"FBDJB7S5UEKA5H4BIY53SP7ZAB", "not_evaluated", "failed (", "standards analyze logs", reason} {
+			if strings.Contains(text, internal) {
+				t.Errorf("%s: failure shows %q: %s", reason, internal, text)
+			}
+		}
+		if !strings.Contains(text, cause) || !strings.Contains(text, "Nothing was filed") || !strings.Contains(text, "again") {
+			t.Errorf("%s: failure misses its cause or next step: %s", reason, text)
+		}
 	}
 }
 
@@ -151,11 +171,16 @@ func TestConversationAnalysisReportShowsSummaryProposalsAndFindings(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	view := loganalysis.Inspection{Invocation: store.LogAnalysis{ID: "analysis-9", State: "succeeded"}, Report: raw, Proposals: []store.LogAnalysisProposalLink{{CandidateKey: "proposal-1", ProposalID: "prop-1", Version: 1}}, Filings: []store.LogAnalysisFiling{{FindingKey: "f1", State: store.FilingFiled, Reference: "acme/app#12", URL: "https://example.test/12"}}}
-	text := renderConversationAnalysis(view, []standards.Category{{ID: "testing", Name: "Testing"}})
-	for _, want := range []string{"analysis-9", report.Summary, "MUST keep fixtures in testdata.", "prop-1", "tests need a database", "acme/app#12", "retries lose the session"} {
+	view := loganalysis.Inspection{Invocation: store.LogAnalysis{ID: "analysis-9", State: "completed", Disposition: "proposals"}, Report: raw, Proposals: []store.LogAnalysisProposalLink{{CandidateKey: "proposal-1", ProposalID: "prop-1", Version: 1}}, Filings: []store.LogAnalysisFiling{{FindingKey: "f1", State: store.FilingFiled, Reference: "acme/app#12", URL: "https://example.test/12"}}}
+	text := renderConversationAnalysis(view)
+	for _, want := range []string{report.Summary, "MUST keep fixtures in testdata.", "fixtures stay with the tests", "tests need a database", "#12", "https://example.test/12", "retries lose the session"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report misses %q", want)
+		}
+	}
+	for _, internal := range []string{"analysis-9", "prop-1", "completed", "proposals)", "standards analyze logs", "acme/app#12", "project_setup"} {
+		if strings.Contains(text, internal) {
+			t.Errorf("report shows internal %q:\n%s", internal, text)
 		}
 	}
 }
