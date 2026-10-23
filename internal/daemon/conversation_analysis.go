@@ -129,7 +129,7 @@ func (c *ConversationAnalyses) run(ctx context.Context, post func(ctx context.Co
 	}()
 	operation := key
 	a, err := c.Start(ctx, q, dryRun)
-	text := ""
+	var text string
 	if a.ID != "" {
 		key = "log-analysis:" + a.ID
 		text, err = c.Report(context.WithoutCancel(ctx), a.ID)
