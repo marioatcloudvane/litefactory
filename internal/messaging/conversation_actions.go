@@ -55,7 +55,7 @@ func (r *factoryConversationRun) propose(ctx context.Context, inv Invocation, en
 		return err
 	}
 	d.Code = hex.EncodeToString(nonce[:])
-	p.Prompt = s.naturalProposal(p, d.Code)
+	p.Prompt = naturalProposal(p, d.Code, r.at)
 	if _, renderErr := presentation.RenderConversation(strings.Repeat("0", 32), nil, nil, p.Prompt); renderErr != nil {
 		return s.conversationOutcome(ctx, r.t, "completed", "The exact proposal is too large to show safely. Please shorten the request; nothing was authorized.", r.at)
 	}
@@ -105,7 +105,7 @@ func (r *factoryConversationRun) confirm(ctx context.Context) (bool, error) {
 	}
 	complete := func(text string) (bool, error) {
 		if r.savedOutcomes != "" {
-			text += "\n\nSaved action outcome:\n" + r.savedOutcomes
+			text += "\n\n" + r.savedOutcomes
 		}
 		return true, s.conversationHandled(ctx, r.t, text, r.at)
 	}
@@ -115,11 +115,21 @@ func (r *factoryConversationRun) confirm(ctx context.Context) (bool, error) {
 				return true, err
 			}
 		}
-		return complete("Cancelled the pending request.")
+		return complete("Okay, I dropped it.")
 	}
-	if d.State == "awaiting_confirmation" && naturalConfirmation(r.t.Source, d, r.t.ReplyTo) {
+	live := d.State == "awaiting_confirmation" && r.at.Before(d.ExpiresAt)
+	if live && naturalDetailsRequest(r.t.Source) {
+		var p naturalPayload
+		if err = json.Unmarshal([]byte(d.Payload), &p); err != nil {
+			return true, err
+		}
+		return complete(naturalDetails(p, d))
+	}
+	// A plain yes in reply to another message never confirms the proposal.
+	stale := d.State == "awaiting_confirmation" && r.t.ReplyTo != "" && r.t.ReplyTo != d.PromptID && naturalYes(r.t.Source)
+	if d.State == "awaiting_confirmation" && !stale && naturalConfirmation(r.t.Source, d) {
 		if d.PromptID == "" || !r.at.Before(d.ExpiresAt) || !naturalLater(r.t.SourceID, d.SourceID) {
-			return complete("This proposal is not available for confirmation. Please request a fresh proposal.")
+			return complete(naturalUnavailable)
 		}
 		if err = conversationAccess(ctx, s.conversations.Load(), r.c.ChannelRef, r.at); err != nil {
 			return true, err
@@ -167,14 +177,20 @@ func (r *factoryConversationRun) confirm(ctx context.Context) (bool, error) {
 		return true, r.execute(ctx, reply, p)
 	}
 	lower := strings.ToLower(strings.TrimSpace(r.t.Source))
-	if naturalConfirmationCode(r.t.Source) != "" || lower == "confirm" || strings.HasPrefix(lower, "confirm ") || (lower == "yes" && d.State == "awaiting_confirmation") || r.t.ReplyTo != "" && r.t.ReplyTo == d.PromptID && (lower == "yes" || lower == "do it") {
-		return complete("This confirmation is unknown, expired or already consumed. Request a fresh proposal; nothing further was authorized.")
+	if naturalConfirmationCode(r.t.Source) != "" || strings.HasPrefix(lower, "confirm ") || naturalYes(lower) && (d.State == "awaiting_confirmation" || r.t.ReplyTo != "" && r.t.ReplyTo == d.PromptID) {
+		if stale && live {
+			return complete("You replied to an earlier message, so I didn't do anything. Say yes to go ahead with the latest proposal.")
+		}
+		return complete(naturalUnavailable)
 	}
 	if d.State == "authorized" || d.State == "executing" {
-		return complete("The confirmed action is already in progress. Its saved outcome will be reported when available.")
+		return complete("That's already running; I'll tell you here when it's done.")
 	}
 	return false, nil
 }
+
+// naturalUnavailable answers a confirmation with nothing left to confirm.
+const naturalUnavailable = "That proposal has expired or was already used, so I didn't do anything. Ask me again and I'll make a fresh one."
 
 func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatReply, p naturalPayload) error {
 	s := r.s
@@ -191,6 +207,9 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 		return err
 	}
 	text := reply.ReplyText
+	// plain is the owner's view of the outcome when it differs from the saved
+	// text, which keeps exact operation references for storage and details.
+	plain := ""
 	executionCtx, source := presentation.WithAssessment(ctx)
 	if text == "" {
 		switch reply.Command {
@@ -204,7 +223,7 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 			if e != nil {
 				text = standardsError(e)
 			} else {
-				text = standardsDisplay(result, request.OperationKey)
+				text, plain = standardsDisplay(result, request.OperationKey), result.Text
 				if result.Interrupted {
 					reply.OutcomeStatus = string(presentation.Uncertain)
 				}
@@ -266,7 +285,7 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 				if errors.Is(err, errDeferredDiagnosis) {
 					// Only the existing diagnosis worker performs this queued operation. Its
 					// saved completion is supplied at a later ordinary session step.
-					return s.conversationOutcome(ctx, r.t, "completed", "The confirmed diagnosis was queued. Its saved result will be supplied at the next eligible conversation step; any repair remains subject to issue review.", r.at)
+					return s.conversationOutcome(ctx, r.t, "completed", "I've queued the diagnosis. I'll tell you what it finds the next time we talk; any repair still goes through review on the issue.", r.at)
 				}
 				if err != nil {
 					text = "The confirmed action was interrupted after execution began. Its effect is uncertain; check the target before requesting it again."
@@ -297,9 +316,17 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 	if reply.Command == "draft" {
 		return s.conversationOutcome(cleanup, r.t, "completed", protected, r.at)
 	}
-	return r.narrate(ctx, protected)
+	if plain == "" || protected != text {
+		return r.narrate(ctx, protected)
+	}
+	if plain, err = s.Protect(cleanup, plain); err != nil {
+		return err
+	}
+	return r.narrate(ctx, plain)
 }
 
+// narrate tells the owner the outcome in the conversation's voice: one short
+// message. If the narration fails, the outcome itself is the message.
 func (r *factoryConversationRun) narrate(ctx context.Context, outcome string) error {
 	instructions, runErr := r.s.restoreConversationInstructions(ctx, r.c.ID, r.at)
 	var prompt factoryConversationPrompt
@@ -312,15 +339,14 @@ func (r *factoryConversationRun) narrate(ctx context.Context, outcome string) er
 		}
 		response, runErr = r.invoke(ctx, string(raw))
 	}
-	blocks := []presentation.AnswerBlock{{Text: "Saved action outcome:\n" + outcome}}
+	blocks := []presentation.AnswerBlock{{Text: outcome}}
 	if runErr == nil {
 		envelope, _, decodeErr := DecodeConversationEnvelope(response, ConversationDecodeRequest{Turns: prompt.OwnerSources, Commands: prompt.Commands})
 		if decodeErr == nil && envelope.Kind == "answer" {
-			explanation := envelope.Blocks
-			if len(explanation) == 0 {
-				explanation = []presentation.AnswerBlock{{Text: envelope.Text}}
+			blocks = envelope.Blocks
+			if len(blocks) == 0 {
+				blocks = []presentation.AnswerBlock{{Text: envelope.Text}}
 			}
-			blocks = append(explanation, blocks...)
 		}
 	}
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

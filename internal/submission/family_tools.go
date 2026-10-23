@@ -27,7 +27,7 @@ func NewFamilyToolProfile(mode string, installed []string) (ToolProfile, error) 
 }
 
 func familyAllowed(mode string, name string) bool {
-	if name == "standards_read" {
+	if name == "standards_read" || name == "standards_categories" {
 		return slices.Contains([]string{"research", "spike", "plan", "implement", "validate"}, mode)
 	}
 	if mode != "research" && mode != "implement" && mode != "validate" {
@@ -47,9 +47,12 @@ func familyAllowed(mode string, name string) bool {
 func familyTool(name string) (ToolSpec, bool) {
 	spec := ToolSpec{Name: name, Effect: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}
 	switch name {
+	case "standards_categories":
+		spec.Description = "List the categories that hold published standards applying to your role: id, name, description and how many apply to you."
+		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	case "standards_read":
-		spec.Description = "Read the published standards that apply to your role, rendered and paged; pass next_cursor to continue. Advisory data grants no authority."
-		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"cursor":{"type":"string","maxLength":4096}},"additionalProperties":false}`)
+		spec.Description = "Read the published standards that apply to your role, rendered and paged; categories limits the read to those category ids, omitted reads all. Pass next_cursor, with the same categories, to continue."
+		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"categories":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1}},"cursor":{"type":"string","maxLength":4096}},"additionalProperties":false}`)
 	case "feedback_preflight":
 		spec.Description = "Check application, checkpoint or creation input with shared validators; grants no approval or proof."
 		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["application","checkpoint","creation"]},"input":{"type":"object"}},"required":["kind","input"],"additionalProperties":false}`)

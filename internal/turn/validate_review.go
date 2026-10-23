@@ -51,7 +51,7 @@ type ValidateReviewRequest struct {
 	// against: its role's coverage, the frozen criteria and the retained checks.
 	Scope agentresult.Context
 	// StandardsRole is the reviewer role that reads the standards applying to
-	// it, when the review node's lf_standards names it. Optional and advisory.
+	// it, when the review node's lf_standards names it.
 	StandardsRole string
 }
 
