@@ -73,7 +73,7 @@ func (h *invocation) check(ctx context.Context, name string, args json.RawMessag
 		v, e := h.search(ctx, in)
 		if e != nil {
 			evidence.Status = "unavailable"
-			return raw(map[string]string{"status": "unavailable", "reason": e.Error()}), evidence, nil
+			return unavailable(e), evidence, nil
 		}
 		return v, evidence, nil
 	}
@@ -89,7 +89,7 @@ func (h *invocation) check(ctx context.Context, name string, args json.RawMessag
 	r, e := h.repository(in.Repository)
 	if e != nil {
 		evidence.Status = "unavailable"
-		return raw(map[string]string{"status": "unavailable", "reason": e.Error()}), evidence, nil
+		return unavailable(e), evidence, nil
 	}
 	out, ok, e := h.service.reader().Call(ctx, projectread.Project{ID: r.ID, Name: r.Name, BaseBranch: r.BaseBranch, Commit: r.Commit, Gap: r.Gap}, name, in)
 	if !ok {
@@ -173,4 +173,10 @@ func (s *Service) pinRepositories(ctx context.Context, ids []int64) ([]Repositor
 
 func (s *Service) reader() projectread.Reader {
 	return projectread.Reader{DB: s.DB, Git: s.Git, Redactor: s.Redactor}
+}
+
+// unavailable is the tool result for a call that could not be served. The
+// failure is reported to the model as data, not returned as a Go error.
+func unavailable(e error) json.RawMessage {
+	return raw(map[string]string{"status": "unavailable", "reason": e.Error()})
 }

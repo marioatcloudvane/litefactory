@@ -84,7 +84,7 @@ func TestIncidentsListPagesNewestFirstFiltersAndRedacts(t *testing.T) {
 	if rest.Status != "ok" || len(rest.Incidents) != 2 || rest.NextCursor != "" || !rest.Coverage.EndOfSource {
 		t.Fatalf("second page=%s", body2)
 	}
-	all := append(first.Incidents, rest.Incidents...)
+	all := slices.Concat(first.Incidents, rest.Incidents)
 	var runs []int64
 	for i, in := range all {
 		runs = append(runs, in.RunIDs...)
