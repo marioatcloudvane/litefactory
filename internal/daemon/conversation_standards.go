@@ -218,7 +218,13 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 		if mode == "" {
 			mode = "create"
 		}
-		v, e = a.Authoring.Start(ctx, standards.AuthoringStart{ID: id, Mode: mode, TargetID: args["target_id"], Intent: args["intent"], CategoryIDs: standardsCategories(args["category_ids"])})
+		var project int64
+		if raw := args["repository_id"]; raw != "" {
+			if project, e = standardsNumber(args, "repository_id"); e != nil {
+				return messaging.StandardsResult{}, e
+			}
+		}
+		v, e = a.Authoring.Start(ctx, standards.AuthoringStart{ID: id, Mode: mode, TargetID: args["target_id"], Intent: args["intent"], CategoryIDs: standardsCategories(args["category_ids"]), ProjectID: project})
 	case "author.answer":
 		v, e = a.Authoring.Answer(ctx, args["id"], version, []standards.AuthoringAnswer{{QuestionID: args["question_id"], Text: args["text"], Replace: args["replace"] == "true"}})
 	case "author.edit":
@@ -348,7 +354,27 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 		if _, e = a.DB.StartStandardsConversationGeneration(ctx, r.OperationKey, d); e != nil {
 			return messaging.StandardsResult{Interrupted: true}, e
 		}
+		// The author can take minutes, longer than a conversation turn: it
+		// works in the background and its draft is posted here.
+		if a.Analyses != nil && a.Analyses.later(ctx, r.ChannelID, "standards-author:"+r.OperationKey, func(ctx context.Context) string {
+			_, err := a.run(ctx, r, d)
+			if err != nil {
+				return "The standards author could not continue session " + r.Arguments["id"] + ": " + err.Error() + ". Inspect the session before continuing again."
+			}
+			v, err := a.Authoring.Show(ctx, r.Arguments["id"], 0)
+			if err != nil {
+				return "The standards author finished, but session " + r.Arguments["id"] + " could not be read: " + err.Error()
+			}
+			return authorDraftText(v)
+		}) {
+			return messaging.StandardsResult{Text: "The standards author is working on session " + r.Arguments["id"] + ". Its draft and questions will be posted here when it is done; this can take a few minutes.", References: map[string]string{"kind": "author", "id": r.Arguments["id"]}}, nil
+		}
 	}
+	return a.run(ctx, r, d)
+}
+
+// run executes one admitted operation and records its outcome.
+func (a *ConversationStandards) run(ctx context.Context, r messaging.StandardsRequest, d string) (messaging.StandardsResult, error) {
 	provenance := "discord-owner:" + r.OwnerID + ":" + r.ChannelID + ":" + r.MessageID
 	ctx = store.WithStandardsProvenance(ctx, provenance)
 	ctx = store.WithStandardsConversationOperation(ctx, r.OperationKey, d)
@@ -387,6 +413,34 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 	_, save := a.DB.FinishStandardsConversationOperation(context.WithoutCancel(ctx), r.OperationKey, d, status, encoded, diagnostic)
 	return result, errors.Join(e, save)
 }
+
+// authorDraftText shows an authoring session's draft for the owner.
+func authorDraftText(v standards.AuthoringSession) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Standards author: session %s, version %d (%s)\n\n", v.ID, v.Version, v.Status)
+	categories := v.Base.Categories
+	if c := v.NewCategory; c != nil {
+		categories = append([]standards.Category{*c}, categories...)
+		fmt.Fprintf(&b, "New category %s: %s. %s\n\n", c.ID, c.Name, c.Description)
+	}
+	b.WriteString(standards.Render(categories, []standards.Standard{v.Draft}))
+	if v.Notes != "" {
+		fmt.Fprintf(&b, "\nNotes: %s\n", v.Notes)
+	}
+	for _, q := range v.Questions {
+		if q.State == "pending" {
+			fmt.Fprintf(&b, "\nQuestion %s: %s", q.ID, q.Text)
+			if len(q.Options) > 0 {
+				fmt.Fprintf(&b, " Options: %s.", strings.Join(q.Options, "; "))
+			}
+		}
+	}
+	for _, p := range v.Diagnostics {
+		fmt.Fprintf(&b, "\nOpen problem in %s: %s", p.Field, p.Message)
+	}
+	return b.String()
+}
+
 func (a *ConversationStandards) recoverEffect(ctx context.Context, r messaging.StandardsRequest, o store.StandardsConversationOperation) (messaging.StandardsResult, error) {
 	// The transactional effect reference is recovered independently of any chat body.
 	var link struct {
