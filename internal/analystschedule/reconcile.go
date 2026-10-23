@@ -83,7 +83,7 @@ func (s *Service) reconcile(ctx context.Context, o store.AnalystOccurrence, now 
 				if len(ev.Citations) > 0 {
 					w.Offered = true
 				}
-				if ev.Coverage.EndOfSource && ev.Status == "ok" && selector.Citation == nil {
+				if ev.Coverage.EndOfSource && ev.Status == "ok" && selector.Citation == nil && selector.Offset == 0 {
 					w.Covered = true
 				}
 				pending = ev.Next

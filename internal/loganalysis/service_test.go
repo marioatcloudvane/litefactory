@@ -21,7 +21,7 @@ import (
 )
 
 func TestNormalizeScopeAndLowerOnlyLimits(t *testing.T) {
-	original := Request{RepositoryIDs: []int64{2, 1, 2}, RunIDs: []int64{3, 3}, Limits: Limits{ReportBytes: 128 << 10, Proposals: 10, Calls: 8, Bytes: 20 << 10, Seconds: 3, Evidence: logevidence.Limits{Runs: 1, Records: 2, Rows: 3, Calls: 2, Bytes: 4 << 10}}}
+	original := Request{RepositoryIDs: []int64{2, 1, 2}, RunIDs: []int64{3, 3}, Limits: Limits{ReportBytes: 128 << 10, Proposals: 10, Calls: 8, Bytes: 20 << 10, Seconds: 3, Evidence: logevidence.Limits{Runs: 1, Records: 2, Rows: 3, Calls: 2, Bytes: 4 << 10, Digests: 1}}}
 	got, err := normalized(original)
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,7 @@ func TestNormalizeScopeAndLowerOnlyLimits(t *testing.T) {
 	if !reflect.DeepEqual(got.RepositoryIDs, []int64{1, 2}) || !reflect.DeepEqual(original.RepositoryIDs, []int64{2, 1, 2}) || got.Limits != original.Limits {
 		t.Fatalf("normalized request expanded or aliased scope: %+v original=%+v", got, original)
 	}
-	for _, change := range []func(*Request){func(q *Request) { q.Limits.Calls = 41 }, func(q *Request) { q.Limits.Bytes = 256<<10 + 1 }, func(q *Request) { q.Limits.Seconds = 601 }, func(q *Request) { q.Limits.Evidence.Records = 101 }, func(q *Request) { q.Limits.Evidence.Bytes = 32<<10 + 1 }, func(q *Request) { q.Limits.Calls = 4 }, func(q *Request) { q.Before = time.Now().UTC() }} {
+	for _, change := range []func(*Request){func(q *Request) { q.Limits.Calls = maxCalls + 1 }, func(q *Request) { q.Limits.Bytes = maxBytes + 1 }, func(q *Request) { q.Limits.Seconds = maxSeconds + 1 }, func(q *Request) { q.Limits.Evidence.Records = 101 }, func(q *Request) { q.Limits.Evidence.Bytes = logevidence.AnalystLimits().Bytes + 1 }, func(q *Request) { q.Limits.Evidence.Digests = logevidence.AnalystLimits().Digests + 1 }, func(q *Request) { q.Limits.Calls = 4 }, func(q *Request) { q.Before = time.Now().UTC() }} {
 		q := original
 		change(&q)
 		if _, err := normalized(q); err == nil {
@@ -122,11 +122,11 @@ func newOutcomeFixture(t *testing.T, published, interval bool) *outcomeFixture {
 			t.Fatal(e)
 		}
 	}
-	budget, err := logevidence.NewBudget(q.Limits.Evidence)
+	budget, err := logevidence.NewAnalystBudget(q.Limits.Evidence)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader, err := logevidence.New(t.Context(), logevidence.Options{Store: db, RunsRoot: root, Redactor: service.Redactor, Budget: budget, Scope: logevidence.Scope{RepositoryIDs: q.RepositoryIDs, RunIDs: q.RunIDs, StartedAfter: q.After, StartedBefore: q.Before}})
+	reader, err := logevidence.New(t.Context(), logevidence.Options{Store: db, RunsRoot: root, Redactor: service.Redactor, Budget: budget, Outcomes: true, Scope: logevidence.Scope{RepositoryIDs: q.RepositoryIDs, RunIDs: q.RunIDs, StartedAfter: q.After, StartedBefore: q.Before}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +520,7 @@ func TestCatalogVerificationGatesDataAndSubmission(t *testing.T) {
 	var list struct {
 		Tools []submission.ToolSpec `json:"tools"`
 	}
-	if err = json.Unmarshal(catalog, &list); err != nil || len(list.Tools) != 8 {
+	if err = json.Unmarshal(catalog, &list); err != nil || len(list.Tools) != len(agent.LogAnalystToolNames()) {
 		t.Fatalf("initial catalog unavailable: %s error=%v", catalog, err)
 	}
 	for _, name := range []string{"run_logs_read", "communication_submit"} {
@@ -549,5 +549,52 @@ func TestCatalogVerificationGatesDataAndSubmission(t *testing.T) {
 	page := f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0]})
 	if len(page.Records) != 1 {
 		t.Fatalf("verified catalog did not open data gate: %+v", page)
+	}
+}
+
+func TestOutcomeToolsAreRecordedAndOffsetReadsDoNotCoverRuns(t *testing.T) {
+	f := newOutcomeFixture(t, true, false)
+	run, err := f.h.service.DB.GetRun(t.Context(), f.runs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	two := `{"type":"assistant","message":{"content":[{"type":"text","text":"First step."}]}}` + "\n" + `{"type":"assistant","message":{"content":[{"type":"text","text":"The relevant check detected a regression."}]}}` + "\n"
+	if err = os.WriteFile(run.LogPath, []byte(two), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if listed := f.call(t, "incidents_list", map[string]any{}); listed.Coverage.Incomplete {
+		t.Fatalf("empty incident list reported a gap: %+v", listed)
+	}
+	digest := f.call(t, "run_digest_read", map[string]any{"run_id": f.runs[0]})
+	if len(digest.Digest) != 2 || digest.Digest[1].Offset == 0 {
+		t.Fatalf("digest=%+v", digest)
+	}
+	window := f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0], "offset": digest.Digest[1].Offset})
+	if len(window.Records) != 1 {
+		t.Fatalf("offset read=%+v", window)
+	}
+	report := reportFor(window.Records[0].Citation)
+	report.Disposition = "insufficient_evidence"
+	if _, state, err := f.h.validate(t.Context(), report); err != nil || state != "incomplete" {
+		t.Fatalf("offset window counted as whole-run coverage: state=%s error=%v", state, err)
+	}
+	f.call(t, "run_logs_read", map[string]any{"run_id": f.runs[0]})
+	if _, state, err := f.h.validate(t.Context(), report); err != nil || state != "completed" {
+		t.Fatalf("full read with offered citation: state=%s error=%v", state, err)
+	}
+	rows, err := allEvidence(t.Context(), f.h.service.DB, f.h.a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := map[string]bool{}
+	for _, row := range rows {
+		var v Evidence
+		if err = json.Unmarshal(row.Metadata, &v); err != nil {
+			t.Fatal(err)
+		}
+		tools[v.Tool] = true
+	}
+	if !tools["incidents_list"] || !tools["run_digest_read"] {
+		t.Fatalf("outcome tools missing from the ledger: %v", tools)
 	}
 }
