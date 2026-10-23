@@ -28,6 +28,45 @@ type BugAnalysis struct {
 	Assumptions      []string             `json:"assumptions,omitempty"`
 	Questions        []BugQuestion        `json:"questions,omitempty"`
 	AnswerReferences []string             `json:"answer_references,omitempty"`
+	Prevention       *BugPrevention       `json:"prevention,omitempty"`
+}
+
+// BugPrevention is the analyst's note on whether the book of standards would
+// have prevented the bug. It is optional so earlier analyses stay valid; the
+// judgement is the analyst's, the factory only checks the shape.
+type BugPrevention struct {
+	Kind       string `json:"kind"`
+	StandardID string `json:"standard_id,omitempty"`
+	Note       string `json:"note"`
+}
+
+// Prevention kinds the analyst can record.
+const (
+	PreventionMissingStandard = "missing_standard"
+	PreventionIgnoredStandard = "ignored_standard"
+	PreventionOneOff          = "one_off"
+)
+
+// Validate checks the note is well-formed: a known kind, a standard ID exactly
+// when an existing standard was ignored, and a nonblank note.
+func (p BugPrevention) Validate() error {
+	var faults []error
+	switch p.Kind {
+	case PreventionMissingStandard, PreventionIgnoredStandard, PreventionOneOff:
+	default:
+		faults = append(faults, fmt.Errorf("bug analysis: prevention kind %q is not missing_standard, ignored_standard or one_off", p.Kind))
+	}
+	id := strings.TrimSpace(p.StandardID)
+	if p.Kind == PreventionIgnoredStandard && id == "" {
+		faults = append(faults, errors.New("bug analysis: an ignored_standard prevention note names the standard_id"))
+	}
+	if p.Kind != PreventionIgnoredStandard && p.StandardID != "" {
+		faults = append(faults, errors.New("bug analysis: standard_id belongs only to an ignored_standard prevention note"))
+	}
+	if strings.TrimSpace(p.Note) == "" {
+		faults = append(faults, errors.New("bug analysis: prevention note is blank"))
+	}
+	return errors.Join(faults...)
 }
 
 // BugRepairBoundaries is a typed detail of the same owner-reviewed remedy.
@@ -119,6 +158,11 @@ func (a BugAnalysis) Validate(review bool) ([]Notice, error) {
 		n, err := a.Boundaries.Validate()
 		notices = append(notices, n...)
 		if err != nil {
+			faults = append(faults, err)
+		}
+	}
+	if a.Prevention != nil {
+		if err := a.Prevention.Validate(); err != nil {
 			faults = append(faults, err)
 		}
 	}

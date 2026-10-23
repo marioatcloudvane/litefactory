@@ -100,7 +100,7 @@ func TestLogIncidentsFromRetainedRecords(t *testing.T) {
 	f.exec(`INSERT INTO graph_owner_waits(delivery_key,instance_id,source_attempt_id,state,reply_id,reply_body,claimed_at) VALUES('k2',?,?,'allocated',12,'/approve-plan',?)`, work, first, at)
 	f.exec(`INSERT INTO graph_comment_intents(delivery_key,instance_id,source_attempt_id,node,kind,candidate) VALUES('k1',?,?,'worker_agent','review','x')`, work, first)
 	result := f.exec(`INSERT INTO application_results(task,mode,work_context,context_hash,schema_version,workflow_version,submission_version,workflow) VALUES(?,'','w','h',1,2,2,'bug')`, f.bug.TaskRef)
-	snapshot := `{"result":{"payload":{"bug":{"analysis":{"expected":"closure works","actual":"closure failed","cause":"the code repository was used as ticket container"}}}}}`
+	snapshot := `{"result":{"payload":{"bug":{"analysis":{"expected":"closure works","actual":"closure failed","cause":"the code repository was used as ticket container","prevention":{"kind":"ignored_standard","standard_id":"tickets-live-in-tracker","note":"the rule keeps tickets out of code repositories"}}}}}}`
 	f.exec(`INSERT INTO application_result_revisions(result_id,revision,run_id,attempt,request_row,snapshot,snapshot_hash,retired) VALUES(?,1,?,'a',1,?,'s','r')`, result, bugRun, snapshot)
 	report := `{"presentation":{"Report":{"verdict":"concerns_found","summary":"cause not proven","findings":[{"title":"Missing regression","concern":"no failing test","correction":"add one"}]}}}`
 	source := fmt.Sprintf(`{"ID":%d,"Revision":1,"Kind":"result"}`, result)
@@ -161,7 +161,10 @@ func TestLogIncidentsFromRetainedRecords(t *testing.T) {
 	if !strings.Contains(bug.Detail, "ticket container") || !slices.Equal(bug.RunIDs, []int64{bugRun}) {
 		t.Fatalf("bug=%+v", bug)
 	}
-	if legacy := byID[fmt.Sprintf("bug-legacy-%d-1", f.legacy.ID)]; !strings.Contains(legacy.Detail, "ignored errors") {
+	if !strings.Contains(bug.Detail, "Prevention: ignored_standard (tickets-live-in-tracker): the rule keeps tickets out of code repositories") {
+		t.Fatalf("bug incident lacks the prevention note: %q", bug.Detail)
+	}
+	if legacy := byID[fmt.Sprintf("bug-legacy-%d-1", f.legacy.ID)]; !strings.Contains(legacy.Detail, "ignored errors") || strings.Contains(legacy.Detail, "Prevention") {
 		t.Fatalf("legacy bug=%+v", legacy)
 	}
 

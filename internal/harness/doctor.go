@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -205,9 +204,6 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, configDir, oper
 	// and the tool ceiling keep hooks, plugins, memory and CLAUDE.md out.
 	tools := ""
 	args := []string{}
-	if operation == "prevention" {
-		args = append(args, "--max-turns", strconv.Itoa(request.TurnLimit))
-	}
 	if operation != "" {
 		args = append(args, "--no-session-persistence")
 	}

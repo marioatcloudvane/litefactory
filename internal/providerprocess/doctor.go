@@ -238,11 +238,3 @@ func DoctorEnvironment(parent []string, privateHome string) []string {
 	}
 	return result
 }
-
-// RunPreventionProcess validates the exact advisory catalog before bounded I/O.
-func RunPreventionProcess(ctx context.Context, binary string, args, env []string, request agent.PreventionRequest, timeout time.Duration, observe func([]byte)) error {
-	if err := request.Validate(); err != nil {
-		return err
-	}
-	return runScopedDoctorProcess(ctx, binary, args, env, request.Invocation, timeout, observe, nil, nil)
-}
