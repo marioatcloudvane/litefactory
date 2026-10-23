@@ -98,8 +98,13 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 			args["project"] = p.Project
 			args["repository_id"] = strconv.FormatInt(p.RepoID, 10)
 		}
-		if strings.HasPrefix(op, "schedule.") && args["interval_seconds"] != "" {
-			args["interval_seconds"] = standardsInterval(args["interval_seconds"])
+		if op == "analysis.start" && args["window"] != "" {
+			after, before, ok := analysisWindow(args["window"], at)
+			if !ok {
+				return "Please give the analysis window as last N days, yesterday, last week or this week, or as exact after and before times.", nil
+			}
+			args["after"], args["before"] = after, before
+			delete(args, "window")
 		}
 		if p.Invocation.Command != "standards" {
 			return standardsMissingTerms(op, p.Invocation.Arguments), nil
@@ -228,6 +233,31 @@ func relativeBound(phrase string, now time.Time) (string, string, bool) {
 		return from.Format(time.RFC3339), "", true
 	}
 	return from.Format(time.RFC3339), to.Format(time.RFC3339), true
+}
+
+// analysisWindow turns a spanned window phrase into closed UTC bounds: "last N
+// days" (or hours) ends now, and the calendar phrases of relativeBound end at
+// their period's end or now.
+func analysisWindow(phrase string, now time.Time) (string, string, bool) {
+	text := strings.ToLower(strings.TrimSpace(phrase))
+	fields := strings.Fields(strings.TrimPrefix(strings.TrimPrefix(text, "last "), "past "))
+	if len(fields) == 2 {
+		n, err := strconv.Atoi(fields[0])
+		unit := map[string]time.Duration{"day": 24 * time.Hour, "hour": time.Hour}[strings.TrimSuffix(fields[1], "s")]
+		if err == nil && n > 0 && n <= 366 && unit > 0 {
+			return now.UTC().Add(-time.Duration(n) * unit).Format(time.RFC3339), now.UTC().Format(time.RFC3339), true
+		}
+	}
+	from, to, ok := relativeBound(text, now.In(time.Local))
+	if !ok {
+		return "", "", false
+	}
+	start, _ := time.Parse(time.RFC3339, from)
+	end := now
+	if to != "" {
+		end, _ = time.Parse(time.RFC3339, to)
+	}
+	return start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339), true
 }
 
 func (s *Service) naturalProposal(p naturalPayload, code string) string {

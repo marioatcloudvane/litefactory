@@ -203,10 +203,7 @@ func (db *DB) CreateDriftAnalysis(ctx context.Context, a DriftAnalysis) (DriftAn
 		}
 		_, e = tx.ExecContext(ctx, `INSERT INTO drift_analyst_runs(id,analysis_id,created_at) VALUES(?,?,?)`, a.RunID, a.ID, FormatTime(a.CreatedAt))
 		created = e == nil
-		if e != nil {
-			return e
-		}
-		return attachAnalystAllocation(ctx, tx, "drift", a.ID, a.RequestKey)
+		return e
 	})
 	return a, created && err == nil, err
 }

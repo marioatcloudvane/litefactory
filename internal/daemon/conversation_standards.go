@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/analystschedule"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/standardsexceptions"
@@ -26,7 +25,7 @@ type ConversationStandards struct {
 	Book       *standards.Service
 	Authoring  *standards.Authoring
 	Exceptions *standardsexceptions.Service
-	Schedules  *analystschedule.Service
+	Analyses   *ConversationAnalyses
 	OwnerID    string
 	Authorized func(context.Context, messaging.StandardsRequest) error
 }
@@ -111,10 +110,6 @@ func standardsResult(v any) (messaging.StandardsResult, error) {
 		refs["id"] = x.Proposal.ID
 		refs["digest"] = x.Proposal.Digest
 		refs["kind"] = "exception"
-	case store.AnalystSchedule:
-		refs["id"] = x.ID
-		refs["version"] = strconv.FormatInt(x.Version, 10)
-		refs["kind"] = "schedule"
 	}
 	return messaging.StandardsResult{Text: string(b), References: refs}, nil
 }
@@ -132,7 +127,7 @@ func (a *ConversationStandards) Read(ctx context.Context, r messaging.StandardsR
 	var e error
 	switch r.Operation {
 	case "discover":
-		return messaging.StandardsResult{Text: "Standards: inspect categories, standards, book history, proposals and authoring sessions; start, answer, edit, continue, validate, complete or rebase authoring; approve exact proposals or exceptions and separately publish an approved proposal, each as a confirmed action; create disabled analyst schedules, inspect activity, change, enable or disable them; inspect retained notices."}, nil
+		return messaging.StandardsResult{Text: "Standards: inspect categories, standards, book history, proposals and authoring sessions; start, answer, edit, continue, validate, complete or rebase authoring; approve exact proposals or exceptions and separately publish an approved proposal, each as a confirmed action; start a log analysis of one project as a confirmed action and inspect saved analyses."}, nil
 	case "book.current", "book.categories", "book.standards":
 		var revision store.StandardsRevision
 		revision, e = a.Book.Current(ctx)
@@ -177,22 +172,12 @@ func (a *ConversationStandards) Read(ctx context.Context, r messaging.StandardsR
 		v, e = a.Exceptions.List(ctx, 25, 0)
 	case "exception.show", "exception.inspect":
 		v, e = a.Exceptions.Show(ctx, args["id"])
-	case "schedule.list":
-		v, e = a.DB.ListAnalystSchedules(ctx, "", 25)
-	case "schedule.show":
-		v, e = a.DB.GetAnalystSchedule(ctx, args["id"])
-	case "schedule.activity":
-		var after int64
-		after, e = standardsAfter(args)
-		if e == nil {
-			v, e = a.DB.ListAnalystOccurrences(ctx, args["id"], after, 25)
-		}
-	case "notice.list":
-		var after int64
-		after, e = standardsAfter(args)
-		if e == nil {
-			v, e = a.DB.ListAnalystProposalNotices(ctx, args["id"], after, 25)
-		}
+	case "analysis.list":
+		text, err := a.Analyses.list(ctx)
+		return messaging.StandardsResult{Text: text}, err
+	case "analysis.show":
+		text, err := a.Analyses.Report(ctx, args["id"])
+		return messaging.StandardsResult{Text: text, References: map[string]string{"kind": "analysis", "id": args["id"]}}, err
 	default:
 		e = errors.New("standards: unsupported read")
 	}
@@ -217,7 +202,7 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 	var v any
 	var e error
 	var version int64
-	if r.Operation != "author.start" && r.Operation != "exception.propose" && r.Operation != "exception.approve" && r.Operation != "exception.revoke" && r.Operation != "schedule.create" {
+	if r.Operation != "author.start" && r.Operation != "exception.propose" && r.Operation != "exception.approve" && r.Operation != "exception.revoke" {
 		version, e = standardsNumber(args, "version")
 		if e != nil {
 			return messaging.StandardsResult{}, e
@@ -294,20 +279,6 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 		v, e = a.Exceptions.Approve(ctx, args["id"], args["digest"])
 	case "exception.revoke":
 		v, e = a.Exceptions.Revoke(ctx, args["id"], args["reason"])
-	case "schedule.create", "schedule.change":
-		var c analystschedule.Config
-		c, e = standardsScheduleConfig(args)
-		if e == nil {
-			if r.Operation == "schedule.create" {
-				v, e = a.Schedules.Create(ctx, r.OperationKey, "discord-owner:"+r.OwnerID, c, r.At)
-			} else {
-				v, e = a.Schedules.Change(ctx, args["id"], version, "discord-owner:"+r.OwnerID, c, r.At)
-			}
-		}
-	case "schedule.enable":
-		v, e = a.Schedules.Enable(ctx, args["id"], version, "discord-owner:"+r.OwnerID, r.At)
-	case "schedule.disable":
-		v, e = a.Schedules.Disable(ctx, args["id"], version, "discord-owner:"+r.OwnerID, r.At)
 	default:
 		e = errors.New("standards: unsupported mutation")
 	}
@@ -332,6 +303,14 @@ func standardsCategories(v string) []string {
 func (a *ConversationStandards) Execute(ctx context.Context, r messaging.StandardsRequest) (messaging.StandardsResult, error) {
 	if e := a.authorize(ctx, r); e != nil {
 		return messaging.StandardsResult{}, e
+	}
+	if r.Operation == "analysis.start" && r.OperationKey != "" {
+		// The analysis keeps its own record, keyed by this operation, so a
+		// repeated confirmation never starts a second one.
+		if e := a.capability(r.Operation); e != nil {
+			return messaging.StandardsResult{}, e
+		}
+		return a.Analyses.begin(r)
 	}
 	if a.DB == nil || r.OperationKey == "" {
 		return messaging.StandardsResult{}, errors.New("standards: durable operation storage required")
@@ -441,8 +420,6 @@ func (a *ConversationStandards) recoverEffect(ctx context.Context, r messaging.S
 		value, e = a.Book.Revision(ctx, link.Revision)
 	case "exception":
 		value, e = a.Exceptions.Show(ctx, link.ID)
-	case "schedule":
-		value, e = a.DB.GetAnalystScheduleVersion(ctx, link.ID, link.Version)
 	default:
 		e = errors.New("standards: committed effect reference unavailable; inspect operation before retry")
 	}
@@ -539,52 +516,6 @@ func standardsExceptionRequest(args map[string]string) (standardsexceptions.Requ
 	}
 	return request, nil
 }
-func standardsScheduleConfig(args map[string]string) (analystschedule.Config, error) {
-	var c analystschedule.Config
-	if raw := args["config"]; raw != "" {
-		e := standardsJSON(raw, &c)
-		return c, e
-	}
-	c.Name = args["name"]
-	c.Kind = args["kind"]
-	if c.Name == "" || c.Kind == "" {
-		return c, errors.New("standards: clarify schedule name and analyst kind")
-	}
-	var e error
-	c.RepositoryID, e = standardsNumber(args, "repository_id")
-	if e != nil {
-		return c, e
-	}
-	c.IntervalSeconds, e = standardsNumber(args, "interval_seconds")
-	if e != nil {
-		return c, e
-	}
-	limit, e := standardsNumber(args, "run_limit")
-	if e != nil || limit > 5 {
-		return c, errors.New("standards: explicit finite run limit between one and five required")
-	}
-	c.RunLimit = int(limit)
-	c.TaskRefs = standardsCategories(args["task_refs"])
-	c.Modes = standardsCategories(args["modes"])
-	c.Paths = standardsCategories(args["paths"])
-	c.Base = args["base"]
-	c.Ref = args["ref"]
-	if raw := args["after"]; raw != "" {
-		c.After, e = time.Parse(time.RFC3339, raw)
-		if e != nil {
-			return c, e
-		}
-		c.After = c.After.UTC()
-	}
-	for _, issue := range standardsCategories(args["issues"]) {
-		n, e := strconv.Atoi(issue)
-		if e != nil || n < 1 {
-			return c, errors.New("standards: positive issue numbers required")
-		}
-		c.Issues = append(c.Issues, n)
-	}
-	return c, nil
-}
 
 func standardsEditOperations(ops []standards.Operation, args map[string]string) ([]standards.Operation, error) {
 	selected := -1
@@ -628,10 +559,8 @@ func (a *ConversationStandards) capability(operation string) error {
 		unavailable = a.Authoring == nil || a.Authoring.Book == nil
 	case strings.HasPrefix(operation, "exception."):
 		unavailable = a.Exceptions == nil
-	case strings.HasPrefix(operation, "schedule."):
-		unavailable = a.DB == nil || a.Schedules == nil
-	case operation == "notice.list":
-		unavailable = a.DB == nil
+	case strings.HasPrefix(operation, "analysis."):
+		unavailable = a.Analyses == nil
 	}
 	if unavailable {
 		return errors.New("standards: requested shared service is unavailable")
@@ -639,16 +568,6 @@ func (a *ConversationStandards) capability(operation string) error {
 	return nil
 }
 
-func standardsAfter(args map[string]string) (int64, error) {
-	if args["after"] == "" {
-		return 0, nil
-	}
-	v, e := strconv.ParseInt(args["after"], 10, 64)
-	if e != nil || v < 0 {
-		return 0, errors.New("standards: nonnegative inspection cursor required")
-	}
-	return v, nil
-}
 func standardsDisplay(v any) any {
 	switch session := v.(type) {
 	case standards.AuthoringSession:

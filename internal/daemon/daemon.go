@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/analystschedule"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -189,8 +188,6 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
-	// AnalystSchedules reuses bounded standalone analysts through the shared pool.
-	AnalystSchedules *analystschedule.Service
 	// Paths locates the owner instruction package.
 	Paths config.Paths
 	// Instructions supplies per-invocation captures; nil uses the shared package.
@@ -419,7 +416,6 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
-	analystSchedules *analystschedule.Service
 	instructionPaths config.Paths
 	instructions     instructionpackage.CaptureSource
 
@@ -612,7 +608,6 @@ func New(opts Options) (*Daemon, error) {
 		now:              now,
 		ticks:            opts.Ticks,
 		pool:             newPool(maxRuns),
-		analystSchedules: opts.AnalystSchedules,
 		coordinator:      newPool(1),
 
 		repoSessionCursor: make(map[int64]int64),

@@ -339,11 +339,6 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 			return result, err
 		}
 	}
-	if !lowDisk {
-		if err := d.dispatchAnalystSchedules(ctx, startedAt, &result); err != nil {
-			return result, err
-		}
-	}
 	result.InFlight = d.inflight.size()
 	result.Scheduled, err = d.db.CountPendingSchedules(ctx)
 	if err != nil {
