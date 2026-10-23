@@ -194,7 +194,7 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 	executionCtx, source := presentation.WithAssessment(ctx)
 	if text == "" {
 		switch reply.Command {
-		case "standards-author", "standards-proposal", "standards-exception", "standards-schedule":
+		case "standards-author", "standards-proposal", "standards-exception", "standards-analysis":
 			request, e := s.standardsRequest(p.Invocation, r.c.ChannelRef, r.t.SourceID, r.at)
 			request.OperationKey = s.transport + ":" + r.c.ChannelRef + ":" + reply.MessageID
 			if e != nil {

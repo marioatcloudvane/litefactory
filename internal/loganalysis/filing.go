@@ -226,3 +226,35 @@ func (s *Service) excerpts(ctx context.Context, id string, f Finding) []string {
 	}
 	return out
 }
+
+// FindingStatus says what became of one finding: filed, would file, not filed
+// or interrupted, with how to retry its filing.
+func FindingStatus(id string, scope Scope, f Finding, filing store.LogAnalysisFiling, recorded bool) string {
+	retry := "; retry with: standards analyze logs file " + id
+	if recorded {
+		switch filing.State {
+		case store.FilingFiled:
+			return fmt.Sprintf("filed as %s %s", filing.Reference, filing.URL)
+		case store.FilingWouldFile:
+			if filing.Reason != "" {
+				return "would file, but could not: " + filing.Reason
+			}
+			return "would file into " + filing.Destination
+		case store.FilingNotFiled:
+			return "not filed: " + filing.Reason
+		case store.FilingStarted:
+			return "filing into " + filing.Destination + " was interrupted" + retry
+		default:
+			return "filing into " + filing.Destination + " failed: " + filing.Reason + retry
+		}
+	}
+	switch {
+	case f.Existing != "":
+		return "already covered by " + f.Existing + "; not filed"
+	case Route(scope, f) == "team":
+		return "suggested change for your own team; never filed"
+	case f.File:
+		return "marked to file; not filed yet" + retry
+	}
+	return "not filed: the analyst did not ask to file it"
+}

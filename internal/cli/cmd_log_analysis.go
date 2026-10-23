@@ -349,7 +349,7 @@ func renderFindings(b *strings.Builder, view loganalysis.Inspection, report loga
 				b.WriteString("\n")
 			}
 			filing, recorded := filings[f.Key]
-			fmt.Fprintf(b, "\n- %s [%s, %s]\n  Status: %s\n", f.Title, f.Kind, f.Target, findingStatus(view.Invocation.ID, scope, f, filing, recorded))
+			fmt.Fprintf(b, "\n- %s [%s, %s]\n  Status: %s\n", f.Title, f.Kind, f.Target, loganalysis.FindingStatus(view.Invocation.ID, scope, f, filing, recorded))
 			if recorded && filing.State != store.FilingFiled || !recorded && group.route == "upstream" && f.Existing == "" {
 				title, body := filing.Title, filing.Body
 				if !recorded {
@@ -365,34 +365,4 @@ func renderFindings(b *strings.Builder, view loganalysis.Inspection, report loga
 			writeCitations(b, f.Citations)
 		}
 	}
-}
-
-func findingStatus(id string, scope loganalysis.Scope, f loganalysis.Finding, filing store.LogAnalysisFiling, recorded bool) string {
-	retry := "; retry with: standards analyze logs file " + id
-	if recorded {
-		switch filing.State {
-		case store.FilingFiled:
-			return fmt.Sprintf("filed as %s %s", filing.Reference, filing.URL)
-		case store.FilingWouldFile:
-			if filing.Reason != "" {
-				return "would file, but could not: " + filing.Reason
-			}
-			return "would file into " + filing.Destination
-		case store.FilingNotFiled:
-			return "not filed: " + filing.Reason
-		case store.FilingStarted:
-			return "filing into " + filing.Destination + " was interrupted" + retry
-		default:
-			return "filing into " + filing.Destination + " failed: " + filing.Reason + retry
-		}
-	}
-	switch {
-	case f.Existing != "":
-		return "already covered by " + f.Existing + "; not filed"
-	case loganalysis.Route(scope, f) == "team":
-		return "suggested change for your own team; never filed"
-	case f.File:
-		return "marked to file; not filed yet" + retry
-	}
-	return "not filed: the analyst did not ask to file it"
 }

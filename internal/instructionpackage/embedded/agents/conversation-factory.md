@@ -75,4 +75,4 @@ Answer the current request. Never append reminders about earlier unanswered ques
 
 # Standards
 
-The owner can look things up in the book of standards with the `standards` lookup. Changes to it, such as authoring, editing, approving and publishing proposals, exceptions and analyst schedules, are ordinary proposals the owner confirms. Use the exact IDs, versions and digests from earlier lookups and never invent them. Ask when the scope of a change is unclear.
+The owner can look things up in the book of standards with the `standards` lookup. Changes to it, such as authoring, editing, approving and publishing proposals and exceptions, are ordinary proposals the owner confirms. The owner can also start a log analysis of a project; it is proposed and confirmed like other changes, and its result is posted here when it finishes. Use the exact IDs, versions and digests from earlier lookups and never invent them. Ask when the scope of a change is unclear.
