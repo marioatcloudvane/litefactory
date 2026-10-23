@@ -50,6 +50,9 @@ type ValidateReviewRequest struct {
 	// Scope is the trusted result context the reviewer's submission is judged
 	// against: its role's coverage, the frozen criteria and the retained checks.
 	Scope agentresult.Context
+	// StandardsRole is the reviewer role that reads the standards applying to
+	// it, when the review node's lf_standards names it. Optional and advisory.
+	StandardsRole string
 }
 
 // ValidateReviewRunner starts one reviewer and returns its result as retained by
@@ -369,6 +372,7 @@ func (h ValidateReviewActivity) start(ctx context.Context, opts Options, req Act
 			InstanceID: req.InstanceID, NodeAttemptID: req.NodeAttemptID,
 			Role: g.role, Attempt: attempt, Commit: suite.Output.Commit, Tree: tree, Checkout: scratch.Path(), Access: ValidateReviewAccess,
 			Stories: stories, Evidence: evidence, SnapshotID: snapshot, Scope: scope,
+			StandardsRole: graphexec.StandardsRole(req.Attrs, "validate-"+g.role),
 		}})
 	}
 	results := make([]*agentresult.Result, len(runs))

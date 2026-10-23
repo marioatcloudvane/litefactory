@@ -77,18 +77,16 @@ func (f *standardsJourneyProvider) RunConversation(ctx context.Context, r agent.
 
 type standardsJourneyAuthor struct{ drafts int }
 
-func (f *standardsJourneyAuthor) Answer(_ context.Context, _ string, prompt string) ([]byte, error) {
-	if strings.Contains(prompt, "Operation: select\n") {
-		return []byte(`{"schema_version":1,"category_ids":["quality"],"reason":"Shared quality guidance"}`), nil
-	}
+func (f *standardsJourneyAuthor) Answer(_ context.Context, c standards.AuthoringCall) ([]byte, error) {
+	prompt := c.Prompt
 	f.drafts++
 	if f.drafts == 1 {
-		return []byte(`{"schema_version":1,"title":"Relevant checks","body":"Run checks.","category_ids":["quality"],"questions":[{"text":"Which checks?","options":["Relevant package checks","All checks"]}]}`), nil
+		return []byte(`{"schema_version":1,"category_id":"quality","rule":"MUST run relevant checks","description":"Run checks.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[{"text":"Which checks?","options":["Relevant package checks","All checks"]}]}`), nil
 	}
 	if !strings.Contains(prompt, `"answer":"Relevant package checks"`) {
 		return nil, fmt.Errorf("saved answer absent from resumed authoring prompt")
 	}
-	return []byte(`{"schema_version":1,"title":"Relevant checks","body":"Run relevant package checks before sharing changes.","category_ids":["quality"],"questions":[]}`), nil
+	return []byte(`{"schema_version":1,"category_id":"quality","rule":"MUST run relevant checks","description":"Run relevant package checks before sharing changes.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"questions":[]}`), nil
 }
 
 type standardsJourneySender struct {
@@ -285,18 +283,7 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 	if !strings.Contains(reviewText, "Run relevant package checks before sharing changes.") {
 		t.Fatalf("complete review body absent: %s", reviewText)
 	}
-	// The approval code is a deterministic host prompt, never provider output.
-	marker := "approve standards "
-	index := strings.LastIndex(reviewText, marker)
-	if index < 0 {
-		t.Fatalf("exact approval challenge absent: %s", reviewText)
-	}
-	fields := strings.Fields(reviewText[index+len(marker):])
-	if len(fields) == 0 {
-		t.Fatal("approval challenge has no code")
-	}
-	code := strings.Trim(fields[0], "`.*\"'")
-	say(marker + code)
+	change("standards-proposal", "approve", fmt.Sprintf("Approve proposal %s version %d with digest %s.", proposal.ProposalID, proposal.Version, proposal.ChangeDigest), map[string]string{"id": proposal.ProposalID, "version": fmt.Sprint(proposal.Version), "digest": proposal.ChangeDigest})
 	reviewed, err := book.Inspect(ctx, proposal.ProposalID, proposal.Version)
 	if err != nil {
 		t.Fatal(err)

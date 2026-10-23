@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -450,6 +451,8 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 			nr := req
 			nr.Tools, nr.AllowedTools, nr.CodexSandbox, nr.ToolProfile = permissions.Tools, permissions.AllowedTools, permissions.Sandbox, node.Attrs["lf_agent_markdown"]
 			nr.researchDefinition, nr.researchNode, nr.researchInstance, nr.workflowPolicy = r.definition, node.Name, instance.ID, &w.policy
+			// A Bug node may ask only when its DOT routes an ask back to the owner.
+			nr.noQuestions = !slices.Contains(node.Outcomes, "ask")
 			nr.graphBugPreparation = true
 			w.req = nr
 			w.prep, e = prepare(ctx, r.opts, nr, result.Session, result.Ref, r.opts.Logger)

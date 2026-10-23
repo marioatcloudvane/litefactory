@@ -16,10 +16,5 @@ func LogAnalystInstructions(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	instructions := role.Instructions()
-	for _, name := range selectedSkills(LogAnalystRole) {
-		instructions = append(instructions, '\n')
-		instructions = append(instructions, role.SkillInstructions(name)...)
-	}
-	return instructions, nil
+	return role.Instructions(), nil
 }

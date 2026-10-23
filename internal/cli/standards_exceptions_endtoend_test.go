@@ -47,7 +47,7 @@ func TestStandardsExceptionsEndToEndNoninteractive(t *testing.T) {
 			t.Fatalf("decode %s: %v", output, err)
 		}
 	}
-	book := `{"base_revision":0,"operations":[{"kind":"category.add","category":{"id":"quality","name":"Quality","description":"Engineering guidance"}},{"kind":"standard.add","standard":{"id":"checks","title":"Run checks","body":"Run the relevant checks.","category_ids":["quality"],"exception_policy":{"version":1,"mode":"allow-task","all_registered_repositories":true,"max_lifetime_seconds":86400}}}]}`
+	book := `{"base_revision":0,"operations":[{"kind":"category.add","category":{"id":"quality","name":"Quality","description":"Engineering guidance"}},{"kind":"standard.add","standard":{"id":"checks","category_id":"quality","rule":"MUST run checks","description":"Run the relevant checks.","evidence":"The PR records the check output.","scope":"All repositories.","check":"manual","applies_to":["story-worker"],"exception_policy":{"version":1,"mode":"allow-task","all_registered_repositories":true,"max_lifetime_seconds":86400}}}]}`
 	run(book, "standards", "proposal", "create", "exception-fixture", "--file", "-", "--json")
 	var review struct {
 		Proposal struct {

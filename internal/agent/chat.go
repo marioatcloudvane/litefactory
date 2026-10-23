@@ -6,12 +6,14 @@ import (
 	"strings"
 )
 
-// ChatRequest is response-only, with no resume, workflow, files or tool grant.
-// Providers must use their doctor isolation gate and explicitly disable all
-// native and external tools. The scratch directory contains no repository data.
+// ChatRequest is response-only, with no resume, workflow or files. Providers
+// must use their doctor isolation gate and disable all native tools. The
+// scratch directory contains no repository data. MCPLaunch optionally grants
+// exactly its own read-only factory tools; nil grants none.
 type ChatRequest struct {
 	Prompt, Model, WorkingDirectory string
 	Usage                           *UsageCapture
+	MCPLaunch                       *MCPLaunchSpec
 }
 
 // Validate checks bounded context before a provider process may be launched.
@@ -21,6 +23,9 @@ func (r ChatRequest) Validate() error {
 	}
 	if r.Usage != nil && r.Usage.AttemptID == "" {
 		return errors.New("chat usage identity missing")
+	}
+	if r.MCPLaunch != nil {
+		return r.MCPLaunch.Validate()
 	}
 	return nil
 }

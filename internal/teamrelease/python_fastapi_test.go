@@ -225,18 +225,7 @@ func TestPythonFastAPIProfileAndGuidanceBoundaries(t *testing.T) {
 	for _, raw := range guidance {
 		combined = append(combined, raw...)
 	}
-	for _, id := range []string{"factory-python-api", "factory-react-vite"} {
-		if !bytes.Contains(combined, []byte(id)) {
-			t.Fatal("missing retained-book pointer", id)
-		}
-	}
-	advice := append(migrationStandardBody(t, "factory-python-api"), migrationStandardBody(t, "factory-react-vite")...)
-	for _, topic := range []string{"request", "response", "lifespan", "blocking", "error", "pytest", "OpenAPI", "typed API", "loading", "accessible", "Vitest", "strict"} {
-		if !bytes.Contains(bytes.ToLower(advice), []byte(strings.ToLower(topic))) {
-			t.Fatal("missing migrated stack guidance", topic)
-		}
-	}
-	for _, topic := range []string{"read-only", "uv sync --locked", "npm ci", "package-only"} {
+	for _, topic := range []string{"request", "response", "lifespan", "blocking", "error", "pytest", "OpenAPI", "typed API", "loading", "accessible", "Vitest", "strict", "read-only", "uv sync --locked", "npm ci", "package-only"} {
 		// The evidence boundary is stated as package compatibility, not application proof.
 		if topic == "package-only" {
 			topic = "does not prove an example application"

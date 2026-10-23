@@ -339,11 +339,6 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 			return result, err
 		}
 	}
-	if !lowDisk {
-		if err := d.dispatchAnalystSchedules(ctx, startedAt, &result); err != nil {
-			return result, err
-		}
-	}
 	result.InFlight = d.inflight.size()
 	result.Scheduled, err = d.db.CountPendingSchedules(ctx)
 	if err != nil {
@@ -2823,21 +2818,11 @@ func (d *Daemon) run(
 	if t.worker != nil {
 		t.worker.executionRequests++
 	}
-	// Only private story-work identities carry the coordinator book. An owner
-	// schedule with matching prose remains a new owner invocation.
-	standardsHandoff := t.scheduled != nil && t.scheduled.Payload == implementWorkPayload &&
-		t.scheduled.SourceCommentID >= 1<<56 && t.scheduled.SourceCommentID < 1<<57
-	var standardsRootRunID int64
-	if standardsHandoff {
-		standardsRootRunID, _ = d.db.GetStandardsScheduledInvocation(ctx, t.session.ID, t.scheduled.TriggerID())
-	}
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
-		StandardsHandoff:   standardsHandoff,
-		StandardsRootRunID: standardsRootRunID,
-		Continuation:       t.continuation,
-		Mode:               mode,
-		Workflow:           workflow,
-		SessionID:          t.session.ID,
+		Continuation: t.continuation,
+		Mode:         mode,
+		Workflow:     workflow,
+		SessionID:    t.session.ID,
 		Issue: turn.Issue{
 			Number: t.issue.Number,
 			Title:  t.issue.Title,

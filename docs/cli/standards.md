@@ -17,10 +17,18 @@ litefactory standards proposal create first --file changes.json
   "base_revision": 0,
   "operations": [
     {"kind":"category.add","category":{"id":"go","name":"Go","description":"Go guidance"}},
-    {"kind":"standard.add","standard":{"id":"errors","title":"Handle errors","body":"Return useful errors.","category_ids":["go"]}}
+    {"kind":"standard.add","standard":{"id":"GO-001","category_id":"go","rule":"MUST return errors with context","description":"Wrap errors with what failed.","evidence":"The PR wraps returned errors.","scope":"Go repositories","check":"manual","applies_to":["story-worker"]}}
   ]
 }
 ```
+
+A standard is one structured rule: `id`, exactly one `category_id`, a `rule`
+starting with `MUST `, `description`, `evidence`, `scope`, `check`
+(`automated`, `semi_automated` or `manual`), the optional `exception_policy`
+and `applies_to`, the agent roles that read it. A role granted standards by its
+graph node reads exactly the standards whose `applies_to` names it.
+`standards book render [--role ROLE]` prints the current book as agents read it,
+followed by how many standards apply to each role and sit in each category.
 
 Zero means the empty, unpublished base. For later proposals use the revision ID
 from `standards book current`. Stable IDs survive replacements. Operation kinds
@@ -86,28 +94,22 @@ The existing explicit forget operation removes them together with the forgotten
 runs, so a later reused run identity cannot inherit old guidance. It leaves the
 shared published book intact.
 
-Before substantive work, agents use `standards_categories_list` to discover the
-retained categories, `standards_select` to record relevant category IDs and a
-short reason, and `standards_read` to retrieve the selected standards. Category
-choice is an agent assertion; it grants no permissions. An explicit empty choice
-is valid and differs from unavailable guidance or no selection. Additions retain
-previous choices and use the expected version returned by the service. On a lost
-reply, recover the retained selection reference and reread the same revision.
-Damaged retained selections have a separate corruption status. Tools refuse to
-read or extend them and never replace their book.
+Ordinary runs get no standards tools and no standards instructions. Book access
+is opt-in per role and declared in the workflow DOT: a node attribute
+`lf_standards="<role>[,<role>]"` names the roles that may read the book. The
+canonical teams grant it to the Implement story worker, the Plan technical role
+and the Validate architecture reviewer only. Such a role gets one read-only
+tool, `standards_read`, which returns the published standards whose
+`applies_to` names that role, rendered and paged by `next_cursor`. It may
+consult them; nothing requires a call, and there is no completion gate. The run's
+book is pinned on its first standards call, so later calls in the same run read
+the same revision. An empty or unavailable book shows in the tool reply and the
+work simply continues.
 
-One owner request and its graph, fallback and automatic recovery launches share
-one immutable book. A coordinator that starts work mechanically before any agent
-run uses its immutable graph launch as the invocation anchor (shown as a negative
-invocation ID). Factory-launched story workers inherit that anchor across their
-separate sessions; each work item keeps its own selection. A new owner
-request binds anew and supersedes standards from the prior conversation context.
-On resume, agents restore selections and reread bodies from the retained book.
-Unavailable, corrupt, unsupported or oversized books remain explicit while work
-continues under existing controls; failures never mean an empty book. Disabled
-MCP is reported as unavailable delivery, without enabling tools.
-
-Category pages default to 25 entries and permit at most 100. Results are bounded
+The analysts (drift and log) still discover categories, select
+them and read the selected standards; their category pages also show how many
+standards apply to each role and sit in each category. Category pages default
+to 25 entries and permit at most 100. Results are bounded
 to 32 KiB including both MCP content copies; follow explicit cursors until
 complete. Body ranges use UTF-8-safe byte offsets, total lengths and digests.
 Initial canonical snapshot capture is capped at 16 MiB; calls retain the existing
@@ -139,8 +141,9 @@ accepts a JSON array through `--file`, with `question_id`, `text` and optional
 `"replace": true`). Question IDs and earlier answers survive restarts.
 
 `edit SESSION --expected-version N --file FILE|-` accepts a JSON object with
-optional `title`, `body`, `category_ids` and `context_category_ids`. Title, body
-and category edits remain authoritative on later continuations. The context
+optional `category_id`, `rule`, `description`, `evidence`, `scope`, `check`,
+`applies_to` and `context_category_ids`. Field edits remain authoritative on
+later continuations. The context
 filter narrows what the assistant receives; it does not change category IDs by
 name. `list`, `show` and `questions` inspect saved work; `show --version N`
 reads an earlier version. Add `--json` for full structured state, including
@@ -175,51 +178,14 @@ SQLite WAL with synchronous NORMAL protects ordinary process interruption, but
 power loss can lose recent writes. Disk loss and administrator modification are
 outside this guarantee.
 
-## Analyze selected bugs
+## Prevention notes from Bug analyses
 
-`standards analyze bugs` performs one bounded, advisory analysis of explicitly
-selected issues in one registered GitHub repository. It retains observations and
-coverage gaps, then asks an isolated prevention analyst to explain causes and
-propose supported prevention guidance. It does not repair issues or approve or
-publish proposals.
-
-```sh
-litefactory standards analyze bugs start --repo acme/api --issues 123,124 --request-key review-2026-10-21
-litefactory standards analyze bugs list --json
-litefactory standards analyze bugs show ANALYSIS_ID
-litefactory standards analyze bugs evidence ANALYSIS_ID --json
-litefactory standards analyze bugs result ANALYSIS_ID --json
-```
-
-Save the analysis ID even when launch fails. Repeating the same request key and
-scope inspects retained work; it does not refresh evidence or restart the model.
-A changed scope needs a new request key. An abandoned attempt is retained as
-interrupted, and a durable accepted result is recovered before interruption is
-recorded.
-
-The default ceilings are five issues, five direct fix references, thirty remote
-requests (including failures), twenty items per page, 1 MiB per response, 4 MiB
-of source material and 256 KiB of retained evidence. The ten minute deadline
-includes collection. The analyst gets one launch, at most twenty-four turns,
-three correction submissions and five proposals. Command flags may lower these
-limits. Reaching a limit records an omission; it does not establish complete
-coverage or justify a global no-change conclusion.
-
-Evidence consists of retained, sanitized excerpts and source metadata, including
-recorded diagnosis review status when available. Remote observations are collected
-over an interval and are not an atomic repository snapshot. Redaction removes
-known tokens; it cannot detect every unknown secret. Missing causes are reported
-as insufficient evidence. Recorded causes and analyst inferences remain distinct,
-and a merged fix alone does not prove cause.
-
-Each analysis pins one verified standards binding and retains category selection
-and delivery status. Unavailable, corrupt or partly retrieved guidance leaves a
-degraded analysis and cannot create validated proposals. Result inspection retains
-host coverage, causal citations, uncertainty and exact unapproved proposal
-versions, base revisions and digests. Review those proposals through the existing
-`standards proposal show`, `review`, `edit`, `approve` and `publish` commands.
-Publication remains subject to stale-base review and fresh approval. The same
-SQLite NORMAL power-loss limits described above apply to analysis records.
+The Bug analyst records an optional prevention note in its analysis: the rule
+that would have prevented the bug (`missing_standard`), or why the bug is a
+one-off (`one_off`). The Bug analyst does not read the book. The note appears in
+the Bug analysis comment and in the log analyst's Bug incidents; the log analyst
+reads the book, decides whether such a rule already exists and turns recurring
+gaps into proposals.
 
 ## Bounded drift analysis
 

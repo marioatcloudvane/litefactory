@@ -134,24 +134,23 @@ type Service struct {
 	// Protect sanitizes generated text before persistence and delivery.
 	Protect func(context.Context, string) (string, error)
 	// Logger records terminal failures without remote response bodies.
-	Logger                 *slog.Logger
-	db                     *store.DB
-	transport, owner       string
-	channels               map[string]bool
-	sender                 Transport
-	status                 StatusReader
-	wake                   chan struct{}
-	mu                     sync.RWMutex
-	commands               map[string]Handler
-	definitions            map[string]CommandDefinition
-	ask                    *ask.Service
-	diagnosis              Diagnosis
-	research               ResearchAnswers
-	drafter                *feature.Drafter
-	confirmer              FeatureConfirmer
-	conversations          atomic.Pointer[conversationRuntime]
-	standards              StandardsOperations
-	standardsNoticeChannel string
+	Logger           *slog.Logger
+	db               *store.DB
+	transport, owner string
+	channels         map[string]bool
+	sender           Transport
+	status           StatusReader
+	wake             chan struct{}
+	mu               sync.RWMutex
+	commands         map[string]Handler
+	definitions      map[string]CommandDefinition
+	ask              *ask.Service
+	diagnosis        Diagnosis
+	research         ResearchAnswers
+	drafter          *feature.Drafter
+	confirmer        FeatureConfirmer
+	conversations    atomic.Pointer[conversationRuntime]
+	standards        StandardsOperations
 }
 
 // New copies admission rules and registers help, health, status and details.

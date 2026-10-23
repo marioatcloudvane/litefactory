@@ -37,13 +37,25 @@ type StandardsExceptionPolicy struct {
 	MaxLifetimeSeconds        int64    `json:"max_lifetime_seconds,omitempty"`
 }
 
-// StandardsStandard retains guidance and its category memberships together.
+// Standard check kinds name how compliance is shown.
+const (
+	StandardsCheckAutomated     = "automated"
+	StandardsCheckSemiAutomated = "semi_automated"
+	StandardsCheckManual        = "manual"
+)
+
+// StandardsStandard is one structured MUST rule in exactly one category,
+// applied by the agent roles it names.
 type StandardsStandard struct {
 	ID              string                    `json:"id"`
-	Title           string                    `json:"title"`
-	Body            string                    `json:"body"`
-	CategoryIDs     []string                  `json:"category_ids"`
+	CategoryID      string                    `json:"category_id"`
+	Rule            string                    `json:"rule"`
+	Description     string                    `json:"description"`
+	Evidence        string                    `json:"evidence"`
+	Scope           string                    `json:"scope"`
+	Check           string                    `json:"check"`
 	ExceptionPolicy *StandardsExceptionPolicy `json:"exception_policy,omitempty"`
+	AppliesTo       []string                  `json:"applies_to"`
 }
 
 // StandardsSnapshot is a complete book, independent of later edits.
@@ -367,17 +379,17 @@ func readStandardsRevision(ctx context.Context, tx *sql.Tx, id int64) (Standards
 	if err != nil {
 		return r, err
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT id,title,body FROM standards_standards WHERE revision_id=? ORDER BY id`, id)
+	rows, err = tx.QueryContext(ctx, `SELECT id,category_id,rule,description,evidence,scope,check_kind FROM standards_standards WHERE revision_id=? ORDER BY id`, id)
 	if err != nil {
 		return r, err
 	}
 	for rows.Next() {
 		var s StandardsStandard
-		if err := rows.Scan(&s.ID, &s.Title, &s.Body); err != nil {
+		if err := rows.Scan(&s.ID, &s.CategoryID, &s.Rule, &s.Description, &s.Evidence, &s.Scope, &s.Check); err != nil {
 			_ = rows.Close()
 			return r, err
 		}
-		s.CategoryIDs = []string{}
+		s.AppliesTo = []string{}
 		r.Snapshot.Standards = append(r.Snapshot.Standards, s)
 	}
 	err = rows.Err()
@@ -416,13 +428,13 @@ func readStandardsRevision(ctx context.Context, tx *sql.Tx, id int64) (Standards
 	if err != nil {
 		return r, err
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT standard_id,category_id FROM standards_memberships WHERE revision_id=? ORDER BY standard_id,category_id`, id)
+	rows, err = tx.QueryContext(ctx, `SELECT standard_id,role FROM standards_applies_to WHERE revision_id=? ORDER BY standard_id,role`, id)
 	if err != nil {
 		return r, err
 	}
 	for rows.Next() {
-		var sid, cid string
-		if err := rows.Scan(&sid, &cid); err != nil {
+		var sid, role string
+		if err := rows.Scan(&sid, &role); err != nil {
 			_ = rows.Close()
 			return r, err
 		}
@@ -431,7 +443,7 @@ func readStandardsRevision(ctx context.Context, tx *sql.Tx, id int64) (Standards
 			_ = rows.Close()
 			return r, ErrStandardsCorrupt
 		}
-		r.Snapshot.Standards[i].CategoryIDs = append(r.Snapshot.Standards[i].CategoryIDs, cid)
+		r.Snapshot.Standards[i].AppliesTo = append(r.Snapshot.Standards[i].AppliesTo, role)
 	}
 	err = rows.Err()
 	_ = rows.Close()
@@ -595,7 +607,7 @@ func (db *DB) PublishStandardsProposalWithProvenance(ctx context.Context, p Stan
 			}
 		}
 		for _, s := range snapshot.Standards {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO standards_standards(revision_id,id,title,body) VALUES(?,?,?,?)`, id, s.ID, s.Title, s.Body); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO standards_standards(revision_id,id,category_id,rule,description,evidence,scope,check_kind) VALUES(?,?,?,?,?,?,?,?)`, id, s.ID, s.CategoryID, s.Rule, s.Description, s.Evidence, s.Scope, s.Check); err != nil {
 				return err
 			}
 			if s.ExceptionPolicy != nil {
@@ -607,8 +619,8 @@ func (db *DB) PublishStandardsProposalWithProvenance(ctx context.Context, p Stan
 					return err
 				}
 			}
-			for _, cid := range s.CategoryIDs {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO standards_memberships(revision_id,standard_id,category_id) VALUES(?,?,?)`, id, s.ID, cid); err != nil {
+			for _, role := range s.AppliesTo {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO standards_applies_to(revision_id,standard_id,role) VALUES(?,?,?)`, id, s.ID, role); err != nil {
 					return err
 				}
 			}

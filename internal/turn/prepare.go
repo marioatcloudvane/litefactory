@@ -25,13 +25,13 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
-	standardsRoot     string
-	standardsConsumer string
-	standardsGuidance string
-	stackGuidance     string
-	stackSetup        bool
-	mcpRuntime        *MCPRuntime
-	stoppedRepairs    []func(context.Context) error
+	// standardsRole names the role whose graph node grants it the optional
+	// standards read; empty grants nothing. Nothing requires its use.
+	standardsRole  string
+	stackGuidance  string
+	stackSetup     bool
+	mcpRuntime     *MCPRuntime
+	stoppedRepairs []func(context.Context) error
 
 	typedPlan           *TypedPlanSubmission
 	planSubmission      func(context.Context) (*PlanSubmissionCallbacks, error)
@@ -356,7 +356,6 @@ func prepare(
 	if err != nil {
 		return nil, err
 	}
-	standardsRoot, standardsConsumer, standardsGuidance := prepareStandards(ctx, opts.DB, opts.MCP, run, req.researchNode, req.mode(), req.researchDefinition == nil || req.mode() != "implement")
 	stackCaptureDigest, err := retainStandaloneStack(run, req.standaloneDefinition)
 	if err != nil {
 		return nil, err
@@ -578,28 +577,25 @@ func prepare(
 		slog.Int("prompt_bytes", len(prompt)))
 
 	return &preparation{
-		standardsRoot:     standardsRoot,
-		standardsConsumer: standardsConsumer,
-		standardsGuidance: standardsGuidance,
-		stackGuidance:     retainedStackGuidance,
-		stackSetup:        req.standaloneDefinition != nil && standaloneStackSetupAllowed(req),
-		researchInstance:  req.researchInstance,
-		nodeWrite:         req.nodeWrite,
-		resultPass:        req.resultPass,
-		resumeOnly:        req.Continuation != nil,
-		repo:              repo,
-		session:           session,
-		ref:               ref,
-		author:            author,
-		worktree:          worktree,
-		shaBefore:         shaBefore,
-		segment:           segment,
-		run:               run,
-		runner:            runner,
-		prompt:            prompt,
-		metaPath:          metaPath,
-		promptInput:       promptInput,
-		sync:              sync,
+		stackGuidance:    retainedStackGuidance,
+		stackSetup:       req.standaloneDefinition != nil && standaloneStackSetupAllowed(req),
+		researchInstance: req.researchInstance,
+		nodeWrite:        req.nodeWrite,
+		resultPass:       req.resultPass,
+		resumeOnly:       req.Continuation != nil,
+		repo:             repo,
+		session:          session,
+		ref:              ref,
+		author:           author,
+		worktree:         worktree,
+		shaBefore:        shaBefore,
+		segment:          segment,
+		run:              run,
+		runner:           runner,
+		prompt:           prompt,
+		metaPath:         metaPath,
+		promptInput:      promptInput,
+		sync:             sync,
 		request: agent.Request{
 			StackProfile:       admittedRequestStackProfile(req),
 			StackCaptureDigest: stackCaptureDigest,
