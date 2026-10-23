@@ -222,5 +222,5 @@ func malformedFamilyCall(payload []byte) submission.ToolCall {
 // Standards retries reauthorize through the guard and reverify the retained
 // domain data. Receipts retain references and outcomes, never standard bodies.
 func standardsTool(name string) bool {
-	return name == "standards_read"
+	return name == "standards_read" || name == "standards_categories"
 }
