@@ -23,7 +23,7 @@ func (r *Runner) ConversationIsolation(ctx context.Context) (string, error) {
 		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
 	}
-	for _, flag := range []string{"--tools", "--safe-mode", "--restricted", "--safe-mode", "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "--session-id", "--resume", "--system-prompt", "--settings", "--agents", "--no-chrome"} {
+	for _, flag := range []string{"--tools", "--restricted", "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "--session-id", "--resume", "--system-prompt", "--settings", "--agents", "--no-chrome"} {
 		if !strings.Contains(help, flag) {
 			return "", fmt.Errorf("%w: missing required flag %s", agent.ErrConversationIsolation, flag)
 		}
@@ -177,7 +177,7 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 }
 
 func conversationArguments(request agent.ConversationRequest, mcp string) []string {
-	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--safe-mode", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcp, "--agents", "{}", "--settings", `{"disableAllHooks":true}`, "--system-prompt", request.NativeInstructions, "--model", request.Model}
+	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcp, "--agents", "{}", "--settings", `{"disableAllHooks":true}`, "--system-prompt", request.NativeInstructions, "--model", request.Model}
 	if request.Effort != "" {
 		args = append(args, "--effort", request.Effort)
 	}
