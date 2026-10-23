@@ -19,6 +19,7 @@ func BugWorkflowPolicy() WorkflowPolicy {
 	return WorkflowPolicy{
 		Workflow:                  agent.WorkflowBug,
 		AcceptAfterProcessFailure: true,
+		Questions:                 true,
 		Respond: func(r agentresult.Result) (string, error) {
 			if r.Payload.Bug == nil || r.Payload.Bug.Response == "" {
 				return "", errors.New("bug result has no validated response")
