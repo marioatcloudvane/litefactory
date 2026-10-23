@@ -2,7 +2,7 @@
 
 ## Request
 
-Incorporate the judge's two concerns into the factory-wide input-boundary research: compare standards-reader reuse with a new design and correct Doctor database recovery claims.
+Summarize the proposed factory-wide evidence-recovery changes, expected improvements and material risks without changing the retained scope or claiming implementation.
 
 ## Decisions
 
@@ -22,6 +22,7 @@ Incorporate the judge's two concerns into the factory-wide input-boundary resear
 - **d14** — Keep standards selection/acknowledgment, log signatures/grants, repository commit rules, redaction and each consumer's storage and authorization outside the common reading contract.
 - **d15** — Treat Doctor database reads as bounded discovery and small-query access, with returned-key row continuation and a separate read-only shell recovery contract for oversized local values.
 - **d16** — Require consumer-level oversized-value, encoded-pressure row-continuation and saved-noninitial-cursor restart regressions without claiming these new acceptance cases have already passed.
+- **d17** — Provide a concise owner-facing benefits and risk summary while retaining the detailed findings, prior scope decisions and unresolved policy choices.
 
 
 ## Assumptions
@@ -31,6 +32,7 @@ Incorporate the judge's two concerns into the factory-wide input-boundary resear
 - **a3** — The prior four questions are deferred by the expanded research request rather than answered or approved; no new numeric retention, remote-history or storage policy is inferred.
 - **a4** — A usable recovery route means a capability available to that exact consumer under its existing permissions, not merely that raw source exists somewhere.
 - **a5** — The proposed broader scope is review material; no code or provider behavior beyond the inspected source and listed tests has been accepted.
+- **a6** — Fewer retries and better repairs are expected benefits of accessible evidence, not measured production outcomes; additional retention and reads may increase storage, latency and model cost.
 
 ## Research documents
 
