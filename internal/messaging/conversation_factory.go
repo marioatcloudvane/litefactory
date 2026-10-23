@@ -41,6 +41,16 @@ type factoryConversationPrompt struct {
 	SavedOutcome     string `json:"saved_outcome,omitempty"`
 	// ConsultNote says why a consult is not available now.
 	ConsultNote string `json:"consult_note,omitempty"`
+	// OpenProposal is the proposal awaiting the owner's yes, if any.
+	OpenProposal *conversationOpenProposal `json:"open_proposal,omitempty"`
+}
+
+// conversationOpenProposal is what the agent needs to judge a confirmation:
+// the reference to cite and what the owner was asked.
+type conversationOpenProposal struct {
+	Reference string    `json:"reference"`
+	Text      string    `json:"text"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // addEvidence makes result the current evidence and keeps the previous one.
@@ -219,14 +229,15 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if handled, err := run.confirm(work); handled || err != nil {
 		return err
 	}
-	pending, e := s.db.ReadNaturalDialogue(work, s.transport, s.owner, c.ChannelRef)
-	if e != nil && !errors.Is(e, store.ErrNotFound) {
-		return e
+	// A live proposal stays open: the agent judges whether this message
+	// confirms it, cancels it or changes the request (a new proposal).
+	open, err := run.openProposal(work)
+	if err != nil {
+		return err
 	}
-	if e == nil && (pending.State == "awaiting_confirmation" || pending.State == "clarifying") {
-		if e = s.db.EndNaturalDialogue(work, pending, "cancelled", at); e != nil {
-			return e
-		}
+	proposal := ""
+	if open != nil {
+		proposal = open.Reference
 	}
 	sources, err := s.db.ListConversationSources(work, c.ID, at, 8)
 	if err != nil {
@@ -275,7 +286,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if run.focus, err = run.loadFocus(work); err != nil {
 		return err
 	}
-	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes}
+	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes, OpenProposal: open}
 	corrected, lookups, pendingLookup, err := run.resumeBoundary(work, &prompt)
 	if err != nil {
 		return run.failed(ctx, err)
@@ -297,7 +308,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			if err != nil {
 				return run.failed(ctx, err)
 			}
-			envelope, inv, err = DecodeConversationEnvelope(raw, ConversationDecodeRequest{Turns: turns, Commands: s.ConversationCommands(), References: refs, OwnerID: s.owner, ChannelID: c.ChannelRef, Now: at})
+			envelope, inv, err = DecodeConversationEnvelope(raw, ConversationDecodeRequest{Turns: turns, Commands: s.ConversationCommands(), References: refs, OwnerID: s.owner, ChannelID: c.ChannelRef, Now: at, Proposal: proposal})
 			if err != nil {
 				if !corrected && run.calls < run.maxCalls() {
 					corrected = true
@@ -352,6 +363,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			return s.saveConversationPresentation(ctx, t, "completed", blocks, "", at, envelope.Kind)
 		case "propose":
 			return run.propose(work, inv, envelope, turns)
+		case "confirm":
+			return run.confirmJudged(work, envelope)
+		case "cancel":
+			return run.cancelJudged(work, envelope)
 		case "lookup":
 			if lookups >= 3 || run.calls >= run.maxCalls() {
 				break

@@ -124,8 +124,20 @@ func TestPlainYesNeverConfirmsMoreThanAYesOrAnEarlierProposal(t *testing.T) {
 	if len(ops.executed) != 0 {
 		t.Fatalf("a stale confirmation ran: %+v", ops.executed)
 	}
-	if handled, err := start("yes", now.Add(4*time.Second)).confirm(ctx); !handled || err != nil {
-		t.Fatalf("plain yes not handled: %v %v", handled, err)
+	// Other messages came after the latest proposal, so a bare yes is the
+	// agent's to judge; a yes in reply to the proposal still confirms it.
+	bare := start("yes", now.Add(4*time.Second))
+	if handled, err := bare.confirm(ctx); handled || err != nil {
+		t.Fatalf("bare yes after other messages bypassed the agent: %v %v", handled, err)
+	}
+	if err := s.conversationHandled(ctx, bare.t, "noted", now.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	deliverAll(t, s, sender, "noted", now.Add(4*time.Second))
+	replied := start("yes", now.Add(4*time.Second))
+	replied.t.ReplyTo = "proposal-2"
+	if handled, err := replied.confirm(ctx); !handled || err != nil {
+		t.Fatalf("yes in reply not handled: %v %v", handled, err)
 	}
 	var p naturalPayload
 	if err = json.Unmarshal([]byte(second.Payload), &p); err != nil {
