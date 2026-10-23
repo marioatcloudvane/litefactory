@@ -356,18 +356,18 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 		}
 		// The author can take minutes, longer than a conversation turn: it
 		// works in the background and its draft is posted here.
-		if a.Analyses != nil && a.Analyses.later(ctx, r.ChannelID, "standards-author:"+r.OperationKey, func(ctx context.Context) string {
+		if a.Analyses != nil && a.Analyses.later(ctx, r.ChannelID, "standards-author:"+r.OperationKey, r.OperationKey, func(ctx context.Context) string {
 			_, err := a.run(ctx, r, d)
 			if err != nil {
-				return "The standards author could not continue session " + r.Arguments["id"] + ": " + err.Error() + ". Inspect the session before continuing again."
+				return "The standards author couldn't finish the draft: " + strings.TrimPrefix(err.Error(), "standards: ") + ". Nothing was changed. Say \"again\" and I'll ask it once more."
 			}
 			v, err := a.Authoring.Show(ctx, r.Arguments["id"], 0)
 			if err != nil {
-				return "The standards author finished, but session " + r.Arguments["id"] + " could not be read: " + err.Error()
+				return "The standards author has finished, but I couldn't read its draft. Ask me for it in a moment."
 			}
 			return authorDraftText(v)
 		}) {
-			return messaging.StandardsResult{Text: "The standards author is working on session " + r.Arguments["id"] + ". Its draft and questions will be posted here when it is done; this can take a few minutes.", References: map[string]string{"kind": "author", "id": r.Arguments["id"]}}, nil
+			return messaging.StandardsResult{Text: "The standards author is working on the next draft. It takes a few minutes; I'll post it here.", References: map[string]string{"kind": "author", "id": r.Arguments["id"]}}, nil
 		}
 	}
 	return a.run(ctx, r, d)
@@ -414,31 +414,63 @@ func (a *ConversationStandards) run(ctx context.Context, r messaging.StandardsRe
 	return result, errors.Join(e, save)
 }
 
-// authorDraftText shows an authoring session's draft for the owner.
+// authorDraftText shows an authoring session's draft for the owner in plain
+// words: the rule, what it means, the author's questions and what to do next.
 func authorDraftText(v standards.AuthoringSession) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Standards author: session %s, version %d (%s)\n\n", v.ID, v.Version, v.Status)
-	categories := v.Base.Categories
+	d := v.Draft
+	b.WriteString("The standards author has a draft for you:\n\n" + strings.TrimSpace(d.Rule) + "\n")
+	if text := strings.TrimSpace(d.Description); text != "" {
+		b.WriteString(text + "\n")
+	}
+	var about []string
 	if c := v.NewCategory; c != nil {
-		categories = append([]standards.Category{*c}, categories...)
-		fmt.Fprintf(&b, "New category %s: %s. %s\n\n", c.ID, c.Name, c.Description)
-	}
-	b.WriteString(standards.Render(categories, []standards.Standard{v.Draft}))
-	if v.Notes != "" {
-		fmt.Fprintf(&b, "\nNotes: %s\n", v.Notes)
-	}
-	for _, q := range v.Questions {
-		if q.State == "pending" {
-			fmt.Fprintf(&b, "\nQuestion %s: %s", q.ID, q.Text)
-			if len(q.Options) > 0 {
-				fmt.Fprintf(&b, " Options: %s.", strings.Join(q.Options, "; "))
+		about = append(about, "new category "+c.Name)
+	} else {
+		for _, c := range v.Base.Categories {
+			if c.ID == d.CategoryID {
+				about = append(about, "category "+c.Name)
 			}
 		}
 	}
-	for _, p := range v.Diagnostics {
-		fmt.Fprintf(&b, "\nOpen problem in %s: %s", p.Field, p.Message)
+	if len(d.AppliesTo) > 0 {
+		about = append(about, "applies to "+strings.Join(d.AppliesTo, ", "))
 	}
-	return b.String()
+	if d.Check != "" {
+		about = append(about, "check: "+strings.ToLower(standards.CheckLabel(d.Check)))
+	}
+	if len(about) > 0 {
+		b.WriteString("(" + strings.Join(about, "; ") + ")\n")
+	}
+	if v.Notes != "" {
+		b.WriteString("\n" + strings.TrimSpace(v.Notes) + "\n")
+	}
+	asked := false
+	for _, q := range v.Questions {
+		if q.State != "pending" {
+			continue
+		}
+		if !asked {
+			b.WriteString("\nIt asks:\n")
+			asked = true
+		}
+		b.WriteString("- " + strings.TrimSpace(q.Text))
+		if len(q.Options) > 0 {
+			b.WriteString(" (" + strings.Join(q.Options, " / ") + ")")
+		}
+		b.WriteString("\n")
+	}
+	for _, p := range v.Diagnostics {
+		// Pending questions are already asked above.
+		if !strings.HasPrefix(p.Field, "questions.") {
+			b.WriteString("\nStill open: " + p.Message + "\n")
+		}
+	}
+	next := "Tell me what to change, or say it's good and I'll turn it into a proposal."
+	if asked {
+		next = "Answer here, tell me what to change, or say it's good and I'll turn it into a proposal."
+	}
+	return b.String() + "\n" + next
 }
 
 func (a *ConversationStandards) recoverEffect(ctx context.Context, r messaging.StandardsRequest, o store.StandardsConversationOperation) (messaging.StandardsResult, error) {

@@ -26,6 +26,9 @@ type naturalPayload struct {
 	// focus is the conversation's last discussed project. It only breaks ties
 	// and fills a missing project for reads; it is never part of the digest.
 	focus string
+	// window is the owner's own window phrase, echoed in the proposal text; the
+	// digest binds the exact bounds it resolved to.
+	window string
 }
 
 func naturalDigest(p naturalPayload) (string, string, error) {
@@ -41,12 +44,35 @@ func naturalLater(id, previous string) bool {
 	p, f := strconv.ParseUint(previous, 10, 64)
 	return e == nil && f == nil && n > p
 }
-func naturalConfirmation(text string, d store.NaturalDialogue, reply string) bool {
+
+// naturalConfirmation recognizes the proposal's code, or a plain yes. The
+// store keeps one proposal per conversation, and any other owner message
+// cancels it, so a plain yes can only mean the proposal just shown.
+func naturalConfirmation(text string, d store.NaturalDialogue) bool {
 	text = strings.ToLower(strings.TrimSpace(text))
 	if d.Code != "" && (text == "confirm "+strings.ToLower(d.Code) || naturalConfirmationCode(text) == strings.ToLower(d.Code)) {
 		return true
 	}
-	return reply == d.PromptID && d.PromptID != "" && (text == "yes" || text == "yes please" || text == "confirm" || text == "do it")
+	return naturalYes(text)
+}
+
+// naturalYes is the small set of whole messages that mean yes; a message that
+// says anything more is an ordinary message.
+func naturalYes(text string) bool {
+	switch strings.Trim(strings.ToLower(strings.TrimSpace(text)), "!. ") {
+	case "yes", "yes please", "ja", "ok", "okay", "go", "go ahead", "do it", "start", "mach", "mach das", "confirm":
+		return true
+	}
+	return false
+}
+
+// naturalDetailsRequest asks to see the exact proposal.
+func naturalDetailsRequest(text string) bool {
+	switch strings.Trim(strings.ToLower(strings.TrimSpace(text)), "!?. ") {
+	case "details", "show details", "show me the details", "exact details":
+		return true
+	}
+	return false
 }
 
 // naturalConfirmationCode recognizes only a whole proposal-code message.
@@ -104,6 +130,7 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 				return "Please give the analysis window as last N days, yesterday, last week or this week, or as exact after and before times.", nil
 			}
 			args["after"], args["before"] = after, before
+			p.window = args["window"]
 			delete(args, "window")
 		}
 		if p.Invocation.Command != "standards" {
@@ -260,24 +287,6 @@ func analysisWindow(phrase string, now time.Time) (string, string, bool) {
 	return start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339), true
 }
 
-func (s *Service) naturalProposal(p naturalPayload, code string) string {
-	args, err := json.Marshal(p.Invocation.Arguments)
-	if err != nil {
-		return ""
-	}
-	scope := ""
-	switch p.Invocation.Command {
-	case "draft":
-		scope = "Create or replace a feature preview only. Issue creation needs a separate confirmation."
-	case "diagnose":
-		scope = "Queue diagnosis work. Any repair remains subject to review on the issue."
-	case "answer":
-		scope = "Record this answer to the current research question: " + p.Question + "\nRevision: " + p.Revision
-	case "confirm":
-		scope = "Create an issue from this exact saved feature preview: " + p.Question
-	}
-	return fmt.Sprintf("Proposed action: %s\nProject: %s\n%s\nExact protected arguments: %s\nConfirmation code: %s\nReply directly to this message with yes, or send %s alone or prefixed by confirm, yes or ok. Send cancel to cancel. Expires in 15 minutes.", p.Invocation.Command, p.Project, scope, args, code, code)
-}
 func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.Time) (string, error) {
 	if standardsCommand(p.Invocation.Command) {
 		if s.standards == nil {

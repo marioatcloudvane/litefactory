@@ -343,15 +343,11 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		run.safe = true
 		switch envelope.Kind {
 		case "answer", "clarify":
-			text := envelope.Text
-			if savedOutcomes != "" {
-				text += "\n\nSaved action outcome:\n" + savedOutcomes
-			}
+			// A saved outcome reaches the owner through this answer; the
+			// model was given it as saved_outcome.
 			blocks := envelope.Blocks
 			if len(blocks) == 0 {
-				blocks = []presentation.AnswerBlock{{Text: text}}
-			} else if savedOutcomes != "" {
-				blocks = append(blocks, presentation.AnswerBlock{Text: "Saved action outcome:\n" + savedOutcomes})
+				blocks = []presentation.AnswerBlock{{Text: envelope.Text}}
 			}
 			return s.saveConversationPresentation(ctx, t, "completed", blocks, "", at, envelope.Kind)
 		case "propose":
@@ -445,7 +441,7 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if r.savedOutcomes != "" {
-		if err := r.s.conversationOutcome(cleanup, r.t, "interrupted", "Saved action outcome:\n"+r.savedOutcomes+"\nThe explanation was interrupted. Its provider input was not replayed.", r.at); err != nil {
+		if err := r.s.conversationOutcome(cleanup, r.t, "interrupted", r.savedOutcomes, r.at); err != nil {
 			return err
 		}
 		if r.c.SessionHandle == "" && !conversationPreStartRetry(cause) {
