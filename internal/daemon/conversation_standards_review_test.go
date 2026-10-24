@@ -13,7 +13,7 @@ import (
 )
 
 func TestConversationStandardsCompactAuthorOutput(t *testing.T) {
-	session := standards.AuthoringSession{ID: "draft", Version: 2, Status: "draft", AuthoringState: standards.AuthoringState{Intent: "Intent", Draft: standards.Standard{ID: "s", Title: "Title", Body: "Draft guidance"}, Questions: []standards.AuthoringQuestion{{ID: "q", Text: "Which checks?", State: "pending"}}, Diagnostics: []standards.Problem{{Field: "draft", Message: "Answer required"}}, RoleCapture: json.RawMessage(`{"private":"captured instructions"}`), Base: standards.Snapshot{Standards: []standards.Standard{{ID: "old", Body: "Whole published book"}}}}}
+	session := standards.AuthoringSession{ID: "draft", Version: 2, Status: "draft", AuthoringState: standards.AuthoringState{Intent: "Intent", Draft: standards.Standard{ID: "s", Rule: "MUST Title", Description: "Draft guidance", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", AppliesTo: []string{"story-worker"}}, Questions: []standards.AuthoringQuestion{{ID: "q", Text: "Which checks?", State: "pending"}}, Diagnostics: []standards.Problem{{Field: "draft", Message: "Answer required"}}, RoleCapture: json.RawMessage(`{"private":"captured instructions"}`), Base: standards.Snapshot{Standards: []standards.Standard{{ID: "old", Description: "Whole published book", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", AppliesTo: []string{"story-worker"}}}}}}
 	result, err := standardsResult(session)
 	if err != nil {
 		t.Fatal(err)

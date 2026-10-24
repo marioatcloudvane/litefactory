@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 func apply(before Snapshot, ops []Operation) (Snapshot, error) {
@@ -148,24 +150,32 @@ func validateSnapshot(s Snapshot) error {
 		}
 		standardIDs[v.ID] = true
 		validatePolicy(v.ExceptionPolicy, f+".exception_policy", add)
-		if strings.TrimSpace(v.Title) == "" {
-			add(f+".title", "must not be blank")
-		}
-		if strings.TrimSpace(v.Body) == "" {
-			add(f+".body", "must not be blank")
-		}
-		if len(v.CategoryIDs) == 0 {
-			add(f+".category_ids", "requires at least one category")
-		}
-		members := map[string]bool{}
-		for _, id := range v.CategoryIDs {
-			if !ids[id] {
-				add(f+".category_ids", "category "+id+" does not exist; reassign or remove its standards before removing a category")
+		for _, field := range [][2]string{{"rule", v.Rule}, {"description", v.Description}, {"evidence", v.Evidence}, {"scope", v.Scope}} {
+			if strings.TrimSpace(field[1]) == "" {
+				add(f+"."+field[0], "must not be blank")
 			}
-			if members[id] {
-				add(f+".category_ids", "duplicate membership "+id)
+		}
+		if !strings.HasPrefix(v.Rule, "MUST ") {
+			add(f+".rule", `must start with "MUST "`)
+		}
+		if !slices.Contains([]string{store.StandardsCheckAutomated, store.StandardsCheckSemiAutomated, store.StandardsCheckManual}, v.Check) {
+			add(f+".check", "use automated, semi_automated or manual")
+		}
+		if !ids[v.CategoryID] {
+			add(f+".category_id", "category "+v.CategoryID+" does not exist; reassign or remove its standards before removing a category")
+		}
+		if len(v.AppliesTo) == 0 {
+			add(f+".applies_to", "requires at least one role")
+		}
+		roles := map[string]bool{}
+		for _, role := range v.AppliesTo {
+			if strings.TrimSpace(role) == "" || role != strings.TrimSpace(role) {
+				add(f+".applies_to", "role names must not be blank or padded")
 			}
-			members[id] = true
+			if roles[role] {
+				add(f+".applies_to", "duplicate role "+role)
+			}
+			roles[role] = true
 		}
 	}
 	if len(problems) > 0 {

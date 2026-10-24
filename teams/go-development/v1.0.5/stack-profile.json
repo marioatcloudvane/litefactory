@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "guidance": [
+    {"id": "go", "skill": "plan/skills/plan-go-guidance/SKILL.md"},
+    {"id": "agent-setup", "skill": "plan/skills/plan-agent-setup-guidance/SKILL.md"}
+  ],
+  "requirements": {"executables": ["go"]},
+  "checks": [
+    {"name": "engineering", "argv": ["make", "check"], "cwd": ".", "timeout_seconds": 86400}
+  ],
+  "setup": [],
+  "environment": [{"name": "GOTOOLCHAIN", "value": "local"}],
+  "override_fields": ["checks", "setup", "environment"],
+  "required_fields": ["checks"]
+}

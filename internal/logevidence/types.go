@@ -37,14 +37,25 @@ type Limits struct {
 	Rows    int `json:"rows"`
 	Calls   int `json:"calls"`
 	Bytes   int `json:"bytes"`
+	Digests int `json:"digests,omitempty"`
 }
+
+// readerDefaults bound the plain reader; it offers no digests.
+var readerDefaults = Limits{Runs: 5, Records: 100, Rows: 50, Calls: 10, Bytes: 32 << 10}
+
+// analystDefaults are sized for dozens of incidents and condensed runs, while
+// raw record reads stay bounded by Runs and Records.
+var analystDefaults = Limits{Runs: 20, Records: 100, Rows: 400, Calls: 80, Bytes: 768 << 10, Digests: 40}
+
+// AnalystLimits returns the log analyst's invocation ceilings.
+func AnalystLimits() Limits { return analystDefaults }
 
 // Budget belongs to the invocation owner, and must survive connection replacement.
 // The mutex serializes reservations, work and charging across all service handles.
 type Budget struct {
 	mu                sync.Mutex
 	limits, used      Limits
-	runs              map[int64]bool
+	runs, digests     map[int64]bool
 	terminal          bool
 	initialized       bool
 	owner             context.Context
@@ -54,25 +65,29 @@ type Budget struct {
 	highWater         int64
 }
 
-// NewBudget creates the invocation allowance; callers must reuse it on reconnect.
-func NewBudget(l Limits) (*Budget, error) {
-	defaults := Limits{5, 100, 50, 10, 32 << 10}
+// NewBudget creates the reader allowance; callers must reuse it on reconnect.
+func NewBudget(l Limits) (*Budget, error) { return newBudget(l, readerDefaults) }
+
+// NewAnalystBudget creates the log analyst allowance, including digests.
+func NewAnalystBudget(l Limits) (*Budget, error) { return newBudget(l, analystDefaults) }
+
+func newBudget(l, defaults Limits) (*Budget, error) {
 	pairs := []struct {
 		value   *int
 		maximum int
-	}{{&l.Runs, defaults.Runs}, {&l.Records, defaults.Records}, {&l.Rows, defaults.Rows}, {&l.Calls, defaults.Calls}, {&l.Bytes, defaults.Bytes}}
+	}{{&l.Runs, defaults.Runs}, {&l.Records, defaults.Records}, {&l.Rows, defaults.Rows}, {&l.Calls, defaults.Calls}, {&l.Bytes, defaults.Bytes}, {&l.Digests, defaults.Digests}}
 	for _, p := range pairs {
 		if *p.value == 0 {
 			*p.value = p.maximum
 		}
-		if *p.value < 1 || *p.value > p.maximum {
+		if *p.value < 0 || *p.value > p.maximum || p.maximum > 0 && *p.value < 1 {
 			return nil, errors.New("invalid reader budget")
 		}
 	}
 	if l.Bytes < 2*terminalReserve {
 		return nil, errors.New("reader byte budget must retain terminal reserve")
 	}
-	return &Budget{limits: l, runs: map[int64]bool{}}, nil
+	return &Budget{limits: l, runs: map[int64]bool{}, digests: map[int64]bool{}}, nil
 }
 
 // Options contains only trusted launcher state, never MCP arguments.
@@ -83,6 +98,8 @@ type Options struct {
 	Redactor  *redact.Redactor
 	Budget    *Budget
 	ExpiresAt time.Time
+	// Outcomes adds incidents_list and run_digest_read for the log analyst.
+	Outcomes bool
 }
 
 // runRepository keeps the evidence service limited to scoped read operations.
@@ -91,6 +108,7 @@ type runRepository interface {
 	PriorRunCutoff(context.Context, store.PriorRunScope, time.Time) (int64, error)
 	ListPriorRuns(context.Context, store.PriorRunQuery) ([]store.PriorRun, error)
 	GetPriorRun(context.Context, store.PriorRunQuery, int64) (store.PriorRun, error)
+	ListLogIncidents(context.Context, store.LogIncidentQuery) ([]store.LogIncident, error)
 }
 
 // Service owns immutable authorization and invocation-bound signed cursors.
@@ -108,6 +126,7 @@ type Service struct {
 	cancel                      context.CancelFunc
 	expires                     time.Time
 	startedAfter, startedBefore time.Time
+	outcomes                    bool
 }
 
 // New constructs a reader from trusted authority and an existing invocation budget.
@@ -115,7 +134,7 @@ func New(ctx context.Context, o Options) (*Service, error) {
 	if o.Store == nil || o.Redactor == nil || o.Budget == nil || !filepath.IsAbs(o.RunsRoot) {
 		return nil, errors.New("missing reader invocation state")
 	}
-	s := &Service{db: o.Store, root: filepath.Clean(o.RunsRoot), redactor: o.Redactor, budget: o.Budget, expires: o.ExpiresAt}
+	s := &Service{db: o.Store, root: filepath.Clean(o.RunsRoot), redactor: o.Redactor, budget: o.Budget, expires: o.ExpiresAt, outcomes: o.Outcomes}
 	s.scope = store.PriorRunScope{RepositoryIDs: append([]int64(nil), o.Scope.RepositoryIDs...), TaskRefs: append([]string(nil), o.Scope.TaskRefs...), RunIDs: append([]int64(nil), o.Scope.RunIDs...)}
 	s.startedAfter, s.startedBefore = o.Scope.StartedAfter, o.Scope.StartedBefore
 	s.scopeDigest = digestJSON(o.Scope)
@@ -177,8 +196,10 @@ type ListRequest struct {
 }
 
 // ReadRequest selects one run or a retained citation within that run.
+// Offset starts a single page at a record boundary offered by a digest.
 type ReadRequest struct {
 	RunID    int64     `json:"run_id"`
+	Offset   int64     `json:"offset,omitempty"`
 	Limit    int       `json:"limit,omitempty"`
 	Cursor   string    `json:"cursor,omitempty"`
 	Citation *Citation `json:"citation,omitempty"`
@@ -253,6 +274,9 @@ type Result struct {
 	Status            string        `json:"status"`
 	Runs              []RunMetadata `json:"runs,omitempty"`
 	Records           []Record      `json:"records,omitempty"`
+	Incidents         []Incident    `json:"incidents,omitempty"`
+	Digest            []DigestEntry `json:"digest,omitempty"`
+	DigestSummary     *DigestCounts `json:"digest_summary,omitempty"`
 	Coverage          Coverage      `json:"coverage"`
 	NextCursor        string        `json:"next_cursor,omitempty"`
 	Policy            string        `json:"policy,omitempty"`

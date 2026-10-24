@@ -64,7 +64,9 @@ type Config struct {
 	ToolProfiles ToolProfiles `yaml:"tool_profiles"`
 	// BugChecks is an optional operator-owned check isolation ceiling. A
 	// missing stanza leaves Bug checks blocked, without affecting other work.
-	BugChecks  *BugCheckIsolation `yaml:"bug_checks"`
+	BugChecks *BugCheckIsolation `yaml:"bug_checks"`
+	// Standards holds owner-started standards analysis settings.
+	Standards  StandardsSettings `yaml:"standards"`
 	agentOrder []Kind
 }
 

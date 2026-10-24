@@ -37,12 +37,16 @@ var (
 // Fixed consume_comment categories. A consume failure wraps one of them with %w;
 // only the category is retained, never the cause text.
 var (
-	ErrRepairCommentDrifted  = errors.New("inputs drifted: comment watermark changed")
-	ErrRepairStateChanged    = errors.New("repair state changed since approval")
-	ErrRepairReplyNotPosted  = errors.New("doctor reply could not be posted")
-	ErrRepairReplyUncertain  = errors.New("doctor reply outcome uncertain; refusing replay")
-	consumeFailureCategories = []error{ErrRepairCommentDrifted, ErrRepairStateChanged, ErrRepairReplyNotPosted, ErrRepairReplyUncertain}
-	repairNextAction         = "Run /doctor check to re-diagnose against the current state before approving another repair."
+	ErrRepairCommentDrifted = errors.New("inputs drifted: comment watermark changed")
+	ErrRepairStateChanged   = errors.New("repair state changed since approval")
+	ErrRepairReplyNotPosted = errors.New("doctor reply could not be posted")
+	ErrRepairReplyUncertain = errors.New("doctor reply outcome uncertain; refusing replay")
+	// The reply POST's failure, chosen from the forge failure's kind.
+	ErrRepairReplyRateLimited      = errors.New("forge rate limited: reply was not posted")
+	ErrRepairReplyRefused          = errors.New("forge refused: reply was not posted")
+	ErrRepairReplyOutcomeUncertain = errors.New("forge reply failed: reply outcome uncertain")
+	consumeFailureCategories       = []error{ErrRepairCommentDrifted, ErrRepairStateChanged, ErrRepairReplyRateLimited, ErrRepairReplyRefused, ErrRepairReplyOutcomeUncertain, ErrRepairReplyNotPosted, ErrRepairReplyUncertain}
+	repairNextAction               = "Run /doctor check to re-diagnose against the current state before approving another repair."
 )
 
 // consumeRefusalReason returns the fixed, step-specific text to retain for a

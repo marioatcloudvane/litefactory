@@ -20,7 +20,7 @@ func conversationCapacity(root string) error {
 	if err := syscall.Statfs(root, &stat); err != nil {
 		return err
 	}
-	if stat.Bavail*uint64(stat.Bsize) < 64<<20 {
+	if freeBlockBytes(stat.Bavail, stat.Bsize) < 64<<20 {
 		return errors.New("conversation free disk reserve exhausted")
 	}
 	var total int64
@@ -44,4 +44,14 @@ func conversationCapacity(root string) error {
 		}
 		return nil
 	})
+}
+
+// freeBlockBytes multiplies a free block count by the volume's block size.
+// Bsize is signed on some platforms and unsigned on others; a size that is not
+// positive yields 0 rather than wrapping.
+func freeBlockBytes[T int32 | int64 | uint32 | uint64](blocks uint64, size T) uint64 {
+	if size <= 0 {
+		return 0
+	}
+	return blocks * uint64(size)
 }

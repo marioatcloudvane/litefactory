@@ -62,6 +62,11 @@ type Adapter struct {
 	mu       sync.Mutex
 	handles  map[string]handle
 	redactor *redact.Redactor
+	// readMu guards the read state: per-channel capability checks that
+	// passed, and the rate limits Discord set per route ("" is global).
+	readMu  sync.Mutex
+	capable map[string]time.Time
+	limited map[string]time.Time
 }
 
 // New creates an adapter without network work.
@@ -77,7 +82,7 @@ func New(o Options) *Adapter {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	return &Adapter{options: o, handles: make(map[string]handle), redactor: redact.New(redact.Options{Token: o.Token})}
+	return &Adapter{options: o, handles: make(map[string]handle), redactor: redact.New(redact.Options{Token: o.Token}), capable: make(map[string]time.Time), limited: make(map[string]time.Time)}
 }
 
 type user struct {

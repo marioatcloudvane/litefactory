@@ -330,6 +330,9 @@ func TestConsumeRefusalRetainsStepCategoryAndLogsCause(t *testing.T) {
 		{"fenced claim", "repair state changed since approval", store.ErrDoctorFenced},
 		{"watermark drift", "inputs drifted: comment watermark changed", fmt.Errorf("%w: %w", ErrRepairCommentDrifted, errors.New("drift"))},
 		{"uncertain replay", "doctor reply outcome uncertain; refusing replay", ErrRepairReplyUncertain},
+		{"reply rate limited", "forge rate limited: reply was not posted", fmt.Errorf("%w: %w", ErrRepairReplyRateLimited, errors.New("ticket: publish reply: refused: 429 doctor-secret-canary-001"))},
+		{"reply refused", "forge refused: reply was not posted", fmt.Errorf("%w: %w", ErrRepairReplyRefused, errors.New("ticket: publish reply: refused: 403 doctor-secret-canary-001"))},
+		{"reply outcome uncertain", "forge reply failed: reply outcome uncertain", fmt.Errorf("%w: %w", ErrRepairReplyOutcomeUncertain, errors.New("ticket: publish reply: uncertain: doctor-secret-canary-001"))},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

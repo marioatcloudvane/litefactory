@@ -216,7 +216,7 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 			return errors.New("doctor target is not a verified issue")
 		}
 		if _, err := d.admitDoctor(ctx, repo, issue, c); err != nil {
-			return err
+			return fmt.Errorf("doctor command on issue #%d, comment %d: %w", entry.IssueNumber, c.ID, err)
 		}
 	}
 	next := page.NextPage
@@ -415,6 +415,22 @@ func (d *Daemon) doctorCommandContext(ctx context.Context, commandID int64) (con
 	return context.WithValue(ctx, doctorSourceContextKey{}, source), nil
 }
 
+// doctorApplyHeld reports the rate-limit hold of the command's source
+// connection. It is checked before the source is read, which the hold refuses.
+func (d *Daemon) doctorApplyHeld(ctx context.Context, commandID int64) (bool, error) {
+	if d.connections != nil {
+		source, err := d.db.GetDoctorCommandSource(ctx, commandID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return false, err
+		}
+		if err == nil {
+			ctx = context.WithValue(ctx, doctorSourceContextKey{}, source)
+		}
+	}
+	_, held := d.connectionHold(ctx, d.quotaNow(ctx))
+	return held, nil
+}
+
 func (d *Daemon) doctorSourceClient(ctx context.Context, source store.DoctorCommandSource) (*github.Client, error) {
 	if source.ConnectionVersionID <= 0 || source.PublisherID <= 0 {
 		return nil, errors.New("doctor source lacks a verified publishing identity")
@@ -486,6 +502,8 @@ func (d *Daemon) doctorControls(ctx context.Context) error {
 				body += " Repair " + blocking.ID + " for this task is still in state " + blocking.State + "."
 			} else if err != nil && !errors.Is(err, store.ErrNotFound) {
 				return err
+			} else {
+				body += " There is no current proposal to apply; `/doctor <instructions>` asks for a fresh diagnosis."
 			}
 		}
 		if c.Operation != "stop" {
@@ -530,6 +548,17 @@ func (d *Daemon) dispatchDoctor(ctx context.Context) {
 	}()
 }
 func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
+	if c.Operation == "apply" {
+		// An approved repair posts through the command's connection; it waits in
+		// the inbox, without spending an attempt, while that hold stands.
+		held, err := d.doctorApplyHeld(ctx, c.ID)
+		if err != nil {
+			return err
+		}
+		if held {
+			return d.db.RequeueDoctorBusy(context.WithoutCancel(ctx), c.ID)
+		}
+	}
 	ctx, err := d.doctorCommandContext(ctx, c.ID)
 	if err != nil {
 		return err

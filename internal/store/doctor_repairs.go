@@ -91,7 +91,9 @@ func reserveDoctorRepairTx(ctx context.Context, tx *sql.Tx, a DoctorApproval, ou
 	}
 	var cid, generation, pid int64
 	var payload []byte
-	if err := tx.QueryRowContext(ctx, `SELECT c.id,c.generation,p.id,p.payload FROM doctor_conversations c JOIN doctor_proposals p ON p.id=c.current_proposal_id WHERE c.task_ref=? AND c.state='active'`, a.TaskRef).Scan(&cid, &generation, &pid, &payload); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT c.id,c.generation,p.id,p.payload FROM doctor_conversations c JOIN doctor_proposals p ON p.id=c.current_proposal_id WHERE c.task_ref=? AND c.state='active'`, a.TaskRef).Scan(&cid, &generation, &pid, &payload); errors.Is(err, sql.ErrNoRows) {
+		return ErrDoctorNoProposal
+	} else if err != nil {
 		return err
 	}
 	digest := doctorDigest(payload)

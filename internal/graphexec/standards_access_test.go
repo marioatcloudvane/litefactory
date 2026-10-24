@@ -20,7 +20,7 @@ func TestStandardsGrantMustNameARoleTheNodeRuns(t *testing.T) {
 		}
 	}
 	attrs := map[string]string{"lf_roles": "validate-code,validate-architecture", StandardsAttribute: "validate-architecture"}
-	if !StandardsReadGranted(attrs, "validate-architecture") || StandardsReadGranted(attrs, "validate-code") || StandardsReadGranted(map[string]string{}, "story-worker") {
+	if StandardsRole(attrs, "validate-architecture") != "validate-architecture" || StandardsRole(attrs, "validate-code") != "" || StandardsRole(map[string]string{}, "story-worker") != "" {
 		t.Fatal("grant does not follow the declaration")
 	}
 }
