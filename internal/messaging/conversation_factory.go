@@ -97,6 +97,8 @@ type factoryConversationRun struct {
 	refSuffix string
 	// authorRef cites the conversation's open author session.
 	authorRef *ConversationReference
+	// listed holds the references the last lookup saved for its listed tasks.
+	listed []ConversationReference
 }
 
 // maxCalls is the turn's conversation invocation budget. A consult adds one
@@ -409,9 +411,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				if standardsCommand(inv.Command) {
 					refs = expandStandardsReferences(refs)
 				}
-				if len(refs) > 32 {
-					refs = refs[len(refs)-32:]
-				}
+			}
+			refs = append(refs, run.takeListed()...)
+			if len(refs) > 32 {
+				refs = refs[len(refs)-32:]
 			}
 			if result.Clarification != "" {
 				return s.conversationOutcome(ctx, t, "completed", result.Clarification, at)
@@ -507,12 +510,23 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 }
 
 func (r *factoryConversationRun) references(ctx context.Context) ([]ConversationReference, error) {
-	saved, err := r.s.db.ListConversationReferences(ctx, r.c.ID, r.at, 32)
+	// Listed tasks are bounded, so older targets keep their place among them.
+	saved, err := r.s.db.ListConversationReferences(ctx, r.c.ID, r.at, 64)
 	if err != nil {
 		return nil, err
 	}
 	var refs []ConversationReference
+	listed := 0
 	for _, v := range saved {
+		if len(refs) >= 32 {
+			break
+		}
+		if v.Kind == "listed" {
+			if listed >= conversationListedLimit {
+				continue
+			}
+			listed++
+		}
 		var args map[string]string
 		if json.Unmarshal([]byte(v.Content), &args) != nil {
 			continue
@@ -578,6 +592,9 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			result.Arguments["inbox_sources"] = string(sources)
 		}
 		if e != nil {
+			return result, nil, e
+		}
+		if e = r.saveListed(ctx, capture.Issues); e != nil {
 			return result, nil, e
 		}
 		navigation := capture.Navigation
@@ -701,12 +718,18 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			result.Gaps = append(result.Gaps, "Enabled reader unavailable.")
 		} else {
 			read, assessment := presentation.WithAssessment(ctx)
+			read, listed := withListedIssues(read)
 			text, err = handler(read, Message{Transport: s.transport, Channel: r.c.ChannelRef, Sender: s.owner, Arguments: p.Invocation.Arguments, Command: inv.Command}, r.at)
 			if err != nil {
 				text = ""
 				result.Gaps = append(result.Gaps, "Factory lookup failed; no result available."+githubBudgetGap(err, r.at))
 			} else if assessment.Status != presentation.Success {
 				result.Gaps = append(result.Gaps, "Lookup coverage may be incomplete.")
+			}
+			if err == nil {
+				if err = r.saveListed(ctx, *listed); err != nil {
+					return result, nil, err
+				}
 			}
 			if (inv.Command == "health" || inv.Command == "status") && strings.Contains(text, "Heartbeat age: unknown.") {
 				result.Gaps = append(result.Gaps, "Current daemon heartbeat is unknown; default status values are not established observations.")

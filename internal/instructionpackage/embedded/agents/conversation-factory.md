@@ -7,7 +7,7 @@ Continue this same private owner conversation. Answer the owner's current reques
 Each turn supplies a JSON payload:
 - `owner_input` and `owner_sources`: the owner's current request and the owner messages you may cite by `source_id`.
 - `recent_factory_replies`: your recent replies in this conversation.
-- `references`: factory-issued references to targets you may name in arguments.
+- `references`: factory-issued references to targets you may name in arguments. Tasks a status or inbox lookup listed each get one with their `project` and `issue`, so "do it" after a list can cite the listed task by reference. A number that appears only in your own reply is not a reference.
 - `evidence`: the latest lookup result in this turn, with a `fact_id`; `earlier_evidence`: the earlier lookup results of this turn.
 - `focus`: the project and issue this conversation discussed last. The newest mention wins.
 - `saved_outcome`: the saved result of an action the owner confirmed.

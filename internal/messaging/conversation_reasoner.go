@@ -139,9 +139,10 @@ func (r *factoryConversationRun) reason(ctx context.Context, reasoner Conversati
 		input.Lookups = append(input.Lookups, lookup)
 		if ref != nil {
 			refs = append(refs, *ref)
-			if len(refs) > 32 {
-				refs = refs[len(refs)-32:]
-			}
+		}
+		refs = append(refs, r.takeListed()...)
+		if len(refs) > 32 {
+			refs = refs[len(refs)-32:]
 		}
 	}
 }
