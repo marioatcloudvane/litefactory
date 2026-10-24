@@ -158,12 +158,47 @@ func TestStatusAndCommands(t *testing.T) {
 	if texts[0] != "Running: true. Heartbeat age: 10s. Discovery paused: true." {
 		t.Fatal(texts[0])
 	}
-	for _, fragment := range []string{"Runs in flight: 2", "Pause reason: rate limit", "2026-10-10T12:01:00Z", "Polling: 0 repositories"} {
+	for _, fragment := range []string{"Running now: 0 (+2 unidentified).", "Pause reason: rate limit", "2026-10-10T12:01:00Z", "Polling: 0 repositories"} {
 		if !strings.Contains(texts[1], fragment) {
 			t.Fatalf("status lacks %q: %s", fragment, texts[1])
 		}
 	}
 }
+
+// TestStatusShowsRunsHeldBesideConnectionPause: a free-disk hold has its own
+// line after the pause reason, separate from a scoped connection pause.
+func TestStatusShowsRunsHeldBesideConnectionPause(t *testing.T) {
+	t.Parallel()
+	db := database(t)
+	at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	summary := "project 1 linear https://api.linear.app: rate-limit backoff until 2026-10-10T12:03:00Z"
+	held := "New runs wait: free disk 1.4 GB is below the 2 GB minimum."
+	if err := db.ReplaceHealthSnapshot(t.Context(), store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at.Add(-10 * time.Second), PauseReason: summary, RunsHeld: held}, nil); err != nil {
+		t.Fatal(err)
+	}
+	s := messaging.New(db, "test", "owner", []string{"channel"}, nil, messaging.FactoryStatus{DB: db})
+	text, status, err := s.RunCommand(t.Context(), messaging.Message{Transport: "test", ID: "status", Channel: "channel", Sender: "owner", Command: "status"}, at)
+	if err != nil || status != "success" {
+		t.Fatalf("status: %s %v", status, err)
+	}
+	lines := strings.Split(text, "\n")
+	pause, runs := -1, -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, "Pause reason: "+summary+".") {
+			pause = i
+		}
+		if line == "Runs held: "+held {
+			runs = i
+		}
+	}
+	if pause < 0 || runs != pause+1 {
+		t.Fatalf("status lacks separate pause and runs-held lines: %s", text)
+	}
+	if strings.Contains(lines[pause], "free disk") {
+		t.Fatalf("disk hold under the pause reason: %s", text)
+	}
+}
+
 func TestClaimFencesStaleCompletion(t *testing.T) {
 	t.Parallel()
 	db := database(t)

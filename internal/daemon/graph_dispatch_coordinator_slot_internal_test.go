@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,6 +62,8 @@ type coordinatorSlotFixture struct {
 	// held are run-pool slots the test took to stand in for story workers.
 	held     int
 	released sync.Once
+	// issueReads counts single-issue GETs.
+	issueReads *atomic.Int64
 }
 
 type syncLogBuffer struct {
@@ -91,6 +94,7 @@ func newCoordinatorSlotFixture(t *testing.T) *coordinatorSlotFixture {
 	if err = db.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	issueReads := &atomic.Int64{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-RateLimit-Limit", "5000")
@@ -100,6 +104,7 @@ func newCoordinatorSlotFixture(t *testing.T) *coordinatorSlotFixture {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		if r.Method == http.MethodGet && len(parts) == 5 && parts[3] == "issues" {
 			number, _ := strconv.Atoi(parts[4])
+			issueReads.Add(1)
 			_, _ = fmt.Fprintf(w, `{"id":%d,"number":%d,"title":"t","state":"open","user":{"id":7,"login":"someone","type":"User"},"labels":[{"name":"Mode: Implement"}]}`, 1000+number, number)
 			return
 		}
@@ -120,7 +125,7 @@ func newCoordinatorSlotFixture(t *testing.T) *coordinatorSlotFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &coordinatorSlotFixture{db: db, repo: repo, logs: logs, now: time.Now().UTC(), turn: &coordinatorSlotExecutor{started: make(chan int64, 32), release: make(chan struct{})}}
+	f := &coordinatorSlotFixture{db: db, repo: repo, logs: logs, now: time.Now().UTC(), issueReads: issueReads, turn: &coordinatorSlotExecutor{started: make(chan int64, 32), release: make(chan struct{})}}
 	f.d, err = New(Options{DB: db, Forge: client, Filter: filter, Turn: f.turn, Reporter: stubReporter{}, InstanceID: "coordinator-slot", Logger: logger, Now: func() time.Time { return f.now }, MaxConcurrentRuns: MinConcurrentRuns, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
 	if err != nil {
 		t.Fatal(err)
@@ -506,4 +511,31 @@ func TestWeightedCoordinatorAdmissionFallsBackAtFullCost(t *testing.T) {
 	if another.pool != f.d.coordinator {
 		t.Fatal("cheap bookkeeping did not use its reserved lane")
 	}
+}
+
+// A graph step deferred for capacity reads nothing remote: the slot is taken
+// before the issue is observed. Once a slot frees it reads its issue and runs.
+func TestGraphStepDeferredForCapacityReadsNoIssue(t *testing.T) {
+	f := newCoordinatorSlotFixture(t)
+	a := f.coordinator(t, 1, "sync_start_resolve", f.now.Add(-time.Minute))
+	f.fillRunPool(t)
+	for range 3 {
+		if result := f.dispatch(t); result.Dispatched != 0 || result.Deferred != 1 {
+			t.Fatalf("the step is deferred for capacity: %+v\n%s", result, f.logs)
+		}
+	}
+	if got := f.issueReads.Load(); got != 0 {
+		t.Fatalf("a step deferred for capacity read its issue %d times", got)
+	}
+	f.freeRunSlot(t)
+	if result := f.dispatch(t); result.Dispatched != 1 {
+		t.Fatalf("the step runs on the free slot: %+v\n%s", result, f.logs)
+	}
+	if session := f.awaitStart(t); session != a.SessionID {
+		t.Fatalf("started session %d, want %d", session, a.SessionID)
+	}
+	if got := f.issueReads.Load(); got < 1 {
+		t.Fatalf("the dispatched step read its issue %d times, want at least 1", got)
+	}
+	f.settle(t)
 }

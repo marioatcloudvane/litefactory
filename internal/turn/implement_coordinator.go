@@ -94,7 +94,7 @@ func implementQuestionCandidate(parked []store.ImplementStory) agentresult.Resul
 	candidate := agentresult.Result{
 		Outcome: "incomplete",
 		Comment: fmt.Sprintf("The work that could be done is done. %d %s your decision. Each one keeps its branch and everything built so far.", len(parked), noun),
-		Reason:  "Reply on this issue to restart the stopped stories. Name a story by its key (for example story-002) and say what it should do differently; a reply that names no story restarts all of them. A restarted story continues from its branch with your reply as guidance.",
+		Reason:  "Reply on this issue to restart the stopped stories. " + store.ImplementResumeGuidance,
 		Payload: agentresult.Payload{Implement: &agentresult.Implement{}},
 	}
 	for i, row := range parked {

@@ -91,9 +91,10 @@ func RequestCodeDelivery(ctx context.Context, o DeliveryRequestOptions) (store.D
 	return o.DB.RetainDeliveryControlSource(ctx, store.DeliveryControlSource{ID: sourceID, SessionID: session.ID, Kind: "github-cli-request", Generation: o.Generation, ActorID: actor.ID, Body: fmt.Sprintf("/deliver %d", o.Generation), CreatedAt: time.Now().UTC()})
 }
 
-// PollCodeDeliveryControls drains durable CLI controls and independently reads
-// comments only on already bound GitHub PRs. Ticket replies never enter here.
-func (d *Daemon) PollCodeDeliveryControls(ctx context.Context) error {
+// PollCodeDeliveryControls drains durable CLI controls every tick and, on the
+// owning project's listing tick only, reads comments on already bound GitHub
+// PRs. Ticket replies never enter here.
+func (d *Daemon) PollCodeDeliveryControls(ctx context.Context, now time.Time) error {
 	if d.connections == nil {
 		return nil
 	}
@@ -132,6 +133,11 @@ func (d *Daemon) PollCodeDeliveryControls(ctx context.Context) error {
 		session, e := d.db.GetSessionByTaskRef(ctx, parent)
 		if e != nil {
 			failures = append(failures, e)
+			continue
+		}
+		// Reading the bound PR is the listing's safety net: it runs only on
+		// the project's listing tick. Local CLI controls drain every tick.
+		if d.schedule != nil && !d.schedule.Due(session.RepoID, now) {
 			continue
 		}
 		mapping, e := d.db.GetSessionTicket(ctx, session.ID)
