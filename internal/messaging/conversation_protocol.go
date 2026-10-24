@@ -375,7 +375,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 				return bad()
 			}
 		case exactConversationFields(f, "name", "reference"):
-			if conversationProtectedContent(arg.Name) {
+			if conversationProtectedArgument(envelope.Command, arg.Name) {
 				ground("owner content needs an exact owner span, not a reference")
 				return bad()
 			}
@@ -406,7 +406,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 				return bad()
 			}
 		case exactConversationFields(f, "name", "value"):
-			if (envelope.Kind != "lookup" && (!standardsCommand(envelope.Command) || arg.Name != "action")) || conversationProtectedContent(arg.Name) || arg.Value == "" {
+			if (envelope.Kind != "lookup" && (!standardsCommand(envelope.Command) || arg.Name != "action")) || conversationProtectedArgument(envelope.Command, arg.Name) || arg.Value == "" {
 				ground("a plain value is allowed only in lookups")
 				return bad()
 			}
@@ -483,6 +483,24 @@ func conversationProtectedContent(name string) bool {
 	}
 	return false
 }
+
+// standardsProtectedContent names the prose fields of a standard. They are
+// owner content only on standards commands; other commands keep these names
+// as ordinary arguments.
+func standardsProtectedContent(name string) bool {
+	switch name {
+	case "rule", "description", "evidence", "scope":
+		return true
+	}
+	return false
+}
+
+// conversationProtectedArgument reports whether the argument of command must
+// be an exact owner span.
+func conversationProtectedArgument(command, name string) bool {
+	return conversationProtectedContent(name) || (standardsCommand(command) && standardsProtectedContent(name))
+}
+
 func exactConversationFields(fields map[string]json.RawMessage, names ...string) bool {
 	if len(fields) != len(names) {
 		return false

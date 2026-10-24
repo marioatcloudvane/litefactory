@@ -158,7 +158,7 @@ func TestStatusAndCommands(t *testing.T) {
 	if texts[0] != "Running: true. Heartbeat age: 10s. Discovery paused: true." {
 		t.Fatal(texts[0])
 	}
-	for _, fragment := range []string{"Running now: 0 (+2 housekeeping).", "Pause reason: rate limit", "2026-10-10T12:01:00Z", "Polling: 0 repositories"} {
+	for _, fragment := range []string{"Running now: 0 (+2 unidentified).", "Pause reason: rate limit", "2026-10-10T12:01:00Z", "Polling: 0 repositories"} {
 		if !strings.Contains(texts[1], fragment) {
 			t.Fatalf("status lacks %q: %s", fragment, texts[1])
 		}

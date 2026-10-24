@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -470,3 +471,14 @@ func TestShortenFindingTextKeepsWholeSentences(t *testing.T) {
 }
 
 func utf8ValidPrefix(s string) bool { return strings.ToValidUTF8(s, "�") == s }
+
+// #1127: a Validate question that carries options shows them under the question
+// and marks the recommended one only; the question line is unchanged.
+func TestValidateQuestionShowsItsOptionsAndRecommendation(t *testing.T) {
+	candidate := agentresult.Result{Outcome: "incomplete", Comment: "Intro.", Reason: "Next step.", Questions: []agentresult.Question{{ID: "q1", Audience: "technical", Text: " Ship this commit? ", RecommendedOption: "b", Options: []agentresult.Option{{ID: "a", Text: "Ship now"}, {ID: "b", Text: "Check again"}}}}}
+	text := renderValidateComment(candidate, "", naming.Ref{}, "")
+	want := "- Ship this commit?\n  - `a` Ship now\n  - `b` Check again (recommended)\n"
+	if !strings.Contains(text, want) || strings.Count(text, "(recommended)") != 1 {
+		t.Fatalf("options or marker missing:\n%s", text)
+	}
+}

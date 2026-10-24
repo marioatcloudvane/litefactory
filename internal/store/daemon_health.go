@@ -38,6 +38,10 @@ type ListenerStatus struct {
 	RunsInFlight int
 	// InFlightSessions are the sessions behind RunsInFlight, ordered by id.
 	InFlightSessions []int64
+	// InFlightLabels names, per in-flight session, the dispatch source that
+	// started its worker (for example "backlog+graph_owner_wait" or
+	// "due_schedule"). A session without a label is absent.
+	InFlightLabels map[int64]string
 	// SlotsUsed and SlotsTotal are the shared worker pool's occupancy; a zero
 	// total means the publishing daemon did not report it.
 	SlotsUsed, SlotsTotal int
@@ -92,7 +96,7 @@ ON CONFLICT (id) DO UPDATE SET listen_address = excluded.listen_address, listeni
 			listener.ListenAddress, boolInt(listener.Listening), FormatTime(listener.DaemonStartedAt), FormatTime(listener.WrittenAt),
 			nullTime(listener.LastHeartbeatStartedAt), boolInt(listener.DiscoveryPaused), listener.PauseReason,
 			nullTime(listener.PausedSince), nullTime(listener.ExpectedResumeAt), listener.RunsInFlight, listener.ChatStatus,
-			joinIDs(listener.InFlightSessions), listener.SlotsUsed, listener.SlotsTotal); err != nil {
+			joinIDs(listener.InFlightSessions, listener.InFlightLabels), listener.SlotsUsed, listener.SlotsTotal); err != nil {
 			return fmt.Errorf("write listener status: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM repo_discovery_status`); err != nil {
@@ -146,7 +150,7 @@ FROM daemon_listener_status WHERE id = 1`).
 		return HealthSnapshot{}, fmt.Errorf("store: parse listener status: %w", err)
 	}
 	snap.Listener.DiscoveryPaused = paused != 0
-	if snap.Listener.InFlightSessions, err = splitIDs(inFlight); err != nil {
+	if snap.Listener.InFlightSessions, snap.Listener.InFlightLabels, err = splitIDs(inFlight); err != nil {
 		return HealthSnapshot{}, fmt.Errorf("store: parse listener status: %w", err)
 	}
 	for _, f := range []struct {
@@ -197,28 +201,41 @@ ORDER BY r.owner, r.name, s.repo_id`)
 	return snap, nil
 }
 
-// joinIDs and splitIDs keep a short id list in one display-only column.
-func joinIDs(ids []int64) string {
+// joinIDs and splitIDs keep a short id list in one display-only column. An
+// entry is "id" or, when the id has a label, "id=label"; a label never holds a
+// comma or an equals sign. Values written before labels existed are id-only.
+func joinIDs(ids []int64, labels map[int64]string) string {
 	parts := make([]string, len(ids))
 	for i, id := range ids {
 		parts[i] = strconv.FormatInt(id, 10)
+		if label := strings.NewReplacer(",", "+", "=", "+").Replace(labels[id]); label != "" {
+			parts[i] += "=" + label
+		}
 	}
 	return strings.Join(parts, ",")
 }
 
-func splitIDs(s string) ([]int64, error) {
+func splitIDs(s string) ([]int64, map[int64]string, error) {
 	if s == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var ids []int64
+	var labels map[int64]string
 	for _, part := range strings.Split(s, ",") {
-		id, err := strconv.ParseInt(part, 10, 64)
+		raw, label, labelled := strings.Cut(part, "=")
+		id, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		ids = append(ids, id)
+		if labelled && label != "" {
+			if labels == nil {
+				labels = make(map[int64]string)
+			}
+			labels[id] = label
+		}
 	}
-	return ids, nil
+	return ids, labels, nil
 }
 
 func boolInt(b bool) int {

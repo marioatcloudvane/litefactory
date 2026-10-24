@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // ChatDiagnoser deliberately exposes no repair capability.
@@ -402,7 +404,42 @@ func (d *Daemon) presentChatProposal(ctx context.Context, r store.ChatReply, iss
 	if safe.Truncated() {
 		return errors.New("chat repair proposal exceeds publication bound")
 	}
-	return d.db.PresentChatDiagnosis(ctx, store.DoctorCommand{RepoID: repoID, TaskRef: ref.String(), IssueID: issue.ID, IssueNumber: ref.Issue, ActorID: d.filter.Identities().OwnerUserID, CreatedAt: time.Now(), Instructions: "Diagnosis requested from chat", ResultBody: safe.String(), ProposalID: c.ProposalID})
+	source, err := d.chatDoctorSource(ctx, repoID, issue)
+	if err != nil {
+		return err
+	}
+	return d.db.PresentChatDiagnosis(ctx, store.DoctorCommand{Source: source, RepoID: repoID, TaskRef: ref.String(), IssueID: issue.ID, IssueNumber: ref.Issue, ActorID: d.filter.Identities().OwnerUserID, CreatedAt: time.Now(), Instructions: "Diagnosis requested from chat", ResultBody: safe.String(), ProposalID: c.ProposalID})
+}
+
+// chatDoctorSource routes a chat presentation through the issue's ticket
+// connection and publishing identity, resolved as for a `/doctor` comment.
+// Without a selected ticket connection the default publisher posts it.
+func (d *Daemon) chatDoctorSource(ctx context.Context, repoID int64, issue github.Issue) (*store.DoctorCommandSource, error) {
+	if d.connections == nil {
+		return nil, nil
+	}
+	if _, err := d.db.CurrentConnection(ctx, repoID, store.TicketConnection); errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	repo, err := d.db.GetRepo(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	target, err := d.doctorTicketTarget(ctx, repo, issue)
+	if err != nil {
+		return nil, err
+	}
+	clients, err := d.connections.Clients(ctx, target.connection, target.publisherID)
+	if err != nil {
+		return nil, err
+	}
+	ref := ticket.Ref{Locator: target.locator, Identity: ticket.Identity{Provider: target.locator.Provider, Origin: target.locator.Origin, RemoteID: strconv.FormatInt(issue.ID, 10)}}
+	if err := ref.Validate(); err != nil {
+		return nil, err
+	}
+	return &store.DoctorCommandSource{ConnectionVersionID: target.connection.ID, PublisherID: clients.Actor.ID, Ticket: ref}, nil
 }
 
 // chatPresentationWait bounds how long a finished conversation diagnosis waits

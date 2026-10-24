@@ -307,9 +307,9 @@ func TestStatusReportsImplementProgress(t *testing.T) {
 }
 
 // The status lookup lists every task or chat job that works now, so the count
-// matches the lines; slots held by no task are one housekeeping note, and
+// matches the lines; a slot that cannot be resolved to a task is counted, and
 // work owed a slot or a retry is queued with its reason.
-func TestStatusListsRunningQueuedAndHousekeeping(t *testing.T) {
+func TestStatusListsRunningQueuedAndUnidentified(t *testing.T) {
 	db := naturalExecutionDB(t)
 	ctx := t.Context()
 	at := time.Date(2026, 10, 24, 11, 30, 0, 0, time.UTC)
@@ -387,7 +387,7 @@ func TestStatusListsRunningQueuedAndHousekeeping(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Running now: 3 (+1 housekeeping).\n",
+		"Running now: 3 (+1 unidentified).\n",
 		"- github:acme/litefactory#1004 · validate · step suite · since 10:59\n",
 		"- github:acme/litefactory#1005 · bug · since 11:25\n",
 		"- standards draft · create go-errors · since ",
@@ -403,13 +403,65 @@ func TestStatusListsRunningQueuedAndHousekeeping(t *testing.T) {
 		t.Errorf("scheduled step listed as queued: %s", text)
 	}
 
-	// Slots held by no task are only a housekeeping note.
+	// A slot that resolves to no task is only counted.
 	other := naturalExecutionDB(t)
 	if err := other.ReplaceHealthSnapshot(ctx, store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at, RunsInFlight: 1, InFlightSessions: []int64{7}, SlotsUsed: 1, SlotsTotal: 4}, nil); err != nil {
 		t.Fatal(err)
 	}
 	text, err = New(other, "discord", "7", nil, nil, FactoryStatus{DB: other}).summary(ctx, Message{}, at)
-	if err != nil || !strings.Contains(text, "Running now: 0 (+1 housekeeping).\n") {
-		t.Fatalf("housekeeping: %s %v", text, err)
+	if err != nil || !strings.Contains(text, "Running now: 0 (+1 unidentified).\n") || strings.Contains(text, "housekeeping") {
+		t.Fatalf("unidentified: %s %v", text, err)
+	}
+}
+
+// C8 (#1138): an in-flight slot with no run or graph step is named by its task
+// and the dispatch source that started its worker, never as housekeeping, and
+// the task is not also queued for a slot.
+func TestStatusNamesInFlightSlotsBySource(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 24, 15, 25, 40, 0, time.UTC)
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory", BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := db.GetOrCreateSession(ctx, repo, 1050)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetSessionNeedsPoll(ctx, waiting.ID); err != nil {
+		t.Fatal(err)
+	}
+	scheduled, err := db.GetOrCreateSession(ctx, repo, 1051)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := db.GetOrCreateSession(ctx, repo, 1052)
+	if err != nil {
+		t.Fatal(err)
+	}
+	health := store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at, RunsInFlight: 4,
+		InFlightSessions: []int64{waiting.ID, scheduled.ID, plain.ID, 99999},
+		InFlightLabels:   map[int64]string{waiting.ID: "backlog+graph_owner_wait", scheduled.ID: "due_schedule"}, SlotsUsed: 4, SlotsTotal: 4}
+	if err := db.ReplaceHealthSnapshot(ctx, health, nil); err != nil {
+		t.Fatal(err)
+	}
+	text, err := New(db, "discord", "7", nil, nil, FactoryStatus{DB: db}).summary(ctx, Message{}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Running now: 3 (+1 unidentified).\n",
+		"- github:acme/litefactory#1050 · checking for input (backlog, graph_owner_wait)\n",
+		"- github:acme/litefactory#1051 · due_schedule\n",
+		"- github:acme/litefactory#1052 · checking for input\n",
+		"Queued: 0.\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "housekeeping") {
+		t.Errorf("status says housekeeping: %s", text)
 	}
 }

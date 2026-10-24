@@ -151,3 +151,28 @@ func TestHealthSnapshotCarriesHeartbeatAndPauseFacts(t *testing.T) {
 		t.Fatalf("listener rows=%d err=%v", rows, err)
 	}
 }
+
+// In-flight sessions carry the dispatch source of their worker as "id=label"
+// entries, and a value written before labels existed still parses (#1138).
+func TestHealthSnapshotInFlightLabels(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 24, 15, 25, 40, 0, time.UTC)
+	listener := ListenerStatus{DaemonStartedAt: at, WrittenAt: at, RunsInFlight: 3, InFlightSessions: []int64{677, 678, 707},
+		InFlightLabels: map[int64]string{677: "backlog+graph_owner_wait", 707: "graph_step"}, SlotsUsed: 3, SlotsTotal: 4}
+	if err := db.ReplaceHealthSnapshot(ctx, listener, nil); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := db.ReadHealthSnapshot(ctx)
+	if err != nil || !reflect.DeepEqual(snap.Listener, listener) {
+		t.Fatalf("listener = %+v, want %+v (%v)", snap.Listener, listener, err)
+	}
+	ids, labels, err := splitIDs("677,678,679,707")
+	if err != nil || !reflect.DeepEqual(ids, []int64{677, 678, 679, 707}) || labels != nil {
+		t.Fatalf("id-only value: %v %v %v", ids, labels, err)
+	}
+	if got := joinIDs([]int64{1, 2}, map[int64]string{1: "a,b=c"}); got != "1=a+b+c,2" {
+		t.Fatalf("label separators not replaced: %q", got)
+	}
+}
