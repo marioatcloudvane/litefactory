@@ -423,6 +423,12 @@ func (s *Service) taskSummary(ctx context.Context) string {
 	}
 	reader := ask.StoreReader{Reader: s.db}
 	var lines []string
+	// listed pairs each shown task with its line, so only shown tasks are recorded.
+	type shown struct {
+		line int
+		item listedIssue
+	}
+	var listed []shown
 	complete, found := true, false
 	for _, repo := range repos {
 		if repo.Forge != "github" {
@@ -455,6 +461,7 @@ func (s *Service) taskSummary(ctx context.Context) string {
 						complete = false
 						lines = append(lines, task.Reference+": task data could not be read.")
 					} else {
+						listed = append(listed, shown{len(lines), listedIssue{RepoID: repo.ID, Project: repo.Slug(), Issue: sessions[index].IssueNumber}})
 						lines = append(lines, text)
 					}
 				}
@@ -467,12 +474,19 @@ func (s *Service) taskSummary(ctx context.Context) string {
 	}
 	// Keep the factual source bounded; presentation retains it as details when needed.
 	text := "\nScope: registered GitHub code projects; running tasks and owner waits, including parked work. Idle tasks require a task-specific status lookup.\n"
+	included := len(lines)
 	for i, line := range lines {
 		if len(text)+len(line) > 16000 {
 			text += fmt.Sprintf("Task listing: %d additional entries left out.\n", len(lines)-i)
+			included = i
 			break
 		}
 		text += line + "\n"
+	}
+	for _, task := range listed {
+		if task.line < included {
+			recordListedIssue(ctx, task.item)
+		}
 	}
 	return strings.TrimRight(text, "\n")
 }

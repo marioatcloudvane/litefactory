@@ -257,3 +257,47 @@ func TestRestartInterruptsTheDraftWithoutResuming(t *testing.T) {
 		t.Fatalf("restarted draft not posted: %+v", post)
 	}
 }
+
+func TestRevisingAnAuthorProposalReopensItsSessionForTheNextVersion(t *testing.T) {
+	f := newAuthorFlow(t, authorDB(t))
+	f.start(t)
+	<-f.author.calls
+	f.author.release <- struct{}{}
+	<-f.posts
+	if _, err := f.adapter.Execute(t.Context(), authorRequest("author.answer", "nl-direct:t2", map[string]string{"action": "answer", "id": flowSession, "text": "1a"})); err != nil {
+		t.Fatal(err)
+	}
+	<-f.author.calls
+	f.author.release <- struct{}{}
+	<-f.posts
+	drafted, err := f.adapter.Authoring.Show(t.Context(), flowSession, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := f.adapter.Execute(t.Context(), authorRequest("author.complete", "nl-exec:complete", map[string]string{"action": "complete", "id": flowSession, "version": strconv.FormatInt(drafted.Version, 10)}))
+	proposal := "authoring-" + flowSession
+	if err != nil || done.References["id"] != proposal || done.References["version"] != "1" {
+		t.Fatalf("complete: %+v %v", done, err)
+	}
+	// The agent cites the proposal it saw, with the proposal's version.
+	out, err := f.adapter.Execute(t.Context(), authorRequest("author.revise", "nl-direct:t3", map[string]string{"action": "revise", "id": proposal, "version": "1", "text": "Make the description shorter"}))
+	if err != nil || !strings.Contains(out.Text, "next draft") {
+		t.Fatalf("revise: %+v %v", out, err)
+	}
+	call := <-f.author.calls
+	if call.Session != flowSession || !strings.Contains(call.Prompt, "Make the description shorter") {
+		t.Fatalf("revision did not reach the author: %s", call.Session)
+	}
+	f.author.release <- struct{}{}
+	if post := <-f.posts; post.operation != "discord:3:nl-direct:t3" {
+		t.Fatalf("revised draft not posted after the reply: %+v", post)
+	}
+	revised, err := f.adapter.Authoring.Show(t.Context(), flowSession, 0)
+	if err != nil || revised.Status != "draft" {
+		t.Fatalf("revised session: %s %v", revised.Status, err)
+	}
+	again, err := f.adapter.Execute(t.Context(), authorRequest("author.complete", "nl-exec:complete-2", map[string]string{"action": "complete", "id": flowSession, "version": strconv.FormatInt(revised.Version, 10)}))
+	if err != nil || again.References["id"] != proposal || again.References["version"] != "2" {
+		t.Fatalf("second complete: %+v %v", again, err)
+	}
+}
