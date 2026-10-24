@@ -45,6 +45,7 @@ Reading incidents:
 - owner_reply lists every owner reply, including plain answers and approvals. Only replies that send work back matter.
 - failed_run can be a run that failed technically after its work succeeded. Judge from its text.
 - repeated_attempts alone is weak evidence unless the digests show the same mistake each time.
+- Where the agent's reasoning is available in the digest, use it to tell a missing or unclear rule (the agent did not know) from a role-prompt problem or a deliberate shortcut (the agent knew and chose otherwise).
 - A run abandoned by a daemon restart or stopped by the owner is not a defect. Many such runs together are not a launch or capacity problem either.
 - An error the provider reports about itself (Codex or Claude, such as `turn.failed: …`) is not a factory defect. It becomes one only when the factory mishandles it, for example by never retrying a transient provider error.
 
