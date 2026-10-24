@@ -47,7 +47,7 @@ func TestOwedGraphStagesRunBackToBackInOneTick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	admitted, err := f.db.AdmitWorkflowLaunch(t.Context(), store.WorkflowLaunch{Mode: "plan", SessionID: session.ID, TriggerID: 22, DefinitionID: pin.ID, Start: "story_agent", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte(`{"plan.dot":"eA=="}`)})
+	admitted, err := f.db.AdmitWorkflowLaunch(t.Context(), store.WorkflowLaunch{Mode: "plan", SessionID: session.ID, TriggerID: 22, DefinitionID: pin.ID, Start: "story_agent", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: graphCapacityFiles(t, "plan", "story_agent")})
 	if err != nil {
 		t.Fatal(err)
 	}

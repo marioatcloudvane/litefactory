@@ -274,6 +274,9 @@ type Options struct {
 
 	// Logger receives the run's structured log lines.
 	Logger *slog.Logger
+
+	// ThinkingLogs is settings.thinking_logs; none launches claude unchanged.
+	ThinkingLogs config.ThinkingLogs
 }
 
 // Runner executes claude. One is built at daemon startup and reused for every
@@ -312,6 +315,10 @@ type Runner struct {
 	forwardEnv  bool
 	environ     []string
 	logger      *slog.Logger
+	// thinkingLogs is settings.thinking_logs; thinking caches whether the
+	// binary accepts the flag it maps to. See [Runner.thinkingArgs].
+	thinkingLogs config.ThinkingLogs
+	thinking     thinkingSupport
 }
 
 // New resolves the claude binary and returns a ready [Runner].
@@ -408,6 +415,8 @@ func New(opts Options) (*Runner, error) {
 		forwardEnv:  opts.Claude.ForwardAnthropicEnv,
 		environ:     environ,
 		logger:      opts.Logger,
+
+		thinkingLogs: opts.ThinkingLogs,
 	}, nil
 }
 
@@ -625,7 +634,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 		}
 	}()
 
-	args := r.args(req)
+	args := append(r.args(req), r.thinkingArgs(ctx)...)
 	var extraEnv []string
 	if toolSurface(req).ReadOnlyShell {
 		sandbox, err := r.prepareReadOnlyShell(req.WorktreePath, logPath)

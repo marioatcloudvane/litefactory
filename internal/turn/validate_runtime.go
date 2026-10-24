@@ -513,14 +513,6 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		err = errors.Join(err, finishErr)
 	}()
 
-	standardsLinkErr := opts.DB.LinkStandardsGraphRun(ctx, run.ID, vr.NodeAttemptID)
-	standardsRoot, standardsConsumer := fmt.Sprint(run.ID), standardsSessionConsumerKey(run.SessionID, string(agent.ModeValidate), nodeName)
-	var standardsGuidance string
-	if standardsLinkErr == nil {
-		standardsRoot, standardsConsumer, standardsGuidance = prepareStandards(ctx, opts.DB, opts.MCP, run, nodeName, string(agent.ModeValidate))
-	} else {
-		standardsGuidance = "\nStandards delivery unavailable: invocation identity status-persistence failure. Continue under existing controls without claiming verified or complete retrieval.\n"
-	}
 	started, err := opts.DB.StartRun(ctx, run.ID)
 	if err != nil {
 		return nil, err
@@ -550,7 +542,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		prompt += policy.Guidance
 	}
 	request.Prompt = prompt
-	prep := &preparation{standardsRoot: standardsRoot, standardsConsumer: standardsConsumer, standardsGuidance: standardsGuidance, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
+	prep := &preparation{standardsRole: vr.StandardsRole, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
 	w := &researchWorkflow{opts: opts, req: nodeReq, policy: policy, prep: prep}
 	scope := cloneResultContext(vr.Scope)
 	route, err := w.openResultRoute(ctx, &request, &resultOverride{

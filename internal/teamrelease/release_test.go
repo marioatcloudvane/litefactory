@@ -253,10 +253,12 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		current = withoutStandardsGrant(t, current)
 		if w == "bug" {
 			current = legacyBugSourceWithoutSyncGate(t, current)
 		}
 		if w == "implement" {
+			current = withoutGoStoryWorkerSlotPolicy(t, current)
 			current = legacyImplementSourceWithoutOwnerResumeSync(t, current)
 		}
 		if w == "spike" {

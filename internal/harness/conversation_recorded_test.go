@@ -114,10 +114,14 @@ func TestRecordedClaudeResumeAndMissingState(t *testing.T) {
 				t.Fatal(err)
 			}
 			args := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-			for _, flag := range []string{"--safe-mode", "--restricted", "--disable-slash-commands", "--strict-mcp-config", "--no-chrome"} {
+			for _, flag := range []string{"--restricted", "--disable-slash-commands", "--strict-mcp-config", "--no-chrome"} {
 				if !slices.Contains(args, flag) {
 					t.Fatalf("missing launch control %s", flag)
 				}
+			}
+			// --safe-mode also disables the --mcp-config server the conversation needs.
+			if slices.Contains(args, "--safe-mode") {
+				t.Fatal("conversation launched with --safe-mode")
 			}
 			for flag, want := range map[string]string{"--resume": "native-session", "--tools": "", "--setting-sources": "", "--settings": `{"disableAllHooks":true}`, "--agents": "{}", "--system-prompt": request.NativeInstructions} {
 				i := slices.Index(args, flag)

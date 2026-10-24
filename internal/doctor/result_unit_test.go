@@ -45,6 +45,8 @@ func TestDoctorValidateDiagnosis(t *testing.T) {
 		change func(*doctor.Diagnosis)
 		valid  bool
 	}{
+		{"withdraw and replace/rejected", func(d *doctor.Diagnosis) { d.WithdrawProposal = true }, false},
+		{"explicit withdrawal/accepted", func(d *doctor.Diagnosis) { d.WithdrawProposal = true; d.Proposal = nil }, true},
 		{"complete proposal/accepted", func(*doctor.Diagnosis) {}, true},
 		{"foreign evidence/rejected", func(d *doctor.Diagnosis) { d.Findings[0].Evidence = []string{"run:999"} }, false},
 		{"foreign repair row/rejected", func(d *doctor.Diagnosis) { d.Proposal[0].Target = "run:999" }, false},

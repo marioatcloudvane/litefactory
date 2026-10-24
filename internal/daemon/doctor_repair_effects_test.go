@@ -4,23 +4,38 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
+	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-func approveEffect(t *testing.T, db *store.DB, session store.Session, step store.DoctorRepairStep, evidence store.DoctorEvidence) store.DoctorRepair {
+func approveEffect(t *testing.T, db *store.DB, session store.Session, step store.DoctorRepairStep, evidence store.DoctorEvidence, source ...string) store.DoctorRepair {
 	t.Helper()
 	ctx := t.Context()
-	conversation, e := db.BeginDoctorAttempt(ctx, session.TaskRef, store.DoctorAttempt{ID: "effects", SourceID: "effect-source", OwnerText: "fixture", PromptVersion: doctor.PromptVersion, GuideVersion: doctor.GuideVersion})
+	sourceID := "owner-apply"
+	if len(source) > 0 {
+		sourceID = source[0]
+	}
+	prefix := "effects-" + sourceID
+	conversation, e := db.BeginDoctorAttempt(ctx, session.TaskRef, store.DoctorAttempt{ID: prefix, SourceID: prefix, OwnerText: "fixture", PromptVersion: doctor.PromptVersion, GuideVersion: doctor.GuideVersion})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -28,10 +43,10 @@ func approveEffect(t *testing.T, db *store.DB, session store.Session, step store
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = db.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "effects", Provider: "claude", ConfiguredModel: "fixture", Evidence: string(encoded)}); e != nil {
+	if e = db.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: prefix, Provider: "claude", ConfiguredModel: "fixture", Evidence: string(encoded)}); e != nil {
 		t.Fatal(e)
 	}
-	binding, e := db.BindDoctorResultAttempt(ctx, "effects")
+	binding, e := db.BindDoctorResultAttempt(ctx, prefix)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -44,20 +59,24 @@ func approveEffect(t *testing.T, db *store.DB, session store.Session, step store
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = db.RecordResult(ctx, store.ResultRecord{Binding: binding, RequestID: "effects-result", Payload: snapshot, Snapshot: snapshot, Diagnostics: []byte(`{"valid":true,"errors":[]}`), Retired: []byte(`[]`), Accepted: true}); e != nil {
+	current, e := db.GetResultRevision(ctx, binding, 0)
+	if e != nil && !errors.Is(e, store.ErrNotFound) {
 		t.Fatal(e)
 	}
-	if e = db.AdoptDoctorResult(ctx, binding, "effects-result", manifest); e != nil {
+	if _, e = db.RecordResult(ctx, store.ResultRecord{Binding: binding, ExpectedRevision: current.Revision, RequestID: prefix + "-result", Payload: snapshot, Snapshot: snapshot, Diagnostics: []byte(`{"valid":true,"errors":[]}`), Retired: []byte(`[]`), Accepted: true}); e != nil {
+		t.Fatal(e)
+	}
+	if e = db.AdoptDoctorResult(ctx, binding, prefix+"-result", manifest); e != nil {
 		t.Fatal(e)
 	}
 	proposal, _, e := db.DoctorProposalReference(ctx, conversation.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = db.PresentDoctorProposal(ctx, session.TaskRef, "effects-presentation", proposal); e != nil {
+	if e = db.PresentDoctorProposal(ctx, session.TaskRef, prefix+"-presentation", proposal); e != nil {
 		t.Fatal(e)
 	}
-	op, e := db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "effects-repair", SourceID: "owner-apply", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: "effects-presentation"})
+	op, e := db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: prefix + "-repair", SourceID: sourceID, Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: prefix + "-presentation"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -119,6 +138,170 @@ func TestFactoryDoctorConsumeConfirmedAndUncertain(t *testing.T) {
 			}
 		})
 	}
+}
+
+// consumeFixture reserves an approved consume_comment step for comment 11.
+func consumeFixture(t *testing.T, d *Daemon, repo store.Repo) (naming.Ref, store.DoctorRepair, store.DoctorRepairStep) {
+	t.Helper()
+	ctx := t.Context()
+	session, e := d.db.GetOrCreateSession(ctx, repo, 406)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, _, e = d.db.BootstrapWatermark(ctx, session.ID, 10); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = d.db.RecordComment(ctx, store.Comment{SessionID: session.ID, ForgeCommentID: 11, AuthorHandle: "owner", AuthorUserID: 7, Body: "repair", CreatedAt: d.now(), Classification: store.ClassificationInstruction}); e != nil {
+		t.Fatal(e)
+	}
+	ref, e := naming.ParseRef(session.TaskRef)
+	if e != nil {
+		t.Fatal(e)
+	}
+	evidence, e := d.db.ReadDoctorEvidence(ctx, ref)
+	if e != nil {
+		t.Fatal(e)
+	}
+	step := store.DoctorRepairStep{Number: 1, Kind: "consume_comment", Target: "comment:11", Before: "10", After: "11"}
+	return ref, approveEffect(t, d.db, session, step, evidence), step
+}
+
+// C2, C3, C8, C9: a failed reply POST is posted once and categorized from the
+// ticket failure kind the real transport wraps it in.
+func TestFactoryDoctorConsumeReplyFailureCategory(t *testing.T) {
+	api := func(status int, sentinel error) github.APIError {
+		return github.APIError{Method: "POST", URL: "https://api.github.com/repos/acme/api/issues/406/comments", StatusCode: status, Err: sentinel}
+	}
+	publish := func(kind ticket.FailureKind, cause error) error {
+		return &ticket.Failure{Kind: kind, Operation: "publish reply", Cause: cause}
+	}
+	for _, tc := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{"rate limit 429", publish(ticket.Refused, &github.RateLimitError{APIError: api(429, github.ErrRateLimited), RetryAfter: time.Minute}), doctor.ErrRepairReplyRateLimited},
+		{"secondary rate limit 403", publish(ticket.Refused, &github.RateLimitError{APIError: api(403, github.ErrRateLimited), RetryAfter: time.Minute}), doctor.ErrRepairReplyRateLimited},
+		{"ticket provider quota", publish(ticket.Refused, &ticket.RateLimitError{RetryAfter: time.Minute}), doctor.ErrRepairReplyRateLimited},
+		{"local hold deferral", publish(ticket.Uncertain, ticket.ErrDiscoveryDeferred), doctor.ErrRepairReplyRateLimited},
+		{"forbidden 403", publish(ticket.Refused, &github.ForbiddenError{APIError: api(403, github.ErrForbidden)}), doctor.ErrRepairReplyRefused},
+		{"not found 404", publish(ticket.Refused, &github.NotFoundError{APIError: api(404, github.ErrNotFound)}), doctor.ErrRepairReplyRefused},
+		{"unprocessable 422", publish(ticket.Refused, &github.APIError{Method: "POST", StatusCode: 422, Err: github.ErrUnprocessable}), doctor.ErrRepairReplyRefused},
+		{"transport uncertain", publish(ticket.Uncertain, &url.Error{Op: "Post", URL: "https://api.github.com/repos/acme/api/issues/406/comments", Err: errors.New("connection reset")}), doctor.ErrRepairReplyOutcomeUncertain},
+		{"unclassified", errors.New("reply lost"), doctor.ErrRepairReplyOutcomeUncertain},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, forge, repo := doctorDaemonFixture(t)
+			ref, op, step := consumeFixture(t, d, repo)
+			forge.postErr = tc.err
+			adapter := FactoryDoctorRepairEffects{DB: d.db, Comments: forge, BotID: 99, Redactor: d.doctor.service.Redactor}
+			_, e := adapter.Execute(t.Context(), ref, op, step, "claude")
+			if !errors.Is(e, tc.want) {
+				t.Fatalf("category of %v = %v, want %v", tc.err, e, tc.want)
+			}
+			for _, other := range []error{doctor.ErrRepairReplyRateLimited, doctor.ErrRepairReplyRefused, doctor.ErrRepairReplyOutcomeUncertain} {
+				if !errors.Is(other, tc.want) && errors.Is(e, other) {
+					t.Fatalf("%v also categorized as %v", e, other)
+				}
+			}
+			if !errors.Is(e, tc.err) {
+				t.Fatalf("cause dropped: %v", e)
+			}
+			if len(forge.posts) != 1 {
+				t.Fatalf("posts=%d, want exactly one", len(forge.posts))
+			}
+		})
+	}
+}
+
+// C7: a 429 on the reply POST through the real connection transport arms the
+// connection's backoff, and the step returns after one POST without waiting.
+func TestFactoryDoctorConsumeRateLimitArmsConnectionBackoff(t *testing.T) {
+	d, _, repo := doctorDaemonFixture(t)
+	ctx := t.Context()
+	origin := ticket.Origin("https://api.github.com")
+	connection, e := d.db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.GitHub, Origin: origin, Destination: "acme/api", RemoteID: "202", CredentialSource: "env", CredentialEnv: "DOCTOR_REPLY", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, RemoteURL: repo.RemoteURL, BaseBranch: repo.BaseBranch, FeaturePrefix: repo.FeaturePrefix, WorktreeRoot: repo.WorktreeRoot}, 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var posts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var value any
+		switch {
+		case r.URL.Path == "/user":
+			value = map[string]any{"id": 99, "login": "publisher", "type": "Bot"}
+		case r.URL.Path == "/repos/acme/api":
+			value = map[string]any{"id": 202, "full_name": "acme/api", "has_issues": true}
+		case r.URL.Path == "/repos/acme/api/issues/406":
+			value = map[string]any{"id": 10406, "number": 406, "url": "https://api.github.com/repos/acme/api/issues/406", "state": "open", "user": map[string]any{"id": 55, "login": "creator"}}
+		case r.URL.Path == "/repos/acme/api/issues/406/comments" && r.Method == http.MethodPost:
+			posts.Add(1)
+			w.Header().Set("Retry-After", "120")
+			w.WriteHeader(http.StatusTooManyRequests)
+			value = map[string]any{"message": "You have exceeded a secondary rate limit"}
+		default:
+			t.Errorf("unexpected provider destination %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(value); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	target, e := url.Parse(server.URL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	factory := projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 99, HTTPClient: &http.Client{Transport: approverLoopbackTransport{target: target}}, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "offline-token", true }}})
+	d.connections = factory
+	factory.SetRequestContext(d.bindQuotaRequest)
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	d.quotas.tick(now)
+	clients, e := factory.Clients(ctx, connection, 99)
+	if e != nil {
+		t.Fatal(e)
+	}
+	ref, op, step := consumeFixture(t, d, repo)
+	ticketRef := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: "10406"}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: origin, Container: "acme/api", Key: "406"}}
+	adapter := FactoryDoctorRepairEffects{DB: d.db, Comments: publishReplyComments{tickets: clients.Tickets, ref: ticketRef}, BotID: 99, Redactor: d.doctor.service.Redactor}
+	started := time.Now()
+	_, e = adapter.Execute(ctx, ref, op, step, "claude")
+	if !errors.Is(e, doctor.ErrRepairReplyRateLimited) {
+		t.Fatalf("rate-limited reply categorized as %v", e)
+	}
+	var failure *ticket.Failure
+	if !errors.As(e, &failure) || failure.Kind != ticket.Refused {
+		t.Fatalf("reply refusal not wrapped by the transport: %v", e)
+	}
+	if elapsed := time.Since(started); elapsed > 30*time.Second {
+		t.Fatalf("consume step waited %s", elapsed)
+	}
+	if posts.Load() != 1 {
+		t.Fatalf("posts=%d, want one", posts.Load())
+	}
+	scoped := context.WithValue(ctx, doctorSourceContextKey{}, store.DoctorCommandSource{ConnectionVersionID: connection.ID, PublisherID: 99, Ticket: ticketRef})
+	until, held := d.connectionHold(scoped, now)
+	if !held || until.Before(now.Add(2*time.Minute)) {
+		t.Fatalf("connection backoff not armed from Retry-After: until=%s held=%v", until, held)
+	}
+}
+
+// publishReplyComments posts through the real ticket adapter, as the routed
+// publication bridge does.
+type publishReplyComments struct {
+	tickets interface {
+		PublishReply(context.Context, ticket.Ref, redact.Body) (ticket.Reply, error)
+	}
+	ref ticket.Ref
+}
+
+func (p publishReplyComments) PostComment(ctx context.Context, _ github.Repo, _ int, body redact.Body) (github.Comment, error) {
+	if _, err := p.tickets.PublishReply(ctx, p.ref, body); err != nil {
+		return github.Comment{}, err
+	}
+	return github.Comment{}, errors.New("rate-limited fixture accepted a reply")
 }
 
 func TestFactoryDoctorBranchAdapterRecordsAndRechecks(t *testing.T) {

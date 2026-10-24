@@ -41,6 +41,18 @@ type factoryConversationPrompt struct {
 	SavedOutcome     string `json:"saved_outcome,omitempty"`
 	// ConsultNote says why a consult is not available now.
 	ConsultNote string `json:"consult_note,omitempty"`
+	// OpenProposal is the proposal awaiting the owner's yes, if any.
+	OpenProposal *conversationOpenProposal `json:"open_proposal,omitempty"`
+	// AuthorSession is the standards author session this conversation works on.
+	AuthorSession *conversationAuthorSession `json:"author_session,omitempty"`
+}
+
+// conversationOpenProposal is what the agent needs to judge a confirmation:
+// the reference to cite and what the owner was asked.
+type conversationOpenProposal struct {
+	Reference string    `json:"reference"`
+	Text      string    `json:"text"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // addEvidence makes result the current evidence and keeps the previous one.
@@ -67,6 +79,7 @@ type conversationReadResult struct {
 }
 
 type factoryConversationRun struct {
+	inboxResume    *conversationReadResult
 	instructions   *instructionpackage.ConversationCapture
 	s              *Service
 	c              store.Conversation
@@ -82,6 +95,8 @@ type factoryConversationRun struct {
 	consults int
 	// refSuffix keeps the references of reasoner lookups distinct.
 	refSuffix string
+	// authorRef cites the conversation's open author session.
+	authorRef *ConversationReference
 }
 
 // maxCalls is the turn's conversation invocation budget. A consult adds one
@@ -215,21 +230,19 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		return err
 	}
 	run.savedOutcomes = savedOutcomes
-	if handled, err := run.approveStandards(work); handled || err != nil {
-		return err
-	}
 	// Confirmation and cancellation never enter model interpretation.
 	if handled, err := run.confirm(work); handled || err != nil {
 		return err
 	}
-	pending, e := s.db.ReadNaturalDialogue(work, s.transport, s.owner, c.ChannelRef)
-	if e != nil && !errors.Is(e, store.ErrNotFound) {
-		return e
+	// A live proposal stays open: the agent judges whether this message
+	// confirms it, cancels it or changes the request (a new proposal).
+	open, err := run.openProposal(work)
+	if err != nil {
+		return err
 	}
-	if e == nil && (pending.State == "awaiting_confirmation" || pending.State == "clarifying") {
-		if e = s.db.EndNaturalDialogue(work, pending, "cancelled", at); e != nil {
-			return e
-		}
+	proposal := ""
+	if open != nil {
+		proposal = open.Reference
 	}
 	sources, err := s.db.ListConversationSources(work, c.ID, at, 8)
 	if err != nil {
@@ -255,20 +268,17 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		return s.conversationHandled(ctx, t, "Please send a shorter request with the exact action and target. Nothing was authorized.", at)
 	}
 	slices.Reverse(turns)
+	author, err := run.loadAuthor(work)
+	if err != nil {
+		return err
+	}
 	refs, err := run.references(work)
 	if err != nil {
 		return err
 	}
-	var contextData struct{ PreparedContext, RecoveryNotice, StandardsClarification string }
+	var contextData struct{ PreparedContext, RecoveryNotice string }
 	if err = json.Unmarshal([]byte(t.Prompt), &contextData); err != nil {
 		contextData.PreparedContext = "Retained prepared context is unavailable."
-	}
-	if s.standards != nil {
-		progress, e := s.db.GetStandardsConversationContext(work, s.transport, s.owner, c.ChannelRef)
-		if e != nil && !errors.Is(e, store.ErrNotFound) {
-			return e
-		}
-		contextData.StandardsClarification = progress.Clarification
 	}
 	contextBytes, err := json.Marshal(contextData)
 	if err != nil {
@@ -285,10 +295,14 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if run.focus, err = run.loadFocus(work); err != nil {
 		return err
 	}
-	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes}
+	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes, OpenProposal: open, AuthorSession: author}
 	corrected, lookups, pendingLookup, err := run.resumeBoundary(work, &prompt)
 	if err != nil {
 		return run.failed(ctx, err)
+	}
+	if run.inboxResume != nil {
+		result := run.inboxResume
+		return s.saveConversationPresentation(ctx, t, "completed", []presentation.AnswerBlock{{Text: result.Result, FactRefs: []string{result.FactID}}}, "", at)
 	}
 	for run.calls < run.maxCalls() {
 		var envelope ConversationEnvelope
@@ -307,7 +321,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			if err != nil {
 				return run.failed(ctx, err)
 			}
-			envelope, inv, err = DecodeConversationEnvelope(raw, ConversationDecodeRequest{Turns: turns, Commands: s.ConversationCommands(), References: refs, OwnerID: s.owner, ChannelID: c.ChannelRef, Now: at})
+			envelope, inv, err = DecodeConversationEnvelope(raw, ConversationDecodeRequest{Turns: turns, Commands: s.ConversationCommands(), References: refs, OwnerID: s.owner, ChannelID: c.ChannelRef, Now: at, Proposal: proposal})
 			if err != nil {
 				if !corrected && run.calls < run.maxCalls() {
 					corrected = true
@@ -353,36 +367,20 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		run.safe = true
 		switch envelope.Kind {
 		case "answer", "clarify":
-			if envelope.Kind == "clarify" && s.standards != nil {
-				progress, e := s.db.GetStandardsConversationContext(work, s.transport, s.owner, c.ChannelRef)
-				if e != nil && !errors.Is(e, store.ErrNotFound) {
-					return e
-				}
-				progress.Transport = s.transport
-				progress.OwnerID = s.owner
-				progress.ChannelID = c.ChannelRef
-				progress.Clarification = envelope.Text
-				if _, e = s.db.SaveStandardsConversationContext(work, progress, progress.Version); e != nil {
-					return e
-				}
-			}
-			text := envelope.Text
-			if savedOutcomes != "" {
-				text += "\n\nSaved action outcome:\n" + savedOutcomes
-			}
+			// A saved outcome reaches the owner through this answer; the
+			// model was given it as saved_outcome.
 			blocks := envelope.Blocks
 			if len(blocks) == 0 {
-				blocks = []presentation.AnswerBlock{{Text: text}}
-			} else if savedOutcomes != "" {
-				blocks = append(blocks, presentation.AnswerBlock{Text: "Saved action outcome:\n" + savedOutcomes})
+				blocks = []presentation.AnswerBlock{{Text: envelope.Text}}
 			}
 			return s.saveConversationPresentation(ctx, t, "completed", blocks, "", at, envelope.Kind)
 		case "propose":
 			return run.propose(work, inv, envelope, turns)
+		case "confirm":
+			return run.confirmJudged(work, envelope)
+		case "cancel":
+			return run.cancelJudged(work, envelope)
 		case "lookup":
-			if inv.Command == "standards" && (strings.HasSuffix(inv.Arguments["action"], ".review") || inv.Arguments["action"] == "review.next") {
-				return run.reviewStandards(work, inv)
-			}
 			if lookups >= 3 || run.calls >= run.maxCalls() {
 				break
 			}
@@ -417,6 +415,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			}
 			if result.Clarification != "" {
 				return s.conversationOutcome(ctx, t, "completed", result.Clarification, at)
+			}
+			if inv.Command == "inbox" {
+				return s.saveConversationPresentation(ctx, t, "completed", []presentation.AnswerBlock{{Text: result.Result, FactRefs: []string{result.FactID}}}, "", at)
 			}
 			prompt.References = refs
 			prompt.Focus = run.focus
@@ -471,7 +472,7 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if r.savedOutcomes != "" {
-		if err := r.s.conversationOutcome(cleanup, r.t, "interrupted", "Saved action outcome:\n"+r.savedOutcomes+"\nThe explanation was interrupted. Its provider input was not replayed.", r.at); err != nil {
+		if err := r.s.conversationOutcome(cleanup, r.t, "interrupted", r.savedOutcomes, r.at); err != nil {
 			return err
 		}
 		if r.c.SessionHandle == "" && !conversationPreStartRetry(cause) {
@@ -511,18 +512,6 @@ func (r *factoryConversationRun) references(ctx context.Context) ([]Conversation
 		return nil, err
 	}
 	var refs []ConversationReference
-	if r.s.standards != nil {
-		selected, e := r.s.db.GetStandardsConversationContext(ctx, r.s.transport, r.s.owner, r.c.ChannelRef)
-		if e != nil && !errors.Is(e, store.ErrNotFound) {
-			return nil, e
-		}
-		if e == nil && len(selected.SelectedJSON) > 0 {
-			var args map[string]string
-			if json.Unmarshal(selected.SelectedJSON, &args) == nil {
-				refs = append(refs, ConversationReference{ID: "standards-selected-" + strconv.FormatInt(selected.Version, 10), OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: "retained-standards-context", ExpiresAt: r.at.Add(24 * time.Hour), Arguments: args})
-			}
-		}
-	}
 	for _, v := range saved {
 		var args map[string]string
 		if json.Unmarshal([]byte(v.Content), &args) != nil {
@@ -544,6 +533,9 @@ func (r *factoryConversationRun) references(ctx context.Context) ([]Conversation
 			}
 		}
 		refs = append(refs, ConversationReference{ID: v.ID, OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: v.TurnID, RepoID: repoID, Revision: v.Revision, ExpiresAt: v.ExpiresAt, Arguments: args})
+	}
+	if r.authorRef != nil {
+		refs = append([]ConversationReference{*r.authorRef}, refs...)
 	}
 	return expandStandardsReferences(refs), nil
 }
@@ -571,6 +563,34 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 	validated, effect, err := s.ValidateInvocation(inv)
 	if err != nil || effect != ReadEffect {
 		return result, nil, ErrConversationEnvelope
+	}
+	if inv.Command == "inbox" {
+		capture := &inboxCapture{Organize: r.organizerCall}
+		text, e := s.readOwnerInbox(ctx, Message{Channel: r.c.ChannelRef, Arguments: validated.Arguments}, r.at, capture)
+		result.Result = text
+		result.Arguments = make(map[string]string)
+		for k, v := range validated.Arguments {
+			result.Arguments[k] = v
+		}
+		if capture.Snapshot != "" {
+			result.Arguments["inbox_snapshot"] = capture.Snapshot
+			sources, _ := json.Marshal(capture.Sources)
+			result.Arguments["inbox_sources"] = string(sources)
+		}
+		if e != nil {
+			return result, nil, e
+		}
+		navigation := capture.Navigation
+		if navigation == "" {
+			return result, nil, nil
+		}
+		args := map[string]string{"reference": navigation}
+		raw, _ := json.Marshal(args)
+		saved := store.ConversationReference{ID: fmt.Sprintf("%s-inbox-%d", r.t.ID, r.ordinal), TurnID: r.t.ID, Kind: "inbox", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+		if e = s.db.SaveConversationReference(ctx, r.t, saved); e != nil {
+			return result, nil, e
+		}
+		return result, &ConversationReference{ID: saved.ID, OwnerID: s.owner, ChannelID: r.c.ChannelRef, OriginTurn: r.t.ID, ExpiresAt: saved.ExpiresAt, Arguments: args}, nil
 	}
 	p := naturalPayload{Invocation: validated, Channel: r.c.ChannelRef}
 	if r.focus != nil {
@@ -792,6 +812,15 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		result, err := decodeConversationEvidence(last)
 		if err != nil {
 			return false, 0, nil, err
+		}
+		if result.Command == "inbox" {
+			if id := result.Arguments["inbox_snapshot"]; id != "" {
+				if err = r.s.authorizeInboxResult(ctx, r.c.ChannelRef, result, r.at); err != nil {
+					return false, 0, nil, err
+				}
+			}
+			r.inboxResume = &result
+			return corrected, lookups, nil, nil
 		}
 		prompt.addEvidence(result)
 		prompt.Correction, prompt.CorrectionReason = "", ""

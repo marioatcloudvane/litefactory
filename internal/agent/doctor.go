@@ -16,8 +16,6 @@ var ErrDoctorIsolationUnverified = errors.New("doctor provider isolation lacks a
 // DoctorRequest is mode-free: no workflow run, session resume or permissions from
 // ordinary work can be carried into the private diagnosis invocation.
 type DoctorRequest struct {
-	// TurnLimit is used only by standalone bounded broker consumers.
-	TurnLimit        int
 	Attempt          string
 	Model            string
 	Thinking         config.Thinking

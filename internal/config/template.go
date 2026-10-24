@@ -62,6 +62,13 @@ webhook:
 #   providers:
 #     claude: {thinking: high, aliases: {review: opus}}
 #     codex: {thinking: high, aliases: {}}
+
+# Optional: where "standards analyze logs" files litefactory's own defects and
+# catalogue role prompt problems (as github:owner/name, labelled bug). Empty
+# shows them as ready-to-file upstream reports without filing anything.
+# standards:
+#   log_analysis:
+#     upstream: github:marioatcloudvane/litefactory
 settings:
   # Anonymous HTTPS catalogue for machine-level team installation.
   team_source: %q
@@ -113,6 +120,12 @@ settings:
   suggest_conflict_resolution: %t
   conflict_proposal_ttl_hours: %d # valid range: %d..%d
   conflict_content_max_bytes: %d # valid range: %d..%d
+  # Whether factory agent runs log the model's thinking: none, summarized or
+  # full. Providers expose summaries of their thinking, never the raw chain of
+  # thought; full means the most detailed summary each provider offers (Codex
+  # detailed reasoning summaries, Claude summarized thinking). The Discord
+  # conversation is never affected. Read at daemon start.
+  thinking_logs: %q
 
 providers:
   github:
@@ -185,6 +198,7 @@ tool_profiles:
 		d.Settings.SuggestConflictResolution,
 		d.Settings.ConflictProposalTTLHours, MinConflictProposalTTLHours, MaxConflictProposalTTLHours,
 		d.Settings.ConflictContentMaxBytes, MinConflictContentMaxBytes, MaxConflictContentMaxBytes,
+		d.Settings.ThinkingLogs,
 		d.Providers.GitHub.APIBase,
 		claude.Binary, claude.ModelTier, claude.AutoCompact,
 		yamlList(4, "tools", claude.Tools), yamlList(4, "allowed_tools", claude.AllowedTools), yamlList(4, "tool_ceiling", claude.ToolCeiling),

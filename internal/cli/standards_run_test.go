@@ -50,7 +50,7 @@ func TestStandardsRunInspectionPreservesBinding(t *testing.T) {
 	service := &standards.Service{Store: f.db, OwnerID: 71}
 	proposal, err := service.Create(t.Context(), "first", 0, []standards.Operation{
 		{Kind: "category.add", Category: &standards.Category{ID: "go", Name: "Go"}},
-		{Kind: "standard.add", Standard: &standards.Standard{ID: "errors", Title: "Errors", Body: "Handle errors.", CategoryIDs: []string{"go"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "errors", Rule: "MUST Errors", Description: "Handle errors.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"story-worker"}}},
 	})
 	if err != nil {
 		t.Fatal(err)

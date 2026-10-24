@@ -26,6 +26,9 @@ type naturalPayload struct {
 	// focus is the conversation's last discussed project. It only breaks ties
 	// and fills a missing project for reads; it is never part of the digest.
 	focus string
+	// window is the owner's own window phrase, echoed in the proposal text; the
+	// digest binds the exact bounds it resolved to.
+	window string
 }
 
 func naturalDigest(p naturalPayload) (string, string, error) {
@@ -41,12 +44,24 @@ func naturalLater(id, previous string) bool {
 	p, f := strconv.ParseUint(previous, 10, 64)
 	return e == nil && f == nil && n > p
 }
-func naturalConfirmation(text string, d store.NaturalDialogue, reply string) bool {
-	text = strings.ToLower(strings.TrimSpace(text))
-	if d.Code != "" && (text == "confirm "+strings.ToLower(d.Code) || naturalConfirmationCode(text) == strings.ToLower(d.Code)) {
+
+// naturalYes is the small set of whole messages that mean yes; a message that
+// says anything more is an ordinary message.
+func naturalYes(text string) bool {
+	switch strings.Trim(strings.ToLower(strings.TrimSpace(text)), "!. ") {
+	case "yes", "yes please", "ja", "ok", "okay", "go", "go ahead", "do it", "start", "mach", "mach das", "confirm":
 		return true
 	}
-	return reply == d.PromptID && d.PromptID != "" && (text == "yes" || text == "yes please" || text == "confirm" || text == "do it")
+	return false
+}
+
+// naturalDetailsRequest asks to see the exact proposal.
+func naturalDetailsRequest(text string) bool {
+	switch strings.Trim(strings.ToLower(strings.TrimSpace(text)), "!?. ") {
+	case "details", "show details", "show me the details", "exact details":
+		return true
+	}
+	return false
 }
 
 // naturalConfirmationCode recognizes only a whole proposal-code message.
@@ -98,8 +113,14 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 			args["project"] = p.Project
 			args["repository_id"] = strconv.FormatInt(p.RepoID, 10)
 		}
-		if strings.HasPrefix(op, "schedule.") && args["interval_seconds"] != "" {
-			args["interval_seconds"] = standardsInterval(args["interval_seconds"])
+		if op == "analysis.start" && args["window"] != "" {
+			after, before, ok := analysisWindow(args["window"], at)
+			if !ok {
+				return "Please give the analysis window as last N days, yesterday, last week or this week, or as exact after and before times.", nil
+			}
+			args["after"], args["before"] = after, before
+			p.window = args["window"]
+			delete(args, "window")
 		}
 		if p.Invocation.Command != "standards" {
 			return standardsMissingTerms(op, p.Invocation.Arguments), nil
@@ -230,24 +251,31 @@ func relativeBound(phrase string, now time.Time) (string, string, bool) {
 	return from.Format(time.RFC3339), to.Format(time.RFC3339), true
 }
 
-func (s *Service) naturalProposal(p naturalPayload, code string) string {
-	args, err := json.Marshal(p.Invocation.Arguments)
-	if err != nil {
-		return ""
+// analysisWindow turns a spanned window phrase into closed UTC bounds: "last N
+// days" (or hours) ends now, and the calendar phrases of relativeBound end at
+// their period's end or now.
+func analysisWindow(phrase string, now time.Time) (string, string, bool) {
+	text := strings.ToLower(strings.TrimSpace(phrase))
+	fields := strings.Fields(strings.TrimPrefix(strings.TrimPrefix(text, "last "), "past "))
+	if len(fields) == 2 {
+		n, err := strconv.Atoi(fields[0])
+		unit := map[string]time.Duration{"day": 24 * time.Hour, "hour": time.Hour}[strings.TrimSuffix(fields[1], "s")]
+		if err == nil && n > 0 && n <= 366 && unit > 0 {
+			return now.UTC().Add(-time.Duration(n) * unit).Format(time.RFC3339), now.UTC().Format(time.RFC3339), true
+		}
 	}
-	scope := ""
-	switch p.Invocation.Command {
-	case "draft":
-		scope = "Create or replace a feature preview only. Issue creation needs a separate confirmation."
-	case "diagnose":
-		scope = "Queue diagnosis work. Any repair remains subject to review on the issue."
-	case "answer":
-		scope = "Record this answer to the current research question: " + p.Question + "\nRevision: " + p.Revision
-	case "confirm":
-		scope = "Create an issue from this exact saved feature preview: " + p.Question
+	from, to, ok := relativeBound(text, now.In(time.Local))
+	if !ok {
+		return "", "", false
 	}
-	return fmt.Sprintf("Proposed action: %s\nProject: %s\n%s\nExact protected arguments: %s\nConfirmation code: %s\nReply directly to this message with yes, or send %s alone or prefixed by confirm, yes or ok. Send cancel to cancel. Expires in 15 minutes.", p.Invocation.Command, p.Project, scope, args, code, code)
+	start, _ := time.Parse(time.RFC3339, from)
+	end := now
+	if to != "" {
+		end, _ = time.Parse(time.RFC3339, to)
+	}
+	return start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339), true
 }
+
 func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.Time) (string, error) {
 	if standardsCommand(p.Invocation.Command) {
 		if s.standards == nil {
