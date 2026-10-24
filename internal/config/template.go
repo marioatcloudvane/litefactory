@@ -62,6 +62,13 @@ webhook:
 #   providers:
 #     claude: {thinking: high, aliases: {review: opus}}
 #     codex: {thinking: high, aliases: {}}
+
+# Optional: where "standards analyze logs" files litefactory's own defects and
+# catalogue role prompt problems (as github:owner/name, labelled bug). Empty
+# shows them as ready-to-file upstream reports without filing anything.
+# standards:
+#   log_analysis:
+#     upstream: github:marioatcloudvane/litefactory
 settings:
   # Anonymous HTTPS catalogue for machine-level team installation.
   team_source: %q

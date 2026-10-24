@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"cmp"
 	"context"
 	"errors"
 
@@ -34,7 +35,7 @@ func (w *researchWorkflow) openResultRoute(ctx context.Context, req *agent.Reque
 	if prep == nil {
 		return nil, errors.New("workflow invocation preparation is missing")
 	}
-	p, spec, err := prepareMCPWith(ctx, prep, *req, nil, override, prep.standardsRead || w.nodeGrantsStandards(req))
+	p, spec, err := prepareMCPWith(ctx, prep, *req, nil, override, cmp.Or(prep.standardsRole, w.nodeStandardsRole(req)))
 	if err != nil {
 		return nil, err
 	}
@@ -80,13 +81,16 @@ func (w *researchWorkflow) finishRoute(ctx context.Context, route *resultRoute, 
 	return ResearchInvocation{Request: *req, ColdRequest: &cold, Kind: w.req.Agent, Observe: func(actual agent.Request) { prep.request = actual; prep.prompt = actual.Prompt }, SessionPath: sessionPath, Results: p.service, Close: func() error { return p.closeTransports(context.WithoutCancel(ctx)) }, Release: func() error { return w.opts.DB.EndResultAttempt(context.WithoutCancel(ctx), p.service.Binding()) }}, nil
 }
 
-// nodeGrantsStandards reports whether the pinned graph node of this invocation
-// declares optional standards book access for the role it runs. The grant lives
-// in the DOT; without it the role gets no standards tools.
-func (w *researchWorkflow) nodeGrantsStandards(req *agent.Request) bool {
+// nodeStandardsRole names the role the pinned graph node of this invocation
+// runs when the node grants it the optional standards read, or "". The grant
+// lives in the DOT; without it the role gets no standards tool.
+func (w *researchWorkflow) nodeStandardsRole(req *agent.Request) string {
 	if w.definition == nil || w.definition.Profile == nil || req.Graph == nil {
-		return false
+		return ""
 	}
 	node, ok := w.definition.Profile.Node(req.Graph.Node)
-	return ok && graphexec.StandardsReadGranted(node.Attrs, node.Attrs["lf_agent_markdown"])
+	if !ok {
+		return ""
+	}
+	return graphexec.StandardsRole(node.Attrs, node.Attrs["lf_agent_markdown"])
 }

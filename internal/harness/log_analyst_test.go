@@ -80,7 +80,7 @@ printf '%%s\n' '%s' %s
 			if !slices.Contains(args, "--no-session-persistence") || !strings.Contains(strings.Join(args, " "), "disableAllHooks") {
 				t.Fatal("missing isolation controls")
 			}
-			runner := &Runner{binary: config.Executable{Path: binary}, timeout: time.Minute, environ: []string{"PATH=/usr/bin:/bin"}}
+			runner := &Runner{claudeConfigDir: t.TempDir(), binary: config.Executable{Path: binary}, timeout: time.Minute, environ: []string{"PATH=/usr/bin:/bin"}}
 			result, err := runner.RunLogAnalyst(t.Context(), request)
 			wantVerifiedCalls := 1
 			if mode == "extra_tool" {
@@ -126,7 +126,7 @@ sleep 30
 			if err != nil {
 				t.Fatal(err)
 			}
-			runner := &Runner{binary: config.Executable{Path: binary}, timeout: time.Minute, environ: []string{"PATH=/usr/bin:/bin"}}
+			runner := &Runner{claudeConfigDir: t.TempDir(), binary: config.Executable{Path: binary}, timeout: time.Minute, environ: []string{"PATH=/usr/bin:/bin"}}
 			ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 			defer cancel()
 			_, err = runner.RunLogAnalyst(ctx, agent.LogAnalystRequest{Attempt: "analysis", Model: "model", Prompt: "bounded task", WorkingDirectory: dir, MCPLaunch: spec})

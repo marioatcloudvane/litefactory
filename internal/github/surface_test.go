@@ -116,6 +116,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"ListSubIssues",      // GET  /repos/{o}/{r}/issues/{n}/sub_issues
 		"PostComment",        // POST /repos/{o}/{r}/issues/{n}/comments
 		"RemoveIssueLabel",   // DELETE …/issues/{n}/labels/{name}
+		"SearchIssues",       // GET /search/issues, one bounded page for log analysis
 		// CreateSubIssues calls no endpoint of its own: it is ListSubIssues
 		// once, then CreateIssue and AddSubIssue per story that needs them.
 		// It is pinned all the same, because "file a plan on the forge" is a

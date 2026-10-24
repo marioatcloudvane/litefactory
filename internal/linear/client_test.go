@@ -817,3 +817,25 @@ func TestMetadataFooterCommentConfirmationRejectsEdits(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchIssuesStaysInTheProjectAndBounded(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Variables struct {
+				Filter map[string]any
+				First  int
+			}
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Variables.First != 5 || request.Variables.Filter["project"] == nil || request.Variables.Filter["or"] == nil {
+			t.Errorf("unexpected search request: %+v %v", request, err)
+		}
+		_, _ = fmt.Fprintf(w, `{"data":{"issues":{"nodes":[%s],"pageInfo":{"hasNextPage":true,"endCursor":"c"}}}}`, issueJSON("issue-id", "project"))
+	})
+	found, err := c.SearchIssues(context.Background(), "make  test", 5)
+	if err != nil || len(found) != 1 || found[0].DisplayKey != "LIN-1" {
+		t.Fatalf("search = %+v, %v", found, err)
+	}
+	if _, err = c.SearchIssues(context.Background(), "", 5); err == nil {
+		t.Fatal("empty search accepted")
+	}
+}

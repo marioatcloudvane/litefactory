@@ -29,6 +29,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
+	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/repos"
@@ -585,7 +586,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	mcpRuntime.ImplementStatus = status
-	analystSchedules, err := newAnalystScheduleRuntime(ctx, s, connections, sharedRedactor, gitBinary)
+	analyses, err := newConversationAnalyses(s, connections, sharedRedactor, gitBinary)
 	if err != nil {
 		status.Close()
 		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
@@ -603,15 +604,23 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			}
 		}
 		book := &standards.Service{Store: s.DB, OwnerID: identities.OwnerUserID}
-		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Runner: &conversationStandardsAuthoring{model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}}}
-		chatOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Schedules: analystSchedules}
+		reader := projectread.Reader{DB: s.DB, Git: gitBinary, Redactor: sharedRedactor}
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			return nil, Startup{}, errors.Join(executableErr, lock.Close())
+		}
+		reads := projectread.Session{}
+		if s.Config.Settings.MCPAutoStart {
+			reads = projectread.Session{Reader: reader, RunsRoot: s.Paths.RunsDir(), Executable: executable, Prepare: projectSecrets(s.DB, connections)}
+		}
+		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Reads: reads}}
+		chatOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Analyses: analyses}
 	}
 	daemon, err := New(Options{
-		AnalystSchedules: analystSchedules,
-		Paths:            s.Paths,
-		Doctor:           &doctor.Service{BuildVersion: s.BuildVersion, FactorySource: s.FactorySource, Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
-		Bug:              bugRuntime,
-		Retirement:       RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
+		Paths:      s.Paths,
+		Doctor:     &doctor.Service{BuildVersion: s.BuildVersion, FactorySource: s.FactorySource, Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
+		Bug:        bugRuntime,
+		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
 			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,
 		})}},

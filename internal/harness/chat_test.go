@@ -42,7 +42,7 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","tools":[]}' '
 	if err != nil || string(result.Answer) != `{"points":[]}` {
 		t.Fatalf("chat transport: %+v %v", result, err)
 	}
-	args := chatArguments("balanced-fixture", "/private/mcp.json")
+	args := chatArguments("balanced-fixture", "/private/mcp.json", nil)
 	i := slices.Index(args, "--tools")
 	if i < 0 || args[i+1] != "" || !slices.Contains(args, "--strict-mcp-config") || !slices.Contains(args, "--no-session-persistence") || strings.Contains(strings.Join(args, " "), "Bash") {
 		t.Fatalf("unsafe chat tool ceiling: %v", args)
@@ -60,5 +60,41 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","tools":[]}' '
 	}
 	if _, err := runner.RunChat(t.Context(), agent.ChatRequest{Prompt: "prepared chat data\n", Model: "balanced-fixture", WorkingDirectory: dir}); err == nil {
 		t.Fatal("tool-bearing chat invocation accepted")
+	}
+}
+
+func TestChatGrantsExactlyTheRequestedFactoryTools(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(t.TempDir(), "fixture")
+	script := `#!/bin/sh
+config=""; allowed=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mcp-config) config="$2"; shift ;;
+    --allowedTools) allowed="$2"; shift ;;
+  esac
+  shift
+done
+grep -q '"litefactory"' "$config" || exit 20
+[ "$allowed" = "mcp__litefactory__repo_read" ] || exit 21
+cat >/dev/null
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","tools":["mcp__litefactory__repo_read"]}' '{"type":"assistant","session_id":"s","message":{"content":[{"type":"tool_use","name":"TOOL"}]}}' '{"type":"result","result":"{}"}'
+`
+	launch, err := agent.NewMCPLaunchSpec("/usr/local/bin/litefactory", "/private/broker/descriptor.json", "attempt", "repo_read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{claudeConfigDir: filepath.Join(t.TempDir(), "claude-home"), binary: config.Executable{Path: binary}, timeout: 60 * time.Second, environ: []string{"PATH=/usr/bin:/bin"}}
+	for _, c := range []struct {
+		tool string
+		ok   bool
+	}{{"mcp__litefactory__repo_read", true}, {"mcp__litefactory__repo_write", false}} {
+		if err := os.WriteFile(binary, []byte(strings.ReplaceAll(script, "TOOL", c.tool)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		_, err := runner.RunChat(t.Context(), agent.ChatRequest{Prompt: "prepared chat data\n", Model: "balanced-fixture", WorkingDirectory: dir, MCPLaunch: launch})
+		if (err == nil) != c.ok {
+			t.Fatalf("tool %s: %v", c.tool, err)
+		}
 	}
 }

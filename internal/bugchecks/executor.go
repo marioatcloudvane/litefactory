@@ -68,7 +68,17 @@ func FreeDiskBytes(path string) (uint64, error) {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return 0, err
 	}
-	return st.Bavail * uint64(st.Bsize), nil
+	return blockBytes(st.Bavail, st.Bsize), nil
+}
+
+// blockBytes multiplies a block count by the volume's block size. Bsize is
+// signed on some platforms and unsigned on others; a size that is not
+// positive yields 0 rather than wrapping.
+func blockBytes[T int32 | int64 | uint32 | uint64](blocks uint64, size T) uint64 {
+	if size <= 0 {
+		return 0
+	}
+	return blocks * uint64(size)
 }
 
 // CommandResult retains process completion, output capture and cleanup observations.

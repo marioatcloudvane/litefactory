@@ -2,15 +2,6 @@ package messaging
 
 import "testing"
 
-func TestStandardsIntervalPreservesExactFiniteRecurrence(t *testing.T) {
-	t.Parallel()
-	for _, test := range []struct{ input, want string }{{"weekly", "604800"}, {"every day", "86400"}, {"hourly", "3600"}, {"every 2 weeks", "1209600"}, {"24h", "86400"}, {"7200", "7200"}, {"0h", "0h"}, {"1.5s", "1.5s"}, {"whenever convenient", "whenever convenient"}} {
-		if got := standardsInterval(test.input); got != test.want {
-			t.Errorf("%q: got %q want %q", test.input, got, test.want)
-		}
-	}
-}
-
 func TestStandardsQuestionReferencesStayExactAndBounded(t *testing.T) {
 	t.Parallel()
 	ref := ConversationReference{ID: "saved-session", Arguments: map[string]string{"kind": "author", "id": "draft-1", "version": "3", "question_id_2": "q-2", "question_id_1": "q-1"}}

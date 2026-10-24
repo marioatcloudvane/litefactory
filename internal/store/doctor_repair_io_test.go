@@ -247,6 +247,28 @@ func TestDoctorApplyBlockedByActiveRepairAdmitsWithoutReserving(t *testing.T) {
 	}
 }
 
+// An apply without a current proposal is admitted without reserving, so the
+// control path answers it instead of the discovery scan failing on it forever.
+func TestDoctorApplyWithoutProposalAdmitsWithoutReserving(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 631)
+	apply := doctorInboxInput(Repo{ID: session.RepoID}, 631, 301, "apply")
+	apply.TaskRef = session.TaskRef
+	apply.RepairApprovalID = "no-proposal"
+	admitted, err := db.AdmitDoctorCommand(ctx, apply)
+	if err != nil {
+		t.Fatal("apply without proposal failed admission", err)
+	}
+	if _, err := db.ReadDoctorRepair(ctx, session.TaskRef); !errors.Is(err, ErrNotFound) {
+		t.Fatal("apply without proposal reserved a repair", err)
+	}
+	claimed, err := db.ClaimDoctorCommand(ctx, "", true, "daemon")
+	if err != nil || claimed.ID != admitted.ID {
+		t.Fatal("apply without proposal not on the control path", claimed, err)
+	}
+}
+
 // The migration settles stuck typed needs_review repairs and leaves legacy
 // review rows unchanged (#708).
 func TestDoctorTypedNeedsReviewMigrationSettlesTypedOnly(t *testing.T) {

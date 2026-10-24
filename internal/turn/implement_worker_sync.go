@@ -263,7 +263,7 @@ func (rt *implementRuntime) verifyWorkerSyncInvocation(ctx context.Context, a Ac
 	if err != nil {
 		return err
 	}
-	if pin.Digest != profile.Digest || pin.TeamSnapshotDigest != rt.definition.Digest {
+	if pin.Digest != profile.Digest {
 		return errors.New("worker sync graph differs from pinned definition")
 	}
 	attempt, err := rt.opts.DB.GetGraphNodeAttempt(ctx, a.NodeAttemptID)
@@ -272,6 +272,9 @@ func (rt *implementRuntime) verifyWorkerSyncInvocation(ctx context.Context, a Ac
 	}
 	if attempt.InstanceID != instance.ID || attempt.Node != a.Node {
 		return errors.New("worker sync attempt differs from pinned factory invocation")
+	}
+	if ok, err := pinnedContent(ctx, rt.opts.DB, pin, instance.ID, attempt.ID, rt.definition.Digest); err != nil || !ok {
+		return errors.Join(errors.New("worker sync graph differs from pinned definition"), err)
 	}
 	node, ok := profile.Node(a.Node)
 	gate, gated := graphexec.ImplementWorkerSyncNode(profile)

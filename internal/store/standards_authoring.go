@@ -210,7 +210,7 @@ func (db *DB) BeginStandardsAuthoringAttempt(ctx context.Context, a StandardsAut
 	a.Outcome = "running"
 	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
 		now := nowUTC()
-		if !a.LeaseUntil.After(now) || a.LeaseUntil.After(now.Add(3*time.Minute)) {
+		if !a.LeaseUntil.After(now) || a.LeaseUntil.After(now.Add(20*time.Minute)) {
 			return errors.New("standards: invalid authoring attempt lease")
 		}
 		a.CreatedAt = now

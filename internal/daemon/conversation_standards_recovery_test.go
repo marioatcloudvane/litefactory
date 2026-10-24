@@ -61,8 +61,8 @@ func TestConversationStandardsAnswerReceiptSurvivesRestartAndStaleVersion(t *tes
 		t.Fatal("answer did not advance exactly once")
 	}
 	// A later CLI edit makes both the answer's expected version and its result old.
-	title := "Later CLI title"
-	edited, err := author.Edit(ctx, answered.ID, answered.Version, standards.AuthoringEdit{Title: &title})
+	rule := "MUST later CLI rule"
+	edited, err := author.Edit(ctx, answered.ID, answered.Version, standards.AuthoringEdit{Rule: &rule})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,14 +80,16 @@ func TestConversationStandardsAnswerReceiptSurvivesRestartAndStaleVersion(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(recovered, original) {
+	// The first reply also says whether a next draft started; the retained
+	// receipt itself is unchanged.
+	if !reflect.DeepEqual(recovered.References, original.References) || recovered.Interrupted {
 		t.Fatalf("retry replaced original receipt: got %+v want %+v", recovered, original)
 	}
 	current, err := author.Show(ctx, draft.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Version != edited.Version || current.Draft.Title != title {
+	if current.Version != edited.Version || current.Draft.Rule != rule {
 		t.Fatal("retry changed later shared CLI state")
 	}
 	request.Arguments["text"] = "All checks"

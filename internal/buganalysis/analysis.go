@@ -28,6 +28,35 @@ type BugAnalysis struct {
 	Assumptions      []string             `json:"assumptions,omitempty"`
 	Questions        []BugQuestion        `json:"questions,omitempty"`
 	AnswerReferences []string             `json:"answer_references,omitempty"`
+	Prevention       *BugPrevention       `json:"prevention,omitempty"`
+}
+
+// BugPrevention is the analyst's note on what rule would have prevented the
+// bug, or why it is a one-off. It is optional so earlier analyses stay valid;
+// whether the book already has such a rule is the log analyst's call.
+type BugPrevention struct {
+	Kind string `json:"kind"`
+	Note string `json:"note"`
+}
+
+// Prevention kinds the analyst can record.
+const (
+	PreventionMissingStandard = "missing_standard"
+	PreventionOneOff          = "one_off"
+)
+
+// Validate checks the note is well-formed: a known kind and a nonblank note.
+func (p BugPrevention) Validate() error {
+	var faults []error
+	switch p.Kind {
+	case PreventionMissingStandard, PreventionOneOff:
+	default:
+		faults = append(faults, fmt.Errorf("bug analysis: prevention kind %q is not missing_standard or one_off", p.Kind))
+	}
+	if strings.TrimSpace(p.Note) == "" {
+		faults = append(faults, errors.New("bug analysis: prevention note is blank"))
+	}
+	return errors.Join(faults...)
 }
 
 // BugRepairBoundaries is a typed detail of the same owner-reviewed remedy.
@@ -119,6 +148,11 @@ func (a BugAnalysis) Validate(review bool) ([]Notice, error) {
 		n, err := a.Boundaries.Validate()
 		notices = append(notices, n...)
 		if err != nil {
+			faults = append(faults, err)
+		}
+	}
+	if a.Prevention != nil {
+		if err := a.Prevention.Validate(); err != nil {
 			faults = append(faults, err)
 		}
 	}

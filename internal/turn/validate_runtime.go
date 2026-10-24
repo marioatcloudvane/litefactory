@@ -542,7 +542,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		prompt += policy.Guidance
 	}
 	request.Prompt = prompt
-	prep := &preparation{standardsRead: vr.Standards, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
+	prep := &preparation{standardsRole: vr.StandardsRole, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
 	w := &researchWorkflow{opts: opts, req: nodeReq, policy: policy, prep: prep}
 	scope := cloneResultContext(vr.Scope)
 	route, err := w.openResultRoute(ctx, &request, &resultOverride{

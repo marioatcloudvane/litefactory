@@ -145,11 +145,13 @@ Operation receipts survive ordinary restart and delivered chat-body cleanup. Mis
 SQLite uses NORMAL synchronization: this recovery covers ordinary process
 interruption, not power loss, storage loss or administrator changes.
 
-Recurring analysis is opt-in: a newly created schedule is disabled until separately
-enabled. Inspect schedules and retained notices to see their exact analysis and
-original unapproved proposal references, activity, coverage gaps and outcomes.
-Notices do not approve or publish anything. They use the configured notice channel
-only when it is an authorized owner conversation. Otherwise notices remain retained
-with delivery unconfigured; permanent refusal pauses delivery, while temporary
-failures defer it. Delayed retries can display duplicate replies. Delivery does not
-extend source-evidence retention or promise uninterrupted Discord availability.
+Ask to analyze a project's run logs, for example "analyze acme/api logs for the
+last 7 days". The factory proposes the exact project and UTC window; your
+confirmation starts the analysis in the background. One analysis per project runs
+at a time. When it finishes, its summary, proposed standards and findings are
+posted in the conversation with the analysis ID, and findings show whether they
+were filed. Ask for a dry run to see what would be filed without filing anything.
+A failure posts its reason.
+Proposed standards stay unapproved until you review them. Ask to list recent
+analyses or show one by ID. An analysis interrupted by a restart is recorded as
+incomplete and is not resumed. Analyses never start by themselves.

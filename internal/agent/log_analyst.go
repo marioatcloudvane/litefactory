@@ -13,7 +13,8 @@ import (
 // ErrLogAnalystIsolation forbids launch when the exact tool ceiling is unverified.
 var ErrLogAnalystIsolation = errors.New("log analyst provider isolation is unavailable")
 
-// LogAnalystRequest carries no workflow, native resume or source access authority.
+// LogAnalystRequest carries no workflow, native resume or write authority;
+// repository and issue reads go through the scoped broker only.
 type LogAnalystRequest struct {
 	Attempt          string
 	Model            string
@@ -29,7 +30,7 @@ type LogAnalystRequest struct {
 
 // LogAnalystToolNames returns the complete authorized broker catalog.
 func LogAnalystToolNames() []string {
-	return []string{"communication_preflight", "communication_receipt", "communication_submit", "run_logs_read", "runs_list", "standards_categories_list", "standards_read", "standards_select"}
+	return []string{"communication_preflight", "communication_receipt", "communication_submit", "incidents_list", "issues_search", "repo_grep", "repo_log", "repo_read", "run_digest_read", "run_logs_read", "runs_list", "standards_categories_list", "standards_read", "standards_select"}
 }
 
 // Validate rejects malformed requests and any widening of the tool catalog.

@@ -141,7 +141,7 @@ func runPreparedProvider(ctx context.Context, prep *preparation, req agent.Reque
 }
 
 func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (*preparedMCP, *agent.MCPLaunchSpec, error) {
-	return prepareMCPWith(ctx, prep, req, session, nil, false)
+	return prepareMCPWith(ctx, prep, req, session, nil, "")
 }
 
 // resultOverride replaces the generic trusted resolver and grants of one launch
@@ -163,7 +163,7 @@ type resultOverride struct {
 	Attempt string
 }
 
-func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession, override *resultOverride, standardsRead bool) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
+func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession, override *resultOverride, standardsRole string) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
 	runtime := prep.mcpRuntime
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -343,14 +343,14 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		return nil, nil, err
 	}
 	families := FamilyDispatcherOptions{Service: service, Receipts: receipts, Feedback: feedback, Evidence: evidence, WithoutEvidence: withoutEvidence}
-	// Only a role whose graph node grants it may read the standards book. The
-	// tools are optional: nothing in the prompt or the result route asks for them.
-	if standardsRead && !runtime.DisableMCP {
+	// Only a role whose graph node grants it may read the standards that apply
+	// to it. The tool is optional: nothing in the prompt or the result route asks for it.
+	if standardsRole != "" && !runtime.DisableMCP {
 		consumer := standardsSessionConsumerKey(prep.session.ID, req.Mode, "")
 		if req.Graph != nil {
 			consumer = standardsSessionConsumerKey(prep.session.ID, req.Mode, req.Graph.Node)
 		}
-		standardsService, err := NewStandardsToolService(&standards.Runtime{Store: o.DB, RootRunID: fmt.Sprint(prep.run.ID), ConsumerKey: consumer, AttemptID: attempt}, service.Binding())
+		standardsService, err := NewStandardsToolService(&standards.Runtime{Store: o.DB, RootRunID: fmt.Sprint(prep.run.ID), ConsumerKey: consumer, AttemptID: attempt}, service.Binding(), standardsRole)
 		if err != nil {
 			return nil, nil, err
 		}

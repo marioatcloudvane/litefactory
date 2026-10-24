@@ -57,6 +57,8 @@ type chatRuntime struct {
 	notes         map[string]string
 	intake        *messaging.Intake
 	conversations *messaging.ConversationOptions
+	analyses      *ConversationAnalyses
+	reads         *discordReadLog
 }
 
 func prepareChat(ctx context.Context, cfg *config.Config, resolver secrets.Resolver) (*ChatOptions, error) {
@@ -155,7 +157,8 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 
 	writer, _ := d.forge.(ChatIssueForge)
 	s.EnableFeatures(&feature.Drafter{Instructions: answers.Instructions, InstructionDiagnostics: answers.InstructionDiagnostics, Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
-	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: d.chatBeat, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}
+	reads := &discordReadLog{log: d.log}
+	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: d.chatBeat, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string), reads: reads}
 	if o.Conversations != nil {
 		options := *o.Conversations
 		options.Bindings = append([]messaging.ConversationBinding(nil), options.Bindings...)
@@ -163,6 +166,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		options.Models = maps.Clone(options.Models)
 		options.CheckAccess = func(ctx context.Context, channel string) error {
 			err := a.CheckIntakeCapability(ctx, channel)
+			reads.report(ctx, "conversation access", err)
 			if err == nil {
 				return nil
 			}
@@ -194,6 +198,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 				return options.CheckAccess(ctx, request.ChannelID)
 			}
 			s.EnableStandards(&operations)
+			d.chat.analyses = operations.Analyses
 		}
 		d.chat.conversations = &options
 		// Ordinary messages feed only conversations, so intake reads only
@@ -275,6 +280,12 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 		d.startConversations(ctx, wg, time.Now())
+		if d.chat.analyses != nil {
+			service := d.chat.service
+			d.chat.analyses.serve(ctx, wg, func(ctx context.Context, channel, key, operation, text string) error {
+				return service.Announce(ctx, channel, key, operation, text, time.Now())
+			})
+		}
 		d.startNaturalIntake(ctx, wg, d.chat.intake)
 		if err := d.db.RecoverChatAnswers(ctx, "discord", time.Now()); err != nil {
 			d.log.WarnContext(ctx, "chat answer recovery failed; waiting rows retain their leases")
@@ -308,15 +319,17 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 				if err := d.chat.collector.Collect(ctx, time.Now()); err != nil {
 					d.log.WarnContext(ctx, "chat notice collection failed; retrying on the next pass")
 				}
-				for range 32 {
-					more, err := d.chat.service.NoticeStep(ctx, time.Now())
-					if err != nil {
-						d.log.WarnContext(ctx, "chat notice processing failed; durable work will be retried")
-						break
-					}
-					if !more {
-						break
-					}
+			}
+			// Notices also carry factory messages for a conversation, such as a
+			// finished log analysis, so they are delivered without a collector.
+			for range 32 {
+				more, err := d.chat.service.NoticeStep(ctx, time.Now())
+				if err != nil {
+					d.log.WarnContext(ctx, "chat notice processing failed; durable work will be retried")
+					break
+				}
+				if !more {
+					break
 				}
 			}
 			for range 32 {

@@ -363,16 +363,6 @@ func (r Subscriptions) ownsHook(ctx context.Context, hook ticket.Subscription, s
 	return err == nil && strconv.FormatInt(legacy.HookID, 10) == hook.ID.RemoteID && legacy.URL == hook.CallbackURL
 }
 
-// AdoptLegacyHook records the one existing hook of an enabled legacy
-// subscription that has none yet. It never creates, changes or deletes a
-// remote hook; anything ambiguous is an error and polling continues.
-func (r Subscriptions) AdoptLegacyHook(ctx context.Context, s store.TicketSubscription) (store.TicketSubscription, error) {
-	if !strings.HasPrefix(s.ID, "legacy-") || s.RemoteHookID != "" || !s.DesiredEnabled {
-		return s, nil
-	}
-	return r.recoverLegacyHook(ctx, s)
-}
-
 // recoverLegacyHook establishes ownership only for the verified original source,
 // its existing secret and one exact configured callback. Repair owns mutations.
 func (r Subscriptions) recoverLegacyHook(ctx context.Context, s store.TicketSubscription) (store.TicketSubscription, error) {
