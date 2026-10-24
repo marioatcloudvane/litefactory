@@ -225,7 +225,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	// Code-host controls have their own sources and must be polled even when
 	// work-management replies come from Linear.
-	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.PollCodeDeliveryControls(ctx) }); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.PollCodeDeliveryControls(ctx, startedAt) }); err != nil {
 		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
 		if providerRateLimited(err) {
 			if d.connections == nil {
@@ -597,7 +597,10 @@ func (d *Daemon) discover(
 			}
 		}
 		if d.connections != nil {
-			if connectionEnabled {
+			// Hook delivery recovery is the listing's safety net, not a poll: a
+			// pass starts on a listing tick and only an unfinished one continues
+			// on the ticks after it.
+			if connectionEnabled && (due[repo.ID] || d.hookRecoveryUnfinished(repo.ID)) {
 				if err := d.recoverHookDeliveries(ctx, q, now, due[repo.ID]); err != nil {
 					if ctx.Err() != nil {
 						return nil, ctx.Err()
@@ -607,7 +610,7 @@ func (d *Daemon) discover(
 						d.rateLimited(ctx, repoLog, now, err)
 					}
 				}
-			} else {
+			} else if !connectionEnabled {
 				delete(d.hookRecovery, repo.ID)
 			}
 		}
