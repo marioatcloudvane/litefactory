@@ -95,6 +95,26 @@ type ConversationEnvelope struct {
 	// what was tried and why it is not enough.
 	Question string `json:"question,omitempty"`
 	Tried    string `json:"tried,omitempty"`
+	// Proposal and Confirmation form a confirm or cancel: the open proposal's
+	// reference, and for a confirm the owner's words that say yes.
+	Proposal     string            `json:"proposal,omitempty"`
+	Confirmation *ConversationSpan `json:"confirmation,omitempty"`
+}
+
+// ConversationSpan is an exact UTF-8 byte span of one owner message.
+type ConversationSpan struct {
+	SourceID string `json:"source_id"`
+	Start    int    `json:"start"`
+	End      int    `json:"end"`
+}
+
+// ownerSpan returns the exact owner words of span, or false when the span
+// is out of bounds, splits a character or lies in quoted or forwarded text.
+func ownerSpan(text string, span ConversationSpan) (string, bool) {
+	if span.Start < 0 || span.End <= span.Start || span.End > len(text) || !utf8.ValidString(text[:span.Start]) || !utf8.ValidString(text[span.Start:span.End]) || quotedSpan(text, span.Start, span.End) {
+		return "", false
+	}
+	return text[span.Start:span.End], true
 }
 
 // ConversationArgument selects exactly one original owner span, factory-issued
@@ -129,6 +149,8 @@ type ConversationDecodeRequest struct {
 	References         []ConversationReference
 	OwnerID, ChannelID string
 	Now                time.Time
+	// Proposal is the reference of the one open proposal, if any.
+	Proposal string
 }
 
 // ConversationCommands projects only existing enabled factory capabilities.
@@ -237,6 +259,27 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 		}
 	case "lookup", "propose":
 		required = append(required, "command", "arguments")
+	case "confirm", "cancel":
+		required = append(required, "proposal")
+		reason = "there is no open proposal to confirm or cancel"
+		if request.Proposal == "" {
+			return bad()
+		}
+		reason = "the proposal must be the reference of the open proposal"
+		if envelope.Proposal != request.Proposal {
+			return bad()
+		}
+		if envelope.Kind == "confirm" {
+			required = append(required, "confirmation")
+			reason = "confirmation must be an exact span of the owner's current message"
+			current := request.Turns[len(request.Turns)-1]
+			if envelope.Confirmation == nil || envelope.Confirmation.SourceID != current.SourceID {
+				return bad()
+			}
+			if _, ok := ownerSpan(current.Text, *envelope.Confirmation); !ok {
+				return bad()
+			}
+		}
 	case "consult":
 		required = append(required, "question", "tried")
 		reason = "consult needs a non-empty question and tried of at most 4000 bytes each"
@@ -246,14 +289,15 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 			}
 		}
 	default:
-		reason = "kind must be answer, clarify, lookup, consult or propose"
+		reason = "kind must be answer, clarify, lookup, consult, propose, confirm or cancel"
 		return bad()
 	}
 	if !exactConversationFields(fields, required...) {
 		reason = "the object must have exactly the fields " + strings.Join(required, ", ")
 		return bad()
 	}
-	if envelope.Kind == "answer" || envelope.Kind == "clarify" || envelope.Kind == "consult" {
+	switch envelope.Kind {
+	case "answer", "clarify", "consult", "confirm", "cancel":
 		return envelope, Invocation{}, nil
 	}
 	var def *CommandDefinition
@@ -287,10 +331,10 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 				if turn.SourceID != arg.SourceID {
 					continue
 				}
-				if arg.Start < 0 || arg.End <= arg.Start || arg.End > len(turn.Text) || !utf8.ValidString(turn.Text[:arg.Start]) || !utf8.ValidString(turn.Text[arg.Start:arg.End]) || quotedSpan(turn.Text, arg.Start, arg.End) {
+				var ok bool
+				if value, ok = ownerSpan(turn.Text, ConversationSpan{SourceID: arg.SourceID, Start: arg.Start, End: arg.End}); !ok {
 					return bad()
 				}
-				value = turn.Text[arg.Start:arg.End]
 				found = true
 				break
 			}

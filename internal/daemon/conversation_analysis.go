@@ -33,6 +33,59 @@ type ConversationAnalyses struct {
 	wg      *sync.WaitGroup
 	post    func(ctx context.Context, channel, key, operation, text string) error
 	running map[int64]bool
+	// authors holds the author sessions drafting in the background, with
+	// the owner's answers that arrived meanwhile. One draft per session.
+	authors map[string][]messaging.StandardsRequest
+}
+
+// available reports whether background work can run now.
+func (c *ConversationAnalyses) available() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ctx != nil && c.ctx.Err() == nil && c.post != nil
+}
+
+// claimAuthor marks session id as drafting; false when it already is.
+func (c *ConversationAnalyses) claimAuthor(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, busy := c.authors[id]; busy {
+		return false
+	}
+	if c.authors == nil {
+		c.authors = map[string][]messaging.StandardsRequest{}
+	}
+	c.authors[id] = nil
+	return true
+}
+
+// authorRunning reports whether session id is drafting in the background.
+func (c *ConversationAnalyses) authorRunning(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, busy := c.authors[id]
+	return busy
+}
+
+// queueAnswer keeps an answer for the session's next draft while one is
+// being made; false when the session is not drafting.
+func (c *ConversationAnalyses) queueAnswer(r messaging.StandardsRequest) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	queued, busy := c.authors[r.Arguments["id"]]
+	if busy {
+		c.authors[r.Arguments["id"]] = append(queued, r)
+	}
+	return busy
+}
+
+// releaseAuthor ends session id's draft and returns the answers that came in.
+func (c *ConversationAnalyses) releaseAuthor(id string) []messaging.StandardsRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	queued := c.authors[id]
+	delete(c.authors, id)
+	return queued
 }
 
 // serve binds analyses to the chat lifetime: shutdown cancels a running
@@ -44,7 +97,7 @@ func (c *ConversationAnalyses) serve(ctx context.Context, wg *sync.WaitGroup, po
 }
 
 // later runs work in the background for the chat lifetime and posts the text
-// it returns to channel, after the confirmation of operation. It reports false
+// it returns, if any, to channel, after the confirmation of operation. It reports false
 // when nothing can run in the background, so the caller works in the
 // foreground instead.
 func (c *ConversationAnalyses) later(ctx context.Context, channel, key, operation string, work func(context.Context) string) bool {
@@ -62,6 +115,9 @@ func (c *ConversationAnalyses) later(ctx context.Context, channel, key, operatio
 		defer stop()
 		defer cancel()
 		text := work(run)
+		if text == "" {
+			return
+		}
 		// The message is saved even during shutdown and delivered after restart.
 		saved, done := context.WithTimeout(context.WithoutCancel(run), 10*time.Second)
 		defer done()
@@ -295,7 +351,7 @@ func plainFailure(reason string) string {
 		return "the AI provider didn't accept the analyst's login"
 	case has("rate limit", "rate-limit", "429", "quota", "usage limit"):
 		return "the AI provider's rate limit was hit"
-	case has("interrupted", "wall-time", "deadline", "timeout", "timed out"):
+	case has("interrupted", "wall-time", "deadline", "timeout", "timed out", "canceled", "cancelled"):
 		return "it ran out of time or was interrupted by a restart"
 	case has("terminal result", "without an accepted report"):
 		return "the analyst stopped without handing back a report"
