@@ -24,7 +24,9 @@ type storyRelationForge interface {
 // managedParents joins the registry into the ordinary fair parent dispatch.
 // This does not depend on GitHub updating the parent's timestamp when a child
 // changes. Closed children are inspected by the same parent worker. A Linear
-// parent is re-added only on its repository's listing ticks (#920); new input
+// parent is re-added only on its repository's listing ticks (#920). Any other
+// parent is re-added between listings only when the registry owes it work: a
+// pending refinement or a story awaiting its comment sweep (#1138). New input
 // still reaches it through webhooks, observations, listings and the backlog.
 func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
 	features, err := d.db.ListManagedFeatures(ctx)
@@ -54,12 +56,35 @@ func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue
 		if err != nil {
 			return err
 		}
+		if !q.listing && !d.managedParentDue(ctx, q, s, f) {
+			continue
+		}
 		c := q.candidate(s, ref)
 		c.addSource("managed_registry")
 		q.candidates = append(q.candidates, c)
 		seen[s.ID] = c
 	}
 	return nil
+}
+
+// managedParentDue reports whether a managed parent's worker has registry work
+// to do now: a pending refinement to deliver or a story that owes a comment
+// sweep. A failure to read either counts as due, so the parent is offered as
+// before rather than left waiting for a listing.
+func (d *Daemon) managedParentDue(ctx context.Context, q *repoQueue, s store.Session, f store.ManagedFeature) bool {
+	pending, err := d.db.ListPendingStoryRefinements(ctx, s.ID)
+	if err == nil && len(pending) > 0 {
+		return true
+	}
+	if err == nil {
+		var awaiting []int
+		if awaiting, err = d.db.ListStoriesAwaitingDiscovery(ctx, s.ID, f.ParentTask, f.Generation); err == nil {
+			return len(awaiting) > 0
+		}
+	}
+	q.log.DebugContext(ctx, "could not tell whether a managed parent has due work; offering it",
+		slog.String("task", s.TaskRef), slog.Any("error", err))
+	return true
 }
 
 // refineStories runs before the parent's own queue, so an admitted refinement

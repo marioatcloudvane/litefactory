@@ -78,6 +78,44 @@ func TestDueScheduleDispatchesStoredPayloadAndCountsPendingWork(t *testing.T) {
 	}
 }
 
+// A due schedule whose issue is closed is settled once without a run, so it is
+// not offered, and its issue not read, again on every tick.
+func TestDueScheduleOnClosedIssueSettlesOnce(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Scheduled work")
+	f.settle()
+	session := f.session()
+	scheduled, _, err := f.db.CreateOrGetSchedule(t.Context(), store.CreateScheduleParams{
+		SessionID: session.ID, SourceCommentID: 701, OwnerHandle: ownerLogin,
+		Payload: "/spike scheduled payload", DueAt: f.clock.peek(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.forge.closeIssue(testIssue)
+	f.clock.advance(time.Minute)
+	f.settle()
+	stored, err := f.db.GetSchedule(t.Context(), scheduled.ID)
+	if err != nil || stored.Status != store.ScheduleFailed || stored.RunID != 0 {
+		t.Fatalf("schedule on a closed issue = %+v %v, want settled without a run\nlogs:\n%s", stored, err, f.logs)
+	}
+	reads := f.forge.issueReadsOf(testIssue)
+	for range 3 {
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	if got := f.forge.issueReadsOf(testIssue); got != reads {
+		t.Fatalf("a settled schedule read its closed issue %d more times", got-reads)
+	}
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("ran %d turns for a closed issue", len(calls))
+	}
+	if n := strings.Count(f.logs.String(), "scheduled work settled without a run because its issue is closed"); n != 1 {
+		t.Fatalf("settled %d times, want once", n)
+	}
+}
+
 // A real prepare error must pass through scheduled accounting and discovery;
 // the fixture's registered path deliberately is not a Git clone.
 func TestImplementPrepareFailureRetriesAndParks(t *testing.T) {

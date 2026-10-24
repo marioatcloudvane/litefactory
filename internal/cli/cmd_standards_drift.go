@@ -264,7 +264,7 @@ func configureDriftCLI(ctx context.Context, service *drift.Service, rt *repoRunt
 	kind, configuredAgent := cfg.DefaultAgent()
 	if cfg.Settings.MCPAutoStart && configuredAgent && kind == config.Kind("claude") && cfg.Agents.Claude != nil {
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
-		runner, e := harness.New(harness.Options{Paths: rt.paths, Claude: *cfg.Agents.Claude, Model: model, Environ: os.Environ(), Logger: env.Logger})
+		runner, e := harness.New(harness.Options{Paths: rt.paths, Claude: *cfg.Agents.Claude, Model: model, Environ: os.Environ(), Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if e == nil {
 			service.Runner = &drift.Provider{Runner: runner, Model: model, Directory: os.TempDir(), Executable: executable}
 		}

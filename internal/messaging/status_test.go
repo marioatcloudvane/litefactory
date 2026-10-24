@@ -55,7 +55,7 @@ func TestStatusListsRunningAndOwnerDependentTasks(t *testing.T) {
 	}
 	s := New(db, "discord", "7", []string{"3"}, nil, FactoryStatus{DB: db})
 	text, err := s.summary(ctx, Message{}, at)
-	if err != nil || !strings.Contains(text, "no running tasks or owner waits") {
+	if err != nil || !strings.Contains(text, "Running now: 0.\n") || !strings.Contains(text, "Queued: 0.\n") || !strings.Contains(text, "Waiting on you:\n- none.") {
 		t.Fatalf("empty: %s %v", text, err)
 	}
 	for _, n := range []int{649, 650, 651, 652} {
@@ -142,14 +142,14 @@ func TestStatusListsRunningAndOwnerDependentTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"acme/litefactory#649: running", "#650: idle", "Waiting on: owner — implement review", "#651: idle", "Waiting on: owner — implement question", "#652: idle", "Waiting on: owner — parked", "Choose deployment target"} {
+	for _, want := range []string{"Running now: 1.\n- github:acme/litefactory#649 · implement · since 12:00", "#650: idle", "Waiting on: owner — implement review", "#651: idle", "Waiting on: owner — implement question", "#652: idle", "Waiting on: owner — parked since 12:00 (story a): Choose deployment target. To resume: reply on github:acme/litefactory#100 to restart the stopped stories."} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q: %s", want, text)
 		}
 	}
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	if text := s.taskSummary(cancelled); !strings.Contains(text, "could not be read") || strings.Contains(text, "no running tasks") {
+	if text := s.taskSummary(cancelled, Status{}, at); !strings.Contains(text, "could not be read") || strings.Contains(text, "- none.") {
 		t.Fatalf("failed read: %s", text)
 	}
 }
@@ -197,8 +197,8 @@ func TestStatusSelectedTaskBeyondRecentWindow(t *testing.T) {
 			t.Fatalf("missing %q: %s", want, text)
 		}
 	}
-	text = s.taskSummary(ctx)
-	if !strings.Contains(text, "#614: running") || !strings.Contains(text, "Scope:") || strings.Contains(text, "left out") {
+	text = s.taskSummary(ctx, Status{}, at)
+	if !strings.Contains(text, "acme/litefactory#614 · bug · since") || !strings.Contains(text, "Scope:") || strings.Contains(text, "left out") {
 		t.Fatalf("old task omitted: %s", text)
 	}
 }
@@ -211,7 +211,7 @@ func TestStatusDisclosesOutputOmissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for n := 1; n <= 105; n++ {
+	for n := 1; n <= 330; n++ {
 		session, err := db.GetOrCreateSession(ctx, repo, n)
 		if err != nil {
 			t.Fatal(err)
@@ -225,12 +225,12 @@ func TestStatusDisclosesOutputOmissions(t *testing.T) {
 		}
 	}
 	s := New(db, "discord", "7", nil, nil, FactoryStatus{DB: db})
-	text := s.taskSummary(ctx)
+	text := s.taskSummary(ctx, Status{}, at)
 	if !strings.Contains(text, "additional entries left out") || !strings.Contains(text, "Scope:") {
 		t.Fatalf("undisclosed truncation: %s", text)
 	}
-	selected, err := s.summary(ctx, Message{Arguments: map[string]string{"task": "105"}}, at)
-	if err != nil || !strings.Contains(selected, "#105: running") {
+	selected, err := s.summary(ctx, Message{Arguments: map[string]string{"task": "330"}}, at)
+	if err != nil || !strings.Contains(selected, "#330: running") {
 		t.Fatalf("selected lookup truncated: %s %v", selected, err)
 	}
 }
@@ -303,5 +303,165 @@ func TestStatusReportsImplementProgress(t *testing.T) {
 	}
 	if strings.Contains(text, "#728: failed") {
 		t.Errorf("stale failed state: %s", text)
+	}
+}
+
+// The status lookup lists every task or chat job that works now, so the count
+// matches the lines; a slot that cannot be resolved to a task is counted, and
+// work owed a slot or a retry is queued with its reason.
+func TestStatusListsRunningQueuedAndUnidentified(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 24, 11, 30, 0, 0, time.UTC)
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory", BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := func(n int) store.Session {
+		s, err := db.GetOrCreateSession(ctx, repo, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	instance := func(s store.Session, mode, node string) store.GraphInstance {
+		def, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "chat", Mode: mode, ProfileVersion: 1, Path: mode + ".dot", Digest: strings.Repeat("b", 64), CreatedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		i, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: s.ID, DefinitionID: def.ID, CurrentNode: node, StartedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return i
+	}
+	// A Validate suite step runs with no run row.
+	validate := session(1004)
+	if _, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance(validate, "validate", "suite").ID, Node: "suite", StartedAt: at.Add(-31 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	// An ordinary run.
+	bug := session(1005)
+	seg, err := db.GetOrCreateSegment(ctx, bug.ID, 1, "session", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: bug.ID, SegmentID: seg.ID, Mode: "bug", Agent: "codex", TriggerCommentID: 1, StartedAt: at.Add(-5 * time.Minute), LogPath: func(int) string { return "/tmp/status-fixture" }}); err != nil {
+		t.Fatal(err)
+	}
+	// A standards author draft in progress.
+	if _, err := db.SaveStandardsAuthoring(ctx, store.StandardsAuthoringSession{ID: "author-1", Mode: "create", TargetID: "go-errors", Status: "draft", Data: []byte(`{}`)}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.BeginStandardsAuthoringAttempt(ctx, store.StandardsAuthoringAttempt{ID: "attempt-1", SessionID: "author-1", InputVersion: 1, Token: "token-1", LeaseUntil: time.Now().Add(10 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	// A task owed a look while every slot is busy.
+	if err := db.SetSessionNeedsPoll(ctx, session(1049).ID); err != nil {
+		t.Fatal(err)
+	}
+	// A graph step whose start failed and waits for its retry.
+	retry := instance(session(957), "implement", "build")
+	dispatch, err := db.ParkGraphInstance(ctx, retry.ID, "build", at.Add(-time.Minute), at.Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := db.ReserveGraphDispatch(ctx, dispatch.ID, at); err != nil || !ok {
+		t.Fatalf("reserve: %t %v", ok, err)
+	}
+	if _, err := db.RequeueGraphDispatch(ctx, dispatch.ID, time.Date(2026, 10, 24, 15, 20, 0, 0, time.UTC), "no slot"); err != nil {
+		t.Fatal(err)
+	}
+	// A step parked for later that never failed is scheduled, not queued.
+	if _, err := db.ParkGraphInstance(ctx, instance(session(958), "implement", "await").ID, "await", at.Add(time.Hour), at); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New(db, "discord", "7", nil, nil, FactoryStatus{DB: db})
+	health := store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at, RunsInFlight: 3, InFlightSessions: []int64{validate.ID, bug.ID, 99999}, SlotsUsed: 4, SlotsTotal: 4}
+	if err := db.ReplaceHealthSnapshot(ctx, health, nil); err != nil {
+		t.Fatal(err)
+	}
+	text, err := s.summary(ctx, Message{}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Running now: 3 (+1 unidentified).\n",
+		"- github:acme/litefactory#1004 · validate · step suite · since 10:59\n",
+		"- github:acme/litefactory#1005 · bug · since 11:25\n",
+		"- standards draft · create go-errors · since ",
+		"Queued: 2.\n",
+		"- github:acme/litefactory#1049 · waiting for a free slot (4/4 busy)",
+		"- github:acme/litefactory#957 · step build · retry at 15:20",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "#958") {
+		t.Errorf("scheduled step listed as queued: %s", text)
+	}
+
+	// A slot that resolves to no task is only counted.
+	other := naturalExecutionDB(t)
+	if err := other.ReplaceHealthSnapshot(ctx, store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at, RunsInFlight: 1, InFlightSessions: []int64{7}, SlotsUsed: 1, SlotsTotal: 4}, nil); err != nil {
+		t.Fatal(err)
+	}
+	text, err = New(other, "discord", "7", nil, nil, FactoryStatus{DB: other}).summary(ctx, Message{}, at)
+	if err != nil || !strings.Contains(text, "Running now: 0 (+1 unidentified).\n") || strings.Contains(text, "housekeeping") {
+		t.Fatalf("unidentified: %s %v", text, err)
+	}
+}
+
+// C8 (#1138): an in-flight slot with no run or graph step is named by its task
+// and the dispatch source that started its worker, never as housekeeping, and
+// the task is not also queued for a slot.
+func TestStatusNamesInFlightSlotsBySource(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 24, 15, 25, 40, 0, time.UTC)
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory", BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := db.GetOrCreateSession(ctx, repo, 1050)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetSessionNeedsPoll(ctx, waiting.ID); err != nil {
+		t.Fatal(err)
+	}
+	scheduled, err := db.GetOrCreateSession(ctx, repo, 1051)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := db.GetOrCreateSession(ctx, repo, 1052)
+	if err != nil {
+		t.Fatal(err)
+	}
+	health := store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at, RunsInFlight: 4,
+		InFlightSessions: []int64{waiting.ID, scheduled.ID, plain.ID, 99999},
+		InFlightLabels:   map[int64]string{waiting.ID: "backlog+graph_owner_wait", scheduled.ID: "due_schedule"}, SlotsUsed: 4, SlotsTotal: 4}
+	if err := db.ReplaceHealthSnapshot(ctx, health, nil); err != nil {
+		t.Fatal(err)
+	}
+	text, err := New(db, "discord", "7", nil, nil, FactoryStatus{DB: db}).summary(ctx, Message{}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Running now: 3 (+1 unidentified).\n",
+		"- github:acme/litefactory#1050 · checking for input (backlog, graph_owner_wait)\n",
+		"- github:acme/litefactory#1051 · due_schedule\n",
+		"- github:acme/litefactory#1052 · checking for input\n",
+		"Queued: 0.\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "housekeeping") {
+		t.Errorf("status says housekeeping: %s", text)
 	}
 }

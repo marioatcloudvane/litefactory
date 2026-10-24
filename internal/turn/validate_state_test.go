@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -430,5 +431,54 @@ func TestValidateOwnerPassedReviewPreservesOtherGates(t *testing.T) {
 				t.Fatal("owner verdict bypassed another gate")
 			}
 		})
+	}
+}
+
+// longFindingText is n bytes or more of whole sentences.
+func longFindingText(n int) string {
+	var b strings.Builder
+	for i := 0; b.Len() < n; i++ {
+		b.WriteString("The organized inbox refuses the whole view when one source loses access, sentence ")
+		b.WriteString(strings.Repeat("x", i%7))
+		b.WriteString(". ")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// #1123 c4: finding text within the bound is kept whole; longer text is cut at
+// a sentence end and says it was shortened, never a bare "...".
+func TestShortenFindingTextKeepsWholeSentences(t *testing.T) {
+	short := longFindingText(1500)
+	if got := shortenFindingText(short, validateFindingTextLimit); got != short {
+		t.Fatalf("text within the bound changed: %q", got)
+	}
+	long := longFindingText(10000)
+	got := shortenFindingText(long, validateFindingTextLimit)
+	kept, ok := strings.CutSuffix(got, findingTextShortened)
+	if !ok || len(kept) > validateFindingTextLimit || !strings.HasSuffix(kept, ".") || !strings.HasPrefix(long, kept) || strings.HasSuffix(got, "...") {
+		t.Fatalf("not cut at a sentence end with the note (%d bytes): %q", len(kept), got[max(0, len(got)-120):])
+	}
+	if got := shortenFindingText(strings.Repeat("é", 3000), 4097); !strings.HasSuffix(got, findingTextShortened) || !utf8ValidPrefix(got) {
+		t.Fatalf("an unbroken run is cut at the limit as valid UTF-8: %q", got[max(0, len(got)-40):])
+	}
+	text, _ := findingEvidence([]agent.EvidenceExplanation{{Summary: long}})
+	if text != got && !strings.HasSuffix(text, findingTextShortened) {
+		t.Fatalf("findingEvidence keeps up to the bound: %d bytes", len(text))
+	}
+	if text, _ := findingEvidence([]agent.EvidenceExplanation{{Summary: short}}); text != short {
+		t.Fatalf("findingEvidence cut 1,500 bytes: %d", len(text))
+	}
+}
+
+func utf8ValidPrefix(s string) bool { return strings.ToValidUTF8(s, "�") == s }
+
+// #1127: a Validate question that carries options shows them under the question
+// and marks the recommended one only; the question line is unchanged.
+func TestValidateQuestionShowsItsOptionsAndRecommendation(t *testing.T) {
+	candidate := agentresult.Result{Outcome: "incomplete", Comment: "Intro.", Reason: "Next step.", Questions: []agentresult.Question{{ID: "q1", Audience: "technical", Text: " Ship this commit? ", RecommendedOption: "b", Options: []agentresult.Option{{ID: "a", Text: "Ship now"}, {ID: "b", Text: "Check again"}}}}}
+	text := renderValidateComment(candidate, "", naming.Ref{}, "")
+	want := "- Ship this commit?\n  - `a` Ship now\n  - `b` Check again (recommended)\n"
+	if !strings.Contains(text, want) || strings.Count(text, "(recommended)") != 1 {
+		t.Fatalf("options or marker missing:\n%s", text)
 	}
 }

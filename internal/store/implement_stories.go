@@ -70,6 +70,10 @@ type ImplementStory struct {
 	Deviations string
 }
 
+// ImplementResumeGuidance says how an owner's reply on the parent issue
+// restarts parked stories. The owner question and the status lookup share it.
+const ImplementResumeGuidance = "Name a story by its key (for example story-002) and say what it should do differently; a reply that names no story restarts all of them. A restarted story continues from its branch with your reply as guidance."
+
 // MaxImplementAttempts is the failed attempts a story may record: the first
 // attempt and its two repairs.
 const MaxImplementAttempts = 3

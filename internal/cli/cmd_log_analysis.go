@@ -227,7 +227,7 @@ func newLogAnalysisCommand(action string) *Command {
 				svc.Runner = env.LogAnalyst
 				svc.Model, _ = rt.cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
 				if svc.Runner == nil && rt.cfg.Agents.Claude != nil {
-					runner, e := harness.New(harness.Options{Paths: rt.paths, Claude: *rt.cfg.Agents.Claude, Model: svc.Model, Environ: os.Environ(), Logger: env.Logger})
+					runner, e := harness.New(harness.Options{Paths: rt.paths, Claude: *rt.cfg.Agents.Claude, Model: svc.Model, Environ: os.Environ(), Logger: env.Logger, ThinkingLogs: rt.cfg.Settings.ThinkingLogs})
 					if e == nil {
 						svc.Runner = runner
 					}

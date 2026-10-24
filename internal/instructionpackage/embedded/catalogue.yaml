@@ -3,6 +3,7 @@
 - conversation-correction
 - conversation-action-outcome
 - conversation-reasoner
+- conversation-inbox-organizer
 - challenger
 - merge-conflict-advisor
 - schedule-proposal-advisor
