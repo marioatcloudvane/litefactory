@@ -1782,3 +1782,42 @@ func TestImplementCoordinatorResumeResolvesAConflictWithMainBeforeStoriesStart(t
 		t.Fatalf("the story restarts once main is in: %+v", row)
 	}
 }
+
+// #1123 c8: once Implement has finished with every story merged, a plain owner
+// comment sent through the Implement runtime admits a new coordinator that
+// reaches the completion step and posts "Implement is finished" again. The
+// turn does not refuse it; the daemon guard that keeps such comments out of
+// Implement is what prevents the repeated note.
+func TestImplementPlainCommentAfterFinishedImplementRepostsCompletion(t *testing.T) {
+	f, forge, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("the coordinator never writes code")
+		return nil, nil
+	}))
+	parent := seedImplementParent(t, f,
+		store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
+		store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002})
+	mergeImplementStories(t, f, parent, map[string]string{}, "story-001", "story-002")
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	first, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	if first.Status == store.GraphRunning || len(implementCompletionReplies(forge)) != 1 {
+		t.Fatalf("the first coordinator finishes with one completion reply: %+v %d", first, len(implementCompletionReplies(forge)))
+	}
+
+	req.Trigger.CommentID++
+	req.Trigger.Body = "what are the blocking findings? tell me exactly"
+	req.Command = ParseCommand(req.Trigger.Body)
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("the plain comment is admitted into Implement: %+v %v", out, err)
+	}
+	second, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	if second.ID <= first.ID || second.CurrentNode != "finished" {
+		t.Fatalf("a new coordinator reaches the completion step: first %+v second %+v", first, second)
+	}
+	if got := implementCompletionReplies(forge); len(got) != 2 {
+		t.Fatalf("the completion note is posted again: %d", len(got))
+	}
+}
