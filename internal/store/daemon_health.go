@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,6 +36,11 @@ type ListenerStatus struct {
 	ExpectedResumeAt time.Time
 	// RunsInFlight is how many turns the daemon had running when it last wrote.
 	RunsInFlight int
+	// InFlightSessions are the sessions behind RunsInFlight, ordered by id.
+	InFlightSessions []int64
+	// SlotsUsed and SlotsTotal are the shared worker pool's occupancy; a zero
+	// total means the publishing daemon did not report it.
+	SlotsUsed, SlotsTotal int
 	// ChatStatus is empty when chat is off, "available" once chat runs, and
 	// "unavailable: <reason>" while it cannot.
 	ChatStatus string
@@ -72,17 +79,20 @@ func (db *DB) ReplaceHealthSnapshot(ctx context.Context, listener ListenerStatus
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO daemon_listener_status (id, listen_address, listening, daemon_started_at, written_at,
-    last_heartbeat_started_at, discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight, chat_status)
-VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    last_heartbeat_started_at, discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight, chat_status,
+    in_flight_sessions, slots_used, slots_total)
+VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET listen_address = excluded.listen_address, listening = excluded.listening,
     daemon_started_at = excluded.daemon_started_at, written_at = excluded.written_at,
     last_heartbeat_started_at = excluded.last_heartbeat_started_at, discovery_paused = excluded.discovery_paused,
     pause_reason = excluded.pause_reason, paused_since = excluded.paused_since,
     expected_resume_at = excluded.expected_resume_at, runs_in_flight = excluded.runs_in_flight,
-    chat_status = excluded.chat_status`,
+    chat_status = excluded.chat_status, in_flight_sessions = excluded.in_flight_sessions,
+    slots_used = excluded.slots_used, slots_total = excluded.slots_total`,
 			listener.ListenAddress, boolInt(listener.Listening), FormatTime(listener.DaemonStartedAt), FormatTime(listener.WrittenAt),
 			nullTime(listener.LastHeartbeatStartedAt), boolInt(listener.DiscoveryPaused), listener.PauseReason,
-			nullTime(listener.PausedSince), nullTime(listener.ExpectedResumeAt), listener.RunsInFlight, listener.ChatStatus); err != nil {
+			nullTime(listener.PausedSince), nullTime(listener.ExpectedResumeAt), listener.RunsInFlight, listener.ChatStatus,
+			joinIDs(listener.InFlightSessions), listener.SlotsUsed, listener.SlotsTotal); err != nil {
 			return fmt.Errorf("write listener status: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM repo_discovery_status`); err != nil {
@@ -111,14 +121,16 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 func (db *DB) ReadHealthSnapshot(ctx context.Context) (HealthSnapshot, error) {
 	var snap HealthSnapshot
 	var listening, paused int
-	var started, written string
+	var started, written, inFlight string
 	var beat, pausedSince, resumeAt sql.NullString
 	err := db.sql.QueryRowContext(ctx,
 		`SELECT listen_address, listening, daemon_started_at, written_at, last_heartbeat_started_at,
-       discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight, chat_status
+       discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight, chat_status,
+       in_flight_sessions, slots_used, slots_total
 FROM daemon_listener_status WHERE id = 1`).
 		Scan(&snap.Listener.ListenAddress, &listening, &started, &written, &beat,
-			&paused, &snap.Listener.PauseReason, &pausedSince, &resumeAt, &snap.Listener.RunsInFlight, &snap.Listener.ChatStatus)
+			&paused, &snap.Listener.PauseReason, &pausedSince, &resumeAt, &snap.Listener.RunsInFlight, &snap.Listener.ChatStatus,
+			&inFlight, &snap.Listener.SlotsUsed, &snap.Listener.SlotsTotal)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return HealthSnapshot{}, nil
@@ -134,6 +146,9 @@ FROM daemon_listener_status WHERE id = 1`).
 		return HealthSnapshot{}, fmt.Errorf("store: parse listener status: %w", err)
 	}
 	snap.Listener.DiscoveryPaused = paused != 0
+	if snap.Listener.InFlightSessions, err = splitIDs(inFlight); err != nil {
+		return HealthSnapshot{}, fmt.Errorf("store: parse listener status: %w", err)
+	}
 	for _, f := range []struct {
 		dst *time.Time
 		src sql.NullString
@@ -180,6 +195,30 @@ ORDER BY r.owner, r.name, s.repo_id`)
 		return HealthSnapshot{}, fmt.Errorf("store: read repository status: %w", err)
 	}
 	return snap, nil
+}
+
+// joinIDs and splitIDs keep a short id list in one display-only column.
+func joinIDs(ids []int64) string {
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = strconv.FormatInt(id, 10)
+	}
+	return strings.Join(parts, ",")
+}
+
+func splitIDs(s string) ([]int64, error) {
+	if s == "" {
+		return nil, nil
+	}
+	var ids []int64
+	for _, part := range strings.Split(s, ",") {
+		id, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func boolInt(b bool) int {

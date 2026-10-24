@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"slices"
 	"sync"
 )
 
@@ -96,6 +97,18 @@ func (f *inflight) size() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.sessions)
+}
+
+// list reports the sessions in flight at this instant, ordered by id.
+func (f *inflight) list() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ids := make([]int64, 0, len(f.sessions))
+	for id := range f.sessions {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 // peak reports the most sessions that have been in flight at once since the
