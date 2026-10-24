@@ -356,8 +356,11 @@ func renderOrganizedInboxPage(page store.InboxPage, view store.InboxOrganization
 	end := offset
 	for end < len(view.Tickets) && end < offset+10 {
 		row := view.Tickets[end]
-		t := byKey[row.Key]
-		text := inboxOrganizedRow(t, row, page.Snapshot.ID, offset, end)
+		t, available := byKey[row.Key]
+		text := "A captured ticket is unavailable because source access changed.\n"
+		if available && len(t.Decisions) > 0 {
+			text = inboxOrganizedRow(t, row, page.Snapshot.ID, offset, end)
+		}
 		if replySize(header+rows+text+footer(end+1)) > 1950 && end > offset {
 			break
 		}
@@ -374,7 +377,7 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 	filter := store.InboxFilter{Source: m.Arguments["source"], Project: m.Arguments["project"], Kind: m.Arguments["kind"]}
 	fresh := id == "" || op == "organize" || op == "refresh"
 	if id != "" {
-		saved, err := s.db.ReadCompleteInboxSnapshot(ctx, scope, id, at)
+		saved, err := s.db.ReadInboxSnapshot(ctx, scope, id, 0, 1, at)
 		if err != nil {
 			return inboxNotice(inboxReadFailure(err))
 		}
@@ -403,15 +406,21 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 		id = snap.ID
 		offset = 0
 	}
-	page, err := s.db.ReadCompleteInboxSnapshot(ctx, scope, id, at)
-	if err != nil {
-		return inboxNotice(inboxReadFailure(err))
+	var page store.InboxPage
+	var view store.InboxOrganization
+	var err error
+	if fresh {
+		page, err = s.db.ReadCompleteInboxSnapshot(ctx, scope, id, at)
+		if err == nil {
+			var call func(context.Context, []byte, string, int) ([]byte, error)
+			if capture != nil {
+				call = capture.Organize
+			}
+			view, err = s.finalizeOwnerInbox(ctx, scope, page, at, call)
+		}
+	} else {
+		page, view, err = s.db.ReadInboxNavigation(ctx, scope, id, inboxOrganizationVersion, at)
 	}
-	var call func(context.Context, []byte, string, int) ([]byte, error)
-	if capture != nil {
-		call = capture.Organize
-	}
-	view, err := s.finalizeOwnerInbox(ctx, scope, page, at, call)
 	if err != nil {
 		return inboxNotice(inboxReadFailure(err))
 	}
@@ -423,13 +432,21 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 	}
 	if op == "coverage" && !fresh {
 		if capture != nil {
+			capture.Sources = nil
 			capture.Navigation = fmt.Sprintf("%s:%d", id, entry)
 		}
 		return renderInboxCoverage(page.Snapshot, offset, entry), nil
 	}
 	if op == "open" && !fresh {
+		unavailable := func(reason string) string {
+			if capture != nil {
+				capture.Sources = nil
+				capture.Navigation = fmt.Sprintf("%s:%d", id, offset)
+			}
+			return fmt.Sprintf("%s\nCoverage details: %s:0:%d\nReturn: %s:%d", reason, id, offset, id, offset)
+		}
 		if entry >= len(view.Tickets) {
-			return inboxNotice("This organized ticket reference is unavailable. Refresh the inbox.")
+			return inboxNotice(unavailable("This organized ticket reference is unavailable. Refresh the inbox."))
 		}
 		requestOffset := 0
 		fields := strings.Split(m.Arguments["reference"], ":")
@@ -441,16 +458,23 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 		row := view.Tickets[entry]
 		byKey := inboxOrganizationMap(inboxBaseline(page))
 		ticket := byKey[row.Key]
-		if requestOffset >= len(ticket.Decisions) {
-			return inboxNotice("This request reference is unavailable. Refresh the inbox.")
+		if len(ticket.Decisions) == 0 {
+			return inboxNotice(unavailable("This captured ticket is unavailable because source access changed."))
 		}
-		decision := ticket.Decisions[requestOffset]
-		text, err := s.openOwnerInbox(ctx, scope, id, offset, decision.Ordinal, at, capture)
-		if err != nil {
-			return text, err
+		if requestOffset >= len(row.DecisionKeys) {
+			return inboxNotice(unavailable("This request reference is unavailable. Refresh the inbox."))
 		}
-		text = fmt.Sprintf("Ticket requests: %d; showing request %d.\nSnapshot: %s\n", len(ticket.Decisions), requestOffset+1, page.Snapshot.CapturedAt.UTC().Format(time.RFC3339)) + text
-		if requestOffset+1 < len(ticket.Decisions) {
+		text := unavailable("This captured request is unavailable because source access changed.")
+		// Request references select saved key positions, including revoked slots.
+		// Filtering available decisions must never retarget a previously issued reference.
+		if decision, available := inboxOrganizedDecision(ticket, row, requestOffset); available {
+			text, err = s.openOwnerInbox(ctx, scope, id, offset, decision.Ordinal, at, capture)
+			if err != nil {
+				return text, err
+			}
+		}
+		text = fmt.Sprintf("Ticket requests: %d; showing request %d.\nSnapshot: %s\n", len(row.DecisionKeys), requestOffset+1, page.Snapshot.CapturedAt.UTC().Format(time.RFC3339)) + text
+		if requestOffset+1 < len(row.DecisionKeys) {
 			text += fmt.Sprintf("\nRequests more: %s:%d:%d:%d", id, offset, entry, requestOffset+1)
 		}
 		if requestOffset > 0 {
@@ -466,4 +490,16 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 		}
 	}
 	return text, nil
+}
+
+func inboxOrganizedDecision(ticket inboxOrganizerTicket, row store.InboxOrganizedTicket, position int) (store.InboxDecision, bool) {
+	if position < 0 || position >= len(row.DecisionKeys) || row.DecisionKeys[position] == "" {
+		return store.InboxDecision{}, false
+	}
+	for _, decision := range ticket.Decisions {
+		if decision.Key == row.DecisionKeys[position] {
+			return decision, true
+		}
+	}
+	return store.InboxDecision{}, false
 }
