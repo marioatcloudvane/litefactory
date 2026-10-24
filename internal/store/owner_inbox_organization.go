@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -182,4 +183,103 @@ func validateInboxOrganizationMembership(entries []InboxDecision, in InboxOrgani
 		return fmt.Errorf("incomplete organization membership")
 	}
 	return nil
+}
+
+// ReadInboxNavigation reads an existing view without allowing lost access to
+// hide other sources. Ticket positions and entry ordinals never shift. Saved
+// agent text is discarded across the whole view when any source loses access.
+func (db *DB) ReadInboxNavigation(ctx context.Context, scope InboxScope, id string, version int, now time.Time) (InboxPage, InboxOrganization, error) {
+	page := InboxPage{Next: -1}
+	var organization InboxOrganization
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if !inboxScopeValid(scope) {
+			return ErrInboxExpired
+		}
+		var raw string
+		err := tx.QueryRowContext(ctx, `SELECT metadata FROM owner_inbox_snapshots WHERE id=? AND owner=? AND transport=? AND conversation=? AND expires_at>?`, id, scope.Owner, scope.Transport, scope.Conversation, FormatTime(now)).Scan(&raw)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrInboxExpired
+		}
+		if err != nil {
+			return err
+		}
+		if err = json.Unmarshal([]byte(raw), &page.Snapshot); err != nil {
+			return err
+		}
+		// Factual continuations have no organized view and must keep using
+		// bounded ordinal reads rather than loading their entire snapshot here.
+		err = tx.QueryRowContext(ctx, `SELECT content FROM owner_inbox_organizations WHERE snapshot_id=? AND version=?`, id, version).Scan(&raw)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if err = json.Unmarshal([]byte(raw), &organization); err != nil {
+			return err
+		}
+		authorized := map[int64]bool{}
+		lostAccess := false
+		for i, c := range page.Snapshot.Coverage {
+			v, e := currentConnection(ctx, tx, c.RepoID, TicketConnection)
+			allowed := e == nil && v.Enabled && v.ID == c.ConnectionID && inboxSourceAllowed(ctx, tx, v.ID)
+			authorized[c.ConnectionID] = allowed
+			if !allowed {
+				page.Snapshot.Coverage[i].Status = "access unavailable or configuration changed"
+			}
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT content FROM owner_inbox_entries WHERE snapshot_id=? ORDER BY ordinal`, id)
+		if err != nil {
+			return err
+		}
+		surviving := map[string]InboxDecision{}
+		for rows.Next() {
+			var d InboxDecision
+			if err = rows.Scan(&raw); err != nil {
+				break
+			}
+			if err = json.Unmarshal([]byte(raw), &d); err != nil {
+				break
+			}
+			if authorized[d.ConnectionID] {
+				page.Entries = append(page.Entries, d)
+				surviving[d.Key] = d
+			} else {
+				lostAccess = true
+			}
+		}
+		err = errors.Join(err, rows.Err(), rows.Close())
+		if err != nil {
+			return err
+		}
+		for i, saved := range organization.Tickets {
+			keys := make([]string, len(saved.DecisionKeys))
+			var facts []string
+			for ordinal, key := range saved.DecisionKeys {
+				if d, ok := surviving[key]; ok {
+					keys[ordinal] = key
+					facts = append(facts, d.Summary)
+				}
+			}
+			if len(facts) == 0 {
+				organization.Tickets[i] = InboxOrganizedTicket{}
+				continue
+			}
+			organization.Tickets[i].DecisionKeys = keys
+			if lostAccess {
+				organization.Tickets[i].Summary = strings.Join(facts, "\n")
+				organization.Tickets[i].PromotionReason = ""
+				organization.Tickets[i].EvidenceIDs = nil
+			}
+		}
+		if lostAccess {
+			organization.Mode = "fallback"
+			organization.FallbackReason = "Source access changed; showing authorized recorded facts in the saved positions."
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return InboxPage{}, InboxOrganization{}, err
+	}
+	return page, organization, err
 }

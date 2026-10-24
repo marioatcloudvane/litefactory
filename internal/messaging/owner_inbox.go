@@ -101,7 +101,7 @@ func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, c
 		return s.readOrganizedOwnerInbox(ctx, m, at, capture, id, offset, entry)
 	}
 	if id != "" {
-		_, organizationErr := s.db.ReadInboxOrganization(ctx, scope, id, inboxOrganizationVersion, at)
+		_, _, organizationErr := s.db.ReadInboxNavigation(ctx, scope, id, inboxOrganizationVersion, at)
 		if organizationErr == nil {
 			return s.readOrganizedOwnerInbox(ctx, m, at, capture, id, offset, entry)
 		}
