@@ -64,7 +64,9 @@ func inboxPosition(raw string) (string, int, int, error) {
 type inboxCapture struct {
 	Snapshot, Navigation string
 	Sources              []int64
-	Organize             func(context.Context, []byte, string, int) ([]byte, error)
+	// Issues are the GitHub tasks the page shows, for listed references.
+	Issues   []listedIssue
+	Organize func(context.Context, []byte, string, int) ([]byte, error)
 }
 
 func (s *Service) ownerInbox(ctx context.Context, m Message, at time.Time) (string, error) {
@@ -171,6 +173,9 @@ func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, c
 		}
 		for _, decision := range page.Entries {
 			capture.Sources = append(capture.Sources, decision.ConnectionID)
+			if item, ok := inboxListedIssue(decision); ok {
+				capture.Issues = append(capture.Issues, item)
+			}
 		}
 	}
 	return renderInboxPage(page), nil
@@ -248,6 +253,9 @@ func (s *Service) openOwnerInbox(ctx context.Context, scope store.InboxScope, id
 	}
 	if capture != nil {
 		capture.Sources = []int64{current.ConnectionID}
+		if item, ok := inboxListedIssue(current); ok {
+			capture.Issues = []listedIssue{item}
+		}
 	}
 	status := "Current recorded wait."
 	if current.Summary != saved.Summary || current.Action != saved.Action || current.Destination != saved.Destination {

@@ -258,6 +258,8 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 		v, e = a.Authoring.Edit(ctx, args["id"], version, edit)
 	case "author.continue":
 		v, e = a.Authoring.Continue(ctx, args["id"], version)
+	case "author.revise":
+		v, e = a.Authoring.Reopen(ctx, args["id"], version, args["text"])
 	case "author.validate":
 		v, e = a.Authoring.Validate(ctx, args["id"], version)
 	case "author.complete":
@@ -339,8 +341,16 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 		return messaging.StandardsResult{}, errors.New("standards: durable operation storage required")
 	}
 	switch r.Operation {
-	case "author.answer", "author.continue":
-		// The owner's answers and "again" go to the newest draft.
+	case "author.answer", "author.continue", "author.revise":
+		if r.Operation == "author.revise" {
+			// A change to a proposal the author produced goes to its session;
+			// a version cited with the proposal is the proposal's, not the
+			// session's, so the session's newest version is taken.
+			r.Arguments = maps.Clone(r.Arguments)
+			r.Arguments["id"] = strings.TrimPrefix(r.Arguments["id"], "authoring-")
+			delete(r.Arguments, "version")
+		}
+		// The owner's answers, changes and "again" go to the newest draft.
 		if r.Arguments["version"] == "" && a.Authoring != nil {
 			v, e := a.Authoring.Show(ctx, r.Arguments["id"], 0)
 			if e != nil {
@@ -369,11 +379,12 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 		return a.run(ctx, r, d)
 	}
 	result, e = a.run(ctx, r, d)
-	if e != nil || (r.Operation != "author.start" && r.Operation != "author.answer") {
+	if e != nil || (r.Operation != "author.start" && r.Operation != "author.answer" && r.Operation != "author.revise") {
 		return result, e
 	}
-	// Starting a session and answering its questions both lead straight to
-	// the author's next draft; neither needs a further confirmation.
+	// Starting a session, answering its questions and asking for a change to
+	// its proposal all lead straight to the author's next draft; none needs a
+	// further confirmation.
 	id := result.References["id"]
 	if a.nextDraft(ctx, r, id, result.References["version"], r.OperationKey) {
 		if r.Operation == "author.start" {
@@ -383,9 +394,12 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 		}
 		return result, nil
 	}
-	if r.Operation == "author.start" {
+	switch r.Operation {
+	case "author.start":
 		result.Text = "I've set up the standard, but the author can't start right now. Say \"again\" and I'll ask it for a first draft."
-	} else {
+	case "author.revise":
+		result.Text = "I've reopened the proposal with your change, but the author can't start right now. Say \"again\" and I'll ask it for the next draft."
+	default:
 		result.Text = "I've saved your answers, but the author can't start right now. Say \"again\" and I'll ask it for the next draft."
 	}
 	return result, nil

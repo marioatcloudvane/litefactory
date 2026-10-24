@@ -175,7 +175,7 @@ func (db *DB) PurgeConversationEvidence(ctx context.Context, at time.Time) error
 
 // ListConversationReferences returns bounded unexpired references in one conversation.
 func (db *DB) ListConversationReferences(ctx context.Context, conversationID string, at time.Time, limit int) ([]ConversationReference, error) {
-	if limit < 1 || limit > 32 {
+	if limit < 1 || limit > 64 {
 		return nil, errors.New("invalid conversation reference limit")
 	}
 	rows, err := db.sql.QueryContext(ctx, `SELECT r.id,r.turn_id,r.kind,r.repository,r.target,r.revision,r.content,r.expires_at FROM chat_conversation_references r JOIN chat_conversation_turns t ON t.id=r.turn_id WHERE t.conversation_id=? AND r.expires_at>? ORDER BY t.sequence DESC,r.id LIMIT ?`, conversationID, FormatTime(at), limit)
@@ -210,7 +210,7 @@ func (db *DB) FinishConversationActionReply(ctx context.Context, t ConversationT
 		if err := conversationFence(ctx, tx, t); err != nil {
 			return err
 		}
-		result, err := tx.ExecContext(ctx, `UPDATE chat_inbox SET state='confirmed',arguments='{}',question='',project_option='',target_ref='',reply_text='',outcome_status=?,finished_at=? WHERE transport=? AND message_id=? AND conversation_turn_id=? AND state IN ('pending','sent','answering') AND EXISTS(SELECT 1 FROM chat_conversation_turns origin WHERE origin.id=conversation_turn_id AND origin.conversation_id=?)`, r.OutcomeStatus, FormatTime(at), r.Transport, r.MessageID, r.ConversationTurnID, t.ConversationID)
+		result, err := tx.ExecContext(ctx, `UPDATE chat_inbox SET state='confirmed',arguments='{}',question='',project_option='',target_ref='',reply_text='',outcome_status=?,finished_at=COALESCE(finished_at,?) WHERE transport=? AND message_id=? AND conversation_turn_id=? AND (state IN ('pending','sent','answering') OR (?='confirmed' AND state='confirmed' AND command='diagnose' AND reply_text<>'')) AND EXISTS(SELECT 1 FROM chat_conversation_turns origin WHERE origin.id=conversation_turn_id AND origin.conversation_id=?)`, r.OutcomeStatus, FormatTime(at), r.Transport, r.MessageID, r.ConversationTurnID, r.State, t.ConversationID)
 		if err = chatAffected(result, err); err != nil {
 			return err
 		}
@@ -221,8 +221,9 @@ func (db *DB) FinishConversationActionReply(ctx context.Context, t ConversationT
 
 // ListPendingConversationActionOutcomes finds asynchronous results ready for
 // narration on the next eligible session step; reading them does not execute.
+// A confirmed diagnosis was already posted to the channel and is context only.
 func (db *DB) ListPendingConversationActionOutcomes(ctx context.Context, conversationID string) ([]ChatReply, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+chatColumns+` FROM chat_inbox WHERE conversation_turn_id IN (SELECT id FROM chat_conversation_turns WHERE conversation_id=?) AND state='pending' AND reply_text<>'' AND EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_natural_executions e ON e.identity=a.execution_id JOIN chat_conversations c ON c.id=? WHERE a.turn_id=chat_inbox.conversation_turn_id AND a.execution_id=chat_inbox.message_id AND e.transport=chat_inbox.transport AND e.owner_id=c.owner_id AND e.channel_ref=c.channel_ref AND e.transport=c.transport AND e.state IN ('executing','finished','uncertain')) ORDER BY created_at,message_id LIMIT 16`, conversationID, conversationID)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+chatColumns+` FROM chat_inbox WHERE conversation_turn_id IN (SELECT id FROM chat_conversation_turns WHERE conversation_id=?) AND (state='pending' OR (state='confirmed' AND command='diagnose')) AND reply_text<>'' AND EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_natural_executions e ON e.identity=a.execution_id JOIN chat_conversations c ON c.id=? WHERE a.turn_id=chat_inbox.conversation_turn_id AND a.execution_id=chat_inbox.message_id AND e.transport=chat_inbox.transport AND e.owner_id=c.owner_id AND e.channel_ref=c.channel_ref AND e.transport=c.transport AND e.state IN ('executing','finished','uncertain')) ORDER BY created_at,message_id LIMIT 16`, conversationID, conversationID)
 	if err != nil {
 		return nil, err
 	}

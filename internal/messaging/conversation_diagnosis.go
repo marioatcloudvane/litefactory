@@ -53,3 +53,18 @@ func (s *Service) ConversationDiagnosisInput(ctx context.Context, reply store.Ch
 	}
 	return payload.Invocation.Arguments["note"], nil
 }
+
+// PushConversationDiagnosis posts a finished conversation diagnosis to its
+// channel without waiting for the owner to write again; link, when set, follows
+// verbatim. It is delivered after the conversation's queued confirmation, and a
+// repeated push changes nothing.
+func (s *Service) PushConversationDiagnosis(ctx context.Context, reply store.ChatReply, link string, at time.Time) error {
+	if reply.ConversationTurnID == "" || reply.Command != "diagnose" || reply.Transport != s.transport {
+		return errors.New("not a conversation diagnosis")
+	}
+	notices, err := s.announcement(ctx, reply.ChannelRef, "diagnosis:"+reply.MessageID, reply.MessageID, reply.ReplyText, link, at)
+	if err != nil {
+		return err
+	}
+	return s.db.PushConversationDiagnosis(ctx, reply, notices, at)
+}
