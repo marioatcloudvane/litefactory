@@ -19,6 +19,8 @@ import (
 )
 
 type cursor struct {
+	ViewOffset  int                `json:"vo,omitempty"`
+	View        *ViewLocator       `json:"view,omitempty"`
 	Version     int                `json:"v"`
 	Kind        string             `json:"k"`
 	Scope       string             `json:"s"`
@@ -140,7 +142,7 @@ func fileFingerprint(info os.FileInfo) string {
 	}
 	return digestJSON([]any{identity, info.Size(), info.ModTime().UnixNano(), info.Mode()})
 }
-func (s *Service) read(ctx context.Context, r ReadRequest) Result {
+func (s *Service) readLegacy(ctx context.Context, r ReadRequest) Result {
 	if r.Limit == 0 {
 		r.Limit = 10
 	}
@@ -254,13 +256,13 @@ func (s *Service) read(ctx context.Context, r ReadRequest) Result {
 					safe = truncateUTF8(safe, r.Citation.ExcerptBytes)
 					truncated = truncated || len(safe) < len(body.String())
 				}
-				citation := Citation{1, row.TaskRef, row.ID, row.Ordinal, row.StartedAt, kind, rec.Start, rec.End, digestText(safe), PolicyVersion, len(safe)}
+				citation := Citation{Version: 1, TaskRef: row.TaskRef, RunID: row.ID, Ordinal: row.Ordinal, StartedAt: row.StartedAt, Stream: kind, Start: rec.Start, End: rec.End, Digest: digestText(safe), Policy: PolicyVersion, ExcerptBytes: len(safe)}
 				// Task refs in citations are metadata too; withholding avoids changing selectors.
 				taskBody, e := s.redactor.Apply(ctx, row.TaskRef, recordMaximum*4)
 				if e != nil || taskBody.String() != row.TaskRef {
 					return failureResult("redaction_failure")
 				}
-				record := Record{safe, citation, body.Counts().Total(), truncated}
+				record := Record{Text: safe, Citation: citation, Redactions: body.Counts().Total(), Truncated: truncated}
 				out.Records = append(out.Records, record)
 				if len(out.Records) == 1 && r.Citation == nil {
 					for encodedSize(out, strings.Repeat("x", 128)) > pageTarget && len(out.Records[0].Text) > 32 {

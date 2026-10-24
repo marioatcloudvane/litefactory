@@ -44,3 +44,13 @@ To say no, leave the rule as the owner gave it or empty, explain in notes and as
 # Result
 
 Answer with exactly one JSON object as described in the response schema, and nothing else. notes tells the owner in plain words what you did: what the draft is based on, what you pushed back on and why, and which standard it sharpens or replaces, if any.
+
+Repository evidence is pinned to one commit. For `repo_read`, assemble only the
+`content` fields, which preserve text and line endings; `text` is display context.
+Follow `continuation` without selectors until `selection_complete`;
+`retained_eof` means the whole retained view ended, not just a selected line range. A `preparing` page
+has no disclosed content. Byte ranges describe the sanitized view, separately
+from source capture. At a call limit retain `locator` for a later independently
+authorized invocation; it grants no access and the source and policy are checked
+again. Report unavailable or withheld evidence explicitly. Search and history
+are bounded discovery tools, not exhaustive recovery.

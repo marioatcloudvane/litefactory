@@ -11,12 +11,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -444,4 +446,51 @@ func (b *gitBoundedOutput) Write(p []byte) (int, error) {
 	}
 	_, err := b.buffer.Write(p)
 	return n, err
+}
+
+// objectStream owns one read-only Git child. Closing it releases both pipe and
+// child; it never writes objects, references, index or working-tree files.
+type objectStream struct {
+	io.ReadCloser
+	cmd    *exec.Cmd
+	cancel context.CancelFunc
+	once   sync.Once
+	err    error
+}
+
+func (s *objectStream) Read(p []byte) (int, error) {
+	n, err := s.ReadCloser.Read(p)
+	if errors.Is(err, io.EOF) {
+		s.once.Do(func() { s.err = s.cmd.Wait(); s.cancel(); _ = s.ReadCloser.Close() })
+		if s.err != nil {
+			return n, s.err
+		}
+	}
+	return n, err
+}
+func (s *objectStream) Close() error {
+	s.once.Do(func() { s.cancel(); _ = s.ReadCloser.Close(); s.err = s.cmd.Wait() })
+	return s.err
+}
+func (r runner) openRead(ctx context.Context, args ...string) (io.ReadCloser, error) {
+	if r.binary == "" || r.dir == "" {
+		return nil, ErrUninitialized
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Minute)
+	// #nosec G204 -- same validated binary and screened argument boundary as runRawRecordLimit.
+	cmd := exec.CommandContext(ctx, r.binary, args...)
+	cmd.Dir = r.dir
+	cmd.Env = childEnv()
+	cmd.WaitDelay = waitDelay
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	if err = cmd.Start(); err != nil {
+		cancel()
+		_ = pipe.Close()
+		return nil, err
+	}
+	return &objectStream{ReadCloser: pipe, cmd: cmd, cancel: cancel}, nil
 }
