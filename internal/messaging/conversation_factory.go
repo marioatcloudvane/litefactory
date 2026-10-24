@@ -79,6 +79,7 @@ type conversationReadResult struct {
 }
 
 type factoryConversationRun struct {
+	inboxResume    *conversationReadResult
 	instructions   *instructionpackage.ConversationCapture
 	s              *Service
 	c              store.Conversation
@@ -299,6 +300,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err != nil {
 		return run.failed(ctx, err)
 	}
+	if run.inboxResume != nil {
+		result := run.inboxResume
+		return s.saveConversationPresentation(ctx, t, "completed", []presentation.AnswerBlock{{Text: result.Result, FactRefs: []string{result.FactID}}}, "", at)
+	}
 	for run.calls < run.maxCalls() {
 		var envelope ConversationEnvelope
 		var inv Invocation
@@ -410,6 +415,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			}
 			if result.Clarification != "" {
 				return s.conversationOutcome(ctx, t, "completed", result.Clarification, at)
+			}
+			if inv.Command == "inbox" {
+				return s.saveConversationPresentation(ctx, t, "completed", []presentation.AnswerBlock{{Text: result.Result, FactRefs: []string{result.FactID}}}, "", at)
 			}
 			prompt.References = refs
 			prompt.Focus = run.focus
@@ -555,6 +563,34 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 	validated, effect, err := s.ValidateInvocation(inv)
 	if err != nil || effect != ReadEffect {
 		return result, nil, ErrConversationEnvelope
+	}
+	if inv.Command == "inbox" {
+		capture := &inboxCapture{}
+		text, e := s.readOwnerInbox(ctx, Message{Channel: r.c.ChannelRef, Arguments: validated.Arguments}, r.at, capture)
+		result.Result = text
+		result.Arguments = make(map[string]string)
+		for k, v := range validated.Arguments {
+			result.Arguments[k] = v
+		}
+		if capture.Snapshot != "" {
+			result.Arguments["inbox_snapshot"] = capture.Snapshot
+			sources, _ := json.Marshal(capture.Sources)
+			result.Arguments["inbox_sources"] = string(sources)
+		}
+		if e != nil {
+			return result, nil, e
+		}
+		navigation := capture.Navigation
+		if navigation == "" {
+			return result, nil, nil
+		}
+		args := map[string]string{"reference": navigation}
+		raw, _ := json.Marshal(args)
+		saved := store.ConversationReference{ID: fmt.Sprintf("%s-inbox-%d", r.t.ID, r.ordinal), TurnID: r.t.ID, Kind: "inbox", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+		if e = s.db.SaveConversationReference(ctx, r.t, saved); e != nil {
+			return result, nil, e
+		}
+		return result, &ConversationReference{ID: saved.ID, OwnerID: s.owner, ChannelID: r.c.ChannelRef, OriginTurn: r.t.ID, ExpiresAt: saved.ExpiresAt, Arguments: args}, nil
 	}
 	p := naturalPayload{Invocation: validated, Channel: r.c.ChannelRef}
 	if r.focus != nil {
@@ -776,6 +812,15 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		result, err := decodeConversationEvidence(last)
 		if err != nil {
 			return false, 0, nil, err
+		}
+		if result.Command == "inbox" {
+			if id := result.Arguments["inbox_snapshot"]; id != "" {
+				if err = r.s.authorizeInboxResult(ctx, r.c.ChannelRef, result, r.at); err != nil {
+					return false, 0, nil, err
+				}
+			}
+			r.inboxResume = &result
+			return corrected, lookups, nil, nil
 		}
 		prompt.addEvidence(result)
 		prompt.Correction, prompt.CorrectionReason = "", ""
