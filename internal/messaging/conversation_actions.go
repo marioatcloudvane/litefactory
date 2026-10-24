@@ -300,7 +300,7 @@ func standardsDirect(inv Invocation) bool {
 		return false
 	}
 	switch inv.Arguments["action"] {
-	case "answer", "continue", "edit", "validate", "rebase":
+	case "answer", "revise", "continue", "edit", "validate", "rebase":
 		return true
 	}
 	return false
