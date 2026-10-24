@@ -488,6 +488,15 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 		if next < len(view.Tickets) {
 			capture.Navigation = fmt.Sprintf("%s:%d", id, next)
 		}
+		// Only the tickets this page shows become listed references.
+		byKey := inboxOrganizationMap(inboxBaseline(page))
+		for _, row := range view.Tickets[min(offset, len(view.Tickets)):min(max(next, offset), len(view.Tickets))] {
+			for _, d := range byKey[row.Key].Decisions {
+				if item, ok := inboxListedIssue(d); ok {
+					capture.Issues = append(capture.Issues, item)
+				}
+			}
+		}
 	}
 	return text, nil
 }

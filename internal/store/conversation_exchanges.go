@@ -175,7 +175,7 @@ func (db *DB) PurgeConversationEvidence(ctx context.Context, at time.Time) error
 
 // ListConversationReferences returns bounded unexpired references in one conversation.
 func (db *DB) ListConversationReferences(ctx context.Context, conversationID string, at time.Time, limit int) ([]ConversationReference, error) {
-	if limit < 1 || limit > 32 {
+	if limit < 1 || limit > 64 {
 		return nil, errors.New("invalid conversation reference limit")
 	}
 	rows, err := db.sql.QueryContext(ctx, `SELECT r.id,r.turn_id,r.kind,r.repository,r.target,r.revision,r.content,r.expires_at FROM chat_conversation_references r JOIN chat_conversation_turns t ON t.id=r.turn_id WHERE t.conversation_id=? AND r.expires_at>? ORDER BY t.sequence DESC,r.id LIMIT ?`, conversationID, FormatTime(at), limit)
