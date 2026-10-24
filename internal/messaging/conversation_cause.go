@@ -71,7 +71,8 @@ func conversationArgumentCause(err error) string {
 		return `I couldn't tell which issue you meant, so I didn't act. Name it in your message, for example "diagnose #1100".`
 	case name == "project":
 		return `I couldn't tell which project you meant, so I didn't act. Name it in your message, for example "in litefactory".`
-	case conversationProtectedContent(name):
+	case conversationProtectedContent(name) || standardsProtectedContent(name):
+		// Only standards commands declare the standards prose fields.
 		return fmt.Sprintf("I couldn't find the %s word for word in your messages, so I didn't act. Please send it in your message itself.", label)
 	}
 	return fmt.Sprintf("I couldn't tell which %s you meant, so I didn't act. Please name it in your message.", label)
