@@ -298,13 +298,26 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (operation st
 	if err != nil {
 		return fail(err)
 	}
+	if err = os.MkdirAll(s.Paths.DoctorScratchDir(), 0700); err != nil {
+		return fail(err)
+	}
+	scratch, err := os.MkdirTemp(s.Paths.DoctorScratchDir(), "repair-")
+	if err != nil {
+		return fail(err)
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(scratch)) }()
+	handoff, err := s.PrepareRetainedEvidence(ctx, request.Target, id, scratch)
+	if err != nil {
+		return fail(err)
+	}
 	manifest, err := json.Marshal(struct {
+		RetainedEvidenceIndex  string
 		OperationID            string
 		OwnerInstruction       string
 		UntrustedEvidence      store.DoctorEvidence
 		ApprovedSteps          []store.DoctorRepairStep
 		UntrustedPriorFindings *Diagnosis
-	}{operation.ID, "Apply only this exact approved immutable proposal", evidence, steps, prior})
+	}{handoff.Index, operation.ID, "Apply only this exact approved immutable proposal", evidence, steps, prior})
 	if err != nil {
 		return fail(err)
 	}
@@ -316,14 +329,6 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (operation st
 	if err != nil || safe.Truncated() {
 		return fail(errors.New("doctor repair prompt redaction failed"))
 	}
-	if err = os.MkdirAll(s.Paths.DoctorScratchDir(), 0700); err != nil {
-		return fail(err)
-	}
-	scratch, err := os.MkdirTemp(s.Paths.DoctorScratchDir(), "repair-")
-	if err != nil {
-		return fail(err)
-	}
-	defer func() { err = errors.Join(err, os.Remove(scratch)) }()
 	meter, err := s.DB.StartDoctorMeterAttempt(ctx, id, string(provider))
 	if err != nil {
 		return fail(err)
