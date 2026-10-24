@@ -214,3 +214,137 @@ func TestOwnerInboxOrganizedContinuationAfterSourceRevoked(t *testing.T) {
 		t.Fatalf("expired snapshot was not refused: %s", expired)
 	}
 }
+
+// Saved model wording can refer to the whole captured inbox. Revocation must
+// withhold that answer, while a later factual continuation remains deliverable.
+func TestOwnerInboxOrganizedSavedDeliveryAfterSourceRevoked(t *testing.T) {
+	ctx := t.Context()
+	at := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	db := database(t)
+	organizedJourneySeed(t, db, ticket.GitHub, at)
+	linear := organizedJourneySeed(t, db, ticket.Linear, at)
+	provider := &organizedJourneyProvider{}
+	sender := &organizedJourneySender{}
+	service := messaging.New(db, "discord", "7", []string{"3"}, sender, messaging.FactoryStatus{DB: db})
+	service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
+	service.EnableOwnerInbox(&inboxJourneyTickets{})
+	if err := service.EnableConversations(ctx, messaging.ConversationOptions{
+		Bindings:    []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}},
+		StateRoot:   filepath.Join(t.TempDir(), "conversations"),
+		Providers:   map[string]messaging.ConversationProvider{"claude": provider},
+		Reasoners:   map[string]messaging.ConversationReasoner{"claude": {Model: "organizer-fixture"}},
+		CheckAccess: func(context.Context, string) error { return nil }, Factory: true,
+	}, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ActivateNaturalScan(ctx, "3", "100"); err != nil {
+		t.Fatal(err)
+	}
+	messages := &journeyReader{}
+	intake := messaging.Intake{DB: db, Reader: messages, Transport: "discord", Owner: "7", Channels: []string{"3"}, Protect: service.Protect}
+	sequence := 100
+	prepare := func(arguments map[string]string) string {
+		t.Helper()
+		sequence++
+		provider.selector.arguments = arguments
+		messages.messages = []store.NaturalMessage{{ChannelRef: "3", SourceID: fmt.Sprint(sequence), OwnerID: "7", Text: "Browse recorded owner waits", CreatedAt: at}}
+		if err := intake.Poll(ctx, at); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.ConversationStep(ctx, at); err != nil {
+			t.Fatal(err)
+		}
+		conversation, err := db.ReadConversation(ctx, "discord", "3")
+		if err != nil {
+			t.Fatal(err)
+		}
+		turn, err := db.LatestConversationTurn(ctx, conversation.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reply, err := db.ReadChatReply(ctx, "discord", turn.ReplyID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		answer, _, err := db.ConversationReplyAnswer(ctx, reply)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts, err := db.ReadConversationAnswerParts(ctx, answer.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var text strings.Builder
+		for _, part := range parts {
+			text.WriteString(part.Text)
+		}
+		return text.String()
+	}
+	deliver := func() string {
+		t.Helper()
+		before := len(sender.texts)
+		for range 30 {
+			work, err := service.ConversationDeliveryStep(ctx, at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			at = at.Add(2 * time.Second)
+			if !work {
+				break
+			}
+		}
+		if len(sender.texts) == before {
+			t.Fatal("saved inbox answer did not deliver")
+		}
+		if len(sender.attempts) < 2 || sender.attempts[0] != sender.attempts[1] {
+			t.Fatal("withheld acknowledgment retry changed saved delivery bytes")
+		}
+		return strings.Join(sender.texts[before:], "")
+	}
+	assertSafe := func(text string) {
+		t.Helper()
+		for _, session := range linear {
+			if strings.Contains(strings.ReplaceAll(text, `\#`, `#`), session.TaskRef) {
+				t.Fatalf("revoked ticket leaked through saved delivery: %s", text)
+			}
+		}
+		if strings.Contains(text, "Owner explicitly requests immediate recovery.") || strings.Contains(text, "Review the recorded recovery request.") {
+			t.Fatalf("cached organizer wording leaked after source revocation: %s", text)
+		}
+	}
+
+	mixed := prepare(map[string]string{"operation": "organize"})
+	reference := inboxJourneyReference(mixed, "Refresh")
+	if reference == "" || !strings.Contains(strings.ReplaceAll(mixed, `\#`, `#`), linear[5].TaskRef) || provider.calls != 1 || len(sender.attempts) != 0 {
+		t.Fatalf("mixed answer was not saved before delivery: %s", mixed)
+	}
+	connection, err := db.CurrentConnection(ctx, linear[0].RepoID, store.TicketConnection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DisableConnection(ctx, connection.RepoID, store.TicketConnection, connection.Revision); err != nil {
+		t.Fatal(err)
+	}
+	notice := deliver()
+	assertSafe(notice)
+	if notice == mixed || !strings.Contains(strings.ToLower(notice), "refresh") {
+		t.Fatalf("unsafe saved answer was not replaced with a safe notice: %s", notice)
+	}
+
+	// Reuse the captured navigation instead of collecting or reasoning again.
+	sender.attempts = nil
+	partial := prepare(map[string]string{"operation": "return", "reference": reference})
+	assertSafe(partial)
+	if !strings.Contains(partial, "github · ") || !strings.Contains(partial, "Source access changed") || !strings.HasPrefix(inboxJourneyReference(partial, "Refresh"), strings.Split(reference, ":")[0]+":") {
+		t.Fatalf("captured navigation did not recover authorized facts: %s", partial)
+	}
+	if delivered := deliver(); delivered != partial {
+		t.Fatal("authorized continuation delivery differs from immutable saved parts")
+	}
+	for _, attempt := range sender.attempts {
+		assertSafe(attempt)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("saved delivery or continuation reran organizer %d times", provider.calls)
+	}
+}
