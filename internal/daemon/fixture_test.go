@@ -1170,6 +1170,9 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.Ticks != nil {
 		opts.Ticks = overrides.Ticks
 	}
+	if overrides.MinFreeDiskBytes != 0 {
+		opts.MinFreeDiskBytes = overrides.MinFreeDiskBytes
+	}
 	if overrides.Webhook != nil {
 		opts.Webhook = overrides.Webhook
 		opts.Chat = overrides.Chat
