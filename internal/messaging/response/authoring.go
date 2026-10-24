@@ -59,7 +59,9 @@ func (a *Authoring) Answer(ctx context.Context, call standards.AuthoringCall) ([
 		defer func() { _ = stop() }()
 	}
 	raw, err := m.run(ctx, call.Prompt, launch, func(ctx context.Context, provider, model string) (store.MeterAttempt, error) {
-		attempt, err := writer.StartAuthoringMeterAttempt(ctx, call.Session, provider, model, authoringPromptDigest(call.Prompt), call.Attempt, call.Token)
+		// Like the attempt itself, the meter row is bookkeeping, not the
+		// conversation operation's effect; only the finished draft commits it.
+		attempt, err := writer.StartAuthoringMeterAttempt(store.WithoutStandardsConversationOperation(ctx), call.Session, provider, model, authoringPromptDigest(call.Prompt), call.Attempt, call.Token)
 		if err == nil {
 			a.mu.Lock()
 			a.provider, a.model, a.usage = provider, model, attempt.ID

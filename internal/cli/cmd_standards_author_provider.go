@@ -19,13 +19,13 @@ func newStandardsAuthoringRunner(rt *repoRuntime, reads projectread.Session) *re
 	environ := os.Environ()
 	if rt.cfg.Agents.Claude != nil {
 		model, _ := rt.cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierBalanced)
-		if runner, err := harness.New(harness.Options{Paths: rt.paths, Claude: *rt.cfg.Agents.Claude, Model: model, Environ: environ, Logger: logger}); err == nil {
+		if runner, err := harness.New(harness.Options{Paths: rt.paths, Claude: *rt.cfg.Agents.Claude, Model: model, Environ: environ, Logger: logger, ThinkingLogs: rt.cfg.Settings.ThinkingLogs}); err == nil {
 			providers["claude"] = runner
 		}
 	}
 	if rt.cfg.Agents.Codex != nil {
 		model, _ := rt.cfg.Tiers.ResolveModel(config.Kind("codex"), config.TierBalanced)
-		if runner, err := codex.New(codex.Options{Paths: rt.paths, Codex: *rt.cfg.Agents.Codex, Model: model, Environ: environ, Logger: logger}); err == nil {
+		if runner, err := codex.New(codex.Options{Paths: rt.paths, Codex: *rt.cfg.Agents.Codex, Model: model, Environ: environ, Logger: logger, ThinkingLogs: rt.cfg.Settings.ThinkingLogs}); err == nil {
 			providers["codex"] = runner
 		}
 	}

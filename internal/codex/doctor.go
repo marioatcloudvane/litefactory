@@ -146,6 +146,7 @@ func (r *Runner) scopedDoctorArguments(request agent.DoctorRequest, operation st
 			args = append(args, "-c", "permissions.doctor_diagnosis.filesystem."+strconv.Quote(path)+"=\"deny\"")
 		}
 	}
+	args = append(args, r.reasoningSummaryArgs()...)
 	args = append(args, overrides...)
 	return append(args, "-"), nil
 }

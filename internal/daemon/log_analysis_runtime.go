@@ -46,7 +46,7 @@ func newConversationAnalyses(s Setup, connections *projectconnection.Factory, sh
 	model, _ := s.Config.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
 	logs := &loganalysis.Service{DB: s.DB, Redactor: sharedRedactor, RunsRoot: s.Paths.RunsDir(), Executable: executable, Model: model, DisableMCP: !s.Config.Settings.MCPAutoStart, Git: gitBinary}
 	if kind, ok := s.Config.DefaultAgent(); ok && kind == config.Kind("claude") && s.Config.Agents.Claude != nil {
-		runner, e := harness.New(harness.Options{Paths: s.Paths, Claude: *s.Config.Agents.Claude, Model: model, Environ: s.Environ, Logger: s.Logger})
+		runner, e := harness.New(harness.Options{Paths: s.Paths, Claude: *s.Config.Agents.Claude, Model: model, Environ: s.Environ, Logger: s.Logger, ThinkingLogs: s.Config.Settings.ThinkingLogs})
 		if e != nil {
 			return nil, e
 		}

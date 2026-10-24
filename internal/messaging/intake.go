@@ -3,6 +3,7 @@ package messaging
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"time"
 
@@ -43,6 +44,14 @@ func (i *Intake) Poll(ctx context.Context, at time.Time) error {
 		}
 	}
 	return errors.Join(failures...)
+}
+
+// PollChannel collects one allowed channel, as Poll does for each.
+func (i *Intake) PollChannel(ctx context.Context, channel string, at time.Time) error {
+	if i.DB == nil || i.Reader == nil || !intakeID(i.Owner) || !slices.Contains(i.Channels, channel) {
+		return errors.New("natural intake unavailable")
+	}
+	return i.pollChannel(ctx, channel, at)
 }
 func (i *Intake) pollChannel(ctx context.Context, channel string, at time.Time) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
