@@ -10,10 +10,12 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Turn is ephemeral conversation context, read from the transport, never saved.
+// Turn is a permitted projection of a delivered local Ask reply. The question
+// is the stored legacy excerpt, never a reconstructed original question.
 type Turn struct {
 	Question, Project, Answer string
 	At                        time.Time
+	SourceID, Revision        string `json:",omitempty"`
 }
 
 // RepositoryReader exposes only the registered project catalog.
