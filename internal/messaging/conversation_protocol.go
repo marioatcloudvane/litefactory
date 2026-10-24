@@ -172,7 +172,7 @@ func conversationCommand(def CommandDefinition) bool {
 		return true
 	}
 	switch def.Name {
-	case "help", "health", "status", "meter", "prices", "ask", "question":
+	case "help", "health", "status", "meter", "prices", "ask", "question", "inbox":
 		return def.Effect == ReadEffect
 	case "draft", "confirm", "diagnose", "answer":
 		return def.Effect == ChangeEffect
