@@ -463,6 +463,9 @@ func (a *ConversationStandards) draftLater(ctx context.Context, r messaging.Stan
 		queued := a.Analyses.releaseAuthor(id)
 		answered := a.answerQueued(ctx, queued)
 		if err != nil {
+			if a.Analyses.Log != nil {
+				a.Analyses.Log.WarnContext(ctx, "standards author draft failed", "session", id, "error", err)
+			}
 			text := "The standards author couldn't finish the draft: " + plainFailure(err.Error()) + ". Nothing was changed. Say \"again\" and I'll ask it once more."
 			if answered != nil {
 				text += " Your answers are saved for it."
