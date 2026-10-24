@@ -33,6 +33,9 @@ func (r *factoryConversationRun) propose(ctx context.Context, inv Invocation, en
 	if p.Invocation.Command == "draft" && strings.TrimSpace(p.Invocation.Arguments["note"]) == "" {
 		return s.conversationOutcome(ctx, r.t, "completed", "Please provide the exact feature idea for the proposed draft.", r.at)
 	}
+	if standardsDirect(p.Invocation) {
+		return r.direct(ctx, p)
+	}
 	d, err := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.c.ChannelRef)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
@@ -55,7 +58,7 @@ func (r *factoryConversationRun) propose(ctx context.Context, inv Invocation, en
 		return err
 	}
 	d.Code = hex.EncodeToString(nonce[:])
-	p.Prompt = s.naturalProposal(p, d.Code)
+	p.Prompt = naturalProposal(p, d.Code, r.at)
 	if _, renderErr := presentation.RenderConversation(strings.Repeat("0", 32), nil, nil, p.Prompt); renderErr != nil {
 		return s.conversationOutcome(ctx, r.t, "completed", "The exact proposal is too large to show safely. Please shorten the request; nothing was authorized.", r.at)
 	}
@@ -97,84 +100,240 @@ func (r *factoryConversationRun) propose(ctx context.Context, inv Invocation, en
 	return s.saveConversationPresentation(ctx, r.t, "completed", nil, p.Prompt, r.at)
 }
 
+// confirm handles the plain confirmations and cancellations that need no
+// interpretation: the proposal's code, a yes in reply to the proposal, and a
+// whole-message yes, no or details while the proposal is the last thing
+// said. Anything else goes to the conversation agent, which judges whether
+// the owner confirms (confirmJudged), cancels or says something else.
 func (r *factoryConversationRun) confirm(ctx context.Context) (bool, error) {
 	s := r.s
 	d, err := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.c.ChannelRef)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return true, err
 	}
-	complete := func(text string) (bool, error) {
-		if r.savedOutcomes != "" {
-			text += "\n\nSaved action outcome:\n" + r.savedOutcomes
+	live := d.State == "awaiting_confirmation" && r.at.Before(d.ExpiresAt)
+	last := true
+	if live {
+		if last, err = r.proposalIsLast(ctx, d); err != nil {
+			return true, err
 		}
-		return true, s.conversationHandled(ctx, r.t, text, r.at)
 	}
-	if naturalCancel(r.t.Source) {
+	if naturalCancel(r.t.Source) && (!live || last) {
 		if d.State == "clarifying" || d.State == "awaiting_confirmation" {
 			if err = s.db.EndNaturalDialogue(ctx, d, "cancelled", r.at); err != nil {
 				return true, err
 			}
 		}
-		return complete("Cancelled the pending request.")
+		return true, r.complete(ctx, "Okay, I dropped it.")
 	}
-	if d.State == "awaiting_confirmation" && naturalConfirmation(r.t.Source, d, r.t.ReplyTo) {
-		if d.PromptID == "" || !r.at.Before(d.ExpiresAt) || !naturalLater(r.t.SourceID, d.SourceID) {
-			return complete("This proposal is not available for confirmation. Please request a fresh proposal.")
-		}
-		if err = conversationAccess(ctx, s.conversations.Load(), r.c.ChannelRef, r.at); err != nil {
-			return true, err
-		}
+	if live && naturalDetailsRequest(r.t.Source) {
 		var p naturalPayload
 		if err = json.Unmarshal([]byte(d.Payload), &p); err != nil {
 			return true, err
 		}
-		_, digest, e := naturalDigest(p)
-		if e != nil {
-			return true, e
-		}
-		if digest != d.Digest {
-			return complete("The proposal changed; please request it again.")
-		}
-		refusal, e := s.recheckNatural(ctx, p, r.at)
-		if e != nil {
-			return true, e
-		}
-		if refusal != "" {
-			if e = s.db.EndNaturalDialogue(ctx, d, "cancelled", r.at); e != nil {
-				return true, e
-			}
-			return complete(refusal)
-		}
-		invocation, effect, e := s.ValidateInvocation(p.Invocation)
-		if e != nil || effect != ChangeEffect {
-			return complete("This action is no longer enabled; request a fresh proposal.")
-		}
-		reply := store.ChatReply{Transport: s.transport, ChannelRef: r.c.ChannelRef, MessageID: "nl-exec:" + d.Code, Command: invocation.Command, Arguments: invocation.Arguments, CreatedAt: r.at, ResolvedRepoID: p.RepoID, ConversationTurnID: r.t.ID}
-		if err = s.db.AuthorizeConversationDialogue(ctx, r.t, d, r.t.SourceID, reply, r.at); err != nil {
-			return true, err
-		}
-		if p.PreviewID != "" {
-			link, e := s.db.GetConversationActionLink(ctx, r.t.ID)
-			if e != nil {
-				return true, e
-			}
-			link.PreviewID = p.PreviewID
-			if e = s.db.SaveConversationActionLink(ctx, r.t, link); e != nil {
-				return true, e
-			}
-		}
-
-		return true, r.execute(ctx, reply, p)
+		return true, r.complete(ctx, naturalDetails(p, d))
 	}
 	lower := strings.ToLower(strings.TrimSpace(r.t.Source))
-	if naturalConfirmationCode(r.t.Source) != "" || lower == "confirm" || strings.HasPrefix(lower, "confirm ") || (lower == "yes" && d.State == "awaiting_confirmation") || r.t.ReplyTo != "" && r.t.ReplyTo == d.PromptID && (lower == "yes" || lower == "do it") {
-		return complete("This confirmation is unknown, expired or already consumed. Request a fresh proposal; nothing further was authorized.")
+	yes := naturalYes(r.t.Source)
+	// A plain yes in reply to another message never confirms the proposal.
+	stale := d.State == "awaiting_confirmation" && r.t.ReplyTo != "" && r.t.ReplyTo != d.PromptID && yes
+	code := d.Code != "" && (lower == "confirm "+strings.ToLower(d.Code) || naturalConfirmationCode(r.t.Source) == strings.ToLower(d.Code))
+	replied := yes && r.t.ReplyTo != "" && r.t.ReplyTo == d.PromptID
+	plain := yes && r.t.ReplyTo == "" && last
+	if d.State == "awaiting_confirmation" && !stale && (code || replied || plain) {
+		return true, r.authorize(ctx, d)
+	}
+	if naturalConfirmationCode(r.t.Source) != "" || strings.HasPrefix(lower, "confirm ") || yes && (d.State == "awaiting_confirmation" && (!live || stale) || replied) {
+		if stale && live {
+			return true, r.complete(ctx, "You replied to an earlier message, so I didn't do anything. Say yes to go ahead with the latest proposal.")
+		}
+		return true, r.complete(ctx, naturalUnavailable)
 	}
 	if d.State == "authorized" || d.State == "executing" {
-		return complete("The confirmed action is already in progress. Its saved outcome will be reported when available.")
+		return true, r.complete(ctx, "That's already running; I'll tell you here when it's done.")
 	}
 	return false, nil
 }
+
+// proposalIsLast reports whether no other owner message came between the
+// proposal and this one, so a bare yes or no can only answer the proposal.
+func (r *factoryConversationRun) proposalIsLast(ctx context.Context, d store.NaturalDialogue) (bool, error) {
+	sources, err := r.s.db.ListConversationSources(ctx, r.c.ID, r.at, 8)
+	if err != nil {
+		return false, err
+	}
+	for _, source := range sources {
+		if source.SourceID != r.t.SourceID && naturalLater(source.SourceID, d.SourceID) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// complete answers the owner with a fixed factory text, after any saved
+// outcome; a turn that asked the agent is not marked as handled without it.
+func (r *factoryConversationRun) complete(ctx context.Context, text string) error {
+	if r.savedOutcomes != "" {
+		text += "\n\n" + r.savedOutcomes
+	}
+	if r.calls > 0 {
+		return r.s.conversationOutcome(ctx, r.t, "completed", text, r.at)
+	}
+	return r.s.conversationHandled(ctx, r.t, text, r.at)
+}
+
+// openProposal is the one proposal the owner can still confirm, if any: the
+// conversation agent sees it and may judge that the owner said yes to it.
+func (r *factoryConversationRun) openProposal(ctx context.Context) (*conversationOpenProposal, error) {
+	d, err := r.s.db.ReadNaturalDialogue(ctx, r.s.transport, r.s.owner, r.c.ChannelRef)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if d.State == "awaiting_confirmation" && d.PromptID != "" && r.at.Before(d.ExpiresAt) && naturalLater(r.t.SourceID, d.SourceID) {
+		var p naturalPayload
+		if err = json.Unmarshal([]byte(d.Payload), &p); err != nil {
+			return nil, err
+		}
+		return &conversationOpenProposal{Reference: d.Code, Text: naturalProposalText(p, r.at), ExpiresAt: d.ExpiresAt}, nil
+	}
+	// An expired proposal or an unanswered clarification ends with this message.
+	if d.State == "awaiting_confirmation" || d.State == "clarifying" {
+		return nil, r.s.db.EndNaturalDialogue(ctx, d, "cancelled", r.at)
+	}
+	return nil, nil
+}
+
+// confirmJudged runs the open proposal when the conversation agent judged
+// that the owner's current message confirms it. The factory checks what the
+// agent cannot vouch for: one live proposal, the agent named exactly that
+// one, and the cited words stand verbatim in the owner's current message.
+func (r *factoryConversationRun) confirmJudged(ctx context.Context, envelope ConversationEnvelope) error {
+	d, err := r.s.db.ReadNaturalDialogue(ctx, r.s.transport, r.s.owner, r.c.ChannelRef)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if envelope.Confirmation == nil || envelope.Confirmation.SourceID != r.t.SourceID || d.State != "awaiting_confirmation" || d.Code == "" || envelope.Proposal != d.Code {
+		return r.complete(ctx, naturalUnavailable)
+	}
+	if _, ok := ownerSpan(r.t.Source, *envelope.Confirmation); !ok {
+		return r.complete(ctx, naturalUnavailable)
+	}
+	return r.authorize(ctx, d)
+}
+
+// cancelJudged drops the open proposal when the agent judged that the owner
+// declined it.
+func (r *factoryConversationRun) cancelJudged(ctx context.Context, envelope ConversationEnvelope) error {
+	d, err := r.s.db.ReadNaturalDialogue(ctx, r.s.transport, r.s.owner, r.c.ChannelRef)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if d.State == "awaiting_confirmation" && d.Code != "" && envelope.Proposal == d.Code {
+		if err = r.s.db.EndNaturalDialogue(ctx, d, "cancelled", r.at); err != nil {
+			return err
+		}
+	}
+	return r.complete(ctx, "Okay, I dropped it.")
+}
+
+// authorize consumes the confirmed proposal d once and executes exactly its
+// stored request, after rechecking its digest and current targets.
+func (r *factoryConversationRun) authorize(ctx context.Context, d store.NaturalDialogue) error {
+	s := r.s
+	if d.PromptID == "" || !r.at.Before(d.ExpiresAt) || !naturalLater(r.t.SourceID, d.SourceID) {
+		return r.complete(ctx, naturalUnavailable)
+	}
+	if err := conversationAccess(ctx, s.conversations.Load(), r.c.ChannelRef, r.at); err != nil {
+		return err
+	}
+	var p naturalPayload
+	if err := json.Unmarshal([]byte(d.Payload), &p); err != nil {
+		return err
+	}
+	_, digest, err := naturalDigest(p)
+	if err != nil {
+		return err
+	}
+	if digest != d.Digest {
+		return r.complete(ctx, "The proposal changed; please request it again.")
+	}
+	refusal, err := s.recheckNatural(ctx, p, r.at)
+	if err != nil {
+		return err
+	}
+	if refusal != "" {
+		if err = s.db.EndNaturalDialogue(ctx, d, "cancelled", r.at); err != nil {
+			return err
+		}
+		return r.complete(ctx, refusal)
+	}
+	invocation, effect, err := s.ValidateInvocation(p.Invocation)
+	if err != nil || effect != ChangeEffect {
+		return r.complete(ctx, "This action is no longer enabled; request a fresh proposal.")
+	}
+	reply := store.ChatReply{Transport: s.transport, ChannelRef: r.c.ChannelRef, MessageID: "nl-exec:" + d.Code, Command: invocation.Command, Arguments: invocation.Arguments, CreatedAt: r.at, ResolvedRepoID: p.RepoID, ConversationTurnID: r.t.ID}
+	if err = s.db.AuthorizeConversationDialogue(ctx, r.t, d, r.t.SourceID, reply, r.at); err != nil {
+		return err
+	}
+	if p.PreviewID != "" {
+		link, err := s.db.GetConversationActionLink(ctx, r.t.ID)
+		if err != nil {
+			return err
+		}
+		link.PreviewID = p.PreviewID
+		if err = s.db.SaveConversationActionLink(ctx, r.t, link); err != nil {
+			return err
+		}
+	}
+	return r.execute(ctx, reply, p)
+}
+
+// standardsDirect reports the author steps that run without a confirmation:
+// they record the owner's own words or ask the author for its next draft.
+// Starting a session (it costs money), turning a draft into a proposal,
+// approval and publication stay confirmed.
+func standardsDirect(inv Invocation) bool {
+	if inv.Command != "standards-author" {
+		return false
+	}
+	switch inv.Arguments["action"] {
+	case "answer", "continue", "edit", "validate", "rebase":
+		return true
+	}
+	return false
+}
+
+// direct runs an author step without a proposal. Its outcome is told like a
+// confirmed action's, and a draft it starts is posted after that reply.
+func (r *factoryConversationRun) direct(ctx context.Context, p naturalPayload) error {
+	s := r.s
+	execution := "nl-direct:" + r.t.ID
+	if err := s.db.SaveConversationActionLink(ctx, r.t, store.ConversationActionLink{TurnID: r.t.ID, ExecutionID: execution}); err != nil {
+		return err
+	}
+	request, err := s.standardsRequest(p.Invocation, r.c.ChannelRef, r.t.SourceID, r.at)
+	if err != nil {
+		return err
+	}
+	request.OperationKey = s.transport + ":" + r.c.ChannelRef + ":" + execution
+	result, err := s.standards.Execute(ctx, request)
+	text := result.Text
+	if err != nil {
+		text = standardsError(err)
+	} else if _, err = r.saveStandardsReference(ctx, result.References); err != nil {
+		return err
+	}
+	if text, err = s.Protect(ctx, text); err != nil {
+		return err
+	}
+	return r.narrate(ctx, text)
+}
+
+// naturalUnavailable answers a confirmation with nothing left to confirm.
+const naturalUnavailable = "That proposal has expired or was already used, so I didn't do anything. Ask me again and I'll make a fresh one."
 
 func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatReply, p naturalPayload) error {
 	s := r.s
@@ -191,9 +350,30 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 		return err
 	}
 	text := reply.ReplyText
+	// plain is the owner's view of the outcome when it differs from the saved
+	// text, which keeps exact operation references for storage and details.
+	plain := ""
 	executionCtx, source := presentation.WithAssessment(ctx)
 	if text == "" {
 		switch reply.Command {
+		case "standards-author", "standards-proposal", "standards-exception", "standards-analysis":
+			request, e := s.standardsRequest(p.Invocation, r.c.ChannelRef, r.t.SourceID, r.at)
+			request.OperationKey = s.transport + ":" + r.c.ChannelRef + ":" + reply.MessageID
+			if e != nil {
+				return e
+			}
+			result, e := s.standards.Execute(executionCtx, request)
+			if e != nil {
+				text = standardsError(e)
+			} else {
+				text, plain = standardsDisplay(result, request.OperationKey), result.Text
+				if result.Interrupted {
+					reply.OutcomeStatus = string(presentation.Uncertain)
+				}
+				if _, e = r.saveStandardsReference(ctx, result.References); e != nil {
+					return e
+				}
+			}
 		case "draft":
 			var err error
 			text, err = s.conversationDraft(executionCtx, r.c, r.b, r.t, p.Invocation, r.at, r.invoke)
@@ -248,7 +428,7 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 				if errors.Is(err, errDeferredDiagnosis) {
 					// Only the existing diagnosis worker performs this queued operation. Its
 					// saved completion is supplied at a later ordinary session step.
-					return s.conversationOutcome(ctx, r.t, "completed", "The confirmed diagnosis was queued. Its saved result will be supplied at the next eligible conversation step; any repair remains subject to issue review.", r.at)
+					return s.conversationOutcome(ctx, r.t, "completed", "I've queued the diagnosis. I'll tell you what it finds the next time we talk; any repair still goes through review on the issue.", r.at)
 				}
 				if err != nil {
 					text = "The confirmed action was interrupted after execution began. Its effect is uncertain; check the target before requesting it again."
@@ -279,9 +459,17 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 	if reply.Command == "draft" {
 		return s.conversationOutcome(cleanup, r.t, "completed", protected, r.at)
 	}
-	return r.narrate(ctx, protected)
+	if plain == "" || protected != text {
+		return r.narrate(ctx, protected)
+	}
+	if plain, err = s.Protect(cleanup, plain); err != nil {
+		return err
+	}
+	return r.narrate(ctx, plain)
 }
 
+// narrate tells the owner the outcome in the conversation's voice: one short
+// message. If the narration fails, the outcome itself is the message.
 func (r *factoryConversationRun) narrate(ctx context.Context, outcome string) error {
 	instructions, runErr := r.s.restoreConversationInstructions(ctx, r.c.ID, r.at)
 	var prompt factoryConversationPrompt
@@ -294,15 +482,14 @@ func (r *factoryConversationRun) narrate(ctx context.Context, outcome string) er
 		}
 		response, runErr = r.invoke(ctx, string(raw))
 	}
-	blocks := []presentation.AnswerBlock{{Text: "Saved action outcome:\n" + outcome}}
+	blocks := []presentation.AnswerBlock{{Text: outcome}}
 	if runErr == nil {
 		envelope, _, decodeErr := DecodeConversationEnvelope(response, ConversationDecodeRequest{Turns: prompt.OwnerSources, Commands: prompt.Commands})
 		if decodeErr == nil && envelope.Kind == "answer" {
-			explanation := envelope.Blocks
-			if len(explanation) == 0 {
-				explanation = []presentation.AnswerBlock{{Text: envelope.Text}}
+			blocks = envelope.Blocks
+			if len(blocks) == 0 {
+				blocks = []presentation.AnswerBlock{{Text: envelope.Text}}
 			}
-			blocks = append(explanation, blocks...)
 		}
 	}
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

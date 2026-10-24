@@ -27,11 +27,15 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
+	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/secrets"
+	"github.com/cloudvane/litefactory/internal/standards"
+	"github.com/cloudvane/litefactory/internal/standardsexceptions"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -46,6 +50,9 @@ import (
 // lifetime. Saved project versions resolve their own external references once
 // when loaded; refresh explicitly verifies the same retained actor.
 type Setup struct {
+	// BuildVersion identifies the running process; FactorySource is set only when known.
+	BuildVersion  string
+	FactorySource string
 	// ConnectionSecrets resolves project-specific external credential references.
 	ConnectionSecrets secrets.Resolver
 	// ProjectStartup binds a fallback startup credential to its saved origin.
@@ -579,9 +586,39 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	mcpRuntime.ImplementStatus = status
+	analyses, err := newConversationAnalyses(s, connections, sharedRedactor, gitBinary)
+	if err != nil {
+		status.Close()
+		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
+		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
+	}
+	if chatOpts != nil && chatOpts.Conversations != nil {
+		instructions, captureErr := instructionpackage.New(ctx, s.Paths)
+		if captureErr != nil {
+			return nil, Startup{}, errors.Join(captureErr, lock.Close())
+		}
+		providers := make(map[string]response.ChatRunner)
+		for kind, runner := range runners {
+			if native, ok := runner.(response.ChatRunner); ok {
+				providers[string(kind)] = native
+			}
+		}
+		book := &standards.Service{Store: s.DB, OwnerID: identities.OwnerUserID}
+		reader := projectread.Reader{DB: s.DB, Git: gitBinary, Redactor: sharedRedactor}
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			return nil, Startup{}, errors.Join(executableErr, lock.Close())
+		}
+		reads := projectread.Session{}
+		if s.Config.Settings.MCPAutoStart {
+			reads = projectread.Session{Reader: reader, RunsRoot: s.Paths.RunsDir(), Executable: executable, Prepare: projectSecrets(s.DB, connections)}
+		}
+		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Reads: reads}}
+		chatOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Analyses: analyses}
+	}
 	daemon, err := New(Options{
 		Paths:      s.Paths,
-		Doctor:     &doctor.Service{Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
+		Doctor:     &doctor.Service{BuildVersion: s.BuildVersion, FactorySource: s.FactorySource, Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
 		Bug:        bugRuntime,
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{

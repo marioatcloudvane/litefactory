@@ -194,6 +194,8 @@ func EnsureSettings(path, home string) (bool, error) {
 // writeFileAtomic writes data to path via a same-directory temporary file and a
 // rename. The temporary file is removed on every failure path, so a full disk
 // does not accumulate litter next to the real file.
+//
+//nolint:unparam // Callers supply their separately owned metadata and settings permission contracts.
 func writeFileAtomic(path string, data []byte, mode fs.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, settingsDirMode); err != nil {

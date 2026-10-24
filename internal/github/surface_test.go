@@ -85,6 +85,8 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"RetirePlanStory",            // PATCH verified direct child closed with not_planned reason
 		"SetStoryState",              // PATCH verified managed story state and reason
 		"UpdateIssue",                // PATCH …/issues/{n}, full title and body
+		"ReadDriftDiscussion",        // Explicit issue/PR body with bounded HTTP envelope.
+		"ReadDriftComments",          // One bounded issue-comment page; no review threads.
 		"ReadOpenIssues",             // one bounded newest-updated page for chat answers
 		"GetIssue",                   // GET  /repos/{o}/{r}/issues/{n}
 		"ListCommentedIssues",        // GET  /repos/{o}/{r}/issues/comments?since=
@@ -92,7 +94,10 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"ListRepositoryCommentsPage", // bounded doctor routing metadata; no issue history expansion
 		"ListCommentsPage",           // GET one bounded /repos/{o}/{r}/issues/{n}/comments page for observation
 		"GetDeliveryHead",
-		"GetDeliveryCommit", // GET exact commit and ordered parents for Bug integration
+		"ListAnalysisPRFiles",        // GET bounded PR file observations
+		"ListAnalysisReviewComments", // GET bounded PR review discussion
+		"GetAnalysisCommit",          // GET bounded exact commit evidence
+		"GetDeliveryCommit",          // GET exact commit and ordered parents for Bug integration
 		"ListDeliveryPRs",
 		"GetDeliveryPR",
 		"CreateDeliveryPR",
@@ -111,6 +116,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"ListSubIssues",      // GET  /repos/{o}/{r}/issues/{n}/sub_issues
 		"PostComment",        // POST /repos/{o}/{r}/issues/{n}/comments
 		"RemoveIssueLabel",   // DELETE …/issues/{n}/labels/{name}
+		"SearchIssues",       // GET /search/issues, one bounded page for log analysis
 		// CreateSubIssues calls no endpoint of its own: it is ListSubIssues
 		// once, then CreateIssue and AddSubIssue per story that needs them.
 		// It is pinned all the same, because "file a plan on the forge" is a

@@ -164,6 +164,11 @@ func (f *coordinatorSlotFixture) releaseWorkers() {
 // with the graph retained the way a captured launch retains it.
 func (f *coordinatorSlotFixture) coordinator(t *testing.T, issue int, node string, due time.Time) store.GraphDispatch {
 	t.Helper()
+	return f.coordinatorWithGraph(t, issue, node, due, coordinatorSlotGraph)
+}
+
+func (f *coordinatorSlotFixture) coordinatorWithGraph(t *testing.T, issue int, node string, due time.Time, graph string) store.GraphDispatch {
+	t.Helper()
 	ctx := t.Context()
 	session, err := f.db.GetOrCreateSession(ctx, f.repo, issue)
 	if err != nil {
@@ -175,7 +180,7 @@ func (f *coordinatorSlotFixture) coordinator(t *testing.T, issue int, node strin
 	if _, _, err = f.db.BootstrapWatermark(ctx, session.ID, 0); err != nil {
 		t.Fatal(err)
 	}
-	files, err := json.Marshal(map[string][]byte{"implement.dot": []byte(coordinatorSlotGraph)})
+	files, err := json.Marshal(map[string][]byte{"implement.dot": []byte(graph)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,11 +222,19 @@ func (f *coordinatorSlotFixture) stories(t *testing.T, n int, due time.Time) []s
 		if err = f.db.SetImplementWorkerSession(ctx, parent, 1, seed.Key, session.ID, f.now); err != nil {
 			t.Fatal(err)
 		}
-		instance, err := f.db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: f.pin.ID, CurrentNode: "await", StartedAt: f.now})
+
+		if _, err = f.db.AdmitWorkflowPath(ctx, session.ID, "graph"); err != nil {
+			t.Fatal(err)
+		}
+		files, err := json.Marshal(map[string][]byte{"implement.dot": []byte(coordinatorSlotGraph)})
 		if err != nil {
 			t.Fatal(err)
 		}
-		dispatch, err := f.db.ParkGraphInstance(ctx, instance.ID, "await", due.Add(time.Duration(i)*time.Millisecond), due)
+		admitted, err := f.db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: "implement", SessionID: session.ID, TriggerID: 22, DefinitionID: f.pin.ID, Start: "await", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: files})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dispatch, err := f.db.ParkCapturedGraphInstanceAfter(ctx, admitted.Instance.ID, "await", due.Add(time.Duration(i)*time.Millisecond), due, 0, admitted.LaunchID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -338,7 +351,7 @@ func TestCoordinatorStepIsSelectedPastBlockedStoryDispatches(t *testing.T) {
 			t.Fatalf("story dispatch %d is %s, want pending", story.ID, got)
 		}
 	}
-	if !strings.Contains(f.logs.String(), `"reason":"run pool full"`) {
+	if !strings.Contains(f.logs.String(), `"reason":"temporary capacity deferral: pool=shared`) {
 		t.Fatalf("a story deferral names its reason:\n%s", f.logs)
 	}
 	f.settle(t)
@@ -366,7 +379,7 @@ func TestCoordinatorAgentStageNeverTakesTheReservedSlot(t *testing.T) {
 	if got := f.status(t, a); got != "pending" {
 		t.Fatalf("A is %s, want pending", got)
 	}
-	if !strings.Contains(f.logs.String(), fmt.Sprintf(`"msg":"graph step deferred for capacity","repo":"acme/api","task":"github:acme/api#1","session_id":%d,"graph_dispatch_id":%d,"graph_node":"sync_start_resolve","reason":"run pool full"`, a.SessionID, a.ID)) {
+	if !strings.Contains(f.logs.String(), fmt.Sprintf(`"msg":"graph step deferred for capacity","repo":"acme/api","task":"github:acme/api#1","session_id":%d,"graph_dispatch_id":%d,"graph_node":"sync_start_resolve","reason":"temporary capacity deferral: pool=shared`, a.SessionID, a.ID)) {
 		t.Fatalf("A's deferral is logged with its reason:\n%s", f.logs)
 	}
 	if len(f.d.coordinator.slots) != 1 {
@@ -420,7 +433,7 @@ func TestCoordinatorDeferralForCapacityIsLogged(t *testing.T) {
 	if result := f.dispatch(t); result.Deferred != 1 || result.Dispatched != 0 {
 		t.Fatalf("deferred: %+v", result)
 	}
-	want := fmt.Sprintf(`"level":"INFO","msg":"graph step deferred for capacity","repo":"acme/api","task":"github:acme/api#1","session_id":%d,"graph_dispatch_id":%d,"graph_node":"await","reason":"reserved coordinator slot and run pool full"`, dispatch.SessionID, dispatch.ID)
+	want := fmt.Sprintf(`"level":"INFO","msg":"graph step deferred for capacity","repo":"acme/api","task":"github:acme/api#1","session_id":%d,"graph_dispatch_id":%d,"graph_node":"await","reason":"temporary capacity deferral: pool=shared`, dispatch.SessionID, dispatch.ID)
 	if !strings.Contains(f.logs.String(), want) {
 		t.Fatalf("missing %s in:\n%s", want, f.logs)
 	}
@@ -463,4 +476,34 @@ func TestReservedSlotWorkerLeavesAnOwedAgentStageToTheTick(t *testing.T) {
 		}
 		f.settle(t)
 	})
+}
+
+func TestWeightedCoordinatorAdmissionFallsBackAtFullCost(t *testing.T) {
+	f := newCoordinatorSlotFixture(t)
+	f.d.pool = newPool(3)
+	graph := strings.Replace(coordinatorSlotGraph, "await [lf_action=", `await [lf_slot_budget="3",lf_action=`, 1)
+	dispatch := f.coordinatorWithGraph(t, 21, "await", f.now, graph)
+	reservation, reason, err := f.d.graphStepSlot(t.Context(), dispatch)
+	if err != nil || reservation == nil {
+		t.Fatalf("full shared admission: %s %v", reason, err)
+	}
+	defer reservation.Release()
+	if reservation.pool != f.d.pool {
+		t.Fatal("oversized bookkeeping entered reserved lane")
+	}
+	if used, total := reservation.Capacity(); used != 3 || total != 3 {
+		t.Fatalf("capacity=%d/%d", used, total)
+	}
+	if used, _ := f.d.coordinator.capacity(); used != 0 {
+		t.Fatalf("reserved capacity used=%d", used)
+	}
+	cheap := f.coordinator(t, 22, "await", f.now)
+	another, reason, err := f.d.graphStepSlot(t.Context(), cheap)
+	if err != nil || another == nil {
+		t.Fatalf("cheap reserved work: %s %v", reason, err)
+	}
+	defer another.Release()
+	if another.pool != f.d.coordinator {
+		t.Fatal("cheap bookkeeping did not use its reserved lane")
+	}
 }

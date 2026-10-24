@@ -125,3 +125,5 @@ A follow-up "repair it as you suggested". First finding, shortened:
 # Result
 
 Return the diagnosis only through `communication_preflight`, `communication_submit` and the matching `communication_receipt`. Fix every preflight diagnostic and preflight again. Terminal prose is not a result. Keep the request identity when a reply is lost and recover it with `communication_receipt` before retrying. Diagnosis presents a proposal; only the owner's `/doctor apply` authorizes a repair.
+
+Findings remain in authored order. The renderer shows explanations and uncertainty as prose, collapses evidence, and groups coverage gaps. Set `withdraw_proposal: true` to withdraw a stale current proposal; do not supply a replacement proposal at the same time. An empty proposal without withdrawal keeps the current proposal.

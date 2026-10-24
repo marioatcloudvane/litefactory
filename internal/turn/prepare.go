@@ -25,6 +25,9 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
+	// standardsRole names the role whose graph node grants it the optional
+	// standards read; empty grants nothing. Nothing requires its use.
+	standardsRole  string
 	stackGuidance  string
 	stackSetup     bool
 	mcpRuntime     *MCPRuntime

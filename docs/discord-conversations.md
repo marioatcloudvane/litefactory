@@ -122,3 +122,36 @@ conversation answers wait. Remote duplicates remain possible. Permanent refusal
 or access loss preserves pending parts and reports a channel health reason.
 Completed answer details expire 24 hours after the entire answer is delivered;
 pending answer evidence and pending exports survive outages.
+
+## Standards in the owner conversation
+
+Ask what standards operations are available, then ask to start or inspect a saved
+standard draft. Authoring questions have saved session, version and question
+references. Answers and edits use a preview and a separate confirmation; answering
+a question never approves the resulting proposal. The same saved work is visible
+through the standards CLI.
+
+Ask to see the review of one exact proposal version to read its before and after.
+Approving it is an ordinary proposal: the factory shows the exact proposal id,
+version and digest, and your confirmation (a reply of yes, or the confirmation
+code) approves exactly that version. Publication is a separate request and
+confirmation for the approved proposal. Its result identifies the published book
+revision.
+
+After an interrupted reply, inspect the saved operation or draft before trying
+again. A committed operation can succeed even when delivery fails; recovery uses
+its original receipt. Interrupted generation requires explicit continuation.
+Operation receipts survive ordinary restart and delivered chat-body cleanup. Missing references never silently select the latest proposal.
+SQLite uses NORMAL synchronization: this recovery covers ordinary process
+interruption, not power loss, storage loss or administrator changes.
+
+Ask to analyze a project's run logs, for example "analyze acme/api logs for the
+last 7 days". The factory proposes the exact project and UTC window; your
+confirmation starts the analysis in the background. One analysis per project runs
+at a time. When it finishes, its summary, proposed standards and findings are
+posted in the conversation with the analysis ID, and findings show whether they
+were filed. Ask for a dry run to see what would be filed without filing anything.
+A failure posts its reason.
+Proposed standards stay unapproved until you review them. Ask to list recent
+analyses or show one by ID. An analysis interrupted by a restart is recorded as
+incomplete and is not resumed. Analyses never start by themselves.

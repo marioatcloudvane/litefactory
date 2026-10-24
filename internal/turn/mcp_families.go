@@ -166,7 +166,7 @@ func (d *ToolDispatcher) dispatchFamily(ctx context.Context, requestID string, c
 	// The advisory activity read observes the current display on every call,
 	// including an identical retry, rather than replaying a stale receipt. It
 	// still records a durable receipted outcome via the terminal Finish below.
-	if !first && call.Name != "activity_get" {
+	if !first && call.Name != "activity_get" && !standardsTool(call.Name) {
 		if call.Name == "activity_update" {
 			if activity, ok := handler.Owner.(*ActivityService); ok {
 				recovered, result, err := activity.recoverUpdate(ctx, requestID, call.Arguments)
@@ -217,4 +217,10 @@ func malformedFamilyCall(payload []byte) submission.ToolCall {
 		return submission.ToolCall{}
 	}
 	return call
+}
+
+// Standards retries reauthorize through the guard and reverify the retained
+// domain data. Receipts retain references and outcomes, never standard bodies.
+func standardsTool(name string) bool {
+	return name == "standards_read" || name == "standards_categories"
 }

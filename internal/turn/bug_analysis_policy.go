@@ -19,6 +19,7 @@ func BugWorkflowPolicy() WorkflowPolicy {
 	return WorkflowPolicy{
 		Workflow:                  agent.WorkflowBug,
 		AcceptAfterProcessFailure: true,
+		Questions:                 true,
 		Respond: func(r agentresult.Result) (string, error) {
 			if r.Payload.Bug == nil || r.Payload.Bug.Response == "" {
 				return "", errors.New("bug result has no validated response")
@@ -77,6 +78,9 @@ func renderBugAnalysis(revision int64, digest string, a buganalysis.BugAnalysis)
 	}
 	bullets(&b, "Decisions", a.Decisions)
 	bullets(&b, "Assumptions", a.Assumptions)
+	if line := preventionLine(a.Prevention); line != "" {
+		fmt.Fprintf(&b, "\n**Prevention:** %s\n", line)
+	}
 	if len(a.Questions) > 0 {
 		b.WriteString("\n### Open questions\n\n")
 		for _, q := range a.Questions {
@@ -89,6 +93,22 @@ func renderBugAnalysis(revision int64, digest string, a buganalysis.BugAnalysis)
 	}
 	fmt.Fprintf(&b, "\n<sub>Recorded analysis `%s`.</sub>\n", short)
 	return b.String()
+}
+
+// preventionLine says in one line what rule would have prevented the bug, or
+// why it is a one-off, in the analyst's own words.
+func preventionLine(p *buganalysis.BugPrevention) string {
+	if p == nil {
+		return ""
+	}
+	note := oneLine(p.Note)
+	switch p.Kind {
+	case buganalysis.PreventionMissingStandard:
+		return "a rule would have caught this. " + note
+	case buganalysis.PreventionOneOff:
+		return "a one-off. " + note
+	}
+	return note
 }
 
 // bugAnalysisLead is what the owner scans first: whether the bug was

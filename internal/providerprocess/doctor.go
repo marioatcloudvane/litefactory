@@ -103,7 +103,29 @@ func RunChatProcess(ctx context.Context, binary string, args, env []string, requ
 	return runScopedDoctorProcess(ctx, binary, args, env, agent.DoctorRequest{Prompt: request.Prompt, WorkingDirectory: request.WorkingDirectory}, timeout, observe, nil, nil)
 }
 
+// RunDriftProcess is bounded transport; the provider owns restricted admission.
+func RunDriftProcess(ctx context.Context, binary string, args, env []string, request agent.DriftRequest, timeout time.Duration, observe func([]byte)) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	return runScopedDoctorProcess(ctx, binary, args, env, request.Invocation, timeout, observe, nil, nil)
+}
+
 func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, timeout time.Duration, observe func([]byte), failure FailureObserver, cancelProcess func(int) error) error {
+	return runScopedProcessObserved(ctx, binary, args, env, request.Prompt, request.WorkingDirectory, timeout, observe, failure, cancelProcess)
+}
+
+// runScopedProcess owns bounded I/O and process-group cancellation without a
+// domain request or authority. The public entry point validates its own contract.
+func runScopedProcess(ctx context.Context, binary string, args, env []string, prompt, directory string, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) error {
+	var cancel func(int) error
+	if len(cancelProcess) > 0 {
+		cancel = cancelProcess[0]
+	}
+	return runScopedProcessObserved(ctx, binary, args, env, prompt, directory, timeout, observe, nil, cancel)
+}
+
+func runScopedProcessObserved(ctx context.Context, binary string, args, env []string, prompt, directory string, timeout time.Duration, observe func([]byte), failure FailureObserver, cancelProcess func(int) error) error {
 	if timeout <= 0 {
 		return errors.New("doctor provider timeout must be positive")
 	}
@@ -111,9 +133,9 @@ func runScopedDoctorProcess(ctx context.Context, binary string, args, env []stri
 	defer cancel()
 	//nolint:gosec // Resolved provider executable and adapter-owned arguments; owner text is stdin only.
 	cmd := exec.CommandContext(runCtx, binary, args...)
-	cmd.Dir = request.WorkingDirectory
+	cmd.Dir = directory
 	cmd.Env = env
-	cmd.Stdin = strings.NewReader(request.Prompt)
+	cmd.Stdin = strings.NewReader(prompt)
 	output := &doctorLines{observe: observe, cancel: cancel}
 	cmd.Stdout = output
 	var stderr *stderrTail
@@ -206,11 +228,14 @@ func (s *doctorLines) finish() error {
 // DoctorEnvironment discards ambient provider settings, factory/forge secrets,
 // proxies and user paths. A provider may explicitly append its own auth secret;
 // neither the result broker nor prepared context receives that credential.
+// USER and LOGNAME stay: Claude names its keychain login after the user, and
+// without them it keeps a separate login under "unknown" that workflow runs
+// and an owner's /login never refresh.
 func DoctorEnvironment(parent []string, privateHome string) []string {
 	result := []string{"HOME=" + privateHome, "TMPDIR=" + privateHome}
 	for _, item := range parent {
 		key, _, ok := strings.Cut(item, "=")
-		if ok && (key == "PATH" || key == "LANG" || key == "LC_ALL") {
+		if ok && (key == "PATH" || key == "LANG" || key == "LC_ALL" || key == "USER" || key == "LOGNAME") {
 			result = append(result, item)
 		}
 	}

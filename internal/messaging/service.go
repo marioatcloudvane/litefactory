@@ -150,6 +150,7 @@ type Service struct {
 	drafter          *feature.Drafter
 	confirmer        FeatureConfirmer
 	conversations    atomic.Pointer[conversationRuntime]
+	standards        StandardsOperations
 }
 
 // New copies admission rules and registers help, health, status and details.

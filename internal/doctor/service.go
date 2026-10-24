@@ -37,6 +37,9 @@ var ErrIsolationUnavailable = errors.New("doctor provider isolation is not verif
 // Service shares durable history and control between CLI and future forge intake.
 // No provider is enabled until its tool isolation has authentic evidence.
 type Service struct {
+	// BuildVersion identifies the running process; FactorySource is set only when known.
+	BuildVersion      string
+	FactorySource     string
 	Instructions      instructionpackage.CaptureSource
 	Logger            *slog.Logger
 	RestartRoute      RestartRoute

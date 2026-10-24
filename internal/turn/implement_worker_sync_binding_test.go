@@ -25,19 +25,42 @@ func workerSyncBindingFixture(t *testing.T) (*fixture, *implementRuntime, Activi
 	profile, err := graphexec.ParseProfile(raw)
 	mustProgress(t, err)
 	definition := &teamsource.WorkflowDefinition{Profile: profile, Digest: strings.Repeat("a", 64)}
-	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: profile.Team, Mode: "implement", ProfileVersion: profile.ProfileVersion, Path: "fixture/implement.dot", Digest: profile.Digest, TeamSnapshotDigest: definition.Digest, CreatedAt: time.Now()})
+	// Definitions are shared by topology: the pin carries the team snapshot of
+	// whichever session created it first, not this session's.
+	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: profile.Team, Mode: "implement", ProfileVersion: profile.ProfileVersion, Path: "fixture/implement.dot", Digest: profile.Digest, TeamSnapshotDigest: strings.Repeat("b", 64), CreatedAt: time.Now()})
 	mustProgress(t, err)
 	gate, ok := graphexec.ImplementWorkerSyncNode(profile)
 	if !ok {
 		t.Fatal("worker sync gate missing")
 	}
-	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: pin.ID, CurrentNode: gate.Name, StartedAt: time.Now()})
+	topology, err := graphexec.SemanticDigest(profile)
 	mustProgress(t, err)
+	files, err := json.Marshal(definition.Files)
+	mustProgress(t, err)
+	_, err = f.db.AdmitWorkflowPath(t.Context(), f.session.ID, "graph")
+	mustProgress(t, err)
+	admission, err := f.db.AdmitWorkflowLaunch(t.Context(), store.WorkflowLaunch{Mode: "implement", SessionID: f.session.ID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: gate.Name, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin)})
+	mustProgress(t, err)
+	instance := admission.Instance
 	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: gate.Name, StartedAt: time.Now()})
 	mustProgress(t, err)
 	row := implementWorkerRow(t, f)
 	rt := &implementRuntime{opts: f.opts, req: req, worker: &row, definition: definition}
 	return f, rt, ActivityRequest{Workflow: agent.WorkflowImplement, Mode: agent.ModeImplement, Node: gate.Name, InstanceID: instance.ID, NodeAttemptID: attempt.ID}
+}
+
+// A story shares its parent's graph definition, whose team snapshot is the
+// first session's; its own retained capture decides, and a capture of other
+// content is still refused.
+func TestImplementWorkerSyncChecksTheAttemptsOwnCapture(t *testing.T) {
+	_, rt, request := workerSyncBindingFixture(t)
+	mustProgress(t, rt.verifyWorkerSyncInvocation(t.Context(), request))
+	changed := *rt.definition
+	changed.Digest = strings.Repeat("c", 64)
+	rt.definition = &changed
+	if err := rt.verifyWorkerSyncInvocation(t.Context(), request); err == nil {
+		t.Fatal("worker sync accepted a definition that differs from its retained capture")
+	}
 }
 
 func TestImplementWorkerSyncRejectsForeignIdentityBeforeCheckoutEffects(t *testing.T) {

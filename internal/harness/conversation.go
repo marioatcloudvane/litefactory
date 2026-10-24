@@ -23,7 +23,7 @@ func (r *Runner) ConversationIsolation(ctx context.Context) (string, error) {
 		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
 	}
-	for _, flag := range []string{"--tools", "--safe-mode", "--restricted", "--safe-mode", "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "--session-id", "--resume", "--system-prompt", "--settings", "--agents", "--no-chrome"} {
+	for _, flag := range []string{"--tools", "--restricted", "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "--session-id", "--resume", "--system-prompt", "--settings", "--agents", "--no-chrome"} {
 		if !strings.Contains(help, flag) {
 			return "", fmt.Errorf("%w: missing required flag %s", agent.ErrConversationIsolation, flag)
 		}
@@ -177,7 +177,7 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 }
 
 func conversationArguments(request agent.ConversationRequest, mcp string) []string {
-	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--safe-mode", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcp, "--agents", "{}", "--settings", `{"disableAllHooks":true}`, "--system-prompt", request.NativeInstructions, "--model", request.Model}
+	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcp, "--agents", "{}", "--settings", `{"disableAllHooks":true}`, "--system-prompt", request.NativeInstructions, "--model", request.Model}
 	if request.Effort != "" {
 		args = append(args, "--effort", request.Effort)
 	}
@@ -224,6 +224,7 @@ func adoptLegacyConversationSession(legacyHome, configDir, cwd, session string) 
 	if !info.Mode().IsRegular() {
 		return errors.New("invalid legacy conversation session")
 	}
+	//nolint:gosec // Factory-owned legacy home and project key; session is a validated identity and source is a regular file.
 	data, err := os.ReadFile(source)
 	if err != nil {
 		return err
@@ -232,6 +233,7 @@ func adoptLegacyConversationSession(legacyHome, configDir, cwd, session string) 
 		return err
 	}
 	partial := target + ".adopt"
+	//nolint:gosec // Destination is derived from the factory config directory and validated session identity, never transcript content.
 	if err = os.WriteFile(partial, data, 0o600); err != nil {
 		return err
 	}

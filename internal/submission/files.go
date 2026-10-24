@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,12 +113,30 @@ func privateCreate(root *os.Root, name string, data []byte) error {
 
 func descriptorSocketMatches(d descriptor, info fs.FileInfo) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	return ok && d.SocketDevice == int64(stat.Dev) && d.SocketInode == stat.Ino
+	if !ok {
+		return false
+	}
+	dev, ok := deviceNumber(stat.Dev)
+	return ok && d.SocketDevice == dev && d.SocketInode == stat.Ino
 }
 func socketDescriptor(info fs.FileInfo, capability string) (descriptor, error) {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return descriptor{}, errors.New("submission: socket identity unavailable")
 	}
-	return descriptor{Version: 1, Socket: "s", Capability: capability, SocketDevice: int64(stat.Dev), SocketInode: stat.Ino}, nil
+	dev, ok := deviceNumber(stat.Dev)
+	if !ok {
+		return descriptor{}, errors.New("submission: socket identity unavailable")
+	}
+	return descriptor{Version: 1, Socket: "s", Capability: capability, SocketDevice: dev, SocketInode: stat.Ino}, nil
+}
+
+// deviceNumber widens a stat device number to the descriptor's int64. Dev is
+// signed on some platforms and unsigned on others; a value outside int64 is
+// reported as not representable instead of wrapping.
+func deviceNumber[T int32 | int64 | uint32 | uint64](dev T) (int64, bool) {
+	if dev < 0 || uint64(dev) > math.MaxInt64 {
+		return 0, false
+	}
+	return int64(dev), true
 }

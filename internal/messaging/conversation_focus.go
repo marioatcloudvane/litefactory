@@ -30,7 +30,7 @@ func (r *factoryConversationRun) loadFocus(ctx context.Context) (*conversationFo
 	}
 	var args map[string]string
 	if json.Unmarshal([]byte(saved.Content), &args) != nil || args["project"] == "" {
-		return nil, nil
+		return nil, nil //nolint:nilerr // Invalid retained focus is deliberately ignored.
 	}
 	repoID, _ := strconv.ParseInt(saved.Repository, 10, 64)
 	if repoID <= 0 {
@@ -38,7 +38,7 @@ func (r *factoryConversationRun) loadFocus(ctx context.Context) (*conversationFo
 	}
 	repo, err := r.s.db.GetRepo(ctx, repoID)
 	if err != nil || repo.Slug() != args["project"] {
-		return nil, nil
+		return nil, nil //nolint:nilerr // A missing or unavailable project cannot supply conversational focus.
 	}
 	issue := args["task"]
 	if issue == "" {

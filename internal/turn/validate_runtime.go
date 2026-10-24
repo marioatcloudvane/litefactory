@@ -489,7 +489,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		return nil, err
 	}
 	var pathErr error
-	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{SessionID: h.session.ID, SegmentID: segment.ID, Mode: string(agent.ModeValidate), Agent: segment.Agent, TriggerCommentID: trigger, LogPath: func(ordinal int) string {
+	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{Prelaunch: true, SessionID: h.session.ID, SegmentID: segment.ID, Mode: string(agent.ModeValidate), Agent: segment.Agent, TriggerCommentID: trigger, LogPath: func(ordinal int) string {
 		path, err := naming.RunLogPath(opts.Paths.Home(), h.ref, ordinal)
 		pathErr = err
 		return path
@@ -513,6 +513,11 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		err = errors.Join(err, finishErr)
 	}()
 
+	started, err := opts.DB.StartRun(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	run = started
 	request := agent.Request{
 		Delivery:       delivery,
 		Ref:            h.ref,
@@ -537,7 +542,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		prompt += policy.Guidance
 	}
 	request.Prompt = prompt
-	prep := &preparation{mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
+	prep := &preparation{standardsRole: vr.StandardsRole, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
 	w := &researchWorkflow{opts: opts, req: nodeReq, policy: policy, prep: prep}
 	scope := cloneResultContext(vr.Scope)
 	route, err := w.openResultRoute(ctx, &request, &resultOverride{

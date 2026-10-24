@@ -48,12 +48,12 @@ func (m *NativeModel) Answer(ctx context.Context, repoID int64, prompt string) (
 	if m.Meter == nil {
 		return nil, ErrUnavailable
 	}
-	return m.run(ctx, prompt, func(ctx context.Context, provider string) (store.MeterAttempt, error) {
+	return m.run(ctx, prompt, nil, func(ctx context.Context, provider, _ string) (store.MeterAttempt, error) {
 		return m.Meter.StartChatMeterAttempt(ctx, repoID, provider)
 	})
 }
 
-func (m *NativeModel) run(ctx context.Context, prompt string, start func(context.Context, string) (store.MeterAttempt, error)) (_ []byte, err error) {
+func (m *NativeModel) run(ctx context.Context, prompt string, launch *agent.MCPLaunchSpec, start func(context.Context, string, string) (store.MeterAttempt, error)) (_ []byte, err error) {
 	if m.Config == nil || m.Meter == nil {
 		return nil, ErrUnavailable
 	}
@@ -85,7 +85,7 @@ func (m *NativeModel) run(ctx context.Context, prompt string, start func(context
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
-	attempt, err := start(ctx, provider)
+	attempt, err := start(ctx, provider, model)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (m *NativeModel) run(ctx context.Context, prompt string, start func(context
 		}
 		return err
 	}}
-	result, runErr := runner.RunChat(ctx, agent.ChatRequest{Prompt: prompt, Model: model, WorkingDirectory: dir, Usage: capture})
+	result, runErr := runner.RunChat(ctx, agent.ChatRequest{Prompt: prompt, Model: model, WorkingDirectory: dir, Usage: capture, MCPLaunch: launch})
 	coverage := agent.UsageCoverage{Status: agent.CollectionUnknown, Diagnostics: []string{"chat_provider_usage_not_observed"}}
 	if result.Usage != nil {
 		coverage = result.Usage.Clone()

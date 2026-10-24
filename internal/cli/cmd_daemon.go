@@ -215,6 +215,7 @@ func runDaemonRunWithRecovery(ctx context.Context, env *Env, repairID, recoveryT
 		host.Recovery = &store.DoctorRestart{RepairID: repairID, Token: recoveryToken}
 	}
 	loop, startup, err := daemon.Open(ctx, daemon.Setup{
+		BuildVersion:      env.Version,
 		DoctorHost:        host,
 		ConnectionSecrets: secrets.Resolver{Keychain: env.Keychain},
 		ProjectStartup:    projectStartup,
