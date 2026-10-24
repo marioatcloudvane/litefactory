@@ -105,7 +105,7 @@ func TestConversationRedactionCannotChangeCapturedInstructionIdentity(t *testing
 }
 
 func TestConversationRedactionCannotJournalChangedCorrection(t *testing.T) {
-	provider := &factoryUnitProvider{outputs: []string{"invalid envelope"}}
+	provider := &factoryUnitProvider{outputs: []string{`{"version":1,"kind":"execute"}`}}
 	run, _ := factoryUnitRun(t, provider)
 	capture, err := run.s.restoreConversationInstructions(t.Context(), run.c.ID, run.at)
 	if err != nil {

@@ -46,7 +46,7 @@ func conversationSpecificCause(err error, at time.Time) string {
 		if reply := conversationArgumentCause(err); reply != "" {
 			return reply
 		}
-		return "My answer was rejected by the format check, even after one retry, so I didn't send it. Please ask again."
+		return "My answer was rejected by the format check, after the available corrections, so I didn't send it. Please ask again."
 	case errors.Is(err, context.DeadlineExceeded):
 		return "The model took too long to answer. Please ask again."
 	}

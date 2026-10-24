@@ -552,7 +552,11 @@ func TestFactoryConversationReportedDiagnosticsCorrection(t *testing.T) {
 			if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
 				t.Fatal(err)
 			}
-			if p.calls != 2 {
+			expectedCalls := 2
+			if !correct {
+				expectedCalls = 3
+			}
+			if p.calls != expectedCalls {
 				t.Fatalf("correction calls: %d", p.calls)
 			}
 			reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)

@@ -54,10 +54,19 @@ func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFa
 			return nil, errors.New("empty answer block")
 		}
 		text := block.Text
+		unknown, incomplete := false, false
+		var caveats []string
 		for _, ref := range block.FactRefs {
-			if _, ok := byID[ref]; !ok {
-				text = "I couldn't get the latest information."
-				break
+			fact, ok := byID[ref]
+			if !ok {
+				unknown = true
+				continue
+			}
+			if !fact.Complete {
+				incomplete = true
+				if strings.TrimSpace(fact.Caveats) != "" {
+					caveats = append(caveats, fact.Caveats)
+				}
 			}
 		}
 		if strings.TrimSpace(text) == "" {
@@ -70,6 +79,16 @@ func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFa
 			missing = true
 		}
 		segments = append(segments, segment{text: plain(text)})
+		if unknown && strings.TrimSpace(block.Text) != "" {
+			segments = append(segments, segment{text: "Factory warning: the claimed support for the preceding text could not be verified."})
+		}
+		if incomplete {
+			warning := "Factory warning: the sources for the preceding text are incomplete."
+			if len(caveats) > 0 {
+				warning += " " + strings.Join(caveats, " ")
+			}
+			segments = append(segments, segment{text: plain(warning)})
+		}
 	}
 	if protected != "" {
 		segments = append(segments, segment{text: protected, protected: true})
