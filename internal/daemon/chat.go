@@ -316,6 +316,9 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 			if err := d.chatResearchNotes(ctx); err != nil {
 				d.log.WarnContext(ctx, "chat answer note remains pending")
 			}
+			if err := d.chatDiagnosisResults(ctx, time.Now()); err != nil {
+				d.log.WarnContext(ctx, "chat diagnosis result remains unposted; retrying on the next pass")
+			}
 			if d.chat.collector != nil {
 				if err := d.chat.collector.Collect(ctx, time.Now()); err != nil {
 					d.log.WarnContext(ctx, "chat notice collection failed; retrying on the next pass")
