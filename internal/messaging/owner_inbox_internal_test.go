@@ -14,7 +14,7 @@ func TestInboxNavigationOmitsTicketFacts(t *testing.T) {
 	if strings.Contains(got, "secret") || strings.Contains(got, "private") || !strings.Contains(got, "Open: opaque:0:0") {
 		t.Fatal(got)
 	}
-	for _, bad := range []string{"", "id", "id:-1", "id:0:-2", "id:x", "id:0:0:0"} {
+	for _, bad := range []string{"", "id", "id:-1", "id:0:-2", "id:x", "id:0:0:-1", "id:0:0:x", "id:0:0:0:0"} {
 		if _, _, _, err := inboxPosition(bad); err == nil {
 			t.Fatalf("accepted malformed reference %q", bad)
 		}

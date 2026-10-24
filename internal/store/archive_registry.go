@@ -256,6 +256,7 @@ var archiveRetained = map[string]ArchiveClass{
 	// Owner inbox snapshots span ticket families and follow conversation scope
 	// and 24-hour retention, independently of a task family's archive.
 	"owner_inbox_snapshots":        ArchiveClassGlobal,
+	"owner_inbox_organizations":    ArchiveClassGlobal,
 	"owner_inbox_entries":          ArchiveClassGlobal,
 	"owner_inbox_withheld_replies": ArchiveClassGlobal,
 	// Owner/channel dialogue and replay positions span task families. Their
