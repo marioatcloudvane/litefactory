@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -42,11 +43,38 @@ func conversationSpecificCause(err error, at time.Time) string {
 	case errors.As(err, &access):
 		return fmt.Sprintf("The Discord access check was unavailable, so I didn't answer. Please try again in about %s.", plainWait(accessRetry(err)))
 	case errors.Is(err, ErrConversationEnvelope):
+		if reply := conversationArgumentCause(err); reply != "" {
+			return reply
+		}
 		return "My answer was rejected by the format check, even after one retry, so I didn't send it. Please ask again."
 	case errors.Is(err, context.DeadlineExceeded):
 		return "The model took too long to answer. Please ask again."
 	}
 	return ""
+}
+
+// conversationArgumentCause tells the owner what to say when one argument of a
+// rejected answer could not be grounded or was too long; "" otherwise.
+func conversationArgumentCause(err error) string {
+	var rejected *ConversationEnvelopeError
+	if !errors.As(err, &rejected) || rejected.Argument == nil || rejected.Argument.Name == "" {
+		return ""
+	}
+	name := rejected.Argument.Name
+	label := strings.ReplaceAll(name, "_", " ")
+	switch {
+	case rejected.Argument.Limit > 0:
+		return fmt.Sprintf("The %s is longer than the %d bytes I can pass on, so I didn't act. Please shorten it.", label, rejected.Argument.Limit)
+	case !rejected.Ungrounded:
+		return ""
+	case name == "issue" || name == "task":
+		return `I couldn't tell which issue you meant, so I didn't act. Name it in your message, for example "diagnose #1100".`
+	case name == "project":
+		return `I couldn't tell which project you meant, so I didn't act. Name it in your message, for example "in litefactory".`
+	case conversationProtectedContent(name):
+		return fmt.Sprintf("I couldn't find the %s word for word in your messages, so I didn't act. Please send it in your message itself.", label)
+	}
+	return fmt.Sprintf("I couldn't tell which %s you meant, so I didn't act. Please name it in your message.", label)
 }
 
 // githubBudgetGap adds the GitHub budget pause to a lookup gap when that was
