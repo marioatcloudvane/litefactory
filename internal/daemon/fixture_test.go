@@ -1202,6 +1202,7 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	// keeps compiling and behaving exactly as it did before this feature
 	// existed.
 	opts.Judge = overrides.Judge
+	opts.ValidateAutoStart = overrides.ValidateAutoStart
 	if overrides.Confirmer != nil {
 		opts.Confirmer = overrides.Confirmer
 	}

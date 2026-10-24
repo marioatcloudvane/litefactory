@@ -113,7 +113,7 @@ func renderImplementComment(candidate agentresult.Result, _ string, _ naming.Ref
 	b.WriteString(strings.TrimSpace(candidate.Comment))
 	b.WriteString("\n\n")
 	for _, q := range candidate.Questions {
-		b.WriteString("- " + strings.TrimSpace(q.Text) + "\n")
+		b.WriteString("- " + strings.TrimSpace(q.Text) + questionOptionLines(q) + "\n")
 	}
 	if len(candidate.Questions) != 0 {
 		b.WriteString("\n")

@@ -70,7 +70,7 @@ func (r *Runner) RunLogAnalyst(ctx context.Context, request agent.LogAnalystRequ
 	if err = os.WriteFile(mcp, data, 0600); err != nil {
 		return agent.LogAnalystRunResult{}, err
 	}
-	args := logAnalystArguments(request, mcp)
+	args := append(logAnalystArguments(request, mcp), r.thinkingArgs(ctx)...)
 	env := append(r.persistentClaudeEnv(home, configDir), "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

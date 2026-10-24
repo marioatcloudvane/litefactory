@@ -95,6 +95,7 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		}
 		t.capacity = reservation
 		t.continuation = &reserved
+		d.inflight.label(session.ID, "automatic_continuation")
 		t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"automatic_continuation"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")
 		// This worker belongs to the same bounded pool and Quiesce lifetime as

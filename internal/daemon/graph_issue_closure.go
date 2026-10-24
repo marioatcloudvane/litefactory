@@ -18,12 +18,18 @@ import (
 // no free conditional read, so re-reading every wait on every heartbeat spent
 // the allowance (#918). Webhook observations, recovery and the listing still
 // offer a Linear wait whenever something new arrived; those reach seen first.
+//
+// A wait on a repository with a healthy webhook is likewise re-added only on
+// its listing ticks: the webhook hint, ticket observation or backlog flag
+// brings any new input, and a re-offer on every heartbeat only competed for
+// worker slots (#1138). Without a healthy webhook it stays offered every tick,
+// so an owner reply is read on the next heartbeat.
 func (d *Daemon) graphOwnerWaits(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
 	sessions, err := d.db.ListGraphOwnerWaitSessions(ctx)
 	if err != nil {
 		return err
 	}
-	linearRepo := map[int64]bool{}
+	linearRepo, hookedRepo := map[int64]bool{}, map[int64]bool{}
 	for _, session := range sessions {
 		if existing := seen[session.ID]; existing != nil {
 			existing.addSource("graph_owner_wait")
@@ -34,6 +40,11 @@ func (d *Daemon) graphOwnerWaits(ctx context.Context, byRepo map[int64]*repoQueu
 			continue
 		}
 		if skip, err := d.linearOffListing(ctx, q, session.RepoID, linearRepo); err != nil {
+			return err
+		} else if skip {
+			continue
+		}
+		if skip, err := d.webhookOffListing(ctx, q, hookedRepo); err != nil {
 			return err
 		} else if skip {
 			continue
@@ -69,6 +80,30 @@ func (d *Daemon) linearOffListing(ctx context.Context, q *repoQueue, repoID int6
 		known[repoID] = linear
 	}
 	return linear, nil
+}
+
+// webhookOffListing reports whether a standing candidate source may leave a
+// task to its new input on this tick: the repository is not listed on this
+// tick, and a healthy webhook delivers its new input. Healthy means the
+// listener is on, a hook is registered, a valid delivery arrived since start
+// ([ModeWebhook]) and the project secret is present. known caches the
+// per-repository answer within one tick (#1138).
+func (d *Daemon) webhookOffListing(ctx context.Context, q *repoQueue, known map[int64]bool) (bool, error) {
+	if q.listing || d.webhook == nil || d.schedule == nil || q.repo.Forge != store.ForgeGitHub {
+		return false, nil
+	}
+	healthy, ok := known[q.repo.ID]
+	if !ok {
+		registered, err := d.hookRegistered(ctx, q.repo.ID)
+		if err != nil {
+			return false, err
+		}
+		snap, _ := d.schedule.Snapshot(q.repo.ID)
+		healthy = registered && webhookMode(true, !snap.LastWebhook.IsZero(), registered) == ModeWebhook &&
+			d.webhook.hasProjectSecret(q.repo.ID, webhookKey(q.repo.Owner, q.repo.Name))
+		known[q.repo.ID] = healthy
+	}
+	return healthy, nil
 }
 
 // offer already owns in-process exclusion and the doctor guard. The durable

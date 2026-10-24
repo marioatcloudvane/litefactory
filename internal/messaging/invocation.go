@@ -28,6 +28,28 @@ type Invocation struct {
 // ErrInvalidInvocation covers unavailable commands and invalid scalar input.
 var ErrInvalidInvocation = errors.New("messaging: invalid natural-language invocation")
 
+// ArgumentError names one rejected argument and why, never its value, so a
+// correction can fix exactly that argument. It matches ErrInvalidInvocation.
+// An empty Name is an undeclared argument; its untrusted name is not echoed.
+type ArgumentError struct {
+	Name, Why string
+	// Limit is the byte limit an oversized value exceeded, else 0.
+	Limit int
+}
+
+func (e *ArgumentError) Error() string { return ErrInvalidInvocation.Error() + ": " + e.Detail() }
+
+// Detail is the argument name and reason without the shared prefix.
+func (e *ArgumentError) Detail() string {
+	if e.Name == "" {
+		return "an undeclared argument: " + e.Why
+	}
+	return e.Name + ": " + e.Why
+}
+
+// Is matches the shared invalid-invocation error.
+func (e *ArgumentError) Is(target error) bool { return target == ErrInvalidInvocation }
+
 // NaturalCommands returns only explicitly classified live catalogue entries.
 // Declarations continue to include entries without routing metadata.
 func (s *Service) NaturalCommands() []CommandDefinition {
@@ -58,7 +80,7 @@ func validateInvocation(def CommandDefinition, in Invocation) (Invocation, Comma
 	for _, arg := range def.Arguments {
 		declared[arg.Name] = arg
 		if arg.Required && strings.TrimSpace(in.Arguments[arg.Name]) == "" {
-			faults = append(faults, fmt.Errorf("%w: missing %s", ErrInvalidInvocation, arg.Name))
+			faults = append(faults, &ArgumentError{Name: arg.Name, Why: "missing"})
 		}
 	}
 	// Stable diagnostics disclose field names, never executable owner content.
@@ -70,20 +92,35 @@ func validateInvocation(def CommandDefinition, in Invocation) (Invocation, Comma
 	for _, name := range names {
 		value := in.Arguments[name]
 		arg, known := declared[name]
-		valid := known && utf8.ValidString(value) && !strings.ContainsRune(value, 0) && len(value) <= argumentLimit(def.Name, name)
+		limit := argumentLimit(def.Name, name)
+		var fault *ArgumentError
+		switch {
+		case !known:
+			// Unknown field names are untrusted too; do not echo them.
+			fault = &ArgumentError{Why: "not an argument of this command"}
+		case !utf8.ValidString(value) || strings.ContainsRune(value, 0):
+			fault = &ArgumentError{Name: name, Why: "not valid text"}
+		case len(value) > limit:
+			fault = &ArgumentError{Name: name, Why: fmt.Sprintf("exceeds %d bytes", limit), Limit: limit}
+		}
 		switch arg.Type {
 		case TextArgument:
 		case IntegerArgument:
 			n, err := strconv.ParseInt(value, 10, 64)
-			valid = valid && err == nil && n > 0 && strconv.FormatInt(n, 10) == value
+			if fault == nil && (err != nil || n <= 0 || strconv.FormatInt(n, 10) != value) {
+				fault = &ArgumentError{Name: name, Why: "not a positive whole number"}
+			}
 		case BooleanArgument:
-			valid = valid && (value == "true" || value == "false")
+			if fault == nil && value != "true" && value != "false" {
+				fault = &ArgumentError{Name: name, Why: "must be true or false"}
+			}
 		default:
-			valid = false
+			if fault == nil {
+				fault = &ArgumentError{Name: name, Why: "has no supported type"}
+			}
 		}
-		if !valid {
-			// Unknown field names are untrusted too; do not echo them.
-			faults = append(faults, fmt.Errorf("%w: invalid argument", ErrInvalidInvocation))
+		if fault != nil {
+			faults = append(faults, fault)
 		}
 		out.Arguments[name] = value
 	}
@@ -92,7 +129,11 @@ func validateInvocation(def CommandDefinition, in Invocation) (Invocation, Comma
 	}
 	if (def.Name == "confirm" && len(out.Arguments["code"]) != 8) ||
 		(def.Name == "answer" && len(out.Arguments["revision"]) != 12) {
-		return Invocation{}, "", fmt.Errorf("%w: invalid revision code", ErrInvalidInvocation)
+		name := "code"
+		if def.Name == "answer" {
+			name = "revision"
+		}
+		return Invocation{}, "", &ArgumentError{Name: name, Why: "not a valid revision code"}
 	}
 	return out, def.Effect, nil
 }
