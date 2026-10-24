@@ -127,3 +127,13 @@ Evidence:
 - `internal/turn/validate_resolve.go:245`
 - `internal/store/doctor_repair_rows.go:65`
 - `internal/store/doctor_repair_rows.go:176`
+
+## f14
+
+The judge’s issue comment 6383284663 identifies two scope defects: a sole pending target does not prove owner intent, and exact before/after row values do not ensure legal transitions or cross-row consistency; inspection supports both concerns because current Plan approval rejects stale sets, Validate binds commit and revision, and legacy repair checks related live work.
+
+Evidence:
+
+- `internal/turn/plan_graph_promote.go:108`
+- `internal/turn/validate_resolve.go:113`
+- `internal/store/doctor_repair_rows.go:176`
