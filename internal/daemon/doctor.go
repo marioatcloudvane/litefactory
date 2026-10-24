@@ -318,55 +318,12 @@ func (d *Daemon) admitDoctorAuthority(ctx context.Context, repo store.Repo, issu
 		}
 		return ref, store.AuthorityClaim{}, nil, nil
 	}
-	connection, err := d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
+	target, err := d.doctorTicketTarget(ctx, repo, issue)
 	if err != nil {
 		return ref, store.AuthorityClaim{}, nil, err
 	}
-	locator := ticket.Locator{Provider: connection.Provider, Origin: connection.Origin, Container: connection.Destination, Key: strconv.Itoa(issue.Number)}
-	scope, _ := ctx.Value(connectionScopeKey{}).(connectionScope)
-	var session store.Session
-	var publisherID int64
-	if scope.sessionID != 0 {
-		session, err = d.db.GetSession(ctx, scope.sessionID)
-	} else {
-		session, err = d.db.GetSessionByTicketLocator(ctx, locator)
-	}
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return ref, store.AuthorityClaim{}, nil, err
-	}
-	if err == nil {
-		if session.RepoID != repo.ID {
-			return ref, store.AuthorityClaim{}, nil, store.ErrTicketIdentityConflict
-		}
-		binding, readErr := d.db.GetSessionTicket(ctx, session.ID)
-		if readErr != nil {
-			return ref, store.AuthorityClaim{}, nil, readErr
-		}
-		if binding.RemoteID != strconv.FormatInt(issue.ID, 10) || binding.Locator.Key != strconv.Itoa(issue.Number) {
-			return ref, store.AuthorityClaim{}, nil, store.ErrTicketIdentityConflict
-		}
-		locator = binding.Locator
-		snapshot, readErr := d.db.GetExecutionSnapshot(ctx, session.ID)
-		if readErr != nil {
-			return ref, store.AuthorityClaim{}, nil, readErr
-		}
-		publisherID = snapshot.ActorID
-		connection, readErr = d.db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
-		if readErr != nil {
-			return ref, store.AuthorityClaim{}, nil, readErr
-		}
-		ref, readErr = naming.ParseRef(session.TaskRef)
-		if readErr != nil {
-			return ref, store.AuthorityClaim{}, nil, readErr
-		}
-	} else {
-		owner, name, valid := strings.Cut(locator.Container, "/")
-		if !valid {
-			return ref, store.AuthorityClaim{}, nil, errors.New("doctor ticket destination is invalid")
-		}
-		ref.Owner, ref.Repo = owner, name
-	}
-	clients, err := d.connections.Clients(ctx, connection, publisherID)
+	ref, session, connection, locator := target.ref, target.session, target.connection, target.locator
+	clients, err := d.connections.Clients(ctx, connection, target.publisherID)
 	if err != nil {
 		return ref, store.AuthorityClaim{}, nil, err
 	}
@@ -394,6 +351,70 @@ func (d *Daemon) admitDoctorAuthority(ctx context.Context, repo store.Repo, issu
 	}
 	claim, err := d.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: repo.ID, AppointmentID: appointment.ID, Revision: appointment.Revision, Actor: qualified.Author.Identity, Source: qualified.Identity, CreatedAt: qualified.CreatedAt, Kind: "doctor-instruction", Key: qualified.Identity.RemoteID})
 	return ref, claim, source, err
+}
+
+// doctorTicket is the project ticket connection, saved task and publishing
+// identity that a doctor command on an issue is routed through.
+type doctorTicket struct {
+	ref         naming.Ref
+	session     store.Session
+	connection  store.ConnectionVersion
+	locator     ticket.Locator
+	publisherID int64
+}
+
+// doctorTicketTarget resolves the issue to its ticket connection: the saved
+// task's own connection version and actor when one exists, otherwise the
+// project's current ticket connection.
+func (d *Daemon) doctorTicketTarget(ctx context.Context, repo store.Repo, issue github.Issue) (doctorTicket, error) {
+	t := doctorTicket{ref: naming.Ref{Forge: naming.ForgeGitHub, Owner: strings.ToLower(repo.Owner), Repo: strings.ToLower(repo.Name), Issue: issue.Number}}
+	var err error
+	if t.connection, err = d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection); err != nil {
+		return t, err
+	}
+	t.locator = ticket.Locator{Provider: t.connection.Provider, Origin: t.connection.Origin, Container: t.connection.Destination, Key: strconv.Itoa(issue.Number)}
+	scope, _ := ctx.Value(connectionScopeKey{}).(connectionScope)
+	if scope.sessionID != 0 {
+		t.session, err = d.db.GetSession(ctx, scope.sessionID)
+	} else {
+		t.session, err = d.db.GetSessionByTicketLocator(ctx, t.locator)
+	}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return t, err
+	}
+	if err == nil {
+		if t.session.RepoID != repo.ID {
+			return t, store.ErrTicketIdentityConflict
+		}
+		binding, readErr := d.db.GetSessionTicket(ctx, t.session.ID)
+		if readErr != nil {
+			return t, readErr
+		}
+		if binding.RemoteID != strconv.FormatInt(issue.ID, 10) || binding.Locator.Key != strconv.Itoa(issue.Number) {
+			return t, store.ErrTicketIdentityConflict
+		}
+		t.locator = binding.Locator
+		snapshot, readErr := d.db.GetExecutionSnapshot(ctx, t.session.ID)
+		if readErr != nil {
+			return t, readErr
+		}
+		t.publisherID = snapshot.ActorID
+		t.connection, readErr = d.db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
+		if readErr != nil {
+			return t, readErr
+		}
+		t.ref, readErr = naming.ParseRef(t.session.TaskRef)
+		if readErr != nil {
+			return t, readErr
+		}
+	} else {
+		owner, name, valid := strings.Cut(t.locator.Container, "/")
+		if !valid {
+			return t, errors.New("doctor ticket destination is invalid")
+		}
+		t.ref.Owner, t.ref.Repo = owner, name
+	}
+	return t, nil
 }
 
 type doctorSourceContextKey struct{}
