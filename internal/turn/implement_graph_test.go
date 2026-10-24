@@ -427,11 +427,12 @@ func TestImplementQuestionListsEveryParkedStoryOnce(t *testing.T) {
 }
 
 // #1127: an Implement question that carries options shows them under the
-// question and marks the recommended one only; the question line is unchanged.
+// question and marks the recommended one only. Since #1142 such a question also
+// leads with its ID, so the owner can answer with the ID and an option.
 func TestImplementQuestionShowsItsOptionsAndRecommendation(t *testing.T) {
 	candidate := agentresult.Result{Outcome: "incomplete", Comment: "Intro.", Reason: "Next step.", Questions: []agentresult.Question{{ID: "q1", Audience: "business", Text: " Restart story-002? ", RecommendedOption: "a", Options: []agentresult.Option{{ID: "a", Text: "Restart it"}, {ID: "b", Text: "Leave it parked"}}}}}
 	text := renderImplementComment(candidate, "", naming.Ref{}, "")
-	want := "- Restart story-002?\n  - `a` Restart it (recommended)\n  - `b` Leave it parked\n"
+	want := "- **q1** Restart story-002?\n  - `a` Restart it (recommended)\n  - `b` Leave it parked\n"
 	if !strings.Contains(text, want) || strings.Count(text, "(recommended)") != 1 {
 		t.Fatalf("options or marker missing:\n%s", text)
 	}
@@ -519,6 +520,7 @@ func TestImplementRespondMapsTheAcceptedOutcome(t *testing.T) {
 		{agentresult.Result{Outcome: "incomplete", Reason: "half done"}, "incomplete", false},
 		{agentresult.Result{Outcome: "blocked", Reason: "need a key"}, "blocked", false},
 		{agentresult.Result{Outcome: "blocked"}, "", true},
+		{agentresult.Result{Outcome: "blocked", Reason: "pick one", Questions: []agentresult.Question{{ID: "q1"}}}, "blocked", false},
 		{agentresult.Result{Outcome: "completed", Questions: []agentresult.Question{{ID: "q"}}}, "", true},
 		{agentresult.Result{Outcome: "approved"}, "", true},
 	} {
