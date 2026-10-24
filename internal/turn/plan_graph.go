@@ -52,6 +52,9 @@ type planGraphRuntime struct {
 	discussion bool
 	// rewindReason explains verified changes against the retained prior request.
 	rewindReason string
+	// picked is the selected story as it was when it was picked, so a review can
+	// explain a stage that this request's own result moved back.
+	picked planPickSnapshot
 	// creating reports that the current pick is a promoted story still owed its
 	// first draft, which is what keeps the story creation cycle going.
 	creating bool
@@ -426,7 +429,8 @@ func (r *planGraphRuntime) selectStory(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	r.selected, r.stage, r.creating = pick.Key, pick.Stage, pick.Create
+	r.setPick(s, pick.Key, pick.Stage)
+	r.creating = pick.Create
 	return nil
 }
 
@@ -756,9 +760,7 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	if kind == "review" && r.rewindReason != "" {
 		text += "\n\n" + r.rewindReason
 	}
-	for _, q := range node.Questions {
-		text += "\n\n- " + q
-	}
+	text += planQuestionLines(node.Questions)
 	if r.stage == planSetStage && kind == "review" {
 		if text, err = r.setReviewText(s, node, text); err != nil {
 			return ActivityResult{}, err
@@ -776,13 +778,27 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 			}
 			// Only this story's own entry changes, so the wait is saved through the
 			// shared helper: a sibling saving at the same moment keeps its change.
+			// The command comes from the saved state the approval check reads, so
+			// a stage this request's result moved back is never shown stale.
+			var saved planbrief.PlanState
+			command := ""
 			if err = r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(st *planbrief.PlanState) (bool, error) {
-				return true, st.OpenPlanWait(r.selected, key, waitKind, d.IssueID)
+				if err := st.OpenPlanWait(r.selected, key, waitKind, d.IssueID); err != nil {
+					return false, err
+				}
+				saved, command = *st, st.PlanCurrentCommand(r.selected)
+				return true, nil
 			}); err != nil {
 				return ActivityResult{}, err
 			}
 			if waitKind == "review" {
-				text += fmt.Sprintf("\n\nTo promote this exact candidate, reply `/approve-plan %s %s %s`.", r.selected, r.stage, d.Candidate)
+				var issues map[string]int
+				if planStageMovedBack(saved, r.selected, r.stage) {
+					if issues, err = r.storyIssueNumbers(ctx); err != nil {
+						return ActivityResult{}, err
+					}
+				}
+				text += planReviewCommandText(r.picked, r.stage, saved, r.selected, issues, command)
 			}
 			if waitKind == "retire" {
 				text += fmt.Sprintf("\n\nTo retire this exact candidate as not planned, reply `/retire-plan %s %s`.", r.selected, d.Candidate)
@@ -797,13 +813,33 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 		return ActivityResult{}, err
 	}
 	intent := reporter.deliveryIntent(r.result.Ref, target, r.req.SessionID, run.TriggerCommentID, run.ID, key)
-	raw, err := json.Marshal(planPublication{Intent: intent, Text: text})
-	if err != nil {
-		return ActivityResult{}, err
-	}
-	// Plan's per-story waits are independent. This generic final-kind delivery
-	// journals bytes without creating Research's single instance-wide owner wait.
-	if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: a.InstanceID, SourceAttemptID: source.ID, Node: a.Node, Kind: "final", Candidate: raw}); err != nil {
+	// A retry of the same source attempt posts the text saved first, as the
+	// failure comment does: the saved text is the truth for that attempt.
+	saved, err := reporter.db.GetGraphComment(ctx, intent.Key)
+	switch {
+	case err == nil:
+		var retained planPublication
+		if err = json.Unmarshal(saved.Candidate, &retained); err != nil {
+			return ActivityResult{}, fmt.Errorf("retained Plan comment: %w", err)
+		}
+		if retained.Intent.Key != intent.Key || retained.Text == "" {
+			return ActivityResult{}, errors.New("retained Plan comment identity mismatch")
+		}
+		if retained.Text != text && r.opts.Logger != nil {
+			r.opts.Logger.WarnContext(ctx, "retained Plan comment differs from the newly built text; posting the retained text", "delivery_key", intent.Key)
+		}
+		intent, text = retained.Intent, retained.Text
+	case errors.Is(err, store.ErrNotFound):
+		raw, marshalErr := json.Marshal(planPublication{Intent: intent, Text: text})
+		if marshalErr != nil {
+			return ActivityResult{}, marshalErr
+		}
+		// Plan's per-story waits are independent. This generic final-kind delivery
+		// journals bytes without creating Research's single instance-wide owner wait.
+		if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: a.InstanceID, SourceAttemptID: source.ID, Node: a.Node, Kind: "final", Candidate: raw}); err != nil {
+			return ActivityResult{}, err
+		}
+	default:
 		return ActivityResult{}, err
 	}
 	posted, err := reporter.deliver(ctx, intent, func() (redact.Body, error) { return reporter.renderer.RenderReportDelivery(ctx, text, "") })
@@ -812,6 +848,29 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	}
 	payload, err := json.Marshal(posted)
 	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: payload}, err
+}
+
+// planQuestionLines lists each Plan question with its ID, its options and the
+// recommended option, as Spike does, so the owner can answer "q1 a, q2 b".
+func planQuestionLines(qs []agentresult.Question) string {
+	var b strings.Builder
+	for _, q := range qs {
+		b.WriteString("\n\n- **" + q.ID + "** " + strings.TrimSpace(q.Text) + questionOptionLines(q))
+	}
+	return b.String()
+}
+
+// questionOptionLines lists a question's options under it and marks the
+// recommended one. A question without options adds nothing.
+func questionOptionLines(q agentresult.Question) string {
+	var b strings.Builder
+	for _, o := range q.Options {
+		b.WriteString("\n  - `" + o.ID + "` " + strings.TrimSpace(o.Text))
+		if o.ID == q.RecommendedOption {
+			b.WriteString(" (recommended)")
+		}
+	}
+	return b.String()
 }
 
 func (r *planGraphRuntime) retire(ctx context.Context, s planbrief.PlanState, _ int64, reply planbrief.PlanOwnerReply) error {
@@ -930,4 +989,113 @@ func PlanContentScope(definition *teamsource.WorkflowDefinition) (planbrief.Cont
 		guidance = append(guidance, selected.ID)
 	}
 	return planbrief.ReleaseScope(roles, guidance), nil
+}
+
+var planReviewStages = []string{"story", "technical", "acceptance"}
+
+// planStageMovedBack reports whether the saved story now sits at an earlier
+// stage than the one this request picked.
+func planStageMovedBack(saved planbrief.PlanState, key, picked string) bool {
+	for _, item := range saved.Stories {
+		if item.Key == key {
+			now, then := slices.Index(planReviewStages, item.Stage), slices.Index(planReviewStages, picked)
+			return now >= 0 && then >= 0 && now < then
+		}
+	}
+	return false
+}
+
+// storyIssueNumbers maps each Plan story key to its issue number, when it has one.
+func (r *planGraphRuntime) storyIssueNumbers(ctx context.Context) (map[string]int, error) {
+	drafts, err := r.opts.DB.ListPlanStoryDrafts(ctx, r.parentRef.String())
+	if err != nil {
+		return nil, err
+	}
+	issues := map[string]int{}
+	for _, d := range drafts {
+		if d.IssueNumber > 0 {
+			issues[d.Key] = d.IssueNumber
+		}
+	}
+	return issues, nil
+}
+
+// planReviewCommandText ends a review with the command the approval check
+// accepts now. When this request's own result moved the story back to an
+// earlier stage, it first says so, names why and says what happens next.
+func planReviewCommandText(picked planPickSnapshot, pickedStage string, saved planbrief.PlanState, key string, issues map[string]int, command string) string {
+	text := ""
+	if planStageMovedBack(saved, key, pickedStage) {
+		var item planbrief.PlanStoryState
+		for _, candidate := range saved.Stories {
+			if candidate.Key == key {
+				item = candidate
+			}
+		}
+		stage := item.Stage
+		paragraph := []string{"This update changed the " + stage + " stage of this story, so it needs your approval again first."}
+		if stage == "story" {
+			paragraph[0] = "This update changed the story itself, so it needs your approval again first."
+		}
+		var reasons []string
+		if picked.known {
+			if storyDescriptionRevision(item.Draft) != picked.description {
+				reasons = append(reasons, "its description changed")
+			}
+			deps := item.Draft.Dependencies
+			if !slices.Equal(deps.StoryKeys, picked.deps.StoryKeys) || !slices.Equal(deps.IssueRefs, picked.deps.IssueRefs) {
+				reasons = append(reasons, fmt.Sprintf("its dependencies changed: it now depends on %s (before: %s)", planDependencyList(deps, issues, "no other story"), planDependencyList(picked.deps, issues, "none")))
+			}
+			if saved.SharedRevision != picked.shared {
+				reasons = append(reasons, "shared decisions changed")
+			}
+		}
+		if len(reasons) > 0 {
+			paragraph = append(paragraph, "The reason: "+strings.Join(reasons, " and ")+".")
+		} else {
+			paragraph = append(paragraph, "Review resumes at the "+stage+" stage. Approvals from that stage must be renewed.")
+		}
+		var waiting []string
+		for _, dep := range item.Draft.Dependencies.StoryKeys {
+			approved := false
+			for _, upstream := range saved.Stories {
+				if upstream.Key == dep {
+					ref, err := saved.ReviewRevision(dep, pickedStage)
+					approved = err == nil && upstream.Approvals[pickedStage] == ref
+				}
+			}
+			if !approved {
+				waiting = append(waiting, planStoryLabel(dep, issues))
+			}
+		}
+		if len(waiting) == 0 {
+			paragraph = append(paragraph, fmt.Sprintf("Approving the %s stage starts a new %s review of this story.", stage, pickedStage))
+		} else {
+			paragraph = append(paragraph, fmt.Sprintf("After you approve the %s stage, the %s review of this story starts once the %s stage of %s is approved.", stage, pickedStage, pickedStage, strings.Join(waiting, " and ")))
+		}
+		text += "\n\n" + strings.Join(paragraph, " ")
+	}
+	if command == "" {
+		return text + "\n\nThe next review of this story will show the approval command."
+	}
+	return text + "\n\nTo promote this exact candidate, reply `" + command + "`."
+}
+
+func planStoryLabel(key string, issues map[string]int) string {
+	if n := issues[key]; n > 0 {
+		return fmt.Sprintf("%s (#%d)", key, n)
+	}
+	return key
+}
+
+func planDependencyList(deps planbrief.DependencyContent, issues map[string]int, empty string) string {
+	var out []string
+	for _, key := range deps.StoryKeys {
+		out = append(out, planStoryLabel(key, issues))
+	}
+	out = append(out, deps.IssueRefs...)
+	if len(out) == 0 {
+		return empty
+	}
+	return strings.Join(out, ", ")
 }
