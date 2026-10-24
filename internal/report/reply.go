@@ -237,6 +237,19 @@ const (
 	// from an author without code authority on this task. It is posted and the
 	// comment is consumed, so the command is never dropped silently.
 	ReplyCodeControlRefused
+	// ReplyValidateCommentNotApplied answers a plain parent comment while the
+	// parent's latest Validate instance is running, at any step or owner wait.
+	// Nothing runs; it is posted and the comment is consumed (#1123).
+	ReplyValidateCommentNotApplied
+	// ReplyImplementFinished answers a plain parent comment after Implement
+	// finished with every story merged, when Validate is started by command.
+	ReplyImplementFinished
+	// ReplyImplementFinishedAutoValidate is [ReplyImplementFinished] when
+	// Validate starts automatically.
+	ReplyImplementFinishedAutoValidate
+	// ReplyImplementFinishedValidated is [ReplyImplementFinished] when Validate
+	// has already finished on the finished Implement.
+	ReplyImplementFinishedValidated
 )
 
 // String renders the kind for logs and test failures.
@@ -288,6 +301,14 @@ func (k ReplyKind) String() string {
 		return "doctor_unsupported"
 	case ReplyCodeControlRefused:
 		return "code_control_refused"
+	case ReplyValidateCommentNotApplied:
+		return "validate_comment_not_applied"
+	case ReplyImplementFinished:
+		return "implement_finished"
+	case ReplyImplementFinishedAutoValidate:
+		return "implement_finished_auto_validate"
+	case ReplyImplementFinishedValidated:
+		return "implement_finished_validated"
 	case ReplyUnsupportedWorkflow:
 		return "unsupported_workflow"
 	case ReplyMissingModeMapping:
@@ -358,7 +379,8 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyMissingTicketPublisher, ReplyDoctorUnsupported, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
-	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused:
+	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused,
+		ReplyValidateCommentNotApplied, ReplyImplementFinished, ReplyImplementFinishedAutoValidate, ReplyImplementFinishedValidated:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -398,7 +420,8 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyMissingTicketPublisher, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused:
+	case ReplyMissingTicketPublisher, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused,
+		ReplyValidateCommentNotApplied, ReplyImplementFinished, ReplyImplementFinishedAutoValidate, ReplyImplementFinishedValidated:
 		return true
 	default:
 		return false
@@ -968,6 +991,14 @@ func (r Reply) body() string {
 		b.WriteString("If it still applies, please post it again after the workflow has posted its next update.")
 	case ReplyCodeControlRefused:
 		b.WriteString("This delivery command was set aside and nothing was recorded, pushed, merged or closed, because only the task's owner can give it.")
+	case ReplyValidateCommentNotApplied:
+		b.WriteString("Validate is running or waiting for you; nothing was run. The Validate report lists what blocks and the commands. Give each command as its own comment on this issue.")
+	case ReplyImplementFinished:
+		b.WriteString("Implement is finished: every story is merged. Nothing was run. Next step: start Validate by commenting `/validate`.")
+	case ReplyImplementFinishedAutoValidate:
+		b.WriteString("Implement is finished: every story is merged. Nothing was run. Validate starts automatically; its report will appear here.")
+	case ReplyImplementFinishedValidated:
+		b.WriteString("Implement is finished and Validate has already finished on it. Nothing was run. The Validate report shows the result.")
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")
 		b.WriteString(sectionGap)

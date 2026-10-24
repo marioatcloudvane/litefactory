@@ -31,7 +31,11 @@ func doctorIOService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Service{DB: db, Paths: config.NewPaths(t.TempDir()), Config: cfg, Redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=doctor-secret-canary-001"}})}
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Service{DB: db, Paths: config.NewPaths(home), Config: cfg, Redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=doctor-secret-canary-001"}})}
 }
 
 func TestDoctorRefusedProviderRetainsRedactedInputAndFreshEvidence(t *testing.T) {

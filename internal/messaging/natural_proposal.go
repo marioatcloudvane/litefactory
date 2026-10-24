@@ -63,18 +63,8 @@ func standardsProposalText(op string, args map[string]string, project string) st
 			text += "; it reads " + project + "'s code and recent incidents"
 		}
 		return text + ". It takes a few minutes; I'll post the draft here."
-	case "standards-author.continue":
-		return "I'll ask the standards author for its next draft. It takes a few minutes; I'll post it here."
-	case "standards-author.answer":
-		return "I'll pass your answer " + quoted(args["text"]) + " to the standards author."
-	case "standards-author.edit":
-		return "I'll update the draft with your changes."
-	case "standards-author.validate":
-		return "I'll check the draft against the book."
 	case "standards-author.complete":
 		return "I'll turn the draft into a proposal. It still needs your approval before it goes into the book."
-	case "standards-author.rebase":
-		return "I'll move the draft onto the current book."
 	case "standards-proposal.edit":
 		return "I'll edit proposal " + id + " with your changes."
 	case "standards-proposal.approve":

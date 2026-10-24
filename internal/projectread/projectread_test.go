@@ -90,8 +90,20 @@ func TestSessionOffersOnlyReadToolsAtThePinnedCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	var names []string
-	for _, tool := range list["tools"].([]any) {
-		names = append(names, tool.(map[string]any)["name"].(string))
+	tools, ok := list["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools/list=%v", list)
+	}
+	for _, tool := range tools {
+		entry, ok := tool.(map[string]any)
+		if !ok {
+			t.Fatalf("tool entry=%v", tool)
+		}
+		name, ok := entry["name"].(string)
+		if !ok {
+			t.Fatalf("tool name=%v", entry)
+		}
+		names = append(names, name)
 	}
 	slices.Sort(names)
 	if !slices.Equal(names, ToolNames()) {

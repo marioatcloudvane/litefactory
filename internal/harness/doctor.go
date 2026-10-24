@@ -92,6 +92,7 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	if err != nil {
 		return agent.DoctorRunResult{}, err
 	}
+	args = append(args, r.thinkingArgs(ctx)...)
 	registration := map[string]any{"mcpServers": map[string]any{"litefactory": map[string]any{"type": "stdio", "command": request.MCPLaunch.Executable(), "args": request.MCPLaunch.Arguments(), "env": map[string]string{}}}}
 	encoded, err := json.Marshal(registration)
 	if err != nil {

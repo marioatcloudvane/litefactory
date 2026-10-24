@@ -40,6 +40,8 @@ type Options struct {
 	Model        string
 	Environ      []string
 	Logger       *slog.Logger
+	// ThinkingLogs is settings.thinking_logs; none launches codex unchanged.
+	ThinkingLogs config.ThinkingLogs
 }
 
 // Runner executes the Codex CLI for work and classification requests.
@@ -62,6 +64,8 @@ type Runner struct {
 	timeout    time.Duration
 	environ    []string
 	logger     *slog.Logger
+	// thinkingLogs is settings.thinking_logs. See [Runner.reasoningSummaryArgs].
+	thinkingLogs config.ThinkingLogs
 }
 
 // Sandbox is the Codex-specific permission payload carried by an agent request.
@@ -99,7 +103,8 @@ func New(opts Options) (*Runner, error) {
 		model: model, writable: append([]string(nil), opts.Codex.WritableRoots...),
 		network: opts.Codex.NetworkAccess, userConfig: opts.Codex.AllowUserConfig,
 		timeout: time.Duration(opts.Codex.TimeoutSeconds) * time.Second,
-		environ: append([]string(nil), opts.Environ...), logger: opts.Logger}, nil
+		environ: append([]string(nil), opts.Environ...), logger: opts.Logger,
+		thinkingLogs: opts.ThinkingLogs}, nil
 }
 
 // Binary returns the resolved Codex executable.
@@ -569,10 +574,24 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	if thinking != "" {
 		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(string(thinking)))
 	}
+	args = append(args, r.reasoningSummaryArgs()...)
 	if req.Path.Resuming() {
 		return append(args, "resume", req.Session.Resume, "-"), nil
 	}
 	return append(args, "-"), nil
+}
+
+// reasoningSummaryArgs maps settings.thinking_logs onto Codex's reasoning
+// summaries, which `exec --json` emits as `reasoning` items: summarized asks
+// for concise summaries, full for detailed ones. none adds nothing.
+func (r *Runner) reasoningSummaryArgs() []string {
+	switch r.thinkingLogs {
+	case config.ThinkingLogsSummarized:
+		return []string{"-c", `model_reasoning_summary="concise"`}
+	case config.ThinkingLogsFull:
+		return []string{"-c", `model_reasoning_summary="detailed"`}
+	}
+	return nil
 }
 
 // InstructionIdentity is part of the retained effective bundle identity.

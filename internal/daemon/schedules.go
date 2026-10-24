@@ -121,6 +121,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 	t.capacity = reservation
 	t.scheduled = &reserved
 	t.issue = issue
+	d.inflight.label(session.ID, "due_schedule")
 	t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"due_schedule"}), slog.Time("tick_at", tickAt))
 	t.workerLog.DebugContext(ctx, "worker dispatched")
 	go d.runDoctorGuardedWorker(sessionContext(workerCtx, scheduled.SessionID), t, func(ctx context.Context) { d.runScheduled(ctx, t, reserved) })

@@ -20,14 +20,20 @@ const MaxConversationCaptureBytes = 16 << 20
 // does not list it hold only the four base roles; their Reasoner is empty.
 const ConversationReasonerRole = "conversation-reasoner"
 
+// ConversationInboxOrganizerRole is an optional snapshot-only presentation role.
+const ConversationInboxOrganizerRole = "conversation-inbox-organizer"
+
+// InboxOrganizerSchemaPath is the captured snapshot organizer result contract.
+const InboxOrganizerSchemaPath = "resources/inbox-organizer/schema.md"
+
 //go:embed legacy-conversation-v1/*
 var legacyConversationFiles embed.FS
 
 // ConversationRoles is the complete instruction inventory for a conversation,
-// in capture order. The trailing reasoner role is optional (see
-// [ConversationReasonerRole]).
+// in capture order. The trailing reasoner and organizer roles are optional;
+// older retained captures continue to restore without them.
 func ConversationRoles() []string {
-	return []string{"conversation-native", "conversation-factory", "conversation-correction", "conversation-action-outcome", ConversationReasonerRole}
+	return []string{"conversation-native", "conversation-factory", "conversation-correction", "conversation-action-outcome", ConversationReasonerRole, ConversationInboxOrganizerRole}
 }
 
 // baseConversationRoles is the number of roles every capture holds.
@@ -186,4 +192,13 @@ func ShippedConversationPackage(ctx context.Context) (*Package, error) {
 		return nil, err
 	}
 	return Load(ctx, baseline, "")
+}
+
+// InboxOrganizer supplies the dedicated organizer instructions. Older captures
+// deliberately return empty so callers retain the factual inbox fallback.
+func (c *ConversationCapture) InboxOrganizer() string {
+	if c == nil || len(c.roles) < 6 {
+		return ""
+	}
+	return string(c.roles[5].Instructions()) + "\n\n" + string(c.roles[5].Resource(InboxOrganizerSchemaPath))
 }

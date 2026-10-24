@@ -78,6 +78,10 @@ func archived(name, where string) ArchiveTable {
 // the parents they reference. Streaming uses the reverse, parents first. A
 // later story adds Plan tables by inserting them here in foreign-key order.
 var archiveRegistry = []ArchiveTable{
+	// Evidence links follow the owning task's retention lifecycle. Doctor's
+	// existing archive guard continues to protect conversations and repairs.
+	archived("retained_evidence_sources", `task IN `+inFT),
+	archived("retained_evidence_manifests", `task IN `+inFT),
 	// Story progress.
 	archived("story_progress_effects", `run_id IN `+subSPR),
 	archived("story_progress_events", `run_id IN `+subSPR),
@@ -253,6 +257,12 @@ var archiveRetained = map[string]ArchiveClass{
 	"chat_conversation_answer_parts":  ArchiveClassGlobal,
 	"chat_conversation_details":       ArchiveClassGlobal,
 	"chat_conversation_details_parts": ArchiveClassGlobal,
+	// Owner inbox snapshots span ticket families and follow conversation scope
+	// and 24-hour retention, independently of a task family's archive.
+	"owner_inbox_snapshots":        ArchiveClassGlobal,
+	"owner_inbox_organizations":    ArchiveClassGlobal,
+	"owner_inbox_entries":          ArchiveClassGlobal,
+	"owner_inbox_withheld_replies": ArchiveClassGlobal,
 	// Owner/channel dialogue and replay positions span task families. Their
 	// short text and terminal retention belongs to PurgeNaturalChat; cursors
 	// survive archival to prevent old channel requests from being replayed.
