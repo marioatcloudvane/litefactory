@@ -58,6 +58,7 @@ type chatRuntime struct {
 	intake        *messaging.Intake
 	conversations *messaging.ConversationOptions
 	analyses      *ConversationAnalyses
+	reads         *discordReadLog
 }
 
 func prepareChat(ctx context.Context, cfg *config.Config, resolver secrets.Resolver) (*ChatOptions, error) {
@@ -156,7 +157,8 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 
 	writer, _ := d.forge.(ChatIssueForge)
 	s.EnableFeatures(&feature.Drafter{Instructions: answers.Instructions, InstructionDiagnostics: answers.InstructionDiagnostics, Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
-	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: d.chatBeat, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}
+	reads := &discordReadLog{log: d.log}
+	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: d.chatBeat, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string), reads: reads}
 	if o.Conversations != nil {
 		options := *o.Conversations
 		options.Bindings = append([]messaging.ConversationBinding(nil), options.Bindings...)
@@ -164,6 +166,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		options.Models = maps.Clone(options.Models)
 		options.CheckAccess = func(ctx context.Context, channel string) error {
 			err := a.CheckIntakeCapability(ctx, channel)
+			reads.report(ctx, "conversation access", err)
 			if err == nil {
 				return nil
 			}

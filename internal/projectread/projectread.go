@@ -48,7 +48,7 @@ func (r Reader) Pin(ctx context.Context, id int64) (Project, error) {
 	clone, e := r.open(ctx, repo.Path)
 	if e != nil {
 		p.Gap = "The repository clone is unavailable."
-		return p, nil
+		return p, nil //nolint:nilerr // a missing clone is recorded as a gap, never an error
 	}
 	for _, rev := range []string{"refs/remotes/origin/" + repo.BaseBranch, "refs/heads/" + repo.BaseBranch} {
 		if p.Commit, e = clone.RevParse(ctx, rev, git.RevParseOptions{}); e == nil {
@@ -107,7 +107,7 @@ func ObjectSchema(properties string, required string) json.RawMessage {
 func (r Reader) Call(ctx context.Context, p Project, name string, in Request) (_ json.RawMessage, ok bool, err error) {
 	text, e := r.read(ctx, p, name, in)
 	if e != nil {
-		return raw(map[string]string{"status": "unavailable", "reason": e.Error()}), false, nil
+		return unavailable(e), false, nil
 	}
 	safe, e := r.Redactor.Apply(ctx, text, OutputBytes)
 	if e != nil {
@@ -188,3 +188,9 @@ func numbered(text string, start, count int) string {
 }
 
 func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+
+// unavailable is the tool result for a read that could not be served. The
+// failure is reported to the model as data, not returned as a Go error.
+func unavailable(e error) json.RawMessage {
+	return raw(map[string]string{"status": "unavailable", "reason": e.Error()})
+}

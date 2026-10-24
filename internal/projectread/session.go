@@ -119,8 +119,8 @@ func (h *handler) handle(ctx context.Context, q submission.Request) (json.RawMes
 	case "incidents_list", "run_digest_read":
 		return h.incidents.Handle(ctx, q)
 	case "repo_log", "repo_grep", "repo_read":
-		var in Request
-		if err = submission.DecodeJSON(call.Arguments, &in); err != nil || in.Repository != "" {
+		in, ok := repoRequest(call.Arguments)
+		if !ok {
 			return raw(map[string]string{"status": "unavailable", "reason": "invalid arguments"}), nil
 		}
 		h.mu.Lock()
@@ -134,6 +134,15 @@ func (h *handler) handle(ctx context.Context, q submission.Request) (json.RawMes
 		return out, err
 	}
 	return nil, errors.New("tool unavailable")
+}
+
+// repoRequest decodes a repository tool's arguments. ok is false when they do
+// not decode or name a repository, which the session fixes itself.
+func repoRequest(args json.RawMessage) (in Request, ok bool) {
+	if submission.DecodeJSON(args, &in) != nil || in.Repository != "" {
+		return Request{}, false
+	}
+	return in, true
 }
 
 // catalog offers the incident tools of the reader and the repository tools.
