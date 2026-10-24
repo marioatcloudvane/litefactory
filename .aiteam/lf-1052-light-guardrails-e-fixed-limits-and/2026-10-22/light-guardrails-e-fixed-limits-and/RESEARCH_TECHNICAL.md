@@ -81,3 +81,27 @@ Related issue #1018 is explicitly admission by resource cost and excludes changi
 Evidence:
 
 - `internal/teamsource/implement/implement.dot:63`
+
+## f11
+
+Judge review on 2026-10-24 identifies contradictory timeout failure routing and excess configuration layers; owner requests incorporating it and explicitly identifies simplification as the goal; neither comment selects the four pending policy answers. Source: https://github.com/marioatcloudvane/litefactory/issues/1052#issuecomment-6384092322 and preceding owner comment.
+
+_No source reference was recorded for this finding._
+
+## f12
+
+Current Implement story failed outcomes return to the budget, and the shared Implement post-process failure handler records a story failure; coordinator failures have no story and return a failed outcome for their sync route.
+
+Evidence:
+
+- `internal/teamsource/implement/implement.dot:129`
+- `internal/turn/implement_steps.go:324`
+
+## f13
+
+Both provider configuration fields store timeout duration in integer seconds, so whole-minute-only replacement would lose representable legacy values.
+
+Evidence:
+
+- `internal/config/config.go:232`
+- `internal/config/config.go:369`
