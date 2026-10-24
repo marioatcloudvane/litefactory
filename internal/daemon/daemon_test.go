@@ -374,6 +374,37 @@ func TestRunTicksFromItsTickSource(t *testing.T) {
 	}
 }
 
+// TestRunLogsFreeDiskThresholdAtStart: the "daemon started" line names the
+// active free-disk threshold in GB, 0 when the guard is off.
+func TestRunLogsFreeDiskThresholdAtStart(t *testing.T) {
+	for _, tt := range []struct {
+		minFree uint64
+		want    string
+	}{{7 << 30, "min_free_disk_gb=7"}, {0, "min_free_disk_gb=0"}} {
+		t.Run(tt.want, func(t *testing.T) {
+			f := newFixture(t)
+			ticks := make(chan time.Time)
+			loop := f.newDaemon(daemon.Options{Ticks: ticks, MinFreeDiskBytes: tt.minFree})
+			done := make(chan error, 1)
+			go func() { done <- loop.Run(t.Context()) }()
+			ticks <- time.Now()
+			close(ticks)
+			if err := <-done; err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			var started string
+			for _, line := range strings.Split(f.logs.String(), "\n") {
+				if strings.Contains(line, "daemon started") {
+					started = line
+				}
+			}
+			if !strings.Contains(started, " "+tt.want) {
+				t.Fatalf("daemon started line = %q, want %s\nlogs:\n%s", started, tt.want, f.logs)
+			}
+		})
+	}
+}
+
 // TestIntervalOutsideTheClampIsAStartupError is AC-2.7 and D-C. An out-of-range
 // interval refuses to start; it is never silently corrected, because a daemon
 // that polls every 30 seconds when the file says 5 is a daemon whose
