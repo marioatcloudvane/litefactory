@@ -1482,6 +1482,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 			"next tick reconsiders it against fresh state")
 		return offerSkipped
 	}
+	d.inflight.label(c.session.ID, strings.Join(c.sources, "+"))
 
 	readCtx := ctx
 	if c.discoveryReservation == nil && d.connections != nil {
