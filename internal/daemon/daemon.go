@@ -490,6 +490,11 @@ type Daemon struct {
 	chatHandler atomic.Pointer[http.Handler]
 	chatStatus  atomic.Pointer[string]
 
+	// runsHeld is the free-disk hold text of the current tick: cleared at the
+	// start of every tick and set only when the disk guard holds runs, and
+	// read by the health publisher.
+	runsHeld atomic.Pointer[string]
+
 	discovery          discoveryBudget
 	backoff            backoff
 	quotas             connectionQuotas
@@ -957,7 +962,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		slog.String("instance_id", d.instanceID),
 		slog.String("heartbeat_interval", d.interval.String()),
 		slog.String("discovery_interval", d.schedule.interval.String()),
-		slog.String("lock", d.lock.Path()))
+		slog.String("lock", d.lock.Path()),
+		slog.Uint64("min_free_disk_gb", d.minFreeDiskBytes>>30))
 
 	// The listener is served for as long as Run is, and shut down gracefully
 	// within the same grace period as the loop.

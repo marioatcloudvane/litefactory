@@ -149,6 +149,7 @@ func (d *Daemon) tickPhase(ctx context.Context, run func(context.Context) error)
 func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	hb := &heartbeat{source: wakeSourceFrom(ctx), counts: &discoveryCounts{}}
 	startedAt := d.now()
+	d.runsHeld.Store(nil)
 	d.quotas.tick(startedAt)
 	hb.startedAt = startedAt
 	// Last, whatever path the tick leaves by: the heartbeat line and the health
@@ -3412,6 +3413,9 @@ func (d *Daemon) lowDisk(ctx context.Context) bool {
 		slog.String("path", d.diskPath),
 		slog.Uint64("free_bytes", free),
 		slog.Uint64("required_bytes", d.minFreeDiskBytes))
+	held := fmt.Sprintf("New runs wait: free disk %.1f GB is below the %d GB minimum.",
+		float64(free)/(1<<30), d.minFreeDiskBytes>>30)
+	d.runsHeld.Store(&held)
 	return true
 }
 
