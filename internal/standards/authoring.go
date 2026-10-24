@@ -777,7 +777,8 @@ func authorDecodeDraft(raw []byte, out *authorDraftOutput) error {
 	}
 	var fields map[string]json.RawMessage
 	if e := json.Unmarshal(raw, &fields); e == nil {
-		for _, key := range []string{"schema_version", "category_id", "rule", "description", "evidence", "scope", "check", "applies_to", "questions"} {
+		// questions may be left out: a draft with every question answered has none to ask.
+		for _, key := range []string{"schema_version", "category_id", "rule", "description", "evidence", "scope", "check", "applies_to"} {
 			if value, ok := fields[key]; !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 				return fmt.Errorf("invalid model response: missing required %s", key)
 			}
