@@ -56,7 +56,11 @@ func (s Session) Start(ctx context.Context, p Project, attempt string) (_ *agent
 	if err != nil {
 		return nil, nil, err
 	}
+	if s.Views == nil {
+		s.Views = NewViews()
+	}
 	var closers []func() error
+	closers = append(closers, s.Views.Close)
 	stop = func() error {
 		var errs []error
 		for i := len(closers) - 1; i >= 0; i-- {
@@ -97,11 +101,12 @@ func (s Session) Start(ctx context.Context, p Project, attempt string) (_ *agent
 }
 
 type handler struct {
-	session   Session
-	project   Project
-	incidents *logevidence.Service
-	mu        sync.Mutex
-	repoCalls int
+	session     Session
+	project     Project
+	incidents   *logevidence.Service
+	mu          sync.Mutex
+	repoCalls   int
+	lastLocator string
 }
 
 func (h *handler) handle(ctx context.Context, q submission.Request) (json.RawMessage, error) {
@@ -125,12 +130,44 @@ func (h *handler) handle(ctx context.Context, q submission.Request) (json.RawMes
 		}
 		h.mu.Lock()
 		h.repoCalls++
-		spent := h.repoCalls > maxRepoCalls
+		callOrdinal := h.repoCalls
+		spent := callOrdinal > maxRepoCalls
+		locator := h.lastLocator
 		h.mu.Unlock()
 		if spent {
-			return raw(map[string]string{"status": "unavailable", "reason": "repository read limit reached; work with what you have read"}), nil
+			if ctx.Err() != nil {
+				_ = h.session.Views.Close()
+				return nil, ctx.Err()
+			}
+			_ = h.session.Views.Pause()
+			return raw(map[string]string{"status": "budget_limited", "reason": "repository read limit reached; a new independently authorized invocation is required", "locator": locator}), nil
 		}
 		out, _, err := h.session.Call(ctx, h.project, call.Name, in)
+		var position struct {
+			Locator string `json:"locator"`
+		}
+		if json.Unmarshal(out, &position) == nil && position.Locator != "" {
+			h.mu.Lock()
+			h.lastLocator = position.Locator
+			h.mu.Unlock()
+		}
+		if callOrdinal == maxRepoCalls {
+			if ctx.Err() != nil {
+				_ = h.session.Views.Close()
+				return out, err
+			}
+			_ = h.session.Views.Pause()
+			var bounded map[string]any
+			if json.Unmarshal(out, &bounded) == nil && bounded["retained_eof"] != true && bounded["selection_complete"] != true {
+				bounded["status"] = "budget_limited"
+				bounded["reason"] = "repository read limit reached; a new independently authorized invocation is required"
+				delete(bounded, "continuation")
+				if position.Locator != "" {
+					bounded["locator"] = position.Locator
+				}
+				out = raw(bounded)
+			}
+		}
 		return out, err
 	}
 	return nil, errors.New("tool unavailable")

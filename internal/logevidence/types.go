@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/retainedevidence"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -53,9 +54,11 @@ func AnalystLimits() Limits { return analystDefaults }
 // Budget belongs to the invocation owner, and must survive connection replacement.
 // The mutex serializes reservations, work and charging across all service handles.
 type Budget struct {
+	snapshots         map[string]*sourceSnapshot
 	mu                sync.Mutex
 	limits, used      Limits
 	runs, digests     map[int64]bool
+	preparations      map[string]*recordPreparation
 	terminal          bool
 	initialized       bool
 	owner             context.Context
@@ -162,6 +165,20 @@ func New(ctx context.Context, o Options) (*Service, error) {
 		}
 		s.highWater = high
 		budget.initialized = true
+		budget.preparations = map[string]*recordPreparation{}
+		budget.snapshots = map[string]*sourceSnapshot{}
+		context.AfterFunc(ctx, func() {
+			budget.mu.Lock()
+			defer budget.mu.Unlock()
+			for key, snapshot := range budget.snapshots {
+				snapshot.close()
+				delete(budget.snapshots, key)
+			}
+			for key, preparation := range budget.preparations {
+				preparation.close()
+				delete(budget.preparations, key)
+			}
+		})
 		budget.scopeDigest, budget.root, budget.db = s.scopeDigest, s.root, o.Store
 		budget.owner, budget.cutoff, budget.highWater, budget.expires = ctx, s.cutoff, s.highWater, s.expires
 	}
@@ -198,11 +215,12 @@ type ListRequest struct {
 // ReadRequest selects one run or a retained citation within that run.
 // Offset starts a single page at a record boundary offered by a digest.
 type ReadRequest struct {
-	RunID    int64     `json:"run_id"`
-	Offset   int64     `json:"offset,omitempty"`
-	Limit    int       `json:"limit,omitempty"`
-	Cursor   string    `json:"cursor,omitempty"`
-	Citation *Citation `json:"citation,omitempty"`
+	RunID    int64        `json:"run_id"`
+	Offset   int64        `json:"offset,omitempty"`
+	Limit    int          `json:"limit,omitempty"`
+	Cursor   string       `json:"cursor,omitempty"`
+	Citation *Citation    `json:"citation,omitempty"`
+	Locator  *ViewLocator `json:"locator,omitempty"`
 }
 
 // RunMetadata identifies a previous run without exposing paths or prompts.
@@ -221,25 +239,34 @@ type RunMetadata struct {
 
 // Citation locates sanitized evidence and verifies its exact excerpt.
 type Citation struct {
-	Version      int       `json:"v"`
-	TaskRef      string    `json:"task_ref"`
-	RunID        int64     `json:"run_id"`
-	Ordinal      int       `json:"ordinal"`
-	StartedAt    time.Time `json:"started_at"`
-	Stream       string    `json:"stream"`
-	Start        int64     `json:"start"`
-	End          int64     `json:"end"`
-	Digest       string    `json:"digest"`
-	Policy       string    `json:"policy"`
-	ExcerptBytes int       `json:"excerpt_bytes"`
+	SourceRevision string    `json:"source_revision,omitempty"`
+	Version        int       `json:"v"`
+	TaskRef        string    `json:"task_ref"`
+	RunID          int64     `json:"run_id"`
+	Ordinal        int       `json:"ordinal"`
+	StartedAt      time.Time `json:"started_at"`
+	Stream         string    `json:"stream"`
+	Start          int64     `json:"start"`
+	End            int64     `json:"end"`
+	Digest         string    `json:"digest"`
+	Policy         string    `json:"policy"`
+	ExcerptBytes   int       `json:"excerpt_bytes"`
+	SourceDigest   string    `json:"source_digest,omitempty"`
+	ViewDigest     string    `json:"view_digest,omitempty"`
+	ViewStart      int       `json:"view_start,omitempty"`
+	ViewEnd        int       `json:"view_end,omitempty"`
+	ViewBytes      int       `json:"view_bytes,omitempty"`
 }
 
 // Record is a sanitized excerpt with visible redaction and truncation information.
 type Record struct {
-	Text       string   `json:"text"`
-	Citation   Citation `json:"citation"`
-	Redactions int      `json:"redactions"`
-	Truncated  bool     `json:"truncated,omitempty"`
+	Source       *retainedevidence.Entry   `json:"source,omitempty"`
+	ViewCoverage retainedevidence.Coverage `json:"view_coverage,omitempty"`
+	Text         string                    `json:"text"`
+	Citation     Citation                  `json:"citation"`
+	Redactions   int                       `json:"redactions"`
+	Truncated    bool                      `json:"truncated,omitempty"`
+	Locator      *ViewLocator              `json:"locator,omitempty"`
 }
 
 // Omission describes withheld source bytes without exposing their content.
@@ -279,6 +306,7 @@ type Result struct {
 	DigestSummary     *DigestCounts `json:"digest_summary,omitempty"`
 	Coverage          Coverage      `json:"coverage"`
 	NextCursor        string        `json:"next_cursor,omitempty"`
+	Remaining         *ViewLocator  `json:"remaining,omitempty"`
 	Policy            string        `json:"policy,omitempty"`
 	Budget            Usage         `json:"budget"`
 	Trigger           string        `json:"trigger,omitempty"`

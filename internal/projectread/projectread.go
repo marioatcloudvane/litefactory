@@ -35,6 +35,7 @@ type Reader struct {
 	DB       *store.DB
 	Git      *git.Binary
 	Redactor *redact.Redactor
+	Views    *Views
 }
 
 // Pin records a project's base branch head. Nothing is fetched; a missing
@@ -70,14 +71,16 @@ func (r Reader) open(ctx context.Context, path string) (*git.Clone, error) {
 
 // Request is the decoded argument of one repository tool.
 type Request struct {
-	Repository string `json:"repository,omitempty"`
-	Path       string `json:"path,omitempty"`
-	Query      string `json:"query,omitempty"`
-	Pattern    string `json:"pattern,omitempty"`
-	IgnoreCase bool   `json:"ignore_case,omitempty"`
-	Limit      int    `json:"limit,omitempty"`
-	StartLine  int    `json:"start_line,omitempty"`
-	Lines      int    `json:"lines,omitempty"`
+	Repository   string `json:"repository,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Query        string `json:"query,omitempty"`
+	Pattern      string `json:"pattern,omitempty"`
+	IgnoreCase   bool   `json:"ignore_case,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
+	StartLine    int    `json:"start_line,omitempty"`
+	Lines        int    `json:"lines,omitempty"`
+	Continuation string `json:"continuation,omitempty"`
+	Locator      string `json:"locator,omitempty"`
 }
 
 // RepoToolNames are the repository tools in catalog order.
@@ -92,7 +95,7 @@ func RepoTools(repository string) []submission.ToolSpec {
 	return []submission.ToolSpec{
 		{Name: "repo_log", Description: "List recent commits of the project's base branch, newest first, as of the commit pinned for you: short hash, date, subject and changed files. Narrow by a path or by words in the commit message. Read-only.", InputSchema: ObjectSchema(repository+`"path":{"type":"string","maxLength":500},"query":{"type":"string","maxLength":200},"limit":{"type":"integer","minimum":1,"maximum":50}`, ``)},
 		{Name: "repo_grep", Description: "Search the project's files at the pinned commit for an extended regular expression. Returns path:line:text, at most 20 matches per file; narrow by path when there are too many. Read-only.", InputSchema: ObjectSchema(repository+`"pattern":{"type":"string","minLength":1,"maxLength":500},"path":{"type":"string","maxLength":500},"ignore_case":{"type":"boolean"}`, `"pattern"`)},
-		{Name: "repo_read", Description: "Read one file, or list one directory, of the project at the pinned commit. Files come back with line numbers; use start_line and lines for long files. Read-only.", InputSchema: ObjectSchema(repository+`"path":{"type":"string","maxLength":500},"start_line":{"type":"integer","minimum":1},"lines":{"type":"integer","minimum":1,"maximum":400}`, ``)},
+		{Name: "repo_read", Description: "Read one file, or list one directory, of the project at the pinned commit. Files return exact content separately from line decoration. Follow continuation with no selectors until retained_eof; preparing pages disclose no text. Read-only.", InputSchema: ObjectSchema(repository+`"path":{"type":"string","maxLength":500},"start_line":{"type":"integer","minimum":1},"lines":{"type":"integer","minimum":1,"maximum":400},"continuation":{"type":"string","maxLength":4096},"locator":{"type":"string","maxLength":4096}`, ``)},
 	}
 }
 
@@ -105,6 +108,9 @@ func ObjectSchema(properties string, required string) json.RawMessage {
 // bounded result. ok is false when the read was unavailable; the result then
 // says why. err is only a redaction failure.
 func (r Reader) Call(ctx context.Context, p Project, name string, in Request) (_ json.RawMessage, ok bool, err error) {
+	if name == "repo_read" {
+		return r.page(ctx, p, in)
+	}
 	text, e := r.read(ctx, p, name, in)
 	if e != nil {
 		return unavailable(e), false, nil

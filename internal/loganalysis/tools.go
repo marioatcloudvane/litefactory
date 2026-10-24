@@ -91,7 +91,9 @@ func (h *invocation) check(ctx context.Context, name string, args json.RawMessag
 		evidence.Status = "unavailable"
 		return unavailable(e), evidence, nil
 	}
-	out, ok, e := h.service.reader().Call(ctx, projectread.Project{ID: r.ID, Name: r.Name, BaseBranch: r.BaseBranch, Commit: r.Commit, Gap: r.Gap}, name, in)
+	reader := h.service.reader()
+	reader.Views = h.repoViews
+	out, ok, e := reader.Call(ctx, projectread.Project{ID: r.ID, Name: r.Name, BaseBranch: r.BaseBranch, Commit: r.Commit, Gap: r.Gap}, name, in)
 	if !ok {
 		evidence.Status = "unavailable"
 	}
