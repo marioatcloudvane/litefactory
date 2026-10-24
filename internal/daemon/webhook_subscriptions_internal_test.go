@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -284,5 +285,49 @@ func TestLegacySecretWithoutRecordedHookAdmitsVerifiedSource(t *testing.T) {
 				t.Fatalf("disable admitted: %d", got)
 			}
 		})
+	}
+}
+
+// The legacy subscription import reads the remote container identity only on
+// the project's listing tick, not on every secret retry between listings.
+func TestLegacyWebhookIdentityReadOnlyOnListingCadence(t *testing.T) {
+	f := newDiscoveryHTTPFixture(t)
+	var identityReads atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user":
+			_, _ = w.Write([]byte(`{"id":7,"login":"bot"}`))
+		case "/repos/acme/legacy":
+			identityReads.Add(1)
+			_, _ = w.Write([]byte(`{"id":101,"full_name":"acme/legacy","has_issues":true}`))
+		default:
+			t.Errorf("unexpected remote call %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	repo, err := f.d.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "legacy", RemoteURL: "git@github.com:acme/legacy.git"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.d.db.SetConnection(t.Context(), store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.GitHub, Origin: ticket.Origin(server.URL), Destination: repo.Slug(), Enabled: true, Provenance: "legacy", CredentialSource: "env", CredentialEnv: "TOKEN"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.d.connections = projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 7, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "fake-token", true }}})
+	// No signing secret: the import stays unfinished and is retried.
+	f.d.webhook = newWebhookRuntime(WebhookOptions{PublicURL: "https://callback.invalid" + webhook.Path, Secrets: secrets.Resolver{Keychain: func(context.Context, string, string) (string, error) {
+		return "", secrets.ErrNotFound
+	}}}, f.d.log)
+	f.d.schedule = newDiscoverySchedule(time.Hour)
+	f.d.schedule.ListingFinished(repo.ID, f.now)
+	for i := 1; i <= 3; i++ {
+		f.d.refreshWebhookSecrets(t.Context(), f.now.Add(time.Duration(i)*6*time.Minute))
+	}
+	if got := identityReads.Load(); got != 0 {
+		t.Fatalf("identity read %d times between listings", got)
+	}
+	f.d.refreshWebhookSecrets(t.Context(), f.now.Add(time.Hour))
+	if got := identityReads.Load(); got != 1 {
+		t.Fatalf("listing tick identity reads=%d, want 1", got)
 	}
 }

@@ -544,7 +544,7 @@ func TestPlanGraphIntegration_BusyParentParksStoryDraftUntilReleased(t *testing.
 func TestPlanGraphIntegration_AskQuestionsPublishedFromTheRetainedResult(t *testing.T) {
 	const marker = "RETAINED-ASK-COMMENT-17"
 	f, remote, base, forge, _ := graphPlanAgentFixture(t, func(s planAgentStep) (*agent.RunResult, error) {
-		ask := ar.Result{Outcome: "incomplete", Reason: "The actor is unclear.", Comment: marker, Questions: []ar.Question{{ID: "q-1", Audience: "business", Text: "Who exactly needs this story?"}}, Payload: ar.Payload{Plan: &ar.Plan{}}}
+		ask := ar.Result{Outcome: "incomplete", Reason: "The actor is unclear.", Comment: marker, Questions: []ar.Question{{ID: "q-1", Audience: "business", Text: "Who exactly needs this story?", RecommendedOption: "a", Options: []ar.Option{{ID: "a", Text: "The owner"}, {ID: "b", Text: "The reviewer"}}}}, Payload: ar.Payload{Plan: &ar.Plan{}}}
 		_, accepted := s.call("communication_submit", submitBytes(t, ask))
 		if !accepted.Validation.Valid || accepted.Receipt == nil {
 			t.Fatalf("ask not accepted: %+v", accepted)
@@ -569,6 +569,15 @@ func TestPlanGraphIntegration_AskQuestionsPublishedFromTheRetainedResult(t *test
 	if !strings.Contains(published, "Who exactly needs this story?") {
 		t.Fatalf("the retained question was not published with the retained comment: %q", published)
 	}
+	// #1127: the question's ID, its options and the recommended marker reach the forge.
+	for _, want := range []string{"- **q-1** Who exactly needs this story?", "\n  - `a` The owner (recommended)", "\n  - `b` The reviewer"} {
+		if !strings.Contains(published, want) {
+			t.Fatalf("the published question lacks %q: %q", want, published)
+		}
+	}
+	if strings.Count(published, "(recommended)") != 1 {
+		t.Fatalf("only the recommended option is marked: %q", published)
+	}
 	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
 	mustProgress(t, err)
 	transitions, err := f.db.ListGraphTransitions(t.Context(), instance.ID)
@@ -579,6 +588,71 @@ func TestPlanGraphIntegration_AskQuestionsPublishedFromTheRetainedResult(t *test
 	}
 	if joined := strings.Join(route, " "); !strings.Contains(joined, "story_question/true->story_ask") || strings.Contains(joined, "story_draft") {
 		t.Fatalf("control did not route the retained ask response to the question comment: %v", route)
+	}
+}
+
+// #1127: a Plan comment whose text is already saved under its delivery key,
+// for example by an earlier renderer before a retry of the same source attempt,
+// posts the saved text instead of failing on a correction, and warns once.
+func TestPlanGraphIntegration_RetriedCommentPostsTheSavedText(t *testing.T) {
+	ctx := t.Context()
+	f, _, base, forge, _ := graphPlanAgentFixture(t, func(s planAgentStep) (*agent.RunResult, error) {
+		ask := ar.Result{Outcome: "incomplete", Reason: "The actor is unclear.", Comment: "Please clarify.", Questions: []ar.Question{{ID: "q-1", Audience: "business", Text: "Who exactly needs this story?", RecommendedOption: "a", Options: []ar.Option{{ID: "a", Text: "The owner"}, {ID: "b", Text: "The reviewer"}}}}, Payload: ar.Payload{Plan: &ar.Plan{}}}
+		_, accepted := s.call("communication_submit", submitBytes(t, ask))
+		if !accepted.Validation.Valid || accepted.Receipt == nil {
+			t.Fatalf("ask not accepted: %+v", accepted)
+		}
+		envelope, err := json.Marshal(ar.ResearchNode{Version: 1, Response: "ask", Result: ask})
+		mustProgress(t, err)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: string(envelope), FinishedAt: time.Now()}, nil
+	})
+	out, err := Execute(ctx, f.opts, base)
+	if err != nil || out.Err != nil || !out.Succeeded() {
+		t.Fatalf("attempt did not complete: %v %v %s", err, out.Err, f.logs.String())
+	}
+	instance, err := f.db.LatestWorkflowInstance(ctx, f.session.ID, "plan")
+	mustProgress(t, err)
+	source, err := f.db.LatestGraphNodeAttempt(ctx, instance.ID, "story_agent")
+	mustProgress(t, err)
+	specs, err := PlanSpecs()
+	mustProgress(t, err)
+	definition, err := capturedWorkflow(ctx, f.opts, base, agent.WorkflowPlan, specs)
+	mustProgress(t, err)
+	runtime := &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, definition: definition, parentRef: f.ref(), parentNumber: f.ref().Issue, selected: "story-001", stage: "story"}
+	// A final-kind comment on its own node opens no owner wait; its key is the
+	// one the comment activity derives for this source attempt.
+	const node = "story_ask_retry"
+	key := fmt.Sprintf("plan-review:%d:%d:%s", instance.ID, source.ID, node)
+	target := f.ref()
+	if d, e := f.db.GetPlanStoryDraft(ctx, f.ref().String(), "story-001"); e == nil && d.IssueID > 0 {
+		target.Issue = d.IssueNumber
+	}
+	run, err := f.db.GetRun(ctx, source.RunID)
+	mustProgress(t, err)
+	intent := f.opts.ResearchReporter.deliveryIntent(f.ref(), target, base.SessionID, run.TriggerCommentID, run.ID, key)
+	const saved = "SAVED-BY-AN-EARLIER-RENDERER"
+	raw, err := json.Marshal(planPublication{Intent: intent, Text: saved})
+	mustProgress(t, err)
+	mustProgress(t, f.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: instance.ID, SourceAttemptID: source.ID, Node: node, Kind: "final", Candidate: raw}))
+	f.logs.Reset()
+	if _, err = runtime.comment(ctx, f.opts, ActivityRequest{InstanceID: instance.ID, Node: node, Attrs: map[string]string{"lf_kind": "final", "lf_source": "story_agent"}}); err != nil {
+		t.Fatalf("a retry with saved text failed: %v", err)
+	}
+	posted := 0
+	for _, post := range forge.all() {
+		if strings.Contains(post.body, saved) {
+			posted++
+			if strings.Contains(post.body, "Who exactly needs this story?") {
+				t.Fatalf("the newly built text was posted: %q", post.body)
+			}
+		}
+	}
+	if posted != 1 {
+		t.Fatalf("the saved text was posted %d times", posted)
+	}
+	logs := f.logs.String()
+	if strings.Count(logs, "level=WARN") != 1 || !strings.Contains(logs, intent.Key) {
+		t.Fatalf("one warning naming the delivery key expected:\n%s", logs)
 	}
 }
 
