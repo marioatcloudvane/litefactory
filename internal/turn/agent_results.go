@@ -46,6 +46,7 @@ type AgentResultSubmission struct {
 	Receipt    *store.ResultReceipt
 	Snapshot   *agentresult.Snapshot
 	Baseline   *agentresult.Projection
+	Review     *AgentResultReview
 }
 
 // notRecordedMessage tells the agent that a failed request left nothing behind,
@@ -372,6 +373,13 @@ func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt
 	}
 	if !s.completeReadGrant() {
 		response.Validation.Baseline = nil
+	}
+	if r.InputState == "rejected" && r.AppliedRevision == 0 && s.completeReadGrant() && r.RunID == s.binding.RunID && r.Attempt == s.binding.Attempt {
+		review, err := s.review(r)
+		if err != nil {
+			return response, err
+		}
+		response.Review = &review
 	}
 	if r.AppliedRevision != 0 {
 		retained, err := s.db.GetResultRevision(ctx, s.binding, r.AppliedRevision)

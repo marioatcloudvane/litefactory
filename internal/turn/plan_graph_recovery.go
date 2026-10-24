@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -58,9 +57,15 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 				if retained.Intent.Key != intent.Key || retained.Intent.SessionID != sessionID || retained.Text == "" {
 					return errors.New("plan publication retained identity mismatch")
 				}
-				if _, err = o.ResearchReporter.deliver(ctx, retained.Intent, func() (redact.Body, error) {
-					return o.ResearchReporter.renderer.RenderReportDelivery(ctx, retained.Text, "")
-				}); err != nil {
+				source, err := o.DB.GetGraphNodeAttempt(ctx, intent.SourceAttemptID)
+				if err != nil {
+					return err
+				}
+				text, err := o.ResearchReporter.appendGraphResultReview(ctx, source, retained.Text)
+				if err != nil {
+					return err
+				}
+				if _, err = o.ResearchReporter.deliverFullText(ctx, retained.Intent, text); err != nil {
 					return err
 				}
 			}

@@ -34,6 +34,23 @@ It cannot write outside a private scratch folder, use the network, read the fact
 
 The reply lists findings, each with the evidence it relies on (log lines, table rows, commits or comment IDs) and what is still uncertain. Anything it could not read, such as a missing log, a missing worktree, a query timeout or truncated output, is listed as a coverage gap and never counted as "healthy". Treat a diagnosis as a well-sourced opinion, not a guarantee.
 
+A rejected diagnosis can still be retained for review when it is authorized, no
+larger than 65,536 input bytes and can be safely redacted. The review keeps the
+complete redacted source, its original digest and validation diagnostics, labelled
+unaccepted. Evidence references remain unverified unless the collector confirms
+them. Collector-known coverage gaps appear as separate factory context; they do not
+rewrite the submitted diagnosis. This review never replaces or withdraws the last
+accepted diagnosis or proposal, and cannot enable Apply. A corrected submission
+requires a new request; an exact retry recovers the existing receipt.
+
+Within the 262,144-byte presentation ceiling, full responses use ordered numbered
+parts with links to every part. All parts must have confirmed receipts before the
+factory calls delivery complete. Interrupted or uncertain delivery remains pending
+and is reconciled before another post. Local retention can succeed while remote
+delivery remains pending. Oversize input, unsafe redaction, storage failure or a
+presentation that cannot fit leaves the last good result unchanged and reports a
+limitation; it never proves complete retention or delivery.
+
 A failed run in the history is not proof that the daemon is stuck now. Ask doctor to compare timestamps, database rows and git state.
 
 ### Which agents can diagnose

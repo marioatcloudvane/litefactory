@@ -115,12 +115,6 @@ func (s *AgentResultService) handleResult(ctx context.Context, q submission.Requ
 // remains success-only. Its rejection text is retained by the ordinary run owner
 // and delivered to the next authorized continuation with the original cause.
 func (p *preparedMCP) finalize(ctx context.Context, prep *preparation, session *SubmissionSession, result *agent.RunResult, runErr error) (*agent.RunResult, error) {
-	if result == nil {
-		if runErr != nil {
-			return nil, runErr
-		}
-		return &agent.RunResult{Outcome: agent.OutcomeNoResult, Reason: "Required shared final result is absent; the runner returned no result. Retry only on a new authorized attempt."}, nil
-	}
 	// Join transports before inspecting the final revision; no live request
 	// may race final evidence validation or terminal workflow projection.
 	var closeErr error
@@ -132,6 +126,20 @@ func (p *preparedMCP) finalize(ctx context.Context, prep *preparation, session *
 	}
 	if session != nil && session.broker != nil {
 		closeErr = errors.Join(closeErr, session.broker.Close())
+	}
+	if result == nil {
+		if runErr != nil {
+			if p.service != nil {
+				review, reviewErr := p.service.latestReview(context.WithoutCancel(ctx))
+				if reviewErr == nil {
+					return &agent.RunResult{Outcome: agent.OutcomeNoResult, Reason: "The runner returned no result; an unaccepted submission remains available for review.", ResultText: review.Markdown()}, errors.Join(runErr, closeErr)
+				}
+			}
+			return nil, errors.Join(runErr, closeErr)
+		}
+		result = &agent.RunResult{Outcome: agent.OutcomeNoResult, Reason: "Required shared final result is absent; the runner returned no result. Retry only on a new authorized attempt."}
+		p.attachRejectedReview(context.WithoutCancel(ctx), result, false)
+		return result, closeErr
 	}
 	if result.Succeeded() && ctx.Err() != nil {
 		result = result.Clone()
@@ -158,6 +166,7 @@ func (p *preparedMCP) finalize(ctx context.Context, prep *preparation, session *
 				}
 			}
 		}
+		p.attachRejectedReview(finalCtx, result, result.Succeeded() && runErr == nil)
 		return result, runErr
 	}
 	result = result.Clone()
@@ -169,6 +178,7 @@ func (p *preparedMCP) finalize(ctx context.Context, prep *preparation, session *
 	// The run report shows Diagnostic, not Reason, so a zero-exit success turned
 	// into a failure must carry its rejection cause there too (#431).
 	result.Diagnostic = strings.TrimSpace(result.Diagnostic + "\n" + message)
+	p.attachRejectedReview(finalCtx, result, false)
 	return result, runErr
 }
 

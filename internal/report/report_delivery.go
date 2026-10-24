@@ -3,6 +3,7 @@ package report
 import (
 	"context"
 	"fmt"
+	"html"
 	"path"
 	"regexp"
 	"strings"
@@ -21,7 +22,7 @@ func (r *Reporter) RenderReportDelivery(ctx context.Context, body, marker string
 	if marker != "" {
 		body += "\n\n" + marker
 	}
-	value, err := r.redactor.Apply(ctx, body, r.limit)
+	value, err := r.redactor.ApplyReviewDisplay(ctx, body, r.limit)
 	if err != nil {
 		return value, err
 	}
@@ -85,6 +86,43 @@ func hostPathTail(p string) string {
 // A markdown link to a host path keeps only its text, because the target cannot
 // resolve on the forge; a bare host path keeps only its last two names.
 func StripHostPaths(body string, roots []string) string {
+	// Review source is escaped literal text. Strip private paths after decoding
+	// that layer too, before a quoted path can hide from the ordinary matcher.
+	var out strings.Builder
+	for len(body) > 0 {
+		start := strings.Index(body, "<pre>")
+		code := strings.Index(body, "<code>")
+		tag := "pre"
+		if start < 0 || code >= 0 && code < start {
+			start = code
+			tag = "code"
+		}
+		if start < 0 {
+			out.WriteString(stripHostPathsRaw(body, roots))
+			break
+		}
+		opening, closing := "<"+tag+">", "</"+tag+">"
+		end := strings.Index(body[start+len(opening):], closing)
+		if end < 0 {
+			out.WriteString(stripHostPathsRaw(body, roots))
+			break
+		}
+		out.WriteString(stripHostPathsRaw(body[:start+len(opening)], roots))
+		inner := body[start+len(opening) : start+len(opening)+end]
+		decoded := html.UnescapeString(inner)
+		cleaned := stripHostPathsRaw(decoded, roots)
+		if cleaned == decoded {
+			out.WriteString(inner)
+		} else {
+			out.WriteString(html.EscapeString(cleaned))
+		}
+		out.WriteString(closing)
+		body = body[start+len(opening)+end+len(closing):]
+	}
+	return out.String()
+}
+
+func stripHostPathsRaw(body string, roots []string) string {
 	body = hostLink.ReplaceAllStringFunc(body, func(link string) string {
 		m := hostLink.FindStringSubmatch(link)
 		if !isHostPath(m[2], roots) {

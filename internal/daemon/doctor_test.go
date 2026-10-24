@@ -76,8 +76,9 @@ func (f *doctorTestForge) ListCommentsAfter(_ context.Context, _ github.Repo, _ 
 	}
 	return out, nil
 }
-func (f *doctorTestForge) PostComment(_ context.Context, _ github.Repo, _ int, body redact.Body) (github.Comment, error) {
+func (f *doctorTestForge) PostComment(_ context.Context, repo github.Repo, issue int, body redact.Body) (github.Comment, error) {
 	c := github.Comment{ID: int64(100 + len(f.posts)), Body: body.String(), Author: github.User{ID: 99}}
+	c.HTMLURL = fmt.Sprintf("https://github.com/%s/%s/issues/%d#issuecomment-%d", repo.Owner, repo.Name, issue, c.ID)
 	f.posts = append(f.posts, c)
 	return c, f.postErr
 }
