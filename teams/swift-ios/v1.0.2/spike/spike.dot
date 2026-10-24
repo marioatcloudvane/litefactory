@@ -1,0 +1,141 @@
+// Spike answers one narrow question. It investigates read-only (it may run the
+// project's checks, never change a file) and, when the proposed change is small,
+// makes that one change with a write-capable fixer and has it measured and
+// checked. It writes SPIKE.md with a declared status and
+// reports once. There is no owner approval step; the only owner wait is one
+// question round, and the fixer never asks.
+//
+// This file is the only place the flow lives. Order, branches, limits, access
+// level, size thresholds and the status written into SPIKE.md on each path are
+// all declared here. Go supplies steps; it never picks the next step.
+//
+// An owner reply re-runs the investigator directly (limit 2 runs). Every limit
+// persists across replies, so a second question is refused by the limit on the
+// note and question steps rather than by any Go counter.
+//
+// The fix path allows exactly one repair: a failed check hands the change and the
+// check result to a second fixer pass (refix_agent), whose change is checked
+// again. A second failure is reported as unverified, not repaired. The second
+// pass is its own nodes rather than an edge back, so every node still runs at
+// most once and nothing can loop.
+digraph spike {
+ graph [team="swift-ios", mode="spike", profile_version="1", start="probe_loop"];
+
+ // ---- Investigate (read-only) ------------------------------------------------
+ probe_loop        [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="2", lf_source="probe_agent"];
+ probe_agent       [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="spike-investigator", lf_skills="spike-result", lf_access="read", lf_limit="2"];
+ probe_wants_owner [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="2", lf_source="probe_agent"];
+ note_asking       [lf_action="lf_spike_note", lf_status="asking", lf_outcomes="success,failed", lf_source="probe_agent", lf_limit="1"];
+ ask_owner         [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_source="probe_agent", lf_limit="1"];
+
+ // ---- Measure the proposed change ---------------------------------------------
+ size_gate         [lf_action="lf_spike_gate", lf_max_files="3", lf_forbid="package,dependency,schema,api", lf_outcomes="none,small,too_big,blocked", lf_source="probe_agent", lf_limit="1"];
+
+ // ---- Make and check one small fix (write) ------------------------------------
+ fix_agent                [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="spike-fixer", lf_skills="spike-result", lf_access="write", lf_limit="1"];
+ fix_wants_owner    [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="1", lf_source="fix_agent"];
+ fix_check            [lf_action="lf_spike_check", lf_max_files="3", lf_forbid="package,dependency,schema,api", lf_phases="focused,full", lf_outcomes="passed,failed,too_big,blocked", lf_source="fix_agent", lf_limit="2"];
+ note_fixed           [lf_action="lf_spike_note", lf_status="fixed", lf_outcomes="success,failed", lf_source="fix_agent", lf_limit="1"];
+ note_fix_too_big     [lf_action="lf_spike_note", lf_status="fix_too_big", lf_outcomes="success,failed", lf_source="fix_agent", lf_limit="1"];
+ note_fix_blocked     [lf_action="lf_spike_note", lf_status="blocked", lf_outcomes="success,failed", lf_source="fix_agent", lf_limit="1"];
+ issue_too_big        [lf_action="lf_spike_issue", lf_outcomes="filed,failed", lf_source="fix_agent", lf_limit="2"];
+ report_fix           [lf_action="lf_comment", lf_outcomes="published", lf_kind="final", lf_source="fix_agent", lf_limit="1"];
+
+ // ---- One repair after a failed check (write) ---------------------------------
+ refix_agent             [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="spike-fixer", lf_skills="spike-result", lf_access="write", lf_limit="1"];
+ refix_wants_owner       [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="1", lf_source="refix_agent"];
+ recheck                 [lf_action="lf_spike_check", lf_max_files="3", lf_forbid="package,dependency,schema,api", lf_phases="focused,full", lf_outcomes="passed,failed,too_big,blocked", lf_source="refix_agent", lf_limit="1"];
+ note_refixed            [lf_action="lf_spike_note", lf_status="fixed", lf_outcomes="success,failed", lf_source="refix_agent", lf_limit="1"];
+ note_refix_unverified   [lf_action="lf_spike_note", lf_status="fix_unverified", lf_outcomes="success,failed", lf_source="refix_agent", lf_limit="1"];
+ note_refix_too_big      [lf_action="lf_spike_note", lf_status="fix_too_big", lf_outcomes="success,failed", lf_source="refix_agent", lf_limit="1"];
+ note_refix_blocked      [lf_action="lf_spike_note", lf_status="blocked", lf_outcomes="success,failed", lf_source="refix_agent", lf_limit="1"];
+ issue_refix_too_big     [lf_action="lf_spike_issue", lf_outcomes="filed,failed", lf_source="refix_agent", lf_limit="2"];
+ report_refix            [lf_action="lf_comment", lf_outcomes="published", lf_kind="final", lf_source="refix_agent", lf_limit="1"];
+
+ // ---- Record the outcome, then report once ------------------------------------
+ note_answered     [lf_action="lf_spike_note", lf_status="answered", lf_outcomes="success,failed", lf_source="probe_agent", lf_limit="1"];
+ note_hand_back    [lf_action="lf_spike_note", lf_status="hand_back", lf_outcomes="success,failed", lf_source="probe_agent", lf_limit="1"];
+ note_blocked      [lf_action="lf_spike_note", lf_status="blocked", lf_outcomes="success,failed", lf_source="probe_agent", lf_limit="1"];
+ report_final      [lf_action="lf_comment", lf_outcomes="published", lf_kind="final", lf_source="probe_agent", lf_limit="1"];
+
+ // ---- Failure and terminals -----------------------------------------------------
+ report_failure    [lf_action="lf_comment", lf_outcomes="published", lf_kind="failure", lf_limit="1"];
+ waiting           [lf_terminal="true"];
+ complete          [lf_terminal="true"];
+ stopped           [lf_terminal="true"];
+
+ // Investigate. An owner reply re-runs the investigator itself.
+ probe_loop        -> probe_agent       [lf_on="true"];
+ probe_loop        -> size_gate         [lf_on="false"];
+ probe_agent       -> probe_wants_owner [lf_on="success"];
+ probe_wants_owner -> note_asking       [lf_on="true"];
+ probe_wants_owner -> size_gate         [lf_on="false"];
+ note_asking       -> ask_owner         [lf_on="success"];
+ ask_owner         -> waiting           [lf_on="published"];
+
+ // The gate reads the proposed change and names one outcome; each outcome has
+ // its own recorded status, except a small one, which goes to the fixer.
+ size_gate -> note_answered     [lf_on="none"];
+ size_gate -> fix_agent             [lf_on="small"];
+ size_gate -> note_hand_back    [lf_on="too_big"];
+ size_gate -> note_blocked      [lf_on="blocked"];
+
+ note_answered     -> report_final [lf_on="success"];
+ note_hand_back    -> report_final [lf_on="success"];
+ note_blocked      -> report_final [lf_on="success"];
+ report_final      -> complete     [lf_on="published"];
+
+ // A failed step reports why and stops; nothing retries on its own.
+ probe_agent       -> report_failure [lf_on="failed"];
+ note_asking       -> report_failure [lf_on="failed"];
+ note_answered     -> report_failure [lf_on="failed"];
+ note_hand_back    -> report_failure [lf_on="failed"];
+ note_blocked      -> report_failure [lf_on="failed"];
+ report_failure    -> stopped        [lf_on="published"];
+
+ // Fix, measure, and on a failed check repair once. The fix_agent's ask is not an
+ // owner wait: it is recorded as blocked. Nothing leads back to the same fixer
+ // or check.
+ fix_agent               -> fix_wants_owner   [lf_on="success"];
+ fix_wants_owner   -> note_fix_blocked    [lf_on="true"];
+ fix_wants_owner   -> fix_check           [lf_on="false"];
+ fix_check           -> note_fixed          [lf_on="passed"];
+ fix_check           -> refix_agent         [lf_on="failed"];
+ fix_check           -> note_fix_too_big    [lf_on="too_big"];
+ fix_check           -> note_fix_blocked    [lf_on="blocked"];
+ note_fixed          -> report_fix          [lf_on="success"];
+ note_fix_blocked    -> report_fix          [lf_on="success"];
+ note_fix_too_big    -> issue_too_big       [lf_on="success"];
+ issue_too_big       -> report_fix          [lf_on="filed"];
+ issue_too_big       -> report_fix          [lf_on="failed"];
+ report_fix          -> complete            [lf_on="published"];
+
+ // A failed fixer or note reports why and stops; nothing retries on its own.
+ fix_agent               -> report_failure [lf_on="failed"];
+ note_fixed          -> report_failure [lf_on="failed"];
+ note_fix_too_big    -> report_failure [lf_on="failed"];
+ note_fix_blocked    -> report_failure [lf_on="failed"];
+
+ // The one repair: same rules as the first pass, and a second failed check is
+ // reported as unverified.
+ refix_agent         -> refix_wants_owner     [lf_on="success"];
+ refix_wants_owner   -> note_refix_blocked    [lf_on="true"];
+ refix_wants_owner   -> recheck               [lf_on="false"];
+ recheck             -> note_refixed          [lf_on="passed"];
+ recheck             -> note_refix_unverified [lf_on="failed"];
+ recheck             -> note_refix_too_big    [lf_on="too_big"];
+ recheck             -> note_refix_blocked    [lf_on="blocked"];
+ note_refixed          -> report_refix        [lf_on="success"];
+ note_refix_unverified -> report_refix        [lf_on="success"];
+ note_refix_blocked    -> report_refix        [lf_on="success"];
+ note_refix_too_big    -> issue_refix_too_big [lf_on="success"];
+ issue_refix_too_big   -> report_refix        [lf_on="filed"];
+ issue_refix_too_big   -> report_refix        [lf_on="failed"];
+ report_refix          -> complete            [lf_on="published"];
+
+ refix_agent           -> report_failure [lf_on="failed"];
+ note_refixed          -> report_failure [lf_on="failed"];
+ note_refix_unverified -> report_failure [lf_on="failed"];
+ note_refix_too_big    -> report_failure [lf_on="failed"];
+ note_refix_blocked    -> report_failure [lf_on="failed"];
+}

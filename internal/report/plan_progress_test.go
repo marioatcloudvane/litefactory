@@ -157,3 +157,14 @@ func TestRenderReportDelivery_StripsFactoryHostPaths(t *testing.T) {
 		t.Fatalf("stripping is not stable on a retained body: %v\n%s\n%s", err, text, again.String())
 	}
 }
+
+func TestRepairDiffHostPathsRemainPrivate(t *testing.T) {
+	t.Parallel()
+	for _, prefix := range []string{"+", "-"} {
+		raw := prefix + "/Users/private/.litefactory/tasks/secret.txt"
+		safe := report.StripHostPaths(raw, nil)
+		if strings.Contains(safe, "/Users/private/") {
+			t.Fatalf("diff prefix hid private host path: %q", safe)
+		}
+	}
+}

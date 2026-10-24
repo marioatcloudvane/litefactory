@@ -2358,7 +2358,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		slog.Int64("author_user_id", c.Author.ID),
 		slog.String("author", c.Author.Login))
 	commandForCode := turn.ParseCommand(c.Body)
-	if isCodeAuthorityControl(commandForCode.Name) {
+	if isCodeAuthorityBody(c.Body) {
 		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
 			if recordErr := d.recordCodeObservation(ctx, t.session.ID, c, qualifiedReply, false); recordErr != nil {
 				return recordErr

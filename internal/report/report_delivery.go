@@ -41,7 +41,7 @@ var hostLink = regexp.MustCompile(`\[([^\]\n]*)\]\((/[^)\s]*)\)`)
 
 // hostToken is an absolute path that starts a word: at the start of the text or
 // after whitespace or an opening delimiter.
-var hostToken = regexp.MustCompile("(?:^|[\\s(\\[<\"'`=:])(/[^\\s()\\[\\]<>\"'`]+)")
+var hostToken = regexp.MustCompile("(?:^|[\\s(\\[<\"'`=:+-])(/[^\\s()\\[\\]<>\"'`]+)")
 
 func cleanHostRoots(roots []string) []string {
 	var out []string

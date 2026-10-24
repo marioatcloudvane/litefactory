@@ -16,6 +16,7 @@ import (
 // it was written for, and fixed tokens. They never collide with the /validate
 // entry point or the legacy /deliver, /merge, /followup and /waive commands.
 const (
+	ValidateRepairCommand  = "/validate-repair"
 	ValidateCheckCommand   = "/validate-check"
 	ValidateFindingCommand = "/validate-finding"
 	ValidatePushCommand    = "/validate-push"
@@ -27,7 +28,7 @@ const (
 )
 
 // ValidateControlCommands lists the Validate owner commands.
-var ValidateControlCommands = []string{ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand, ValidateImplementCommand}
+var ValidateControlCommands = []string{ValidateRepairCommand, ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand, ValidateImplementCommand}
 
 // IsValidateControlCommand reports whether a command token is one of them.
 func IsValidateControlCommand(name string) bool {
@@ -44,8 +45,11 @@ const validateCommandLimit = 2048
 
 // ValidateCommand is one parsed owner command.
 type ValidateCommand struct {
-	Name     string
-	Revision string
+	Candidate    string
+	ReviewDigest string
+	RepairAction string
+	Name         string
+	Revision     string
 	// Check
 	Criterion string
 	Verdict   string
@@ -123,6 +127,11 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		return c, errors.New("only /validate-check, /validate-ship, /validate-finding … accept and /validate-implement take ` -- text`")
 	}
 	switch c.Name {
+	case ValidateRepairCommand:
+		if len(args) != 3 || !validateHeadPattern.MatchString(args[0]) || len(args[1]) != 64 || !validateHeadPattern.MatchString(args[1]) || !slices.Contains([]string{"inspect", "accept", "discard"}, args[2]) {
+			return c, errors.New("use /validate-repair <revision> <candidate id> <review digest> inspect|accept|discard")
+		}
+		c.Candidate, c.ReviewDigest, c.RepairAction = args[0], args[1], args[2]
 	case ValidateCheckCommand:
 		if len(args) != 2 || !validateFindingPattern.MatchString(args[0]) || args[1] != store.VerdictPass && args[1] != store.VerdictFail {
 			return c, errors.New("use /validate-check <revision> <criterion or review id> pass|fail -- <evidence>")
