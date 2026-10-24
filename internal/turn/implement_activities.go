@@ -232,10 +232,6 @@ func (h ImplementReadyActivity) Execute(ctx context.Context, opts Options, req A
 			running++
 		}
 	}
-	var standardsRoot int64
-	if attempt, err := h.b.DB.GetGraphNodeAttempt(ctx, req.NodeAttemptID); err == nil {
-		standardsRoot, _ = h.b.DB.GetStandardsGraphInvocation(ctx, attempt.LaunchID)
-	}
 	out := implementReadyOutput{Started: []implementStartedStory{}, Waiting: []string{}}
 	for _, story := range a.Stories {
 		row, ok := state[story.Key]
@@ -245,20 +241,10 @@ func (h ImplementReadyActivity) Execute(ctx context.Context, opts Options, req A
 		if running >= store.MaxImplementRunning {
 			break
 		}
-		transition := store.ImplementTransition{
-			Parent: parent, Generation: a.Generation, Key: story.Key, StandardsRootRunID: standardsRoot,
+		moved, err := h.b.DB.TransitionImplementStory(ctx, store.ImplementTransition{
+			Parent: parent, Generation: a.Generation, Key: story.Key,
 			From: store.ImplementWaiting, To: store.ImplementRunning, ExpectedRevision: row.Revision, At: now,
-		}
-		moved, err := h.b.DB.TransitionImplementStory(ctx, transition)
-		if errors.Is(err, store.ErrStandardsHandoffPersistence) && !errors.Is(err, store.ErrStandardsConflict) {
-			if opts.Logger != nil {
-				opts.Logger.Warn("standards story handoff status could not be retained; worker will continue with unavailable guidance")
-			}
-			// The failed transaction rolled back, so retry the same guarded move
-			// without claiming a retained standards handoff.
-			transition.StandardsRootRunID = 0
-			moved, err = h.b.DB.TransitionImplementStory(ctx, transition)
-		}
+		})
 		if errors.Is(err, store.ErrImplementCap) {
 			break
 		}

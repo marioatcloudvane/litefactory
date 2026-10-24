@@ -17,7 +17,7 @@ import (
 func publishInvocationBook(t *testing.T, s *Service) {
 	t.Helper()
 	book := &standards.Service{Store: s.Store, OwnerID: 17}
-	proposal, err := book.Create(t.Context(), "invocation-book", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "architecture", Name: "Architecture"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "bounds", Title: "Bound work", Body: strings.Repeat("Bound work. ", 500), CategoryIDs: []string{"architecture"}}}})
+	proposal, err := book.Create(t.Context(), "invocation-book", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "architecture", Name: "Architecture"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "bounds", Rule: "MUST Bound work", Description: strings.Repeat("Bound work. ", 500), Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "architecture", AppliesTo: []string{"story-worker"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestInvocationEmptySelectionAndBoundedReceiptReplay(t *testing.T) {
 		if _, err = invocationCall(ctx, i, "drift_evidence_read", map[string]any{"evidence_id": item.ID}, nil); err != nil {
 			return err
 		}
-		input := ResultInput{RequestID: "receipt", Report: Report{Disposition: "proposals", Explanation: "The bounded reader warrants new guidance.", Uncertainty: "Human review is required.", SelectionDigest: selected.Selection.Digest, Findings: []Finding{{ObservedDrift: "A bounded source reader was added.", Reason: "Callers need explicit limits.", Benefit: "Readers remain finite.", Uncertainty: "Workload ceilings vary.", Citations: []Citation{{EvidenceID: item.ID, Digest: item.Digest, Start: 0, End: len(item.Text)}}}}, Candidates: []Candidate{{Key: "new-guidance", Finding: 0, Operation: standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "reader-limits", Title: "Limit readers", Body: "Declare reader work ceilings.", CategoryIDs: []string{"architecture"}}}}}}}
+		input := ResultInput{RequestID: "receipt", Report: Report{Disposition: "proposals", Explanation: "The bounded reader warrants new guidance.", Uncertainty: "Human review is required.", SelectionDigest: selected.Selection.Digest, Findings: []Finding{{ObservedDrift: "A bounded source reader was added.", Reason: "Callers need explicit limits.", Benefit: "Readers remain finite.", Uncertainty: "Workload ceilings vary.", Citations: []Citation{{EvidenceID: item.ID, Digest: item.Digest, Start: 0, End: len(item.Text)}}}}, Candidates: []Candidate{{Key: "new-guidance", Finding: 0, Operation: standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "reader-limits", Rule: "MUST Limit readers", Description: "Declare reader work ceilings.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "architecture", AppliesTo: []string{"story-worker"}}}}}}}
 		accepted, err := invocationCall(ctx, i, "communication_submit", input, nil)
 		if err != nil {
 			return err
@@ -263,7 +263,7 @@ func TestInvocationCitationCandidateAndUnofferedCoverageValidation(t *testing.T)
 			input := base()
 			input.Report.Disposition = "proposals"
 			input.Report.Findings = []Finding{{ObservedDrift: "Reader boundaries changed.", Reason: "Explicit limits aid review.", Benefit: "Finite work is inspectable.", Uncertainty: "Human review is required.", Citations: []Citation{{EvidenceID: item.ID, Digest: item.Digest, Start: 0, End: len(item.Text)}}}}
-			input.Report.Candidates = []Candidate{{Key: "guidance", Finding: 0, Operation: standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "new-reader-guidance", Title: "Bound readers", Body: "Declare source reader limits.", CategoryIDs: []string{"architecture"}}}}}
+			input.Report.Candidates = []Candidate{{Key: "guidance", Finding: 0, Operation: standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "new-reader-guidance", Rule: "MUST Bound readers", Description: "Declare source reader limits.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "architecture", AppliesTo: []string{"story-worker"}}}}}
 			tc.mutate(&input)
 			if _, candidates, _, validationErr := i.validate(ctx, input); validationErr == nil || !strings.Contains(validationErr.Error(), tc.want) || len(candidates) != 0 {
 				return fmt.Errorf("%s produced candidates or wrong error: %w", tc.name, validationErr)

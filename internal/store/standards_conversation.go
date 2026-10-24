@@ -11,17 +11,6 @@ import (
 	"time"
 )
 
-// StandardsConversationContext retains coordination separately from expiring chat bodies.
-type StandardsConversationContext struct {
-	Transport     string
-	OwnerID       string
-	ChannelID     string
-	Version       int64
-	SelectedJSON  json.RawMessage
-	Clarification string
-	UpdatedAt     time.Time
-}
-
 // StandardsConversationOperation is an immutable admitted request and its durable result.
 type StandardsConversationOperation struct {
 	Key             string
@@ -54,51 +43,6 @@ func WithStandardsConversationOperation(ctx context.Context, key, digest string)
 	return context.WithValue(ctx, standardsConversationOperationKey{}, standardsConversationOperationLink{key, digest})
 }
 
-// GetStandardsConversationContext reads owner-scoped retained coordination.
-func (db *DB) GetStandardsConversationContext(ctx context.Context, transport, owner, channel string) (StandardsConversationContext, error) {
-	var c StandardsConversationContext
-	var raw string
-	err := db.sql.QueryRowContext(ctx, `SELECT record_json FROM standards_conversation_contexts WHERE transport=? AND owner_id=? AND channel_id=?`, transport, owner, channel).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return c, ErrNotFound
-	}
-	if err != nil {
-		return c, err
-	}
-	err = json.Unmarshal([]byte(raw), &c)
-	return c, err
-}
-
-// SaveStandardsConversationContext uses an explicit version, never a latest-reference fallback.
-func (db *DB) SaveStandardsConversationContext(ctx context.Context, c StandardsConversationContext, expected int64) (StandardsConversationContext, error) {
-	if c.Transport == "" || c.OwnerID == "" || c.ChannelID == "" || expected < 0 {
-		return c, fmt.Errorf("invalid standards conversation context")
-	}
-	c.Version = expected + 1
-	c.UpdatedAt = time.Now().UTC()
-	raw, err := json.Marshal(c)
-	if err != nil {
-		return c, err
-	}
-	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		var r sql.Result
-		var e error
-		if expected == 0 {
-			r, e = tx.ExecContext(ctx, `INSERT INTO standards_conversation_contexts(transport,owner_id,channel_id,version,record_json) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING`, c.Transport, c.OwnerID, c.ChannelID, c.Version, string(raw))
-		} else {
-			r, e = tx.ExecContext(ctx, `UPDATE standards_conversation_contexts SET version=?,record_json=? WHERE transport=? AND owner_id=? AND channel_id=? AND version=?`, c.Version, string(raw), c.Transport, c.OwnerID, c.ChannelID, expected)
-		}
-		if e != nil {
-			return e
-		}
-		n, e := r.RowsAffected()
-		if e == nil && n != 1 {
-			return ErrStandardsConflict
-		}
-		return e
-	})
-	return c, err
-}
 func readStandardsConversationOperation(ctx context.Context, tx *sql.Tx, key string) (StandardsConversationOperation, error) {
 	var o StandardsConversationOperation
 	var raw string
@@ -201,9 +145,6 @@ func (db *DB) FinishStandardsConversationOperation(ctx context.Context, key, dig
 func standardsConversationWrite(ctx context.Context, tx *sql.Tx, fn func(*sql.Tx) error) error {
 	link, ok := ctx.Value(standardsConversationOperationKey{}).(standardsConversationOperationLink)
 	if !ok {
-		if err := consumeStandardsReviewContext(ctx, tx); err != nil {
-			return err
-		}
 		return fn(tx)
 	}
 	o, err := readStandardsConversationOperation(ctx, tx, link.Key)
@@ -218,9 +159,6 @@ func standardsConversationWrite(ctx context.Context, tx *sql.Tx, fn func(*sql.Tx
 	}
 	if o.Status != "saved" {
 		return ErrStandardsConflict
-	}
-	if err = consumeStandardsReviewContext(ctx, tx); err != nil {
-		return err
 	}
 	if err = fn(tx); err != nil {
 		return err
@@ -262,14 +200,6 @@ func StandardsProvenanceValid(provenance string) bool {
 		}
 	}
 	return true
-}
-func consumeStandardsReviewContext(ctx context.Context, tx *sql.Tx) error {
-	c, ok := ctx.Value(standardsReviewConsumptionKey{}).(standardsReviewConsumption)
-	if !ok {
-		return nil
-	}
-	_, err := consumeStandardsConversationReview(ctx, tx, c.ID, c.Owner, c.Channel, c.Code, c.Now)
-	return err
 }
 
 type standardsProvenanceKey struct{}

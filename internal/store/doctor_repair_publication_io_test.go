@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -71,17 +72,33 @@ func TestDoctorRepairOutcomeReopenCompletesWithoutWorkflowCursorEffects(t *testi
 		t.Fatalf("outcome debt missing after reopen: %v %v", targets, err)
 	}
 	parts := []string{"Verified rows and retained backup references", "Restart confirmed; no unresolved findings"}
+	if err = reopened.EnsureDoctorRepairOutcome(ctx, operation.ID, []string{"valid", ""}, 99); err == nil {
+		t.Fatal("invalid multipart outcome accepted")
+	}
+	if pending, err := reopened.PendingDoctorDeliveries(ctx); err != nil || len(pending) != 0 {
+		t.Fatal("partial outcome retained", pending, err)
+	}
 	if err = reopened.EnsureDoctorRepairOutcome(ctx, operation.ID, parts, 99); err != nil {
 		t.Fatal(err)
 	}
-	if err = reopened.EnsureDoctorRepairOutcome(ctx, operation.ID, parts, 99); err != nil {
+	if err = reopened.EnsureDoctorRepairOutcome(ctx, operation.ID, []string{"changed", "bytes", "extra part"}, 99); err != nil {
 		t.Fatal(err)
 	}
 	deliveries, err := reopened.PendingDoctorDeliveries(ctx)
 	if err != nil || len(deliveries) != 2 {
 		t.Fatalf("duplicate or missing outcome: %+v %v", deliveries, err)
 	}
+	var commandState, resultBody string
+	if err := reopened.sql.QueryRowContext(ctx, `SELECT state,result_body FROM doctor_inbox WHERE id=?`, command.ID).Scan(&commandState, &resultBody); err != nil || commandState != "completed" || resultBody != "" {
+		t.Fatalf("command not settled: %s %q %v", commandState, resultBody, err)
+	}
+	if reports, err := reopened.DoctorCommandsNeedingReports(ctx); err != nil || len(reports) != 0 {
+		t.Fatal("generic report debt", reports, err)
+	}
 	for i, delivery := range deliveries {
+		if !strings.Contains(delivery.Body, parts[0]) && !strings.Contains(delivery.Body, parts[1]) {
+			t.Fatal("retained bytes replaced", delivery.Body)
+		}
 		if delivery.Destination != session.TaskRef || delivery.Task != session.TaskRef {
 			t.Fatalf("outcome redirected: %+v", delivery)
 		}

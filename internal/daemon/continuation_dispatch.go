@@ -13,8 +13,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-// Inspect every pending action, including future deadlines. Cancellation is
-// durable so reopening an issue or enabling the option cannot resurrect work.
+// Inspect every pending action. Local cancellations apply to future deadlines
+// too; the issue and its comments are read only once an action is due, so a
+// continuation waiting for a provider reset costs no remote read. Cancellation
+// is durable so reopening an issue or enabling the option cannot resurrect work.
 func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]store.Repo, at time.Time, result *TickResult) error {
 	workerCtx := ctx
 	ctx, cancel := d.tickPhaseContext(ctx)
@@ -61,13 +63,21 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 			slog.String("task", ref.String()),
 			slog.Int64("session_id", session.ID),
 			slog.Int64("continuation_id", c.ID)), tickAt: at, continuation: &c}
-		ready, err := d.observeContinuation(ctx, t, c)
+		ready, err := d.observeContinuationLocally(ctx, t, c)
+		if err != nil {
+			t.log.ErrorContext(ctx, "automatic recovery observation failed; deferring", slog.Any("error", err))
+			continue
+		}
+		if !ready || c.DueAt.After(at.UTC()) {
+			continue
+		}
+		ready, err = d.observeContinuation(ctx, t, c)
 		if err != nil {
 			d.rateLimited(ctx, t.log, at, err)
 			t.log.ErrorContext(ctx, "automatic recovery observation failed; deferring", slog.Any("error", err))
 			continue
 		}
-		if !ready || c.DueAt.After(at.UTC()) {
+		if !ready {
 			continue
 		}
 		if _, held := d.connectionHold(ctx, at); held {
@@ -77,21 +87,25 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 			t.log.DebugContext(ctx, "automatic recovery waits for this task's in-flight turn")
 			continue
 		}
-		if !d.pool.try() {
+		reservation, reason, reserveErr := d.reserveSession(ctx, session.ID)
+		if reserveErr != nil || reservation == nil {
+			t.log.InfoContext(ctx, "continuation deferred for capacity", slog.String("reason", reason), slog.Any("error", reserveErr))
 			d.inflight.leave(session.ID)
 			result.Deferred++
 			continue
 		}
 		reserved, ok, err := d.db.ReserveContinuation(ctx, c.ID, at.UTC())
 		if err != nil || !ok {
-			d.pool.done()
+			reservation.abandon()
 			d.inflight.leave(session.ID)
 			if err != nil {
 				return err
 			}
 			continue
 		}
+		t.capacity = reservation
 		t.continuation = &reserved
+		d.inflight.label(session.ID, "automatic_continuation")
 		t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"automatic_continuation"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")
 		// This worker belongs to the same bounded pool and Quiesce lifetime as
@@ -102,33 +116,14 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 	return nil
 }
 
-// Admission records classification, but never consumes the ordinary watermark.
-func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Continuation) (bool, error) {
+// observeContinuationLocally applies the checks that need no remote read, so
+// they cancel a continuation before its due time too.
+func (d *Daemon) observeContinuationLocally(ctx context.Context, t *task, c store.Continuation) (bool, error) {
 	cancel := func(reason string) (bool, error) {
 		return false, d.db.CancelContinuation(ctx, c.ID, reason+"; resume manually", t.tickAt)
 	}
-	issue, err := d.readScheduledIssue(ctx, t)
-	if err != nil {
-		return false, err
-	}
-	t.issue = issue
-	if issue.State != github.StateOpen {
-		return cancel("issue closed")
-	}
 	if t.session.TaskRef != c.Context.Task || t.session.WorktreePath != c.Context.Worktree {
 		return cancel("task context changed")
-	}
-	choice := d.resolveAgent(issue.Labels)
-	selected := choice.Agent
-	if selected == "" {
-		selected = string(d.defaultAgent)
-	}
-	if choice.refused() || selected != c.Context.Agent {
-		return cancel("coding agent changed")
-	}
-	mode, labelled, err := resolveModeLabel(issue.Labels)
-	if err != nil || (labelled && string(mode) != c.Context.Mode) {
-		return cancel("workflow mode changed")
 	}
 	segments, err := d.db.ListSegments(ctx, c.SessionID)
 	if err != nil {
@@ -144,6 +139,38 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 	}
 	if identity == "" || identity != c.Context.ResumeIdentity {
 		return cancel("conversation identity unavailable or changed")
+	}
+	return true, nil
+}
+
+// Admission records classification, but never consumes the ordinary watermark.
+// The issue and its comments are read only here, once the continuation is due.
+func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Continuation) (bool, error) {
+	cancel := func(reason string) (bool, error) {
+		return false, d.db.CancelContinuation(ctx, c.ID, reason+"; resume manually", t.tickAt)
+	}
+	issue, err := d.readScheduledIssue(ctx, t)
+	if err != nil {
+		return false, err
+	}
+	t.issue = issue
+	if issue.State != github.StateOpen {
+		return cancel("issue closed")
+	}
+	if ready, err := d.observeContinuationLocally(ctx, t, c); err != nil || !ready {
+		return ready, err
+	}
+	choice := d.resolveAgent(issue.Labels)
+	selected := choice.Agent
+	if selected == "" {
+		selected = string(d.defaultAgent)
+	}
+	if choice.refused() || selected != c.Context.Agent {
+		return cancel("coding agent changed")
+	}
+	mode, labelled, err := resolveModeLabel(issue.Labels)
+	if err != nil || (labelled && string(mode) != c.Context.Mode) {
+		return cancel("workflow mode changed")
 	}
 	comments, err := d.readComments(ctx, t.forgeRepo, issue.Number, c.Context.OwnerCommentID)
 	if err != nil {

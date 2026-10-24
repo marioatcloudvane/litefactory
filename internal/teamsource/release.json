@@ -1,10 +1,10 @@
 {
   "name": "Go development",
   "slug": "go-development",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "Go development team: workflows and scoped litefactory rules for Go repositories.",
   "tags": [
     "go"
   ],
-  "download": "go-development/v1.0.3"
+  "download": "go-development/v1.0.5"
 }

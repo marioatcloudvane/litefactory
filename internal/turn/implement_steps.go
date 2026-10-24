@@ -369,7 +369,7 @@ func implementResultOverride(ctx context.Context, w *researchWorkflow, a Activit
 		}
 		scope := agentresult.Context{
 			SchemaVersion: agentresult.SchemaVersion, Mode: string(agent.ModeImplement), WorkflowVersion: store.WorkflowSeparated,
-			CoordinatorRole: true,
+			CoordinatorRole: true, QuestionsAllowed: true,
 		}
 		return &resultOverride{
 			Resolve: func(context.Context) (agentresult.Context, error) { return cloneResultContext(scope), nil },
@@ -433,10 +433,12 @@ func (rt *implementRuntime) resolved(ctx context.Context, opts Options, a Activi
 	return implementResult("retry", map[string]any{"response": node.Response, "reason": strings.TrimSpace(node.Result.Reason)})
 }
 
-// askResolver publishes the blocked resolver's answer as one owner question on
-// the parent: the conflicting files and the resolver's own reason. The wait rests
-// on the resolver's attempt, so the owner's reply runs the resolver again with the
-// reply as guidance.
+// askResolver publishes the blocked resolver's answer as owner questions on the
+// parent. When the resolver sent questions, they are asked with their options and
+// recommendation, after the conflicting files and its reason; otherwise one
+// question names the files and the reason. The wait rests on the resolver's
+// attempt, so the owner's reply runs the resolver again with the reply as
+// guidance.
 func (rt *implementRuntime) askResolver(ctx context.Context, opts Options, a ActivityRequest, node agentresult.ResearchNode) (ActivityResult, error) {
 	source, err := opts.DB.LatestGraphNodeAttempt(ctx, a.InstanceID, a.Attrs["lf_source"])
 	if err != nil {
@@ -473,6 +475,10 @@ func (rt *implementRuntime) askResolver(ctx context.Context, opts Options, a Act
 			ID: "q1", Audience: "technical",
 			Text: fmt.Sprintf("**Conflict in %s**: %s", files, sentence(node.Result.Reason)),
 		}},
+	}
+	if len(node.Result.Questions) != 0 {
+		candidate.Comment += fmt.Sprintf(" The conflict is in %s. %s", files, sentence(node.Result.Reason))
+		candidate.Questions = slices.Clone(node.Result.Questions)
 	}
 	policy := ImplementWorkflowPolicy()
 	posted, key, err := opts.ResearchReporter.ReportWorkflowCandidate(ctx, source, a.Node, "question", candidate, policy.baseContext(true), "", policy)

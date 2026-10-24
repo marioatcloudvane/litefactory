@@ -147,6 +147,9 @@ RACE_TESTS_store := \
 	TestWorkflowBoundaryAmbiguousPriorEvidenceStops \
 	TestWorkflowBoundaryWorktreeCleanupRetainsAdmission
 RACE_TESTS_turn := \
+	TestSlotCapacityStaysReservedThroughWorkflowFinalization \
+	TestWorkflowJudgeStartupRecoveryBeforeGenericReconciliation \
+	TestSlotCapacityWorkflowWaitsAndResumesWithoutReplay \
 	TestStandardsEndToEndRetainedAcrossAttempts \
 	TestStandardsToolsRejectForgedScopeAndReverifyReplay \
 	TestStandardsEncodedMetadataPaging \

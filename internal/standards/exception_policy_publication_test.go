@@ -11,7 +11,7 @@ import (
 func TestExceptionPolicyPublicationRetainsExactReviewedPolicy(t *testing.T) {
 	first, second, _ := publicationServices(t)
 	policy := &store.StandardsExceptionPolicy{Version: 1, Mode: "allow-task", RepositoryIDs: []int64{9, 2}, MaxLifetimeSeconds: 3600}
-	ops := append(addCategory("c", "Category"), standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "s", Title: "Standard", Body: "Guidance", CategoryIDs: []string{"c"}, ExceptionPolicy: policy}})
+	ops := append(addCategory("c", "Category"), standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "s", Rule: "MUST Standard", Description: "Guidance", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "c", ExceptionPolicy: policy, AppliesTo: []string{"story-worker"}}})
 	p, err := first.Create(t.Context(), "policy", 0, ops)
 	if err != nil {
 		t.Fatal(err)

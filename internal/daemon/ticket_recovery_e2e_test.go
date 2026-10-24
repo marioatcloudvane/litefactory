@@ -1414,6 +1414,14 @@ func TestWebhookRecoveryHeartbeatConsumesMissedComment(t *testing.T) {
 				w.forge.mu.Unlock()
 			}
 			w.settle()
+			// Recovery is the listing's safety net, not a per-minute poll: a
+			// tick between listings neither replays deliveries nor lists, so the
+			// missed comment waits for the next listing tick.
+			if len(w.turns.triggers()) != 0 || posts.Load() != 0 {
+				t.Fatal("recovery ran between listings")
+			}
+			w.clock.advance(time.Hour)
+			w.settle()
 			if scenario == "disabled" || scenario == "mismatch" || scenario == "quota" {
 				if posts.Load() != 0 || len(w.turns.triggers()) != 0 {
 					t.Fatal("source/quota refusal permitted recovery effects")

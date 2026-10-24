@@ -40,7 +40,7 @@ func (s *Service) DispatchRepairRestart(ctx context.Context, ref naming.Ref) (st
 
 // RecoverRepair observes a prior dispatch and verifies state before releasing its hold.
 // It never dispatches a replacement restart when observation is missing.
-func (s *Service) RecoverRepair(ctx context.Context, ref naming.Ref) (operation store.DoctorRepair, err error) {
+func (s *Service) RecoverRepair(ctx context.Context, ref naming.Ref, expectedID ...string) (operation store.DoctorRepair, err error) {
 	ref = canonicalTarget(ref)
 	if s.RestartRoute == nil {
 		return operation, errors.New("doctor recovery observer unavailable")
@@ -48,6 +48,9 @@ func (s *Service) RecoverRepair(ctx context.Context, ref naming.Ref) (operation 
 	operation, err = s.DB.ReadDoctorRepair(ctx, ref.String())
 	if err != nil {
 		return operation, err
+	}
+	if len(expectedID) > 0 && operation.ID != expectedID[0] {
+		return operation, errors.New("doctor restart recovery operation changed")
 	}
 	intent, err := s.DB.ReadDoctorRestart(ctx, operation.ID)
 	if err != nil {

@@ -65,25 +65,26 @@ type CategoryPage struct {
 	Categories          []Category     `json:"categories"`
 	SelectedCategoryIDs []string       `json:"selected_category_ids"`
 	StandardCounts      map[string]int `json:"standard_counts"`
+	Load                Load           `json:"load"`
 	NextCursor          string         `json:"next_cursor,omitempty"`
 }
 
 // StandardManifest describes one entry in the streamed selected manifest.
 type StandardManifest struct {
 	ID     string `json:"id"`
-	Title  string `json:"title"`
+	Rule   string `json:"rule"`
 	Digest string `json:"digest"`
 	Bytes  int    `json:"bytes"`
 }
 
-// ReadPage carries exact bytes and explicit continuation markers.
+// ReadPage carries exact bytes of rendered standards and explicit continuation markers.
 type ReadPage struct {
 	Manifest         []StandardManifest `json:"manifest,omitempty"`
 	Status           RuntimeStatus      `json:"status"`
 	SelectionVersion int64              `json:"selection_version"`
 	SelectionDigest  string             `json:"selection_digest"`
 	StandardID       string             `json:"standard_id,omitempty"`
-	Title            string             `json:"title,omitempty"`
+	Rule             string             `json:"rule,omitempty"`
 	Body             string             `json:"body"`
 	BodyDigest       string             `json:"body_digest,omitempty"`
 	Start            int                `json:"start"`
@@ -340,7 +341,7 @@ func (r *Runtime) Inspect(ctx context.Context) (RunInspection, error) {
 				total := -1
 				for _, item := range snap.Standards {
 					if item.ID == id {
-						total = len(item.Body)
+						total = len(standardText(snap, item))
 					}
 				}
 				ranges := [][2]int{}
@@ -390,6 +391,7 @@ func (r *Runtime) Categories(ctx context.Context, size int, cursor string) (Cate
 	if e != nil || s.Integrity != "verified" {
 		return out, e
 	}
+	out.Load = BookLoad(snap)
 	if size == 0 {
 		size = 25
 	}
@@ -409,16 +411,7 @@ func (r *Runtime) Categories(ctx context.Context, size int, cursor string) (Cate
 	for c.Index < len(snap.Categories) && len(out.Categories) < size {
 		candidate := snap.Categories[c.Index]
 		out.Categories = append(out.Categories, candidate)
-		count := 0
-		for _, item := range snap.Standards {
-			for _, id := range item.CategoryIDs {
-				if id == candidate.ID {
-					count++
-					break
-				}
-			}
-		}
-		out.StandardCounts[candidate.ID] = count
+		out.StandardCounts[candidate.ID] = out.Load.Categories[candidate.ID]
 		selected := false
 		if s.Selection != nil {
 			for _, id := range s.Selection.CategoryIDs {
@@ -501,11 +494,8 @@ func (r *Runtime) Select(ctx context.Context, expected int64, ids []string, reas
 	}
 	sort.Strings(categories)
 	for _, standard := range snap.Standards {
-		for _, id := range standard.CategoryIDs {
-			if chosen[id] {
-				standards = append(standards, standard.ID)
-				break
-			}
+		if chosen[standard.CategoryID] {
+			standards = append(standards, standard.ID)
 		}
 	}
 	d := digest(struct {
@@ -547,9 +537,11 @@ func (r *Runtime) Read(ctx context.Context, version int64, selectionDigest, curs
 		selected[id] = true
 	}
 	items := []Standard{}
+	texts := []string{}
 	for _, item := range snap.Standards {
 		if selected[item.ID] {
 			items = append(items, item)
+			texts = append(texts, standardText(snap, item))
 		}
 	}
 	if ack {
@@ -557,7 +549,7 @@ func (r *Runtime) Read(ctx context.Context, version int64, selectionDigest, curs
 		if e != nil {
 			return out, e
 		}
-		for _, item := range items {
+		for i, item := range items {
 			ranges := [][2]int{}
 			for _, o := range obs {
 				if o.Kind == "offered" && o.SelectionVersion == version && o.StandardID == item.ID {
@@ -575,7 +567,7 @@ func (r *Runtime) Read(ctx context.Context, version int64, selectionDigest, curs
 					found = true
 				}
 			}
-			if !found || end < len(item.Body) {
+			if !found || end < len(texts[i]) {
 				return out, fmt.Errorf("%w: selected ranges have not all been offered", ErrInvalid)
 			}
 		}
@@ -601,29 +593,29 @@ func (r *Runtime) Read(ctx context.Context, version int64, selectionDigest, curs
 		out.Complete = true
 		return out, nil
 	}
-	item := items[c.Index]
-	if c.Offset > len(item.Body) || !utf8.ValidString(item.Body[:c.Offset]) {
+	item, text := items[c.Index], texts[c.Index]
+	if c.Offset > len(text) || !utf8.ValidString(text[:c.Offset]) {
 		return out, ErrInvalid
 	}
 	end := c.Offset + 4096
-	if end > len(item.Body) {
-		end = len(item.Body)
+	if end > len(text) {
+		end = len(text)
 	}
-	for !utf8.ValidString(item.Body[c.Offset:end]) {
+	for !utf8.ValidString(text[c.Offset:end]) {
 		end--
 	}
 	out.StandardID = item.ID
-	out.Title = item.Title
+	out.Rule = item.Rule
 	out.Start = c.Offset
-	out.Total = len(item.Body)
-	out.BodyDigest = digestBody(item.Body)
-	out.Manifest = []StandardManifest{{ID: item.ID, Title: item.Title, Digest: out.BodyDigest, Bytes: len(item.Body)}}
+	out.Total = len(text)
+	out.BodyDigest = digestBody(text)
+	out.Manifest = []StandardManifest{{ID: item.ID, Rule: item.Rule, Digest: out.BodyDigest, Bytes: len(text)}}
 	for {
 		out.End = end
-		out.Body = item.Body[c.Offset:end]
+		out.Body = text[c.Offset:end]
 		next := c
 		next.Digest = s.Binding.Digest
-		if end == len(item.Body) {
+		if end == len(text) {
 			next.Index++
 			next.Offset = 0
 		} else {
@@ -642,7 +634,7 @@ func (r *Runtime) Read(ctx context.Context, version int64, selectionDigest, curs
 			return out, fmt.Errorf("standard metadata exceeds encoded response limit")
 		}
 		end = c.Offset + (end-c.Offset)/2
-		for !utf8.ValidString(item.Body[c.Offset:end]) {
+		for !utf8.ValidString(text[c.Offset:end]) {
 			end--
 		}
 	}
@@ -651,6 +643,179 @@ func (r *Runtime) Read(ctx context.Context, version int64, selectionDigest, curs
 		return out, e
 	}
 	return out, nil
+}
+
+// RolePage is one exact UTF-8 range of the rendered standards that apply to a role.
+type RolePage struct {
+	Status      RuntimeStatus `json:"status"`
+	Role        string        `json:"role"`
+	Categories  []string      `json:"categories,omitempty"`
+	StandardIDs []string      `json:"standard_ids"`
+	Text        string        `json:"text"`
+	Start       int           `json:"start"`
+	End         int           `json:"end"`
+	Total       int           `json:"total"`
+	NextCursor  string        `json:"next_cursor,omitempty"`
+}
+
+// RoleCategory is one category holding standards that apply to a role.
+type RoleCategory struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Count       int    `json:"count"`
+}
+
+// RoleCategories lists the categories of the pinned book that hold at least
+// one standard applying to a role, in book order.
+type RoleCategories struct {
+	Status     RuntimeStatus  `json:"status"`
+	Role       string         `json:"role"`
+	Categories []RoleCategory `json:"categories"`
+	Note       string         `json:"note,omitempty"`
+}
+
+// ErrUnknownCategory refuses a category that holds no standard for the role.
+var ErrUnknownCategory = errors.New("standards: unknown category")
+
+func roleCategories(snap Snapshot, role string) []RoleCategory {
+	counts := map[string]int{}
+	for _, item := range snap.Standards {
+		if slices.Contains(item.AppliesTo, role) {
+			counts[item.CategoryID]++
+		}
+	}
+	out := []RoleCategory{}
+	for _, c := range snap.Categories {
+		if counts[c.ID] > 0 {
+			out = append(out, RoleCategory{ID: c.ID, Name: c.Name, Description: c.Description, Count: counts[c.ID]})
+		}
+	}
+	return out
+}
+
+// CategoriesForRole lists the categories that hold standards applying to role.
+// A book that is not available reads as empty, with the reason in the note.
+func (r *Runtime) CategoriesForRole(ctx context.Context, role string) (RoleCategories, error) {
+	s, snap, e := r.status(ctx)
+	out := RoleCategories{Status: BoundedStatus(s), Role: role, Categories: []RoleCategory{}}
+	if e != nil {
+		return out, e
+	}
+	if strings.TrimSpace(role) == "" {
+		return out, ErrInvalid
+	}
+	switch s.Integrity {
+	case "verified":
+	case "unavailable":
+		out.Note = "No standards book is available for this run: " + s.Reason
+		return out, nil
+	default:
+		return out, fmt.Errorf("standards %s: %s", s.Integrity, s.Reason)
+	}
+	out.Categories = roleCategories(snap, role)
+	if len(out.Categories) == 0 {
+		out.Note = "No published standards apply to you."
+	}
+	if !r.fitsResult(out) {
+		return out, fmt.Errorf("category metadata exceeds encoded response limit")
+	}
+	return out, nil
+}
+
+// ForRole offers the pinned book's standards whose applies_to names role,
+// rendered in one document and paged by byte ranges. The book decides which
+// standards apply to which role; categories, when given, narrow that to the
+// categories the role chose, and must each hold standards for the role.
+func (r *Runtime) ForRole(ctx context.Context, role string, categories []string, cursor string) (RolePage, error) {
+	s, snap, e := r.status(ctx)
+	out := RolePage{Status: BoundedStatus(s), Role: role, StandardIDs: []string{}}
+	if e != nil {
+		return out, e
+	}
+	if s.Integrity != "verified" {
+		return out, fmt.Errorf("standards %s: %s", s.Integrity, s.Reason)
+	}
+	if strings.TrimSpace(role) == "" {
+		return out, ErrInvalid
+	}
+	chosen := slices.Compact(slices.Sorted(slices.Values(categories)))
+	selection := "role:" + role
+	if len(chosen) > 0 {
+		valid := []string{}
+		for _, c := range roleCategories(snap, role) {
+			valid = append(valid, c.ID)
+		}
+		var unknown []string
+		for _, id := range chosen {
+			if !slices.Contains(valid, id) {
+				unknown = append(unknown, id)
+			}
+		}
+		if len(unknown) > 0 {
+			if len(valid) == 0 {
+				valid = []string{"none"}
+			}
+			return out, fmt.Errorf("%w %s; categories that hold standards for you: %s", ErrUnknownCategory, strings.Join(unknown, ", "), strings.Join(valid, ", "))
+		}
+		out.Categories = chosen
+		raw, _ := json.Marshal(chosen)
+		selection += ":categories:" + string(raw)
+	}
+	c, e := r.decodeCursor(cursor, selection)
+	if e != nil {
+		return out, e
+	}
+	if cursor != "" && c.Digest != s.Binding.Digest {
+		return out, ErrInvalid
+	}
+	items := []Standard{}
+	for _, item := range snap.Standards {
+		if slices.Contains(item.AppliesTo, role) && (len(chosen) == 0 || slices.Contains(chosen, item.CategoryID)) {
+			items = append(items, item)
+			out.StandardIDs = append(out.StandardIDs, item.ID)
+		}
+	}
+	text := Render(snap.Categories, items)
+	if c.Offset > len(text) || !utf8.ValidString(text[:c.Offset]) {
+		return out, ErrInvalid
+	}
+	end := min(c.Offset+(16<<10), len(text))
+	for !utf8.ValidString(text[c.Offset:end]) {
+		end--
+	}
+	out.Start, out.Total = c.Offset, len(text)
+	for {
+		out.End = end
+		out.Text = text[c.Offset:end]
+		out.NextCursor = ""
+		if end < len(text) {
+			next := c
+			next.Digest = s.Binding.Digest
+			next.Offset = end
+			out.NextCursor = encodeCursor(next)
+		}
+		if r.fitsResult(out) {
+			break
+		}
+		if end == c.Offset {
+			return out, fmt.Errorf("standards metadata exceeds encoded response limit")
+		}
+		end = c.Offset + (end-c.Offset)/2
+		for !utf8.ValidString(text[c.Offset:end]) {
+			end--
+		}
+	}
+	reason := role
+	if len(chosen) > 0 {
+		reason += " categories=" + strings.Join(chosen, ",")
+	}
+	return out, r.observe(ctx, store.StandardsRunObservation{Kind: "role-read", Outcome: "offered", Reason: boundedReason(reason), Start: out.Start, End: out.End, Total: out.Total})
+}
+
+// standardText is the rendered text an analyst reads for one standard.
+func standardText(snap Snapshot, item Standard) string {
+	return Render(snap.Categories, []Standard{item})
 }
 
 func digestBody(body string) string {
@@ -692,11 +857,8 @@ func verifyRunSelection(selection store.StandardsRunSelection, snapshot Snapshot
 	}
 	expected := []string{}
 	for _, standard := range snapshot.Standards {
-		for _, id := range standard.CategoryIDs {
-			if chosen[id] {
-				expected = append(expected, standard.ID)
-				break
-			}
+		if chosen[standard.CategoryID] {
+			expected = append(expected, standard.ID)
 		}
 	}
 	if !slices.Equal(selection.StandardIDs, expected) {

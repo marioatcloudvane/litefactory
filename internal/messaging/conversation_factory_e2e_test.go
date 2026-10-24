@@ -73,7 +73,7 @@ if [ "$step" = 1 ]; then
  printf 'acme/app#42' > "$state/fixture-target"
 fi
 if [ "$step" = 2 ]; then
- case "$(cat "$state/fixture-prompt-$step")" in *'no running tasks or owner waits found.'*) ;; *) exit 28;; esac
+ case "$(cat "$state/fixture-prompt-$step")" in *'Running now: 0.'*) ;; *) exit 28;; esac
 fi
 if [ "$step" = 3 ]; then
  [ "$(cat "$state/fixture-target")" = acme/app#42 ] || exit 26
@@ -242,12 +242,19 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 			if proposal.State != "awaiting_confirmation" || proposal.PromptID == "" || effects.calls != 0 {
 				t.Fatalf("proposal was not delivered before authorization: %+v effects=%d replies=%v", proposal, effects.calls, sent.texts)
 			}
-			for _, content := range []string{"Proposed action: answer", "acme/app", "42", "CSV output", "123456789abc", proposal.Code} {
-				if !strings.Contains(sent.texts[len(sent.texts)-1], content) {
-					t.Fatalf("protected proposal omitted %q: %v", content, sent.texts)
+			shown := sent.texts[len(sent.texts)-1]
+			for _, content := range []string{"app", "42", "CSV output", proposal.Code[:4]} {
+				if !strings.Contains(shown, content) {
+					t.Fatalf("proposal omitted %q: %v", content, sent.texts)
 				}
 			}
-			admit("103", "yes", proposal.PromptID)
+			for _, internal := range []string{"{", "123456789abc", proposal.Code} {
+				if strings.Contains(shown, internal) {
+					t.Fatalf("proposal shows %q: %v", internal, sent.texts)
+				}
+			}
+			// A plain yes, not a reply, confirms the one open proposal.
+			admit("103", "yes", "")
 			if effects.calls != 1 || effects.target != "github:acme/app#42" || effects.revision != "123456789abc" || effects.text != "CSV output" {
 				t.Fatalf("confirmed a different effect: %+v", effects)
 			}
@@ -267,7 +274,7 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 			if err != nil || execution.State != "finished" || execution.Outcome != link.Outcome {
 				t.Fatalf("saved execution differs from narration link: %+v %v", execution, err)
 			}
-			if len(sent.texts) != 4 || !strings.Contains(sent.texts[2], "Your CSV output answer was recorded for acme/app issue 42.") || !strings.Contains(sent.texts[3], "answer recorded") {
+			if len(sent.texts) != 3 || !strings.Contains(sent.texts[2], "Your CSV output answer was recorded for acme/app issue 42.") {
 				t.Fatalf("saved outcome narration missing: %v", sent.texts)
 			}
 			assertFactoryJourneySessions(t, after.StateDir, after.SessionHandle, 5)

@@ -463,6 +463,15 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 			}
 			continue
 		}
+		if err := d.admitHintedDoctor(readCtx, q, issue); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// The repository-comment scan picks the comment up from the next tick.
+			q.log.WarnContext(ctx, "webhook-hinted doctor admission deferred to the repository scan",
+				slog.Int("issue", hint.number), slog.Any("error", err))
+			d.oweDoctorScan(q.repo.ID)
+		}
 		if hint.versionID != 0 {
 			if err := d.handoffWebhookIssue(readCtx, hint, q, issue); err != nil {
 				if errors.Is(err, store.ErrSubscriptionConflict) || errors.Is(err, store.ErrConnectionConflict) {

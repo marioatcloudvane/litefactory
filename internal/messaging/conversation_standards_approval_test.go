@@ -2,10 +2,8 @@ package messaging
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,15 +11,11 @@ import (
 )
 
 type standardsGateOperations struct {
-	review     StandardsReview
-	executions int
+	executed []StandardsRequest
 }
 
-func (f *standardsGateOperations) Review(context.Context, StandardsRequest) (StandardsReview, error) {
-	return f.review, nil
-}
-func (f *standardsGateOperations) Execute(context.Context, StandardsRequest) (StandardsResult, error) {
-	f.executions++
+func (f *standardsGateOperations) Execute(_ context.Context, r StandardsRequest) (StandardsResult, error) {
+	f.executed = append(f.executed, r)
 	return StandardsResult{Text: "approved"}, nil
 }
 func (*standardsGateOperations) Read(context.Context, StandardsRequest) (StandardsResult, error) {
@@ -51,7 +45,7 @@ func standardsGateFixture(t *testing.T) (*Service, *standardsGateOperations, fun
 	service := New(db, "discord", "7", []string{"3"}, sender, FactoryStatus{DB: db})
 	service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 	service.conversations.Store(&conversationRuntime{bindings: map[string]ConversationBinding{"3": {Provider: "claude"}}, check: func(context.Context, string) error { return nil }, accessAfter: map[string]time.Time{}})
-	ops := &standardsGateOperations{review: StandardsReview{Kind: "proposal", TargetID: "proposal-1", TargetVersion: 1, BaseRevision: 1, ChangeDigest: "change", ResultDigest: "result", Text: "Full exact original review"}}
+	ops := &standardsGateOperations{}
 	service.EnableStandards(ops)
 	next := 100
 	run := func(text string, at time.Time) *factoryConversationRun {
@@ -82,145 +76,33 @@ func standardsGateFixture(t *testing.T) (*Service, *standardsGateOperations, fun
 	return service, ops, run
 }
 
-func TestStandardsHostApprovalRejectsIncompleteExpiredAndChangedReview(t *testing.T) {
-	for _, scenario := range []string{"bare yes", "unknown code", "partial delivery", "expired", "CLI changed terms"} {
-		t.Run(scenario, func(t *testing.T) {
-			ctx := t.Context()
-			s, ops, start := standardsGateFixture(t)
-			now := time.Now().UTC()
-			text := "approve standards review-code"
-			if scenario == "bare yes" {
-				text = "yes"
-			}
-			if scenario != "unknown code" && scenario != "bare yes" {
-				m, err := s.db.SaveStandardsConversationReview(ctx, store.StandardsConversationReview{ID: "review-1", Transport: "discord", OwnerID: "7", ChannelID: "3", Kind: "proposal", TargetID: ops.review.TargetID, TargetVersion: 1, BaseRevision: 1, ChangeDigest: ops.review.ChangeDigest, ResultDigest: ops.review.ResultDigest, Text: ops.review.Text, Parts: []string{ops.review.Text}, Code: "review-code"})
-				if err != nil {
-					t.Fatal(err)
-				}
-				if scenario != "partial delivery" {
-					if _, err = s.db.AcknowledgeStandardsConversationReviewPart(ctx, m.ID, "7", "3", 0, "review-part"); err != nil {
-						t.Fatal(err)
-					}
-					when := now
-					if scenario == "expired" {
-						when = now.Add(-16 * time.Minute)
-					}
-					if _, err = s.db.ActivateStandardsConversationReview(ctx, m.ID, "7", "3", "final-prompt", when); err != nil {
-						t.Fatal(err)
-					}
-				}
-				if scenario == "CLI changed terms" {
-					ops.review.Text = "Different CLI terms"
-					ops.review.ChangeDigest = "changed"
-				}
-			}
-			run := start(text, now)
-			handled, err := run.approveStandards(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if handled == (scenario == "bare yes") {
-				t.Fatalf("unexpected host recognition: %t", handled)
-			}
-			if ops.executions != 0 {
-				t.Fatal("unsafe approval reached shared mutation")
-			}
-		})
-	}
-}
-
-func TestStandardsReviewProtectionChangeCannotIssueApproval(t *testing.T) {
-	ctx := t.Context()
-	s, ops, start := standardsGateFixture(t)
-	s.Protect = func(_ context.Context, text string) (string, error) {
-		return strings.ReplaceAll(text, "original", "redacted"), nil
-	}
-	run := start("Review proposal-1 version 1", time.Now().UTC())
-	if err := run.reviewStandards(ctx, Invocation{Command: "standards", Arguments: map[string]string{"action": "proposal.review", "id": "proposal-1", "version": "1"}}); err != nil {
-		t.Fatal(err)
-	}
-	reply, err := s.db.ClaimConversationReply(ctx, "discord", time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(reply.ReplyText, "Approval is blocked") {
-		t.Fatalf("changed review was offered as approvable: %s", reply.ReplyText)
-	}
-	if ops.executions != 0 {
-		t.Fatal("protection change approved proposal")
-	}
-}
-
-func TestStandardsLargeReviewOffersApprovalOnlyAfterFinalAcknowledgedBatch(t *testing.T) {
+func TestStandardsApprovalIsAnOrdinaryConfirmedAction(t *testing.T) {
 	ctx := t.Context()
 	s, ops, start := standardsGateFixture(t)
 	now := time.Now().UTC()
-	ops.review.Text = strings.Repeat("Full exact before and after 界🙂\n", 4000)
-	manifest, err := s.db.SaveStandardsConversationReview(ctx, store.StandardsConversationReview{ID: "large-review", Transport: "discord", OwnerID: "7", ChannelID: "3", Kind: "proposal", TargetID: "proposal-1", TargetVersion: 1, BaseRevision: 1, ChangeDigest: "change", ResultDigest: "result", Text: ops.review.Text, Parts: standardsReviewParts(ops.review.Text), Code: "large-code"})
+	p := naturalPayload{Invocation: Invocation{Command: "standards-proposal", Arguments: map[string]string{"action": "approve", "id": "proposal-1", "version": "2", "digest": "change"}}, Channel: "3"}
+	if refusal, err := s.resolveNatural(ctx, &p, now); err != nil || refusal != "" {
+		t.Fatalf("approval proposal refused: %q %v", refusal, err)
+	}
+	payload, digest, err := naturalDigest(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	total := 0
-	for batch := 0; batch < 10; batch++ {
-		run := start("Continue exact review large-review", now.Add(time.Duration(batch)*time.Second))
-		if err = run.queueStandardsReview(ctx, manifest); err != nil {
-			t.Fatal(err)
-		}
-		turn, err := s.db.LatestConversationTurn(ctx, run.c.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		reply, err := s.db.ReadChatReply(ctx, "discord", turn.ReplyID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		answer, _, err := s.db.ConversationReplyAnswer(ctx, reply)
-		if err != nil {
-			t.Fatal(err)
-		}
-		parts, err := s.db.ReadConversationAnswerParts(ctx, answer.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		sourceBytes := 0
-		for _, p := range parts[:len(parts)-1] {
-			sourceBytes += len(p.Text)
-		}
-		if sourceBytes > 64<<10 {
-			t.Fatal("review batch exceeded source-byte budget")
-		}
-		total += sourceBytes
-		final := strings.Contains(parts[len(parts)-1].Text, "approve standards large-code")
-		if final != (total == len(ops.review.Text)) {
-			t.Fatal("approval prompt appeared before complete exact review")
-		}
-		before, err := s.db.GetStandardsConversationReview(ctx, manifest.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !before.ExpiresAt.IsZero() {
-			t.Fatal("approval activated before final prompt acknowledgment")
-		}
-		for range len(parts) {
-			if _, err = s.ConversationDeliveryStep(ctx, run.at); err != nil {
-				t.Fatal(err)
-			}
-		}
-		manifest, err = s.db.GetStandardsConversationReview(ctx, manifest.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if final {
-			if manifest.ExpiresAt.IsZero() {
-				t.Fatal("final acknowledgment did not activate challenge")
-			}
-			return
-		}
-		if !manifest.ExpiresAt.IsZero() {
-			t.Fatal("intermediate batch activated approval")
-		}
+	dialogue := store.NaturalDialogue{Transport: "discord", OwnerID: "7", ChannelRef: "3", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: payload, Digest: digest, Code: "approve-code", ExpiresAt: now.Add(time.Minute), UpdatedAt: now}
+	if err = s.db.SaveNaturalDialogue(ctx, dialogue, 0); err != nil {
+		t.Fatal(err)
 	}
-	t.Fatal("bounded batches failed to finish review")
+	if err = s.db.BindNaturalPrompt(ctx, dialogue, "proposal-prompt"); err != nil {
+		t.Fatal(err)
+	}
+	run := start("yes", now.Add(time.Second))
+	run.t.ReplyTo = "proposal-prompt"
+	if handled, err := run.confirm(ctx); !handled || err != nil {
+		t.Fatalf("confirmation not handled: %v %v", handled, err)
+	}
+	if len(ops.executed) != 1 || ops.executed[0].Operation != "proposal.approve" || ops.executed[0].Arguments["digest"] != "change" {
+		t.Fatalf("approval did not run through the confirmed action: %+v", ops.executed)
+	}
 }
 
 type standardsGateRecovery struct {
@@ -282,7 +164,7 @@ func TestStandardsConversationRecoversCommittedOutcomeBeforeUncertainChatRecover
 	if execution.State != "finished" || execution.Outcome != "Committed author session saved-author version 2" {
 		t.Fatalf("committed operation became uncertain: %+v", execution)
 	}
-	if recovery.executions != 0 || len(recovery.recovered) != 1 {
+	if len(recovery.executed) != 0 || len(recovery.recovered) != 1 {
 		t.Fatal("chat recovery repeated a mutation")
 	}
 	request := recovery.recovered[0]
@@ -294,138 +176,5 @@ func TestStandardsConversationRecoversCommittedOutcomeBeforeUncertainChatRecover
 	}
 	if len(recovery.recovered) != 1 {
 		t.Fatal("finished outcome unnecessarily reconciled again")
-	}
-}
-
-func standardsGateManifest(t *testing.T, s *Service, ops *standardsGateOperations, at time.Time) store.StandardsConversationReview {
-	t.Helper()
-	ctx := t.Context()
-	m, err := s.db.SaveStandardsConversationReview(ctx, store.StandardsConversationReview{ID: "specialized-review", Transport: "discord", OwnerID: "7", ChannelID: "3", Kind: "proposal", TargetID: ops.review.TargetID, TargetVersion: ops.review.TargetVersion, BaseRevision: ops.review.BaseRevision, ChangeDigest: ops.review.ChangeDigest, ResultDigest: ops.review.ResultDigest, Text: ops.review.Text, Parts: []string{ops.review.Text}, Code: "specialized-code"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.db.AcknowledgeStandardsConversationReviewPart(ctx, m.ID, "7", "3", 0, "review-content"); err != nil {
-		t.Fatal(err)
-	}
-	m, err = s.db.ActivateStandardsConversationReview(ctx, m.ID, "7", "3", "specialized-final-prompt", at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return m
-}
-
-func TestStandardsSpecializedApprovalRecoversConsumedReceiptAfterRestart(t *testing.T) {
-	ctx := t.Context()
-	s, ops, start := standardsGateFixture(t)
-	now := time.Now().UTC()
-	m := standardsGateManifest(t, s, ops, now)
-	run := start("approve standards "+m.Code, now.Add(time.Second))
-	// The domain committed approval and consumed its gate, but the chat process
-	// stopped before it could retain an outcome. No generic dialogue exists.
-	if _, err := s.db.ConsumeStandardsConversationReview(ctx, m.ID, "7", "3", m.Code, run.at); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.GetConversationActionLink(ctx, run.t.ID); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("specialized approval unexpectedly has generic dialogue: %v", err)
-	}
-	path := s.db.Path()
-	if err := s.db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	db, err := store.Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	recovery := &standardsGateRecovery{}
-	resumed := New(db, "discord", "7", []string{"3"}, nil, FactoryStatus{DB: db})
-	resumed.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
-	resumed.EnableStandards(recovery)
-	if err = resumed.recoverStandardsApproval(ctx, run.c, run.t, now.Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	exchanges, err := db.ListConversationExchanges(ctx, run.t.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(exchanges) != 1 || exchanges[0].Kind != "saved_outcome" || !strings.Contains(exchanges[0].Result, "Committed author session saved-author version 2") {
-		t.Fatalf("consumed approval lost its factual receipt: %+v", exchanges)
-	}
-	if len(recovery.recovered) != 1 || recovery.executions != 0 {
-		t.Fatal("approval recovery repeated domain execution")
-	}
-	request := recovery.recovered[0]
-	if request.Operation != "proposal.approve" || request.OperationKey != "discord:3:review:"+m.ID || request.MessageID != run.t.SourceID {
-		t.Fatalf("approval recovery selected another operation: %+v", request)
-	}
-}
-
-func TestStandardsExplicitApprovalCanReplyToExactFinalPrompt(t *testing.T) {
-	ctx := t.Context()
-	s, ops, start := standardsGateFixture(t)
-	now := time.Now().UTC()
-	m := standardsGateManifest(t, s, ops, now)
-	run := start("approve standards", now.Add(time.Second))
-	run.t.ReplyTo = m.PromptRemoteID
-	handled, err := run.approveStandards(ctx)
-	if err != nil || !handled {
-		t.Fatalf("explicit reply approval failed: %t %v", handled, err)
-	}
-	if ops.executions != 1 {
-		t.Fatal("explicit reply to exact final prompt did not reach approval")
-	}
-}
-
-func TestStandardsDelayedOldPromptCannotActivateRotatedChallenge(t *testing.T) {
-	ctx := t.Context()
-	s, ops, start := standardsGateFixture(t)
-	now := time.Now().UTC()
-	// Queue an immutable old challenge delivery before its receipt is lost.
-	m, err := s.db.SaveStandardsConversationReview(ctx, store.StandardsConversationReview{ID: "rotated-review", Transport: "discord", OwnerID: "7", ChannelID: "3", Kind: "proposal", TargetID: ops.review.TargetID, TargetVersion: 1, BaseRevision: 1, ChangeDigest: ops.review.ChangeDigest, ResultDigest: ops.review.ResultDigest, Text: ops.review.Text, Parts: []string{ops.review.Text}, Code: "old-code"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := start("Review proposal-1", now.Add(-17*time.Minute))
-	if err = run.queueStandardsReview(ctx, m); err != nil {
-		t.Fatal(err)
-	}
-	turn, err := s.db.LatestConversationTurn(ctx, run.c.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := s.db.ReadChatReply(ctx, "discord", turn.ReplyID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	answer, _, err := s.db.ConversationReplyAnswer(ctx, first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parts, err := s.db.ReadConversationAnswerParts(ctx, answer.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldPrompt, err := s.db.ReadChatReply(ctx, "discord", parts[len(parts)-1].ReplyID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.db.AcknowledgeStandardsConversationReviewPart(ctx, m.ID, "7", "3", 0, "review-content"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.db.ActivateStandardsConversationReview(ctx, m.ID, "7", "3", "old-prompt", now.Add(-16*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.db.RefreshStandardsConversationReviewChallenge(ctx, m.ID, "7", "3", "new-code", now); err != nil {
-		t.Fatal(err)
-	}
-	if err = s.acknowledgeStandardsReview(ctx, oldPrompt, "delayed-old-prompt", now.Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	current, err := s.db.GetStandardsConversationReview(ctx, m.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if current.Code != "new-code" || current.PromptRemoteID != "" || !current.ExpiresAt.IsZero() {
-		t.Fatalf("old delivery activated replacement challenge: %+v", current)
 	}
 }

@@ -23,6 +23,13 @@ import (
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
+// Whole-analysis ceilings, sized for dozens of incidents and condensed runs.
+const (
+	maxCalls   = store.LogAnalysisMaxCalls
+	maxBytes   = store.LogAnalysisMaxBytes
+	maxSeconds = 1800
+)
+
 func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 func digest(v any) string       { h := sha256.Sum256(raw(v)); return hex.EncodeToString(h[:]) }
 func normalized(q Request) (Request, error) {
@@ -51,33 +58,33 @@ func normalized(q Request) (Request, error) {
 		q.Limits.ReportBytes = 128 << 10
 	}
 	if q.Limits.Proposals == 0 {
-		q.Limits.Proposals = 10
+		q.Limits.Proposals = maxProposals
 	}
-	if q.Limits.ReportBytes < 1 || q.Limits.ReportBytes > 128<<10 || q.Limits.Proposals < 1 || q.Limits.Proposals > 10 {
+	if q.Limits.ReportBytes < 1 || q.Limits.ReportBytes > 128<<10 || q.Limits.Proposals < 1 || q.Limits.Proposals > maxProposals {
 		return q, errors.New("report and proposal limits may only be lowered")
 	}
 	if q.Limits.Calls == 0 {
-		q.Limits.Calls = 40
+		q.Limits.Calls = maxCalls
 	}
 	if q.Limits.Bytes == 0 {
-		q.Limits.Bytes = 256 << 10
+		q.Limits.Bytes = maxBytes
 	}
 	if q.Limits.Seconds == 0 {
-		q.Limits.Seconds = 600
+		q.Limits.Seconds = maxSeconds
 	}
-	if q.Limits.Calls < 5 || q.Limits.Calls > 40 || q.Limits.Bytes < 16<<10 || q.Limits.Bytes > 256<<10 || q.Limits.Seconds < 1 || q.Limits.Seconds > 600 {
+	if q.Limits.Calls < 5 || q.Limits.Calls > maxCalls || q.Limits.Bytes < 16<<10 || q.Limits.Bytes > maxBytes || q.Limits.Seconds < 1 || q.Limits.Seconds > maxSeconds {
 		return q, errors.New("analysis limits may only lower the finite defaults and must retain finalization reserve")
 	}
-	defaults := logevidence.Limits{Runs: 5, Records: 100, Rows: 50, Calls: 10, Bytes: 32 << 10}
+	defaults := logevidence.AnalystLimits()
 	for _, p := range []struct {
 		v *int
 		d int
-	}{{&q.Limits.Evidence.Runs, defaults.Runs}, {&q.Limits.Evidence.Records, defaults.Records}, {&q.Limits.Evidence.Rows, defaults.Rows}, {&q.Limits.Evidence.Calls, defaults.Calls}, {&q.Limits.Evidence.Bytes, defaults.Bytes}} {
+	}{{&q.Limits.Evidence.Runs, defaults.Runs}, {&q.Limits.Evidence.Records, defaults.Records}, {&q.Limits.Evidence.Rows, defaults.Rows}, {&q.Limits.Evidence.Calls, defaults.Calls}, {&q.Limits.Evidence.Bytes, defaults.Bytes}, {&q.Limits.Evidence.Digests, defaults.Digests}} {
 		if *p.v == 0 {
 			*p.v = p.d
 		}
 	}
-	if _, e := logevidence.NewBudget(q.Limits.Evidence); e != nil {
+	if _, e := logevidence.NewAnalystBudget(q.Limits.Evidence); e != nil {
 		return q, e
 	}
 	return q, nil
@@ -113,20 +120,25 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 			return a, errors.New("repository selection is not registered")
 		}
 	}
-	budget, err := logevidence.NewBudget(q.Limits.Evidence)
+	budget, err := logevidence.NewAnalystBudget(q.Limits.Evidence)
 	if err != nil {
 		return a, err
 	}
 	live, cancel := context.WithTimeout(ctx, time.Duration(q.Limits.Seconds)*time.Second)
 	defer cancel()
-	reader, err := logevidence.New(live, logevidence.Options{Store: s.DB, RunsRoot: s.RunsRoot, Scope: logevidence.Scope{RepositoryIDs: q.RepositoryIDs, RunIDs: q.RunIDs, TaskRefs: q.TaskRefs, StartedAfter: q.After, StartedBefore: q.Before}, Redactor: s.Redactor, Budget: budget})
+	reader, err := logevidence.New(live, logevidence.Options{Store: s.DB, RunsRoot: s.RunsRoot, Scope: logevidence.Scope{RepositoryIDs: q.RepositoryIDs, RunIDs: q.RunIDs, TaskRefs: q.TaskRefs, StartedAfter: q.After, StartedBefore: q.Before}, Redactor: s.Redactor, Budget: budget, Outcomes: true})
 	if err != nil {
 		return a, err
 	}
 	defer func() { err = errors.Join(err, reader.Close()) }()
 	cutoff, high, grant := reader.Boundary()
+	repositories, err := s.pinRepositories(ctx, q.RepositoryIDs)
+	if err != nil {
+		return a, err
+	}
+	scope := Scope{Request: q, Cutoff: cutoff, HighWater: high, Repositories: repositories, Upstream: s.UpstreamName}
 	id := rand.Text()
-	a, err = s.DB.CreateLogAnalysis(ctx, store.LogAnalysis{ID: id, StartKey: q.StartKey, RequestDigest: digest(q), Scope: raw(Scope{q, cutoff, high}), Limits: raw(q.Limits), GrantDigest: grant})
+	a, err = s.DB.CreateLogAnalysis(ctx, store.LogAnalysis{ID: id, StartKey: q.StartKey, RequestDigest: digest(q), Scope: raw(scope), Limits: raw(q.Limits), GrantDigest: grant})
 	if err != nil {
 		return a, err
 	}
@@ -193,7 +205,7 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	if err != nil {
 		return a, err
 	}
-	h := &invocation{service: s, a: a, q: q, reader: reader, book: book, cancel: cancel, profile: profile}
+	h := &invocation{service: s, a: a, q: q, scope: scope, reader: reader, book: book, cancel: cancel, profile: profile}
 	broker, err := submission.Start(live, submission.Options{Directory: directory, AllowTools: true, AllowResult: true, AttemptReference: a.ID, MaxWorkers: 2, RequestTimeout: 30 * time.Second, Handler: h.handle})
 	if err != nil {
 		return a, err
@@ -207,7 +219,7 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	if err != nil {
 		return a, err
 	}
-	prompt, err := analystPrompt(live, q)
+	prompt, err := analystPrompt(live, scope)
 	if err != nil {
 		return a, err
 	}
@@ -236,6 +248,12 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	// Accepted receipts win even when the provider loses its final response.
 	saved, e := s.DB.GetLogAnalysis(cleanup, a.ID)
 	if e == nil && saved.State != "running" {
+		if saved.State == "completed" {
+			// The accepted report decided what to file; the host only executes it.
+			filing, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			defer stop()
+			provenanceErr = errors.Join(provenanceErr, s.FileFindings(filing, saved.ID))
+		}
 		return saved, provenanceErr
 	}
 	if runErr == nil {
@@ -249,6 +267,7 @@ type invocation struct {
 	service         *Service
 	a               store.LogAnalysis
 	q               Request
+	scope           Scope
 	reader          *logevidence.Service
 	book            *standards.Runtime
 	exhausted       bool
@@ -364,7 +383,7 @@ func (h *invocation) handle(ctx context.Context, q submission.Request) (out json
 	var v json.RawMessage
 	var evidence *Evidence
 	switch call.Name {
-	case "runs_list", "run_logs_read":
+	case "runs_list", "run_logs_read", "incidents_list", "run_digest_read":
 		selector, cleanErr := h.evidenceSelector(ctx, call.Name, call.Arguments)
 		if cleanErr != nil {
 			return nil, cleanErr
@@ -377,6 +396,13 @@ func (h *invocation) handle(ctx context.Context, q submission.Request) (out json
 			var r logevidence.Result
 			if e = json.Unmarshal(v, &r); e == nil {
 				meta := Evidence{Tool: call.Name, Selector: selector, Status: r.Status, Runs: r.Runs, Coverage: r.Coverage, Next: r.NextCursor != "", Budget: r.Budget}
+				for _, in := range r.Incidents {
+					meta.Incidents = append(meta.Incidents, in.ID)
+					if meta.IncidentTasks == nil {
+						meta.IncidentTasks = map[string]string{}
+					}
+					meta.IncidentTasks[in.ID] = in.TaskRef
+				}
 				for _, rec := range r.Records {
 					meta.Citations = append(meta.Citations, rec.Citation)
 					meta.Events = append(meta.Events, OfferedEvent{rec.Citation, rec.Redactions, rec.Truncated})
@@ -384,6 +410,8 @@ func (h *invocation) handle(ctx context.Context, q submission.Request) (out json
 				evidence = &meta
 			}
 		}
+	case "issues_search", "repo_log", "repo_grep", "repo_read":
+		v, evidence, e = h.check(ctx, call.Name, call.Arguments)
 	case "standards_categories_list":
 		var in struct {
 			Limit  int    `json:"limit,omitempty"`
@@ -461,7 +489,28 @@ func (h *invocation) evidenceSelector(ctx context.Context, name string, args jso
 
 	var known any
 	cursorDigest := ""
-	if name == "runs_list" {
+	switch name {
+	case "incidents_list":
+		request := &logevidence.IncidentsRequest{}
+		if err := submission.DecodeJSON(args, request); err != nil {
+			return nil, err
+		}
+		if request.Cursor != "" {
+			cursorDigest = digest(request.Cursor)
+			request.Cursor = ""
+		}
+		known = request
+	case "run_digest_read":
+		request := &logevidence.DigestRequest{}
+		if err := submission.DecodeJSON(args, request); err != nil {
+			return nil, err
+		}
+		if request.Cursor != "" {
+			cursorDigest = digest(request.Cursor)
+			request.Cursor = ""
+		}
+		known = request
+	case "runs_list":
 		request := &logevidence.ListRequest{}
 		if err := submission.DecodeJSON(args, request); err != nil {
 			return nil, err
@@ -481,7 +530,7 @@ func (h *invocation) evidenceSelector(ctx context.Context, name string, args jso
 			request.Status = "invalid"
 		}
 		known = request
-	} else {
+	default:
 		request := &logevidence.ReadRequest{}
 		if err := submission.DecodeJSON(args, request); err != nil {
 			return nil, err
@@ -534,6 +583,72 @@ func (h *invocation) evidenceSelector(ctx context.Context, name string, args jso
 	return raw(safe), nil
 }
 
+// allEvidence reads the whole ledger; an analysis may record more than one page.
+func allEvidence(ctx context.Context, db *store.DB, id string) ([]store.LogAnalysisEvidence, error) {
+	var out []store.LogAnalysisEvidence
+	for {
+		after := int64(0)
+		if len(out) > 0 {
+			after = out[len(out)-1].ID
+		}
+		page, e := db.ListLogAnalysisEvidence(ctx, id, after, 100)
+		if e != nil || len(page) == 0 {
+			return out, e
+		}
+		out = append(out, page...)
+	}
+}
+
+// reading lists what the analyst received. It records facts and judges nothing.
+func reading(rows []store.LogAnalysisEvidence) (Reading, error) {
+	out := Reading{Digests: []int64{}, RawReads: []int64{}}
+	incidents, listed := map[string]bool{}, map[int64]bool{}
+	digests, reads := map[int64]bool{}, map[int64]bool{}
+	for _, row := range rows {
+		var v Evidence
+		if e := json.Unmarshal(row.Metadata, &v); e != nil {
+			return out, e
+		}
+		switch v.Status {
+		case "budget_exhausted":
+			out.BudgetExhausted = true
+		case "delivery_withheld":
+			out.Withheld++
+		}
+		for _, id := range v.Incidents {
+			incidents[id] = true
+		}
+		var selector struct {
+			RunID int64 `json:"run_id"`
+		}
+		_ = json.Unmarshal(v.Selector, &selector)
+		switch v.Tool {
+		case "runs_list":
+			for _, run := range v.Runs {
+				listed[run.RunID] = true
+			}
+		case "run_digest_read":
+			if v.Status == "ok" && !digests[selector.RunID] {
+				digests[selector.RunID] = true
+				out.Digests = append(out.Digests, selector.RunID)
+			}
+		case "run_logs_read":
+			if len(v.Citations) > 0 && !reads[selector.RunID] {
+				reads[selector.RunID] = true
+				out.RawReads = append(out.RawReads, selector.RunID)
+			}
+		case "issues_search":
+			out.IssueSearches++
+		case "repo_log", "repo_grep", "repo_read":
+			out.RepositoryReads++
+		}
+	}
+	out.IncidentsOffered, out.RunsListed = len(incidents), len(listed)
+	slices.Sort(out.Digests)
+	slices.Sort(out.RawReads)
+	return out, nil
+}
+
 // Inspect pages host evidence while keeping the immutable report and exact links.
 func (s *Service) Inspect(ctx context.Context, id string, after int64, limit int) (Inspection, error) {
 	var out Inspection
@@ -543,6 +658,14 @@ func (s *Service) Inspect(ctx context.Context, id string, after int64, limit int
 		return out, e
 	}
 	out.Standards, e = s.book(id).Inspect(ctx)
+	if e != nil {
+		return out, e
+	}
+	rows, e := allEvidence(ctx, s.DB, id)
+	if e != nil {
+		return out, e
+	}
+	out.Read, e = reading(rows)
 	if e != nil {
 		return out, e
 	}
@@ -561,6 +684,10 @@ func (s *Service) Inspect(ctx context.Context, id string, after int64, limit int
 		return out, e
 	}
 	out.Proposals, e = s.DB.ListLogAnalysisProposalLinks(ctx, id)
+	if e != nil {
+		return out, e
+	}
+	out.Filings, e = s.DB.ListLogAnalysisFilings(ctx, id)
 	return out, e
 }
 
@@ -574,7 +701,7 @@ func (s *Service) Reread(ctx context.Context, id string, c logevidence.Citation)
 	if e = json.Unmarshal(a.Scope, &scope); e != nil {
 		return logevidence.Result{}, e
 	}
-	rows, e := s.DB.ListLogAnalysisEvidence(ctx, id, 0, 100)
+	rows, e := allEvidence(ctx, s.DB, id)
 	if e != nil {
 		return logevidence.Result{}, e
 	}

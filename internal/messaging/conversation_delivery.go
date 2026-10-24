@@ -20,7 +20,7 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 	}
 	r, err := s.db.ClaimConversationReply(ctx, s.transport, at)
 	if errors.Is(err, store.ErrNotFound) {
-		return s.StandardsNoticeStep(ctx, at)
+		return false, nil
 	}
 	if err != nil {
 		return false, err
@@ -43,6 +43,27 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 		}
 		return true, s.db.PauseConversationReply(ctx, r, "conversation delivery authorization unavailable; saved reply retained", at)
 	}
+	override, overrideErr := s.db.ReadInboxWithheldReply(ctx, r)
+	switch {
+	case overrideErr == nil:
+		r.ReplyText = override
+		r.ReplyAttachment = ""
+	case !errors.Is(overrideErr, store.ErrNotFound):
+		return true, overrideErr
+	default:
+		if answer, _, lookupErr := s.db.ConversationReplyAnswer(ctx, r); lookupErr == nil {
+			if err = s.authorizeInboxAnswer(ctx, answer, at); err != nil {
+				notice, saveErr := s.db.SaveInboxWithheldReply(ctx, r, at)
+				if saveErr != nil {
+					return true, saveErr
+				}
+				r.ReplyText = notice
+				r.ReplyAttachment = ""
+			}
+		} else if !errors.Is(lookupErr, store.ErrNotFound) {
+			return true, lookupErr
+		}
+	}
 	// Protected delivery prevents the transport from truncating or replacing the
 	// saved bytes. Oversized answers remain retained with a visible health reason.
 	deliveryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -50,9 +71,6 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 	d := s.sender.Deliver(deliveryCtx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Protected: true}, r.ReplyText)
 	switch {
 	case d.Confirmed:
-		if err := s.acknowledgeStandardsReview(ctx, r, d.PromptID, at); err != nil {
-			return true, err
-		}
 		if runtime.factory && d.PromptID != "" {
 			proposal, e := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.ChannelRef)
 			if e != nil && !errors.Is(e, store.ErrNotFound) {
@@ -105,6 +123,23 @@ func (s *Service) deliverConversationDetails(ctx context.Context, r store.ChatRe
 	a, err := s.db.ReadConversationAnswer(ctx, s.transport, s.owner, r.ChannelRef, id)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
+	}
+	override, overrideErr := s.db.ReadInboxWithheldReply(ctx, r)
+	switch {
+	case overrideErr == nil:
+		r.ReplyText = override
+		r.ReplyAttachment = ""
+	case !errors.Is(overrideErr, store.ErrNotFound):
+		return overrideErr
+	case err == nil:
+		if inboxErr := s.authorizeInboxAnswer(ctx, a, at); inboxErr != nil {
+			notice, saveErr := s.db.SaveInboxWithheldReply(ctx, r, at)
+			if saveErr != nil {
+				return saveErr
+			}
+			r.ReplyText = notice
+			r.ReplyAttachment = ""
+		}
 	}
 	// A notice can be delivered without exporting data. Evidence exports always
 	// recheck the currently registered target and channel before each send.

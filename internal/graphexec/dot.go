@@ -35,17 +35,21 @@ func ParseProfile(data []byte) (*Profile, error) {
 	for _, statement := range file.Graphs[0].Stmts {
 		switch stmt := statement.(type) {
 		case *ast.Attr:
+			faults = append(faults, validateDOTSlotAttrs([]*ast.Attr{stmt}))
 			p.Attrs[dotText(stmt.Key)] = dotText(stmt.Val)
 		case *ast.AttrStmt:
 			switch stmt.Kind {
 			case ast.GraphKind:
+				faults = append(faults, validateDOTSlotAttrs(stmt.Attrs))
 				mergeDOTAttrs(p.Attrs, stmt.Attrs)
 			case ast.NodeKind:
+				faults = append(faults, validateDOTSlotAttrs(stmt.Attrs))
 				mergeDOTAttrs(nodeDefaults, stmt.Attrs)
 			case ast.EdgeKind:
 				mergeDOTAttrs(edgeDefaults, stmt.Attrs)
 			}
 		case *ast.NodeStmt:
+			faults = append(faults, validateDOTSlotAttrs(stmt.Attrs))
 			name, err := dotNodeName(stmt.Node)
 			if err != nil {
 				faults = append(faults, err)
@@ -82,6 +86,19 @@ func ParseProfile(data []byte) (*Profile, error) {
 		return nil, fmt.Errorf("decode graph profile: %w", err)
 	}
 	return p, nil
+}
+
+// Check declarations before merging so an invalid supplied default or earlier
+// value cannot be hidden by a later valid override.
+func validateDOTSlotAttrs(attrs []*ast.Attr) error {
+	var faults []error
+	for _, attr := range attrs {
+		if dotText(attr.Key) == slotBudgetAttribute {
+			_, err := slotCostAttribute(map[string]string{slotBudgetAttribute: dotText(attr.Val)})
+			faults = append(faults, err)
+		}
+	}
+	return errors.Join(faults...)
 }
 
 func mergeDOTAttrs(dst map[string]string, attrs []*ast.Attr) {

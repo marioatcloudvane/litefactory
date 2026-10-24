@@ -14,6 +14,9 @@ import (
 // command layer's business; the dependency direction is cli -> domain.
 var ErrNotFound = errors.New("store: not found")
 
+// ErrDoctorNoProposal reports a doctor apply without a current proposal.
+var ErrDoctorNoProposal = errors.New("store: no current doctor proposal")
+
 // ErrDuplicateRun is returned when a run is allocated for a
 // (session, trigger_comment_id) pair that already has one. That uniqueness is
 // what makes crash replay safe (AC-3.4): a comment can cause at most one run,

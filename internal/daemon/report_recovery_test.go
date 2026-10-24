@@ -35,8 +35,8 @@ func (p *listingPoster) ListCommentsAfter(context.Context, github.Repo, int, int
 	return p.comments, nil
 }
 
-// stoppedConsumeRepair runs a consume step whose POST fails with postErr, then
-// stops the repair as the refused tool does. The session is left with the
+// stoppedConsumeRepair runs a consume step whose POST fails with postErr, which
+// the step categorizes as want, then stops the repair as the refused tool does. The session is left with the
 // consume reply's recovery hold the incident saw.
 type stoppedConsumeRepair struct {
 	d       *Daemon
@@ -48,7 +48,7 @@ type stoppedConsumeRepair struct {
 	logs    *bytes.Buffer
 }
 
-func newStoppedConsumeRepair(t *testing.T, postErr error) *stoppedConsumeRepair {
+func newStoppedConsumeRepair(t *testing.T, postErr, want error) *stoppedConsumeRepair {
 	t.Helper()
 	d, forge, repo := doctorDaemonFixture(t)
 	ctx := t.Context()
@@ -74,10 +74,10 @@ func newStoppedConsumeRepair(t *testing.T, postErr error) *stoppedConsumeRepair 
 	op := approveEffect(t, d.db, session, step, evidence)
 	forge.postErr = postErr
 	adapter := FactoryDoctorRepairEffects{DB: d.db, Comments: forge, BotID: 99, Redactor: d.doctor.service.Redactor}
-	if _, e = adapter.Execute(ctx, ref, op, step, "claude"); !errors.Is(e, doctor.ErrRepairReplyNotPosted) {
+	if _, e = adapter.Execute(ctx, ref, op, step, "claude"); !errors.Is(e, want) {
 		t.Fatalf("failed post was not categorized: %v", e)
 	}
-	failure := "step 1 consume_comment: doctor reply could not be posted. Run /doctor check to re-diagnose against the current state before approving another repair."
+	failure := "step 1 consume_comment: " + want.Error() + ". Run /doctor check to re-diagnose against the current state before approving another repair."
 	if e = d.db.StopDoctorRepair(ctx, ref.String(), failure); e != nil {
 		t.Fatal(e)
 	}
@@ -157,7 +157,7 @@ func (s *stoppedConsumeRepair) requireSettled(t *testing.T) {
 // C8, C13: an unconfirmed consume reply of a stopped repair is settled once a
 // complete lookup finds no trace, releasing the session.
 func TestStoppedRepairUncertainConsumeReplySettlesAfterEmptyLookup(t *testing.T) {
-	s := newStoppedConsumeRepair(t, errors.New("reply lost"))
+	s := newStoppedConsumeRepair(t, errors.New("reply lost"), doctor.ErrRepairReplyOutcomeUncertain)
 	if d, exists := s.delivery(t); !exists || !d.PossiblySent || d.CommentID != 0 {
 		t.Fatalf("lost reply not uncertain: %+v", d)
 	}
@@ -181,11 +181,11 @@ func TestStoppedRepairUncertainConsumeReplySettlesAfterEmptyLookup(t *testing.T)
 // C12, C13: a reply GitHub refused with a rate limit is un-marked inside the
 // consume step and later dropped without any POST or lookup.
 func TestRateLimitedConsumeReplyIsUnmarkedAndDroppedWithoutPost(t *testing.T) {
-	s := newStoppedConsumeRepair(t, &github.RateLimitError{APIError: github.APIError{StatusCode: 403, Err: github.ErrRateLimited}})
+	s := newStoppedConsumeRepair(t, &github.RateLimitError{APIError: github.APIError{StatusCode: 403, Err: github.ErrRateLimited}}, doctor.ErrRepairReplyRateLimited)
 	if d, exists := s.delivery(t); !exists || d.PossiblySent || d.CommentID != 0 {
 		t.Fatalf("rate-limited reply still possibly sent: %+v", d)
 	}
-	if s.op.Failure != "step 1 consume_comment: doctor reply could not be posted. Run /doctor check to re-diagnose against the current state before approving another repair." {
+	if s.op.Failure != "step 1 consume_comment: forge rate limited: reply was not posted. Run /doctor check to re-diagnose against the current state before approving another repair." {
 		t.Fatalf("repair failure %q", s.op.Failure)
 	}
 	// Settled at once, inside the backoff, without a POST or a lookup.
@@ -201,7 +201,7 @@ func TestRateLimitedConsumeReplyIsUnmarkedAndDroppedWithoutPost(t *testing.T) {
 // C9: a conflicting remote comment under the reply's marker keeps the row and
 // the uncertain failure.
 func TestStoppedRepairConsumeReplyConflictIsNotSettled(t *testing.T) {
-	s := newStoppedConsumeRepair(t, errors.New("reply lost"))
+	s := newStoppedConsumeRepair(t, errors.New("reply lost"), doctor.ErrRepairReplyOutcomeUncertain)
 	d, _ := s.delivery(t)
 	s.poster.comments = []github.Comment{{ID: 500, Body: "changed " + d.Marker, Author: github.User{ID: 99}, HTMLURL: "https://github.com/acme/api/issues/406#issuecomment-500"}}
 	s.t.tickAt = s.t.tickAt.Add(time.Hour)

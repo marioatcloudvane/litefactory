@@ -6,12 +6,12 @@ import (
 )
 
 func TestExceptionPolicyCanonicalAndLegacyDigests(t *testing.T) {
-	legacy := Standard{ID: "s", Title: "S", Body: "Body", CategoryIDs: []string{"c"}}
+	legacy := Standard{ID: "s", Rule: "MUST S", Description: "Body", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "c", AppliesTo: []string{"story-worker"}}
 	b, err := json.Marshal(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(b) != `{"id":"s","title":"S","body":"Body","category_ids":["c"]}` {
+	if string(b) != `{"id":"s","category_id":"c","rule":"MUST S","description":"Body","evidence":"Evidence.","scope":"All repositories.","check":"manual","applies_to":["story-worker"]}` {
 		t.Fatalf("legacy bytes changed: %s", b)
 	}
 	a := &ExceptionPolicy{Version: 1, Mode: "allow-task", RepositoryIDs: []int64{2, 1}, TaskRefs: []string{"github:o/r#2", "github:o/r#1"}, MaxLifetimeSeconds: 60}

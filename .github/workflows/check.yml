@@ -1,0 +1,55 @@
+# Runs the repository's full check (make check: fmt, vet, lint, tests) on every
+# commit that lands on main, whichever path it took: Bug delivery, feature
+# delivery or a hand merge. It reports only; it is not a required status, so
+# factory deliveries still merge without waiting for it. When it goes red, the
+# last step opens (or comments on) one "main is red" issue so a person is told.
+name: check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # make test runs with TEST_TIMEOUT=0, so this is the only bound. Measured
+    # worst case on the shared Mac is about 70 minutes; 180 leaves room for a
+    # slower hosted runner.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: make check
+        run: make check
+
+      - name: Report red main
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          body="make check failed on main at ${short_sha} (${GITHUB_SHA}).
+
+          Run: ${RUN_URL}"
+          issue="$(gh issue list --state open --search 'in:title "main is red"' \
+            --json number,title --jq '[.[] | select(.title | contains("main is red"))][0].number // empty')"
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title "main is red" --body "$body"
+          fi

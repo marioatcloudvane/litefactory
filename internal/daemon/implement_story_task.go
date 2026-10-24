@@ -166,27 +166,12 @@ func (d *Daemon) startImplementWork(ctx context.Context, t *task) error {
 	if err != nil || attempted {
 		return err
 	}
-	stored, created, err := d.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{
+	stored, _, err := d.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{
 		SessionID: t.session.ID, SourceCommentID: id, OwnerHandle: d.ticketIdentities(ctx).OwnerHandle,
 		Payload: implementWorkPayload, DueAt: t.tickAt.UTC(),
 	})
 	if err != nil {
 		return err
-	}
-	var freezeErr error
-	if created {
-		if row, sourceErr := d.db.ImplementStoryByWorkerSession(ctx, t.session.ID); sourceErr == nil {
-			freezeErr = d.freezeImplementStandardsSchedule(ctx, row, stored)
-		} else {
-			_, freezeErr = d.db.RecordStandardsScheduledInvocation(ctx, t.session.ID, stored.TriggerID(), 0)
-		}
-	} else {
-		// A prior creation with no source is uncertain. Retain unavailable;
-		// never infer another owner's source when dispatch was delayed.
-		_, freezeErr = d.db.RecordStandardsScheduledInvocation(ctx, t.session.ID, stored.TriggerID(), 0)
-	}
-	if freezeErr != nil {
-		d.log.Warn("standards worker schedule source could not be retained; guidance remains unavailable")
 	}
 	if stored.Status != store.SchedulePending {
 		return nil
@@ -253,18 +238,32 @@ func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*re
 		if number < 1 {
 			continue
 		}
-		session, err := d.managedChildSession(ctx, q.repo, row.Parent, number, remoteID)
+		// Work is checked from local state first: a story with nothing to do, or
+		// whose worker is already bound, costs no ticket read.
+		id, ok, err := d.implementWork(ctx, row, now)
 		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			// One story whose task cannot be resolved must not fail discovery for
-			// every other task and project; it is retried on the next tick.
-			q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
-				slog.String("parent", row.Parent), slog.String("story", row.Key), slog.Any("error", err))
+			return err
+		}
+		if !ok {
 			continue
 		}
-		if row.WorkerSession != session.ID {
+		var session store.Session
+		if row.WorkerSession != 0 {
+			if session, err = d.db.GetSession(ctx, row.WorkerSession); err != nil {
+				return err
+			}
+		} else {
+			session, err = d.storySession(ctx, q.repo, row.Parent, number, remoteID)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				// One story whose task cannot be resolved must not fail discovery for
+				// every other task and project; it is retried on the next tick.
+				q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
+					slog.String("parent", row.Parent), slog.String("story", row.Key), slog.Any("error", err))
+				continue
+			}
 			if err := d.db.SetImplementWorkerSession(ctx, row.Parent, row.Generation, row.Key, session.ID, now.UTC()); err != nil {
 				if errors.Is(err, store.ErrImplementConflict) {
 					continue
@@ -272,13 +271,13 @@ func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*re
 				return err
 			}
 			row.WorkerSession = session.ID
-		}
-		id, ok, err := d.implementWork(ctx, row, now)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
+			// A bound worker has its own retry identities.
+			if id, ok, err = d.implementWork(ctx, row, now); err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
 		}
 		attempted, err := d.db.ScheduleAttempted(ctx, session.ID, id)
 		if err != nil {
@@ -301,39 +300,4 @@ func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*re
 		seen[session.ID] = c
 	}
 	return nil
-}
-
-// freezeImplementStandardsSchedule pins the work's source before dispatch. A
-// delayed schedule never derives guidance from a later owner request or worker.
-func (d *Daemon) freezeImplementStandardsSchedule(ctx context.Context, row store.ImplementStory, scheduled store.Schedule) error {
-	if scheduled.Payload != implementWorkPayload || row.WorkerSession == 0 || row.WorkerSession != scheduled.SessionID {
-		return store.ErrStandardsConflict
-	}
-	if _, err := d.db.GetStandardsScheduledInvocation(ctx, scheduled.SessionID, scheduled.TriggerID()); err == nil {
-		return nil
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return err
-	}
-	matchesWork := func(instanceID int64) bool {
-		for refused := 0; refused < maxImplementInstanceFailures; refused++ {
-			if scheduled.SourceCommentID == implementRetryWorkID(row, instanceID, refused) {
-				return true
-			}
-		}
-		return false
-	}
-	var root int64
-	if matchesWork(0) {
-		// First work keeps its original Ready handoff even if a newer owner
-		// instance appeared between schedule creation and source retention.
-		root, _ = d.db.GetStandardsStoryInvocation(ctx, row.Parent, row.Generation, row.Key, row.StateAt)
-	} else if instance, err := d.db.LatestWorkflowInstance(ctx, scheduled.SessionID, string(agent.ModeImplement)); err == nil &&
-		instance.Status == store.GraphFailed && !instance.StartedAt.Before(row.StateAt) && matchesWork(instance.ID) {
-		// Infrastructure retries inherit only the exact failed instance named
-		// by this schedule's factory-owned work identity.
-		root, _ = d.db.GetStandardsGraphInstanceInvocation(ctx, instance.ID)
-	}
-	// An unrecognized or missing source is unavailable, never the latest book.
-	_, err := d.db.RecordStandardsScheduledInvocation(ctx, scheduled.SessionID, scheduled.TriggerID(), root)
-	return err
 }

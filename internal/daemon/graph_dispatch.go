@@ -70,12 +70,35 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			slog.Int64("session_id", session.ID),
 			slog.Int64("graph_dispatch_id", dispatch.ID),
 			slog.String("graph_node", dispatch.Node))
+		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: log, tickAt: at}
+		if _, held := d.connectionHold(ctx, at); held {
+			continue
+		}
+		// The session guard and the slot come first, so a step that waits for
+		// a busy session or for capacity costs no issue read.
+		if !d.enterDoctorGuarded(ctx, session.ID) {
+			log.DebugContext(ctx, "graph step waits for this task's in-flight turn")
+			continue
+		}
+		slot, deferral, err := d.graphStepSlot(ctx, dispatch)
+		if err != nil {
+			d.inflight.leave(session.ID)
+			log.ErrorContext(ctx, "graph capacity inspection failed; retained work unchanged", slog.Any("error", err))
+			continue
+		}
+		if slot == nil {
+			d.inflight.leave(session.ID)
+			result.Deferred++
+			log.InfoContext(ctx, "graph step deferred for capacity", slog.String("reason", deferral))
+			continue
+		}
 		// The read is pinned to the session's retained ticket container and
 		// code target, as scheduled work is; a Linear ticket never lives at
 		// the code repository.
-		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: log, tickAt: at}
 		issue, err := d.readScheduledIssue(ctx, t)
 		if err != nil {
+			slot.Release()
+			d.inflight.leave(session.ID)
 			d.rateLimited(ctx, log, at, err)
 			log.ErrorContext(ctx, "graph step issue observation failed; deferring", slog.Any("error", err))
 			continue
@@ -85,43 +108,33 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		// exactly as they are; only the owed run goes away.
 		bugParent, err := d.isBugParentDispatch(ctx, dispatch)
 		if err != nil {
+			slot.Release()
+			d.inflight.leave(session.ID)
 			return err
 		}
 		if issue.State != github.StateOpen && !bugParent {
+			slot.Release()
+			d.inflight.leave(session.ID)
 			if err := d.db.CancelGraphDispatch(ctx, dispatch.ID, "issue closed before the next graph stage could run", at.UTC()); err != nil {
 				return err
 			}
 			continue
 		}
 		t.issue = issue
-		if _, held := d.connectionHold(ctx, at); held {
-			continue
-		}
-		if !d.enterDoctorGuarded(ctx, session.ID) {
-			log.DebugContext(ctx, "graph step waits for this task's in-flight turn")
-			continue
-		}
-		slot, deferral, err := d.graphStepSlot(ctx, dispatch)
-		if err != nil {
-			d.inflight.leave(session.ID)
-			return err
-		}
-		if slot == nil {
-			d.inflight.leave(session.ID)
-			result.Deferred++
-			log.InfoContext(ctx, "graph step deferred for capacity", slog.String("reason", deferral))
-			continue
-		}
-		t.slot = slot
+		t.slot = slot.pool
+		t.capacity = slot
+		t.slot.wg.Add(1)
 		reserved, ok, err := d.db.ReserveGraphDispatch(ctx, dispatch.ID, at.UTC())
 		if err != nil || !ok {
-			slot.done()
+			slot.Release()
+			t.slot.wg.Done()
 			d.inflight.leave(session.ID)
 			if err != nil {
 				return err
 			}
 			continue
 		}
+		d.inflight.label(session.ID, "graph_step")
 		t.workerLog = log.With(slog.Any("dispatch_sources", []string{"graph_step"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")
 		go d.runDoctorGuardedWorker(sessionContext(workerCtx, dispatch.SessionID), t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })
@@ -134,26 +147,29 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 // free. Implement coordinator bookkeeping tries its reserved slot first and
 // falls back to the run pool; an agent stage, a step that cannot be classified,
 // and every other dispatch use the run pool only.
-func (d *Daemon) graphStepSlot(ctx context.Context, dispatch store.GraphDispatch) (*pool, string, error) {
+func (d *Daemon) graphStepSlot(ctx context.Context, dispatch store.GraphDispatch) (*stepReservation, string, error) {
+	cost, err := turn.GraphDispatchSlotCost(ctx, d.db, dispatch)
+	if err != nil {
+		return nil, "", err
+	}
 	if d.coordinator != nil {
 		coordinator, err := d.implementCoordinatorDispatch(ctx, dispatch)
 		if err != nil {
 			return nil, "", err
 		}
-		if coordinator && !d.graphStepRunsAgent(ctx, dispatch) {
-			if d.coordinator.try() {
-				return d.coordinator, "", nil
-			}
-			if d.pool.try() {
-				return d.pool, "", nil
-			}
-			return nil, "reserved coordinator slot and run pool full", nil
+		if coordinator && !d.graphStepRunsAgent(ctx, dispatch) && d.coordinator.acquire(cost) {
+			return &stepReservation{pool: d.coordinator, fallback: d.pool, cost: cost}, "", nil
 		}
 	}
-	if d.pool.try() {
-		return d.pool, "", nil
+	if d.pool.acquire(cost) {
+		return &stepReservation{pool: d.pool, cost: cost}, "", nil
 	}
-	return nil, "run pool full", nil
+	used, total := d.pool.capacity()
+	reason := "temporary capacity deferral"
+	if cost > total {
+		reason = "impossible capacity fit"
+	}
+	return nil, fmt.Sprintf("%s: pool=shared workflow_instance=%d node=%s requested=%d used=%d available=%d total=%d", reason, dispatch.InstanceID, dispatch.Node, cost, used, total-used, total), nil
 }
 
 // graphStepRunsAgent classifies a dispatch by its node in the retained graph. A
@@ -172,7 +188,7 @@ func (d *Daemon) graphStepRunsAgent(ctx context.Context, dispatch store.GraphDis
 const graphChainLimit = 32
 
 // continueGraphSteps runs the stages a session's graph instance owes right
-// after the worker's own work, on the same slot. A stage parks the instance and
+// after the worker's own work, with fresh weighted admission for each step. A stage parks the instance and
 // leaves a dispatch that is due at once; waiting for the next tick for each one
 // adds a minute per story to a Plan creation cycle. It also means a session the
 // tick keeps busy, such as a graph Plan parent observed every tick for child
@@ -199,10 +215,13 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 			}
 			return
 		}
-		// The reserved coordinator slot carries bookkeeping only; an agent
-		// stage is left to the tick, which starts it on the run pool.
+		// A reserved coordinator worker leaves agent execution to the shared
+		// pool on the next tick, preserving the bookkeeping lane boundary.
 		if t.slot != nil && t.slot == d.coordinator && d.graphStepRunsAgent(ctx, dispatch) {
 			return
+		}
+		if t.capacity != nil {
+			t.capacity.Release()
 		}
 		session, err := d.db.GetSession(ctx, dispatch.SessionID)
 		if err != nil {
@@ -234,16 +253,29 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 		if dispatch.DueAt.After(at) {
 			at = dispatch.DueAt
 		}
+		reservation, reason, err := d.graphStepSlot(ctx, dispatch)
+		if err != nil {
+			t.recordWorkerError(err)
+			return
+		}
+		if reservation == nil {
+			log.InfoContext(ctx, "graph step deferred for capacity", slog.String("reason", reason))
+			return
+		}
 		reserved, ok, err := d.db.ReserveGraphDispatch(ctx, dispatch.ID, at)
 		if err != nil || !ok {
+			reservation.Release()
 			if err != nil {
 				t.recordWorkerError(err)
 			}
 			return
 		}
 		log.InfoContext(ctx, "running the owed graph stage in the same worker")
-		step := &task{repo: t.repo, forgeRepo: t.forgeRepo, session: session, ref: t.ref, issue: issue, log: log, tickAt: t.tickAt, worker: t.worker, workerLog: t.workerLog}
-		d.runGraphStep(ctx, step, reserved)
+		step := &task{repo: t.repo, forgeRepo: t.forgeRepo, session: session, ref: t.ref, issue: issue, log: log, tickAt: t.tickAt, worker: t.worker, workerLog: t.workerLog, slot: reservation.pool, capacity: reservation}
+		func() { defer reservation.Release(); d.runGraphStep(ctx, step, reserved) }()
+		if step.graphDeferred {
+			return
+		}
 	}
 }
 
@@ -285,6 +317,10 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 	t.commentUnderWay = trigger.CommentID
 	err := d.run(ctx, t, trigger, command, t.log)
 	t.commentUnderWay = previousTrigger
+	if t.graphDeferred && err == nil {
+		t.recordWorkerStatus(workerDeferred)
+		return
+	}
 	if err != nil {
 		t.recordWorkerError(err)
 	}

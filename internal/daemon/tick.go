@@ -225,7 +225,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	// Code-host controls have their own sources and must be polled even when
 	// work-management replies come from Linear.
-	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.PollCodeDeliveryControls(ctx) }); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.PollCodeDeliveryControls(ctx, startedAt) }); err != nil {
 		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
 		if providerRateLimited(err) {
 			if d.connections == nil {
@@ -336,11 +336,6 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		// discovery above keeps its dispatch pending for the next tick rather than
 		// competing for the same worker.
 		if err := d.dispatchGraphSteps(ctx, reposByID, startedAt, &result); err != nil {
-			return result, err
-		}
-	}
-	if !lowDisk {
-		if err := d.dispatchAnalystSchedules(ctx, startedAt, &result); err != nil {
 			return result, err
 		}
 	}
@@ -602,7 +597,10 @@ func (d *Daemon) discover(
 			}
 		}
 		if d.connections != nil {
-			if connectionEnabled {
+			// Hook delivery recovery is the listing's safety net, not a poll: a
+			// pass starts on a listing tick and only an unfinished one continues
+			// on the ticks after it.
+			if connectionEnabled && (due[repo.ID] || d.hookRecoveryUnfinished(repo.ID)) {
 				if err := d.recoverHookDeliveries(ctx, q, now, due[repo.ID]); err != nil {
 					if ctx.Err() != nil {
 						return nil, ctx.Err()
@@ -612,7 +610,7 @@ func (d *Daemon) discover(
 						d.rateLimited(ctx, repoLog, now, err)
 					}
 				}
-			} else {
+			} else if !connectionEnabled {
 				delete(d.hookRecovery, repo.ID)
 			}
 		}
@@ -1021,6 +1019,24 @@ func (c *candidate) addSource(source string) {
 	}
 }
 
+// standingSources re-offer a task because of what it is, not because anything
+// new arrived for it. backlog is here because its flag is already set: marking
+// it again records nothing new.
+var standingSources = []string{"graph_owner_wait", "plan_recovery", "managed_registry", "backlog"}
+
+// standingOnly reports whether every source of c is a standing one, so it
+// brings no unconsumed input. The backlog flag means only unconsumed input
+// (#1138): a capacity deferral or dispatch of such a candidate does not set it,
+// and an idle task stays off the every-tick backlog.
+func (c *candidate) standingOnly() bool {
+	for _, source := range c.sources {
+		if !slices.Contains(standingSources, source) {
+			return false
+		}
+	}
+	return len(c.sources) > 0
+}
+
 // repoQueue is one repository's eligible sessions plus the rotation state used
 // to walk them.
 //
@@ -1210,7 +1226,9 @@ type task struct {
 	workerLog *slog.Logger
 	worker    *workerState
 	// slot is the pool this task's worker holds; nil means the run pool.
-	slot *pool
+	slot          *pool
+	capacity      *stepReservation
+	graphDeferred bool
 
 	// implementCoordinatorHandedOff records this scheduled call's successful graph return.
 	implementCoordinatorHandedOff bool
@@ -1235,7 +1253,11 @@ type task struct {
 	// hinted is set when a webhook named this task's issue. Its comment
 	// listing then takes the operational lane, so an owner's comment does not
 	// wait behind background discovery.
-	hinted    bool
+	hinted bool
+	// standing is set when only standing sources dispatched this task, so its
+	// backlog flag was not set at dispatch. A worker that ends without a clean
+	// drain sets it then: whatever it left behind is owed input.
+	standing  bool
 	repo      store.Repo
 	forgeRepo github.Repo
 	issue     github.Issue
@@ -1473,16 +1495,23 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	// session this tick took out of the eligible set is marked, not only the ones
 	// that get a slot: a session deferred for want of a slot has to be found
 	// again next tick, and with the poll cursor monotonic this flag is the only
-	// thing that will find it.
-	d.markBacklog(ctx, c.log, c.session.ID)
+	// thing that will find it. A candidate brought only by standing sources
+	// carries no unconsumed input, so it is not marked: its own source finds it
+	// again when it has due work, and the listing otherwise (#1138).
+	if !c.standingOnly() {
+		d.markBacklog(ctx, c.log, c.session.ID)
+	}
 
-	if !d.pool.try() {
+	reservation, reason := d.reserveInput()
+	if reservation == nil {
+		c.log.InfoContext(ctx, "work deferred for capacity", slog.String("reason", reason))
 		d.inflight.leave(c.session.ID)
 		result.Deferred++
 		c.log.InfoContext(ctx, "no free slot for this task; it keeps its backlog flag and the "+
 			"next tick reconsiders it against fresh state")
-		return offerFull
+		return offerSkipped
 	}
+	d.inflight.label(c.session.ID, strings.Join(c.sources, "+"))
 
 	readCtx := ctx
 	if c.discoveryReservation == nil && d.connections != nil {
@@ -1494,7 +1523,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 			}
 		}
 		if err != nil {
-			d.pool.done()
+			reservation.abandon()
 			d.inflight.leave(c.session.ID)
 			result.Deferred++
 			return offerSkipped
@@ -1510,7 +1539,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		// down — and it is here rather than inside a goroutine because there is
 		// no turn to run: the issue is not open, the forge would not say, or
 		// retiring its backlog flag failed.
-		d.pool.done()
+		reservation.abandon()
 		d.inflight.leave(c.session.ID)
 		if errors.Is(err, ErrDiscoveryDeferred) {
 			result.Deferred++
@@ -1571,7 +1600,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		// The same undo as the materialise branch above, for the same reason:
 		// [pool.try] said yes and no worker will run, so the slot goes back
 		// here, on this goroutine, before anything else can be refused one.
-		d.pool.done()
+		reservation.abandon()
 		d.inflight.leave(c.session.ID)
 		result.Deferred++
 		c.log.InfoContext(ctx, "a rate limit armed the backoff while this tick was still "+
@@ -1581,6 +1610,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		return offerHeld
 	}
 
+	t.capacity = reservation
 	t.workerLog.DebugContext(ctx, "worker dispatched")
 
 	// The dispatch point uses the daemon's long-lived context. runWorker owns
@@ -1604,7 +1634,9 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 func (d *Daemon) deferRest(ctx context.Context, queues []*repoQueue, result *TickResult) {
 	for _, q := range queues {
 		for _, c := range q.rest() {
-			d.markBacklog(ctx, c.log, c.session.ID)
+			if !c.standingOnly() {
+				d.markBacklog(ctx, c.log, c.session.ID)
+			}
 			result.Deferred++
 		}
 	}
@@ -1706,6 +1738,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		log:          c.log,
 		tickAt:       tickAt,
 		hinted:       slices.Contains(c.sources, "webhook"),
+		standing:     c.standingOnly(),
 		workerLog:    c.log.With(slog.Any("dispatch_sources", slices.Clone(c.sources)), slog.Time("tick_at", tickAt)),
 	}, nil
 }
@@ -1745,6 +1778,16 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
+	clean := false
+	if t.standing {
+		// Dispatched without a backlog flag: any exit short of a clean drain
+		// left input or work behind, and the flag is what brings it back.
+		defer func() {
+			if !clean {
+				d.markBacklog(ctx, t.log, t.session.ID)
+			}
+		}()
+	}
 	if err := d.recoverPlanStories(ctx, t); err != nil {
 		d.stopped(ctx, t, "could not reconcile Plan stories", errors.Join(err, d.reportPlanProgress(ctx, t)))
 		return
@@ -1836,6 +1879,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		// rather than a defer: a defer would fire on the error returns above too,
 		// which is exactly the stale-false the protocol forbids.
 		d.clearBacklog(ctx, t)
+		clean = true
 		// Consecutive-failure counting ends where the backlog flag does: this
 		// task has just made progress, so whatever it was failing at is no
 		// longer failing.
@@ -2196,7 +2240,9 @@ func (d *Daemon) consumed(ctx context.Context, sessionID, commentID int64) (bool
 // forge's listings can still see (RD-2).
 //
 //	Protocol — the tick sets needs_poll = 1 for every session it takes out
-//	of the eligible set, before the worker starts. A fully drained, error-free
+//	of the eligible set, before the worker starts, unless only standing
+//	sources brought it ([candidate.standingOnly]); such a worker sets it on
+//	any exit short of a clean drain instead. A fully drained, error-free
 //	drain/bootstrap clears it, as does an explicit closed observation during
 //	materialisation (US-1 AC-7). Other exits retain retry intent. Stale-true
 //	is recoverable after a clean drain or confirmed closure; stale-false can
@@ -2683,6 +2729,9 @@ func (d *Daemon) run(
 	log *slog.Logger,
 ) error {
 	ctx = sessionContext(ctx, t.session.ID)
+	if t.capacity != nil {
+		ctx = turn.WithStepCapacity(ctx, t.capacity)
+	}
 	if d.bug != nil {
 		if err := d.bug.CheckExistingAdmission(ctx, t.session.ID); err != nil {
 			return d.leave(ctx, t, log, "unsupported pinned Bug work preserved", err)
@@ -2785,6 +2834,15 @@ func (d *Daemon) run(
 	if handled, err := d.recoverGraphReply(ctx, t, trigger, command); handled || err != nil {
 		return d.leave(ctx, t, log, "stopped graph reply recovery deferred", err)
 	}
+	// A plain parent comment the pinned Implement mode cannot use — Validate is
+	// running, or Implement already finished — is answered, not run (#1123).
+	if kind, err := d.plainParentCommentRefusal(ctx, t, trigger, mode, workflow, command); err != nil {
+		return d.leave(ctx, t, log, "could not tell which workflow a plain parent comment belongs to", err)
+	} else if kind != report.ReplyInvalid {
+		log.InfoContext(ctx, "plain parent comment has no Implement work to continue; refusing it with a reply",
+			slog.String("reply", kind.String()))
+		return d.refuseMode(ctx, t, trigger, kind, "")
+	}
 
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
@@ -2815,21 +2873,11 @@ func (d *Daemon) run(
 	if t.worker != nil {
 		t.worker.executionRequests++
 	}
-	// Only private story-work identities carry the coordinator book. An owner
-	// schedule with matching prose remains a new owner invocation.
-	standardsHandoff := t.scheduled != nil && t.scheduled.Payload == implementWorkPayload &&
-		t.scheduled.SourceCommentID >= 1<<56 && t.scheduled.SourceCommentID < 1<<57
-	var standardsRootRunID int64
-	if standardsHandoff {
-		standardsRootRunID, _ = d.db.GetStandardsScheduledInvocation(ctx, t.session.ID, t.scheduled.TriggerID())
-	}
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
-		StandardsHandoff:   standardsHandoff,
-		StandardsRootRunID: standardsRootRunID,
-		Continuation:       t.continuation,
-		Mode:               mode,
-		Workflow:           workflow,
-		SessionID:          t.session.ID,
+		Continuation: t.continuation,
+		Mode:         mode,
+		Workflow:     workflow,
+		SessionID:    t.session.ID,
 		Issue: turn.Issue{
 			Number: t.issue.Number,
 			Title:  t.issue.Title,
@@ -2852,6 +2900,7 @@ func (d *Daemon) run(
 		AttachmentsAllowed: attachmentsAllowed,
 		SyncOverride:       syncOverride,
 	})
+	t.graphDeferred = turnResult.GraphDeferred
 	if turnResult.Repair != nil {
 		d.retainStoppedResult(t, turnResult.Repair, trigger, mode)
 		source := store.ReportRecovery{Key: "stopped:" + recoveryKey(t.session.ID, trigger.CommentID), SessionID: t.session.ID, TriggerID: trigger.CommentID, Task: t.ref.String(), RunID: turnResult.Run.ID, State: "stopped"}

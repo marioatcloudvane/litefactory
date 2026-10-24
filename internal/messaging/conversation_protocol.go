@@ -25,8 +25,14 @@ var errInterpretation = errors.New("messaging: invalid interpretation")
 
 // ConversationEnvelopeError is a rejected provider output with a short plain
 // reason the factory can hand back in its one correction. It matches
-// ErrConversationEnvelope.
-type ConversationEnvelopeError struct{ Reason string }
+// ErrConversationEnvelope. Argument is the argument it rejected, if any, for
+// the owner's reply; Ungrounded marks a declared argument that no owner span
+// or current factory reference supported.
+type ConversationEnvelopeError struct {
+	Reason     string
+	Argument   *ArgumentError
+	Ungrounded bool
+}
 
 func (e *ConversationEnvelopeError) Error() string {
 	return ErrConversationEnvelope.Error() + ": " + e.Reason
@@ -34,6 +40,14 @@ func (e *ConversationEnvelopeError) Error() string {
 
 // Is matches the shared invalid-envelope error.
 func (e *ConversationEnvelopeError) Is(target error) bool { return target == ErrConversationEnvelope }
+
+// Unwrap exposes the rejected argument, which matches ErrInvalidInvocation.
+func (e *ConversationEnvelopeError) Unwrap() error {
+	if e.Argument == nil {
+		return nil
+	}
+	return e.Argument
+}
 
 // conversationEnvelopeReason returns the plain rejection reason, if any.
 func conversationEnvelopeReason(err error) string {
@@ -95,6 +109,26 @@ type ConversationEnvelope struct {
 	// what was tried and why it is not enough.
 	Question string `json:"question,omitempty"`
 	Tried    string `json:"tried,omitempty"`
+	// Proposal and Confirmation form a confirm or cancel: the open proposal's
+	// reference, and for a confirm the owner's words that say yes.
+	Proposal     string            `json:"proposal,omitempty"`
+	Confirmation *ConversationSpan `json:"confirmation,omitempty"`
+}
+
+// ConversationSpan is an exact UTF-8 byte span of one owner message.
+type ConversationSpan struct {
+	SourceID string `json:"source_id"`
+	Start    int    `json:"start"`
+	End      int    `json:"end"`
+}
+
+// ownerSpan returns the exact owner words of span, or false when the span
+// is out of bounds, splits a character or lies in quoted or forwarded text.
+func ownerSpan(text string, span ConversationSpan) (string, bool) {
+	if span.Start < 0 || span.End <= span.Start || span.End > len(text) || !utf8.ValidString(text[:span.Start]) || !utf8.ValidString(text[span.Start:span.End]) || quotedSpan(text, span.Start, span.End) {
+		return "", false
+	}
+	return text[span.Start:span.End], true
 }
 
 // ConversationArgument selects exactly one original owner span, factory-issued
@@ -129,6 +163,8 @@ type ConversationDecodeRequest struct {
 	References         []ConversationReference
 	OwnerID, ChannelID string
 	Now                time.Time
+	// Proposal is the reference of the one open proposal, if any.
+	Proposal string
 }
 
 // ConversationCommands projects only existing enabled factory capabilities.
@@ -150,7 +186,7 @@ func conversationCommand(def CommandDefinition) bool {
 		return true
 	}
 	switch def.Name {
-	case "help", "health", "status", "meter", "prices", "ask", "question":
+	case "help", "health", "status", "meter", "prices", "ask", "question", "inbox":
 		return def.Effect == ReadEffect
 	case "draft", "confirm", "diagnose", "answer":
 		return def.Effect == ChangeEffect
@@ -162,8 +198,10 @@ func conversationCommand(def CommandDefinition) bool {
 // argument. Authoritative identities and permissions are never model fields.
 func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (ConversationEnvelope, Invocation, error) {
 	reason := "the output did not follow the turn protocol"
+	var rejected *ArgumentError
+	ungrounded := false
 	bad := func() (ConversationEnvelope, Invocation, error) {
-		return ConversationEnvelope{}, Invocation{}, &ConversationEnvelopeError{Reason: reason}
+		return ConversationEnvelope{}, Invocation{}, &ConversationEnvelopeError{Reason: reason, Argument: rejected, Ungrounded: ungrounded}
 	}
 	if len(raw) == 0 || len(raw) > conversationEnvelopeLimit || !utf8.Valid(raw) {
 		return bad()
@@ -237,6 +275,27 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 		}
 	case "lookup", "propose":
 		required = append(required, "command", "arguments")
+	case "confirm", "cancel":
+		required = append(required, "proposal")
+		reason = "there is no open proposal to confirm or cancel"
+		if request.Proposal == "" {
+			return bad()
+		}
+		reason = "the proposal must be the reference of the open proposal"
+		if envelope.Proposal != request.Proposal {
+			return bad()
+		}
+		if envelope.Kind == "confirm" {
+			required = append(required, "confirmation")
+			reason = "confirmation must be an exact span of the owner's current message"
+			current := request.Turns[len(request.Turns)-1]
+			if envelope.Confirmation == nil || envelope.Confirmation.SourceID != current.SourceID {
+				return bad()
+			}
+			if _, ok := ownerSpan(current.Text, *envelope.Confirmation); !ok {
+				return bad()
+			}
+		}
 	case "consult":
 		required = append(required, "question", "tried")
 		reason = "consult needs a non-empty question and tried of at most 4000 bytes each"
@@ -246,14 +305,15 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 			}
 		}
 	default:
-		reason = "kind must be answer, clarify, lookup, consult or propose"
+		reason = "kind must be answer, clarify, lookup, consult, propose, confirm or cancel"
 		return bad()
 	}
 	if !exactConversationFields(fields, required...) {
 		reason = "the object must have exactly the fields " + strings.Join(required, ", ")
 		return bad()
 	}
-	if envelope.Kind == "answer" || envelope.Kind == "clarify" || envelope.Kind == "consult" {
+	switch envelope.Kind {
+	case "answer", "clarify", "consult", "confirm", "cancel":
 		return envelope, Invocation{}, nil
 	}
 	var def *CommandDefinition
@@ -273,9 +333,24 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	if json.Unmarshal(fields["arguments"], &arguments) != nil {
 		return bad()
 	}
+	declared := map[string]bool{}
+	for _, a := range def.Arguments {
+		declared[a.Name] = true
+	}
 	inv := Invocation{Command: envelope.Command, Arguments: map[string]string{}}
 	for i, arg := range envelope.Arguments {
+		// Each rejection names the argument and why, so the one correction can
+		// fix it; an undeclared name is untrusted and never echoed.
+		ground := func(why string) {
+			rejected = &ArgumentError{Why: why}
+			if declared[arg.Name] {
+				rejected.Name = arg.Name
+				ungrounded = true
+			}
+			reason = rejected.Detail() + "; each argument needs an exact owner span, a current factory reference, or (lookup only) a plain value"
+		}
 		if _, exists := inv.Arguments[arg.Name]; exists {
+			ground("given more than once")
 			return bad()
 		}
 		f := arguments[i]
@@ -287,18 +362,25 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 				if turn.SourceID != arg.SourceID {
 					continue
 				}
-				if arg.Start < 0 || arg.End <= arg.Start || arg.End > len(turn.Text) || !utf8.ValidString(turn.Text[:arg.Start]) || !utf8.ValidString(turn.Text[arg.Start:arg.End]) || quotedSpan(turn.Text, arg.Start, arg.End) {
+				var ok bool
+				if value, ok = ownerSpan(turn.Text, ConversationSpan{SourceID: arg.SourceID, Start: arg.Start, End: arg.End}); !ok {
+					ground("the span is not an exact part of that owner message")
 					return bad()
 				}
-				value = turn.Text[arg.Start:arg.End]
 				found = true
 				break
 			}
 			if !found {
+				ground("the span names no supplied owner message")
 				return bad()
 			}
 		case exactConversationFields(f, "name", "reference"):
-			if arg.Reference == "" || len(arg.Reference) > 128 || request.OwnerID == "" || request.ChannelID == "" || request.Now.IsZero() || conversationProtectedContent(arg.Name) {
+			if conversationProtectedArgument(envelope.Command, arg.Name) {
+				ground("owner content needs an exact owner span, not a reference")
+				return bad()
+			}
+			if arg.Reference == "" || len(arg.Reference) > 128 || request.OwnerID == "" || request.ChannelID == "" || request.Now.IsZero() {
+				ground("not a current factory reference")
 				return bad()
 			}
 			found := false
@@ -307,36 +389,49 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 					continue
 				}
 				if ref.OwnerID != request.OwnerID || ref.ChannelID != request.ChannelID || ref.OriginTurn == "" || ref.ExpiresAt.IsZero() || !request.Now.Before(ref.ExpiresAt) {
+					ground("the reference is expired or not from this conversation")
 					return bad()
 				}
 				var exists bool
 				value, exists = ref.Arguments[arg.Name]
 				if !exists {
+					ground("the reference carries no such argument")
 					return bad()
 				}
 				found = true
 				break
 			}
 			if !found {
+				ground("not a current factory reference")
 				return bad()
 			}
 		case exactConversationFields(f, "name", "value"):
-			if (envelope.Kind != "lookup" && (!standardsCommand(envelope.Command) || arg.Name != "action")) || conversationProtectedContent(arg.Name) || arg.Value == "" {
+			if (envelope.Kind != "lookup" && (!standardsCommand(envelope.Command) || arg.Name != "action")) || conversationProtectedArgument(envelope.Command, arg.Name) || arg.Value == "" {
+				ground("a plain value is allowed only in lookups")
 				return bad()
 			}
 			value = arg.Value
 		default:
+			ground("needs exactly one of value, source_id/start/end or reference")
 			return bad()
 		}
 		inv.Arguments[arg.Name] = value
 	}
+	// A log analysis has one change action; the owner never has to say it.
+	if envelope.Kind == "propose" && envelope.Command == "standards-analysis" && inv.Arguments["action"] == "" {
+		inv.Arguments["action"] = "start"
+	}
 	validated, _, err := validateInvocation(*def, inv)
 	if err != nil {
-		reason = "the command arguments are invalid"
+		// The diagnostics name fields only, never owner content.
+		reason = "the command arguments are invalid: " + argumentFaults(err)
+		errors.As(err, &rejected)
 		return bad()
 	}
 	if standardsCommand(validated.Command) {
 		if _, err := standardsOperation(validated); err != nil {
+			rejected = &ArgumentError{Name: "action", Why: err.Error()}
+			reason = "the command arguments are invalid: " + rejected.Detail()
 			return bad()
 		}
 	}
@@ -363,6 +458,24 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	return envelope, validated, nil
 }
 
+// argumentFaults lists each rejected argument as "name: why".
+func argumentFaults(err error) string {
+	faults := []error{err}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		faults = joined.Unwrap()
+	}
+	parts := make([]string, 0, len(faults))
+	for _, fault := range faults {
+		var arg *ArgumentError
+		if errors.As(fault, &arg) {
+			parts = append(parts, arg.Detail())
+		} else {
+			parts = append(parts, strings.ReplaceAll(fault.Error(), "\n", "; "))
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
 func conversationProtectedContent(name string) bool {
 	switch name {
 	case "text", "note", "intent", "title", "body", "operations", "request", "reason", "config", "departure", "name":
@@ -370,6 +483,24 @@ func conversationProtectedContent(name string) bool {
 	}
 	return false
 }
+
+// standardsProtectedContent names the prose fields of a standard. They are
+// owner content only on standards commands; other commands keep these names
+// as ordinary arguments.
+func standardsProtectedContent(name string) bool {
+	switch name {
+	case "rule", "description", "evidence", "scope":
+		return true
+	}
+	return false
+}
+
+// conversationProtectedArgument reports whether the argument of command must
+// be an exact owner span.
+func conversationProtectedArgument(command, name string) bool {
+	return conversationProtectedContent(name) || (standardsCommand(command) && standardsProtectedContent(name))
+}
+
 func exactConversationFields(fields map[string]json.RawMessage, names ...string) bool {
 	if len(fields) != len(names) {
 		return false
