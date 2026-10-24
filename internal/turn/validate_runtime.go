@@ -121,9 +121,10 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 		},
 	}
 	flow := ValidateFlowBindings{
-		Worktree:   func() (*git.Worktree, error) { return h.openWorktree(ctx) },
-		Session:    func() (string, error) { return h.sessionDir(ctx) },
-		KeepChange: h.keepChange,
+		Worktree:     func() (*git.Worktree, error) { return h.openWorktree(ctx) },
+		Session:      func() (string, error) { return h.sessionDir(ctx) },
+		KeepChange:   h.keepChange,
+		RepairAuthor: func(ctx context.Context) (git.Author, error) { return resolveAuthor(ctx, h.opts, h.clone) },
 		Stories: func(ctx context.Context, _ Options, _ ActivityRequest) ([]ValidateStory, error) {
 			return h.stories(ctx)
 		},

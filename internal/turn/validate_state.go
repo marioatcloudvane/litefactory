@@ -88,19 +88,21 @@ type ValidateDeliveryRows struct {
 // ValidateState is everything the report, the commands and readiness read. It
 // is built from records only and is never cached.
 type ValidateState struct {
-	InstanceID int64
-	Commit     string
-	Suite      validateSuiteOutput
-	Assessed   bool
-	Outcome    string
-	Reason     string
-	Handback   *ValidateHandback
-	Rounds     []store.RepairRound
-	Reviews    []store.ValidateReview
-	Stories    []ValidateJoinedStory
-	Findings   []ValidateFinding
-	Effects    ValidateDeliveryRows
-	Revision   string
+	InstanceID     int64
+	Commit         string
+	Suite          validateSuiteOutput
+	Assessed       bool
+	Outcome        string
+	Reason         string
+	Handback       *ValidateHandback
+	Rounds         []store.RepairRound
+	Candidates     []store.RepairCandidate
+	CandidateLinks map[string]string
+	Reviews        []store.ValidateReview
+	Stories        []ValidateJoinedStory
+	Findings       []ValidateFinding
+	Effects        ValidateDeliveryRows
+	Revision       string
 	// Open lists exactly what keeps push from being offered.
 	Open []string
 	// Ready is true when push may be offered.
@@ -108,6 +110,8 @@ type ValidateState struct {
 	// Reimplement says the graph declares the step that hands the blocking
 	// findings back to Implement.
 	Reimplement bool
+	// RepairAdoption says the pinned graph declares the owner adoption effect.
+	RepairAdoption bool
 	// Reimplementing says this run already handed the findings of its tested
 	// commit back to Implement.
 	Reimplementing bool
@@ -143,6 +147,9 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 	}
 	st.Suite, st.Commit = suite.Output, suite.Output.Commit
 	if st.Rounds, err = opts.DB.ListRepairRounds(ctx, instanceID); err != nil {
+		return st, err
+	}
+	if st.Candidates, err = opts.DB.ListRepairCandidates(ctx, instanceID); err != nil {
 		return st, err
 	}
 	if st.Reviews, err = opts.DB.ListValidateReviews(ctx, instanceID, st.Commit); err != nil {
@@ -253,6 +260,7 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 	}
 	for _, n := range profile.Nodes {
 		st.Reimplement = st.Reimplement || n.Action == graphexec.ValidateImplementAction
+		st.RepairAdoption = st.RepairAdoption || n.Action == graphexec.ValidateRepairApplyAction
 	}
 	if st.Reimplement {
 		if st.Reimplementing, err = validateImplementStarted(ctx, opts, instanceID, st.Commit); err != nil {
@@ -413,6 +421,9 @@ func short(sha string) string {
 func (s ValidateState) revision() string {
 	h := sha256.New()
 	fmt.Fprintf(h, "run=%d\ncommit=%s\nsuite=%s\noutcome=%s\n", s.InstanceID, s.Commit, s.Suite.Outcome, s.Outcome)
+	for _, c := range s.Candidates {
+		fmt.Fprintf(h, "candidate=%s|%s|%s|%s\n", c.ID, c.ReviewDigest, c.Resolution, c.ResultCommit)
+	}
 	for _, f := range s.Findings {
 		fmt.Fprintf(h, "finding=%s|%s|%s", f.ID, f.Status, f.State)
 		if f.Verdict != nil {

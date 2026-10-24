@@ -181,3 +181,20 @@ func (r *Reporter) RenderTextParts(ctx context.Context, text string) (redact.Bod
 	summary, err := r.RenderReportDelivery(ctx, "Complete workflow output is available in the numbered parts linked below. Retained unaccepted review content does not grant approval, satisfy workflow validation or enable actions.", "")
 	return summary, parts, err
 }
+
+// ValidateUnchangedReview refuses acceptance when outbound privacy hygiene
+// removes any retained review byte. Publication can still show the safe review,
+// but that redacted view cannot authorize adoption of hidden changes.
+func (r *Reporter) ValidateUnchangedReview(ctx context.Context, text string) error {
+	if StripHostPaths(text, r.hostRoots) != text {
+		return fmt.Errorf("repair review contains private host paths")
+	}
+	safe, err := r.redactor.ApplyReviewDisplay(ctx, text, 64<<20)
+	if err != nil {
+		return err
+	}
+	if safe.Truncated() || safe.String() != text {
+		return fmt.Errorf("repair review privacy redaction hides content")
+	}
+	return nil
+}

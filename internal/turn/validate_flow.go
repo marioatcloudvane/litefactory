@@ -125,6 +125,8 @@ type ValidateFlowBindings struct {
 	// KeepChange commits whatever the worktree holds as the kept repair and
 	// returns the new HEAD. The factory owns the commit; the agent never commits.
 	KeepChange func(ctx context.Context, summary string) (string, error)
+	// RepairAuthor resolves the existing code author for an exact owner adoption.
+	RepairAuthor func(context.Context) (git.Author, error)
 	// Scope gives the trusted result context of one repair attempt.
 	Scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error)
 	// Stories lists the frozen stories under review.
@@ -162,6 +164,7 @@ func RegisterValidateFlow(specs *graphexec.Registry, activities *ActivityRegistr
 		graphexec.ValidateReviewAction:       ValidateReviewActivity{b: b},
 		graphexec.ValidateOutcomeAction:      ValidateOutcomeActivity{b},
 		graphexec.ValidateResolveAction:      ValidateResolveActivity{b},
+		graphexec.ValidateRepairApplyAction:  ValidateRepairApplyActivity{b},
 		graphexec.ValidateReportAction:       ValidateReportActivity{b},
 		graphexec.ValidateAskAction:          ValidateAskActivity{b},
 		graphexec.ValidateIssueAction:        ValidateIssueActivity{b},

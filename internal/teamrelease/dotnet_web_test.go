@@ -258,19 +258,16 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		shared = withoutStandardsGrant(t, shared)
-		if mode == "bug" {
-			shared = legacyBugSourceWithoutSyncGate(t, shared)
-		}
+		// This is the current generated release, so its graphs include the
+		// current canonical gates. Only Go's declared worker slot policy is
+		// stack-specific; historical release deltas belong to the separate
+		// canonical migration comparison.
 		if mode == "implement" {
-			shared = legacyImplementSourceWithoutOwnerResumeSync(t, withoutGoStoryWorkerSlotPolicy(t, shared))
-		}
-		if mode == "spike" {
-			shared = legacySpikeSourceWithoutRepair(t, shared)
+			shared = withoutGoStoryWorkerSlotPolicy(t, shared)
 		}
 		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
 		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))
-		if !bytes.Equal(want, released) && (mode != "implement" || !pendingWorkerSyncMatchesRelease(want, released)) {
+		if !bytes.Equal(want, released) {
 			t.Fatal("team selection changed shared graph gates", mode)
 		}
 	}
