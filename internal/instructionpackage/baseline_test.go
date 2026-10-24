@@ -123,7 +123,7 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := append(ConversationRoles(), JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair", StandardsAuthorRole, LogAnalystRole)
-	if pkg.Version() != "1.12.0" || pkg.Digest() == "" {
+	if pkg.Version() != "1.13.1" || pkg.Digest() == "" {
 		t.Fatal("embedded package must register the migrated roles and advance its version")
 	}
 	if len(pkg.files) != 21 {

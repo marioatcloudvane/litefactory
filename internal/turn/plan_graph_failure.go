@@ -11,7 +11,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -132,7 +131,7 @@ func (r *Reporter) ReportGraphFailure(ctx context.Context, req Request, policy W
 	}
 	key := fmt.Sprintf("%s-failure:%d:%d:%s", policy.Mode, source.InstanceID, source.ID, node)
 	intent := r.deliveryIntent(ref, ref, session.ID, run.TriggerCommentID, run.ID, key)
-	text := ""
+	var text string
 	saved, err := r.db.GetGraphComment(bookkeeping, intent.Key)
 	switch {
 	case err == nil:
@@ -164,9 +163,16 @@ func (r *Reporter) ReportGraphFailure(ctx context.Context, req Request, policy W
 	default:
 		return Posted{}, err
 	}
-	return r.deliver(bookkeeping, intent, func() (redact.Body, error) {
-		return r.renderer.RenderReportDelivery(bookkeeping, text, "")
-	})
+	if savedDelivery, readErr := r.db.GetReportDelivery(bookkeeping, intent.Key); readErr == nil {
+		return r.dispatchDelivery(bookkeeping, savedDelivery)
+	} else if !errors.Is(readErr, store.ErrNotFound) {
+		return Posted{}, readErr
+	}
+	text, err = r.appendGraphResultReview(bookkeeping, source, text)
+	if err != nil {
+		return Posted{}, err
+	}
+	return r.deliverFullText(bookkeeping, intent, text)
 }
 
 // failureSource resolves the attempt a failed or stopped step is reported

@@ -218,7 +218,7 @@ func (r *factoryConversationRun) confirmJudged(ctx context.Context, envelope Con
 	if envelope.Confirmation == nil || envelope.Confirmation.SourceID != r.t.SourceID || d.State != "awaiting_confirmation" || d.Code == "" || envelope.Proposal != d.Code {
 		return r.complete(ctx, naturalUnavailable)
 	}
-	if _, ok := ownerSpan(r.t.Source, *envelope.Confirmation); !ok {
+	if !validOwnerConfirmationSpan(r.t.Source, *envelope.Confirmation) {
 		return r.complete(ctx, naturalUnavailable)
 	}
 	return r.authorize(ctx, d)

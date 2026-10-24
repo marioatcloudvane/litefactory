@@ -607,6 +607,11 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 	}
 
 	intent := r.deliveryIntent(ref, destination, rep.SessionID, rep.CommentID, rep.RunID, "run-report")
+	if renderer, ok := r.renderer.(interface {
+		RenderRunParts(context.Context, report.Run) (redact.Body, []redact.Body, error)
+	}); ok {
+		return r.deliverRunParts(ctx, intent, rep, renderer)
+	}
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
 		if refinement != nil {
 			var err error
