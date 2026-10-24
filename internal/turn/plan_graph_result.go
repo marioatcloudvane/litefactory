@@ -58,7 +58,7 @@ func decodePlanResultRef(payload []byte) (planResultRef, bool) {
 type planRetained struct {
 	Response  string
 	Comment   string
-	Questions []string
+	Questions []agentresult.Question
 	Request   *graphexec.PlanStoryRequest
 	Set       *agentresult.PlanStorySet
 	Result    agentresult.Result
@@ -119,10 +119,7 @@ func planRetainedFrom(response string, result agentresult.Result) (planRetained,
 	if plan == nil {
 		return planRetained{}, errors.New("retained result carries no Plan payload")
 	}
-	out := planRetained{Response: response, Comment: result.Comment, Result: result}
-	for _, q := range result.Questions {
-		out.Questions = append(out.Questions, q.Text)
-	}
+	out := planRetained{Response: response, Comment: result.Comment, Questions: result.Questions, Result: result}
 	switch response {
 	case "ask":
 		if result.Outcome != "incomplete" || plan.StoryRequest != nil || plan.StorySet != nil {

@@ -83,14 +83,17 @@ func TestLogAnalysisStartAsksForAnUnclearScope(t *testing.T) {
 func TestAnnouncePostsALongMessageInOrderedParts(t *testing.T) {
 	ctx := t.Context()
 	s, _, _ := standardsGateFixture(t)
-	sender := s.sender.(*standardsDeliverySender)
+	sender, ok := s.sender.(*standardsDeliverySender)
+	if !ok {
+		t.Fatalf("sender is %T", s.sender)
+	}
 	before := len(sender.texts)
 	text := strings.Repeat("A finding about the test setup. ", 200)
 	now := time.Now().UTC()
-	if err := s.Announce(ctx, "3", "log-analysis:a1", text, now); err != nil {
+	if err := s.Announce(ctx, "3", "log-analysis:a1", "", text, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Announce(ctx, "3", "log-analysis:a1", text, now); err != nil {
+	if err := s.Announce(ctx, "3", "log-analysis:a1", "", text, now); err != nil {
 		t.Fatal(err)
 	}
 	for {

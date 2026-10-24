@@ -7,16 +7,25 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
+// capabilityTTL is how long a passed capability check stands. Message reads
+// still run every poll, and a refused read ends the cached check at once.
+const capabilityTTL = 5 * time.Minute
+
 // IntakeFailure carries bounded REST retry guidance without leaking response bodies.
 type IntakeFailure struct {
 	RetryAfter time.Duration
 	Capability bool
+	// Status is Discord's HTTP status, 0 when no response arrived.
+	Status int
+	// Global marks a rate limit that covers every route of the bot.
+	Global bool
 }
 
 func (e *IntakeFailure) Error() string {
@@ -26,10 +35,39 @@ func (e *IntakeFailure) Error() string {
 	return "Discord ordinary message read unavailable"
 }
 
-// CheckIntakeCapability verifies Message Content and current channel history access.
+// Kind names the failure for logs and status, without any content.
+func (e *IntakeFailure) Kind() string {
+	switch {
+	case e.Status == http.StatusTooManyRequests:
+		if e.Global {
+			return "rate limited (global)"
+		}
+		return "rate limited"
+	case e.Status == http.StatusUnauthorized:
+		return "unauthorized"
+	case e.Status == http.StatusForbidden:
+		return "forbidden"
+	case e.Status == http.StatusNotFound:
+		return "not found"
+	case e.Capability:
+		return "message content intent missing"
+	case e.Status == 0:
+		return "transport"
+	}
+	return "other"
+}
+
+// CheckIntakeCapability verifies Message Content and current channel history
+// access. A passed check stands for capabilityTTL per channel.
 func (a *Adapter) CheckIntakeCapability(ctx context.Context, channel string) error {
 	if !numeric(channel) {
 		return &IntakeFailure{Capability: true}
+	}
+	a.readMu.Lock()
+	until := a.capable[channel]
+	a.readMu.Unlock()
+	if a.options.Now().Before(until) {
+		return nil
 	}
 	var app struct {
 		Flags uint64 `json:"flags"`
@@ -42,7 +80,13 @@ func (a *Adapter) CheckIntakeCapability(ctx context.Context, channel string) err
 	}
 	// A successful history read proves current visibility and message-history access.
 	var messages []json.RawMessage
-	return a.intakeJSON(ctx, "/channels/"+channel+"/messages?limit=1", &messages)
+	if err := a.intakeJSON(ctx, "/channels/"+channel+"/messages?limit=1", &messages); err != nil {
+		return err
+	}
+	a.readMu.Lock()
+	a.capable[channel] = a.options.Now().Add(capabilityTTL)
+	a.readMu.Unlock()
+	return nil
 }
 
 // ReadIntakePage returns ordered identities and only eligible owner content.
@@ -110,6 +154,9 @@ func (a *Adapter) ReadIntakePage(ctx context.Context, channel, owner, before str
 func (a *Adapter) intakeJSON(ctx context.Context, path string, destination any) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	if wait := a.rateLimited(path); wait > 0 {
+		return &IntakeFailure{RetryAfter: wait, Status: http.StatusTooManyRequests}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.options.APIURL+path, nil)
 	if err != nil {
 		return &IntakeFailure{}
@@ -122,25 +169,70 @@ func (a *Adapter) intakeJSON(ctx context.Context, path string, destination any) 
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
 	if err != nil || len(raw) > 1<<20 {
-		return &IntakeFailure{}
+		return &IntakeFailure{Status: res.StatusCode}
 	}
 	if res.StatusCode == http.StatusTooManyRequests {
-		wait := parseRetry(res.Header.Get("Retry-After"), a.options.Now())
-		var rate struct {
-			Retry float64 `json:"retry_after"`
-		}
-		if json.Unmarshal(raw, &rate) == nil && rate.Retry > 0 {
-			wait = max(wait, time.Duration(min(rate.Retry, 3600)*float64(time.Second)))
-		}
-		return &IntakeFailure{RetryAfter: max(wait, time.Second)}
+		wait, global := a.limitRead(path, res, raw)
+		return &IntakeFailure{RetryAfter: wait, Status: res.StatusCode, Global: global}
 	}
 	if res.StatusCode != http.StatusOK {
-		return &IntakeFailure{Capability: res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden || res.StatusCode == http.StatusNotFound}
+		failure := &IntakeFailure{Status: res.StatusCode, Capability: res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden || res.StatusCode == http.StatusNotFound}
+		if failure.Capability {
+			// Lost access shows on the next check, not after the cached one ends.
+			a.readMu.Lock()
+			clear(a.capable)
+			a.readMu.Unlock()
+		}
+		return failure
 	}
 	if json.Unmarshal(raw, destination) != nil {
-		return &IntakeFailure{}
+		return &IntakeFailure{Status: res.StatusCode}
 	}
 	return nil
+}
+
+// readRoute is the rate-limit bucket of a read: its path without the query.
+func readRoute(path string) string {
+	route, _, _ := strings.Cut(path, "?")
+	return route
+}
+
+// rateLimited returns how long Discord asked reads of path, or all reads, to wait.
+func (a *Adapter) rateLimited(path string) time.Duration {
+	now := a.options.Now()
+	a.readMu.Lock()
+	defer a.readMu.Unlock()
+	until := a.limited[readRoute(path)]
+	if global := a.limited[""]; global.After(until) {
+		until = global
+	}
+	return max(until.Sub(now), 0)
+}
+
+// limitRead records a 429 for path's route, or for every read when Discord
+// marks it global, and returns the wait.
+func (a *Adapter) limitRead(path string, res *http.Response, raw []byte) (time.Duration, bool) {
+	wait := parseRetry(res.Header.Get("Retry-After"), a.options.Now())
+	var rate struct {
+		Retry  float64 `json:"retry_after"`
+		Global bool    `json:"global"`
+	}
+	if json.Unmarshal(raw, &rate) == nil && rate.Retry > 0 {
+		wait = max(wait, time.Duration(min(rate.Retry, 3600)*float64(time.Second)))
+	}
+	wait = max(wait, time.Second)
+	global := rate.Global || strings.EqualFold(res.Header.Get("X-RateLimit-Global"), "true")
+	route := readRoute(path)
+	if global {
+		route = ""
+	}
+	until := a.options.Now().Add(wait)
+	a.readMu.Lock()
+	if until.After(a.limited[route]) {
+		a.limited[route] = until
+	}
+	a.readMu.Unlock()
+	return wait, global
 }
 func parseIntakeSnowflake(value string) (uint64, error) {
 	return strconv.ParseUint(value, 10, 64)

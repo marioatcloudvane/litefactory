@@ -19,6 +19,10 @@ const messageBytes = 1500
 const commandBytes = 300
 const errorTailBytes = 300
 
+// reasoningBytes bounds one thinking summary; reasoning is context for the
+// steps around it, never the bulk of a page.
+const reasoningBytes = 400
+
 // DigestRequest pages through the condensed view of one run.
 type DigestRequest struct {
 	RunID  int64  `json:"run_id"`
@@ -47,7 +51,9 @@ type DigestCounts struct {
 	Edits    int `json:"edits"`
 	Failed   int `json:"failed"`
 	Errors   int `json:"errors"`
-	Withheld int `json:"withheld_records,omitempty"`
+	// Reasoning counts provider thinking summaries (settings.thinking_logs).
+	Reasoning int `json:"reasoning,omitempty"`
+	Withheld  int `json:"withheld_records,omitempty"`
 }
 
 func positionAt(n int) logreader.Position { return logreader.Position{Offset: int64(n)} }
@@ -139,6 +145,9 @@ func (s *Service) redactEntry(ctx context.Context, e DigestEntry) (DigestEntry, 
 	if e.Kind == "message" || e.Kind == "error" {
 		limit = messageBytes
 	}
+	if e.Kind == "reasoning" {
+		limit = reasoningBytes
+	}
 	text, err := s.redactor.Apply(ctx, e.Text, digestRecordMaximum)
 	if err != nil {
 		return e, err
@@ -186,6 +195,8 @@ func (d *digestBuilder) push(e DigestEntry) int {
 		d.counts.Edits++
 	case "error":
 		d.counts.Errors++
+	case "reasoning":
+		d.counts.Reasoning++
 	}
 	if e.Failed {
 		d.counts.Failed++
@@ -249,6 +260,7 @@ type codexItem struct {
 	Args    json.RawMessage `json:"arguments"`
 	Error   json.RawMessage `json:"error"`
 	Query   string          `json:"query"`
+	Summary json.RawMessage `json:"summary"`
 	Changes []struct {
 		Path string `json:"path"`
 		Kind string `json:"kind"`
@@ -259,6 +271,8 @@ func (d *digestBuilder) codex(offset int64, it codexItem) {
 	switch it.Type {
 	case "agent_message":
 		d.push(DigestEntry{Offset: offset, Kind: "message", Text: it.Text})
+	case "reasoning":
+		d.reasoning(offset, it.Text, messageText(it.Summary))
 	case "command_execution":
 		e := DigestEntry{Offset: offset, Kind: "command", Text: it.Command, Exit: it.Exit}
 		if it.Status == "failed" || it.Exit != nil && *it.Exit != 0 {
@@ -292,6 +306,7 @@ func (d *digestBuilder) claude(offset int64, role string, message json.RawMessag
 	var blocks []struct {
 		Type      string          `json:"type"`
 		Text      string          `json:"text"`
+		Thinking  string          `json:"thinking"`
 		ID        string          `json:"id"`
 		Name      string          `json:"name"`
 		Input     json.RawMessage `json:"input"`
@@ -306,12 +321,25 @@ func (d *digestBuilder) claude(offset int64, role string, message json.RawMessag
 		switch {
 		case role == "assistant" && b.Type == "text":
 			d.push(DigestEntry{Offset: offset, Kind: "message", Text: b.Text})
+		case role == "assistant" && b.Type == "thinking":
+			d.reasoning(offset, b.Thinking)
 		case role == "assistant" && b.Type == "tool_use":
 			d.calls[b.ID] = d.push(claudeCall(offset, b.Name, b.Input))
 		case role == "user" && b.Type == "tool_result" && b.IsError:
 			if i, ok := d.calls[b.ToolUseID]; ok {
 				d.fail(i, tail(messageText(b.Content, nil), errorTailBytes*4))
 			}
+		}
+	}
+}
+
+// reasoning keeps the first non-empty thinking summary; a provider that
+// withholds its thinking leaves empty blocks, which are skipped.
+func (d *digestBuilder) reasoning(offset int64, texts ...string) {
+	for _, text := range texts {
+		if text = strings.TrimSpace(text); text != "" {
+			d.push(DigestEntry{Offset: offset, Kind: "reasoning", Text: text})
+			return
 		}
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -226,7 +228,22 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 		}
 		v, e = a.Authoring.Start(ctx, standards.AuthoringStart{ID: id, Mode: mode, TargetID: args["target_id"], Intent: args["intent"], CategoryIDs: standardsCategories(args["category_ids"]), ProjectID: project})
 	case "author.answer":
-		v, e = a.Authoring.Answer(ctx, args["id"], version, []standards.AuthoringAnswer{{QuestionID: args["question_id"], Text: args["text"], Replace: args["replace"] == "true"}})
+		answers := []standards.AuthoringAnswer{{QuestionID: args["question_id"], Text: args["text"], Replace: args["replace"] == "true"}}
+		if args["question_id"] == "" {
+			// One reply such as "1a, 2b" answers all open questions; the
+			// author reads which part answers which.
+			var session standards.AuthoringSession
+			session, e = a.Authoring.Show(ctx, args["id"], version)
+			answers = answers[:0]
+			for _, q := range session.Questions {
+				if q.State == "pending" {
+					answers = append(answers, standards.AuthoringAnswer{QuestionID: q.ID, Text: args["text"]})
+				}
+			}
+		}
+		if e == nil {
+			v, e = a.Authoring.Answer(ctx, args["id"], version, answers)
+		}
 	case "author.edit":
 		edit := standards.AuthoringEdit{}
 		for name, field := range map[string]**string{"category_id": &edit.CategoryID, "rule": &edit.Rule, "description": &edit.Description, "evidence": &edit.Evidence, "scope": &edit.Scope, "check": &edit.Check} {
@@ -241,6 +258,8 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 		v, e = a.Authoring.Edit(ctx, args["id"], version, edit)
 	case "author.continue":
 		v, e = a.Authoring.Continue(ctx, args["id"], version)
+	case "author.revise":
+		v, e = a.Authoring.Reopen(ctx, args["id"], version, args["text"])
 	case "author.validate":
 		v, e = a.Authoring.Validate(ctx, args["id"], version)
 	case "author.complete":
@@ -321,6 +340,74 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 	if a.DB == nil || r.OperationKey == "" {
 		return messaging.StandardsResult{}, errors.New("standards: durable operation storage required")
 	}
+	switch r.Operation {
+	case "author.answer", "author.continue", "author.revise":
+		if r.Operation == "author.revise" {
+			// A change to a proposal the author produced goes to its session;
+			// a version cited with the proposal is the proposal's, not the
+			// session's, so the session's newest version is taken.
+			r.Arguments = maps.Clone(r.Arguments)
+			r.Arguments["id"] = strings.TrimPrefix(r.Arguments["id"], "authoring-")
+			delete(r.Arguments, "version")
+		}
+		// The owner's answers, changes and "again" go to the newest draft.
+		if r.Arguments["version"] == "" && a.Authoring != nil {
+			v, e := a.Authoring.Show(ctx, r.Arguments["id"], 0)
+			if e != nil {
+				return messaging.StandardsResult{}, e
+			}
+			r.Arguments = maps.Clone(r.Arguments)
+			r.Arguments["version"] = strconv.FormatInt(v.Version, 10)
+		}
+		if a.Analyses != nil && r.Operation == "author.answer" && a.Analyses.queueAnswer(r) {
+			return messaging.StandardsResult{Text: "Got it. The author is still working on the current draft; I'll pass your answers on when it's done and post the next draft here."}, nil
+		}
+		if a.Analyses != nil && r.Operation == "author.continue" && a.Analyses.authorRunning(r.Arguments["id"]) {
+			return messaging.StandardsResult{Text: "The author is already working on the next draft; I'll post it here."}, nil
+		}
+	}
+	result, d, done, e := a.admit(ctx, r)
+	if done || e != nil {
+		return result, e
+	}
+	if r.Operation == "author.continue" {
+		// The author can take minutes, longer than a conversation turn: it
+		// works in the background and its draft is posted here.
+		if a.draftLater(ctx, r, d, r.OperationKey) {
+			return messaging.StandardsResult{Text: "The standards author is working on the next draft. It takes a few minutes; I'll post it here.", References: map[string]string{"kind": "author", "id": r.Arguments["id"]}}, nil
+		}
+		return a.run(ctx, r, d)
+	}
+	result, e = a.run(ctx, r, d)
+	if e != nil || (r.Operation != "author.start" && r.Operation != "author.answer" && r.Operation != "author.revise") {
+		return result, e
+	}
+	// Starting a session, answering its questions and asking for a change to
+	// its proposal all lead straight to the author's next draft; none needs a
+	// further confirmation.
+	id := result.References["id"]
+	if a.nextDraft(ctx, r, id, result.References["version"], r.OperationKey) {
+		if r.Operation == "author.start" {
+			result.Text = "On it. The standards author is working on a first draft; it takes a few minutes and I'll post it here."
+		} else {
+			result.Text = "Thanks, I've passed that to the author. It's working on the next draft; I'll post it here."
+		}
+		return result, nil
+	}
+	switch r.Operation {
+	case "author.start":
+		result.Text = "I've set up the standard, but the author can't start right now. Say \"again\" and I'll ask it for a first draft."
+	case "author.revise":
+		result.Text = "I've reopened the proposal with your change, but the author can't start right now. Say \"again\" and I'll ask it for the next draft."
+	default:
+		result.Text = "I've saved your answers, but the author can't start right now. Say \"again\" and I'll ask it for the next draft."
+	}
+	return result, nil
+}
+
+// admit records r durably before its effect. done reports a retry whose
+// retained outcome is the result.
+func (a *ConversationStandards) admit(ctx context.Context, r messaging.StandardsRequest) (messaging.StandardsResult, string, bool, error) {
 	canonical := struct {
 		Operation                                string
 		Arguments                                map[string]string
@@ -328,49 +415,156 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 	}{r.Operation, r.Arguments, r.Transport, r.OwnerID, r.ChannelID, r.MessageID}
 	raw, e := json.Marshal(canonical)
 	if e != nil {
-		return messaging.StandardsResult{}, e
+		return messaging.StandardsResult{}, "", true, e
 	}
 	sum := sha256.Sum256(raw)
 	d := hex.EncodeToString(sum[:])
 	receipt, e := a.DB.AdmitStandardsConversationOperation(ctx, store.StandardsConversationOperation{Key: r.OperationKey, RequestDigest: d, Kind: r.Operation, Transport: r.Transport, OwnerID: r.OwnerID, ChannelID: r.ChannelID, SourceID: r.MessageID, RequestJSON: raw})
 	if e != nil {
-		return messaging.StandardsResult{}, e
+		return messaging.StandardsResult{}, d, true, e
 	}
 	if receipt.Status == "completed" {
 		var result messaging.StandardsResult
 		e = json.Unmarshal(receipt.ResultJSON, &result)
-		return result, e
+		return result, d, true, e
 	}
 	if receipt.Status == "failed" || receipt.Status == "conflict" || receipt.Status == "interrupted" {
-		return messaging.StandardsResult{Interrupted: receipt.Status == "interrupted"}, fmt.Errorf("standards: retained %s operation: %s", receipt.Status, receipt.Error)
+		return messaging.StandardsResult{Interrupted: receipt.Status == "interrupted"}, d, true, fmt.Errorf("standards: retained %s operation: %s", receipt.Status, receipt.Error)
 	}
 	if receipt.EffectCommitted {
-		return a.recoverEffect(ctx, r, receipt)
+		result, e := a.recoverEffect(ctx, r, receipt)
+		return result, d, true, e
 	}
 	if receipt.Status != "saved" {
-		return messaging.StandardsResult{}, fmt.Errorf("standards: retained %s operation: %s", receipt.Status, receipt.Error)
+		return messaging.StandardsResult{}, d, true, fmt.Errorf("standards: retained %s operation: %s", receipt.Status, receipt.Error)
 	}
 	if r.Operation == "author.continue" {
 		if _, e = a.DB.StartStandardsConversationGeneration(ctx, r.OperationKey, d); e != nil {
-			return messaging.StandardsResult{Interrupted: true}, e
-		}
-		// The author can take minutes, longer than a conversation turn: it
-		// works in the background and its draft is posted here.
-		if a.Analyses != nil && a.Analyses.later(ctx, r.ChannelID, "standards-author:"+r.OperationKey, func(ctx context.Context) string {
-			_, err := a.run(ctx, r, d)
-			if err != nil {
-				return "The standards author could not continue session " + r.Arguments["id"] + ": " + err.Error() + ". Inspect the session before continuing again."
-			}
-			v, err := a.Authoring.Show(ctx, r.Arguments["id"], 0)
-			if err != nil {
-				return "The standards author finished, but session " + r.Arguments["id"] + " could not be read: " + err.Error()
-			}
-			return authorDraftText(v)
-		}) {
-			return messaging.StandardsResult{Text: "The standards author is working on session " + r.Arguments["id"] + ". Its draft and questions will be posted here when it is done; this can take a few minutes.", References: map[string]string{"kind": "author", "id": r.Arguments["id"]}}, nil
+			return messaging.StandardsResult{Interrupted: true}, d, true, e
 		}
 	}
-	return a.run(ctx, r, d)
+	return messaging.StandardsResult{}, d, false, nil
+}
+
+// nextDraft asks the author for the next draft of session id in the
+// background, after the step r that led to it, and posts the draft after the
+// confirmation of operation after. It reports false when nothing runs.
+func (a *ConversationStandards) nextDraft(ctx context.Context, r messaging.StandardsRequest, id, version, after string) bool {
+	if a.Analyses == nil || !a.Analyses.available() || id == "" || version == "" {
+		return false
+	}
+	next := r
+	next.Operation = "author.continue"
+	next.Arguments = map[string]string{"action": "continue", "id": id, "version": version}
+	next.OperationKey = r.OperationKey + "/draft-" + version
+	_, d, done, e := a.admit(ctx, next)
+	if done || e != nil {
+		return false
+	}
+	return a.draftLater(ctx, next, d, after)
+}
+
+// draftLater runs the admitted continuation r in the background, one per
+// session, and posts the draft after the confirmation of operation after.
+// Answers that arrive meanwhile go into the next draft.
+func (a *ConversationStandards) draftLater(ctx context.Context, r messaging.StandardsRequest, d, after string) bool {
+	id := r.Arguments["id"]
+	if a.Analyses == nil || !a.Analyses.claimAuthor(id) {
+		return false
+	}
+	started := a.Analyses.later(ctx, r.ChannelID, "standards-author:"+r.OperationKey, after, func(ctx context.Context) string {
+		_, err := a.run(ctx, r, d)
+		queued := a.Analyses.releaseAuthor(id)
+		answered := a.answerQueued(ctx, queued)
+		if err != nil {
+			if a.Analyses.Log != nil {
+				a.Analyses.Log.WarnContext(ctx, "standards author draft failed", "session", id, "error", err)
+			}
+			text := "The standards author couldn't finish the draft: " + plainFailure(err.Error()) + ". Nothing was changed. Say \"again\" and I'll ask it once more."
+			if answered != nil {
+				text += " Your answers are saved for it."
+			}
+			return text
+		}
+		if answered != nil {
+			// The draft just made is already behind the owner's answers.
+			version := strconv.FormatInt(answered.Version, 10)
+			if a.nextDraft(ctx, queued[len(queued)-1], id, version, queued[len(queued)-1].OperationKey) {
+				return ""
+			}
+		}
+		v, err := a.Authoring.Show(ctx, id, 0)
+		if err != nil {
+			return "The standards author has finished, but I couldn't read its draft. Ask me for it in a moment."
+		}
+		return authorDraftText(v)
+	})
+	if !started {
+		a.Analyses.releaseAuthor(id)
+	}
+	return started
+}
+
+// answerQueued records answers that arrived while the author was drafting,
+// on the newest draft. It returns the session after the last answer, or nil.
+func (a *ConversationStandards) answerQueued(ctx context.Context, queued []messaging.StandardsRequest) *standards.AuthoringSession {
+	var last *standards.AuthoringSession
+	for _, q := range queued {
+		v, e := a.Authoring.Show(ctx, q.Arguments["id"], 0)
+		if e != nil {
+			continue
+		}
+		q.Arguments = maps.Clone(q.Arguments)
+		q.Arguments["version"] = strconv.FormatInt(v.Version, 10)
+		_, d, done, e := a.admit(ctx, q)
+		if done || e != nil {
+			continue
+		}
+		result, e := a.run(ctx, q, d)
+		if e != nil {
+			if a.Analyses.Log != nil {
+				a.Analyses.Log.WarnContext(ctx, "queued author answer could not be recorded", slog.String("session", q.Arguments["id"]), slog.Any("error", e))
+			}
+			continue
+		}
+		if version, e := strconv.ParseInt(result.References["version"], 10, 64); e == nil {
+			last = &standards.AuthoringSession{ID: q.Arguments["id"], Version: version}
+		}
+	}
+	return last
+}
+
+// AuthorSession reports the newest unfinished author session started in
+// channel, so the conversation can take the owner's answers to it.
+func (a *ConversationStandards) AuthorSession(ctx context.Context, channel string) (messaging.StandardsAuthorSession, bool, error) {
+	if a.Authoring == nil || a.Authoring.Store == nil {
+		return messaging.StandardsAuthorSession{}, false, nil
+	}
+	sessions, e := a.Authoring.List(ctx, 25)
+	if e != nil {
+		return messaging.StandardsAuthorSession{}, false, e
+	}
+	for _, listed := range sessions {
+		if !strings.HasPrefix(listed.ID, "conversation-discord:"+channel+":") {
+			continue
+		}
+		v, e := a.Authoring.Show(ctx, listed.ID, 0)
+		if e != nil {
+			return messaging.StandardsAuthorSession{}, false, e
+		}
+		if v.Status == "completed" {
+			return messaging.StandardsAuthorSession{}, false, nil
+		}
+		out := messaging.StandardsAuthorSession{ID: v.ID, Version: v.Version, Rule: strings.TrimSpace(v.Draft.Rule), Running: a.Analyses != nil && a.Analyses.authorRunning(v.ID)}
+		for _, q := range v.Questions {
+			if q.State == "pending" {
+				out.QuestionIDs = append(out.QuestionIDs, q.ID)
+				out.Questions = append(out.Questions, authorQuestion(len(out.Questions)+1, q))
+			}
+		}
+		return out, true, nil
+	}
+	return messaging.StandardsAuthorSession{}, false, nil
 }
 
 // run executes one admitted operation and records its outcome.
@@ -414,31 +608,67 @@ func (a *ConversationStandards) run(ctx context.Context, r messaging.StandardsRe
 	return result, errors.Join(e, save)
 }
 
-// authorDraftText shows an authoring session's draft for the owner.
+// authorDraftText shows an authoring session's draft for the owner in a few
+// lines: the rule, whom it applies to and how it is checked, a short
+// description and the numbered questions with lettered options. The full
+// draft is a lookup away.
 func authorDraftText(v standards.AuthoringSession) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Standards author: session %s, version %d (%s)\n\n", v.ID, v.Version, v.Status)
-	categories := v.Base.Categories
-	if c := v.NewCategory; c != nil {
-		categories = append([]standards.Category{*c}, categories...)
-		fmt.Fprintf(&b, "New category %s: %s. %s\n\n", c.ID, c.Name, c.Description)
+	d := v.Draft
+	b.WriteString("The standards author has a draft:\n\n" + strings.TrimSpace(d.Rule) + "\n")
+	var about []string
+	if len(d.AppliesTo) > 0 {
+		about = append(about, "Applies to: "+strings.Join(d.AppliesTo, ", "))
 	}
-	b.WriteString(standards.Render(categories, []standards.Standard{v.Draft}))
-	if v.Notes != "" {
-		fmt.Fprintf(&b, "\nNotes: %s\n", v.Notes)
+	if d.Check != "" {
+		about = append(about, "Check: "+strings.ToLower(standards.CheckLabel(d.Check)))
 	}
+	if len(about) > 0 {
+		b.WriteString(strings.Join(about, " · ") + "\n")
+	}
+	if text := shortDescription(d.Description); text != "" {
+		b.WriteString(text + "\n")
+	}
+	n := 0
 	for _, q := range v.Questions {
-		if q.State == "pending" {
-			fmt.Fprintf(&b, "\nQuestion %s: %s", q.ID, q.Text)
-			if len(q.Options) > 0 {
-				fmt.Fprintf(&b, " Options: %s.", strings.Join(q.Options, "; "))
-			}
+		if q.State != "pending" {
+			continue
+		}
+		if n == 0 {
+			b.WriteString("\nQuestions:\n")
+		}
+		n++
+		b.WriteString(authorQuestion(n, q) + "\n")
+	}
+	next := "Say it's good and I'll turn it into a proposal, tell me what to change, or ask for the full draft."
+	if n > 0 {
+		next = "Answer here, for example \"1a, 2b\" or in your own words, and the author works them in. Ask for the full draft if you want it."
+	}
+	return b.String() + "\n" + next
+}
+
+// authorQuestion numbers one question and letters its options.
+func authorQuestion(n int, q standards.AuthoringQuestion) string {
+	text := fmt.Sprintf("%d. %s", n, strings.TrimSpace(q.Text))
+	for i, option := range q.Options {
+		if i < 26 {
+			text += fmt.Sprintf(" (%c) %s", 'a'+i, strings.TrimSpace(option))
 		}
 	}
-	for _, p := range v.Diagnostics {
-		fmt.Fprintf(&b, "\nOpen problem in %s: %s", p.Field, p.Message)
+	return text
+}
+
+// shortDescription keeps the first sentence or two of a description.
+func shortDescription(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) <= 280 {
+		return text
 	}
-	return b.String()
+	cut := strings.LastIndex(text[:280], ". ")
+	if cut < 80 {
+		return strings.ToValidUTF8(text[:277], "") + "…"
+	}
+	return text[:cut+1]
 }
 
 func (a *ConversationStandards) recoverEffect(ctx context.Context, r messaging.StandardsRequest, o store.StandardsConversationOperation) (messaging.StandardsResult, error) {

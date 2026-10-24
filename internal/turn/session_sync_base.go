@@ -94,8 +94,11 @@ func (r *BugRuntime) graphSyncBaseBinding(sessionID int64) SyncBaseBinding {
 		if err != nil {
 			return SyncBaseTarget{}, err
 		}
-		if pin.Digest != r.definition.Profile.Digest || pin.TeamSnapshotDigest != r.definition.Digest {
+		if pin.Digest != r.definition.Profile.Digest {
 			return SyncBaseTarget{}, errors.New("base sync differs from pinned factory workflow")
+		}
+		if ok, err := pinnedContent(ctx, r.opts.DB, pin, instance.ID, a.NodeAttemptID, r.definition.Digest); err != nil || !ok {
+			return SyncBaseTarget{}, errors.Join(errors.New("base sync differs from pinned factory workflow"), err)
 		}
 		node, ok := r.definition.Profile.Node(a.Node)
 		if !ok || node.Action != graphexec.SyncBaseAction {
@@ -206,4 +209,21 @@ func (r *BugRuntime) syncBaseBranch(ctx context.Context, s store.Session, repo s
 		return "", err
 	}
 	return storyBaseBranch(ctx, r.opts, clone, s, repo), nil
+}
+
+// pinnedContent reports whether digest is the workflow content pinned for this
+// attempt. Graph definitions are shared by topology, so their team snapshot is
+// the first session's; a later session's own retained capture is its pin.
+func pinnedContent(ctx context.Context, db *store.DB, pin store.GraphDefinition, instanceID, attemptID int64, digest string) (bool, error) {
+	if pin.TeamSnapshotDigest == digest {
+		return true, nil
+	}
+	capture, err := db.WorkflowCaptureForAttempt(ctx, attemptID)
+	if errors.Is(err, store.ErrGraphInvariant) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return capture.InstanceID == instanceID && capture.ContentDigest == digest, nil
 }

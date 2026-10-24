@@ -34,7 +34,7 @@ func buildRunners(paths config.Paths, cfg *config.Config, environ []string, logg
 		}
 		claudeRunner, err := harness.New(harness.Options{
 			Paths: paths, Claude: *cfg.Agents.Claude, Model: model,
-			Environ: environ, Logger: logger,
+			Environ: environ, Logger: logger, ThinkingLogs: cfg.Settings.ThinkingLogs,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("the daemon needs configured agent claude: %w", err)
@@ -46,7 +46,7 @@ func buildRunners(paths config.Paths, cfg *config.Config, environ []string, logg
 		if !ok || model == "" {
 			return nil, fmt.Errorf("agents.codex.model_tier %q has no configured model", cfg.Agents.Codex.ModelTier)
 		}
-		codexRunner, err := codex.New(codex.Options{Paths: paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: logger})
+		codexRunner, err := codex.New(codex.Options{Paths: paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if err != nil {
 			return nil, fmt.Errorf("the daemon needs configured agent codex: %w", err)
 		}

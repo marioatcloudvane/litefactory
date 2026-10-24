@@ -133,7 +133,7 @@ func TestFactoryConversationNarrationFailureRetainsOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(reply.ReplyText, "Saved action outcome:\nAnswer saved for acme/app\\#42.") || strings.Contains(reply.ReplyText, "Unverified") {
+	if reply.ReplyText != "Answer saved for acme/app\\#42." {
 		t.Fatalf("saved outcome changed: %q", reply.ReplyText)
 	}
 	if provider.calls != 1 {
@@ -172,7 +172,7 @@ func TestFactoryConversationFirstCancellationSkipsProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(reply.ReplyText, "Cancelled the pending request.") {
+	if reply.ReplyText == "" || strings.Contains(reply.ReplyText, "Saved action outcome") {
 		t.Fatalf("cancel response %q", reply.ReplyText)
 	}
 }
@@ -282,8 +282,9 @@ func TestFactoryConversationAsyncDiagnosisSavedOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result.ReplyText, saved) {
-		t.Fatalf("saved outcome absent %q", result.ReplyText)
+	// The saved outcome reaches the owner in the conversation's own words.
+	if result.ReplyText != "The saved diagnosis is ready." {
+		t.Fatalf("saved outcome not narrated in one message: %q", result.ReplyText)
 	}
 }
 
