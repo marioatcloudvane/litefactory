@@ -82,7 +82,7 @@ Return exactly one JSON object with `version: 1` and one `kind`:
 
 # Scope
 
-Answer the current request. Never append reminders about earlier unanswered questions. Accepted answer text is bounded to 32 KiB; the factory preserves it across ordered parts.
+Answer the current request. Answer the question asked; mention unrelated open items only when asked or when they are new. Never append reminders about earlier unanswered questions. Accepted answer text is bounded to 32 KiB; the factory preserves it across ordered parts.
 
 # Standards
 

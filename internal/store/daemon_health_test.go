@@ -1,6 +1,7 @@
 package store
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -18,7 +19,7 @@ func TestHealthSnapshotRoundTripAndReplace(t *testing.T) {
 		t.Fatalf("empty database: found=%v err=%v", snap.Found, err)
 	}
 
-	listener := ListenerStatus{ListenAddress: "127.0.0.1:8787", Listening: true, DaemonStartedAt: at, WrittenAt: at.Add(time.Minute)}
+	listener := ListenerStatus{ListenAddress: "127.0.0.1:8787", Listening: true, DaemonStartedAt: at, WrittenAt: at.Add(time.Minute), InFlightSessions: []int64{3, 9}, SlotsUsed: 2, SlotsTotal: 4}
 	rows := []RepoDiscoveryStatus{
 		{RepoID: b.ID, WebhookMode: "polling only", WrittenAt: at},
 		{RepoID: a.ID, LastDeliveryAt: at.Add(time.Second), LastPollFinishedAt: at.Add(2 * time.Second), NextPollDueAt: at.Add(time.Hour),
@@ -31,7 +32,7 @@ func TestHealthSnapshotRoundTripAndReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !snap.Found || snap.Listener != listener {
+	if !snap.Found || !reflect.DeepEqual(snap.Listener, listener) {
 		t.Fatalf("listener = %+v found=%v", snap.Listener, snap.Found)
 	}
 	if len(snap.Repos) != 2 || snap.Repos[0].Name != "api" || snap.Repos[1].Name != "web" {
