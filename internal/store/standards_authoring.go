@@ -329,22 +329,71 @@ func (db *DB) ListStandardsAuthoringAttempts(ctx context.Context, id string) ([]
 	return out, rows.Err()
 }
 
+// ErrStandardsAuthoringSettled refuses to reopen a session whose proposal the owner already approved or published.
+var ErrStandardsAuthoringSettled = errors.New("standards: the proposal is already approved or published; start a new authoring session to change it")
+
+// authoringProposalOpen returns the current version of an authoring proposal
+// that is neither approved nor published.
+func authoringProposalOpen(ctx context.Context, tx *sql.Tx, proposal string) (int64, error) {
+	var current int64
+	var published sql.NullInt64
+	if e := tx.QueryRowContext(ctx, `SELECT current_version,published_version FROM standards_proposals WHERE id=?`, proposal).Scan(&current, &published); e != nil {
+		return 0, e
+	}
+	var approvals int64
+	if e := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM standards_approvals WHERE proposal_id=? AND version=?`, proposal, current).Scan(&approvals); e != nil {
+		return 0, e
+	}
+	if published.Valid || approvals > 0 {
+		return 0, ErrStandardsAuthoringSettled
+	}
+	return current, nil
+}
+
+// ReopenStandardsAuthoring takes a completed session back to draft as the next
+// saved version s, while the proposal it produced is still unapproved and
+// unpublished. Completing it again writes the next version of that proposal.
+func (db *DB) ReopenStandardsAuthoring(ctx context.Context, s StandardsAuthoringSession, expected int64) (StandardsAuthoringSession, error) {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "author", ID: s.ID, Version: s.Version}
+	}), func(tx *sql.Tx) error {
+		var proposal string
+		e := tx.QueryRowContext(ctx, `SELECT c.proposal_id FROM standards_authoring_completions c JOIN standards_authoring_sessions s ON s.id=c.session_id WHERE c.session_id=? AND s.status='completed' AND s.current_version=?`, s.ID, expected).Scan(&proposal)
+		if errors.Is(e, sql.ErrNoRows) {
+			return ErrStandardsConflict
+		}
+		if e != nil {
+			return e
+		}
+		if _, e = authoringProposalOpen(ctx, tx, proposal); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(ctx, `UPDATE standards_authoring_sessions SET status='draft' WHERE id=? AND status='completed'`, s.ID); e != nil {
+			return e
+		}
+		return saveAuthoring(ctx, tx, &s, expected)
+	})
+	return s, err
+}
+
 // CompleteStandardsAuthoring atomically creates an unapproved proposal and its unique recovery link.
+// A reopened session completes into the next version of its existing proposal.
 func (db *DB) CompleteStandardsAuthoring(ctx context.Context, id string, expected int64, p StandardsProposalVersion) (StandardsProposalVersion, error) {
 	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
 		return StandardsConversationEffect{DomainKind: "proposal", ID: p.ProposalID, Version: p.Version}
 	}), func(tx *sql.Tx) error {
-		var linked string
+		var linked, status string
 		var version, sessionVersion int64
-		e := tx.QueryRowContext(ctx, `SELECT proposal_id,proposal_version,version FROM standards_authoring_completions WHERE session_id=?`, id).Scan(&linked, &version, &sessionVersion)
-		if e == nil {
+		e := tx.QueryRowContext(ctx, `SELECT c.proposal_id,c.proposal_version,c.version,s.status FROM standards_authoring_completions c JOIN standards_authoring_sessions s ON s.id=c.session_id WHERE c.session_id=?`, id).Scan(&linked, &version, &sessionVersion, &status)
+		reopened := e == nil
+		if reopened && status == "completed" {
 			if sessionVersion != expected {
 				return ErrStandardsConflict
 			}
 			p, e = readStandardsProposal(ctx, tx, linked, version)
 			return e
 		}
-		if !errors.Is(e, sql.ErrNoRows) {
+		if !reopened && !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
 		s, e := readAuthoring(ctx, tx, id, 0)
@@ -364,20 +413,37 @@ func (db *DB) CompleteStandardsAuthoring(ctx context.Context, id string, expecte
 		if p.ProposalID == "" || p.SchemaVersion != 1 || p.ChangeDigest == "" || p.ResultDigest == "" {
 			return errors.New("standards: invalid proposal metadata")
 		}
-		p.Version = 1
 		p.CreatedAt = nowUTC().Truncate(time.Millisecond)
-		ops, e := json.Marshal(p.Operations)
-		if e != nil {
-			return e
-		}
-		if _, e = tx.ExecContext(ctx, `INSERT INTO standards_proposals(id,current_version) VALUES(?,1)`, p.ProposalID); e != nil {
-			return e
-		}
-		if _, e = tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt)); e != nil {
-			return e
-		}
-		if _, e = tx.ExecContext(ctx, `INSERT INTO standards_authoring_completions(session_id,version,proposal_id,proposal_version) VALUES(?,?,?,?)`, id, expected, p.ProposalID, p.Version); e != nil {
-			return e
+		if reopened {
+			// The new draft supersedes the unapproved version it was reopened from.
+			if p.ProposalID != linked {
+				return ErrStandardsConflict
+			}
+			current, e := authoringProposalOpen(ctx, tx, linked)
+			if e != nil {
+				return e
+			}
+			if p, e = saveStandardsProposalTx(ctx, tx, p, current); e != nil {
+				return e
+			}
+			if _, e = tx.ExecContext(ctx, `UPDATE standards_authoring_completions SET version=?,proposal_version=? WHERE session_id=?`, expected, p.Version, id); e != nil {
+				return e
+			}
+		} else {
+			p.Version = 1
+			ops, e := json.Marshal(p.Operations)
+			if e != nil {
+				return e
+			}
+			if _, e = tx.ExecContext(ctx, `INSERT INTO standards_proposals(id,current_version) VALUES(?,1)`, p.ProposalID); e != nil {
+				return e
+			}
+			if _, e = tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt)); e != nil {
+				return e
+			}
+			if _, e = tx.ExecContext(ctx, `INSERT INTO standards_authoring_completions(session_id,version,proposal_id,proposal_version) VALUES(?,?,?,?)`, id, expected, p.ProposalID, p.Version); e != nil {
+				return e
+			}
 		}
 		var active sql.NullString
 		if e = tx.QueryRowContext(ctx, `SELECT active_attempt FROM standards_authoring_sessions WHERE id=?`, id).Scan(&active); e != nil {
@@ -401,7 +467,7 @@ func (db *DB) CompleteStandardsAuthoring(ctx context.Context, id string, expecte
 	return p, err
 }
 
-// GetStandardsAuthoringCompletion returns the linked immutable proposal, if completed.
+// GetStandardsAuthoringCompletion returns the proposal version the session last completed into, if any.
 func (db *DB) GetStandardsAuthoringCompletion(ctx context.Context, id string) (StandardsProposalVersion, error) {
 	var p StandardsProposalVersion
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
