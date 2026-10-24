@@ -15,6 +15,12 @@ import (
 // as recoverable. It stores no source bytes and grants no read authority. Each
 // consumer must still check its current scope against the owning source records.
 func (db *DB) PutEvidenceManifest(ctx context.Context, manifest retainedevidence.Manifest) error {
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		return putEvidenceManifest(ctx, tx, manifest)
+	})
+}
+
+func putEvidenceManifest(ctx context.Context, tx *sql.Tx, manifest retainedevidence.Manifest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -32,11 +38,6 @@ func (db *DB) PutEvidenceManifest(ctx context.Context, manifest retainedevidence
 	if err != nil {
 		return fmt.Errorf("encode evidence manifest: %w", err)
 	}
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
 	scope := manifest.Scope
 	_, err = tx.ExecContext(ctx, `INSERT INTO retained_evidence_manifests
 		(scope_kind,scope_id,repository,task,revision,manifest,created_at) VALUES(?,?,?,?,?,?,?)
@@ -64,7 +65,7 @@ func (db *DB) PutEvidenceManifest(ctx context.Context, manifest retainedevidence
 	if err := errors.Join(errs...); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func retainEvidenceSource(ctx context.Context, tx *sql.Tx, scope retainedevidence.Scope, entry retainedevidence.Entry) error {

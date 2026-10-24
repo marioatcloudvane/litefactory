@@ -252,6 +252,7 @@ var archiveRetained = map[string]ArchiveClass{
 	// bounded chat retention rather than one family's archive lifecycle.
 	"chat_conversation_actions":       ArchiveClassGlobal,
 	"chat_conversation_exchanges":     ArchiveClassGlobal,
+	"chat_conversation_evidence":      ArchiveClassGlobal,
 	"chat_conversation_references":    ArchiveClassGlobal,
 	"chat_conversation_answers":       ArchiveClassGlobal,
 	"chat_conversation_answer_parts":  ArchiveClassGlobal,

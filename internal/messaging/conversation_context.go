@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -150,8 +151,11 @@ func (r *factoryConversationRun) referenceCurrent(ctx context.Context, reference
 
 // Replies are paired by retained source identity, never admitted as owner input.
 type conversationPriorReply struct {
-	SourceID string `json:"source_id"`
-	Reply    string `json:"factory_reply"`
+	SourceID   string    `json:"source_id"`
+	Reply      string    `json:"factory_reply"`
+	Capture    string    `json:"capture"`
+	CapturedAt time.Time `json:"captured_at,omitempty"`
+	Limitation string    `json:"limitation"`
 }
 
 func (r *factoryConversationRun) recentFactoryReplies(ctx context.Context, sources []store.ConversationTurn, turns []DialogueTurn) ([]conversationPriorReply, error) {
@@ -175,7 +179,7 @@ func (r *factoryConversationRun) recentFactoryReplies(ctx context.Context, sourc
 				reply += " [reply excerpt]"
 			}
 			remaining -= len(reply)
-			out = append(out, conversationPriorReply{SourceID: source.SourceID, Reply: reply})
+			out = append(out, conversationPriorReply{SourceID: source.SourceID, Reply: reply, Capture: "unknown", CapturedAt: source.FinishedAt, Limitation: "Bounded saved reply excerpt; original legacy capture and older history coverage are unknown."})
 		}
 	}
 	return out, nil
