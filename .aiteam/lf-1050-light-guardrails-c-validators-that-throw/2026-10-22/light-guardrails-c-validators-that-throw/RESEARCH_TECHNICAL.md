@@ -69,16 +69,13 @@ Evidence:
 
 ## f6
 
-C4 confirmed: Doctor requires 1–30 findings and exact inclusion of every collector gap, with max 100 diagnosis gaps and 64 KiB serialized result. Result preparation validates before adoption; retained reads validate again. The collector already owns the source gaps, so deterministic merge can remove the copying burden. Invented evidence handles, unobserved repair preconditions, unsupported targets and unverified repair completion are separate checks that should remain strict.
+C4 correction: Doctor requires findings, verbatim collector gaps, at most 100 gaps and a bounded result. Non-live citations must match known evidence handles; live citations only need bounded nonblank text, so prior blanket claims of invented-evidence rejection were incorrect. Merge behavior must address both count and byte boundaries.
 
 Evidence:
 
-- `internal/doctor/result.go:69`
-- `internal/doctor/result.go:111`
-- `internal/doctor/result.go:128`
-- `internal/doctor/results.go:71`
-- `internal/doctor/results.go:248`
-- `internal/doctor/result_unit_test.go:41`
+- `internal/doctor/result.go:74`
+- `internal/doctor/result.go:102`
+- `internal/doctor/result.go:118`
 
 ## f7
 
@@ -127,3 +124,14 @@ Evidence:
 - `internal/agentresult/plan_graph_contract_test.go:191`
 - `internal/doctor/result_unit_test.go:54`
 - `internal/messaging/conversation_factory_test.go:94`
+
+## f11
+
+The later issue review identified three omissions: live citation verification, repair-measurement completeness, and the merged Doctor gap-count ceiling. Current code confirms that statistics-only and untracked-name-only diff output reaches repair classification, so absent risky signals cannot establish measurement completeness.
+
+Evidence:
+
+- `internal/git/validate_repair.go:16`
+- `internal/turn/validate_repair.go:236`
+- `internal/doctor/result.go:74`
+- `internal/doctor/result.go:102`
