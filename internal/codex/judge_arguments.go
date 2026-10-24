@@ -107,6 +107,7 @@ func (r *Runner) judgeArguments(request agent.JudgeRequest, catalogPath string) 
 	if request.Thinking != "" {
 		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(string(request.Thinking)))
 	}
+	args = append(args, r.reasoningSummaryArgs()...)
 	args = append(args, overrides...)
 	return append(args, "-"), nil
 }

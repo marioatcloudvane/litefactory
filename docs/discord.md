@@ -19,9 +19,12 @@ For Linear tickets, also complete [Linear setup](project-connections.md#linear-t
    **Application ID** and its **Public Key** (64 hex characters).
 2. Add a bot to the application and copy the **bot token**.
 3. Under the bot settings, turn on **Message Content Intent**. It is needed for
-   ordinary conversation messages. The factory checks the application
-   flags and a channel history read; if either fails, ordinary messages are
-   switched off and chat health reports it.
+   ordinary conversation messages. Owner messages arrive over the Discord
+   Gateway, an outbound WebSocket, as they are sent; without this intent
+   Discord closes it (4014) and the `chat` line of `litefactory daemon status`
+   says so. The factory also checks the application flags and a channel
+   history read; if either fails, ordinary messages are switched off and chat
+   health reports it.
 4. Under Installation, configure Guild Install with `bot` and
    `applications.commands` scopes. Open the install link, choose your test server
    and authorize it. Give the bot, in each channel you will allow:
@@ -182,6 +185,7 @@ and events already over 24 hours old are skipped and logged.
 | Config refused at startup | `chat.discord` needs `webhook.listen`, an HTTPS `webhook.public_url`, numeric IDs, a 64-hex public key and exactly one token reference. |
 | `/details` does not appear | Restart the daemon; check the Interactions Endpoint URL and that the proxy forwards `/litefactory/discord`. |
 | Plain messages ignored | Bind the channel under `conversations`; enable Message Content; give the bot channel visibility and history; check the `chat` line of `litefactory daemon status`. |
+| `chat` line says the Gateway is reconnecting or failed | Allow outbound HTTPS/WebSocket to `gateway.discord.gg`; for `disallowed intents (4014)` enable Message Content Intent in the developer portal and restart. Meanwhile messages are read every 5 minutes, and all missed messages are read once the Gateway reconnects. |
 | "no access" | Wrong user, or the channel is not in `channel_ids`. |
 
 See also [owner commands](guides/owner-commands.md) for the GitHub comment commands.

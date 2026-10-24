@@ -190,6 +190,9 @@ func (c *Config) Validate() error {
 	if err := validateLogLevel(s.LogLevel); err != nil {
 		errs = append(errs, err)
 	}
+	if !s.ThinkingLogs.Valid() {
+		errs = append(errs, fmt.Errorf("settings.thinking_logs: %q is not supported; use none, summarized or full", s.ThinkingLogs))
+	}
 
 	errs = append(errs, validateGitHub(&c.Providers.GitHub)...)
 	errs = append(errs, validateTiers(c)...)
@@ -400,6 +403,7 @@ func (c *Config) normalize() {
 	c.Settings.FeaturePrefix = strings.TrimSpace(c.Settings.FeaturePrefix)
 	c.Settings.WorktreeRoot = strings.TrimSpace(c.Settings.WorktreeRoot)
 	c.Settings.LogLevel = strings.ToLower(strings.TrimSpace(c.Settings.LogLevel))
+	c.Settings.ThinkingLogs = ThinkingLogs(strings.ToLower(strings.TrimSpace(string(c.Settings.ThinkingLogs))))
 
 	c.Providers.GitHub.APIBase = strings.TrimRight(strings.TrimSpace(c.Providers.GitHub.APIBase), "/")
 	c.Providers.GitHub.TokenEnv = strings.TrimSpace(c.Providers.GitHub.TokenEnv)
