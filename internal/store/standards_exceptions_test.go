@@ -30,7 +30,7 @@ func TestStandardsExceptionsTransitionsIndependentConnections(t *testing.T) {
 		t.Fatal(err)
 	}
 	book := standardsTestProposal(t, db, "exceptions-book", 0)
-	revision, err := db.PublishStandardsProposal(ctx, book, StandardsSnapshot{Standards: []StandardsStandard{{ID: "s", Title: "Standard", Body: "Text", CategoryIDs: []string{}}}}, "42")
+	revision, err := db.PublishStandardsProposal(ctx, book, StandardsSnapshot{Categories: []StandardsCategory{{ID: "c", Name: "C"}}, Standards: []StandardsStandard{{ID: "s", Rule: "MUST Standard", Description: "Text", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "c", AppliesTo: []string{"story-worker"}}}}, "42")
 	if err != nil {
 		t.Fatal(err)
 	}

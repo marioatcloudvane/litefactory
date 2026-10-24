@@ -130,6 +130,9 @@ type CreateConflictProposalParams struct {
 	// ever compare equal to an empty sha.
 	BaseSHA, BranchSHA string
 	Inputs             ConflictProposalInputs
+	// At is when the proposal is created; zero means now. Callers with their
+	// own clock pass it so expiry compares times from one clock.
+	At time.Time
 }
 
 // CreateOrGetConflictProposal records a conflict-resolution proposal once.
@@ -154,7 +157,10 @@ func (db *DB) CreateOrGetConflictProposal(ctx context.Context, params CreateConf
 		if !errors.Is(getErr, ErrNotFound) {
 			return getErr
 		}
-		now := nowUTC()
+		now := params.At.UTC()
+		if params.At.IsZero() {
+			now = nowUTC()
+		}
 		if getErr = supersedePendingConflictProposals(ctx, tx, params.SessionID, now); getErr != nil {
 			return getErr
 		}

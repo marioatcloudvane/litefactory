@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -233,4 +234,37 @@ func (c *Client) IssuesPage(ctx context.Context, container, state string, page, 
 // OpenContext reads one bounded open-issue context page.
 func (c *Client) OpenContext(ctx context.Context, container string, limit int) (ticket.SnapshotPage, error) {
 	return c.IssuesPage(ctx, container, "open", 1, limit)
+}
+
+// SearchIssues returns at most limit issues of the configured project, open
+// and closed, whose title or description contains text (case-insensitive),
+// newest update first. It is an analyst lookup, never discovery coverage.
+func (c *Client) SearchIssues(ctx context.Context, text string, limit int) ([]ticket.Snapshot, error) {
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" || len(text) > 200 || limit < 1 || limit > 50 {
+		return nil, failure("search", ticket.Refused, "invalid search")
+	}
+	filter := c.filter(time.Time{})
+	filter["or"] = []map[string]any{{"title": map[string]string{"containsIgnoreCase": text}}, {"description": map[string]string{"containsIgnoreCase": text}}}
+	var data struct {
+		Issues struct {
+			Nodes    []issue
+			PageInfo pageInfo
+		}
+	}
+	if err := c.query(ctx, "search", "query($filter: IssueFilter!, $first: Int!) { issues(filter: $filter, first: $first, includeArchived: true, orderBy: updatedAt) { nodes { "+issueFields+" } pageInfo { hasNextPage endCursor } } }", map[string]any{"filter": filter, "first": limit}, false, &data); err != nil {
+		return nil, err
+	}
+	if len(data.Issues.Nodes) > limit {
+		return nil, failure("search", ticket.Unavailable, "provider exceeded page bound")
+	}
+	out := []ticket.Snapshot{}
+	for _, i := range data.Issues.Nodes {
+		s, err := c.snapshot(i)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }

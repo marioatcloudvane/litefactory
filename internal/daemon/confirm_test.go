@@ -39,6 +39,7 @@ func createConflictProposal(t *testing.T, f *fixture, sourceComment int64) store
 		Files:     []store.ConflictProposalFile{{Path: "README.md", Details: store.ConflictFileDetails{OriginalDigest: "original", ResultDigest: "result", Regions: []store.ConflictRegionResolution{{ID: "region", Resolution: "resolved by the advisor\n"}}}}},
 		BaseSHA:   "base0000000000000000000000000000000000",
 		BranchSHA: "branch000000000000000000000000000000000",
+		At:        f.clock.Now(),
 	})
 	if err != nil {
 		t.Fatalf("create conflict proposal: %v", err)

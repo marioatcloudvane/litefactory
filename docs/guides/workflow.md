@@ -40,3 +40,68 @@ Research and Plan ask you questions in the issue thread when they need a decisio
 Asking for review is not approval. Plan stages, Bug repairs, shipping, merging and story creation each need your own exact command, shown in the comment that asks for it. A run that succeeds does not mean the work is accepted or delivered; engineering, review, push, merge and closing are separate steps. See [validation and delivery](validation-and-delivery.md).
 
 If a mode is refused, read the reply: it names the cause, such as ambiguous labels or a Bug task being switched. For the exact commands, see [owner commands](owner-commands.md).
+
+## Execution capacity
+
+`settings.max_concurrent_runs` sets shared execution capacity in slots (default
+3, supported range 1–16). Each executing workflow step reserves its full slot
+cost until its activity and cleanup finish. The next step must acquire its own
+cost. Factory-started nested work uses the same pool, counting the parent and
+child separately while both execute. An independent child without a workflow
+step costs 1; a workflow child uses its pinned step's cost.
+
+Workflow authors set `lf_slot_budget` on executable DOT nodes:
+
+```dot
+graph [lf_slot_budget="1"];
+node [lf_slot_budget="2"];
+worker [lf_slot_budget="3", lf_action="lf_agent", /* other activity attributes */];
+```
+
+Effective node attributes, including DOT node defaults, override the graph
+value; omission at both levels means 1. Every supplied value must be a positive
+decimal integer within the supported integer representation, even if another
+value overrides it. Empty, zero, negative, fractional and overflowing values
+are refused. `lf_budget` continues to mean a time budget. Terminal nodes run no
+activity and reserve no step capacity.
+
+Only the Go Implement story worker initially costs 3 slots. Other workers and
+actions retain their effective costs. Costs come from the admitted, pinned
+workflow. Editing team source does not change a retained run, and historical
+releases and captures keep their original bytes. Release updated source through
+the existing team release process; do not edit a published release.
+
+When capacity is busy, work stays pending for a later scheduling tick without
+spending an execution attempt or repair allowance. Completed nested reviewer
+results are retained so only missing work resumes. Capacity diagnostics name the
+pool, workflow/node, requested cost and used, available and total capacity.
+Temporary contention is distinguished from an impossible fit: a step costing
+more than total capacity cannot start, and a parent plus its smallest required
+child must fit together. Operators can raise capacity through normal
+configuration or admit a new workflow; waiting never reduces the declared cost.
+
+The scheduler keeps its existing priorities and bounded chaining and continues
+inspecting other eligible work when one cost does not fit. There is no waiting
+queue or starvation guarantee: cheaper work can postpone expensive work. Doctor
+diagnostics and classified Implement bookkeeping retain separately bounded
+reserved lanes; agents and nested work use shared capacity. These limits cover
+factory-managed local execution in one daemon, not distributed quotas, provider
+rate limits or parallel subprocesses inside an admitted activity. Restart still
+requires existing interrupted-work reconciliation before readmission.
+
+### Standards book access
+
+A node grants optional, read-only access to the standards book with
+`lf_standards`, a comma-separated list of the roles it runs that may read it:
+its own `lf_agent_markdown`, or names from its `lf_roles`. Any other name is
+refused when the graph is admitted.
+
+```dot
+worker_agent [lf_action="lf_agent", lf_agent_markdown="story-worker", lf_standards="story-worker", /* ... */];
+review [lf_action="lf_validate_review", lf_roles="validate-acceptance,validate-code,validate-architecture", lf_standards="validate-architecture", /* ... */];
+```
+
+Granted roles get the standards tools and may consult them; nothing requires a
+call. Roles without the grant get no standards tools. The canonical teams grant
+it to the Implement story worker, Plan technical and the Validate architecture
+reviewer.

@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -482,4 +483,28 @@ func (s *Service) NoticeStep(ctx context.Context, at time.Time) (bool, error) {
 		s.Logger.WarnContext(ctx, "chat notice failed permanently or exceeded its retry window", slog.String("event_key", r.MessageID))
 	}
 	return true, err
+}
+
+// Announce queues a factory message for one channel. It is split into
+// message-sized parts and delivered in order by NoticeStep; key identifies the
+// message, so queuing the same key again changes nothing. operation, when set,
+// is the key of the confirmed operation the message reports on: the message
+// waits until the conversation has posted that operation's confirmation.
+func (s *Service) Announce(ctx context.Context, channel, key, operation, text string, at time.Time) error {
+	if s.Protect != nil {
+		protected, err := s.Protect(ctx, text)
+		if err != nil {
+			return err
+		}
+		text = protected
+	}
+	parts, err := presentation.RenderConversation(key, []presentation.AnswerBlock{{Text: text}}, nil, "")
+	if err != nil {
+		return err
+	}
+	notices := make([]store.ChatNotice, len(parts))
+	for i, part := range parts {
+		notices[i] = store.ChatNotice{TaskRef: key, After: strings.TrimPrefix(operation, s.transport+":"+channel+":"), ChatReply: store.ChatReply{Transport: s.transport, MessageID: fmt.Sprintf("%s:%04d", key, i+1), ChannelRef: channel, Command: "announce", CreatedAt: at, ReplyText: part.Content}}
+	}
+	return s.db.QueueChatNotices(ctx, s.transport, notices)
 }

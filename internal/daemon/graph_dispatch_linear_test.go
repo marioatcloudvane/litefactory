@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -32,7 +33,12 @@ func TestGraphDispatchObservesLinearSessionAtItsTicketContainer(t *testing.T) {
 	}
 	definition, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "core", Mode: "plan", ProfileVersion: 1, Path: "core/plan.dot", Digest: strings.Repeat("c", 64), CreatedAt: f.now})
 	linearWorkflowCheck(t, err)
-	instance, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "shape", StartedAt: f.now})
+	_, err = db.AdmitPlanWorkflowPath(ctx, session.ID, "graph")
+	linearWorkflowCheck(t, err)
+	files, err := json.Marshal(map[string][]byte{"plan.dot": []byte(`digraph {team=core;mode=plan;profile_version=1;start=shape;shape[lf_action=lf_agent,lf_outcomes=success];}`)})
+	linearWorkflowCheck(t, err)
+	admitted, err := db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: "plan", SessionID: session.ID, TriggerID: 22, DefinitionID: definition.ID, Start: "shape", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: files})
+	instance := admitted.Instance
 	linearWorkflowCheck(t, err)
 	dispatch, err := db.ParkGraphInstance(ctx, instance.ID, "shape", f.now, f.now)
 	linearWorkflowCheck(t, err)

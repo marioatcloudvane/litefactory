@@ -106,6 +106,9 @@ func (s *Service) authorizedAnswerResults(ctx context.Context, a store.Conversat
 		}
 		return nil, errAnswerDetailsDenied
 	}
+	if err := s.authorizeInboxAnswer(ctx, a, at); err != nil {
+		return nil, errAnswerDetailsDenied
+	}
 	exchanges, err := s.db.ListConversationExchanges(ctx, a.TurnID)
 	if err != nil {
 		return nil, err
@@ -119,7 +122,7 @@ func (s *Service) authorizedAnswerResults(ctx context.Context, a store.Conversat
 		if err != nil {
 			return nil, err
 		}
-		if project := result.Arguments["project"]; project != "" {
+		if project := result.Arguments["project"]; project != "" && result.Command != "inbox" {
 			resolution, e := ask.ResolveProject(ctx, s.db, project, nil)
 			if e != nil {
 				return nil, e

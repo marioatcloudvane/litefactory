@@ -78,16 +78,18 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		log.DebugContext(ctx, "scheduled work waits for this task's in-flight turn")
 		return true
 	}
-	if !d.pool.try() {
+	reservation, reason := d.reserveInput()
+	if reservation == nil {
+		log.InfoContext(ctx, "scheduled work deferred for capacity", slog.String("reason", reason))
 		d.inflight.leave(session.ID)
 		result.Deferred++
-		return false
+		return true
 	}
 
 	t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: log, tickAt: tickAt}
 	issue, err := d.readScheduledIssue(ctx, t)
 	if err != nil || issue.State != github.StateOpen {
-		d.pool.done()
+		reservation.abandon()
 		d.inflight.leave(session.ID)
 		if err != nil {
 			d.rateLimited(ctx, log, tickAt, err)
@@ -99,23 +101,24 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		return true
 	}
 	if _, held := d.connectionHold(ctx, tickAt); held {
-		d.pool.done()
+		reservation.abandon()
 		d.inflight.leave(session.ID)
 		result.Deferred++
 		return d.connections != nil
 	}
 	reserved, ok, err := d.db.ReserveSchedule(ctx, scheduled.ID, tickAt.UTC())
 	if err != nil {
-		d.pool.done()
+		reservation.abandon()
 		d.inflight.leave(session.ID)
 		log.ErrorContext(ctx, "could not reserve scheduled work; it remains pending", slog.Any("error", err))
 		return true
 	}
 	if !ok {
-		d.pool.done()
+		reservation.abandon()
 		d.inflight.leave(session.ID)
 		return true
 	}
+	t.capacity = reservation
 	t.scheduled = &reserved
 	t.issue = issue
 	t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"due_schedule"}), slog.Time("tick_at", tickAt))

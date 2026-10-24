@@ -12,8 +12,8 @@ Preflight complete input; correct every diagnostic. Submit, retain request_id, a
 
 `analysis.boundaries` is an optional version-1 typed detail of the immutable remedy: `{ "allowed_paths": ["src/search.go", "src/search_test.go"], "excluded_paths": ["src/ranking.go"] }`. Include the files you expect the fix to change in new review-ready analysis; they guide the fixer and review and do not limit it. These fields are covered by the analysis digest and the same exact owner approval. They never grant tools or authority by themselves.
 
-A blocked result example:
+A blocked result example, for an obstacle no owner answer removes (a missing reproduction is not one):
 
 ```json
-{"outcome":"blocked","comment":"Investigation cannot proceed.","reason":"Reproduction evidence is unavailable.","payload":{"bug":{"response":"blocked","evidence":["Owner supplied no reproducible input."]}}}
+{"outcome":"blocked","comment":"The failing code is not in this checkout.","reason":"The bug names the billing service, which lives in another repository this run cannot read.","payload":{"bug":{"response":"blocked","evidence":["The issue cites billing/invoice.go; no such path exists in this repository or its history."]}}}
 ```

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -93,6 +92,7 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	if err != nil {
 		return agent.DoctorRunResult{}, err
 	}
+	args = append(args, r.thinkingArgs(ctx)...)
 	registration := map[string]any{"mcpServers": map[string]any{"litefactory": map[string]any{"type": "stdio", "command": request.MCPLaunch.Executable(), "args": request.MCPLaunch.Arguments(), "env": map[string]string{}}}}
 	encoded, err := json.Marshal(registration)
 	if err != nil {
@@ -205,9 +205,6 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, configDir, oper
 	// and the tool ceiling keep hooks, plugins, memory and CLAUDE.md out.
 	tools := ""
 	args := []string{}
-	if operation == "prevention" {
-		args = append(args, "--max-turns", strconv.Itoa(request.TurnLimit))
-	}
 	if operation != "" {
 		args = append(args, "--no-session-persistence")
 	}

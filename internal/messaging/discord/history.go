@@ -91,6 +91,9 @@ func (a *Adapter) ReadAskHistory(ctx context.Context, channel string) (ask.Histo
 }
 
 func (a *Adapter) readJSON(ctx context.Context, path string, destination any) error {
+	if a.rateLimited(path) > 0 {
+		return fmt.Errorf("history read rate limited")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.options.APIURL+path, nil)
 	if err != nil {
 		return err
@@ -101,10 +104,14 @@ func (a *Adapter) readJSON(ctx context.Context, path string, destination any) er
 		return fmt.Errorf("history read failed")
 	}
 	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
+	if response.StatusCode == http.StatusTooManyRequests && err == nil {
+		a.limitRead(path, response, raw)
+		return fmt.Errorf("history read rate limited")
+	}
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("history read unavailable")
 	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
 	if err != nil || len(raw) > 1<<20 {
 		return fmt.Errorf("history response unavailable")
 	}

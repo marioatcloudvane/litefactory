@@ -103,7 +103,8 @@ func (db *DB) adoptDoctorResult(ctx context.Context, b ResultBinding, requestID 
 			return ErrResultAuthority
 		}
 		var projection struct {
-			Proposal json.RawMessage `json:"proposal"`
+			Proposal         json.RawMessage `json:"proposal"`
+			WithdrawProposal bool            `json:"withdraw_proposal"`
 		}
 		if err := json.Unmarshal(snapshot, &projection); err != nil {
 			return err
@@ -113,6 +114,9 @@ func (db *DB) adoptDoctorResult(ctx context.Context, b ResultBinding, requestID 
 		}
 		if len(proposal) == 0 && len(projection.Proposal) > 0 && string(projection.Proposal) != "null" && string(projection.Proposal) != "[]" {
 			return errors.New("doctor proposal projection omitted")
+		}
+		if projection.WithdrawProposal && len(proposal) > 0 {
+			return errors.New("cannot withdraw and replace a proposal together")
 		}
 		var cid int64
 		if err := tx.QueryRowContext(ctx, `SELECT conversation_id FROM doctor_attempts WHERE id=?`, b.DoctorAttemptID).Scan(&cid); err != nil {
@@ -132,7 +136,7 @@ func (db *DB) adoptDoctorResult(ctx context.Context, b ResultBinding, requestID 
 				return err
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE doctor_conversations SET current_proposal_id=COALESCE(?,current_proposal_id),current_result_id=?,current_result_revision=?,revision=revision+1,updated_at=? WHERE id=? AND state='active'`, proposalID, b.ResultID, receipt.AppliedRevision, FormatTime(nowUTC()), cid); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE doctor_conversations SET current_proposal_id=CASE WHEN ? THEN NULL ELSE COALESCE(?,current_proposal_id) END,current_result_id=?,current_result_revision=?,revision=revision+1,updated_at=? WHERE id=? AND state='active'`, projection.WithdrawProposal, proposalID, b.ResultID, receipt.AppliedRevision, FormatTime(nowUTC()), cid); err != nil {
 			return err
 		}
 		state, reason := "completed", ""

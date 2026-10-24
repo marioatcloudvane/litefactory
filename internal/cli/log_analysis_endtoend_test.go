@@ -85,11 +85,11 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 	if err = os.WriteFile(logPath, []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"A package check caught a regression before review. log-analysis-fixture-token-70391"}]}}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.FinishRun(t.Context(), sourceRun.ID, store.RunOutcome{Status: store.RunSucceeded, FinishedAt: time.Now().Add(-time.Second)}); err != nil {
+	if _, err = db.FinishRun(t.Context(), sourceRun.ID, store.RunOutcome{Status: store.RunFailed, FinishedAt: time.Now().Add(-time.Second)}); err != nil {
 		t.Fatal(err)
 	}
 	bookService := &standards.Service{Store: db, OwnerID: 71}
-	seed, err := bookService.Create(t.Context(), "analysis-seed", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "review", Title: "Review", Body: "Review changes before publication.", CategoryIDs: []string{"quality"}}}})
+	seed, err := bookService.Create(t.Context(), "analysis-seed", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "review", Rule: "MUST Review", Description: "Review changes before publication.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,21 +126,24 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 	if view.Invocation.ID != receipt.AnalysisID || view.Invocation.State != "completed" || view.Invocation.Disposition != "proposals" {
 		t.Fatalf("reopened invocation=%+v", view.Invocation)
 	}
-	if len(view.Evidence) != 2 || len(view.Report) == 0 || !reflect.DeepEqual(view.Proposals, receipt.Proposals) {
+	if len(view.Evidence) != 3 || len(view.Report) == 0 || !reflect.DeepEqual(view.Proposals, receipt.Proposals) {
 		t.Fatalf("reopened report, ledger or links missing: %+v", view)
 	}
 	if view.Standards.Status.Integrity != "verified" || view.Standards.Status.Binding.RevisionID != published.ID {
 		t.Fatalf("retained book=%+v", view.Standards.Status)
 	}
 	report := analysisDecode[loganalysis.Report](t, view.Report)
-	if len(report.Findings) != 1 || len(report.Findings[0].Citations) != 1 || report.Findings[0].Observation == "" || report.Findings[0].Benefit == "" || report.Findings[0].Uncertainty == "" {
-		t.Fatalf("retained finding=%+v", report)
+	if len(report.Proposals) != 1 || len(report.Proposals[0].Citations) != 1 || report.Summary == "" || len(report.Findings) != 1 {
+		t.Fatalf("retained report=%+v", report)
+	}
+	if view.Read.IncidentsOffered != 1 || view.Read.RunsListed != 1 || !reflect.DeepEqual(view.Read.RawReads, []int64{sourceRun.ID}) {
+		t.Fatalf("reading=%+v", view.Read)
 	}
 	offered := false
 	for _, entry := range view.Evidence {
 		evidence := analysisDecode[loganalysis.Evidence](t, entry.Metadata)
 		if evidence.Tool == "run_logs_read" {
-			if !evidence.Coverage.EndOfSource || len(evidence.Citations) != 1 || !reflect.DeepEqual(evidence.Citations[0], report.Findings[0].Citations[0]) {
+			if !evidence.Coverage.EndOfSource || len(evidence.Citations) != 1 || !reflect.DeepEqual(evidence.Citations[0], report.Proposals[0].Citations[0]) {
 				t.Fatalf("offered and cited evidence diverged: %+v", evidence)
 			}
 			offered = true
@@ -153,7 +156,7 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 		t.Fatalf("inspection retained secret, private path or source body: %s", viewJSON)
 	}
 	text := runCommand("standards", "analyze", "logs", "show", receipt.AnalysisID)
-	for _, want := range []string{receipt.AnalysisID, "proposals", "relevant-checks", receipt.Proposals[0].ProposalID, receipt.Proposals[0].ChangeDigest, receipt.Proposals[0].ResultDigest, view.Standards.Status.Binding.Digest, "categories [quality]", "Limits:", report.Findings[0].Observation} {
+	for _, want := range []string{receipt.AnalysisID, "proposals", receipt.Proposals[0].ProposalID, report.Summary, "MUST Check relevant packages (package-checks)", "# Quality", report.Proposals[0].Justification.Cost, "Upstream reports", "not filed: the analyst did not ask to file it", report.Findings[0].Cause, "1 incidents"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text inspection missing %q: %s", want, text)
 		}
@@ -166,13 +169,13 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 	if retained := analysisDecode[store.LogAnalysis](t, []byte(replayed)); retained.ID != receipt.AnalysisID || analyst.calls != 1 {
 		t.Fatalf("start retry changed identity or relaunched analyst: %+v; calls=%d", retained, analyst.calls)
 	}
-	citationJSON, err := json.Marshal(report.Findings[0].Citations[0])
+	citationJSON, err := json.Marshal(report.Proposals[0].Citations[0])
 	if err != nil {
 		t.Fatal(err)
 	}
 	rereadJSON := runCommand("standards", "analyze", "logs", "reread", receipt.AnalysisID, "--citation", string(citationJSON))
 	reread := analysisDecode[logevidence.Result](t, []byte(rereadJSON))
-	if len(reread.Records) != 1 || reread.Records[0].Citation != report.Findings[0].Citations[0] || strings.Contains(rereadJSON, secret) {
+	if len(reread.Records) != 1 || reread.Records[0].Citation != report.Proposals[0].Citations[0] || strings.Contains(rereadJSON, secret) {
 		t.Fatalf("separate citation reread lost provenance or redaction: %+v", reread)
 	}
 	reopened, err := store.Open(t.Context(), paths.DBPath())
@@ -185,7 +188,7 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if link.CandidateKey != "relevant-checks" || link.Version != 1 || link.BaseRevision != published.ID || exact.ChangeDigest != link.ChangeDigest || exact.ResultDigest != link.ResultDigest || exact.BaseRevision != link.BaseRevision {
+	if link.CandidateKey != "proposal-1" || link.Version != 1 || link.BaseRevision != published.ID || exact.ChangeDigest != link.ChangeDigest || exact.ResultDigest != link.ResultDigest || exact.BaseRevision != link.BaseRevision {
 		t.Fatalf("exact unapproved version mismatch: link=%+v proposal=%+v", link, exact)
 	}
 	if _, err = reopened.GetStandardsApproval(t.Context(), link.ProposalID, link.Version); !errors.Is(err, store.ErrStandardsApprovalRequired) {
@@ -233,7 +236,7 @@ func (r *analysisFixtureRunner) RunLogAnalyst(ctx context.Context, request agent
 		got = append(got, tool.Name)
 	}
 	slices.Sort(got)
-	want := []string{"communication_preflight", "communication_receipt", "communication_submit", "run_logs_read", "runs_list", "standards_categories_list", "standards_read", "standards_select"}
+	want := agent.LogAnalystToolNames()
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("restricted catalog=%v", got)
 	}
@@ -268,7 +271,22 @@ func (r *analysisFixtureRunner) RunLogAnalyst(ctx context.Context, request agent
 	if len(evidence.Records) != 1 || !evidence.Coverage.EndOfSource || evidence.Records[0].Redactions == 0 {
 		t.Fatalf("evidence=%+v", evidence)
 	}
-	payload := map[string]any{"request_id": "fixture-supported-report", "report": map[string]any{"disposition": "proposals", "reason": "One observed review practice supports scoped guidance.", "findings": []any{map[string]any{"key": "relevant-checks", "observation": "A relevant package check caught a regression before review.", "benefit": "Running relevant checks before review may catch regressions earlier.", "uncertainty": "One run does not establish a universal rule or independent repeated incidents.", "citations": []logevidence.Citation{evidence.Records[0].Citation}, "change": standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "package-checks", Title: "Check relevant packages", Body: "Run relevant package checks before requesting review.", CategoryIDs: []string{"quality"}}}}}}}
+	incidents := analysisDecode[logevidence.Result](t, analysisMCPCall(t, p, 16, "incidents_list", map[string]any{}).Result)
+	if len(incidents.Incidents) != 1 {
+		t.Fatalf("incidents=%+v", incidents)
+	}
+	incident := []string{incidents.Incidents[0].ID}
+	citations := []logevidence.Citation{evidence.Records[0].Citation}
+	report := loganalysis.Report{
+		Summary: "One failed run where a package check caught a regression.",
+		Proposals: []loganalysis.Proposal{{
+			Operation:     standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: "package-checks", Rule: "MUST Check relevant packages", Description: "Run relevant package checks before requesting review.", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "quality", AppliesTo: []string{"story-worker"}}},
+			Justification: loganalysis.Justification{IncidentIDs: incident, Tasks: []string{"github:fixture/analysis#1"}, Cost: "One failed run.", WhyItPrevents: "The check runs before review.", LoadAfter: "story-worker 1 -> 2"},
+			Citations:     citations,
+		}},
+		Findings: []loganalysis.Finding{{Key: "runner", Kind: loganalysis.FindingFactoryDefect, Target: "runner", Title: "Runs are marked failed after their check passed", Expected: "The run succeeds.", Actual: "The run was marked failed after the check passed.", Cause: "Finalization ignores the check result.", Suggestion: "Read the check result first.", IncidentIDs: incident, Citations: citations}},
+	}
+	payload := map[string]any{"request_id": "fixture-supported-report", "report": report}
 	r.report, _ = json.Marshal(payload)
 	preflight := analysisDecode[struct {
 		Valid bool `json:"valid"`

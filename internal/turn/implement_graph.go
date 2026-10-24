@@ -160,18 +160,10 @@ func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
 			return rt.result, err
 		}
 	}
-	standardsLaunchExisted, err := rt.opts.DB.HasWorkflowLaunch(ctx, rt.req.SessionID, rt.req.Trigger.CommentID)
-	if err != nil {
-		standardsLaunchExisted = true
-		if rt.opts.Logger != nil {
-			rt.opts.Logger.Warn("standards launch freshness could not be verified; current book will not be captured")
-		}
-	}
 	admitted, err := rt.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeImplement), SessionID: rt.req.SessionID, TriggerID: rt.req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: rt.req.Trigger.Body})
 	if err != nil {
 		return rt.result, err
 	}
-	captureImplementStandards(ctx, rt.opts, rt.req, admitted.LaunchID, !standardsLaunchExisted)
 	actual, err := rt.opts.DB.GetGraphDefinition(ctx, admitted.Instance.DefinitionID)
 	if err != nil {
 		return rt.result, err

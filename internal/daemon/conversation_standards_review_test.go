@@ -6,67 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/standards"
-	"github.com/cloudvane/litefactory/internal/standardsexceptions"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func TestConversationStandardsExceptionReviewRemainsExactAcrossClock(t *testing.T) {
-	ctx := t.Context()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "review.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if err = db.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "owner", Name: "repo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	book := &standards.Service{Store: db, OwnerID: 42}
-	p, err := book.Create(ctx, "review-seed", 0, []standards.Operation{{Kind: "category.add", Category: &standards.Category{ID: "quality", Name: "Quality"}}, {Kind: "standard.add", Standard: &standards.Standard{ID: "standard", Title: "Standard", Body: "Exact guidance", CategoryIDs: []string{"quality"}, ExceptionPolicy: &standards.ExceptionPolicy{Version: 1, Mode: "allow-task", AllRegisteredRepositories: true, MaxLifetimeSeconds: 3600}}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = book.Approve(ctx, p.ProposalID, p.Version, p.ChangeDigest); err != nil {
-		t.Fatal(err)
-	}
-	revision, err := book.Publish(ctx, p.ProposalID, p.Version, p.ChangeDigest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
-	exceptions := &standardsexceptions.Service{Store: db, OwnerID: 42, Now: func() time.Time { return now }}
-	proposal, err := exceptions.Propose(ctx, "review-exception", standardsexceptions.Request{BookRevision: revision.ID, StandardID: "standard", RepositoryID: repo.ID, TaskRef: "github:owner/repo#42", Departure: "Temporary alternative", Reason: "Migration", ExpiresAt: now.Add(time.Hour)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	adapter := &ConversationStandards{DB: db, Book: book, Exceptions: exceptions, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
-	request := messaging.StandardsRequest{Operation: "exception.review", Arguments: map[string]string{"id": proposal.Proposal.ID}, Transport: "discord", OwnerID: "7", ChannelID: "3", MessageID: "101"}
-	first, err := adapter.Review(ctx, request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now = now.Add(time.Minute)
-	second, err := adapter.Review(ctx, request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second {
-		t.Fatal("unchanged exception terms produced a changed review")
-	}
-	if !strings.Contains(first.Text, "allow-task") || !strings.Contains(first.Text, "Exact guidance") || strings.Contains(first.Text, "evaluated_at") {
-		t.Fatalf("review omitted immutable terms or included volatile state: %s", first.Text)
-	}
-}
-
 func TestConversationStandardsCompactAuthorOutput(t *testing.T) {
-	session := standards.AuthoringSession{ID: "draft", Version: 2, Status: "draft", AuthoringState: standards.AuthoringState{Intent: "Intent", Draft: standards.Standard{ID: "s", Title: "Title", Body: "Draft guidance"}, Questions: []standards.AuthoringQuestion{{ID: "q", Text: "Which checks?", State: "pending"}}, Diagnostics: []standards.Problem{{Field: "draft", Message: "Answer required"}}, RoleCapture: json.RawMessage(`{"private":"captured instructions"}`), Base: standards.Snapshot{Standards: []standards.Standard{{ID: "old", Body: "Whole published book"}}}}}
+	session := standards.AuthoringSession{ID: "draft", Version: 2, Status: "draft", AuthoringState: standards.AuthoringState{Intent: "Intent", Draft: standards.Standard{ID: "s", Rule: "MUST Title", Description: "Draft guidance", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", AppliesTo: []string{"story-worker"}}, Questions: []standards.AuthoringQuestion{{ID: "q", Text: "Which checks?", State: "pending"}}, Diagnostics: []standards.Problem{{Field: "draft", Message: "Answer required"}}, RoleCapture: json.RawMessage(`{"private":"captured instructions"}`), Base: standards.Snapshot{Standards: []standards.Standard{{ID: "old", Description: "Whole published book", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", AppliesTo: []string{"story-worker"}}}}}}
 	result, err := standardsResult(session)
 	if err != nil {
 		t.Fatal(err)

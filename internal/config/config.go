@@ -64,7 +64,9 @@ type Config struct {
 	ToolProfiles ToolProfiles `yaml:"tool_profiles"`
 	// BugChecks is an optional operator-owned check isolation ceiling. A
 	// missing stanza leaves Bug checks blocked, without affecting other work.
-	BugChecks  *BugCheckIsolation `yaml:"bug_checks"`
+	BugChecks *BugCheckIsolation `yaml:"bug_checks"`
+	// Standards holds owner-started standards analysis settings.
+	Standards  StandardsSettings `yaml:"standards"`
 	agentOrder []Kind
 }
 
@@ -189,6 +191,11 @@ type Settings struct {
 	// [Settings.AutoSyncMaxBehind], there is no meaningful "unlimited"
 	// reading for content sent to an external model call.
 	ConflictContentMaxBytes int `yaml:"conflict_content_max_bytes"`
+
+	// ThinkingLogs selects whether factory agent runs record the provider's
+	// thinking summaries in their run logs. The zero value is invalid; Defaults
+	// sets [ThinkingLogsNone], which launches every provider unchanged.
+	ThinkingLogs ThinkingLogs `yaml:"thinking_logs"`
 }
 
 // Agents groups the fully typed configuration for every supported coding
@@ -481,6 +488,7 @@ func Defaults() Config {
 			AutoSyncMaxBehind:          DefaultAutoSyncMaxBehind,
 			BlockRunOnConflict:         true,
 			SuggestConflictResolution:  false,
+			ThinkingLogs:               ThinkingLogsNone,
 			ConflictProposalTTLHours:   DefaultConflictProposalTTLHours,
 			ConflictContentMaxBytes:    DefaultConflictContentMaxBytes,
 		},

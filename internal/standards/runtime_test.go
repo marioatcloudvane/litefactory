@@ -3,6 +3,8 @@ package standards_test
 import (
 	"context"
 	"errors"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +20,7 @@ func runtimeFixture(t *testing.T) (*standards.Runtime, *store.DB) {
 	p, e := svc.Create(t.Context(), "runtime", 0, []standards.Operation{
 		{Kind: "category.add", Category: &standards.Category{ID: "go", Name: "Go"}},
 		{Kind: "category.add", Category: &standards.Category{ID: "testing", Name: "Testing"}},
-		{Kind: "standard.add", Standard: &standards.Standard{ID: "s", Title: "Rule", Body: strings.Repeat("é", 6000), CategoryIDs: []string{"go", "testing"}}},
+		{Kind: "standard.add", Standard: &standards.Standard{ID: "s", Rule: "MUST Rule", Description: strings.Repeat("é", 6000), Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"story-worker"}}},
 	})
 	if e != nil {
 		t.Fatal(e)
@@ -73,8 +75,8 @@ func TestRuntimeSelectionRangesAndExplicitEmpty(t *testing.T) {
 		}
 		cursor = page.NextCursor
 	}
-	if body != strings.Repeat("é", 6000) {
-		t.Fatal("UTF-8 body changed")
+	if !strings.Contains(body, strings.Repeat("é", 6000)) {
+		t.Fatal("UTF-8 description changed")
 	}
 	if _, e = r.Read(ctx, version, d, "", true); e != nil {
 		t.Fatal(e)
@@ -274,5 +276,154 @@ func TestRuntimeMissingSiblingBindingWinsAgainstSlowInitialCapture(t *testing.T)
 	resumed, err := initial.Bind(ctx, true)
 	if err != nil || resumed.Integrity != "unavailable" || resumed.Binding.RevisionID != 0 {
 		t.Fatalf("retry replaced unavailable binding: %+v %v", resumed, err)
+	}
+}
+
+func TestRuntimeForRoleOffersOnlyStandardsThatApply(t *testing.T) {
+	svc, _, db := publicationServices(t)
+	standard := func(id, category string, roles ...string) standards.Operation {
+		return standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: id, CategoryID: category, Rule: "MUST rule " + id, Description: strings.Repeat("d", 9000), Evidence: "Evidence.", Scope: "All repositories.", Check: "automated", AppliesTo: roles}}
+	}
+	p, e := svc.Create(t.Context(), "roles", 0, []standards.Operation{
+		{Kind: "category.add", Category: &standards.Category{ID: "sec", Name: "Security"}},
+		{Kind: "category.add", Category: &standards.Category{ID: "tst", Name: "Testing"}},
+		standard("SEC-001", "sec", "story-worker", "plan-technical"),
+		standard("SEC-002", "sec", "validate-architecture"),
+		standard("TST-001", "tst", "story-worker"),
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+	approvePublication(t, svc, p)
+	if _, e = svc.Publish(t.Context(), p.ProposalID, p.Version, p.ChangeDigest); e != nil {
+		t.Fatal(e)
+	}
+	r := &standards.Runtime{Store: db, RootRunID: "7", ConsumerKey: "worker", AttemptID: "attempt-7"}
+	if s, e := r.Bind(t.Context(), true); e != nil || s.Integrity != "verified" {
+		t.Fatalf("bind: %+v %v", s, e)
+	}
+	text, cursor := "", ""
+	var ids []string
+	for {
+		page, e := r.ForRole(t.Context(), "story-worker", nil, cursor)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !standards.FitsMCPResult(page) || page.Start != len(text) {
+			t.Fatalf("page out of bounds or order: %d %d", page.Start, len(text))
+		}
+		ids = page.StandardIDs
+		text += page.Text
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if strings.Join(ids, ",") != "SEC-001,TST-001" || !strings.Contains(text, "(SEC-001)") || !strings.Contains(text, "(TST-001)") || strings.Contains(text, "SEC-002") {
+		t.Fatalf("role read offered the wrong standards: %v", ids)
+	}
+	if _, e = r.ForRole(t.Context(), "plan-technical", nil, cursor); e == nil {
+		t.Fatal("a cursor of another role was accepted")
+	}
+	none, e := r.ForRole(t.Context(), "validate-code", nil, "")
+	if e != nil || len(none.StandardIDs) != 0 || none.Text != "" {
+		t.Fatalf("a role without standards got some: %+v %v", none, e)
+	}
+	page, e := r.Categories(t.Context(), 25, "")
+	if e != nil {
+		t.Fatal(e)
+	}
+	want := standards.Load{Roles: map[string]int{"story-worker": 2, "plan-technical": 1, "validate-architecture": 1}, Categories: map[string]int{"sec": 2, "tst": 1}}
+	if !reflect.DeepEqual(page.Load, want) {
+		t.Fatalf("load %+v, want %+v", page.Load, want)
+	}
+}
+
+// A role sees only the categories that hold standards for it, with its own
+// counts, and reads just the categories it picks; a category outside its
+// standards is refused and a cursor stays bound to the picked categories.
+func TestRuntimeRoleCategoriesNarrowTheRoleRead(t *testing.T) {
+	svc, _, db := publicationServices(t)
+	standard := func(id, category string, roles ...string) standards.Operation {
+		return standards.Operation{Kind: "standard.add", Standard: &standards.Standard{ID: id, CategoryID: category, Rule: "MUST rule " + id, Description: strings.Repeat("d", 9000), Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", AppliesTo: roles}}
+	}
+	p, e := svc.Create(t.Context(), "role-categories", 0, []standards.Operation{
+		{Kind: "category.add", Category: &standards.Category{ID: "agents", Name: "Agents", Description: "Agent Markdown"}},
+		{Kind: "category.add", Category: &standards.Category{ID: "sec", Name: "Security"}},
+		{Kind: "category.add", Category: &standards.Category{ID: "tst", Name: "Testing"}},
+		{Kind: "category.add", Category: &standards.Category{ID: "empty", Name: "Empty"}},
+		standard("AGT-001", "agents", "story-worker"),
+		standard("AGT-002", "agents", "story-worker", "plan-technical"),
+		standard("SEC-001", "sec", "validate-architecture"),
+		standard("TST-001", "tst", "story-worker"),
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+	approvePublication(t, svc, p)
+	if _, e = svc.Publish(t.Context(), p.ProposalID, p.Version, p.ChangeDigest); e != nil {
+		t.Fatal(e)
+	}
+	r := &standards.Runtime{Store: db, RootRunID: "8", ConsumerKey: "worker", AttemptID: "attempt-8"}
+	if s, e := r.Bind(t.Context(), true); e != nil || s.Integrity != "verified" {
+		t.Fatalf("bind: %+v %v", s, e)
+	}
+	list, e := r.CategoriesForRole(t.Context(), "story-worker")
+	if e != nil {
+		t.Fatal(e)
+	}
+	want := []standards.RoleCategory{{ID: "agents", Name: "Agents", Description: "Agent Markdown", Count: 2}, {ID: "tst", Name: "Testing", Count: 1}}
+	if !reflect.DeepEqual(list.Categories, want) || list.Note != "" {
+		t.Fatalf("story-worker categories %+v, want %+v", list, want)
+	}
+	if plan, e := r.CategoriesForRole(t.Context(), "plan-technical"); e != nil || !reflect.DeepEqual(plan.Categories, []standards.RoleCategory{{ID: "agents", Name: "Agents", Description: "Agent Markdown", Count: 1}}) {
+		t.Fatalf("plan-technical categories %+v %v", plan, e)
+	}
+	if none, e := r.CategoriesForRole(t.Context(), "validate-code"); e != nil || len(none.Categories) != 0 || none.Note == "" {
+		t.Fatalf("role without standards: %+v %v", none, e)
+	}
+	readAll := func(categories []string) ([]string, string, string) {
+		t.Helper()
+		text, cursor, first := "", "", ""
+		var ids []string
+		for {
+			page, e := r.ForRole(t.Context(), "story-worker", categories, cursor)
+			if e != nil {
+				t.Fatal(e)
+			}
+			ids = page.StandardIDs
+			text += page.Text
+			if page.NextCursor == "" {
+				return ids, text, first
+			}
+			if first == "" {
+				first = page.NextCursor
+			}
+			cursor = page.NextCursor
+		}
+	}
+	ids, text, cursor := readAll([]string{"agents", "agents"})
+	if !slices.Equal(ids, []string{"AGT-001", "AGT-002"}) || strings.Contains(text, "TST-001") || cursor == "" {
+		t.Fatalf("agents read offered %v", ids)
+	}
+	if ids, _, _ := readAll([]string{"tst"}); !slices.Equal(ids, []string{"TST-001"}) {
+		t.Fatalf("testing read offered %v", ids)
+	}
+	if ids, _, _ := readAll(nil); !slices.Equal(ids, []string{"AGT-001", "AGT-002", "TST-001"}) {
+		t.Fatalf("unfiltered read offered %v", ids)
+	}
+	for _, foreign := range [][]string{{"sec"}, {"empty"}, {"nope"}, {"agents", "sec"}} {
+		_, e := r.ForRole(t.Context(), "story-worker", foreign, "")
+		if !errors.Is(e, standards.ErrUnknownCategory) || !strings.Contains(e.Error(), "agents, tst") {
+			t.Fatalf("category %v outside the role was not refused with the valid ones: %v", foreign, e)
+		}
+	}
+	for _, other := range [][]string{nil, {"tst"}, {"agents", "tst"}} {
+		if _, e := r.ForRole(t.Context(), "story-worker", other, cursor); e == nil {
+			t.Fatalf("a cursor for [agents] was accepted with categories %v", other)
+		}
+	}
+	if _, e := r.ForRole(t.Context(), "story-worker", []string{"agents"}, cursor); e != nil {
+		t.Fatalf("cursor rejected with its own categories: %v", e)
 	}
 }

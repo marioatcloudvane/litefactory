@@ -43,16 +43,14 @@ var ErrAgentTimedOut = errors.New("agent run exceeded its time budget")
 // The caller owns run settlement. Only a refused resume permits one cold fallback;
 // capacity refusals retry within this invocation, and this handler never publishes.
 type ResearchInvocation struct {
-	// RefreshStandards rereads retained guidance immediately before each actual provider launch.
-	RefreshStandards func(context.Context, agent.Request) agent.Request
-	Request          agent.Request
-	ColdRequest      *agent.Request
-	Kind             agent.Kind
-	SessionPath      string
-	Results          *AgentResultService
-	Close            func() error
-	Release          func() error
-	Observe          func(agent.Request)
+	Request     agent.Request
+	ColdRequest *agent.Request
+	Kind        agent.Kind
+	SessionPath string
+	Results     *AgentResultService
+	Close       func() error
+	Release     func() error
+	Observe     func(agent.Request)
 }
 
 // AgentActivity prepares a reserved attempt using existing host delivery and
@@ -504,17 +502,7 @@ var errCapacityRetriesExhausted = errors.New(capacityRetriesExhausted)
 // runCapacity keeps helper/result authority live and the graph attempt unsettled.
 // Only proven absence of this attempt's accepted result permits another process.
 func (h AgentActivity) runCapacity(ctx context.Context, opts Options, invocation ResearchInvocation, req agent.Request, runner agent.Runner) (*agent.RunResult, int, error) {
-	launch := func() (*agent.RunResult, error) {
-		actual := req
-		if invocation.RefreshStandards != nil {
-			actual = invocation.RefreshStandards(ctx, actual)
-			if invocation.Observe != nil {
-				invocation.Observe(actual)
-			}
-		}
-		return RunResearchMetered(ctx, opts.DB, invocation.Kind, actual, runner)
-	}
-	result, err := launch()
+	result, err := RunResearchMetered(ctx, opts.DB, invocation.Kind, req, runner)
 	retries := 0
 	for ; result != nil && result.Outcome == agent.OutcomeFailed && result.Transient != nil && result.Interruption == nil && err == nil; retries++ {
 		if ctx.Err() != nil {
@@ -546,7 +534,7 @@ func (h AgentActivity) runCapacity(ctx context.Context, opts Options, invocation
 		if _, stopped := run.OwnerStop(); stopped {
 			return result, retries, errors.New("agent invocation stopped by owner")
 		}
-		result, err = launch()
+		result, err = RunResearchMetered(ctx, opts.DB, invocation.Kind, req, runner)
 	}
 	return result, retries, err
 }

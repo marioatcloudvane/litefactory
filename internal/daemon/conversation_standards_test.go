@@ -45,27 +45,3 @@ func TestConversationStandardsRejectsTrailingJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-func TestConversationStandardsRequiresCompleteScheduleTerms(t *testing.T) {
-	args := map[string]string{"name": "weekly logs", "kind": "logs", "repository_id": "1", "interval_seconds": "604800", "run_limit": "3"}
-	for _, missing := range []string{"name", "kind", "repository_id", "interval_seconds", "run_limit"} {
-		t.Run(missing, func(t *testing.T) {
-			terms := make(map[string]string)
-			for key, value := range args {
-				if key != missing {
-					terms[key] = value
-				}
-			}
-			if _, err := standardsScheduleConfig(terms); err == nil {
-				t.Fatal("incomplete schedule accepted")
-			}
-		})
-	}
-	c, err := standardsScheduleConfig(args)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.RunLimit != 3 || c.IntervalSeconds != 604800 || c.RepositoryID != 1 {
-		t.Fatalf("terms changed: %+v", c)
-	}
-}
