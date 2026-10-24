@@ -5,6 +5,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/testutil"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,27 +50,39 @@ func seedAutomaticAdmission(t *testing.T, f *fixture, delay time.Duration) store
 	return *c
 }
 
+// A change seen in local state cancels a continuation before its due time; one
+// that needs the issue or its comments is observed once the continuation is due,
+// so a continuation waiting for a provider reset reads nothing remote.
 func TestAutomaticAdmissionCancelsFutureIntent(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		change func(*fixture)
+		remote bool
 	}{
-		{"disabled", func(f *fixture) { f.daemon = recoveryDaemon(t, f, false) }},
-		{"closed", func(f *fixture) { f.forge.closeIssue(testIssue) }},
-		{"agent changed", func(f *fixture) { f.issueWithLabels("recover", "Coding Agent: Codex") }},
-		{"mode changed", func(f *fixture) { f.issueWithLabels("recover", "Mode: Plan") }},
-		{"new owner instruction", func(f *fixture) { f.forge.addComment(testIssue, 50, owner(), "/spike newer request") }},
+		{"disabled", func(f *fixture) { f.daemon = recoveryDaemon(t, f, false) }, false},
+		{"closed", func(f *fixture) { f.forge.closeIssue(testIssue) }, true},
+		{"agent changed", func(f *fixture) { f.issueWithLabels("recover", "Coding Agent: Codex") }, true},
+		{"mode changed", func(f *fixture) { f.issueWithLabels("recover", "Mode: Plan") }, true},
+		{"new owner instruction", func(f *fixture) { f.forge.addComment(testIssue, 50, owner(), "/spike newer request") }, true},
 		{"conversation reset", func(f *fixture) {
 			if _, err := f.db.GetOrCreateSegment(t.Context(), f.session().ID, 2, "replacement", store.AgentClaude); err != nil {
 				t.Fatal(err)
 			}
-		}},
+		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
 			c := seedAutomaticAdmission(t, f, time.Hour)
 			tc.change(f)
 			f.settle()
+			if tc.remote {
+				got, err := f.db.GetContinuation(t.Context(), c.ID)
+				if err != nil || got.Status != "pending" {
+					t.Fatalf("not-yet-due action observed remotely=%+v err=%v", got, err)
+				}
+				f.clock.advance(2 * time.Hour)
+				f.settle()
+			}
 			got, err := f.db.GetContinuation(t.Context(), c.ID)
 			if err != nil || got.Status != "cancelled" || got.CancellationReason == "" {
 				t.Fatalf("stale action=%+v err=%v", got, err)
@@ -110,6 +123,41 @@ func TestAutomaticAdmissionDeadlineAndSavedContext(t *testing.T) {
 	}
 	if f.watermark() != 42 {
 		t.Fatalf("automatic admission consumed watermark: %d", f.watermark())
+	}
+}
+
+// A continuation waiting for its due time reads neither its issue nor its
+// comments; at due time it observes once and resumes.
+func TestAutomaticAdmissionNotDueReadsNothing(t *testing.T) {
+	f := newFixture(t)
+	c := seedAutomaticAdmission(t, f, time.Hour)
+	f.settle()
+	// Past the listing overlap, so ordinary discovery no longer sees the issue.
+	f.clock.advance(9 * time.Minute)
+	f.settle()
+	var commentLists atomic.Int64
+	f.forge.onListComments = func(http.ResponseWriter, int) bool {
+		commentLists.Add(1)
+		return false
+	}
+	reads := f.forge.issueReadsOf(testIssue)
+	for range 4 {
+		f.clock.advance(9 * time.Minute)
+		f.settle()
+	}
+	if got := f.forge.issueReadsOf(testIssue); got != reads || commentLists.Load() != 0 {
+		t.Fatalf("not-yet-due continuation read issue %d times and comments %d times", got-reads, commentLists.Load())
+	}
+	if got, err := f.db.GetContinuation(t.Context(), c.ID); err != nil || got.Status != "pending" {
+		t.Fatalf("waiting continuation=%+v err=%v", got, err)
+	}
+	f.clock.advance(2 * time.Hour)
+	f.settle()
+	if got := f.forge.issueReadsOf(testIssue); got <= reads || commentLists.Load() == 0 {
+		t.Fatalf("due continuation was not observed: issue reads %d, comment lists %d", got-reads, commentLists.Load())
+	}
+	if calls := f.turns.calls(); len(calls) != 1 || calls[0].Continuation == nil || calls[0].Continuation.ID != c.ID {
+		t.Fatalf("due continuation did not resume: %+v", calls)
 	}
 }
 

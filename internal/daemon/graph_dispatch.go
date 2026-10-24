@@ -70,33 +70,12 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			slog.Int64("session_id", session.ID),
 			slog.Int64("graph_dispatch_id", dispatch.ID),
 			slog.String("graph_node", dispatch.Node))
-		// The read is pinned to the session's retained ticket container and
-		// code target, as scheduled work is; a Linear ticket never lives at
-		// the code repository.
 		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: log, tickAt: at}
-		issue, err := d.readScheduledIssue(ctx, t)
-		if err != nil {
-			d.rateLimited(ctx, log, at, err)
-			log.ErrorContext(ctx, "graph step issue observation failed; deferring", slog.Any("error", err))
-			continue
-		}
-		// A closed issue withdraws the authority the instance was admitted
-		// under. Cancelling the dispatch leaves the instance and its findings
-		// exactly as they are; only the owed run goes away.
-		bugParent, err := d.isBugParentDispatch(ctx, dispatch)
-		if err != nil {
-			return err
-		}
-		if issue.State != github.StateOpen && !bugParent {
-			if err := d.db.CancelGraphDispatch(ctx, dispatch.ID, "issue closed before the next graph stage could run", at.UTC()); err != nil {
-				return err
-			}
-			continue
-		}
-		t.issue = issue
 		if _, held := d.connectionHold(ctx, at); held {
 			continue
 		}
+		// The session guard and the slot come first, so a step that waits for
+		// a busy session or for capacity costs no issue read.
 		if !d.enterDoctorGuarded(ctx, session.ID) {
 			log.DebugContext(ctx, "graph step waits for this task's in-flight turn")
 			continue
@@ -113,6 +92,35 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			log.InfoContext(ctx, "graph step deferred for capacity", slog.String("reason", deferral))
 			continue
 		}
+		// The read is pinned to the session's retained ticket container and
+		// code target, as scheduled work is; a Linear ticket never lives at
+		// the code repository.
+		issue, err := d.readScheduledIssue(ctx, t)
+		if err != nil {
+			slot.Release()
+			d.inflight.leave(session.ID)
+			d.rateLimited(ctx, log, at, err)
+			log.ErrorContext(ctx, "graph step issue observation failed; deferring", slog.Any("error", err))
+			continue
+		}
+		// A closed issue withdraws the authority the instance was admitted
+		// under. Cancelling the dispatch leaves the instance and its findings
+		// exactly as they are; only the owed run goes away.
+		bugParent, err := d.isBugParentDispatch(ctx, dispatch)
+		if err != nil {
+			slot.Release()
+			d.inflight.leave(session.ID)
+			return err
+		}
+		if issue.State != github.StateOpen && !bugParent {
+			slot.Release()
+			d.inflight.leave(session.ID)
+			if err := d.db.CancelGraphDispatch(ctx, dispatch.ID, "issue closed before the next graph stage could run", at.UTC()); err != nil {
+				return err
+			}
+			continue
+		}
+		t.issue = issue
 		t.slot = slot.pool
 		t.capacity = slot
 		t.slot.wg.Add(1)
