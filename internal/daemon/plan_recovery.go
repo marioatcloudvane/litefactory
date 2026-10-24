@@ -14,15 +14,16 @@ import (
 // graphPlanParents admits retained drafts even before managed publication and
 // without owner comments. The existing worker scheduler supplies capacity/backoff.
 // A Linear parent is re-added only on its repository's listing ticks (#920).
-// On a repository with a healthy webhook a parent is re-added between listings
-// only when it has due Plan work (#1138); its new input otherwise arrives as a
-// webhook hint, ticket observation or backlog flag.
+// Any other parent is re-added between listings only when it has due Plan work
+// (#1138): an idle parent costs nothing until its new input arrives as a
+// webhook hint, ticket observation, forge discovery or backlog flag, or the
+// listing looks at it.
 func (d *Daemon) graphPlanParents(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
 	sessions, err := d.db.ListGraphPlanSessions(ctx)
 	if err != nil {
 		return err
 	}
-	linearRepo, hookedRepo := map[int64]bool{}, map[int64]bool{}
+	linearRepo := map[int64]bool{}
 	for _, s := range sessions {
 		q := byRepo[s.RepoID]
 		if q == nil {
@@ -41,9 +42,7 @@ func (d *Daemon) graphPlanParents(ctx context.Context, byRepo map[int64]*repoQue
 		if err != nil {
 			return err
 		}
-		if skip, err := d.webhookOffListing(ctx, q, hookedRepo); err != nil {
-			return err
-		} else if skip {
+		if !q.listing {
 			if due, err := d.planParentDue(ctx, q, s, ref); err != nil {
 				return err
 			} else if !due {
@@ -93,6 +92,9 @@ func (d *Daemon) planParentDueWork(ctx context.Context, q *repoQueue, s store.Se
 	if owed, err := d.planShellsOwed(ctx, parent); err != nil || owed {
 		return err == nil, err
 	}
+	if owed, err := d.planChildSweepOwed(ctx, s.ID, parent); err != nil || owed {
+		return err == nil, err
+	}
 	feature, err := d.db.GetManagedFeature(ctx, parent)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -102,6 +104,25 @@ func (d *Daemon) planParentDueWork(ctx context.Context, q *repoQueue, s store.Se
 	}
 	awaiting, err := d.db.ListStoriesAwaitingDiscovery(ctx, s.ID, parent, feature.Generation)
 	return len(awaiting) > 0, err
+}
+
+// planChildSweepOwed is the check [Daemon.refinePlanChildren] makes before it
+// reads a draft's child issue: the child has never been swept, or a listing or
+// hint named it since its last sweep.
+func (d *Daemon) planChildSweepOwed(ctx context.Context, sessionID int64, parent string) (bool, error) {
+	drafts, err := d.db.ListPlanStoryDrafts(ctx, parent)
+	if err != nil {
+		return false, err
+	}
+	for _, draft := range drafts {
+		if draft.IssueNumber < 1 {
+			continue
+		}
+		if owed, err := d.db.StoryDiscoveryOwed(ctx, sessionID, draft.IssueNumber); err != nil || owed {
+			return owed, err
+		}
+	}
+	return false, nil
 }
 
 // planShellsOwed is the check ReconcileShells makes before it creates story
