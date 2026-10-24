@@ -141,3 +141,13 @@ Evidence:
 - `internal/turn/validate_admission_test.go:191`
 - `internal/turn/implement_graph_run_test.go:494`
 - `internal/turn/validate_story_report_test.go:1`
+
+## f15
+
+Validate command parsing requires a whole single-line comment with revision and command-specific evidence; next-command generation is state-aware and the combined ship path can record owner passes and optional deferrals, so guidance must explain effects rather than infer shipping blockers from the item list alone.
+
+Evidence:
+
+- `internal/turn/validate_commands.go:77`
+- `internal/turn/validate_commands.go:196`
+- `internal/turn/validate_commands.go:241`
