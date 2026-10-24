@@ -204,8 +204,10 @@ func TestGraphOwnerWaitLinearClosureCancelsOnListingTick(t *testing.T) {
 	}
 }
 
-// C4: without a Linear ticket connection the wait is offered on every tick.
-func TestGraphOwnerWaitGitHubOfferedEveryTick(t *testing.T) {
+// C4: a GitHub ticket connection's wait, like a Linear one, is offered only on
+// its listing tick. Until #1138 it was offered on every tick; an idle task now
+// costs nothing between events.
+func TestGraphOwnerWaitGitHubWaitsForListing(t *testing.T) {
 	w := newLinearOwnerWait(t)
 	_, err := w.d.db.DisableConnection(context.WithoutCancel(t.Context()), w.v.RepoID, store.TicketConnection, w.v.Revision)
 	linearWorkflowCheck(t, err)
@@ -217,8 +219,11 @@ func TestGraphOwnerWaitGitHubOfferedEveryTick(t *testing.T) {
 	gh.Revision = current.Revision
 	_, err = w.d.db.SetConnection(t.Context(), gh, current.Revision)
 	linearWorkflowCheck(t, err)
-	if got := w.candidates(t, false); len(got) != 1 || got[0].session.ID != w.session.ID {
-		t.Fatalf("GitHub owner wait not offered on a heartbeat: %+v", got)
+	if got := w.candidates(t, false); len(got) != 0 {
+		t.Fatalf("GitHub owner wait offered on a heartbeat without listing: %+v", got)
+	}
+	if got := w.candidates(t, true); len(got) != 1 || got[0].session.ID != w.session.ID {
+		t.Fatalf("GitHub owner wait not offered on its listing tick: %+v", got)
 	}
 }
 
@@ -246,6 +251,9 @@ func newOwnerWaitFleet(t *testing.T, waits int, hooked, delivered bool) *ownerWa
 	t.Helper()
 	ctx := t.Context()
 	f := newDiscoveryHTTPFixture(t)
+	f.mu.Lock()
+	f.listings = true
+	f.mu.Unlock()
 	db := f.d.db
 	_, err := db.UpsertIdentity(ctx, store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH})
 	linearWorkflowCheck(t, err)
@@ -468,44 +476,153 @@ func mustRef(t *testing.T, ref string) naming.Ref {
 	return r
 }
 
-// C10 (#1138): without a healthy webhook (no hook, or a hook with no delivery
-// since start) owner waits and Plan parents are offered on every tick, and an
-// owner reply is dispatched on the next heartbeat with no listing between.
-func TestOwnerWaitFleetWithoutHealthyWebhookOfferedEveryTick(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		hooked    bool
-		delivered bool
-	}{{"no hook", false, false}, {"hook without delivery", true, false}} {
+// webhookCases are the repository webhook states the fleet runs under. An
+// idle task costs the same in each: the gating does not depend on the webhook.
+var webhookCases = []struct {
+	name              string
+	hooked, delivered bool
+}{{"no hook", false, false}, {"hook without delivery", true, false}, {"healthy webhook", true, true}}
+
+func (w *ownerWaitFleet) forgeRequests() int {
+	w.f.mu.Lock()
+	defer w.f.mu.Unlock()
+	return w.f.requests
+}
+
+// #1138: whatever the webhook state, a task waiting on its owner with no new
+// input is never offered between listings: it takes no slot and causes no
+// forge read, and a 3-slot graph step finds its slots. The listing tick offers
+// each wait once, which reads an owner reply that arrived without a webhook,
+// and every flag is clear afterwards. Until #1138 a repository without a
+// healthy webhook offered every wait and Plan parent on every tick, and an
+// unhooked owner reply was read on the next heartbeat; that changed on purpose.
+func TestOwnerWaitFleetIdleCostsNothingUntilListing(t *testing.T) {
+	for _, tc := range webhookCases {
 		t.Run(tc.name, func(t *testing.T) {
-			w := newOwnerWaitFleet(t, 2, tc.hooked, tc.delivered)
-			for i := range 3 {
-				w.heartbeat(t)
-				waits, parents := w.sources(t, false)
-				if !waits[w.waits[0].ID] || !waits[w.waits[1].ID] || !parents[w.parent.ID] {
-					t.Fatalf("heartbeat %d: waits %v parents %v", i, waits, parents)
+			// Three waits and a Plan parent: the listing tick fits all four
+			// slots, so each is offered once on it.
+			w := newOwnerWaitFleet(t, 3, tc.hooked, tc.delivered)
+			// The fixture's flags stand for older, stale backlog: the first
+			// heartbeats observe each session once and clear it.
+			slots := map[int64]int{}
+			for range 2 {
+				got := w.heartbeat(t)
+				for id, n := range got.slots {
+					slots[id] += n
 				}
 			}
 			for _, s := range w.all() {
-				if w.needsPoll(t, s) {
-					t.Fatalf("session %d not observed", s.ID)
+				if slots[s.ID] != 1 || w.needsPoll(t, s) {
+					t.Fatalf("stale flag of %s: %d slots, flag %t", s.TaskRef, slots[s.ID], w.needsPoll(t, s))
 				}
 			}
-			// The owner replies on the first waiting task.
+			if waits, parents := w.sources(t, false); len(waits) != 0 || len(parents) != 0 {
+				t.Fatalf("idle waits %v or parents %v enrolled between listings", waits, parents)
+			}
+			// The owner replies on the first waiting task; no webhook says so.
 			w.f.mu.Lock()
 			w.f.versions["/repos/acme/a/issues/10/comments"]++
 			w.f.mu.Unlock()
-			if got := w.heartbeat(t); got.slots[w.waits[0].ID] != 1 || w.replies.Load() != 1 {
-				t.Fatalf("owner reply not read on the next heartbeat: %+v replies=%d\n%s", got, w.replies.Load(), w.f.logs.String())
+			reads := w.forgeRequests()
+			for i := range 5 {
+				fit := false
+				got := w.heartbeatThen(t, func() {
+					// A graph step that needs three of the four slots.
+					if fit = w.d.pool.acquire(3); fit {
+						w.d.pool.release(3)
+					}
+				})
+				for _, s := range w.all() {
+					if got.offers(s.ID) != 0 {
+						t.Fatalf("heartbeat %d offered idle %s: %+v", i, s.TaskRef, got)
+					}
+				}
+				if !fit {
+					t.Fatalf("heartbeat %d: a 3-slot graph step found no room beside idle waits", i)
+				}
+			}
+			if n := w.forgeRequests() - reads; n != 0 || w.replies.Load() != 0 {
+				t.Fatalf("idle heartbeats made %d forge requests and read %d replies", n, w.replies.Load())
+			}
+			// The hourly listing is the safety net.
+			w.now = w.now.Add(MaxDiscoveryInterval)
+			got := w.tick(t)
+			for _, s := range w.waits {
+				if got.slots[s.ID] != 1 {
+					t.Errorf("listing tick: wait %s took %d slots", s.TaskRef, got.slots[s.ID])
+				}
+			}
+			if w.replies.Load() != 1 {
+				t.Fatalf("listing tick did not read the owner reply: %d\n%s", w.replies.Load(), w.f.logs.String())
+			}
+			// The first wait's reply started a turn that did not finish, so its
+			// standing-only worker set the flag on its way out; the rest
+			// observed nothing.
+			if !w.needsPoll(t, w.waits[0]) {
+				t.Error("a standing-only worker that left its reply unfinished did not flag it")
+			}
+			for _, s := range w.all()[1:] {
+				if w.needsPoll(t, s) {
+					t.Errorf("session %s keeps its backlog flag after its observation", s.TaskRef)
+				}
 			}
 		})
 	}
 }
 
-// C2 (#1138): on a webhook-healthy repository a waiting task still gets a
-// worker between listings when a webhook hint or its backlog flag names it.
-func TestOwnerWaitFleetWebhookNewInputStillDispatched(t *testing.T) {
+func (w *ownerWaitFleet) heartbeatThen(t *testing.T, then func()) fleetTick {
+	t.Helper()
+	w.now = w.now.Add(DefaultInterval)
+	return w.tickThen(t, then)
+}
+
+// #1138: deferring a candidate for capacity sets its backlog flag only when it
+// brought new input. A wait offered by its listing tick alone is found again
+// by the next listing; a webhook-hinted one must come back next tick.
+func TestOwnerWaitCapacityDeferralFlagsOnlyNewInput(t *testing.T) {
 	w := newOwnerWaitFleet(t, 2, true, true)
+	w.heartbeat(t)
+	held := []*stepReservation{}
+	for range 4 {
+		r, reason := w.d.reserveInput()
+		if r == nil {
+			t.Fatalf("prefill: %s", reason)
+		}
+		held = append(held, r)
+	}
+	release := func() {
+		for _, r := range held {
+			r.abandon()
+		}
+		held = nil
+	}
+	w.now = w.now.Add(MaxDiscoveryInterval)
+	w.d.webhook.Wake(w.repo.ID, 11)
+	got := w.tickThen(t, release)
+	if got.capacity[w.waits[0].ID] != 1 || got.capacity[w.waits[1].ID] != 1 {
+		t.Fatalf("waits not deferred for capacity: %+v\n%s", got, w.f.logs.String())
+	}
+	if w.needsPoll(t, w.waits[0]) {
+		t.Error("a standing-only wait got a backlog flag from its capacity deferral")
+	}
+	if !w.needsPoll(t, w.waits[1]) {
+		t.Error("a webhook-hinted wait lost its new input on a capacity deferral")
+	}
+	if got := w.heartbeat(t); got.slots[w.waits[1].ID] != 1 || got.offers(w.waits[0].ID) != 0 {
+		t.Fatalf("next heartbeat: %+v", got)
+	}
+}
+
+// C2 (#1138): whatever the webhook state, a waiting task still gets a worker
+// between listings when a webhook hint or its backlog flag names it.
+func TestOwnerWaitFleetWebhookNewInputStillDispatched(t *testing.T) {
+	for _, tc := range webhookCases {
+		t.Run(tc.name, func(t *testing.T) { ownerWaitNewInputDispatched(t, tc.hooked, tc.delivered) })
+	}
+}
+
+func ownerWaitNewInputDispatched(t *testing.T, hooked, delivered bool) {
+	w := newOwnerWaitFleet(t, 2, hooked, delivered)
 	for range 3 {
 		w.heartbeat(t)
 	}
@@ -589,5 +706,38 @@ func TestOwnerWaitFleetDeferredThenObservedOnce(t *testing.T) {
 		if slots[s.ID] != 1 || later[s.ID] != 0 || !cleared[s.ID] {
 			t.Errorf("session %d: %d slots after the starved tick, %d offers after its observation, flag cleared %t", s.ID, slots[s.ID], later[s.ID], cleared[s.ID])
 		}
+	}
+}
+
+// #1138: between listings a managed parent is offered only when the registry
+// owes it work: a pending refinement or a story awaiting its comment sweep.
+// The listing tick still offers an idle one.
+func TestManagedParentsOfferedWhenDue(t *testing.T) {
+	w := newOwnerWaitFleet(t, 0, false, false)
+	ctx := t.Context()
+	db := w.d.db
+	parent := w.session(t, 70)
+	const child = 700
+	linearWorkflowCheck(t, db.PutManagedFeature(ctx, store.ManagedFeature{ParentTask: parent.TaskRef, Generation: 1, State: "planning"}))
+	linearWorkflowCheck(t, db.PutManagedStory(ctx, store.ManagedStory{ParentTask: parent.TaskRef, Generation: 1, Key: "story-001", IssueNumber: child, IssueID: child * 10, BodyHash: "fleet", State: "planning"}))
+	offered := func(listing bool) bool {
+		t.Helper()
+		q := &repoQueue{repo: w.repo, forgeRepo: github.Repo{Owner: w.repo.Owner, Name: w.repo.Name}, log: w.d.log, listing: listing}
+		linearWorkflowCheck(t, w.d.managedParents(ctx, map[int64]*repoQueue{w.repo.ID: q}, map[int64]*candidate{}))
+		return slices.ContainsFunc(q.candidates, func(c *candidate) bool { return c.session.ID == parent.ID })
+	}
+	if !offered(false) {
+		t.Fatal("managed parent whose story was never swept not offered between listings")
+	}
+	linearWorkflowCheck(t, db.AdvanceStoryDiscovery(ctx, parent.ID, child, 1))
+	if offered(false) {
+		t.Fatal("idle managed parent offered between listings")
+	}
+	if !offered(true) {
+		t.Fatal("idle managed parent not offered on its listing tick")
+	}
+	linearWorkflowCheck(t, db.AdmitStoryRefinement(ctx, store.StoryRefinement{SessionID: parent.ID, CommentID: 7001, ChildNumber: child, ChildID: child * 10, Generation: 1, ActorID: 42, ActorHandle: "owner", Body: "refine"}))
+	if !offered(false) {
+		t.Fatal("managed parent with a pending refinement not offered between listings")
 	}
 }
