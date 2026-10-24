@@ -39,6 +39,8 @@ Code, build, test and correct repeatedly within this invocation until the approv
 
 Report the checks you ran and their outcomes. Never claim an unexecuted, skipped or failed check passed.
 
+Before you change production code, run the new regression test and report that it fails. If retained edits already changed the code, say so and explain why the test would fail without them.
+
 Return reshape with all reasons and partial-work evidence before materially changing the diagnosis or remedy. Synchronization alone does not change approval. Return blocked when you cannot finish within the approved scope, rights, evidence or execution budget. Change paths outside analyst guidance when the approved remedy needs them, explaining the changes; preserve explicit exclusions.
 
 # Must Not Do

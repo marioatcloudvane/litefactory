@@ -99,6 +99,9 @@ type Status struct {
 	SlotsUsed, SlotsTotal int
 	PauseReason, Polling  string
 	ExpectedResumeAt      time.Time
+	// RunsHeld says why new runs wait, for example on low free disk; empty
+	// while nothing holds them.
+	RunsHeld string
 }
 
 // StatusReader supplies existing factory health at reply time.
@@ -115,7 +118,7 @@ func (f FactoryStatus) Read(ctx context.Context, at time.Time) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	v := Status{Running: snap.Found && !snap.Listener.DaemonStartedAt.IsZero() && at.Sub(snap.Listener.WrittenAt) <= 5*time.Minute, DiscoveryPaused: snap.Listener.DiscoveryPaused, RunsInFlight: snap.Listener.RunsInFlight, InFlightSessions: snap.Listener.InFlightSessions, InFlightLabels: snap.Listener.InFlightLabels, SlotsUsed: snap.Listener.SlotsUsed, SlotsTotal: snap.Listener.SlotsTotal, PauseReason: snap.Listener.PauseReason, ExpectedResumeAt: snap.Listener.ExpectedResumeAt}
+	v := Status{Running: snap.Found && !snap.Listener.DaemonStartedAt.IsZero() && at.Sub(snap.Listener.WrittenAt) <= 5*time.Minute, DiscoveryPaused: snap.Listener.DiscoveryPaused, RunsInFlight: snap.Listener.RunsInFlight, InFlightSessions: snap.Listener.InFlightSessions, InFlightLabels: snap.Listener.InFlightLabels, SlotsUsed: snap.Listener.SlotsUsed, SlotsTotal: snap.Listener.SlotsTotal, PauseReason: snap.Listener.PauseReason, ExpectedResumeAt: snap.Listener.ExpectedResumeAt, RunsHeld: snap.Listener.RunsHeld}
 	if !snap.Listener.LastHeartbeatStartedAt.IsZero() {
 		v.HeartbeatKnown = true
 		v.HeartbeatAge = max(time.Duration(0), at.Sub(snap.Listener.LastHeartbeatStartedAt)).Round(time.Second)
@@ -410,7 +413,11 @@ func (s *Service) summary(ctx context.Context, m Message, at time.Time) (string,
 	} else if v.DiscoveryPaused {
 		resume = "when fresh rate-limit data arrives"
 	}
-	text := fmt.Sprintf("%s\nPause reason: %s. Expected resume: %s.\n%s", healthText(v), reason, resume, v.Polling)
+	text := fmt.Sprintf("%s\nPause reason: %s. Expected resume: %s.\n", healthText(v), reason, resume)
+	if v.RunsHeld != "" {
+		text += "Runs held: " + v.RunsHeld + "\n"
+	}
+	text += v.Polling
 	text += s.taskSummary(ctx, v, at)
 	return assessed(ctx, text, presentation.Success)
 }

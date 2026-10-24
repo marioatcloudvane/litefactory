@@ -36,7 +36,7 @@ settings:
   feature_prefix: "lf"
   worktree_root: ""
   worktree_retain_days: 14
-  min_free_disk_gb: 15
+  min_free_disk_gb: 2
   log_level: "info"
   auto_sync_base: true
   auto_sync_max_behind: 100
@@ -122,7 +122,7 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 | `settings.deploy_backup_keep` | integer | `5` | 1 to 100 | Newest pre-deploy database backups the daily cleanup keeps. |
 | `settings.log_retain_days` | integer | `30` | 1 to 3650 | Days rotated global log files are kept before daily deletion. |
 | `settings.archive_retain_days` | integer | `30` | 1 to 3650 | Days archive files and the run logs they cover are kept before daily deletion. |
-| `settings.min_free_disk_gb` | integer | `15` | 0 to 10000 | Runs and check commands wait while free disk is below this many GB. `0` turns the guard off. |
+| `settings.min_free_disk_gb` | integer | `2` | 0 to 10000 | Runs and check commands wait while free disk is below this many GB. `0` turns the guard off. |
 | `settings.log_level` | string | `info` | `debug`, `info`, `warn`, `error` (case does not matter) | Log detail. `--level` on `daemon run` or `daemon start` overrides it for that run. |
 | `settings.attachment_max_image_bytes` | integer | `5242880` (5 MiB) | 1024 to 209715200 | Largest single image. |
 | `settings.attachment_max_document_bytes` | integer | `10485760` (10 MiB) | 1024 to 209715200 | Largest single document. |

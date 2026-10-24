@@ -19,7 +19,7 @@ func TestHealthSnapshotRoundTripAndReplace(t *testing.T) {
 		t.Fatalf("empty database: found=%v err=%v", snap.Found, err)
 	}
 
-	listener := ListenerStatus{ListenAddress: "127.0.0.1:8787", Listening: true, DaemonStartedAt: at, WrittenAt: at.Add(time.Minute), InFlightSessions: []int64{3, 9}, SlotsUsed: 2, SlotsTotal: 4}
+	listener := ListenerStatus{ListenAddress: "127.0.0.1:8787", Listening: true, DaemonStartedAt: at, WrittenAt: at.Add(time.Minute), InFlightSessions: []int64{3, 9}, SlotsUsed: 2, SlotsTotal: 4, RunsHeld: "New runs wait: free disk 1.4 GB is below the 2 GB minimum."}
 	rows := []RepoDiscoveryStatus{
 		{RepoID: b.ID, WebhookMode: "polling only", WrittenAt: at},
 		{RepoID: a.ID, LastDeliveryAt: at.Add(time.Second), LastPollFinishedAt: at.Add(2 * time.Second), NextPollDueAt: at.Add(time.Hour),
