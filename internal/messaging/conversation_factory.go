@@ -565,7 +565,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 		return result, nil, ErrConversationEnvelope
 	}
 	if inv.Command == "inbox" {
-		capture := &inboxCapture{}
+		capture := &inboxCapture{Organize: r.organizerCall}
 		text, e := s.readOwnerInbox(ctx, Message{Channel: r.c.ChannelRef, Arguments: validated.Arguments}, r.at, capture)
 		result.Result = text
 		result.Arguments = make(map[string]string)

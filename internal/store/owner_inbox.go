@@ -23,8 +23,16 @@ type InboxScope struct{ Owner, Transport, Conversation string }
 // InboxFilter selects recorded facts before paging.
 type InboxFilter struct{ Source, Project, Kind string }
 
+// InboxEvidence binds a display-only promotion claim to recorded request facts.
+type InboxEvidence struct {
+	ID, Kind, DecisionKey, Source, Revision, Excerpt, Target string
+}
+
 // InboxDecision is a read projection, never workflow authority.
 type InboxDecision struct {
+	WaitingAt                                                                                             time.Time
+	WaitingProvenance                                                                                     string
+	Evidence                                                                                              []InboxEvidence
 	Key, Source, Project, Ticket, WaitID, Workflow, Kind, Summary, Destination, Action, ActionUnavailable string
 	Ordinal                                                                                               int
 	RepoID, ConnectionID, SessionID                                                                       int64
@@ -74,6 +82,19 @@ func inboxScopeValid(s InboxScope) bool {
 
 // CreateInboxSnapshot captures membership and publishes all rows in one short transaction.
 func (db *DB) CreateInboxSnapshot(ctx context.Context, scope InboxScope, filter InboxFilter, now time.Time) (InboxSnapshot, error) {
+	return db.createInboxSnapshot(ctx, scope, filter, now, nil)
+}
+
+// CreateProtectedInboxSnapshot captures display summaries and evidence through a
+// local redactor before persistence. The redactor must not perform external I/O.
+func (db *DB) CreateProtectedInboxSnapshot(ctx context.Context, scope InboxScope, filter InboxFilter, now time.Time, protect func(string) (string, error)) (InboxSnapshot, error) {
+	if protect == nil {
+		return InboxSnapshot{}, errors.New("inbox display protection unavailable")
+	}
+	return db.createInboxSnapshot(ctx, scope, filter, now, protect)
+}
+
+func (db *DB) createInboxSnapshot(ctx context.Context, scope InboxScope, filter InboxFilter, now time.Time, protect func(string) (string, error)) (InboxSnapshot, error) {
 	var snapshot InboxSnapshot
 	if !inboxScopeValid(scope) {
 		return snapshot, ErrInboxExpired
@@ -149,6 +170,19 @@ func (db *DB) CreateInboxSnapshot(ctx context.Context, scope InboxScope, filter 
 			return err
 		}
 		for i, d := range filtered {
+			if protect == nil {
+				d.Evidence = nil
+			}
+			if protect != nil {
+				if d.Summary, err = protect(d.Summary); err != nil {
+					return err
+				}
+				for j := range d.Evidence {
+					if d.Evidence[j].Excerpt, err = protect(d.Evidence[j].Excerpt); err != nil {
+						return err
+					}
+				}
+			}
 			d.Ordinal = i
 			raw, err = json.Marshal(d)
 			if err != nil {
@@ -351,10 +385,19 @@ func projectInbox(ctx context.Context, q inboxQuery) ([]InboxDecision, []InboxCo
 		base.Destination = s.TaskRef
 		add := func(d InboxDecision) {
 			d.Key = inboxTicketIdentity(d) + "|" + d.WaitID
+			for _, line := range strings.Split(d.Summary, "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), "Urgency:") && strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "Urgency:")) != "" {
+					d.Evidence = append(d.Evidence, InboxEvidence{ID: "urgency:" + d.Key, Kind: "urgency", Source: d.Ticket, Revision: d.WaitID + "@" + FormatTime(d.WaitingAt), Excerpt: strings.TrimSpace(line)})
+					break
+				}
+			}
+			for i := range d.Evidence {
+				d.Evidence[i].DecisionKey = d.Key
+			}
 			entries[d.Key] = d
 		}
 		// A graph wait is eligible only after durable publication and only on its current running graph.
-		waits, e := q.QueryContext(ctx, `SELECT w.delivery_key,COALESCE(NULLIF(g.workflow,''),g.mode),c.kind,c.candidate,d.destination,d.comment_id,c.node FROM graph_owner_waits w JOIN graph_instances i ON i.id=w.instance_id JOIN graph_definitions g ON g.id=i.definition_id JOIN graph_comment_intents c ON c.delivery_key=w.delivery_key JOIN report_deliveries d ON d.delivery_key=w.delivery_key WHERE i.session_id=? AND i.status='running' AND i.id=(SELECT MAX(id) FROM graph_instances WHERE session_id=?) AND w.state='waiting' AND d.completed=1 AND d.comment_id>0`, s.ID, s.ID)
+		waits, e := q.QueryContext(ctx, `SELECT w.delivery_key,COALESCE(NULLIF(g.workflow,''),g.mode),c.kind,c.candidate,d.destination,d.comment_id,c.node,COALESCE(a.finished_at,c.created_at,''),CASE WHEN a.finished_at IS NOT NULL THEN 'graph source attempt finished_at' WHEN c.created_at IS NOT NULL THEN 'graph stop created_at' ELSE '' END FROM graph_owner_waits w LEFT JOIN graph_node_attempts a ON a.id=w.source_attempt_id JOIN graph_instances i ON i.id=w.instance_id JOIN graph_definitions g ON g.id=i.definition_id JOIN graph_comment_intents c ON c.delivery_key=w.delivery_key JOIN report_deliveries d ON d.delivery_key=w.delivery_key WHERE i.session_id=? AND i.status='running' AND i.id=(SELECT MAX(id) FROM graph_instances WHERE session_id=?) AND w.state='waiting' AND d.completed=1 AND d.comment_id>0`, s.ID, s.ID)
 		if e != nil {
 			return nil, nil, e
 		}
@@ -362,10 +405,11 @@ func projectInbox(ctx context.Context, q inboxQuery) ([]InboxDecision, []InboxCo
 			d := base
 			var candidate []byte
 			var comment int64
-			var node string
-			if e = waits.Scan(&d.WaitID, &d.Workflow, &d.Kind, &candidate, &d.Destination, &comment, &node); e != nil {
+			var node, waitingAt string
+			if e = waits.Scan(&d.WaitID, &d.Workflow, &d.Kind, &candidate, &d.Destination, &comment, &node, &waitingAt, &d.WaitingProvenance); e != nil {
 				return nil, nil, errors.Join(e, waits.Close())
 			}
+			d.WaitingAt, _ = ParseTime(waitingAt)
 			if d.Workflow == "plan" {
 				// Stage and set reviews use the exact current Plan policy below.
 				// Graph-only questions, including set_ask and failure recovery,
@@ -433,6 +477,7 @@ func projectInbox(ctx context.Context, q inboxQuery) ([]InboxDecision, []InboxCo
 				d.Summary = "Waiting for owner " + kind
 				d.Action = action
 				d.Destination = dest
+				inboxWaitTime(ctx, q, &d, s.ID, waitID)
 				add(d)
 				return nil
 			}
@@ -480,6 +525,17 @@ func projectInbox(ctx context.Context, q inboxQuery) ([]InboxDecision, []InboxCo
 				d.WaitID = w.ID
 				d.Workflow = "plan"
 				d.Kind = w.Kind
+				inboxWaitTime(ctx, q, &d, s.ID, w.ID)
+				for _, dependent := range state.Stories {
+					if !dependent.Active() {
+						continue
+					}
+					for _, dependency := range dependent.Draft.Dependencies.StoryKeys {
+						if dependency == story.Key {
+							d.Evidence = append(d.Evidence, InboxEvidence{ID: "plan-dependency:" + w.ID + ":" + dependent.Key, Kind: "dependency", Source: s.TaskRef + "/" + dependent.Key, Revision: dependent.Draft.StageRevision("story"), Target: dependent.Key, Excerpt: dependent.Key + " depends on " + story.Key})
+						}
+					}
+				}
 				d.Summary = story.Key + ": waiting for owner " + w.Kind + " at " + story.Stage
 				d.Destination = destination
 				d.ActionUnavailable = state.PlanReplyHold(story.Key)
@@ -524,20 +580,22 @@ func projectInbox(ctx context.Context, q inboxQuery) ([]InboxDecision, []InboxCo
 				add(d)
 			}
 		}
-		parked, e := q.QueryContext(ctx, `SELECT generation,story_key,reason FROM implement_stories WHERE (worker_session=? OR (worker_session=0 AND parent=?)) AND state='parked' AND parent NOT IN (SELECT parent_task FROM managed_parent_closures) AND NOT EXISTS(SELECT 1 FROM plan_story_drafts p WHERE p.parent=implement_stories.parent AND p.story_key=implement_stories.story_key AND p.retired=1) AND generation=(SELECT MAX(generation) FROM implement_stories x WHERE x.parent=implement_stories.parent)`, s.ID, s.TaskRef)
+		parked, e := q.QueryContext(ctx, `SELECT generation,story_key,reason,state_at FROM implement_stories WHERE (worker_session=? OR (worker_session=0 AND parent=?)) AND state='parked' AND parent NOT IN (SELECT parent_task FROM managed_parent_closures) AND NOT EXISTS(SELECT 1 FROM plan_story_drafts p WHERE p.parent=implement_stories.parent AND p.story_key=implement_stories.story_key AND p.retired=1) AND generation=(SELECT MAX(generation) FROM implement_stories x WHERE x.parent=implement_stories.parent)`, s.ID, s.TaskRef)
 		if e != nil {
 			return nil, nil, e
 		}
 		for parked.Next() {
 			d := base
 			var generation int64
-			var key string
-			if e = parked.Scan(&generation, &key, &d.Summary); e != nil {
+			var key, waitingAt string
+			if e = parked.Scan(&generation, &key, &d.Summary, &waitingAt); e != nil {
 				return nil, nil, errors.Join(e, parked.Close())
 			}
 			d.WaitID = fmt.Sprintf("implement:%d:%s", generation, key)
 			d.Workflow = "implement"
 			d.Kind = "parked"
+			d.WaitingAt, _ = ParseTime(waitingAt)
+			d.WaitingProvenance = "implement story state_at"
 			d.Action = "Reply on the owning ticket with guidance to resume this story"
 			add(d)
 		}
@@ -655,4 +713,16 @@ func inboxTicketIdentity(d InboxDecision) string {
 		return string(d.Ref.Identity.Provider) + "|" + string(d.Ref.Identity.Origin) + "|" + d.Ref.Identity.RemoteID
 	}
 	return string(d.Locator.Provider) + "|" + string(d.Locator.Origin) + "|" + d.Locator.Container + "|" + d.Locator.Key
+}
+
+// InboxTicketIdentity returns the qualified canonical identity used for grouping.
+func InboxTicketIdentity(d InboxDecision) string { return inboxTicketIdentity(d) }
+
+func inboxWaitTime(ctx context.Context, q inboxQuery, d *InboxDecision, sessionID int64, waitID string) {
+	var at sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(a.finished_at,c.created_at) FROM report_deliveries r LEFT JOIN graph_comment_intents c ON c.delivery_key=r.delivery_key LEFT JOIN graph_node_attempts a ON a.id=c.source_attempt_id WHERE r.session_id=? AND (r.delivery_key=? OR r.purpose=?) AND r.completed=1 ORDER BY r.rowid DESC LIMIT 1`, sessionID, waitID, waitID).Scan(&at)
+	if err == nil && at.Valid {
+		d.WaitingAt, _ = ParseTime(at.String)
+		d.WaitingProvenance = "published request creation/finish time"
+	}
 }

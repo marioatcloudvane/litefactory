@@ -23,11 +23,11 @@ type OwnerInboxReader interface {
 // EnableOwnerInbox exposes recorded owner waits and read-only navigation.
 func (s *Service) EnableOwnerInbox(reader OwnerInboxReader) {
 	s.inboxReader = reader
-	s.RegisterCommand(CommandDefinition{Name: "inbox", Description: "Browse recorded decisions waiting on you; open, more, back, return or refresh", NaturalLanguage: true, Effect: ReadEffect, Arguments: []Argument{
+	s.RegisterCommand(CommandDefinition{Name: "inbox", Description: "Browse or organize recorded decisions waiting on you; open, more, back, return or refresh", NaturalLanguage: true, Effect: ReadEffect, Arguments: []Argument{
 		{Name: "source", Type: TextArgument, Description: "github or linear"},
 		{Name: "project", Type: TextArgument, Description: "Configured project or ticket destination"},
 		{Name: "kind", Type: TextArgument, Description: "Recorded waiting kind"},
-		{Name: "operation", Type: TextArgument, Description: "browse, more, back, return, refresh, coverage or open"},
+		{Name: "operation", Type: TextArgument, Description: "browse, organize, more, back, return, refresh, coverage or open"},
 		{Name: "reference", Type: TextArgument, Description: "Factory-issued inbox navigation reference"},
 	}}, s.ownerInbox)
 }
@@ -38,7 +38,7 @@ func (s *Service) inboxScope(channel string) store.InboxScope {
 
 func inboxPosition(raw string) (string, int, int, error) {
 	fields := strings.Split(raw, ":")
-	if len(fields) < 2 || len(fields) > 3 || fields[0] == "" {
+	if len(fields) < 2 || len(fields) > 4 || fields[0] == "" {
 		return "", 0, 0, errors.New("invalid inbox reference")
 	}
 	offset, err := strconv.Atoi(fields[1])
@@ -46,10 +46,16 @@ func inboxPosition(raw string) (string, int, int, error) {
 		return "", 0, 0, errors.New("invalid inbox reference")
 	}
 	entry := offset
-	if len(fields) == 3 {
+	if len(fields) >= 3 {
 		entry, err = strconv.Atoi(fields[2])
 		if err != nil || entry < 0 {
 			return "", 0, 0, errors.New("invalid inbox reference")
+		}
+	}
+	if len(fields) == 4 {
+		request, err := strconv.Atoi(fields[3])
+		if err != nil || request < 0 {
+			return "", 0, 0, errors.New("invalid inbox request reference")
 		}
 	}
 	return fields[0], offset, entry, nil
@@ -58,6 +64,7 @@ func inboxPosition(raw string) (string, int, int, error) {
 type inboxCapture struct {
 	Snapshot, Navigation string
 	Sources              []int64
+	Organize             func(context.Context, []byte, string, int) ([]byte, error)
 }
 
 func (s *Service) ownerInbox(ctx context.Context, m Message, at time.Time) (string, error) {
@@ -86,9 +93,21 @@ func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, c
 		}
 	}
 	switch operation {
-	case "", "browse", "more", "back", "return", "refresh", "open", "coverage":
+	case "", "browse", "organize", "more", "back", "return", "refresh", "open", "coverage":
 	default:
-		return "Use inbox browse, more, back, return, refresh, coverage or open.", nil
+		return "Use inbox browse, organize, more, back, return, refresh, coverage or open.", nil
+	}
+	if operation == "organize" {
+		return s.readOrganizedOwnerInbox(ctx, m, at, capture, id, offset, entry)
+	}
+	if id != "" {
+		_, organizationErr := s.db.ReadInboxOrganization(ctx, scope, id, inboxOrganizationVersion, at)
+		if organizationErr == nil {
+			return s.readOrganizedOwnerInbox(ctx, m, at, capture, id, offset, entry)
+		}
+		if !errors.Is(organizationErr, store.ErrNotFound) {
+			return inboxNotice(inboxReadFailure(organizationErr))
+		}
 	}
 	if operation == "open" {
 		if id == "" || len(strings.Split(m.Arguments["reference"], ":")) != 3 {
@@ -295,7 +314,7 @@ func (s *Service) authorizeInboxAnswer(ctx context.Context, a store.Conversation
 func inboxNavigation(text string) string {
 	lines := []string{"A recorded owner inbox page was delivered. Navigation references:"}
 	for _, line := range strings.Split(text, "\n") {
-		for _, prefix := range []string{"More: ", "Back: ", "Open: ", "Return: ", "Refresh: ", "Coverage details: ", "Coverage more: ", "Coverage back: "} {
+		for _, prefix := range []string{"More: ", "Back: ", "Open: ", "Return: ", "Refresh: ", "Coverage details: ", "Coverage more: ", "Coverage back: ", "Requests more: ", "Requests back: "} {
 			if strings.HasPrefix(line, prefix) {
 				lines = append(lines, line)
 				break
