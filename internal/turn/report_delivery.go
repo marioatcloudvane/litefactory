@@ -142,7 +142,14 @@ func (r *Reporter) deliver(ctx context.Context, intent store.ReportDelivery, ren
 	return r.dispatchDelivery(ctx, saved)
 }
 
-func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDelivery) (posted Posted, err error) {
+func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDelivery) (Posted, error) {
+	if delivery.TriggerNamespace == "report-multipart" {
+		return r.dispatchMultipartReport(ctx, delivery)
+	}
+	return r.dispatchDeliveryBody(ctx, delivery)
+}
+
+func (r *Reporter) dispatchDeliveryBody(ctx context.Context, delivery store.ReportDelivery) (posted Posted, err error) {
 	ctx = ExecutionContext(ctx, delivery.SessionID)
 	defer func() {
 		if err != nil {

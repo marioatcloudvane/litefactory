@@ -65,6 +65,7 @@ type DiagnoseRequest struct {
 
 // Conversation is bounded display data; complete history remains in the store.
 type Conversation struct {
+	Review          *RejectedDiagnosisReview `json:"review,omitempty"`
 	ProposalID      int64                    `json:"proposal_id,omitempty"`
 	Repair          *store.DoctorRepair      `json:"repair,omitempty"`
 	RepairSteps     []store.DoctorRepairStep `json:"repair_steps,omitempty"`
@@ -254,6 +255,10 @@ func (s *Service) ReadConversation(ctx context.Context, ref naming.Ref) (Convers
 		return out, err
 	}
 	out = Conversation{ProposalID: proposalID, Conversation: c, Attempts: attempts, Diagnosis: diagnosis, CurrentProposal: proposal, HistoryWindow: "Latest 30 attempts in this generation; earlier history remains retained", ApplyAvailable: s.CheckRepairCapability(ctx, ref) == nil}
+	out.Review, err = s.currentReview(ctx, c.ID)
+	if err != nil {
+		return out, err
+	}
 	repair, repairErr := s.DB.ReadDoctorRepair(ctx, ref.String())
 	if repairErr != nil && !errors.Is(repairErr, store.ErrNotFound) {
 		return out, repairErr

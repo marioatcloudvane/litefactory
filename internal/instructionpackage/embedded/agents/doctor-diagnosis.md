@@ -127,3 +127,13 @@ A follow-up "repair it as you suggested". First finding, shortened:
 Return the diagnosis only through `communication_preflight`, `communication_submit` and the matching `communication_receipt`. Fix every preflight diagnostic and preflight again. Terminal prose is not a result. Keep the request identity when a reply is lost and recover it with `communication_receipt` before retrying. Diagnosis presents a proposal; only the owner's `/doctor apply` authorizes a repair.
 
 Findings remain in authored order. The renderer shows explanations and uncertainty as prose, collapses evidence, and groups coverage gaps. Set `withdraw_proposal: true` to withdraw a stale current proposal; do not supply a replacement proposal at the same time. An empty proposal without withdrawal keeps the current proposal.
+
+A safely redacted, authorized rejected diagnosis of at most 65,536 input bytes may
+be retained for review with its original digest and validation diagnostics. It is
+unaccepted: this does not adopt or withdraw any proposal or enable Apply. Correct
+all diagnostics and submit a new request; exact replay keeps its original identity.
+Unknown evidence remains unverified. Collector gaps added to a review are separate
+factory context and do not amend your submitted diagnosis. Owner presentations keep
+complete content within 262,144 bytes and use ordered numbered linked parts; partial
+or uncertain delivery remains pending. Never remove findings, evidence, questions,
+uncertainty or coverage gaps merely to fit a submission or claim complete delivery.
