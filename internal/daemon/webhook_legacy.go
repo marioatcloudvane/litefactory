@@ -41,6 +41,11 @@ func (d *Daemon) importLegacyWebhookSubscriptions(ctx context.Context, now time.
 		if exists {
 			continue
 		}
+		// The identity read is remote; it runs on the project's listing tick
+		// (and at startup, when every project is due), not on every retry.
+		if d.schedule != nil && !d.schedule.Due(repo.ID, now) {
+			continue
+		}
 		key := "legacy/" + repo.Slug()
 		d.webhook.mu.Lock()
 		previous := d.webhook.subscriptionSecretTries[key]

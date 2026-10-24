@@ -313,7 +313,41 @@ func findingEvidence(ev []agent.EvidenceExplanation) (string, []string) {
 		}
 		checks = append(checks, e.CheckIDs...)
 	}
-	return clipText(strings.Join(parts, " "), 600), checks
+	return shortenFindingText(strings.Join(parts, " "), validateFindingTextLimit), checks
+}
+
+// validateFindingTextLimit bounds one finding's text as it is kept and shown;
+// a story comment may shorten further to fit the forge's comment limit.
+const validateFindingTextLimit = 4096
+
+// findingTextShortened marks finding text that was cut to fit.
+const findingTextShortened = " (text shortened)"
+
+// shortenFindingText returns text unchanged when it fits limit bytes.
+// Otherwise it cuts at the last sentence end or line break before limit,
+// falling back to the last space and then to the byte limit, keeps valid
+// UTF-8 and appends a visible note that the text was shortened.
+func shortenFindingText(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	head := text[:limit]
+	cut := -1
+	for _, end := range []string{". ", "! ", "? "} {
+		if i := strings.LastIndex(head, end); i >= 0 && i+1 > cut {
+			cut = i + 1
+		}
+	}
+	if i := strings.LastIndex(head, "\n"); i > cut {
+		cut = i
+	}
+	if cut <= 0 {
+		cut = strings.LastIndex(head, " ")
+	}
+	if cut <= 0 {
+		cut = limit
+	}
+	return strings.TrimRight(strings.ToValidUTF8(text[:cut], ""), " \t\r\n") + findingTextShortened
 }
 
 // computeReadiness lists exactly what is open. Push is offered only when the
