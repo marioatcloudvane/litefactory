@@ -19,6 +19,23 @@ type StandardsOperations interface {
 	Execute(context.Context, StandardsRequest) (StandardsResult, error)
 }
 
+// StandardsAuthors optionally reports the author session a conversation
+// works on, so the owner's answers reach it without a lookup.
+type StandardsAuthors interface {
+	AuthorSession(ctx context.Context, channel string) (StandardsAuthorSession, bool, error)
+}
+
+// StandardsAuthorSession is the newest unfinished author session started in
+// a conversation: its draft rule, its open questions as shown to the owner,
+// and whether the author is drafting right now.
+type StandardsAuthorSession struct {
+	ID                     string
+	Version                int64
+	Running                bool
+	Rule                   string
+	Questions, QuestionIDs []string
+}
+
 // StandardsRecovery reconciles retained operations before any attempt to replay.
 type StandardsRecovery interface {
 	Recover(context.Context, StandardsRequest) (StandardsResult, bool, error)
@@ -51,7 +68,7 @@ func (s *Service) EnableStandards(operations StandardsOperations) {
 		case "standards":
 			def.Description = "Look up the book of standards. action: discover, book.current, book.history, book.categories, book.standards (rendered, with standards per role and category), book.show (revision), author.list, author.inspect (id, version), proposal.list, proposal.inspect or proposal.review (id, version; review shows before and after), exception.list, exception.show (id), analysis.list (recent log analyses with status), analysis.show (id), operation.show (id)."
 		case "standards-author":
-			def.Description = "Work out one standard with the standards author. action start takes the owner's idea as intent, optionally project (the author then reads its code and recent incidents) and target_id to sharpen an existing standard. continue asks the author for its next draft and questions; it runs in the background and posts the draft here. answer takes id, version, question_id and text. edit sets the owner's own category_id, rule (starts with MUST), description, evidence, scope, check (automated, semi_automated or manual) or applies_to (comma-separated roles). validate checks the draft; complete turns it into an unapproved proposal; rebase moves it onto the current book. All but start need the exact id and version."
+			def.Description = "Work out one standard with the standards author. action start takes the owner's idea as intent, optionally project (the author then reads its code and recent incidents) and target_id to sharpen an existing standard; once confirmed, the author drafts in the background and the draft is posted here. answer takes id and the owner's reply as text (question_id optional: without it the reply answers all open questions); the author then drafts again by itself. revise takes the id of a proposal the author produced (authoring-...) or of its session and the owner's change request as text (for example: make the check shorter); it reopens the session so the author drafts a new version, which is completed again into the next version of the same proposal; once that proposal is approved or published it can't be revised. continue asks the author for its next draft. edit sets the owner's own category_id, rule (starts with MUST), description, evidence, scope, check (automated, semi_automated or manual) or applies_to (comma-separated roles). validate checks the draft; complete turns it into an unapproved proposal; rebase moves it onto the current book. answer, revise, continue, edit, validate and rebase run without a confirmation. All but start need the exact id; complete, edit, validate and rebase also the version."
 		case "standards-proposal":
 			def.Description = "Propose action edit, approve or publish for an exact proposal id and version. Approve and publish need its digest; publish needs an approved version. Edit selects target_id and owner category_id/rule/description/evidence/scope/check/applies_to or exact owner JSON operations."
 		case "standards-exception":
@@ -78,7 +95,7 @@ func standardsOperation(inv Invocation) (string, error) {
 	if inv.Command != "standards" {
 		action = strings.TrimPrefix(inv.Command, "standards-") + "." + action
 	}
-	allowed := "book.current book.history book.categories book.standards book.show author.list author.inspect author.start author.answer author.edit author.continue author.validate author.complete author.rebase proposal.list proposal.inspect proposal.review proposal.edit proposal.approve proposal.publish exception.propose exception.show exception.list exception.approve exception.revoke analysis.start analysis.list analysis.show operation.show"
+	allowed := "book.current book.history book.categories book.standards book.show author.list author.inspect author.start author.answer author.revise author.edit author.continue author.validate author.complete author.rebase proposal.list proposal.inspect proposal.review proposal.edit proposal.approve proposal.publish exception.propose exception.show exception.list exception.approve exception.revoke analysis.start analysis.list analysis.show operation.show"
 	if inv.Command == "standards" && (action == "discover" || action == "help") {
 		return "discover", nil
 	}
@@ -100,7 +117,7 @@ func (s *Service) standardsRequest(inv Invocation, channel, message string, at t
 }
 
 func standardsDiscovery() string {
-	return "Standards operations: inspect categories, the published book and history, proposals, authoring sessions, scoped exceptions and log analyses. Authoring: start, answer a saved question, edit, continue, validate, complete or rebase. Completion creates an unapproved proposal. Approval and publication of one exact proposal version are separate confirmed actions. A log analysis of one project is started as a confirmed action and posts its result here when it finishes. Inspect saved operation outcomes before repeating interrupted work."
+	return "Standards operations: inspect categories, the published book and history, proposals, authoring sessions, scoped exceptions and log analyses. Authoring: start, answer a saved question, edit, continue, validate, complete or rebase. Completion creates an unapproved proposal; revise sends the owner's change request for it back to the author, whose next completion is the proposal's next version. Approval and publication of one exact proposal version are separate confirmed actions. A log analysis of one project is started as a confirmed action and posts its result here when it finishes. Inspect saved operation outcomes before repeating interrupted work."
 }
 
 func standardsMissingTerms(op string, args map[string]string) string {
@@ -108,9 +125,11 @@ func standardsMissingTerms(op string, args map[string]string) string {
 	switch op {
 	case "author.start":
 		required = []string{"intent"}
-	case "author.answer":
-		required = []string{"id", "version", "question_id", "text"}
-	case "author.edit", "author.continue", "author.validate", "author.complete", "author.rebase", "proposal.edit":
+	case "author.answer", "author.revise":
+		required = []string{"id", "text"}
+	case "author.continue":
+		required = []string{"id"}
+	case "author.edit", "author.validate", "author.complete", "author.rebase", "proposal.edit":
 		required = []string{"id", "version"}
 	case "proposal.approve", "proposal.publish":
 		required = []string{"id", "version", "digest"}
@@ -192,6 +211,34 @@ func expandStandardsReferences(refs []ConversationReference) []ConversationRefer
 	return out
 }
 
+// conversationAuthorSession tells the agent about the author session this
+// conversation works on: its rule, open questions, whether the author is
+// drafting right now, and the reference to cite for answers.
+type conversationAuthorSession struct {
+	Reference string   `json:"reference"`
+	Running   bool     `json:"running"`
+	Rule      string   `json:"rule,omitempty"`
+	Questions []string `json:"questions,omitempty"`
+}
+
+// loadAuthor finds the conversation's open author session, if any.
+func (r *factoryConversationRun) loadAuthor(ctx context.Context) (*conversationAuthorSession, error) {
+	authors, ok := r.s.standards.(StandardsAuthors)
+	if !ok {
+		return nil, nil
+	}
+	session, found, err := authors.AuthorSession(ctx, r.c.ChannelRef)
+	if err != nil || !found {
+		return nil, err
+	}
+	args := map[string]string{"kind": "author", "id": session.ID, "version": fmt.Sprint(session.Version)}
+	for i, id := range session.QuestionIDs {
+		args[fmt.Sprintf("question_id_%d", i+1)] = id
+	}
+	r.authorRef = &ConversationReference{ID: r.t.ID + "-author", OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: r.t.ID, ExpiresAt: r.at.Add(time.Hour), Arguments: args}
+	return &conversationAuthorSession{Reference: r.authorRef.ID, Running: session.Running, Rule: session.Rule, Questions: session.Questions}, nil
+}
+
 func (r *factoryConversationRun) lookupStandards(ctx context.Context, inv Invocation) (conversationReadResult, *ConversationReference, error) {
 	result := conversationReadResult{Command: inv.Command, Arguments: inv.Arguments, Source: "shared standards service", CapturedAt: r.at, Complete: true, Gaps: []string{}}
 	if err := conversationAccess(ctx, r.s.conversations.Load(), r.c.ChannelRef, r.at); err != nil {
@@ -267,6 +314,10 @@ func (s *Service) recoverStandardsConversationAction(ctx context.Context, t stor
 		return nil
 	}
 	execution, err := s.db.ReadNaturalExecution(ctx, link.ExecutionID)
+	if errors.Is(err, store.ErrNotFound) {
+		// A step run without confirmation keeps its receipt in the domain.
+		return nil
+	}
 	if err != nil {
 		return err
 	}

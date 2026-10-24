@@ -110,7 +110,11 @@ func doctorDaemonFixture(t *testing.T) (*Daemon, *doctorTestForge, store.Repo) {
 		t.Fatal(err)
 	}
 	forge := &doctorTestForge{issue: github.Issue{ID: 10406, Number: 406, State: "closed"}}
-	service := &doctor.Service{DB: db, Paths: config.NewPaths(t.TempDir()), Config: cfg, Redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=doctor-owner-secret"}})}
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &doctor.Service{DB: db, Paths: config.NewPaths(home), Config: cfg, Redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=doctor-owner-secret"}})}
 	at := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	d := &Daemon{instanceID: "live-doctor", db: db, forge: forge, filter: doctorTestFilter{}, log: slog.New(slog.DiscardHandler), doctor: doctorLane{service: service, pool: newPool(1)}, pool: newPool(1), now: func() time.Time { return at }}
 	d.discovery.tick(at)

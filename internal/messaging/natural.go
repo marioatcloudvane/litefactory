@@ -45,17 +45,6 @@ func naturalLater(id, previous string) bool {
 	return e == nil && f == nil && n > p
 }
 
-// naturalConfirmation recognizes the proposal's code, or a plain yes. The
-// store keeps one proposal per conversation, and any other owner message
-// cancels it, so a plain yes can only mean the proposal just shown.
-func naturalConfirmation(text string, d store.NaturalDialogue) bool {
-	text = strings.ToLower(strings.TrimSpace(text))
-	if d.Code != "" && (text == "confirm "+strings.ToLower(d.Code) || naturalConfirmationCode(text) == strings.ToLower(d.Code)) {
-		return true
-	}
-	return naturalYes(text)
-}
-
 // naturalYes is the small set of whole messages that mean yes; a message that
 // says anything more is an ordinary message.
 func naturalYes(text string) bool {

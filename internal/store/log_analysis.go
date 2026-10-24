@@ -214,8 +214,6 @@ func checkLogAnalysisWriter(ctx context.Context, tx *sql.Tx, id string, generati
 	return a, nil
 }
 
-// ReserveLogAnalysisBudget charges calls and encoded delivery before work; reservations are never refunded.
-
 // Whole-analysis ceilings: one model invocation may make at most this many
 // broker calls (one evidence row each) and receive this many encoded bytes.
 const (
@@ -223,6 +221,7 @@ const (
 	LogAnalysisMaxBytes = 1 << 20
 )
 
+// ReserveLogAnalysisBudget charges calls and encoded delivery before work; reservations are never refunded.
 // The host passes its immutable limits, including any reserved communication allowance.
 func (db *DB) ReserveLogAnalysisBudget(ctx context.Context, id string, generation int64, calls, bytes, maxCalls, maxBytes int) error {
 	if calls < 0 || bytes < 0 || maxCalls < 0 || maxCalls > LogAnalysisMaxCalls || maxBytes < 0 || maxBytes > LogAnalysisMaxBytes {

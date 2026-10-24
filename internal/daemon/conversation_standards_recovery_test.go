@@ -80,7 +80,9 @@ func TestConversationStandardsAnswerReceiptSurvivesRestartAndStaleVersion(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(recovered, original) {
+	// The first reply also says whether a next draft started; the retained
+	// receipt itself is unchanged.
+	if !reflect.DeepEqual(recovered.References, original.References) || recovered.Interrupted {
 		t.Fatalf("retry replaced original receipt: got %+v want %+v", recovered, original)
 	}
 	current, err := author.Show(ctx, draft.ID, 0)

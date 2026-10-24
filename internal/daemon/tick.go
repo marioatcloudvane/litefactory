@@ -1482,6 +1482,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 			"next tick reconsiders it against fresh state")
 		return offerSkipped
 	}
+	d.inflight.label(c.session.ID, strings.Join(c.sources, "+"))
 
 	readCtx := ctx
 	if c.discoveryReservation == nil && d.connections != nil {
@@ -2787,6 +2788,15 @@ func (d *Daemon) run(
 
 	if handled, err := d.recoverGraphReply(ctx, t, trigger, command); handled || err != nil {
 		return d.leave(ctx, t, log, "stopped graph reply recovery deferred", err)
+	}
+	// A plain parent comment the pinned Implement mode cannot use — Validate is
+	// running, or Implement already finished — is answered, not run (#1123).
+	if kind, err := d.plainParentCommentRefusal(ctx, t, trigger, mode, workflow, command); err != nil {
+		return d.leave(ctx, t, log, "could not tell which workflow a plain parent comment belongs to", err)
+	} else if kind != report.ReplyInvalid {
+		log.InfoContext(ctx, "plain parent comment has no Implement work to continue; refusing it with a reply",
+			slog.String("reply", kind.String()))
+		return d.refuseMode(ctx, t, trigger, kind, "")
 	}
 
 	// Claim after mode, agent and permission admission can no longer consume

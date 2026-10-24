@@ -36,7 +36,19 @@ func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorC
 	if e != nil {
 		return failure(e)
 	}
-	prompt, e := BuildPrompt(PromptContext{Instructions: instruction, Target: r.Target.String(), Manifest: manifest, Memory: prior, CurrentDiagnosis: current, CurrentProposal: proposal, MemoryOmissions: "Latest 30 attempts only; prior evidence snapshots omitted; current findings and proposal retained separately"}, captured)
+	if e = os.MkdirAll(s.Paths.DoctorScratchDir(), 0700); e != nil {
+		return failure(e)
+	}
+	dir, e := os.MkdirTemp(s.Paths.DoctorScratchDir(), "invocation-")
+	if e != nil {
+		return failure(e)
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
+	handoff, e := s.PrepareRetainedEvidence(ctx, r.Target, id, dir)
+	if e != nil {
+		return failure(e)
+	}
+	prompt, e := BuildPrompt(PromptContext{Instructions: instruction, Target: r.Target.String(), Manifest: manifest, Memory: prior, CurrentDiagnosis: current, CurrentProposal: proposal, RetainedEvidenceIndex: handoff.Index, MemoryOmissions: "Latest 30 attempts only; exact retained evidence is linked through the bounded evidence index; current findings and proposal retained separately"}, captured)
 	if e != nil {
 		return failure(e)
 	}
@@ -47,14 +59,6 @@ func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorC
 	if safe.Truncated() {
 		return failure(errors.New("doctor prompt exceeds redaction budget"))
 	}
-	if e = os.MkdirAll(s.Paths.DoctorScratchDir(), 0700); e != nil {
-		return failure(e)
-	}
-	dir, e := os.MkdirTemp(s.Paths.DoctorScratchDir(), "invocation-")
-	if e != nil {
-		return failure(e)
-	}
-	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
 	results, e := BindResults(ctx, s.DB, id, manifest.evidenceIdentity(), s.Redactor)
 	if e != nil {
 		return failure(e)
