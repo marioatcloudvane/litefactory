@@ -38,6 +38,10 @@ type doctorLane struct {
 	lastRepo               int64
 	lastDelivery           string
 	unsupportedConnections map[int64]bool
+	// owed names the repositories whose background scan window is still open:
+	// set on a repository's listing tick, cleared once the window completes. The
+	// scan is the hourly safety net behind webhook-hinted admission.
+	owed map[int64]bool
 }
 
 func (d *Daemon) doctorTick(ctx context.Context, at time.Time) {
@@ -119,6 +123,14 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 		return nil
 	}
 	sort.Slice(repos, func(i, j int) bool { return repos[i].ID < repos[j].ID })
+	// Webhook hints admit /doctor comments directly; the repository-comment
+	// scan only runs as the listing's safety net. A repository is owed a scan
+	// from its listing tick until its scan window completes.
+	for _, repo := range repos {
+		if d.schedule == nil || d.schedule.Due(repo.ID, at) {
+			d.oweDoctorScan(repo.ID)
+		}
+	}
 	start := 0
 	for start < len(repos) && repos[start].ID <= d.doctor.lastRepo {
 		start++
@@ -132,6 +144,9 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 	eligible := false
 	for offset := 0; offset < len(repos); offset++ {
 		repo = repos[(start+offset)%len(repos)]
+		if !d.doctor.owed[repo.ID] {
+			continue
+		}
 		// Advance before fallible work so a failing project cannot starve its peers.
 		d.doctor.lastRepo = repo.ID
 		if d.connections != nil {
@@ -140,6 +155,7 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 				return err
 			}
 			if !connection.Enabled {
+				delete(d.doctor.owed, repo.ID)
 				continue
 			}
 			if connection.Provider != ticket.GitHub {
@@ -150,6 +166,7 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 					d.log.InfoContext(ctx, "background doctor discovery unsupported; skipped", "project", repo.Slug(), "provider", connection.Provider, "connection_version", connection.ID)
 					d.doctor.unsupportedConnections[connection.ID] = true
 				}
+				delete(d.doctor.owed, repo.ID)
 				continue
 			}
 		}
@@ -165,6 +182,7 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 		return err
 	}
 	if !scan.WindowEnd.After(scan.CompletedAt) {
+		delete(d.doctor.owed, repo.ID)
 		return nil
 	}
 	fr := github.Repo{Owner: repo.Owner, Name: repo.Name}
@@ -223,7 +241,72 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 	if ended {
 		next = 0
 	}
-	return d.db.AdvanceDoctorScan(ctx, scan, next)
+	if err := d.db.AdvanceDoctorScan(ctx, scan, next); err != nil {
+		return err
+	}
+	if next == 0 {
+		delete(d.doctor.owed, repo.ID)
+	}
+	return nil
+}
+
+// oweDoctorScan makes repo's repository-comment scan run from the next tick
+// until its window completes.
+func (d *Daemon) oweDoctorScan(repo int64) {
+	if d.doctor.owed == nil {
+		d.doctor.owed = make(map[int64]bool)
+	}
+	d.doctor.owed[repo] = true
+}
+
+// admitHintedDoctor is the webhook path for /doctor on a session whose worker
+// is in flight. A busy session's candidate is not dispatched, so its ordered
+// consumer cannot see the comment until the run ends, and a `/doctor stop`
+// must not wait for that. The unconsumed comments are read once on the
+// operational lane and every /doctor command among them is admitted; the
+// ordered consumer later finds them already admitted and only consumes them.
+// Sessions that are not in flight are left to that consumer.
+func (d *Daemon) admitHintedDoctor(ctx context.Context, q *repoQueue, issue github.Issue) error {
+	if d.doctor.service == nil {
+		return nil
+	}
+	var session store.Session
+	for _, id := range d.inflight.list() {
+		s, err := d.db.GetSession(ctx, id)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if s.RepoID == q.repo.ID && s.IssueNumber == issue.Number {
+			session = s
+			break
+		}
+	}
+	if session.ID == 0 {
+		return nil
+	}
+	ctx = sessionContext(ctx, session.ID)
+	mark, _, err := d.db.GetWatermark(ctx, session.ID)
+	if err != nil {
+		return err
+	}
+	comments, err := doctorCall(ctx, d, func(ctx context.Context) ([]github.Comment, error) {
+		return d.readComments(ctx, q.forgeRepo, issue.Number, mark.LastCommentID)
+	})
+	if err != nil {
+		return err
+	}
+	for _, c := range comments {
+		if _, ok := doctor.ParseCommand(c.Body); !ok {
+			continue
+		}
+		if _, err := d.admitDoctor(ctx, q.repo, issue, c); err != nil {
+			return fmt.Errorf("doctor command on busy issue #%d, comment %d: %w", issue.Number, c.ID, err)
+		}
+	}
+	return nil
 }
 
 // refuseUnsupportedDoctor uses the qualified retained ticket before the GitHub-only
