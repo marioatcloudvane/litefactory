@@ -760,9 +760,7 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	if kind == "review" && r.rewindReason != "" {
 		text += "\n\n" + r.rewindReason
 	}
-	for _, q := range node.Questions {
-		text += "\n\n- " + q
-	}
+	text += planQuestionLines(node.Questions)
 	if r.stage == planSetStage && kind == "review" {
 		if text, err = r.setReviewText(s, node, text); err != nil {
 			return ActivityResult{}, err
@@ -815,13 +813,33 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 		return ActivityResult{}, err
 	}
 	intent := reporter.deliveryIntent(r.result.Ref, target, r.req.SessionID, run.TriggerCommentID, run.ID, key)
-	raw, err := json.Marshal(planPublication{Intent: intent, Text: text})
-	if err != nil {
-		return ActivityResult{}, err
-	}
-	// Plan's per-story waits are independent. This generic final-kind delivery
-	// journals bytes without creating Research's single instance-wide owner wait.
-	if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: a.InstanceID, SourceAttemptID: source.ID, Node: a.Node, Kind: "final", Candidate: raw}); err != nil {
+	// A retry of the same source attempt posts the text saved first, as the
+	// failure comment does: the saved text is the truth for that attempt.
+	saved, err := reporter.db.GetGraphComment(ctx, intent.Key)
+	switch {
+	case err == nil:
+		var retained planPublication
+		if err = json.Unmarshal(saved.Candidate, &retained); err != nil {
+			return ActivityResult{}, fmt.Errorf("retained Plan comment: %w", err)
+		}
+		if retained.Intent.Key != intent.Key || retained.Text == "" {
+			return ActivityResult{}, errors.New("retained Plan comment identity mismatch")
+		}
+		if retained.Text != text && r.opts.Logger != nil {
+			r.opts.Logger.WarnContext(ctx, "retained Plan comment differs from the newly built text; posting the retained text", "delivery_key", intent.Key)
+		}
+		intent, text = retained.Intent, retained.Text
+	case errors.Is(err, store.ErrNotFound):
+		raw, marshalErr := json.Marshal(planPublication{Intent: intent, Text: text})
+		if marshalErr != nil {
+			return ActivityResult{}, marshalErr
+		}
+		// Plan's per-story waits are independent. This generic final-kind delivery
+		// journals bytes without creating Research's single instance-wide owner wait.
+		if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: a.InstanceID, SourceAttemptID: source.ID, Node: a.Node, Kind: "final", Candidate: raw}); err != nil {
+			return ActivityResult{}, err
+		}
+	default:
 		return ActivityResult{}, err
 	}
 	posted, err := reporter.deliver(ctx, intent, func() (redact.Body, error) { return reporter.renderer.RenderReportDelivery(ctx, text, "") })
@@ -830,6 +848,29 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	}
 	payload, err := json.Marshal(posted)
 	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: payload}, err
+}
+
+// planQuestionLines lists each Plan question with its ID, its options and the
+// recommended option, as Spike does, so the owner can answer "q1 a, q2 b".
+func planQuestionLines(qs []agentresult.Question) string {
+	var b strings.Builder
+	for _, q := range qs {
+		b.WriteString("\n\n- **" + q.ID + "** " + strings.TrimSpace(q.Text) + questionOptionLines(q))
+	}
+	return b.String()
+}
+
+// questionOptionLines lists a question's options under it and marks the
+// recommended one. A question without options adds nothing.
+func questionOptionLines(q agentresult.Question) string {
+	var b strings.Builder
+	for _, o := range q.Options {
+		b.WriteString("\n  - `" + o.ID + "` " + strings.TrimSpace(o.Text))
+		if o.ID == q.RecommendedOption {
+			b.WriteString(" (recommended)")
+		}
+	}
+	return b.String()
 }
 
 func (r *planGraphRuntime) retire(ctx context.Context, s planbrief.PlanState, _ int64, reply planbrief.PlanOwnerReply) error {

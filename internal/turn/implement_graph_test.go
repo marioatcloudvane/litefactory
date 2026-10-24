@@ -426,6 +426,17 @@ func TestImplementQuestionListsEveryParkedStoryOnce(t *testing.T) {
 	}
 }
 
+// #1127: an Implement question that carries options shows them under the
+// question and marks the recommended one only; the question line is unchanged.
+func TestImplementQuestionShowsItsOptionsAndRecommendation(t *testing.T) {
+	candidate := agentresult.Result{Outcome: "incomplete", Comment: "Intro.", Reason: "Next step.", Questions: []agentresult.Question{{ID: "q1", Audience: "business", Text: " Restart story-002? ", RecommendedOption: "a", Options: []agentresult.Option{{ID: "a", Text: "Restart it"}, {ID: "b", Text: "Leave it parked"}}}}}
+	text := renderImplementComment(candidate, "", naming.Ref{}, "")
+	want := "- Restart story-002?\n  - `a` Restart it (recommended)\n  - `b` Leave it parked\n"
+	if !strings.Contains(text, want) || strings.Count(text, "(recommended)") != 1 {
+		t.Fatalf("options or marker missing:\n%s", text)
+	}
+}
+
 func TestImplementCommentContractRefusesAnythingButTheBatchedQuestion(t *testing.T) {
 	scope := ImplementWorkflowPolicy().baseContext(true)
 	good := implementQuestionCandidate([]store.ImplementStory{{Key: "a", Reason: "r"}})

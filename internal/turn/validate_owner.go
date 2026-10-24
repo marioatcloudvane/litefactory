@@ -128,7 +128,7 @@ func renderValidateComment(candidate agentresult.Result, _ string, _ naming.Ref,
 	b.WriteString(strings.TrimSpace(candidate.Comment))
 	b.WriteString("\n\n")
 	for _, q := range candidate.Questions {
-		b.WriteString("- " + strings.TrimSpace(q.Text) + "\n")
+		b.WriteString("- " + strings.TrimSpace(q.Text) + questionOptionLines(q) + "\n")
 	}
 	b.WriteString("\n" + strings.TrimSpace(candidate.Reason))
 	return b.String()
