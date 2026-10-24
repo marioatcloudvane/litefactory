@@ -433,13 +433,20 @@ func TestPlanRecoveryBusyParentDefers(t *testing.T) {
 	}
 }
 
-// C6 (#1138): on a non-listing tick of a webhook-healthy repository a graph
-// Plan parent is still offered when it has due Plan work: an assembled review
-// due and not attempted, recovery debt, an owed story shell, or a story that
-// owes a comment sweep because a webhook hint named it. A parent with none of
-// these waits for its new input or the listing.
-func TestPlanParentsWebhookHealthyOfferedWhenDue(t *testing.T) {
-	w := newOwnerWaitFleet(t, 0, true, true)
+// C6 (#1138): on a non-listing tick, whatever the webhook state, a graph Plan
+// parent is still offered when it has due Plan work: an assembled review due
+// and not attempted, recovery debt, an owed story shell, a managed story that
+// owes a comment sweep because a webhook hint named it, or a bound story issue
+// never swept. A parent with none of these waits for its new input or the
+// listing. Until #1138 this held only on a webhook-healthy repository.
+func TestPlanParentsOfferedWhenDue(t *testing.T) {
+	for _, tc := range webhookCases {
+		t.Run(tc.name, func(t *testing.T) { planParentsOfferedWhenDue(t, tc.hooked, tc.delivered) })
+	}
+}
+
+func planParentsOfferedWhenDue(t *testing.T, hooked, delivered bool) {
+	w := newOwnerWaitFleet(t, 0, hooked, delivered)
 	ctx := t.Context()
 	db := w.d.db
 	assembly := w.planParent(t, 60)
@@ -476,6 +483,9 @@ func TestPlanParentsWebhookHealthyOfferedWhenDue(t *testing.T) {
 	publicationMust(t, err)
 	_, err = db.SavePlanWorkflowState(ctx, shell.TaskRef, 0, state)
 	publicationMust(t, err)
+	// A story issue bound after the last observation has never been swept.
+	unswept := w.planParent(t, 65)
+	publicationMust(t, db.BindPlanStoryIssue(ctx, unswept.TaskRef, "story-001", 6600, 660))
 	// A webhook hint names the swept parent's story on this non-listing tick.
 	w.d.webhook.Wake(w.repo.ID, child)
 	q := &repoQueue{repo: w.repo, forgeRepo: github.Repo{Owner: w.repo.Owner, Name: w.repo.Name}, log: w.d.log}
@@ -485,14 +495,14 @@ func TestPlanParentsWebhookHealthyOfferedWhenDue(t *testing.T) {
 	}
 
 	_, parents := w.sources(t, false)
-	for _, s := range []store.Session{w.parent, assembly, debt, shell, swept} {
+	for _, s := range []store.Session{w.parent, assembly, debt, shell, swept, unswept} {
 		// Each answer is read, not assumed: a read failure would count as due.
 		due, err := w.d.planParentDueWork(ctx, q, s, mustRef(t, s.TaskRef))
 		if err != nil || due != (s.ID != w.parent.ID) {
 			t.Errorf("parent %s: due=%t err=%v", s.TaskRef, due, err)
 		}
 	}
-	for _, s := range []store.Session{assembly, debt, shell, swept} {
+	for _, s := range []store.Session{assembly, debt, shell, swept, unswept} {
 		if !parents[s.ID] {
 			t.Errorf("parent %s with due Plan work not offered between listings", s.TaskRef)
 		}

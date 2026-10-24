@@ -117,12 +117,15 @@ func (db *DB) PushConversationDiagnosis(ctx context.Context, r ChatReply, notice
 
 // chatDoctorCommentBase reserves doctor_inbox comment identities for repair
 // proposals that a chat diagnosis presents on the issue. They have no source
-// comment; GitHub comment IDs stay far below this range.
+// comment; GitHub comment IDs stay far below this range. The reserved range is
+// deliberate and mirrors scheduleTriggerBase.
 const chatDoctorCommentBase int64 = 1 << 62
 
 // PresentChatDiagnosis retains a chat diagnosis's repair proposal as a completed
 // doctor command, so the ordinary doctor publication posts it on the issue
-// where `/doctor apply` can approve it. A proposal is presented once.
+// where `/doctor apply` can approve it. A proposal is presented once. Its
+// ticket source, when given, is retained in the same transaction, so the
+// publisher uses that connection's identity.
 func (db *DB) PresentChatDiagnosis(ctx context.Context, c DoctorCommand) error {
 	ref, err := naming.ParseRef(c.TaskRef)
 	if err != nil {
@@ -132,21 +135,26 @@ func (db *DB) PresentChatDiagnosis(ctx context.Context, c DoctorCommand) error {
 		return errors.New("invalid chat doctor presentation")
 	}
 	comment := chatDoctorCommentBase + c.ProposalID
-	result, err := db.sql.ExecContext(ctx, `INSERT INTO doctor_inbox(repo_id,task_ref,issue_id,issue_number,comment_id,actor_id,created_at,operation,instructions,state,result_body,conversation_id,proposal_id) SELECT ?,?,?,?,?,?,?,'diagnose',?,'completed',?,p.conversation_id,p.id FROM doctor_proposals p JOIN doctor_conversations c ON c.id=p.conversation_id JOIN doctor_attempts a ON a.id=p.attempt_id WHERE p.id=? AND c.task_ref=? AND a.source_id LIKE 'chat:%' ON CONFLICT(repo_id,comment_id) DO NOTHING`, c.RepoID, c.TaskRef, c.IssueID, c.IssueNumber, comment, c.ActorID, FormatTime(c.CreatedAt), c.Instructions, c.ResultBody, c.ProposalID, c.TaskRef)
-	if err != nil {
-		return err
-	}
-	if n, err := result.RowsAffected(); err != nil || n > 0 {
-		return err
-	}
-	var count int
-	if err = db.sql.QueryRowContext(ctx, `SELECT count(*) FROM doctor_inbox WHERE repo_id=? AND comment_id=? AND proposal_id=?`, c.RepoID, comment, c.ProposalID).Scan(&count); err != nil {
-		return err
-	}
-	if count != 1 {
-		return errors.New("chat doctor proposal does not belong to the diagnosed issue")
-	}
-	return nil
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		err := tx.QueryRowContext(ctx, `INSERT INTO doctor_inbox(repo_id,task_ref,issue_id,issue_number,comment_id,actor_id,created_at,operation,instructions,state,result_body,conversation_id,proposal_id) SELECT ?,?,?,?,?,?,?,'diagnose',?,'completed',?,p.conversation_id,p.id FROM doctor_proposals p JOIN doctor_conversations c ON c.id=p.conversation_id JOIN doctor_attempts a ON a.id=p.attempt_id WHERE p.id=? AND c.task_ref=? AND a.source_id LIKE 'chat:%' ON CONFLICT(repo_id,comment_id) DO NOTHING RETURNING id`, c.RepoID, c.TaskRef, c.IssueID, c.IssueNumber, comment, c.ActorID, FormatTime(c.CreatedAt), c.Instructions, c.ResultBody, c.ProposalID, c.TaskRef).Scan(&c.ID)
+		if err == nil {
+			if c.Source == nil {
+				return nil
+			}
+			return retainDoctorSource(ctx, tx, c, *c.Source)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		var count int
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM doctor_inbox WHERE repo_id=? AND comment_id=? AND proposal_id=?`, c.RepoID, comment, c.ProposalID).Scan(&count); err != nil {
+			return err
+		}
+		if count != 1 {
+			return errors.New("chat doctor proposal does not belong to the diagnosed issue")
+		}
+		return nil
+	})
 }
 
 // ChatDiagnosisPresentation is the issue presentation of a chat diagnosis's

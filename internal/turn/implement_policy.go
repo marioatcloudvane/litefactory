@@ -16,7 +16,7 @@ import (
 
 const implementNodeInstructions = "\nFactory invocation: private Implement story worker node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id (the shared result helper's preflight, submit and receipt methods are the same route). The accepted submission is this step's result, and the factory derives the step's response from it. Do not print a JSON result: terminal text is never read as a result, so end with a short plain-language note. The result is limited to 1 MiB.\n"
 
-const implementNodeHardRules = "\nResult shapes: when the story is built and its unit tests pass, submit result.outcome completed with no questions and an empty payload.implement.stories. Submit result.outcome incomplete with a nonblank result.reason in plain language only when this attempt's time is about to run out or something outside the story stops the work for now; the story gets another attempt. Submit result.outcome blocked with a nonblank result.reason in plain language when you need a decision; the factory parks the story and asks the owner for you. Neither carries questions: you cannot ask the owner yourself. Never commit, push or merge: the factory saves your branch after a completed result. Read the implement-result skill's node-result resource for the worked result of each shape before you submit.\n"
+const implementNodeHardRules = "\nResult shapes: when the story is built and its unit tests pass, submit result.outcome completed with no questions and an empty payload.implement.stories. Submit result.outcome incomplete with a nonblank result.reason in plain language only when this attempt's time is about to run out or something outside the story stops the work for now; the story gets another attempt. Submit result.outcome blocked with a nonblank result.reason in plain language when you need a decision; the factory parks the story and asks the owner for you. Neither carries questions: you cannot ask the owner yourself, unless your role says how you may. Never commit, push or merge: the factory saves your branch after a completed result. Read the implement-result skill's node-result resource for the worked result of each shape before you submit.\n"
 
 func implementNodeGuidance() string { return implementNodeInstructions + implementNodeHardRules }
 
@@ -55,6 +55,9 @@ func ImplementSpecs() (graphexec.Registry, error) {
 
 // implementRespond maps the worker's accepted result to its response: the
 // outcome itself. A result that stops short must say why in plain language.
+// Which node may ask is settled before this, by the trusted result context: only
+// the sync resolver's unfinished result may carry questions, and every other
+// Implement node's result with questions is refused there.
 func implementRespond(r agentresult.Result) (string, error) {
 	switch r.Outcome {
 	case agentresult.ImplementResponseCompleted:
@@ -62,8 +65,8 @@ func implementRespond(r agentresult.Result) (string, error) {
 			return "", errors.New("a completed Implement result carries no questions")
 		}
 	case agentresult.ImplementResponseIncomplete, agentresult.ImplementResponseBlocked:
-		if strings.TrimSpace(r.Reason) == "" || len(r.Questions) != 0 {
-			return "", fmt.Errorf("an %s Implement result needs a plain reason and no questions", r.Outcome)
+		if strings.TrimSpace(r.Reason) == "" {
+			return "", fmt.Errorf("an %s Implement result needs a plain reason", r.Outcome)
 		}
 	default:
 		return "", fmt.Errorf("outcome %q is not completed, incomplete or blocked", r.Outcome)
@@ -107,13 +110,19 @@ func validateImplementComment(_ store.GraphNodeAttempt, kind string, candidate a
 }
 
 // renderImplementComment lays out a report for the owner: what happened, one
-// line per parked story when it asks, and the next step or how to answer.
+// line per parked story or resolver question when it asks, and the next step or
+// how to answer. A question with options leads with its ID, so the owner can
+// answer with the ID and an option.
 func renderImplementComment(candidate agentresult.Result, _ string, _ naming.Ref, _ string) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(candidate.Comment))
 	b.WriteString("\n\n")
 	for _, q := range candidate.Questions {
-		b.WriteString("- " + strings.TrimSpace(q.Text) + questionOptionLines(q) + "\n")
+		id := ""
+		if len(q.Options) != 0 {
+			id = "**" + q.ID + "** "
+		}
+		b.WriteString("- " + id + strings.TrimSpace(q.Text) + questionOptionLines(q) + "\n")
 	}
 	if len(candidate.Questions) != 0 {
 		b.WriteString("\n")

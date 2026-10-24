@@ -40,6 +40,9 @@ type discoveryHTTPFixture struct {
 	statuses   map[int]int
 	actorID    int64
 	logs       bytes.Buffer
+	// listings answers the repository issue and comment listings with nothing
+	// new; without it they are not found.
+	listings bool
 }
 
 // budgetAtOneList leaves traffic for exactly one maximum history plus the
@@ -100,6 +103,10 @@ func (f *discoveryHTTPFixture) serve(w http.ResponseWriter, r *http.Request) {
 	status := 200
 	defer func() { f.statuses[status]++ }()
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if f.listings && len(parts) >= 4 && parts[3] == "issues" && (len(parts) == 4 || (len(parts) == 5 && parts[4] == "comments")) {
+		_, _ = w.Write([]byte("[]"))
+		return
+	}
 	if len(parts) < 5 {
 		status = 404
 		w.WriteHeader(status)

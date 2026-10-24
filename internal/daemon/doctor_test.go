@@ -45,13 +45,14 @@ func (doctorTestFilter) Admit(context.Context, int64, github.Comment) (turn.Admi
 
 type doctorTestForge struct {
 	Forge
-	entries    []github.RepositoryComment
-	posts      []github.Comment
-	postErr    error
-	seen       []github.Comment
-	issue      github.Issue
-	scans      int
-	issueReads int
+	entries      []github.RepositoryComment
+	posts        []github.Comment
+	postErr      error
+	seen         []github.Comment
+	issue        github.Issue
+	scans        int
+	issueReads   int
+	commentReads int
 }
 
 func (f *doctorTestForge) ListRepositoryCommentsPage(context.Context, github.Repo, time.Time, int, int) (github.RepositoryCommentPage, error) {
@@ -64,6 +65,16 @@ func (f *doctorTestForge) GetIssue(context.Context, github.Repo, int) (github.Is
 }
 func (f *doctorTestForge) ListCommentsPage(context.Context, github.Repo, int, int, int) (github.CommentPage, error) {
 	return github.CommentPage{Comments: f.seen}, nil
+}
+func (f *doctorTestForge) ListCommentsAfter(_ context.Context, _ github.Repo, _ int, after int64) ([]github.Comment, error) {
+	f.commentReads++
+	var out []github.Comment
+	for _, c := range f.seen {
+		if c.ID > after {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 func (f *doctorTestForge) PostComment(_ context.Context, _ github.Repo, _ int, body redact.Body) (github.Comment, error) {
 	c := github.Comment{ID: int64(100 + len(f.posts)), Body: body.String(), Author: github.User{ID: 99}}
@@ -750,6 +761,97 @@ func TestDoctorDiscoveryRetainsTwelveTargetBound(t *testing.T) {
 	}
 	if forge.scans != 1 || forge.issueReads != 12 {
 		t.Fatalf("pages=%d target reads=%d", forge.scans, forge.issueReads)
+	}
+}
+
+// The repository-comment scan is the listing's safety net: ticks between a
+// project's listings make no scan, its listing tick scans once.
+func TestDoctorScanRunsOnlyOnListingTicks(t *testing.T) {
+	d, forge, repo := doctorDaemonFixture(t)
+	ctx := t.Context()
+	at := d.now()
+	d.schedule = newDiscoverySchedule(time.Hour)
+	if err := d.discoverDoctor(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	d.schedule.ListingFinished(repo.ID, at)
+	forge.entries = []github.RepositoryComment{{IssueNumber: 406, Comment: doctorComment(10, "/doctor explain")}}
+	for i := 1; i <= 4; i++ {
+		if err := d.discoverDoctor(ctx, at.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if forge.scans != 0 {
+		t.Fatalf("ticks between listings scanned %d times", forge.scans)
+	}
+	listing := at.Add(time.Hour)
+	if err := d.discoverDoctor(ctx, listing); err != nil {
+		t.Fatal(err)
+	}
+	d.schedule.ListingFinished(repo.ID, listing)
+	if err := d.discoverDoctor(ctx, listing.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if forge.scans != 1 {
+		t.Fatalf("listing tick scans=%d, want 1", forge.scans)
+	}
+	c, err := d.db.ClaimDoctorCommand(ctx, "", false, "test-instance")
+	if err != nil || c.CommentID != 10 {
+		t.Fatalf("listing scan did not admit the command: %+v %v", c, err)
+	}
+}
+
+// A webhook hint for a session whose worker is in flight admits its /doctor
+// stop directly, without the repository scan, and the next tick's controls
+// stop the running workflow.
+func TestDoctorWebhookHintAdmitsStopForBusySession(t *testing.T) {
+	d, forge, repo := doctorDaemonFixture(t)
+	ctx := t.Context()
+	at := d.now()
+	d.schedule = newDiscoverySchedule(time.Hour)
+	d.schedule.ListingFinished(repo.ID, at)
+	session, err := d.db.GetOrCreateSession(ctx, repo, 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.db.BootstrapWatermark(ctx, session.ID, 5); err != nil {
+		t.Fatal(err)
+	}
+	segment, err := d.db.GetOrCreateSegment(ctx, session.ID, 1, "implement", store.AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: store.AgentClaude, LogPath: func(int) string { return "fixture.log" }}); err != nil {
+		t.Fatal(err)
+	}
+	worker, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if !d.inflight.enter(session.ID) {
+		t.Fatal("session already in flight")
+	}
+	defer d.inflight.leave(session.ID)
+	d.inflight.bindCancel(session.ID, cancel)
+	consumed := doctorComment(4, "/doctor consumed earlier")
+	forge.seen = []github.Comment{consumed, doctorComment(12, "/doctor stop")}
+	d.webhook = newWebhookRuntime(WebhookOptions{}, d.log)
+	d.webhook.hints.add(hintKey{repoID: repo.ID, number: 406})
+	q := &repoQueue{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, log: d.log, listing: true}
+	var result TickResult
+	if err := d.webhookHints(ctx, map[int64]*repoQueue{repo.ID: q}, map[int64]*candidate{}, &result); err != nil {
+		t.Fatal(err)
+	}
+	if forge.commentReads != 1 {
+		t.Fatalf("hinted busy session read its comments %d times, want 1", forge.commentReads)
+	}
+	// The next tick: no scan between listings, and the stop reaches the worker.
+	d.doctorTick(ctx, at.Add(time.Minute))
+	if forge.scans != 0 {
+		t.Fatalf("tick between listings scanned %d times", forge.scans)
+	}
+	select {
+	case <-worker.Done():
+	case <-time.After(testutil.Wait):
+		t.Fatal("/doctor stop did not reach the in-flight session")
 	}
 }
 

@@ -3,6 +3,8 @@ package agentresult
 import (
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 // A coordinator agent (the Implement sync resolver) works on the feature branch,
@@ -30,5 +32,31 @@ func TestImplementCoordinatorRoleNeedsAndNamesNoStory(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("diagnostics do not explain the refusal: %+v", d)
+	}
+}
+
+// #1142: of the Implement agents only the sync resolver may ask, and only on an
+// unfinished result; a story worker's result with questions is still refused.
+func TestImplementOnlyTheCoordinatorRoleMayAsk(t *testing.T) {
+	ask := []Question{{ID: "q1", Audience: "technical", Text: "Which handler should stay?", Options: []Option{{ID: "a", Text: "Keep the branch's"}, {ID: "b", Text: "Take main's"}}, RecommendedOption: "b"}}
+	coordinator := Context{SchemaVersion: SchemaVersion, Mode: "implement", WorkflowVersion: 2, CoordinatorRole: true, QuestionsAllowed: true}
+	for _, outcome := range []string{"incomplete", "blocked"} {
+		r := Result{Outcome: outcome, Comment: "Two handlers conflict.", Reason: "main and the stories disagree.", Questions: ask, Payload: Payload{Implement: &Implement{}}}
+		if d := ValidateResult(r, coordinator); !d.Valid {
+			t.Fatalf("a %s resolver result may ask: %+v", outcome, d)
+		}
+	}
+	completed := Result{Outcome: "completed", Comment: "Resolved.", Questions: ask, Payload: Payload{Implement: &Implement{}}}
+	if d := ValidateResult(completed, coordinator); d.Valid {
+		t.Fatal("a completed resolver result must not ask")
+	}
+	worker := Context{SchemaVersion: SchemaVersion, Mode: "implement", WorkflowVersion: 2, QuestionsAllowed: true, Stories: map[string]agent.ContributionStory{"story-001": {Revision: "r1"}}}
+	blocked := Result{Outcome: "blocked", Comment: "Stuck.", Reason: "need a key.", Questions: ask, Payload: Payload{Implement: &Implement{}}}
+	if d := ValidateResult(blocked, worker); d.Valid {
+		t.Fatal("a story worker's result with questions is refused")
+	}
+	blocked.Questions = nil
+	if d := ValidateResult(blocked, worker); !d.Valid {
+		t.Fatalf("the story worker's blocked result without questions: %+v", d)
 	}
 }
