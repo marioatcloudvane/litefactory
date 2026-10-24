@@ -37,7 +37,7 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 	}
 	if cfg.Agents.Claude != nil {
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
-		runner, e := harness.New(harness.Options{Paths: service.Paths, Claude: *cfg.Agents.Claude, Model: model, Environ: environ, Logger: env.Logger})
+		runner, e := harness.New(harness.Options{Paths: service.Paths, Claude: *cfg.Agents.Claude, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if e == nil {
 			providers["claude"] = runner
 			repairs["claude"] = runner
@@ -46,7 +46,7 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 	}
 	if cfg.Agents.Codex != nil {
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("codex"), config.TierFlagship)
-		runner, e := codex.New(codex.Options{Paths: service.Paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: env.Logger})
+		runner, e := codex.New(codex.Options{Paths: service.Paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if e == nil {
 			providers["codex"] = runner
 			repairs["codex"] = runner
