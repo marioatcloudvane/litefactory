@@ -52,7 +52,7 @@ func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agen
 	if err = os.WriteFile(mcpPath, registration, 0600); err != nil {
 		return agent.ChatResult{}, err
 	}
-	args := chatArguments(request.Model, mcpPath, permitted)
+	args := append(chatArguments(request.Model, mcpPath, permitted), r.thinkingArgs(ctx)...)
 	env := r.persistentClaudeEnv(scratch, configDir)
 	collector := newUsageCaptureCollector(ctx, request.Usage, "", false)
 	var result agent.ChatResult
