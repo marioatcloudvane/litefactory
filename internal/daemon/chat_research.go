@@ -311,11 +311,12 @@ func (d *Daemon) dispatchChatDiagnosis(ctx context.Context, at time.Time) {
 		}
 		if conversationAllowed && r.State != "exhausted" && at.Before(r.CreatedAt.Add(24*time.Hour)) {
 			ref, e := naming.ParseRef(r.TargetRef)
+			var issue github.Issue
 			if e == nil {
 				if d.forge == nil {
 					e = errors.New("issue lookup unavailable")
 				} else {
-					_, e = d.readIssue(ctx, github.Repo{Owner: ref.Owner, Name: ref.Repo}, ref.Issue)
+					issue, e = d.readIssue(ctx, github.Repo{Owner: ref.Owner, Name: ref.Repo}, ref.Issue)
 					if errors.Is(e, github.ErrNotFound) {
 						text = "issue was not found; no diagnosis ran"
 					}
@@ -350,6 +351,9 @@ func (d *Daemon) dispatchChatDiagnosis(ctx context.Context, at time.Time) {
 							text = summary
 							outcomeStatus = "success"
 						}
+						if e := d.presentChatProposal(context.WithoutCancel(ctx), r, issue, c); e != nil {
+							d.log.WarnContext(ctx, "chat diagnosis repair proposal could not be presented on the issue")
+						}
 					}
 				}
 			}
@@ -366,6 +370,81 @@ func (d *Daemon) dispatchChatDiagnosis(ctx context.Context, at time.Time) {
 		}
 		d.chat.service.Notify()
 	}()
+}
+
+// presentChatProposal hands a chat diagnosis's repair proposal to the doctor's
+// issue presentation, the same one a `/doctor` comment gets, so the owner can
+// review it there and approve it with `/doctor apply`.
+func (d *Daemon) presentChatProposal(ctx context.Context, r store.ChatReply, issue github.Issue, c doctor.Conversation) error {
+	if c.ProposalID <= 0 || issue.ID <= 0 {
+		return nil
+	}
+	ref, err := naming.ParseRef(c.Conversation.TaskRef)
+	if err != nil {
+		return err
+	}
+	repoID := r.ResolvedRepoID
+	if repoID == 0 {
+		repo, err := d.db.GetRepoBySlug(ctx, ref.Forge, ref.Owner, ref.Repo)
+		if err != nil {
+			return err
+		}
+		repoID = repo.ID
+	}
+	body := "Repair proposed by a diagnosis requested from chat.\n\n" + doctor.RenderConversation(c)
+	if c.ApplyAvailable {
+		body += "\nTo approve this repair, reply `/doctor apply` on this issue.\n"
+	}
+	safe, err := d.chat.redactor.Apply(ctx, body, 262144)
+	if err != nil {
+		return err
+	}
+	if safe.Truncated() {
+		return errors.New("chat repair proposal exceeds publication bound")
+	}
+	return d.db.PresentChatDiagnosis(ctx, store.DoctorCommand{RepoID: repoID, TaskRef: ref.String(), IssueID: issue.ID, IssueNumber: ref.Issue, ActorID: d.filter.Identities().OwnerUserID, CreatedAt: time.Now(), Instructions: "Diagnosis requested from chat", ResultBody: safe.String(), ProposalID: c.ProposalID})
+}
+
+// chatPresentationWait bounds how long a finished conversation diagnosis waits
+// for its repair proposal's issue comment, so the channel post can link to it.
+const chatPresentationWait = 10 * time.Minute
+
+// chatDiagnosisResults posts finished conversation diagnoses to their channel
+// as soon as they are ready. Each result is queued once as durable notices,
+// and rows left by an interrupted daemon are posted on the next pass.
+func (d *Daemon) chatDiagnosisResults(ctx context.Context, at time.Time) error {
+	results, err := d.db.ListConversationDiagnosisResults(ctx, "discord", 16)
+	if err != nil {
+		return err
+	}
+	// One unpostable result never holds back the others.
+	var failures []error
+	for _, r := range results {
+		link := ""
+		source := "chat:" + r.Transport + ":" + r.MessageID
+		p, err := d.db.ReadChatDiagnosisPresentation(ctx, source, source+":retry")
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			failures = append(failures, err)
+			continue
+		}
+		if err == nil {
+			ref, e := naming.ParseRef(p.TaskRef)
+			if e != nil {
+				failures = append(failures, e)
+				continue
+			}
+			switch {
+			case p.Complete && p.CommentID > 0:
+				link = fmt.Sprintf("The proposed repair is posted for review on the issue: %s#issuecomment-%d\nTo approve it, reply `/doctor apply` there.", ref.IssueURL(), p.CommentID)
+			case at.Before(r.NextAttemptAt.Add(chatPresentationWait)):
+				continue
+			default:
+				link = "The proposed repair is still being posted on the issue " + ref.IssueURL() + "; once it appears, approve it there with `/doctor apply`."
+			}
+		}
+		failures = append(failures, d.chat.service.PushConversationDiagnosis(ctx, r, link, at))
+	}
+	return errors.Join(failures...)
 }
 
 func (d *Daemon) chatResearchNotes(ctx context.Context) error {
