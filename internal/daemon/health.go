@@ -92,6 +92,7 @@ func (d *Daemon) publishHealth(ctx context.Context, now time.Time) {
 		listener.PauseReason = summary
 	}
 	listener.InFlightSessions = d.inflight.list()
+	listener.InFlightLabels = d.inflight.listLabels()
 	listener.RunsInFlight = len(listener.InFlightSessions)
 	if d.pool != nil {
 		listener.SlotsUsed, listener.SlotsTotal = d.pool.capacity()
@@ -171,9 +172,9 @@ func healthSignature(l store.ListenerStatus, rows []store.RepoDiscoveryStatus) s
 		}
 		return t.UTC().Format(time.RFC3339Nano)
 	}
-	fmt.Fprintf(&b, "%q %t %s %t %q %s %s %d %q %v %d/%d", l.ListenAddress, l.Listening, at(l.DaemonStartedAt),
+	fmt.Fprintf(&b, "%q %t %s %t %q %s %s %d %q %v %v %d/%d", l.ListenAddress, l.Listening, at(l.DaemonStartedAt),
 		l.DiscoveryPaused, l.PauseReason, at(l.PausedSince), at(l.ExpectedResumeAt), l.RunsInFlight, l.ChatStatus,
-		l.InFlightSessions, l.SlotsUsed, l.SlotsTotal)
+		l.InFlightSessions, l.InFlightLabels, l.SlotsUsed, l.SlotsTotal)
 	for _, r := range rows {
 		fmt.Fprintf(&b, "|%d %s %s %s %t %t %s", r.RepoID, at(r.LastDeliveryAt), at(r.LastPollFinishedAt),
 			at(r.NextPollDueAt), r.PollOwed, r.SecretPresent, r.WebhookMode)

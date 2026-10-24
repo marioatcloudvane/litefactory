@@ -126,6 +126,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			}
 			continue
 		}
+		d.inflight.label(session.ID, "graph_step")
 		t.workerLog = log.With(slog.Any("dispatch_sources", []string{"graph_step"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")
 		go d.runDoctorGuardedWorker(sessionContext(workerCtx, dispatch.SessionID), t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })

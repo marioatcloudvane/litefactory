@@ -43,10 +43,14 @@ import (
 //
 // An inflight is safe for concurrent use, and its zero value is an empty set.
 type inflight struct {
-	mu        sync.Mutex
-	sessions  map[int64]struct{}
-	cancels   map[int64]context.CancelFunc
-	settled   map[int64]chan struct{}
+	mu       sync.Mutex
+	sessions map[int64]struct{}
+	cancels  map[int64]context.CancelFunc
+	settled  map[int64]chan struct{}
+	// labels names the dispatch source that started each session's worker, for
+	// the display-only health snapshot (#1138). A session without one is
+	// unlabelled, never refused.
+	labels    map[int64]string
 	highWater int
 }
 
@@ -86,6 +90,7 @@ func (f *inflight) leave(sessionID int64) {
 	defer f.mu.Unlock()
 	delete(f.sessions, sessionID)
 	delete(f.cancels, sessionID)
+	delete(f.labels, sessionID)
 	if done := f.settled[sessionID]; done != nil {
 		close(done)
 		delete(f.settled, sessionID)
@@ -109,6 +114,31 @@ func (f *inflight) list() []int64 {
 	}
 	slices.Sort(ids)
 	return ids
+}
+
+// label records the dispatch source of a session's worker. It is display-only:
+// a session that is not in flight is ignored, and the label goes with leave.
+func (f *inflight) label(sessionID int64, source string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.sessions[sessionID]; !ok {
+		return
+	}
+	if f.labels == nil {
+		f.labels = make(map[int64]string)
+	}
+	f.labels[sessionID] = source
+}
+
+// listLabels reports the label of every in-flight session that has one.
+func (f *inflight) listLabels() map[int64]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make(map[int64]string, len(f.labels))
+	for id, label := range f.labels {
+		out[id] = label
+	}
+	return out
 }
 
 // peak reports the most sessions that have been in flight at once since the

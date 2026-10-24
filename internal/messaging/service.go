@@ -92,7 +92,10 @@ type Status struct {
 	RunsInFlight                             int
 	// InFlightSessions are the sessions behind RunsInFlight; SlotsUsed and
 	// SlotsTotal are the worker pool's occupancy, zero total when unknown.
-	InFlightSessions      []int64
+	InFlightSessions []int64
+	// InFlightLabels names the dispatch source of an in-flight session's
+	// worker, for example "backlog+graph_owner_wait"; absent when unknown.
+	InFlightLabels        map[int64]string
 	SlotsUsed, SlotsTotal int
 	PauseReason, Polling  string
 	ExpectedResumeAt      time.Time
@@ -112,7 +115,7 @@ func (f FactoryStatus) Read(ctx context.Context, at time.Time) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	v := Status{Running: snap.Found && !snap.Listener.DaemonStartedAt.IsZero() && at.Sub(snap.Listener.WrittenAt) <= 5*time.Minute, DiscoveryPaused: snap.Listener.DiscoveryPaused, RunsInFlight: snap.Listener.RunsInFlight, InFlightSessions: snap.Listener.InFlightSessions, SlotsUsed: snap.Listener.SlotsUsed, SlotsTotal: snap.Listener.SlotsTotal, PauseReason: snap.Listener.PauseReason, ExpectedResumeAt: snap.Listener.ExpectedResumeAt}
+	v := Status{Running: snap.Found && !snap.Listener.DaemonStartedAt.IsZero() && at.Sub(snap.Listener.WrittenAt) <= 5*time.Minute, DiscoveryPaused: snap.Listener.DiscoveryPaused, RunsInFlight: snap.Listener.RunsInFlight, InFlightSessions: snap.Listener.InFlightSessions, InFlightLabels: snap.Listener.InFlightLabels, SlotsUsed: snap.Listener.SlotsUsed, SlotsTotal: snap.Listener.SlotsTotal, PauseReason: snap.Listener.PauseReason, ExpectedResumeAt: snap.Listener.ExpectedResumeAt}
 	if !snap.Listener.LastHeartbeatStartedAt.IsZero() {
 		v.HeartbeatKnown = true
 		v.HeartbeatAge = max(time.Duration(0), at.Sub(snap.Listener.LastHeartbeatStartedAt)).Round(time.Second)
@@ -412,6 +415,19 @@ func (s *Service) summary(ctx context.Context, m Message, at time.Time) (string,
 	return assessed(ctx, text, presentation.Success)
 }
 
+// inFlightSource words the dispatch source of an in-flight worker that has no
+// run or graph step. Ordinary candidate sources are the worker checking the
+// task for input; the factory's own dispatches are named as they are.
+func inFlightSource(label string) string {
+	switch label {
+	case "due_schedule", "graph_step", "automatic_continuation", "stopped_result":
+		return label
+	case "":
+		return "checking for input"
+	}
+	return "checking for input (" + strings.ReplaceAll(label, "+", ", ") + ")"
+}
+
 func (s *Service) finish(ctx context.Context, r store.ChatReply, failed bool, at time.Time) error {
 	err := s.db.FinishChatReply(ctx, r, failed, at)
 	if err == nil && failed && s.Logger != nil {
@@ -422,8 +438,9 @@ func (s *Service) finish(ctx context.Context, r store.ChatReply, failed bool, at
 
 // taskSummary lists, from the store, what is running now, what is queued for a
 // slot or a retry, and what waits on the owner. The Running now count is the
-// number of listed lines; slots held by work that is no task are one
-// housekeeping note.
+// number of listed lines. An in-flight task with no run or graph step is named
+// by its task and the dispatch source that started its worker; an in-flight
+// session that cannot be resolved is counted in the header.
 func (s *Service) taskSummary(ctx context.Context, v Status, at time.Time) string {
 	repos, err := s.db.ListRepos(ctx)
 	if err != nil {
@@ -473,17 +490,26 @@ func (s *Service) taskSummary(ctx context.Context, v Status, at time.Time) strin
 			running = append(running, statusEntry{text: line + " · since " + statusClock(w.Since, at)})
 		}
 	}
-	// Only a live daemon's slots count; housekeeping is a slot with no task work.
-	housekeeping := 0
+	// Only a live daemon's slots count. A slot with no task work is named by
+	// its task and real dispatch source; one that cannot be resolved is counted.
+	unidentified := 0
+	inFlight := map[int64]bool{}
 	if v.Running {
 		if len(v.InFlightSessions) > 0 {
 			for _, id := range v.InFlightSessions {
-				if !busy[id] {
-					housekeeping++
+				if busy[id] {
+					continue
 				}
+				session, err := s.db.GetSession(ctx, id)
+				if _, ok := githubRepo[session.RepoID]; err != nil || !ok {
+					unidentified++
+					continue
+				}
+				inFlight[id] = true
+				running = append(running, task(session.RepoID, session.IssueNumber, session.TaskRef+" · "+inFlightSource(v.InFlightLabels[id])))
 			}
 		} else {
-			housekeeping = max(0, v.RunsInFlight-len(busy))
+			unidentified = max(0, v.RunsInFlight-len(busy))
 		}
 	}
 
@@ -497,7 +523,7 @@ func (s *Service) taskSummary(ctx context.Context, v Status, at time.Time) strin
 	}
 	listed := map[int64]bool{}
 	for _, w := range waits {
-		if _, ok := githubRepo[w.RepoID]; busy[w.SessionID] || listed[w.SessionID] || !ok {
+		if _, ok := githubRepo[w.RepoID]; busy[w.SessionID] || inFlight[w.SessionID] || listed[w.SessionID] || !ok {
 			continue
 		}
 		listed[w.SessionID] = true
@@ -519,8 +545,8 @@ func (s *Service) taskSummary(ctx context.Context, v Status, at time.Time) strin
 	}
 
 	header := fmt.Sprintf("Running now: %d", len(running))
-	if housekeeping > 0 {
-		header += fmt.Sprintf(" (+%d housekeeping)", housekeeping)
+	if unidentified > 0 {
+		header += fmt.Sprintf(" (+%d unidentified)", unidentified)
 	}
 	sections := []struct {
 		header string
