@@ -65,6 +65,9 @@ type OwnerWait struct {
 type FactoryReader interface {
 	ReadProjectTasks(context.Context, int64) (tasks []Task, incomplete bool, err error)
 	ReadDiscoveryPause(context.Context) (paused bool, known bool, err error)
+	// ReadRunsHeld says why new runs wait, for example on low free disk; empty
+	// while nothing holds them.
+	ReadRunsHeld(context.Context) (string, error)
 }
 
 // IssueReader reads open issues newest-updated first, returning at most limit
@@ -115,6 +118,11 @@ func (c Collector) collect(ctx context.Context, repo store.Repo, at time.Time, t
 		b.Gaps = append(b.Gaps, "Factory discovery pause state could not be read.")
 	} else {
 		add(fact("discovery", "discovery", "", fmt.Sprintf("Discovery paused: %t.", paused)))
+	}
+	if held, err := c.Factory.ReadRunsHeld(ctx); err != nil {
+		b.Gaps = append(b.Gaps, "Factory run hold state could not be read.")
+	} else if held != "" {
+		add(fact("runs_held", "discovery", "", "Runs held: "+held))
 	}
 	tasks, tasksCut, taskErr := c.Factory.ReadProjectTasks(ctx, repo.ID)
 	if taskErr != nil {
