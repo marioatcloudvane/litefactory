@@ -537,3 +537,19 @@ func TestAuthoringProposesANewCategoryForAnEmptyBook(t *testing.T) {
 		t.Fatalf("proposal does not open the category: %+v", p.Operations)
 	}
 }
+
+func TestAuthoringAcceptsADraftWithNoQuestionsLeft(t *testing.T) {
+	t.Parallel()
+	book, _, db := publicationServices(t)
+	a := &standards.Authoring{Store: db, Book: book}
+	v, e := a.Start(t.Context(), standards.AuthoringStart{Mode: "create", Intent: "No stubs for planned capabilities"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	a.Runner = authorRunner(func(context.Context, standards.AuthoringCall) ([]byte, error) {
+		return []byte(`{"schema_version":1,"category_id":"delivery","new_category":{"id":"delivery","name":"Delivery","description":"What a delivered change contains."},"rule":"MUST implement or omit a planned capability, never stub it","description":"x","evidence":"The PR diff.","scope":"All repositories.","check":"semi_automated","applies_to":["story-worker"]}`), nil
+	})
+	if v, e = a.Continue(t.Context(), v.ID, v.Version); e != nil || len(v.Questions) != 0 {
+		t.Fatalf("draft without questions: %+v %v", v.Questions, e)
+	}
+}
