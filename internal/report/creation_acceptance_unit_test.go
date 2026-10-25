@@ -125,3 +125,28 @@ func TestReporter_CreationAcceptanceUnsafeOutputFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestCreationUncertainOutcomeRequiresInspectionBeforeReplacement(t *testing.T) {
+	t.Parallel()
+	admission := historicalCreationAcceptance()
+	admission.Published = &report.CreationPublished{
+		State: "uncertain", Reason: "publication response was lost",
+		Issues: []report.PublishedIssue{
+			{Title: "Known issue", Reference: "#47", Number: 47, Relationship: "uncertain"},
+			{Title: "Unconfirmed issue"},
+		},
+	}
+	body, err := newReporter(t).RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: report.ReplyCreationAccepted, CreationAcceptance: &admission})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := body.String()
+	for _, fact := range []string{admission.Hash, "#47", "created; attaching", "creation outcome is unknown", "Inspect the listed issues and repository issue list", "before requesting", "confirmed missing work"} {
+		if !strings.Contains(text, fact) {
+			t.Errorf("missing uncertainty or inspection ordering %q: %s", fact, text)
+		}
+	}
+	if strings.Contains(text, "before approving again") || body.Truncated() {
+		t.Fatalf("uncertain effects encourage replay or lose guidance: %s", text)
+	}
+}

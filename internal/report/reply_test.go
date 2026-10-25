@@ -205,3 +205,28 @@ func TestRenderReplyPlainParentCommentRefusals(t *testing.T) {
 		}
 	}
 }
+
+// Retained refusals must carry their actionable route through the final signed
+// reply, rather than relying on a renderer fragment or a generic retry hint.
+func TestRuntimeRefusalInspectionRoutes(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []report.ReplyKind{report.ReplyDoctorUnsupported, report.ReplyGraphResumeRefused, report.ReplyScheduleBlocked} {
+		t.Run(kind.String(), func(t *testing.T) {
+			t.Parallel()
+			body, err := newReporter(t).RenderReply(t.Context(), report.Reply{
+				Ref: testRef, Kind: kind, Schedule: report.ScheduleReply{ID: 71},
+				ResumeNode: "agent", ResumeReason: "saved launch is missing",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := body.String()
+			if strings.Count(text, report.TaskInspectionCommand(testRef.String())) != 1 || !strings.Contains(text, "factory host") || body.Truncated() {
+				t.Fatalf("refusal lost its single affected-task inspection route: %s", text)
+			}
+			if !strings.Contains(text, report.ReplyMarker(testRef)) {
+				t.Fatalf("missing affected-task marker: %s", text)
+			}
+		})
+	}
+}

@@ -75,11 +75,11 @@ func (s *Service) ownerInbox(ctx context.Context, m Message, at time.Time) (stri
 
 func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, capture *inboxCapture) (string, error) {
 	if !s.channels[m.Channel] {
-		return "Inbox access is unavailable in this conversation.", nil
+		return "Inbox access is unavailable in this conversation. Ask the factory operator to restore authorized conversation access before requesting the inbox again.", nil
 	}
 	if runtime := s.conversations.Load(); runtime != nil {
 		if err := conversationAccess(ctx, runtime, m.Channel, at); err != nil {
-			return inboxNotice("Inbox access is unavailable; retry after access is restored.")
+			return inboxNotice("Inbox access is unavailable. Ask the factory operator to restore authorized conversation access before requesting the inbox again.")
 		}
 	}
 	scope := s.inboxScope(m.Channel)
@@ -91,7 +91,7 @@ func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, c
 		var err error
 		id, offset, entry, err = inboxPosition(ref)
 		if err != nil {
-			return inboxNotice("This inbox reference is unavailable. Browse again to refresh.")
+			return inboxNotice("This inbox reference is unavailable. Send “show my inbox” here to capture current waits.")
 		}
 	}
 	switch operation {
@@ -186,9 +186,9 @@ func inboxReadFailure(err error) string {
 		return err.Error()
 	}
 	if errors.Is(err, store.ErrInboxExpired) {
-		return "This inbox snapshot expired after 24 hours. Browse again to refresh."
+		return "This inbox snapshot expired after 24 hours. Send “show my inbox” here to capture current waits."
 	}
-	return "The inbox snapshot is unavailable or access changed. Browse again to refresh; this does not mean nothing is waiting."
+	return "The inbox snapshot is unavailable or access changed. Send “show my inbox” here to capture current waits; unavailable state does not mean nothing is waiting."
 }
 
 func renderInboxPage(page store.InboxPage) string {
@@ -244,12 +244,12 @@ func (s *Service) openOwnerInbox(ctx context.Context, scope store.InboxScope, id
 	}
 	back := fmt.Sprintf("\nReturn: %s:%d", id, offset)
 	if len(page.Entries) == 0 {
-		return "This decision is unavailable or source access changed." + back, nil
+		return "This decision is unavailable or source access changed. Send “show my inbox” here to capture currently authorized waits." + back, nil
 	}
 	saved := page.Entries[0]
 	current, err := s.db.CurrentInboxDecision(ctx, saved.Key)
 	if err != nil {
-		return "This recorded wait has resolved, changed, or become unavailable. Refresh to see current waits." + back, nil
+		return "This recorded wait has resolved, changed, or become unavailable. Send “show my inbox” here to capture current waits." + back, nil
 	}
 	if capture != nil {
 		capture.Sources = []int64{current.ConnectionID}
@@ -282,11 +282,11 @@ func (s *Service) openOwnerInbox(ctx context.Context, scope store.InboxScope, id
 		}
 	}
 	if err = s.db.InboxSourcesAuthorized(ctx, scope, id, []int64{current.ConnectionID}, at); err != nil {
-		return "Source access changed while opening; refresh the inbox." + back, nil
+		return "Source access changed while opening. Send “show my inbox” here to capture currently authorized waits." + back, nil
 	}
 	latest, latestErr := s.db.CurrentInboxDecision(ctx, saved.Key)
 	if latestErr != nil {
-		return "This recorded wait resolved, changed, or became unavailable while refreshing the ticket. Refresh to see current waits." + back, nil
+		return "This recorded wait resolved, changed, or became unavailable while refreshing the ticket. Send “show my inbox” here to capture current waits." + back, nil
 	}
 	if latest.Action != current.Action || latest.Summary != current.Summary || latest.Destination != current.Destination {
 		return "This wait changed while refreshing the ticket. Open it again for current actions." + back, nil

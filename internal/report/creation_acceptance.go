@@ -72,7 +72,7 @@ func (a CreationAcceptance) published() string {
 		}
 		switch {
 		case issue.Number == 0:
-			fmt.Fprintf(&b, "- %s: **not confirmed**. Check the repository before approving again, or it may be created twice.\n", issue.Title)
+			fmt.Fprintf(&b, "- %s: **not confirmed**. Its creation outcome is unknown; repeating creation could create it twice.\n", issue.Title)
 		case issue.Relationship == "attached":
 			fmt.Fprintf(&b, "- %s %s (sub-issue)\n", reference, issue.Title)
 		case issue.Relationship == "uncertain":
@@ -82,7 +82,7 @@ func (a CreationAcceptance) published() string {
 		}
 	}
 	if p.State != "confirmed" {
-		b.WriteString("\nThe drafts after the stopping point were not published. Approving the same proposal again does nothing; ask for a new proposal holding only what is still missing.\n")
+		b.WriteString("\nThe drafts after the stopping point were not published. Approving the same proposal again does nothing. Inspect the listed issues and repository issue list to establish which creations and attachments succeeded before requesting a new proposal containing only confirmed missing work.\n")
 	}
 	return b.String()
 }
@@ -96,9 +96,9 @@ func ownerPublicationRefusal(reason string) string {
 	case "quota":
 		return "the repository's limit of 20 created issues per 24 hours would be exceeded. Approve again once earlier issues age out of the window."
 	case "bound":
-		return "an agent run already holds this approval and publishes it."
+		return "an agent run already bound this approval; its current publication status is not established by this refusal. Ask the factory operator to inspect the retained approval on the factory host with `litefactory logs --all`."
 	case "disabled":
-		return "issue creation is disabled in this factory's configuration (`allow_mcp_story_creation`)."
+		return "issue creation is disabled in this factory's configuration (`allow_mcp_story_creation`). Ask the factory operator to restore publishing eligibility before requesting a fresh proposal."
 	default:
 		return reason
 	}

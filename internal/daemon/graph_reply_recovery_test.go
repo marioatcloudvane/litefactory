@@ -323,7 +323,7 @@ func TestRunlessNodeLimitStopsAndReports(t *testing.T) {
 				}
 			} else {
 				posts, _, _ := f.forge.snapshot()
-				if len(posts) != 1 || !strings.Contains(posts[0], `node "merge" dispatch limit 1 exhausted`) || !strings.Contains(posts[0], "/doctor inspect") || strings.Contains(posts[0], "Reply on this open issue") {
+				if len(posts) != 1 || !strings.Contains(posts[0], `node "merge" dispatch limit 1 exhausted`) || !strings.Contains(posts[0], "litefactory logs --all --grep") || strings.Contains(posts[0], "Reply on this open issue") {
 					t.Fatalf("stop notice: %v", posts)
 				}
 			}
