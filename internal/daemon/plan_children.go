@@ -310,36 +310,57 @@ func planParentTitleKey(issue github.Issue, forge string) string {
 // the parent's admitted ticket connection, the way managedChildSession and the
 // recovery drain identify it.
 func (d *Daemon) planChildSessionExists(ctx context.Context, t *task, story store.GraphPlanStory) (bool, error) {
-	if d.connections == nil || story.IssueID <= 0 {
+	if d.connections == nil {
 		return false, nil
 	}
-	snapshot, err := d.db.GetExecutionSnapshot(ctx, t.session.ID)
-	if errors.Is(err, store.ErrNotFound) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	version, err := d.db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
-	if err != nil {
-		return false, err
-	}
-	identity := ticket.Identity{Provider: version.Provider, Origin: version.Origin, RemoteID: strconv.FormatInt(story.IssueID, 10)}
-	if version.Provider == ticket.Linear {
-		identity, err = d.db.TicketIdentityForSlot(ctx, "issue", story.IssueID)
-		if errors.Is(err, store.ErrNotFound) {
-			return false, nil
+	_, found, err := d.ownStorySession(ctx, t, story.IssueNumber, story.IssueID)
+	return found, err
+}
+
+// ownStorySession finds, from the store alone, the story's own session. With
+// project connections it is identified by ticket, as planChildSessionExists
+// always did; without them it is the repository/issue-number session that
+// managedChildSession creates. Nothing is created.
+func (d *Daemon) ownStorySession(ctx context.Context, t *task, number int, issueID int64) (store.Session, bool, error) {
+	var session store.Session
+	var err error
+	if d.connections == nil {
+		session, err = d.db.GetSessionByTaskRef(ctx, store.TaskRef(t.repo.Forge, t.repo.Owner, t.repo.Name, number))
+	} else {
+		if issueID <= 0 {
+			return store.Session{}, false, nil
 		}
-		if err != nil {
-			return false, err
+		snapshot, snapErr := d.db.GetExecutionSnapshot(ctx, t.session.ID)
+		if errors.Is(snapErr, store.ErrNotFound) {
+			return store.Session{}, false, nil
 		}
+		if snapErr != nil {
+			return store.Session{}, false, snapErr
+		}
+		version, versionErr := d.db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
+		if versionErr != nil {
+			return store.Session{}, false, versionErr
+		}
+		identity := ticket.Identity{Provider: version.Provider, Origin: version.Origin, RemoteID: strconv.FormatInt(issueID, 10)}
+		if version.Provider == ticket.Linear {
+			identity, err = d.db.TicketIdentityForSlot(ctx, "issue", issueID)
+			if errors.Is(err, store.ErrNotFound) {
+				return store.Session{}, false, nil
+			}
+			if err != nil {
+				return store.Session{}, false, err
+			}
+		}
+		session, err = d.db.GetSessionByTicket(ctx, identity)
 	}
-	session, err := d.db.GetSessionByTicket(ctx, identity)
 	if errors.Is(err, store.ErrNotFound) {
-		return false, nil
+		return store.Session{}, false, nil
 	}
 	if err != nil {
-		return false, err
+		return store.Session{}, false, err
 	}
-	return session.RepoID == t.repo.ID, nil
+	if session.RepoID != t.repo.ID {
+		return store.Session{}, false, nil
+	}
+	return session, true, nil
 }

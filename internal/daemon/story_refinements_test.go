@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // Only the relationship is replaced; all discovery, pagination, owner reads,
@@ -303,4 +307,193 @@ func TestFailingStorySweepDoesNotHoldParentComments(t *testing.T) {
 	if cursor, err := f.db.StoryDiscoveryCursor(t.Context(), s.ID, 201); err != nil || cursor != 60 {
 		t.Fatalf("swept story cursor = %d, %v", cursor, err)
 	}
+}
+
+// handledStoryFixture is a managed parent whose story #200 has its own session,
+// and that session already dealt with a plain owner comment (60) and a refused
+// approval (61) during Plan: its watermark is at 61. Neither is a consumed
+// Plan reply. The story is then owed a parent sweep from cursor 0 (#1157).
+func handledStoryFixture(t *testing.T, state string) (*fixture, store.Session) {
+	t.Helper()
+	f := managedRefinementFixture(t)
+	parent := f.sessionOf(testIssue)
+	if state != "planning" {
+		if err := f.db.CompareManagedFeature(t.Context(), store.ManagedFeature{ParentTask: parent.TaskRef, Generation: 1, State: state}, "planning"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.forge.addComment(200, 60, owner(), "what does this improve? I cannot tell from the story")
+	f.forge.addComment(200, 61, owner(), "/approve-plan story-999 a stage that is not open")
+	story, err := f.db.GetOrCreateSession(t.Context(), f.repo, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = f.db.BootstrapWatermark(t.Context(), story.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.db.AdvanceWatermark(t.Context(), story.ID, 61); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.db.MarkStoryDiscoveryPending(t.Context(), parent.ID, 200); err != nil {
+		t.Fatal(err)
+	}
+	return f, parent
+}
+
+// assertNotHandledByParent checks that the parent neither admitted, answered
+// nor ran the given story comments, and that its cursor moved past them.
+func assertNotHandledByParent(t *testing.T, f *fixture, parent store.Session, ids ...int64) {
+	t.Helper()
+	for _, id := range ids {
+		if r, err := f.db.GetStoryRefinement(t.Context(), parent.ID, id); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("comment %d admitted as a story refinement: %+v %v\n%s", id, r, err, f.logs)
+		}
+		for _, call := range f.turns.calls() {
+			if call.Trigger.CommentID == id {
+				t.Fatalf("comment %d ran on the parent: %+v", id, call)
+			}
+		}
+		bodies, reacted, _ := f.forge.snapshot()
+		for _, body := range bodies {
+			if strings.Contains(body, fmt.Sprintf("issuecomment-%d", id)) || strings.Contains(body, "locked after promotion") {
+				t.Fatalf("comment %d answered by the parent: %q", id, body)
+			}
+		}
+		for _, r := range reacted {
+			if r == id {
+				t.Fatalf("comment %d acknowledged by the parent: %v", id, reacted)
+			}
+		}
+		cursor, err := f.db.StoryDiscoveryCursor(t.Context(), parent.ID, 200)
+		if err != nil || cursor < id {
+			t.Fatalf("parent cursor %d not past comment %d: %v", cursor, id, err)
+		}
+	}
+}
+
+// C4 without project connections: comments the story's own session handled
+// get no lock reply after promotion.
+func TestStoryRefinementSkipsCommentsTheStorySessionHandled(t *testing.T) {
+	f, parent := handledStoryFixture(t, "implementing")
+	f.settle()
+	assertNotHandledByParent(t, f, parent, 60, 61)
+	if len(f.turns.calls()) != 0 {
+		t.Fatalf("locked story ran: %+v", f.turns.calls())
+	}
+}
+
+// C2: a genuinely new comment above the story session's watermark still gets
+// the lock notice exactly once.
+func TestStoryRefinementLocksNewCommentAboveStoryWatermark(t *testing.T) {
+	f, parent := handledStoryFixture(t, "implementing")
+	f.forge.addComment(200, 90, owner(), "change acceptance criteria")
+	f.settle()
+	f.settle()
+	if r, err := f.db.GetStoryRefinement(t.Context(), parent.ID, 90); err != nil || !r.Consumed {
+		t.Fatalf("new comment not admitted and answered: %+v %v\n%s", r, err, f.logs)
+	}
+	bodies, _, _ := f.forge.snapshot()
+	locks := 0
+	for _, body := range bodies {
+		if strings.Contains(body, "locked after promotion") {
+			locks++
+		}
+	}
+	if locks != 1 || len(bodies) != 1 {
+		t.Fatalf("lock notices = %d of %d posts, want exactly one: %v", locks, len(bodies), bodies)
+	}
+	for _, id := range []int64{60, 61} {
+		if _, err := f.db.GetStoryRefinement(t.Context(), parent.ID, id); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("handled comment %d admitted: %v", id, err)
+		}
+	}
+}
+
+// C1: a reply the parent's Plan state already consumed is not answered again,
+// even when no story-session watermark covers it.
+func TestStoryRefinementSkipsConsumedPlanReplies(t *testing.T) {
+	f := managedRefinementFixture(t)
+	parent := f.sessionOf(testIssue)
+	if err := f.db.CompareManagedFeature(t.Context(), store.ManagedFeature{ParentTask: parent.TaskRef, Generation: 1, State: "implementing"}, "planning"); err != nil {
+		t.Fatal(err)
+	}
+	f.forge.addComment(200, 60, owner(), "/approve-plan story-001 review")
+	if _, err := f.db.SavePlanWorkflowState(t.Context(), parent.TaskRef, 0, planbrief.PlanState{SharedRevision: "shared", ConsumedReplies: []int64{60}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.MarkStoryDiscoveryPending(t.Context(), parent.ID, 200); err != nil {
+		t.Fatal(err)
+	}
+	f.settle()
+	assertNotHandledByParent(t, f, parent, 60)
+}
+
+// C5: while still planning, a comment the story session already handled is
+// neither admitted nor run on the parent.
+func TestStoryRefinementPlanningSkipsCommentsTheStorySessionHandled(t *testing.T) {
+	f, parent := handledStoryFixture(t, "planning")
+	f.settle()
+	assertNotHandledByParent(t, f, parent, 60, 61)
+	if len(f.turns.calls()) != 0 {
+		t.Fatalf("handled comment ran on the parent: %+v", f.turns.calls())
+	}
+}
+
+// C4 with a project connection: the story's own session is found by ticket
+// identity, and the comments it handled get no lock reply after promotion.
+func TestStoryRefinementSkipsCommentsTheStorySessionHandledWithConnection(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	original := w.forge.server.Config.Handler
+	w.forge.server.Config.Handler = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		base := "/repos/" + w.repo.Slug()
+		if strings.HasPrefix(r.URL.Path, base+"/issues/") && strings.HasSuffix(r.URL.Path, "/parent") {
+			r = r.Clone(r.Context())
+			r.URL.Path = base + "/issues/" + strconv.Itoa(testIssue)
+		}
+		original.ServeHTTP(rw, r)
+	})
+	origin := recoveryProvider(t, w.fixture)
+	source := configureRecoverySource(t, w, origin)
+	w.daemon = newRecoveryDaemon(t, w, origin, "story-session-connection", false)
+	f := w.fixture
+	f.plantCursor()
+	f.forge.addIssue(fakeIssue{ID: 10000 + testIssue, Number: testIssue, Title: "Parent feature", User: stranger()})
+	f.clock.advance(scheduleInterval)
+	f.settle()
+	parent := f.sessionOf(testIssue)
+	if err := f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: parent.TaskRef, Generation: 1, State: "planning"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.CompareManagedFeature(t.Context(), store.ManagedFeature{ParentTask: parent.TaskRef, Generation: 1, State: "implementing"}, "planning"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.PutManagedStory(t.Context(), store.ManagedStory{ParentTask: parent.TaskRef, Generation: 1, Key: "US-1", IssueNumber: 200, IssueID: 10200, BodyHash: "hash", State: "planning"}); err != nil {
+		t.Fatal(err)
+	}
+	f.forge.addIssue(fakeIssue{ID: 10200, Number: 200, Title: "Story", Body: "Current acceptance criteria", State: "closed", User: stranger()})
+	f.forge.addComment(200, 60, owner(), "what does this improve? I cannot tell from the story")
+	f.forge.addComment(200, 61, owner(), "/approve-plan story-999 a stage that is not open")
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: source.Provider, Origin: origin, RemoteID: "10200"}, Locator: ticket.Locator{Provider: source.Provider, Origin: origin, Container: source.Destination, Key: "200"}}
+	story, err := f.db.AdmitManagedChild(t.Context(), parent.ID, ref, "github:"+w.repo.Slug()+"#200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = f.db.BootstrapTicketWatermark(t.Context(), story.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.db.AdvanceWatermark(t.Context(), story.ID, 61); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.db.MarkStoryDiscoveryPending(t.Context(), parent.ID, 200); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.advance(scheduleInterval)
+	f.settle()
+	if cursor, err := f.db.StoryDiscoveryCursor(t.Context(), parent.ID, 200); err != nil || cursor < 61 {
+		t.Fatalf("the parent never swept the story: cursor=%d %v\n%s", cursor, err, f.logs)
+	}
+	assertNotHandledByParent(t, f, parent, 60, 61)
 }
