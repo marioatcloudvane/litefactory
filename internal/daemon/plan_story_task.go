@@ -247,7 +247,8 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 		if !ok {
 			continue
 		}
-		session, err := d.managedChildSession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
+		// A story already admitted is found locally; only a new one is resolved.
+		session, err := d.storySession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()

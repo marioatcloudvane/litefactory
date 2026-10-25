@@ -123,11 +123,11 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := append(ConversationRoles(), JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair", StandardsAuthorRole, LogAnalystRole)
-	if pkg.Version() != "1.11.1" || pkg.Digest() == "" {
+	if pkg.Version() != "1.12.0" || pkg.Digest() == "" {
 		t.Fatal("embedded package must register the migrated roles and advance its version")
 	}
-	if len(pkg.files) != 19 {
-		t.Fatalf("embedded inventory has %d files, want fourteen roles, metadata, catalogue, two selected skills and the authoring schema", len(pkg.files))
+	if len(pkg.files) != 21 {
+		t.Fatalf("embedded inventory has %d files, want migrated roles, metadata, catalogue, selected skills and both retained schemas", len(pkg.files))
 	}
 	for _, role := range want {
 		if !slices.Contains(pkg.Roles(), role) {
@@ -139,6 +139,9 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 		}
 		if role == StandardsAuthorRole && len(capture.Resource(StandardsAuthorSchemaPath)) == 0 {
 			t.Fatal("authoring schema missing from retained capture")
+		}
+		if role == ConversationInboxOrganizerRole && len(capture.Resource(InboxOrganizerSchemaPath)) == 0 {
+			t.Fatal("organizer schema missing from retained capture")
 		}
 		if role == JudgeRole {
 			for _, name := range []string{JudgeRolePath} {

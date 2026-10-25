@@ -4,7 +4,7 @@
 
 Validate checks finished work and helps you ship it. It tests one exact commit, may repair a failing suite a little, has three read-only reviewers assess the result, and then hands the decisions to you. Start it with `/validate <text>`, or let `validate.auto_start` start it once Implement has merged every story. For the owner's view, see [validation and delivery](../guides/validation-and-delivery.md).
 
-The graph is `internal/teamsource/validate/validate.dot`, and it is the only place the flow lives: the order, the repair bound, the time budget, the measured limits and the reviewers are declared there. Go supplies steps and never picks the next one.
+The graph is `teams/source/base-team/validate/validate.dot`, and it is the only place the flow lives: the order, the repair bound, the time budget, the measured limits and the reviewers are declared there. Go supplies steps and never picks the next one.
 
 ## The suite
 

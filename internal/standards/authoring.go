@@ -39,6 +39,7 @@ type AuthoringStore interface {
 	BeginStandardsAuthoringAttempt(context.Context, store.StandardsAuthoringAttempt) (store.StandardsAuthoringAttempt, error)
 	FinishStandardsAuthoringAttempt(context.Context, store.StandardsAuthoringAttempt, *store.StandardsAuthoringSession) (store.StandardsAuthoringAttempt, error)
 	CompleteStandardsAuthoring(context.Context, string, int64, store.StandardsProposalVersion) (store.StandardsProposalVersion, error)
+	ReopenStandardsAuthoring(context.Context, store.StandardsAuthoringSession, int64) (store.StandardsAuthoringSession, error)
 	GetStandardsAuthoringCompletion(context.Context, string) (store.StandardsProposalVersion, error)
 	ListStandardsAuthoringAttempts(context.Context, string) ([]store.StandardsAuthoringAttempt, error)
 }
@@ -166,8 +167,8 @@ func (s *Authoring) Show(ctx context.Context, id string, version int64) (Authori
 	}
 	p, e := s.Store.GetStandardsAuthoringCompletion(ctx, id)
 	if e == nil {
+		// A reopened session keeps the proposal it produced but is a draft again.
 		v.Proposal = &p
-		v.Status = "completed"
 	} else if !errors.Is(e, store.ErrNotFound) {
 		return v, e
 	}
@@ -487,6 +488,34 @@ func (s *Authoring) Complete(ctx context.Context, id string, expected int64) (st
 	return s.Store.CompleteStandardsAuthoring(ctx, id, expected, p)
 }
 
+// Reopen takes a completed session back to draft so the author revises the
+// proposal it produced. The owner's change request is saved as an answered
+// question the author reads; nothing runs until the next Continue, and the
+// next Complete writes the next version of the same proposal.
+func (s *Authoring) Reopen(ctx context.Context, id string, expected int64, request string) (AuthoringSession, error) {
+	if strings.TrimSpace(request) == "" {
+		return AuthoringSession{}, ErrInvalid
+	}
+	v, e := s.Show(ctx, id, 0)
+	if e != nil {
+		return v, e
+	}
+	if v.Version != expected || v.Status != "completed" || v.Proposal == nil {
+		return v, store.ErrStandardsConflict
+	}
+	operator := strconv.FormatInt(s.Book.OwnerID, 10)
+	v.Questions = append(v.Questions, AuthoringQuestion{ID: authorID("q-"), Text: "What should change in proposal " + v.Proposal.ProposalID + " version " + strconv.FormatInt(v.Proposal.Version, 10) + "?", State: "answered", Answer: request, AnswerEvents: []AuthoringAnswerEvent{{ID: authorID("answer-"), Text: request, Operator: operator, CreatedVersion: expected + 1}}, CreatedVersion: expected + 1})
+	v.Diagnostics = nil
+	v.Status = "draft"
+	v.Draft.AppliesTo = sortedRoles(v.Draft.AppliesTo)
+	v.Version++
+	r, e := s.Store.ReopenStandardsAuthoring(ctx, authorRecord(v), expected)
+	if e != nil {
+		return v, e
+	}
+	return authorDecode(r)
+}
+
 // Rebase deliberately captures a chosen current head while retaining draft text.
 func (s *Authoring) Rebase(ctx context.Context, id string, expected int64, chosenHead ...int64) (AuthoringSession, error) {
 	v, e := s.input(ctx, id, expected)
@@ -777,7 +806,8 @@ func authorDecodeDraft(raw []byte, out *authorDraftOutput) error {
 	}
 	var fields map[string]json.RawMessage
 	if e := json.Unmarshal(raw, &fields); e == nil {
-		for _, key := range []string{"schema_version", "category_id", "rule", "description", "evidence", "scope", "check", "applies_to", "questions"} {
+		// questions may be left out: a draft with every question answered has none to ask.
+		for _, key := range []string{"schema_version", "category_id", "rule", "description", "evidence", "scope", "check", "applies_to"} {
 			if value, ok := fields[key]; !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 				return fmt.Errorf("invalid model response: missing required %s", key)
 			}

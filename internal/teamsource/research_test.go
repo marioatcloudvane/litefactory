@@ -182,7 +182,7 @@ func TestCaptureResearchIndependentDiagnostics(t *testing.T) {
 func TestCaptureResearchBuiltin(t *testing.T) {
 	t.Parallel()
 	r := researchTestRegistry(t)
-	got, err := CaptureResearch(t.Context(), r)
+	got, err := captureResearchGo(t.Context(), t, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestCaptureResearchBuiltin(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := CaptureResearch(ctx, r); err == nil {
+	if _, err := captureResearchGo(ctx, t, r); err == nil {
 		t.Fatal("accepted cancelled capture")
 	}
 }

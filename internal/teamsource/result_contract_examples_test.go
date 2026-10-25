@@ -36,9 +36,9 @@ type contractExample struct {
 
 func planContractDoc(t *testing.T) string {
 	t.Helper()
-	raw, err := planAssets.ReadFile(planContractPath)
-	if err != nil {
-		t.Fatal(err)
+	raw, ok := teamFiles(t, goTeam)[planContractPath]
+	if !ok {
+		t.Fatalf("%s is not in the go team source", planContractPath)
 	}
 	return string(raw)
 }

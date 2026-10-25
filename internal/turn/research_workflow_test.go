@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -254,7 +255,7 @@ func TestResearchCurrentInstructionsRotatePersistedSession(t *testing.T) {
 	}))
 	specs, err := ResearchSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CaptureResearch(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 	mustProgress(t, err)
 	ref, err := naming.ParseRef(f.session.TaskRef)
 	mustProgress(t, err)

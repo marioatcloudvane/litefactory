@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"os"
 	"strings"
 	"testing"
@@ -32,7 +33,7 @@ func conversationSourceFixture(t *testing.T, gated bool) (*fixture, *fakeForge, 
 	mustProgress(t, e)
 	var packageDef *teamsource.WorkflowDefinition
 	if gated {
-		packageDef, e = teamsource.CaptureBugParent(t.Context(), specs)
+		packageDef, e = teamsourcetest.CaptureBug(t.Context(), specs)
 	} else {
 		packageDef, e = captureLegacyConversation(t.Context(), specs)
 	}
@@ -62,7 +63,7 @@ func conversationSourceFixture(t *testing.T, gated bool) (*fixture, *fakeForge, 
 // captureLegacyConversation keeps fixtures pinned to the pre-gate source.
 // New synchronization tests capture the revised canonical definition directly.
 func captureLegacyConversation(ctx context.Context, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-	definition, err := teamsource.CaptureBugParent(ctx, specs)
+	definition, err := teamsourcetest.CaptureBug(ctx, specs)
 	if err != nil {
 		return nil, err
 	}

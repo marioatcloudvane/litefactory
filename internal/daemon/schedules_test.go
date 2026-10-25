@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"net/http"
 	"os"
 	"strings"
@@ -75,6 +76,44 @@ func TestDueScheduleDispatchesStoredPayloadAndCountsPendingWork(t *testing.T) {
 	}
 	if stored.Status != store.ScheduleSucceeded || stored.RunID == 0 {
 		t.Errorf("completed schedule = %+v, want succeeded with run id", stored)
+	}
+}
+
+// A due schedule whose issue is closed is settled once without a run, so it is
+// not offered, and its issue not read, again on every tick.
+func TestDueScheduleOnClosedIssueSettlesOnce(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Scheduled work")
+	f.settle()
+	session := f.session()
+	scheduled, _, err := f.db.CreateOrGetSchedule(t.Context(), store.CreateScheduleParams{
+		SessionID: session.ID, SourceCommentID: 701, OwnerHandle: ownerLogin,
+		Payload: "/spike scheduled payload", DueAt: f.clock.peek(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.forge.closeIssue(testIssue)
+	f.clock.advance(time.Minute)
+	f.settle()
+	stored, err := f.db.GetSchedule(t.Context(), scheduled.ID)
+	if err != nil || stored.Status != store.ScheduleFailed || stored.RunID != 0 {
+		t.Fatalf("schedule on a closed issue = %+v %v, want settled without a run\nlogs:\n%s", stored, err, f.logs)
+	}
+	reads := f.forge.issueReadsOf(testIssue)
+	for range 3 {
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	if got := f.forge.issueReadsOf(testIssue); got != reads {
+		t.Fatalf("a settled schedule read its closed issue %d more times", got-reads)
+	}
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("ran %d turns for a closed issue", len(calls))
+	}
+	if n := strings.Count(f.logs.String(), "scheduled work settled without a run because its issue is closed"); n != 1 {
+		t.Fatalf("settled %d times, want once", n)
 	}
 }
 
@@ -273,7 +312,7 @@ func TestValidateImplementScheduleHandsOffUntilWorkerParks(t *testing.T) {
 	t.Cleanup(func() { check(authority.Close(context.WithoutCancel(ctx))) })
 	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "coordinator-regression", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{agent.Kind(store.AgentClaude): noAgentRunner{t}}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, SubIssueCreator: f.client, MCP: &turn.MCPRuntime{Authority: authority, Paths: f.paths, Executable: "/factory/litefactory", Now: f.clock.Now, Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID}}
 	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-		definition, e := teamsource.CaptureImplement(ctx, specs)
+		definition, e := teamsourcetest.CaptureImplement(ctx, specs)
 		if e != nil {
 			return nil, e
 		}

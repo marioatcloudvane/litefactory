@@ -2,7 +2,6 @@ package teamsource
 
 import (
 	"io/fs"
-	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -13,62 +12,37 @@ import (
 // file. A workflow added later is covered because the walk is driven by the
 // graph files, not by a list of role names.
 
-// shippedWorkflow is one embedded workflow package.
+// shippedTeams are the team sources whose workflows the guard covers.
+var shippedTeams = []string{goTeam, "python-fastapi", "swift-ios"}
+
+// shippedWorkflow is one resolved workflow package of a team source.
 type shippedWorkflow struct {
-	Name string // directory under internal/teamsource
-	FS   fs.FS  // the embedded bytes that ship
+	Name string // team/workflow
+	FS   fs.FS  // the resolved bytes of the workflow folder
 	Dot  string // graph definition file inside FS
 }
 
-// embeddedWorkflowRoots maps every workflow directory to the embed.FS that ships
-// it. A new workflow directory with a graph but no entry here fails the walk, so
-// it cannot ship uncovered.
-func embeddedWorkflowRoots() map[string]fs.FS {
-	return map[string]fs.FS{"plan": planAssets, "research": researchAssets, "bug": bugAssets, "spike": spikeAssets, "implement": implementAssets, "validate": validateAssets}
-}
-
-// discoverShippedWorkflows finds workflow packages from the source layout (any
-// directory of this package holding a .dot graph), then resolves each to its
-// embedded bytes.
+// discoverShippedWorkflows finds workflow packages from the resolved team files
+// (any top-level folder holding a .dot graph) of every shipped team.
 func discoverShippedWorkflows(t *testing.T) []shippedWorkflow {
 	t.Helper()
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots := embeddedWorkflowRoots()
 	var out []shippedWorkflow
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
+	for _, team := range shippedTeams {
+		files := teamFiles(t, team)
+		dirs := map[string][]string{}
+		for name := range files {
+			dir, file, ok := strings.Cut(name, "/")
+			if ok && !strings.Contains(file, "/") && strings.HasSuffix(file, ".dot") {
+				dirs[dir] = append(dirs[dir], file)
+			}
 		}
-		dots, err := fs.Glob(os.DirFS(e.Name()), "*.dot")
-		if err != nil {
-			t.Fatal(err)
+		if len(dirs) == 0 {
+			t.Errorf("team %s has no workflow with a graph definition", team)
 		}
-		if len(dots) == 0 {
-			continue
-		}
-		root, ok := roots[e.Name()]
-		if !ok {
-			t.Errorf("workflow directory %q has a graph definition but is not embedded: add it to embeddedWorkflowRoots", e.Name())
-			continue
-		}
-		sub, err := fs.Sub(root, e.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, dot := range dots {
-			out = append(out, shippedWorkflow{Name: e.Name(), FS: sub, Dot: dot})
-		}
-	}
-	for name := range roots {
-		found := false
-		for _, w := range out {
-			found = found || w.Name == name
-		}
-		if !found {
-			t.Errorf("embedded workflow %q has no graph definition on disk", name)
+		for dir, dots := range dirs {
+			for _, dot := range dots {
+				out = append(out, shippedWorkflow{Name: team + "/" + dir, FS: teamWorkflowFS(t, team, dir), Dot: dot})
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -137,7 +111,7 @@ func TestShippedWorkflowRolesHaveShippedFiles(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"research/research", "research/shaping", "plan/plan-story", "plan/plan-technical", "plan/plan-acceptance", "bug/bug-analyst", "bug/bug-fixer", "spike/spike-investigator", "spike/spike-fixer", "implement/story-worker", "validate/validate-repair", "validate/validate-acceptance", "validate/validate-code", "validate/validate-architecture"} {
-		if roleCount[want] == 0 {
+		if roleCount[goTeam+"/"+want] == 0 {
 			t.Errorf("shipped graphs no longer name role %s", want)
 		}
 	}
@@ -160,26 +134,19 @@ func TestDotAgentRolesComeFromGraphAttributesNotNames(t *testing.T) {
 	}
 }
 
-// A workflow directory with a graph that is not embedded is an error, so a new
-// workflow cannot ship outside the guard.
-func TestEmbeddedWorkflowRootsCoverTheShippedPackages(t *testing.T) {
+// Every shipped team covers the six workflows, so a workflow cannot ship
+// outside the guard.
+func TestShippedTeamsCoverEveryWorkflow(t *testing.T) {
 	t.Parallel()
-	roots := embeddedWorkflowRoots()
-	for _, name := range []string{"plan", "research"} {
-		if roots[name] == nil {
-			t.Fatalf("no embedded root for %s", name)
-		}
+	covered := map[string]bool{}
+	for _, w := range discoverShippedWorkflows(t) {
+		covered[w.Name] = true
 	}
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if dots, _ := fs.Glob(os.DirFS(e.Name()), "*.dot"); len(dots) > 0 && roots[e.Name()] == nil {
-			t.Errorf("%s ships a graph but has no embedded root", e.Name())
+	for _, team := range shippedTeams {
+		for _, name := range []string{"plan", "research", "bug", "spike", "implement", "validate"} {
+			if !covered[team+"/"+name] {
+				t.Errorf("%s/%s ships no graph", team, name)
+			}
 		}
 	}
 }

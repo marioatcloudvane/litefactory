@@ -79,6 +79,7 @@ type conversationReadResult struct {
 }
 
 type factoryConversationRun struct {
+	inboxResume    *conversationReadResult
 	instructions   *instructionpackage.ConversationCapture
 	s              *Service
 	c              store.Conversation
@@ -96,6 +97,8 @@ type factoryConversationRun struct {
 	refSuffix string
 	// authorRef cites the conversation's open author session.
 	authorRef *ConversationReference
+	// listed holds the references the last lookup saved for its listed tasks.
+	listed []ConversationReference
 }
 
 // maxCalls is the turn's conversation invocation budget. A consult adds one
@@ -299,6 +302,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err != nil {
 		return run.failed(ctx, err)
 	}
+	if run.inboxResume != nil {
+		result := run.inboxResume
+		return s.saveConversationPresentation(ctx, t, "completed", []presentation.AnswerBlock{{Text: result.Result, FactRefs: []string{result.FactID}}}, "", at)
+	}
 	for run.calls < run.maxCalls() {
 		var envelope ConversationEnvelope
 		var inv Invocation
@@ -404,12 +411,16 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				if standardsCommand(inv.Command) {
 					refs = expandStandardsReferences(refs)
 				}
-				if len(refs) > 32 {
-					refs = refs[len(refs)-32:]
-				}
+			}
+			refs = append(refs, run.takeListed()...)
+			if len(refs) > 32 {
+				refs = refs[len(refs)-32:]
 			}
 			if result.Clarification != "" {
 				return s.conversationOutcome(ctx, t, "completed", result.Clarification, at)
+			}
+			if inv.Command == "inbox" {
+				return s.saveConversationPresentation(ctx, t, "completed", []presentation.AnswerBlock{{Text: result.Result, FactRefs: []string{result.FactID}}}, "", at)
 			}
 			prompt.References = refs
 			prompt.Focus = run.focus
@@ -499,12 +510,23 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 }
 
 func (r *factoryConversationRun) references(ctx context.Context) ([]ConversationReference, error) {
-	saved, err := r.s.db.ListConversationReferences(ctx, r.c.ID, r.at, 32)
+	// Listed tasks are bounded, so older targets keep their place among them.
+	saved, err := r.s.db.ListConversationReferences(ctx, r.c.ID, r.at, 64)
 	if err != nil {
 		return nil, err
 	}
 	var refs []ConversationReference
+	listed := 0
 	for _, v := range saved {
+		if len(refs) >= 32 {
+			break
+		}
+		if v.Kind == "listed" {
+			if listed >= conversationListedLimit {
+				continue
+			}
+			listed++
+		}
 		var args map[string]string
 		if json.Unmarshal([]byte(v.Content), &args) != nil {
 			continue
@@ -555,6 +577,37 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 	validated, effect, err := s.ValidateInvocation(inv)
 	if err != nil || effect != ReadEffect {
 		return result, nil, ErrConversationEnvelope
+	}
+	if inv.Command == "inbox" {
+		capture := &inboxCapture{Organize: r.organizerCall}
+		text, e := s.readOwnerInbox(ctx, Message{Channel: r.c.ChannelRef, Arguments: validated.Arguments}, r.at, capture)
+		result.Result = text
+		result.Arguments = make(map[string]string)
+		for k, v := range validated.Arguments {
+			result.Arguments[k] = v
+		}
+		if capture.Snapshot != "" {
+			result.Arguments["inbox_snapshot"] = capture.Snapshot
+			sources, _ := json.Marshal(capture.Sources)
+			result.Arguments["inbox_sources"] = string(sources)
+		}
+		if e != nil {
+			return result, nil, e
+		}
+		if e = r.saveListed(ctx, capture.Issues); e != nil {
+			return result, nil, e
+		}
+		navigation := capture.Navigation
+		if navigation == "" {
+			return result, nil, nil
+		}
+		args := map[string]string{"reference": navigation}
+		raw, _ := json.Marshal(args)
+		saved := store.ConversationReference{ID: fmt.Sprintf("%s-inbox-%d", r.t.ID, r.ordinal), TurnID: r.t.ID, Kind: "inbox", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+		if e = s.db.SaveConversationReference(ctx, r.t, saved); e != nil {
+			return result, nil, e
+		}
+		return result, &ConversationReference{ID: saved.ID, OwnerID: s.owner, ChannelID: r.c.ChannelRef, OriginTurn: r.t.ID, ExpiresAt: saved.ExpiresAt, Arguments: args}, nil
 	}
 	p := naturalPayload{Invocation: validated, Channel: r.c.ChannelRef}
 	if r.focus != nil {
@@ -665,12 +718,18 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			result.Gaps = append(result.Gaps, "Enabled reader unavailable.")
 		} else {
 			read, assessment := presentation.WithAssessment(ctx)
+			read, listed := withListedIssues(read)
 			text, err = handler(read, Message{Transport: s.transport, Channel: r.c.ChannelRef, Sender: s.owner, Arguments: p.Invocation.Arguments, Command: inv.Command}, r.at)
 			if err != nil {
 				text = ""
 				result.Gaps = append(result.Gaps, "Factory lookup failed; no result available."+githubBudgetGap(err, r.at))
 			} else if assessment.Status != presentation.Success {
 				result.Gaps = append(result.Gaps, "Lookup coverage may be incomplete.")
+			}
+			if err == nil {
+				if err = r.saveListed(ctx, *listed); err != nil {
+					return result, nil, err
+				}
 			}
 			if (inv.Command == "health" || inv.Command == "status") && strings.Contains(text, "Heartbeat age: unknown.") {
 				result.Gaps = append(result.Gaps, "Current daemon heartbeat is unknown; default status values are not established observations.")
@@ -776,6 +835,15 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		result, err := decodeConversationEvidence(last)
 		if err != nil {
 			return false, 0, nil, err
+		}
+		if result.Command == "inbox" {
+			if id := result.Arguments["inbox_snapshot"]; id != "" {
+				if err = r.s.authorizeInboxResult(ctx, r.c.ChannelRef, result, r.at); err != nil {
+					return false, 0, nil, err
+				}
+			}
+			r.inboxResume = &result
+			return corrected, lookups, nil, nil
 		}
 		prompt.addEvidence(result)
 		prompt.Correction, prompt.CorrectionReason = "", ""

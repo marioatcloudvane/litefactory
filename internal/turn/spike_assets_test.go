@@ -1,18 +1,17 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"path"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 func TestSpikeShipsOneCopyOfEachRoleAndOneSkill(t *testing.T) {
 	specs, err := SpikeSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CaptureSpike(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureSpike(t.Context(), specs)
 	mustProgress(t, err)
 	var roles, skills, graphs []string
 	for name := range definition.Files {

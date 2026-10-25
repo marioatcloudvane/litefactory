@@ -2,7 +2,6 @@ package teamsource
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"io"
@@ -18,9 +17,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/render"
 	"github.com/cloudvane/litefactory/internal/skillclosure"
 )
-
-//go:embed research
-var researchAssets embed.FS
 
 // ResearchNode contains one node's effective instructions and selected closure.
 // Its resources retain package-relative paths; callers own all returned bytes.
@@ -49,18 +45,6 @@ type ResearchDefinition struct {
 	Files             map[string][]byte
 	Hashes            map[string]string
 	Digest            string
-}
-
-// CaptureResearch selects only the application's embedded Research package.
-// The registry is factory-owned; no source path, team or owner override is taken.
-// Effective task and tier use explicit node overrides, then role frontmatter,
-// then graph package defaults. An explicit empty override is invalid, not absent.
-func CaptureResearch(ctx context.Context, registry graphexec.Registry) (*ResearchDefinition, error) {
-	source, err := fs.Sub(researchAssets, "research")
-	if err != nil {
-		return nil, fmt.Errorf("open built-in Research: %w", err)
-	}
-	return captureResearch(ctx, source, registry)
 }
 
 type researchReader struct {

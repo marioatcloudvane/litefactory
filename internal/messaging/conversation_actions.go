@@ -300,7 +300,7 @@ func standardsDirect(inv Invocation) bool {
 		return false
 	}
 	switch inv.Arguments["action"] {
-	case "answer", "continue", "edit", "validate", "rebase":
+	case "answer", "revise", "continue", "edit", "validate", "rebase":
 		return true
 	}
 	return false
@@ -427,8 +427,8 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 				reply.OutcomeStatus = string(assessment.Status)
 				if errors.Is(err, errDeferredDiagnosis) {
 					// Only the existing diagnosis worker performs this queued operation. Its
-					// saved completion is supplied at a later ordinary session step.
-					return s.conversationOutcome(ctx, r.t, "completed", "I've queued the diagnosis. I'll tell you what it finds the next time we talk; any repair still goes through review on the issue.", r.at)
+					// saved completion is posted to the channel when ready.
+					return s.conversationOutcome(ctx, r.t, "completed", "I've queued the diagnosis. I'll post what it finds here as soon as it's ready; any repair still goes through review on the issue.", r.at)
 				}
 				if err != nil {
 					text = "The confirmed action was interrupted after execution began. Its effect is uncertain; check the target before requesting it again."
@@ -523,6 +523,10 @@ func (r *factoryConversationRun) consumeOutcomes(ctx context.Context) (string, e
 		}
 		if err = r.s.db.FinishConversationActionReply(ctx, r.t, reply, r.at); err != nil {
 			return "", err
+		}
+		if reply.State == "confirmed" {
+			// The diagnosis worker already posted this result to the channel.
+			protected = "Already posted to the owner in this channel; context only, do not repeat it unasked:\n" + protected
 		}
 		outcomes = append(outcomes, protected)
 	}

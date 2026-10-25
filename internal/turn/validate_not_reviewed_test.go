@@ -3,8 +3,8 @@ package turn
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io/fs"
-	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -306,7 +306,8 @@ func validateCaptureDigest(t *testing.T, a *adoptFlow, trigger, instanceID int64
 // reviewer guidance, as a newer linked release would carry.
 func captureValidateVariant(ctx context.Context, t *testing.T, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 	t.Helper()
-	root := os.DirFS("../teamsource/validate")
+	root, err := teamsourcetest.Workflow(teamsourcetest.Go, "validate")
+	mustProgress(t, err)
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {

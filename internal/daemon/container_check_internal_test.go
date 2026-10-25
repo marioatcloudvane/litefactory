@@ -189,6 +189,7 @@ type scopeFixture struct {
 	parent      store.Session
 	task        *task
 	inspections atomic.Int64
+	issueReads  atomic.Int64
 	limited     atomic.Bool
 	repoID      atomic.Int64
 	hookFails   atomic.Bool
@@ -275,6 +276,7 @@ func newScopeFixture(t *testing.T) *scopeFixture {
 			}
 			switch {
 			case len(rest) == 1:
+				f.issueReads.Add(1)
 				response = issue(n)
 			case rest[1] == "parent":
 				response = issue(scopeParent)
@@ -639,8 +641,9 @@ func (f *scopeFixture) hookSubscription(t *testing.T) {
 	}
 }
 
-// C2: hook recovery that falls back to source recovery in one tick inspects
-// once; recovery (actor 0) and session checks are cached separately.
+// C2: hook recovery whose delivery history is unavailable inspects once and
+// marks the repository owed a listing instead of recovering the source itself;
+// recovery (actor 0) and session checks are cached separately.
 func TestContainerScopeHookRecoveryFallbackInspectsOnce(t *testing.T) {
 	for _, session := range []bool{false, true} {
 		t.Run(map[bool]string{false: "recovery", true: "recovery-and-session"}[session], func(t *testing.T) {
@@ -649,6 +652,8 @@ func TestContainerScopeHookRecoveryFallbackInspectsOnce(t *testing.T) {
 			f.hookFails.Store(true)
 			q := &repoQueue{repo: f.repo, forgeRepo: f.task.forgeRepo, log: f.d.log}
 			now := time.Now().UTC()
+			f.d.schedule = newDiscoverySchedule(time.Hour)
+			f.d.schedule.ListingFinished(f.repo.ID, now)
 			got := f.count(func() {
 				ctx, checks := withContainerChecks(f.d.discoveryContext(projectContext(t.Context(), f.repo.ID)))
 				defer checks.close()
@@ -656,8 +661,11 @@ func TestContainerScopeHookRecoveryFallbackInspectsOnce(t *testing.T) {
 				if err := f.d.recoverHookDeliveries(ctx, q, now, false); err != nil && !errors.Is(err, ErrDiscoveryDeferred) {
 					t.Fatal(err)
 				}
-				if _, err := f.db.GetTicketRecoveryPosition(t.Context(), f.tickets.ID); err != nil {
-					t.Fatalf("hook recovery did not fall back to source recovery: %v", err)
+				if _, err := f.db.GetTicketRecoveryPosition(t.Context(), f.tickets.ID); !errors.Is(err, store.ErrNotFound) {
+					t.Fatalf("hook recovery recovered the source itself: %v", err)
+				}
+				if !f.d.schedule.Due(f.repo.ID, now) {
+					t.Fatal("unavailable delivery history did not mark the repository owed a listing")
 				}
 				if session {
 					if _, err := f.d.readIssue(sessionContext(ctx, f.parent.ID), f.task.forgeRepo, scopeParent); err != nil {
@@ -822,5 +830,89 @@ func TestContainerScopeInFlightSharingWithoutSharedLock(t *testing.T) {
 	}
 	if got := cancelled.calls.Load(); got != 2 {
 		t.Fatalf("inspections after cancellation=%d, want 2", got)
+	}
+}
+
+// storyPass runs one discovery pass of a story kind in a fresh tick scope and
+// returns its queue and how many story issues it read.
+func (f *scopeFixture) storyPass(t *testing.T, discover func(context.Context, map[int64]*repoQueue) error) (*repoQueue, int64) {
+	t.Helper()
+	q := &repoQueue{repo: f.repo, forgeRepo: f.task.forgeRepo, log: f.d.log}
+	before := f.issueReads.Load()
+	ctx, checks := withContainerChecks(f.d.discoveryContext(t.Context()))
+	defer checks.close()
+	if err := discover(ctx, map[int64]*repoQueue{f.repo.ID: q}); err != nil {
+		t.Fatal(err)
+	}
+	return q, f.issueReads.Load() - before
+}
+
+// A Plan story whose task is already admitted is offered from local state: a
+// later tick neither inspects the container nor reads the story issue. The
+// first tick, which has to create the tasks, still resolves each story.
+func TestGraphPlanStoriesKnownTaskResolvesNothing(t *testing.T) {
+	f := newScopeFixture(t)
+	numbers := f.planStories(t, 3)
+	discover := func(ctx context.Context, byRepo map[int64]*repoQueue) error {
+		return f.d.graphPlanStories(ctx, byRepo, map[int64]*candidate{})
+	}
+	q, reads := f.storyPass(t, discover)
+	if len(q.candidates) != len(numbers) || reads != int64(len(numbers)) {
+		t.Fatalf("first pass offered %d and read %d story issues, want %d and %d", len(q.candidates), reads, len(numbers), len(numbers))
+	}
+	inspected := f.count(func() { q, reads = f.storyPass(t, discover) })
+	if len(q.candidates) != len(numbers) || reads != 0 || inspected != 0 {
+		t.Fatalf("second pass offered %d, read %d story issues and inspected %d times, want %d, 0 and 0", len(q.candidates), reads, inspected, len(numbers))
+	}
+}
+
+// An Implement story whose worker session is bound is checked from local
+// state: a later tick reads no story issue. Binding the worker in the first
+// tick still resolves the story remotely.
+func TestGraphImplementStoriesBoundWorkerResolvesNothing(t *testing.T) {
+	f := newScopeFixture(t)
+	ctx := t.Context()
+	parent := f.parent.TaskRef
+	if err := f.db.PutManagedFeature(ctx, store.ManagedFeature{ParentTask: parent, Generation: 1, State: "planning", WorkflowVersion: store.WorkflowSeparated}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.CompareManagedFeature(ctx, store.ManagedFeature{ParentTask: parent, Generation: 1, State: "implementing"}, "planning"); err != nil {
+		t.Fatal(err)
+	}
+	var seeds []store.ImplementStorySeed
+	for i, key := range []string{"story-001", "story-002"} {
+		number := 2 + i
+		if err := f.db.PutManagedStory(ctx, store.ManagedStory{ParentTask: parent, Generation: 1, Key: key, IssueNumber: number, IssueID: int64(700 + number), State: "planning"}); err != nil {
+			t.Fatal(err)
+		}
+		seeds = append(seeds, store.ImplementStorySeed{Key: key, Position: i, Branch: "lf/" + key})
+	}
+	if err := f.db.EnsureImplementStories(ctx, parent, 1, seeds, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+	for _, seed := range seeds {
+		row, err := f.db.GetImplementStory(ctx, parent, 1, seed.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.db.TransitionImplementStory(ctx, store.ImplementTransition{Parent: parent, Generation: 1, Key: seed.Key, From: store.ImplementWaiting, To: store.ImplementRunning, ExpectedRevision: row.Revision, At: implementDaemonClock}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	discover := func(ctx context.Context, byRepo map[int64]*repoQueue) error {
+		return f.d.graphImplementStories(ctx, byRepo, map[int64]*candidate{}, implementDaemonClock)
+	}
+	q, reads := f.storyPass(t, discover)
+	if len(q.candidates) != len(seeds) || reads != int64(len(seeds)) {
+		t.Fatalf("first pass offered %d and read %d story issues, want %d and %d", len(q.candidates), reads, len(seeds), len(seeds))
+	}
+	for _, seed := range seeds {
+		if row, err := f.db.GetImplementStory(ctx, parent, 1, seed.Key); err != nil || row.WorkerSession == 0 {
+			t.Fatalf("%s worker not bound: %+v %v", seed.Key, row, err)
+		}
+	}
+	inspected := f.count(func() { q, reads = f.storyPass(t, discover) })
+	if len(q.candidates) != len(seeds) || reads != 0 || inspected != 0 {
+		t.Fatalf("second pass offered %d, read %d story issues and inspected %d times, want %d, 0 and 0", len(q.candidates), reads, inspected, len(seeds))
 	}
 }

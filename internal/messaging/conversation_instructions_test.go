@@ -161,6 +161,7 @@ func TestConversationPackageValidInstructionsStillRespectPromptBudget(t *testing
 		t.Run(role, func(t *testing.T) {
 			roles := instructionpackage.ConversationRoles()
 			baseline := fstest.MapFS{"metadata.yaml": {Data: []byte("schema: 1\nversion: bounds-fixture\n")}, "catalogue.yaml": {Data: []byte("- " + strings.Join(roles, "\n- ") + "\n")}}
+			baseline[instructionpackage.InboxOrganizerSchemaPath] = &fstest.MapFile{Data: []byte("Fixture organizer contract.")}
 			for _, name := range roles {
 				text := "Small " + name + "."
 				if name == role {

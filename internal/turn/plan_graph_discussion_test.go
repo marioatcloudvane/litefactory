@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -476,5 +477,135 @@ func TestPlanDiscussion_RetryExplainsChangedReviewBasis(t *testing.T) {
 				t.Fatalf("missing %s rewind explanation: %+v", change, forge.all()[priorPosts:])
 			}
 		})
+	}
+}
+
+func TestPlanReviewCommandText(t *testing.T) {
+	draft := func(key, problem string, deps ...string) planbrief.PlanDraft {
+		return planbrief.PlanDraft{Key: key, Problem: problem, Dependencies: planbrief.DependencyContent{StoryKeys: deps, IssueRefs: []string{}}}
+	}
+	// state builds a saved Plan state where story-001 sits at stage and
+	// story-003 is approved at technical only when approved is set.
+	state := func(stage string, d planbrief.PlanDraft, shared string, approved bool) planbrief.PlanState {
+		s := planbrief.PlanState{SharedRevision: shared, Stories: []planbrief.PlanStoryState{
+			{Key: "story-001", Stage: stage, Candidate: "c1", Approvals: map[string]string{}, Draft: d},
+			{Key: "story-003", Stage: "acceptance", Candidate: "c3", Approvals: map[string]string{}, Draft: draft("story-003", "Upstream")},
+		}}
+		if approved {
+			ref, err := s.ReviewRevision("story-003", "technical")
+			mustProgress(t, err)
+			s.Stories[1].Approvals["technical"] = ref
+		}
+		return s
+	}
+	before := planbrief.PlanState{SharedRevision: "shared-1", Stories: []planbrief.PlanStoryState{{Key: "story-001", Stage: "technical", Draft: draft("story-001", "Original")}}}
+	r := &planGraphRuntime{}
+	r.setPick(before, "story-001", "technical")
+	issues := map[string]int{"story-001": 1118, "story-003": 1119}
+	command := "/approve-plan story-001 story c1"
+	added := []string{"needs your approval again", "its description changed", "dependencies changed", "shared decisions changed", "Review resumes at", "Approving the story stage", "The next review of this story will show"}
+	cases := []struct {
+		name          string
+		saved         planbrief.PlanState
+		command       string
+		want, without []string
+	}{
+		{"unchanged stage", state("technical", draft("story-001", "Original"), "shared-1", false), "/approve-plan story-001 technical c1", []string{"\n\nTo promote this exact candidate, reply `/approve-plan story-001 technical c1`."}, added},
+		{"new dependency approved", state("story", draft("story-001", "Original", "story-003"), "shared-1", true), command, []string{"This update changed the story itself, so it needs your approval again first.", "its dependencies changed: it now depends on story-003 (#1119) (before: none)", "Approving the story stage starts a new technical review of this story.", "To promote this exact candidate, reply `" + command + "`."}, []string{"its description changed", "shared decisions changed", "Review resumes at", "starts once"}},
+		{"new dependency not approved", state("story", draft("story-001", "Original", "story-003"), "shared-1", false), command, []string{"its dependencies changed", "After you approve the story stage, the technical review of this story starts once the technical stage of story-003 (#1119) is approved.", "To promote this exact candidate"}, []string{"Approving the story stage starts a new technical review of this story."}},
+		{"description only", state("story", draft("story-001", "Changed"), "shared-1", false), command, []string{"changed the story itself", "its description changed", "Approving the story stage starts a new technical review of this story."}, []string{"dependencies changed", "shared decisions changed", "Review resumes at"}},
+		{"shared only", state("story", draft("story-001", "Original"), "shared-2", false), command, []string{"changed the story itself", "shared decisions changed"}, []string{"its description changed", "dependencies changed", "Review resumes at"}},
+		{"none changed", state("story", draft("story-001", "Original"), "shared-1", false), command, []string{"changed the story itself", "Review resumes at the story stage. Approvals from that stage must be renewed."}, []string{"its description changed", "dependencies changed", "shared decisions changed"}},
+		{"empty command", state("technical", draft("story-001", "Original"), "shared-1", false), "", []string{"The next review of this story will show the approval command."}, []string{"/approve-plan", "To promote this exact candidate"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := planReviewCommandText(r.picked, r.stage, c.saved, "story-001", issues, c.command)
+			for _, want := range c.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("missing %q in %q", want, got)
+				}
+			}
+			for _, unwanted := range c.without {
+				if strings.Contains(got, unwanted) {
+					t.Fatalf("unexpected %q in %q", unwanted, got)
+				}
+			}
+		})
+	}
+}
+
+// A technical review whose own result adds a story dependency moves the story
+// back to the story stage; its comment must show the command that works now.
+func TestPlanDiscussion_ReviewAfterOwnDependencyChangeShowsStoryCommand(t *testing.T) {
+	f, _, base, _, forge := graphPlanFixtureWithForge(t, "agent", func(a *graphPlanAnswer) {
+		if a.Stage == "technical" && a.Request != nil && a.Request.Draft.Key == "story-001" {
+			a.Request.Draft.Dependencies.StoryKeys = []string{"story-002"}
+			a.Request.ChangedSections = append(a.Request.ChangedSections, "dependencies")
+		}
+	})
+	executeGraphPlan(t, f, base)
+	next := base
+	next.Trigger = Trigger{CommentID: base.Trigger.CommentID + 1, AuthorID: 7, Body: "/plan-new-story"}
+	next.Command = Command{Kind: KindFreeText, Text: next.Trigger.Body}
+	executeGraphPlan(t, f, next)
+	upstream, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-002")
+	mustProgress(t, err)
+	if upstream.IssueNumber == 0 {
+		t.Fatal("story-002 has no issue")
+	}
+	priorPosts := len(forge.all())
+	executeGraphPlan(t, f, graphPlanApproveKey(t, f, base, "story-001", base.Trigger.CommentID+2))
+	s := graphPlanState(t, f)
+	item := s.Stories[0]
+	if item.Key != "story-001" || item.Stage != "story" || item.Wait == nil || item.Wait.Kind != "review" {
+		t.Fatalf("dependency change did not move story-001 back to a story review: %+v", item)
+	}
+	command := "/approve-plan story-001 story " + item.Candidate
+	var review string
+	for _, post := range forge.all()[priorPosts:] {
+		if strings.Contains(post.body, "To promote this exact candidate") {
+			review = post.body
+		}
+	}
+	label := fmt.Sprintf("story-002 (#%d)", upstream.IssueNumber)
+	for _, want := range []string{"`" + command + "`", "changed the story itself", "its dependencies changed", "it now depends on " + label, "starts once the technical stage of " + label + " is approved"} {
+		if !strings.Contains(review, want) {
+			t.Fatalf("review lacks %q: %q", want, review)
+		}
+	}
+	if strings.Contains(review, "/approve-plan story-001 technical") || strings.Contains(review, "its description changed") {
+		t.Fatalf("review shows a stale command or a wrong reason: %q", review)
+	}
+	if reason := s.PlanReplyReason("story-001", command); reason != "" {
+		t.Fatalf("shown command refused: %s", reason)
+	}
+}
+
+// A normal technical review keeps exactly today's command line and none of
+// the stage-change sentences.
+func TestPlanDiscussion_UnchangedReviewKeepsCommandLine(t *testing.T) {
+	f, _, base, _, forge := graphPlanFixtureWithForge(t, "agent")
+	executeGraphPlan(t, f, base)
+	priorPosts := len(forge.all())
+	executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
+	item := graphPlanState(t, f).Stories[0]
+	if item.Stage != "technical" || item.Wait == nil {
+		t.Fatalf("no technical review: %+v", item)
+	}
+	line := "To promote this exact candidate, reply `/approve-plan story-001 technical " + item.Candidate + "`."
+	var review string
+	for _, post := range forge.all()[priorPosts:] {
+		if strings.Contains(post.body, line) {
+			review = post.body
+		}
+	}
+	if review == "" {
+		t.Fatalf("technical review lacks %q", line)
+	}
+	for _, unwanted := range []string{"needs your approval again", "dependencies changed", "Approving the story stage", "The next review of this story will show"} {
+		if strings.Contains(review, unwanted) {
+			t.Fatalf("normal review gained %q: %q", unwanted, review)
+		}
 	}
 }
