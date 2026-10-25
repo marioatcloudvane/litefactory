@@ -16,6 +16,7 @@ Inventory where Go decides topology and where hard states block orchestration, t
 - **d8** — Light guardrails C (#1050) and E (#1052) stay with their own issues and are out of this scope.
 - **d9** — Proposed, not settled: add A5 graph-controlled workflows (own stages, gates and continuation in the DOT) after A1-A3. This is a design decision for the owner.
 - **d10** — Proposed, not settled: Go keeps the safety fence (permission ceiling, owner identity, ticket ownership checks, idempotent journaled effects, cost and time ceilings, redaction, audit). Order, stage names, section rights, gate policy, retries, lifetimes and prompts move to the DOT, in four levels with a recommended stop after level 3.
+- **d11** — Proposed, not settled: 12 top-level stories, 9 now (DOT-owned limits and pinning; heal and no silent stops; doctor repair; transient and lifetimes; visible transitions; Bug graphs can change; graph safety tooling; Plan stages and facts; proof graphs) and 3 held (generic effect blocks; one structural validator; workflow registry) until the proof graphs show how Plan behaves. About 30 child stories. Cut by capability, not by mode.
 
 
 ## Assumptions
