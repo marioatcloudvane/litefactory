@@ -316,10 +316,16 @@ func TestFactoryConversationJournalProtectsDecodedOutput(t *testing.T) {
 	}
 }
 
-type uncertainFactoryConfirmer struct{ calls int }
+type uncertainFactoryConfirmer struct {
+	calls int
+	err   error
+}
 
 func (f *uncertainFactoryConfirmer) Confirm(ctx context.Context, _ string, _ string, _ string, _ string, _ time.Time) (string, error) {
 	f.calls++
+	if f.err != nil {
+		return "", f.err
+	}
 	presentation.Assess(ctx, presentation.Uncertain)
 	return "Issue creation outcome is uncertain.", nil
 }
@@ -610,5 +616,46 @@ func TestFactoryConversationToleratesNoiseAroundObject(t *testing.T) {
 	}
 	if p.calls != 1 || !strings.Contains(reply.ReplyText, "Nothing is running right now.") || strings.Contains(reply.ReplyText, "invoke") {
 		t.Fatalf("calls=%d reply=%q", p.calls, reply.ReplyText)
+	}
+}
+
+func TestConversationPausedGuidanceUsesRetainedIdentityAndOperatorLogs(t *testing.T) {
+	run, at := factoryUnitRun(t, &factoryUnitProvider{})
+	if err := run.s.conversationUnavailable(t.Context(), run.c, run.t, "saved native session missing; no replacement session created", at); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := run.s.db.LatestConversationTurn(t.Context(), run.c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The complete retained presentation and the authorized health view must both
+	// carry the usable local inspection step; paused input is never retried here.
+	reply, err := run.s.db.ReadChatReply(t.Context(), "discord", latest.ReplyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{reply.ReplyText, run.s.conversationHealth(t.Context(), at)} {
+		if !strings.Contains(text, "factory operator") || !strings.Contains(text, "litefactory logs --all --grep") || !strings.Contains(text, run.c.ID) {
+			t.Fatal(text)
+		}
+	}
+	if worked, err := run.s.ConversationStep(t.Context(), at); worked || err != nil {
+		t.Fatalf("paused work retried: %t %v", worked, err)
+	}
+}
+
+func TestFactoryConversationUnknownFailureKeepsOneInspectionStep(t *testing.T) {
+	provider := &factoryUnitProvider{}
+	run, at := factoryUnitRun(t, provider)
+	run.c.SessionHandle = "retained-provider-session"
+	if err := run.failed(t.Context(), errors.New("provider completion unknown")); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply.ReplyText, "before a completed answer was saved") || !strings.Contains(reply.ReplyText, "will not be replayed") || strings.Count(reply.ReplyText, "Ask here for the status") != 1 || strings.Contains(reply.ReplyText, "Please ask again") || provider.calls != 0 {
+		t.Fatalf("unknown completion lost safe inspection: calls=%d text=%s", provider.calls, reply.ReplyText)
 	}
 }

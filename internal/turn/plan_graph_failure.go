@@ -62,7 +62,9 @@ func renderPlanFailure(r agentresult.Result, _ string, _ naming.Ref, _ string) s
 	out.WriteString("\n\nCause: ")
 	out.WriteString(strings.TrimSpace(r.Reason))
 	if !strings.Contains(r.Reason, capacityRetriesExhausted) {
-		out.WriteString("\n\nTo retry, reply on this issue. Your reply starts a new Plan attempt from the saved Plan state; the earlier step's result is not reused.")
+		out.WriteString("\n\nTo retry, reply on this issue with `/plan Continue the unfinished step from the saved Plan state.` Your reply starts a new Plan attempt from the saved Plan state; the earlier step's result is not reused. Existing approvals are retained only while their review basis remains current. Independent eligible stories can continue through normal admission.")
+	} else {
+		out.WriteString("\n\nAutomatic provider-capacity retries have ended for this attempt. Saved Plan work and approval rules remain intact. No verified reset time or safe immediate retry is established by this report; the reported capacity limit must clear before a later Plan request can proceed. This report does not queue another attempt or approve a stage.")
 	}
 	return out.String()
 }

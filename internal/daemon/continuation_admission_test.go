@@ -291,7 +291,7 @@ func TestAutomaticCancellationNoticeRetriesUntilConfirmed(t *testing.T) {
 		t.Fatalf("confirmed notice remains pending: %+v %v", pending, err)
 	}
 	posts, _, _ = f.forge.snapshot()
-	if len(posts) != baseline || !strings.Contains(strings.ToLower(retained), "manual") {
+	if len(posts) != baseline || !strings.Contains(retained, "cancelled") || !strings.Contains(retained, "--run 1") {
 		t.Fatalf("missing manual-recovery notice: %v", posts)
 	}
 	f.settle()

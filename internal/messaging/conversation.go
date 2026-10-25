@@ -20,6 +20,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -268,7 +269,7 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 			for _, t := range unfinished {
 				notice := "The previous turn was interrupted. Its input will not be replayed. Your next message will continue the saved native session; its unfinished context may be incomplete."
 				if c.SessionHandle == "" {
-					notice = "The previous turn was interrupted before its native session identity was saved. Continuity is unavailable; no replacement session was created."
+					notice = "The previous turn was interrupted before its native session identity was saved. Continuity is unavailable; no replacement session was created. " + conversationOperatorInspection(c.ID)
 				}
 				if r.factory {
 					if err := s.recoverStandardsConversationAction(ctx, t, at); err != nil {
@@ -479,7 +480,7 @@ func (s *Service) conversationOutcome(ctx context.Context, t store.ConversationT
 }
 func (s *Service) conversationUnavailable(ctx context.Context, c store.Conversation, t store.ConversationTurn, reason string, at time.Time) error {
 	s.logConversationFailure(ctx, c, t, agent.ConversationError(errors.New(reason), "continuity", false))
-	if err := s.conversationOutcome(ctx, t, "unavailable", "Conversation paused: "+reason+". Context and queued messages are retained.", at); err != nil {
+	if err := s.conversationOutcome(ctx, t, "unavailable", "Conversation paused: "+reason+". Context and queued messages are retained. "+conversationOperatorInspection(c.ID), at); err != nil {
 		return err
 	}
 	return s.db.SetConversationHealth(ctx, c.ID, reason, at)
@@ -489,7 +490,7 @@ func (s *Service) conversationUnavailable(ctx context.Context, c store.Conversat
 func (s *Service) conversationHealth(ctx context.Context, at time.Time) string {
 	list, err := s.db.ListConversations(ctx)
 	if err != nil {
-		return "\nConversation health unavailable."
+		return "\nConversation health unavailable. Ask the factory operator to inspect on the factory host: `litefactory logs --all --grep conversation`."
 	}
 	text := ""
 	for _, c := range list {
@@ -508,6 +509,13 @@ func (s *Service) conversationHealth(ctx context.Context, at time.Time) string {
 				}
 			}
 			text += fmt.Sprintf("\nConversation %s (%s): %s.", c.Name, c.Provider, reason)
+			if reason != "available" {
+				if reason == "provider change waiting for drain" || reason == "unfinished turn recovery awaits confirmed provider exit" {
+					text += " Please wait for the existing provider exit and recovery; no owner action is needed."
+				} else {
+					text += " " + conversationOperatorInspection(c.ID)
+				}
+			}
 		}
 	}
 	return text
@@ -569,4 +577,8 @@ func (s *Service) logConversationFailure(ctx context.Context, c store.Conversati
 	}
 	protected, _ = boundedConversationText(protected, 2048)
 	s.Logger.WarnContext(cleanup, "conversation turn failed", "conversation_id", c.ID, "turn_id", t.ID, "provider", c.Provider, "phase", phase, "cause", protected)
+}
+
+func conversationOperatorInspection(conversationID string) string {
+	return "Ask the factory operator to inspect the retained conversation failure on the factory host: `" + report.TaskInspectionCommand(conversationID) + "`."
 }

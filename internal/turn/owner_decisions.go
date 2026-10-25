@@ -53,10 +53,10 @@ func ResolveValidateDecision(ctx context.Context, opts Options, req ActivityRequ
 			return cmd, store.OwnerDecisionBinding{}, nil
 		}
 		if e != nil {
-			return cmd, store.OwnerDecisionBinding{}, e
+			return cmd, store.OwnerDecisionBinding{}, fmt.Errorf("%w. %s", e, validateCurrentGuidance(ctx, opts, req, st))
 		}
 		if d.InstanceID != req.InstanceID || d.Revision != cmd.Revision {
-			return cmd, store.OwnerDecisionBinding{}, errors.New("the explicit report revision is stale")
+			return cmd, store.OwnerDecisionBinding{}, errors.New("the explicit report revision is stale. " + validateCurrentGuidance(ctx, opts, req, st))
 		}
 		b := store.OwnerDecisionBinding{TaskRef: session.TaskRef, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, ReplyToCommentID: wait.ReplyToCommentID, Body: wait.ReplyBody, Normalized: wait.ReplyBody, Display: d, CreatedAt: wait.ClaimedAt}
 		e = opts.DB.PutOwnerDecisionBinding(ctx, b)
@@ -64,10 +64,10 @@ func ResolveValidateDecision(ctx context.Context, opts Options, req ActivityRequ
 	}
 	d, err := opts.DB.ResolveOwnerDecisionDisplay(ctx, session.TaskRef, cmd.Name, cmd.Reference, wait.ReplyToCommentID)
 	if err != nil {
-		return cmd, store.OwnerDecisionBinding{}, err
+		return cmd, store.OwnerDecisionBinding{}, fmt.Errorf("%w. %s", err, validateCurrentGuidance(ctx, opts, req, st))
 	}
 	if d.InstanceID != req.InstanceID || d.Revision != st.Revision {
-		return cmd, store.OwnerDecisionBinding{}, errors.New("that displayed decision is stale; use the latest report's short reference")
+		return cmd, store.OwnerDecisionBinding{}, errors.New("that displayed decision is stale. " + validateCurrentGuidance(ctx, opts, req, st))
 	}
 	head, tail := firstToken(strings.TrimSpace(commandtext.Normalize(wait.ReplyBody)))
 	if cmd.Reference != "" {

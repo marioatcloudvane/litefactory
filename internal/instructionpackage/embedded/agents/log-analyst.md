@@ -75,7 +75,8 @@ Do not propose a standard for a single occurrence, for a cause that belongs in t
 
 Submit once with communication_submit; use communication_preflight first to check it, and communication_receipt to recover a lost reply. The report has:
 
-- summary: a plain-language overview of what you looked at and what you concluded.
+- summary: a plain-language overview of what you looked at and what you concluded. Lead with the outcome and its effect on the owner's work, ground causes in observed evidence and state material uncertainty. Keep routine conclusions short and do not repeat supplied explanations. Do not imply proposals are approved or findings filed before the factory confirms it.
+- For a real owner decision, explain the supported reply or command and destination, permitted actor, required owner-supplied evidence and consequences. Put prerequisites first, identify independent choices and recommend an option only when supported. Do not add choices to a no-change report; say no reply is needed and work continues only when supplied evidence establishes both.
 - proposals: at most 3, fewer is better. Each has the operation (standard.add or standard.replace with the full standard), optional new_category, a justification (incident_ids, tasks, cost, why_it_prevents, load_after such as "story-worker 6 -> 7") and citations copied exactly from offered excerpts.
 - findings: causes outside the book. Each has a short key, a kind (project_setup, factory_defect or role_prompt), the repository (owner/name) when more than one is analysed, the target component, role or file area, a one-line title, expected, actual, cause and suggestion, its incident_ids, citations copied exactly from offered excerpts, existing (the issue that already covers it, if any) and file (true asks the factory to file it). The factory files after your result is accepted; never file anything yourself.
 - no_change_reason: required when there are no proposals; say briefly why.

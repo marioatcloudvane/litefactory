@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -275,5 +276,134 @@ func TestPlanNotices_SkillBindingNamesSkillsWithoutPaths(t *testing.T) {
 	}
 	if skillNamesBinding(nil) != "" {
 		t.Fatal("a node without skills gained a binding")
+	}
+}
+
+func TestPlanNotices_CurrentGuidanceUsesReplyEligibility(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		change  func(*planbrief.PlanState)
+		command bool
+		cause   string
+	}{
+		{name: "current review", command: true, cause: "approves only the displayed stage"},
+		{name: "changed shared decisions", change: func(s *planbrief.PlanState) { s.SharedRevision = "changed" }, cause: "out of date"},
+		{name: "lifecycle hold", change: func(s *planbrief.PlanState) { s.Stories[0].LifecycleHold = "sub-issue observation unavailable" }, cause: "sub-issue observation unavailable"},
+		{name: "questions", change: func(s *planbrief.PlanState) {
+			s.Stories[0].Wait.Kind = "question"
+			s.Stories[0].Draft.Questions = []string{"Which database?"}
+		}, cause: "Which database?"},
+		{name: "wait belongs to another stage", change: func(s *planbrief.PlanState) { s.Stories[0].Wait.Stage = "technical" }, cause: "out of date"},
+		{name: "dependency closed", change: func(s *planbrief.PlanState) {
+			s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: "prior", Lifecycle: planbrief.PlanLifecycle{State: "closed"}})
+			s.Stories[0].Draft.Dependencies.StoryKeys = []string{"prior"}
+		}, cause: "prior"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := planbrief.PlanState{SharedRevision: "initial", Stories: []planbrief.PlanStoryState{{Key: "a", Stage: "story", Candidate: "candidate", Draft: planbrief.PlanDraft{Key: "a"}}}}
+			revision, err := s.ReviewRevision("a", "story")
+			mustProgress(t, err)
+			s.Stories[0].Wait = &planbrief.PlanWait{Kind: "review", Stage: "story", Candidate: "candidate", Revision: revision}
+			if tc.change != nil {
+				tc.change(&s)
+			}
+			command := currentPlanNoticeCommand(s, s.Stories[0])
+			if (command != "") != tc.command {
+				t.Fatalf("command %q, eligible %v", command, tc.command)
+			}
+			if guidance := planNoticeGuidance(s, s.Stories[0]); !strings.Contains(guidance, tc.cause) {
+				t.Fatalf("guidance %q lacks cause %q", guidance, tc.cause)
+			}
+		})
+	}
+}
+
+func TestPlanNotices_WaitingRowsUseConfirmedExactDestination(t *testing.T) {
+	f, _, base, _, _ := graphPlanFixtureWithForge(t, "agent")
+	executeGraphPlan(t, f, base)
+	s := graphPlanState(t, f)
+	r := &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue}
+	rows, complete, err := r.planStoryRows(t.Context(), s)
+	mustProgress(t, err)
+	if !complete || len(rows) != 1 || rows[0].Command == "" || !strings.Contains(rows[0].Guidance, "#issuecomment-") {
+		t.Fatalf("current published guidance: %+v complete %v", rows, complete)
+	}
+	before := s.Stories[0].Wait.Candidate
+	s.SharedRevision = "new shared decisions"
+	stale, _, err := r.planStoryRows(t.Context(), s)
+	mustProgress(t, err)
+	if stale[0].Command != "" || !strings.Contains(stale[0].Guidance, "out of date") || s.Stories[0].Wait.Candidate != before {
+		t.Fatalf("stale guidance changed or approved wait: %+v", stale)
+	}
+	s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: "unbound", Stage: "story", Candidate: "unpublished", Draft: planbrief.PlanDraft{Key: "unbound"}})
+	missing, complete, err := r.planStoryRows(t.Context(), s)
+	mustProgress(t, err)
+	if complete || missing[1].Command != "" || !strings.Contains(missing[1].Guidance, "no retained sub-issue binding") {
+		t.Fatalf("missing binding guidance: %+v complete %v", missing, complete)
+	}
+}
+
+func TestPlanNotices_NoWorkStopShowsCurrentDecision(t *testing.T) {
+	f, _, base, _, forge := graphPlanFixtureWithForge(t, "agent")
+	executeGraphPlan(t, f, base)
+	state := graphPlanState(t, f)
+	command := state.PlanCurrentCommand(state.Stories[0].Key)
+	specs, err := PlanSpecs()
+	mustProgress(t, err)
+	definition, err := teamsource.CapturePlan(t.Context(), specs)
+	mustProgress(t, err)
+	from := ""
+	for _, edge := range definition.Profile.Edges {
+		node, ok := definition.Profile.Node(edge.From)
+		if ok && edge.To == "stopped" && edge.On == "false" && node.Action == graphexec.ResearchIfAction {
+			from = edge.From
+			break
+		}
+	}
+	if from == "" {
+		t.Fatal("no no-work stop edge")
+	}
+	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: definition.Profile.Team, Mode: "plan", ProfileVersion: definition.Profile.ProfileVersion, Path: "plan/plan.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	mustProgress(t, err)
+	now := time.Now()
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: pin.ID, CurrentNode: "stopped", StartedAt: now})
+	mustProgress(t, err)
+	_, err = f.db.RecordGraphTransition(t.Context(), store.GraphTransition{InstanceID: instance.ID, FromNode: from, ToNode: "stopped", OnOutcome: "false", At: now})
+	mustProgress(t, err)
+	r := &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, definition: definition}
+	mustProgress(t, r.reportStop(t.Context(), instance.ID))
+	posts := parentPostsWith(f, forge, "Plan stopped: no stage has work")
+	if len(posts) != 1 || command == "" || !strings.Contains(posts[0], command) || !strings.Contains(posts[0], "#issuecomment-") || !strings.Contains(posts[0], "approves only the displayed stage") {
+		t.Fatalf("no-work guidance: %v command %q", posts, command)
+	}
+	after := graphPlanState(t, f)
+	if after.Stories[0].Wait.ID != state.Stories[0].Wait.ID || after.Stories[0].Approvals[state.Stories[0].Stage] != "" {
+		t.Fatal("notice changed approval state")
+	}
+}
+
+func TestPlanNotices_SetRefusalWithoutProposalExplainsRecovery(t *testing.T) {
+	t.Parallel()
+	err := planSetRefused(planbrief.PlanState{}, "the named set is unavailable.")
+	if !strings.Contains(err.Error(), "No current set proposal") || !strings.Contains(err.Error(), "on this parent issue") || strings.Contains(err.Error(), "reply `/approve-plan set") {
+		t.Fatalf("missing-set refusal invents approval or lacks recovery: %v", err)
+	}
+}
+
+func TestPlanNotices_ParentFindsChildSessionReview(t *testing.T) {
+	f, _, base, _, _ := graphPlanFixtureWithForge(t, "agent")
+	executeGraphPlan(t, f, base)
+	child := asStoryTask(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1), "story-001")
+	executeGraphPlan(t, f, child)
+	state := graphPlanState(t, f)
+	if child.SessionID == base.SessionID || state.Stories[0].Stage != "technical" {
+		t.Fatal("fixture did not publish from child session")
+	}
+	r := &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue}
+	rows, complete, err := r.planStoryRows(t.Context(), state)
+	mustProgress(t, err)
+	if !complete || len(rows) != 1 || rows[0].Command != state.PlanCurrentCommand("story-001") || !strings.Contains(rows[0].Guidance, "#issuecomment-") {
+		t.Fatalf("parent missed child's current review: %+v", rows)
 	}
 }

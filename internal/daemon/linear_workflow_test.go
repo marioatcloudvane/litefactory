@@ -896,13 +896,13 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			}
 			wants := []string{"research", "Nothing was run", "--mode-labels", "label the issue with a mapped mode", "comment again"}
 			if refusalKind == report.ReplyMissingTeam {
-				wants = []string{"no linked installed team", "Link a suitable installed team", "Nothing was run", "comment again"}
+				wants = []string{"no linked installed team", "factory operator", "litefactory team link <name> <version>", "registered clone", "Nothing was run", "comment again on this issue"}
 			}
 			if refusalKind == report.ReplyMissingTicketPublisher {
-				wants = []string{"linear ticket connection", "team-uuid/project-uuid", "verified publisher", "Restore and verify", "fresh `/implement"}
+				wants = []string{"linear ticket connection", "team-uuid/project-uuid", "verified publisher", "factory operator", "restore and verify", "fresh `/implement"}
 			}
 			if refusalKind == report.ReplyUnsupportedWorkflow {
-				wants = []string{"does not provide the requested workflow", "Select a workflow supported", "Nothing was run", "comment again"}
+				wants = []string{"does not provide the requested workflow", "factory operator", "litefactory team inspect <name> <version>", "supported workflow on this issue", "Nothing was run"}
 			}
 			for _, want := range wants {
 				if !strings.Contains(replyBody, want) {

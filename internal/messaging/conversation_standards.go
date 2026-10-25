@@ -114,7 +114,7 @@ func standardsOperation(inv Invocation) (string, error) {
 			return op, nil
 		}
 	}
-	return "", errors.New("standards action is unavailable; inspect operations and select one exact action")
+	return "", errors.New("standards action is unavailable; ask “show available standards operations” here to inspect supported actions")
 }
 
 func (s *Service) standardsRequest(inv Invocation, channel, message string, at time.Time) (StandardsRequest, error) {
@@ -282,7 +282,7 @@ func (r *factoryConversationRun) lookupStandards(ctx context.Context, inv Invoca
 	}
 	request, err := r.s.standardsRequest(inv, r.c.ChannelRef, r.t.SourceID, r.at)
 	if err != nil || r.s.standards == nil {
-		result.Result = "Standards operations unavailable or ambiguous."
+		result.Result = "Standards operations are unavailable or ambiguous. Ask the factory operator to inspect standards service availability on the factory host; no standards action was performed."
 		result.Complete = false
 		return result, nil, nil //nolint:nilerr // Invalid requests become visible incomplete evidence, never execution.
 	}

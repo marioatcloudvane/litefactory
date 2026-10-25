@@ -583,9 +583,9 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 	}
 	// Even a correction or continuation can have uncertain provider completion.
 	if reply := conversationCauseReply(cause, r.at); reply != "" {
-		return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply+" Your next message continues the same conversation.", r.at)
+		return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply+" The provider input will not be replayed. Ask here for the status of your previous request; your next message continues the retained conversation.", r.at)
 	}
-	return r.s.conversationOutcome(cleanup, r.t, "interrupted", "The conversation turn was interrupted or unavailable before a completed answer was saved. Its provider input will not be replayed. Your next message will resume the retained session.", r.at)
+	return r.s.conversationOutcome(cleanup, r.t, "interrupted", "The conversation turn was interrupted or unavailable before a completed answer was saved. Its provider input will not be replayed. Ask here for the status of your previous request; your next message resumes the retained session.", r.at)
 }
 
 func (r *factoryConversationRun) references(ctx context.Context) ([]ConversationReference, error) {

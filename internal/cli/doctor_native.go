@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -14,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -173,15 +175,18 @@ func configureDoctorHost(service *doctor.Service) (func() error, error) {
 func applyDoctorCLI(ctx context.Context, service *doctor.Service, env *Env, request doctor.ApplyRequest) (err error) {
 	closeHost, err := configureDoctorHost(service)
 	if err != nil {
-		return err
+		return doctorApplyRefusal(ctx, service, request, err)
 	}
 	defer func() { err = errors.Join(err, closeHost()) }()
 	if err = service.CheckRepairCapability(ctx, request.Target); err != nil {
-		return err
+		return doctorApplyRefusal(ctx, service, request, err)
 	}
 	request.PresentationID, err = service.DB.CurrentDoctorLocalPresentation(ctx, request.Target.String())
 	if err != nil {
-		return errors.New("doctor apply requires a fully displayed current proposal; run doctor status first")
+		if !errors.Is(err, store.ErrNotFound) {
+			return doctorApplyRefusal(ctx, service, request, fmt.Errorf("current proposal presentation could not be read: %w", err))
+		}
+		return fmt.Errorf("doctor apply performed no repair: it requires a fully displayed current proposal. Inspect it on the factory host with `litefactory doctor status %s/%s %d`", request.Target.Owner, request.Target.Repo, request.Target.Issue)
 	}
 	_, err = service.Apply(ctx, request)
 	if err == nil {
@@ -192,7 +197,21 @@ func applyDoctorCLI(ctx context.Context, service *doctor.Service, env *Env, requ
 	}
 	saved, statusErr := service.ReadConversation(ctx, request.Target)
 	if statusErr == nil {
+		saved.RepairInspectionRequired = err != nil
 		statusErr = renderDoctor(env.Stdout, saved)
 	}
 	return errors.Join(err, statusErr)
+}
+
+// Capability refusals occur before approval or repair reservation. A retained
+// repair belongs to an earlier command and must not be attributed to this one.
+func doctorApplyRefusal(ctx context.Context, service *doctor.Service, request doctor.ApplyRequest, cause error) error {
+	state := "No retained repair was found."
+	repair, err := service.DB.ReadDoctorRepair(ctx, request.Target.String())
+	if err == nil {
+		state = fmt.Sprintf("Retained repair %s has state %s; this command did not cause it.", repair.ID, repair.State)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		state = "Retained repair status could not be read."
+	}
+	return fmt.Errorf("doctor apply performed no repair: %w. %s Inspect on the factory host: `%s`", cause, state, report.TaskInspectionCommand(request.Target.String()))
 }

@@ -204,10 +204,10 @@ func (s ValidateState) NextCommands(closeSet []int) []string {
 	var out []string
 	rev := s.Revision
 	for _, f := range s.Findings {
-		switch {
-		case f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable():
+		if f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable() {
 			out = append(out, fmt.Sprintf("`%s %s %s pass -- <what you checked>` or `%s %s %s fail -- <what you saw>`", ValidateCheckCommand, rev, f.ID, ValidateCheckCommand, rev, f.ID))
-		case f.needsChoice():
+		}
+		if f.needsChoice() {
 			line := fmt.Sprintf("`%s %s %s repair`, `%s %s %s issue bug`, `%s %s %s issue story`", ValidateFindingCommand, rev, f.ID, ValidateFindingCommand, rev, f.ID, ValidateFindingCommand, rev, f.ID)
 			if f.Optional {
 				line += fmt.Sprintf(", `%s %s %s defer`", ValidateFindingCommand, rev, f.ID)
@@ -232,12 +232,12 @@ func (s ValidateState) deliveryCommand(closeSet []int) string {
 	switch {
 	case !s.Ready:
 	case !effectDone(s.Effects.PR) || !effectDone(s.Effects.Push):
-		return fmt.Sprintf("`%s %s`", ValidatePushCommand, rev)
+		return fmt.Sprintf("`%s %s` pushes the tested commit and opens or recovers its pull request; it does not authorize merge or close.", ValidatePushCommand, rev)
 	case !effectDone(s.Effects.Merge):
 		r := decodeEffectResult(s.Effects.PR)
-		return fmt.Sprintf("`%s %s %d %s`", ValidateMergeCommand, rev, r.Number, r.Head)
+		return fmt.Sprintf("`%s %s %d %s` merges only this displayed pull request and exact head after push; it does not authorize closing issues.", ValidateMergeCommand, rev, r.Number, r.Head)
 	case !effectDone(s.Effects.Close):
-		return fmt.Sprintf("`%s %s %s`", ValidateCloseCommand, rev, validateNumbers(closeSet))
+		return fmt.Sprintf("`%s %s %s` closes exactly the displayed accepted issue set after merge; already closed issues are not repeated.", ValidateCloseCommand, rev, validateNumbers(closeSet))
 	}
 	return ""
 }
@@ -256,6 +256,10 @@ func (s ValidateState) shipBlockers() []string {
 func (s ValidateState) shipLine() string {
 	return fmt.Sprintf("`%s %s -- <reason>`", ValidateShipCommand, s.Revision)
 }
+
+// validateShipConsequence describes the existing combined action; it adds no
+// confirmation and does not change the separate delivery commands.
+const validateShipConsequence = "This one explicit reasoned command authorizes the existing ordered sequence: push the displayed commit, open its pull request, merge its exact head, then close the displayed accepted issues. It stops if a step fails or remains uncertain. Its waiver keeps factual test and review results unchanged; no additional confirmation is required for the remaining successful steps of this same shipping decision."
 
 // mergeConflicted reports a merge GitHub refused because the pull request
 // conflicts with its target (405 "Pull Request has merge conflicts"). Repeating
@@ -293,7 +297,7 @@ func (s ValidateState) NextStep(closeSet []int) string {
 		return s.mergeConflictStep()
 	}
 	if len(s.shipBlockers()) == 0 && !effectDone(s.Effects.Close) {
-		return s.shipLine()
+		return s.shipLine() + " " + validateShipConsequence
 	}
 	roles, _ := s.notReviewed()
 	owner := false

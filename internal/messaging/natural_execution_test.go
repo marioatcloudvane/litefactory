@@ -58,6 +58,9 @@ func TestNaturalExecutionInterruptedEffectNeverReplays(t *testing.T) {
 	if err != nil || !exists || r.OutcomeStatus != string(presentation.Uncertain) || !strings.Contains(r.ReplyText, "uncertain") {
 		t.Fatalf("interrupted guard: %+v %v %v", r, exists, err)
 	}
+	if !strings.Contains(r.ReplyText, "issue #") || strings.Contains(r.ReplyText, " or ") {
+		t.Fatalf("uncertain effect lacks one affected-target inspection step: %s", r.ReplyText)
+	}
 	if err = s.finishNaturalOutcome(t.Context(), r, r.ReplyText, at); err != nil {
 		t.Fatal(err)
 	}

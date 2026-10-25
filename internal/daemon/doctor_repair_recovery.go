@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -72,7 +73,7 @@ func (d *Daemon) retainDoctorRepairOutcome(ctx context.Context, operation store.
 func (d *Daemon) finishDoctorApply(ctx context.Context, c store.DoctorCommand, runErr error) error {
 	operation, err := d.db.DoctorCommandRepair(ctx, c.ID)
 	if errors.Is(err, store.ErrNotFound) {
-		return d.db.CompleteDoctorCommand(ctx, c.ID, "Doctor apply was not admitted; no repair operation is recorded for this command. Next: `/doctor Recheck the current state and recommend a repair` requests a fresh diagnosis.", 0)
+		return d.db.CompleteDoctorCommand(ctx, c.ID, "Doctor apply was not admitted; no repair operation is recorded for this command. Ask the factory operator to inspect the retained request on the factory host: `"+report.TaskInspectionCommand(c.TaskRef)+"`.", 0)
 	}
 	if err != nil {
 		return err
@@ -88,7 +89,7 @@ func (d *Daemon) finishDoctorApply(ctx context.Context, c store.DoctorCommand, r
 	if err != nil {
 		return err
 	}
-	body := doctor.RenderConversation(doctor.Conversation{Repair: &operation, RepairSteps: steps})
+	body := doctor.RenderConversation(doctor.Conversation{Repair: &operation, RepairSteps: steps, RepairInspectionRequired: runErr != nil})
 	if runErr != nil {
 		body = "Doctor apply did not complete: " + runErr.Error() + "\n\n" + body
 	}

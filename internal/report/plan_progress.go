@@ -47,14 +47,14 @@ func PlanStoryNoticeText(n planbrief.PlanNoticeState) string {
 		fmt.Fprintf(&data, "Retained request %s: %s\n", planNoticeValue(key), planNoticeValue(n.RequestHolds[key]))
 	}
 	if len(keys) > 8 {
-		fmt.Fprintf(&data, "%d additional original request causes remain retained.\n", len(keys)-8)
+		fmt.Fprintf(&data, "%d additional original request causes remain retained. Their full details are omitted here, and no complete published destination is confirmed by this notice; the same original-request reconciliation prerequisite applies to each.\n", len(keys)-8)
 	}
 	if n.Effect != "" {
 		fmt.Fprintf(&data, "Unresolved request: %s (%s).\n", planNoticeValue(n.Request), planNoticeValue(n.Effect))
 	}
 	action := "Review the remaining active Plan and its dependencies. Closure supplies no approval, engineering evidence or acceptance."
 	if len(n.RequestHolds) > 0 || n.Hold != "" || n.LifecycleHold != "" || n.Effect != "" || n.EffectHold != "" {
-		action = "Resolve the listed binding, dependency or original-request cause before this story can advance. Independent eligible stories remain available."
+		action = "Resolve the listed binding, dependency or original-request cause before this story can advance. Independent eligible stories remain available. This retained notice contains no safe repair command or exact review destination. An uncertain original request must be reconciled before another action; approval cannot waive a binding or access hold."
 	}
 	text := strings.TrimSpace(data.String())
 	fence := fenceFor(text)
@@ -66,6 +66,18 @@ func PlanStoryNoticeText(n planbrief.PlanNoticeState) string {
 // sub-issue; the reason carries the command that works now when there is one.
 func PlanReplyExplanationText(key string, child int, _ int64, reason string, reference ...string) string {
 	details := planNoticeValue(reason)
+	if len(details) < len(oneLine(reason)) {
+		for _, marker := range []string{" The command that works now is ", " On this story's bound sub-issue, the current command is ", " The current owner command on this story is "} {
+			if _, action, ok := strings.Cut(oneLine(reason), marker); ok {
+				if len(action) <= 4096 {
+					details += "\nCurrent guidance:" + marker + action
+				} else {
+					details += "\nCurrent action guidance exceeds this explanation's capacity and is incomplete; no action is approved."
+				}
+				break
+			}
+		}
+	}
 	fence := fenceFor(details)
 	label := fmt.Sprintf("#%d", child)
 	if len(reference) > 0 {
