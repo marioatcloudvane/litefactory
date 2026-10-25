@@ -54,7 +54,7 @@ func TestGraphReplyBetweenQuestionsRefusalSaysNotUsedAndResend(t *testing.T) {
 		"before its current question or review was posted",
 		"it was not used",
 		"nothing was run for it",
-		"post it again as a reply to the open question or review",
+		"this comment did not answer it",
 	)
 }
 
@@ -67,7 +67,7 @@ func TestRenderReplyBugCommentNotApplied(t *testing.T) {
 		t.Fatalf("RenderReply: %v", err)
 	}
 	text := body.String()
-	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "/approve-bug analysis <revision>") || !report.ReplyBugCommentNotApplied.RefusesMode() {
+	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "its exact reply") || !report.ReplyBugCommentNotApplied.RefusesMode() {
 		t.Fatalf("reply:\n%s", text)
 	}
 }
@@ -182,10 +182,10 @@ func TestRenderReplyPlainParentCommentRefusals(t *testing.T) {
 		name string
 		want []string
 	}{
-		{report.ReplyValidateCommentNotApplied, "validate_comment_not_applied", []string{"Validate is running or waiting for you; nothing was run.", "The Validate report lists what blocks and the commands.", "its own comment"}},
+		{report.ReplyValidateCommentNotApplied, "validate_comment_not_applied", []string{"Validate is running or waiting for you; nothing was run.", "blockers, prerequisites and commands", "its own comment"}},
 		{report.ReplyImplementFinished, "implement_finished", []string{"Implement is finished: every story is merged.", "Nothing was run.", "commenting `/validate`"}},
 		{report.ReplyImplementFinishedAutoValidate, "implement_finished_auto_validate", []string{"Implement is finished: every story is merged.", "Nothing was run.", "Validate starts automatically"}},
-		{report.ReplyImplementFinishedValidated, "implement_finished_validated", []string{"Implement is finished and Validate has already finished on it.", "Nothing was run.", "The Validate report shows the result."}},
+		{report.ReplyImplementFinishedValidated, "implement_finished_validated", []string{"Implement is finished and Validate has already finished on it.", "Nothing was run.", "The Validate report shows the result and any remaining delivery decisions."}},
 	} {
 		body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: tc.kind})
 		if err != nil {

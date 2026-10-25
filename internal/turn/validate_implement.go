@@ -396,7 +396,7 @@ func (h ValidateImplementActivity) Execute(ctx context.Context, opts Options, re
 	if len(out.Reopened) == 0 {
 		why := "no story with a blocking finding could be reopened:"
 		for _, t := range targets {
-			why += fmt.Sprintf(" %s (%s);", t.Story, out.Skipped[t.Story])
+			why += " " + validateSkippedHandbackText(t.Story, out.Skipped[t.Story], target)
 		}
 		return ActivityResult{Diagnostic: why}, errors.New(why)
 	}
@@ -412,10 +412,10 @@ func (h ValidateImplementActivity) Execute(ctx context.Context, opts Options, re
 	if err := opts.DB.ResolveOwnerDecisionInstance(ctx, req.InstanceID); err != nil {
 		return ActivityResult{}, err
 	}
-	notice := "Reopened " + strings.Join(out.Reopened, ", ") + "."
+	notice := "Reopened " + strings.Join(out.Reopened, ", ") + ". Those reopened stories continue through the existing Implement schedule, followed by Validate on their new head; no extra owner reply is needed."
 	for _, t := range targets {
 		if why, ok := out.Skipped[t.Story]; ok {
-			notice += fmt.Sprintf(" Not reopened: %s, because %s.", t.Story, why)
+			notice += " " + validateSkippedHandbackText(t.Story, why, target)
 		}
 	}
 	after, err := LoadValidateState(ctx, opts, h.b.Profile, req.InstanceID)
@@ -429,4 +429,24 @@ func (h ValidateImplementActivity) Execute(ctx context.Context, opts Options, re
 	// fails the step: the records are the truth.
 	_, _ = h.b.RefreshValidateReport(ctx, opts, req)
 	return validateJSONResult("started", out)
+}
+
+// validateSkippedHandbackText describes only the skipped story's retained
+// condition. It supplies no new repair authority or automatic retry promise.
+func validateSkippedHandbackText(story, reason string, target ValidateDeliveryTarget) string {
+	text := fmt.Sprintf("Not reopened: %s, because %s. Its state and blockers are unchanged; this handback queued no repair for it. ", story, reason)
+	if issue, ok := target.story(story); ok && issue.Display.URL != "" {
+		text += "Inspect its bound issue " + issue.Display.Link() + ". "
+	} else {
+		text += "No confirmed direct issue destination is retained for this story. "
+	}
+	switch reason {
+	case "it has no Implement ledger row":
+		text += "A matching Implement record is missing; no safe restoration command is retained."
+	case "its branch cannot be moved forward to the tested commit":
+		text += "Its branch must be reconciled with the tested commit before a handback can reopen it; no verified repair or retry command is available in this report."
+	default:
+		text += "Inspect the existing story state before choosing its next action; this reply neither replaces that work nor supplies a verified restart command."
+	}
+	return text
 }

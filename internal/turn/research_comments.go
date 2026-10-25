@@ -439,7 +439,7 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 		if after, found := profile.Node(target); found && after.Terminal {
 			return "this workflow is finished. Comment `/plan plan the agreed scope into stories` to turn it into stories."
 		}
-		return "the next stage starts on its own within a minute or two. No action is needed, and commenting before it finishes will interrupt it."
+		return "the next stage starts on its own when admitted. No owner reply is needed; wait for its next report."
 	}
 	return ""
 }

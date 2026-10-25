@@ -1790,6 +1790,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 			}
 		}()
 	}
+	if err := d.resumeValidatePublications(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not complete the current Validate report index", err)
+		return
+	}
 	if err := d.recoverPlanStories(ctx, t); err != nil {
 		d.stopped(ctx, t, "could not reconcile Plan stories", errors.Join(err, d.reportPlanProgress(ctx, t)))
 		return

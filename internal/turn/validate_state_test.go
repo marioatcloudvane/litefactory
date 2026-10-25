@@ -372,8 +372,16 @@ func TestRenderValidateReportDeliveryNextStep(t *testing.T) {
 			want = "Nothing. Delivery is complete."
 		}
 		out := renderValidateReport(st, twoTargets, "")
-		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.Contains(out, "\nNext: "+want+"\n") {
+		_, next, _ := strings.Cut(out, "\nNext: ")
+		next, _, _ = strings.Cut(next, "\n")
+		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.HasPrefix(next, want) {
 			t.Errorf("step %d wants %s:\n%s", i, want, out)
+		}
+		if i < 3 && (!strings.Contains(next, "ordered sequence") || !strings.Contains(next, "no additional confirmation") || !strings.Contains(next, "stops if a step fails or remains uncertain")) {
+			t.Errorf("step %d lost combined authority or failure consequence: %s", i, next)
+		}
+		if i == 3 && next != want {
+			t.Errorf("complete delivery offered a new decision: %s", next)
 		}
 	}
 }
