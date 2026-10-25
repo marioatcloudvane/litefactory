@@ -116,7 +116,11 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	if err != nil {
 		return nil, fmt.Errorf("prepare MCP launch: %w", err)
 	}
-	defer func() { err = errors.Join(err, p.close(context.WithoutCancel(ctx))) }()
+	defer func() {
+		cleanup, cancel := agent.EvidenceContext(ctx)
+		defer cancel()
+		err = errors.Join(err, closeInvocation(ctx, func() error { return p.close(cleanup) }))
+	}()
 	if native {
 		req.MCPLaunch = spec
 	}

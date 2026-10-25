@@ -90,11 +90,11 @@ func (a CreationAcceptance) published() string {
 func ownerPublicationRefusal(reason string) string {
 	switch reason {
 	case "expired":
-		return "the approval was processed more than 30 minutes after it was posted. Post the same `/mcp-create` command again."
+		return "the approval was not admitted strictly before 30 minutes after it was posted. Post the same `/mcp-create` command again."
 	case "stale":
 		return "a newer proposal replaced this one. Approve the newest proposal instead."
 	case "quota":
-		return "the repository's limit of 20 created issues per 24 hours would be exceeded. Approve again once earlier issues age out of the window."
+		return "this publication was refused under the former repository-volume cap. That historical refusal is unchanged; the cap no longer applies to new publication. A fresh approval can be admitted while the proposal remains current and eligible."
 	case "bound":
 		return "an agent run already holds this approval and publishes it."
 	case "disabled":

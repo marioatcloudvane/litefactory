@@ -734,8 +734,9 @@ type Reconciliation struct {
 // first thing a starting daemon does (D-B).
 //
 // Execution wreckage is repaired in one transaction:
-// runs still marked running are failed with the [ReasonAbandoned] reason and
-// their sessions marked failed, and per-task locks held by any instance other
+// runs still marked running are failed, preserving owner cancellation and any
+// expired persisted non-graph deadline; other orphans use [ReasonAbandoned].
+// Their sessions are marked failed, and per-task locks held by any instance other
 // than instanceID are released. Running session flags without a lock or an
 // executing/prelaunch run are also failed, even when their runs already finished.
 //
@@ -767,12 +768,32 @@ func (db *DB) ReconcileOrphans(ctx context.Context, instanceID string) (Reconcil
 			if durationMS < 0 {
 				durationMS = 0
 			}
+			reason, outcome := ReasonAbandoned, orphan.SemanticOutcome
+			if _, ownerStopped := orphan.OwnerStop(); ownerStopped {
+				reason = ReasonOwnerStop
+			} else {
+				var deadline string
+				var allowanceNS int64
+				timingErr := tx.QueryRowContext(ctx, `SELECT deadline,allowance_ns FROM worker_attempt_timing WHERE node_attempt_id=0 AND run_id=?`, orphan.ID).Scan(&deadline, &allowanceNS)
+				if timingErr == nil {
+					limitAt, err := ParseTime(deadline)
+					if err != nil {
+						return err
+					}
+					if !now.Before(limitAt) {
+						outcome = "timed_out"
+						reason = fmt.Sprintf("Worker exceeded its effective limit of %g seconds (deadline %s); available work and submission/receipt state are retained.", time.Duration(allowanceNS).Seconds(), limitAt.UTC().Format(time.RFC3339Nano))
+					}
+				} else if !errors.Is(timingErr, sql.ErrNoRows) {
+					return timingErr
+				}
+			}
 			failed, err := scanRun(tx.QueryRowContext(ctx, `
 UPDATE runs
-SET status = ?, exit_code = ?, error = ?, finished_at = ?, duration_ms = ?
+SET status = ?, exit_code = ?, error = ?, finished_at = ?, duration_ms = ?,semantic_outcome=?
 WHERE id = ?
 RETURNING `+runColumns,
-				string(RunFailed), exitCode, ReasonAbandoned, FormatTime(now), durationMS, orphan.ID))
+				string(RunFailed), exitCode, reason, FormatTime(now), durationMS, outcome, orphan.ID))
 			if err != nil {
 				return fmt.Errorf("abandon run %d: %w", orphan.ID, err)
 			}

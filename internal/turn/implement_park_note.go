@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/github"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -18,7 +21,9 @@ import (
 // transition. Neither a retry run nor a retry attempt changes this identity.
 func implementParkIntent(r *Reporter, parent, destination naming.Ref, row store.ImplementStory) store.ReportDelivery {
 	revision := row.Revision
-	if row.State != store.ImplementParked {
+	if row.TimeoutAttemptID != 0 {
+		revision = row.TimeoutParkRevision
+	} else if row.State != store.ImplementParked {
 		revision++
 	}
 	return r.deliveryIntent(destination, destination, row.WorkerSession, 0, 0,
@@ -54,16 +59,62 @@ func (rt *implementRuntime) publishParkAnswer(ctx context.Context, opts Options,
 		}
 	}
 	_, err = r.deliver(ctx, intent, func() (redact.Body, error) {
-		node, readErr := rt.retainedAnswer(ctx, opts, a)
-		if readErr != nil && row.Attempts < store.MaxImplementAttempts {
+		var node agentresult.ResearchNode
+		var readErr error
+		if row.TimeoutAttemptID == 0 {
+			node, readErr = rt.retainedAnswer(ctx, opts, a)
+		}
+		if readErr != nil && row.TimeoutAttemptID == 0 && row.Attempts < store.MaxImplementAttempts {
 			return redact.Body{}, readErr
 		}
-		if readErr != nil || node.Response == agentresult.ImplementResponseCompleted {
+		if row.TimeoutAttemptID != 0 || readErr != nil || node.Response == agentresult.ImplementResponseCompleted {
+			if row.TimeoutAttemptID != 0 {
+				reason = row.LastFailure
+				outputs, outputErr := opts.DB.ListGraphOutputs(ctx, row.TimeoutAttemptID)
+				if outputErr != nil {
+					reason += " Attempt diagnostic evidence unavailable: " + outputErr.Error() + "."
+				} else {
+					found := false
+					for _, output := range outputs {
+						if output.Kind != store.GraphOutputDiagnostic {
+							continue
+						}
+						diagnostic := strings.TrimSpace(string(output.Payload))
+						if diagnostic == "" {
+							continue
+						}
+						found = true
+						if !strings.Contains(reason, diagnostic) {
+							reason += "\n" + diagnostic
+						}
+					}
+					if !found {
+						reason += " Attempt diagnostic evidence unavailable."
+					}
+				}
+				timing, timingErr := opts.DB.GetAttemptTiming(ctx, row.TimeoutAttemptID, 0)
+				if timingErr == nil {
+					reason = fmt.Sprintf("Effective worker limit: %g seconds. Deadline: %s.\n%s", timing.Allowance.Seconds(), timing.Deadline.UTC().Format(time.RFC3339Nano), reason)
+				} else {
+					reason += " Effective deadline evidence unavailable: " + timingErr.Error() + "."
+				}
+				reason += " Available branch, worktree, worker session and recorded results are kept. Reply on this story issue to continue the kept work once."
+			}
 			node = agentresult.ResearchNode{Result: agentresult.Result{Reason: reason}}
 		}
 		return renderImplementParkAnswer(ctx, r, node)
 	})
-	return err
+	if err != nil || row.TimeoutAttemptID == 0 {
+		return err
+	}
+	note, err := opts.DB.GetReportDelivery(ctx, intent.Key)
+	if err != nil {
+		return err
+	}
+	if !note.Completed || note.CommentID < 1 {
+		return errors.New("timeout notice publication is not confirmed")
+	}
+	return opts.DB.ConfirmImplementTimeoutNotice(ctx, row.Parent, row.Generation, row.Key, row.TimeoutAttemptID, intent.Key, strconv.FormatInt(note.CommentID, 10), rt.now())
 }
 
 func renderImplementParkAnswer(ctx context.Context, r *Reporter, node agentresult.ResearchNode) (redact.Body, error) {
@@ -164,4 +215,52 @@ func implementAnswerText(value any) string {
 	default:
 		return fmt.Sprint(v)
 	}
+}
+
+// RecoverImplementTimeoutPark settles a durable timeout after interrupted graph
+// bookkeeping. It only delivers the retained notice and parks the held row; it
+// never prepares a worktree or invokes a provider.
+func RecoverImplementTimeoutPark(ctx context.Context, opts Options, row store.ImplementStory) error {
+	if row.TimeoutAttemptID == 0 {
+		return nil
+	}
+	parent, err := naming.ParseRef(row.Parent)
+	if err != nil {
+		return err
+	}
+	rt := &implementRuntime{opts: opts, parentRef: parent, generation: row.Generation, worker: &row}
+	_, err = rt.parkStory(ctx, opts, ActivityRequest{})
+	return err
+}
+
+// implementTimeoutNoticeTime observes the exact retained child notice when a
+// parent reply is admitted, closing the remote-publication/local-receipt gap.
+func implementTimeoutNoticeTime(ctx context.Context, opts Options, row store.ImplementStory) (time.Time, error) {
+	if opts.MCP == nil || opts.MCP.Comments == nil {
+		return time.Time{}, errors.New("timeout notice observation is unavailable")
+	}
+	revision, err := implementStoryRevision(ctx, opts.DB, row)
+	if err != nil {
+		return time.Time{}, err
+	}
+	ref, err := naming.ParseRef(row.Parent)
+	if err != nil {
+		return time.Time{}, err
+	}
+	for page := 1; page > 0; {
+		observed, err := opts.MCP.Comments.ListCommentsPage(ctx, github.RepoFromRef(ref), revision.IssueNumber, page, 100)
+		if err != nil {
+			return time.Time{}, err
+		}
+		for _, comment := range observed.Comments {
+			if strconv.FormatInt(comment.ID, 10) == row.TimeoutCommentID {
+				return comment.CreatedAt, nil
+			}
+		}
+		if observed.NextPage <= page {
+			break
+		}
+		page = observed.NextPage
+	}
+	return time.Time{}, errors.New("confirmed timeout notice is unavailable from provider")
 }

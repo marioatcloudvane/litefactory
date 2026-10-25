@@ -3,6 +3,6 @@
 ### litefactory · run 3 · timed out
 
 > [!CAUTION]
-> Run 3 ran past the configured timeout for `claude` and litefactory killed it after 12.4s. The work it had done up to that point is still in the worktree. Raise the timeout or narrow the task, then comment again.
+> Run 3 exceeded the configured timeout for `claude` after 12.4s. The work it had done up to that point is still in the worktree. Existing retries continue under the worker’s current policy. If the worker is waiting for input, reply on this issue to continue.
 
 - **Commit:** none — this run did not succeed; if it produced anything, it is still in the worktree
