@@ -26,7 +26,9 @@ func TestJudgeScopedTransport(t *testing.T) {
 if [ "$1" = "--help" ]; then printf '%s\n' '--effort <level> (choices: low, medium, high, xhigh, max)'; exit 0; fi
 printf '%s' "$CLAUDE_CONFIG_DIR" > ` + observed + `
 while [ $# -gt 0 ]; do if [ "$1" = "--mcp-config" ]; then printf '%s' "$2" > ` + mcpObserved + `; fi; shift; done
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"judge-session","claude_code_version":"fixture"}' '{"type":"assistant","session_id":"judge-session","message":{"id":"m","model":"opus","usage":{"input_tokens":4,"output_tokens":2}}}' '{"type":"result","is_error":false}'
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"judge-session","claude_code_version":"fixture"}' '{"type":"assistant","session_id":"judge-session","message":{"id":"m","model":"opus","usage":{"input_tokens":4,"output_tokens":2}}}'
+head -c 1100000 /dev/zero | tr '\0' x; printf '\n'
+printf '%s\n' '{"type":"result","is_error":false}'
 `
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
@@ -45,13 +47,29 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"judge-session","c
 	}
 	persistent := filepath.Join(t.TempDir(), "claude-home")
 	request := agent.JudgeRequest{Invocation: agent.DoctorRequest{Attempt: "judge-attempt", Model: "opus", Prompt: "challenge saved work", WorkingDirectory: dir, ReadableDirectories: []string{contextDir}, MCPLaunch: launch}, Thinking: "high"}
-	runner := &Runner{claudeConfigDir: persistent, osHome: osHome, binary: config.Executable{Path: binary}, timeout: time.Second * 10, environ: []string{"PATH=/usr/bin:/bin"}}
+	var logs bytes.Buffer
+	runner := &Runner{claudeConfigDir: persistent, osHome: osHome, logger: slog.New(slog.NewJSONHandler(&logs, nil)), binary: config.Executable{Path: binary}, timeout: time.Second * 10, environ: []string{"PATH=/usr/bin:/bin"}}
 	result, err := runner.RunJudge(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.ObservedModel != "opus" {
 		t.Fatalf("model: %+v", result)
+	}
+	// An oversized provider line is skipped, not fatal, and logged once (#1181).
+	var oversized []map[string]any
+	for _, line := range bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
+		var record map[string]any
+		if json.Unmarshal(line, &record) == nil && record["msg"] == "judge provider output oversized" {
+			oversized = append(oversized, record)
+		}
+	}
+	if len(oversized) != 1 {
+		t.Fatalf("oversized output log: %s", logs.String())
+	}
+	total, _ := oversized[0]["total_bytes"].(float64)
+	if oversized[0]["provider"] != "claude" || oversized[0]["attempt"] != "judge-attempt" || oversized[0]["kind"] != "line_dropped" || oversized[0]["largest_dropped_line_bytes"] != float64(1100000) || total <= 1100000 {
+		t.Fatalf("oversized output log: %s", logs.String())
 	}
 	// The judge runs under the factory's persistent claude home (#1057).
 	home, err := os.ReadFile(observed)
