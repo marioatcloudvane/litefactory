@@ -27,5 +27,6 @@ A team source can name a base in `inherit.json`:
 ## Where each source lives
 
 - `teams/source/go-development`: release metadata and `inherit.json`; inherits `base-team`. This is the release command's default source.
-- `teams/source/python-fastapi`, `teams/source/swift-ios`, `teams/source/dotnet-web`: full sources. Some files inside still name the old `internal/teamsource/...` path in their text; they are built into releases, so they stay as they are.
+- `teams/source/python-fastapi`: release metadata and `inherit.json`; inherits `base-team` and keeps only the files that replace, add to or exclude base content. Its build is byte-identical to v1.0.5.
+- `teams/source/swift-ios`, `teams/source/dotnet-web`: full sources. Some files inside still name the old `internal/teamsource/...` path in their text; they are built into releases, so they stay as they are.
 - The program holds no team content. Tests load teams from these folders.

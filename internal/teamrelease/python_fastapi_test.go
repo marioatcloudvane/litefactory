@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/bugchecks"
@@ -25,6 +26,9 @@ const pythonSource = "teams/source/python-fastapi"
 func pythonFixture(t *testing.T) string {
 	t.Helper()
 	root := fixture(t)
+	for name, raw := range snapshot(t, "../../teams/source/base-team") {
+		put(t, filepath.Join(root, "teams/source/base-team", filepath.FromSlash(name)), raw)
+	}
 	for name, raw := range snapshot(t, "../../teams/source/python-fastapi") {
 		put(t, filepath.Join(root, pythonSource, filepath.FromSlash(name)), raw)
 	}
@@ -218,7 +222,19 @@ func TestPythonFastAPIProfileAndGuidanceBoundaries(t *testing.T) {
 	if _, err := config.ResolveStackProfile(raw, override); err != nil {
 		t.Fatal("confined command override rejected", err)
 	}
-	source := os.DirFS("../../teams/source/python-fastapi")
+	repo, err := os.OpenRoot("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	files, err := teamsource.ResolveSource(t.Context(), repo, pythonSource, "python-fastapi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := fstest.MapFS{}
+	for name, raw := range files {
+		source[name] = &fstest.MapFile{Data: raw}
+	}
 	guidance, err := teamsource.CaptureStackGuidance(t.Context(), source, p)
 	if err != nil {
 		t.Fatal(err)
