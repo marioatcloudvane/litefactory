@@ -608,7 +608,11 @@ func graphWaitHandoffTx(ctx context.Context, tx *sql.Tx, a doctorGraphImage) err
 	if existing == 1 {
 		return nil
 	}
-	_, e = retainOwnerInstructionTx(ctx, tx, a.SessionID, reply, actor, body, OwnerInputTarget{})
+	target, e := ParseOwnerInputTarget(body)
+	if e != nil {
+		return e
+	}
+	_, e = retainOwnerInstructionTx(ctx, tx, a.SessionID, reply, actor, body, target)
 	return e
 }
 func verifyGraphStepsTx(ctx context.Context, tx *sql.Tx, r DoctorRepair, steps []DoctorRepairStep) error {
@@ -673,7 +677,11 @@ func graphPlanWaitGuidanceTx(ctx context.Context, tx *sql.Tx, a *doctorGraphImag
 		return nil
 	}
 	if a.Guidance == nil {
-		a.Guidance = map[string]any{"comment_id": graphJSONInteger(c.ID), "session_id": graphJSONInteger(a.SessionID), "target_instance_id": json.Number("0"), "target_node": "", "target_launch_id": json.Number("0"), "assigned_attempt_id": nil, "assigned_at": nil}
+		target, err := ParseOwnerInputTarget(c.Body)
+		if err != nil {
+			return err
+		}
+		a.Guidance = map[string]any{"comment_id": graphJSONInteger(c.ID), "session_id": graphJSONInteger(a.SessionID), "target_instance_id": graphJSONInteger(target.InstanceID), "target_node": target.Node, "target_launch_id": graphJSONInteger(target.LaunchID), "assigned_attempt_id": nil, "assigned_at": nil}
 	}
 	return nil
 }

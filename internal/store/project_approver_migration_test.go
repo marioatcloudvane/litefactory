@@ -36,7 +36,7 @@ func TestProjectApproverPopulatedMigrationFreezesAuthenticatedHistory(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	comment, err := db.RecordComment(t.Context(), Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorHandle: owner.Handle, AuthorUserID: owner.UserID, Body: "original approved instruction\nbytes", CreatedAt: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), Classification: ClassificationInstruction})
+	comment, err := SeedHistoricalComment(t, db, Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorHandle: owner.Handle, AuthorUserID: owner.UserID, Body: "original approved instruction\nbytes", CreatedAt: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), Classification: ClassificationInstruction})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestProjectApproverLegacyRunlessReportRequiresExactSource(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err = db.RecordComment(t.Context(), Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorUserID: 42, AuthorHandle: "owner", Body: "unrelated instruction", CreatedAt: time.Now(), Classification: ClassificationInstruction}); err != nil {
+			if _, err = SeedHistoricalComment(t, db, Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorUserID: 42, AuthorHandle: "owner", Body: "unrelated instruction", CreatedAt: time.Now(), Classification: ClassificationInstruction}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err = db.EnsureReportDelivery(t.Context(), ReportDelivery{Key: "missing-source", SessionID: session.ID, TriggerID: trigger, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "forge", Purpose: "reply", BotUserID: 99, Body: "original bytes", Marker: "retained"}); err != nil {

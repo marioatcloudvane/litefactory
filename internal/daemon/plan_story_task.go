@@ -308,7 +308,7 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 		d.planReplyDeferred(ctx, t, c.ID, "could not read the Plan state: "+err.Error())
 		return d.leave(ctx, t, log, "could not read the Plan state", err)
 	}
-	normalized, decisionErr := turn.ResolvePlanStoryDecision(ctx, d.db, parent, c.ID, c.Author.ID, c.Body, t.tickAt, story.Key)
+	normalized, decisionErr := turn.ResolvePlanStoryDecision(ctx, d.db, parent, c.ID, c.Author.ID, c.Body, t.tickAt, story.Key, c.ReplyToCommentID)
 	var reason string
 	if decisionErr != nil {
 		reason = decisionErr.Error()

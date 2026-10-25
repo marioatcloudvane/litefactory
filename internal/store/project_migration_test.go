@@ -29,7 +29,7 @@ func TestProjectMigrationPreservesPopulatedSessionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	comment, err := db.RecordComment(t.Context(), Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorHandle: "owner", AuthorUserID: 42, Body: "original\ncomment bytes", CreatedAt: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), Classification: ClassificationInstruction})
+	comment, err := SeedHistoricalComment(t, db, Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorHandle: "owner", AuthorUserID: 42, Body: "original\ncomment bytes", CreatedAt: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), Classification: ClassificationInstruction})
 	if err != nil {
 		t.Fatal(err)
 	}

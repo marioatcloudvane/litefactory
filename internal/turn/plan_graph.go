@@ -441,7 +441,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 	}
 	normalized := r.req.Trigger.Body
 	if r.req.Trigger.AuthorID == r.ownerID {
-		normalized, err = ResolvePlanDecision(ctx, r.opts.DB, r.parentRef.String(), r.req.Trigger.CommentID, r.req.Trigger.AuthorID, r.req.Trigger.Body, r.opts.MCP.Now())
+		normalized, err = ResolvePlanDecision(ctx, r.opts.DB, r.parentRef.String(), r.req.Trigger.CommentID, r.req.Trigger.AuthorID, r.req.Trigger.Body, r.opts.MCP.Now(), r.req.Trigger.ReplyToCommentID)
 	}
 	if err != nil {
 		return &PlanReplyRefusal{Reason: err.Error(), Err: err}
