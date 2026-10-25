@@ -37,7 +37,7 @@ type OwnerPublicationArtifact struct {
 
 // ClaimOwnerPublication elects the factory as the single publisher of an
 // approval intent, or returns the publication an earlier call already elected.
-// New claims recheck expiry, currency, a competing agent grant and quota in one
+// New claims recheck expiry, currency and a competing agent grant in one
 // transaction; a refusal is stored so every replay reports the same reason.
 // enabled is the loaded creation gate and matters only for a new claim.
 func (c *CreationStore) ClaimOwnerPublication(ctx context.Context, intentID int64, enabled bool) (OwnerPublication, CreationProposal, error) {
@@ -83,14 +83,6 @@ func (c *CreationStore) ClaimOwnerPublication(ctx context.Context, intentID int6
 			reason = OwnerPublicationStale
 		case bound > 0:
 			reason = OwnerPublicationBound
-		default:
-			charged, err := chargedCreationUnits(ctx, tx, p.Repository, now.Add(-MCPCreationWindow).UnixNano())
-			if err != nil {
-				return err
-			}
-			if charged+int64(p.Artifacts) > MCPCreationRepositoryLimit {
-				reason = OwnerPublicationQuota
-			}
 		}
 		state := "dispatched"
 		if reason != "" {
@@ -105,17 +97,43 @@ func (c *CreationStore) ClaimOwnerPublication(ctx context.Context, intentID int6
 	return pub, p, err
 }
 
-// chargedCreationUnits counts artifacts against the repository's rolling quota
-// across agent-bound operations and factory owner publications alike.
-func chargedCreationUnits(ctx context.Context, tx *sql.Tx, repository string, since int64) (int64, error) {
-	var agent, owner int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(artifacts),0) FROM mcp_creation_operations WHERE repository=? AND state<>'released' AND (state<>'confirmed' OR confirmed_ns>?)`, repository, since).Scan(&agent); err != nil {
-		return 0, err
+// LookupOwnerPublication returns an already accepted or refused publication and
+// its approved proposal without admitting a new claim. Missing publications
+// return ErrNotFound, including approvals that have never been dispatched.
+func (c *CreationStore) LookupOwnerPublication(ctx context.Context, intentID int64) (OwnerPublication, CreationProposal, error) {
+	var pub OwnerPublication
+	var p CreationProposal
+	err := c.db.withTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		pub, err = ownerPublicationTx(ctx, tx, intentID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		p, _, err = creationProposalTx(ctx, tx, pub.ProposalHash)
+		return err
+	})
+	return pub, p, err
+}
+
+// CheckOwnerPublicationCurrent checks authority for the next write of an accepted
+// publication. Acceptance survives expiry, but does not survive replacement of
+// the approved proposal, even when the original bytes become current again.
+// A saved terminal outcome is historical evidence, never fresh write authority.
+func (c *CreationStore) CheckOwnerPublicationCurrent(ctx context.Context, intentID int64) error {
+	var current int
+	err := c.db.sql.QueryRowContext(ctx, `SELECT 1 FROM creation_owner_publications p
+JOIN mcp_creation_intents i ON i.id=p.intent_id
+JOIN mcp_creation_current c ON c.source_task=i.source_task
+WHERE p.intent_id=? AND p.state='dispatched'
+AND p.proposal_hash=i.proposal_hash AND c.proposal_hash=i.proposal_hash
+AND c.revision=i.proposal_revision`, intentID).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrCreationAuthority
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(artifacts),0) FROM creation_owner_publications WHERE repository=? AND state<>'refused' AND (state<>'confirmed' OR confirmed_ns>?)`, repository, since).Scan(&owner); err != nil {
-		return 0, err
-	}
-	return agent + owner, nil
+	return err
 }
 
 func ownerPublicationTx(ctx context.Context, tx *sql.Tx, intentID int64) (OwnerPublication, error) {
@@ -174,7 +192,7 @@ func (db *DB) OwnerArtifacts(ctx context.Context, intentID int64) ([]OwnerPublic
 }
 
 // FinishOwnerPublication records the final outcome of a dispatched publication.
-func (c *CreationStore) FinishOwnerPublication(ctx context.Context, intentID int64, state string) error {
+func (c *CreationStore) FinishOwnerPublication(ctx context.Context, intentID int64, state string, reasons ...string) error {
 	if !submissionState(state, "confirmed", "uncertain") {
 		return ErrCreationAuthority
 	}
@@ -182,6 +200,10 @@ func (c *CreationStore) FinishOwnerPublication(ctx context.Context, intentID int
 	if state == "confirmed" {
 		confirmed = c.now().UnixNano()
 	}
-	_, err := c.db.sql.ExecContext(ctx, `UPDATE creation_owner_publications SET state=?,confirmed_ns=? WHERE intent_id=? AND state IN ('dispatched','uncertain')`, state, confirmed, intentID)
+	reason := ""
+	if len(reasons) > 0 {
+		reason = reasons[0]
+	}
+	_, err := c.db.sql.ExecContext(ctx, `UPDATE creation_owner_publications SET state=?,confirmed_ns=?,reason=? WHERE intent_id=? AND state='dispatched'`, state, confirmed, reason, intentID)
 	return err
 }

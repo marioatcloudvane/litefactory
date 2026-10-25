@@ -1,11 +1,13 @@
 package daemon
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -21,6 +23,9 @@ func TestOwnerApprovalPublishesInAnyModeAndPath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newPublicationIO(t)
 			f.createOK = true
+			seedPublicationVolume(t, f)
+			attachments := 0
+			publicationProvider(t, f, nil, &attachments)
 			task := rejectionTask(t, f)
 			task.issue.Labels = nil
 			if tc.label != "" {
@@ -32,10 +37,14 @@ func TestOwnerApprovalPublishesInAnyModeAndPath(t *testing.T) {
 			}
 			prepared, err := f.runtime.PrepareCreationProposal(t.Context(), successfulPreparationControl(t, f, 60, "Graph dispatch never gets bound"))
 			publicationMust(t, err)
+			saved, err := f.cs.GetPreparation(t.Context(), store.CreationSource{Repository: "owner/api", SourceTask: f.session.TaskRef, CommentID: 60, OwnerID: 10})
+			publicationMust(t, err)
+			var approved submission.CreationEnvelope
+			publicationMust(t, json.Unmarshal(saved.Envelope, &approved))
 			c := rejectionSource(f, "/mcp-create "+prepared.Hash+" linked")
 			publicationMust(t, f.d.handleComment(t.Context(), task, c))
 			rejectionWatermark(t, f, 70)
-			if f.creationPosts != 1 || f.creationTitle != "Graph dispatch never gets bound" || f.posts != 1 {
+			if f.creationPosts != 1 || f.creationTitle != "Graph dispatch never gets bound" || f.creationBody != approved.Artifacts[0].Body || f.posts != 1 || attachments != 0 {
 				t.Fatalf("creations=%d title=%q replies=%d", f.creationPosts, f.creationTitle, f.posts)
 			}
 			reply := f.bodies[0]
@@ -54,8 +63,8 @@ func TestOwnerApprovalPublishesInAnyModeAndPath(t *testing.T) {
 			// publication is reported, never dispatched again.
 			rejectionRestart(t, f)
 			publicationMust(t, f.d.handleComment(t.Context(), task, c))
-			if f.creationPosts != 1 {
-				t.Fatalf("replayed approval published again: %d", f.creationPosts)
+			if f.creationPosts != 1 || f.posts != 1 || attachments != 0 {
+				t.Fatalf("replayed approval wrote again: creations=%d replies=%d attachments=%d", f.creationPosts, f.posts, attachments)
 			}
 		})
 	}
@@ -66,7 +75,7 @@ func TestOwnerApprovalPublishesInAnyModeAndPath(t *testing.T) {
 func TestOwnerApprovalRefusals(t *testing.T) {
 	for _, tc := range []struct{ name, want string }{
 		{"stale", "a newer proposal replaced this one"},
-		{"expired", "more than 30 minutes after it was posted"},
+		{"expired", "not admitted strictly before 30 minutes after it was posted"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newPublicationIO(t)
