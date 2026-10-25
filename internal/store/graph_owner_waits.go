@@ -22,6 +22,13 @@ var ErrGraphOwnerWait = errors.New("store: graph awaits an authorized owner repl
 // other mismatch (task, mode, instance status or incomplete publication).
 var ErrGraphReplyPredatesQuestion = errors.New("store: owner comment predates the published graph question")
 
+// ErrGraphReplyNotResumable refuses a claimed owner reply whose continuation
+// is not the step the wait rests on, or needs an agent run it does not have.
+// It is permanent for that reply: the caller releases the claim, tells the
+// owner once and consumes the comment instead of holding admission forever.
+// It also matches ErrGraphInvariant.
+var ErrGraphReplyNotResumable = errors.New("store: owner reply cannot resume the waiting step")
+
 // GraphOwnerWait retains a reply until its continuation attempt is allocated.
 // Publication is read from the original report journal, never inferred from state.
 type GraphOwnerWait struct {
@@ -31,6 +38,7 @@ type GraphOwnerWait struct {
 	OriginNode                  string
 	AllowRunless                bool
 	ReplyID                     int64
+	ReplyToCommentID            int64
 	ReplyBody                   string
 	ReplyAuthorID               int64
 	ClaimedAt                   time.Time
@@ -38,12 +46,12 @@ type GraphOwnerWait struct {
 	AllowanceAttemptID          int64
 }
 
-const graphWaitColumns = `delivery_key,instance_id,COALESCE(source_attempt_id,0),state,COALESCE(reply_id,0),COALESCE(reply_body,''),COALESCE(reply_author_id,0),claimed_at,COALESCE(continuation_attempt_id,0),COALESCE(origin_node,''),allow_runless,COALESCE(allowance_attempt_id,0),reply_source`
+const graphWaitColumns = `delivery_key,instance_id,COALESCE(source_attempt_id,0),state,COALESCE(reply_id,0),COALESCE(reply_body,''),COALESCE(reply_author_id,0),claimed_at,COALESCE(continuation_attempt_id,0),COALESCE(origin_node,''),allow_runless,COALESCE(allowance_attempt_id,0),reply_source,reply_to_comment_id`
 
 func scanGraphOwnerWait(row scanner) (GraphOwnerWait, error) {
 	var out GraphOwnerWait
 	var at sql.NullString
-	err := row.Scan(&out.DeliveryKey, &out.InstanceID, &out.SourceAttemptID, &out.State, &out.ReplyID, &out.ReplyBody, &out.ReplyAuthorID, &at, &out.ContinuationAttemptID, &out.OriginNode, &out.AllowRunless, &out.AllowanceAttemptID, &out.ReplySource)
+	err := row.Scan(&out.DeliveryKey, &out.InstanceID, &out.SourceAttemptID, &out.State, &out.ReplyID, &out.ReplyBody, &out.ReplyAuthorID, &at, &out.ContinuationAttemptID, &out.OriginNode, &out.AllowRunless, &out.AllowanceAttemptID, &out.ReplySource, &out.ReplyToCommentID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, ErrNotFound
 	}
@@ -63,6 +71,7 @@ func (db *DB) GetGraphOwnerWait(ctx context.Context, instanceID int64) (GraphOwn
 // OwnerID is the configured numeric identity, SourceRef the observed issue source.
 type GraphOwnerReply struct {
 	InstanceID, OwnerID, AuthorID, CommentID, QuestionCommentID int64
+	ReplyToCommentID                                            int64
 	TaskRef, SourceRef, Mode, Workflow, DeliveryKey, Body       string
 	At                                                          time.Time
 }
@@ -75,7 +84,7 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 }
 
 func (db *DB) claimGraphOwnerReply(ctx context.Context, in GraphOwnerReply, chat bool) (out GraphOwnerWait, err error) {
-	if in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || (in.QuestionCommentID < 1 && in.Workflow != "bug") || (strings.TrimSpace(in.Mode) == "" && in.Workflow != "bug") || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
+	if in.ReplyToCommentID < 0 || in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || (in.QuestionCommentID < 1 && in.Workflow != "bug") || (strings.TrimSpace(in.Mode) == "" && in.Workflow != "bug") || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
 		return out, graphInvariant("invalid authenticated graph reply")
 	}
 	if chat {
@@ -144,7 +153,7 @@ func (db *DB) claimGraphOwnerReply(ctx context.Context, in GraphOwnerReply, chat
 		if chat {
 			source = "chat"
 		}
-		_, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=?,reply_source=? WHERE delivery_key=?`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), source, in.DeliveryKey)
+		_, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=?,reply_source=?,reply_to_comment_id=? WHERE delivery_key=?`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), source, in.ReplyToCommentID, in.DeliveryKey)
 		if e != nil {
 			return e
 		}
@@ -200,8 +209,17 @@ func graphReplyAllocationTx(ctx context.Context, tx *sql.Tx, in GraphAttemptStar
 			return graphInvariant("sync prerequisite requires revised Bug workflow")
 		}
 	}
+	// An Implement owner question rests on the coordinator's base sync, a
+	// factory step. When that sync last ran right after the resolver agent, in
+	// the resolver's run, the wait inherited that run and so looked agent-bound.
+	// Resuming the same factory step needs no run (#1169).
+	if !syncRestart && in.RunID < 1 && !wait.AllowRunless && in.FactoryStep && in.Node == origin {
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_instances i JOIN graph_definitions d ON d.id=i.definition_id WHERE i.id=? AND COALESCE(NULLIF(d.workflow,''),d.mode)='implement')`, in.InstanceID).Scan(&wait.AllowRunless); err != nil {
+			return err
+		}
+	}
 	if !syncRestart && (in.Node != origin || (in.RunID < 1 && !wait.AllowRunless)) {
-		return graphInvariant("reply allocation must resume the admitted origin and execution kind")
+		return fmt.Errorf("%w: %w: reply allocation must resume the admitted origin and execution kind", ErrGraphInvariant, ErrGraphReplyNotResumable)
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='allocated',continuation_attempt_id=? WHERE delivery_key=?`, attemptID, wait.DeliveryKey)
 	return err
@@ -288,4 +306,31 @@ func validateResolverQuestionTx(ctx context.Context, tx *sql.Tx, key string, ins
 	var allowed bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id JOIN graph_definitions d ON d.id=i.definition_id JOIN graph_node_attempts a ON a.id=c.source_attempt_id AND a.instance_id=i.id WHERE c.delivery_key=? AND c.instance_id=? AND c.source_attempt_id=? AND COALESCE(NULLIF(d.workflow,''),d.mode)='validate' AND c.kind='question' AND c.node='owner_ask' AND COALESCE(c.stop_origin,'')='' AND a.node='owner_resolve' AND a.status='succeeded')`, key, instanceID, sourceID).Scan(&allowed)
 	return allowed, err
+}
+
+// ReleaseGraphOwnerReply returns a claimed reply that can never be allocated
+// to the open wait, so the question waits for a new reply. It reports the node
+// the wait rests on. A wait not claimed by replyID is ErrNotFound.
+func (db *DB) ReleaseGraphOwnerReply(ctx context.Context, instanceID, replyID int64) (origin string, err error) {
+	err = db.withTx(ctx, func(tx *sql.Tx) error {
+		wait, e := scanGraphOwnerWait(tx.QueryRowContext(ctx, `SELECT `+graphWaitColumns+` FROM graph_owner_waits WHERE instance_id=? AND state='claimed' AND reply_id=?`, instanceID, replyID))
+		if e != nil {
+			return e
+		}
+		origin = wait.OriginNode
+		if origin == "" {
+			if e = tx.QueryRowContext(ctx, `SELECT node FROM graph_node_attempts WHERE id=?`, wait.SourceAttemptID).Scan(&origin); e != nil {
+				return e
+			}
+		}
+		if _, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='waiting',reply_id=NULL,reply_body=NULL,reply_author_id=NULL,claimed_at=NULL,reply_source='forge',reply_to_comment_id=0 WHERE delivery_key=?`, wait.DeliveryKey); e != nil {
+			return e
+		}
+		_, e = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=NULL WHERE id=?`, instanceID)
+		return e
+	})
+	if err != nil {
+		return "", fmt.Errorf("store: release graph reply: %w", err)
+	}
+	return origin, nil
 }

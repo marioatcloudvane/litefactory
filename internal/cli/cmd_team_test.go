@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io/fs"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -27,27 +27,14 @@ func teamFiles(t *testing.T, modes ...string) map[string][]byte {
 	files := map[string][]byte{}
 	var mapping strings.Builder
 	for _, mode := range modes {
-		root := filepath.Join("..", "teamsource", mode)
-		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			relative, err := filepath.Rel(root, p)
-			if err != nil {
-				return err
-			}
-			raw, err := os.ReadFile(p)
-			if err != nil {
-				return err
-			}
-			files[mode+"/"+filepath.ToSlash(relative)] = raw
-			return nil
-		})
+		resolved, err := teamsourcetest.Files(teamsourcetest.Go)
 		if err != nil {
 			t.Fatal(err)
+		}
+		for name, raw := range resolved {
+			if strings.HasPrefix(name, mode+"/") {
+				files[name] = raw
+			}
 		}
 		mapping.WriteString(mode + ": " + mode + "/" + mode + ".dot\n")
 	}

@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -48,7 +49,7 @@ func TestImplementUnusableReplyDeliveryAndAuthentication(t *testing.T) {
 					t.Fatal("failed refusal delivery consumed input")
 				}
 				pending, found, err := f.db.FindPendingReportDelivery(t.Context(), f.session().ID, 91)
-				if err != nil || !found || !strings.Contains(pending.Body, "This Implement comment did not select any parked stories") {
+				if err != nil || !found || !strings.Contains(pending.Body, "Your instruction is retained and undelivered") {
 					t.Fatalf("missing durable refusal: %+v %v %v", pending, found, err)
 				}
 				f.forge.onPostComment = nil
@@ -65,7 +66,7 @@ func TestImplementUnusableReplyDeliveryAndAuthentication(t *testing.T) {
 			posted, _, _ := f.forge.snapshot()
 			count := 0
 			for _, text := range posted {
-				if strings.Contains(text, "This Implement comment did not select any parked stories") {
+				if strings.Contains(text, "Your instruction is retained and undelivered") {
 					count++
 				}
 			}
@@ -75,6 +76,10 @@ func TestImplementUnusableReplyDeliveryAndAuthentication(t *testing.T) {
 			}
 			if count != want {
 				t.Fatalf("refusals = %d; posts=%v", count, posted)
+			}
+			input, inputErr := f.db.GetOwnerInstruction(t.Context(), f.session().ID, 91)
+			if inputErr != nil || input.AttemptID != 0 || input.Body != body {
+				t.Fatalf("unusable input not retained: %+v %v", input, inputErr)
 			}
 			f.forge.addComment(testIssue, 900041, owner(), "/unknown-command story-001")
 			if !settleUntilHandled(f, 900041, 6) {
@@ -131,12 +136,16 @@ func TestImplementClaimedQuestionConflictIsAnsweredAndConsumed(t *testing.T) {
 	posted, _, _ := f.forge.snapshot()
 	count := 0
 	for _, text := range posted {
-		if strings.Contains(text, "already handling another reply or question") {
+		if strings.Contains(text, "Your instruction is retained and undelivered") {
 			count++
 		}
 	}
 	if count != 1 {
 		t.Fatalf("refusal count = %d, posts=%v", count, posted)
+	}
+	input, inputErr := f.db.GetOwnerInstruction(t.Context(), f.session().ID, 150)
+	if inputErr != nil || input.AttemptID != 0 || input.Body != "story-002: retry too" {
+		t.Fatalf("occupied wait input lost: %+v %v", input, inputErr)
 	}
 }
 
@@ -209,5 +218,54 @@ func TestMissingTicketPublisherRefusalDeliveryAndAuthentication(t *testing.T) {
 				t.Fatal("command became ordinary guidance")
 			}
 		})
+	}
+}
+
+// #1169: a claimed owner reply the store can never allocate to the open wait is
+// answered once and consumed, and the question waits for a new reply, instead
+// of an endless silent admission hold.
+func TestImplementUnresumableReplyIsRefusedOnceAndReleased(t *testing.T) {
+	b := newBetweenQuestions(t)
+	f := b.f
+	definition, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("b", 64), CreatedAt: b.at})
+	betweenCheck(t, err)
+	b.instance, err = f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: b.session.ID, DefinitionID: definition.ID, CurrentNode: "shape", StartedAt: b.at, NextDueAt: b.at})
+	betweenCheck(t, err)
+	b.shapeAsks(t)
+	f.issueWithLabels("Implement the feature", "Mode: Implement")
+	f.turns.set(func(context.Context, turn.Request) (turn.Result, error) {
+		return turn.Result{}, fmt.Errorf("reserve graph node: %w", store.ErrGraphReplyNotResumable)
+	})
+	f.forge.addComment(testIssue, betweenGenuineReply, owner(), "story-001: retry")
+	if !settleUntilHandled(f, betweenGenuineReply, 6) {
+		t.Fatalf("unresumable reply was never consumed: %s", f.logs)
+	}
+	for range 3 {
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	runs := 0
+	for _, req := range f.turns.calls() {
+		if req.Trigger.CommentID == betweenGenuineReply {
+			runs++
+		}
+	}
+	if runs != 1 {
+		t.Fatalf("the refused reply ran %d times, want once", runs)
+	}
+	posted, _, _ := f.forge.snapshot()
+	count := 0
+	for _, text := range posted {
+		if strings.Contains(text, "could not resume the stopped work at `shape`") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("refusals = %d, want exactly one; posts=%v", count, posted)
+	}
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), b.instance.ID)
+	betweenCheck(t, err)
+	if wait.State != "waiting" || wait.ReplyID != 0 {
+		t.Fatalf("the question waits for a new reply: %+v", wait)
 	}
 }

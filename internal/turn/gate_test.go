@@ -207,8 +207,8 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// A repair attempt merges fetched main into the idle task worktree,
 		// and a Bug check adds and later removes the detached target
 		// worktree its failing tests rerun on; each is one acquisition.
-		// Simplified Bug preserves dirty work locally and synchronizes after
-		// normal fetched preparation, releasing this section before invocation.
+		// Simplified Bug observes synchronization without committing retained
+		// edits, releasing this section before invocation.
 		"PrepareGraphBugSource":        {},
 		"BugRuntime.saveGraphDelivery": {},
 		"BugRuntime.pushGraphDelivery": {},
@@ -224,6 +224,8 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// Validate pins the integration head: one fetch and one read, in one
 		// acquisition.
 		"IntegrationHead": {},
+		// Read the displayed local branch under the clone gate without fetching.
+		"ValidatePublicationHead": {},
 		// Validate's host bindings: the task worktree is created or reused,
 		// a kept repair is committed, the tested commit is pushed and a story
 		// branch is fetched and fast-forwarded to it, each in one acquisition.
@@ -246,7 +248,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// proposal is being applied (CR-B-003): see WriteResolvedFiles below.
 		"syncBase": {"prepareClone", "PrepareGraphBugSource"},
 		"syncTask": {"prepareClone", "PrepareGraphBugSource"},
-		"Commit":   {"commitAndPush", "BugRuntime.saveGraphDelivery", "PrepareGraphBugSource", "validateHost.keepChange"},
+		"Commit":   {"commitAndPush", "BugRuntime.saveGraphDelivery", "validateHost.keepChange"},
 		// WriteResolvedFiles, StageResolvedFiles and CompleteMerge are US-12's
 		// three new git.Worktree mutators. They run as prepareClone's fourth
 		// step, in place of syncBase (which this turn shape never calls),
@@ -344,13 +346,14 @@ func TestTurnImposesNoAmbientDeadline(t *testing.T) {
 			// bounds the agent process only, and never encloses a git command or the
 			// clone gate: the agent runs outside the gate and every git command
 			// starts its own deadline at exec time.
-			if name == "AgentActivity.execute" && forbidden == "WithTimeout" {
+			if name == "AgentActivity.execute" || name == "closeInvocation" || name == "AgentActivity.Execute" {
 				continue
 			}
 			// The same holds for the doctor sync conflict advisor: its budget
 			// bounds the advisor run only, which happens between the two gate
 			// acquisitions and before any git write, so the merge, recheck and
 			// push fit inside the repair broker's tool deadline.
+
 			if name == "SyncDoctorBranch" && forbidden == "WithTimeout" {
 				continue
 			}

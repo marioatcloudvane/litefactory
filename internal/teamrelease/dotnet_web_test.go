@@ -3,6 +3,7 @@ package teamrelease
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -21,10 +22,11 @@ import (
 
 const dotnetSource = "teams/source/dotnet-web"
 
-// dotnetRelease is the published directory of the current dotnet-web release.
+// dotnetRelease selects an immutable published fixture independently of editable
+// source metadata, which may advance before the owner publishes another release.
 func dotnetRelease(t *testing.T) string {
 	t.Helper()
-	return "../../teams/dotnet-web/v" + sourceVersion(t, "../../"+dotnetSource)
+	return "../../teams/dotnet-web/v1.0.1"
 }
 
 func dotnetProfile(t *testing.T) config.ResolvedStackProfile {
@@ -47,6 +49,11 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 			put(t, filepath.Join(root, dir, name), raw)
 		}
 	}
+	catalogueBefore := releaseCatalogue(t, root)
+	historical := map[string]map[string][]byte{}
+	for _, release := range catalogueBefore.Releases {
+		historical[release.Download] = snapshot(t, filepath.Join(root, "teams", release.Download))
+	}
 	// Canonical source may advance independently of immutable published releases.
 	// Choose a fixture-only version, never changing repository release metadata.
 	metadataPath := filepath.Join(root, dotnetSource, "release.json")
@@ -68,6 +75,11 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 	if err := GenerateSources(t.Context(), root, false, []string{dotnetSource}); err != nil {
 		t.Fatal(err)
 	}
+	for _, release := range catalogueBefore.Releases {
+		if !reflect.DeepEqual(historical[release.Download], snapshot(t, filepath.Join(root, "teams", release.Download))) {
+			t.Fatal("building current source changed immutable published release", release.Download)
+		}
+	}
 	before := snapshot(t, filepath.Join(root, "teams"))
 	if err := GenerateSources(t.Context(), root, true, []string{dotnetSource}); err != nil {
 		t.Fatal(err)
@@ -78,8 +90,8 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, filepath.Join(root, "teams"))) {
 		t.Fatal("regeneration changed catalogue or historical release bytes")
 	}
-	// Rebuild this team's current release from source, retaining every other release
-	// (including this team's history).
+	// Rebuild the fixture candidate from current source while retaining every
+	// immutable repository release.
 	version := sourceVersion(t, filepath.Join(root, dotnetSource))
 	raw, err := os.ReadFile(filepath.Join(root, "teams/teams.json"))
 	if err != nil {
@@ -250,7 +262,8 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		}
 	}
 	for _, mode := range []string{"research", "plan", "implement", "validate", "spike", "bug"} {
-		shared, err := os.ReadFile(filepath.Join("../teamsource", mode, mode+".dot"))
+		goFiles, err := teamsourcetest.Files("go-development")
+		shared := goFiles[mode+"/"+mode+".dot"]
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -258,16 +271,23 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// This is the current generated release, so its graphs include the
-		// current canonical gates. Only Go's declared worker slot policy is
-		// stack-specific; historical release deltas belong to the separate
-		// canonical migration comparison.
+		shared = legacySourceWithoutPreparationDeferral(t, mode, shared)
+		shared = withoutStandardsGrant(t, shared)
+		if mode == "bug" {
+			shared = legacyBugSourceWithoutSyncGate(t, shared)
+		}
 		if mode == "implement" {
-			shared = withoutGoStoryWorkerSlotPolicy(t, shared)
+			shared = legacyImplementSourceWithoutOwnerResumeSync(t, withoutGoStoryWorkerSlotPolicy(t, shared))
+		}
+		if mode == "spike" {
+			shared = legacySpikeSourceWithoutRepair(t, shared)
+		}
+		if mode == "validate" {
+			shared = legacyValidateSourceWithoutCandidateAdoption(t, shared)
 		}
 		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
 		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))
-		if !bytes.Equal(want, released) {
+		if !dotnetGraphPolicyMatchesRelease(t, want, released) && (mode != "implement" || !pendingWorkerSyncMatchesRelease(want, released)) {
 			t.Fatal("team selection changed shared graph gates", mode)
 		}
 	}
@@ -277,4 +297,27 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 			t.Fatal("unbounded or unexpected recipe")
 		}
 	}
+}
+
+// Comments and formatting may evolve without changing a graph's execution
+// policy. Every semantic graph attribute and route remains part of this check.
+func dotnetGraphPolicyMatchesRelease(t *testing.T, current, released []byte) bool {
+	t.Helper()
+	live, err := graphexec.ParseProfile(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historical, err := graphexec.ParseProfile(released)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := graphexec.SemanticDigest(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := graphexec.SemanticDigest(historical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got == want
 }

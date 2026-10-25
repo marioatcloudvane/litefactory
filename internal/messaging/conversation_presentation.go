@@ -69,7 +69,16 @@ func (s *Service) currentConversationFacts(ctx context.Context, turnID string) (
 		if err != nil {
 			return nil, err
 		}
-		facts = append(facts, presentation.CurrentFact{ID: result.FactID, Text: result.Result, Source: result.Source, Target: result.Target, Caveats: strings.Join(result.Gaps, "; "), Complete: x.Complete && result.Complete && len(result.Gaps) == 0})
+		text := result.Result
+		if result.Command == "ask" {
+			var envelope struct {
+				Bundle json.RawMessage `json:"bundle"`
+			}
+			if json.Unmarshal([]byte(text), &envelope) == nil && len(envelope.Bundle) > 0 {
+				text = string(envelope.Bundle)
+			}
+		}
+		facts = append(facts, presentation.CurrentFact{ID: result.FactID, Text: text, Source: result.Source, Target: result.Target, Caveats: strings.Join(result.Gaps, "; "), Complete: x.Complete && result.Complete && len(result.Gaps) == 0})
 	}
 	return facts, nil
 }

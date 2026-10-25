@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -47,6 +49,8 @@ type implementRuntime struct {
 	worker *store.ImplementStory
 	// save is the run's save step, set when the graph is executed.
 	save func(context.Context) (Result, error)
+	// worktree is the run's admitted worktree, set when the graph is executed.
+	worktree func() (*git.Worktree, error)
 }
 
 func (rt *implementRuntime) now() time.Time { return spikeNow(rt.opts) }
@@ -77,6 +81,13 @@ func admitImplementExecution(ctx context.Context, opts Options, req Request, res
 		if featureErr != nil {
 			return result, true, featureErr
 		}
+		if feature.State == "planning" {
+			if err := opts.DB.CheckManagedReadiness(ctx, result.Ref.String()); errors.Is(err, store.ErrPlanNotReady) {
+				return result, false, nil
+			} else if err != nil {
+				return result, true, err
+			}
+		}
 		rt.generation = int64(feature.Generation)
 	default:
 		return result, true, err
@@ -100,6 +111,9 @@ func admitImplementExecution(ctx context.Context, opts Options, req Request, res
 		return result, false, nil
 	}
 	out, err := rt.admit(ctx)
+	if errors.Is(err, errManagedPreparationAssessment) {
+		return result, false, nil
+	}
 	return out, true, err
 }
 
@@ -119,11 +133,14 @@ func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
 	} else {
 		if err := rt.opts.DB.CheckManagedReadiness(ctx, rt.parentRef.String()); err != nil {
 			if errors.Is(err, store.ErrPlanNotReady) {
-				return readinessRefused(ctx, rt.opts, rt.result)
+				return rt.result, errManagedPreparationAssessment
 			}
 			return rt.result, err
 		}
 		if err := prepareManagedScope(ctx, rt.opts, rt.req, rt.parentRef); err != nil {
+			if errors.Is(err, store.ErrPlanNotReady) {
+				return rt.result, errManagedPreparationAssessment
+			}
 			return rt.result, err
 		}
 		feature, err := rt.opts.DB.GetManagedFeature(ctx, rt.parentRef.String())
@@ -218,6 +235,9 @@ func (rt *implementRuntime) execute(ctx context.Context, definition *teamsource.
 		return rt.result, err
 	}
 	out, err := ExecuteWorkflow(ctx, rt.opts, rt.req, rt.result, definition, admission, policy)
+	if limit := (*GraphLimitError)(nil); rt.worker == nil && errors.As(err, &limit) {
+		err = errors.Join(err, rt.reportExhausted(context.WithoutCancel(ctx), admission.Instance.ID, limit))
+	}
 	if err != nil && rt.worker != nil && ctx.Err() == nil {
 		reason, readErr := rt.workerSyncBlockage(ctx, admission.Instance.ID, true)
 		if readErr != nil {
@@ -246,6 +266,33 @@ func (rt *implementRuntime) execute(ctx context.Context, definition *teamsource.
 	return out, errors.Join(err, settleErr, lookupErr)
 }
 
+// reportExhausted tells the owner on the parent that the coordinator stopped
+// because a step used up its dispatch limit, and how to resume. The comment is
+// derived from the stopped instance, the step's last attempt and its text, so a
+// repeat delivers the one comment.
+func (rt *implementRuntime) reportExhausted(ctx context.Context, instanceID int64, limit *GraphLimitError) error {
+	if rt.opts.ResearchReporter == nil {
+		return nil
+	}
+	source, err := rt.opts.DB.LatestGraphNodeAttempt(ctx, instanceID, limit.Node)
+	if err != nil {
+		return fmt.Errorf("find the last attempt of the exhausted step %q: %w", limit.Node, err)
+	}
+	candidate := agentresult.Result{
+		Outcome: "incomplete",
+		Comment: fmt.Sprintf("Implement stopped at step `%s`: the step reached its limit of attempts, so the coordinator ended instead of running it again. Work already saved on the feature branch is kept.", limit.Node),
+		Reason:  "Reply on this issue to resume. Your reply starts Implement again from its base sync, with every step's limit fresh, and reaches any parked story as guidance.",
+		Payload: agentresult.Payload{Implement: &agentresult.Implement{}},
+		Questions: []agentresult.Question{{
+			ID: "q1", Audience: "technical",
+			Text: fmt.Sprintf("**Stopped at `%s`**: %s", limit.Node, sentence(limit.Diagnostic)),
+		}},
+	}
+	policy := ImplementWorkflowPolicy()
+	_, _, err = rt.opts.ResearchReporter.ReportWorkflowCandidate(ctx, source, limit.Node, "question", candidate, policy.baseContext(true), "", policy)
+	return err
+}
+
 // policy is the Implement policy with this run's activities and hooks.
 func (rt *implementRuntime) policy() (WorkflowPolicy, error) {
 	// Only the coordinator merges, starts stories and reports; a story worker needs
@@ -259,7 +306,7 @@ func (rt *implementRuntime) policy() (WorkflowPolicy, error) {
 	}
 	p := ImplementWorkflowPolicy()
 	p.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, _ *graphexec.Profile, _ func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error), env WorkflowEnv) error {
-		rt.save = env.Save
+		rt.save, rt.worktree = env.Save, env.Worktree
 		return rt.registerEffects(specs, activities, bindings)
 	}
 	p.Park = rt.parkHook
@@ -282,6 +329,32 @@ func (rt *implementRuntime) resumeStories(ctx context.Context, reply string) (in
 	}
 	resumed := 0
 	for _, row := range rows {
+		if row.TimeoutAttemptID != 0 {
+			// Parent inputs reach applyReply only after the daemon's authenticated
+			// owner admission; no agent payload can supply this trigger.
+			trigger := rt.req.Trigger
+			if trigger.CommentID <= 0 || store.IsPrivateTrigger(trigger.CommentID) || trigger.AuthorID <= 0 {
+				return resumed, store.ErrImplementConflict
+			}
+			noticeAt, err := implementTimeoutNoticeTime(ctx, rt.opts, row)
+			if err != nil {
+				return resumed, err
+			}
+			_, applied, err := rt.opts.DB.ResumeImplementTimeout(ctx, store.ImplementTimeoutReply{
+				Source: rt.parentRef.Forge, Task: rt.parentRef.String(), CommentID: strconv.FormatInt(trigger.CommentID, 10),
+				AuthorID: strconv.FormatInt(trigger.AuthorID, 10), OwnerID: strconv.FormatInt(trigger.AuthorID, 10),
+				Parent: row.Parent, Generation: row.Generation, Key: row.Key, TimeoutAttemptID: row.TimeoutAttemptID,
+				ParkRevision: row.TimeoutParkRevision, DeliveryKey: row.TimeoutDeliveryKey, NoticeCommentID: row.TimeoutCommentID,
+				NoticeCreatedAt: noticeAt, Guidance: strings.TrimSpace(reply), At: trigger.CreatedAt,
+			})
+			if err != nil {
+				return resumed, err
+			}
+			if applied {
+				resumed++
+			}
+			continue
+		}
 		_, err := rt.opts.DB.TransitionImplementStory(ctx, store.ImplementTransition{
 			Parent: rt.parentRef.String(), Generation: rt.generation, Key: row.Key,
 			From: store.ImplementParked, To: store.ImplementWaiting, ExpectedRevision: row.Revision,
@@ -416,6 +489,20 @@ func (rt *implementRuntime) parkHook(ctx context.Context, opts Options, instance
 	rows, err := opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)
 	if err != nil {
 		return ParkDecision{}, err
+	}
+	state := map[string]store.ImplementStory{}
+	for _, row := range rows {
+		state[row.Key] = row
+	}
+	managed, err := opts.DB.ListManagedStories(ctx, rt.parentRef.String(), int(rt.generation))
+	if err != nil {
+		return ParkDecision{}, err
+	}
+	for _, story := range managed {
+		row, ok := state[story.Key]
+		if ok && row.State == store.ImplementWaiting && row.TimeoutAttemptID == 0 && dependenciesMerged(ImplementStory{Dependencies: story.Dependencies}, state) {
+			return ParkDecision{}, nil
+		}
 	}
 	running, done := 0, 0
 	for _, row := range rows {

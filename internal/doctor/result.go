@@ -31,6 +31,8 @@ type RepairStep struct {
 
 // Diagnosis is bounded structured agent data. Only the factory may adopt it.
 type Diagnosis struct {
+	RollbackRepairID string         `json:"rollback_repair_id,omitempty"`
+	RollbackReason   string         `json:"rollback_reason,omitempty"`
 	WithdrawProposal bool           `json:"withdraw_proposal,omitempty"`
 	Repair           *RepairSummary `json:"repair,omitempty"`
 	Findings         []Finding      `json:"findings"`
@@ -60,6 +62,9 @@ func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 	for _, p := range d.Proposal {
 		if p.Action == nil || !store.DoctorRepairToolKind(p.Action.Kind) {
 			return errors.New("new doctor proposals require an exact typed repair tool")
+		}
+		if store.DoctorGraphRepairKind(p.Action.Kind) && !store.DoctorGraphRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
+			return errors.New("new graph proposals require an exact row and related-state manifest")
 		}
 	}
 	return validateRetainedDiagnosis(d, e)
@@ -155,16 +160,24 @@ func validateRetainedDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 					return errors.New("invalid exact session file repair")
 				}
 			default:
-				if !store.DoctorRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) && !store.DoctorTypedRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
+				if store.DoctorGraphRepairKind(p.Action.Kind) {
+					if !store.DoctorGraphRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) && !store.DoctorRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
+						return errors.New("graph repair requires an exact row and related-state manifest")
+					}
+				} else if !store.DoctorRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) && !store.DoctorTypedRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
 					return errors.New("unsupported exact repair action")
 				}
 				observed := false
 				for _, r := range e.Records {
 					state := r.State
+					before := p.Action.Before
+					if store.DoctorGraphRepairKind(p.Action.Kind) && strings.HasPrefix(before, "{") {
+						before = store.DoctorGraphRepairBeforeStatus(p.Action.Kind, before)
+					}
 					if p.Action.Kind == "poll_flag" {
 						state = strings.TrimPrefix(r.Content, "needs_poll=")
 					}
-					if (EvidenceHandle(r) == p.Target || (p.Action.Kind == "consume_comment" && r.Kind == "watermark")) && state == p.Action.Before {
+					if (EvidenceHandle(r) == p.Target || (p.Action.Kind == "consume_comment" && r.Kind == "watermark")) && state == before {
 						observed = true
 					}
 				}

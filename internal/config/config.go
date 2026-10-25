@@ -66,8 +66,10 @@ type Config struct {
 	// missing stanza leaves Bug checks blocked, without affecting other work.
 	BugChecks *BugCheckIsolation `yaml:"bug_checks"`
 	// Standards holds owner-started standards analysis settings.
-	Standards  StandardsSettings `yaml:"standards"`
-	agentOrder []Kind
+	Standards                StandardsSettings `yaml:"standards"`
+	workerTimeoutSource      string
+	workerTimeoutDiagnostics []string
+	agentOrder               []Kind
 }
 
 // AgentOrder returns configured coding agents in YAML declaration order. The
@@ -101,6 +103,8 @@ type Providers struct {
 // Keeping these values in config, rather than introducing a settings service,
 // preserves the existing immutable configuration flow to runtime consumers.
 type Settings struct {
+	// WorkerTimeoutSeconds is the default allowance for one logical worker attempt.
+	WorkerTimeoutSeconds int `yaml:"worker_timeout_seconds"`
 	// TeamSource is an anonymous HTTPS catalogue; empty uses DefaultTeamSource.
 	TeamSource string `yaml:"team_source"`
 	// PollIntervalMinutes is the fallback discovery poll interval: how often
@@ -131,40 +135,20 @@ type Settings struct {
 	// AllowMCPStoryCreation is a loaded false-default ceiling; grants remain separate.
 	AllowMCPStoryCreation bool `yaml:"allow_mcp_story_creation"`
 
-	// AutoSyncBase controls whether a later story's auto-sync step runs at
-	// all. Defaults to true: staying behind the base branch quietly, without
-	// anyone noticing, is the failure mode the sync feature exists to
-	// prevent (US-8). This field is read by that later story's syncBase
-	// function; this package only loads and validates it.
+	// AutoSyncBase controls automatic preparation synchronization. When false,
+	// preparation observes the existing checkout without merging base changes.
 	AutoSyncBase bool `yaml:"auto_sync_base"`
-	// AutoSyncMaxBehind bounds how many commits behind its base branch a
-	// worktree may be before litefactory refuses the run on distance alone,
-	// rather than attempting the merge (US-8).
-	//
-	// Exceeding it refuses; it does not skip. Skipping was the original
-	// behaviour and was the worst of the three answers available: it neither
-	// brought the branch up to date nor stopped, so the run went ahead
-	// against a branch known to be stale — the failure [AutoSyncBase] exists
-	// to prevent — and distance makes that more dangerous, not less.
-	// Turning auto-sync off is still a skip, because an operator who turned
-	// it off asked for the run to go ahead.
-	//
-	// 0 means no cap: auto-sync is never skipped for being far behind.
-	// A negative value is a config load error, enforced in [Config.Validate]
-	// — it is never silently clamped to 0 or to [DefaultAutoSyncMaxBehind]
-	// (CFG-6).
-	//
-	// The default of 100 is a judgment call, not a measurement: no data set
-	// determined it, and none should be assumed from it. It exists to be
-	// tuned per repository by an operator who knows their own rate of
-	// change, not to be quoted as an evidence-based threshold. 0 is a
-	// reasonable choice for a repository that would rather always merge and
-	// let a real conflict be the only thing that stops a run.
+	// AutoSyncMaxBehind limits automatic merges during task-branch and base-
+	// branch preparation. Beyond the cap, synchronization is skipped and the
+	// original request continues with an unresolved-freshness caveat.
+	// 0 means unlimited. Negative values are rejected by [Config.Validate].
+	// The default of 100 is an operator-tunable judgment, not a measurement.
 	AutoSyncMaxBehind int `yaml:"auto_sync_max_behind"`
-	// BlockRunOnConflict controls whether a merge conflict hit during
-	// auto-sync blocks the run rather than letting it proceed against a
-	// stale base. Defaults to true: guessing wrong about a conflict is worse
-	// than stopping and asking (US-8).
+	// BlockRunOnConflict remains parseable for configuration compatibility.
+	//
+	// Deprecated: preparation conflicts defer synchronization and allow the
+	// original request to continue with a caveat for either setting value.
+	// Final save and integration requirements remain unchanged.
 	BlockRunOnConflict bool `yaml:"block_run_on_conflict"`
 
 	// SuggestConflictResolution controls whether a blocked run (US-4) also
@@ -222,13 +206,8 @@ type Codex struct {
 	// ModelTier selects the concrete model through tiers.model_by_tier.codex.
 	ModelTier Tier `yaml:"model_tier"`
 
-	// TimeoutSeconds is the hard wall-clock kill for one Codex run, bounded
-	// the same way [Claude.TimeoutSeconds] is (T-7.1). There is no
-	// cross-run default the way [Defaults] pre-populates Claude's: a
-	// pointer-nested stanza like this one is only allocated once the
-	// operator's YAML mentions agents.codex at all, at which point
-	// [Defaults] has already run, so an operator who configures agents.codex
-	// must write this explicitly.
+	// TimeoutSeconds is a deprecated migration input for WorkerTimeoutSeconds.
+	// Runtime attempt deadlines take precedence over this adapter fallback.
 	TimeoutSeconds int `yaml:"timeout_seconds"`
 
 	// WritableRoots are absolute directories made writable alongside the
@@ -362,10 +341,8 @@ type Claude struct {
 	// anything at all. [Load] resolves the default once, before validation, so
 	// config validation and the harness read the same slice.
 	ToolCeiling []string `yaml:"tool_ceiling"`
-	// TimeoutSeconds is the hard wall-clock kill for one run. It is
-	// independent of any event-driven completion detection because a bad
-	// credential makes claude retry internally and hang indefinitely,
-	// emitting no result event at all (SD-3).
+	// TimeoutSeconds is a deprecated migration input for WorkerTimeoutSeconds.
+	// Runtime attempt deadlines take precedence over this adapter fallback.
 	TimeoutSeconds int `yaml:"timeout_seconds"`
 	// ForwardAnthropicEnv opts into forwarding ANTHROPIC_* variables from the
 	// daemon's environment to the claude child. Off by default, and it should
@@ -464,12 +441,13 @@ func Defaults() Config {
 
 		Webhook: Webhook{Listen: DefaultWebhookListen},
 		Settings: Settings{
-			TeamSource:          DefaultTeamSource,
-			PollIntervalMinutes: DefaultPollIntervalMinutes,
-			MaxConcurrentRuns:   DefaultMaxConcurrentRuns,
-			DefaultBaseBranch:   "",
-			FeaturePrefix:       DefaultFeaturePrefix,
-			WorktreeRoot:        "",
+			WorkerTimeoutSeconds: DefaultWorkerTimeoutSeconds,
+			TeamSource:           DefaultTeamSource,
+			PollIntervalMinutes:  DefaultPollIntervalMinutes,
+			MaxConcurrentRuns:    DefaultMaxConcurrentRuns,
+			DefaultBaseBranch:    "",
+			FeaturePrefix:        DefaultFeaturePrefix,
+			WorktreeRoot:         "",
 
 			WorktreeRetainDays:         DefaultWorktreeRetainDays,
 			DeployBackupKeep:           DefaultDeployBackupKeep,
@@ -586,6 +564,7 @@ const (
 	DefaultLogLevel             = "info"
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"
+	DefaultWorkerTimeoutSeconds = 1800
 	DefaultClaudeTimeoutSeconds = 1800
 	DefaultClaudeAutoCompact    = "100k"
 	DefaultCodexBinary          = "codex"
@@ -710,6 +689,9 @@ func Decode(r io.Reader) (*Config, error) {
 			return &cfg, nil
 		}
 		return nil, friendlyYAMLError(err)
+	}
+	if err := cfg.resolveWorkerTimeout(data); err != nil {
+		return nil, err
 	}
 	cfg.normalize()
 
@@ -1127,4 +1109,55 @@ func (s Settings) MinFreeDiskBytes() uint64 {
 		return 0
 	}
 	return uint64(s.MinFreeDiskGB) << 30
+}
+
+func yamlField(node *yaml.Node, key string) *yaml.Node {
+	return yamlFieldSeen(node, key, make(map[*yaml.Node]bool))
+}
+
+func yamlFieldSeen(node *yaml.Node, key string, seen map[*yaml.Node]bool) *yaml.Node {
+	if node == nil || seen[node] {
+		return nil
+	}
+	seen[node] = true
+	defer delete(seen, node)
+	if node.Kind == yaml.AliasNode {
+		return yamlFieldSeen(node.Alias, key, seen)
+	}
+	if node.Kind == yaml.SequenceNode {
+		for _, child := range node.Content {
+			if field := yamlFieldSeen(child, key, seen); field != nil {
+				return field
+			}
+		}
+		return nil
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "<<" {
+			if field := yamlFieldSeen(node.Content[i+1], key, seen); field != nil {
+				return field
+			}
+		}
+	}
+	return nil
+}
+
+func workerTimeoutScalarTag(node *yaml.Node) string {
+	seen := make(map[*yaml.Node]bool)
+	for node != nil && !seen[node] {
+		seen[node] = true
+		if node.Kind != yaml.AliasNode {
+			return node.Tag
+		}
+		node = node.Alias
+	}
+	return ""
 }

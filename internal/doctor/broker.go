@@ -117,7 +117,7 @@ const (
 func diagnosisInputSchema(repair bool) json.RawMessage {
 	proposal := `{"type":"array","maxItems":30,"items":` + stepSchema + `}`
 	required := `"findings","coverage_gaps","questions","proposal"`
-	extra := ""
+	extra := `,"rollback_repair_id":{"type":"string","description":"Retained verified graph repair to reverse as one separately approved inverse; proposal must be empty."},"rollback_reason":{"type":"string","description":"Reason for the journal-bound inverse proposal."}`
 	if repair {
 		proposal = `{"type":"array","maxItems":0}`
 		required += `,"repair"`

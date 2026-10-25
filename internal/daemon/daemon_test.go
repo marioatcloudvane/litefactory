@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"log/slog"
@@ -517,7 +517,7 @@ func TestInterruptedGraphDispatchStartupAndTick(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			def, err := teamsource.CaptureSpike(ctx, specs)
+			def, err := teamsourcetest.CaptureSpike(ctx, specs)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -602,5 +602,39 @@ func TestInterruptedGraphDispatchStartupAndTick(t *testing.T) {
 				t.Fatalf("pending %+v %v", due, err)
 			}
 		})
+	}
+}
+
+func TestStartReportsExpiredNonGraphWorkerTiming(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Retain the expired worker")
+	f.settle()
+	session := f.session()
+	f.forge.addComment(testIssue, 200, owner(), "/spike the run that expired before restart")
+	orphan := f.allocateRunningRun(session, 200)
+	deadline := f.clock.peek().Add(-time.Second)
+	started := deadline.Add(-91 * time.Second)
+	if _, err := f.db.EnsureAttemptTiming(t.Context(), store.AttemptTiming{RunID: orphan.ID, StartedAt: started, Deadline: deadline, Allowance: 91 * time.Second, Source: "legacy"}); err != nil {
+		t.Fatal(err)
+	}
+	reconciled, err := f.daemon.Start(t.Context())
+	if err != nil || reconciled.Reported != 1 {
+		t.Fatalf("restart=%+v error=%v\n%s", reconciled, err, f.logs)
+	}
+	saved, err := f.db.GetRun(t.Context(), orphan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.SemanticOutcome != "timed_out" || saved.Error == store.ReasonAbandoned {
+		t.Fatalf("expiry reported as shutdown: %+v", saved)
+	}
+	posts, _, _ := f.forge.snapshot()
+	if len(posts) != 1 || !strings.Contains(posts[0], "timed out") || !strings.Contains(posts[0], "91 seconds") || !strings.Contains(posts[0], deadline.UTC().Format(time.RFC3339Nano)) {
+		t.Fatalf("missing recovered timing: %v", posts)
+	}
+	f.settle()
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("recovered worker re-executed: %+v", calls)
 	}
 }

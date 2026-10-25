@@ -14,7 +14,9 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/doctor"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -89,13 +91,13 @@ func runDoctor(ctx context.Context, env *Env, operation string, args []string) (
 				return err
 			}
 			if run.Status == store.RunRunning {
-				_, err = fmt.Fprintf(env.Stdout, "Stop requested for workflow run %d; cancellation and saving are pending daemon settlement. Doctor conversation stopped: %t. No issue comment will be posted.\n", stop.RunID, stop.Conversation)
+				_, err = fmt.Fprintf(env.Stdout, "Stop requested for workflow run %d; cancellation and saving are pending daemon settlement. Doctor conversation stopped: %t. No issue comment will be posted. Wait for cancellation and saving to settle; no owner action is needed.\n", run.Ordinal, stop.Conversation)
 				return err
 			}
-			_, err = fmt.Fprintln(env.Stdout, doctor.StopSummary(stop)+" "+doctor.StopRunSummary(run))
+			_, err = fmt.Fprintln(env.Stdout, doctor.StopSummary(stop)+" "+doctor.StopRunSummary(run)+" Inspect on the factory host: `"+report.RunInspectionCommand(ref, run.Ordinal)+"`.")
 			return err
 		}
-		_, err = fmt.Fprintln(env.Stdout, doctor.StopSummary(stop))
+		_, err = fmt.Fprintln(env.Stdout, doctor.StopSummary(stop)+" No owner action is needed.")
 		return err
 	}
 
@@ -151,7 +153,7 @@ func renderDoctor(w io.Writer, result doctor.Conversation) error {
 	if result.Repair != nil {
 		fmt.Fprintf(&text, "\nRepair %s: %s\n", result.Repair.ID, result.Repair.State)
 		if result.Repair.Failure != "" {
-			fmt.Fprintf(&text, "%s\n", result.Repair.Failure)
+			fmt.Fprintf(&text, "%s\n", doctor.RepairFailureExplanation(result.Repair.Failure))
 		}
 		for _, step := range result.RepairSteps {
 			fmt.Fprintf(&text, "Step %d: %s; backup: %s\n", step.Number, step.State, step.BackupReference)
@@ -160,7 +162,22 @@ func renderDoctor(w io.Writer, result doctor.Conversation) error {
 			fmt.Fprintf(&text, "Restart: %s\n%s\n", result.Restart.State, result.Restart.Report)
 		}
 	}
-	text.WriteString("\nApply is unavailable. Repeat doctor with this target and new instructions to continue.\n")
+	switch {
+	case result.Repair != nil:
+		text.WriteString("\n" + doctor.RepairGuidance(result) + "\n")
+	case len(result.Attempts) > 0 && result.Attempts[len(result.Attempts)-1].State == "running":
+		text.WriteString("\nDiagnosis is running. Wait; no owner action is needed.\n")
+	case !result.ApplyAvailable:
+		text.WriteString("\nApply capability was not verified for this readout. This diagnosis performed no repair or restart. Inspect the retained diagnosis on the factory host: `" + report.TaskInspectionCommand(result.Conversation.TaskRef) + "`.\n")
+	case len(result.CurrentProposal) == 0:
+		text.WriteString("\nNo current repair proposal is available. Inspect the retained diagnosis on the factory host: `" + report.TaskInspectionCommand(result.Conversation.TaskRef) + "`.\n")
+	default:
+		command := "litefactory doctor apply <repository> <issue>"
+		if ref, err := naming.ParseRef(result.Conversation.TaskRef); err == nil {
+			command = fmt.Sprintf("litefactory doctor apply %s/%s %d", ref.Owner, ref.Repo, ref.Issue)
+		}
+		text.WriteString("\nReview the current proposal before applying it with `" + command + "` on the factory host. Applying authorizes only that displayed proposal.\n")
+	}
 	_, err := w.Write(text.Bytes())
 	return err
 }

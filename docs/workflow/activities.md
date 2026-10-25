@@ -16,9 +16,9 @@ suite [lf_action="lf_validate_suite", lf_outcomes="passed,failed,blocked,retry",
 suite -> repair_budget [lf_on="failed"];
 ```
 
-- The graphs live in the team sources: `internal/teamsource/<mode>/<mode>.dot`
-  (go-development), `internal/teamsource/python-fastapi/…`,
-  `internal/teamsource/swift-ios/…` and `teams/source/dotnet-web/…`. All four
+- The graphs live in the team sources: `teams/source/base-team/<mode>/<mode>.dot`
+  (go-development), `teams/source/python-fastapi/…`,
+  `teams/source/swift-ios/…` and `teams/source/dotnet-web/…`. All four
   teams use the same activities. Released copies sit under `teams/<team>/v<version>/`.
 - Topology belongs in the DOT, never in Go. The code registers activities and
   checks graphs; it does not define them.
@@ -142,7 +142,7 @@ and `lf_spike_issue`, `failed` is a finding, not a fault.
 | `lf_model_tier` | agent | Model tier. | `flagship`, `balanced`, `fast` (node, then role frontmatter, then graph default) |
 | `lf_task` | agent | Task text. | 1–65536 bytes (node, then role, then graph default) |
 | `lf_access` | agent | Tool access. | `read`, `write` (Validate repair: write; Bug analyst: read) |
-| `lf_budget` | agent | Time budget per run in minutes. | 1–60 |
+| `lf_budget` | agent | Time budget per run in minutes. | 1–1440 |
 | `lf_response` | agent | Routes the agent's retained result as the outcome. | `result` (only with `lf_park=owner`) |
 | `lf_park` | Bug nodes | Parks at the owner instead of failing. | `owner` |
 | `lf_stop` | Bug nodes | Outcomes that park at the owner (no edge). | from blocked, failed, invalid, exhausted, stale (first four required) |

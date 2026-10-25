@@ -446,25 +446,25 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 			return fmt.Sprintf("%s\nCoverage details: %s:0:%d\nReturn: %s:%d", reason, id, offset, id, offset)
 		}
 		if entry >= len(view.Tickets) {
-			return inboxNotice(unavailable("This organized ticket reference is unavailable. Refresh the inbox."))
+			return inboxNotice(unavailable("This organized ticket reference is unavailable. Send “show my inbox” here to capture current waits."))
 		}
 		requestOffset := 0
 		fields := strings.Split(m.Arguments["reference"], ":")
 		if len(fields) == 4 {
 			if _, err = fmt.Sscan(fields[3], &requestOffset); err != nil || requestOffset < 0 {
-				return inboxNotice("Invalid request reference.")
+				return inboxNotice("Invalid request reference. Send “show my inbox” here to obtain current navigation references.")
 			}
 		}
 		row := view.Tickets[entry]
 		byKey := inboxOrganizationMap(inboxBaseline(page))
 		ticket := byKey[row.Key]
 		if len(ticket.Decisions) == 0 {
-			return inboxNotice(unavailable("This captured ticket is unavailable because source access changed."))
+			return inboxNotice(unavailable("This captured ticket is unavailable because source access changed. Send “show my inbox” here to capture currently authorized waits."))
 		}
 		if requestOffset >= len(row.DecisionKeys) {
-			return inboxNotice(unavailable("This request reference is unavailable. Refresh the inbox."))
+			return inboxNotice(unavailable("This request reference is unavailable. Send “show my inbox” here to capture current waits."))
 		}
-		text := unavailable("This captured request is unavailable because source access changed.")
+		text := unavailable("This captured request is unavailable because source access changed. Send “show my inbox” here to capture currently authorized waits.")
 		// Request references select saved key positions, including revoked slots.
 		// Filtering available decisions must never retarget a previously issued reference.
 		if decision, available := inboxOrganizedDecision(ticket, row, requestOffset); available {

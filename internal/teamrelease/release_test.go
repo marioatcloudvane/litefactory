@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -70,21 +71,18 @@ func snapshot(t *testing.T, dir string) map[string][]byte {
 func fixture(t *testing.T) string {
 	t.Helper()
 	root := canonicalTemp(t)
-	for _, dir := range workflows {
-		for name, raw := range snapshot(t, "../teamsource/"+dir) {
-			put(t, filepath.Join(root, "internal/teamsource", dir, filepath.FromSlash(name)), raw)
-		}
-	}
-	raw, err := os.ReadFile("../teamsource/release.json")
+	files, err := teamsourcetest.Files("go-development")
 	if err != nil {
 		t.Fatal(err)
 	}
-	put(t, filepath.Join(root, "internal/teamsource/release.json"), raw)
-	profile, err := os.ReadFile("../teamsource/stack-profile.json")
+	for name, raw := range files {
+		put(t, filepath.Join(root, "teams/source/go-development", filepath.FromSlash(name)), raw)
+	}
+	raw, err := os.ReadFile("../../teams/source/go-development/release.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	put(t, filepath.Join(root, "internal/teamsource/stack-profile.json"), profile)
+	put(t, filepath.Join(root, "teams/source/go-development/release.json"), raw)
 	return root
 }
 
@@ -127,7 +125,7 @@ func TestGenerationDeterminismAndReadOnlyDrift(t *testing.T) {
 	if err := Generate(t.Context(), root, true); err != nil {
 		t.Fatal(err)
 	}
-	version := sourceVersion(t, "../teamsource")
+	version := sourceVersion(t, "../../teams/source/go-development")
 	name := "teams/go-development/v" + version + "/research/research.md"
 	put(t, filepath.Join(root, filepath.FromSlash(name)), []byte("drift"))
 	changed := snapshot(t, root)
@@ -141,7 +139,7 @@ func TestGenerationDeterminismAndReadOnlyDrift(t *testing.T) {
 	if !reflect.DeepEqual(first, snapshot(t, root)) {
 		t.Fatal("repair did not reproduce release")
 	}
-	rules := "internal/teamsource/implement/skills/litefactory-rules/litefactory.md"
+	rules := "teams/source/go-development/implement/skills/litefactory-rules/litefactory.md"
 	put(t, filepath.Join(root, filepath.FromSlash(rules)), append(first[rules], []byte("\nRetained new guidance.\n")...))
 	before := snapshot(t, root)
 	if err := Generate(t.Context(), root, true); err == nil {
@@ -150,7 +148,7 @@ func TestGenerationDeterminismAndReadOnlyDrift(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, root)) {
 		t.Fatal("source check wrote output")
 	}
-	meta := filepath.Join(root, "internal/teamsource/release.json")
+	meta := filepath.Join(root, "teams/source/go-development/release.json")
 	b, err := os.ReadFile(meta)
 	if err != nil {
 		t.Fatal(err)
@@ -173,12 +171,12 @@ func TestInvalidCandidatePreservesValidOutput(t *testing.T) {
 		change            func(*testing.T, string)
 	}{
 		{"missing resource", "litefactory.md", "litefactory.md", func(t *testing.T, root string) {
-			if err := os.Remove(filepath.Join(root, "internal/teamsource/implement/skills/litefactory-rules/litefactory.md")); err != nil {
+			if err := os.Remove(filepath.Join(root, "teams/source/go-development/implement/skills/litefactory-rules/litefactory.md")); err != nil {
 				t.Fatal(err)
 			}
 		}},
 		{"unsafe resource", "SKILL.md", "unsafe", func(t *testing.T, root string) {
-			p := filepath.Join(root, "internal/teamsource/implement/skills/litefactory-rules/SKILL.md")
+			p := filepath.Join(root, "teams/source/go-development/implement/skills/litefactory-rules/SKILL.md")
 			b, err := os.ReadFile(p)
 			if err != nil {
 				t.Fatal(err)
@@ -186,7 +184,7 @@ func TestInvalidCandidatePreservesValidOutput(t *testing.T) {
 			put(t, p, bytes.ReplaceAll(b, []byte("  - litefactory.md"), []byte("  - ../litefactory.md")))
 		}},
 		{"symlink", "litefactory.md", "symlink", func(t *testing.T, root string) {
-			p := filepath.Join(root, "internal/teamsource/implement/skills/litefactory-rules/litefactory.md")
+			p := filepath.Join(root, "teams/source/go-development/implement/skills/litefactory-rules/litefactory.md")
 			if err := os.Remove(p); err != nil {
 				t.Fatal(err)
 			}
@@ -195,23 +193,23 @@ func TestInvalidCandidatePreservesValidOutput(t *testing.T) {
 			}
 		}},
 		{"unsafe download", "release.json", "download", func(t *testing.T, root string) {
-			p := filepath.Join(root, "internal/teamsource/release.json")
+			p := filepath.Join(root, "teams/source/go-development/release.json")
 			b, err := os.ReadFile(p)
 			if err != nil {
 				t.Fatal(err)
 			}
-			put(t, p, bytes.ReplaceAll(b, []byte("go-development/v"+sourceVersion(t, "../teamsource")), []byte("../outside")))
+			put(t, p, bytes.ReplaceAll(b, []byte("go-development/v"+sourceVersion(t, "../../teams/source/go-development")), []byte("../outside")))
 		}},
 		{"invalid version", "release.json", "SemVer", func(t *testing.T, root string) {
-			p := filepath.Join(root, "internal/teamsource/release.json")
+			p := filepath.Join(root, "teams/source/go-development/release.json")
 			b, err := os.ReadFile(p)
 			if err != nil {
 				t.Fatal(err)
 			}
-			put(t, p, bytes.ReplaceAll(b, []byte(sourceVersion(t, "../teamsource")), []byte("invalid")))
+			put(t, p, bytes.ReplaceAll(b, []byte(sourceVersion(t, "../../teams/source/go-development")), []byte("invalid")))
 		}},
 		{"invalid identity", "research.dot", "identity", func(t *testing.T, root string) {
-			p := filepath.Join(root, "internal/teamsource/research/research.dot")
+			p := filepath.Join(root, "teams/source/go-development/research/research.dot")
 			b, err := os.ReadFile(p)
 			if err != nil {
 				t.Fatal(err)
@@ -222,14 +220,14 @@ func TestInvalidCandidatePreservesValidOutput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			root := fixture(t)
 			generate(t, root)
-			prior := snapshot(t, filepath.Join(root, "teams"))
 			tt.change(t, root)
-			mutated := snapshot(t, filepath.Join(root, "internal"))
+			prior := snapshot(t, filepath.Join(root, "teams"))
+			mutated := snapshot(t, filepath.Join(root, "teams/source"))
 			err := Generate(t.Context(), root, false)
 			if err == nil || !strings.Contains(err.Error(), tt.cause) {
 				t.Fatalf("expected refusal with cause %s: %v", tt.cause, err)
 			}
-			if !reflect.DeepEqual(prior, snapshot(t, filepath.Join(root, "teams"))) || !reflect.DeepEqual(mutated, snapshot(t, filepath.Join(root, "internal"))) {
+			if !reflect.DeepEqual(prior, snapshot(t, filepath.Join(root, "teams"))) || !reflect.DeepEqual(mutated, snapshot(t, filepath.Join(root, "teams/source"))) {
 				t.Fatal("invalid candidate changed prior output")
 			}
 		})
@@ -249,10 +247,11 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		current, err := os.ReadFile(filepath.Join(root, "internal/teamsource", w, w+".dot"))
+		current, err := os.ReadFile(filepath.Join(root, "teams/source/go-development", w, w+".dot"))
 		if err != nil {
 			t.Fatal(err)
 		}
+		current = legacySourceWithoutPreparationDeferral(t, w, current)
 		current = withoutStandardsGrant(t, current)
 		if w == "bug" {
 			current = legacyBugSourceWithoutSyncGate(t, current)
@@ -276,7 +275,7 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 			t.Fatalf("%s graph changed beyond team and litefactory rules", w)
 		}
 	}
-	if _, err := os.Lstat("../teamsource/shared"); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Lstat("../../teams/source/go-development/shared"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("shared guidance tree remains: %v", err)
 	}
 }
@@ -346,7 +345,7 @@ func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
 	}
 	root := fixture(t)
 	generate(t, root)
-	version := sourceVersion(t, "../teamsource")
+	version := sourceVersion(t, "../../teams/source/go-development")
 	server := httptest.NewTLSServer(http.FileServer(http.Dir(filepath.Join(root, "teams"))))
 	defer server.Close()
 	for _, source := range []string{filepath.Join(root, "teams/teams.json"), server.URL + "/teams.json"} {
@@ -377,7 +376,7 @@ func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
 					d := capture(t, sourceFS, w, "go-development")
 					rules := map[string][]byte{}
 					if w == "implement" || w == "bug" || w == "validate" {
-						rules = snapshot(t, filepath.Join(root, "internal/teamsource", w, "skills/litefactory-rules"))
+						rules = snapshot(t, filepath.Join(root, "teams/source/go-development", w, "skills/litefactory-rules"))
 					}
 					for id, node := range d.Nodes {
 						for name := range node.Files {
@@ -431,7 +430,7 @@ func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
 func TestBadCatalogueHashPreservesInstalledRelease(t *testing.T) {
 	root := fixture(t)
 	generate(t, root)
-	version := sourceVersion(t, "../teamsource")
+	version := sourceVersion(t, "../../teams/source/go-development")
 	m, err := teampackage.New(teampackage.Options{Paths: config.NewPaths(canonicalTemp(t)), Validate: turn.ValidateTeamWorkflows})
 	if err != nil {
 		t.Fatal(err)
@@ -498,8 +497,8 @@ func TestPublicationFailureRestoresEntireBatch(t *testing.T) {
 		return root.Rename(oldPath, newPath)
 	}
 	outputs := map[string]map[string][]byte{
-		"internal/teamsource/bug/skills/litefactory-rules":           {"SKILL.md": []byte("candidate")},
-		"teams/go-development/v" + sourceVersion(t, "../teamsource"): {"candidate.md": []byte("candidate")},
+		"teams/source/go-development/bug/skills/litefactory-rules":                       {"SKILL.md": []byte("candidate")},
+		"teams/go-development/v" + sourceVersion(t, "../../teams/source/go-development"): {"candidate.md": []byte("candidate")},
 	}
 	if err := publish(t.Context(), root, repo, outputs, []byte("new catalogue"), rename); err == nil || !strings.Contains(err.Error(), "injected publication") {
 		t.Fatal(err)
@@ -507,6 +506,35 @@ func TestPublicationFailureRestoresEntireBatch(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, repo)) {
 		t.Fatal("partial publication damaged prior output")
 	}
+}
+
+// Released snapshots keep their original preparation routes. Reverse only the
+// exact canonical deferred outcomes and edges added by Preparation caveats;
+// every other source byte remains subject to the historical contract checks.
+func legacySourceWithoutPreparationDeferral(t *testing.T, workflow string, source []byte) []byte {
+	t.Helper()
+	var changes []struct{ current, legacy string }
+	switch workflow {
+	case "bug":
+		changes = []struct{ current, legacy string }{
+			{` sync_before_fixer [lf_action="lf_sync_base",lf_outcomes="synced,current,conflict,retry,deferred",lf_limit="8",lf_park="owner",lf_stop="conflict,failed,invalid,exhausted"];`, ` sync_before_fixer [lf_action="lf_sync_base",lf_outcomes="synced,current,conflict,retry",lf_limit="8",lf_park="owner",lf_stop="conflict,failed,invalid,exhausted"];`},
+			{` sync_before_fixer -> fixer [lf_on="deferred"];` + "\n", ""},
+		}
+	case "implement":
+		changes = []struct{ current, legacy string }{
+			{` sync_start          [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry,deferred", lf_limit="32"];`, ` sync_start          [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="32"];`},
+			{` sync_before_worker [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry,deferred", lf_limit="8"];`, ` sync_before_worker [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"];`},
+			{` sync_start          -> merge               [lf_on="deferred"];` + "\n", ""},
+			{` sync_before_worker -> worker_agent [lf_on="deferred"];` + "\n", ""},
+		}
+	}
+	for _, change := range changes {
+		if bytes.Count(source, []byte(change.current)) != 1 {
+			t.Fatalf("canonical %s preparation differs from approved source delta: %s", workflow, change.current)
+		}
+		source = bytes.Replace(source, []byte(change.current), []byte(change.legacy), 1)
+	}
+	return source
 }
 
 // Released Bug definitions retain their direct repair routes. Admit only the

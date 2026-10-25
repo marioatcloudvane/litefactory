@@ -12,7 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -158,10 +158,10 @@ func (r *Reporter) RecoverGraphStopQuestion(ctx context.Context, key string) (Po
 		return Posted{}, nil
 	}
 	delivery, err := r.db.GetReportDelivery(ctx, key)
-	if err == nil {
+	if err == nil && !delivery.Completed {
 		return r.dispatchDelivery(ctx, delivery)
 	}
-	if !errors.Is(err, store.ErrNotFound) {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return Posted{}, err
 	}
 	instance, err := r.db.GetGraphInstance(ctx, intent.InstanceID)
@@ -193,10 +193,15 @@ func (r *Reporter) RecoverGraphStopQuestion(ctx context.Context, key string) (Po
 	}
 	delivery = r.deliveryIntent(ref, ref, session.ID, triggerID, runID, "graph-stop:"+key)
 	delivery.Key, delivery.Marker = key, "<!-- lf:delivery v=1 key="+key+" -->"
-	return r.deliver(ctx, delivery, func() (redact.Body, error) {
-		body := fmt.Sprintf("Bug work is waiting at `%s` (%s).\n\n%s\n\nReply with guidance to continue this step. This reply does not approve an unapproved repair.", question.Origin, question.Cause, question.Reason)
-		return r.renderer.RenderReportDelivery(ctx, body, "")
-	})
+	projection, err := ProjectGraphRecovery(ctx, r.db, session.ID)
+	if err != nil {
+		return Posted{}, err
+	}
+	if projection == nil {
+		projection = &report.StopRecovery{Step: question.Origin, Reason: question.Reason, Disposition: "stopped", Route: "inspect", Unresolved: "Completion of this step is not confirmed.", NextStep: "Ask the factory operator to inspect on the factory host: `" + report.TaskInspectionCommand(session.TaskRef) + "`."}
+	}
+	body := fmt.Sprintf("Work stopped at `%s` (%s).\n\n%s", question.Origin, question.Cause, question.Reason)
+	return r.deliverRecoveryProjection(ctx, delivery, projection, body)
 }
 
 // RecoverGraphStoppedExecution reconciles an orphan agent allocation against

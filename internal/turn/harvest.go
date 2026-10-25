@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
@@ -56,6 +57,30 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		return prepareTypedPlanSubmission(c, opts, prep)
 	}
 	prep.submissionOptions = &SubmissionSessionOptions{DB: opts.DB, Progress: opts.StoryProgress, Paths: opts.Paths, RunID: prep.run.ID, Worktree: prep.worktree.Path(), Bundle: prep.promptInput.ApprovedStories, Validation: prep.promptInput.Validation}
+	allowance := time.Duration(opts.WorkerTimeoutSeconds) * time.Second
+	if allowance <= 0 {
+		allowance = 1800 * time.Second
+	}
+	start := spikeNow(opts)
+	deadline := start.Add(allowance)
+	source := opts.WorkerTimeoutSource
+	if source == "" {
+		source = "default"
+	}
+	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
+		deadline, source = parent, "parent"
+		if parent.After(start) {
+			allowance = parent.Sub(start)
+		}
+	}
+	timing, err := opts.DB.EnsureAttemptTiming(ctx, store.AttemptTiming{RunID: prep.run.ID, StartedAt: start, Deadline: deadline, Allowance: allowance, Source: source})
+	if err != nil {
+		return result, err
+	}
+	workerCtx, cancelWorker := agent.WithWorkerDeadline(ctx, timing.Deadline)
+	defer cancelWorker()
+	prep.workerTiming = fmt.Sprintf("\nWorker timing: effective limit %g seconds; deadline %s.\n", timing.Allowance.Seconds(), timing.Deadline.UTC().Format(time.RFC3339Nano))
+	var setupErr error
 	if prep.stackSetup {
 		if err := prep.request.Validate(); err != nil {
 			return result, err
@@ -68,9 +93,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		// The legacy delivery role is independent from the explicitly admitted
 		// writable engineering permission that governs this setup command.
 		setupRequest.Delivery = nil
-		if _, err := runStackSetup(ctx, opts, setupRequest, attrs); err != nil {
-			return result, err
-		}
+		_, setupErr = runStackSetup(workerCtx, opts, setupRequest, attrs)
 	}
 	started, err := opts.DB.StartRun(ctx, prep.run.ID)
 	if err != nil {
@@ -78,15 +101,30 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	}
 	prep.run = started
 	result.Run = started
-	runResult, runErr := runClaude(ctx, prep, logger)
-	runResult = harvestValidation(bookkeeping, opts, prep, runResult)
+	var runResult *agent.RunResult
+	runErr := setupErr
+	if setupErr == nil {
+		runResult, runErr = runClaude(workerCtx, prep, logger)
+	}
+	if errors.Is(workerCtx.Err(), context.DeadlineExceeded) {
+		if runResult == nil {
+			runResult = &agent.RunResult{}
+		} else {
+			runResult = runResult.Clone()
+		}
+		runResult.Outcome, runResult.Reason = agent.OutcomeTimedOut, fmt.Sprintf("Worker exceeded its effective limit of %g seconds; available work is retained.", timing.Allowance.Seconds())
+		runErr = errors.Join(runErr, ErrAgentTimedOut)
+	}
+	collectionCtx, cancelCollection := agent.EvidenceContext(workerCtx)
+	defer cancelCollection()
+	runResult = harvestValidation(collectionCtx, opts, prep, runResult)
 	if opts.StoryProgress != nil && prep.promptInput.ApprovedStories != nil {
 		if err := opts.StoryProgress.Finish(bookkeeping, prep.run.ID, "Parent attempt finished; this story has no accepted scoped verification and remains unfinished."); err != nil {
 			logger.Error("story progress remains pending", slog.Any("error", err))
 		}
 	}
 	if runResult != nil && prep.promptInput.ApprovedStories != nil {
-		drift, checkErr := prep.validateScope(bookkeeping)
+		drift, checkErr := prep.validateScope(collectionCtx)
 		if checkErr != nil {
 			drift += "\nApproved story relationship could not be confirmed after execution: " + checkErr.Error()
 		}
@@ -102,7 +140,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	// have replaced the prompt and the path under it: what this document records
 	// has to be what was actually sent (AC-3.11), not what was first assembled.
 	meta = turnMeta(prep, runResult)
-	retainRunDiagnostics(bookkeeping, opts, runResult, &meta, logger)
+	retainRunDiagnostics(collectionCtx, opts, runResult, &meta, logger)
 	if runResult == nil {
 		// The process never started at all — a genuine startup/setup failure
 		// (a bad request, an unwritable log directory, or similar) — so there
@@ -454,7 +492,7 @@ func save(
 	runResult *harness.RunResult,
 	logger *slog.Logger,
 ) Result {
-	if prep.promptInput.Validation != nil {
+	if prep.promptInput.Validation != nil || prep.reqAssessment() {
 		return result
 	}
 	if _, stopped := result.Run.OwnerStop(); stopped {

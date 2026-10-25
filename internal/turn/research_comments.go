@@ -212,6 +212,13 @@ func (r *Reporter) ReportWorkflowCandidate(ctx context.Context, source store.Gra
 	if err != nil {
 		return Posted{}, intent.Key, err
 	}
+	caveat, err := graphPreparationCaveat(ctx, r.db, source.InstanceID)
+	if err != nil {
+		return Posted{}, intent.Key, err
+	}
+	if caveat != "" {
+		text += "\n\n" + caveat
+	}
 	posted, err := r.deliverFullText(ctx, intent, text)
 	return posted, intent.Key, err
 }
@@ -438,7 +445,7 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 		if after, found := profile.Node(target); found && after.Terminal {
 			return "this workflow is finished. Comment `/plan plan the agreed scope into stories` to turn it into stories."
 		}
-		return "the next stage starts on its own within a minute or two. No action is needed, and commenting before it finishes will interrupt it."
+		return "the next stage starts on its own when admitted. No owner reply is needed; wait for its next report."
 	}
 	return ""
 }

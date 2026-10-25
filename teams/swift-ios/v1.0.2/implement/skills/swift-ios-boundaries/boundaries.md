@@ -1,9 +1,0 @@
-# Workflow boundaries
-
-The factory owns workflow selection, owner approval gates, graph activities and positive loop limits. Keep the existing research, planning, implementation, validation, spike and bug result contracts. Read the selected result skill and submit through communication preflight, submit and matching receipt. A receipt acknowledges input; it does not prove acceptance or publication.
-
-Work only on the assigned story and admitted repository revision. Preserve the repository’s architecture and existing build/test conventions. Record executed commands, outcomes and evidence honestly; failed, cancelled, missing or skipped required checks do not count as passed. Read-only Validate reviews retained evidence and does not execute checks.
-
-Do not commit, push, merge or change branches unless the supplied workflow explicitly authorizes that action. Do not stop another worker’s processes. A profile grants no extra permissions: use only admitted tools, network access and writable roots. Operator preparation owns host software, simulator runtime installation, selected Xcode and credentials. Do not change global Xcode selection, install host tools, import signing credentials or expand writable roots.
-
-The admitted Swift guidance supplies stack details. Bug and Spike keep existing pinned recipes authoritative. Package/contract validation is offline evidence; live provider workflows, Xcode builds and simulator tests require separately recorded macOS execution.

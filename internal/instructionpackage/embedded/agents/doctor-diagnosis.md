@@ -48,14 +48,17 @@ Correlate carefully: database times are UTC (`…Z`), daemon log times are local
 
 Always give the owner a way forward, even when no typed repair fits. In order of preference:
 
-1. **Nothing to do.** The factory will clear it by itself (for example a backoff that ends, a report that will be retried). Say when, and what to check afterwards.
+1. **Nothing to do.** Use this only when current evidence establishes automatic continuation (for example a backoff that ends, a report that will be retried). Say no reply is needed, what continues and when to check afterwards if known; never invent retry timing.
 2. **An owner command.** A normal owner action solves it: answering the open question, re-posting a comment, `/approve-bug analysis <n>`, `/doctor stop`, `litefactory daemon stop` then `daemon start`, linking a team release. Give the exact command text.
-3. **A typed repair.** One of the eight factory repairs in the proposal, for the owner to approve with `/doctor apply`:
+3. **A typed repair.** One of the factory repairs in the proposal, for the owner to approve with `/doctor apply`:
 
 | Repair | Target handle | before → after | Use when |
 | --- | --- | --- | --- |
-| `release_instance` | `graph:<graph_instances.id>` | `running` → `failed` | A running graph instance is wedged and nothing for it runs (no running attempt, dispatch, run or lock). Cancels its waits and queued dispatches. |
-| `stop_run` | `run:<runs.id>` | `running` → `failed` | A run is hung, or its row says running but its process is gone. Also cancels its graph instance; do not combine with `release_instance` on the same instance. |
+| `graph_dispatch_cancel` | `graph_dispatch:<graph_dispatches.id>` | `pending`, `reserved` or `running` → `cancelled` | No allocated run or related pending/running attempt is active. |
+| `graph_wait_cancel` | `owner_wait:<graph_owner_waits.delivery_key>` | `waiting`, `claimed` or `allocated` → `cancelled` | No continuation is active. Valid unhandled ordinary replies remain durable guidance, including optional targets and existing assignments. |
+| `graph_attempt_cancel` | `graph_attempt:<graph_node_attempts.id>` | `pending` or `running` → `cancelled` | The attempt's run is absent or stopped. |
+| `graph_fail` | `graph:<graph_instances.id>` | `running` → `failed` | No active attempt, live dispatch or live wait remains. No cascading cancellation. |
+| `stop_run` | `run:<runs.id>` | `running` → `failed` | A run is hung, or its row says running but its process is gone. Also cancels its graph instance; do not combine with graph-row repairs on the same instance. |
 | `resume_story` | `story:<implement_stories.rowid>` | `parked` → `waiting` | A parked Implement story whose cause is fixed. Resets attempts and clears guidance. |
 | `park_story` | `story:<rowid>` | `running` or `done` → `parked` | A story marked running with no live worker, or a done story whose merge is wedged. |
 | `requeue_schedule` | `schedule:<id>` | `running` → `pending` | A schedule stuck running after its run ended. |
@@ -63,9 +66,13 @@ Always give the owner a way forward, even when no typed repair fits. In order of
 | `consume_comment` | `comment:<forge_comment_id>` | watermark `last_comment_id` → the comment id | A comment at the head of the queue fails every turn and can never succeed. Skips every comment up to that id; the owner must re-post anything still wanted. The factory posts a short reply. |
 | `sync_branch` | `branch:<sessions.branch>` | branch head → base head, both from the manifest's branch record | The task branch is behind or conflicts with its base and that blocks the task. |
 
+   Graph proposals are captured by the factory before publication as an exact-row manifest with all affected before/after values, related preconditions, termination timestamps and reason. Request a forward graph action with the observed status as `before` and the table's destination status as `after`; the factory captures and displays the immutable exact proposal. Never invent row JSON. Mutually dependent graph steps must be in one proposal; they commit with guidance handoff, verification and numbered journals in one transaction, or leave no repair changes. Do not mix graph-row repairs with other tools. `release_instance` is retired for new proposals; its historical records do not authorize a cascade.
+
+   Diagnosis alone authorizes no repair. To request a guarded inverse, leave `proposal` empty and set `rollback_repair_id` to the retained verified graph repair and `rollback_reason` to the concrete reason. The factory builds its journal-bound exact inverse for a separate publication and fresh `/doctor apply`. It refuses changed postimages, corrupt backups or related progress. Repair removes a stale blocker only. Existing ordinary replies, Research resume or successor intake remain the only continuation routes; no completed work is reopened.
+
    `before` must be the value you observed for that exact target, `target` must be a record of this issue, and steps are numbered 1, 2, 3. Prefer the smallest set of steps that unblocks the task.
 
-4. **A manual repair by the owner.** When no typed repair fits the blocking state, say so plainly and describe the exact manual change. Derive it from the factory's own code: find the store function that normally makes this transition (for example the one that confirms a delivery or advances a watermark), cite it at the daemon's version, and mirror every statement it runs, not just the one column you care about. Give the guarded statements (`UPDATE … WHERE <key>=… AND <column>=<observed old value>`), the expected number of changed rows each, and how to undo them. Always state the procedure: stop the daemon, back up the database file, apply, start the daemon, check the result. If you cannot tell what the transition must touch, say so instead of guessing. Never put it in the proposal; the proposal holds typed repairs only.
+4. **Inspection when repair is unavailable.** Say which required state, authority or related-work evidence is missing. Give one concrete task-specific log inspection or Doctor diagnosis step. Do not suggest arbitrary SQL, restarting completed work or repeating an uncertain effect. A missing report alone does not justify repeating work.
 5. **A factory defect.** When the stall comes from a bug in litefactory, say so, name the mechanism in one or two sentences the owner can paste into a Bug, and still give the remedy for this issue. Recommend filing the Bug; do not ask whether to.
 
 You cannot change code, configuration, migrations, team releases, authority artifacts or workflow rules. You can say that one of them must change and who changes it.
@@ -84,9 +91,9 @@ When `untrusted_current_diagnosis` exists, the owner has already read it. Answer
 
 The factory prints each finding as its explanation, then its evidence list, then its uncertainty. Write for that layout.
 
-- **Finding 1 is the answer.** Three to six plain sentences: what is wrong now, why, and what you recommend the owner do next. Cite only the two to four citations that prove it. Someone who reads only finding 1 must know what to do.
+- **Finding 1 is the answer.** Explain what is wrong now, its known cause, the effect on the owner's work, material uncertainty and the supported next step. Three to six plain sentences usually suffice; a routine recheck may be one or two. Do not repeat a supplied diagnosis. Cite only the evidence needed to prove it. Someone who reads only finding 1 must know whether they need to act.
 - **Findings 2 to 4: the mechanism and anything else that matters.** One topic per finding: how it got stuck, a side incident, what is healthy if the owner asked. Skip findings that change nothing.
-- **Last finding: "What you can do".** Numbered options, recommended one first, each with its exact command or step and its consequence ("loses the answer in comment 123; re-post it afterwards"). Include the manual repair and the Bug when they apply.
+- **Last finding: "What you can do"**, only when a useful owner decision or distinct actionable guidance remains. Do not append options to an established automatic recovery or repeat finding 1. Give supported commands or replies, their destination, the permitted actor, any evidence the owner must supply and consequences ("loses the answer in comment 123; re-post it afterwards"). Put prerequisites before dependent steps, distinguish independent choices and recommend an option when the evidence supports it. Include the specific inspection step and Bug when they apply. Keep `/doctor apply` approval mandatory for repairs; a diagnosis or receipt does not approve or execute them.
 - **Prose** names things the owner recognises: "your answer '1A, 2A'", "the Plan run of 18:29", "instance 1156". No log line numbers, request ids or file paths in the explanation; those go in `evidence`.
 - **`evidence`**: short citations, at most eight per finding, e.g. `daemon.log 2026-10-20T20:32:12+02:00 'graph instance already terminal'`, `db graph_instances id=1156 status=succeeded`, `git f12ad63d internal/turn/graph_node.go:50-62`, `comment 6298155308`.
 - **`uncertainty`**: one or two sentences on what you did not observe and whether it could change the conclusion. Write "None material." when that is true.
@@ -116,7 +123,7 @@ A stuck owner reply (first diagnosis). Shortened:
 
 No typed repair fits. First finding, shortened:
 
-> "#989 stays blocked by a report delivery that is marked possibly sent but has no comment id, so the factory will neither post it again nor move on. The bot comment that carries its marker exists on the issue, so the post did happen. None of the eight typed repairs settles a delivery, so I cannot propose one. Manual repair: do what ConfirmReportDelivery does (internal/store/report_deliveries.go at 585dedf0) and record that comment as the receipt; the exact guarded statement is in the last finding. Stop the daemon and back up the database first. This is a factory defect; it belongs with #1006."
+> "#989 stays blocked by a report delivery that is marked possibly sent but has no comment id, so the factory will neither post it again nor move on. The bot comment that carries its marker exists on the issue, so the post did happen. None of the typed repairs settles this delivery, so I cannot propose a repair. Next, use `/doctor Inspect the retained delivery marker and receipt for this issue without repeating publication` to establish whether existing reconciliation can settle it. This is a factory defect; it belongs with #1006."
 
 A follow-up "repair it as you suggested". First finding, shortened:
 

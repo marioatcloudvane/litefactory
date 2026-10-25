@@ -244,6 +244,7 @@ func TestValidateImplementReplayDoesNothingTwice(t *testing.T) {
 func TestValidateImplementLeavesAStoryWhoseBranchCannotMove(t *testing.T) {
 	f := newImplementBackFixture(t)
 	f.advance = func(branch, _ string) (bool, error) { return branch != "lf/story-003", nil }
+	f.target.Stories[2].Display = ticketDisplay{Label: "STORY-3", URL: "https://tickets.example.invalid/story-3"}
 	f.toOwner()
 	f.say(f.command(ValidateImplementCommand))
 	if f.row("story-002").State != store.ImplementWaiting || f.row("story-003").State != store.ImplementMerged {
@@ -251,6 +252,11 @@ func TestValidateImplementLeavesAStoryWhoseBranchCannotMove(t *testing.T) {
 	}
 	if f.schedules() != 1 || !strings.Contains(f.notice(), "Not reopened: story-003, because its branch cannot be moved forward to the tested commit.") {
 		t.Fatalf("notice %q schedules %d", f.notice(), f.schedules())
+	}
+	for _, fact := range []string{"https://tickets.example.invalid/story-3", "state and blockers are unchanged", "queued no repair", "branch must be reconciled", "no verified repair or retry command", "reopened stories continue", "no extra owner reply"} {
+		if !strings.Contains(f.notice(), fact) {
+			t.Fatalf("skipped-story guidance lost %q: %s", fact, f.notice())
+		}
 	}
 }
 
@@ -335,7 +341,7 @@ func TestParseValidateImplementCommand(t *testing.T) {
 	if err != nil || c.Name != ValidateImplementCommand || c.Guidance != "keep the tooltips, no legend" {
 		t.Fatalf("guidance: %+v %v", c, err)
 	}
-	for _, bad := range []string{"/validate-implement", "/validate-implement 0123456789ab story-002", "/validate-implement 0123456789ab story-002 -- why", "/validate-implement 0123456789ab -- "} {
+	for _, bad := range []string{"/validate-implement 0123456789ab story-002", "/validate-implement 0123456789ab story-002 -- why", "/validate-implement 0123456789ab -- "} {
 		if _, err := ParseValidateCommand(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
@@ -526,7 +532,7 @@ func newSuiteHandbackFixture(t *testing.T, mergeOf func(o *ownerFixture, root, k
 func TestValidateImplementAcceptsAHandedBackFailedSuite(t *testing.T) {
 	f := newSuiteHandbackFixture(t, func(_ *ownerFixture, root, _ string) string { return root })
 	st := f.state()
-	if next := st.NextStep(nil); !strings.Contains(next, ValidateImplementCommand+" "+st.Revision) {
+	if next := st.implementLine(); !strings.Contains(next, ValidateImplementCommand+" "+st.Revision) {
 		t.Fatalf("the failed-suite Next line names /validate-implement: %q", next)
 	}
 	before := f.rows()

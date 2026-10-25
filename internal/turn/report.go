@@ -49,6 +49,8 @@ type ReporterOptions struct {
 	// StoryLockDir is config.Paths.StoryProgressLocksDir, shared by every process.
 	BotUserID    int64
 	StoryLockDir string
+	// ValidateHead reads the current delivery head before publishing recovered guidance.
+	ValidateHead func(context.Context, store.Session) (string, error)
 	// DB is the open database. Required.
 	//
 	// It is the concrete store and not a narrow interface, deliberately, and it
@@ -101,6 +103,7 @@ func (o ReporterOptions) validate() error {
 //
 // A Reporter is immutable after construction and safe for concurrent use.
 type Reporter struct {
+	validateHead func(context.Context, store.Session) (string, error)
 	botUserID    int64
 	storyLockDir string
 	db           *store.DB
@@ -126,7 +129,7 @@ func NewReporter(opts ReporterOptions) (*Reporter, error) {
 			return nil, errors.Join(fmt.Errorf("story acknowledgement lock directory must be a real directory"), err)
 		}
 	}
-	return &Reporter{db: opts.DB, forge: opts.Forge, renderer: opts.Renderer, log: opts.Logger, botUserID: opts.BotUserID, storyLockDir: opts.StoryLockDir}, nil
+	return &Reporter{validateHead: opts.ValidateHead, db: opts.DB, forge: opts.Forge, renderer: opts.Renderer, log: opts.Logger, botUserID: opts.BotUserID, storyLockDir: opts.StoryLockDir}, nil
 }
 
 // Posted is what a report left behind.
@@ -697,7 +700,16 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 				return redact.Body{}, err
 			}
 		}
+		var decisionURL string
+		if workflowDecisionReply(kind) {
+			var err error
+			decisionURL, err = r.workflowDecisionURL(ctx, req.Ref, req.SessionID, kind)
+			if err != nil {
+				return redact.Body{}, err
+			}
+		}
 		return r.renderer.RenderReply(ctx, report.Reply{
+			DecisionURL:     decisionURL,
 			SourceParentURL: parentURL, SourceReplyURL: replyURL,
 			Ref:                      req.Ref,
 			SourceStoryIssue:         sourceStory,
@@ -853,6 +865,15 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		}
 	}
 
+	if result.ConflictProposal == nil && result.SessionID > 0 && result.TriggerCommentID > 0 {
+		proposal, err := r.db.GetConflictProposalBySource(ctx, result.SessionID, result.TriggerCommentID)
+		if err == nil {
+			result.ConflictProposal = &proposal
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return report.Run{}, err
+		}
+	}
+
 	ordinal := result.Run.Ordinal
 	if ordinal < 1 {
 		// A preparation failure never allocated a run row, and so never got an
@@ -869,10 +890,23 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 	if err != nil {
 		return report.Run{}, err
 	}
+	var timing store.AttemptTiming
+	if r.db != nil && result.Run.ID > 0 {
+		var timingErr error
+		timing, timingErr = r.db.GetAttemptTiming(ctx, 0, result.Run.ID)
+		if timingErr != nil && !errors.Is(timingErr, store.ErrNotFound) {
+			return report.Run{}, timingErr
+		}
+	}
 	return report.Run{
-		Meter:   metering,
-		Ref:     result.Ref,
-		Ordinal: ordinal,
+		WorkerLimit:              timing.Allowance,
+		WorkerDeadline:           timing.Deadline,
+		PreparationCaveats:       append([]string(nil), result.Run.PreparationCaveats...),
+		ConflictProposal:         conflictProposalForRun(result.ConflictProposal),
+		ConflictSuggestionFailed: result.ConflictSuggestionFailed,
+		Meter:                    metering,
+		Ref:                      result.Ref,
+		Ordinal:                  ordinal,
 		// result.Run.Agent is the segment's own value (store.AgentClaude for
 		// every run this tree can produce today) rather than anything
 		// re-derived here, so the report names the tool that actually ran
@@ -915,6 +949,13 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		// (S-2, AC-016).
 		Stories: storyTally(ctx, result, r.db, r.log),
 	}, nil
+}
+
+func conflictProposalForRun(proposal *store.ConflictProposal) *report.ConflictProposal {
+	if proposal == nil {
+		return nil
+	}
+	return conflictProposalReply(*proposal)
 }
 
 // briefPath is the repository-relative path of this task's RESEARCH_BRIEF.md,

@@ -9,6 +9,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 )
 
 // Test packages use owned embedded bytes as an offline installed-source fixture.
@@ -30,17 +31,17 @@ func fixtureWorkflowSource(ctx context.Context, _ store.Repo, w agent.Workflow, 
 	var capture func(context.Context, graphexec.Registry) (*teamsource.WorkflowDefinition, error)
 	switch w {
 	case agent.WorkflowResearch:
-		capture = teamsource.CaptureResearch
+		capture = teamsourcetest.CaptureResearch
 	case agent.WorkflowPlan:
-		capture = teamsource.CapturePlan
+		capture = teamsourcetest.CapturePlan
 	case agent.WorkflowImplement:
-		capture = teamsource.CaptureImplement
+		capture = teamsourcetest.CaptureImplement
 	case agent.WorkflowValidate:
-		capture = teamsource.CaptureValidate
+		capture = teamsourcetest.CaptureValidate
 	case agent.WorkflowSpike:
-		capture = teamsource.CaptureSpike
+		capture = teamsourcetest.CaptureSpike
 	case agent.WorkflowBug:
-		capture = teamsource.CaptureBugParent
+		capture = teamsourcetest.CaptureBug
 	default:
 		return nil, fmt.Errorf("unexpected fixture workflow %s", w)
 	}

@@ -16,9 +16,8 @@ import (
 )
 
 // planWorkPayload is the instruction of a run the factory starts by itself for a
-// Plan task. The stage, the story and everything else the run needs come from the
-// saved Plan state, never from this text.
-const planWorkPayload = "Continue the Plan work of this issue."
+// Plan task; turn owns the text so a run can recognise its own scheduled work.
+const planWorkPayload = turn.PlanWorkPayload
 
 // planWorkID is the identity of one piece of factory-started Plan work. It is a
 // pure function of what the work is, so the same work is the same schedule: a
@@ -35,14 +34,35 @@ func planWorkID(kind string, parts ...string) int64 {
 // it for the offer and for the run, so a story is offered exactly when its run
 // would find something to do.
 func storyWorkID(state planbrief.PlanState, key string) (int64, bool) {
+	return storyWorkIDAfter(state, key, false)
+}
+
+// storyWorkIDAfter is storyWorkID for a story whose latest Plan agent attempt
+// may have failed on an upstream story (upstreamFailed). Only then does the
+// identity also name each dependency's candidate and effect, so the stage is
+// offered again by itself once an upstream's next candidate or effect lands,
+// and not before. Every other story keeps the plain identity, so a stage that
+// failed for any other reason waits for the owner's reply as before.
+func storyWorkIDAfter(state planbrief.PlanState, key string, upstreamFailed bool) (int64, bool) {
 	if stage, create, ok := state.StoryNextStep(key); ok {
 		candidate := ""
+		var deps []string
 		for _, item := range state.Stories {
 			if item.Key == key {
-				candidate = item.Candidate
+				candidate, deps = item.Candidate, item.Draft.Dependencies.StoryKeys
 			}
 		}
-		return planWorkID("story", key, stage, candidate, strconv.FormatBool(create)), true
+		parts := []string{key, stage, candidate, strconv.FormatBool(create)}
+		if upstreamFailed {
+			for _, dep := range deps {
+				for _, up := range state.Stories {
+					if up.Key == dep {
+						parts = append(parts, "upstream", dep, up.Candidate, up.Effect, up.EffectRequest)
+					}
+				}
+			}
+		}
+		return planWorkID("story", parts...), true
 	}
 	// Explicit effect holds need resolution through retained recovery, not a
 	// scheduled turn. Other waits must still admit unheld reconciliation debt.
@@ -91,7 +111,14 @@ func (d *Daemon) planWorkFor(ctx context.Context, t *task) (int64, bool, error) 
 		if err != nil {
 			return 0, false, err
 		}
-		id, ok := storyWorkID(state, story.Key)
+		if _, ok := storyWorkID(state, story.Key); !ok {
+			return 0, false, nil
+		}
+		upstreamFailed, err := turn.PlanLatestAgentFailedUpstream(ctx, d.db, t.session.ID)
+		if err != nil {
+			return 0, false, err
+		}
+		id, ok := storyWorkIDAfter(state, story.Key, upstreamFailed)
 		return id, ok, nil
 	}
 	route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
@@ -243,8 +270,7 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 			}
 			states[story.Parent] = state
 		}
-		id, ok := storyWorkID(state, story.Key)
-		if !ok {
+		if _, ok := storyWorkID(state, story.Key); !ok {
 			continue
 		}
 		// A story already admitted is found locally; only a new one is resolved.
@@ -257,6 +283,14 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 			// every other task and project; it is retried on the next tick.
 			q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
 				slog.String("parent", story.Parent), slog.String("story", story.Key), slog.Any("error", err))
+			continue
+		}
+		upstreamFailed, err := turn.PlanLatestAgentFailedUpstream(ctx, d.db, session.ID)
+		if err != nil {
+			return err
+		}
+		id, ok := storyWorkIDAfter(state, story.Key, upstreamFailed)
+		if !ok {
 			continue
 		}
 		attempted, err := d.db.ScheduleAttempted(ctx, session.ID, id)
@@ -308,7 +342,13 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 		d.planReplyDeferred(ctx, t, c.ID, "could not read the Plan state: "+err.Error())
 		return d.leave(ctx, t, log, "could not read the Plan state", err)
 	}
-	reason := state.PlanReplyReason(story.Key, c.Body)
+	normalized, decisionErr := turn.ResolvePlanStoryDecision(ctx, d.db, parent, c.ID, c.Author.ID, c.Body, t.tickAt, story.Key, c.ReplyToCommentID)
+	var reason string
+	if decisionErr != nil {
+		reason = decisionErr.Error()
+	} else {
+		reason = state.PlanReplyReason(story.Key, normalized)
+	}
 	explanation, explainErr := d.db.PlanReplyExplanation(ctx, t.ref.String(), c.ID)
 	if explainErr != nil && !errors.Is(explainErr, store.ErrNotFound) {
 		d.planReplyDeferred(ctx, t, c.ID, "could not read the retained reply explanation: "+explainErr.Error())

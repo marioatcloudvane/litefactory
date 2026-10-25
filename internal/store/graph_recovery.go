@@ -34,18 +34,18 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 		return 0, graphInvariant("reconciliation requires a timestamp")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,i.status,COALESCE(r.error,''),a.started_at FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id LEFT JOIN runs r ON r.id=a.run_id WHERE d.mode=? AND i.session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) AND a.status IN ('pending','running') AND NOT (a.status='pending' AND i.status='running' AND i.current_node=a.node AND EXISTS(SELECT 1 FROM graph_outputs o WHERE o.node_attempt_id=a.id AND o.kind='json' AND o.payload=?)) ORDER BY a.id`, mode, []byte(graphCapacityDeferral))
+		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,i.status,COALESCE(r.error,''),a.started_at,COALESCE(a.run_id,0) FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id LEFT JOIN runs r ON r.id=a.run_id WHERE d.mode=? AND i.session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) AND a.status IN ('pending','running') AND NOT (a.status='pending' AND i.status='running' AND i.current_node=a.node AND EXISTS(SELECT 1 FROM graph_outputs o WHERE o.node_attempt_id=a.id AND o.kind='json' AND o.payload=?)) ORDER BY a.id`, mode, []byte(graphCapacityDeferral))
 		if e != nil {
 			return e
 		}
 		type interrupted struct {
-			id, instance            int64
-			status, reason, started string
+			id, instance, runID             int64
+			instanceStatus, reason, started string
 		}
 		var attempts []interrupted
 		for rows.Next() {
 			var a interrupted
-			if e = rows.Scan(&a.id, &a.instance, &a.status, &a.reason, &a.started); e != nil {
+			if e = rows.Scan(&a.id, &a.instance, &a.instanceStatus, &a.reason, &a.started, &a.runID); e != nil {
 				break
 			}
 			attempts = append(attempts, a)
@@ -55,6 +55,39 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 			return e
 		}
 		for _, a := range attempts {
+			if a.instanceStatus == GraphRunning && a.runID > 0 {
+				var deadline string
+				var allowanceNS int64
+				timingErr := tx.QueryRowContext(ctx, `SELECT deadline,allowance_ns FROM worker_attempt_timing WHERE node_attempt_id=? AND run_id=0`, a.id).Scan(&deadline, &allowanceNS)
+				switch {
+				case timingErr == nil:
+					limitAt, err := ParseTime(deadline)
+					if err != nil {
+						return err
+					}
+					if !at.Before(limitAt) {
+						if err = recordAttemptTimeoutTx(ctx, tx, AttemptTimeout{NodeAttemptID: a.id, Budget: time.Duration(allowanceNS), TimedOutAt: limitAt}); err != nil {
+							return err
+						}
+					}
+				case !errors.Is(timingErr, sql.ErrNoRows):
+					return timingErr
+				case mode == "implement":
+					var providerEvidence bool
+					if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM meter_attempts WHERE graph_node_attempt_id=?)`, a.id).Scan(&providerEvidence); e != nil {
+						return e
+					}
+					if !providerEvidence {
+						break
+					}
+					// Historical timing is unknown, never a fabricated timeout.
+					// Park for owner review through the existing recovery route.
+					_, e = tx.ExecContext(ctx, `UPDATE implement_stories SET state='parked',reason='Historical worker timing is unavailable; owner review is required before continuing retained work.',park_origin='worker',revision=revision+1,updated_at=?,state_at=? WHERE state='running' AND timeout_attempt_id=0 AND worker_session=(SELECT session_id FROM graph_instances WHERE id=?)`, FormatTime(at), FormatTime(at), a.instance)
+					if e != nil {
+						return e
+					}
+				}
+			}
 			reason := a.reason
 			if reason == "" {
 				reason = "interrupted before validated graph result retention; explicit owner continuation required"
@@ -66,7 +99,7 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 			// An attempt left open by an instance that already finished is
 			// cancelled: it can no longer run and must not block a successor.
 			status := "failed"
-			if a.status != GraphRunning {
+			if a.instanceStatus != GraphRunning {
 				status = "cancelled"
 			}
 			if _, e = tx.ExecContext(ctx, `UPDATE graph_node_attempts SET status=?,outcome=NULL,finished_at=? WHERE id=? AND status IN ('pending','running')`, status, finished, a.id); e != nil {
@@ -249,6 +282,62 @@ AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=i.id AND d.a
 	})
 	if err != nil {
 		return false, fmt.Errorf("store: cancel idle owner wait: %w", err)
+	}
+	return cancelled, nil
+}
+
+// CancelIdleValidateInstance ends one running Validate instance that nothing
+// can advance any more, so an owner's /validate on the same commit can start a
+// fresh one. The session's orphaned graph prelaunch runs are settled first, in
+// the same transaction, because they would otherwise keep the instance looking
+// busy. The caller holds the session lock and has checked the Validate entry
+// gate. It reports false when anything is still owed, attempted, running,
+// waiting, held, scheduled or in flight for the instance, or when it never had
+// a dispatch.
+func (db *DB) CancelIdleValidateInstance(ctx context.Context, instanceID int64, reason string, at time.Time) (cancelled bool, err error) {
+	if instanceID < 1 || strings.TrimSpace(reason) == "" || at.IsZero() {
+		return false, graphInvariant("invalid idle Validate cancellation")
+	}
+	err = db.withTx(ctx, func(tx *sql.Tx) error {
+		var sessionID int64
+		if e := tx.QueryRowContext(ctx, `SELECT session_id FROM graph_instances WHERE id=?`, instanceID).Scan(&sessionID); e != nil {
+			if errors.Is(e, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return e
+		}
+		if _, e := settleOrphanedGraphPrelaunchTx(ctx, tx, sessionID, at); e != nil {
+			return e
+		}
+		// The stranded rule without its cancelled-latest-dispatch clause, on
+		// purpose: an instance whose step was stopped at its retry cap is
+		// exactly what the owner may restart. Every in-flight check stays. An
+		// instance that never had a dispatch was interrupted at its start and
+		// resumes when its own start comment is read again, so it is kept.
+		instance, e := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances g
+WHERE g.id=? AND EXISTS(SELECT 1 FROM graph_definitions def WHERE def.id=g.definition_id AND def.mode='validate')
+AND EXISTS(SELECT 1 FROM graph_dispatches past WHERE past.instance_id=g.id) AND `+idleGraphInstancePredicate, instanceID))
+		if errors.Is(e, ErrNotFound) {
+			return nil
+		}
+		if e != nil {
+			return e
+		}
+		finished := at
+		if finished.Before(instance.StartedAt) {
+			finished = instance.StartedAt
+		}
+		if e = setGraphInstanceTx(ctx, tx, instance.ID, instance.CurrentNode, GraphCancelled, time.Time{}, finished); e != nil {
+			return e
+		}
+		if _, e = recordGraphTransitionTx(ctx, tx, GraphTransition{InstanceID: instance.ID, FromNode: instance.CurrentNode, ToNode: instance.CurrentNode, OnOutcome: reason, At: finished}); e != nil {
+			return e
+		}
+		cancelled = true
+		return nil
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: cancel idle Validate instance: %w", err)
 	}
 	return cancelled, nil
 }

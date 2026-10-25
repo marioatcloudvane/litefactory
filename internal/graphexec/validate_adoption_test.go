@@ -1,20 +1,21 @@
 package graphexec_test
 
 import (
-	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 )
 
 func TestValidateAdoptionGraphBoundary(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile("../teamsource/validate/validate.dot")
+	files, err := teamsourcetest.Files("go-development")
 	if err != nil {
 		t.Fatal(err)
 	}
+	raw := files["validate/validate.dot"]
 	for _, tt := range []struct {
 		name   string
 		mutate func(*graphexec.Profile)

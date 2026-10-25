@@ -74,6 +74,11 @@ func (db *DB) EnsureReportDelivery(ctx context.Context, want ReportDelivery) (Re
 		if task != want.Task {
 			return errors.New("report delivery task does not match session")
 		}
+		if want.TriggerNamespace == "recovery-notice" {
+			if err := validateRecoveryNoticeTx(ctx, tx, want); err != nil {
+				return err
+			}
+		}
 		if want.RunID != 0 {
 			run, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE id=?`, want.RunID))
 			if err != nil {
@@ -221,6 +226,10 @@ func (db *DB) CompleteReportDelivery(ctx context.Context, key string) (ReportDel
 				} else if err := consumeReportSource(ctx, tx, d.SessionID, d.TriggerID); err != nil {
 					return err
 				}
+			}
+		case d.TriggerNamespace == "recovery-notice":
+			if err := validateRecoveryNoticeTx(ctx, tx, d); err != nil {
+				return err
 			}
 		case d.TriggerNamespace == "plan-observation" || d.TriggerNamespace == "plan-reply" || d.TriggerNamespace == PlanNoticeNamespace:
 			if err = completePlanNoticeTx(ctx, tx, d); err != nil {

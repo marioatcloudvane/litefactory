@@ -76,6 +76,8 @@ type Conversation struct {
 	HistoryWindow   string                   `json:"history_window"`
 	Diagnosis       *Diagnosis               `json:"diagnosis,omitempty"`
 	ApplyAvailable  bool                     `json:"apply_available"`
+	// RepairInspectionRequired is transient presentation context after a command error.
+	RepairInspectionRequired bool `json:"-"`
 }
 
 // Diagnose preserves input and fresh evidence even when the provider refuses.

@@ -139,7 +139,7 @@ func EditTargets(mode string) []Target {
 	case "plan":
 		fields = append(fields, "payload.plan.summary", "payload.plan.context", "payload.plan.stories", "payload.plan.stories.title", "payload.plan.stories.intent", "payload.plan.stories.user_story", "payload.plan.stories.acceptance_criteria", "payload.plan.stories.tasks", "payload.plan.stories.architecture", "payload.plan.stories.dependencies")
 	case "implement":
-		fields = append(fields, "payload.implement.stories", "payload.implement.aggregate_checks", "payload.implement.deviations")
+		fields = append(fields, "payload.implement.stories", "payload.implement.aggregate_checks", "payload.implement.deviations", "payload.implement.return_allocation")
 	case "validate":
 		fields = append(fields, "payload.validate.stories")
 	case "spike":

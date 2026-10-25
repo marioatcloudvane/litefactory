@@ -168,3 +168,14 @@ func TestRepairDiffHostPathsRemainPrivate(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanReplyExplanationText_LongCauseKeepsCompleteCurrentAction(t *testing.T) {
+	t.Parallel()
+	command := "/approve-plan story-009 acceptance plan-55-600"
+	consequence := "It approves only that stage; later approvals remain required."
+	reason := strings.Repeat("A retained remote cause. ", 100) + " On this story's bound sub-issue, the current command is `" + command + "`. " + consequence
+	text := report.PlanReplyExplanationText("story-009", 398, 5, reason)
+	if !strings.Contains(text, command) || !strings.Contains(text, consequence) || !strings.Contains(text, "nothing was approved") {
+		t.Fatalf("short explanation dropped the complete action: %s", text)
+	}
+}

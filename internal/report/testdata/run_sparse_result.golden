@@ -4,3 +4,5 @@
 
 > [!CAUTION]
 > Run 5 failed without an exit status of its own.
+>
+> Inspect on the factory host: `litefactory logs 'github:acme/acme-api#123' --run 5`.

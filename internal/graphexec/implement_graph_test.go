@@ -134,7 +134,7 @@ func TestImplementSpecsOfTheWorkerAndTheBatchedQuestion(t *testing.T) {
 		ImplementAskAction:        {"published"},
 		ImplementReportDoneAction: {"published"},
 		ImplementResolvedAction:   {"resolved", "blocked", "retry"},
-		SyncBaseAction:            {"synced", "current", "conflict", "retry"},
+		SyncBaseAction:            {"synced", "current", "conflict", "retry", "deferred"},
 	}
 	got := map[string][]string{}
 	for _, spec := range ImplementSpecs() {
@@ -432,7 +432,7 @@ func TestSyncBaseIsOneGenericStep(t *testing.T) {
 			t.Fatalf("%s: %v", mode, err)
 		}
 		spec, ok := registry.Resolve(SyncBaseAction)
-		if !ok || spec.Mode != mode || !slices.Equal(spec.Outcomes, []string{"synced", "current", "conflict", "retry"}) {
+		if !ok || spec.Mode != mode || !slices.Equal(spec.Outcomes, []string{"synced", "current", "conflict", "retry", "deferred"}) {
 			t.Fatalf("%s: %+v %v", mode, spec, ok)
 		}
 	}
@@ -449,9 +449,9 @@ func TestSyncBaseIsOneGenericStep(t *testing.T) {
 // same checker.
 func TestEveryShippedImplementGraphValidates(t *testing.T) {
 	paths := []string{
-		"../teamsource/implement/implement.dot",
-		"../teamsource/python-fastapi/implement/implement.dot",
-		"../teamsource/swift-ios/implement/implement.dot",
+		"../../teams/source/base-team/implement/implement.dot",
+		"../../teams/source/python-fastapi/implement/implement.dot",
+		"../../teams/source/swift-ios/implement/implement.dot",
 		"../../teams/source/dotnet-web/implement/implement.dot",
 	}
 	released, err := filepath.Glob("../../teams/*/v*/implement/implement.dot")

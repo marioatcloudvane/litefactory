@@ -126,7 +126,7 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 	if pkg.Version() != "1.13.1" || pkg.Digest() == "" {
 		t.Fatal("embedded package must register the migrated roles and advance its version")
 	}
-	if len(pkg.files) != 21 {
+	if len(pkg.files) != 22 {
 		t.Fatalf("embedded inventory has %d files, want migrated roles, metadata, catalogue, selected skills and both retained schemas", len(pkg.files))
 	}
 	for _, role := range want {

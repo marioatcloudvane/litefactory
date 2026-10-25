@@ -122,7 +122,7 @@ func (r *Reporter) ReportPlanSummary(ctx context.Context, parent naming.Ref, ses
 					}
 				}
 			}
-			rows = append(rows, [4]string{draft.Key, issue, "story", "Not bound to its issue; cannot draft; plan assembly is blocked."})
+			rows = append(rows, [4]string{draft.Key, issue, "story", "Not bound to its issue; cannot draft; plan assembly is blocked. No safe approval or binding-repair command is available from retained facts. Review the linked issue, if available, and report the binding problem on this parent; normal reconciliation must confirm the original identity before work can advance."})
 			continue
 		}
 		failed, err := r.storyRunFailed(ctx, parent, draft.IssueNumber)
@@ -130,6 +130,9 @@ func (r *Reporter) ReportPlanSummary(ctx context.Context, parent naming.Ref, ses
 			return err
 		}
 		stage, label := planStoryProgress(state, *found, failed)
+		if found.Blocked() || label == planStoryWaitingUpstream {
+			label += ": " + planNoticeGuidance(state, *found)
+		}
 		name := found.Draft.Name
 		if name == "" {
 			name = draft.Key

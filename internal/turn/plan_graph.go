@@ -65,6 +65,10 @@ type planGraphRuntime struct {
 	parentRef    naming.Ref
 	parentNumber int
 	story        string
+	// prepared is the basis the current agent attempt was prepared against.
+	prepared planPreparedBasis
+	// upstream carries an upstream-publishing refusal to the failure path.
+	upstream planUpstreamDeferral
 }
 
 type planGraphHandler func(context.Context, Options, ActivityRequest) (ActivityResult, error)
@@ -173,7 +177,7 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 			}
 			out := result
 			out.ResearchGraph = true
-			out.Reason = "this story waits for the owner or for an upstream story"
+			out.Reason = planUpstreamWait
 			return out, true, nil
 		}
 		out, err := r.settled(ctx)
@@ -205,6 +209,12 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	definition.Profile.Digest = actual.Digest
 	policy := r.policy()
 	out, err := ExecuteWorkflow(ctx, o, req, result, definition, admission, policy)
+	if err == nil && out.Err == nil && r.upstream.deferred {
+		// The step ended quietly while an upstream story published its stage.
+		out.ResearchGraph = true
+		out.Reason = planUpstreamWait
+		return out, true, nil
+	}
 	if err == nil && out.Err == nil && r.story == "" && !r.discussion {
 		// Where the run stopped, the owner hears why and what to do next.
 		_, noticeErr := r.storiesCreated(ctx)
@@ -214,9 +224,18 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	return out, true, err
 }
 
+// PlanWorkPayload is the instruction of a run the factory starts by itself for
+// a Plan task. The stage, the story and everything else the run needs come from
+// the saved Plan state, never from this text.
+const PlanWorkPayload = "Continue the Plan work of this issue."
+
+// planUpstreamWait is the outcome of a story run that has nothing to do now
+// because it waits for the owner or for an upstream story.
+const planUpstreamWait = "this story waits for the owner or for an upstream story"
+
 // planAnswerNotApplied is posted for an input bound to a Plan instance that
 // finished without applying it. It names no internal state.
-const planAnswerNotApplied = "This answer was not applied; please post it again."
+const planAnswerNotApplied = "This answer was not applied; please post it again. Its earlier workflow attempt has finished; reposting on this issue starts a fresh attempt against the saved current workflow. No story approval or change was made from this answer, and any approval must match the current review command."
 
 // planParkedHold bounds how long an owner comment waits for a Plan instance
 // parked at a non-agent step to finish through its own scheduled retry.
@@ -439,8 +458,20 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 	if err != nil || s.SharedRevision == "" {
 		return err
 	}
+	normalized := r.req.Trigger.Body
+	if r.req.Trigger.AuthorID == r.ownerID {
+		normalized, err = ResolvePlanDecision(ctx, r.opts.DB, r.parentRef.String(), r.req.Trigger.CommentID, r.req.Trigger.AuthorID, r.req.Trigger.Body, r.opts.MCP.Now(), r.req.Trigger.ReplyToCommentID)
+	}
+	if err != nil {
+		return &PlanReplyRefusal{Reason: err.Error(), Err: err}
+	}
+	// The source bytes remain in the retained decision binding and trigger.
+	originalBody := r.req.Trigger.Body
+	r.req.Trigger.Body = normalized
+	defer func() { r.req.Trigger.Body = originalBody }()
 	if r.req.Trigger.PlanReply != nil {
 		reply := *r.req.Trigger.PlanReply
+		reply.Body = normalized
 		if reply.OwnerID != r.ownerID || reply.ActorID != r.req.Trigger.AuthorID || reply.ID != r.req.Trigger.CommentID {
 			return errors.New("plan child reply authority mismatch")
 		}
@@ -471,7 +502,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 	}
 	if strings.HasPrefix(strings.TrimSpace(commandtext.Normalize(r.req.Trigger.Body)), "/approve-plan-set ") {
 		if slices.Contains(s.ConsumedReplies, r.req.Trigger.CommentID) && s.AssembledApproval == s.PlanSetRevision() {
-			return nil
+			return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan-set", strings.TrimSpace(commandtext.Normalize(r.req.Trigger.Body)))
 		}
 		if err = s.ApproveAssembled(r.ownerID, r.req.Trigger.AuthorID, r.req.Trigger.CommentID, r.req.Trigger.Body, r.scope); err != nil {
 			if errors.Is(err, planbrief.ErrPlanAssembledStale) {
@@ -479,7 +510,10 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 			}
 			return err
 		}
-		return r.persist(ctx, s, rev)
+		if err = r.persist(ctx, s, rev); err != nil {
+			return err
+		}
+		return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan-set", strings.TrimSpace(commandtext.Normalize(r.req.Trigger.Body)))
 	}
 	if key, ok := planStoryCommandKey(r.req.Trigger.Body); ok {
 		return r.applyParentStoryCommand(ctx, s, key)
@@ -500,12 +534,21 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 // read fresh and saved with the revision check, so a sibling story saving at the
 // same moment keeps its change and this one is retried, never lost.
 func (r *planGraphRuntime) applyReply(ctx context.Context, reply planbrief.PlanOwnerReply) error {
-	return r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(s *planbrief.PlanState) (bool, error) {
-		if _, err := s.ApplyOwnerReply(reply); err != nil {
-			return false, &PlanReplyRefusal{Reason: planReplyRefusalReason, Err: err}
+	approved := false
+	err := r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(s *planbrief.PlanState) (bool, error) {
+		var e error
+		replayed := slices.Contains(s.ConsumedReplies, reply.ID)
+		approved, e = s.ApplyOwnerReply(reply)
+		approved = approved || replayed
+		if e != nil {
+			return false, &PlanReplyRefusal{Reason: planRefusedReplyGuidance(*s, reply), Err: e}
 		}
 		return true, nil
 	})
+	if err == nil && approved {
+		return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan", strings.TrimSpace(commandtext.Normalize(reply.Body)))
+	}
+	return err
 }
 
 var planStoryCommandPattern = regexp.MustCompile(`^/approve-plan (story-[0-9]{3,}) (?:story|technical|acceptance) \S+$`)
@@ -591,6 +634,13 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 			return ResearchInvocation{}, err
 		}
 	}
+	r.prepared = planPreparedBasis{attempt: a.NodeAttemptID, upstream: slices.Clone(upstream)}
+	if r.stage != planSetStage {
+		if review, reviewErr := s.ReviewRevision(r.selected, r.stage); reviewErr == nil {
+			r.prepared.review = review
+		}
+	}
+	w.planUpstream = &r.upstream
 	upstreamJSON, err := json.Marshal(upstream)
 	if err != nil {
 		return ResearchInvocation{}, err
@@ -757,6 +807,7 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	target := r.result.Ref
 	kind := a.Attrs["lf_kind"]
 	text := node.Comment
+	var display *store.OwnerDecisionDisplay
 	if kind == "review" && r.rewindReason != "" {
 		text += "\n\n" + r.rewindReason
 	}
@@ -799,6 +850,13 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 					}
 				}
 				text += planReviewCommandText(r.picked, r.stage, saved, r.selected, issues, command)
+				for _, item := range saved.Stories {
+					if item.Key == r.selected && item.Wait != nil && strings.HasPrefix(command, "/approve-plan ") {
+						display = &store.OwnerDecisionDisplay{TaskRef: r.parentRef.String(), Action: "/approve-plan", Target: command, Revision: item.Wait.Revision, InstanceID: a.InstanceID, CreatedAt: r.opts.MCP.Now()}
+						ref := store.OwnerDecisionReference(r.parentRef.String(), "/approve-plan", command, item.Wait.Revision)
+						text += "\n\nShort reply: `/approve-plan " + ref + "`."
+					}
+				}
 			}
 			if waitKind == "retire" {
 				text += fmt.Sprintf("\n\nTo retire this exact candidate as not planned, reply `/retire-plan %s %s`.", r.selected, d.Candidate)
@@ -828,9 +886,9 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 		if retained.Text != text && r.opts.Logger != nil {
 			r.opts.Logger.WarnContext(ctx, "retained Plan comment differs from the newly built text; posting the retained text", "delivery_key", intent.Key)
 		}
-		intent, text = retained.Intent, retained.Text
+		intent, text, display = retained.Intent, retained.Text, retained.Display
 	case errors.Is(err, store.ErrNotFound):
-		raw, marshalErr := json.Marshal(planPublication{Intent: intent, Text: text})
+		raw, marshalErr := json.Marshal(planPublication{Intent: intent, Text: text, Display: display})
 		if marshalErr != nil {
 			return ActivityResult{}, marshalErr
 		}
@@ -845,6 +903,12 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	posted, err := reporter.deliver(ctx, intent, func() (redact.Body, error) { return reporter.renderer.RenderReportDelivery(ctx, text, "") })
 	if err != nil {
 		return ActivityResult{}, err
+	}
+	if display != nil {
+		display.PublicationID = posted.CommentID
+		if err = r.opts.DB.PutOwnerDecisionDisplay(ctx, *display); err != nil {
+			return ActivityResult{}, err
+		}
 	}
 	payload, err := json.Marshal(posted)
 	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: payload}, err

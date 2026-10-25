@@ -3,14 +3,8 @@
 ### litefactory · run 92 · outcome unknown
 
 > [!CAUTION]
-> litefactory did not record how run 92 ended — it was most likely interrupted between finishing the run and reporting on it. The local log is the authority on what happened.
+> litefactory did not record how run 92 ended. Completion and the cause are unknown. Inspect on the factory host: `litefactory logs 'github:acme/acme-api#123' --run 92`.
 
-**Base branch sync**
+**Preparation caveat**
 
-litefactory could not sync this branch with `origin/main`: merging would conflict, so the branch was left as it was (2 commit(s) behind) and the run went ahead against it.
-
-Conflicting path(s) (2):
-```
-internal/cli/task.go
-docs/readme.md
-```
+base synchronization (2 behind): merging would conflict; existing work was preserved.

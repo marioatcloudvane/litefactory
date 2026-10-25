@@ -17,7 +17,7 @@ import (
 func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) error {
 	var ownerID int64
 	if isCodeAuthorityBody(trigger.Body) {
-		c := github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
+		c := github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
 		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
 			return err
 		}
@@ -68,7 +68,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 				return nil
 			}
 		}
-		if wait.ReplyID == trigger.CommentID && wait.ReplyBody == trigger.Body && wait.ReplyAuthorID == trigger.AuthorID && trigger.AuthorID == ownerID {
+		if wait.ReplyID == trigger.CommentID && wait.ReplyBody == trigger.Body && wait.ReplyAuthorID == trigger.AuthorID && wait.ReplyToCommentID == trigger.ReplyToCommentID && trigger.AuthorID == ownerID {
 			return nil
 		}
 		return store.ErrGraphOwnerWait
@@ -76,7 +76,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 	if wait.State != "waiting" {
 		return nil
 	}
-	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, ownerID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
+	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, ownerID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
 	return err
 }
 
@@ -99,7 +99,7 @@ func AdmitGraphOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID
 	if err != nil {
 		return wait, err
 	}
-	return db.ClaimGraphOwnerReply(ctx, store.GraphOwnerReply{InstanceID: instanceID, OwnerID: ownerID, AuthorID: comment.Author.ID, CommentID: comment.ID, QuestionCommentID: delivery.CommentID, TaskRef: taskRef, SourceRef: sourceRef, Mode: mode, Workflow: graphReplyWorkflow(mode), DeliveryKey: wait.DeliveryKey, Body: comment.Body, At: at})
+	return db.ClaimGraphOwnerReply(ctx, store.GraphOwnerReply{InstanceID: instanceID, OwnerID: ownerID, AuthorID: comment.Author.ID, CommentID: comment.ID, ReplyToCommentID: comment.ReplyToCommentID, QuestionCommentID: delivery.CommentID, TaskRef: taskRef, SourceRef: sourceRef, Mode: mode, Workflow: graphReplyWorkflow(mode), DeliveryKey: wait.DeliveryKey, Body: comment.Body, At: at})
 }
 
 // AdmitResearchOwnerReply supplies the production Research mode fence.
@@ -204,6 +204,27 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 		d.commentFate(ctx, t, trigger.CommentID, fateQueued, "queued, stopped graph reply scheduled recovery at node "+instance.CurrentNode)
 	}
 	return true, err
+}
+
+// refuseUnresumableReply releases a claimed owner reply the store refused to
+// allocate, so the question waits for a new reply, then answers and consumes
+// the comment once, naming the step the question waits on. It handles nothing
+// when the trigger is not the claimed reply, such as a scheduled dispatch.
+func (d *Daemon) refuseUnresumableReply(ctx context.Context, t *task, trigger turn.Trigger, mode string, cause error) (bool, error) {
+	bookkeeping := context.WithoutCancel(ctx)
+	instance, err := d.db.LatestWorkflowInstance(bookkeeping, t.session.ID, graphReplyWorkflow(mode))
+	if err != nil {
+		return false, errors.Join(cause, err)
+	}
+	node, err := d.db.ReleaseGraphOwnerReply(bookkeeping, instance.ID, trigger.CommentID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Join(cause, err)
+	}
+	t.log.InfoContext(ctx, "owner reply cannot resume the step its question waits on; released it and refusing it with a reply", slog.Int64("instance_id", instance.ID), slog.Any("error", cause))
+	return true, d.refuseGraphResume(ctx, t, trigger, node, "the step the open question waits on cannot be continued with this reply")
 }
 
 // refuseGraphResume answers and consumes a reply that could not resume the

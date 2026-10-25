@@ -25,10 +25,12 @@ const (
 	ValidateShipCommand    = "/validate-ship"
 	// ValidateImplementCommand sends the blocking findings back to Implement.
 	ValidateImplementCommand = "/validate-implement"
+	// ValidateReturnCommand returns reviewed work with an owner explanation.
+	ValidateReturnCommand = "/return"
 )
 
 // ValidateControlCommands lists the Validate owner commands.
-var ValidateControlCommands = []string{ValidateRepairCommand, ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand, ValidateImplementCommand}
+var ValidateControlCommands = []string{ValidateRepairCommand, ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand, ValidateImplementCommand, ValidateReturnCommand}
 
 // IsValidateControlCommand reports whether a command token is one of them.
 func IsValidateControlCommand(name string) bool {
@@ -50,6 +52,8 @@ type ValidateCommand struct {
 	RepairAction string
 	Name         string
 	Revision     string
+	// Reference is the optional short handle of a published exact target.
+	Reference string
 	// Check
 	Criterion string
 	Verdict   string
@@ -100,18 +104,21 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 	}
 	head, evidence, hasEvidence := strings.Cut(body, " -- ")
 	fields := strings.Fields(head)
-	if len(fields) < 2 {
-		return c, errors.New("a Validate command names the report revision after the command")
+	if len(fields) < 1 {
+		return c, errors.New("a Validate command needs an action")
 	}
 	c.Name = strings.ToLower(fields[0])
 	if !IsValidateControlCommand(c.Name) {
 		return c, fmt.Errorf("%q is not a Validate command", fields[0])
 	}
-	if !validateRevisionPattern.MatchString(fields[1]) {
-		return c, errors.New("the report revision is 12 lowercase hex characters")
+	args := fields[1:]
+	if len(args) > 0 && validateRevisionPattern.MatchString(args[0]) {
+		c.Revision = args[0]
+		args = args[1:]
+	} else if len(args) > 0 && strings.HasPrefix(args[0], "d-") {
+		c.Reference = args[0]
+		args = args[1:]
 	}
-	c.Revision = fields[1]
-	args := fields[2:]
 	evidence = strings.TrimSpace(evidence)
 	switch {
 	case c.Name == ValidateCheckCommand || c.Name == ValidateShipCommand:
@@ -122,7 +129,7 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		if hasEvidence != (len(args) > 1 && args[1] == validateChoiceAccept) {
 			return c, errors.New("/validate-finding takes ` -- <reason>` only with accept, and accept requires it")
 		}
-	case c.Name == ValidateImplementCommand:
+	case c.Name == ValidateImplementCommand || c.Name == ValidateReturnCommand:
 	case hasEvidence:
 		return c, errors.New("only /validate-check, /validate-ship, /validate-finding … accept and /validate-implement take ` -- text`")
 	}
@@ -160,11 +167,11 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		if len(args) != 0 {
 			return c, errors.New("/validate-push takes no argument after the revision")
 		}
-	case ValidateImplementCommand:
+	case ValidateImplementCommand, ValidateReturnCommand:
 		if len(args) != 0 {
 			return c, errors.New("/validate-implement takes no argument after the revision, only optional guidance after ` -- `")
 		}
-		if c.Guidance = evidence; hasEvidence && c.Guidance == "" {
+		if c.Guidance = evidence; (hasEvidence || c.Name == ValidateReturnCommand) && c.Guidance == "" {
 			return c, errors.New("/validate-implement needs guidance text after ` -- `, or no ` -- ` at all")
 		}
 	case ValidateMergeCommand:
@@ -178,11 +185,11 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		c.PR, c.Head = n, args[1]
 	case ValidateShipCommand:
 		if len(args) != 0 {
-			return c, errors.New("use /validate-ship <revision> -- <what you checked by hand>")
+			return c, errors.New("use /validate-ship [decision reference] -- <reason>")
 		}
 		c.Evidence = evidence
 		if c.Evidence == "" {
-			return c, errors.New("/validate-ship needs evidence after ` -- `: what you checked by hand")
+			return c, errors.New("/validate-ship needs a reason after ` -- `")
 		}
 	case ValidateCloseCommand:
 		if len(args) < 1 || len(args) > 64 {
@@ -207,10 +214,10 @@ func (s ValidateState) NextCommands(closeSet []int) []string {
 	var out []string
 	rev := s.Revision
 	for _, f := range s.Findings {
-		switch {
-		case f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable():
+		if f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable() {
 			out = append(out, fmt.Sprintf("`%s %s %s pass -- <what you checked>` or `%s %s %s fail -- <what you saw>`", ValidateCheckCommand, rev, f.ID, ValidateCheckCommand, rev, f.ID))
-		case f.needsChoice():
+		}
+		if f.needsChoice() {
 			line := fmt.Sprintf("`%s %s %s repair`, `%s %s %s issue bug`, `%s %s %s issue story`", ValidateFindingCommand, rev, f.ID, ValidateFindingCommand, rev, f.ID, ValidateFindingCommand, rev, f.ID)
 			if f.Optional {
 				line += fmt.Sprintf(", `%s %s %s defer`", ValidateFindingCommand, rev, f.ID)
@@ -235,39 +242,34 @@ func (s ValidateState) deliveryCommand(closeSet []int) string {
 	switch {
 	case !s.Ready:
 	case !effectDone(s.Effects.PR) || !effectDone(s.Effects.Push):
-		return fmt.Sprintf("`%s %s`", ValidatePushCommand, rev)
+		return fmt.Sprintf("`%s %s` pushes the tested commit and opens or recovers its pull request; it does not authorize merge or close.", ValidatePushCommand, rev)
 	case !effectDone(s.Effects.Merge):
 		r := decodeEffectResult(s.Effects.PR)
-		return fmt.Sprintf("`%s %s %d %s`", ValidateMergeCommand, rev, r.Number, r.Head)
+		return fmt.Sprintf("`%s %s %d %s` merges only this displayed pull request and exact head after push; it does not authorize closing issues.", ValidateMergeCommand, rev, r.Number, r.Head)
 	case !effectDone(s.Effects.Close):
-		return fmt.Sprintf("`%s %s %s`", ValidateCloseCommand, rev, validateNumbers(closeSet))
+		return fmt.Sprintf("`%s %s %s` closes exactly the displayed accepted issue set after merge; already closed issues are not repeated.", ValidateCloseCommand, rev, validateNumbers(closeSet))
 	}
 	return ""
 }
 
-// shipBlockers lists what keeps /validate-ship from being accepted: everything
-// in Open except the checks and choices the ship command itself records (a pass
-// for each eligible item awaiting an owner check, a defer for each optional finding
-// without a choice). It is empty when one /validate-ship can deliver.
+// shipBlockers lists admission prerequisites that owner shipping cannot waive.
+// All assessed factual blockers remain visible and may be covered by one exact
+// owner exception; delivery operations must still succeed in fact.
 func (s ValidateState) shipBlockers() []string {
-	shipped := s
-	shipped.Findings = slices.Clone(s.Findings)
-	for i, f := range shipped.Findings {
-		switch {
-		case f.State == findingAwaitingCheck:
-			shipped.Findings[i].State = findingOwnerPassed
-		case f.Optional && f.needsChoice() && f.Choice == nil:
-			shipped.Findings[i].Choice = &store.ValidateChoice{Finding: f.ID, Choice: store.ChoiceDefer}
-		}
+	if !s.Assessed {
+		return []string{"The assessment of this commit is not recorded yet."}
 	}
-	shipped.computeReadiness()
-	return shipped.Open
+	return nil
 }
 
 // shipLine is the /validate-ship command for the current revision.
 func (s ValidateState) shipLine() string {
-	return fmt.Sprintf("`%s %s -- <what you checked by hand>`", ValidateShipCommand, s.Revision)
+	return fmt.Sprintf("`%s %s -- <reason>`", ValidateShipCommand, s.Revision)
 }
+
+// validateShipConsequence describes the existing combined action; it adds no
+// confirmation and does not change the separate delivery commands.
+const validateShipConsequence = "This one explicit reasoned command authorizes the existing ordered sequence: push the displayed commit, open its pull request, merge its exact head, then close the displayed accepted issues. It stops if a step fails or remains uncertain. Its waiver keeps factual test and review results unchanged; no additional confirmation is required for the remaining successful steps of this same shipping decision."
 
 // mergeConflicted reports a merge GitHub refused because the pull request
 // conflicts with its target (405 "Pull Request has merge conflicts"). Repeating
@@ -299,13 +301,13 @@ func (s ValidateState) mergeConflictStep() string {
 // templates stay on the story sub-issues.
 func (s ValidateState) NextStep(closeSet []int) string {
 	if s.Reimplementing {
-		return "Nothing here: the blocking findings were sent back to Implement on the same feature branch. Validate runs again on the new head when Implement finishes."
+		return "Nothing here: the reviewed work was sent back to Implement on the same feature branch. Validate runs again on the new head when Implement finishes."
 	}
 	if s.mergeConflicted() {
 		return s.mergeConflictStep()
 	}
 	if len(s.shipBlockers()) == 0 && !effectDone(s.Effects.Close) {
-		return s.shipLine()
+		return s.shipLine() + " " + validateShipConsequence
 	}
 	roles, _ := s.notReviewed()
 	owner := false

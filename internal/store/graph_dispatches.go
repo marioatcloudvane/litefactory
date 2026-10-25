@@ -609,11 +609,22 @@ EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','d
 
 // strandedGraphInstancePredicate is shared by discovery and the transactional
 // recheck. Historical allocated waits and completed attempts are not work.
-const strandedGraphInstancePredicate = `g.status='running' AND g.next_due_at IS NULL
+const strandedGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInstanceCancelledLatest + "\n" + graphInstanceIdleTail
+
+// idleGraphInstancePredicate is the stranded rule without the
+// cancelled-latest-dispatch clause: nothing is owed, attempted, running,
+// waiting, held, scheduled or in flight for the instance.
+const idleGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInstanceIdleTail
+
+const graphInstanceIdleHead = `g.status='running' AND g.next_due_at IS NULL
 AND NOT EXISTS(SELECT 1 FROM graph_instances newer WHERE newer.session_id=g.session_id AND newer.id>g.id)
-AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=g.id AND d.status IN ('pending','reserved','running'))
-AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.id=(SELECT MAX(id) FROM graph_dispatches WHERE instance_id=g.id) AND d.status='cancelled' AND d.allocated_run_id IS NULL)
-AND NOT EXISTS(SELECT 1 FROM graph_node_attempts a WHERE a.instance_id=g.id AND a.status IN ('pending','running'))
+AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=g.id AND d.status IN ('pending','reserved','running'))`
+
+// graphInstanceCancelledLatest keeps an instance whose latest dispatch was
+// stopped without a run (retry cap or closure) out of automatic recovery.
+const graphInstanceCancelledLatest = `AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.id=(SELECT MAX(id) FROM graph_dispatches WHERE instance_id=g.id) AND d.status='cancelled' AND d.allocated_run_id IS NULL)`
+
+const graphInstanceIdleTail = `AND NOT EXISTS(SELECT 1 FROM graph_node_attempts a WHERE a.instance_id=g.id AND a.status IN ('pending','running'))
 AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.session_id=g.session_id AND r.status IN ('prelaunch','running'))
 AND NOT EXISTS(SELECT 1 FROM graph_owner_waits w WHERE w.instance_id=g.id AND w.state IN ('waiting','claimed'))
 AND NOT EXISTS(SELECT 1 FROM schedules s WHERE s.session_id=g.session_id AND s.status IN ('pending','running'))
@@ -663,4 +674,87 @@ func (db *DB) ReconcileStrandedGraphDispatch(ctx context.Context, d GraphDispatc
 		_, err := tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=? WHERE id=?`, FormatTime(at), d.InstanceID)
 		return err
 	})
+}
+
+// orphanedGraphPrelaunchRuns selects prelaunch runs allocated under a graph
+// dispatch that is no longer live, outside Bug and doctor-held sessions. While
+// its dispatch is pending, reserved or running a prelaunch run is that
+// dispatch's retry handle; once the dispatch is finished or cancelled nothing
+// can resume it, and it would otherwise block recovery for the whole session.
+// Bug sessions are left out: the Bug runtime owns its own dispatch closure.
+const orphanedGraphPrelaunchRuns = `FROM runs r JOIN graph_dispatches d ON d.session_id=r.session_id AND d.id=r.trigger_comment_id-?
+WHERE r.status='prelaunch' AND r.trigger_comment_id>? AND r.trigger_comment_id<?
+AND d.status IN ('finished','cancelled')
+AND NOT EXISTS(SELECT 1 FROM workflow_admissions a WHERE a.session_id=r.session_id AND a.workflow='bug')
+AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=r.session_id)`
+
+// ListOrphanedGraphPrelaunchSessions lists sessions holding a prelaunch run
+// whose own graph dispatch can no longer resume it. It changes nothing: each
+// session is settled separately under its own claim and lock.
+func (db *DB) ListOrphanedGraphPrelaunchSessions(ctx context.Context) ([]int64, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT DISTINCT r.session_id `+orphanedGraphPrelaunchRuns+` ORDER BY r.session_id`, graphTriggerBase, graphTriggerBase, automaticTriggerBase)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// SettleOrphanedGraphPrelaunchRuns finishes one session's orphaned prelaunch
+// runs as failed, giving the dispatch's cancellation or stale reason. The
+// caller holds the session lock. It reports how many runs it settled.
+func (db *DB) SettleOrphanedGraphPrelaunchRuns(ctx context.Context, sessionID int64, at time.Time) (int, error) {
+	var settled int
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		settled, err = settleOrphanedGraphPrelaunchTx(ctx, tx, sessionID, at)
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("store: settle orphaned graph prelaunch runs: %w", err)
+	}
+	return settled, nil
+}
+
+func settleOrphanedGraphPrelaunchTx(ctx context.Context, tx *sql.Tx, sessionID int64, at time.Time) (int, error) {
+	if sessionID < 1 || at.IsZero() {
+		return 0, graphInvariant("invalid orphaned prelaunch settlement")
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT r.id,d.id,d.node,d.status,d.cancellation_reason `+orphanedGraphPrelaunchRuns+` AND r.session_id=? ORDER BY r.id`, graphTriggerBase, graphTriggerBase, automaticTriggerBase, sessionID)
+	if err != nil {
+		return 0, err
+	}
+	type orphan struct {
+		run, dispatch           int64
+		node, status, cancelled string
+	}
+	var orphans []orphan
+	for rows.Next() {
+		var o orphan
+		if err = rows.Scan(&o.run, &o.dispatch, &o.node, &o.status, &o.cancelled); err != nil {
+			break
+		}
+		orphans = append(orphans, o)
+	}
+	if err = errors.Join(err, rows.Err(), rows.Close()); err != nil {
+		return 0, err
+	}
+	for _, o := range orphans {
+		reason := o.cancelled
+		if o.status != "cancelled" || reason == "" {
+			reason = fmt.Sprintf("graph dispatch %d for stage %q is no longer live; its run never started", o.dispatch, o.node)
+		}
+		if _, err := finishRunTx(ctx, tx, o.run, RunOutcome{Status: RunFailed, Error: reason}, at); err != nil {
+			return 0, err
+		}
+	}
+	return len(orphans), nil
 }

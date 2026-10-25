@@ -311,7 +311,7 @@ func TestRenderValidateReportOverview(t *testing.T) {
 	if strings.Count(out, lightGreen)+strings.Count(out, lightYellow)+strings.Count(out, lightRed) != 3 {
 		t.Errorf("one header light and one per row:\n%s", out)
 	}
-	if strings.Contains(out, ValidateCheckCommand) || strings.Contains(out, ValidateFindingCommand) || nextLines(out) != 1 || !strings.Contains(out, "Next: `"+ValidateShipCommand+" 0123456789ab -- <what you checked by hand>`") {
+	if strings.Contains(out, ValidateCheckCommand) || strings.Contains(out, ValidateFindingCommand) || nextLines(out) != 1 || !strings.Contains(out, "Next: `"+ValidateShipCommand+" 0123456789ab -- <reason>`") {
 		t.Errorf("no per-item command, one Next line:\n%s", out)
 	}
 	if !strings.Contains(out, "stale revision given") {
@@ -343,7 +343,7 @@ func TestRenderValidateReportNotReviewed(t *testing.T) {
 	if !strings.Contains(rowOf(t, out, "b"), "| not reviewed: failed: read denied |") || !strings.HasPrefix(rowOf(t, out, "b"), "| "+lightRed) || !strings.HasPrefix(out, lightRed) {
 		t.Errorf("not reviewed cell and red row:\n%s", out)
 	}
-	if nextLines(out) != 1 || !strings.Contains(out, "Next: "+validateRetryStep(st.Commit)) {
+	if nextLines(out) != 1 || !strings.Contains(out, "Next: `"+ValidateShipCommand) || !strings.Contains(out, validateRetryStep(st.Commit)) {
 		t.Errorf("the retry is the Next line:\n%s", out)
 	}
 }
@@ -358,7 +358,7 @@ func TestRenderValidateReportDeliveryNextStep(t *testing.T) {
 	if !st.Ready {
 		t.Fatalf("ready: %v", st.Open)
 	}
-	ship := "`" + ValidateShipCommand + " 0123456789ab -- <what you checked by hand>`"
+	ship := "`" + ValidateShipCommand + " 0123456789ab -- <reason>`"
 	for i := range 4 {
 		want := ship
 		switch i {
@@ -372,8 +372,16 @@ func TestRenderValidateReportDeliveryNextStep(t *testing.T) {
 			want = "Nothing. Delivery is complete."
 		}
 		out := renderValidateReport(st, twoTargets, "")
-		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.Contains(out, "\nNext: "+want+"\n") {
+		_, next, _ := strings.Cut(out, "\nNext: ")
+		next, _, _ = strings.Cut(next, "\n")
+		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.HasPrefix(next, want) {
 			t.Errorf("step %d wants %s:\n%s", i, want, out)
+		}
+		if i < 3 && (!strings.Contains(next, "ordered sequence") || !strings.Contains(next, "no additional confirmation") || !strings.Contains(next, "stops if a step fails or remains uncertain")) {
+			t.Errorf("step %d lost combined authority or failure consequence: %s", i, next)
+		}
+		if i == 3 && next != want {
+			t.Errorf("complete delivery offered a new decision: %s", next)
 		}
 	}
 }
@@ -388,7 +396,7 @@ func TestRenderValidateReportFailedSuite(t *testing.T) {
 		t.Errorf("failed suite:\n%s", out)
 	}
 	// #704: the Next line names only steps the factory has.
-	if !strings.Contains(out, "Next: The suite did not pass.") || !strings.Contains(out, "`"+ValidateStartCommand+"`") || strings.Contains(out, "hand it back") {
+	if !strings.Contains(out, "Next: `"+ValidateShipCommand) || strings.Contains(out, "hand it back") {
 		t.Errorf("failed suite Next line:\n%s", out)
 	}
 	st.Handback = &ValidateHandback{OwnerInstruction: ownerHandbackInstruction(ValidateHandback{Commit: st.Commit})}
@@ -405,7 +413,7 @@ func TestValidateNextStepBlockingFindingNamesRealSteps(t *testing.T) {
 	s := vsBase(f)
 	s.computeReadiness()
 	got := s.NextStep(nil)
-	if !strings.Contains(got, "feature branch") || !strings.Contains(got, "`"+ValidateStartCommand+"`") || strings.Contains(got, "hand it back") || strings.Contains(got, "Implement") {
+	if !strings.Contains(got, ValidateShipCommand) || s.Ready || len(s.Open) == 0 || strings.Contains(got, "hand it back") || strings.Contains(got, "Implement") {
 		t.Errorf("blocking Next line: %q", got)
 	}
 }
@@ -427,7 +435,7 @@ func TestValidateOwnerPassedReviewPreservesOtherGates(t *testing.T) {
 				}
 			}
 			s.computeReadiness()
-			if s.Ready || len(s.shipBlockers()) == 0 {
+			if s.Ready || len(s.Open) == 0 {
 				t.Fatal("owner verdict bypassed another gate")
 			}
 		})

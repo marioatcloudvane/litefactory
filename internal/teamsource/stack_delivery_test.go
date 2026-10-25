@@ -12,7 +12,7 @@ import (
 
 func TestSelectedStackGuidanceDeliveredToBothProvidersAndColdReplay(t *testing.T) {
 	registry := planPackageRegistry(t)
-	definition, err := CapturePlan(t.Context(), registry)
+	definition, err := capturePlan(t.Context(), t, registry)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -250,7 +251,8 @@ func TestSpikeGraphSwappedGraphRunsWithoutGoChange(t *testing.T) {
 // captureSpikeVariant captures the shipped Spike package with an edited graph file.
 func captureSpikeVariant(ctx context.Context, t *testing.T, policy WorkflowPolicy, edit func(string) string) (*teamsource.WorkflowDefinition, error) {
 	t.Helper()
-	root := os.DirFS("../teamsource/spike")
+	root, err := teamsourcetest.Workflow(teamsourcetest.Go, "spike")
+	mustProgress(t, err)
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -337,7 +339,7 @@ func TestSpikeAdmissionKnownLegacyHistoryIsRefusedBeforeDispatch(t *testing.T) {
 	_, err = f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: seg.ID, Mode: "spike", Agent: store.AgentClaude, TriggerCommentID: 1, LogPath: func(int) string { return "old.log" }})
 	mustProgress(t, err)
 	out, handled, err := admitSpikeExecution(t.Context(), f.opts, req, Result{Session: f.session, SessionID: f.session.ID})
-	if err != nil || !handled || forge.attemptCount() != 0 || out.Reason != spikeRetiredReason || out.Disposition != DispositionPrepareFailed {
+	if err != nil || !handled || forge.attemptCount() != 0 || !strings.HasPrefix(out.Reason, spikeRetiredReason) || out.Disposition != DispositionPrepareFailed {
 		t.Fatalf("a legacy-history task was not refused: handled=%v err=%v out=%+v", handled, err, out)
 	}
 	if _, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "spike"); err == nil {

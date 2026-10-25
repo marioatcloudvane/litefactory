@@ -24,6 +24,10 @@ func TestParseValidateCommandValid(t *testing.T) {
 		{"/validate-finding " + rev + " s1:code issue bug", ValidateCommand{Name: ValidateFindingCommand, Revision: rev, Finding: "s1:code", Choice: "issue", IssueKind: "bug"}},
 		{"/validate-finding " + rev + " s1:code issue story", ValidateCommand{Name: ValidateFindingCommand, Revision: rev, Finding: "s1:code", Choice: "issue", IssueKind: "story"}},
 		{"/validate-push " + rev, ValidateCommand{Name: ValidatePushCommand, Revision: rev}},
+		{"/validate-push", ValidateCommand{Name: ValidatePushCommand}},
+		{"/validate-ship -- accepted risk", ValidateCommand{Name: ValidateShipCommand, Evidence: "accepted risk"}},
+		{"/validate-ship d-1234567890 -- accepted risk", ValidateCommand{Name: ValidateShipCommand, Reference: "d-1234567890", Evidence: "accepted risk"}},
+		{"/return d-1234567890 -- use ISO dates", ValidateCommand{Name: ValidateReturnCommand, Reference: "d-1234567890", Guidance: "use ISO dates"}},
 		{"  /validate-push " + rev + "  ", ValidateCommand{Name: ValidatePushCommand, Revision: rev}},
 		{"/validate-merge " + rev + " 12 " + sha40, ValidateCommand{Name: ValidateMergeCommand, Revision: rev, PR: 12, Head: sha40}},
 		{"/validate-merge " + rev + " 7 " + sha64, ValidateCommand{Name: ValidateMergeCommand, Revision: rev, PR: 7, Head: sha64}},
@@ -56,44 +60,44 @@ func TestParseValidateCommandMalformed(t *testing.T) {
 	const rev = "0123456789ab"
 	sha := strings.Repeat("a", 40)
 	cases := map[string]string{
-		"missing revision":         "/validate-push",
-		"uppercase revision":       "/validate-push 0123456789AB",
-		"11 char revision":         "/validate-push 0123456789a",
-		"13 char revision":         "/validate-push 0123456789abc",
-		"unknown command":          "/validate-nope " + rev,
-		"validate entry":           "/validate " + rev,
-		"extra args push":          "/validate-push " + rev + " now",
-		"defer with kind":          "/validate-finding " + rev + " s1:code defer bug",
-		"repair with kind":         "/validate-finding " + rev + " s1:code repair bug",
-		"issue without kind":       "/validate-finding " + rev + " s1:code issue",
-		"issue bad kind":           "/validate-finding " + rev + " s1:code issue task",
-		"finding bad choice":       "/validate-finding " + rev + " s1:code waive",
-		"finding no choice":        "/validate-finding " + rev + " s1:code",
-		"finding bad id":           "/validate-finding " + rev + " nocolon repair",
-		"check no evidence":        "/validate-check " + rev + " s1:ac1 pass",
-		"check empty evidence":     "/validate-check " + rev + " s1:ac1 pass -- ",
-		"check bad verdict":        "/validate-check " + rev + " s1:ac1 maybe -- x",
-		"evidence on push":         "/validate-push " + rev + " -- why",
-		"evidence on finding":      "/validate-finding " + rev + " s1:code repair -- why",
-		"evidence on merge":        "/validate-merge " + rev + " 1 " + sha + " -- why",
-		"evidence on close":        "/validate-close " + rev + " 1 -- why",
-		"multi-line":               "/validate-push " + rev + "\nmore",
-		"multi-line check":         "/validate-check " + rev + " s1:ac1 pass -- a\nb",
-		"over 2048 bytes":          "/validate-check " + rev + " s1:ac1 pass -- " + strings.Repeat("x", 2048),
-		"empty":                    "",
-		"duplicate close numbers":  "/validate-close " + rev + " 1 2 1",
-		"close without numbers":    "/validate-close " + rev,
-		"close zero":               "/validate-close " + rev + " 0",
-		"close non-number":         "/validate-close " + rev + " x",
-		"merge short sha":          "/validate-merge " + rev + " 1 abc1234",
-		"merge uppercase sha":      "/validate-merge " + rev + " 1 " + strings.Repeat("A", 40),
-		"merge zero PR":            "/validate-merge " + rev + " 0 " + sha,
-		"merge negative PR":        "/validate-merge " + rev + " -1 " + sha,
-		"merge missing head":       "/validate-merge " + rev + " 1",
-		"ship without evidence":    "/validate-ship " + rev,
-		"ship empty evidence":      "/validate-ship " + rev + " -- ",
-		"ship extra argument":      "/validate-ship " + rev + " now -- checked",
-		"ship without revision":    "/validate-ship -- checked",
+
+		"uppercase revision":      "/validate-push 0123456789AB",
+		"11 char revision":        "/validate-push 0123456789a",
+		"13 char revision":        "/validate-push 0123456789abc",
+		"unknown command":         "/validate-nope " + rev,
+		"validate entry":          "/validate " + rev,
+		"extra args push":         "/validate-push " + rev + " now",
+		"defer with kind":         "/validate-finding " + rev + " s1:code defer bug",
+		"repair with kind":        "/validate-finding " + rev + " s1:code repair bug",
+		"issue without kind":      "/validate-finding " + rev + " s1:code issue",
+		"issue bad kind":          "/validate-finding " + rev + " s1:code issue task",
+		"finding bad choice":      "/validate-finding " + rev + " s1:code waive",
+		"finding no choice":       "/validate-finding " + rev + " s1:code",
+		"finding bad id":          "/validate-finding " + rev + " nocolon repair",
+		"check no evidence":       "/validate-check " + rev + " s1:ac1 pass",
+		"check empty evidence":    "/validate-check " + rev + " s1:ac1 pass -- ",
+		"check bad verdict":       "/validate-check " + rev + " s1:ac1 maybe -- x",
+		"evidence on push":        "/validate-push " + rev + " -- why",
+		"evidence on finding":     "/validate-finding " + rev + " s1:code repair -- why",
+		"evidence on merge":       "/validate-merge " + rev + " 1 " + sha + " -- why",
+		"evidence on close":       "/validate-close " + rev + " 1 -- why",
+		"multi-line":              "/validate-push " + rev + "\nmore",
+		"multi-line check":        "/validate-check " + rev + " s1:ac1 pass -- a\nb",
+		"over 2048 bytes":         "/validate-check " + rev + " s1:ac1 pass -- " + strings.Repeat("x", 2048),
+		"empty":                   "",
+		"duplicate close numbers": "/validate-close " + rev + " 1 2 1",
+		"close without numbers":   "/validate-close " + rev,
+		"close zero":              "/validate-close " + rev + " 0",
+		"close non-number":        "/validate-close " + rev + " x",
+		"merge short sha":         "/validate-merge " + rev + " 1 abc1234",
+		"merge uppercase sha":     "/validate-merge " + rev + " 1 " + strings.Repeat("A", 40),
+		"merge zero PR":           "/validate-merge " + rev + " 0 " + sha,
+		"merge negative PR":       "/validate-merge " + rev + " -1 " + sha,
+		"merge missing head":      "/validate-merge " + rev + " 1",
+		"ship without evidence":   "/validate-ship " + rev,
+		"ship empty evidence":     "/validate-ship " + rev + " -- ",
+		"ship extra argument":     "/validate-ship " + rev + " now -- checked",
+
 		"accept without reason":    "/validate-finding " + rev + " s1:architecture accept",
 		"accept empty reason":      "/validate-finding " + rev + " s1:architecture accept -- ",
 		"accept with kind":         "/validate-finding " + rev + " s1:architecture accept bug -- why",
@@ -108,8 +112,8 @@ func TestParseValidateCommandMalformed(t *testing.T) {
 }
 
 func TestParseCommandClassifiesValidateControls(t *testing.T) {
-	if len(ValidateControlCommands) != 8 {
-		t.Fatalf("want eight commands, got %v", ValidateControlCommands)
+	if len(ValidateControlCommands) != 9 {
+		t.Fatalf("want nine commands, got %v", ValidateControlCommands)
 	}
 	for _, name := range ValidateControlCommands {
 		switch name {
@@ -143,7 +147,7 @@ func TestParseCommandClassifiesValidateControls(t *testing.T) {
 // #573 c-next: the next step names /validate-ship whenever one ship reply can
 // deliver, and keeps today's text when something blocks.
 func TestNextStepNamesShipWhenNothingBlocks(t *testing.T) {
-	ship := "`" + ValidateShipCommand + " 0123456789ab -- <what you checked by hand>`"
+	ship := "`" + ValidateShipCommand + " 0123456789ab -- <reason>`"
 	closeSet := []int{10, 11, 12}
 	optional := ValidateFinding{ID: "b:code", Story: "b", Name: "code", Role: agent.ReviewRoleCode, Optional: true, State: findingOpen}
 	blocking := ValidateFinding{ID: "b:code", Story: "b", Name: "code", Role: agent.ReviewRoleCode, Blocking: true, State: findingOpen}
@@ -167,10 +171,10 @@ func TestNextStepNamesShipWhenNothingBlocks(t *testing.T) {
 		"an open check":            {twoStories(), ship},
 		"an open optional finding": {twoStories(optional), ship},
 		"an unfinished delivery":   {unfinished, ship},
-		"a blocking finding":       {twoStories(blocking), "Work through the sub-issues above"},
-		"a failed criterion":       {failedCheck, "Work through the sub-issues above"},
-		"a failed suite":           {failedSuite, "The suite did not pass"},
-		"a missing reviewer":       {twoStories(notReviewed), validateRetryStep(failedSuite.Commit)},
+		"a blocking finding":       {twoStories(blocking), ship},
+		"a failed criterion":       {failedCheck, ship},
+		"a failed suite":           {failedSuite, ship},
+		"a missing reviewer":       {twoStories(notReviewed), ship},
 	}
 	for name, c := range cases {
 		got := c.st.NextStep(closeSet)

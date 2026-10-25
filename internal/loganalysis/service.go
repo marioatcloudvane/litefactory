@@ -18,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/logevidence"
 	"github.com/cloudvane/litefactory/internal/mcpadapter"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
@@ -205,7 +206,9 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	if err != nil {
 		return a, err
 	}
-	h := &invocation{service: s, a: a, q: q, scope: scope, reader: reader, book: book, cancel: cancel, profile: profile}
+	views := projectread.NewViews()
+	defer func() { err = errors.Join(err, views.Close()) }()
+	h := &invocation{service: s, a: a, q: q, scope: scope, reader: reader, book: book, cancel: cancel, profile: profile, repoViews: views}
 	broker, err := submission.Start(live, submission.Options{Directory: directory, AllowTools: true, AllowResult: true, AttemptReference: a.ID, MaxWorkers: 2, RequestTimeout: 30 * time.Second, Handler: h.handle})
 	if err != nil {
 		return a, err
@@ -269,6 +272,7 @@ type invocation struct {
 	q               Request
 	scope           Scope
 	reader          *logevidence.Service
+	repoViews       *projectread.Views
 	book            *standards.Runtime
 	exhausted       bool
 	cancel          context.CancelFunc
@@ -310,6 +314,14 @@ func (h *invocation) charge(ctx context.Context, calls, bytes int, final bool) e
 	e := h.service.DB.ReserveLogAnalysisBudget(ctx, h.a.ID, h.a.Generation, calls, bytes, maxCalls, maxBytes)
 	if errors.Is(e, store.ErrLogAnalysisBudget) && !h.exhausted {
 		h.exhausted = true
+		if ctx.Err() == nil {
+			if h.repoViews != nil {
+				_ = h.repoViews.Pause()
+			}
+			if h.reader != nil {
+				_ = h.reader.Pause()
+			}
+		}
 		_, ledgerErr := h.service.DB.RecordLogAnalysisEvidence(ctx, store.LogAnalysisEvidence{AnalysisID: h.a.ID, Generation: h.a.Generation, CallKey: "host-budget-" + rand.Text(), Metadata: raw(Evidence{Tool: "host_budget", Status: "budget_exhausted", Coverage: logevidence.Coverage{Incomplete: true}})})
 		if ledgerErr != nil {
 			return errors.Join(e, ledgerErr)
@@ -543,6 +555,9 @@ func (h *invocation) evidenceSelector(ctx context.Context, name string, args jso
 		// locators are retained separately from the reader's offered response.
 		if request.Citation != nil {
 			request.Citation = &logevidence.Citation{}
+		}
+		if request.Locator != nil {
+			request.Locator = &logevidence.ViewLocator{}
 		}
 		known = request
 	}

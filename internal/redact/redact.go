@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
@@ -187,6 +188,15 @@ func (r *Redactor) Apply(ctx context.Context, text string, limit int) (body Body
 	if r == nil || r.log == nil || r.pass == nil {
 		return Body{}, ErrUninitialized
 	}
+	complete, _ := ctx.Value(completeViewKey{}).(bool)
+	if complete {
+		if err := ctx.Err(); err != nil {
+			return Body{}, err
+		}
+	}
+	if complete && !utf8.ValidString(text) {
+		return Body{}, fmt.Errorf("%w: evidence is not UTF-8 text", ErrRedactionFailed)
+	}
 	if limit <= 0 {
 		return Body{}, &LimitError{Limit: limit, Err: ErrInvalidLimit}
 	}
@@ -224,10 +234,18 @@ func (r *Redactor) Apply(ctx context.Context, text string, limit int) (body Body
 	}()
 
 	// 1. Truncate, with headroom.
-	staged, truncated := truncateTo(text, Budget(limit), limit < shortLimit)
+	staged, truncated := text, false
+	if !complete {
+		staged, truncated = truncateTo(text, Budget(limit), limit < shortLimit)
+	}
 
 	// 2. Redact.
 	redacted, counts := r.pass(staged)
+	if complete {
+		if err := ctx.Err(); err != nil {
+			return Body{}, err
+		}
+	}
 
 	// 3. Assert. A surviving literal means the pass has a bug; refuse rather
 	// than post a body we have just proved contains a credential.
@@ -240,7 +258,7 @@ func (r *Redactor) Apply(ctx context.Context, text string, limit int) (body Body
 	}
 
 	// 4. Hard-truncate if redaction grew the body past the limit after all.
-	if len(redacted) > limit {
+	if len(redacted) > limit && !complete {
 		var cut bool
 		redacted, cut = truncateTo(redacted, limit, limit < shortLimit)
 		truncated = truncated || cut
@@ -262,7 +280,11 @@ func (r *Redactor) Apply(ctx context.Context, text string, limit int) (body Body
 		)
 	}
 
-	return Body{text: redacted, counts: counts, truncated: truncated, valid: true}, nil
+	policyID := ""
+	if complete {
+		policyID = r.policyIDLocked()
+	}
+	return Body{text: redacted, counts: counts, truncated: truncated, valid: true, policyID: policyID}, nil
 }
 
 // redact runs the literal passes and then the pattern passes, tallying each.

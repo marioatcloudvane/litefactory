@@ -18,20 +18,23 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/retainedevidence"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
 var errConversationBudget = errors.New("conversation budget exhausted")
 
 type factoryConversationPrompt struct {
-	Instructions  string                   `json:"instructions"`
-	OwnerInput    string                   `json:"owner_input,omitempty"`
-	OwnerSources  []DialogueTurn           `json:"owner_sources"`
-	Commands      []CommandDefinition      `json:"commands"`
-	References    []ConversationReference  `json:"references"`
-	Context       string                   `json:"context,omitempty"`
-	RecentReplies []conversationPriorReply `json:"recent_factory_replies,omitempty"`
-	Evidence      *conversationReadResult  `json:"evidence,omitempty"`
+	RetainedEvidence []store.ConversationEvidence `json:"retained_evidence,omitempty"`
+	ContextGaps      []string                     `json:"context_gaps,omitempty"`
+	Instructions     string                       `json:"instructions"`
+	OwnerInput       string                       `json:"owner_input,omitempty"`
+	OwnerSources     []DialogueTurn               `json:"owner_sources"`
+	Commands         []CommandDefinition          `json:"commands"`
+	References       []ConversationReference      `json:"references"`
+	Context          string                       `json:"context,omitempty"`
+	RecentReplies    []conversationPriorReply     `json:"recent_factory_replies,omitempty"`
+	Evidence         *conversationReadResult      `json:"evidence,omitempty"`
 	// EarlierEvidence keeps this turn's previous lookup results, so an answer
 	// that needs several lookups can use all of them.
 	EarlierEvidence []conversationReadResult `json:"earlier_evidence,omitempty"`
@@ -118,6 +121,20 @@ func (r *factoryConversationRun) maxCalls() int {
 // Each continuation resumes the exact identity durably reported by the prior call.
 func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ []byte, err error) {
 	phase, preStart := "preparation", true
+	var restored factoryConversationPrompt
+	if err := json.Unmarshal([]byte(prompt), &restored); err != nil {
+		return nil, err
+	}
+	current, readErr := r.s.db.ReadConversationByID(ctx, r.c.ID)
+	if readErr != nil {
+		return nil, readErr
+	}
+	if current.OwnerID != r.s.owner || current.ChannelRef != r.c.ChannelRef || current.Transport != r.c.Transport || !r.s.channels[current.ChannelRef] {
+		return nil, errors.New("conversation access changed")
+	}
+	if err := r.authorizeRestoredPrompt(ctx, &restored); err != nil {
+		return nil, err
+	}
 	defer func() { err = agent.ConversationError(err, phase, preStart) }()
 	instructions, restoreErr := r.s.restoreConversationInstructions(ctx, r.c.ID, r.at)
 	if restoreErr != nil {
@@ -192,6 +209,9 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 	recorded := false
 	phase, preStart = "provider", false
 	result, err := provider.RunConversation(ctx, agent.ConversationRequest{ConversationID: r.c.ID, TurnID: r.t.ID, Model: r.b.Model, StateDirectory: r.c.StateDir, Prompt: prompt, NativeInstructions: instructions.Native(), Session: agent.SessionRef{Ref: ref, Resume: r.c.SessionHandle}, BeforeLaunch: func(cb context.Context) error {
+		if err := r.authorizeRestoredPrompt(cb, &restored); err != nil {
+			return err
+		}
 		if err := conversationAccess(cb, runtime, r.c.ChannelRef, r.at); err != nil {
 			return err
 		}
@@ -275,6 +295,13 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err != nil {
 		return err
 	}
+	if run.focus, err = run.loadFocus(work); err != nil {
+		return err
+	}
+	sources, err = run.scopeOwnerSources(work, sources)
+	if err != nil {
+		return err
+	}
 	turns := make([]DialogueTurn, 0, len(sources))
 	sourceBytes := 0
 	for _, source := range sources {
@@ -307,6 +334,23 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err = json.Unmarshal([]byte(t.Prompt), &contextData); err != nil {
 		contextData.PreparedContext = "Retained prepared context is unavailable."
 	}
+	// A legacy prepared blob carries no repository grants. On restart use the
+	// current factory hook, or omit the blob rather than disclose a stale grant.
+	savedExchanges, err := s.db.ListConversationExchanges(work, t.ID)
+	if err != nil {
+		return err
+	}
+	if len(savedExchanges) > 0 && contextData.PreparedContext != "" {
+		runtime := s.conversations.Load()
+		if runtime.prepared != nil {
+			contextData.PreparedContext, err = runtime.prepared(work, c.ChannelRef)
+			if err != nil {
+				return err
+			}
+		} else {
+			contextData.PreparedContext = "Retained prepared context could not be reauthorized and was omitted; use a current factory lookup."
+		}
+	}
 	contextBytes, err := json.Marshal(contextData)
 	if err != nil {
 		return err
@@ -322,10 +366,32 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if run.focus, err = run.loadFocus(work); err != nil {
 		return err
 	}
+	repository, issue, err := run.recoveryTarget(work)
+	if err != nil {
+		return err
+	}
+	if err = run.retainView(work, 1, "owner", t.SourceID, t.ID, repository, issue, t.Source, t.Source, t.CreatedAt, retainedevidence.Unknown); err != nil {
+		return err
+	}
+	if err = run.retainPreviousReplies(work, sources); err != nil {
+		return err
+	}
 	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes, OpenProposal: open, AuthorSession: author}
 	corrections, lookups, pendingLookup, err := run.resumeBoundary(work, &prompt)
 	if err != nil {
 		return run.failed(ctx, err)
+	}
+	prompt.OwnerSources = turns
+	prompt.OwnerInput = t.Source
+	prompt.Context = prepared
+	if repository != "" {
+		prompt.Focus = &conversationFocus{Project: repository, Issue: issue}
+	}
+	if err = run.projectRetainedEvidence(work, &prompt); err != nil {
+		return err
+	}
+	if err = run.retainCoverage(work, repository, issue, prompt.ContextGaps); err != nil {
+		return err
 	}
 	if run.inboxResume != nil {
 		result := run.inboxResume
@@ -354,6 +420,13 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				return run.failed(ctx, err)
 			}
 			envelope, inv, err = DecodeConversationEnvelope(raw, ConversationDecodeRequest{Turns: turns, Commands: s.ConversationCommands(), References: refs, OwnerID: s.owner, ChannelID: c.ChannelRef, Now: at, Proposal: proposal})
+			if err == nil && corrections == 0 {
+				// A standards change missing terms the agent can supply goes
+				// back to it once, rather than to the owner as a question.
+				if gap := standardsProposeGap(envelope, inv, t.SourceID); gap != "" {
+					err = &ConversationEnvelopeError{Reason: gap}
+				}
+			}
 			if err != nil {
 				if corrections < 2 && run.calls < run.maxCalls() && run.ordinal <= 13 {
 					corrections++
@@ -445,6 +518,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			if err = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "evidence", Request: requestText, Result: resultText, CapturedAt: at, Complete: result.Complete, Gaps: strings.Join(result.Gaps, "\n")}); err != nil {
 				return err
 			}
+			if err = run.retainLookup(work, result, 32+run.ordinal); err != nil {
+				return err
+			}
 			if ref != nil {
 				refs = append(refs, *ref)
 				if standardsCommand(inv.Command) {
@@ -497,6 +573,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				return err
 			}
 			if err = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "evidence", Request: requestText, Result: resultText, CapturedAt: at, Complete: result.Complete, Gaps: strings.Join(result.Gaps, "\n")}); err != nil {
+				return err
+			}
+			if err = run.retainLookup(work, result, 32+run.ordinal); err != nil {
 				return err
 			}
 			refs = consulted
@@ -556,9 +635,9 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 	}
 	// Even a correction or continuation can have uncertain provider completion.
 	if reply := conversationCauseReply(cause, r.at); reply != "" {
-		return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply+" Your next message continues the same conversation.", r.at)
+		return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply+" The provider input will not be replayed. Ask here for the status of your previous request; your next message continues the retained conversation.", r.at)
 	}
-	return r.s.conversationOutcome(cleanup, r.t, "interrupted", "The conversation turn was interrupted or unavailable before a completed answer was saved. Its provider input will not be replayed. Your next message will resume the retained session.", r.at)
+	return r.s.conversationOutcome(cleanup, r.t, "interrupted", "The conversation turn was interrupted or unavailable before a completed answer was saved. Its provider input will not be replayed. Ask here for the status of your previous request; your next message resumes the retained session.", r.at)
 }
 
 func (r *factoryConversationRun) references(ctx context.Context) ([]ConversationReference, error) {
@@ -693,9 +772,12 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 				result.Clarification = prepared.Refusal
 				result.Gaps = append(result.Gaps, "Project facts unavailable or target unclear.")
 			default:
-				raw, _ := json.Marshal(prepared.Bundle)
-				text = string(raw)
-				result.Gaps = append(result.Gaps, prepared.Bundle.Gaps...)
+				var gaps []string
+				text, gaps, e = conversationAskContext(prepared)
+				if e != nil {
+					return result, nil, e
+				}
+				result.Gaps = append(result.Gaps, gaps...)
 			}
 		}
 	case "meter":
@@ -972,6 +1054,9 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 			}
 			r.inboxResume = &result
 			return corrections, lookups, nil, nil
+		}
+		if err := r.retainLookup(ctx, result, 32+last.Ordinal); err != nil {
+			return 0, 0, nil, err
 		}
 		prompt.addEvidence(result)
 		prompt.Correction, prompt.CorrectionReason = "", ""

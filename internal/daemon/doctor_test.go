@@ -30,6 +30,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -122,7 +123,11 @@ func doctorDaemonFixture(t *testing.T) (*Daemon, *doctorTestForge, store.Repo) {
 		t.Fatal(err)
 	}
 	forge := &doctorTestForge{issue: github.Issue{ID: 10406, Number: 406, State: "closed"}}
-	service := &doctor.Service{DB: db, Paths: config.NewPaths(t.TempDir()), Config: cfg, Redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=doctor-owner-secret"}})}
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &doctor.Service{DB: db, Paths: config.NewPaths(home), Config: cfg, Redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=doctor-owner-secret"}})}
 	at := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	d := &Daemon{instanceID: "live-doctor", db: db, forge: forge, filter: doctorTestFilter{}, log: slog.New(slog.DiscardHandler), doctor: doctorLane{service: service, pool: newPool(1)}, pool: newPool(1), now: func() time.Time { return at }}
 	d.discovery.tick(at)
@@ -977,8 +982,8 @@ func TestDoctorApplyOutcomeConverges(t *testing.T) {
 						t.Fatal(body)
 					}
 				}
-				if !strings.Contains(body, "Next:") {
-					t.Fatal(body)
+				if strings.Count(body, report.TaskInspectionCommand(session.TaskRef)) != 1 || strings.Contains(body, "fresh diagnosis") || strings.Contains(body, "Continue with /doctor") {
+					t.Fatalf("repair outcome lost its single affected-task inspection route: %s", body)
 				}
 				if state == "failed" && !strings.Contains(body, "Fixture repair failed") {
 					t.Fatal(body)

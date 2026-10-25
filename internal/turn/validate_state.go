@@ -90,6 +90,9 @@ type ValidateDeliveryRows struct {
 type ValidateState struct {
 	InstanceID     int64
 	Commit         string
+	DecisionTask   string
+	DeliveryCommit string
+	Waiver         *store.ValidateShipWaiver
 	Suite          validateSuiteOutput
 	Assessed       bool
 	Outcome        string
@@ -103,9 +106,9 @@ type ValidateState struct {
 	Findings       []ValidateFinding
 	Effects        ValidateDeliveryRows
 	Revision       string
-	// Open lists exactly what keeps push from being offered.
+	// Open preserves factual blockers even when an exact owner waiver permits shipping.
 	Open []string
-	// Ready is true when push may be offered.
+	// Ready is true when factual gates pass or a current exact owner waiver covers them.
 	Ready bool
 	// Reimplement says the graph declares the step that hands the blocking
 	// findings back to Implement.
@@ -146,6 +149,10 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 		return st, err
 	}
 	st.Suite, st.Commit = suite.Output, suite.Output.Commit
+	st.DeliveryCommit = st.Commit
+	if err := st.loadShippingWaiver(ctx, opts); err != nil {
+		return st, err
+	}
 	if st.Rounds, err = opts.DB.ListRepairRounds(ctx, instanceID); err != nil {
 		return st, err
 	}
@@ -187,7 +194,7 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 	st.Effects.Issues = map[string]store.ValidateEffect{}
 	for i := range effects {
 		e := effects[i]
-		if e.Commit != st.Commit {
+		if (e.Kind == store.EffectIssue && e.Commit != st.Commit) || (e.Kind != store.EffectIssue && e.Commit != st.deliveryCommit()) {
 			continue
 		}
 		switch e.Kind {
@@ -358,9 +365,9 @@ func shortenFindingText(text string, limit int) string {
 	return strings.TrimRight(strings.ToValidUTF8(text[:cut], ""), " \t\r\n") + findingTextShortened
 }
 
-// computeReadiness lists exactly what is open. Push is offered only when the
-// list is empty: the suite passed on the tested commit, every criterion is
-// satisfied or owner-passed, no blocking finding is open, every optional finding
+// computeReadiness preserves every factual blocker. Shipping requires either
+// a current exact owner waiver or all factual gates: a passed suite, each criterion
+// satisfied or owner-passed, no open blocking finding, each optional finding
 // has a choice and no issue creation is pending, failed or uncertain.
 func (s *ValidateState) computeReadiness() {
 	s.Open = nil
@@ -395,7 +402,7 @@ func (s *ValidateState) computeReadiness() {
 			}
 		}
 	}
-	s.Ready = len(s.Open) == 0
+	s.Ready = len(s.Open) == 0 || s.waiverCurrent()
 }
 
 func choiceWords(f ValidateFinding) string {
@@ -420,6 +427,8 @@ func short(sha string) string {
 // the effect states. Any change makes earlier commands stale.
 func (s ValidateState) revision() string {
 	h := sha256.New()
+	_, factualDigest := s.shippingEvidence()
+	fmt.Fprintf(h, "evidence=%s\n", factualDigest)
 	fmt.Fprintf(h, "run=%d\ncommit=%s\nsuite=%s\noutcome=%s\n", s.InstanceID, s.Commit, s.Suite.Outcome, s.Outcome)
 	for _, c := range s.Candidates {
 		fmt.Fprintf(h, "candidate=%s|%s|%s|%s\n", c.ID, c.ReviewDigest, c.Resolution, c.ResultCommit)
@@ -446,6 +455,8 @@ func (s ValidateState) revision() string {
 	sort.Slice(effects, func(i, j int) bool { return effects[i].ID < effects[j].ID })
 	for _, e := range effects {
 		fmt.Fprintf(h, "effect=%s|%s|%s|%d\n", e.Kind, e.Target, e.State, e.ConfirmCommentID)
+		raw, _ := json.Marshal(e)
+		fmt.Fprintf(h, "effect_evidence=%s\n", raw)
 	}
 	if s.Reimplementing {
 		h.Write([]byte("reimplementing\n"))

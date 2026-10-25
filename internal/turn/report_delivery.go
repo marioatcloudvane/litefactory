@@ -156,6 +156,9 @@ func (r *Reporter) dispatchDeliveryBody(ctx context.Context, delivery store.Repo
 			err = &DeliveryError{Key: delivery.Key, State: deliveryState(delivery), Cause: err}
 		}
 	}()
+	if strings.HasPrefix(delivery.Purpose, validateIndexPurpose) && !delivery.Completed {
+		return r.dispatchValidateIndex(ctx, delivery)
+	}
 	if delivery.TriggerNamespace == store.ResearchReminderNamespace && !delivery.PossiblySent {
 		reminder, readErr := r.db.ResearchReminderForDelivery(ctx, delivery.Key)
 		if readErr != nil {
@@ -166,6 +169,9 @@ func (r *Reporter) dispatchDeliveryBody(ctx context.Context, delivery store.Repo
 		}
 	}
 	if delivery.Completed {
+		if err := r.finishValidatePart(ctx, delivery); err != nil {
+			return Posted{}, err
+		}
 		return r.completedDelivery(ctx, delivery, true)
 	}
 	if delivery.CommentID != 0 {
@@ -268,6 +274,9 @@ func deliveryState(d store.ReportDelivery) string {
 }
 
 func (r *Reporter) finishDelivery(ctx context.Context, delivery store.ReportDelivery) (Posted, error) {
+	if err := r.finishValidatePart(ctx, delivery); err != nil {
+		return Posted{CommentID: delivery.CommentID}, err
+	}
 	completed, err := r.db.CompleteReportDelivery(context.WithoutCancel(ctx), delivery.Key)
 	if err != nil {
 		return Posted{CommentID: delivery.CommentID}, err

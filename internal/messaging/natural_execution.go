@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
@@ -30,7 +32,7 @@ func (s *Service) prepareNaturalExecution(ctx context.Context, r *store.ChatRepl
 		r.ReplyText = "This confirmed action is no longer permitted in this channel. Nothing further was applied."
 		r.OutcomeStatus = string(presentation.Refusal)
 		if execution.State != "authorized" {
-			r.ReplyText = "This action is no longer permitted here, and its prior effect is uncertain. Check the target before requesting it again."
+			r.ReplyText = "This action is no longer permitted here, and its prior effect is uncertain. " + naturalInspection(r.Arguments)
 			r.OutcomeStatus = string(presentation.Uncertain)
 		}
 		return true, nil
@@ -42,19 +44,19 @@ func (s *Service) prepareNaturalExecution(ctx context.Context, r *store.ChatRepl
 			r.OutcomeStatus = string(presentation.Uncertain)
 		}
 		if r.ReplyText == "" {
-			r.ReplyText = "The saved action has completed, but its outcome is unavailable. Please check the target before sending it again."
+			r.ReplyText = "The saved action has completed, but its outcome is unavailable. " + naturalInspection(r.Arguments)
 			r.OutcomeStatus = string(presentation.Uncertain)
 		}
 		return true, nil
 	case "executing":
 		if r.ReplyText == "" {
-			r.ReplyText = "The confirmed action was interrupted after execution began. Its effect is uncertain; check the target or use /status before requesting it again."
+			r.ReplyText = "The confirmed action was interrupted after execution began. Its effect is uncertain; " + naturalInspection(r.Arguments)
 			r.OutcomeStatus = string(presentation.Uncertain)
 		}
 		return true, nil
 	case "authorized":
 	default:
-		r.ReplyText = "This action's execution record is unavailable. Check the target before requesting it again."
+		r.ReplyText = "This action's execution record is unavailable. " + naturalInspection(r.Arguments)
 		r.OutcomeStatus = string(presentation.Uncertain)
 		return true, nil
 	}
@@ -106,4 +108,15 @@ func (s *Service) finishNaturalOutcome(ctx context.Context, r store.ChatReply, t
 		return nil
 	}
 	return s.db.FinishNaturalExecution(ctx, r.MessageID, text, r.OutcomeStatus == string(presentation.Uncertain), at)
+}
+
+func naturalInspection(args map[string]string) string {
+	target := "factory status"
+	if issue := args["issue"]; issue != "" {
+		target = "status for issue #" + issue
+		if project := args["project"]; project != "" {
+			target += " in project " + project
+		}
+	}
+	return fmt.Sprintf("Send %q here to inspect retained work before requesting it again.", "show "+strings.Join(strings.Fields(target), " "))
 }

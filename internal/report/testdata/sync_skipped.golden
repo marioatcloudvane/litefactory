@@ -3,8 +3,8 @@
 ### litefactory · run 94 · outcome unknown
 
 > [!CAUTION]
-> litefactory did not record how run 94 ended — it was most likely interrupted between finishing the run and reporting on it. The local log is the authority on what happened.
+> litefactory did not record how run 94 ended. Completion and the cause are unknown. Inspect on the factory host: `litefactory logs 'github:acme/acme-api#123' --run 94`.
 
-**Base branch sync**
+**Preparation caveat**
 
-litefactory skipped syncing this branch with `origin/main` (9 commit(s) behind): the branch is more commits behind than the configured cap allows.
+base synchronization (9 behind): the branch is more commits behind than the configured cap allows.

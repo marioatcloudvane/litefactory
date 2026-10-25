@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,7 @@ func TestWorkflowJudgeInstructionsSurvivePackageEditsAndRestore(t *testing.T) {
 	}
 	specs, err := ResearchSpecs()
 	mustProgress(t, err)
-	base, err := teamsource.CaptureResearch(ctx, specs)
+	base, err := teamsourcetest.CaptureResearch(ctx, specs)
 	mustProgress(t, err)
 	source := fstest.MapFS{}
 	for name, body := range base.Files {

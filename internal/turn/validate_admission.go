@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
@@ -166,7 +167,7 @@ func validateRefusalText(gate ValidateGate) string {
 	if len(gate.NotMerged) > 0 {
 		b.WriteString(" Not merged yet: " + strings.Join(gate.NotMerged, ", ") + ".")
 	}
-	b.WriteString(" Finish Implement first, then send /validate again.")
+	b.WriteString(" Finish Implement first, then comment `" + ValidateStartCommand + "` to test and review the finished integration head.")
 	return b.String()
 }
 
@@ -271,7 +272,7 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 			return rt.result, err
 		}
 		if owner < 1 || req.Trigger.AuthorID != owner || req.Trigger.CommentID < 1 {
-			return rt.refuse(ctx, "Only the owner can start Validate. Nothing was started.")
+			return rt.refuse(ctx, "Only the owner can start Validate. Nothing was started. Ask the configured owner (the ticket approver when separate project approvers are enabled) to comment `"+ValidateStartCommand+"` on this issue after Implement finishes. That starts the suite and reviews; it does not authorize pushing, merging or closing.")
 		}
 	}
 	// The very start that admitted an entry, replayed after a restart or a lost
@@ -284,7 +285,7 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 			return rt.result, err
 		}
 		if inst.Status != store.GraphRunning {
-			return rt.refuse(ctx, fmt.Sprintf("The Validate run on commit %s stopped before it finished. Send /validate again to start it anew.", shortSHA(entry.Commit)))
+			return rt.refuse(ctx, fmt.Sprintf("The Validate run on commit %s stopped before it finished. Comment `%s` to start a fresh run; the old control reply is not replayed.", shortSHA(entry.Commit), ValidateStartCommand))
 		}
 		rt.entry = entry
 		return rt.launch(ctx, spikeNow(opts))
@@ -319,6 +320,14 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 			if ended, err = rt.endWaitingSameCommit(ctx, existing, now); err != nil {
 				return rt.result, err
 			}
+			// A run that nothing can advance any more (its step was stopped,
+			// or its run never started) is ended too; one with anything in
+			// flight keeps answering that it has already started.
+			if !ended {
+				if ended, err = rt.endIdleSameCommit(ctx, existing, now); err != nil {
+					return rt.result, err
+				}
+			}
 		}
 		if auto || !ended {
 			return rt.alreadyStarted(ctx, existing)
@@ -343,6 +352,11 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 	}
 	if !gate.Open {
 		text := validateRefusalText(gate)
+		guidance, err := rt.implementPrerequisiteGuidance(ctx)
+		if err != nil {
+			return rt.result, err
+		}
+		text += guidance
 		if err := opts.DB.RefuseValidateEntry(ctx, rt.entry.ID, text, now); err != nil {
 			return rt.result, err
 		}
@@ -364,7 +378,7 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 			if superseded {
 				return rt.launch(ctx, now)
 			}
-			text := fmt.Sprintf("Validate was not started. A Validate run on commit %s is still going. Wait for it to finish, then send /validate again.", shortSHA(e.Commit))
+			text := fmt.Sprintf("Validate was not started. A Validate run on commit %s is still going. Wait for it to finish, then comment `%s` to request a new run on the current integration head.", shortSHA(e.Commit), ValidateStartCommand)
 			if err := opts.DB.RefuseValidateEntry(ctx, rt.entry.ID, text, now); err != nil {
 				return rt.result, err
 			}
@@ -409,6 +423,20 @@ func (rt *validateRuntimeState) endWaitingSameCommit(ctx context.Context, entry 
 		return false, err
 	}
 	return db.CancelIdleGraphOwnerWait(ctx, entry.InstanceID, claimedReply, "the owner started Validate again on the same commit", now)
+}
+
+// endIdleSameCommit cancels a running instance on this commit that has nothing
+// owed, attempted, running, waiting, held, scheduled or in flight, after
+// settling prelaunch runs whose own dispatch is no longer live. The entry gate
+// is checked first, as for a waiting run. The daemon's recovery pass already
+// resumes such an instance by itself; the owner needs this restart only when
+// the instance hit its retry cap or its saved launch cannot be resumed.
+func (rt *validateRuntimeState) endIdleSameCommit(ctx context.Context, entry store.ValidateEntry, now time.Time) (bool, error) {
+	gate, err := ValidateEntryGate(ctx, rt.opts.DB, rt.session)
+	if err != nil || !gate.Open {
+		return false, err
+	}
+	return rt.opts.DB.CancelIdleValidateInstance(ctx, entry.InstanceID, "the owner started Validate again on the same commit", now)
 }
 
 // openOwnerWait reports whether an owner wait still counts as open. A wait
@@ -536,13 +564,13 @@ func (rt *validateRuntimeState) continueOwner(ctx context.Context) (Result, erro
 	opts, req := rt.opts, rt.req
 	instance, err := opts.DB.LatestWorkflowInstance(ctx, req.SessionID, string(agent.ModeValidate))
 	if errors.Is(err, store.ErrNotFound) {
-		return rt.refuse(ctx, validateNoWaitText)
+		return rt.refuseNoValidateWait(ctx, nil)
 	}
 	if err != nil {
 		return rt.result, err
 	}
 	if instance.Status != store.GraphRunning {
-		return rt.refuse(ctx, validateNoWaitText)
+		return rt.refuseNoValidateWait(ctx, &instance)
 	}
 	held := false
 	if wait, err := opts.DB.GetGraphOwnerWait(ctx, instance.ID); err == nil {
@@ -557,7 +585,7 @@ func (rt *validateRuntimeState) continueOwner(ctx context.Context) (Result, erro
 		}
 	}
 	if !held {
-		return rt.refuse(ctx, validateNoWaitText)
+		return rt.refuseNoValidateWait(ctx, &instance)
 	}
 	entry, err := rt.entryOf(ctx, instance.ID)
 	if err != nil {
@@ -591,6 +619,25 @@ func (rt *validateRuntimeState) continueOwner(ctx context.Context) (Result, erro
 		return rt.result, errors.New("the owner reply must continue the waiting Validate instance, not start another")
 	}
 	return rt.execute(ctx, definition, admitted)
+}
+
+// refuseNoValidateWait supplies recovery without admitting the refused control
+// reply to another instance or manufacturing a new owner wait.
+func (rt *validateRuntimeState) refuseNoValidateWait(ctx context.Context, instance *store.GraphInstance) (Result, error) {
+	text := validateNoWaitText
+	if rt.opts.ResearchReporter != nil {
+		link, err := rt.opts.ResearchReporter.workflowDecisionURL(ctx, rt.result.Ref, rt.session.ID, report.ReplyValidateCommentNotApplied)
+		if err != nil {
+			return rt.result, err
+		}
+		if link != "" {
+			return rt.refuse(ctx, text+" Use the current choices and result in [this issue's Validate report]("+link+"). A fresh decision must use its displayed target and permitted owner; this refused reply gives no delivery permission.")
+		}
+	}
+	if instance != nil && instance.Status == store.GraphRunning {
+		return rt.refuse(ctx, text+" Validate is still active, but no current decision destination is confirmed for this reply. Wait for its report to update automatically before choosing; do not repeat this old command to start another run.")
+	}
+	return rt.refuse(ctx, text+" No current decision destination is confirmed. To request a new validation, the configured owner (the ticket approver when separate project approvers are enabled) can comment `"+ValidateStartCommand+"` on this issue after Implement finishes. The new run tests and reviews the current integration head; it does not approve delivery or replay this refused choice.")
 }
 
 const validateNoWaitText = "No Validate run is waiting for this command, so nothing was recorded."

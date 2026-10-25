@@ -63,7 +63,11 @@ func prepareManagedScope(ctx context.Context, o Options, req Request, ref naming
 	}
 	if req.mode() == "validate" && f.WorkflowVersion == store.WorkflowSeparated {
 		mode, explicit := req.Command.Mode()
-		if !explicit || mode != "validate" || f.State != "implementing" {
+		// A graph dispatch continuing an admitted instance carries the
+		// factory's synthetic command; owner /validate authority was checked
+		// once at admission, so only the approved scope is rechecked here.
+		continued := store.IsGraphTrigger(req.Trigger.CommentID) && req.researchInstance > 0
+		if (!continued && (!explicit || mode != "validate")) || f.State != "implementing" {
 			return fmt.Errorf("managed Validate requires explicit owner /validate and approved scope")
 		}
 		return nil

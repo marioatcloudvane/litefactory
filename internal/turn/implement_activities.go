@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -95,11 +96,13 @@ type ImplementBindings struct {
 	LockDir  string
 	Repo     ImplementRepo
 	// Now overrides the clock; nil uses the run's clock.
-	Now          func() time.Time
-	Bind         ImplementBind
-	ProgressRead func(context.Context, string, int64) ([]store.ImplementProgressReport, error)
-	StatusBind   ImplementBind
-	Status       ImplementStatusRefresher
+	Now              func() time.Time
+	Bind             ImplementBind
+	ProgressRead     func(context.Context, string, int64) ([]store.ImplementProgressReport, error)
+	StatusBind       ImplementBind
+	Status           ImplementStatusRefresher
+	AdvanceReturn    func(context.Context, string, string, string) (bool, error)
+	ReturnAllocation func(context.Context, ActivityRequest) ([]agentresult.ReturnAllocation, error)
 }
 
 // RegisterImplementActivities registers the three Implement factory activities
@@ -216,33 +219,62 @@ func (h ImplementReadyActivity) Execute(ctx context.Context, opts Options, req A
 	}
 	defer bestEffortImplementStatus(ctx, opts, h.b.Status, a.Parent.String(), a.Generation)
 	parent := a.Parent.String()
+	if err := h.b.applyReviewedReturn(ctx, opts, req, a); err != nil {
+		return ActivityResult{}, err
+	}
 	now := h.b.now(opts)
 	if err := h.b.DB.EnsureImplementStories(ctx, parent, a.Generation, a.seeds(), now); err != nil {
 		return ActivityResult{}, err
 	}
+	out, err := ReadyImplementStories(ctx, h.b.DB, parent, a.Generation, a.Stories, now)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	switch {
+	case len(out.Started) > 0:
+		return implementResult("started", out)
+	case out.Running > 0:
+		return implementResult("waiting", out)
+	}
+	// Done rows still need the coordinator's merge path.
 	rows, err := h.b.DB.ListImplementStories(ctx, parent, a.Generation)
 	if err != nil {
 		return ActivityResult{}, err
+	}
+	for _, row := range rows {
+		if row.State == store.ImplementDone {
+			return implementResult("waiting", out)
+		}
+	}
+	return implementResult("drained", out)
+}
+
+// ReadyImplementStories is shared by the coordinator and daemon recovery. It
+// admits eligible waiting rows through the ledger's normal capacity guard.
+func ReadyImplementStories(ctx context.Context, db *store.DB, parent string, generation int64, stories []ImplementStory, now time.Time) (implementReadyOutput, error) {
+	rows, err := db.ListImplementStories(ctx, parent, generation)
+	if err != nil {
+		return implementReadyOutput{}, err
 	}
 	state := map[string]store.ImplementStory{}
 	running := 0
 	for _, row := range rows {
 		state[row.Key] = row
-		if row.State == store.ImplementRunning {
+		if row.State == store.ImplementRunning && row.TimeoutAttemptID == 0 {
 			running++
 		}
 	}
 	out := implementReadyOutput{Started: []implementStartedStory{}, Waiting: []string{}}
-	for _, story := range a.Stories {
+	for _, story := range stories {
 		row, ok := state[story.Key]
-		if !ok || row.State != store.ImplementWaiting || !dependenciesMerged(story, state) {
+		if !ok || row.State != store.ImplementWaiting || row.TimeoutAttemptID != 0 || !dependenciesMerged(story, state) {
 			continue
 		}
 		if running >= store.MaxImplementRunning {
 			break
 		}
-		moved, err := h.b.DB.TransitionImplementStory(ctx, store.ImplementTransition{
-			Parent: parent, Generation: a.Generation, Key: story.Key,
+		moved, err := db.TransitionImplementStory(ctx, store.ImplementTransition{
+			Parent: parent, Generation: generation, Key: story.Key,
 			From: store.ImplementWaiting, To: store.ImplementRunning, ExpectedRevision: row.Revision, At: now,
 		})
 		if errors.Is(err, store.ErrImplementCap) {
@@ -252,32 +284,19 @@ func (h ImplementReadyActivity) Execute(ctx context.Context, opts Options, req A
 			continue
 		}
 		if err != nil {
-			return ActivityResult{}, err
+			return implementReadyOutput{}, err
 		}
 		state[story.Key] = moved
 		running++
 		out.Started = append(out.Started, implementStartedStory{Key: story.Key, Branch: story.Branch})
 	}
 	out.Running = running
-	idle := true
-	for _, row := range state {
-		switch row.State {
-		case store.ImplementRunning, store.ImplementDone:
-			idle = false
-		}
-	}
-	for _, story := range a.Stories {
+	for _, story := range stories {
 		if state[story.Key].State == store.ImplementWaiting {
 			out.Waiting = append(out.Waiting, story.Key)
 		}
 	}
-	switch {
-	case len(out.Started) > 0:
-		return implementResult("started", out)
-	case !idle:
-		return implementResult("waiting", out)
-	}
-	return implementResult("drained", out)
+	return out, nil
 }
 
 func dependenciesMerged(s ImplementStory, state map[string]store.ImplementStory) bool {

@@ -15,12 +15,15 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-const swiftSource = "internal/teamsource/swift-ios"
+const swiftSource = "teams/source/swift-ios"
 
 func swiftFixture(t *testing.T) string {
 	t.Helper()
 	root := fixture(t)
-	for name, raw := range snapshot(t, "../teamsource/swift-ios") {
+	for name, raw := range snapshot(t, "../../teams/source/base-team") {
+		put(t, filepath.Join(root, "teams/source/base-team", filepath.FromSlash(name)), raw)
+	}
+	for name, raw := range snapshot(t, "../../teams/source/swift-ios") {
 		put(t, filepath.Join(root, swiftSource, filepath.FromSlash(name)), raw)
 	}
 	return root
@@ -29,7 +32,7 @@ func swiftFixture(t *testing.T) string {
 // swiftRelease is the published directory of the current swift-ios release.
 func swiftRelease(t *testing.T) string {
 	t.Helper()
-	return "../../teams/swift-ios/v" + sourceVersion(t, "../teamsource/swift-ios")
+	return "../../teams/swift-ios/v" + sourceVersion(t, "../../teams/source/swift-ios")
 }
 
 // These tests prove offline package contracts, never live Apple execution.
@@ -68,7 +71,7 @@ func TestSwiftIOSReleaseSelectionAndReproducibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := sourceVersion(t, "../teamsource/swift-ios")
+	version := sourceVersion(t, "../../teams/source/swift-ios")
 	installed, _, err := manager.Install(t.Context(), filepath.Join(root, "teams/teams.json"), "swift-ios", version)
 	if err != nil || installed.Identity.Slug != "swift-ios" || installed.Identity.Version != version {
 		t.Fatal("exact Swift selection failed", err)
@@ -165,7 +168,7 @@ func TestSwiftIOSInvalidSourceRejected(t *testing.T) {
 	}
 	// Keep schema decoding closed rather than inventing Swift-only host fields.
 	var invalid map[string]any
-	raw, err := os.ReadFile("../teamsource/swift-ios/stack-profile.json")
+	raw, err := os.ReadFile("../../teams/source/swift-ios/stack-profile.json")
 	if err != nil {
 		t.Fatal(err)
 	}

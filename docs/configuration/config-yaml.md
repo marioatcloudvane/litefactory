@@ -29,6 +29,7 @@ webhook:
   public_url: ""
 
 settings:
+  worker_timeout_seconds: 1800
   team_source: "https://raw.githubusercontent.com/marioatcloudvane/litefactory/main/teams/teams.json"
   poll_interval_minutes: 60
   max_concurrent_runs: 3
@@ -53,11 +54,9 @@ agents:            # first entry is the default agent
   claude:
     binary: "claude"
     model_tier: "balanced"
-    timeout_seconds: 1800
   codex:
     binary: "codex"
     model_tier: "balanced"
-    timeout_seconds: 1800
 
 tiers:
   model_by_tier:
@@ -113,6 +112,7 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 | Key | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
 | `settings.team_source` | string | `https://raw.githubusercontent.com/marioatcloudvane/litefactory/main/teams/teams.json` | absolute `https` catalogue URL, or an absolute file path (stored as `file://`); no credentials, query or fragment; no trailing slash; or empty for the default | Where `litefactory team` commands fetch the machine-level team catalogue. See [teams](../cli/teams.md). |
+| `settings.worker_timeout_seconds` | integer | `1800` | 60 to 86400 | Default allowance for one worker attempt, in exact seconds. An explicit node `lf_budget` of 1–1440 whole minutes takes precedence. |
 | `settings.poll_interval_minutes` | integer | `60` | 1 to 180 | How often the daemon lists GitHub when no webhook woke it sooner. Webhooks are the fast path; this is the safety net. The old `poll_interval_seconds` is refused and is not converted. |
 | `settings.max_concurrent_runs` | integer | `3` | 1 to 16 | Shared execution capacity in slots. Each step reserves its DOT cost; omitted costs are 1. See [slot costs](../guides/workflow.md#execution-capacity). |
 | `settings.default_base_branch` | string | empty | branch name: starts with a letter or digit, then letters, digits, `.`, `_`, `-`, `/`; no `..`; or empty | Base branch for new repository registrations. Empty finds it from the remote. `repo add --base` wins. Stored registrations do not change. |
@@ -132,8 +132,8 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 | `settings.mcp_auto_start` | boolean | `true` | `true` or `false` (strict) | Prepare the factory MCP registration for each run. See [MCP](../guides/mcp.md). |
 | `settings.allow_mcp_story_creation` | boolean | `false` | `true` or `false` (strict) | Allows the story-creation capability. Each creation still needs an exact, short-lived owner approval. |
 | `settings.auto_sync_base` | boolean | `true` | `true` or `false` | Bring a task branch up to date with its base branch before a run. See [sync and conflicts](../guides/sync-and-conflicts.md). |
-| `settings.auto_sync_max_behind` | integer | `100` | 0 or more (no upper limit) | A branch further behind than this many commits refuses the run. `0` means no limit. Negative values are refused. |
-| `settings.block_run_on_conflict` | boolean | `true` | `true` or `false` | When syncing hits a merge conflict, stop the run. When false, the run goes ahead on the unsynced branch. |
+| `settings.auto_sync_max_behind` | integer | `100` | 0 or more (no upper limit) | Limits automatic merges in task/base preparation. Beyond the cap, synchronization is skipped and the original request continues with a caveat. `0` means unlimited. Negative values are refused. |
+| `settings.block_run_on_conflict` | boolean | `true` | `true` or `false` | Deprecated compatibility setting. Both values allow the original request to continue through preparation conflicts with preserved edits and a caveat. Final save and integration checks still apply. |
 | `settings.suggest_conflict_resolution` | boolean | `false` | `true` or `false` | After a blocked conflict, ask a model (with no tools) to suggest a fix and post it. This sends repository file content to a model. Applying a suggestion needs separate approval. |
 | `settings.conflict_proposal_ttl_hours` | integer | `24` | 1 to 720 | Hours a conflict suggestion stays pending before it expires. |
 | `settings.conflict_content_max_bytes` | integer | `16384` (16 KiB) | 256 to 1048576 | Total conflicting file content sent to the model in one blocked merge. |
@@ -165,11 +165,11 @@ Set at most one of `token_keychain` and `token_env`. Setting neither passes the 
 | `agents.claude.allowed_tools` | list of strings | the init list (read-only git rules, `go build/test/vet`, `gofmt`, `grep`, `sed -n`, `head`, `tail`, `wc`, `mkdir`, plus `Read`, `Glob`, `Grep`, `Edit`, `Write`) | `Tool` or `Tool(qualifier)`; bare `Bash` and `Bash(*)` are refused | Extra approvals (`--allowedTools`). Defence in depth, not the boundary. |
 | `agents.claude.tool_ceiling` | list of strings | same as `tools` when left out | must contain every tool in `tools` and in every profile | Upper bound on any tool list. `init` writes `tools` plus `WebSearch` and `WebFetch`, so Research can use the web. |
 | `agents.claude.settings_path` | string | `$LF_HOME/claude-settings.json` | absolute path, or empty | Factory-controlled Claude settings file. |
-| `agents.claude.timeout_seconds` | integer | `1800` | 60 to 86400 | Hard time limit for one run. |
+| `agents.claude.timeout_seconds` | integer | `1800` | 60 to 86400 | Deprecated migration input for the single worker default; see worker timing below. |
 | `agents.claude.forward_anthropic_env` | boolean | `false` | `true` or `false` | Forward `ANTHROPIC_*` variables to Claude. A wrong key can break Keychain sign-in; leave it off unless you need it. |
 | `agents.codex.binary` | string | `codex` | as for Claude | Codex executable. |
 | `agents.codex.model_tier` | string | `balanced` | `flagship`, `balanced`, `fast` | Capability tier of the model. |
-| `agents.codex.timeout_seconds` | integer | `1800` | 60 to 86400 | Hard time limit for one run. |
+| `agents.codex.timeout_seconds` | integer | `1800` | 60 to 86400 | Deprecated migration input for the single worker default; see worker timing below. |
 | `agents.codex.writable_roots` | list of strings | empty | absolute paths, none empty | Extra folders Codex may write besides the worktree (for example a build cache). Each one widens the sandbox. |
 | `agents.codex.network_access` | boolean | `false` | `true` or `false` | Allow network in the workspace-write sandbox. This also allows outbound traffic, not just local test servers. |
 | `agents.codex.allow_user_config` | boolean | `false` | `true` or `false` | Let Codex read your personal Codex config. Off keeps runs isolated from it. |
@@ -238,3 +238,13 @@ These are the variables litefactory reads or hands on. Values you export in a te
 | `SSH_AUTH_SOCK` | git only | Passed to the git commands the factory runs, never to the agent. |
 
 [Documentation home](../README.md) · [Configuration](README.md) · [CLI reference](../cli/command-reference.md) · [Usage meter](../meter.md)
+
+## Worker timing and timeout recovery
+
+A node's explicit `lf_budget` wins; otherwise `settings.worker_timeout_seconds` supplies the allowance. The factory displays and enforces the same effective deadline, including an earlier parent deadline. Provider defaults do not shorten a node allowance. Canonical source Implement story workers declare 120 minutes; Validate repair retains its explicit 15 minutes. Installed team releases are unchanged.
+
+If the new setting is absent, an explicitly written legacy `agents.claude.timeout_seconds` or `agents.codex.timeout_seconds` migrates exactly, including seconds that are not whole minutes. Equal explicit legacy values are unambiguous; conflicting values are a startup error identifying both keys and values. Set `settings.worker_timeout_seconds` explicitly to resolve that conflict. Explicit new configuration wins over legacy values. Legacy keys produce deprecation diagnostics and can be removed after migration; an omitted provider timeout does not count as an explicit value. With no explicit value, the default is 1800 seconds.
+
+On timeout the factory stops the attempt and keeps available branch, worktree, session, checkpoints, logs and result receipts. A timed-out Implement story stays stopped across restart. Its story-issue notice states the effective limit and retained progress; one authorized owner reply on that issue resumes the kept work through the existing scheduler without another approval. Replaying the same reply cannot resume it again. Other workers retain their existing retry behavior, described by their timeout notice. Publication authority and recovery protections remain separate from worker timing.
+
+Factory-only evidence collection after expiry has one independent allowance of at most 30 seconds. Missing evidence and cleanup failures are reported explicitly; remote notice delivery is separate and cannot extend that allowance.

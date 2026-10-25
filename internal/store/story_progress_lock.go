@@ -30,6 +30,11 @@ func (db *DB) LockImplementStatus(ctx context.Context, parent, lockDir string) (
 	return db.lockParentStatus(ctx, parent, lockDir, "implement-status", false)
 }
 
+// LockValidateReport serializes current Validate report and overflow index writers.
+func (db *DB) LockValidateReport(ctx context.Context, parent, lockDir string) (func() error, error) {
+	return db.lockParentStatus(ctx, parent, lockDir, "validate-report", false)
+}
+
 func (db *DB) lockParentStatus(ctx context.Context, parent, lockDir, purpose string, nonblocking bool) (func() error, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

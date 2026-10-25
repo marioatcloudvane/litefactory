@@ -814,3 +814,89 @@ func TestValidateImplementReplyAfterAgentWithMixedHistory(t *testing.T) {
 		t.Fatalf("Plan wait changed: %+v", currentWait)
 	}
 }
+
+// #1183: an owner /validate on the same commit ends a Validate instance that
+// nothing can advance any more, settles its leftover prelaunch run and starts
+// a fresh instance. While anything is live, or the entry gate is closed, the
+// earlier instance stays and the owner hears that Validate already started.
+func TestValidateSameCommitRestartEndsOnlyAnIdleInstance(t *testing.T) {
+	for _, tc := range []string{"orphaned prelaunch", "pending dispatch", "live prelaunch", "running run", "closed gate"} {
+		t.Run(tc, func(t *testing.T) {
+			v := newValidateAdmissionFixture(t)
+			v.allMerged(t)
+			ctx := t.Context()
+			if _, handled, err := v.admit(t, v.request(5001, validateOwnerID, "/validate first")); !handled || !errors.Is(err, errValidateStop) {
+				t.Fatalf("handled=%v err=%v", handled, err)
+			}
+			first := v.entries(t)[0]
+			segment, err := v.f.db.GetOrCreateSegment(ctx, v.f.session.ID, 1, "validate", store.AgentClaude)
+			mustProgress(t, err)
+			allocate := func(trigger int64, prelaunch bool) store.Run {
+				t.Helper()
+				run, err := v.f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: v.f.session.ID, SegmentID: segment.ID, Mode: "validate", Agent: store.AgentClaude, TriggerCommentID: trigger, StartedAt: implementClock, Prelaunch: prelaunch, LogPath: func(int) string { return "validate.log" }})
+				mustProgress(t, err)
+				return run
+			}
+			// The suite step was dispatched after a capacity wait.
+			d, err := v.f.db.ParkGraphInstance(ctx, first.InstanceID, "suite", implementClock, implementClock)
+			mustProgress(t, err)
+			var orphan store.Run
+			if tc != "pending dispatch" {
+				if _, ok, err := v.f.db.ReserveGraphDispatch(ctx, d.ID, implementClock); err != nil || !ok {
+					t.Fatalf("reserve: %v %v", ok, err)
+				}
+				orphan = allocate(d.TriggerID(), true)
+				if tc != "live prelaunch" {
+					mustProgress(t, v.f.db.FinishGraphDispatch(ctx, d.ID, implementClock))
+				}
+			}
+			switch tc {
+			case "running run":
+				allocate(4999, false)
+			case "closed gate":
+				// Implement started again, so the entry gate is closed.
+				prior := mustImplementInstance(t, v)
+				_, err := v.f.db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: v.f.session.ID, DefinitionID: prior.DefinitionID, CurrentNode: prior.CurrentNode, StartedAt: implementClock})
+				mustProgress(t, err)
+			}
+			out, handled, err := v.admit(t, v.request(5002, validateOwnerID, "/validate again"))
+			old, ierr := v.f.db.GetGraphInstance(ctx, first.InstanceID)
+			mustProgress(t, ierr)
+			if tc == "orphaned prelaunch" {
+				if !handled || !errors.Is(err, errValidateStop) || strings.Contains(out.Reason, "already been started") {
+					t.Fatalf("handled=%v err=%v out=%+v", handled, err, out)
+				}
+				entries := v.entries(t)
+				if len(entries) != 1 || entries[0].State != store.ValidateEntryAdmitted || entries[0].InstanceID == first.InstanceID || entries[0].CommentID != 5002 {
+					t.Fatalf("a fresh instance on the reopened entry: %+v", entries)
+				}
+				fresh, err := v.f.db.GetGraphInstance(ctx, entries[0].InstanceID)
+				mustProgress(t, err)
+				if old.Status != store.GraphCancelled || fresh.Status != store.GraphRunning {
+					t.Fatalf("old %s fresh %s", old.Status, fresh.Status)
+				}
+				run, err := v.f.db.GetRun(ctx, orphan.ID)
+				mustProgress(t, err)
+				if run.Status != store.RunFailed {
+					t.Fatalf("the leftover prelaunch run is %s", run.Status)
+				}
+				return
+			}
+			if old.Status != store.GraphRunning {
+				t.Fatalf("a live instance was ended: %s", old.Status)
+			}
+			if tc == "closed gate" {
+				if !handled || err != nil || out.Disposition != DispositionPrepareFailed {
+					t.Fatalf("handled=%v err=%v out=%+v", handled, err, out)
+				}
+				return
+			}
+			if !handled || err != nil || !strings.Contains(out.Reason, "Validate has already been started") {
+				t.Fatalf("handled=%v err=%v reason=%q", handled, err, out.Reason)
+			}
+			if entries := v.entries(t); len(entries) != 1 || entries[0].InstanceID != first.InstanceID {
+				t.Fatalf("the earlier instance stays: %+v", entries)
+			}
+		})
+	}
+}

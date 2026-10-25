@@ -11,6 +11,8 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -72,7 +74,7 @@ func (s *Service) researchTarget(ctx context.Context, m Message, taskRequired bo
 	if project == "" {
 		resolution, resolveErr := ask.ResolveProject(ctx, s.db, "", nil)
 		if resolveErr != nil {
-			return "", "project lookup failed; nothing was applied"
+			return "", "Project lookup failed; nothing was applied. Ask the factory operator to inspect project registration on the factory host before repeating this command."
 		}
 		if resolution.Refusal != "" {
 			return "", resolution.Refusal
@@ -81,7 +83,7 @@ func (s *Service) researchTarget(ctx context.Context, m Message, taskRequired bo
 	}
 	repositories, err := s.db.ListRepos(ctx)
 	if err != nil {
-		return "", "project lookup failed; nothing was applied"
+		return "", "Project lookup failed; nothing was applied. Ask the factory operator to inspect project registration on the factory host before repeating this command."
 	}
 	var matches []string
 	for _, repo := range repositories {
@@ -106,7 +108,7 @@ func (s *Service) researchTarget(ctx context.Context, m Message, taskRequired bo
 		if _, err := s.db.GetSessionByTaskRef(ctx, ref); errors.Is(err, store.ErrNotFound) {
 			return "", "there is no factory task for this issue"
 		} else if err != nil {
-			return "", "task lookup failed; nothing was applied"
+			return "", "Task lookup failed; nothing was applied. Ask the factory operator to inspect retained task state on the factory host before repeating this command."
 		}
 	}
 	return ref, ""
@@ -118,13 +120,13 @@ func (s *Service) diagnose(ctx context.Context, m Message, at time.Time) (string
 		return assessed(ctx, refusal, presentation.Refusal)
 	}
 	if s.diagnosis == nil {
-		return assessed(ctx, "diagnosis is unavailable", presentation.Refusal)
+		return assessed(ctx, "Diagnosis is unavailable; no diagnosis was started. Ask the factory operator to inspect `"+report.TaskInspectionCommand(ref)+"` on the factory host.", presentation.Refusal)
 	}
 	if len(m.Arguments["note"]) > 8192 {
 		return assessed(ctx, "diagnosis note is too long", presentation.Refusal)
 	}
 	if err := s.db.DeferChatDiagnosisRepository(ctx, m.Transport, m.ID, ref, at, presentation.AssessedRepository(ctx)); err != nil {
-		return assessed(ctx, "diagnosis could not be queued", presentation.Refusal) //nolint:nilerr // Reply to the owner; never retry a refused command.
+		return assessed(ctx, "Diagnosis could not be queued. Ask the factory operator to inspect `"+report.TaskInspectionCommand(ref)+"` on the factory host before another request.", presentation.Refusal) //nolint:nilerr // Reply to the owner; never retry a refused command.
 	}
 	if err := s.diagnosis.Queue(ctx, DiagnosisRequest{Target: ref, Note: m.Arguments["note"], SourceID: "chat:" + m.Transport + ":" + m.ID}); err != nil {
 		if completeErr := s.db.CompleteChatDiagnosisResult(ctx, m.Transport, m.ID, 0, "diagnosis failed", at, string(presentation.ReportableError)); completeErr != nil {
@@ -172,7 +174,7 @@ func (s *Service) question(ctx context.Context, m Message, _ time.Time) (string,
 	}
 	q, err := s.research.Current(ctx, ref)
 	if err != nil {
-		return assessed(ctx, "question lookup failed", presentation.Refusal) //nolint:nilerr // Storage failure is a final user-visible refusal.
+		return assessed(ctx, "Question lookup failed. Inspect the current question on "+researchIssueURL(ref)+" before answering.", presentation.Refusal) //nolint:nilerr // Storage failure is a final user-visible refusal.
 	}
 	if q.Text != "" {
 		presentation.Assess(ctx, presentation.Success)
@@ -199,7 +201,7 @@ func (s *Service) researchAnswer(ctx context.Context, m Message, at time.Time) (
 			// The inbox may have lost its acknowledgement after a successful
 			// claim and a newer question. Missing volatile input cannot prove
 			// that the original answer was never recorded.
-			reason := "your answer could not be confirmed; check the issue before resending"
+			reason := "Your answer could not be confirmed. Inspect " + researchIssueURL(ref) + " before resending; it may already be recorded."
 			if err == nil {
 				q.Reason = reason
 				if rendered, renderErr := s.renderQuestion(ctx, q); renderErr == nil {
@@ -210,26 +212,34 @@ func (s *Service) researchAnswer(ctx context.Context, m Message, at time.Time) (
 		}
 	}
 	if s.research == nil || strings.TrimSpace(text) == "" || len(text) > 65536 {
-		return assessed(ctx, "your answer was not recorded; nothing was applied", presentation.Refusal)
+		return assessed(ctx, "Your answer was not recorded; nothing was applied. Inspect the current question on "+researchIssueURL(ref)+" before submitting a corrected answer.", presentation.Refusal)
 	}
 	if s.Protect != nil {
 		var err error
 		text, err = s.Protect(ctx, text)
 		if err != nil {
-			return assessed(ctx, "your answer was not recorded; nothing was applied", presentation.Refusal) //nolint:nilerr // An answer must never be retried automatically.
+			return assessed(ctx, "Your answer was not recorded; nothing was applied. Inspect the current question on "+researchIssueURL(ref)+" before submitting a corrected answer.", presentation.Refusal) //nolint:nilerr // An answer must never be retried automatically.
 		}
 	}
 	q, err := s.research.Answer(ctx, ref, m.Arguments["revision"], text, at)
 	if err != nil {
-		return assessed(ctx, "your answer was not recorded; nothing was applied", presentation.Refusal) //nolint:nilerr // An answer must never be retried automatically.
+		return assessed(ctx, "Your answer was not recorded; nothing was applied. Inspect the current question on "+researchIssueURL(ref)+" before submitting a corrected answer.", presentation.Refusal) //nolint:nilerr // An answer must never be retried automatically.
 	}
 	text, renderErr := s.renderQuestion(ctx, q)
 	if renderErr != nil {
-		return q.Reason + "; current question details unavailable", nil //nolint:nilerr // Refused answers must not be retried after rendering fails.
+		return q.Reason + "; current question details unavailable. Inspect " + researchIssueURL(ref) + " for the current question before replying.", nil //nolint:nilerr // Refused answers must not be retried after rendering fails.
 	}
 	status := presentation.Refusal
 	if q.Reason == "answer recorded" || q.Reason == "already answered" {
 		status = presentation.Success
 	}
 	return assessed(ctx, text, status)
+}
+
+func researchIssueURL(task string) string {
+	ref, err := naming.ParseRef(task)
+	if err != nil {
+		return "the affected issue"
+	}
+	return ref.IssueURL()
 }

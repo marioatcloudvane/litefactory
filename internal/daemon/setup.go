@@ -294,7 +294,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, err
 	}
+	var turnOpts turn.Options
 	reporter, err := turn.NewReporter(turn.ReporterOptions{
+		ValidateHead: func(ctx context.Context, session store.Session) (string, error) {
+			return turn.ValidatePublicationHead(ctx, turnOpts, session)
+		},
 		BotUserID:    identities.BotUserID,
 		StoryLockDir: s.Paths.StoryProgressLocksDir(),
 		DB:           s.DB,
@@ -455,8 +459,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}
 	}
 	judgeService := &turn.JudgeService{Logger: s.Logger, DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
-	turnOpts := turn.Options{
-		ProjectApprovers: true,
+	for _, diagnostic := range s.Config.WorkerTimeoutDiagnostics() {
+		s.Logger.Warn(diagnostic)
+	}
+	turnOpts = turn.Options{
+		WorkerTimeoutSeconds: s.Config.Settings.WorkerTimeoutSeconds,
+		WorkerTimeoutSource:  s.Config.WorkerTimeoutSource(),
+		ProjectApprovers:     true,
 		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {
 			snapshot, e := s.DB.GetExecutionSnapshot(ctx, session.ID)
 			if e != nil {
@@ -510,6 +519,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// US-4's hard stop for the conflicts US-2's auto-sync cannot
 		// resolve on its own, read from the same validated configuration
 		// as the two fields above and bound the same way.
+		//nolint:staticcheck // SA1019: the deprecated setting is still bound until it is removed.
 		BlockRunOnConflict: s.Config.Settings.BlockRunOnConflict,
 		// US-11's suggested-resolution advisor, read and bound the same
 		// way: the flag defaults to false in config.Defaults, so a

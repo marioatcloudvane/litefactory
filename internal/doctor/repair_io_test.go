@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -400,8 +401,9 @@ func TestConsumeRefusalRetainsStepCategoryAndLogsCause(t *testing.T) {
 			if saved.State != "failed" || saved.Failure != want {
 				t.Fatalf("repair %s failure %q, want %q", saved.State, saved.Failure, want)
 			}
-			if body := RenderConversation(Conversation{Repair: &saved}); !strings.Contains(body, "Unresolved: "+want) {
-				t.Fatalf("owner reply lacks the reason: %s", body)
+			body := RenderConversation(Conversation{Repair: &saved})
+			if !strings.Contains(body, "Unresolved: "+RepairFailureExplanation(want)) || strings.Count(body, report.TaskInspectionCommand(ref.String())) != 1 || strings.Contains(body, "/doctor check") || strings.Contains(body, "fresh diagnosis") {
+				t.Fatalf("owner reply lacks reason and single inspection step: %s", body)
 			}
 			attempts, err := s.DB.DoctorAttempts(ctx, conversation.ID)
 			if err != nil {

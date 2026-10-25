@@ -85,7 +85,7 @@ func TestOwnerRefusesWhatItShouldAndChangesNothing(t *testing.T) {
 	o.mixed()
 	rev := o.state().Revision
 	cases := map[string]struct{ body, want string }{
-		"malformed":                      {"/validate-check nope", "revision"},
+		"malformed":                      {"/validate-check nope", "require"},
 		"stale revision":                 {"/validate-push 000000000000", "revision"},
 		"unknown finding":                {o.command(ValidateFindingCommand, "story-002:AC-009", "repair"), "not a finding"},
 		"check on a satisfied criterion": {o.command(ValidateCheckCommand, "story-002:AC-001", "pass", "-- x"), "does not await"},
@@ -126,7 +126,7 @@ func TestOwnerNonOwnerReplyChangesNothing(t *testing.T) {
 	// And the resolve step checks the reply author against the resolved owner.
 	o.reply(o.owner+5, o.command(ValidateCheckCommand, "story-002:AC-002", "pass", "-- x"))
 	o.toOwner()
-	if !strings.Contains(o.notice(), "Only the owner") || len(o.state().Open) == 0 {
+	if !strings.Contains(o.notice(), "Only the owner") || !strings.Contains(o.notice(), "configured owner") || !strings.Contains(o.notice(), "current report's choices") || len(o.state().Open) == 0 {
 		t.Fatalf("notice %q", o.notice())
 	}
 }
@@ -476,80 +476,65 @@ func (o *ownerFixture) ship() string {
 	return o.command(ValidateShipCommand, "-- opened the page and clicked through it")
 }
 
-// #573 c-refuse: a blocked /validate-ship is refused with one notice naming the
-// blocker and records nothing.
-func TestOwnerShipIsRefusedWhenSomethingBlocksAndChangesNothing(t *testing.T) {
-	blockingReview := func(req ValidateReviewRequest) (*agentresult.Result, error) {
-		res, _ := mixedReview(req)
-		for si := range res.Payload.Validate.Stories {
-			for i := range res.Payload.Validate.Stories[si].Criteria {
-				if res.Payload.Validate.Stories[si].Criteria[i].Name == "AC-002" {
-					res.Payload.Validate.Stories[si].Criteria[i].Status = "unmet"
-				}
-			}
-		}
-		return res, nil
-	}
-	cases := map[string]struct {
-		setup   func(o *ownerFixture)
-		body    func(o *ownerFixture) string
-		move    bool
-		outcome string
-		want    string
+// Shipping preserves the displayed failures and retains one exact reasoned
+// exception instead of recording passing evidence.
+func TestOwnerShipWaivesDisplayedBlockersWithoutChangingEvidence(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(*ownerFixture)
 	}{
-		"a failed criterion": {setup: func(o *ownerFixture) {
+		{"failed criterion", func(o *ownerFixture) {
 			o.mixed()
-			o.say(o.command(ValidateCheckCommand, "story-002:AC-002", "fail", "-- the page is broken"))
-		}, want: "Blocking finding `story-002:AC-002`"},
-		"an open blocking finding": {setup: func(o *ownerFixture) {
-			o.reviewers.run = blockingReview
-			o.toOwner()
-		}, want: "Blocking finding `story-002:AC-002`"},
-		"a reviewer without a usable result": {setup: func(o *ownerFixture) {
+			o.say(o.command(ValidateCheckCommand, "story-002:AC-002", "fail", "-- page broken"))
+		}},
+		{"missing reviews", func(o *ownerFixture) { o.reviewers.run = deniedReview; o.toOwner() }},
+		{"failed suite", func(o *ownerFixture) { o.suiteExit = func(string) int { return 1 }; o.toOwner() }},
+		{"mixed suite and missing reviews", func(o *ownerFixture) {
+			o.suiteExit = func(string) int { return 1 }
 			o.reviewers.run = deniedReview
 			o.toOwner()
-		}, want: "reviewer has no usable result"},
-		"a failed suite": {setup: func(o *ownerFixture) {
-			o.suiteExit = func(string) int { return 1 }
-			o.toOwner()
-		}, want: "The suite did not pass"},
-		"a stale revision": {setup: func(o *ownerFixture) { o.mixed() },
-			body: func(*ownerFixture) string { return "/validate-ship 000000000000 -- checked" }, outcome: "stale", want: "current report revision"},
-		"a moved head": {setup: func(o *ownerFixture) { o.mixed() }, move: true, outcome: "stale", want: "branch head is now"},
+		}},
 	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			o := newOwnerFixture(t)
-			c.setup(o)
-			rev, before := o.state().Revision, o.records()
-			body := o.ship()
-			if c.body != nil {
-				body = c.body(o)
+			tc.setup(o)
+			before := o.state()
+			raw, digest := before.shippingEvidence()
+			records := o.records()
+			o.say(o.ship())
+			after := o.state()
+			afterRaw, afterDigest := after.shippingEvidence()
+			if o.final() != "delivered" {
+				t.Fatalf("not delivered: %s; %s", o.final(), o.notice())
 			}
-			o.reply(o.owner, body)
-			if c.move {
-				o.write("app/extra.go", "package app\n")
-				if _, err := o.wt.Commit(t.Context(), gitCommitOptions()); err != nil {
-					t.Fatal(err)
-				}
+			if string(raw) != string(afterRaw) || digest != afterDigest || records+4 != o.records() {
+				t.Fatal("shipping changed factual evidence")
 			}
-			nodes := o.toOwner()
-			if !strings.Contains(o.notice(), c.want) {
-				t.Fatalf("notice %q does not name %q", o.notice(), c.want)
+			if after.Waiver == nil || after.Waiver.Reason != "opened the page and clicked through it" || after.Waiver.ActorID != o.owner || len(after.Waiver.Blockers) == 0 {
+				t.Fatalf("waiver %+v", after.Waiver)
 			}
-			if strings.Contains(o.notice(), "hand it back") {
-				t.Fatalf("notice %q names a handback the factory lacks", o.notice())
-			}
-			if c.outcome == "" && !strings.Contains(o.notice(), "/validate-ship is refused") {
-				t.Fatalf("notice %q", o.notice())
-			}
-			if o.records() != before || o.state().Revision != rev {
-				t.Fatal("a refused ship recorded something")
-			}
-			if visits(nodes, "owner_push")+visits(nodes, "owner_merge")+visits(nodes, "owner_close") != 0 || len(o.forge.pushes)+len(o.forge.prCreates)+len(o.forge.merges)+len(o.forge.issueCloses) != 0 {
-				t.Fatalf("a refused ship acted: %s", joinNodes(nodes))
+			if !strings.Contains(o.forge.bodies("**Validate report**")[0].Body, "shipped with owner waiver") {
+				t.Fatal("confirmed report lacks waiver outcome")
 			}
 		})
+	}
+}
+
+func TestOwnerShipRefusesUndisplayedHeadDrift(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.mixed()
+	o.reply(o.owner, o.ship())
+	o.write("app/extra.go", "package app\n")
+	if _, err := o.wt.Commit(t.Context(), gitCommitOptions()); err != nil {
+		t.Fatal(err)
+	}
+	o.toOwner()
+	if len(o.forge.pushes) != 0 || !strings.Contains(o.notice(), "branch head is now") {
+		t.Fatalf("acted on drift: %s", o.notice())
+	}
+	if o.state().Waiver != nil {
+		t.Fatal("retained waiver for undisplayed work")
 	}
 }
 
@@ -569,11 +554,14 @@ func TestOwnerShipDeliversFromOneReply(t *testing.T) {
 	}
 	st := o.state()
 	f, _ := st.finding("story-002:AC-002")
-	if f.State != findingOwnerPassed || f.Verdict == nil || f.Verdict.Evidence != "opened the page and clicked through it" {
-		t.Fatalf("criterion %+v", f)
+	if f.State != findingAwaitingCheck || f.Verdict != nil {
+		t.Fatalf("shipping fabricated criterion verdict: %+v", f)
 	}
-	if f, _ = st.finding("story-002:code"); f.Choice == nil || f.Choice.Choice != store.ChoiceDefer {
-		t.Fatalf("finding %+v", f)
+	if f, _ = st.finding("story-002:code"); f.Choice != nil {
+		t.Fatalf("shipping fabricated choice: %+v", f)
+	}
+	if st.Waiver == nil || st.Waiver.Reason != "opened the page and clicked through it" {
+		t.Fatalf("waiver %+v", st.Waiver)
 	}
 	for _, e := range []*store.ValidateEffect{st.Effects.Push, st.Effects.PR, st.Effects.Merge, st.Effects.Close} {
 		if !effectDone(e) {
@@ -638,6 +626,19 @@ func TestOwnerShipResumesAtTheFailedStep(t *testing.T) {
 	nodes := o.toOwner()
 	if o.final() != "delivered" || len(o.forge.pushes) != pushes || len(o.forge.prCreates) != prs || visits(nodes, "owner_push") != 0 {
 		t.Fatalf("final %s path %s pushes %v prs %v", o.final(), joinNodes(nodes), o.forge.pushes, o.forge.prCreates)
+	}
+	waiver := o.state().Waiver
+	if waiver == nil {
+		t.Fatal("missing retry waiver")
+	}
+	preserved := false
+	for _, e := range waiver.DeliveryEffects {
+		if e.Kind == store.EffectMerge && e.State == store.EffectFailed && e.Error != "" {
+			preserved = true
+		}
+	}
+	if !preserved || !strings.Contains(strings.Join(waiver.Blockers, " "), "merge") {
+		t.Fatal("retry erased the displayed operational failure audit")
 	}
 	if len(o.forge.merges) != 2 || strings.Join(o.forge.issueCloses, ",") != "520,497" {
 		t.Fatalf("merges %v closes %v", o.forge.merges, o.forge.issueCloses)
@@ -935,7 +936,7 @@ func TestOwnerLiveReviewVerdicts(t *testing.T) {
 		}
 		ids = append(ids, f.ID)
 		body := renderValidateStoryComment(before, ValidateIssueRef{Key: f.Story}, 843)
-		if f.State != findingAwaitingCheck || !strings.Contains(body, ValidateCheckCommand+" "+before.Revision+" "+f.ID+" pass|fail -- <evidence>") || strings.Contains(body, "failed") || strings.Contains(body, "only on a new tested snapshot") {
+		if f.State != findingAwaitingCheck || (!strings.Contains(body, ValidateCheckCommand+" "+before.Revision+" "+f.ID+" pass -- <what you checked>") || !strings.Contains(body, ValidateCheckCommand+" "+before.Revision+" "+f.ID+" fail -- <what you saw>")) || strings.Contains(body, "failed") || strings.Contains(body, "only on a new tested snapshot") {
 			t.Fatalf("awaiting review: %+v\n%s", f, body)
 		}
 	}
@@ -947,7 +948,7 @@ func TestOwnerLiveReviewVerdicts(t *testing.T) {
 	failed := o.state()
 	f, _ := failed.finding(id)
 	body := renderValidateStoryComment(failed, ValidateIssueRef{Key: f.Story}, 843)
-	if f.State != findingOwnerFailed || failed.Ready || len(failed.shipBlockers()) == 0 || !strings.Contains(body, "provider continuity failed") || !strings.Contains(body, ValidateCheckCommand+" "+failed.Revision+" "+id) || strings.Contains(body, "only on a new tested snapshot") {
+	if f.State != findingOwnerFailed || failed.Ready || !strings.Contains(body, "provider continuity failed") || !strings.Contains(body, ValidateCheckCommand+" "+failed.Revision+" "+id) || strings.Contains(body, "only on a new tested snapshot") {
 		t.Fatalf("failed check: %+v\n%s", f, body)
 	}
 	for i, target := range ids {
@@ -1041,7 +1042,7 @@ func TestOwnerLiveReviewRefusals(t *testing.T) {
 	}
 }
 
-func TestOwnerShipRecordsLiveReviewVerdicts(t *testing.T) {
+func TestOwnerShipRetainsLiveReviewEvidence(t *testing.T) {
 	o := newOwnerFixture(t)
 	o.reviewers.run = ownerLiveReview
 	o.toOwner()
@@ -1052,8 +1053,8 @@ func TestOwnerShipRecordsLiveReviewVerdicts(t *testing.T) {
 	o.say(o.command(ValidateShipCommand, "-- checked both installed providers"))
 	after := o.state()
 	for _, f := range after.Findings {
-		if f.Name == "architecture" && (f.State != findingOwnerPassed || f.Verdict == nil || f.Verdict.Evidence != "checked both installed providers") {
-			t.Fatalf("ship did not retain review verdict: %+v", f)
+		if f.Name == "architecture" && (f.State != findingAwaitingCheck || f.Verdict != nil) {
+			t.Fatalf("ship changed review evidence: %+v", f)
 		}
 	}
 	if !effectDone(after.Effects.Close) {
@@ -1093,7 +1094,7 @@ func TestOwnerShipFromTheLinearTicketOwner(t *testing.T) {
 			nodes := o.toOwner()
 			st := o.state()
 			if !tc.ships {
-				if !strings.Contains(o.notice(), "Only the owner can give Validate commands.") || o.records() != before || len(o.forge.pushes) != 0 {
+				if !strings.Contains(o.notice(), "Only the owner can give Validate commands.") || !strings.Contains(o.notice(), "configured code approver") || o.records() != before || len(o.forge.pushes) != 0 {
 					t.Fatalf("a refused author shipped: notice %q path %s", o.notice(), joinNodes(nodes))
 				}
 				return
@@ -1224,7 +1225,7 @@ func TestOwnerAcceptsABlockingReviewFindingAsADeliberateDeviation(t *testing.T) 
 	if next := strings.Join(before.NextCommands(nil), "\n"); !strings.Contains(next, accept) {
 		t.Fatalf("NextCommands offers no accept: %s", next)
 	}
-	if body := renderValidateStoryComment(before, ValidateIssueRef{Key: "story-002"}, 843); !strings.Contains(body, "|accept -- <reason>") || !strings.Contains(body, "accept it as a deliberate deviation") {
+	if body := renderValidateStoryComment(before, ValidateIssueRef{Key: "story-002"}, 843); !strings.Contains(body, accept) || strings.Contains(body, "|accept -- <reason>") || !strings.Contains(body, "accept it as a deliberate deviation") {
 		t.Fatalf("the story comment offers no accept:\n%s", body)
 	}
 	if !strings.Contains(strings.Join(before.Open, " "), "accept -- <reason>") {

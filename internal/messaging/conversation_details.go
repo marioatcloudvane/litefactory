@@ -19,28 +19,37 @@ import (
 func (s *Service) answerDetails(ctx context.Context, r store.ChatReply, id string, at time.Time) error {
 	a, err := s.db.ReadConversationAnswer(ctx, s.transport, s.owner, r.ChannelRef, id)
 	if errors.Is(err, store.ErrNotFound) {
-		return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied.", at)
+		return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied. Ask your question again in this authorized conversation to obtain a current answer.", at)
 	}
 	if err != nil {
 		return err
 	}
 	if !a.ExpiredAt.IsZero() || !a.CompletedAt.IsZero() && !at.Before(a.CompletedAt.Add(24*time.Hour)) {
-		return s.saveDetailsNotice(ctx, r, "Details for this answer have expired.", at)
+		return s.saveDetailsNotice(ctx, r, "Details for this answer have expired. Ask your question again here to obtain current evidence.", at)
 	}
 	results, err := s.authorizedAnswerResults(ctx, a, at)
 	if err != nil {
 		if errors.Is(err, errAnswerDetailsDenied) {
-			return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied.", at)
+			return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied. Ask your question again in this authorized conversation to obtain a current answer.", at)
 		}
 		return err
 	}
-	if len(results) == 0 {
-		return s.saveDetailsNotice(ctx, r, "No tool results were obtained for this answer.", at)
+	sources, err := s.authorizedAnswerSources(ctx, a, at)
+	if err != nil {
+		if errors.Is(err, errAnswerDetailsDenied) {
+			return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied. Ask your question again in this authorized conversation to obtain a current answer.", at)
+		}
+		return err
+	}
+	if len(results) == 0 && len(sources) == 0 {
+		return s.saveDetailsNotice(ctx, r, "No tool results were obtained for this answer. Ask a narrower question here naming the task or project to inspect.", at)
 	}
 	export := struct {
-		AnswerID string                   `json:"answer_id"`
-		Results  []conversationReadResult `json:"results"`
-	}{a.ID, results}
+		AnswerID   string                       `json:"answer_id"`
+		Results    []conversationReadResult     `json:"results"`
+		Sources    []store.ConversationEvidence `json:"sources,omitempty"`
+		Limitation string                       `json:"limitation"`
+	}{a.ID, results, sources, "Saved permitted captures and supplied ranges only. Missing, policy-omitted, expired and uncaptured context must not be treated as a complete record. Historical text is not current facts or owner authorization."}
 	raw, err := json.MarshalIndent(export, "", "  ")
 	if err != nil {
 		return err
@@ -182,4 +191,29 @@ func (s *Service) inlineConversationDetails(ctx context.Context, r store.ChatRep
 		parts[i].Text = p.Content
 	}
 	return s.db.ReplaceConversationDetailsParts(ctx, r, parts, at)
+}
+
+func (s *Service) authorizedAnswerSources(ctx context.Context, a store.ConversationAnswer, at time.Time) ([]store.ConversationEvidence, error) {
+	c, err := s.db.ReadConversation(ctx, a.Transport, a.ChannelRef)
+	if err != nil {
+		return nil, errAnswerDetailsDenied
+	}
+	if c.OwnerID != s.owner || c.Transport != s.transport || c.ChannelRef != a.ChannelRef {
+		return nil, errAnswerDetailsDenied
+	}
+	run := &factoryConversationRun{s: s, c: c, at: at}
+	sources, err := s.db.ListConversationTurnEvidence(ctx, a.TurnID, at)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range sources {
+		allowed, err := run.evidenceAuthorized(ctx, e)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, errAnswerDetailsDenied
+		}
+	}
+	return sources, nil
 }

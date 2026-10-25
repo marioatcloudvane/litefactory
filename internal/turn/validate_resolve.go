@@ -31,8 +31,8 @@ import (
 //	implement     the owner sent the blocking findings back to Implement (only
 //	              when the graph declares the outcome)
 //
-// /validate-ship records the open checks as passed and defers the open optional
-// findings, then returns the first undone delivery step. Push and merge come
+// /validate-ship retains an exact reasoned exception without changing factual
+// evidence, then returns the first undone delivery step. Push and merge come
 // back here; only while the reply is that /validate-ship does a pass without a
 // new owner comment return the next step, so one confirmation never implies the
 // next except the explicit ship command.
@@ -94,7 +94,17 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
 	}
 	if wait.ReplyAuthorID != owner {
-		return refuse("wait", "Only the owner can give Validate commands.")
+		approver := "configured owner"
+		if opts.ProjectApprovers {
+			approver = "configured code approver"
+			if !isValidateCodeControlBody(wait.ReplyBody) {
+				approver = "configured ticket approver"
+			}
+		}
+		return refuse("wait", "Only the owner can give Validate commands. Ask the "+approver+" to make their own decision using the current report's choices; this reply gave no permission. "+validateCurrentGuidance(ctx, opts, req, st))
+	}
+	if st.Waiver != nil && st.Waiver.CommentID == wait.ReplyID {
+		return h.continueShip(ctx, opts, req, st, wait, now, refuse)
 	}
 	// A saved candidate decision survives a crash before the graph transition.
 	// Match the authenticated original source before checking the now-new report
@@ -121,22 +131,26 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		}
 		return validateResolveResult(outcome, "replayed", st)
 	}
-	cmd, err := ParseValidateCommand(wait.ReplyBody)
+	cmd, binding, err := ResolveValidateDecision(ctx, opts, req, st, wait)
 	if err != nil {
 		return refuse("wait", err.Error())
 	}
 	if cmd.Revision != st.Revision {
-		return refuse("stale", fmt.Sprintf("The command names revision `%s`, but the current report revision is `%s`. Use the commands in the latest report.", cmd.Revision, st.Revision))
+		return refuse("stale", fmt.Sprintf("The command names revision `%s`, but the current report revision is `%s`. %s", cmd.Revision, st.Revision, validateCurrentGuidance(ctx, opts, req, st)))
 	}
 	if cmd.Name == ValidateRepairCommand {
 		return h.resolveCandidate(ctx, opts, req, st, wait, cmd)
+	}
+	delivery := st.Commit
+	if cmd.Name == ValidateShipCommand && binding.Display.DeliveryCommit != "" {
+		delivery = binding.Display.DeliveryCommit
 	}
 	head, err := h.b.Delivery.Head(ctx)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, fmt.Errorf("read the branch head: %w", err)
 	}
-	if head != st.Commit {
-		return refuse("stale", fmt.Sprintf("The branch head is now `%s`, not the tested commit `%s`. Verdicts, choices and confirmations belong to the tested commit and are stale; run Validate again.", short(head), short(st.Commit)))
+	if head != delivery {
+		return refuse("stale", fmt.Sprintf("The branch head is now `%s`, not the displayed delivery commit `%s`. That decision is stale. Comment `%s` to validate the current head before making a new delivery choice. Nothing was approved or delivered.", short(head), short(delivery), ValidateStartCommand))
 	}
 	notReviewed := func(id string) (ActivityResult, error) {
 		return refuse("wait", fmt.Sprintf("`%s` was not reviewed: its reviewer has no usable result, so it takes no check or choice. %s", id, validateRetryStep(st.Commit)))
@@ -246,6 +260,16 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 			return ActivityResult{Diagnostic: err.Error()}, err
 		}
 		return h.accept(ctx, opts, req, st, now, "close", "close confirmed")
+	case ValidateReturnCommand:
+		switch {
+		case !implements:
+			return refuse("wait", "This Validate run has no return to Implement step.")
+		case st.Reimplementing:
+			return refuse("wait", "This reviewed work was already returned to Implement.")
+		case !st.Assessed || len(st.Stories) == 0:
+			return refuse("wait", "Return requires retained reviewed work.")
+		}
+		return h.accept(ctx, opts, req, st, now, "implement", "return confirmed")
 	case ValidateImplementCommand:
 		switch {
 		case !implements:
@@ -265,23 +289,14 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 				return refuse("wait", "The project ticket approver must settle acceptance checks and finding choices before the code owner can ship.")
 			}
 		}
-		if blockers := st.shipBlockers(); len(blockers) > 0 {
-			return refuse("wait", "/validate-ship is refused and nothing was recorded: "+strings.Join(blockers, " "))
+		if !st.Assessed {
+			return refuse("wait", "The assessment of this commit is not recorded yet.")
 		}
 		if effectDone(st.Effects.Close) {
 			return refuse("wait", "Delivery is already complete.")
 		}
-		for _, f := range st.Findings {
-			switch {
-			case f.State == findingAwaitingCheck:
-				if _, err := opts.DB.PutValidateVerdict(ctx, store.ValidateVerdict{InstanceID: req.InstanceID, Commit: st.Commit, Criterion: f.ID, Verdict: store.VerdictPass, Evidence: cmd.Evidence, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, CreatedAt: now}); err != nil {
-					return ActivityResult{Diagnostic: err.Error()}, err
-				}
-			case f.Optional && f.needsChoice() && f.Choice == nil:
-				if _, err := opts.DB.PutValidateChoice(ctx, store.ValidateChoice{InstanceID: req.InstanceID, Commit: st.Commit, Finding: f.ID, Choice: store.ChoiceDefer, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, CreatedAt: now}); err != nil {
-					return ActivityResult{Diagnostic: err.Error()}, err
-				}
-			}
+		if err := retainValidateShippingWaiver(ctx, opts, req, st, wait, delivery, cmd.Evidence, now); err != nil {
+			return ActivityResult{Diagnostic: err.Error()}, err
 		}
 		after, err := LoadValidateState(ctx, opts, h.b.Profile, req.InstanceID)
 		if err != nil {
@@ -332,14 +347,21 @@ func (h ValidateResolveActivity) continueShip(ctx context.Context, opts Options,
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
 	}
 	if wait.ReplyAuthorID != owner {
-		return refuse("wait", "Only the owner can give Validate commands.")
+		approver := "configured owner"
+		if opts.ProjectApprovers {
+			approver = "configured code approver"
+		}
+		return refuse("wait", "Only the owner can give Validate commands. Ask the "+approver+" to give their own reasoned shipping decision using the current report's choices; this reply gave no permission. "+validateCurrentGuidance(ctx, opts, req, st))
 	}
 	head, err := h.b.Delivery.Head(ctx)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, fmt.Errorf("read the branch head: %w", err)
 	}
-	if head != st.Commit {
-		return refuse("stale", fmt.Sprintf("The branch head is now `%s`, not the tested commit `%s`. Verdicts, choices and confirmations belong to the tested commit and are stale; run Validate again.", short(head), short(st.Commit)))
+	if head != st.deliveryCommit() {
+		return refuse("stale", fmt.Sprintf("The branch head is now `%s`, not the displayed delivery commit `%s`. A fresh displayed decision is required.", short(head), short(st.deliveryCommit())))
+	}
+	if !st.waiverCurrent() || st.Waiver.CommentID != wait.ReplyID || st.Waiver.Body != wait.ReplyBody {
+		return refuse("stale", "The retained shipping decision no longer matches the evidence or owner input; give a fresh decision.")
 	}
 	return h.shipStep(ctx, opts, req, st, wait, now)
 }
@@ -362,7 +384,7 @@ func (h ValidateResolveActivity) shipStep(ctx context.Context, opts Options, req
 	}
 	retry := fmt.Sprintf(" Repeat %s to continue from this step.", strings.Trim(st.shipLine(), "`"))
 	begin := func(kind, target string) error {
-		_, _, err := opts.DB.BeginValidateEffect(ctx, store.ValidateEffect{InstanceID: req.InstanceID, Kind: kind, Commit: st.Commit, Target: target, ConfirmCommentID: wait.ReplyID, CreatedAt: now})
+		_, _, err := opts.DB.BeginValidateEffect(ctx, store.ValidateEffect{InstanceID: req.InstanceID, Kind: kind, Commit: st.deliveryCommit(), Target: target, ConfirmCommentID: wait.ReplyID, CreatedAt: now})
 		return err
 	}
 	switch {
@@ -372,19 +394,19 @@ func (h ValidateResolveActivity) shipStep(ctx context.Context, opts Options, req
 		if tried(st.Effects.Push) || tried(st.Effects.PR) {
 			return stop("/validate-ship stopped at push: the push or the pull request did not succeed." + retry)
 		}
-		if err := begin(store.EffectPush, st.Commit); err != nil {
+		if err := begin(store.EffectPush, st.deliveryCommit()); err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, err
 		}
 		if st.Effects.PR != nil && !effectDone(st.Effects.PR) {
-			if err := begin(store.EffectPR, st.Commit); err != nil {
+			if err := begin(store.EffectPR, st.deliveryCommit()); err != nil {
 				return ActivityResult{Diagnostic: err.Error()}, err
 			}
 		}
 		return h.accept(ctx, opts, req, st, now, "push", "ship: push")
 	case !effectDone(st.Effects.Merge):
 		pr := decodeEffectResult(st.Effects.PR)
-		if pr.Number < 1 || pr.Head != st.Commit {
-			return stop(fmt.Sprintf("/validate-ship stopped at merge: pull request #%d is at head `%s`, not the tested commit `%s`.", pr.Number, short(pr.Head), short(st.Commit)))
+		if pr.Number < 1 || pr.Head != st.deliveryCommit() {
+			return stop(fmt.Sprintf("/validate-ship stopped at merge: pull request #%d is at head `%s`, not the displayed delivery commit `%s`.", pr.Number, short(pr.Head), short(st.deliveryCommit())))
 		}
 		if tried(st.Effects.Merge) && st.mergeConflicted() {
 			return stop("The ship stopped at merge: " + st.mergeConflictStep())
@@ -404,7 +426,7 @@ func (h ValidateResolveActivity) shipStep(ctx context.Context, opts Options, req
 		if err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, fmt.Errorf("resolve the issues to close: %w", err)
 		}
-		if err := begin(store.EffectClose, validateNumbers(target.CloseSet())); err != nil {
+		if err := begin(store.EffectClose, st.closeEffectTarget(target.CloseSet())); err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, err
 		}
 		return h.accept(ctx, opts, req, st, now, "close", "ship: close")
@@ -415,6 +437,20 @@ func (h ValidateResolveActivity) shipStep(ctx context.Context, opts Options, req
 // accept clears the notice and returns the outcome with the revision the state
 // has after the records just written.
 func (h ValidateResolveActivity) accept(ctx context.Context, opts Options, req ActivityRequest, _ ValidateState, now time.Time, outcome, what string) (ActivityResult, error) {
+	if wait, e := opts.DB.GetGraphOwnerWait(ctx, req.InstanceID); e == nil && wait.ReplyID > 0 {
+		instance, e := opts.DB.GetGraphInstance(ctx, req.InstanceID)
+		if e != nil {
+			return ActivityResult{Diagnostic: e.Error()}, e
+		}
+		session, e := opts.DB.GetSession(ctx, instance.SessionID)
+		if e != nil {
+			return ActivityResult{Diagnostic: e.Error()}, e
+		}
+		if e = opts.DB.ResolveOwnerDecisionBinding(ctx, session.TaskRef, wait.ReplyID); e != nil {
+			return ActivityResult{Diagnostic: e.Error()}, e
+		}
+	}
+
 	after, err := LoadValidateState(ctx, opts, h.b.Profile, req.InstanceID)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
@@ -457,7 +493,7 @@ func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, 
 	effects, err := opts.DB.ListValidateEffects(ctx, st.InstanceID)
 	if err == nil {
 		for _, e := range effects {
-			if e.ConfirmCommentID != commentID || e.Commit != st.Commit {
+			if e.ConfirmCommentID != commentID || e.Commit != st.Commit && e.Commit != st.deliveryCommit() {
 				continue
 			}
 			switch e.Kind {
@@ -485,9 +521,10 @@ func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, 
 
 func validateShipSettlesTicketDecisions(st ValidateState) bool {
 	for _, f := range st.Findings {
-		if f.State == findingAwaitingCheck || (f.Optional && f.needsChoice() && f.Choice == nil) {
-			return true
+		if f.State == findingSatisfied || f.State == findingOwnerPassed || f.State == "passed" || (f.Optional && f.Choice != nil) {
+			continue
 		}
+		return true
 	}
 	return false
 }

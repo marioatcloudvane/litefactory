@@ -602,15 +602,16 @@ func (d *Daemon) doctorControls(ctx context.Context) error {
 			}
 		case "apply":
 			body = "Doctor apply is unavailable. This command did not approve or perform a repair."
-			if blocking, err := d.db.ReadDoctorRepair(ctx, c.TaskRef); err == nil && !doctorRepairSettled(blocking.State) {
-				body += " Repair " + blocking.ID + " for this task is still in state " + blocking.State + "."
-			} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+			if blocking, err := d.db.ReadDoctorRepair(ctx, c.TaskRef); err == nil {
+				body += " Retained repair " + blocking.ID + " for this task is in state " + blocking.State + "; this command did not change it."
+			} else if !errors.Is(err, store.ErrNotFound) {
 				return err
 			} else {
-				body += " There is no current proposal to apply; `/doctor <instructions>` asks for a fresh diagnosis."
+				body += " No retained repair was found for this task."
 			}
+			body += "\n\nAsk the factory operator to inspect this task on the factory host: `" + report.TaskInspectionCommand(c.TaskRef) + "`."
 		}
-		if c.Operation != "stop" {
+		if c.Operation != "stop" && c.Operation != "apply" {
 			body += "\n\nContinue with `/doctor <instructions>`."
 		}
 		safe, err := d.doctor.service.Redactor.Apply(ctx, body, 262144)
@@ -917,10 +918,3 @@ func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery 
 
 // doctorRepairSettled mirrors the terminal states excluded by the store's
 // one-active-repair-per-task index.
-func doctorRepairSettled(state string) bool {
-	switch state {
-	case "recovered", "stopped", "completed", "failed":
-		return true
-	}
-	return false
-}

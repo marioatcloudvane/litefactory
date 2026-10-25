@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -36,7 +37,7 @@ func TestProjectApproverPopulatedMigrationFreezesAuthenticatedHistory(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	comment, err := db.RecordComment(t.Context(), Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorHandle: owner.Handle, AuthorUserID: owner.UserID, Body: "original approved instruction\nbytes", CreatedAt: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), Classification: ClassificationInstruction})
+	comment, err := SeedHistoricalComment(t, db, Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorHandle: owner.Handle, AuthorUserID: owner.UserID, Body: "original approved instruction\nbytes", CreatedAt: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), Classification: ClassificationInstruction})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,9 +100,15 @@ func TestProjectApproverPopulatedMigrationFreezesAuthenticatedHistory(t *testing
 	if err != nil || !reflect.DeepEqual(watermark, gotWatermark) {
 		t.Fatalf("consumption changed: %+v %v", gotWatermark, err)
 	}
-	gotState, gotRevision, err := db.GetPlanWorkflowState(t.Context(), session.TaskRef)
-	if err != nil || gotRevision != revision || !reflect.DeepEqual(state, gotState) {
-		t.Fatalf("saved approval/wait changed: %+v %v", gotState, err)
+	// The saved row itself is compared: a read repairs a wait that no command
+	// could satisfy (#1160), which this fixture's wait is, but the migration
+	// must not change what was saved.
+	var gotRevision int64
+	var gotState string
+	err = db.sql.QueryRowContext(t.Context(), `SELECT revision,state_json FROM plan_workflow_states WHERE parent=?`, session.TaskRef).Scan(&gotRevision, &gotState)
+	wantState, marshalErr := json.Marshal(state)
+	if err != nil || marshalErr != nil || gotRevision != revision || gotState != string(wantState) {
+		t.Fatalf("saved approval/wait changed: %s %v %v", gotState, err, marshalErr)
 	}
 	gotDelivery, err := db.GetReportDelivery(t.Context(), delivery.Key)
 	if err != nil || !reflect.DeepEqual(delivery, gotDelivery) {
@@ -146,13 +153,7 @@ func TestProjectApproverLegacyBodyRunCannotInventAuthor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := db.AllocateRun(t.Context(), AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "spike", Agent: "claude", TriggerCommentID: 0, LogPath: func(int) string { return "/retained/body.jsonl" }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.FinishRun(t.Context(), run.ID, RunOutcome{Status: RunSucceeded}); err != nil {
-		t.Fatal(err)
-	}
+	run := seedHistoricalRunSnapshot(t, db, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "spike", Agent: "claude", TriggerCommentID: 0, LogPath: func(int) string { return "/retained/body.jsonl" }}, RunSucceeded)
 	if err = db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +191,7 @@ func TestProjectApproverLegacyRunlessReportRequiresExactSource(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err = db.RecordComment(t.Context(), Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorUserID: 42, AuthorHandle: "owner", Body: "unrelated instruction", CreatedAt: time.Now(), Classification: ClassificationInstruction}); err != nil {
+			if _, err = SeedHistoricalComment(t, db, Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorUserID: 42, AuthorHandle: "owner", Body: "unrelated instruction", CreatedAt: time.Now(), Classification: ClassificationInstruction}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err = db.EnsureReportDelivery(t.Context(), ReportDelivery{Key: "missing-source", SessionID: session.ID, TriggerID: trigger, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "forge", Purpose: "reply", BotUserID: 99, Body: "original bytes", Marker: "retained"}); err != nil {

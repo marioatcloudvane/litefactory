@@ -84,6 +84,10 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// WorkerTimeoutSeconds is the resolved owner default; node overrides take precedence.
+	WorkerTimeoutSeconds int
+	WorkerTimeoutSource  string
+
 	// GraphRetryDelay is the host-supplied delay for busy admission and self-retry.
 	GraphRetryDelay time.Duration
 	// ProjectApprovers enables project-qualified production ticket authority.
@@ -223,20 +227,9 @@ type Options struct {
 	AutoSyncBase      bool
 	AutoSyncMaxBehind int
 
-	// BlockRunOnConflict is [config.Settings.BlockRunOnConflict] (US-4/US-8),
-	// copied in the same way AutoSyncBase and AutoSyncMaxBehind are: this
-	// package reads a plain bool and has no opinion of its own about whether
-	// a conflict should stop the run.
-	//
-	// True refuses a turn whose task branch would not merge cleanly with the
-	// base branch, through [DispositionSyncRefused] and
-	// [report.ReplyRefusesSync], before the agent ever starts. False lets the
-	// run go ahead against the unmerged branch — the conflict is disclosed,
-	// not blocked. A caller that constructs Options without setting this
-	// field gets false — the same tolerance AutoSyncBase gets, and for the
-	// same reason: production always sets it from the loaded configuration
-	// (internal/daemon/setup.go), whose own default is true
-	// ([config.Settings.BlockRunOnConflict]).
+	// BlockRunOnConflict retains config.Settings.BlockRunOnConflict for
+	// compatibility. Either value permits covered preparation conflicts to
+	// continue with a caveat. Final save and integration gates stay strict.
 	BlockRunOnConflict bool
 
 	// SuggestConflictResolution is [config.Settings.SuggestConflictResolution]
@@ -358,6 +351,9 @@ type Trigger struct {
 	//
 	// Negative is neither, and is refused.
 	CommentID int64
+	// ReplyToCommentID is the explicit provider reply parent, when available.
+	// It never names the active question merely because a wait is open.
+	ReplyToCommentID int64
 	// Body is the comment text, verbatim and untrusted.
 	Body string
 	// Author is the handle that wrote it. It is the owner — the classification
@@ -368,6 +364,8 @@ type Trigger struct {
 
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
+	preparationAssessment bool
+
 	workflowPolicy *WorkflowPolicy
 	bugAdmitted    bool
 	// graphBugPreparation defers synchronization until the exact agent allocation
@@ -718,6 +716,11 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	if err := recoverPlanPublications(ctx, opts, session.ID); err != nil {
 		return result, err
 	}
+	if opts.ResearchReporter != nil {
+		if err := opts.ResearchReporter.RecoverValidatePublications(ctx, session.ID); err != nil {
+			return result, err
+		}
+	}
 	if err := recoverResearchPublications(ctx, opts, session.ID); err != nil {
 		return result, err
 	}
@@ -766,6 +769,11 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 
 	prep, err := prepare(ctx, opts, req, session, ref, logger)
 	if err != nil {
+		var observed *preparationObservationError
+		if errors.As(err, &observed) {
+			result.Sync = reportSync(observed.sync)
+			result.TaskSync = reportTaskSync(observed.sync.Task)
+		}
 		if errors.Is(err, store.ErrPlanNotReady) {
 			return readinessRefused(ctx, opts, result)
 		}
@@ -826,6 +834,23 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	// the runs row (US-9) and never spoken aloud.
 	result.Sync = reportSync(prep.sync)
 	result.TaskSync = reportTaskSync(prep.sync.Task)
+	if prep.reqAssessment() {
+		result.ToolProfile = prep.request.Permissions.Profile
+		if surface, ok := prep.request.Permissions.Payload.(harness.ToolSurface); ok {
+			result.ToolsRequested = append([]string(nil), surface.Tools...)
+		} else {
+			result.ToolsRequested = nil
+		}
+	}
+	result = attemptPreparationConflictSuggestion(ctx, opts, req, result, prep.sync, logger)
+	if result.ConflictSuggestionFailed {
+		caveat := "No suggested resolution could be produced for this conflict."
+		retained, err := opts.DB.RecordPreparationCaveats(ctx, prep.run.ID, append(append([]string(nil), prep.run.PreparationCaveats...), caveat))
+		if err != nil {
+			return result, err
+		}
+		prep.run, result.Run = retained, retained
+	}
 
 	return runAndHarvest(ctx, opts, prep, result, logger)
 }

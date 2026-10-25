@@ -282,7 +282,11 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			return w.finish(ctx, w.failed(ctx, scope, step, err, true))
 		}
 		if step.Status == store.GraphFailed {
-			return w.finish(ctx, w.failed(ctx, scope, step, errors.New(step.Activity.Diagnostic), false))
+			cause := errors.New(step.Activity.Diagnostic)
+			if step.Exhausted {
+				cause = &GraphLimitError{Node: step.Node, Diagnostic: step.Activity.Diagnostic}
+			}
+			return w.finish(ctx, w.failed(ctx, scope, step, cause, false))
 		}
 		if step.Deferred || (step.Activity.Outcome == "retry" && step.NextNode == step.Node) {
 			w.result.GraphDeferred = step.Deferred
@@ -321,6 +325,9 @@ type researchWorkflow struct {
 	// saved reports that a graph step already committed and pushed this run's
 	// worktree, so the end of the run does not save it again.
 	saved bool
+	// planUpstream is a graph Plan run's channel from its result resolver: an
+	// upstream story that was only publishing its stage during the attempt.
+	planUpstream *planUpstreamDeferral
 }
 
 // saveNow commits and pushes the run's worktree for a step that decided the work

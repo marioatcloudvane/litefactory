@@ -345,3 +345,120 @@ func TestReconcileWorkflowGraphsCancelsAttemptsOfFinishedInstances(t *testing.T)
 		t.Fatalf("%d attempts still open: %v", left, err)
 	}
 }
+
+// An owner's same-commit /validate may end a Validate instance only when
+// nothing is owed, attempted, running, waiting, held, scheduled or in flight.
+// Orphaned prelaunch runs are settled first; a retry-capped instance may be
+// restarted; one that never had a dispatch is kept for its own start replay.
+func TestCancelIdleValidateInstanceRequiresNothingInFlight(t *testing.T) {
+	for _, guard := range []string{"orphaned prelaunch", "retry capped", "no dispatch", "not validate", "pending dispatch", "running attempt", "waiting", "running run", "live prelaunch", "intent effect", "dispatched effect", "uncertain effect", "doctor", "pending schedule", "running schedule"} {
+		t.Run(guard, func(t *testing.T) {
+			db, launch := captureFixture(t)
+			ctx, at := t.Context(), graphTestTime()
+			admitted, err := db.AdmitWorkflowLaunch(ctx, launch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			instance := admitted.Instance
+			exec := func(query string, args ...any) int64 {
+				t.Helper()
+				res, err := db.sql.ExecContext(ctx, query, args...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				id, _ := res.LastInsertId()
+				return id
+			}
+			if guard != "not validate" {
+				exec(`UPDATE graph_definitions SET mode='validate' WHERE id=?`, instance.DefinitionID)
+			}
+			dispatch := func(status string) int64 {
+				return exec(`INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id,cancellation_reason) VALUES(?,?,?,?,?,?,?,'')`, instance.ID, instance.SessionID, instance.CurrentNode, FormatTime(at), status, FormatTime(at), admitted.LaunchID)
+			}
+			allocate := func(trigger int64, prelaunch bool) Run {
+				t.Helper()
+				segment, err := db.GetOrCreateSegment(ctx, instance.SessionID, 1, "work", AgentClaude)
+				if err != nil {
+					t.Fatal(err)
+				}
+				run, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: instance.SessionID, SegmentID: segment.ID, Mode: "validate", Agent: AgentClaude, TriggerCommentID: trigger, StartedAt: at, Prelaunch: prelaunch, LogPath: func(int) string { return "test.log" }})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return run
+			}
+			var orphan Run
+			switch guard {
+			case "no dispatch":
+			case "retry capped":
+				dispatch("cancelled")
+			case "pending dispatch":
+				dispatch("pending")
+			case "live prelaunch":
+				allocate(GraphDispatch{ID: dispatch("reserved")}.TriggerID(), true)
+			default:
+				orphan = allocate(GraphDispatch{ID: dispatch("finished")}.TriggerID(), true)
+			}
+			switch guard {
+			case "running attempt", "waiting", "intent effect", "dispatched effect", "uncertain effect":
+				a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, LaunchID: admitted.LaunchID, Node: instance.CurrentNode, Limit: 3, StartedAt: at})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if guard == "running attempt" {
+					break
+				}
+				if err := db.FinishGraphNodeAttempt(ctx, a.ID, GraphSucceeded, "success", at); err != nil {
+					t.Fatal(err)
+				}
+				if guard == "waiting" {
+					if err := db.RetainGraphComment(ctx, GraphCommentIntent{Key: "wait", InstanceID: instance.ID, SourceAttemptID: a.ID, Node: instance.CurrentNode, Kind: "question", Candidate: []byte(`{}`)}); err != nil {
+						t.Fatal(err)
+					}
+					exec(`UPDATE graph_owner_waits SET state='waiting' WHERE instance_id=?`, instance.ID)
+					break
+				}
+				state := strings.TrimSuffix(guard, " effect")
+				exec(`INSERT INTO graph_effects(operation,instance_id,source_attempt_id,kind,binding,state,created_at,updated_at) VALUES('pending',?,?,'test',X'',?,?,?)`, instance.ID, a.ID, state, FormatTime(at), FormatTime(at))
+			case "running run":
+				allocate(10, false)
+			case "doctor":
+				session, err := db.GetSession(ctx, instance.SessionID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, presentation := retainedPollProposal(t, db, session)
+				if _, err := db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "idle-hold", SourceID: "idle-input", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
+					t.Fatal(err)
+				}
+			case "pending schedule", "running schedule":
+				exec(`INSERT INTO schedules(session_id,source_comment_id,owner_handle,payload,status,created_at,updated_at) VALUES(?,1,'owner','test',?,?,?)`, instance.SessionID, strings.TrimSuffix(guard, " schedule"), FormatTime(at), FormatTime(at))
+			}
+			cancelled, err := db.CancelIdleValidateInstance(ctx, instance.ID, "the owner started Validate again on the same commit", at.Add(time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := guard == "orphaned prelaunch" || guard == "retry capped"
+			if cancelled != want {
+				t.Fatalf("cancelled=%v want %v", cancelled, want)
+			}
+			got, err := db.GetGraphInstance(ctx, instance.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if wantStatus := map[bool]string{true: GraphCancelled, false: GraphRunning}[want]; got.Status != wantStatus {
+				t.Fatalf("instance status=%s want %s", got.Status, wantStatus)
+			}
+			if orphan.ID > 0 {
+				run, err := db.GetRun(ctx, orphan.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// A doctor hold keeps the session's runs untouched.
+				if wantRun := map[bool]RunStatus{true: RunPrelaunch, false: RunFailed}[guard == "doctor"]; run.Status != wantRun {
+					t.Fatalf("orphaned run status=%s want %s", run.Status, wantRun)
+				}
+			}
+		})
+	}
+}

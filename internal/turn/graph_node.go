@@ -41,11 +41,22 @@ type GraphNodeRequest struct {
 // and exhausted limits. Status is the instance status, not the activity outcome.
 type GraphNodeResult struct {
 	// Deferred means admission is waiting. AttemptID is zero if no work began.
-	Deferred               bool
+	Deferred bool
+	// Exhausted means the node's dispatch limit was spent before it could run.
+	Exhausted              bool
 	InstanceID, AttemptID  int64
 	Node, NextNode, Status string
 	Activity               ActivityResult
 }
+
+// GraphLimitError is the cause of a graph run that stopped because a node's
+// dispatch limit was exhausted. Its text is the step's diagnostic.
+type GraphLimitError struct {
+	Node       string
+	Diagnostic string
+}
+
+func (e *GraphLimitError) Error() string { return e.Diagnostic }
 
 // parentSerializedActivity serializes on a Plan parent's story-progress lock,
 // which ExecuteNodeAction takes before reserving the attempt.
@@ -206,12 +217,13 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		var prerequisite *store.BugSyncPrerequisite
 		if gate, exists := graphexec.BugFixerSyncGate(req.Profile); exists {
 			if fixer, valid := graphexec.Decide(req.Profile, gate.Name, "synced"); valid {
-				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer}
+				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer, AllowDeferred: slices.Contains(gate.Outcomes, "deferred")}
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, FactoryStep: node.Action != ResearchAgentAction, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
+		out.Exhausted = true
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
 		if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction {
 			out.Activity.Diagnostic, err = graphBugSyncExhaustionDiagnostic(context.WithoutCancel(ctx), opts.DB, instance.ID, node.Name, out.Activity.Diagnostic)
@@ -257,7 +269,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		out.Deferred, out.NextNode = true, node.Name
 		return out, nil
 	}
-	if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction && (dispatchErr != nil || (activity.Outcome != "synced" && activity.Outcome != "current")) {
+	if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction && (dispatchErr != nil || (activity.Outcome != "synced" && activity.Outcome != "current" && activity.Outcome != "deferred")) {
 		out.Activity.Diagnostic = graphBugSyncDiagnostic(activity)
 	}
 	// Owner cancellation must park even when private result submission completed
@@ -345,6 +357,28 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 		}
 	}
 	completionCtx := ctx
+	if (!out.Activity.cleanupDeadline.IsZero() || errors.Is(ctx.Err(), context.DeadlineExceeded)) && out.AttemptID > 0 {
+		// A recorded deadline remains a timeout after its parent context has
+		// expired. Complete local bookkeeping without extending provider work
+		// or remote notice delivery. External cancellation retains its path.
+		settlement, cancel := agent.TimeoutSettlementContext(ctx)
+		defer cancel()
+		_, timeoutErr := opts.DB.GetAttemptTimeout(settlement, out.AttemptID)
+		if errors.Is(timeoutErr, store.ErrNotFound) && !out.Activity.cleanupDeadline.IsZero() {
+			// Collection failure cannot turn known expiry into an ordinary retry.
+			// Recover only the already persisted timing fact, not fresh process evidence.
+			timing, timingErr := opts.DB.GetAttemptTiming(settlement, out.AttemptID, 0)
+			if timingErr != nil {
+				return out, fmt.Errorf("read timed-out attempt policy: %w", timingErr)
+			}
+			timeoutErr = opts.DB.RecordAttemptTimeout(settlement, store.AttemptTimeout{NodeAttemptID: out.AttemptID, Budget: timing.Allowance, TimedOutAt: timing.Deadline})
+		}
+		if timeoutErr == nil {
+			completionCtx = settlement
+		} else if !errors.Is(timeoutErr, store.ErrNotFound) {
+			return out, fmt.Errorf("read graph timeout settlement: %w", timeoutErr)
+		}
+	}
 	ownerStopped := false
 	if !succeeded && req.RunID != 0 && ctx.Err() != nil {
 		// An owner stop cancels the worker context; settle the attempt anyway so

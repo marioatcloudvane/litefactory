@@ -2,6 +2,8 @@ package report
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +69,14 @@ func (t *StoryTally) valid() bool {
 // Every field except Ref and Ordinal is allowed to be absent. A run that
 // crashed on its way to reporting still gets a comment (AC-4.1).
 type Run struct {
+	RecoveredTimeout bool
+	WorkerLimit      time.Duration
+	WorkerDeadline   time.Time
+
+	PreparationCaveats       []string
+	ConflictProposal         *ConflictProposal
+	ConflictSuggestionFailed bool
+
 	// Meter contains prepared frozen metering values, independent of legacy
 	// cost. It is retained as an input even though the run comment no longer
 	// renders it.
@@ -170,20 +180,10 @@ type Run struct {
 	ToolsRequested []string
 	ToolProfile    string
 
-	// Sync is what litefactory's automatic branch sync reached for this run's
-	// task branch, before the run itself started (US-2). Nil renders no sync
-	// section at all — a caller that does not populate this field, or a repo
-	// where auto-sync has not landed, reports exactly as it did before this
-	// field existed. A non-nil Sync whose Outcome is [SyncUpToDate] also
-	// renders nothing (AC-3.1): the branch already had everything the base
-	// did, and that is not itself something to disclose.
-	//
-	// Every other outcome gets a rendered sentence, [SyncSkipped] included —
-	// a skip is never silent (AC-3.2), whatever caused it.
-	Sync *Sync
-
-	// TaskSync is retained as an input even though the run comment no longer
-	// renders it; [Sync] is the one disclosure this package still writes.
+	// Sync and TaskSync retain the separate preparation observations. Only
+	// unresolved freshness contributes to the combined preparation caveat;
+	// current, absent and successfully synchronized branches stay quiet.
+	Sync     *Sync
 	TaskSync *Sync
 
 	// BriefPath is the repository-relative, slash-separated path of this task's
@@ -282,10 +282,14 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 	var c cuts
 	view := describeOutcome(run)
 	logPath := run.logPath()
+	inspection := RunInspectionCommand(run.Ref, run.Ordinal) + " --raw"
+	if logPath == "" {
+		inspection = TaskInspectionCommand(run.Ref.String())
+	}
 
 	var sections [numSections]string
 	sections[secFixed] = fixedSection(run, view)
-	sections[secSync] = syncSection(run)
+	sections[secSync] = r.preparationSection(run, len(sections[secFixed]))
 	sections[secResult] = resultSection(run, view)
 
 	if body := join(sections[:]); len(body) <= r.budget {
@@ -296,9 +300,9 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 	//    that says what happened.
 	if sections[secResult] != "" {
 		if room := r.roomFor(sections, secResult); room > len(resultHeading)+minTailBytes {
-			sections[secResult], c.result = truncateEnd(sections[secResult], resultCutNotice(logPath), room)
+			sections[secResult], c.result = truncateEnd(sections[secResult], resultCutNotice(logPath, inspection), room)
 		} else {
-			sections[secResult] = droppedResultNotice(logPath)
+			sections[secResult] = droppedResultNotice(logPath, inspection)
 			c.result = true
 		}
 	}
@@ -430,6 +434,9 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 	if run.CommitSHA != "" {
 		v.lead += worktreeNote(run.WorktreePath)
 	}
+	if run.Result == nil || v.word == "not completed" {
+		v.lead += "\n\nInspect on the factory host: `" + RunInspectionCommand(run.Ref, run.Ordinal) + "`."
+	}
 	return v
 }
 
@@ -481,8 +488,7 @@ func describeRunOutcome(run Run) outcomeView {
 		return outcomeView{
 			word:  "outcome unknown",
 			alert: "CAUTION",
-			lead: fmt.Sprintf("litefactory did not record how run %d ended — it was most likely interrupted "+
-				"between finishing the run and reporting on it. The local log is the authority on what happened.", n),
+			lead:  fmt.Sprintf("litefactory did not record how run %d ended. Completion and the cause are unknown. Inspect on the factory host: `%s`.", n, RunInspectionCommand(run.Ref, n)),
 		}
 	}
 
@@ -513,27 +519,29 @@ func describeRunOutcome(run Run) outcomeView {
 			diagnostic, _ = truncateEnd(diagnostic, "…", 1024)
 			lead += "\n\nDiagnostic: " + codeSpan(diagnostic)
 		}
+		lead += "\n\nInspect on the factory host: `" + RunInspectionCommand(run.Ref, n) + "`."
 		return outcomeView{word: "failed", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeTimedOut:
-		lead := fmt.Sprintf("Run %d ran past the configured timeout for `%s` and litefactory killed it", n, tool)
+		lead := fmt.Sprintf("Run %d exceeded the configured timeout for `%s`", n, tool)
+		if run.RecoveredTimeout {
+			lead = fmt.Sprintf("Run %d’s recorded deadline for `%s` expired before restart; process completion evidence was unavailable", n, tool)
+		}
 		if d, ok := run.duration(); ok {
 			lead += " after " + formatDuration(d)
 		}
 		lead += ". The work it had done up to that point is still in the worktree. " +
-			"Raise the timeout or narrow the task, then comment again."
+			"Existing retries continue under the worker’s current policy. If the worker is waiting for input, reply on this issue to continue."
 		return outcomeView{word: "timed out", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeAbandoned:
-		lead := fmt.Sprintf("Run %d was abandoned because litefactory was shutting down. "+
-			"Nothing failed and nothing crashed: the daemon was asked to stop while the run was in flight, "+
-			"so it stopped. Comment again to run it.", n)
+		lead := fmt.Sprintf("Run %d is recorded as abandoned. "+
+			"Completion and any external effects are not confirmed. "+
+			"Inspect the retained work on the factory host before deciding whether to continue: `%s`.", n, RunInspectionCommand(run.Ref, n))
 		return outcomeView{word: "abandoned", alert: "NOTE", lead: lead}
 
 	case agent.OutcomeNoResult:
-		lead := fmt.Sprintf("Run %d exited cleanly without ever reporting a result. "+
-			"In practice this is usually a stale `%s` credential: the tool retries internally about ten times "+
-			"and then goes quiet. Run `%s` once by hand to check it is still logged in, then comment again.", n, tool, tool)
+		lead := fmt.Sprintf("Run %d exited without a recorded result. Completion and the cause are unknown. Inspect on the factory host: `%s`.", n, RunInspectionCommand(run.Ref, n))
 		return outcomeView{word: "no result", alert: "WARNING", lead: lead}
 
 	default:
@@ -541,7 +549,7 @@ func describeRunOutcome(run Run) outcomeView {
 			word:  "outcome unrecognised",
 			alert: "CAUTION",
 			lead: fmt.Sprintf("Run %d finished with an outcome litefactory does not recognise (%s). "+
-				"This is a bug in litefactory, not in the task. The local log is the authority.", n, res.Outcome),
+				"Completion is unknown. Inspect on the factory host: `%s`.", n, res.Outcome, RunInspectionCommand(run.Ref, n)),
 		}
 	}
 }
@@ -619,6 +627,12 @@ func metadataList(run Run, view outcomeView) string {
 		lines = append(lines, "- **"+label+":** "+value)
 	}
 
+	if run.WorkerLimit > 0 {
+		add("Worker limit", fmt.Sprintf("%g seconds", run.WorkerLimit.Seconds()))
+	}
+	if !run.WorkerDeadline.IsZero() {
+		add("Worker deadline", run.WorkerDeadline.UTC().Format(time.RFC3339Nano))
+	}
 	// The one Commit case that survives (AC-3.1): a non-success run that
 	// committed nothing still needs to say where whatever it did produce still
 	// is. A run with no branch has no worktree to name, and a run that either
@@ -706,6 +720,9 @@ type Sync struct {
 	// Outcome was decided: how many commits Base had that the branch did
 	// not, and how many the branch had that Base did not.
 	Behind, Ahead int
+	// CountsUnavailable is true when a graph retained a condition without
+	// measuring divergence. Do not invent counts for that observation.
+	CountsUnavailable bool
 
 	// Base is the base ref sync compared against and, when Outcome is
 	// [SyncSynced], the ref that was merged in — for example
@@ -716,12 +733,8 @@ type Sync struct {
 	// Outcome is [SyncSynced] and the merge actually moved the branch.
 	CommitSHA string
 
-	// Conflicts lists the paths a blocked merge preview reported, exactly as
-	// given. It is rendered inside a fenced block by [conflictsBlock], so a
-	// path cannot become markup in the comment (S-2) no matter what it
-	// contains — but this package does not sanitise or truncate the list
-	// itself, or decide which paths are safe to show at all. That is a
-	// caller's job (US-5); this renderer shows whatever list it is handed.
+	// Conflicts retains detailed observed paths for callers. The concise
+	// preparation passage does not render path lists.
 	Conflicts []string
 
 	// Reason is why sync did not complete, in a sentence fit to render
@@ -733,80 +746,99 @@ type Sync struct {
 	Reason string
 }
 
-const syncHeading = "**Base branch sync**"
-
-// syncSection renders the base-branch-sync disclosure (US-3). A nil Sync, or
-// one whose Outcome is [SyncUpToDate], renders nothing at all (AC-3.1): a
-// section that is merely empty would still look like something was omitted,
-// and the point of this rendering nothing here is that there is nothing to
-// say.
-//
-// Every other outcome gets a rendered sentence, [SyncSkipped] included
-// (AC-3.2) — see [Sync.Reason].
-func syncSection(run Run) string {
-	sync := run.Sync
-	if sync == nil || sync.Outcome == SyncUpToDate {
+// PreparationCaveat renders one bounded passage shared by ordinary and graph
+// results. Resolved freshness never creates a warning.
+func PreparationCaveat(caveats []string, syncs ...*Sync) string {
+	reasons := make([]string, 0, len(caveats)+len(syncs))
+	add := func(reason string) {
+		reason = oneLine(sanitize(reason))
+		if reason != "" && !slices.Contains(reasons, reason) {
+			reasons = append(reasons, reason)
+		}
+	}
+	for _, c := range caveats {
+		add(c)
+	}
+	for _, s := range syncs {
+		if s == nil || s.Outcome == SyncUpToDate || s.Outcome == SyncSynced || string(s.Outcome) == "absent" {
+			continue
+		}
+		if s.Outcome == SyncSkipped && s.Behind == 0 {
+			continue
+		}
+		phase := s.Phase
+		if phase == "" {
+			phase = "base"
+		}
+		reason := s.Reason
+		if reason == "" {
+			switch s.Outcome {
+			case SyncBlocked:
+				reason = "merging would conflict; existing work was preserved"
+			case SyncDeferredDirty:
+				reason = "uncommitted changes were preserved"
+			default:
+				reason = "synchronization remains unresolved"
+			}
+		}
+		if s.CountsUnavailable {
+			add(fmt.Sprintf("%s synchronization: %s.", phase, reason))
+		} else {
+			add(fmt.Sprintf("%s synchronization (%d behind): %s.", phase, s.Behind, reason))
+		}
+	}
+	if len(reasons) == 0 {
 		return ""
 	}
+	return "**Preparation caveat**" + sectionGap + strings.Join(reasons, " ")
+}
 
-	var withBase string
-	if sync.Base != "" {
-		withBase = " with " + codeSpan(sync.Base)
+// preparationSection keeps advisory proposals in the original run's normal
+// delivery. Prepared diffs are expendable; mandatory confirmation metadata is
+// retained before them and no proposal is applied by rendering it.
+func (r *Reporter) preparationSection(run Run, fixedBytes int) string {
+	caveats := append([]string(nil), run.PreparationCaveats...)
+	if run.ConflictSuggestionFailed {
+		caveats = append(caveats, conflictSuggestionFailedSentence)
 	}
-
-	var lead string
-	switch sync.Outcome {
-	case SyncSynced:
-		lead = fmt.Sprintf("litefactory synced this branch%s before the run started: "+
-			"it was %d commit(s) behind and is now %d ahead.", withBase, sync.Behind, sync.Ahead)
-		if sync.CommitSHA != "" {
-			lead += " Merge commit: " + codeSpan(sync.CommitSHA) + "."
+	section := PreparationCaveat(caveats, run.TaskSync, run.Sync)
+	if run.ConflictProposal == nil {
+		return section
+	}
+	metadata, err := conflictPreviewMetadata(Reply{Ref: run.Ref, ConflictProposal: run.ConflictProposal})
+	if err != nil {
+		return section
+	}
+	metadata = strings.TrimPrefix(metadata, ReplyMarker(run.Ref)+sectionGap)
+	if section == "" {
+		section = "**Preparation caveat**"
+	}
+	section += sectionGap + metadata
+	// Leave room for the fixed run status and an omitted-result notice.
+	limit := r.budget - fixedBytes - 1024
+	if len(section)+len(conflictDiffOmission) > limit {
+		// Never truncate complete proposal metadata into misleading confirmation
+		// advice. The durable proposal remains available for inspection.
+		return PreparationCaveat(append(caveats, "Suggested conflict resolution could not fit this result; resolve manually or regenerate."), run.TaskSync, run.Sync)
+	}
+	omitted := false
+	for _, file := range run.ConflictProposal.Files {
+		content := sanitize(file.Diff)
+		if content == "" {
+			continue
 		}
-
-	case SyncBlocked:
-		lead = fmt.Sprintf("litefactory could not sync this branch%s: merging would conflict, "+
-			"so the branch was left as it was (%d commit(s) behind) and the run went ahead against it.",
-			withBase, sync.Behind)
-
-	case SyncSkipped:
-		reason := oneLine(sync.Reason)
-		if reason == "" {
-			reason = "no reason was recorded for it"
+		fence := fenceFor(content)
+		block := sectionGap + fence + "\n" + strconv.Quote(sanitize(file.Path)) + "\n" + content + "\n" + fence
+		if len(section)+len(block)+len(conflictDiffOmission) > limit {
+			omitted = true
+			continue
 		}
-		lead = fmt.Sprintf("litefactory skipped syncing this branch%s (%d commit(s) behind): %s.",
-			withBase, sync.Behind, reason)
-
-	case SyncDeferredDirty:
-		lead = fmt.Sprintf("litefactory deferred syncing this branch%s to preserve uncommitted changes "+
-			"for this run to inspect and finish (%d commit(s) behind, %d ahead). "+
-			"The base was not merged; this run proceeded on the current task base. "+
-			"Synchronization will be reconsidered on the next eligible clean run.", withBase, sync.Behind, sync.Ahead)
-
-	case SyncFailed:
-		reason := oneLine(sanitize(sync.Reason))
-		if reason == "" {
-			reason = "the attempt failed without recording why"
-		}
-		lead = fmt.Sprintf("litefactory tried to sync this branch%s but could not: %s.", withBase, reason)
-
-	default:
-		lead = fmt.Sprintf("litefactory recorded a base branch sync outcome it does not recognise (%s).", sync.Outcome)
+		section += block
 	}
-
-	var b strings.Builder
-	b.WriteString(syncHeading)
-	b.WriteString(sectionGap)
-	b.WriteString(lead)
-	if sync.LocalSHA != "" {
-		fmt.Fprintf(&b, " Compared local %s and remote %s.", codeSpan(sync.LocalSHA), codeSpan(sync.RemoteSHA))
+	if omitted {
+		section += conflictDiffOmission
 	}
-
-	if sync.Outcome == SyncBlocked && len(sync.Conflicts) > 0 {
-		b.WriteString(sectionGap)
-		fmt.Fprintf(&b, "Conflicting path(s) (%d):\n", len(sync.Conflicts))
-		b.WriteString(conflictsBlock(sync.Conflicts))
-	}
-	return b.String()
+	return section
 }
 
 // conflictsBlock quotes conflicting paths inside a fenced block, so a path
@@ -895,22 +927,38 @@ func resultSection(run Run, view outcomeView) string {
 	// Cut with no notice, close whatever the cut opened, then add the notice —
 	// so the line explaining the cut is never itself inside a code block. The
 	// room reserved covers the notice and the longest fence it could need.
-	if cut, ok := truncateEnd(text, "", maxResultBytes-len(resultOverlongNotice)-maxFenceBytes); ok {
-		text = closeOpenFence(cut) + resultOverlongNotice
+	notice := resultOverlongNotice + completeRunInspection(run)
+	if cut, ok := truncateEnd(text, "", maxResultBytes-len(notice)-maxFenceBytes); ok {
+		text = closeOpenFence(cut) + notice
 	}
 	return resultHeading + sectionGap + text
 }
 
+// completeRunInspection uses the unfiltered raw route so omitted commands and
+// consequences in the saved final event remain available to the operator.
+func completeRunInspection(run Run) string {
+	if run.logPath() == "" {
+		return "\n\nNo saved event log is identified. Ask the factory operator to inspect retained diagnostics on the factory host: `" + TaskInspectionCommand(run.Ref.String()) + "`."
+	}
+	return "\n\nAsk the factory operator to inspect the saved event log on the factory host: `" + RunInspectionCommand(run.Ref, run.Ordinal) + " --raw`."
+}
+
 // resultCutNotice ends a final message that had to be shortened.
-func resultCutNotice(logPath string) string {
-	return sectionGap + "_[litefactory: cut to fit the comment size limit. The full run is at " + logLocation(logPath) + ".]_"
+func resultCutNotice(logPath, inspection string) string {
+	if logPath == "" {
+		return sectionGap + "_[litefactory: cut to fit the comment size limit; no saved event log is identified.]_" + sectionGap + "Ask the factory operator to inspect retained diagnostics on the factory host: `" + inspection + "`."
+	}
+	return sectionGap + "_[litefactory: cut to fit the comment size limit. The full run is at " + logLocation(logPath) + ".]_" + sectionGap + "Ask the factory operator to inspect the saved event log on the factory host: `" + inspection + "`."
 }
 
 // droppedResultNotice replaces a final message there was no room for at all.
-func droppedResultNotice(logPath string) string {
+func droppedResultNotice(logPath, inspection string) string {
+	if logPath == "" {
+		return resultHeading + sectionGap + "_Omitted to fit the comment size limit; no saved event log is identified._" + sectionGap + "Ask the factory operator to inspect retained diagnostics on the factory host: `" + inspection + "`."
+	}
 	return resultHeading + sectionGap +
 		"_Omitted to fit the comment size limit. The run's final message is in the local log at " +
-		logLocation(logPath) + "._"
+		logLocation(logPath) + "._" + sectionGap + "Ask the factory operator to inspect the saved event log on the factory host: `" + inspection + "`."
 }
 
 // logLocation renders the local log path for a notice, or a phrase standing in

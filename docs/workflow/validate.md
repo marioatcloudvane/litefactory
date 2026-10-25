@@ -4,7 +4,7 @@
 
 Validate checks finished work and helps you ship it. It tests one exact commit, may repair a failing suite a little, has three read-only reviewers assess the result, and then hands the decisions to you. Start it with `/validate <text>`, or let `validate.auto_start` start it once Implement has merged every story. For the owner's view, see [validation and delivery](../guides/validation-and-delivery.md).
 
-The graph is `internal/teamsource/validate/validate.dot`, and it is the only place the flow lives: the order, the repair bound, the time budget, the measured limits and the reviewers are declared there. Go supplies steps and never picks the next one.
+The graph is `teams/source/base-team/validate/validate.dot`, and it is the only place the flow lives: the order, the repair bound, the time budget, the measured limits and the reviewers are declared there. Go supplies steps and never picks the next one.
 
 ## The suite
 
@@ -162,7 +162,7 @@ findings, verdicts, choices and effect states.
 
 ### Owner commands
 
-Exact grammar, one line, each naming the current report revision:
+One-line commands accept the explicit report revision or the displayed short reference. Omit the target only while every unresolved display for that action has the same target and no newer target exists. Replacement requires its short reference; stale explicit references are refused.
 
 | Command | Meaning |
 |---|---|
@@ -172,16 +172,18 @@ Exact grammar, one line, each naming the current report revision:
 | `/validate-push <rev>` | push the tested commit and find or create the PR into the base |
 | `/validate-merge <rev> <pr> <head sha>` | merge only at that head |
 | `/validate-close <rev> <issue>...` | close the parent and accepted story issues |
-| `/validate-ship <rev> -- <evidence>` | the normal case in one command: record every eligible criterion or review awaiting an owner check as passed with the evidence, defer every open optional finding, then push and open the PR, merge it at the recorded PR number and head, and close the parent and story issues |
+| `/validate-ship [reference] -- <reason>` | authorize all exact displayed blockers and ship the displayed delivery commit, retaining original factual evidence and its tested commit |
+| `/return [reference] -- <requested change>` | return reviewed work directly to Implement on the same branch with the full review and explanation |
 
-`/validate-ship` is refused with one notice naming what blocks, and records
-nothing, when the suite did not pass, a reviewer has no usable result, the run is
-not assessed, a failed criterion or blocking finding is open, or an issue the owner
-chose is not created yet. A failed or uncertain step stops the ship at that step;
-repeating `/validate-ship` (with the current revision) continues at the first undone
-step and never repeats a finished one. When nothing blocks and delivery is
-unfinished, the report's next step is `/validate-ship`; the individual commands stay
-for exceptions.
+One `/validate-ship` records an immutable owner exception for all displayed
+blockers, including failed suites, missing reviews, substantive findings and
+operational blockers. It retains the tested commit H and displayed delivery
+commit D separately and delivers D. Old tests remain evidence only for H. Later
+undisplayed drift to E, changed evidence or new blockers requires a fresh
+shipping decision. A failed or uncertain operation stays factual and stops the
+flow. Confirmed delivery with exceptions says “shipped with owner waiver”.
+The report retains the exact blockers, evidence revision, owner, source comment,
+reason and time.
 
 A non-owner, malformed or stale command changes nothing; the reply shows the
 current commands. Defer is allowed only for optional (advisory) findings. A repair
