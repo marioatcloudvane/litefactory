@@ -19,13 +19,14 @@ Evidence:
 
 ## f3
 
-Workers and sync resolvers require plain reasons and forbid direct owner questions. Worker incomplete results retry before exhaustion; blocked results park immediately. Guidance improvements therefore need coordination between worker result content and factory handoff, while preserving who may ask and resume.
+Current story workers cannot submit owner questions, but the coordinator sync resolver can submit blocked questions with options and recommendation through the factory; this corrects the initial finding that grouped both roles together. Incomplete worker results retry before exhaustion and blocked results park immediately; handoff must preserve role-specific authority.
 
 Evidence:
 
-- `internal/teamsource/implement/story-worker.md:47`
-- `internal/teamsource/implement/story-worker.md:62`
+- `internal/teamsource/implement/story-worker.md:48`
 - `internal/teamsource/implement/sync-resolver.md:30`
+- `internal/turn/implement_steps.go:373`
+- `internal/turn/implement_steps.go:487`
 
 ## f4
 
@@ -133,7 +134,7 @@ Evidence:
 
 ## f14
 
-Existing tests cover reply text, Validate admission, story comments, graph stop recovery and owner resume semantics. They are useful places to verify the requested guidance without changing authorization or retry behavior. This research pass ran no tests and changed no product code.
+Existing tests cover reply text, Validate admission, story comments, graph stop recovery and owner resume semantics; the initial bounded research pass ran none, while subsequent rechecks ran targeted tests recorded in f23 and f36. No product code has changed.
 
 Evidence:
 
@@ -144,13 +145,14 @@ Evidence:
 
 ## f15
 
-Validate command parsing requires a whole single-line comment with revision and command-specific evidence; next-command generation is state-aware and the combined ship path can record owner passes and optional deferrals, so guidance must explain effects rather than infer shipping blockers from the item list alone.
+Current Validate controls support explicit revisions and displayed decision references for supported shorthand, resolved once to retained exact input. Combined shipping now records a reasoned waiver of displayed blockers while preserving factual suite/review/choice evidence; the earlier description of shipping as recording owner passes and optional deferrals must not be used as the current recovery contract.
 
 Evidence:
 
-- `internal/turn/validate_commands.go:77`
-- `internal/turn/validate_commands.go:196`
-- `internal/turn/validate_commands.go:241`
+- `internal/turn/owner_decisions.go:17`
+- `internal/turn/validate_ship_waiver.go:74`
+- `internal/turn/validate_state.go:360`
+- `internal/turn/validate_resolve.go:261`
 
 ## f16
 
@@ -234,6 +236,147 @@ Evidence:
 
 ## f24
 
-Explicit unassessed inventory remainder for the next pass: all Validate admission/control/stale/delivery/repair/handback branches, graph-stop and stop-recovery producers, session recovery and automatic-shutdown producers, Doctor commands/owner-stop summaries, conversation notices and truncation, Plan question/report templates and workflow footers, Bug/Spike/Research publication paths, maintained stack role sources and release propagation. Fixed-reply and run-outcome inventory above is a bounded source recheck, not exhaustive coverage of these remaining families.
+Remaining unassessed source inventory after the current pass: Doctor diagnosis/apply/restart/rollback entry refusals and their transport rendering; conversation proposal confirmation, permission/access, details/inbox, argument and command failures; lifecycle and owner-input guidance messages; final mapping of those producers to owner-visible reports. Historical immutable releases and live provider/incident behavior remain explicitly outside the source audit's completeness claim. Validate, graph recovery, Research/Spike/Plan message and maintained role classifications are now recorded in f25–f35.
 
 _No source reference was recorded for this finding._
+
+## f25
+
+Validate admission inventory (D=deficient, C=compliant for the bounded action, N=internal/no new owner action): non-owner D, no owner handoff; stopped-entry replay C, exact /validate and fresh-run effect; unfinished Implement D, generic finish-first without per-story recovery; newer head while old run executes C, wait then /validate; duplicate same-head with existing report C, direct report link and no duplicate run; duplicate before report C, report will appear; missing instance/non-running/unclaimed control D, no-wait fact without current recovery. Internal lookup/binding failures N at this renderer and flow through run/graph failure handling.
+
+Evidence:
+
+- `internal/turn/validate_admission.go:163`
+- `internal/turn/validate_admission.go:274`
+- `internal/turn/validate_admission.go:362`
+- `internal/turn/validate_admission.go:505`
+- `internal/turn/validate_admission.go:593`
+
+## f26
+
+Validate owner-control inventory: no reply/replayed accepted reply N; wrong actor D, no handoff; invalid syntax or decision binding D, parser/error text without targeted corrected command; stale revision and changed delivery head D, latest-report direction lacks refresh route; not-reviewed item C for retry command and effect; ineligible check, unknown finding, check-required-before-choice, no-choice state, disallowed accept and blocking defer D, cause exists but missing exact allowed current command or full consequence; push-not-ready D, blocker list lacks order; already pushed/already merged/already closed N locally, parent Next must remain correct; merge-before-push, PR/head mismatch, close-before-merge and wrong close set D, specific prerequisite but no exact supported replacement; return unsupported/already returned/unassessed/no targets D except already-returned state can be explained by parent Next; ticket approver before code-owner ship D, no direct approver action; ship-before-assessment D; delivery complete N; changed waiver, head or admitted input D, fresh-decision requirement without precise current destination.
+
+Evidence:
+
+- `internal/turn/validate_resolve.go:97`
+- `internal/turn/validate_resolve.go:117`
+- `internal/turn/validate_resolve.go:137`
+- `internal/turn/validate_resolve.go:189`
+- `internal/turn/validate_resolve.go:240`
+- `internal/turn/validate_resolve.go:352`
+
+## f27
+
+Validate Next/report inventory: returned-to-Implement C, identifies automatic revalidation; merge conflict C for supported factory return alternative with effect, manual route still needs concrete branch procedure; ship-line D, consequence not explained inline; failed-suite/remaining-blocker with return option C for repair alternatives but ordering remains absent; missing reviewers C, exact /validate with passed-suite reuse; not-assessed C, explicit automatic wait; owner items D, unordered sub-issue direction; issue creation pending C for bounded wait; next push/merge/close D, command without consequence; complete N. Owner-wait candidate D: at most 12 open items, no per-item options, no direct report link, and 'One confirmation never implies the next' conflicts with the existing explicit combined ship action. Report waiver prose exposes internal actor/instance/evidence identities instead of explaining the owner's decision simply.
+
+Evidence:
+
+- `internal/turn/validate_commands.go:290`
+- `internal/turn/validate_owner.go:380`
+- `internal/turn/validate_report.go:31`
+- `internal/turn/validate_report.go:99`
+
+## f28
+
+Validate story-report/shortening inventory: missing reviewer D for dependency on parent rather than immediate command; failed criterion/review blocker D for incomplete choice effect or exact recovery; eligible owner check D, pass|fail template is not copyable as one valid command and each effect is absent; finding choice D, pipe alternatives omit consequences; follow-up issue retry D, exact command exists but uncertain effect/reconciliation consequence is unclear; nothing-to-do N. Full-text/bare-item shortening D: it can remove explanations; omitted-item fallback D: it promises parent commands even though the parent renders a summary table and Next rather than every omitted item's command. Scope must guarantee a real complete destination for omitted recovery items.
+
+Evidence:
+
+- `internal/turn/validate_story_report.go:184`
+- `internal/turn/validate_story_report.go:225`
+- `internal/turn/validate_story_report.go:260`
+- `internal/turn/validate_story_report.go:289`
+- `internal/turn/validate_report.go:81`
+
+## f29
+
+Validate effect/repair inventory: issue lookup failure, ambiguous marker, unconfirmed create/missing number D; push error or unobserved remote head D; PR list/create/unconfirmed head D; merge read failure, changed branch/PR head, rejected merge, unreadable outcome, not-yet-merged and wrong merged head D; partial issue closure or head drift D. All retain effect facts but owner recovery is mostly generic command retry, not state-specific reconciliation. Already completed/reconciled effects N. Ship-step push/merge/close retry has a current command but needs consequences (D); merge-conflict alternative C as above; PR mismatch or not-ready ship D. Repair spent/blocked/unfinished/too-big/handback D at owner surface: round facts/reasons and limited objectives exist, but ordered recovery comes only from generic Next; kept repair N while automatic checks continue. Handback reopened/skipped D: explains what reopened but not individual skipped-story recovery.
+
+Evidence:
+
+- `internal/turn/validate_remote.go:135`
+- `internal/turn/validate_remote.go:250`
+- `internal/turn/validate_remote.go:380`
+- `internal/turn/validate_remote.go:475`
+- `internal/turn/validate_resolve.go:388`
+- `internal/turn/validate_repair.go:195`
+- `internal/turn/validate_implement.go:415`
+
+## f30
+
+Graph recovery projection inventory: no retained graph N; completed graph D, vague read-result without link; non-running graph with diagnostic C for exact Doctor diagnosis step, but ongoing sibling work omitted; waiting question D, generic reply with no question link/options; claimed continuation C, wait with no completion claim; pending C, eligibility not promised start; reserved/running C, wait; cancelled with already scheduled follow-up C; cancelled with active attempt C for exact Doctor inspection; cancelled with existing run C, wait; cancelled with valid saved launch or retained Research files D, generic guidance instead of task-specific reply; cancelled without saved launch C for exact Doctor inspection and no ordinary-reply claim; missing/mismatched dispatch C for safe diagnosis fallback. Stop/dispatch publication fallbacks supply exact diagnosis commands but still lead with internal step/cause and do not show independent affected work.
+
+Evidence:
+
+- `internal/turn/recovery_projection.go:13`
+- `internal/turn/graph_stops.go:193`
+- `internal/turn/graph_delivery_reports.go:82`
+
+## f31
+
+Session recovery inventory: auto disabled D; unreliable reset D; missing conversation identity D; automatic-attempt limit spent D—all state manual recovery without exact supported action. Persisted pending/reserved/running automatic continuation C for local wait state; succeeded D for indirect retained-result direction; canceled/other terminal state D for manual-reason or inspect guidance. Cancellation reporting retains reason, not concrete next action (D). Chat suppresses abandoned run notices because daemon recovery relaunches them, while generic run text says comment again: these surfaces need one state-derived explanation, not duplicate retry guidance.
+
+Evidence:
+
+- `internal/turn/continuations.go:21`
+- `internal/report/recovery.go:18`
+- `internal/daemon/continuation_cancellations.go:90`
+- `internal/messaging/notices.go:67`
+- `internal/report/run.go:522`
+
+## f32
+
+Research/Spike/Plan reporting inventory: Research review footer C for exact done, change feedback and /plan alternatives/consequences; Research question footer D, answer syntax exists but no per-choice effect guarantee; failure footer D, generic new comment; final terminal footer C for /plan handoff; auto-next footer D, timing promise and interruption assertion must follow real admission state; seven-day reminder C, direct wait link and optional later reply. Spike ask/failure shares those classifications; final C for explicit advisory handoff; failed/blocked/too-big measured check D, not-ready fact without supported recovery; unconfirmed issue filing D, manual repository check with no exact inspection route. Plan ordinary failure D, restart effect stated but generic reply; capacity-exhausted failure D, removes retry advice without alternate recovery; internal unreportable/prelaunch or pending-delivery cases N at renderer and remain factory recovery debts rather than claimed successful reports.
+
+Evidence:
+
+- `internal/turn/research_comments.go:421`
+- `internal/turn/research_reminder.go:52`
+- `internal/turn/spike_workflow.go:258`
+- `internal/turn/plan_graph_failure.go:56`
+
+## f33
+
+Plan notice inventory: stories-created C for linked sub-issues, approve/change alternatives and stage ordering; plan-ready C for exact Implement action; waiting-with-current-commands C for bounded stage approval, but no-review rows D because 'still being worked on or unresolved' merges different states. Set-promotion refusal with current set C for exact permitted command, without current set D for recovery; final-approval mismatch with current final review C, without current review C for waiting but needs accurate future update; child-reply generic refusal D, lists speculative possible reasons rather than actual one; lifecycle closed/reopened with no holds N for plain update, lifecycle/request/plan/dependency holds D for 'resolve listed cause' without exact action; parent summary missing issue binding D, blocked with no repair route. PlanReplyExplanationText D when producer carries no current command or when its shortening clips it.
+
+Evidence:
+
+- `internal/turn/plan_graph_notices.go:140`
+- `internal/turn/plan_graph_promote.go:25`
+- `internal/report/plan_progress.go:19`
+- `internal/turn/plan_summary.go:125`
+
+## f34
+
+Maintained instruction inventory covers all 16 role files per Go, .NET, Python and Swift source tree using content comparison, not inspection of historical releases: Research investigate D for no stop-impact/action contract; shaping and Plan set/story/technical/acceptance D despite concrete recommended options because stop consequences/continuing work are not required; worker D despite plain reason; sync resolver D overall, with Go/Python/Swift supporting submitted blocked questions while .NET still instructs no owner questions; Validate acceptance/code/architecture D at owner surface despite evidence findings and no-question permissions; Validate repair D for missing owner recovery contract despite precise handback objectives; Bug analyst/fixer D for partial/blocked/reshape explanations without complete options/effects; Spike investigator/fixer D for terminal not-done handoff without complete exact next steps. Preserve each role's real authority and let the authorized factory reporting surface supply commands.
+
+Evidence:
+
+- `internal/teamsource/implement/sync-resolver.md:30`
+- `teams/source/dotnet-web/implement/sync-resolver.md:30`
+- `internal/teamsource/python-fastapi/implement/sync-resolver.md:30`
+- `internal/teamsource/swift-ios/implement/sync-resolver.md:30`
+- `internal/teamsource/bug/bug-analyst.md:49`
+- `internal/teamsource/spike/spike-fixer.md:39`
+- `internal/teamsource/validate/validate-repair.md:42`
+
+## f35
+
+Shared instruction and release inventory: Doctor diagnosis is a compliant guidance model (answer first, exact numbered options/effects, uncertainty and no authority escalation); conversation action-outcome D due to one/two-sentence and no-ID instructions that can hide necessary command targeting; factory/reasoner/correction roles D for no common stop-guidance exception although they preserve fact/authority limits. Maintained release sources are Go 1.0.5, Python 1.0.5, Swift 1.0.1 and .NET 1.0.1 under teams/source/dotnet-web, not internal/teamsource/dotnet-web; catalogue historical releases are immutable and not a migration target. Future instruction releases must cover all four source owners and shared embedded roles.
+
+Evidence:
+
+- `internal/instructionpackage/embedded/agents/doctor-diagnosis.md:87`
+- `internal/instructionpackage/embedded/agents/conversation-action-outcome.md:1`
+- `internal/instructionpackage/embedded/agents/conversation-factory.md:69`
+- `internal/teamrelease/dotnet_web_test.go:22`
+- `internal/teamrelease/release.go:81`
+
+## f36
+
+Further verification passed: go test ./internal/turn -run 'TestOwnerShipDisplayedDeliveryCommitKeepsTestedEvidence|TestImplementCoordinatorResolverQuestionsReachTheOwnerWithTheirOptions' -count=1. These existing tests verify current waiver evidence semantics and resolver option propagation; they do not establish overall guidance compliance. No product code was modified.
+
+Evidence:
+
+- `internal/turn/validate_ship_waiver_test.go:10`
+- `internal/turn/implement_graph_run_test.go:1504`
