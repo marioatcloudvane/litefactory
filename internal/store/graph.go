@@ -92,6 +92,7 @@ type GraphTransition struct {
 // Bug graph. It names the single declared sync gate and its fixer destination.
 type BugSyncPrerequisite struct {
 	SyncNode, FixerNode string
+	AllowDeferred       bool
 }
 
 // GraphAttemptStart reserves the next attempt. Limit zero is unbounded; a

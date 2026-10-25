@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,12 +170,15 @@ func TestAutomaticManagedResumePreservesFrozenScope(t *testing.T) {
 			req.Trigger.CommentID = c.TriggerID()
 			req.Trigger.Body = c.Context.Request
 			req.Command = Command{Kind: KindFreeText, Text: c.Context.Request}
-			result := f.execute(req)
+			result, executeErr := Execute(t.Context(), f.opts, req)
 			if changedGeneration {
-				if calls != 1 || len(f.runs()) != 1 || result.Succeeded() {
+				if executeErr == nil || !strings.Contains(executeErr.Error(), "approved story generation changed") {
+					t.Fatalf("changed identity was not refused: %v", executeErr)
+				}
+				if calls != 1 || len(f.runs()) != 1 || result.Run.ID != 0 || result.Harness != nil {
 					t.Fatalf("changed generation invoked: calls=%d result=%+v", calls, result)
 				}
-			} else if calls != 2 || !result.Succeeded() {
+			} else if executeErr != nil || calls != 2 || !result.Succeeded() {
 				t.Fatalf("frozen automatic resume failed: calls=%d result=%+v", calls, result)
 			}
 		})

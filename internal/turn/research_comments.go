@@ -204,7 +204,15 @@ func (r *Reporter) ReportWorkflowCandidate(ctx context.Context, source store.Gra
 		return Posted{}, intent.Key, err
 	}
 	posted, err := r.deliver(ctx, intent, func() (redact.Body, error) {
-		return r.renderer.RenderReportDelivery(ctx, policy.Render(candidate, next, ref, session.Branch), "")
+		text := policy.Render(candidate, next, ref, session.Branch)
+		caveat, err := graphPreparationCaveat(ctx, r.db, source.InstanceID)
+		if err != nil {
+			return redact.Body{}, err
+		}
+		if caveat != "" {
+			text += "\n\n" + caveat
+		}
+		return r.renderer.RenderReportDelivery(ctx, text, "")
 	})
 	return posted, intent.Key, err
 }

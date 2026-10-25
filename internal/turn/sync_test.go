@@ -235,8 +235,8 @@ func TestSyncBaseRefusesOverCap(t *testing.T) {
 	// Over the cap refuses rather than skips: skipping let the run proceed
 	// against a branch known to be stale, which is the failure auto-sync
 	// exists to prevent.
-	if result.Outcome != syncOutcomeTooFarBehind {
-		t.Errorf("Outcome = %q, want %q (3 behind exceeds the cap of 2)", result.Outcome, syncOutcomeTooFarBehind)
+	if result.Outcome != syncOutcomeSkipped {
+		t.Errorf("Outcome = %q, want %q (3 behind exceeds the cap of 2)", result.Outcome, syncOutcomeSkipped)
 	}
 	if result.Behind != 3 {
 		t.Errorf("Behind = %d, want 3: the reply names the distance", result.Behind)

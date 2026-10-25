@@ -146,13 +146,7 @@ func TestProjectApproverLegacyBodyRunCannotInventAuthor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := db.AllocateRun(t.Context(), AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "spike", Agent: "claude", TriggerCommentID: 0, LogPath: func(int) string { return "/retained/body.jsonl" }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.FinishRun(t.Context(), run.ID, RunOutcome{Status: RunSucceeded}); err != nil {
-		t.Fatal(err)
-	}
+	run := seedHistoricalRunSnapshot(t, db, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "spike", Agent: "claude", TriggerCommentID: 0, LogPath: func(int) string { return "/retained/body.jsonl" }}, RunSucceeded)
 	if err = db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
