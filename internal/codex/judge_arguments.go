@@ -158,7 +158,7 @@ func (r *Runner) judgeBundledModel(ctx context.Context, request agent.JudgeReque
 			return
 		}
 		_, _ = output.Write(line)
-	})
+	}, func(string, int, int) { oversized = true })
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
