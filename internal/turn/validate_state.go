@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -371,9 +372,17 @@ func shortenFindingText(text string, limit int) string {
 // has a choice and no issue creation is pending, failed or uncertain.
 func (s *ValidateState) computeReadiness() {
 	s.Open = nil
-	if s.Suite.Outcome != store.SuitePassed {
-		s.Open = append(s.Open, fmt.Sprintf("The suite did not pass on commit `%s` (%s).", short(s.Commit), s.Suite.Outcome))
+	suiteFailed := s.Suite.Outcome != store.SuitePassed
+	if suiteFailed {
+		blocker := fmt.Sprintf("The suite did not pass on commit `%s` (%s).", short(s.Commit), s.Suite.Outcome)
+		if cause := s.suiteCause(); cause != "" {
+			blocker = fmt.Sprintf("The suite did not pass on commit `%s` (%s): %s", short(s.Commit), s.Suite.Outcome, cause)
+		}
+		s.Open = append(s.Open, blocker)
 	}
+	// While the suite fails, items awaiting the owner's check cannot be
+	// settled; they are named together on one line after the suite blocker.
+	var waiting []string
 	if !s.Assessed {
 		s.Open = append(s.Open, "The assessment of this commit is not recorded yet.")
 	}
@@ -383,6 +392,8 @@ func (s *ValidateState) computeReadiness() {
 	}
 	for _, f := range s.Findings {
 		switch {
+		case f.State == findingAwaitingCheck && suiteFailed:
+			waiting = append(waiting, f.ID)
 		case f.State == findingAwaitingCheck:
 			s.Open = append(s.Open, fmt.Sprintf("Item `%s` awaits your check.", f.ID))
 		case f.State == findingOwnerFailed && f.checkable():
@@ -402,7 +413,40 @@ func (s *ValidateState) computeReadiness() {
 			}
 		}
 	}
+	if len(waiting) > 0 {
+		line := fmt.Sprintf("%d items await your check (%s); they cannot be settled while the suite fails.", len(waiting), strings.Join(waiting, ", "))
+		if len(waiting) == 1 {
+			line = fmt.Sprintf("1 item awaits your check (%s); it cannot be settled while the suite fails.", waiting[0])
+		}
+		s.Open = slices.Insert(s.Open, 1, line)
+	}
 	s.Ready = len(s.Open) == 0 || s.waiverCurrent()
+}
+
+// suiteCauseLimit bounds the cause the suite blocker carries.
+const suiteCauseLimit = 200
+
+// suiteCause names why the suite did not pass: the first handed-back failure's
+// command and diagnosed cause, otherwise the suite's own reason.
+func (s *ValidateState) suiteCause() string {
+	if s.Handback != nil && len(s.Handback.Failures) > 0 {
+		f := s.Handback.Failures[0]
+		text := "`" + f.Command + "`"
+		if cause := strings.TrimSpace(f.Cause); cause != "" && !strings.EqualFold(cause, agentresult.RepairUnknownCause) {
+			text += ": " + clipRunes(strings.Join(strings.Fields(cause), " "), suiteCauseLimit)
+		}
+		return text
+	}
+	return clipRunes(strings.Join(strings.Fields(s.Suite.Reason), " "), suiteCauseLimit)
+}
+
+// clipRunes keeps text within limit characters, marking a cut with an ellipsis.
+func clipRunes(text string, limit int) string {
+	r := []rune(text)
+	if len(r) <= limit {
+		return text
+	}
+	return string(r[:limit-1]) + "…"
 }
 
 func choiceWords(f ValidateFinding) string {

@@ -88,7 +88,7 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		}
 	}
 	if st.Handback != nil {
-		b.WriteString("\n**What still needs fixing:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 600)) + "\n")
+		b.WriteString("\n**What still needs fixing:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 2000)) + "\n")
 	}
 	for _, c := range st.Candidates {
 		fmt.Fprintf(&b, "\n**Retained repair `%s`** · %s · review `%s`\n", c.ID, c.Resolution, c.ReviewDigest)

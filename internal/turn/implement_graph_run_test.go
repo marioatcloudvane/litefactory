@@ -647,6 +647,95 @@ func TestImplementWorkerSyncsWithItsParentsBranch(t *testing.T) {
 	}
 }
 
+// runStoryWorkerWithParentSession commits the named files into the parent's
+// session directory on the parent's branch, runs the story worker through the
+// Implement workflow and returns the prompt it received with the parent
+// directory.
+func runStoryWorkerWithParentSession(t *testing.T, files ...string) (prompt, parentDir string) {
+	t.Helper()
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompt = req.Prompt
+		submitLiveResult(t, req, implementCompletedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	ctx := t.Context()
+	parent := f.otherSession(900)
+	const parentBranch = "lf/900-feature"
+	_, err := f.db.FreezeSessionSlug(ctx, parent.ID, "feature", parentBranch)
+	mustProgress(t, err)
+	parentDir, err = naming.AITeamSessionDir(parentBranch, implementClock.AddDate(0, 0, -3), "feature")
+	mustProgress(t, err)
+	f.repo.Git("checkout", "--quiet", "-b", parentBranch)
+	f.repo.WriteFile("parent.go", "package api\n")
+	for _, name := range files {
+		f.repo.WriteFile(parentDir+"/"+name, "# "+name+"\n")
+	}
+	f.repo.Commit("parent research and plan")
+	f.repo.Git("push", "--quiet", "origin", parentBranch)
+	f.repo.Git("checkout", "--quiet", "-")
+
+	out, err := Execute(ctx, f.opts, req)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("%+v %v", out, err)
+	}
+	return prompt, parentDir
+}
+
+// AC-4, AC-5: a story worker is pointed at its parent's session directory as
+// approved context, with each Research file's meaning, and its own directory is
+// named only for its outputs.
+func TestImplementWorkerPromptNamesTheParentSessionDirectory(t *testing.T) {
+	prompt, parentDir := runStoryWorkerWithParentSession(t, naming.ResearchBriefName, naming.ResearchTechnicalName, "plan_brief.md")
+	line := ""
+	for _, l := range strings.Split(prompt, "\n") {
+		if strings.HasPrefix(l, "Factory supplied parent session directory: ") {
+			line = l
+		}
+	}
+	for _, want := range []string{
+		"Factory supplied parent session directory: " + parentDir + ".",
+		"approved Research and Plan context for this story, not an archived earlier session",
+		"RESEARCH_TECHNICAL.md there holds the Research findings: the classified inventory named in this story's criteria.",
+		"RESEARCH_BRIEF.md there holds the Research decisions and assumptions named in this story's criteria.",
+		"plan_brief.md there holds the plan.",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("the parent pointer lacks %q:\n%s", want, line)
+		}
+	}
+	if !strings.Contains(prompt, "\nFactory supplied session artifact directory, only where this story's own outputs go: ") {
+		t.Fatalf("the worker's own directory is not labelled as its output location:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Factory supplied session artifact directory: ") {
+		t.Fatalf("the worker still sees its own directory as the session artifact directory:\n%s", prompt)
+	}
+}
+
+// AC-8: a Research file missing from the parent's directory is not named.
+func TestImplementWorkerPromptLeavesOutMissingParentFiles(t *testing.T) {
+	prompt, parentDir := runStoryWorkerWithParentSession(t, naming.ResearchBriefName, "plan_brief.md")
+	if !strings.Contains(prompt, "Factory supplied parent session directory: "+parentDir+".") || !strings.Contains(prompt, "RESEARCH_BRIEF.md there holds") {
+		t.Fatalf("the parent pointer or its Research brief is missing:\n%s", prompt)
+	}
+	if strings.Contains(prompt, naming.ResearchTechnicalName) {
+		t.Fatalf("the pointer names a Research file that does not exist:\n%s", prompt)
+	}
+}
+
+// AC-6: a story worker whose parent has no session directory keeps the
+// ordinary session directory line.
+func TestImplementWorkerPromptWithoutParentSessionDirectoryIsUnchanged(t *testing.T) {
+	prompt, _ := runStoryWorkerWithParentSession(t)
+	if strings.Contains(prompt, "parent session directory") {
+		t.Fatalf("a parent pointer was named without a parent session directory:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "\nFactory supplied session artifact directory: ") {
+		t.Fatalf("the ordinary session directory line is missing:\n%s", prompt)
+	}
+}
+
 func TestImplementWorkerStartupFailureSettlesAllocatedRun(t *testing.T) {
 	calls := 0
 	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {

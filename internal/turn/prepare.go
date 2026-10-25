@@ -92,6 +92,13 @@ type preparation struct {
 	// fallback in [runAndHarvest] can rebuild it cold without reassembling any
 	// of it here. Flipping Resume is the whole difference between the two.
 	promptInput harness.PromptInput
+
+	// parentSessionDir is a story worker's parent session directory in its own
+	// checkout, holding the approved Research and Plan context its criteria refer
+	// to; parentSessionFiles are the files of parentSessionContext present there.
+	// Both are empty for every other run and when the parent has no directory.
+	parentSessionDir   string
+	parentSessionFiles []string
 }
 
 // prepare takes a locked task from "there is a comment" to "claude can start".
@@ -518,6 +525,11 @@ func prepare(
 	promptInput.SessionArtifactDir, promptInput.SessionArtifactBrief =
 		existingSessionArtifacts(worktree.Path(), branch, ref.Issue, run.StartedAt, req.mode(), logger)
 	promptInput.SessionArtifactTechnical = existingSessionTechnical(worktree.Path(), promptInput.SessionArtifactDir, req.mode())
+	var parentSessionDir string
+	var parentSessionFiles []string
+	if storyWorker {
+		parentSessionDir, parentSessionFiles = parentSessionArtifacts(ctx, opts, worktree.Path(), session, run.StartedAt, logger)
+	}
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)
@@ -611,6 +623,9 @@ func prepare(
 		metaPath:         metaPath,
 		promptInput:      promptInput,
 		sync:             sync,
+
+		parentSessionDir:   parentSessionDir,
+		parentSessionFiles: parentSessionFiles,
 		request: agent.Request{
 			StackProfile:       admittedRequestStackProfile(req),
 			StackCaptureDigest: stackCaptureDigest,
@@ -1708,6 +1723,32 @@ func storyBaseBranch(ctx context.Context, opts Options, clone *git.Clone, sessio
 		return repo.BaseBranch
 	}
 	return parent.Branch
+}
+
+// parentSessionArtifacts locates an Implement story worker's parent session
+// directory in the worker's checkout, found the way [storyBaseBranch] finds the
+// parent, and names the parentSessionContext files present there. A worker
+// whose parent has no session, branch or directory gets nothing.
+func parentSessionArtifacts(ctx context.Context, opts Options, worktreeDir string, session store.Session, day time.Time, logger *slog.Logger) (string, []string) {
+	row, err := opts.DB.ImplementStoryByWorkerSession(ctx, session.ID)
+	if err != nil {
+		return "", nil
+	}
+	parent, err := opts.DB.GetSessionByTaskRef(ctx, row.Parent)
+	if err != nil || parent.Branch == "" {
+		return "", nil
+	}
+	dir, _ := existingSessionArtifacts(worktreeDir, parent.Branch, parent.IssueNumber, day, "", logger)
+	if dir == "" {
+		return "", nil
+	}
+	var files []string
+	for _, file := range parentSessionContext {
+		if sessionFileExists(worktreeDir, dir, file.name) {
+			files = append(files, file.name)
+		}
+	}
+	return dir, files
 }
 
 // startStoryMerge gives a story worker its conflict with the feature branch,
