@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 )
@@ -26,6 +27,8 @@ type ActivityRequest struct {
 // conduct work. Kind uses store's closed graph output vocabulary. Diagnostic is
 // retained as opaque diagnostic output; future publishers must redact it.
 type ActivityResult struct {
+	cleanupDeadline time.Time
+
 	// ProcessResult retains subprocess facts independently from private node validation.
 	// Suspended is permitted only for a durably recorded Bug child wait.
 	Deferred      bool

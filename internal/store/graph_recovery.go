@@ -34,18 +34,18 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 		return 0, graphInvariant("reconciliation requires a timestamp")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,i.status,COALESCE(r.error,''),a.started_at FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id LEFT JOIN runs r ON r.id=a.run_id WHERE d.mode=? AND i.session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) AND a.status IN ('pending','running') AND NOT (a.status='pending' AND i.status='running' AND i.current_node=a.node AND EXISTS(SELECT 1 FROM graph_outputs o WHERE o.node_attempt_id=a.id AND o.kind='json' AND o.payload=?)) ORDER BY a.id`, mode, []byte(graphCapacityDeferral))
+		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,i.status,COALESCE(r.error,''),a.started_at,COALESCE(a.run_id,0) FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id LEFT JOIN runs r ON r.id=a.run_id WHERE d.mode=? AND i.session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) AND a.status IN ('pending','running') AND NOT (a.status='pending' AND i.status='running' AND i.current_node=a.node AND EXISTS(SELECT 1 FROM graph_outputs o WHERE o.node_attempt_id=a.id AND o.kind='json' AND o.payload=?)) ORDER BY a.id`, mode, []byte(graphCapacityDeferral))
 		if e != nil {
 			return e
 		}
 		type interrupted struct {
-			id, instance            int64
-			status, reason, started string
+			id, instance, runID             int64
+			instanceStatus, reason, started string
 		}
 		var attempts []interrupted
 		for rows.Next() {
 			var a interrupted
-			if e = rows.Scan(&a.id, &a.instance, &a.status, &a.reason, &a.started); e != nil {
+			if e = rows.Scan(&a.id, &a.instance, &a.instanceStatus, &a.reason, &a.started, &a.runID); e != nil {
 				break
 			}
 			attempts = append(attempts, a)
@@ -55,6 +55,39 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 			return e
 		}
 		for _, a := range attempts {
+			if a.instanceStatus == GraphRunning && a.runID > 0 {
+				var deadline string
+				var allowanceNS int64
+				timingErr := tx.QueryRowContext(ctx, `SELECT deadline,allowance_ns FROM worker_attempt_timing WHERE node_attempt_id=? AND run_id=0`, a.id).Scan(&deadline, &allowanceNS)
+				switch {
+				case timingErr == nil:
+					limitAt, err := ParseTime(deadline)
+					if err != nil {
+						return err
+					}
+					if !at.Before(limitAt) {
+						if err = recordAttemptTimeoutTx(ctx, tx, AttemptTimeout{NodeAttemptID: a.id, Budget: time.Duration(allowanceNS), TimedOutAt: limitAt}); err != nil {
+							return err
+						}
+					}
+				case !errors.Is(timingErr, sql.ErrNoRows):
+					return timingErr
+				case mode == "implement":
+					var providerEvidence bool
+					if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM meter_attempts WHERE graph_node_attempt_id=?)`, a.id).Scan(&providerEvidence); e != nil {
+						return e
+					}
+					if !providerEvidence {
+						break
+					}
+					// Historical timing is unknown, never a fabricated timeout.
+					// Park for owner review through the existing recovery route.
+					_, e = tx.ExecContext(ctx, `UPDATE implement_stories SET state='parked',reason='Historical worker timing is unavailable; owner review is required before continuing retained work.',park_origin='worker',revision=revision+1,updated_at=?,state_at=? WHERE state='running' AND timeout_attempt_id=0 AND worker_session=(SELECT session_id FROM graph_instances WHERE id=?)`, FormatTime(at), FormatTime(at), a.instance)
+					if e != nil {
+						return e
+					}
+				}
+			}
 			reason := a.reason
 			if reason == "" {
 				reason = "interrupted before validated graph result retention; explicit owner continuation required"
@@ -66,7 +99,7 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 			// An attempt left open by an instance that already finished is
 			// cancelled: it can no longer run and must not block a successor.
 			status := "failed"
-			if a.status != GraphRunning {
+			if a.instanceStatus != GraphRunning {
 				status = "cancelled"
 			}
 			if _, e = tx.ExecContext(ctx, `UPDATE graph_node_attempts SET status=?,outcome=NULL,finished_at=? WHERE id=? AND status IN ('pending','running')`, status, finished, a.id); e != nil {

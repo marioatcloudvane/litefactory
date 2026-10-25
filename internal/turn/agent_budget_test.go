@@ -65,7 +65,7 @@ func TestAgentBudgetCancelsTheRunAndRecordsATimeout(t *testing.T) {
 	if !cancelled || !errors.Is(err, ErrAgentTimedOut) {
 		t.Fatalf("cancelled=%v err=%v", cancelled, err)
 	}
-	if !strings.Contains(out.Activity.Diagnostic, "15-minute time budget") {
+	if !strings.Contains(out.Activity.Diagnostic, "effective limit of 900 seconds") {
 		t.Fatalf("diagnostic %q", out.Activity.Diagnostic)
 	}
 	attempt, err := db.LatestGraphNodeAttempt(t.Context(), instance, "work")

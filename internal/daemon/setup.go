@@ -455,8 +455,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}
 	}
 	judgeService := &turn.JudgeService{Logger: s.Logger, DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
+	for _, diagnostic := range s.Config.WorkerTimeoutDiagnostics() {
+		s.Logger.Warn(diagnostic)
+	}
 	turnOpts := turn.Options{
-		ProjectApprovers: true,
+		WorkerTimeoutSeconds: s.Config.Settings.WorkerTimeoutSeconds,
+		WorkerTimeoutSource:  s.Config.WorkerTimeoutSource(),
+		ProjectApprovers:     true,
 		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {
 			snapshot, e := s.DB.GetExecutionSnapshot(ctx, session.ID)
 			if e != nil {
