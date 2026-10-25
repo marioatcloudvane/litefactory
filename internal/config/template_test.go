@@ -44,6 +44,8 @@ func TestDefaultFileMatchesDefaults(t *testing.T) {
 	want.Providers.GitHub.TokenKeychain = Keychain{Service: "litefactory", Account: "github-bot"}
 	want.ToolProfiles = DefaultToolProfiles()
 	want.agentOrder = []Kind{KindClaude, KindCodex}
+	// The template explicitly declares the worker default, unlike an absent config.
+	want.workerTimeoutSource = "settings.worker_timeout_seconds"
 	if diff := cmp.Diff(want, *cfg, cmp.AllowUnexported(Config{})); diff != "" {
 		t.Errorf("the default config file has drifted from Defaults() (-want +got):\n%s", diff)
 	}

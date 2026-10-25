@@ -145,6 +145,8 @@ var archiveRegistry = []ArchiveTable{
 	archived("validate_effects", `instance_id IN `+subInst),
 	archived("validate_reviews", `instance_id IN `+subInst),
 	archived("validate_repair_rounds", `instance_id IN `+subInst),
+	archived("worker_attempt_timing", `(node_attempt_id IN `+subNodeAt+` OR run_id IN `+inFR+`)`),
+	archived("implement_timeout_replies", byParent),
 	archived("graph_attempt_timeouts", `node_attempt_id IN `+subNodeAt),
 	archived("implement_stories", byParent),
 	archived("validate_entries", bySession),

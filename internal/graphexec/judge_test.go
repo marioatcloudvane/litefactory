@@ -24,7 +24,7 @@ func TestJudgeExplicitBinding(t *testing.T) {
 		{"unbounded", func(p *Profile) { p.Nodes[1].Limit = 0 }},
 		{"write authority", func(p *Profile) { p.Nodes[1].Attrs["lf_access"] = "write" }},
 		{"empty settings", func(p *Profile) { p.Nodes[1].Attrs["lf_model"] = " " }},
-		{"bad budget", func(p *Profile) { p.Nodes[1].Attrs["lf_budget"] = "61" }},
+		{"bad budget", func(p *Profile) { p.Nodes[1].Attrs["lf_budget"] = "1441" }},
 		{"judge owner wait", func(p *Profile) { p.Nodes[2].Action = "lf_ask" }},
 		{"wrong report", func(p *Profile) { p.Nodes[2].Attrs["lf_source"] = "source" }},
 		{"unsupported workflow", func(p *Profile) { p.Mode = agent.ModeImplement }},

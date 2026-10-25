@@ -1219,10 +1219,11 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 // owned by that worker, including sequential refinement copies. Nothing is
 // shared with another worker, so no lock is needed.
 type task struct {
-	discoveryReservation   *discoveryReservation
-	prepareFailureRecorded bool
-	observations           []store.PendingTicketObservation
-	enrollmentAt           time.Time
+	implementTimeoutResumed bool
+	discoveryReservation    *discoveryReservation
+	prepareFailureRecorded  bool
+	observations            []store.PendingTicketObservation
+	enrollmentAt            time.Time
 	// workerLog holds immutable admission context for worker lifetime events.
 	workerLog *slog.Logger
 	worker    *workerState
@@ -2184,6 +2185,9 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 // so the queue stops and a later tick retries, with no queue and no "busy"
 // reply (AC-3.1).
 func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, error) {
+	if err := d.recoverImplementTimeoutForTask(ctx, t); err != nil {
+		return false, err
+	}
 	// Recovery must finish even when the watermark leaves no new comments.
 	if err := d.retireModeSelections(ctx, t.session.ID); err != nil {
 		return false, fmt.Errorf("retire completed mode selections: %w", err)
@@ -2215,7 +2219,9 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 		// Refresh after each actionable instruction so later owner label edits
 		// are observed before admitting another trigger. Persistent selection
 		// does not make this tick's issue snapshot authoritative forever.
-		if len(d.classifiers) > 0 && turn.ParseCommand(c.Body).Spawns() {
+		timeoutResumed := t.implementTimeoutResumed
+		t.implementTimeoutResumed = false
+		if len(d.classifiers) > 0 && turn.ParseCommand(c.Body).Spawns() && !timeoutResumed {
 			return true, nil
 		}
 	}
@@ -2448,6 +2454,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 
 	if commandForCode.Kind == turn.KindJudge {
 		return d.handleJudge(ctx, t, c, qualifiedReply != nil)
+	}
+
+	if handled, err := d.handleImplementTimeoutReply(ctx, t, c); handled {
+		return err
 	}
 
 	// A graph Plan story issue that is a task of its own has its owner comments

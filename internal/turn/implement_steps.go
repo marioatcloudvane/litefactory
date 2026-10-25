@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -135,7 +136,7 @@ func (rt *implementRuntime) budget(ctx context.Context, opts Options, _ Activity
 		return ActivityResult{}, err
 	}
 	outcome := "run"
-	if row.Attempts >= store.MaxImplementAttempts {
+	if row.TimeoutAttemptID != 0 || row.Attempts >= store.MaxImplementAttempts {
 		outcome = "park"
 	}
 	return implementResult(outcome, map[string]any{"attempts": row.Attempts, "max": store.MaxImplementAttempts})
@@ -310,6 +311,9 @@ func (rt *implementRuntime) parkStory(ctx context.Context, opts Options, a Activ
 }
 
 func (rt *implementRuntime) parkReason(ctx context.Context, opts Options, a ActivityRequest, row store.ImplementStory) string {
+	if row.TimeoutAttemptID != 0 {
+		return row.LastFailure
+	}
 	if node, err := rt.retainedAnswer(ctx, opts, a); err == nil && node.Response != agentresult.ImplementResponseCompleted {
 		return fmt.Sprintf("The worker stopped with an %s answer: %s", node.Response, strings.TrimSpace(node.Result.Reason))
 	}
@@ -327,6 +331,39 @@ func (rt *implementRuntime) parkReason(ctx context.Context, opts Options, a Acti
 // process ran, and a cancelled run, are infrastructure faults: they pass through
 // as errors and never use the repair budget.
 func implementAfterAgentFailure(ctx context.Context, opts Options, a ActivityRequest, out ActivityResult, cause error) (ActivityResult, error) {
+	if errors.Is(cause, ErrAgentTimedOut) {
+		// Expiry is authoritative even when setup failed before a process result.
+		// The attempt receipt is already durable; holding the story precedes all
+		// report delivery and cannot spend its ordinary repair allowance.
+		instance, err := opts.DB.GetGraphInstance(ctx, a.InstanceID)
+		if err != nil {
+			return out, errors.Join(cause, err)
+		}
+		reason := strings.TrimSpace(out.Diagnostic)
+		if reason == "" {
+			reason = cause.Error()
+		}
+		// Sanitize the complete diagnostic before the ledger's smaller clipping
+		// boundary can split a registered credential into an unrecognizable prefix.
+		sanitizer := redact.New(redact.Options{Logger: opts.Logger})
+		if opts.MCP != nil && opts.MCP.Redactor != nil {
+			sanitizer = opts.MCP.Redactor
+		}
+		safe, sanitizationErr := sanitizer.Prepare(ctx, reason)
+		if sanitizationErr != nil {
+			reason = "Worker timed out; additional diagnostic evidence is unavailable because sanitization failed."
+		} else {
+			reason = safe.String()
+		}
+		row, err := opts.DB.HoldImplementStoryTimeout(ctx, instance.SessionID, a.NodeAttemptID, clipText(reason, maxImplementReason), spikeNow(opts))
+		if errors.Is(err, store.ErrNotFound) {
+			return ActivityResult{Outcome: "failed", Diagnostic: out.Diagnostic, ProcessResult: out.ProcessResult}, nil
+		}
+		if err != nil {
+			return out, errors.Join(cause, err)
+		}
+		return ActivityResult{Outcome: "failed", Diagnostic: row.LastFailure, ProcessResult: out.ProcessResult}, nil
+	}
 	if out.ProcessResult == nil || ctx.Err() != nil || out.ProcessResult.Outcome == agent.OutcomeAbandoned {
 		return out, cause
 	}

@@ -119,7 +119,7 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	if !filepath.IsAbs(req.WorkingDirectory) || strings.TrimSpace(req.Prompt) == "" {
 		return "", fmt.Errorf("%w: classifier needs an absolute directory and prompt", agent.ErrInvalidRequest)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
 	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
 	skills, err := r.skillOverrides(ctx, req.WorkingDirectory, nil)
@@ -168,7 +168,7 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	if err != nil {
 		return agent.ScheduleProposal{}, err
 	}
-	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
 	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
 	if r.model != "" {
@@ -222,7 +222,7 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 	if err != nil {
 		return agent.ConflictResolution{}, err
 	}
-	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
 	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
 	if r.model != "" {
@@ -335,7 +335,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		// Overrides must precede the resume subcommand and its positional id.
 		args = append([]string{args[0], "-c", overrides}, args[1:]...)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
 	killCtx := context.WithoutCancel(ctx)
 	stackEnv, err := req.StackEnvironment(codexEnv(r.environ))
