@@ -5,9 +5,9 @@
     {
       "name": "cold",
       "full": {
-        "input": 22692,
+        "input": 22748,
         "output": 1154,
-        "total": 23846
+        "total": 23902
       },
       "scoped": {
         "input": 1015,
@@ -18,9 +18,9 @@
     {
       "name": "continuation",
       "full": {
-        "input": 24178,
+        "input": 24234,
         "output": 1704,
-        "total": 25882
+        "total": 25938
       },
       "scoped": {
         "input": 1251,
@@ -31,9 +31,9 @@
     {
       "name": "stale-retry",
       "full": {
-        "input": 25834,
+        "input": 25890,
         "output": 3408,
-        "total": 29242
+        "total": 29298
       },
       "scoped": {
         "input": 1657,
@@ -44,9 +44,9 @@
     {
       "name": "incomplete",
       "full": {
-        "input": 24181,
+        "input": 24237,
         "output": 1745,
-        "total": 25926
+        "total": 25982
       },
       "scoped": {
         "input": 1366,
@@ -57,9 +57,9 @@
     {
       "name": "blocked",
       "full": {
-        "input": 24175,
+        "input": 24231,
         "output": 1733,
-        "total": 25908
+        "total": 25964
       },
       "scoped": {
         "input": 1455,
@@ -70,9 +70,9 @@
   ],
   "aggregate": {
     "full": {
-      "input": 121060,
+      "input": 121340,
       "output": 9744,
-      "total": 130804
+      "total": 131084
     },
     "scoped": {
       "input": 6744,

@@ -436,14 +436,23 @@ func prepare(
 	if err != nil {
 		return nil, err
 	}
+	ownerGuidance, err := opts.DB.OwnerGuidanceForRun(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	instruction, err := ownerInstructionForStep(ctx, opts.DB, req, session.ID)
+	if err != nil {
+		return nil, err
+	}
 	promptInput := harness.PromptInput{
+		OwnerGuidanceRevision: ownerGuidance.Revision, OwnerGuidanceBody: ownerGuidance.Body,
 		Ref:               ref,
 		FeatureSlug:       session.FeatureSlug,
 		Branch:            branch,
 		Mode:              req.mode(),
 		Workflow:          req.Workflow,
 		RunOrdinal:        run.Ordinal,
-		Instruction:       req.Command.Text,
+		Instruction:       instruction,
 		IssueTitle:        req.Issue.Title,
 		IssueReference:    display.Reference(),
 		IssueBody:         req.Issue.Body,

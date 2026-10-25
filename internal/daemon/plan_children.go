@@ -225,7 +225,13 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			if explainErr != nil && !errors.Is(explainErr, store.ErrNotFound) {
 				return false, explainErr
 			}
-			reason := state.PlanReplyReason(draft.Key, comment.Body)
+			normalized, decisionErr := turn.ResolvePlanStoryDecision(ctx, d.db, t.ref.String(), comment.ID, comment.Author.ID, comment.Body, t.tickAt, draft.Key)
+			var reason string
+			if decisionErr != nil {
+				reason = decisionErr.Error()
+			} else {
+				reason = state.PlanReplyReason(draft.Key, normalized)
+			}
 			if explainErr == nil {
 				reason = explanation.Reason
 			}

@@ -131,7 +131,7 @@ It is required for item add/update/remove and absent for set/remove/reorder.
 | All | `outcome`, `comment`, `reason`, `recommendation`, `questions`, `artifacts` |
 | Research | `payload.research.request`, `.findings`, `.decisions`, `.assumptions` |
 | Plan | `payload.plan.summary`, `.context`, `.stories`; nested story `.title`, `.intent`, `.user_story`, `.acceptance_criteria`, `.tasks`, `.architecture`, `.dependencies` |
-| Implement | `payload.implement.stories`, `.aggregate_checks` |
+| Implement | `payload.implement.stories`, `.aggregate_checks`, `.return_allocation` (coordinator routing advice only) |
 | Validate | `payload.validate.stories` |
 | Spike | `payload.spike.request`, `.work_done`, `.findings`, `.decisions`, `.not_done` |
 

@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -16,7 +17,7 @@ import (
 // ValidateImplementPayload is the instruction of the Implement coordinator run
 // the implement step schedules on the parent. The reopened stories and their
 // findings come from the Implement ledger, never from this text.
-const ValidateImplementPayload = "/implement Repair the blocking Validate findings of the reopened stories on the feature branch."
+const ValidateImplementPayload = "/implement Apply the retained Validate return and owner guidance on the same feature branch."
 
 // validateImplementGuidanceLimit bounds the findings one story is given; the
 // ledger keeps at most 64 KiB of guidance.
@@ -284,6 +285,9 @@ func (h ValidateImplementActivity) Execute(ctx context.Context, opts Options, re
 	if _, found, err := opts.DB.ScheduleStatusBySource(ctx, session.ID, id); err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	} else if found {
+		if err := opts.DB.ResolveOwnerDecisionInstance(ctx, req.InstanceID); err != nil {
+			return ActivityResult{Diagnostic: err.Error()}, err
+		}
 		out.Replayed = true
 		return validateJSONResult("started", out)
 	}
@@ -300,6 +304,52 @@ func (h ValidateImplementActivity) Execute(ctx context.Context, opts Options, re
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
 	now := h.b.now(opts)
+	wait, waitErr := opts.DB.GetGraphOwnerWait(ctx, req.InstanceID)
+	if waitErr != nil {
+		return ActivityResult{}, waitErr
+	}
+	body := wait.ReplyBody
+	if binding, e := opts.DB.GetOwnerDecisionBinding(ctx, session.TaskRef, wait.ReplyID); e == nil {
+		body = binding.Normalized
+	} else if !errors.Is(e, store.ErrNotFound) {
+		return ActivityResult{}, e
+	}
+	if command, e := ParseValidateCommand(body); e == nil && command.Name == ValidateReturnCommand {
+		revisions, e := opts.DB.ListApprovedStoryRevisions(ctx, session.TaskRef, target.Generation)
+		if e != nil {
+			return ActivityResult{}, e
+		}
+		positions := map[string]int{}
+		for i, row := range rows {
+			positions[row.Key] = i
+		}
+		slices.SortStableFunc(revisions, func(a, b store.ApprovedStoryRevision) int { return positions[a.Key] - positions[b.Key] })
+		contextJSON, e := json.Marshal(struct {
+			State  ValidateState
+			Frozen []store.ApprovedStoryRevision
+		}{st, revisions})
+		if e != nil {
+			return ActivityResult{}, e
+		}
+		if _, e := opts.DB.PutValidateReturn(ctx, store.ValidateReturn{InstanceID: req.InstanceID, Parent: session.TaskRef, Generation: int64(target.Generation), Commit: st.Commit, ReportRevision: st.Revision, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, Explanation: command.Guidance, Context: string(contextJSON), CreatedAt: now}); e != nil {
+			return ActivityResult{}, e
+		}
+		owner := "owner"
+		if identity, e := opts.DB.GetIdentity(ctx, store.ForgeGitHub, store.RoleOwner); e == nil && identity.Handle != "" {
+			owner = identity.Handle
+		}
+		if _, _, e := opts.DB.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: session.ID, SourceCommentID: id, OwnerHandle: owner, Payload: ValidateImplementPayload, DueAt: now}); e != nil {
+			return ActivityResult{}, e
+		}
+		if err := opts.DB.ResolveOwnerDecisionInstance(ctx, req.InstanceID); err != nil {
+			return ActivityResult{}, err
+		}
+		if e := saveValidateNotice(ctx, opts, req.InstanceID, st.Revision, "Reviewed work returned to Implement with the owner's explanation. One responsible story is selected before dispatch.", now); e != nil {
+			return ActivityResult{}, e
+		}
+		_, _ = h.b.RefreshValidateReport(ctx, opts, req)
+		return validateJSONResult("started", out)
+	}
 	out.Skipped = map[string]string{}
 	targets := st.implementTargets()
 	if len(targets) == 1 && len(targets[0].Findings) == 0 {
@@ -358,6 +408,9 @@ func (h ValidateImplementActivity) Execute(ctx context.Context, opts Options, re
 		SessionID: session.ID, SourceCommentID: id, OwnerHandle: owner, Payload: ValidateImplementPayload, DueAt: now,
 	}); err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
+	}
+	if err := opts.DB.ResolveOwnerDecisionInstance(ctx, req.InstanceID); err != nil {
+		return ActivityResult{}, err
 	}
 	notice := "Reopened " + strings.Join(out.Reopened, ", ") + "."
 	for _, t := range targets {
