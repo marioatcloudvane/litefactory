@@ -12,7 +12,7 @@ func TestRecoveryUsesCurrentActionDisposition(t *testing.T) {
 		status, want string
 		scheduled    bool
 	}{
-		{"pending", "Please wait", true}, {"reserved", "Please wait", true}, {"running", "completion is not yet confirmed", false}, {"succeeded", "succeeded", false}, {"failed", "factory operator", false}, {"cancelled", "changed context", false},
+		{"", "unknown", false}, {"pending", "Please wait", true}, {"reserved", "Please wait", true}, {"running", "completion is not yet confirmed", false}, {"succeeded", "succeeded", false}, {"failed", "factory operator", false}, {"cancelled", "changed context", false},
 	} {
 		t.Run(tc.status, func(t *testing.T) {
 			text := recoverySection(&Recovery{ActionID: 42, Status: tc.status, DueAt: time.Date(2026, 10, 25, 5, 0, 0, 0, time.UTC), ManualReason: "changed context"})

@@ -38,7 +38,7 @@ func recoverySection(recovery *Recovery) string {
 	}
 	status := recovery.Status
 	if status == "" {
-		status = "pending"
+		status = "unknown"
 	}
 	switch status {
 	case "pending", "reserved":

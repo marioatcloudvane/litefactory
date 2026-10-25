@@ -79,10 +79,11 @@ func ProjectGraphRecovery(ctx context.Context, db *store.DB, sessionID int64) (*
 		return nil, err
 	}
 	out.DispatchID, out.LaunchID, out.ActionID, out.DueAt = dispatch.ID, dispatch.LaunchID, dispatch.ID, dispatch.DueAt
-	out.Disposition = dispatch.Status
 	if dispatch.Node != instance.CurrentNode {
+		out.Unresolved = fmt.Sprintf("The latest dispatch belongs to step %s; no dispatch for this current step is confirmed.", dispatch.Node)
 		return out, nil
 	}
+	out.Disposition = dispatch.Status
 	switch dispatch.Status {
 	case "pending":
 		out.Route = "wait-scheduled"

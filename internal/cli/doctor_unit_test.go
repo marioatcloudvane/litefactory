@@ -125,7 +125,7 @@ func TestDoctorLocalPresentationUsesCurrentCapabilityAndSettlement(t *testing.T)
 	}{
 		{"proposal", "", "litefactory doctor apply owner/repo 47", true},
 		{"unverified", "", "Apply capability was not verified for this readout", false},
-		{"active", "applying", "Wait; no owner action is needed", true},
+		{"unconfirmed intermediate phase", "applying", "does not confirm current execution", true},
 		{"settled", "completed", "litefactory logs --all --grep 'github:owner/repo#47'", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

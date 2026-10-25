@@ -152,11 +152,17 @@ func RepairGuidance(c Conversation) string {
 		return "The repair command did not complete; further progress is not confirmed. Inspect the retained repair on the factory host: `" + report.TaskInspectionCommand(task) + "`."
 	}
 	switch c.Repair.State {
-	case "reserved", "quiescing", "backed_up", "applying", "verifying", "verified", "restart_pending":
-		if c.Restart != nil && c.Restart.State == "uncertain" {
-			return "Restart delivery is uncertain; existing recovery is observing the retained restart. Wait; no owner action is needed."
+	case "restart_pending":
+		if c.Restart != nil && (c.Restart.State == "dispatched" || c.Restart.State == "uncertain") {
+			return "Restart settlement is pending; existing recovery is observing the retained restart. Wait; no owner action is needed."
 		}
-		return "Repair settlement is pending. Wait; no owner action is needed. Repair progress does not establish that workflow work has resumed or completed."
+		fallthrough
+	case "reserved", "quiescing", "backed_up", "applying", "verifying", "verified":
+		task := c.Repair.TaskRef
+		if task == "" {
+			task = c.Conversation.TaskRef
+		}
+		return "The retained repair phase does not confirm current execution or further progress. Inspect the retained repair on the factory host: `" + report.TaskInspectionCommand(task) + "`."
 	default:
 		task := c.Repair.TaskRef
 		if task == "" {

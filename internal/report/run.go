@@ -430,6 +430,9 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 	if run.CommitSHA != "" {
 		v.lead += worktreeNote(run.WorktreePath)
 	}
+	if run.Result == nil || v.word == "not completed" {
+		v.lead += "\n\nInspect on the factory host: `" + RunInspectionCommand(run.Ref, run.Ordinal) + "`."
+	}
 	return v
 }
 
@@ -525,9 +528,9 @@ func describeRunOutcome(run Run) outcomeView {
 		return outcomeView{word: "timed out", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeAbandoned:
-		lead := fmt.Sprintf("Run %d was abandoned because litefactory was shutting down. "+
-			"Nothing failed and nothing crashed: the daemon was asked to stop while the run was in flight, "+
-			"so it stopped. Comment again to run it.", n)
+		lead := fmt.Sprintf("Run %d is recorded as abandoned. "+
+			"Completion and any external effects are not confirmed. "+
+			"Inspect the retained work on the factory host before deciding whether to continue: `%s`.", n, RunInspectionCommand(run.Ref, n))
 		return outcomeView{word: "abandoned", alert: "NOTE", lead: lead}
 
 	case agent.OutcomeNoResult:

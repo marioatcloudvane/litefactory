@@ -316,10 +316,16 @@ func TestFactoryConversationJournalProtectsDecodedOutput(t *testing.T) {
 	}
 }
 
-type uncertainFactoryConfirmer struct{ calls int }
+type uncertainFactoryConfirmer struct {
+	calls int
+	err   error
+}
 
 func (f *uncertainFactoryConfirmer) Confirm(ctx context.Context, _ string, _ string, _ string, _ string, _ time.Time) (string, error) {
 	f.calls++
+	if f.err != nil {
+		return "", f.err
+	}
 	presentation.Assess(ctx, presentation.Uncertain)
 	return "Issue creation outcome is uncertain.", nil
 }

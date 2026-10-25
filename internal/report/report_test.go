@@ -576,9 +576,8 @@ func TestNonSuccessOutcomeWinsOverPartialTally(t *testing.T) {
 
 // TestEveryOutcomeRendersDistinguishably is the reason harness.Outcome has five
 // values rather than a bool. The two that are easiest to get wrong are the ones
-// asserted hardest: an abandoned run means the daemon was stopping and is
-// nobody's fault, and a no-result run needs to tell its reader what to actually
-// do about it.
+// asserted hardest: abandoned status does not establish completion or effects,
+// and a no-result run needs to tell its reader what to actually do about it.
 func TestEveryOutcomeRendersDistinguishably(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
@@ -625,18 +624,17 @@ func TestEveryOutcomeRendersDistinguishably(t *testing.T) {
 		checkGolden(t, "outcome_"+outcome.String(), body)
 	}
 
-	// An abandonment is not a crash and not a timeout. Reading it as either
-	// sends someone looking for a fault that is not there, so neither the
-	// heading nor the callout may present it as one.
+	// Abandoned status alone does not establish a crash or timeout.
+	// Keep its heading distinct and its completion and effects uncertain.
 	abandoned := bodies[harness.OutcomeAbandoned]
-	containsAll(t, "the abandoned report", abandoned, "abandoned", "shutting down", "Comment again")
+	containsAll(t, "the abandoned report", abandoned, "recorded as abandoned", "not confirmed", "--run 3")
 	for _, wrong := range []string{"failed", "timed out", "crashed"} {
 		if strings.Contains(headline(abandoned), wrong) {
 			t.Errorf("the abandoned report's heading %q reads as %q, which it is not", headline(abandoned), wrong)
 		}
 	}
 	if strings.Contains(abandoned, "[!CAUTION]") {
-		t.Error("the abandoned report raises a caution callout for something that is nobody's fault")
+		t.Error("the abandoned report presents its unconfirmed outcome as a confirmed failure")
 	}
 
 	// A missing result does not establish a credential failure.

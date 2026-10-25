@@ -73,15 +73,18 @@ func TestRepairPresentationUsesRetainedDisposition(t *testing.T) {
 		state, restart string
 		wait           bool
 	}{
-		{"reserved", "", true},
-		{"applying", "", true},
+		{"reserved", "", false},
+		{"applying", "", false},
 		{"restart_pending", "uncertain", true},
+		{"restart_pending", "dispatched", true},
+		{"restart_pending", "pending", false},
+		{"restart_pending", "", false},
 		{"completed", "acknowledged", false},
 		{"failed", "", false},
 		{"needs_review", "", false},
 		{"unknown", "", false},
 	} {
-		t.Run(tc.state, func(t *testing.T) {
+		t.Run(tc.state+"/"+tc.restart, func(t *testing.T) {
 			t.Parallel()
 			c := doctor.Conversation{Repair: &store.DoctorRepair{ID: "retained-7", TaskRef: "github:owner/repo#47", State: tc.state}}
 			if tc.restart != "" {
@@ -95,8 +98,8 @@ func TestRepairPresentationUsesRetainedDisposition(t *testing.T) {
 				if !strings.Contains(body, "Wait; no owner action is needed") || strings.Contains(body, "litefactory logs") {
 					t.Fatalf("active repair lost wait disposition: %s", body)
 				}
-			} else if strings.Count(body, "litefactory logs --all --grep 'github:owner/repo#47'") != 1 {
-				t.Fatalf("settled repair lost exact inspection: %s", body)
+			} else if strings.Count(body, "litefactory logs --all --grep 'github:owner/repo#47'") != 1 || strings.Contains(body, "Wait;") {
+				t.Fatalf("unconfirmed or settled repair lost single inspection: %s", body)
 			}
 		})
 	}

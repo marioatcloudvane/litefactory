@@ -1,0 +1,50 @@
+=== RUN   TestGraphRecoveryFinalReportsUseRetainedWorkDisposition
+=== RUN   TestGraphRecoveryFinalReportsUseRetainedWorkDisposition/pending
+    recovery_projection_test.go:88: Final graph report (pending):
+        Work at `analyst`: pending
+        
+        Graph action 1 is pending; eligible at 10/25/2026 14:56:02 UTC.
+        
+        Unresolved: Completion of this step is not confirmed.
+        
+        Please wait. Eligibility is not a guaranteed start time; admission and capacity still apply. No recovery command is needed.
+        
+        <!-- lf:delivery v=1 key=dbcf4236cb681727b409e770fbc53803d14ef90468fa687db52f1c00cf34042d -->
+=== RUN   TestGraphRecoveryFinalReportsUseRetainedWorkDisposition/running
+    recovery_projection_test.go:88: Final graph report (running):
+        Work at `analyst`: running
+        
+        Graph action 1 is running.
+        
+        Unresolved: Completion of this step is not confirmed.
+        
+        Please wait for its result; completion is not yet confirmed.
+        
+        <!-- lf:delivery v=1 key=dbcf4236cb681727b409e770fbc53803d14ef90468fa687db52f1c00cf34042d -->
+=== RUN   TestGraphRecoveryFinalReportsUseRetainedWorkDisposition/missing-liveness
+    recovery_projection_test.go:88: Final graph report (missing-liveness):
+        Work at `analyst`: cancelled
+        
+        admission unavailable
+        
+        Unresolved: The retained attempt has no run record establishing whether execution is active.
+        
+        Ask the factory operator to inspect on the factory host: `litefactory logs --all --grep 'github:acme/acme-api#123'`.
+        
+        <!-- lf:delivery v=1 key=dbcf4236cb681727b409e770fbc53803d14ef90468fa687db52f1c00cf34042d -->
+=== RUN   TestGraphRecoveryFinalReportsUseRetainedWorkDisposition/cancelled-known-result
+    recovery_projection_test.go:88: Final graph report (cancelled-known-result):
+        Work at `analyst`: cancelled
+        
+        The retained graph has work at this step. Run 1 has retained status succeeded.
+        
+        Inspect run 1 on the factory host: `litefactory logs 'github:acme/acme-api#123' --run 1`.
+        
+        <!-- lf:delivery v=1 key=dbcf4236cb681727b409e770fbc53803d14ef90468fa687db52f1c00cf34042d -->
+--- PASS: TestGraphRecoveryFinalReportsUseRetainedWorkDisposition (0.30s)
+    --- PASS: TestGraphRecoveryFinalReportsUseRetainedWorkDisposition/pending (0.18s)
+    --- PASS: TestGraphRecoveryFinalReportsUseRetainedWorkDisposition/running (0.04s)
+    --- PASS: TestGraphRecoveryFinalReportsUseRetainedWorkDisposition/missing-liveness (0.04s)
+    --- PASS: TestGraphRecoveryFinalReportsUseRetainedWorkDisposition/cancelled-known-result (0.04s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	1.322s
