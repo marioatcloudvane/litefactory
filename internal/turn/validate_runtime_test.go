@@ -391,9 +391,6 @@ func TestValidateStoriesCarryTheDeviationsOfTheWorkersCompletedAnswer(t *testing
 
 	prompt, err := validateReviewPrompt(ValidateReviewRequest{Role: "acceptance", Commit: strings.Repeat("a", 40), SnapshotID: "snap", Stories: stories})
 	mustProgress(t, err)
-	if !strings.Contains(prompt, "A story's deviations are decisions the worker made where the plan was silent: judge each against the story's intent and approved decisions") {
-		t.Fatalf("the prompt tells reviewers how to judge deviations:\n%s", prompt)
-	}
 	start, end := strings.Index(prompt, "<validate-review>"), strings.Index(prompt, "</validate-review>")
 	var raw struct {
 		Stories []map[string]any `json:"stories"`

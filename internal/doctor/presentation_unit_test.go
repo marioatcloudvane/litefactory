@@ -76,3 +76,22 @@ func TestDoctorRenderConversationWithoutDiagnosis(t *testing.T) {
 		t.Fatalf("missing honest no-result status or follow-up: %s", got)
 	}
 }
+
+func TestDoctorFindingOrderAndSecondaryDetails(t *testing.T) {
+	t.Parallel()
+	answer := "The run is stranded because its process exited."
+	options := "What you can do\n1. `/doctor apply` repairs the retained row (recommended).\n2. `/doctor stop` ends this conversation."
+	body := doctor.RenderConversation(doctor.Conversation{Diagnosis: &doctor.Diagnosis{Findings: []doctor.Finding{
+		{Explanation: answer, Evidence: []string{"run:42"}, Uncertainty: "Process exit was observed."},
+		{Explanation: options, Evidence: []string{"comment:12"}},
+	}, CoverageGaps: []string{"Earlier logs unavailable", "Remote state not inspected"}}})
+	if strings.Index(body, answer) >= strings.Index(body, options) || !strings.Contains(body, options) {
+		t.Fatal(body)
+	}
+	if strings.Count(body, "<summary>Coverage gaps</summary>") != 1 || strings.Count(body, "<summary>Evidence</summary>") != 2 || strings.Contains(body, "Uncertainty:") || strings.Contains(body, "Evidence:") {
+		t.Fatal(body)
+	}
+	if !strings.Contains(body, "<summary>Evidence</summary>\n\n- run:42\n\n</details>") {
+		t.Fatal(body)
+	}
+}

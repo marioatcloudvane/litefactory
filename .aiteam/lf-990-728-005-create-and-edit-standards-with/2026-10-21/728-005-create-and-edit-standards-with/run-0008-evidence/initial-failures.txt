@@ -1,0 +1,4 @@
+--- FAIL: TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase (0.06s)
+--- FAIL: TestWorkflowJudgeArchivePreservesFinishedBindingOnClosedIssue (0.03s)
+--- FAIL: TestArchiveRegistryProblems_MigratedDatabaseIsClean (0.03s)
+--- FAIL: TestArchiveIntegrationSuiteRowsRetained (0.04s)

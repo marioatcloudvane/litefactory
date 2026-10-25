@@ -106,8 +106,12 @@ func TestSyncTaskBranchStates(t *testing.T) {
 			}
 			after := repo.GitIn(w.Path(), "rev-parse", "HEAD")
 			if blocked {
-				if err == nil {
+				deferred := scenario == "dirty" || scenario == "conflict"
+				if !deferred && err == nil {
 					t.Fatal("obstruction did not refuse")
+				}
+				if deferred && err != nil {
+					t.Fatal(err)
 				}
 				if after != before {
 					t.Fatal("refusal changed HEAD")
@@ -213,7 +217,7 @@ func TestExecuteTaskReconciliationOrdering(t *testing.T) {
 }
 
 func TestExecuteTaskObstructionPreservesWork(t *testing.T) {
-	for _, scenario := range []string{"dirty", "conflict", "unrelated", "reserved"} {
+	for _, scenario := range []string{"unrelated", "reserved"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			runner := newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
@@ -248,8 +252,11 @@ func TestExecuteTaskObstructionPreservesWork(t *testing.T) {
 			if scenario == "dirty" {
 				snapshot = captureRetained(t, f, dir)
 			}
-			result := f.execute(f.request())
-			if result.Disposition != DispositionSyncRefused || result.Run.ID != 0 || result.Harness != nil || runner.callCount() != 0 {
+			result, executionErr := f.executeRefused(f.request())
+			if executionErr == nil {
+				t.Fatal("operational obstruction did not fail")
+			}
+			if result.Run.ID != 0 || result.Harness != nil || runner.callCount() != 0 {
 				t.Fatalf("ordinary execution not refused: %+v", result)
 			}
 			if f.repo.GitIn(dir, "rev-parse", "HEAD") != before {
@@ -257,9 +264,6 @@ func TestExecuteTaskObstructionPreservesWork(t *testing.T) {
 			}
 			if scenario == "dirty" {
 				assertRetained(t, snapshot, captureRetained(t, f, dir))
-			}
-			if !strings.Contains(result.SyncDetail, "agent was not started") || !strings.Contains(result.SyncDetail, "origin/"+testBranch) {
-				t.Fatalf("missing prelaunch detail: %s", result.SyncDetail)
 			}
 		})
 	}

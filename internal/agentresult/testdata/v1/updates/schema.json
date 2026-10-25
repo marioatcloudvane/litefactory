@@ -71,6 +71,7 @@
                   "payload.implement.stories",
                   "payload.implement.aggregate_checks",
                   "payload.implement.deviations",
+                  "payload.implement.return_allocation",
                   "payload.validate.stories",
                   "payload.spike.request",
                   "payload.spike.work_done",

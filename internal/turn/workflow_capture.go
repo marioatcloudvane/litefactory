@@ -260,6 +260,37 @@ func retainedGraphFile(ctx context.Context, db *store.DB, instanceID int64) (str
 	return path.Base(pin.Path), nil
 }
 
+// GraphDispatchRunsAgent reports whether a dispatch's node runs an agent in its
+// instance's retained graph. A lookup that fails reports true with its error,
+// so a caller that cannot classify a step treats it as agent work.
+func GraphDispatchRunsAgent(ctx context.Context, db *store.DB, dispatch store.GraphDispatch) (bool, error) {
+	raw, err := db.ResearchLaunchFiles(ctx, dispatch.InstanceID)
+	if err != nil {
+		return true, err
+	}
+	var files map[string][]byte
+	if err := json.Unmarshal(raw, &files); err != nil {
+		return true, err
+	}
+	graphFile, err := retainedGraphFile(ctx, db, dispatch.InstanceID)
+	if err != nil {
+		return true, err
+	}
+	dot, found := files[graphFile]
+	if !found {
+		return true, fmt.Errorf("retained graph %q is absent", graphFile)
+	}
+	profile, err := graphexec.ParseProfile(dot)
+	if err != nil {
+		return true, err
+	}
+	node, found := profile.Node(dispatch.Node)
+	if !found {
+		return true, fmt.Errorf("node %q is absent from the retained graph", dispatch.Node)
+	}
+	return node.Action == ResearchAgentAction, nil
+}
+
 // workflowRequestError keeps admission and persistence refusals actionable even
 // when they happen after capture, while retaining the original wrapped cause.
 func workflowRequestError(ctx context.Context, opts Options, req Request, session store.Session, cause error) error {

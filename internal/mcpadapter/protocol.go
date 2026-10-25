@@ -140,18 +140,35 @@ func encodeNoHTML(value interface{}) ([]byte, error) {
 	return bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'}), nil
 }
 
+var errToolResultLimit = errors.New("backend response exceeds limit")
+
 func toolResponse(id json.RawMessage, r submission.Response) response {
+	result, err := EncodeToolResult(r)
+	if err != nil {
+		message := "Invalid backend response"
+		if errors.Is(err, errToolResultLimit) {
+			message = "Backend response exceeds limit"
+		}
+		return failure(id, -32603, message)
+	}
+	return response{JSONRPC: "2.0", ID: id, Result: result}
+}
+
+// EncodeToolResult encodes the exact MCP tool result, including its duplicate
+// text and structured representations. Callers can use its length to budget
+// output before delivery. The JSON-RPC envelope is not part of the tool result.
+func EncodeToolResult(r submission.Response) ([]byte, error) {
 	if len(r.Result) > submission.MaxFrameBytes || len(r.Error) > 4096 || len(r.RequestID) > 128 {
-		return failure(id, -32603, "Backend response exceeds limit")
+		return nil, errToolResultLimit
 	}
 	// Encoding duplicates the bounded application result as interoperable text
 	// and structured content. Estimate worst-case escaping before allocation.
 	if len(r.Result)*4+8192 > MaxOutputBytes {
-		return failure(id, -32603, "Backend response exceeds limit")
+		return nil, errToolResultLimit
 	}
 	raw, err := encodeNoHTML(r)
 	if err != nil {
-		return failure(id, -32603, "Invalid backend response")
+		return nil, errors.New("invalid backend response")
 	}
 	rejected := r.Error != ""
 	var diagnostic struct {
@@ -169,9 +186,9 @@ func toolResponse(id json.RawMessage, r submission.Response) response {
 		IsError    bool            `json:"isError"`
 	}{[]textContent{{Type: "text", Text: string(raw)}}, raw, rejected})
 	if err != nil {
-		return failure(id, -32603, "Invalid backend response")
+		return nil, errors.New("invalid backend response")
 	}
-	return response{JSONRPC: "2.0", ID: id, Result: result}
+	return result, nil
 }
 
 type textContent struct {

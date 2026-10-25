@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -27,6 +29,16 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 	if route != "graph" {
 		return false, nil
 	}
+	// Handing polling to a story's own Plan task belongs to planning. Once the
+	// feature is promoted the stories are locked; re-handing every child on every
+	// parent turn kept the parent from its own comments. Lifecycle observation
+	// below still runs.
+	planning := true
+	if f, err := d.db.GetManagedFeature(ctx, t.ref.String()); err == nil {
+		planning = f.State == "planning"
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
 	state, _, err := d.db.GetPlanWorkflowState(ctx, t.ref.String())
 	if err != nil {
 		return false, err
@@ -40,6 +52,11 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		return false, errors.New("plan child routing requires direct parent observation")
 	}
 	ids := d.ticketIdentities(ctx)
+	// One repository inspection serves this pass's child observation and
+	// handoff reads. Judge, doctor, explanation and turn steps keep ctx, which
+	// has no live scope, so their ticket effects check freshly.
+	obsCtx, checks := withContainerChecks(ctx)
+	defer checks.close()
 	for _, draft := range drafts {
 		if draft.IssueNumber < 1 {
 			continue
@@ -62,7 +79,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		if err != nil {
 			return false, err
 		}
-		child, available, err := d.observePlanChild(ctx, t, draft, relation)
+		child, available, err := d.observePlanChild(obsCtx, t, draft, relation)
 		if err != nil {
 			return false, err
 		}
@@ -111,10 +128,26 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		// own stages; the parent only observes its issue.
 		if story, task, taskErr := d.db.GraphPlanStoryAt(ctx, t.repo.ID, draft.IssueNumber); taskErr != nil {
 			return false, taskErr
+		} else if task && child.State == "open" && !planning {
+			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
+				return false, err
+			}
+			continue
 		} else if task && child.State == "open" {
+			// A child that already has its own session owns its polling; handing
+			// it over again on every sweep re-verified it remotely and re-woke it
+			// for each comment the child wrote. Only the first handoff remains.
+			if handed, err := d.planChildSessionExists(ctx, t, story); err != nil {
+				return false, err
+			} else if handed {
+				if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
+					return false, err
+				}
+				continue
+			}
 			// Transfer durable polling responsibility before retiring the parent's
 			// discovery debt, including observations received while awaiting review.
-			session, err := d.managedChildSession(ctx, t.repo, story.Parent, story.IssueNumber, story.IssueID)
+			session, err := d.managedChildSession(obsCtx, t.repo, story.Parent, story.IssueNumber, story.IssueID)
 			if err != nil {
 				return false, err
 			}
@@ -151,7 +184,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		if err != nil {
 			return false, err
 		}
-		comments, err := d.discoveryComments(ctx, t.forgeRepo, draft.IssueNumber, after)
+		comments, err := d.discoveryComments(obsCtx, t.forgeRepo, draft.IssueNumber, after)
 		if err != nil {
 			return false, err
 		}
@@ -192,7 +225,13 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			if explainErr != nil && !errors.Is(explainErr, store.ErrNotFound) {
 				return false, explainErr
 			}
-			reason := state.PlanReplyReason(draft.Key, comment.Body)
+			normalized, decisionErr := turn.ResolvePlanStoryDecision(ctx, d.db, t.ref.String(), comment.ID, comment.Author.ID, comment.Body, t.tickAt, draft.Key, comment.ReplyToCommentID)
+			var reason string
+			if decisionErr != nil {
+				reason = decisionErr.Error()
+			} else {
+				reason = state.PlanReplyReason(draft.Key, normalized)
+			}
 			if explainErr == nil {
 				reason = explanation.Reason
 			}
@@ -264,4 +303,43 @@ func planParentTitleKey(issue github.Issue, forge string) string {
 		return "story"
 	}
 	return fmt.Sprint(issue.Number)
+}
+
+// planChildSessionExists reports, from the store alone, whether a graph Plan
+// story already has its own session. The child's ticket identity is built from
+// the parent's admitted ticket connection, the way managedChildSession and the
+// recovery drain identify it.
+func (d *Daemon) planChildSessionExists(ctx context.Context, t *task, story store.GraphPlanStory) (bool, error) {
+	if d.connections == nil || story.IssueID <= 0 {
+		return false, nil
+	}
+	snapshot, err := d.db.GetExecutionSnapshot(ctx, t.session.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	version, err := d.db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
+	if err != nil {
+		return false, err
+	}
+	identity := ticket.Identity{Provider: version.Provider, Origin: version.Origin, RemoteID: strconv.FormatInt(story.IssueID, 10)}
+	if version.Provider == ticket.Linear {
+		identity, err = d.db.TicketIdentityForSlot(ctx, "issue", story.IssueID)
+		if errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	session, err := d.db.GetSessionByTicket(ctx, identity)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return session.RepoID == t.repo.ID, nil
 }

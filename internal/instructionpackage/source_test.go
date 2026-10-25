@@ -33,7 +33,11 @@ func TestCaptureRoleReportsFallbackMetadataWithoutContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(capture.Instructions()), "Classify the authorized instruction") {
+	shipped, err := embedded.ReadFile("embedded/agents/mode-classifier.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(capture.Instructions()) != string(shipped) {
 		t.Fatal("did not select complete shipped fallback")
 	}
 	text := logs.String()

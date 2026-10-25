@@ -2,11 +2,15 @@ package turn
 
 import (
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -125,5 +129,111 @@ func TestValidateStorySubIssueWriteRetriedOnNextRefresh(t *testing.T) {
 	}
 	if n := len(o.forge.bodies("**Validate report**")); n != 1 {
 		t.Fatalf("the parent report is edited in place: %d", n)
+	}
+}
+
+// storyFindingsState holds n blocking findings of story-002 that need the
+// owner's choice, each with summary text.
+func storyFindingsState(n int, summary string) ValidateState {
+	st := ValidateState{Revision: "r1", Commit: strings.Repeat("c", 40)}
+	for i := range n {
+		name := fmt.Sprintf("F-%03d", i+1)
+		st.Findings = append(st.Findings, ValidateFinding{ID: "story-002:" + name, Story: "story-002", Name: name, Role: "code", Status: "fail", Summary: summary, State: findingOpen, Blocking: true})
+	}
+	return st
+}
+
+func renderStoryDelivery(t *testing.T, body string) {
+	t.Helper()
+	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{}), Limit: github.CommentSizeLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := renderer.RenderReportDelivery(t.Context(), body, "<!-- lf:validate-story -->"); err != nil {
+		t.Fatalf("the story comment is not deliverable: %v", err)
+	}
+}
+
+// #1123 c4: a finding summary within the bound appears whole under Blocks and
+// Your part; a longer one ends at a sentence with "(text shortened)".
+func TestValidateStoryCommentShowsWholeFindingText(t *testing.T) {
+	text := longFindingText(1500)
+	body := renderValidateStoryComment(storyFindingsState(1, text), ValidateIssueRef{Key: "story-002"}, 843)
+	if strings.Count(body, text) != 2 || strings.Contains(body, "...") {
+		t.Fatalf("the whole summary under Blocks and Your part:\n%s", body)
+	}
+	long := longFindingText(10000)
+	body = renderValidateStoryComment(storyFindingsState(1, long), ValidateIssueRef{Key: "story-002"}, 843)
+	want := shortenFindingText(long, validateFindingTextLimit)
+	if strings.Count(body, want) != 2 || !strings.Contains(body, "."+findingTextShortened) {
+		t.Fatalf("the long summary is cut at a sentence end with the note:\n%s", body)
+	}
+}
+
+// #1123 c6: many long findings still fit the comment limit and each says its
+// text was shortened.
+func TestValidateStoryCommentWithManyLongFindingsFits(t *testing.T) {
+	body := renderValidateStoryComment(storyFindingsState(30, longFindingText(10000)), ValidateIssueRef{Key: "story-002"}, 843)
+	if len(body) > github.CommentSizeLimit-validateStoryCommentReserve {
+		t.Fatalf("body of %d bytes exceeds the budget", len(body))
+	}
+	for i := range 30 {
+		name := fmt.Sprintf("F-%03d", i+1)
+		block := "- Blocking finding `" + name + "` failed: "
+		at := strings.Index(body, block)
+		if at < 0 {
+			t.Fatalf("%s is not listed with its text", name)
+		}
+		line, _, _ := strings.Cut(body[at:], "\n")
+		if !strings.Contains(line, findingTextShortened) {
+			t.Fatalf("%s does not say its text was shortened: %s", name, line)
+		}
+	}
+	if strings.Count(body, findingTextShortened) != 60 {
+		t.Fatalf("every Blocks and Your part entry is shortened: %d", strings.Count(body, findingTextShortened))
+	}
+	renderStoryDelivery(t, body)
+}
+
+// #1123 c9: beyond the 512-byte floor the comment still fits; later findings
+// are listed by ID and command without text, and when even that does not fit
+// (500 findings) the rest are counted in a closing line.
+func TestValidateStoryCommentBeyondTheFloorStillNamesEveryFinding(t *testing.T) {
+	for _, n := range []int{60, 150, 500} {
+		body := renderValidateStoryComment(storyFindingsState(n, longFindingText(10000)), ValidateIssueRef{Key: "story-002"}, 843)
+		if len(body) > github.CommentSizeLimit-validateStoryCommentReserve {
+			t.Fatalf("%d findings: body of %d bytes exceeds the budget", n, len(body))
+		}
+		if full := renderValidateStoryCommentBound(storyFindingsState(n, longFindingText(10000)), ValidateIssueRef{Key: "story-002"}, "#843", validateStoryTextFloor, 0); len(full) <= github.CommentSizeLimit-validateStoryCommentReserve {
+			t.Fatalf("%d findings fit at the floor; the case does not go beyond it", n)
+		}
+		listed := strings.Count(body, "- Blocking finding `") + strings.Count(body, "needs your choice")
+		omitted := 0
+		if i := strings.Index(body, " more findings are not listed here; see the parent issue's Validate report for their commands."); i >= 0 {
+			start := strings.LastIndex(body[:i], "\n") + 1
+			var err error
+			omitted, err = strconv.Atoi(body[start:i])
+			if err != nil {
+				t.Fatalf("closing line: %v", err)
+			}
+		}
+		if n == 500 && omitted == 0 {
+			t.Fatal("500 findings do not reach the closing line")
+		}
+		if listed+omitted != 2*n {
+			t.Fatalf("%d findings: listed %d and omitted %d do not account for every entry", n, listed, omitted)
+		}
+		if omitted == 0 {
+			if !strings.Contains(body, findingTextShortened) {
+				t.Fatalf("%d findings: earlier findings keep their shortened text", n)
+			}
+			last := fmt.Sprintf("- `F-%03d` (blocking finding) needs your choice\n  `%s r1 story-002:F-%03d ", n, ValidateFindingCommand, n)
+			if !strings.Contains(body, last) {
+				t.Fatalf("%d findings: the last is listed by ID and command without text:\n%s", n, body[max(0, len(body)-1500):])
+			}
+		} else if !strings.Contains(body, "` failed. It clears") {
+			t.Fatalf("%d findings: later findings are listed without text:\n%s", n, body[max(0, len(body)-1500):])
+		}
+		renderStoryDelivery(t, body)
 	}
 }

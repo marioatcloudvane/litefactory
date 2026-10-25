@@ -9,20 +9,37 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"slices"
 )
 
-// MaxConversationCaptureBytes bounds the four encoded role captures together.
+// MaxConversationCaptureBytes bounds the encoded role captures together.
 const MaxConversationCaptureBytes = 16 << 20
+
+// ConversationReasonerRole is the optional fifth conversation role. Captures
+// made before it existed, the legacy baseline and packages whose catalogue
+// does not list it hold only the four base roles; their Reasoner is empty.
+const ConversationReasonerRole = "conversation-reasoner"
+
+// ConversationInboxOrganizerRole is an optional snapshot-only presentation role.
+const ConversationInboxOrganizerRole = "conversation-inbox-organizer"
+
+// InboxOrganizerSchemaPath is the captured snapshot organizer result contract.
+const InboxOrganizerSchemaPath = "resources/inbox-organizer/schema.md"
 
 //go:embed legacy-conversation-v1/*
 var legacyConversationFiles embed.FS
 
-// ConversationRoles is the complete fixed instruction inventory for a conversation.
+// ConversationRoles is the complete instruction inventory for a conversation,
+// in capture order. The trailing reasoner and organizer roles are optional;
+// older retained captures continue to restore without them.
 func ConversationRoles() []string {
-	return []string{"conversation-native", "conversation-factory", "conversation-correction", "conversation-action-outcome"}
+	return []string{"conversation-native", "conversation-factory", "conversation-correction", "conversation-action-outcome", ConversationReasonerRole, ConversationInboxOrganizerRole}
 }
 
-// ConversationCapture retains all four roles together, independent of live files.
+// baseConversationRoles is the number of roles every capture holds.
+const baseConversationRoles = 4
+
+// ConversationCapture retains all roles together, independent of live files.
 type ConversationCapture struct {
 	data  conversationData
 	roles []*RoleCapture
@@ -42,7 +59,10 @@ func (p *Package) CaptureConversation(ctx context.Context) (*ConversationCapture
 func (p *Package) captureConversation(ctx context.Context, legacy bool) (*ConversationCapture, []Diagnostic, error) {
 	data := conversationData{Schema: 1, Legacy: legacy}
 	var diagnostics []Diagnostic
-	for _, role := range ConversationRoles() {
+	for i, role := range ConversationRoles() {
+		if i >= baseConversationRoles && !slices.Contains(p.roles, role) {
+			break
+		}
 		captured, notes, err := p.Capture(ctx, role)
 		if err != nil {
 			return nil, nil, err
@@ -96,7 +116,7 @@ func RestoreConversation(raw []byte) (*ConversationCapture, error) {
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("conversation instructions have trailing data")
 	}
-	if data.Schema != 1 || len(data.Roles) != len(ConversationRoles()) {
+	if data.Schema != 1 || len(data.Roles) < baseConversationRoles || len(data.Roles) > len(ConversationRoles()) {
 		return nil, fmt.Errorf("invalid conversation instruction schema or role count")
 	}
 	if !validDigest(data.Digest) || data.Digest != conversationDigest(data) {
@@ -156,6 +176,15 @@ func (c *ConversationCapture) Correction() string { return string(c.roles[2].Ins
 // ActionOutcome supplies narration instructions, joined after Factory with one space.
 func (c *ConversationCapture) ActionOutcome() string { return string(c.roles[3].Instructions()) }
 
+// Reasoner supplies the reasoner instructions, or "" when this capture has no
+// reasoner role.
+func (c *ConversationCapture) Reasoner() string {
+	if len(c.roles) <= baseConversationRoles {
+		return ""
+	}
+	return string(c.roles[baseConversationRoles].Instructions())
+}
+
 // ShippedConversationPackage loads validated shipped instructions without an owner overlay.
 func ShippedConversationPackage(ctx context.Context) (*Package, error) {
 	baseline, err := fs.Sub(embedded, "embedded")
@@ -163,4 +192,13 @@ func ShippedConversationPackage(ctx context.Context) (*Package, error) {
 		return nil, err
 	}
 	return Load(ctx, baseline, "")
+}
+
+// InboxOrganizer supplies the dedicated organizer instructions. Older captures
+// deliberately return empty so callers retain the factual inbox fallback.
+func (c *ConversationCapture) InboxOrganizer() string {
+	if c == nil || len(c.roles) < 6 {
+		return ""
+	}
+	return string(c.roles[5].Instructions()) + "\n\n" + string(c.roles[5].Resource(InboxOrganizerSchemaPath))
 }

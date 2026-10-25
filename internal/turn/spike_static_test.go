@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
@@ -118,6 +119,76 @@ func TestSpikeLimitsAreDeclaredInTheGraphFile(t *testing.T) {
 			if node.Limit != 1 {
 				t.Errorf("a report is published at most once: %+v", node)
 			}
+		}
+	}
+}
+
+// A failed check gets exactly one repair: it hands over to a second write-access
+// fixer pass whose change is checked again, and a second failure is reported
+// as unverified with no further agent reachable.
+func TestSpikeRepairsOnceAfterAFailedCheck(t *testing.T) {
+	specs, err := SpikeSpecs()
+	mustProgress(t, err)
+	definition, err := teamsource.CaptureSpike(t.Context(), specs)
+	mustProgress(t, err)
+	profile := definition.Profile
+	next := func(from, outcome string) graphexec.Node {
+		t.Helper()
+		name, ok := graphexec.Decide(profile, from, outcome)
+		node, found := profile.Node(name)
+		if !ok || !found {
+			t.Fatalf("%s has no %q edge", from, outcome)
+		}
+		return node
+	}
+	checkOf := func(fixer graphexec.Node) graphexec.Node {
+		t.Helper()
+		if fixer.Action != "lf_agent" || fixer.Attrs["lf_agent_markdown"] != "spike-fixer" || fixer.Attrs[graphexec.AccessAttribute] != "write" {
+			t.Fatalf("not a write-access fixer: %+v", fixer)
+		}
+		gate := next(fixer.Name, "success")
+		check := next(gate.Name, "false")
+		if check.Action != SpikeCheckAction || check.Attrs["lf_source"] != fixer.Name {
+			t.Fatalf("fixer %s is not checked: %+v", fixer.Name, check)
+		}
+		return check
+	}
+	var sizeGate graphexec.Node
+	for _, node := range profile.Nodes {
+		if node.Action == SpikeGateAction {
+			sizeGate = node
+		}
+	}
+	first := next(sizeGate.Name, "small")
+	firstCheck := checkOf(first)
+	second := next(firstCheck.Name, "failed")
+	if second.Name == first.Name {
+		t.Fatal("the repair loops back to the same fixer node")
+	}
+	secondCheck := checkOf(second)
+	if note := next(secondCheck.Name, "failed"); note.Action != SpikeNoteAction || note.Attrs["lf_status"] != "fix_unverified" {
+		t.Fatalf("a second failed check is not reported as unverified: %+v", note)
+	}
+	seen := map[string]bool{}
+	var walk func(string)
+	walk = func(name string) {
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		node, _ := profile.Node(name)
+		if node.Action == "lf_agent" {
+			t.Fatalf("an agent (%s) is reachable after the repair's check", name)
+		}
+		for _, outcome := range node.Outcomes {
+			if target, ok := graphexec.Decide(profile, name, outcome); ok {
+				walk(target)
+			}
+		}
+	}
+	for _, outcome := range secondCheck.Outcomes {
+		if target, ok := graphexec.Decide(profile, secondCheck.Name, outcome); ok {
+			walk(target)
 		}
 	}
 }

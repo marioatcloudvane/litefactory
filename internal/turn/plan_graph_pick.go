@@ -92,7 +92,7 @@ func (r *planGraphRuntime) selectDiscussion(ctx context.Context) error {
 		key = reply.Key
 	}
 	if key == "" {
-		r.selected, r.stage = "", planSetStage
+		r.setPick(s, "", planSetStage)
 		return nil
 	}
 	if reason := s.PlanReplyReason(key, r.req.Trigger.Body); reason != "" {
@@ -100,7 +100,7 @@ func (r *planGraphRuntime) selectDiscussion(ctx context.Context) error {
 	}
 	for _, item := range s.Stories {
 		if item.Key == key {
-			r.selected, r.stage = key, item.Stage
+			r.setPick(s, key, item.Stage)
 			return nil
 		}
 	}
@@ -386,4 +386,32 @@ func (r *planGraphRuntime) storyRewindReason(ctx context.Context, s planbrief.Pl
 		return "", nil
 	}
 	return fmt.Sprintf("Review resumes at the %s stage because %s. Approvals from that stage must be renewed.", item.Stage, basis), nil
+}
+
+// planPickSnapshot keeps what a later review compares against when this
+// request's own result moves the story back to an earlier stage.
+type planPickSnapshot struct {
+	known bool
+	deps  planbrief.DependencyContent
+	// description is the story-stage revision without dependencies, so a
+	// description change and a dependency change can be told apart.
+	description string
+	shared      string
+}
+
+// setPick records the selected story and stage together with the snapshot
+// read from the same Plan state, so all of them always come from one pick.
+func (r *planGraphRuntime) setPick(s planbrief.PlanState, key, stage string) {
+	r.selected, r.stage, r.picked = key, stage, planPickSnapshot{}
+	for _, item := range s.Stories {
+		if key != "" && item.Key == key {
+			r.picked = planPickSnapshot{known: true, deps: planbrief.DependencyContent{StoryKeys: slices.Clone(item.Draft.Dependencies.StoryKeys), IssueRefs: slices.Clone(item.Draft.Dependencies.IssueRefs)}, description: storyDescriptionRevision(item.Draft), shared: s.SharedRevision}
+			return
+		}
+	}
+}
+
+func storyDescriptionRevision(d planbrief.PlanDraft) string {
+	d.Dependencies = planbrief.DependencyContent{}
+	return d.StageRevision("story")
 }

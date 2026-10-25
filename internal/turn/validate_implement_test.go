@@ -335,7 +335,7 @@ func TestParseValidateImplementCommand(t *testing.T) {
 	if err != nil || c.Name != ValidateImplementCommand || c.Guidance != "keep the tooltips, no legend" {
 		t.Fatalf("guidance: %+v %v", c, err)
 	}
-	for _, bad := range []string{"/validate-implement", "/validate-implement 0123456789ab story-002", "/validate-implement 0123456789ab story-002 -- why", "/validate-implement 0123456789ab -- "} {
+	for _, bad := range []string{"/validate-implement 0123456789ab story-002", "/validate-implement 0123456789ab story-002 -- why", "/validate-implement 0123456789ab -- "} {
 		if _, err := ParseValidateCommand(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
@@ -526,7 +526,7 @@ func newSuiteHandbackFixture(t *testing.T, mergeOf func(o *ownerFixture, root, k
 func TestValidateImplementAcceptsAHandedBackFailedSuite(t *testing.T) {
 	f := newSuiteHandbackFixture(t, func(_ *ownerFixture, root, _ string) string { return root })
 	st := f.state()
-	if next := st.NextStep(nil); !strings.Contains(next, ValidateImplementCommand+" "+st.Revision) {
+	if next := st.implementLine(); !strings.Contains(next, ValidateImplementCommand+" "+st.Revision) {
 		t.Fatalf("the failed-suite Next line names /validate-implement: %q", next)
 	}
 	before := f.rows()

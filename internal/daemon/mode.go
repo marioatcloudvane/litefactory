@@ -107,6 +107,16 @@ func (d *Daemon) classifyMode(ctx context.Context, t *task, instruction string) 
 }
 
 func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, kind report.ReplyKind, mode agent.Mode) error {
+	// Ordinary direction remains pending when a question or terminal workflow
+	// cannot accept it. A refused decision command keeps its existing response.
+	if trigger.CommentID > 0 && turn.ParseCommand(trigger.Body).Kind == turn.KindFreeText {
+		switch kind {
+		case report.ReplyGraphReplyBetweenQuestions, report.ReplyGraphOwnerWaitRefused,
+			report.ReplyImplementCommentNotApplied, report.ReplyValidateCommentNotApplied,
+			report.ReplyImplementFinished, report.ReplyImplementFinishedAutoValidate, report.ReplyImplementFinishedValidated:
+			return d.reportOwnerInput(ctx, t, trigger.CommentID, false)
+		}
+	}
 	if trigger.CommentID == 0 && kind != report.ReplyBugUnavailable && kind != report.ReplyMissingModeMapping && kind != report.ReplyMissingTeam && kind != report.ReplyUnsupportedWorkflow {
 		t.log.InfoContext(ctx, "refusing issue-body mode selection; there is no comment to answer")
 		return nil
@@ -311,4 +321,68 @@ func (d *Daemon) markResearchModeApplied(ctx context.Context, t *task, selection
 		}
 	}
 	return d.db.MarkModeLabelApplied(ctx, selection.SessionID, selection.TriggerCommentID)
+}
+
+// plainParentCommentRefusal reports the reply for a plain owner comment on a
+// managed parent past planning that the pinned Implement mode cannot use
+// (#1123). While the parent's latest Validate instance is running, at any step
+// or owner wait, the comment belongs to Validate, which never admits free
+// text. Once Implement has finished with every story of the current
+// generation merged, a new Implement run would only post its completion note
+// again. Zero means the comment continues into Implement as before. Stopped
+// Validate work never reaches here: recoverGraphReply handles it first.
+func (d *Daemon) plainParentCommentRefusal(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, workflow agent.Workflow, command turn.Command) (report.ReplyKind, error) {
+	if mode != agent.ModeImplement || workflow == agent.WorkflowBug || t.continuation != nil || t.implementing ||
+		command.Kind != turn.KindFreeText || command.Name != "" || turn.ManagedReplan(command) ||
+		store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) {
+		return report.ReplyInvalid, nil
+	}
+	feature, err := d.db.GetManagedFeature(ctx, t.ref.String())
+	if errors.Is(err, store.ErrNotFound) {
+		return report.ReplyInvalid, nil
+	}
+	if err != nil {
+		return report.ReplyInvalid, err
+	}
+	if feature.State == "planning" {
+		return report.ReplyInvalid, nil
+	}
+	validate, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, string(agent.ModeValidate))
+	hasValidate := err == nil
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return report.ReplyInvalid, err
+	}
+	if hasValidate && validate.Status == store.GraphRunning {
+		return report.ReplyValidateCommentNotApplied, nil
+	}
+	implement, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, string(agent.ModeImplement))
+	if errors.Is(err, store.ErrNotFound) {
+		return report.ReplyInvalid, nil
+	}
+	if err != nil {
+		return report.ReplyInvalid, err
+	}
+	if implement.Status == store.GraphRunning {
+		return report.ReplyInvalid, nil
+	}
+	stories, err := d.db.ListImplementStories(ctx, feature.ParentTask, int64(feature.Generation))
+	if err != nil {
+		return report.ReplyInvalid, err
+	}
+	if len(stories) == 0 {
+		return report.ReplyInvalid, nil
+	}
+	for _, story := range stories {
+		if story.State != store.ImplementMerged {
+			return report.ReplyInvalid, nil
+		}
+	}
+	switch {
+	case hasValidate && validate.ID > implement.ID:
+		return report.ReplyImplementFinishedValidated, nil
+	case d.validateAutoStart:
+		return report.ReplyImplementFinishedAutoValidate, nil
+	default:
+		return report.ReplyImplementFinished, nil
+	}
 }

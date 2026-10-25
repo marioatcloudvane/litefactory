@@ -23,6 +23,12 @@ type naturalPayload struct {
 	RepoID                                     int64
 	Project, Channel                           string
 	ProjectPending                             bool `json:"project_pending,omitempty"`
+	// focus is the conversation's last discussed project. It only breaks ties
+	// and fills a missing project for reads; it is never part of the digest.
+	focus string
+	// window is the owner's own window phrase, echoed in the proposal text; the
+	// digest binds the exact bounds it resolved to.
+	window string
 }
 
 func naturalDigest(p naturalPayload) (string, string, error) {
@@ -38,12 +44,24 @@ func naturalLater(id, previous string) bool {
 	p, f := strconv.ParseUint(previous, 10, 64)
 	return e == nil && f == nil && n > p
 }
-func naturalConfirmation(text string, d store.NaturalDialogue, reply string) bool {
-	text = strings.ToLower(strings.TrimSpace(text))
-	if d.Code != "" && (text == "confirm "+strings.ToLower(d.Code) || naturalConfirmationCode(text) == strings.ToLower(d.Code)) {
+
+// naturalYes is the small set of whole messages that mean yes; a message that
+// says anything more is an ordinary message.
+func naturalYes(text string) bool {
+	switch strings.Trim(strings.ToLower(strings.TrimSpace(text)), "!. ") {
+	case "yes", "yes please", "ja", "ok", "okay", "go", "go ahead", "do it", "start", "mach", "mach das", "confirm":
 		return true
 	}
-	return reply == d.PromptID && d.PromptID != "" && (text == "yes" || text == "yes please" || text == "confirm" || text == "do it")
+	return false
+}
+
+// naturalDetailsRequest asks to see the exact proposal.
+func naturalDetailsRequest(text string) bool {
+	switch strings.Trim(strings.ToLower(strings.TrimSpace(text)), "!?. ") {
+	case "details", "show details", "show me the details", "exact details":
+		return true
+	}
+	return false
 }
 
 // naturalConfirmationCode recognizes only a whole proposal-code message.
@@ -73,6 +91,42 @@ func naturalCancel(text string) bool {
 }
 
 func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time.Time) (string, error) {
+	if standardsCommand(p.Invocation.Command) {
+		op, err := standardsOperation(p.Invocation)
+		if err != nil {
+			return err.Error(), nil //nolint:nilerr // Invalid selections are owner-visible clarifications, not retryable failures.
+		}
+		if s.standards == nil {
+			return "Standards operations are unavailable.", nil
+		}
+		args := p.Invocation.Arguments
+		if args["project"] != "" && args["repository_id"] == "" {
+			resolution, e := s.resolveNaturalProject(ctx, args)
+			if e != nil {
+				return "", e
+			}
+			if resolution.Refusal != "" {
+				return resolution.Refusal, nil
+			}
+			p.RepoID = resolution.Repository.ID
+			p.Project = resolution.Repository.Slug()
+			args["project"] = p.Project
+			args["repository_id"] = strconv.FormatInt(p.RepoID, 10)
+		}
+		if op == "analysis.start" && args["window"] != "" {
+			after, before, ok := analysisWindow(args["window"], at)
+			if !ok {
+				return "Please give the analysis window as last N days, yesterday, last week or this week, or as exact after and before times.", nil
+			}
+			args["after"], args["before"] = after, before
+			p.window = args["window"]
+			delete(args, "window")
+		}
+		if p.Invocation.Command != "standards" {
+			return standardsMissingTerms(op, p.Invocation.Arguments), nil
+		}
+		return "", nil
+	}
 	args := p.Invocation.Arguments
 	if p.Invocation.Command == "meter" {
 		now := at.In(time.Local)
@@ -87,7 +141,7 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 		}
 	}
 	if p.Invocation.Command == "ask" || p.Invocation.Command == "draft" || p.Invocation.Command == "diagnose" || p.Invocation.Command == "question" || p.Invocation.Command == "answer" || (p.Invocation.Command == "meter" || p.Invocation.Command == "status") && (args["task"] != "" || args["issue"] != "") || args["project"] != "" {
-		resolution, err := s.resolveNaturalProject(ctx, args)
+		resolution, err := s.resolveNaturalProjectFocus(ctx, args, p.focus)
 		if err != nil {
 			return "", err
 		}
@@ -197,25 +251,59 @@ func relativeBound(phrase string, now time.Time) (string, string, bool) {
 	return from.Format(time.RFC3339), to.Format(time.RFC3339), true
 }
 
-func (s *Service) naturalProposal(p naturalPayload, code string) string {
-	args, err := json.Marshal(p.Invocation.Arguments)
-	if err != nil {
-		return ""
+// analysisWindow turns a spanned window phrase into closed UTC bounds: "last N
+// days" (or hours) ends now, and the calendar phrases of relativeBound end at
+// their period's end or now.
+func analysisWindow(phrase string, now time.Time) (string, string, bool) {
+	text := strings.ToLower(strings.TrimSpace(phrase))
+	fields := strings.Fields(strings.TrimPrefix(strings.TrimPrefix(text, "last "), "past "))
+	if len(fields) == 2 {
+		n, err := strconv.Atoi(fields[0])
+		unit := map[string]time.Duration{"day": 24 * time.Hour, "hour": time.Hour}[strings.TrimSuffix(fields[1], "s")]
+		if err == nil && n > 0 && n <= 366 && unit > 0 {
+			return now.UTC().Add(-time.Duration(n) * unit).Format(time.RFC3339), now.UTC().Format(time.RFC3339), true
+		}
 	}
-	scope := ""
-	switch p.Invocation.Command {
-	case "draft":
-		scope = "Create or replace a feature preview only. Issue creation needs a separate confirmation."
-	case "diagnose":
-		scope = "Queue diagnosis work. Any repair remains subject to review on the issue."
-	case "answer":
-		scope = "Record this answer to the current research question: " + p.Question + "\nRevision: " + p.Revision
-	case "confirm":
-		scope = "Create an issue from this exact saved feature preview: " + p.Question
+	from, to, ok := relativeBound(text, now.In(time.Local))
+	if !ok {
+		return "", "", false
 	}
-	return fmt.Sprintf("Proposed action: %s\nProject: %s\n%s\nExact protected arguments: %s\nConfirmation code: %s\nReply directly to this message with yes, or send %s alone or prefixed by confirm, yes or ok. Send cancel to cancel. Expires in 15 minutes.", p.Invocation.Command, p.Project, scope, args, code, code)
+	start, _ := time.Parse(time.RFC3339, from)
+	end := now
+	if to != "" {
+		end, _ = time.Parse(time.RFC3339, to)
+	}
+	return start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339), true
 }
+
 func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.Time) (string, error) {
+	if standardsCommand(p.Invocation.Command) {
+		if s.standards == nil {
+			return "Standards operations are unavailable.", nil
+		}
+		if _, err := standardsOperation(p.Invocation); err != nil {
+			return err.Error(), nil //nolint:nilerr // A retired selection is a saved refusal, not retryable work.
+		}
+		if p.RepoID > 0 {
+			resolution, e := ask.ResolveProject(ctx, s.db, p.Project, nil)
+			if e != nil {
+				return "", e
+			}
+			if resolution.Refusal != "" || resolution.Repository.ID != p.RepoID {
+				return "The registered standards project changed. Request a fresh proposal.", nil
+			}
+		}
+		for _, value := range p.Invocation.Arguments {
+			protected, err := s.Protect(ctx, value)
+			if err != nil {
+				return "", err
+			}
+			if protected != value {
+				return "Protection changed the exact standards request. Request a fresh proposal.", nil
+			}
+		}
+		return "", nil
+	}
 	_, _, err := s.ValidateInvocation(p.Invocation)
 	if err != nil {
 		return "This action is no longer enabled; request a fresh proposal.", nil //nolint:nilerr // A stale catalogue entry is a saved refusal, not retryable execution work.
@@ -276,6 +364,13 @@ func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.
 // Explicit project names win. Task inference requires complete reads across all
 // registered projects, so an unavailable project can never create uniqueness.
 func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]string) (ask.Resolution, error) {
+	return s.resolveNaturalProjectFocus(ctx, args, "")
+}
+
+// resolveNaturalProjectFocus also takes the conversation's last discussed
+// project: it picks among several projects holding the same task number, and
+// stands in when the number is unknown everywhere or no project is named.
+func (s *Service) resolveNaturalProjectFocus(ctx context.Context, args map[string]string, focus string) (ask.Resolution, error) {
 	option := strings.TrimRight(strings.TrimSpace(args["project"]), "!?.,;: ")
 	resolution, err := ask.ResolveProject(ctx, s.db, option, nil)
 	if err != nil || option != "" {
@@ -295,15 +390,23 @@ func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]str
 	if err != nil {
 		return resolution, err
 	}
+	var focused *store.Repo
+	for i := range repos {
+		if focus != "" && repos[i].Forge == "github" && repos[i].Slug() == focus {
+			focused = &repos[i]
+		}
+	}
 	if issue > 0 {
 		var exact []store.Repo
+		var sessions []store.Session
 		for _, repo := range repos {
 			if repo.Forge != "github" {
 				continue
 			}
-			_, e := s.knownNumericTask(ctx, repo, issue)
+			session, e := s.knownNumericTask(ctx, repo, issue)
 			if e == nil {
 				exact = append(exact, repo)
+				sessions = append(sessions, session)
 			} else if !errors.Is(e, store.ErrNotFound) {
 				return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, e
 			}
@@ -312,13 +415,34 @@ func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]str
 		case 1:
 			return ask.Resolution{Repository: exact[0]}, nil
 		case 0:
+			if focused != nil {
+				return ask.Resolution{Repository: *focused}, nil
+			}
 			return ask.Resolution{Refusal: "No known task matches that number. Please name a project and task."}, nil
 		default:
-			return ask.Resolution{Refusal: "That task number exists in multiple projects. Please name a project."}, nil
+			if focused != nil {
+				for _, repo := range exact {
+					if repo.ID == focused.ID {
+						return ask.Resolution{Repository: repo}, nil
+					}
+				}
+			}
+			names := make([]string, 0, len(exact))
+			for i, repo := range exact {
+				name := fmt.Sprintf("%s #%d", repo.Slug(), issue)
+				if title := strings.TrimSpace(strings.ReplaceAll(sessions[i].FeatureSlug, "-", " ")); title != "" {
+					name += " (" + title + ")"
+				}
+				names = append(names, name)
+			}
+			return ask.Resolution{Refusal: "Task " + strconv.Itoa(issue) + " exists in more than one project: " + strings.Join(names, " and ") + ". Which one do you mean?"}, nil
 		}
 	}
 	if resolution.Refusal == "" {
 		return resolution, nil
+	}
+	if focused != nil {
+		return ask.Resolution{Repository: *focused}, nil
 	}
 	var active []store.Repo
 	for _, repo := range repos {

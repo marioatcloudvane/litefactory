@@ -1198,170 +1198,74 @@ func TestRunCarriesNoLabelField(t *testing.T) {
 	}
 }
 
-// TestSyncDisclosure covers US-3's AC-3.1 and AC-3.2: a run report says
-// plainly whether litefactory synced the task branch, skipped syncing, or
-// found nothing to sync, for every outcome [report.SyncOutcome] can carry —
-// and never silently for a skip.
+// Preparation reports unresolved conditions together and keeps healthy sync quiet.
 func TestSyncDisclosure(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
-
-	t.Run("nil Sync renders no section at all", func(t *testing.T) {
-		t.Parallel()
-
-		body := render(t, rep, report.Run{Ref: testRef, Ordinal: 90}).String()
-		if strings.Contains(body, "Base branch sync") {
-			t.Errorf("a Run with a nil Sync rendered a sync section:\n%s", body)
+	baseline := render(t, rep, report.Run{Ref: testRef, Ordinal: 90}).String()
+	checkGolden(t, "sync_up_to_date", baseline)
+	for _, sync := range []*report.Sync{
+		nil,
+		{Outcome: report.SyncUpToDate, Ahead: 3},
+		{Outcome: report.SyncSynced, Behind: 3, Ahead: 1, CommitSHA: "a1b2c3d"},
+		{Outcome: report.SyncSkipped, Behind: 0, Reason: "remote task branch absent"},
+		{Outcome: report.SyncOutcome("absent")},
+	} {
+		if got := render(t, rep, report.Run{Ref: testRef, Ordinal: 90, Sync: sync}).String(); got != baseline {
+			t.Errorf("healthy sync changed normal report: %+v\n%s", sync, got)
 		}
-		checkGolden(t, "sync_up_to_date", body)
-	})
+	}
+	for _, tc := range []struct {
+		name    string
+		ordinal int
+		sync    report.Sync
+		want    string
+	}{
+		{"sync_synced", 91, report.Sync{Outcome: report.SyncSynced, Behind: 3, Ahead: 1, Base: "origin/main"}, ""},
+		{"sync_blocked", 92, report.Sync{Outcome: report.SyncBlocked, Behind: 2, Base: "origin/main", Conflicts: []string{"internal/cli/task.go", "docs/readme.md"}}, "merging would conflict; existing work was preserved"},
+		{"sync_skipped", 94, report.Sync{Outcome: report.SyncSkipped, Behind: 9, Base: "origin/main", Reason: "the branch is more commits behind than the configured cap allows"}, "the branch is more commits behind than the configured cap allows"},
+		{"sync_failed", 96, report.Sync{Outcome: report.SyncFailed, Behind: 5, Base: "origin/main", Reason: "git merge exited 128: fatal: refusing to merge unrelated histories"}, "git merge exited 128"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := render(t, rep, report.Run{Ref: testRef, Ordinal: tc.ordinal, Sync: &tc.sync}).String()
+			if tc.want != "" {
+				containsAll(t, "unresolved preparation", body, "**Preparation caveat**", tc.want)
+			}
+			// Detailed paths stay in retained observations, never injected as report markup.
+			if strings.Contains(body, "internal/cli/task.go") {
+				t.Fatal("conflict paths leaked into concise caveat")
+			}
+			checkGolden(t, tc.name, body)
+		})
+	}
+}
 
-	t.Run("up_to_date renders no section, not an empty one (AC-3.1)", func(t *testing.T) {
-		t.Parallel()
-
-		up := render(t, rep, report.Run{Ref: testRef, Ordinal: 90}).String()
-		withOutcome := render(t, rep, report.Run{
-			Ref: testRef, Ordinal: 90,
-			Sync: &report.Sync{Outcome: report.SyncUpToDate, Behind: 0, Ahead: 3, Base: "origin/main"},
-		}).String()
-		if strings.Contains(withOutcome, "Base branch sync") {
-			t.Errorf("an up-to-date Sync rendered a sync section:\n%s", withOutcome)
-		}
-		// A populated-but-up-to-date Sync must render byte-for-byte the same as
-		// no Sync at all — the whole point of AC-3.1 is that there is nothing
-		// distinguishable to see, not merely nothing under a heading.
-		if withOutcome != up {
-			t.Errorf("an up-to-date Sync changed the body vs. a nil Sync:\n--- nil ---\n%s\n--- up_to_date ---\n%s", up, withOutcome)
-		}
-	})
-
-	t.Run("synced names the branch, the counts and the merge commit", func(t *testing.T) {
-		t.Parallel()
-
-		run := report.Run{
-			Ref: testRef, Ordinal: 91,
-			Sync: &report.Sync{
-				Outcome:   report.SyncSynced,
-				Behind:    3,
-				Ahead:     1,
-				Base:      "origin/main",
-				CommitSHA: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
-			},
-		}
-		body := render(t, rep, run).String()
-		containsAll(t, "the synced sync section", body,
-			"Base branch sync",
-			"origin/main",
-			"3 commit(s) behind",
-			"now 1 ahead",
-			run.Sync.CommitSHA,
-		)
-		checkGolden(t, "sync_synced", body)
-	})
-
-	t.Run("blocked names the conflicting paths, fenced (S-2)", func(t *testing.T) {
-		t.Parallel()
-
-		run := report.Run{
-			Ref: testRef, Ordinal: 92,
-			Sync: &report.Sync{
-				Outcome:   report.SyncBlocked,
-				Behind:    2,
-				Base:      "origin/main",
-				Conflicts: []string{"internal/cli/task.go", "docs/readme.md"},
-			},
+func TestCombinedPreparationCaveat(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+	task := &report.Sync{Phase: "task", Outcome: report.SyncBlocked, Behind: 1}
+	base := &report.Sync{Phase: "base", Outcome: report.SyncSkipped, Behind: 5, Reason: "automatic merge distance cap exceeded"}
+	for _, failed := range []bool{false, true} {
+		run := report.Run{Ref: testRef, Ordinal: 97, TaskSync: task, Sync: base, PreparationCaveats: []string{"Pending refinements remain pending.", "Optional planning context is unavailable.", "Pending refinements remain pending."}}
+		if failed {
+			run.Failure = errors.New("final save stopped")
 		}
 		body := render(t, rep, run).String()
-		containsAll(t, "the blocked sync section", body,
-			"Base branch sync",
-			"could not sync",
-			"left as it was",
-			"Conflicting path(s) (2)",
-			"internal/cli/task.go",
-			"docs/readme.md",
-		)
-		checkGolden(t, "sync_blocked", body)
-	})
-
-	t.Run("a conflicting path cannot break out of its fence", func(t *testing.T) {
-		t.Parallel()
-
-		// A path holding a run of backticks is exactly the shape S-2 warns
-		// about: conflicting paths come from the base branch's tree, which is
-		// attacker-influenced content. fenceFor must choose a fence longer
-		// than any run inside it, or this path would close the block early
-		// and run the rest of the comment on as markup.
-		evil := "internal/```not-a-fence```/file.go"
-		run := report.Run{
-			Ref: testRef, Ordinal: 93,
-			Sync: &report.Sync{
-				Outcome:   report.SyncBlocked,
-				Behind:    1,
-				Base:      "origin/main",
-				Conflicts: []string{evil},
-			},
+		containsAll(t, "combined preparation", body, "task synchronization (1 behind)", "base synchronization (5 behind)", "Pending refinements remain pending.", "Optional planning context is unavailable.")
+		if strings.Count(body, "**Preparation caveat**") != 1 || strings.Count(body, "Pending refinements remain pending.") != 1 {
+			t.Fatalf("caveat duplicated: %s", body)
 		}
-		body := render(t, rep, run).String()
-		if !strings.Contains(body, "````\n"+evil+"\n````") {
-			t.Errorf("conflict path is not enclosed in a fence longer than its own backtick run:\n%s", body)
+		if failed && !strings.Contains(body, "final save stopped") {
+			t.Fatal("preparation caveat hid final failure")
 		}
-	})
-
-	t.Run("skipped names why (AC-3.2)", func(t *testing.T) {
-		t.Parallel()
-
-		run := report.Run{
-			Ref: testRef, Ordinal: 94,
-			Sync: &report.Sync{
-				Outcome: report.SyncSkipped,
-				Behind:  9,
-				Base:    "origin/main",
-				Reason:  "the branch is more commits behind than the configured cap allows",
-			},
-		}
-		body := render(t, rep, run).String()
-		containsAll(t, "the skipped sync section", body,
-			"Base branch sync",
-			"skipped syncing",
-			run.Sync.Reason,
-		)
-		checkGolden(t, "sync_skipped", body)
-	})
-
-	t.Run("skipped with no reason recorded is still not silent (AC-3.2)", func(t *testing.T) {
-		t.Parallel()
-
-		body := render(t, rep, report.Run{
-			Ref: testRef, Ordinal: 95,
-			Sync: &report.Sync{Outcome: report.SyncSkipped, Behind: 4, Base: "origin/main"},
-		}).String()
-		containsAll(t, "the reasonless skip section", body,
-			"Base branch sync",
-			"skipped syncing",
-			"no reason was recorded",
-		)
-	})
-
-	t.Run("failed names what went wrong", func(t *testing.T) {
-		t.Parallel()
-
-		run := report.Run{
-			Ref: testRef, Ordinal: 96,
-			Sync: &report.Sync{
-				Outcome: report.SyncFailed,
-				Behind:  5,
-				Base:    "origin/main",
-				Reason:  "git merge exited 128: fatal: refusing to merge unrelated histories",
-			},
-		}
-		body := render(t, rep, run).String()
-		containsAll(t, "the failed sync section", body,
-			"Base branch sync",
-			"tried to sync",
-			run.Sync.Reason,
-		)
-		checkGolden(t, "sync_failed", body)
-	})
+	}
+	if got := report.PreparationCaveat(nil, &report.Sync{Outcome: report.SyncSkipped, Behind: 4}); !strings.Contains(got, "synchronization remains unresolved") {
+		t.Fatalf("reasonless unresolved skip hidden: %s", got)
+	}
+	if got := report.PreparationCaveat(nil, task, task); strings.Count(got, "task synchronization") != 1 {
+		t.Fatalf("duplicate sync observation: %s", got)
+	}
 }
 
 // No rendered body escapes this package as a string. This is the guarantee the

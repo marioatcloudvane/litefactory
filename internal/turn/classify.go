@@ -300,7 +300,7 @@ func (f *Filter) Admit(ctx context.Context, sessionID int64, c github.Comment) (
 	verdict := f.Classify(c)
 	recorded, err := f.comments.RecordComment(ctx, store.Comment{
 		SessionID:      sessionID,
-		ForgeCommentID: c.ID,
+		ForgeCommentID: c.ID, ReplyToCommentID: c.ReplyToCommentID,
 		AuthorHandle:   c.Author.Login,
 		AuthorUserID:   c.Author.ID,
 		AuthorIsBot:    c.Author.IsBot,

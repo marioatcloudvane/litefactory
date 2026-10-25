@@ -97,6 +97,27 @@ func RunsDir(home string, ref Ref) (string, error) {
 	return filepath.Join(clean, logsDirName, runsDirName, ref.Forge, ref.Owner, ref.Repo, segment), nil
 }
 
+// RunLogPathUnderRoot resolves a run stream from the configured runs root.
+// This supports readers granted only that subtree rather than the factory home.
+func RunLogPathUnderRoot(root string, ref Ref, ordinal int) (string, error) {
+	if err := ref.Validate(); err != nil {
+		return "", err
+	}
+	clean, err := cleanAbs("runs root", root)
+	if err != nil {
+		return "", err
+	}
+	stem, err := FormatRunOrdinal(ordinal)
+	if err != nil {
+		return "", err
+	}
+	segment := strconv.Itoa(ref.Issue)
+	if ref.Qualification != "" {
+		segment += "-" + ref.Qualification
+	}
+	return filepath.Join(clean, ref.Forge, ref.Owner, ref.Repo, segment, stem+RunLogExt), nil
+}
+
 // RunLogPath returns the raw Claude Code event stream for one run:
 // <RunsDir>/NNNN.jsonl.
 func RunLogPath(home string, ref Ref, ordinal int) (string, error) {

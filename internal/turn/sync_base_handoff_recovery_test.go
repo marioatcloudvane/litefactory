@@ -69,3 +69,44 @@ func TestRecoveredSyncHandoffRefreshesCleanCheckoutAndPreservesLaterWork(t *test
 		t.Fatal("old sync was replayed after intervening agent")
 	}
 }
+
+type unchangedSyncCheckout struct {
+	head      string
+	refreshes int
+}
+
+func (c *unchangedSyncCheckout) Guard(context.Context, string, string) (string, error) {
+	return "", nil
+}
+func (c *unchangedSyncCheckout) Refresh(context.Context, string, string) error {
+	c.refreshes++
+	return nil
+}
+func (c *unchangedSyncCheckout) DeferredHead(context.Context, string) (string, error) {
+	return c.head, nil
+}
+
+func TestCurrentUnchangedSyncHandoffVerifiesIdentityWithoutRefresh(t *testing.T) {
+	f, profile, instance := bugSyncRestartFixture(t)
+	gate, _ := graphexec.BugFixerSyncGate(profile)
+	fixer, _ := graphexec.Decide(profile, gate.Name, "current")
+	evidence := syncBaseOutput{Working: "retained", Base: "main", Result: "current", Commit: "original", CheckoutVerified: true, CheckoutUnchanged: true}
+	raw, err := json.Marshal(evidence)
+	mustProgress(t, err)
+	completeBugSyncRestartAttempt(t, f, instance, gate.Name, store.GraphSucceeded, "current", fixer, []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: raw}})
+	checkout := &unchangedSyncCheckout{head: "original"}
+	binding := SyncBaseBinding{Bind: func(context.Context, Options, ActivityRequest) (SyncBaseTarget, error) {
+		return SyncBaseTarget{Working: "retained", Base: "main", Checkout: checkout, Lock: func(context.Context) (func() error, bool, error) { return func() error { return nil }, true, nil }}, nil
+	}}
+	mustProgress(t, verifySyncHandoffBeforeAgent(t.Context(), f.opts, profile, instance, binding))
+	if checkout.refreshes != 0 {
+		t.Fatal("healthy retained handoff refreshed checkout")
+	}
+	checkout.head = "changed"
+	if err = verifySyncHandoffBeforeAgent(t.Context(), f.opts, profile, instance, binding); err == nil {
+		t.Fatal("changed retained identity reused current observation")
+	}
+	if checkout.refreshes != 0 {
+		t.Fatal("failed handoff refreshed checkout")
+	}
+}

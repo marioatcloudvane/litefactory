@@ -68,7 +68,7 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 	if err != nil {
 		t.Fatal(err)
 	}
-	launch := store.WorkflowLaunch{Mode: "research", SessionID: s.ID, TriggerID: 22, DefinitionID: pin.ID, Start: "research", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte(`{"research.dot":"eA=="}`)}
+	launch := store.WorkflowLaunch{Mode: "research", SessionID: s.ID, TriggerID: 22, DefinitionID: pin.ID, Start: "research", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: graphCapacityFiles(t, "research", "research")}
 	if isBug {
 		launch.Mode = ""
 		launch.Workflow = "bug"
@@ -152,9 +152,9 @@ func testDispatchExhaustion(t *testing.T, bug bool) {
 	count := 0
 	posts, _, _ := f.forge.snapshot()
 	for _, body := range posts {
-		if strings.Contains(body, "Work stopped at "+instance.CurrentNode+":") {
+		if strings.Contains(body, "Work at `"+instance.CurrentNode+"`") {
 			count++
-			if !strings.Contains(body, "startup refused") || !strings.Contains(body, "Reply on this open issue to resume") {
+			if !strings.Contains(body, "startup refused") || !strings.Contains(body, "Reply on this open issue with guidance to resume") {
 				t.Fatalf("notice: %s", body)
 			}
 		}
@@ -183,7 +183,7 @@ func TestCancelledGraphNeedsReplyAfterReopening(t *testing.T) {
 	}
 	posts, _, _ := f.forge.snapshot()
 	for _, p := range posts {
-		if strings.Contains(p, "Work stopped at") {
+		if strings.Contains(p, "Work at `") {
 			t.Fatal("closure announced recovery")
 		}
 	}
@@ -233,10 +233,11 @@ func limitCoordinatorFixture(t *testing.T) (*fixture, turn.GraphNodeRequest, sto
 	if _, err := f.db.AdmitWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
-	profile, err := graphexec.ParseProfile([]byte(`digraph {team=test;mode=implement;profile_version=1;start=merge;
+	rawProfile := []byte(`digraph {team=test;mode=implement;profile_version=1;start=merge;
  merge [lf_action=lf_implement_work,lf_outcomes="next",lf_limit=1];
  await [lf_action=lf_implement_work,lf_outcomes="next",lf_limit=2];
- merge -> await [on=next]; await -> merge [on=next];}`))
+ merge -> await [on=next]; await -> merge [on=next];}`)
+	profile, err := graphexec.ParseProfile(rawProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +245,7 @@ func limitCoordinatorFixture(t *testing.T) (*fixture, turn.GraphNodeRequest, sto
 	if err != nil {
 		t.Fatal(err)
 	}
-	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: profile.Start, StartedAt: f.clock.Now()})
+	instance, err := capturedGraphInstance(t, f.db, store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: profile.Start, StartedAt: f.clock.Now()}, rawProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +323,7 @@ func TestRunlessNodeLimitStopsAndReports(t *testing.T) {
 				}
 			} else {
 				posts, _, _ := f.forge.snapshot()
-				if len(posts) != 1 || !strings.Contains(posts[0], `node "merge" dispatch limit 1 exhausted`) || !strings.Contains(posts[0], "Reply on this open issue to resume") {
+				if len(posts) != 1 || !strings.Contains(posts[0], `node "merge" dispatch limit 1 exhausted`) || !strings.Contains(posts[0], "/doctor inspect") || strings.Contains(posts[0], "Reply on this open issue") {
 					t.Fatalf("stop notice: %v", posts)
 				}
 			}

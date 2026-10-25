@@ -88,3 +88,43 @@ func (s *Service) validateConversationPrompt(ctx context.Context, id, prompt str
 	reason := "saved conversation prompt conflicts with retained instructions; model calls paused"
 	return errors.Join(fmt.Errorf("%w: %s", errConversationInstructions, reason), s.db.SetConversationHealth(ctx, id, reason, at))
 }
+
+// refreshConversationInstructions brings a retained binding onto the
+// instructions this daemon started with. Bindings capture their instructions
+// once, so without it a deploy with new role text never reached an existing
+// conversation. It runs only at a turn boundary (the store refuses while a
+// turn is pending or running, while paused, or before legacy migration), so
+// no journaled prompt of an open turn ever meets a different capture, and the
+// native session continues. Any failure keeps the retained capture.
+func (s *Service) refreshConversationInstructions(ctx context.Context, r *conversationRuntime, id string, at time.Time) {
+	if r.current == nil {
+		return
+	}
+	raw, _, err := s.db.ReadConversationCapture(ctx, id)
+	if err != nil {
+		return
+	}
+	retained, err := instructionpackage.RestoreConversation(raw)
+	if err != nil || !conversationInstructionsDiffer(retained, r.current) {
+		return
+	}
+	next, err := r.current.Encode()
+	if err != nil {
+		return
+	}
+	refreshed, err := s.db.RefreshConversationCapture(ctx, id, next, at)
+	if s.Logger == nil {
+		return
+	}
+	if err != nil {
+		s.Logger.WarnContext(ctx, "conversation instruction refresh failed", "conversation_id", id)
+	} else if refreshed {
+		s.Logger.InfoContext(ctx, "conversation instructions refreshed", "conversation_id", id, "from", retained.Digest(), "to", r.current.Digest())
+	}
+}
+
+// conversationInstructionsDiffer compares the instruction text the model sees,
+// not provenance: equal text needs no refresh.
+func conversationInstructionsDiffer(a, b *instructionpackage.ConversationCapture) bool {
+	return a.Native() != b.Native() || a.Factory() != b.Factory() || a.Correction() != b.Correction() || a.ActionOutcome() != b.ActionOutcome() || a.Reasoner() != b.Reasoner() || a.InboxOrganizer() != b.InboxOrganizer()
+}

@@ -11,13 +11,14 @@ import (
 
 // PromptContext keeps owner instruction distinct from escaped untrusted material.
 type PromptContext struct {
-	CurrentProposal  []RepairStep          `json:"untrusted_current_proposal,omitempty"`
-	CurrentDiagnosis *Diagnosis            `json:"untrusted_current_diagnosis,omitempty"`
-	Instructions     string                `json:"current_owner_instruction"`
-	Target           string                `json:"target"`
-	Manifest         PathManifest          `json:"path_manifest"`
-	Memory           []store.DoctorAttempt `json:"untrusted_memory"`
-	MemoryOmissions  string                `json:"memory_omissions"`
+	RetainedEvidenceIndex string                `json:"retained_evidence_index,omitempty"`
+	CurrentProposal       []RepairStep          `json:"untrusted_current_proposal,omitempty"`
+	CurrentDiagnosis      *Diagnosis            `json:"untrusted_current_diagnosis,omitempty"`
+	Instructions          string                `json:"current_owner_instruction"`
+	Target                string                `json:"target"`
+	Manifest              PathManifest          `json:"path_manifest"`
+	Memory                []store.DoctorAttempt `json:"untrusted_memory"`
+	MemoryOmissions       string                `json:"memory_omissions"`
 }
 
 // BuildPrompt bounds total context before a provider could receive it.

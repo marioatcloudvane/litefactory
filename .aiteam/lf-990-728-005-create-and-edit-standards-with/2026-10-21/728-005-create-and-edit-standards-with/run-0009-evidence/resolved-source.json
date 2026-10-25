@@ -1,0 +1,10 @@
+[
+  {
+    "path": "docs/cli/standards.md",
+    "sha256": "a0b079a99389600335c52982f73f8f43bc9df1a47e01091ee7648bcd43130fa3"
+  },
+  {
+    "path": "internal/cli/commands.go",
+    "sha256": "c01c35fe8687c27f4b25175be1134e4e5dcbf5701c4b0bee0ff5d3a1d3334252"
+  }
+]

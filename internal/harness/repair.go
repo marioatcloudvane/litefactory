@@ -45,15 +45,15 @@ func validateScopedDoctorRequest(request agent.DoctorRequest, operation string) 
 	return (agent.RepairRequest{Invocation: request, Operation: operation}).Validate()
 }
 
-func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, operation string, timeout time.Duration, observe func([]byte), logger *slog.Logger) error {
+func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, operation string, timeout time.Duration, observe func([]byte), failure providerprocess.FailureObserver, logger *slog.Logger) error {
 	if operation == "" {
 		if logger == nil {
 			logger = slog.New(slog.DiscardHandler)
 		}
-		return providerprocess.RunDoctorProcess(ctx, binary, args, env, request, timeout, observe, func(pid int) error { return killSubtree(context.WithoutCancel(ctx), pid, logger) })
+		return providerprocess.RunDoctorProcessObserved(ctx, binary, args, env, request, timeout, observe, failure, func(pid int) error { return killSubtree(context.WithoutCancel(ctx), pid, logger) })
 	}
 	if operation == "judge" {
-		return providerprocess.RunJudgeProcess(ctx, binary, args, env, agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}, timeout, observe)
+		return providerprocess.RunJudgeProcessObserved(ctx, binary, args, env, agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}, timeout, observe, failure)
 	}
-	return providerprocess.RunRepairProcess(ctx, binary, args, env, agent.RepairRequest{Invocation: request, Operation: operation}, timeout, observe)
+	return providerprocess.RunRepairProcessObserved(ctx, binary, args, env, agent.RepairRequest{Invocation: request, Operation: operation}, timeout, observe, failure)
 }

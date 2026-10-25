@@ -31,11 +31,14 @@ type RepairStep struct {
 
 // Diagnosis is bounded structured agent data. Only the factory may adopt it.
 type Diagnosis struct {
-	Repair       *RepairSummary `json:"repair,omitempty"`
-	Findings     []Finding      `json:"findings"`
-	CoverageGaps []string       `json:"coverage_gaps"`
-	Questions    []string       `json:"questions"`
-	Proposal     []RepairStep   `json:"proposal"`
+	RollbackRepairID string         `json:"rollback_repair_id,omitempty"`
+	RollbackReason   string         `json:"rollback_reason,omitempty"`
+	WithdrawProposal bool           `json:"withdraw_proposal,omitempty"`
+	Repair           *RepairSummary `json:"repair,omitempty"`
+	Findings         []Finding      `json:"findings"`
+	CoverageGaps     []string       `json:"coverage_gaps"`
+	Questions        []string       `json:"questions"`
+	Proposal         []RepairStep   `json:"proposal"`
 }
 
 // DecodeDiagnosis rejects unknown fields, trailing values and oversized input.
@@ -60,6 +63,9 @@ func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 		if p.Action == nil || !store.DoctorRepairToolKind(p.Action.Kind) {
 			return errors.New("new doctor proposals require an exact typed repair tool")
 		}
+		if store.DoctorGraphRepairKind(p.Action.Kind) && !store.DoctorGraphRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
+			return errors.New("new graph proposals require an exact row and related-state manifest")
+		}
 	}
 	return validateRetainedDiagnosis(d, e)
 }
@@ -67,6 +73,9 @@ func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 // validateRetainedDiagnosis reads previously accepted legacy proposals without
 // granting them admission as a newly submitted proposal.
 func validateRetainedDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
+	if d.WithdrawProposal && len(d.Proposal) > 0 {
+		return errors.New("cannot withdraw and replace a proposal together")
+	}
 	if len(d.Findings) == 0 || len(d.Findings) > 30 || len(d.Proposal) > 30 || len(d.Questions) > 30 || len(d.CoverageGaps) > 100 {
 		return errors.New("doctor diagnosis exceeds collection bounds or has no findings")
 	}
@@ -151,16 +160,24 @@ func validateRetainedDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 					return errors.New("invalid exact session file repair")
 				}
 			default:
-				if !store.DoctorRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) && !store.DoctorTypedRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
+				if store.DoctorGraphRepairKind(p.Action.Kind) {
+					if !store.DoctorGraphRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) && !store.DoctorRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
+						return errors.New("graph repair requires an exact row and related-state manifest")
+					}
+				} else if !store.DoctorRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) && !store.DoctorTypedRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
 					return errors.New("unsupported exact repair action")
 				}
 				observed := false
 				for _, r := range e.Records {
 					state := r.State
+					before := p.Action.Before
+					if store.DoctorGraphRepairKind(p.Action.Kind) && strings.HasPrefix(before, "{") {
+						before = store.DoctorGraphRepairBeforeStatus(p.Action.Kind, before)
+					}
 					if p.Action.Kind == "poll_flag" {
 						state = strings.TrimPrefix(r.Content, "needs_poll=")
 					}
-					if (EvidenceHandle(r) == p.Target || (p.Action.Kind == "consume_comment" && r.Kind == "watermark")) && state == p.Action.Before {
+					if (EvidenceHandle(r) == p.Target || (p.Action.Kind == "consume_comment" && r.Kind == "watermark")) && state == before {
 						observed = true
 					}
 				}

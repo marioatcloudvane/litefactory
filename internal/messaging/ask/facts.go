@@ -65,6 +65,9 @@ type OwnerWait struct {
 type FactoryReader interface {
 	ReadProjectTasks(context.Context, int64) (tasks []Task, incomplete bool, err error)
 	ReadDiscoveryPause(context.Context) (paused bool, known bool, err error)
+	// ReadRunsHeld says why new runs wait, for example on low free disk; empty
+	// while nothing holds them.
+	ReadRunsHeld(context.Context) (string, error)
 }
 
 // IssueReader reads open issues newest-updated first, returning at most limit
@@ -116,6 +119,11 @@ func (c Collector) collect(ctx context.Context, repo store.Repo, at time.Time, t
 	} else {
 		add(fact("discovery", "discovery", "", fmt.Sprintf("Discovery paused: %t.", paused)))
 	}
+	if held, err := c.Factory.ReadRunsHeld(ctx); err != nil {
+		b.Gaps = append(b.Gaps, "Factory run hold state could not be read.")
+	} else if held != "" {
+		add(fact("runs_held", "discovery", "", "Runs held: "+held))
+	}
 	tasks, tasksCut, taskErr := c.Factory.ReadProjectTasks(ctx, repo.ID)
 	if taskErr != nil {
 		b.Gaps = append(b.Gaps, "Factory task data could not be read.")
@@ -148,6 +156,18 @@ func (c Collector) collect(ctx context.Context, repo store.Repo, at time.Time, t
 	// A task is closed only when a complete open-issue read omits its issue.
 	closed := func(task Task) bool { return target == 0 && openIssues != nil && !openIssues[task.IssueNumber] }
 	if target > 0 {
+		// The bounded project list may omit an older named task. Resolve only
+		// that exact registered repository/issue through an optional reader.
+		if reader, ok := c.Factory.(interface {
+			ReadIssueTasks(context.Context, store.Repo, int) ([]Task, error)
+		}); ok {
+			selected, readErr := reader.ReadIssueTasks(ctx, repo, target)
+			if readErr != nil {
+				b.Gaps = append(b.Gaps, "Named issue factory evidence could not be read.")
+			} else {
+				tasks, taskErr = selected, nil
+			}
+		}
 		tasks = slices.DeleteFunc(slices.Clone(tasks), func(t Task) bool { return t.IssueNumber != target })
 		issues = slices.DeleteFunc(slices.Clone(issues), func(i github.Issue) bool { return i.Number != target })
 		b.Facts = nil // Project-wide facts cannot support an issue-specific answer.
@@ -201,6 +221,9 @@ func (c Collector) collect(ctx context.Context, repo store.Repo, at time.Time, t
 		bodyCut = bodyCut || len(body) < len(issue.Body)
 		link := fmt.Sprintf("%s/issues/%d", base, issue.Number)
 		add(fact(fmt.Sprintf("issue:%d", issue.Number), "issue", link, fmt.Sprintf("#%d %s\nUpdated: %s\n%s", issue.Number, byteExcerpt(issue.Title, 512), issue.UpdatedAt.UTC().Format(time.RFC3339), body)))
+	}
+	if target > 0 && !seen[target] {
+		b.Gaps = append(b.Gaps, "The named issue text was not captured in the bounded open-issue read; this does not establish its current state.")
 	}
 	if bodyCut {
 		b.Gaps = append(b.Gaps, "Issue bodies were shortened (2 KiB body limit).")

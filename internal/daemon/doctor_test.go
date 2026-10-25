@@ -45,13 +45,14 @@ func (doctorTestFilter) Admit(context.Context, int64, github.Comment) (turn.Admi
 
 type doctorTestForge struct {
 	Forge
-	entries    []github.RepositoryComment
-	posts      []github.Comment
-	postErr    error
-	seen       []github.Comment
-	issue      github.Issue
-	scans      int
-	issueReads int
+	entries      []github.RepositoryComment
+	posts        []github.Comment
+	postErr      error
+	seen         []github.Comment
+	issue        github.Issue
+	scans        int
+	issueReads   int
+	commentReads int
 }
 
 func (f *doctorTestForge) ListRepositoryCommentsPage(context.Context, github.Repo, time.Time, int, int) (github.RepositoryCommentPage, error) {
@@ -64,6 +65,16 @@ func (f *doctorTestForge) GetIssue(context.Context, github.Repo, int) (github.Is
 }
 func (f *doctorTestForge) ListCommentsPage(context.Context, github.Repo, int, int, int) (github.CommentPage, error) {
 	return github.CommentPage{Comments: f.seen}, nil
+}
+func (f *doctorTestForge) ListCommentsAfter(_ context.Context, _ github.Repo, _ int, after int64) ([]github.Comment, error) {
+	f.commentReads++
+	var out []github.Comment
+	for _, c := range f.seen {
+		if c.ID > after {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 func (f *doctorTestForge) PostComment(_ context.Context, _ github.Repo, _ int, body redact.Body) (github.Comment, error) {
 	c := github.Comment{ID: int64(100 + len(f.posts)), Body: body.String(), Author: github.User{ID: 99}}
@@ -110,7 +121,11 @@ func doctorDaemonFixture(t *testing.T) (*Daemon, *doctorTestForge, store.Repo) {
 		t.Fatal(err)
 	}
 	forge := &doctorTestForge{issue: github.Issue{ID: 10406, Number: 406, State: "closed"}}
-	service := &doctor.Service{DB: db, Paths: config.NewPaths(t.TempDir()), Config: cfg, Redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=doctor-owner-secret"}})}
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &doctor.Service{DB: db, Paths: config.NewPaths(home), Config: cfg, Redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=doctor-owner-secret"}})}
 	at := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	d := &Daemon{instanceID: "live-doctor", db: db, forge: forge, filter: doctorTestFilter{}, log: slog.New(slog.DiscardHandler), doctor: doctorLane{service: service, pool: newPool(1)}, pool: newPool(1), now: func() time.Time { return at }}
 	d.discovery.tick(at)
@@ -746,5 +761,336 @@ func TestDoctorDiscoveryRetainsTwelveTargetBound(t *testing.T) {
 	}
 	if forge.scans != 1 || forge.issueReads != 12 {
 		t.Fatalf("pages=%d target reads=%d", forge.scans, forge.issueReads)
+	}
+}
+
+// The repository-comment scan is the listing's safety net: ticks between a
+// project's listings make no scan, its listing tick scans once.
+func TestDoctorScanRunsOnlyOnListingTicks(t *testing.T) {
+	d, forge, repo := doctorDaemonFixture(t)
+	ctx := t.Context()
+	at := d.now()
+	d.schedule = newDiscoverySchedule(time.Hour)
+	if err := d.discoverDoctor(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	d.schedule.ListingFinished(repo.ID, at)
+	forge.entries = []github.RepositoryComment{{IssueNumber: 406, Comment: doctorComment(10, "/doctor explain")}}
+	for i := 1; i <= 4; i++ {
+		if err := d.discoverDoctor(ctx, at.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if forge.scans != 0 {
+		t.Fatalf("ticks between listings scanned %d times", forge.scans)
+	}
+	listing := at.Add(time.Hour)
+	if err := d.discoverDoctor(ctx, listing); err != nil {
+		t.Fatal(err)
+	}
+	d.schedule.ListingFinished(repo.ID, listing)
+	if err := d.discoverDoctor(ctx, listing.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if forge.scans != 1 {
+		t.Fatalf("listing tick scans=%d, want 1", forge.scans)
+	}
+	c, err := d.db.ClaimDoctorCommand(ctx, "", false, "test-instance")
+	if err != nil || c.CommentID != 10 {
+		t.Fatalf("listing scan did not admit the command: %+v %v", c, err)
+	}
+}
+
+// A webhook hint for a session whose worker is in flight admits its /doctor
+// stop directly, without the repository scan, and the next tick's controls
+// stop the running workflow.
+func TestDoctorWebhookHintAdmitsStopForBusySession(t *testing.T) {
+	d, forge, repo := doctorDaemonFixture(t)
+	ctx := t.Context()
+	at := d.now()
+	d.schedule = newDiscoverySchedule(time.Hour)
+	d.schedule.ListingFinished(repo.ID, at)
+	session, err := d.db.GetOrCreateSession(ctx, repo, 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.db.BootstrapWatermark(ctx, session.ID, 5); err != nil {
+		t.Fatal(err)
+	}
+	segment, err := d.db.GetOrCreateSegment(ctx, session.ID, 1, "implement", store.AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: store.AgentClaude, LogPath: func(int) string { return "fixture.log" }}); err != nil {
+		t.Fatal(err)
+	}
+	worker, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if !d.inflight.enter(session.ID) {
+		t.Fatal("session already in flight")
+	}
+	defer d.inflight.leave(session.ID)
+	d.inflight.bindCancel(session.ID, cancel)
+	consumed := doctorComment(4, "/doctor consumed earlier")
+	forge.seen = []github.Comment{consumed, doctorComment(12, "/doctor stop")}
+	d.webhook = newWebhookRuntime(WebhookOptions{}, d.log)
+	d.webhook.hints.add(hintKey{repoID: repo.ID, number: 406})
+	q := &repoQueue{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, log: d.log, listing: true}
+	var result TickResult
+	if err := d.webhookHints(ctx, map[int64]*repoQueue{repo.ID: q}, map[int64]*candidate{}, &result); err != nil {
+		t.Fatal(err)
+	}
+	if forge.commentReads != 1 {
+		t.Fatalf("hinted busy session read its comments %d times, want 1", forge.commentReads)
+	}
+	// The next tick: no scan between listings, and the stop reaches the worker.
+	d.doctorTick(ctx, at.Add(time.Minute))
+	if forge.scans != 0 {
+		t.Fatalf("tick between listings scanned %d times", forge.scans)
+	}
+	select {
+	case <-worker.Done():
+	case <-time.After(testutil.Wait):
+		t.Fatal("/doctor stop did not reach the in-flight session")
+	}
+}
+
+func TestDoctorApplyOutcomeConverges(t *testing.T) {
+	for _, state := range []string{"completed", "failed", "recovered", "interrupted", "refused"} {
+		for _, recoverCommand := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/recovery=%t", state, recoverCommand), func(t *testing.T) {
+				d, forge, repo := doctorDaemonFixture(t)
+				ctx := t.Context()
+				session, err := d.db.GetOrCreateSession(ctx, repo, 406)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err = d.db.BootstrapWatermark(ctx, session.ID, 10); err != nil {
+					t.Fatal(err)
+				}
+				if _, err = d.db.RecordComment(ctx, store.Comment{SessionID: session.ID, ForgeCommentID: 11, AuthorHandle: "owner", AuthorUserID: 7, Body: "repair", CreatedAt: d.now(), Classification: store.ClassificationInstruction}); err != nil {
+					t.Fatal(err)
+				}
+				c, err := d.db.AdmitDoctorCommand(ctx, store.DoctorCommand{RepoID: repo.ID, TaskRef: session.TaskRef, IssueID: 10406, IssueNumber: 406, CommentID: 200, ActorID: 7, CreatedAt: d.now(), Operation: "apply"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				ref, err := naming.ParseRef(session.TaskRef)
+				if err != nil {
+					t.Fatal(err)
+				}
+				evidence, err := d.db.ReadDoctorEvidence(ctx, ref)
+				if err != nil {
+					t.Fatal(err)
+				}
+				step := store.DoctorRepairStep{Number: 1, Kind: "consume_comment", Target: "comment:11", Before: "10", After: "11"}
+				if state == "recovered" {
+					step = store.DoctorRepairStep{Number: 1, Kind: "poll_flag", Target: fmt.Sprintf("session:%d", session.ID), Before: "0", After: "1"}
+				}
+				op := approveEffect(t, d.db, session, step, evidence, fmt.Sprintf("github-doctor-apply:%d", c.ID))
+				c, err = d.db.ClaimDoctorCommand(ctx, "", false, "old-instance")
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch state {
+				case "completed":
+					adapter := FactoryDoctorRepairEffects{DB: d.db, Comments: forge, BotID: 99, Redactor: d.doctor.service.Redactor}
+					if _, err = adapter.Execute(ctx, ref, op, step, "claude"); err != nil {
+						t.Fatal(err)
+					}
+					if err = d.db.SettleDoctorTypedRepair(ctx, op.ID, true, ""); err != nil {
+						t.Fatal(err)
+					}
+					forge.posts = nil // The approved consume effect is separate from the apply outcome.
+				case "failed":
+					if err = d.db.SettleDoctorTypedRepair(ctx, op.ID, false, "Fixture repair failed"); err != nil {
+						t.Fatal(err)
+					}
+				case "recovered":
+					if err = d.db.BackupDoctorPoll(ctx, op.ID, 1); err != nil {
+						t.Fatal(err)
+					}
+					if err = d.db.ApplyDoctorPoll(ctx, op.ID, 1); err != nil {
+						t.Fatal(err)
+					}
+					if err = d.db.CommitDoctorRestart(ctx, op.ID, "restart-token", "Rows verified"); err != nil {
+						t.Fatal(err)
+					}
+					if err = d.finishDoctorApply(ctx, c, nil); err != nil {
+						t.Fatal(err)
+					}
+					if err = d.publishDoctor(ctx); err != nil {
+						t.Fatal(err)
+					}
+					if len(forge.posts) != 0 {
+						t.Fatal("preliminary restart reply")
+					}
+					intent, err := d.db.ClaimDoctorRestart(ctx, op.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err = d.db.AcknowledgeDoctorRestart(ctx, op.ID, intent.Token, "new-instance"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if recoverCommand && state == "completed" {
+					// A newer repair must not steal the old command's result.
+					approveEffect(t, d.db, session, store.DoctorRepairStep{Number: 1, Kind: "poll_flag", Target: fmt.Sprintf("session:%d", session.ID), Before: "0", After: "1"}, evidence, "newer-source")
+				}
+				if recoverCommand {
+					if err = d.recoverDoctor(ctx); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					if state == "interrupted" {
+						if _, err = d.doctor.service.ReconcileRepair(ctx, ref, op.ID); err != nil {
+							t.Fatal(err)
+						}
+					}
+					err = d.runDoctor(ctx, c)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				// Lose the post response, then prove marker-based recovery without a second send.
+				forge.postErr = errors.New("reply lost")
+				_ = d.publishDoctor(ctx)
+				if len(forge.posts) != 1 {
+					t.Fatalf("posts=%d", len(forge.posts))
+				}
+				forge.seen = append(forge.seen, forge.posts[0])
+				forge.postErr = nil
+				for i := 0; i < 3; i++ {
+					if err = d.recoverDoctor(ctx); err != nil {
+						t.Fatal(err)
+					}
+					if err = d.recoverDoctorRepairs(ctx); err != nil {
+						t.Fatal(err)
+					}
+					if err = d.publishDoctor(ctx); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if len(forge.posts) != 1 {
+					t.Fatalf("duplicate replies: %+v", forge.posts)
+				}
+				body := forge.posts[0].Body
+				for _, stale := range []string{"Doctor diagnosis", "Current repair proposal", "No accepted diagnosis", "Doctor repair was interrupted"} {
+					if strings.Contains(body, stale) {
+						t.Fatal(body)
+					}
+				}
+				if !strings.Contains(body, "Next:") {
+					t.Fatal(body)
+				}
+				if state == "failed" && !strings.Contains(body, "Fixture repair failed") {
+					t.Fatal(body)
+				}
+				if reports, err := d.db.DoctorCommandsNeedingReports(ctx); err != nil || len(reports) != 0 {
+					t.Fatalf("generic debt: %+v %v", reports, err)
+				}
+				if commands, err := d.db.RecoverDoctorCommands(ctx, "new-instance"); err != nil || len(commands) != 0 {
+					t.Fatalf("unsettled command: %+v %v", commands, err)
+				}
+			})
+		}
+	}
+}
+
+func TestDoctorInterruptedRefusedApplyHasBoundedReply(t *testing.T) {
+	d, forge, repo := doctorDaemonFixture(t)
+	ctx := t.Context()
+	if _, err := d.db.AdmitDoctorCommand(ctx, store.DoctorCommand{RepoID: repo.ID, TaskRef: "github:acme/api#406", IssueID: 10406, IssueNumber: 406, CommentID: 200, ActorID: 7, CreatedAt: d.now(), Operation: "apply"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.db.ClaimDoctorCommand(ctx, "", true, "old-instance"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := d.recoverDoctor(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.publishDoctor(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(forge.posts) != 1 || !strings.Contains(forge.posts[0].Body, "no repair operation is recorded") {
+		t.Fatal(forge.posts)
+	}
+}
+
+// C6: while the rate-limit hold of the apply command's source connection
+// stands, runDoctor does not call Apply; the command returns to the inbox
+// without spending an attempt and the reserved repair waits unchanged. After the hold
+// expires, the next dispatch reaches Apply.
+func TestDoctorApplyWaitsForConnectionHold(t *testing.T) {
+	f := newDoctorProjectFixture(t, true)
+	d, ctx := f.d, t.Context()
+	f.d.connections.SetRequestContext(d.bindQuotaRequest)
+	ref, err := naming.ParseRef(f.session.TaskRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticketRef := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: f.connection.Origin, RemoteID: "10406"}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: f.connection.Origin, Container: "team/tickets", Key: "406"}}
+	admitted, err := d.db.AdmitDoctorCommand(ctx, store.DoctorCommand{RepoID: f.repo.ID, TaskRef: f.session.TaskRef, IssueID: 10406, IssueNumber: 406, CommentID: 200, ActorID: 7, CreatedAt: d.now(), Operation: "apply", Source: &store.DoctorCommandSource{ConnectionVersionID: f.connection.ID, PublisherID: 99, Ticket: ticketRef}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := d.db.ReadDoctorEvidence(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := store.DoctorRepairStep{Number: 1, Kind: "poll_flag", Target: fmt.Sprintf("session:%d", f.session.ID), Before: "0", After: "1"}
+	approveEffect(t, d.db, f.session, step, evidence, fmt.Sprintf("github-doctor-apply:%d", admitted.ID))
+	before, err := d.db.ReadDoctorRepair(ctx, ref.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	d.quotas.tick(now)
+	d.quotas.forVersion(f.connection).backoff.fail(now, time.Minute)
+
+	c, err := d.db.ClaimDoctorCommand(ctx, "", false, d.instanceID)
+	if err != nil || c.ID != admitted.ID || c.Attempts != 1 {
+		t.Fatalf("apply not claimed: %+v %v", c, err)
+	}
+	if err = d.runDoctor(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	repair, err := d.db.ReadDoctorRepair(ctx, ref.String())
+	if err != nil || repair.ID != before.ID || repair.State != before.State || repair.Revision != before.Revision || repair.Failure != "" {
+		t.Fatalf("held apply touched the repair: %+v %v", repair, err)
+	}
+	f.publication.mu.Lock()
+	posts := f.publication.posts
+	f.publication.mu.Unlock()
+	if posts != 0 {
+		t.Fatalf("held apply posted %d replies", posts)
+	}
+	// Requeued without spending an attempt: the next claim is its first again.
+	c, err = d.db.ClaimDoctorCommand(ctx, "", false, d.instanceID)
+	if err != nil || c.ID != admitted.ID || c.Attempts != 1 {
+		t.Fatalf("held apply not requeued intact: %+v %v", c, err)
+	}
+
+	d.quotas.tick(now.Add(2 * time.Minute))
+	if err = d.runDoctor(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.db.ClaimDoctorCommand(ctx, "", false, d.instanceID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("apply requeued after the hold expired: %v", err)
+	}
+	// The fixture installs no repair dependencies, so reaching Apply completes the
+	// command with Apply's own refusal.
+	reports, err := d.db.DoctorCommandsNeedingReports(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reached := false
+	for _, report := range reports {
+		reached = reached || (report.ID == admitted.ID && strings.HasPrefix(report.ResultBody, "Doctor apply did not complete: "))
+	}
+	if !reached {
+		t.Fatalf("Apply not reached after the hold expired: %+v", reports)
 	}
 }

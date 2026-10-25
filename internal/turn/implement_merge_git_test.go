@@ -141,6 +141,13 @@ func TestImplementMergeGitConflictRestartsTheStoryAndTheNextDoneStoryStillMerges
 	if err != nil || res.Outcome != "parked" || out.Story != "story-002" || !strings.Contains(out.Reason, "conflicts") {
 		t.Fatalf("story-002: %s %+v %v", res.Outcome, out, err)
 	}
+	conflictReason := out.Reason
+	if !strings.Contains(out.Reason, "shared.txt") {
+		t.Fatalf("the restart reason does not name the conflicting path: %q", out.Reason)
+	}
+	if w := g.logs.onePark(t, "story-002", implementFeature); !strings.Contains(w["reason"], "shared.txt") {
+		t.Fatalf("the park log does not name the conflicting path: %v", w)
+	}
 	if g.remoteFeature() != afterFirst {
 		t.Fatal("a conflict must leave the integration branch unchanged")
 	}
@@ -150,7 +157,7 @@ func TestImplementMergeGitConflictRestartsTheStoryAndTheNextDoneStoryStillMerges
 	if res, out, err = g.merge(); err != nil || res.Outcome != "merged" || out.Story != "story-003" {
 		t.Fatalf("story-003: %s %+v %v", res.Outcome, out, err)
 	}
-	if row := g.row("story-002"); row.State != store.ImplementWaiting || row.Attempts != 0 || row.ParkOrigin != "" {
+	if row := g.row("story-002"); row.State != store.ImplementWaiting || row.Attempts != 0 || row.ParkOrigin != "" || row.GuidanceQuestion != conflictReason {
 		t.Fatalf("story-002 row = %+v, want waiting so its worker resolves the conflict", row)
 	}
 	if len(g.forge.bodies(12)) != 0 {
@@ -321,6 +328,9 @@ func TestImplementMergeGitDuplicateMigrationParksAndResumes(t *testing.T) {
 	}
 	if row := g.row("story-002"); row.State != store.ImplementParked || row.Reason != out.Reason {
 		t.Fatalf("row: %+v", row)
+	}
+	if w := g.logs.onePark(t, "story-002", implementFeature); w["reason"] != out.Reason {
+		t.Fatalf("park log = %v", w)
 	}
 	rt := &implementRuntime{opts: Options{DB: g.db}, parentRef: implementParent, generation: 1}
 	if n, err := rt.resumeStories(t.Context(), "retry story-002 with a fresh migration timestamp"); err != nil || n != 1 {

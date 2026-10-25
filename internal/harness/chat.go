@@ -6,13 +6,16 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
 // RunChat narrows the existing doctor gate to a response-only invocation: empty
-// native tools and MCP catalog, isolated settings, ephemeral private home, no
+// native tools, an MCP catalog of exactly the request's own factory tools (none
+// by default), isolated settings, the factory's persistent claude home, no
 // repository context and no conversation persistence. Owner text is stdin only.
 func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agent.ChatResult, err error) {
 	if err := request.Validate(); err != nil {
@@ -21,24 +24,39 @@ func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agen
 	if proof, e := r.DoctorIsolation(ctx); e != nil || proof == "" {
 		return agent.ChatResult{}, agent.ErrDoctorIsolationUnverified
 	}
-	home, err := os.MkdirTemp(request.WorkingDirectory, "chat-private-")
+	// The factory's persistent claude home, never removed; chat has no native
+	// tools, so nothing in the run can read it. Per-run files stay in scratch.
+	configDir, err := r.persistentClaudeHome()
 	if err != nil {
 		return agent.ChatResult{}, err
 	}
-	defer func() { err = errors.Join(err, os.RemoveAll(home)) }()
-	if r.osHome != "" {
-		if err = linkCredentials(home, r.osHome); err != nil {
-			return agent.ChatResult{}, err
-		}
-	}
-	mcpPath := filepath.Join(home, "mcp.json")
-	if err = os.WriteFile(mcpPath, []byte(`{"mcpServers":{}}`), 0600); err != nil {
+	scratch, err := os.MkdirTemp(request.WorkingDirectory, "chat-run-")
+	if err != nil {
 		return agent.ChatResult{}, err
 	}
-	args := chatArguments(request.Model, mcpPath)
-	env := append(providerprocess.DoctorEnvironment(r.environ, home), "CLAUDE_CONFIG_DIR="+home)
+	defer func() { err = errors.Join(err, os.RemoveAll(scratch)) }()
+	servers := map[string]any{}
+	permitted := []string{}
+	if launch := request.MCPLaunch; launch != nil {
+		servers["litefactory"] = map[string]any{"type": "stdio", "command": launch.Executable(), "args": launch.Arguments(), "env": map[string]string{}}
+		for _, name := range launch.PermittedTools() {
+			permitted = append(permitted, "mcp__litefactory__"+name)
+		}
+		slices.Sort(permitted)
+	}
+	registration, err := json.Marshal(map[string]any{"mcpServers": servers})
+	if err != nil {
+		return agent.ChatResult{}, err
+	}
+	mcpPath := filepath.Join(scratch, "mcp.json")
+	if err = os.WriteFile(mcpPath, registration, 0600); err != nil {
+		return agent.ChatResult{}, err
+	}
+	args := append(chatArguments(request.Model, mcpPath, permitted), r.thinkingArgs(ctx)...)
+	env := r.persistentClaudeEnv(scratch, configDir)
 	collector := newUsageCaptureCollector(ctx, request.Usage, "", false)
 	var result agent.ChatResult
+	// tools marks any tool outside the granted catalog, offered or used.
 	terminal, failed, tools := false, false, false
 	observe := func(line []byte) {
 		collector.observe(line)
@@ -53,6 +71,7 @@ func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agen
 			Message    struct {
 				Content []struct {
 					Type string `json:"type"`
+					Name string `json:"name"`
 				} `json:"content"`
 			} `json:"message"`
 		}
@@ -60,13 +79,15 @@ func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agen
 			return
 		}
 		if event.Type == "system" && event.Subtype == "init" {
-			tools = tools || len(event.Tools) > 0
+			offered := slices.Clone(event.Tools)
+			slices.Sort(offered)
+			tools = tools || !slices.Equal(offered, permitted)
 			if collector != nil && usageIdentity(event.Session) {
 				collector.session = event.Session
 			}
 		}
 		for _, block := range event.Message.Content {
-			tools = tools || block.Type == "tool_use"
+			tools = tools || block.Type == "tool_use" && !slices.Contains(permitted, block.Name)
 		}
 		if event.Type == "result" {
 			terminal = true
@@ -81,13 +102,17 @@ func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agen
 	err = providerprocess.RunChatProcess(ctx, r.binary.Path, args, env, request, r.timeout, observe)
 	result.Usage = collector.finish()
 	if err == nil && (!terminal || failed || tools || len(result.Answer) > 32<<10) {
-		err = errors.New("chat provider response failed or exposed tools")
+		err = errors.New("chat provider response failed or its tools differ from the grant")
 	}
 	return result, err
 }
 
-func chatArguments(model, mcpPath string) []string {
+func chatArguments(model, mcpPath string, permitted []string) []string {
 	// An explicit empty --tools disables native tools; omitting it enables the
-	// defaults. Strict empty MCP also prevents ambient user tools from loading.
-	return []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-session-persistence", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--model", model}
+	// defaults. Strict MCP also prevents ambient user tools from loading.
+	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-session-persistence", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--model", model}
+	if len(permitted) > 0 {
+		args = append(args, "--allowedTools", strings.Join(permitted, ","))
+	}
+	return args
 }

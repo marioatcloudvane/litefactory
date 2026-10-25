@@ -20,6 +20,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
@@ -95,7 +96,7 @@ func (p *preparedMCP) closeTransports(ctx context.Context) error {
 func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (result *agent.RunResult, err error) {
 	runtime := prep.mcpRuntime
 	if runtime == nil {
-		return prep.runner.Run(ctx, req)
+		return runPreparedProvider(ctx, prep, req)
 	}
 	supported, ok := prep.runner.(interface{ SupportsMCP() bool })
 	native := ok && supported.SupportsMCP() && !runtime.DisableMCP
@@ -109,7 +110,7 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	// legacy tool behavior rather than inventing managed story identities.
 	if (req.Mode == "implement" || req.Mode == "validate" || (req.Mode == "plan" && prep.planSubmission != nil)) && session == nil {
 		req.Prompt += "\nCompatibility route: this unmanaged or submission-v1 scope retains its existing frozen workflow and required output. Use the supported owner story-contract upgrade/admission flow before adopting shared completion; this launch does not implicitly upgrade persisted versions.\n"
-		return prep.runner.Run(ctx, req)
+		return runPreparedProvider(ctx, prep, req)
 	}
 	p, spec, err := prepareMCP(ctx, prep, req, session)
 	if err != nil {
@@ -127,12 +128,23 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	if err := p.bindFinalRoute(ctx, &req, session); err != nil {
 		return nil, err
 	}
-	result, err = prep.runner.Run(ctx, req)
+	if err := p.attachRetainedWorkflowEvidence(ctx, prep, &req, session); err != nil {
+		return nil, fmt.Errorf("prepare retained workflow evidence: %w", err)
+	}
+	result, err = runPreparedProvider(ctx, prep, req)
 	return p.finalize(ctx, prep, session, result, err)
 }
 
+// runPreparedProvider records the exact prompt sent to the provider, including
+// the cold-fallback path.
+func runPreparedProvider(ctx context.Context, prep *preparation, req agent.Request) (*agent.RunResult, error) {
+	prep.request.Prompt = req.Prompt
+	prep.prompt = req.Prompt
+	return prep.runner.Run(ctx, req)
+}
+
 func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (*preparedMCP, *agent.MCPLaunchSpec, error) {
-	return prepareMCPWith(ctx, prep, req, session, nil)
+	return prepareMCPWith(ctx, prep, req, session, nil, "")
 }
 
 // resultOverride replaces the generic trusted resolver and grants of one launch
@@ -154,7 +166,7 @@ type resultOverride struct {
 	Attempt string
 }
 
-func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession, override *resultOverride) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
+func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession, override *resultOverride, standardsRole string) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
 	runtime := prep.mcpRuntime
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -179,7 +191,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	} else if prep.resultPass != "" {
 		workContext += "#" + prep.resultPass
 	}
-	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
+	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement" && !prep.reqAssessment(), Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if prep.typedPlan != nil {
 		contextValue.PlanScope = prep.typedPlan.scope
 	}
@@ -219,7 +231,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 				return agentresult.Context{}, store.ErrResultAuthority
 			}
 		}
-		if service != nil && req.Mode == "implement" {
+		if service != nil && session != nil && req.Mode == "implement" {
 			c, _, err := resolveResultEngineeringContext(check, runtime.Authority.db, service.Binding(), prep.worktree, session.binding.Generation, contextValue)
 			return c, err
 		}
@@ -234,7 +246,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		}
 		o.Resolve, o.ReadTargets, o.EditTargets = override.Resolve, slices.Clone(override.Targets), slices.Clone(override.Targets)
 	}
-	if req.Mode == "implement" {
+	if req.Mode == "implement" && !prep.reqAssessment() {
 		o.PrepareAggregate = func(check context.Context, b store.ResultBinding, ref agent.EngineeringContribution, capture agent.AggregateCapture) (store.ResultAggregate, error) {
 			selected := make([]store.ResultStoryRevision, 0, len(contextValue.Stories))
 			for key, story := range contextValue.Stories {
@@ -315,9 +327,10 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		return nil, nil, err
 	}
 	var evidence *EvidenceService
-	// A graph node of Implement or Validate submits only its application result:
-	// it runs without a story checkpoint session, so it collects no evidence.
-	withoutEvidence := (req.Mode == "implement" || req.Mode == "validate") && req.Invocation == agent.InvocationResearchNode
+	// A graph node of Implement or Validate, or a managed preparation assessment,
+	// submits only its application result. Without a story checkpoint session
+	// it cannot collect engineering evidence.
+	withoutEvidence := prep.reqAssessment() || (req.Mode == "implement" || req.Mode == "validate") && req.Invocation == agent.InvocationResearchNode
 	if (req.Mode == "implement" || req.Mode == "validate") && !withoutEvidence {
 		evidence, err = NewEvidenceService(session, receipts)
 		if err != nil {
@@ -334,6 +347,20 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		return nil, nil, err
 	}
 	families := FamilyDispatcherOptions{Service: service, Receipts: receipts, Feedback: feedback, Evidence: evidence, WithoutEvidence: withoutEvidence}
+	// Only a role whose graph node grants it may read the standards that apply
+	// to it. The tool is optional: nothing in the prompt or the result route asks for it.
+	if standardsRole != "" && !runtime.DisableMCP {
+		consumer := standardsSessionConsumerKey(prep.session.ID, req.Mode, "")
+		if req.Graph != nil {
+			consumer = standardsSessionConsumerKey(prep.session.ID, req.Mode, req.Graph.Node)
+		}
+		standardsService, err := NewStandardsToolService(&standards.Runtime{Store: o.DB, RootRunID: fmt.Sprint(prep.run.ID), ConsumerKey: consumer, AttemptID: attempt}, service.Binding(), standardsRole)
+		if err != nil {
+			return nil, nil, err
+		}
+		families.Registrations = append(families.Registrations, standardsService.Registrations()...)
+	}
+
 	now := runtime.Now()
 	activity, err := NewActivityService(ActivityOptions{Receipts: receipts, Now: now, Status: runtime.ImplementStatus})
 	if err != nil {

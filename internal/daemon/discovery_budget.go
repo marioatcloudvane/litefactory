@@ -700,11 +700,15 @@ func (d *Daemon) logDiscoveryDeferral(ctx context.Context, c *candidate) {
 	if verr != nil {
 		attrs = append(attrs, slog.Any("connection_error", verr))
 	}
+	backoffHeld := false
 	if selected {
 		attrs = append(attrs, slog.Int64("connection_version_id", v.ID), slog.String("provider", string(v.Provider)))
 		q := d.quotas.forVersion(v)
 		if until, held := q.backoff.hold(d.quotaNow(ctx)); held {
-			attrs = append(attrs, slog.Time("backoff_until", until))
+			// A credential backoff, not the budget, refused the read (#1022).
+			attrs = append(attrs, slog.Time("backoff_until", until),
+				slog.String("reason", (&rateLimitHold{provider: v.Provider, until: until}).Error()))
+			backoffHeld = true
 		}
 	}
 	b, berr := d.quotaBudget(ctx)
@@ -712,8 +716,11 @@ func (d *Daemon) logDiscoveryDeferral(ctx context.Context, c *candidate) {
 		attrs = append(attrs, slog.Any("budget_error", berr))
 	} else {
 		view := b.view()
-		reason, _ := view.deferral()
-		attrs = append(attrs, slog.String("reason", reason), slog.Bool("fresh", view.Fresh), slog.Int("limit", view.Limit),
+		if !backoffHeld {
+			reason, _ := view.deferral()
+			attrs = append(attrs, slog.String("reason", reason))
+		}
+		attrs = append(attrs, slog.Bool("fresh", view.Fresh), slog.Int("limit", view.Limit),
 			slog.Int("remaining", view.Remaining), slog.Int("reserve", view.Reserve), slog.Int("spent", view.Spent),
 			slog.Int("share", view.Share), slog.Int("in_progress", view.InProgress), slog.Float64("tokens", view.Burst))
 	}

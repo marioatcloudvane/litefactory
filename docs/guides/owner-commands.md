@@ -58,6 +58,16 @@ Spike never ask. Writing "do not ask" or "no questions" in the instruction turns
 questions off. The tag line is removed before the text is used, and a comment
 that is only the tag does nothing.
 
+## Retained instructions and standing guidance
+
+Ordinary owner instructions are retained until assigned to the next eligible
+logical step, including when another reply occupies its wait or no next step
+exists. An explicit target restricts which step can receive them. Pending input
+is shown as undelivered; assignment does not grant a new run or scope.
+`/guide <text>` sets or replaces optional issue guidance, `/guide` views it,
+and `/guide clear` withdraws it. These controls do not start work and remain
+separate from one-time instructions and decisions. See [owner input](owner-input.md).
+
 ## Controls on a parent issue
 
 These are not modes. They answer a proposal the factory posted, and the posted
@@ -71,14 +81,31 @@ comment shows the exact text to copy.
 | `/plan-new-story` | Reserves one more story key. Exact text, nothing else in the comment. | Does not write the story; Plan does that next. |
 | `/approve-bug analysis <revision>` | On a Bug task, approves the posted analysis so the fix starts. | Does not work on a task that is not a Bug task. |
 
+A displayed Plan stage also accepts `/approve-plan` or `/approve-plan d-…`;
+the assembled plan accepts `/approve-plan-set` or `/approve-plan-set d-…`.
+A bare reply requires one unchanged target across the unresolved displays for
+that action. After replacement, use the short reference shown with the new
+review. An explicit reference or a provider's threaded reply to that review
+selects its exact displayed target before bare shorthand is considered. A
+reference takes priority when both are present. Neither is silently retargeted;
+replying to an older or edited replacement display requires a fresh reference.
+
 Plan controls only work on a task running the graph Plan workflow. Anywhere
 else they are answered as unknown commands. See
 [Plan workflow](../workflow/plan-graph.md) and [Bug workflow](../workflow/bug-runtime.md).
 
 ## Validate controls
 
-Validate posts a report with a 12-character revision. Each command is the whole
-comment, on one line (at most 2048 characters), and names that revision.
+Validate posts a report with a 12-character revision and short decision references.
+Each command is the whole comment, on one line (at most 2048 characters).
+You may replace `<rev>` with the displayed `d-…` reference or leave it out when
+all unresolved displays for that action identify the same target and no newer
+target has been shown. A replacement requires its displayed short reference;
+a delayed reference never selects newer work. Full revision commands remain
+available, but a revision displayed for different delivery heads is ambiguous.
+On providers with threaded replies, replying directly to an unchanged report
+also binds a short command to that report. GitHub issue comments do not carry
+threaded reply metadata; use the displayed short reference there when needed.
 
 | Syntax | What it causes |
 | --- | --- |
@@ -89,7 +116,16 @@ comment, on one line (at most 2048 characters), and names that revision.
 | `/validate-push <rev>` | Push the validated branch. |
 | `/validate-merge <rev> <pr-number> <head-sha>` | Merge that pull request at that exact head commit. |
 | `/validate-close <rev> <issue-number>...` | Close the listed issues (1 to 64). |
-| `/validate-ship <rev> -- <evidence>` | Confirm shipping, with what you checked by hand. |
+| `/validate-ship [reference] -- <reason>` | Authorizes shipment of the displayed delivery commit despite all its displayed blockers, then pushes, merges and closes. |
+| `/return [reference] -- <requested change>` | [Returns reviewed work](return-reviewed-work.md) directly to Implement on the same feature branch with your explanation. |
+| `/validate-implement <rev> [-- <guidance>]` | Legacy return of blocking findings or suite failures to Implement. |
+
+Shipping keeps the original failed tests, missing reviews and other evidence.
+Its audit retains the tested commit and the displayed delivery commit separately,
+exact blocker identities and evidence revision, authenticated owner, source
+comment, reason and time. Changed work, new blockers or changed evidence require
+a fresh decision. Confirmed delivery says “shipped with owner waiver”; a failed
+or uncertain delivery keeps its actual status.
 
 A stale revision, wrong grammar or an issue with no Validate run is refused and
 changes nothing. See [Validate](../workflow/validate.md) and
@@ -154,7 +190,7 @@ usage reminder. See [doctor](../operations/doctor.md).
 
 | Syntax | What it causes |
 | --- | --- |
-| `/judge` | Challenges the latest eligible saved research result or Plan on this ticket. |
+| `/judge` | Challenges the latest eligible saved research result, Plan or Bug analysis on this ticket. |
 | `/judge <focus text>` | Same, with the free text as the focus. It is the same as `--focus "<focus text>"`. |
 | `--target <saved-reference>` | Judges that exact saved source. An invalid reference is explained and never replaced. |
 | `--agent claude\|codex\|other` | Chooses the judging provider. `other` picks the opposite of the source's provider. |
@@ -190,3 +226,9 @@ No command was found that the parser used to accept and now refuses. The old
 Discord is driven by ordinary messages in a channel bound to a conversation,
 not by GitHub comments. Its only slash command is `/details`, which shows saved
 raw details for a conversation answer. See [Discord](../discord.md).
+
+For stopped work, follow the single recommendation in its retained stop notice. Pending automatic recovery needs no command: wait until admission can start the existing action. Ordinary owner guidance resumes a supported current Bug or Research question once. It can also resume the latest cancelled unallocated graph dispatch from its saved launch, including Validate on an Implement issue without a question wait. A missing saved launch retains refusal; it never falls back to ordinary Implement.
+
+For a stale blocker, `/doctor <concrete inspection question>` is diagnosis only. `/doctor apply` approves exactly the displayed proposal. The four bounded graph transitions are dispatch cancellation, wait cancellation, attempt cancellation and instance failure. A whole dependent graph repair, its guidance handoff, verification and numbered journal commit together or all abort. Rollback needs a separate exact inverse proposal and approval and is refused after related progress. Repair does not itself authorize continuation or prove completion. See [Recovery](../operations/recovery.md) and [Doctor](../operations/doctor.md).
+
+Retired single-agent Spike uses a fresh graph task with `/spike`; unsupported legacy Bug uses a new issue for the same bug. Carry the prepared historical context and source link to the new task and post the new link on the old one. Legacy Research needing migration requires operator inspection. Existing history, edits and completed effects remain intact.

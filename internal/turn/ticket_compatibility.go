@@ -136,7 +136,17 @@ func compatibilityReply(ctx context.Context, db *store.DB, reply ticket.Reply, r
 	if err != nil {
 		return github.Comment{}, err
 	}
-	return github.Comment{ID: id, Author: author, Body: reply.Body, HTMLURL: reply.BrowserURL, CreatedAt: reply.CreatedAt, UpdatedAt: reply.UpdatedAt, QualifiedReply: &reply}, nil
+	var replyTo int64
+	if reply.ReplyTo.RemoteID != "" {
+		if reply.ReplyTo.Provider != reply.Identity.Provider || reply.ReplyTo.Origin != reply.Identity.Origin {
+			return github.Comment{}, store.ErrTicketIdentityConflict
+		}
+		replyTo, err = compatibilitySlot(ctx, db, "comment", reply.ReplyTo)
+		if err != nil {
+			return github.Comment{}, err
+		}
+	}
+	return github.Comment{ReplyToCommentID: replyTo, ID: id, Author: author, Body: reply.Body, HTMLURL: reply.BrowserURL, CreatedAt: reply.CreatedAt, UpdatedAt: reply.UpdatedAt, QualifiedReply: &reply}, nil
 }
 
 func compatibilityReplyCursor(_ context.Context, _ *store.DB, ref ticket.Ref, after int64) (ticket.Cursor, error) {

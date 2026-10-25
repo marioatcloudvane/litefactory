@@ -64,7 +64,9 @@ type Config struct {
 	ToolProfiles ToolProfiles `yaml:"tool_profiles"`
 	// BugChecks is an optional operator-owned check isolation ceiling. A
 	// missing stanza leaves Bug checks blocked, without affecting other work.
-	BugChecks  *BugCheckIsolation `yaml:"bug_checks"`
+	BugChecks *BugCheckIsolation `yaml:"bug_checks"`
+	// Standards holds owner-started standards analysis settings.
+	Standards  StandardsSettings `yaml:"standards"`
 	agentOrder []Kind
 }
 
@@ -129,40 +131,20 @@ type Settings struct {
 	// AllowMCPStoryCreation is a loaded false-default ceiling; grants remain separate.
 	AllowMCPStoryCreation bool `yaml:"allow_mcp_story_creation"`
 
-	// AutoSyncBase controls whether a later story's auto-sync step runs at
-	// all. Defaults to true: staying behind the base branch quietly, without
-	// anyone noticing, is the failure mode the sync feature exists to
-	// prevent (US-8). This field is read by that later story's syncBase
-	// function; this package only loads and validates it.
+	// AutoSyncBase controls automatic preparation synchronization. When false,
+	// preparation observes the existing checkout without merging base changes.
 	AutoSyncBase bool `yaml:"auto_sync_base"`
-	// AutoSyncMaxBehind bounds how many commits behind its base branch a
-	// worktree may be before litefactory refuses the run on distance alone,
-	// rather than attempting the merge (US-8).
-	//
-	// Exceeding it refuses; it does not skip. Skipping was the original
-	// behaviour and was the worst of the three answers available: it neither
-	// brought the branch up to date nor stopped, so the run went ahead
-	// against a branch known to be stale — the failure [AutoSyncBase] exists
-	// to prevent — and distance makes that more dangerous, not less.
-	// Turning auto-sync off is still a skip, because an operator who turned
-	// it off asked for the run to go ahead.
-	//
-	// 0 means no cap: auto-sync is never skipped for being far behind.
-	// A negative value is a config load error, enforced in [Config.Validate]
-	// — it is never silently clamped to 0 or to [DefaultAutoSyncMaxBehind]
-	// (CFG-6).
-	//
-	// The default of 100 is a judgment call, not a measurement: no data set
-	// determined it, and none should be assumed from it. It exists to be
-	// tuned per repository by an operator who knows their own rate of
-	// change, not to be quoted as an evidence-based threshold. 0 is a
-	// reasonable choice for a repository that would rather always merge and
-	// let a real conflict be the only thing that stops a run.
+	// AutoSyncMaxBehind limits automatic merges during task-branch and base-
+	// branch preparation. Beyond the cap, synchronization is skipped and the
+	// original request continues with an unresolved-freshness caveat.
+	// 0 means unlimited. Negative values are rejected by [Config.Validate].
+	// The default of 100 is an operator-tunable judgment, not a measurement.
 	AutoSyncMaxBehind int `yaml:"auto_sync_max_behind"`
-	// BlockRunOnConflict controls whether a merge conflict hit during
-	// auto-sync blocks the run rather than letting it proceed against a
-	// stale base. Defaults to true: guessing wrong about a conflict is worse
-	// than stopping and asking (US-8).
+	// BlockRunOnConflict remains parseable for configuration compatibility.
+	//
+	// Deprecated: preparation conflicts defer synchronization and allow the
+	// original request to continue with a caveat for either setting value.
+	// Final save and integration requirements remain unchanged.
 	BlockRunOnConflict bool `yaml:"block_run_on_conflict"`
 
 	// SuggestConflictResolution controls whether a blocked run (US-4) also
@@ -189,6 +171,11 @@ type Settings struct {
 	// [Settings.AutoSyncMaxBehind], there is no meaningful "unlimited"
 	// reading for content sent to an external model call.
 	ConflictContentMaxBytes int `yaml:"conflict_content_max_bytes"`
+
+	// ThinkingLogs selects whether factory agent runs record the provider's
+	// thinking summaries in their run logs. The zero value is invalid; Defaults
+	// sets [ThinkingLogsNone], which launches every provider unchanged.
+	ThinkingLogs ThinkingLogs `yaml:"thinking_logs"`
 }
 
 // Agents groups the fully typed configuration for every supported coding
@@ -481,6 +468,7 @@ func Defaults() Config {
 			AutoSyncMaxBehind:          DefaultAutoSyncMaxBehind,
 			BlockRunOnConflict:         true,
 			SuggestConflictResolution:  false,
+			ThinkingLogs:               ThinkingLogsNone,
 			ConflictProposalTTLHours:   DefaultConflictProposalTTLHours,
 			ConflictContentMaxBytes:    DefaultConflictContentMaxBytes,
 		},
@@ -532,9 +520,10 @@ func DefaultToolProfiles() ToolProfiles {
 	}
 	researchTools := append(slices.Clone(artifactTools), "Edit", "WebSearch", "WebFetch")
 	researchAllowed := append(slices.Clone(artifactAllowed), "Edit", "WebSearch", "WebFetch")
-	// Claude Validate gets Bash only with the fixed read-only reviewer rules;
-	// a reviewer holding it runs in a permission mode that refuses everything
-	// else. Codex Validate keeps its independently enforced read-only sandbox.
+	// Claude Validate gets Bash only with the fixed read-only shell rules; a
+	// reviewer holding it runs in a permission mode that refuses everything
+	// else, inside a sandbox that keeps the worktree unwritable. Codex
+	// Validate keeps its independently enforced read-only sandbox.
 	readTools := []string{"Read", "Glob", "Grep", "Task", "Bash"}
 	readAllowed := append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
 	profile := func(tools, allowed []string, sandbox string, attachments bool) ToolProfile {
@@ -545,16 +534,21 @@ func DefaultToolProfiles() ToolProfiles {
 		}
 	}
 	// The default operator ceiling does not list MultiEdit, so the default
-	// fixer grant is the role surface inside that ceiling.
+	// fixer grant is the role surface inside that ceiling. The fixer runs
+	// commands like an Implement engineer, with Implement's Bash rules; the
+	// investigator holds the read-only shell.
 	fixerTools := slices.DeleteFunc(BugRoleClaudeTools(SpikeFixerProfile), func(tool string) bool { return !slices.Contains(implementTools, tool) })
+	fixerAllowed := slices.DeleteFunc(slices.Clone(implementAllowed), func(rule string) bool { return !slices.Contains(fixerTools, ClaudeToolName(rule)) })
+	investigatorTools := BugRoleClaudeTools(SpikeInvestigatorProfile)
+	investigatorAllowed := append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
 	return ToolProfiles{Permissions: map[string]ToolProfile{
 		"research":  profile(researchTools, researchAllowed, "workspace-write", true),
 		"plan":      profile(artifactTools, artifactAllowed, "workspace-write", true),
 		"implement": profile(implementTools, implementAllowed, "workspace-write", false),
 		"validate":  profile(readTools, readAllowed, "read-only", false),
 		// Spike graph roles are explicit grants, never an alias of implement.
-		SpikeInvestigatorProfile: profile(BugRoleClaudeTools(SpikeInvestigatorProfile), BugRoleClaudeTools(SpikeInvestigatorProfile), "read-only", false),
-		SpikeFixerProfile:        profile(fixerTools, fixerTools, "workspace-write", false),
+		SpikeInvestigatorProfile: profile(investigatorTools, investigatorAllowed, "read-only", false),
+		SpikeFixerProfile:        profile(fixerTools, fixerAllowed, "workspace-write", false),
 	}}
 }
 
@@ -568,7 +562,7 @@ const (
 	DefaultDeployBackupKeep     = 5
 	DefaultLogRetainDays        = 30
 	DefaultArchiveRetainDays    = 30
-	DefaultMinFreeDiskGB        = 15
+	DefaultMinFreeDiskGB        = 2
 	DefaultLogLevel             = "info"
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"

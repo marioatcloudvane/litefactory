@@ -426,6 +426,18 @@ func TestImplementQuestionListsEveryParkedStoryOnce(t *testing.T) {
 	}
 }
 
+// #1127: an Implement question that carries options shows them under the
+// question and marks the recommended one only. Since #1142 such a question also
+// leads with its ID, so the owner can answer with the ID and an option.
+func TestImplementQuestionShowsItsOptionsAndRecommendation(t *testing.T) {
+	candidate := agentresult.Result{Outcome: "incomplete", Comment: "Intro.", Reason: "Next step.", Questions: []agentresult.Question{{ID: "q1", Audience: "business", Text: " Restart story-002? ", RecommendedOption: "a", Options: []agentresult.Option{{ID: "a", Text: "Restart it"}, {ID: "b", Text: "Leave it parked"}}}}}
+	text := renderImplementComment(candidate, "", naming.Ref{}, "")
+	want := "- **q1** Restart story-002?\n  - `a` Restart it (recommended)\n  - `b` Leave it parked\n"
+	if !strings.Contains(text, want) || strings.Count(text, "(recommended)") != 1 {
+		t.Fatalf("options or marker missing:\n%s", text)
+	}
+}
+
 func TestImplementCommentContractRefusesAnythingButTheBatchedQuestion(t *testing.T) {
 	scope := ImplementWorkflowPolicy().baseContext(true)
 	good := implementQuestionCandidate([]store.ImplementStory{{Key: "a", Reason: "r"}})
@@ -508,6 +520,7 @@ func TestImplementRespondMapsTheAcceptedOutcome(t *testing.T) {
 		{agentresult.Result{Outcome: "incomplete", Reason: "half done"}, "incomplete", false},
 		{agentresult.Result{Outcome: "blocked", Reason: "need a key"}, "blocked", false},
 		{agentresult.Result{Outcome: "blocked"}, "", true},
+		{agentresult.Result{Outcome: "blocked", Reason: "pick one", Questions: []agentresult.Question{{ID: "q1"}}}, "blocked", false},
 		{agentresult.Result{Outcome: "completed", Questions: []agentresult.Question{{ID: "q"}}}, "", true},
 		{agentresult.Result{Outcome: "approved"}, "", true},
 	} {
@@ -587,5 +600,68 @@ func TestImplementScratchDirUsesSibling(t *testing.T) {
 	opts.MCP.Paths = config.NewPaths(filepath.Join(t.TempDir(), "home"))
 	if got, want := implementScratchDir(opts), opts.MCP.Paths.ImplementScratchDir(); got != want {
 		t.Fatalf("scratch = %q, want %q", got, want)
+	}
+}
+
+// #1026: a coordinator rests before an agent stage, due at once, so the stage
+// starts on normal run capacity; a story worker runs on into its agent.
+func TestImplementCoordinatorRestsBeforeAnAgentStage(t *testing.T) {
+	f := newImplementFixture(t, implementStories(1, nil)...)
+	opts := Options{DB: f.db, MCP: &MCPRuntime{Now: func() time.Time { return implementClock }}}
+	rt := &implementRuntime{opts: opts, parentRef: implementParent, generation: 1}
+	resolve := graphexec.Node{Name: "sync_start_resolve", Action: ResearchAgentAction}
+	if d, err := rt.parkHook(t.Context(), opts, store.GraphInstance{}, resolve); err != nil || !d.Park || !d.Due.Equal(implementClock) {
+		t.Fatalf("the coordinator rests before the resolver, due at once: %+v %v", d, err)
+	}
+	worker := &implementRuntime{opts: opts, parentRef: implementParent, generation: 1, worker: &store.ImplementStory{}}
+	if d, err := worker.parkHook(t.Context(), opts, store.GraphInstance{}, graphexec.Node{Name: "worker_agent", Action: ResearchAgentAction}); err != nil || d.Park {
+		t.Fatalf("a story worker runs on into its agent: %+v %v", d, err)
+	}
+}
+
+// #1026 C8: a coordinator run whose base sync conflicts parks at the resolver
+// without starting it, leaving a dispatch owed at once that classifies as an
+// agent step; its bookkeeping nodes do not.
+func TestImplementCoordinatorConflictParksBeforeTheResolverRuns(t *testing.T) {
+	ran := 0
+	runner := lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		ran++
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	seedMainFeatureConflict(t, f)
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if ran != 0 {
+		t.Fatalf("the resolver ran inside the coordinator's run %d times", ran)
+	}
+	if trail := implementTrail(t, f); trailIndex(trail, "sync_start:conflict") < 0 || trailIndex(trail, "sync_start_resolve:success") >= 0 {
+		t.Fatalf("trail = %v", trail)
+	}
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	if instance.CurrentNode != "sync_start_resolve" {
+		t.Fatalf("the coordinator rests at the resolver: %+v", instance)
+	}
+	dispatch, ok, err := f.db.NextFreshGraphDispatch(t.Context(), f.session.ID)
+	if err != nil || !ok || dispatch.Node != "sync_start_resolve" {
+		t.Fatalf("the resolver stage is owed at once: %+v %v %v", dispatch, ok, err)
+	}
+	if runsAgent, err := GraphDispatchRunsAgent(t.Context(), f.db, dispatch); err != nil || !runsAgent {
+		t.Fatalf("the resolver dispatch is an agent step: %v %v", runsAgent, err)
+	}
+	for _, node := range []string{"await", "merge", "ready", "sync_start"} {
+		bookkeeping := dispatch
+		bookkeeping.Node = node
+		if runsAgent, err := GraphDispatchRunsAgent(t.Context(), f.db, bookkeeping); err != nil || runsAgent {
+			t.Fatalf("%s is bookkeeping: %v %v", node, runsAgent, err)
+		}
+	}
+	unknown := dispatch
+	unknown.Node = "no_such_node"
+	if runsAgent, err := GraphDispatchRunsAgent(t.Context(), f.db, unknown); err == nil || !runsAgent {
+		t.Fatalf("an unclassifiable step counts as agent work: %v %v", runsAgent, err)
 	}
 }

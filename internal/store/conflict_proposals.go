@@ -130,6 +130,9 @@ type CreateConflictProposalParams struct {
 	// ever compare equal to an empty sha.
 	BaseSHA, BranchSHA string
 	Inputs             ConflictProposalInputs
+	// At is when the proposal is created; zero means now. Callers with their
+	// own clock pass it so expiry compares times from one clock.
+	At time.Time
 }
 
 // CreateOrGetConflictProposal records a conflict-resolution proposal once.
@@ -154,7 +157,10 @@ func (db *DB) CreateOrGetConflictProposal(ctx context.Context, params CreateConf
 		if !errors.Is(getErr, ErrNotFound) {
 			return getErr
 		}
-		now := nowUTC()
+		now := params.At.UTC()
+		if params.At.IsZero() {
+			now = nowUTC()
+		}
 		if getErr = supersedePendingConflictProposals(ctx, tx, params.SessionID, now); getErr != nil {
 			return getErr
 		}
@@ -200,6 +206,19 @@ func (db *DB) GetConflictProposal(ctx context.Context, id int64) (ConflictPropos
 	}
 	if err := loadConflictProposalFiles(ctx, db.sql, &p); err != nil {
 		return ConflictProposal{}, fmt.Errorf("store: read conflict proposal %d files: %w", id, err)
+	}
+	return p, nil
+}
+
+// GetConflictProposalBySource reads the proposal bound to the original request
+// without regenerating it or changing its confirmation status.
+func (db *DB) GetConflictProposalBySource(ctx context.Context, sessionID, triggerCommentID int64) (ConflictProposal, error) {
+	p, err := getConflictProposalBySource(ctx, db.sql, sessionID, triggerCommentID)
+	if err != nil {
+		return ConflictProposal{}, err
+	}
+	if err := loadConflictProposalFiles(ctx, db.sql, &p); err != nil {
+		return ConflictProposal{}, err
 	}
 	return p, nil
 }

@@ -295,7 +295,7 @@ func TestValidateReviewShutdownLeavesTheRowPending(t *testing.T) {
 		cancel()
 		return nil, ctx.Err()
 	}
-	_, err := ValidateReviewActivity{f.bindings()}.Execute(ctx, f.opts, f.reviewRequest())
+	_, err := ValidateReviewActivity{b: f.bindings()}.Execute(ctx, f.opts, f.reviewRequest())
 	if err == nil {
 		t.Fatal("a shutdown was swallowed")
 	}

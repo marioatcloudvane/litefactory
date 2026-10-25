@@ -117,11 +117,11 @@ const (
 func diagnosisInputSchema(repair bool) json.RawMessage {
 	proposal := `{"type":"array","maxItems":30,"items":` + stepSchema + `}`
 	required := `"findings","coverage_gaps","questions","proposal"`
-	extra := ""
+	extra := `,"rollback_repair_id":{"type":"string","description":"Retained verified graph repair to reverse as one separately approved inverse; proposal must be empty."},"rollback_reason":{"type":"string","description":"Reason for the journal-bound inverse proposal."}`
 	if repair {
 		proposal = `{"type":"array","maxItems":0}`
 		required += `,"repair"`
 		extra = `,"repair":{"type":"object","properties":{"operation_id":{"type":"string"},"completed_steps":{"type":"array","items":{"type":"integer","minimum":1,"maximum":30}},"observations":{"type":"array","items":{"type":"string"}},"unresolved":{"type":"array","items":{"type":"string"}}},"required":["operation_id","completed_steps","observations","unresolved"],"additionalProperties":false}`
 	}
-	return json.RawMessage(`{"type":"object","properties":{"expected_revision":{"type":"integer","minimum":0},"diagnosis":{"type":"object","properties":{"findings":{"type":"array","minItems":1,"maxItems":30,"items":` + findingSchema + `},"coverage_gaps":` + gapsSchema + `,"questions":` + textsSchema + `,"proposal":` + proposal + extra + `},"required":[` + required + `],"additionalProperties":false}},"required":["expected_revision","diagnosis"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"expected_revision":{"type":"integer","minimum":0},"diagnosis":{"type":"object","properties":{"withdraw_proposal":{"type":"boolean","description":"Explicitly withdraw the current proposal; cannot accompany a replacement."},"findings":{"type":"array","minItems":1,"maxItems":30,"items":` + findingSchema + `},"coverage_gaps":` + gapsSchema + `,"questions":` + textsSchema + `,"proposal":` + proposal + extra + `},"required":[` + required + `],"additionalProperties":false}},"required":["expected_revision","diagnosis"],"additionalProperties":false}`)
 }

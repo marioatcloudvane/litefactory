@@ -28,6 +28,7 @@ type ActivityRequest struct {
 type ActivityResult struct {
 	// ProcessResult retains subprocess facts independently from private node validation.
 	// Suspended is permitted only for a durably recorded Bug child wait.
+	Deferred      bool
 	Suspended     bool
 	ProcessResult *agent.RunResult
 	Outcome       string

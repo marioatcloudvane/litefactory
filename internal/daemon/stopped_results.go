@@ -86,14 +86,19 @@ func (d *Daemon) retryStoppedResults(ctx context.Context, tickAt time.Time) (dis
 		if !allowed {
 			continue
 		}
-		if !d.pool.try() {
-			return
+		reservation, reason, reserveErr := d.reserveSession(ctx, id)
+		if reserveErr != nil || reservation == nil {
+			debt.task.log.InfoContext(ctx, "stopped-result recovery deferred for capacity", slog.String("reason", reason), slog.Any("error", reserveErr))
+			continue
 		}
 		debt.active = true
 		t := debt.task
+		t.capacity = reservation
+		t.slot = d.pool
 		t.tickAt = tickAt
 		workerCtx := context.WithValue(workerCtx, recoveryTickKey{}, tickAt)
 		// Existing pool and Quiesce bound this worker exactly like execution.
+		d.inflight.label(id, "stopped_result")
 		t.workerLog.DebugContext(ctx, "stopped-result repair worker dispatched")
 		go d.runDoctorGuardedWorker(workerCtx, &t, func(workerCtx context.Context) { d.repairStoppedResult(workerCtx, &t, debt) })
 		dispatched++
@@ -102,6 +107,7 @@ func (d *Daemon) retryStoppedResults(ctx context.Context, tickAt time.Time) (dis
 }
 
 func (d *Daemon) repairStoppedResult(ctx context.Context, t *task, debt *stoppedResult) {
+	ctx = turn.WithStepCapacity(ctx, t.capacity)
 	result, err := debt.repair(ctx)
 	if err != nil {
 		t.recordWorkerError(err)

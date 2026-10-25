@@ -70,6 +70,10 @@ type ImplementStory struct {
 	Deviations string
 }
 
+// ImplementResumeGuidance says how an owner's reply on the parent issue
+// restarts parked stories. The owner question and the status lookup share it.
+const ImplementResumeGuidance = "Name a story by its key (for example story-002) and say what it should do differently; a reply that names no story restarts all of them. A restarted story continues from its branch with your reply as guidance."
+
 // MaxImplementAttempts is the failed attempts a story may record: the first
 // attempt and its two repairs.
 const MaxImplementAttempts = 3
@@ -93,13 +97,15 @@ type ImplementStorySeed struct {
 // ImplementTransition is one guarded move of one story. Reason is required to
 // park and MergeCommit to merge; neither is accepted for any other move.
 type ImplementTransition struct {
-	Parent           string
-	Generation       int64
-	Key              string
-	From, To         string
-	ExpectedRevision int64
-	Reason           string
-	MergeCommit      string
+	// StandardsRootRunID carries a factory-owned immutable invocation into a story start.
+	StandardsRootRunID int64
+	Parent             string
+	Generation         int64
+	Key                string
+	From, To           string
+	ExpectedRevision   int64
+	Reason             string
+	MergeCommit        string
 	// Guidance is the owner's reply; only a move to waiting (a resume from
 	// parked, or a reopen of a merged story) takes it.
 	Guidance string
@@ -168,6 +174,19 @@ func (db *DB) ListImplementStories(ctx context.Context, parent string, generatio
 		return nil, fmt.Errorf("store: list implement stories: %w", err)
 	}
 	return out, nil
+}
+
+// LatestImplementStories returns the ledger of the parent's newest generation
+// in plan order, or none when the parent never reached Implement.
+func (db *DB) LatestImplementStories(ctx context.Context, parent string) ([]ImplementStory, error) {
+	var generation sql.NullInt64
+	if err := db.sql.QueryRowContext(ctx, `SELECT MAX(generation) FROM implement_stories WHERE parent=?`, parent).Scan(&generation); err != nil {
+		return nil, fmt.Errorf("store: latest implement generation: %w", err)
+	}
+	if !generation.Valid {
+		return nil, nil
+	}
+	return db.ListImplementStories(ctx, parent, generation.Int64)
 }
 
 // CountImplementRunning counts the stories of one parent generation that are running.
@@ -257,6 +276,11 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 				return ErrImplementCap
 			}
 			return ErrImplementConflict
+		}
+		if in.To == ImplementRunning && in.StandardsRootRunID != 0 {
+			if err := saveStandardsStoryInvocationTx(ctx, tx, in.Parent, in.Generation, in.Key, row.StateAt, in.StandardsRootRunID); err != nil {
+				return fmt.Errorf("%w: %w", ErrStandardsHandoffPersistence, err)
+			}
 		}
 		out = row
 		return nil

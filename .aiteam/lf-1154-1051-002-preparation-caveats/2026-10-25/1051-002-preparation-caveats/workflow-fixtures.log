@@ -1,0 +1,302 @@
+Command: go test -json ./internal/turn -count=1 -timeout=45m
+
+=== RUN   TestManagedPreparationAssessmentMCPResult
+--- PASS: TestManagedPreparationAssessmentMCPResult (0.03s)
+=== RUN   TestGraphSourcePreparationPreservesThenObserves
+=== RUN   TestGraphSourcePreparationPreservesThenObserves/synchronize
+--- PASS: TestGraphSourcePreparationPreservesThenObserves/synchronize (0.41s)
+=== RUN   TestGraphSourcePreparationPreservesThenObserves/disabled
+--- PASS: TestGraphSourcePreparationPreservesThenObserves/disabled (0.43s)
+=== RUN   TestGraphSourcePreparationPreservesThenObserves/conflict
+--- PASS: TestGraphSourcePreparationPreservesThenObserves/conflict (0.43s)
+=== RUN   TestGraphSourcePreparationPreservesThenObserves/remote_task_dirty
+--- PASS: TestGraphSourcePreparationPreservesThenObserves/remote_task_dirty (0.44s)
+=== RUN   TestGraphSourcePreparationPreservesThenObserves/analyst
+--- PASS: TestGraphSourcePreparationPreservesThenObserves/analyst (0.34s)
+--- PASS: TestGraphSourcePreparationPreservesThenObserves (2.05s)
+=== RUN   TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions
+=== RUN   TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions/missing_handoff
+--- PASS: TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions/missing_handoff (0.92s)
+=== RUN   TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions/claimed_fixer_restart
+--- PASS: TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions/claimed_fixer_restart (0.92s)
+--- PASS: TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions (1.84s)
+=== RUN   TestConflictSuggestionReachesATerminalStateAfterPosting
+=== PAUSE TestConflictSuggestionReachesATerminalStateAfterPosting
+=== RUN   TestManagedNoScopePreparationAssessmentRemainsReadOnly
+    preparation_authority_test.go:28: managed reading invocation ref=github:acme/acme-api#123 path=cold profile=validate tools=[Read Glob Grep]
+    preparation_authority_test.go:28: managed reading invocation ref=github:acme/acme-api#123 path=resume profile=validate tools=[Read Glob Grep]
+--- PASS: TestManagedNoScopePreparationAssessmentRemainsReadOnly (0.61s)
+=== RUN   TestPreparationObservationPreservesOwnerInputBindings
+    preparation_authority_test.go:95: original assigned input={SessionID:1 CommentID:31 ActorID:42 AttemptID:1 Body:Exact assigned instruction bytes Target:{InstanceID:1 Node:worker LaunchID:0} AssignedAt:2026-10-25 04:28:05.103 +0000 UTC}; original undelivered input={SessionID:1 CommentID:32 ActorID:42 AttemptID:0 Body:Exact pending target bytes Target:{InstanceID:1 Node:reviewer LaunchID:0} AssignedAt:0001-01-01 00:00:00 +0000 UTC}
+    preparation_authority_test.go:117: preparation/report projection without receiving input: **Preparation caveat**
+        
+        task synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1. base synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1; task reconciliation remains unresolved.
+    preparation_authority_test.go:117: preparation/report projection without receiving input: **Preparation caveat**
+        
+        task synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1. base synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1; task reconciliation remains unresolved.
+--- PASS: TestPreparationObservationPreservesOwnerInputBindings (0.63s)
+=== RUN   TestGraphPreparationCaveatSettlesOnlyObservedFreshness
+=== RUN   TestGraphPreparationCaveatSettlesOnlyObservedFreshness/current
+--- PASS: TestGraphPreparationCaveatSettlesOnlyObservedFreshness/current (0.04s)
+=== RUN   TestGraphPreparationCaveatSettlesOnlyObservedFreshness/synced
+--- PASS: TestGraphPreparationCaveatSettlesOnlyObservedFreshness/synced (0.04s)
+=== RUN   TestGraphPreparationCaveatSettlesOnlyObservedFreshness/retry
+--- PASS: TestGraphPreparationCaveatSettlesOnlyObservedFreshness/retry (0.04s)
+=== RUN   TestGraphPreparationCaveatSettlesOnlyObservedFreshness/conflict
+--- PASS: TestGraphPreparationCaveatSettlesOnlyObservedFreshness/conflict (0.04s)
+--- PASS: TestGraphPreparationCaveatSettlesOnlyObservedFreshness (0.16s)
+=== RUN   TestPreparationCaveatsContinueOriginalRequest
+=== RUN   TestPreparationCaveatsContinueOriginalRequest/task_conflict
+=== PAUSE TestPreparationCaveatsContinueOriginalRequest/task_conflict
+=== RUN   TestPreparationCaveatsContinueOriginalRequest/base_conflict
+=== PAUSE TestPreparationCaveatsContinueOriginalRequest/base_conflict
+=== RUN   TestPreparationCaveatsContinueOriginalRequest/both_conflicts
+=== PAUSE TestPreparationCaveatsContinueOriginalRequest/both_conflicts
+=== RUN   TestPreparationCaveatsContinueOriginalRequest/task_distance_cap
+=== PAUSE TestPreparationCaveatsContinueOriginalRequest/task_distance_cap
+=== RUN   TestPreparationCaveatsContinueOriginalRequest/base_distance_cap
+=== PAUSE TestPreparationCaveatsContinueOriginalRequest/base_distance_cap
+=== RUN   TestPreparationCaveatsContinueOriginalRequest/both_distance_caps
+=== PAUSE TestPreparationCaveatsContinueOriginalRequest/both_distance_caps
+=== RUN   TestPreparationCaveatsContinueOriginalRequest/both_phases_preserve_dirty_work
+=== PAUSE TestPreparationCaveatsContinueOriginalRequest/both_phases_preserve_dirty_work
+=== RUN   TestPreparationCaveatsContinueOriginalRequest/unavailable_context_with_both_sync_phases_and_pending_refinement
+    preparation_continuation_test.go:132: Plan invocation ref=github:acme/acme-api#123 run=1 attempt=GXGUOB6KCMUF36BXXP6ZMB3GJ6 fresh_context=.aiteam/lf-123-add-a-health-endpoint/2026-10-25/add-a-health-endpoint/plan-attempt-V3RXHB735JRLKMTUFCESAOAY75/PLAN_CONTEXT.json profile=implement; unavailable source omitted from prompt
+    preparation_continuation_test.go:174: unavailable source retained path=.aiteam/lf-123-add-a-health-endpoint/2026-10-24/add-a-health-endpoint/PLAN_CONTEXT.json bytes="{ malformed owner context; do not admit these bytes"; pending refinement=[{SessionID:1 CommentID:8080 ChildNumber:200 ChildID:2000 Generation:1 ActorID:42 ActorHandle: Body:Unapproved proposed scope must remain pending Consumed:false}]; normal result:
+        <!-- lf:status task=github:acme/acme-api#123 run=1 -->
+        
+        ### litefactory · run 1 · not completed
+        
+        > [!CAUTION]
+        > Run 1 did its work, but litefactory could not complete the turn: push lf/123-add-a-health-endpoint to origin failed, the commit is intact in the worktree at /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestunavailable_contex361786168/001/worktrees/task-123: /usr/bin/git push --set-upstream -- origin refs/heads/lf/123-add-a-health-endpoint:refs/heads/lf/123-add-a-health-endpoint: exit status 1: To /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestunavailable_contex361786168/001/origin.git
+        >  ! [rejected]        lf/123-add-a-health-endpoint -> lf/123-add-a-health-endpoint (non-fast-forward)
+        > error: failed to push some refs to '/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestunavailable_contex361786168/001/origin.git'
+        > hint: Updates were rejected because the tip of your current branch is behind
+        > hint: its remote counterpart. If you want to integrate the remote changes,
+        > hint: use 'git pull' before pushing again.
+        > hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+        >
+        > Whatever the run produced is still in the worktree at `/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestunavailable_contex361786168/001/worktrees/task-123`.
+        
+        - **Publication:** Local commit bfb13cce78a54783b226ee9a03a62bba25dad4c2 retained; publication not confirmed.
+        
+        **Preparation caveat**
+        
+        Pending planning refinements remain pending and are excluded from implementation scope. Optional planning context is unavailable; its source was preserved and excluded from this request. task synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1. base synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1; task reconciliation remains unresolved.
+        
+        **Result**
+        
+        Added a /health endpoint.
+        
+        
+        <!-- lf:delivery v=1 key=5aa2fd5e824c9d5f4b3aae80c7227619b43c91dc35028ea6b034c777b7b7c2ff -->
+--- PASS: TestPreparationCaveatsContinueOriginalRequest/unavailable_context_with_both_sync_phases_and_pending_refinement (0.72s)
+=== RUN   TestPreparationCaveatsContinueOriginalRequest/canonical_managed_worker_reaches_approved_work_through_deferred_sync
+    preparation_continuation_test.go:185: approved managed invocation ref=github:acme/acme-api#123 graph=&{InstanceID:1 AttemptID:4 RunID:1 Node:worker_agent} profile=implement permissions={Tools:[Read Glob Grep Edit Write Bash Task] AllowedTools:[Read Glob Grep Edit Write Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git rev-parse:*) Bash(git ls-tree:*) Bash(git merge-base:*) Bash(git rev-list:*) Bash(mkdir:*) Bash(go build:*) Bash(go test:*) Bash(go vet:*) Bash(gofmt:*) Bash(grep:*) Bash(sed -n:*) Bash(head:*) Bash(tail:*) Bash(wc:*) Bash(ls:*) Bash(cat:*) Bash(find:*) Bash(diff:*) Bash(rg:*) Bash(git blame:*) Bash(git grep:*) Bash(make check:*) Bash(make test:*) Bash(golangci-lint:*)] ReadOnlyShell:false}
+--- PASS: TestPreparationCaveatsContinueOriginalRequest/canonical_managed_worker_reaches_approved_work_through_deferred_sync (1.72s)
+=== CONT  TestPreparationCaveatsContinueOriginalRequest/task_conflict
+=== CONT  TestPreparationCaveatsContinueOriginalRequest/both_phases_preserve_dirty_work
+=== CONT  TestPreparationCaveatsContinueOriginalRequest/both_conflicts
+=== CONT  TestPreparationCaveatsContinueOriginalRequest/base_conflict
+=== CONT  TestPreparationCaveatsContinueOriginalRequest/both_distance_caps
+=== CONT  TestPreparationCaveatsContinueOriginalRequest/task_distance_cap
+=== CONT  TestPreparationCaveatsContinueOriginalRequest/base_distance_cap
+    preparation_continuation_test.go:45: invocation ref=github:acme/acme-api#123 run=1 profile=implement permissions={Tools:[Read Glob Grep Edit Write Bash Task] AllowedTools:[Read Glob Grep Edit Write Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git rev-parse:*) Bash(git ls-tree:*) Bash(git merge-base:*) Bash(git rev-list:*) Bash(mkdir:*) Bash(go build:*) Bash(go test:*) Bash(go vet:*) Bash(gofmt:*) Bash(grep:*) Bash(sed -n:*) Bash(head:*) Bash(tail:*) Bash(wc:*) Bash(ls:*) Bash(cat:*) Bash(find:*) Bash(diff:*) Bash(rg:*) Bash(git blame:*) Bash(git grep:*) Bash(make check:*) Bash(make test:*) Bash(golangci-lint:*)] ReadOnlyShell:false}; before HEAD=6a747c6ef0567599af872e0352a619ce465b73d7 raw_index=4449524300000002000000026add8558293635636add8558293635630100000f1029bb5f000081a4000001f5000000140000000a9741694d75caeb49d3b7c1f59451c0c56bf6216c0009524541444d452e6d64006add85582960af456add85582960af450100000f1029bb73000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300a6c6b5ca6a8108b8df7471a0ace2d07b04a4292eaf2f529f28c7dd92732b4e71e8a375fb093e1e145 files=map["README.md":"# fixture\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]; observed HEAD=6a747c6ef0567599af872e0352a619ce465b73d7 raw_index=4449524300000002000000026add8558293635636add8558293635630100000f1029bb5f000081a4000001f5000000140000000a9741694d75caeb49d3b7c1f59451c0c56bf6216c0009524541444d452e6d64006add85582960af456add85582960af450100000f1029bb73000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300a6c6b5ca6a8108b8df7471a0ace2d07b04a4292eaf2f529f28c7dd92732b4e71e8a375fb093e1e145 files=map["README.md":"# fixture\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]
+    preparation_continuation_test.go:45: invocation ref=github:acme/acme-api#123 run=1 profile=implement permissions={Tools:[Read Glob Grep Edit Write Bash Task] AllowedTools:[Read Glob Grep Edit Write Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git rev-parse:*) Bash(git ls-tree:*) Bash(git merge-base:*) Bash(git rev-list:*) Bash(mkdir:*) Bash(go build:*) Bash(go test:*) Bash(go vet:*) Bash(gofmt:*) Bash(grep:*) Bash(sed -n:*) Bash(head:*) Bash(tail:*) Bash(wc:*) Bash(ls:*) Bash(cat:*) Bash(find:*) Bash(diff:*) Bash(rg:*) Bash(git blame:*) Bash(git grep:*) Bash(make check:*) Bash(make test:*) Bash(golangci-lint:*)] ReadOnlyShell:false}; before HEAD=fd3c6af31da5d1d0822cb8155c02a1fbd0843740 raw_index=4449524300000002000000026add85582bd28b276add85582bd28b270100000f1029bad5000081a4000001f50000001400000018252ed191ee652208e23fc65f040d53bcdd11e5e50009524541444d452e6d64006add85582840275a6add85582840275a0100000f1029bae8000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300ae4401e6e07ca19b3dd3b4b4bcf546d6eee3054ac93497b694c8d05d6e633a41368a587a800dddee8 files=map["README.md":"local conflicting work\n\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]; observed HEAD=fd3c6af31da5d1d0822cb8155c02a1fbd0843740 raw_index=4449524300000002000000026add85582bd28b276add85582bd28b270100000f1029bad5000081a4000001f50000001400000018252ed191ee652208e23fc65f040d53bcdd11e5e50009524541444d452e6d64006add85582840275a6add85582840275a0100000f1029bae8000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300ae4401e6e07ca19b3dd3b4b4bcf546d6eee3054ac93497b694c8d05d6e633a41368a587a800dddee8 files=map["README.md":"local conflicting work\n\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]
+    preparation_continuation_test.go:45: invocation ref=github:acme/acme-api#123 run=1 profile=implement permissions={Tools:[Read Glob Grep Edit Write Bash Task] AllowedTools:[Read Glob Grep Edit Write Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git rev-parse:*) Bash(git ls-tree:*) Bash(git merge-base:*) Bash(git rev-list:*) Bash(mkdir:*) Bash(go build:*) Bash(go test:*) Bash(go vet:*) Bash(gofmt:*) Bash(grep:*) Bash(sed -n:*) Bash(head:*) Bash(tail:*) Bash(wc:*) Bash(ls:*) Bash(cat:*) Bash(find:*) Bash(diff:*) Bash(rg:*) Bash(git blame:*) Bash(git grep:*) Bash(make check:*) Bash(make test:*) Bash(golangci-lint:*)] ReadOnlyShell:false}; before HEAD=fd3c6af31da5d1d0822cb8155c02a1fbd0843740 raw_index=4449524300000002000000026add85582d3cdc456add85582d3cdc450100000f1029bb56000081a4000001f50000001400000018252ed191ee652208e23fc65f040d53bcdd11e5e50009524541444d452e6d64006add8558295d756c6add8558295d756c0100000f1029bb72000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300ae4401e6e07ca19b3dd3b4b4bcf546d6eee3054ac6e33d23674ff2fe2cca65a9d1d910b74daebc6ff files=map["README.md":"local conflicting work\n\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]; observed HEAD=fd3c6af31da5d1d0822cb8155c02a1fbd0843740 raw_index=4449524300000002000000026add85582d3cdc456add85582d3cdc450100000f1029bb56000081a4000001f50000001400000018252ed191ee652208e23fc65f040d53bcdd11e5e50009524541444d452e6d64006add8558295d756c6add8558295d756c0100000f1029bb72000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300ae4401e6e07ca19b3dd3b4b4bcf546d6eee3054ac6e33d23674ff2fe2cca65a9d1d910b74daebc6ff files=map["README.md":"local conflicting work\n\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]
+    preparation_continuation_test.go:45: invocation ref=github:acme/acme-api#123 run=1 profile=implement permissions={Tools:[Read Glob Grep Edit Write Bash Task] AllowedTools:[Read Glob Grep Edit Write Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git rev-parse:*) Bash(git ls-tree:*) Bash(git merge-base:*) Bash(git rev-list:*) Bash(mkdir:*) Bash(go build:*) Bash(go test:*) Bash(go vet:*) Bash(gofmt:*) Bash(grep:*) Bash(sed -n:*) Bash(head:*) Bash(tail:*) Bash(wc:*) Bash(ls:*) Bash(cat:*) Bash(find:*) Bash(diff:*) Bash(rg:*) Bash(git blame:*) Bash(git grep:*) Bash(make check:*) Bash(make test:*) Bash(golangci-lint:*)] ReadOnlyShell:false}; before HEAD=6a747c6ef0567599af872e0352a619ce465b73d7 raw_index=4449524300000002000000026add8558293ec8376add8558293ec8370100000f1029bb62000081a4000001f5000000140000000a9741694d75caeb49d3b7c1f59451c0c56bf6216c0009524541444d452e6d64006add85582984e5256add85582984e5250100000f1029bb88000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300a6c6b5ca6a8108b8df7471a0ace2d07b04a4292eac54fea87c8ebaf8b24b4eda74de1f91459c0dc33 files=map["README.md":"# fixture\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]; observed HEAD=6a747c6ef0567599af872e0352a619ce465b73d7 raw_index=4449524300000002000000026add8558293ec8376add8558293ec8370100000f1029bb62000081a4000001f5000000140000000a9741694d75caeb49d3b7c1f59451c0c56bf6216c0009524541444d452e6d64006add85582984e5256add85582984e5250100000f1029bb88000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300a6c6b5ca6a8108b8df7471a0ace2d07b04a4292eac54fea87c8ebaf8b24b4eda74de1f91459c0dc33 files=map["README.md":"# fixture\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]
+    preparation_continuation_test.go:45: invocation ref=github:acme/acme-api#123 run=1 profile=implement permissions={Tools:[Read Glob Grep Edit Write Bash Task] AllowedTools:[Read Glob Grep Edit Write Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git rev-parse:*) Bash(git ls-tree:*) Bash(git merge-base:*) Bash(git rev-list:*) Bash(mkdir:*) Bash(go build:*) Bash(go test:*) Bash(go vet:*) Bash(gofmt:*) Bash(grep:*) Bash(sed -n:*) Bash(head:*) Bash(tail:*) Bash(wc:*) Bash(ls:*) Bash(cat:*) Bash(find:*) Bash(diff:*) Bash(rg:*) Bash(git blame:*) Bash(git grep:*) Bash(make check:*) Bash(make test:*) Bash(golangci-lint:*)] ReadOnlyShell:false}; before HEAD=fd3c6af31da5d1d0822cb8155c02a1fbd0843740 raw_index=4449524300000002000000026add855903a614ff6add855903a614ff0100000f1029bb77000081a4000001f500000014000000103ca562549c154b8734acaf3438cb9707a20a72f30009524541444d452e6d64006add8558298c32c76add8558298c32c70100000f1029bb89000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000006002d3120300a69f2b4fccb77767d887bad8332fbfe2c4b53c1f8 files=map["README.md":"unstaged retained\n" "retained.txt":"untracked retained\n"] modes=map[README.md:-rwxr-xr-x retained.txt:-rw-------]; observed HEAD=fd3c6af31da5d1d0822cb8155c02a1fbd0843740 raw_index=4449524300000002000000026add855903a614ff6add855903a614ff0100000f1029bb77000081a4000001f500000014000000103ca562549c154b8734acaf3438cb9707a20a72f30009524541444d452e6d64006add8558298c32c76add8558298c32c70100000f1029bb89000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000006002d3120300a69f2b4fccb77767d887bad8332fbfe2c4b53c1f8 files=map["README.md":"unstaged retained\n" "retained.txt":"untracked retained\n"] modes=map[README.md:-rwxr-xr-x retained.txt:-rw-------]
+    preparation_continuation_test.go:45: invocation ref=github:acme/acme-api#123 run=1 profile=implement permissions={Tools:[Read Glob Grep Edit Write Bash Task] AllowedTools:[Read Glob Grep Edit Write Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git rev-parse:*) Bash(git ls-tree:*) Bash(git merge-base:*) Bash(git rev-list:*) Bash(mkdir:*) Bash(go build:*) Bash(go test:*) Bash(go vet:*) Bash(gofmt:*) Bash(grep:*) Bash(sed -n:*) Bash(head:*) Bash(tail:*) Bash(wc:*) Bash(ls:*) Bash(cat:*) Bash(find:*) Bash(diff:*) Bash(rg:*) Bash(git blame:*) Bash(git grep:*) Bash(make check:*) Bash(make test:*) Bash(golangci-lint:*)] ReadOnlyShell:false}; before HEAD=fd3c6af31da5d1d0822cb8155c02a1fbd0843740 raw_index=4449524300000002000000026add85582c6376066add85582c6376060100000f1029bb28000081a4000001f50000001400000018252ed191ee652208e23fc65f040d53bcdd11e5e50009524541444d452e6d64006add855828f02c7a6add855828f02c7a0100000f1029bb48000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300ae4401e6e07ca19b3dd3b4b4bcf546d6eee3054ac7ce1aa1b0a957c82160683834c6638111c2073ff files=map["README.md":"local conflicting work\n\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]; observed HEAD=fd3c6af31da5d1d0822cb8155c02a1fbd0843740 raw_index=4449524300000002000000026add85582c6376066add85582c6376060100000f1029bb28000081a4000001f50000001400000018252ed191ee652208e23fc65f040d53bcdd11e5e50009524541444d452e6d64006add855828f02c7a6add855828f02c7a0100000f1029bb48000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300ae4401e6e07ca19b3dd3b4b4bcf546d6eee3054ac7ce1aa1b0a957c82160683834c6638111c2073ff files=map["README.md":"local conflicting work\n\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]
+    preparation_continuation_test.go:45: invocation ref=github:acme/acme-api#123 run=1 profile=implement permissions={Tools:[Read Glob Grep Edit Write Bash Task] AllowedTools:[Read Glob Grep Edit Write Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git rev-parse:*) Bash(git ls-tree:*) Bash(git merge-base:*) Bash(git rev-list:*) Bash(mkdir:*) Bash(go build:*) Bash(go test:*) Bash(go vet:*) Bash(gofmt:*) Bash(grep:*) Bash(sed -n:*) Bash(head:*) Bash(tail:*) Bash(wc:*) Bash(ls:*) Bash(cat:*) Bash(find:*) Bash(diff:*) Bash(rg:*) Bash(git blame:*) Bash(git grep:*) Bash(make check:*) Bash(make test:*) Bash(golangci-lint:*)] ReadOnlyShell:false}; before HEAD=6a747c6ef0567599af872e0352a619ce465b73d7 raw_index=4449524300000002000000026add8558296d01696add8558296d01690100000f1029bb79000081a4000001f5000000140000000a9741694d75caeb49d3b7c1f59451c0c56bf6216c0009524541444d452e6d64006add8558298f0b4b6add8558298f0b4b0100000f1029bb8a000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300a6c6b5ca6a8108b8df7471a0ace2d07b04a4292eab1c5c453815fea3e3dbe0bd569e3958b41afedb0 files=map["README.md":"# fixture\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]; observed HEAD=6a747c6ef0567599af872e0352a619ce465b73d7 raw_index=4449524300000002000000026add8558296d01696add8558296d01690100000f1029bb79000081a4000001f5000000140000000a9741694d75caeb49d3b7c1f59451c0c56bf6216c0009524541444d452e6d64006add8558298f0b4b6add8558298f0b4b0100000f1029bb8a000081a4000001f5000000140000001545c9f0ba89c0018da07c68160e5466d2eec63e7b000c72657461696e65642e7478740000000000005452454500000019003220300a6c6b5ca6a8108b8df7471a0ace2d07b04a4292eab1c5c453815fea3e3dbe0bd569e3958b41afedb0 files=map["README.md":"# fixture\n" "retained.txt":"retained owner work\n\n"] modes=map[README.md:-rw------- retained.txt:-rw-------]
+    preparation_continuation_test.go:111: normal result after original request (session=1 branch=lf/123-add-a-health-endpoint trigger=9001):
+        <!-- lf:status task=github:acme/acme-api#123 run=1 -->
+        
+        ### litefactory · run 1 · succeeded
+        
+        **Preparation caveat**
+        
+        base synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1.
+        
+        **Result**
+        
+        Added a /health endpoint.
+        
+        
+        <!-- lf:delivery v=1 key=5aa2fd5e824c9d5f4b3aae80c7227619b43c91dc35028ea6b034c777b7b7c2ff -->
+    preparation_continuation_test.go:111: normal result after original request (session=1 branch=lf/123-add-a-health-endpoint trigger=9001):
+        <!-- lf:status task=github:acme/acme-api#123 run=1 -->
+        
+        ### litefactory · run 1 · not completed
+        
+        > [!CAUTION]
+        > Run 1 did its work, but litefactory could not complete the turn: push lf/123-add-a-health-endpoint to origin failed, the commit is intact in the worktree at /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequesttask_conflict3200581564/001/worktrees/task-123: /usr/bin/git push --set-upstream -- origin refs/heads/lf/123-add-a-health-endpoint:refs/heads/lf/123-add-a-health-endpoint: exit status 1: To /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequesttask_conflict3200581564/001/origin.git
+        >  ! [rejected]        lf/123-add-a-health-endpoint -> lf/123-add-a-health-endpoint (non-fast-forward)
+        > error: failed to push some refs to '/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequesttask_conflict3200581564/001/origin.git'
+        > hint: Updates were rejected because the tip of your current branch is behind
+        > hint: its remote counterpart. If you want to integrate the remote changes,
+        > hint: use 'git pull' before pushing again.
+        > hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+        >
+        > Whatever the run produced is still in the worktree at `/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequesttask_conflict3200581564/001/worktrees/task-123`.
+        
+        - **Publication:** Local commit bf2db0188ad46e1b4a0f984651c52dd41a3b4f5d retained; publication not confirmed.
+        
+        **Preparation caveat**
+        
+        task synchronization (1 behind): remote task commits conflict with local commits.
+        
+        **Result**
+        
+        Added a /health endpoint.
+        
+        
+        <!-- lf:delivery v=1 key=5aa2fd5e824c9d5f4b3aae80c7227619b43c91dc35028ea6b034c777b7b7c2ff -->
+--- PASS: TestPreparationCaveatsContinueOriginalRequest/base_distance_cap (1.30s)
+    preparation_continuation_test.go:111: normal result after original request (session=1 branch=lf/123-add-a-health-endpoint trigger=9001):
+        <!-- lf:status task=github:acme/acme-api#123 run=1 -->
+        
+        ### litefactory · run 1 · succeeded
+        
+        **Preparation caveat**
+        
+        base synchronization (1 behind): base commits conflict with local commits.
+        
+        **Result**
+        
+        Added a /health endpoint.
+        
+        
+        <!-- lf:delivery v=1 key=5aa2fd5e824c9d5f4b3aae80c7227619b43c91dc35028ea6b034c777b7b7c2ff -->
+--- PASS: TestPreparationCaveatsContinueOriginalRequest/task_conflict (1.31s)
+--- PASS: TestPreparationCaveatsContinueOriginalRequest/base_conflict (1.32s)
+    preparation_continuation_test.go:111: normal result after original request (session=1 branch=lf/123-add-a-health-endpoint trigger=9001):
+        <!-- lf:status task=github:acme/acme-api#123 run=1 -->
+        
+        ### litefactory · run 1 · not completed
+        
+        > [!CAUTION]
+        > Run 1 did its work, but litefactory could not complete the turn: push lf/123-add-a-health-endpoint to origin failed, the commit is intact in the worktree at /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequesttask_distance_cap140716026/001/worktrees/task-123: /usr/bin/git push --set-upstream -- origin refs/heads/lf/123-add-a-health-endpoint:refs/heads/lf/123-add-a-health-endpoint: exit status 1: To /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequesttask_distance_cap140716026/001/origin.git
+        >  ! [rejected]        lf/123-add-a-health-endpoint -> lf/123-add-a-health-endpoint (non-fast-forward)
+        > error: failed to push some refs to '/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequesttask_distance_cap140716026/001/origin.git'
+        > hint: Updates were rejected because the tip of your current branch is behind
+        > hint: its remote counterpart. If you want to integrate the remote changes,
+        > hint: use 'git pull' before pushing again.
+        > hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+        >
+        > Whatever the run produced is still in the worktree at `/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequesttask_distance_cap140716026/001/worktrees/task-123`.
+        
+        - **Publication:** Local commit a681c006e03b53122acf905d124fd4237b677241 retained; publication not confirmed.
+        
+        **Preparation caveat**
+        
+        task synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1.
+        
+        **Result**
+        
+        Added a /health endpoint.
+        
+        
+        <!-- lf:delivery v=1 key=5aa2fd5e824c9d5f4b3aae80c7227619b43c91dc35028ea6b034c777b7b7c2ff -->
+    preparation_continuation_test.go:111: normal result after original request (session=1 branch=lf/123-add-a-health-endpoint trigger=9001):
+        <!-- lf:status task=github:acme/acme-api#123 run=1 -->
+        
+        ### litefactory · run 1 · not completed
+        
+        > [!CAUTION]
+        > Run 1 did its work, but litefactory could not complete the turn: push lf/123-add-a-health-endpoint to origin failed, the commit is intact in the worktree at /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_phases_preser2859297884/001/worktrees/task-123: /usr/bin/git push --set-upstream -- origin refs/heads/lf/123-add-a-health-endpoint:refs/heads/lf/123-add-a-health-endpoint: exit status 1: To /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_phases_preser2859297884/001/origin.git
+        >  ! [rejected]        lf/123-add-a-health-endpoint -> lf/123-add-a-health-endpoint (non-fast-forward)
+        > error: failed to push some refs to '/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_phases_preser2859297884/001/origin.git'
+        > hint: Updates were rejected because the tip of your current branch is behind
+        > hint: its remote counterpart. If you want to integrate the remote changes,
+        > hint: use 'git pull' before pushing again.
+        > hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+        >
+        > Whatever the run produced is still in the worktree at `/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_phases_preser2859297884/001/worktrees/task-123`.
+        
+        - **Publication:** Local commit defc13a7c1ccfe6f73ff1d274fc33d0bbb5845a8 retained; publication not confirmed.
+        
+        **Preparation caveat**
+        
+        task synchronization (1 behind): uncommitted changes were preserved before incorporating remote task commits. base synchronization (1 behind): base commits conflict with local commits; task reconciliation remains unresolved.
+        
+        **Result**
+        
+        Added a /health endpoint.
+        
+        
+        <!-- lf:delivery v=1 key=5aa2fd5e824c9d5f4b3aae80c7227619b43c91dc35028ea6b034c777b7b7c2ff -->
+--- PASS: TestPreparationCaveatsContinueOriginalRequest/task_distance_cap (1.38s)
+--- PASS: TestPreparationCaveatsContinueOriginalRequest/both_phases_preserve_dirty_work (1.38s)
+    preparation_continuation_test.go:111: normal result after original request (session=1 branch=lf/123-add-a-health-endpoint trigger=9001):
+        <!-- lf:status task=github:acme/acme-api#123 run=1 -->
+        
+        ### litefactory · run 1 · not completed
+        
+        > [!CAUTION]
+        > Run 1 did its work, but litefactory could not complete the turn: push lf/123-add-a-health-endpoint to origin failed, the commit is intact in the worktree at /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_conflicts3381724656/001/worktrees/task-123: /usr/bin/git push --set-upstream -- origin refs/heads/lf/123-add-a-health-endpoint:refs/heads/lf/123-add-a-health-endpoint: exit status 1: To /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_conflicts3381724656/001/origin.git
+        >  ! [rejected]        lf/123-add-a-health-endpoint -> lf/123-add-a-health-endpoint (non-fast-forward)
+        > error: failed to push some refs to '/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_conflicts3381724656/001/origin.git'
+        > hint: Updates were rejected because the tip of your current branch is behind
+        > hint: its remote counterpart. If you want to integrate the remote changes,
+        > hint: use 'git pull' before pushing again.
+        > hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+        >
+        > Whatever the run produced is still in the worktree at `/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_conflicts3381724656/001/worktrees/task-123`.
+        
+        - **Publication:** Local commit bf2db0188ad46e1b4a0f984651c52dd41a3b4f5d retained; publication not confirmed.
+        
+        **Preparation caveat**
+        
+        task synchronization (1 behind): remote task commits conflict with local commits. base synchronization (1 behind): base commits conflict with local commits; task reconciliation remains unresolved.
+        
+        **Result**
+        
+        Added a /health endpoint.
+        
+        
+        <!-- lf:delivery v=1 key=5aa2fd5e824c9d5f4b3aae80c7227619b43c91dc35028ea6b034c777b7b7c2ff -->
+--- PASS: TestPreparationCaveatsContinueOriginalRequest/both_conflicts (1.40s)
+    preparation_continuation_test.go:111: normal result after original request (session=1 branch=lf/123-add-a-health-endpoint trigger=9001):
+        <!-- lf:status task=github:acme/acme-api#123 run=1 -->
+        
+        ### litefactory · run 1 · not completed
+        
+        > [!CAUTION]
+        > Run 1 did its work, but litefactory could not complete the turn: push lf/123-add-a-health-endpoint to origin failed, the commit is intact in the worktree at /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_distance_caps1241617103/001/worktrees/task-123: /usr/bin/git push --set-upstream -- origin refs/heads/lf/123-add-a-health-endpoint:refs/heads/lf/123-add-a-health-endpoint: exit status 1: To /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_distance_caps1241617103/001/origin.git
+        >  ! [rejected]        lf/123-add-a-health-endpoint -> lf/123-add-a-health-endpoint (non-fast-forward)
+        > error: failed to push some refs to '/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_distance_caps1241617103/001/origin.git'
+        > hint: Updates were rejected because the tip of your current branch is behind
+        > hint: its remote counterpart. If you want to integrate the remote changes,
+        > hint: use 'git pull' before pushing again.
+        > hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+        >
+        > Whatever the run produced is still in the worktree at `/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestPreparationCaveatsContinueOriginalRequestboth_distance_caps1241617103/001/worktrees/task-123`.
+        
+        - **Publication:** Local commit a681c006e03b53122acf905d124fd4237b677241 retained; publication not confirmed.
+        
+        **Preparation caveat**
+        
+        task synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1. base synchronization (2 behind): automatic merge skipped: 2 commits behind exceeds the limit of 1; task reconciliation remains unresolved.
+        
+        **Result**
+        
+        Added a /health endpoint.
+        
+        
+        <!-- lf:delivery v=1 key=5aa2fd5e824c9d5f4b3aae80c7227619b43c91dc35028ea6b034c777b7b7c2ff -->
+--- PASS: TestPreparationCaveatsContinueOriginalRequest/both_distance_caps (1.46s)
+--- PASS: TestPreparationCaveatsContinueOriginalRequest (2.45s)
+=== RUN   TestCurrentUnchangedSyncHandoffVerifiesIdentityWithoutRefresh
+--- PASS: TestCurrentUnchangedSyncHandoffVerifiesIdentityWithoutRefresh (0.04s)
+=== RUN   TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged
+=== RUN   TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged/dirty_current
+--- PASS: TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged/dirty_current (0.69s)
+=== RUN   TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged/ahead_current
+--- PASS: TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged/ahead_current (0.75s)
+=== RUN   TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged/absent_remote_current
+--- PASS: TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged/absent_remote_current (0.54s)
+=== RUN   TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged/dirty_behind
+--- PASS: TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged/dirty_behind (0.75s)
+--- PASS: TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged (2.73s)
+=== CONT  TestConflictSuggestionReachesATerminalStateAfterPosting
+--- PASS: TestConflictSuggestionReachesATerminalStateAfterPosting (2.35s)

@@ -6,54 +6,16 @@ import (
 	"sync"
 )
 
-// pool is the bound on how many turns run at the same instant, and the join
-// that guarantees none of them outlives the loop that dispatched them.
-//
-// # Why a semaphore and not a fixed set of workers
-//
-// A fixed worker set needs a work channel, and a work channel is a queue. A
-// queue commits a task to a worker when it is enqueued and dispatches it some
-// time later, under fairness state and backoff state that have both gone stale
-// in between (RD-1, AC-PAR-4.4), and it outlives the tick that filled it. This
-// semaphore has no queue: a dispatch either starts now or its session is left
-// needing a poll and reconsidered from scratch, against fresh state, on the
-// next tick.
-//
-// # The goroutine budget (RD-10)
-//
-// How many: four — two in the harness, one per pipe of the claude child; this
-// daemon's loop; and main's second-signal watcher — plus at most
-// max_concurrent_runs turn workers. That setting is validated against
-// [MinConcurrentRuns]..[MaxConcurrentRuns] and refused, never clamped, outside
-// it (AC-PAR-6.1). Doctor adds one reserved diagnostic worker, independently
-// bounded and joined by the same Quiesce/shutdown mechanism. The ceiling is
-// twenty-one; doctor stop and discovery run on the existing tick goroutine.
-//
-// Termination condition, as one named thing: [Daemon.Quiesce]. Every worker
-// ends on one of three bounded conditions — its comment list is exhausted, a
-// comment was left unconsumed, or the context is done — and all three are
-// joined there and, at shutdown, by the unexported [pool.wait] underneath it.
-//
-// What happens when the bound is exceeded: it cannot be. The semaphore is a
-// buffered channel made once in [New], with exactly one send site (the dispatch
-// loop, on the Tick goroutine) and exactly one receive site (the worker's
-// defer). The send is a select with a default, so a full pool refuses a
-// dispatch instead of parking discovery behind a turn.
-//
-// What the goroutines buy: the wall-clock of a turn minus its git critical
-// sections, overlapped across sessions. A 30-minute run stops delaying
-// discovery by 30 minutes.
+// pool bounds live execution costs. Its mutex makes a weighted acquisition
+// atomic; its independent join tracks workers through cleanup and diagnostics.
+// There is no waiting queue: refused work remains with the scheduler.
 type pool struct {
-	// slots is the semaphore: a value in the channel is a slot in use, so a
-	// send acquires and a receive releases.
+	mu    sync.Mutex
 	slots chan struct{}
-	// wg counts the same workers the semaphore does. Both are needed because a
-	// buffered channel's occupancy cannot be waited on and a WaitGroup cannot
-	// be tested without blocking.
-	wg sync.WaitGroup
+	wg    sync.WaitGroup
 }
 
-// newPool builds a pool that will run at most size turns at once.
+// newPool builds a pool with size execution slots.
 //
 // size is [Options.MaxConcurrentRuns] after defaulting, which
 // [Options.validate] has already confined to the supported range. It is
@@ -68,55 +30,111 @@ func newPool(size int) *pool {
 	return &pool{slots: make(chan struct{}, size)}
 }
 
-// try takes a slot without blocking, reporting whether it got one.
-//
-// False means the pool is full. The caller must not dispatch; the session it
-// was about to dispatch is deferred to the next tick rather than queued, for
-// the reason in the type comment.
-//
-// A true return has already registered the worker with the join, and is owed
-// exactly one [pool.done]. There are two permitted ways to discharge that debt
-// and no third:
-//
-//  1. The worker's own first deferred call — first, so that it runs last, after
-//     every other defer the worker registers, or a returning [pool.wait] would
-//     not mean what it says. This is the normal discharge, and the reason a true
-//     return should be followed immediately by the `go` that runs it.
-//  2. An immediate undo on this same goroutine, when it turns out no worker is
-//     started at all. [Daemon.offer] and [Daemon.offerSchedule] do both: they
-//     take a slot, then read the issue and re-check the rate-limit backoff, and
-//     either of those may end with nothing to run — a closed issue, a forge that
-//     would not answer, a hold armed under the dispatch loop. They call done()
-//     straight away in those branches, which is exact rather than merely
-//     tolerable: the Add and the Done are both on the Tick goroutine, and
-//     [pool.wait] runs only after the last Tick has returned.
-//
-// Anything else — a true return that reaches neither of those — leaks a slot for
-// the life of the process.
-//
-// try is called only from the dispatch loop, on the Tick goroutine, and so is
-// never concurrent with [pool.wait] or with itself. That is what satisfies
-// sync.WaitGroup's rule that an Add taking the counter off zero must not race a
-// Wait: loop waits only once the last Tick has returned.
+// try is the legacy unit-cost worker admission. It registers the join only
+// after reserving capacity, and is paired with done on abandoned launches.
 func (p *pool) try() bool {
-	select {
-	case p.slots <- struct{}{}:
-	default:
+	if !p.acquire(1) {
 		return false
 	}
 	p.wg.Add(1)
 	return true
 }
 
-// done releases a worker's slot and unregisters it from the join. It is the
-// receive site of the semaphore and belongs in a defer, never on a return path.
-//
-// The slot is released before the count drops so that a returning [pool.wait]
-// means both "every worker finished" and "every slot is free"; the other order
-// would let the next dispatch be refused a slot the pool no longer holds.
+func (p *pool) acquire(cost int) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if cost < 0 || cost > cap(p.slots)-len(p.slots) {
+		return false
+	}
+	for range cost {
+		p.slots <- struct{}{}
+	}
+	return true
+}
+
+// replace releases a completed step and takes the next cost under one lock.
+// Refusal leaves no partial reservation behind.
+func (p *pool) replace(previous, cost int) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for range previous {
+		<-p.slots
+	}
+	if cost > cap(p.slots)-len(p.slots) {
+		return false
+	}
+	for range cost {
+		p.slots <- struct{}{}
+	}
+	return true
+}
+
+func (p *pool) release(cost int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for range cost {
+		<-p.slots
+	}
+}
+
+func (p *pool) capacity() (int, int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.slots), cap(p.slots)
+}
+
 func (p *pool) done() {
-	<-p.slots
+	p.release(1)
 	p.wg.Done()
+}
+
+// stepReservation can change the executing cost independently of the worker
+// join. A turn releases it after its activity and cleanup; worker unwinding also
+// releases it, including abandoned launches and panics. Release is idempotent.
+type stepReservation struct {
+	mu       sync.Mutex
+	pool     *pool
+	fallback *pool
+	cost     int
+}
+
+func (r *stepReservation) Replace(ctx context.Context, cost int) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if cost < 0 {
+		return false, errors.New("negative execution slot cost")
+	}
+	if r.cost == cost {
+		return true, nil
+	}
+	admitted := r.pool.replace(r.cost, cost)
+	r.cost = 0
+	if !admitted && r.fallback != nil && r.fallback != r.pool && r.fallback.acquire(cost) {
+		r.pool = r.fallback
+		admitted = true
+	}
+	if !admitted {
+		return false, nil
+	}
+	r.cost = cost
+	return true, nil
+}
+func (r *stepReservation) Release() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pool.release(r.cost)
+	r.cost = 0
+}
+func (r *stepReservation) Capacity() (int, int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cost == 0 && r.fallback != nil {
+		return r.fallback.capacity()
+	}
+	return r.pool.capacity()
 }
 
 // wait blocks until every worker has finished. It takes no context, and that
@@ -182,10 +200,14 @@ func (p *pool) quiesce(ctx context.Context) error {
 // Shutdown deliberately does not come through here: see [pool.wait] for why
 // that path must not take a context at all.
 func (d *Daemon) Quiesce(ctx context.Context) error {
-	if d.doctor.pool == nil {
-		return d.pool.quiesce(ctx)
+	err := d.pool.quiesce(ctx)
+	if d.doctor.pool != nil {
+		err = errors.Join(err, d.doctor.pool.quiesce(ctx))
 	}
-	return errors.Join(d.pool.quiesce(ctx), d.doctor.pool.quiesce(ctx))
+	if d.coordinator != nil {
+		err = errors.Join(err, d.coordinator.quiesce(ctx))
+	}
+	return err
 }
 
 // runSlots lends the daemon's run-slot pool to work a running turn starts by
@@ -208,16 +230,37 @@ func (s *runSlots) bind(p *pool) {
 }
 
 // TryAcquire takes a slot without waiting; ok is false when none is free.
-func (s *runSlots) TryAcquire(context.Context) (func(), bool, error) {
+func (s *runSlots) TryAcquire(ctx context.Context) (func(), bool, error) {
+	return s.TryAcquireWeighted(ctx, 1)
+}
+
+func (s *runSlots) Capacity() (int, int) {
+	s.mu.Lock()
+	p := s.pool
+	s.mu.Unlock()
+	if p == nil {
+		return 0, 0
+	}
+	return p.capacity()
+}
+
+func (s *runSlots) TryAcquireWeighted(ctx context.Context, cost int) (func(), bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	s.mu.Lock()
 	p := s.pool
 	s.mu.Unlock()
 	if p == nil {
 		return nil, false, errors.New("the run-slot pool is not running")
 	}
-	if !p.try() {
+	if cost <= 0 {
+		return nil, false, errors.New("execution slot cost must be positive")
+	}
+	if !p.acquire(cost) {
 		return nil, false, nil
 	}
+	p.wg.Add(1)
 	var once sync.Once
-	return func() { once.Do(p.done) }, true, nil
+	return func() { once.Do(func() { p.release(cost); p.wg.Done() }) }, true, nil
 }

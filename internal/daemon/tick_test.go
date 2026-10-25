@@ -2,6 +2,8 @@ package daemon_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"slices"
@@ -15,9 +17,11 @@ import (
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -1429,10 +1433,20 @@ func TestLowDiskHoldsDispatchUntilSpaceReturns(t *testing.T) {
 		!strings.Contains(logs, "free_bytes=1073741824") || !strings.Contains(logs, "required_bytes=16106127360") {
 		t.Fatalf("low-disk warning missing free and required bytes\nlogs:\n%s", logs)
 	}
+	listener := f.healthListener()
+	if listener.RunsHeld != "New runs wait: free disk 1.0 GB is below the 15 GB minimum." {
+		t.Fatalf("published runs held = %q while the guard holds runs", listener.RunsHeld)
+	}
+	if strings.Contains(listener.PauseReason, "free disk") {
+		t.Fatalf("disk hold under the pause reason: %q", listener.PauseReason)
+	}
 
 	free.Store(20 << 30)
 	for i := 0; i < 3 && len(f.turns.calls()) < 2; i++ {
 		f.settle()
+	}
+	if held := f.healthListener().RunsHeld; held != "" {
+		t.Fatalf("published runs held = %q after space returned", held)
 	}
 	var texts []string
 	for _, c := range f.turns.calls() {
@@ -1441,6 +1455,54 @@ func TestLowDiskHoldsDispatchUntilSpaceReturns(t *testing.T) {
 	if !slices.Contains(texts, "add a health endpoint") || !slices.Contains(texts, "scheduled payload") {
 		t.Fatalf("owed work after space returned = %q, want the comment and the schedule\nlogs:\n%s", texts, f.logs)
 	}
+}
+
+// TestLowDiskHoldClearedBySkippedTick: a tick that returns before the disk
+// guard runs, here one skipped while backing off from a forge rate limit,
+// publishes no stale run hold.
+func TestLowDiskHoldClearedBySkippedTick(t *testing.T) {
+	f := newFixture(t)
+	const retryAfter = 45 * time.Second
+	f.plantCursor()
+	f.issue("Disk guard")
+	f.settle()
+	f.daemon = f.newLowDiskDaemon(15<<30, func(string) (uint64, error) { return 1 << 30, nil })
+	f.forge.addComment(testIssue, 41, owner(), "/spike held by the disk guard")
+	f.settle()
+	if held := f.healthListener().RunsHeld; held == "" {
+		t.Fatalf("no run hold published below the threshold\nlogs:\n%s", f.logs)
+	}
+
+	f.forge.mu.Lock()
+	f.forge.quotaReset = f.clock.Now().Add(retryAfter).Unix()
+	f.forge.mu.Unlock()
+	issuesBefore, _, _, _ := f.forge.counts()
+	f.forge.onListIssues = func(w http.ResponseWriter, call int) bool {
+		if call != issuesBefore+1 {
+			return false
+		}
+		writeRateLimit(w, retryAfter)
+		return true
+	}
+	if _, err := f.tickErr(); !errors.As(err, new(*github.RateLimitError)) {
+		t.Fatalf("rate-limited tick error = %v, want a *github.RateLimitError", err)
+	}
+	if skipped := f.settle(); !skipped.Skipped {
+		t.Fatal("the tick after a rate limit was not skipped")
+	}
+	if held := f.healthListener().RunsHeld; held != "" {
+		t.Fatalf("skipped tick kept a stale run hold %q", held)
+	}
+}
+
+// healthListener reads the published listener row.
+func (f *fixture) healthListener() store.ListenerStatus {
+	f.t.Helper()
+	snap, err := f.db.ReadHealthSnapshot(f.t.Context())
+	if err != nil || !snap.Found {
+		f.t.Fatalf("read health snapshot: found=%v err=%v", snap.Found, err)
+	}
+	return snap.Listener
 }
 
 // newLowDiskDaemon rebuilds the fixture daemon with the free-disk guard.
@@ -1635,4 +1697,207 @@ func TestTransientFailureDoesNotHoldHealthySibling(t *testing.T) {
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{40, 41}) {
 		t.Fatalf("healthy sibling blocked or failed task repeated: %v", got)
 	}
+}
+
+// #1008: a Research owner comment whose saved launch is bound to an instance
+// that has since finished is answered once and consumed by the real daemon, and
+// the queue moves on to the next comment. Before that, rate limits and plain
+// failures on a running instance never retire it (C3, C11), and a failed post
+// of the answer leaves the comment pending until a later tick answers it once
+// (C4). Without the fix every tick fails with "graph instance already terminal".
+func TestFinishedResearchLaunchIsAnsweredAndQueueMovesOn(t *testing.T) {
+	const notApplied = "This answer was not applied; please post it again."
+	const commentA, commentB = int64(40), int64(41)
+	ctx := t.Context()
+	f := newFixture(t)
+	f.plantCursor()
+	f.issueWithLabels("Investigate boundaries", "Mode: Research")
+	f.settle()
+	session := f.sessionOf(testIssue)
+	check := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// failure selects what the driver does after admission: a transient error
+	// or the production workflow driver.
+	var failure atomic.Value
+	failure.Store("rate")
+	var calls atomic.Int64
+	var bInstance atomic.Int64
+	driver := func(ctx context.Context, opts turn.Options, req turn.Request, result turn.Result, definition *teamsource.ResearchDefinition, admission store.ResearchAdmission) (turn.Result, error) {
+		if store.IsGraphTrigger(req.Trigger.CommentID) {
+			// The owed stage of the parked instance is not under test.
+			return result, errors.New("graph step held by the test")
+		}
+		calls.Add(1)
+		if req.Trigger.CommentID == commentB {
+			bInstance.Store(admission.Instance.ID)
+			return result, errors.New("comment B reached its turn")
+		}
+		switch failure.Load() {
+		case "rate":
+			return result, &github.RateLimitError{RetryAfter: time.Second}
+		case "plain":
+			return result, errors.New("network unreachable")
+		}
+		return turn.ExecuteResearchWorkflow(ctx, opts, req, result, definition, admission)
+	}
+	opts, agentCalls := finishedResearchOptions(t, f, driver)
+	f.daemon = f.newDaemon(daemon.Options{Turn: daemon.NewExecutor(opts), Agents: opts.Runners})
+	notices := func() int {
+		posted, _, _ := f.forge.snapshot()
+		n := 0
+		for _, body := range posted {
+			if strings.Contains(body, notApplied) {
+				n++
+			}
+		}
+		return n
+	}
+	tick := func() {
+		f.clock.advance(time.Hour)
+		f.settle()
+	}
+
+	f.forge.addComment(testIssue, commentA, owner(), "/research inspect boundaries")
+	for _, kind := range []string{"rate", "rate", "plain", "plain"} {
+		failure.Store(kind)
+		before := calls.Load()
+		tick()
+		if calls.Load() == before {
+			t.Fatalf("%s tick did not reach the turn: logs=%s", kind, f.logs)
+		}
+		if f.watermark() >= commentA || notices() != 0 {
+			t.Fatalf("transient %s failure retired the comment: watermark=%d notices=%d", kind, f.watermark(), notices())
+		}
+	}
+
+	instance, err := f.db.LatestResearchInstance(ctx, session.ID)
+	check(err)
+	if instance.Status != store.GraphRunning {
+		t.Fatalf("instance not running after transient failures: %+v", instance)
+	}
+	check(f.db.SetGraphInstanceStatus(ctx, instance.ID, store.GraphCancelled, time.Time{}, f.clock.Now()))
+	failure.Store("real")
+
+	// The answer's post fails: the comment stays pending with the answer
+	// retained for recovery, and is not consumed.
+	var failedPosts atomic.Int64
+	f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
+		failedPosts.Add(1)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "boom"})
+		return true
+	}
+	tick()
+	f.forge.onPostComment = nil
+	if failedPosts.Load() == 0 || f.watermark() >= commentA || notices() != 0 || agentCalls.Load() != 0 {
+		t.Fatalf("failed answer post consumed the comment: failed=%d watermark=%d notices=%d logs=%s", failedPosts.Load(), f.watermark(), notices(), f.logs)
+	}
+	pending, found, err := f.db.FindPendingReportDelivery(ctx, session.ID, commentA)
+	check(err)
+	if !found || !strings.Contains(pending.Body, notApplied) {
+		t.Fatalf("pending answer lacks the not-applied reason: found=%v body=%q", found, pending.Body)
+	}
+	// The uncertain post did land; recovery finds it and the comment is
+	// consumed without a second answer.
+	f.restorePendingReport(commentA)
+	if !settleUntilHandled(f, commentA, 4) {
+		t.Fatalf("finished launch was never consumed: watermark=%d logs=%s", f.watermark(), f.logs)
+	}
+	if notices() != 0 || agentCalls.Load() != 0 || strings.Contains(f.logs.String(), "graph instance already terminal") {
+		t.Fatalf("finished launch answered more than once: notices=%d agent=%d logs=%s", notices(), agentCalls.Load(), f.logs)
+	}
+
+	// The queue moves on: comment B reaches its own turn on a successor.
+	f.forge.addComment(testIssue, commentB, owner(), "/research inspect the next boundary")
+	tick()
+	if bInstance.Load() == 0 || bInstance.Load() == instance.ID {
+		t.Fatalf("comment B did not reach a successor instance: got %d (finished %d) logs=%s", bInstance.Load(), instance.ID, f.logs)
+	}
+	if notices() != 0 {
+		t.Fatalf("not-applied answer posted again %d times", notices())
+	}
+}
+
+// #1008 C7: without a post failure the finished launch is answered with exactly
+// one post on its first replayed turn and consumed.
+func TestFinishedResearchLaunchIsAnsweredWithOnePost(t *testing.T) {
+	const notApplied = "This answer was not applied; please post it again."
+	const commentA = int64(40)
+	ctx := t.Context()
+	f := newFixture(t)
+	f.plantCursor()
+	f.issueWithLabels("Investigate boundaries", "Mode: Research")
+	f.settle()
+	session := f.sessionOf(testIssue)
+	var admitted atomic.Bool
+	driver := func(ctx context.Context, opts turn.Options, req turn.Request, result turn.Result, definition *teamsource.ResearchDefinition, admission store.ResearchAdmission) (turn.Result, error) {
+		if store.IsGraphTrigger(req.Trigger.CommentID) || admitted.Load() {
+			return result, errors.New("failed before any run")
+		}
+		return turn.ExecuteResearchWorkflow(ctx, opts, req, result, definition, admission)
+	}
+	opts, agentCalls := finishedResearchOptions(t, f, driver)
+	f.daemon = f.newDaemon(daemon.Options{Turn: daemon.NewExecutor(opts), Agents: opts.Runners})
+	admitted.Store(true)
+	f.forge.addComment(testIssue, commentA, owner(), "/research inspect boundaries")
+	f.clock.advance(time.Hour)
+	f.settle()
+	instance, err := f.db.LatestResearchInstance(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetGraphInstanceStatus(ctx, instance.ID, store.GraphCancelled, time.Time{}, f.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	admitted.Store(false)
+	if !settleUntilHandled(f, commentA, 4) {
+		t.Fatalf("finished launch was never consumed: watermark=%d logs=%s", f.watermark(), f.logs)
+	}
+	posted, _, _ := f.forge.snapshot()
+	n := 0
+	for _, body := range posted {
+		if strings.Contains(body, notApplied) {
+			n++
+		}
+	}
+	if n != 1 || agentCalls.Load() != 0 || strings.Contains(f.logs.String(), "graph instance already terminal") {
+		t.Fatalf("finished launch not answered once: notices=%d agent=%d logs=%s", n, agentCalls.Load(), f.logs)
+	}
+}
+
+// finishedResearchOptions wires the real turn executor for a Research task with
+// the given workflow driver; the returned counter records agent invocations,
+// which a retired comment must never reach.
+func finishedResearchOptions(t *testing.T, f *fixture, driver turn.ResearchLaunchDriver) (turn.Options, *atomic.Int64) {
+	t.Helper()
+	ctx := t.Context()
+	binary, err := git.Resolve(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := turn.NewAttemptAuthority(ctx, f.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = authority.Close(context.WithoutCancel(ctx)) })
+	agentCalls := &atomic.Int64{}
+	runner := retryPlanRunner(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		agentCalls.Add(1)
+		return nil, errors.New("a retired comment must not reach an agent")
+	})
+	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "finished-research", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{"claude": runner}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, ResearchDriver: driver, SubIssueCreator: f.client, MCP: &turn.MCPRuntime{Authority: authority, Paths: f.paths, Executable: "/factory/litefactory", Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID, Now: f.clock.Now}}
+	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		def, err := teamsource.CaptureResearch(ctx, specs)
+		if err != nil {
+			return nil, err
+		}
+		configBytes := []byte("research: research/research.dot\n")
+		digest := sha256.Sum256(configBytes)
+		def.Origin = teamsource.WorkflowOrigin{Kind: "local", Source: "local", Slug: "fixture", Version: "1.0.0", GraphPath: "research/research.dot", GraphFile: "research.dot", Team: def.Profile.Team, TeamConfig: configBytes, ConfigDigest: hex.EncodeToString(digest[:])}
+		return def, nil
+	}
+	return opts, agentCalls
 }

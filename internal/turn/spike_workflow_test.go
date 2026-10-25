@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -91,8 +92,8 @@ func TestSpikeGraphNoneEndToEnd(t *testing.T) {
 		t.Fatalf("none path: %+v calls=%d posts=%d err=%v", out, calls, forge.attemptCount(), err)
 	}
 	surface, ok := seen.Permissions.Payload.(harness.ToolSurface)
-	if !ok || strings.Join(surface.Tools, ",") != "Read,Glob,Grep" {
-		t.Fatalf("investigator is not read-only: %+v", seen.Permissions)
+	if !ok || strings.Join(surface.Tools, ",") != "Read,Glob,Grep,Bash" || !surface.ReadOnlyShell || !slices.Contains(surface.AllowedTools, "Bash(go test:*)") {
+		t.Fatalf("investigator is not a read-only shell that can run the tests: %+v", seen.Permissions)
 	}
 	note := spikeNote(t, out.WorktreePath)
 	if !strings.Contains(note, "Status: `answered`") || !strings.Contains(note, "Staging is correct") {
@@ -336,7 +337,7 @@ func TestSpikeAdmissionKnownLegacyHistoryIsRefusedBeforeDispatch(t *testing.T) {
 	_, err = f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: seg.ID, Mode: "spike", Agent: store.AgentClaude, TriggerCommentID: 1, LogPath: func(int) string { return "old.log" }})
 	mustProgress(t, err)
 	out, handled, err := admitSpikeExecution(t.Context(), f.opts, req, Result{Session: f.session, SessionID: f.session.ID})
-	if err != nil || !handled || forge.attemptCount() != 0 || out.Reason != spikeRetiredReason || out.Disposition != DispositionPrepareFailed {
+	if err != nil || !handled || forge.attemptCount() != 0 || !strings.HasPrefix(out.Reason, spikeRetiredReason) || out.Disposition != DispositionPrepareFailed {
 		t.Fatalf("a legacy-history task was not refused: handled=%v err=%v out=%+v", handled, err, out)
 	}
 	if _, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "spike"); err == nil {

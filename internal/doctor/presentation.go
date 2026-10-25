@@ -6,24 +6,34 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // RenderConversation retains full findings and immutable proposal review details.
 // The caller redacts before retaining publication intent or writing output.
 func RenderConversation(c Conversation) string {
 	var body strings.Builder
-	body.WriteString("Doctor diagnosis\n\n")
-	if c.Diagnosis == nil {
+	if c.Repair == nil {
+		body.WriteString("Doctor diagnosis\n\n")
+	}
+	if c.Diagnosis == nil && c.Repair == nil {
 		body.WriteString("No accepted diagnosis is available.\n")
-	} else {
+	} else if c.Diagnosis != nil {
 		for _, finding := range c.Diagnosis.Findings {
-			fmt.Fprintf(&body, "%s\nEvidence: %s\nUncertainty: %s\n\n", finding.Explanation, strings.Join(finding.Evidence, ", "), finding.Uncertainty)
+			fmt.Fprintf(&body, "%s\n\n", finding.Explanation)
+			if finding.Uncertainty != "" {
+				fmt.Fprintf(&body, "%s\n\n", finding.Uncertainty)
+			}
+			if len(finding.Evidence) > 0 {
+				fmt.Fprintf(&body, "<details>\n<summary>Evidence</summary>\n\n- %s\n\n</details>\n\n", strings.Join(finding.Evidence, "\n- "))
+			}
 		}
-		for _, gap := range c.Diagnosis.CoverageGaps {
-			fmt.Fprintf(&body, "Coverage gap: %s\n", gap)
+		if len(c.Diagnosis.CoverageGaps) > 0 {
+			fmt.Fprintf(&body, "<details>\n<summary>Coverage gaps</summary>\n\n- %s\n\n</details>\n\n", strings.Join(c.Diagnosis.CoverageGaps, "\n- "))
 		}
 		for _, question := range c.Diagnosis.Questions {
-			fmt.Fprintf(&body, "Question: %s\n", question)
+			fmt.Fprintf(&body, "%s\n\n", question)
 		}
 	}
 	if len(c.CurrentProposal) > 0 {
@@ -44,7 +54,17 @@ func RenderConversation(c Conversation) string {
 		} else if c.Repair.State == "recovered" || c.Repair.State == "completed" {
 			outcome = "repaired"
 		}
+		graphRepair := len(c.RepairSteps) > 0
+		for _, step := range c.RepairSteps {
+			graphRepair = graphRepair && store.DoctorGraphRepairKind(step.Kind)
+		}
+		if graphRepair && c.Repair.State == "completed" {
+			outcome = "stale blocker removed; approved graph repair verified"
+		}
 		fmt.Fprintf(&body, "Overall: %s\n", outcome)
+		if graphRepair {
+			body.WriteString("Graph repair and any separately approved inverse commit all dependent rows, guidance handoff, verification and numbered journal entries together, or no repair changes. Repair alone does not establish continuation admitted or work completed.\n")
+		}
 		if c.Repair.Failure != "" {
 			fmt.Fprintf(&body, "Unresolved: %s\n", c.Repair.Failure)
 		}
@@ -73,9 +93,11 @@ func RenderConversation(c Conversation) string {
 		}
 	}
 
-	terminalTypedRepair := c.Repair != nil && (c.Repair.State == "completed" || c.Repair.State == "failed")
-	if !c.ApplyAvailable && !terminalTypedRepair {
+	if !c.ApplyAvailable && c.Repair == nil {
 		body.WriteString("\nApply is unavailable. No repair or restart was performed by diagnosis.\n")
+	}
+	if c.Repair != nil {
+		body.WriteString("\nNext: `/doctor Recheck the repair outcome and recommend the next action` starts a fresh diagnosis from the retained journal.\n")
 	}
 	body.WriteString("\nContinue with /doctor <instructions>; end the conversation with /doctor stop.\n")
 	return body.String()

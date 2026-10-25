@@ -78,6 +78,10 @@ func archived(name, where string) ArchiveTable {
 // the parents they reference. Streaming uses the reverse, parents first. A
 // later story adds Plan tables by inserting them here in foreign-key order.
 var archiveRegistry = []ArchiveTable{
+	// Evidence links follow the owning task's retention lifecycle. Doctor's
+	// existing archive guard continues to protect conversations and repairs.
+	archived("retained_evidence_sources", `task IN `+inFT),
+	archived("retained_evidence_manifests", `task IN `+inFT),
 	// Story progress.
 	archived("story_progress_effects", `run_id IN `+subSPR),
 	archived("story_progress_events", `run_id IN `+subSPR),
@@ -117,6 +121,14 @@ var archiveRegistry = []ArchiveTable{
 	archived("bug_events", bySession),
 	archived("bug_repairs", bySession),
 	archived("bug_tasks", bySession),
+	// Owner input and decision history. These reference comments, attempts and
+	// guidance below, so their dependants must be streamed/deleted together.
+	archived("owner_instruction_inputs", bySession),
+	archived("owner_run_guidance", byRun),
+	archived("issue_owner_guidance", bySession),
+	archived("owner_decision_bindings", `task_ref IN `+inFT),
+	archived("owner_decision_displays", `task_ref IN `+inFT),
+	archived("validate_returns", byParent),
 	// Graph.
 	archived("graph_effects", `instance_id IN `+subInst),
 	archived("graph_outputs", `node_attempt_id IN `+subNodeAt),
@@ -138,6 +150,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("validate_entries", bySession),
 	archived("research_successors", `(instance_id IN `+subInst+` OR predecessor_id IN `+subInst+`)`),
 	archived("graph_node_attempts", `id IN `+subNodeAt),
+	archived("standards_graph_run_aliases", byRun),
 	archived("research_launch_definitions", `(session_id IN `+inFS+` OR instance_id IN `+subInst+`)`),
 	archived("research_execution_paths", bySession),
 	archived("graph_instances", `id IN `+subInst),
@@ -161,6 +174,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("submission_criterion_history", byTask),
 	archived("submission_generations", byTask),
 	// Reports.
+	archived("recovery_notice_dispositions", bySession),
 	archived("report_deliveries", byRunSess),
 	archived("report_delivery_legacy_runs", byRun),
 	archived("report_recoveries", byRunSess),
@@ -199,9 +213,15 @@ func isPlanArchiveTable(name string) bool { return strings.HasPrefix(name, "plan
 
 // archiveRetained classifies every table the archive never deletes from.
 var archiveRetained = map[string]ArchiveClass{
+	// Standalone bounded analyses are not members of an issue-task archive.
+	"drift_analyses": ArchiveClassGlobal, "drift_analyst_runs": ArchiveClassGlobal,
+	"drift_evidence": ArchiveClassGlobal, "drift_receipts": ArchiveClassGlobal, "drift_proposal_links": ArchiveClassGlobal,
 	"judge_requests": ArchiveClassSkeleton, "judge_attempts": ArchiveClassSkeleton, "judge_source_commits": ArchiveClassGlobal,
 	// The family skeleton and the per-task structure that identifies it.
 	"sessions": ArchiveClassSkeleton, "segments": ArchiveClassSkeleton, "runs": ArchiveClassSkeleton,
+	"standards_run_bindings": ArchiveClassSkeleton, "standards_run_selections": ArchiveClassSkeleton,
+	"standards_run_observations": ArchiveClassSkeleton, "standards_run_aliases": ArchiveClassSkeleton,
+	"standards_graph_invocations": ArchiveClassSkeleton, "standards_story_invocations": ArchiveClassSkeleton,
 	"watermarks": ArchiveClassSkeleton, "retirement_intents": ArchiveClassSkeleton,
 	"session_ticket_identities": ArchiveClassSkeleton, "ticket_effect_identities": ArchiveClassSkeleton,
 	"session_execution_snapshots": ArchiveClassSkeleton,
@@ -241,11 +261,18 @@ var archiveRetained = map[string]ArchiveClass{
 	// bounded chat retention rather than one family's archive lifecycle.
 	"chat_conversation_actions":       ArchiveClassGlobal,
 	"chat_conversation_exchanges":     ArchiveClassGlobal,
+	"chat_conversation_evidence":      ArchiveClassGlobal,
 	"chat_conversation_references":    ArchiveClassGlobal,
 	"chat_conversation_answers":       ArchiveClassGlobal,
 	"chat_conversation_answer_parts":  ArchiveClassGlobal,
 	"chat_conversation_details":       ArchiveClassGlobal,
 	"chat_conversation_details_parts": ArchiveClassGlobal,
+	// Owner inbox snapshots span ticket families and follow conversation scope
+	// and 24-hour retention, independently of a task family's archive.
+	"owner_inbox_snapshots":        ArchiveClassGlobal,
+	"owner_inbox_organizations":    ArchiveClassGlobal,
+	"owner_inbox_entries":          ArchiveClassGlobal,
+	"owner_inbox_withheld_replies": ArchiveClassGlobal,
 	// Owner/channel dialogue and replay positions span task families. Their
 	// short text and terminal retention belongs to PurgeNaturalChat; cursors
 	// survive archival to prevent old channel requests from being replayed.
@@ -280,8 +307,29 @@ var archiveRetained = map[string]ArchiveClass{
 	// Rights are keyed by repository, never archived or deleted.
 	"rights_grants": ArchiveClassGlobal, "reviewer_assignments": ArchiveClassGlobal, "rights_history": ArchiveClassGlobal,
 	"meter_price_revisions": ArchiveClassGlobal, "meter_price_rates": ArchiveClassGlobal,
-	"graph_definitions": ArchiveClassGlobal,
-	"doctor_attempts":   ArchiveClassGlobal, "doctor_conversations": ArchiveClassGlobal,
+	// The standards book and its immutable proposals span every task family.
+	"standards_book": ArchiveClassGlobal, "standards_revisions": ArchiveClassGlobal,
+	"standards_categories": ArchiveClassGlobal, "standards_standards": ArchiveClassGlobal,
+	"standards_applies_to": ArchiveClassGlobal, "standards_proposals": ArchiveClassGlobal,
+	"standards_proposal_versions": ArchiveClassGlobal, "standards_approvals": ArchiveClassGlobal,
+	"standards_publications":       ArchiveClassGlobal,
+	"standards_authoring_sessions": ArchiveClassGlobal, "standards_authoring_versions": ArchiveClassGlobal,
+	"standards_authoring_attempts": ArchiveClassGlobal, "standards_authoring_completions": ArchiveClassGlobal,
+	"standards_exception_policies": ArchiveClassGlobal, "standards_exception_proposals": ArchiveClassGlobal,
+	"standards_exception_approvals": ArchiveClassGlobal, "standards_exception_revocations": ArchiveClassGlobal,
+	"standards_conversation_contexts": ArchiveClassGlobal, "standards_conversation_operations": ArchiveClassGlobal,
+	"standards_conversation_reviews": ArchiveClassGlobal, "standards_conversation_notice_deliveries": ArchiveClassGlobal,
+	"prevention_analyses": ArchiveClassGlobal, "prevention_analysis_proposals": ArchiveClassGlobal,
+	// Standalone log analyses span selected prior task families and retain their
+	// own reports and evidence metadata independently of source-run archival.
+	"analyst_schedules": ArchiveClassGlobal, "analyst_schedule_versions": ArchiveClassGlobal,
+	"analyst_occurrences": ArchiveClassGlobal, "analyst_source_work": ArchiveClassGlobal,
+	"analyst_proposal_notices": ArchiveClassGlobal,
+	"log_analyses":             ArchiveClassGlobal, "log_analysis_books": ArchiveClassGlobal,
+	"log_analysis_evidence": ArchiveClassGlobal, "log_analysis_reports": ArchiveClassGlobal, "log_analysis_filings": ArchiveClassGlobal,
+	"log_analysis_proposals": ArchiveClassGlobal,
+	"graph_definitions":      ArchiveClassGlobal,
+	"doctor_attempts":        ArchiveClassGlobal, "doctor_conversations": ArchiveClassGlobal,
 	"doctor_instruction_captures": ArchiveClassGlobal,
 	"doctor_inbox":                ArchiveClassGlobal, "doctor_local_presentations": ArchiveClassGlobal,
 	"doctor_presentations": ArchiveClassGlobal, "doctor_proposals": ArchiveClassGlobal,

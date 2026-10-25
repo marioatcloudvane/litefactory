@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
@@ -489,7 +490,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		return nil, err
 	}
 	var pathErr error
-	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{SessionID: h.session.ID, SegmentID: segment.ID, Mode: string(agent.ModeValidate), Agent: segment.Agent, TriggerCommentID: trigger, LogPath: func(ordinal int) string {
+	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{Prelaunch: true, SessionID: h.session.ID, SegmentID: segment.ID, Mode: string(agent.ModeValidate), Agent: segment.Agent, TriggerCommentID: trigger, LogPath: func(ordinal int) string {
 		path, err := naming.RunLogPath(opts.Paths.Home(), h.ref, ordinal)
 		pathErr = err
 		return path
@@ -513,6 +514,11 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		err = errors.Join(err, finishErr)
 	}()
 
+	started, err := opts.DB.StartRun(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	run = started
 	request := agent.Request{
 		Delivery:       delivery,
 		Ref:            h.ref,
@@ -526,6 +532,10 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		Invocation:     agent.InvocationResearchNode,
 		Graph:          &agent.GraphInvocation{InstanceID: vr.InstanceID, AttemptID: vr.NodeAttemptID, RunID: run.ID, Node: nodeName},
 	}
+	ownerGuidance, err := opts.DB.OwnerGuidanceForRun(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
 	prompt, err := validateReviewPrompt(vr)
 	if err != nil {
 		return nil, err
@@ -536,8 +546,8 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 	if delivery == nil || delivery.MainRole == "" {
 		prompt += policy.Guidance
 	}
-	request.Prompt = prompt
-	prep := &preparation{mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
+	request.Prompt = prompt + harness.OwnerGuidanceSection(ownerGuidance.Revision, ownerGuidance.Body)
+	prep := &preparation{standardsRole: vr.StandardsRole, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
 	w := &researchWorkflow{opts: opts, req: nodeReq, policy: policy, prep: prep}
 	scope := cloneResultContext(vr.Scope)
 	route, err := w.openResultRoute(ctx, &request, &resultOverride{

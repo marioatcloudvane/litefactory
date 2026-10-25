@@ -1,0 +1,18 @@
+--- FAIL: TestAcquisitionRetainsSanitizedFirstObservationAndExplicitGaps (11.45s)
+    acquire_test.go:58: SQL logic error: no such table: drift_analyses (1)
+--- FAIL: TestAcquisitionGitGapStillRetainsDiscussionAndTimestampChanges (1.12s)
+    acquire_test.go:129: SQL logic error: no such table: drift_analyses (1)
+--- FAIL: TestInvocationUnfundedStandardsPageDoesNotBecomeOffered (245.48s)
+    invocation_test.go:144: unfunded page outcome: failed /usr/bin/git rev-parse --show-toplevel: timed out after 15s
+--- FAIL: TestInvocationEmptySelectionAndBoundedReceiptReplay (645.31s)
+    invocation_test.go:202: /usr/bin/git rev-parse --is-bare-repository: timed out after 15s
+--- FAIL: TestInspectPreservesLiveAnalysisOwnership (367.96s)
+    ownership_test.go:40: timed out waiting for live analyst entry
+--- FAIL: TestServiceIsolationRefusalRetainsEvidenceWithoutRelaunch (276.43s)
+    service_test.go:64: isolation refusal: /usr/bin/git rev-parse --show-toplevel: timed out after 15s
+--- FAIL: TestServiceUnreceivedOutputAndCancellationKeepDistinctStates (780.20s)
+    --- FAIL: TestServiceUnreceivedOutputAndCancellationKeepDistinctStates/cancelled (254.71s)
+        service_test.go:85: /usr/bin/git is not usable (searched PATH=/opt/homebrew/Cellar/go/1.27.0/libexec/bin:/Users/mariomh/.nvm/versions/node/v24.16.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/Users/mariomh/.codex/tmp/arg0/codex-arg0JeDWos:/Users/mariomh/.nvm/versions/node/v24.16.0/bin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/Users/mariomh/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin): /usr/bin/git --version: timed out after 15s
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/drift	4657.113s
+FAIL

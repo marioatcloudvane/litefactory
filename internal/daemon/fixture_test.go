@@ -1170,6 +1170,9 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.Ticks != nil {
 		opts.Ticks = overrides.Ticks
 	}
+	if overrides.MinFreeDiskBytes != 0 {
+		opts.MinFreeDiskBytes = overrides.MinFreeDiskBytes
+	}
 	if overrides.Webhook != nil {
 		opts.Webhook = overrides.Webhook
 		opts.Chat = overrides.Chat
@@ -1202,6 +1205,7 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	// keeps compiling and behaving exactly as it did before this feature
 	// existed.
 	opts.Judge = overrides.Judge
+	opts.ValidateAutoStart = overrides.ValidateAutoStart
 	if overrides.Confirmer != nil {
 		opts.Confirmer = overrides.Confirmer
 	}

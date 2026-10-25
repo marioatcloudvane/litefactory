@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -38,7 +39,7 @@ func verifySyncHandoffBeforeAgent(ctx context.Context, opts Options, profile *gr
 		if target.Checkout == nil {
 			return nil
 		}
-		if attempt.Status != store.GraphSucceeded || (attempt.Outcome != "synced" && attempt.Outcome != "current") {
+		if attempt.Status != store.GraphSucceeded || (attempt.Outcome != "synced" && attempt.Outcome != "current" && attempt.Outcome != "deferred") {
 			return errors.New("dependent agent requires a successful base synchronization")
 		}
 		outputs, err := opts.DB.ListGraphOutputsBounded(ctx, attempt.ID, 1<<20, 16)
@@ -77,6 +78,25 @@ func verifySyncHandoffBeforeAgent(ctx context.Context, opts Options, profile *gr
 			return errors.New("sync handoff recovery writer exclusion has no release")
 		}
 		defer func() { err = errors.Join(err, unlock()) }()
+		if attempt.Outcome == "deferred" || evidence.CheckoutUnchanged {
+			if !slices.Contains(node.Outcomes, "deferred") {
+				return errors.New("sync handoff deferred route is absent")
+			}
+			retained, ok := target.Checkout.(interface {
+				DeferredHead(context.Context, string) (string, error)
+			})
+			if !ok {
+				return errors.New("deferred handoff cannot verify retained checkout")
+			}
+			head, verifyErr := retained.DeferredHead(ctx, target.Working)
+			if verifyErr != nil {
+				return verifyErr
+			}
+			if head != evidence.Commit {
+				return errors.New("retained checkout changed since preparation deferral")
+			}
+			return nil
+		}
 		if err = target.Checkout.Refresh(ctx, target.Working, evidence.Commit); err != nil {
 			return fmt.Errorf("reverify synchronized checkout before agent preparation: %w", err)
 		}

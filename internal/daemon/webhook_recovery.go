@@ -104,6 +104,17 @@ func (s *hookRecoveryState) addPage(page github.HookDeliveryPage) bool {
 	return true
 }
 
+// hookRecoveryUnfinished reports a recovery pass that stopped part-way through
+// the delivery history (another page or more groups to decide). Such a pass
+// continues on the following ticks; a new pass starts only on a listing tick.
+func (d *Daemon) hookRecoveryUnfinished(repo int64) bool {
+	state := d.hookRecovery[repo]
+	return state != nil && (state.cursor != "" || state.groups != nil)
+}
+
+// recoverHookDeliveries replays failed webhook deliveries. It runs on the
+// repository's listing tick (ordinary) and on the ticks that finish a pass the
+// listing tick started; it is not a per-minute poll.
 func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now time.Time, ordinary bool) error {
 	version, err := d.db.CurrentConnection(ctx, q.repo.ID, store.TicketConnection)
 	if err != nil {
@@ -137,26 +148,27 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 		state = newHookRecovery(sub, hook)
 		state.version = version.ID
 		d.hookRecovery[q.repo.ID] = state
+		if hook <= 0 || sub.ID == "" {
+			q.log.InfoContext(ctx, "webhook recovery off: no recorded hook; webhooks and ordinary polling cover intake")
+		}
 	}
 	if now.Before(state.next) {
 		return nil
 	}
+	// The ordinary listing is the fallback. On a listing tick it runs right
+	// after this; on a tick that only continues an unfinished recovery the
+	// repository is marked owed, so the next tick lists it.
 	fallback := func(reason string) error {
 		q.log.InfoContext(ctx, "webhook recovery polling fallback", slog.Int64("hook", hook), slog.String("reason", reason))
-		if ordinary {
-			return nil
+		if !ordinary && d.schedule != nil {
+			d.schedule.ListingFailed(q.repo.ID)
 		}
-		complete, e := d.recoverSource(ctx, q, now)
-		if e == nil && !complete {
-			return ErrDiscoveryDeferred
-		}
-		return e
+		return nil
 	}
+	// Without a recorded hook there are no deliveries to replay. Polling the
+	// source every minute instead costs API budget the webhook already saves;
+	// ordinary polling stays the backstop for a lost delivery.
 	if hook <= 0 || sub.ID == "" {
-		if err := fallback("hook unavailable"); err != nil {
-			return err
-		}
-		state.next = now.Add(hookRecoveryInterval)
 		return nil
 	}
 	clients, err := d.connections.Clients(ctx, version, 0)
@@ -164,9 +176,13 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 		return err
 	}
 	// Verify the current source's immutable repository identity before hook I/O.
-	identity, err := discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "hook-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
-		return clients.Tickets.ContainerIdentity(ctx, version.Destination)
-	})
+	// A settled scope observation spends no discovery budget step.
+	identity, hit, err := cachedContainerIdentity(ctx, version.ID, 0)
+	if !hit {
+		identity, err = discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "hook-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
+			return tickContainerIdentity(ctx, clients.Tickets, version.ID, 0, version.Destination)
+		})
+	}
 	if err != nil {
 		return err
 	}

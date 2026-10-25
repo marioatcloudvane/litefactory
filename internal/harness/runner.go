@@ -229,9 +229,12 @@ const stderrTailBytes = 64 << 10
 const PermissionMode = "auto"
 
 // ReadOnlyShellPermissionMode is the --permission-mode of a run whose surface
-// is a Validate reviewer's read-only shell ([ToolSurface.ReadOnlyShell]).
-// dontAsk refuses every action --allowedTools does not pre-approve, which is
-// what makes the fixed read-only Bash rules a boundary rather than a fast path.
+// is the read-only shell ([ToolSurface.ReadOnlyShell]) of a Validate reviewer
+// or Spike investigator. dontAsk refuses every action --allowedTools does not
+// pre-approve, which is what makes the fixed read-only Bash rules a boundary
+// rather than a fast path. The rules include the project's checks, which run
+// branch code; the run's OS sandbox (see prepareReadOnlyShell) is what keeps
+// the worktree unwritable while they do.
 const ReadOnlyShellPermissionMode = "dontAsk"
 
 // runLogFileMode is 0600 and runArtefactDirMode is 0700, matching S-1: the run
@@ -271,6 +274,9 @@ type Options struct {
 
 	// Logger receives the run's structured log lines.
 	Logger *slog.Logger
+
+	// ThinkingLogs is settings.thinking_logs; none launches claude unchanged.
+	ThinkingLogs config.ThinkingLogs
 }
 
 // Runner executes claude. One is built at daemon startup and reused for every
@@ -309,6 +315,10 @@ type Runner struct {
 	forwardEnv  bool
 	environ     []string
 	logger      *slog.Logger
+	// thinkingLogs is settings.thinking_logs; thinking caches whether the
+	// binary accepts the flag it maps to. See [Runner.thinkingArgs].
+	thinkingLogs config.ThinkingLogs
+	thinking     thinkingSupport
 }
 
 // New resolves the claude binary and returns a ready [Runner].
@@ -405,6 +415,8 @@ func New(opts Options) (*Runner, error) {
 		forwardEnv:  opts.Claude.ForwardAnthropicEnv,
 		environ:     environ,
 		logger:      opts.Logger,
+
+		thinkingLogs: opts.ThinkingLogs,
 	}, nil
 }
 
@@ -499,6 +511,21 @@ func (r *Runner) validateRequest(req agent.Request) error {
 		for _, rule := range ts.AllowedTools {
 			if config.ClaudeToolName(rule) == "Bash" && (!ts.ReadOnlyShell || !slices.Contains(shellRules, rule)) {
 				return fmt.Errorf("%w: Validate cannot grant %s", ErrInvalidRequest, rule)
+			}
+		}
+	}
+	if ts := toolSurface(req); ts.ReadOnlyShell {
+		// Whatever mode holds it, the read-only shell edits nothing and runs
+		// only the fixed read-only rules.
+		shellRules := config.ValidateReviewerShellRules()
+		for _, tool := range ts.Tools {
+			if tool == "Edit" || tool == "Write" || tool == "MultiEdit" || tool == "NotebookEdit" {
+				return invalidRequest("the read-only shell cannot grant %s", tool)
+			}
+		}
+		for _, rule := range ts.AllowedTools {
+			if config.ClaudeToolName(rule) == "Bash" && !slices.Contains(shellRules, rule) {
+				return invalidRequest("the read-only shell cannot grant %s", rule)
 			}
 		}
 	}
@@ -607,7 +634,17 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 		}
 	}()
 
-	args := r.args(req)
+	args := append(r.args(req), r.thinkingArgs(ctx)...)
+	var extraEnv []string
+	if toolSurface(req).ReadOnlyShell {
+		sandbox, err := r.prepareReadOnlyShell(req.WorktreePath, logPath)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { runErr = errors.Join(runErr, sandbox.cleanup()) }()
+		args = replaceFlagValue(args, "--settings", sandbox.settingsPath)
+		extraEnv = sandbox.env
+	}
 	mcpPath, cleanupMCP, err := r.prepareMCP(req.MCPLaunch)
 	if err != nil {
 		return nil, err
@@ -625,7 +662,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 	// exec's result is returned even when its error is not nil: a refused
 	// resume is both a run that happened and a condition the caller has to act
 	// on, and the result is the evidence for it.
-	return r.exec(ctx, req, args, logPath, logFile, logger)
+	return r.exec(ctx, req, args, extraEnv, logPath, logFile, logger)
 }
 
 // args builds the child's argv, prompt excluded.
@@ -796,6 +833,7 @@ func (r *Runner) exec(
 	ctx context.Context,
 	req agent.Request,
 	args []string,
+	extraEnv []string,
 	logPath string,
 	sink io.Writer,
 	logger *slog.Logger,
@@ -836,6 +874,9 @@ func (r *Runner) exec(
 	if err != nil {
 		return nil, err
 	}
+	// The read-only shell's caches and temporary files live outside the
+	// worktree its sandbox keeps unwritable; these win over the stack's own.
+	stackEnv = overrideEnv(stackEnv, extraEnv)
 	usage := newUsageCollector(runCtx, req)
 	if usage != nil {
 		usage.prepareTranscripts(r.claudeConfigDir, req.WorktreePath)

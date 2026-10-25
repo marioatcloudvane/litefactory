@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -54,7 +55,11 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 			return store.WorkflowAdmission{}, err
 		}
 		if pin.ProfileVersion != 2 {
-			err := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused")
+			passage, contextErr := legacyRecoveryContext(ctx, r.opts.DB, req)
+			if contextErr != nil {
+				return store.WorkflowAdmission{}, contextErr
+			}
+			err := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused. Open a new issue for the same bug using existing Bug intake." + passage)
 			if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 				err = bugReplyNotApplied(err)
 			}
@@ -78,7 +83,11 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 			return store.WorkflowAdmission{}, e
 		}
 		if pin.Digest != r.definition.Profile.Digest || pin.ProfileVersion != 2 {
-			e := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused")
+			passage, contextErr := legacyRecoveryContext(ctx, r.opts.DB, req)
+			if contextErr != nil {
+				return store.WorkflowAdmission{}, contextErr
+			}
+			e := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused. Open a new issue for the same bug using existing Bug intake." + passage)
 			if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 				e = bugReplyNotApplied(e)
 			}
@@ -231,6 +240,9 @@ func graphBugExhaustionReason(ctx context.Context, db *store.DB, node graphexec.
 }
 
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {
+	if capacity := stepCapacity(ctx); capacity != nil {
+		defer capacity.Release()
+	}
 	local := *r
 	r = &local
 	if r.opts.ProjectApprovers {
@@ -256,7 +268,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 	}
 	w := &researchWorkflow{opts: r.opts, req: req, result: result, definition: r.definition, admission: admission, policy: BugWorkflowPolicy()}
 	finish := func(cause error) (Result, error) {
-		if id, ok := store.GraphTriggerDispatch(req.Trigger.CommentID); ok {
+		if id, ok := store.GraphTriggerDispatch(req.Trigger.CommentID); ok && !w.result.GraphDeferred {
 			cause = errors.Join(cause, r.opts.DB.FinishGraphDispatch(context.WithoutCancel(ctx), id, r.opts.MCP.Now()))
 		}
 		if w.prep != nil {
@@ -323,7 +335,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 	var prerequisite *store.BugSyncPrerequisite
 	if gate, ok := graphexec.BugFixerSyncGate(r.definition.Profile); ok {
 		fixer, _ := graphexec.Decide(r.definition.Profile, gate.Name, "synced")
-		prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer}
+		prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer, AllowDeferred: slices.Contains(gate.Outcomes, "deferred")}
 	}
 	for {
 		if e = ctx.Err(); e != nil {
@@ -431,6 +443,15 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: diagnostic}}, "exhausted", false)
 				return finish(parkErr)
 			}
+			admitted, diagnostic, capacityErr := admitGraphCapacity(ctx, r.opts, instance.ID, admission.LaunchID, node.Name, "bug")
+			if capacityErr != nil {
+				return finish(capacityErr)
+			}
+			if !admitted {
+				r.opts.Logger.InfoContext(ctx, diagnostic)
+				w.result.GraphDeferred = true
+				return finish(parkCapacityDeferred(ctx, r.opts, req, instance.ID, node.Name, admission.LaunchID))
+			}
 			permissions, e := r.cfg.Permissions(req.Agent, node.Attrs["lf_agent_markdown"])
 			if e != nil {
 				return finish(e)
@@ -438,6 +459,8 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 			nr := req
 			nr.Tools, nr.AllowedTools, nr.CodexSandbox, nr.ToolProfile = permissions.Tools, permissions.AllowedTools, permissions.Sandbox, node.Attrs["lf_agent_markdown"]
 			nr.researchDefinition, nr.researchNode, nr.researchInstance, nr.workflowPolicy = r.definition, node.Name, instance.ID, &w.policy
+			// A Bug node may ask only when its DOT routes an ask back to the owner.
+			nr.noQuestions = !slices.Contains(node.Outcomes, "ask")
 			nr.graphBugPreparation = true
 			w.req = nr
 			w.prep, e = prepare(ctx, r.opts, nr, result.Session, result.Ref, r.opts.Logger)
@@ -452,12 +475,19 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 			runID = w.prep.run.ID
 			w.result.Run, w.result.Session = w.prep.run, w.prep.session
 		}
-		step, e := ExecuteNodeAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, StopOnFailure: true, Profile: r.definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, OwnerAllowanceSource: allowanceSource, At: r.opts.MCP.Now()})
+		step, e := ExecuteNodeAction(ctx, r.opts, GraphNodeRequest{RetainCapacity: true, LaunchID: admission.LaunchID, StopOnFailure: true, Profile: r.definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, OwnerAllowanceSource: allowanceSource, At: r.opts.MCP.Now()})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}
 		if e != nil {
 			return finish(e)
+		}
+		if step.Deferred {
+			if step.Activity.Diagnostic != "" && r.opts.Logger != nil {
+				r.opts.Logger.InfoContext(ctx, step.Activity.Diagnostic)
+			}
+			w.result.GraphDeferred = true
+			return finish(parkCapacityDeferred(ctx, r.opts, req, instance.ID, step.NextNode, admission.LaunchID))
 		}
 		if node.Action == ResearchAgentAction {
 			// Settle real execution before any runless candidate or delivery consumer.

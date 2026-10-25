@@ -33,11 +33,13 @@ if [ "$1" = --help ]; then
 fi
 if [ "$1" = --version ]; then echo '2.1.299 (Claude Code)'; exit 0; fi
 [ -z "$GH_TOKEN$LF_HOME$ANTHROPIC_API_KEY" ] || exit 90
+[ "$HOME" = 'OS_HOME' ] || exit 91
+[ "$TMPDIR" != "$CLAUDE_CONFIG_DIR" ] || exit 92
 printf '%s\n' "$@" > "$CLAUDE_CONFIG_DIR/launch.args"
 printf 'launch\n' >> "$CLAUDE_CONFIG_DIR/launch.count"
 resume=''; sid=''
 while [ "$#" -gt 0 ]; do
- case "$1" in --resume) shift; resume=$1; sid=$1;; --session-id) shift; sid=$1;; esac
+ case "$1" in --resume) shift; resume=$1; sid=$1;; --session-id) shift; sid=$1;; --mcp-config) shift; /bin/cat "$1" > "$CLAUDE_CONFIG_DIR/mcp.json"; printf '%s' "$1" > "$CLAUDE_CONFIG_DIR/mcp.path";; esac
  shift
 done
 if [ -n "$resume" ] && [ "$mode" = missing ]; then exit 8; fi
@@ -55,10 +57,12 @@ esac
 [ "$mode" != interrupt ] || /bin/sleep 30
 printf '{"type":"result","session_id":"%s","result":"recorded answer","is_error":false}\n' "$sid"
 `
+	osHome := t.TempDir()
+	script = strings.ReplaceAll(script, "OS_HOME", osHome)
 	if err = os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=secret", "ANTHROPIC_API_KEY=secret"}}
+	runner := &Runner{claudeConfigDir: filepath.Join(t.TempDir(), "claude-home"), osHome: osHome, binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=secret", "ANTHROPIC_API_KEY=secret"}}
 	request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "fixture-model", StateDirectory: state, Prompt: "prepared owner input", NativeInstructions: "captured fixture instructions", Session: agent.SessionRef{Ref: "factory-session"}, BeforeLaunch: func(context.Context) error { return nil }, OnSession: func(context.Context, agent.SessionRef) error { return nil }}
 	return runner, request
 }
@@ -74,7 +78,7 @@ func TestRecordedClaudeIsolationRefusals(t *testing.T) {
 				t.Fatalf("unsafe invocation accepted: result=%+v err=%v identities=%d", result, err, identities)
 			}
 			if mode == "unsupported" {
-				if _, err = os.Stat(filepath.Join(request.StateDirectory, "home", "launch.count")); !errors.Is(err, os.ErrNotExist) {
+				if _, err = os.Stat(filepath.Join(runner.claudeConfigDir, "launch.count")); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("unsupported gate launched: %v", err)
 				}
 			}
@@ -105,15 +109,19 @@ func TestRecordedClaudeResumeAndMissingState(t *testing.T) {
 			if err != nil || identities != 1 || string(result.Answer) != "recorded answer" {
 				t.Fatalf("resume failed: %+v %v", result, err)
 			}
-			data, err := os.ReadFile(filepath.Join(request.StateDirectory, "home", "launch.args"))
+			data, err := os.ReadFile(filepath.Join(runner.claudeConfigDir, "launch.args"))
 			if err != nil {
 				t.Fatal(err)
 			}
 			args := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-			for _, flag := range []string{"--safe-mode", "--restricted", "--disable-slash-commands", "--strict-mcp-config", "--no-chrome"} {
+			for _, flag := range []string{"--restricted", "--disable-slash-commands", "--strict-mcp-config", "--no-chrome"} {
 				if !slices.Contains(args, flag) {
 					t.Fatalf("missing launch control %s", flag)
 				}
+			}
+			// --safe-mode also disables the --mcp-config server the conversation needs.
+			if slices.Contains(args, "--safe-mode") {
+				t.Fatal("conversation launched with --safe-mode")
 			}
 			for flag, want := range map[string]string{"--resume": "native-session", "--tools": "", "--setting-sources": "", "--settings": `{"disableAllHooks":true}`, "--agents": "{}", "--system-prompt": request.NativeInstructions} {
 				i := slices.Index(args, flag)
@@ -122,10 +130,20 @@ func TestRecordedClaudeResumeAndMissingState(t *testing.T) {
 				}
 			}
 			for name, want := range map[string]string{"prompt": request.Prompt, "mcp.json": `{"mcpServers":{}}`} {
-				contents, readErr := os.ReadFile(filepath.Join(request.StateDirectory, "home", name))
+				contents, readErr := os.ReadFile(filepath.Join(runner.claudeConfigDir, name))
 				if readErr != nil || string(contents) != want {
 					t.Fatalf("private %s changed: %q %v", name, contents, readErr)
 				}
+			}
+			mcpPath, err := os.ReadFile(filepath.Join(runner.claudeConfigDir, "mcp.path"))
+			if err != nil || strings.HasPrefix(string(mcpPath), runner.claudeConfigDir+string(filepath.Separator)) {
+				t.Fatalf("per-run mcp.json %q in the persistent home: %v", mcpPath, err)
+			}
+			if _, err := os.Stat(filepath.Dir(string(mcpPath))); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("per-run dir survived the turn: %v", err)
+			}
+			if _, err := os.Stat(runner.claudeConfigDir); err != nil {
+				t.Fatalf("persistent home removed: %v", err)
 			}
 			if slices.Contains(args, "--session-id") || slices.Contains(args, "--continue") || slices.Contains(args, "--no-session-persistence") || slices.Contains(args, request.Prompt) {
 				t.Fatalf("resume lost persistence or exposed prompt: %v", args)
@@ -143,7 +161,7 @@ func TestRecordedClaudeInterruptionRetainsNativeState(t *testing.T) {
 	if !errors.Is(err, context.Canceled) || result.Session.Resume != request.Session.Ref || len(result.Answer) != 0 {
 		t.Fatalf("interruption fabricated completion: %+v %v", result, err)
 	}
-	if data, e := os.ReadFile(filepath.Join(request.StateDirectory, "home", "native-state")); e != nil || string(data) != "retained context\n" {
+	if data, e := os.ReadFile(filepath.Join(runner.claudeConfigDir, "native-state")); e != nil || string(data) != "retained context\n" {
 		t.Fatalf("native state lost: %q %v", data, e)
 	}
 }
@@ -203,11 +221,11 @@ func TestRecordedClaudeProbeRecovery(t *testing.T) {
 			if err != nil || identities != 1 || string(result.Answer) != "recorded answer" {
 				t.Fatalf("recovery: %+v %v identities=%d", result, err, identities)
 			}
-			count, err := os.ReadFile(filepath.Join(request.StateDirectory, "home", "launch.count"))
+			count, err := os.ReadFile(filepath.Join(runner.claudeConfigDir, "launch.count"))
 			if err != nil || string(count) != "launch\n" {
 				t.Fatalf("model launches: %q %v", count, err)
 			}
-			prompt, err := os.ReadFile(filepath.Join(request.StateDirectory, "home", "prompt"))
+			prompt, err := os.ReadFile(filepath.Join(runner.claudeConfigDir, "prompt"))
 			if err != nil || string(prompt) != request.Prompt {
 				t.Fatalf("original prompt lost: %q %v", prompt, err)
 			}
@@ -225,7 +243,7 @@ func TestRecordedClaudeProbeExhaustion(t *testing.T) {
 	if !errors.Is(err, providerprocess.ErrProbeTransient) || errors.Is(err, agent.ErrConversationIsolation) {
 		t.Fatalf("transient cause lost: %v", err)
 	}
-	if _, err = os.Stat(filepath.Join(request.StateDirectory, "home", "launch.count")); !errors.Is(err, os.ErrNotExist) {
+	if _, err = os.Stat(filepath.Join(runner.claudeConfigDir, "launch.count")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("launched after exhausted probe: %v", err)
 	}
 }
@@ -247,7 +265,40 @@ func TestRecordedClaudeMissingNativeInstructionsRefusesLaunch(t *testing.T) {
 	if _, err := runner.RunConversation(t.Context(), request); err == nil {
 		t.Fatal("missing retained instructions accepted")
 	}
-	if _, err := os.Stat(filepath.Join(request.StateDirectory, "home", "launch.count")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(runner.claudeConfigDir, "launch.count")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("invalid request launched model: %v", err)
+	}
+}
+
+func TestRecordedClaudeAdoptsLegacyConversationSession(t *testing.T) {
+	runner, request := recordedClaudeConversation(t, "normal")
+	request.Session.Resume = "native-session"
+	project := filepath.Join("projects", transcriptProjectKey(filepath.Join(request.StateDirectory, "scratch")))
+	legacy := filepath.Join(request.StateDirectory, "home", project, "native-session.jsonl")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("legacy transcript\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.RunConversation(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	adopted, err := os.ReadFile(filepath.Join(runner.claudeConfigDir, project, "native-session.jsonl"))
+	if err != nil || string(adopted) != "legacy transcript\n" {
+		t.Fatalf("legacy session not adopted: %q %v", adopted, err)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("legacy session removed: %v", err)
+	}
+	// An existing persistent transcript is never overwritten.
+	if err := os.WriteFile(legacy, []byte("stale\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.RunConversation(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if adopted, err = os.ReadFile(filepath.Join(runner.claudeConfigDir, project, "native-session.jsonl")); err != nil || string(adopted) != "legacy transcript\n" {
+		t.Fatalf("persistent session overwritten: %q %v", adopted, err)
 	}
 }

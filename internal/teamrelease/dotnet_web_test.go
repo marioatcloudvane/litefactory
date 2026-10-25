@@ -258,11 +258,16 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		shared = legacySourceWithoutPreparationDeferral(t, mode, shared)
+		shared = withoutStandardsGrant(t, shared)
 		if mode == "bug" {
 			shared = legacyBugSourceWithoutSyncGate(t, shared)
 		}
 		if mode == "implement" {
-			shared = legacyImplementSourceWithoutOwnerResumeSync(t, shared)
+			shared = legacyImplementSourceWithoutOwnerResumeSync(t, withoutGoStoryWorkerSlotPolicy(t, shared))
+		}
+		if mode == "spike" {
+			shared = legacySpikeSourceWithoutRepair(t, shared)
 		}
 		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
 		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))

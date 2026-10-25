@@ -24,7 +24,9 @@ type storyRelationForge interface {
 // managedParents joins the registry into the ordinary fair parent dispatch.
 // This does not depend on GitHub updating the parent's timestamp when a child
 // changes. Closed children are inspected by the same parent worker. A Linear
-// parent is re-added only on its repository's listing ticks (#920); new input
+// parent is re-added only on its repository's listing ticks (#920). Any other
+// parent is re-added between listings only when the registry owes it work: a
+// pending refinement or a story awaiting its comment sweep (#1138). New input
 // still reaches it through webhooks, observations, listings and the backlog.
 func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
 	features, err := d.db.ListManagedFeatures(ctx)
@@ -54,12 +56,35 @@ func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue
 		if err != nil {
 			return err
 		}
+		if !q.listing && !d.managedParentDue(ctx, q, s, f) {
+			continue
+		}
 		c := q.candidate(s, ref)
 		c.addSource("managed_registry")
 		q.candidates = append(q.candidates, c)
 		seen[s.ID] = c
 	}
 	return nil
+}
+
+// managedParentDue reports whether a managed parent's worker has registry work
+// to do now: a pending refinement to deliver or a story that owes a comment
+// sweep. A failure to read either counts as due, so the parent is offered as
+// before rather than left waiting for a listing.
+func (d *Daemon) managedParentDue(ctx context.Context, q *repoQueue, s store.Session, f store.ManagedFeature) bool {
+	pending, err := d.db.ListPendingStoryRefinements(ctx, s.ID)
+	if err == nil && len(pending) > 0 {
+		return true
+	}
+	if err == nil {
+		var awaiting []int
+		if awaiting, err = d.db.ListStoriesAwaitingDiscovery(ctx, s.ID, f.ParentTask, f.Generation); err == nil {
+			return len(awaiting) > 0
+		}
+	}
+	q.log.DebugContext(ctx, "could not tell whether a managed parent has due work; offering it",
+		slog.String("task", s.TaskRef), slog.Any("error", err))
+	return true
 }
 
 // refineStories runs before the parent's own queue, so an admitted refinement
@@ -102,9 +127,13 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	// At most sixteen children per parent worker per tick; persisted rotation
 	// makes the bound fair across restarts as well as successive ticks.
 	discoveryDeferred := false
+	// One repository inspection serves the sweep's discovery reads; the scope
+	// closes before the execution recheck and turn below.
+	sweepCtx, checks := withContainerChecks(ctx)
+	defer checks.close()
 	for n := 0; n < min(16, len(stories)); n++ {
 		s := stories[(start+n)%len(stories)]
-		discoveryErr := d.discoverStoryComments(ctx, t, relation, s)
+		discoveryErr := d.discoverStoryComments(sweepCtx, t, relation, s)
 		if errors.Is(discoveryErr, ErrDiscoveryDeferred) {
 			discoveryDeferred = true
 			break
@@ -121,6 +150,7 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 				slog.Int("story_issue", s.IssueNumber), slog.Any("error", discoveryErr))
 		}
 	}
+	checks.close()
 	pending, err := d.db.ListPendingStoryRefinements(ctx, t.session.ID)
 	if err != nil {
 		return true, err
@@ -273,7 +303,7 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 		if c.ID <= after {
 			continue
 		}
-		if routed, err := d.dispatchJudgeChild(ctx, t, child, c); err != nil {
+		if routed, err := d.dispatchJudgeChild(withoutContainerChecks(ctx), t, child, c); err != nil {
 			return err
 		} else if routed {
 			if err := d.db.AdvanceStoryDiscovery(ctx, t.session.ID, s.IssueNumber, c.ID); err != nil {
@@ -281,7 +311,7 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 			}
 			continue
 		}
-		routed, err := d.admitDoctor(ctx, t.repo, child, c)
+		routed, err := d.admitDoctor(withoutContainerChecks(ctx), t.repo, child, c)
 		if err != nil {
 			return err
 		}

@@ -206,15 +206,9 @@ func validateConflictResolution(resolution agent.ConflictResolution, allowed []s
 // story's own advisor implementation, when it exists, is expected to
 // follow).
 //
-// It never turns a blocked-merge refusal into anything but a refusal
-// (watch-out #4 of US-11): every way this can fail to produce a usable
-// suggestion — suggestions disabled, nothing was collected to send, no
-// advisor is registered for sr's agent kind, the call itself failed or was
-// cancelled, local revalidation rejected the answer, or persistence failed —
-// leaves result exactly as [syncRefused] built it, plus
-// [Result.ConflictSuggestionFailed] set so the reply adds its one line
-// (AC-11.2). Only a successful, persisted proposal sets
-// [Result.ConflictProposal].
+// Suggestions are advisory on both retained legacy refusal paths and continuing
+// preparation. Failure to produce one never changes the admitted disposition.
+// Only a successful persisted proposal sets Result.ConflictProposal.
 func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, result Result, sr *syncRefusal, logger *slog.Logger) Result {
 	if !opts.SuggestConflictResolution {
 		// AC-11.3: nothing here may run, not even a log line that could be
@@ -310,6 +304,34 @@ func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, r
 	}
 	result.ConflictProposal = &proposal
 	return result
+}
+
+// attemptPreparationConflictSuggestion reuses the advisory proposal flow after
+// clone-gated observation, while the original request continues into its agent.
+// One trigger owns one proposal; task reconciliation takes precedence when both
+// task and base preparation conflict.
+func attemptPreparationConflictSuggestion(ctx context.Context, opts Options, req Request, result Result, sync syncResult, logger *slog.Logger) Result {
+	observed := sync
+	if sync.Task != nil && sync.Task.Outcome == syncOutcomeBlocked {
+		observed = *sync.Task
+	}
+	if observed.Outcome != syncOutcomeBlocked {
+		return result
+	}
+	inputs := sync.ConflictInputs
+	inputs.TargetPhase = observed.Phase
+	if inputs.TargetPhase == "task" {
+		inputs.TargetRef = inputs.TaskRef
+	} else {
+		inputs.TargetPhase, inputs.TargetRef = "base", inputs.BaseRef
+	}
+	result.SyncPhase = inputs.TargetPhase
+	result.SyncConflicts = append([]string(nil), observed.Conflicts...)
+	retained := &syncRefusal{phase: inputs.TargetPhase, conflicts: observed.Conflicts,
+		branch: observed.Branch, base: observed.Base, files: observed.ConflictFiles,
+		snapshots: observed.ConflictSnapshots, collectionReason: observed.ConflictCollectionReason,
+		excluded: observed.ConflictExcluded, baseSHA: observed.BaseSHA, branchSHA: observed.BranchSHA, inputs: inputs}
+	return attemptConflictSuggestion(ctx, opts, req, result, retained, logger)
 }
 
 func conflictAdvisorFiles(snapshots []git.ConflictSnapshot) []agent.ConflictFileContent {

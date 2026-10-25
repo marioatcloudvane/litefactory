@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -37,8 +38,7 @@ func TestExecuteSuggestsAResolutionOnABlockedRun(t *testing.T) {
 
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-			t.Error("claude ran though the base branch could not be merged in cleanly")
-			return nil, errors.New("must not be reached")
+			return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 		}),
 		propose: conflictSuggestion,
 	}
@@ -55,11 +55,14 @@ func TestExecuteSuggestsAResolutionOnABlockedRun(t *testing.T) {
 	reporter := newReporter(t, f, forge, nil)
 
 	result := f.execute(f.request())
-	if result.Disposition != DispositionSyncRefused {
-		t.Fatalf("disposition = %s, want %s\nlogs:\n%s", result.Disposition, DispositionSyncRefused, f.logs)
+	if result.Disposition != DispositionRan {
+		t.Fatalf("disposition = %s, want %s\nlogs:\n%s", result.Disposition, DispositionRan, f.logs)
 	}
 	if runner.proposeCallCount() != 1 {
 		t.Fatalf("advisor called %d times, want 1", runner.proposeCallCount())
+	}
+	if runner.callCount() != 1 || result.Run.ID == 0 {
+		t.Fatal("suggestion prevented the original request from continuing")
 	}
 	if result.ConflictProposal == nil {
 		t.Fatalf("Result.ConflictProposal is nil, want a persisted proposal\nlogs:\n%s", f.logs)
@@ -108,8 +111,7 @@ func TestExecuteSkipsSuggestionWhenAdvisorFails(t *testing.T) {
 
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-			t.Error("claude ran though the base branch could not be merged in cleanly")
-			return nil, errors.New("must not be reached")
+			return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 		}),
 		propose: func(context.Context, agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
 			return agent.ConflictResolution{}, errors.New("advisor unavailable")
@@ -127,8 +129,8 @@ func TestExecuteSkipsSuggestionWhenAdvisorFails(t *testing.T) {
 	reporter := newReporter(t, f, forge, nil)
 
 	result := f.execute(f.request())
-	if result.Disposition != DispositionSyncRefused {
-		t.Fatalf("disposition = %s, want %s", result.Disposition, DispositionSyncRefused)
+	if result.Disposition != DispositionRan {
+		t.Fatalf("disposition = %s, want %s", result.Disposition, DispositionRan)
 	}
 	if result.ConflictProposal != nil {
 		t.Fatalf("ConflictProposal = %+v, want nil: the advisor failed", result.ConflictProposal)
@@ -145,8 +147,8 @@ func TestExecuteSkipsSuggestionWhenAdvisorFails(t *testing.T) {
 		t.Fatal("Skipped = true, want a comment to be posted")
 	}
 	post := forge.only(t)
-	if !strings.Contains(post.body, "Conflicting path(s) (1)") || !strings.Contains(post.body, "README.md") {
-		t.Errorf("body missing the ordinary conflict refusal:\n%s", post.body)
+	if strings.Count(post.body, "Preparation caveat") != 1 || !strings.Contains(post.body, "base synchronization") {
+		t.Errorf("body missing the ordinary combined conflict caveat:\n%s", post.body)
 	}
 	if !strings.Contains(post.body, "No suggested resolution could be produced") {
 		t.Errorf("body missing the one-line no-suggestion note:\n%s", post.body)
@@ -161,8 +163,7 @@ func TestExecuteMakesNoAdvisorCallWhenDisabled(t *testing.T) {
 
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-			t.Error("claude ran though the base branch could not be merged in cleanly")
-			return nil, errors.New("must not be reached")
+			return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 		}),
 		propose: func(context.Context, agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
 			t.Error("the conflict-resolution advisor was called though suggestions are disabled")
@@ -178,8 +179,8 @@ func TestExecuteMakesNoAdvisorCallWhenDisabled(t *testing.T) {
 	conflictBaseAndBranch(t, f.repo, dir)
 
 	result := f.execute(f.request())
-	if result.Disposition != DispositionSyncRefused {
-		t.Fatalf("disposition = %s, want %s", result.Disposition, DispositionSyncRefused)
+	if result.Disposition != DispositionRan {
+		t.Fatalf("disposition = %s, want %s", result.Disposition, DispositionRan)
 	}
 	if runner.proposeCallCount() != 0 {
 		t.Fatalf("advisor called %d times, want 0: suggestions are disabled", runner.proposeCallCount())
@@ -197,7 +198,7 @@ func TestExecuteRejectsAnOutOfScopeSuggestion(t *testing.T) {
 
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-			return nil, errors.New("must not be reached")
+			return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 		}),
 		propose: func(context.Context, agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
 			return agent.ConflictResolution{Files: []agent.ConflictResolutionFile{
@@ -231,7 +232,7 @@ func TestExecuteRejectsASuggestionCarryingConflictMarkers(t *testing.T) {
 
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-			return nil, errors.New("must not be reached")
+			return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 		}),
 		propose: func(context.Context, agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
 			return agent.ConflictResolution{Files: []agent.ConflictResolutionFile{
@@ -267,7 +268,7 @@ func TestConflictAdvisorNeverCalledWhileCloneGateIsHeld(t *testing.T) {
 	var adviseCalledWhileHeld bool
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-			return nil, errors.New("must not be reached")
+			return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 		}),
 		propose: func(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
 			if gate.held() {
@@ -301,7 +302,7 @@ func TestExecuteRefusesSuggestionWithAnExcludedSibling(t *testing.T) {
 
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-			return nil, errors.New("must not be reached")
+			return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 		}),
 		propose: func(context.Context, agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
 			return agent.ConflictResolution{Files: []agent.ConflictResolutionFile{
@@ -319,8 +320,8 @@ func TestExecuteRefusesSuggestionWithAnExcludedSibling(t *testing.T) {
 	conflictBaseAndBranchWithOversizedFile(t, f.repo, dir)
 
 	result := f.execute(f.request())
-	if result.Disposition != DispositionSyncRefused {
-		t.Fatalf("disposition = %s, want %s\nlogs:\n%s", result.Disposition, DispositionSyncRefused, f.logs)
+	if result.Disposition != DispositionRan {
+		t.Fatalf("disposition = %s, want %s\nlogs:\n%s", result.Disposition, DispositionRan, f.logs)
 	}
 	if len(result.SyncConflicts) != 2 {
 		t.Fatalf("SyncConflicts = %v, want both README.md and huge.txt listed as conflicting", result.SyncConflicts)
@@ -346,7 +347,7 @@ func TestConflictSuggestionReachesATerminalStateAfterPosting(t *testing.T) {
 
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-			return nil, errors.New("must not be reached")
+			return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 		}),
 		propose: conflictSuggestion,
 	}
@@ -368,6 +369,23 @@ func TestConflictSuggestionReachesATerminalStateAfterPosting(t *testing.T) {
 	}
 	if !result.ConsumesComment() {
 		t.Error("ConsumesComment() = false, want true: a blocked run with a suggestion must not be retried by a later tick")
+	}
+	// A process can be lost after execution and before report construction.
+	// Reconstruct the proposal from its original source, without another advisor.
+	proposalID := result.ConflictProposal.ID
+	result.ConflictProposal = nil
+	forge := newFakeForge(t)
+	if _, err := newReporter(t, f, forge, nil).ReportTurn(t.Context(), result); err != nil {
+		t.Fatal(err)
+	}
+	body := forge.only(t).body
+	if strings.Count(body, "Preparation caveat") != 1 || !strings.Contains(body, fmt.Sprintf("/confirm %d apply this resolution", proposalID)) {
+		t.Fatalf("normal recovery lost proposal or combined caveat: %s", body)
+	}
+	stored, err := f.db.GetConflictProposal(t.Context(), proposalID)
+	mustProgress(t, err)
+	if stored.Status != store.ConflictProposalPending {
+		t.Fatal("report recovery applied or consumed the proposal")
 	}
 }
 

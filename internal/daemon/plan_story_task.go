@@ -247,7 +247,8 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 		if !ok {
 			continue
 		}
-		session, err := d.managedChildSession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
+		// A story already admitted is found locally; only a new one is resolved.
+		session, err := d.storySession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -307,7 +308,13 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 		d.planReplyDeferred(ctx, t, c.ID, "could not read the Plan state: "+err.Error())
 		return d.leave(ctx, t, log, "could not read the Plan state", err)
 	}
-	reason := state.PlanReplyReason(story.Key, c.Body)
+	normalized, decisionErr := turn.ResolvePlanStoryDecision(ctx, d.db, parent, c.ID, c.Author.ID, c.Body, t.tickAt, story.Key, c.ReplyToCommentID)
+	var reason string
+	if decisionErr != nil {
+		reason = decisionErr.Error()
+	} else {
+		reason = state.PlanReplyReason(story.Key, normalized)
+	}
 	explanation, explainErr := d.db.PlanReplyExplanation(ctx, t.ref.String(), c.ID)
 	if explainErr != nil && !errors.Is(explainErr, store.ErrNotFound) {
 		d.planReplyDeferred(ctx, t, c.ID, "could not read the retained reply explanation: "+explainErr.Error())

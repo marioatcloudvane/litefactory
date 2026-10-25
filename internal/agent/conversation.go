@@ -21,7 +21,10 @@ var ErrConversationBusy = errors.New("conversation provider is still running")
 type ConversationRequest struct {
 	ConversationID, TurnID, Model, StateDirectory, Prompt string
 	NativeInstructions                                    string
-	Session                                               SessionRef
+	// Effort is a native reasoning effort (for example "high"), validated by
+	// the caller for this model. Empty leaves the native default.
+	Effort  string
+	Session SessionRef
 	// OnSession must durably record the exact identity before an answer is accepted.
 	OnSession func(context.Context, SessionRef) error
 	// BeforeLaunch rechecks durable worker fencing while native process ownership is held.
@@ -30,10 +33,18 @@ type ConversationRequest struct {
 
 // Validate checks the prompt boundary and exact identity before launch.
 func (r ConversationRequest) Validate() error {
-	if strings.TrimSpace(r.NativeInstructions) == "" || len(r.NativeInstructions) > 256<<10 || r.ConversationID == "" || r.TurnID == "" || strings.TrimSpace(r.Model) == "" || strings.TrimSpace(r.Prompt) == "" || len(r.Prompt) > 256<<10 || !filepath.IsAbs(r.StateDirectory) || filepath.Clean(r.StateDirectory) != r.StateDirectory || r.OnSession == nil || r.BeforeLaunch == nil || !ConversationIdentity(r.Session.Ref) || (r.Session.Resume != "" && !ConversationIdentity(r.Session.Resume)) {
+	if strings.TrimSpace(r.NativeInstructions) == "" || len(r.NativeInstructions) > 256<<10 || r.ConversationID == "" || r.TurnID == "" || strings.TrimSpace(r.Model) == "" || strings.TrimSpace(r.Prompt) == "" || len(r.Prompt) > 256<<10 || !filepath.IsAbs(r.StateDirectory) || filepath.Clean(r.StateDirectory) != r.StateDirectory || r.OnSession == nil || r.BeforeLaunch == nil || !ConversationIdentity(r.Session.Ref) || (r.Session.Resume != "" && !ConversationIdentity(r.Session.Resume)) || !conversationEffort(r.Effort) {
 		return errors.New("invalid conversation provider context")
 	}
 	return nil
+}
+
+func conversationEffort(effort string) bool {
+	switch effort {
+	case "", "low", "medium", "high", "xhigh", "max":
+		return true
+	}
+	return false
 }
 
 // ConversationIdentity excludes selectors, paths and command options from native handles.

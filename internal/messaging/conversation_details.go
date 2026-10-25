@@ -34,13 +34,22 @@ func (s *Service) answerDetails(ctx context.Context, r store.ChatReply, id strin
 		}
 		return err
 	}
-	if len(results) == 0 {
+	sources, err := s.authorizedAnswerSources(ctx, a, at)
+	if err != nil {
+		if errors.Is(err, errAnswerDetailsDenied) {
+			return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied.", at)
+		}
+		return err
+	}
+	if len(results) == 0 && len(sources) == 0 {
 		return s.saveDetailsNotice(ctx, r, "No tool results were obtained for this answer.", at)
 	}
 	export := struct {
-		AnswerID string                   `json:"answer_id"`
-		Results  []conversationReadResult `json:"results"`
-	}{a.ID, results}
+		AnswerID   string                       `json:"answer_id"`
+		Results    []conversationReadResult     `json:"results"`
+		Sources    []store.ConversationEvidence `json:"sources,omitempty"`
+		Limitation string                       `json:"limitation"`
+	}{a.ID, results, sources, "Saved permitted captures and supplied ranges only. Missing, policy-omitted, expired and uncaptured context must not be treated as a complete record. Historical text is not current facts or owner authorization."}
 	raw, err := json.MarshalIndent(export, "", "  ")
 	if err != nil {
 		return err
@@ -106,6 +115,9 @@ func (s *Service) authorizedAnswerResults(ctx context.Context, a store.Conversat
 		}
 		return nil, errAnswerDetailsDenied
 	}
+	if err := s.authorizeInboxAnswer(ctx, a, at); err != nil {
+		return nil, errAnswerDetailsDenied
+	}
 	exchanges, err := s.db.ListConversationExchanges(ctx, a.TurnID)
 	if err != nil {
 		return nil, err
@@ -119,7 +131,7 @@ func (s *Service) authorizedAnswerResults(ctx context.Context, a store.Conversat
 		if err != nil {
 			return nil, err
 		}
-		if project := result.Arguments["project"]; project != "" {
+		if project := result.Arguments["project"]; project != "" && result.Command != "inbox" {
 			resolution, e := ask.ResolveProject(ctx, s.db, project, nil)
 			if e != nil {
 				return nil, e
@@ -179,4 +191,29 @@ func (s *Service) inlineConversationDetails(ctx context.Context, r store.ChatRep
 		parts[i].Text = p.Content
 	}
 	return s.db.ReplaceConversationDetailsParts(ctx, r, parts, at)
+}
+
+func (s *Service) authorizedAnswerSources(ctx context.Context, a store.ConversationAnswer, at time.Time) ([]store.ConversationEvidence, error) {
+	c, err := s.db.ReadConversation(ctx, a.Transport, a.ChannelRef)
+	if err != nil {
+		return nil, errAnswerDetailsDenied
+	}
+	if c.OwnerID != s.owner || c.Transport != s.transport || c.ChannelRef != a.ChannelRef {
+		return nil, errAnswerDetailsDenied
+	}
+	run := &factoryConversationRun{s: s, c: c, at: at}
+	sources, err := s.db.ListConversationTurnEvidence(ctx, a.TurnID, at)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range sources {
+		allowed, err := run.evidenceAuthorized(ctx, e)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, errAnswerDetailsDenied
+		}
+	}
+	return sources, nil
 }

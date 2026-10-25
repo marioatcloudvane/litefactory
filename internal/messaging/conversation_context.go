@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -62,6 +63,25 @@ func (r *factoryConversationRun) previousFactoryReply(ctx context.Context, sourc
 	}
 	text := reply.ReplyText
 	if answer, _, lookupErr := r.s.db.ConversationReplyAnswer(ctx, reply); lookupErr == nil {
+		exchanges, readErr := r.s.db.ListConversationExchanges(ctx, answer.TurnID)
+		if readErr != nil {
+			return "", readErr
+		}
+		for _, exchange := range exchanges {
+			if exchange.Kind != "evidence" {
+				continue
+			}
+			result, e := decodeConversationEvidence(exchange)
+			if e != nil {
+				return "", e
+			}
+			if result.Command == "inbox" {
+				if e = r.s.authorizeInboxAnswer(ctx, answer, r.at); e != nil {
+					return inboxNotice("Inbox reference expired or access changed; request a new inbox.")
+				}
+				return inboxNavigation(result.Result), nil
+			}
+		}
 		parts, partErr := r.s.db.ReadConversationAnswerParts(ctx, answer.ID)
 		if partErr != nil {
 			return "", partErr
@@ -90,6 +110,15 @@ func (r *factoryConversationRun) referenceCurrent(ctx context.Context, reference
 		return false, nil
 	}
 	switch reference.Kind {
+	case "inbox":
+		id, _, _, err := inboxPosition(args["reference"])
+		return err == nil && r.s.db.InboxSourcesAuthorized(ctx, r.s.inboxScope(r.c.ChannelRef), id, nil, r.at) == nil, nil
+	case "listed":
+		return r.listedCurrent(ctx, reference, args)
+	case "standards":
+		// Exact saved identities remain references even when stale. The domain
+		// adapter checks their versions; never silently advance them to latest.
+		return r.s.standards != nil, nil
 	case "preview":
 		preview, err := r.s.db.CurrentChatIssuePreview(ctx, r.c.Transport, r.c.ChannelRef)
 		if errors.Is(err, store.ErrNotFound) {
@@ -122,8 +151,11 @@ func (r *factoryConversationRun) referenceCurrent(ctx context.Context, reference
 
 // Replies are paired by retained source identity, never admitted as owner input.
 type conversationPriorReply struct {
-	SourceID string `json:"source_id"`
-	Reply    string `json:"factory_reply"`
+	SourceID   string    `json:"source_id"`
+	Reply      string    `json:"factory_reply"`
+	Capture    string    `json:"capture"`
+	CapturedAt time.Time `json:"captured_at,omitempty"`
+	Limitation string    `json:"limitation"`
 }
 
 func (r *factoryConversationRun) recentFactoryReplies(ctx context.Context, sources []store.ConversationTurn, turns []DialogueTurn) ([]conversationPriorReply, error) {
@@ -147,7 +179,7 @@ func (r *factoryConversationRun) recentFactoryReplies(ctx context.Context, sourc
 				reply += " [reply excerpt]"
 			}
 			remaining -= len(reply)
-			out = append(out, conversationPriorReply{SourceID: source.SourceID, Reply: reply})
+			out = append(out, conversationPriorReply{SourceID: source.SourceID, Reply: reply, Capture: "unknown", CapturedAt: source.FinishedAt, Limitation: "Bounded saved reply excerpt; original legacy capture and older history coverage are unknown."})
 		}
 	}
 	return out, nil

@@ -8,11 +8,11 @@ import (
 )
 
 func TestTypedRepairCatalogIsClosedAndIndependent(t *testing.T) {
-	want := []string{"cancel_schedule", "consume_comment", "park_story", "release_instance", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
+	want := []string{"cancel_schedule", "consume_comment", "graph_attempt_cancel", "graph_dispatch_cancel", "graph_fail", "graph_wait_cancel", "park_story", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
 	if got := agent.TypedRepairToolKinds(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("kinds %v", got)
 	}
-	tools := []string{"cancel_schedule", "communication_preflight", "communication_receipt", "communication_submit", "consume_comment", "park_story", "release_instance", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
+	tools := []string{"cancel_schedule", "communication_preflight", "communication_receipt", "communication_submit", "consume_comment", "graph_attempt_cancel", "graph_dispatch_cancel", "graph_fail", "graph_wait_cancel", "park_story", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
 	if got := agent.RepairToolNames(); !reflect.DeepEqual(got, tools) {
 		t.Fatalf("tools %v", got)
 	}

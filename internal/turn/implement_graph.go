@@ -77,6 +77,13 @@ func admitImplementExecution(ctx context.Context, opts Options, req Request, res
 		if featureErr != nil {
 			return result, true, featureErr
 		}
+		if feature.State == "planning" {
+			if err := opts.DB.CheckManagedReadiness(ctx, result.Ref.String()); errors.Is(err, store.ErrPlanNotReady) {
+				return result, false, nil
+			} else if err != nil {
+				return result, true, err
+			}
+		}
 		rt.generation = int64(feature.Generation)
 	default:
 		return result, true, err
@@ -100,6 +107,9 @@ func admitImplementExecution(ctx context.Context, opts Options, req Request, res
 		return result, false, nil
 	}
 	out, err := rt.admit(ctx)
+	if errors.Is(err, errManagedPreparationAssessment) {
+		return result, false, nil
+	}
 	return out, true, err
 }
 
@@ -119,11 +129,14 @@ func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
 	} else {
 		if err := rt.opts.DB.CheckManagedReadiness(ctx, rt.parentRef.String()); err != nil {
 			if errors.Is(err, store.ErrPlanNotReady) {
-				return readinessRefused(ctx, rt.opts, rt.result)
+				return rt.result, errManagedPreparationAssessment
 			}
 			return rt.result, err
 		}
 		if err := prepareManagedScope(ctx, rt.opts, rt.req, rt.parentRef); err != nil {
+			if errors.Is(err, store.ErrPlanNotReady) {
+				return rt.result, errManagedPreparationAssessment
+			}
 			return rt.result, err
 		}
 		feature, err := rt.opts.DB.GetManagedFeature(ctx, rt.parentRef.String())
@@ -400,9 +413,17 @@ func (rt *implementRuntime) checkEarlyReply(ctx context.Context) error {
 // nothing needs it: stories are running and none is waiting to be merged. A
 // merge that found the branch busy rests briefly before it tries again. In every
 // other case the coordinator runs on, because the ledger, not the graph position,
-// says what is left to do.
+// says what is left to do. The coordinator also rests before an agent stage, due
+// at once: its bookkeeping may run on the reserved coordinator slot, and an
+// agent stage must start on normal run capacity instead.
 func (rt *implementRuntime) parkHook(ctx context.Context, opts Options, instance store.GraphInstance, node graphexec.Node) (ParkDecision, error) {
-	if rt.worker != nil || node.Name != graphexec.ImplementAwaitNode {
+	if rt.worker != nil {
+		return ParkDecision{}, nil
+	}
+	if node.Action == ResearchAgentAction {
+		return ParkDecision{Park: true, Due: rt.now()}, nil
+	}
+	if node.Name != graphexec.ImplementAwaitNode {
 		return ParkDecision{}, nil
 	}
 	rows, err := opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)

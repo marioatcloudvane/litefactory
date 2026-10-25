@@ -20,7 +20,12 @@ func TestJudgeMigrationPreservesPopulatedLedgers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a := resultRun(t, db, session, "research", "retained-writer", 1)
+	segment, err := db.GetOrCreateSegment(ctx, session.ID, FirstSegmentOrdinal, "application-results", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := seedHistoricalRunSnapshot(t, db, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "research", Agent: AgentClaude, TriggerCommentID: 1, LogPath: func(int) string { return "/logs/result-1" }}, RunRunning)
+	a := ResultAttempt{Task: session.TaskRef, Mode: "research", WorkContext: "authorized-context", Attempt: "retained-writer", RunID: run.ID, SchemaVersion: 1, WorkflowVersion: 2, SubmissionVersion: 2}
 	var schema []string
 	rows, err := db.sql.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('index','trigger') AND sql IS NOT NULL ORDER BY name`)
 	if err != nil {

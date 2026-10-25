@@ -1,0 +1,119 @@
+ok  	github.com/cloudvane/litefactory/internal/agent	53.023s
+--- FAIL: TestRetirementExactHeadRaces (608.60s)
+    --- FAIL: TestRetirementExactHeadRaces/local_branch (464.61s)
+        retirement_guard_internal_test.go:29: scratch probe: git version 2.50.1 (Apple Git-155); local_branch expected 52002ea0bb1571cc4088d8623f57520b0541471a rejects concurrent fca59cfa8bdafa2848402fd62bdadefc3bd33032
+        retirement_guard_internal_test.go:62: actual rejection: /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementExactHeadRaceslocal_branch4025466288/003/git-wrapper show-ref --verify -- refs/heads/lf/213-retire: timed out after 15s
+        retirement_guard_internal_test.go:68: tip 52002ea0bb1571cc4088d8623f57520b0541471a, want preserved fca59cfa8bdafa2848402fd62bdadefc3bd33032
+    --- FAIL: TestRetirementExactHeadRaces/remote_branch (140.00s)
+        retirement_guard_internal_test.go:21: gittest: git push origin lf/213-retire (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementExactHeadRacesremote_branch184751290/001/clone): signal: killed
+--- FAIL: TestRetirementGuardRevalidatesSafety (801.83s)
+    --- FAIL: TestRetirementGuardRevalidatesSafety/dirty (176.71s)
+        retirement_guard_internal_test.go:81: gittest: git push origin lf/213-retire (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementGuardRevalidatesSafetydirty1856045472/001/clone): signal: killed
+    --- FAIL: TestRetirementGuardRevalidatesSafety/locked (106.61s)
+        retirement_guard_internal_test.go:80: gittest: git worktree add -b lf/213-retire /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementGuardRevalidatesSafetylocked761032015/001/tasks/task-213 main (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementGuardRevalidatesSafetylocked761032015/001/clone): signal: killed
+            Preparing worktree (new branch 'lf/213-retire')
+    --- FAIL: TestRetirementGuardRevalidatesSafety/detached (166.29s)
+        retirement_guard_internal_test.go:80: gittest: git worktree add -b lf/213-retire /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementGuardRevalidatesSafetydetached313394577/001/tasks/task-213 main (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementGuardRevalidatesSafetydetached313394577/001/clone): signal: killed
+            Preparing worktree (new branch 'lf/213-retire')
+    --- FAIL: TestRetirementGuardRevalidatesSafety/advanced (177.79s)
+        retirement_guard_internal_test.go:80: gittest: git worktree add -b lf/213-retire /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementGuardRevalidatesSafetyadvanced3653512355/001/tasks/task-213 main (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementGuardRevalidatesSafetyadvanced3653512355/001/clone): signal: killed
+    --- FAIL: TestRetirementGuardRevalidatesSafety/protected_base (158.91s)
+        retirement_guard_internal_test.go:84: /usr/bin/git is not usable (searched PATH=/opt/homebrew/Cellar/go/1.27.0/libexec/bin:/Users/mariomh/.nvm/versions/node/v24.16.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/Users/mariomh/.codex/tmp/arg0/codex-arg0JeDWos:/Users/mariomh/.nvm/versions/node/v24.16.0/bin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/Users/mariomh/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin): /usr/bin/git --version: timed out after 15s
+--- FAIL: TestRetirementGuardGoneAtDeletion (272.41s)
+    --- FAIL: TestRetirementGuardGoneAtDeletion/local_branch (121.35s)
+        retirement_guard_internal_test.go:137: gittest: git push origin lf/213-retire (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementGuardGoneAtDeletionlocal_branch668739382/001/clone): signal: killed
+    --- FAIL: TestRetirementGuardGoneAtDeletion/remote_branch (147.14s)
+        retirement_guard_internal_test.go:140: /usr/bin/git is not usable (searched PATH=/opt/homebrew/Cellar/go/1.27.0/libexec/bin:/Users/mariomh/.nvm/versions/node/v24.16.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/Users/mariomh/.codex/tmp/arg0/codex-arg0JeDWos:/Users/mariomh/.nvm/versions/node/v24.16.0/bin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/Users/mariomh/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin): /usr/bin/git --version: timed out after 15s
+--- FAIL: TestBugChecksPinnedRecipeIgnoresDirtyBranchCommands (200.39s)
+    bug_checks_source_test.go:25: /usr/bin/git rev-parse --is-bare-repository: timed out after 15s
+--- FAIL: TestBugChecksRecipeRejectsSymlinkAndOversizedBlob (564.40s)
+    --- FAIL: TestBugChecksRecipeRejectsSymlinkAndOversizedBlob/missing (82.63s)
+        bug_checks_source_test.go:75: /usr/bin/git rev-parse --is-bare-repository: timed out after 15s
+    --- FAIL: TestBugChecksRecipeRejectsSymlinkAndOversizedBlob/symlink (322.66s)
+        bug_checks_source_test.go:71: /usr/bin/git is not usable (searched PATH=/opt/homebrew/Cellar/go/1.27.0/libexec/bin:/Users/mariomh/.nvm/versions/node/v24.16.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/Users/mariomh/.codex/tmp/arg0/codex-arg0JeDWos:/Users/mariomh/.nvm/versions/node/v24.16.0/bin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/Users/mariomh/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin): /usr/bin/git --version: timed out after 15s
+    --- FAIL: TestBugChecksRecipeRejectsSymlinkAndOversizedBlob/oversized (153.59s)
+        bug_checks_source_test.go:66: gittest: git add --all (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestBugChecksRecipeRejectsSymlinkAndOversizedBloboversized1963512845/001/clone): signal: killed
+--- FAIL: TestBugCommitStandaloneProvenance (95.48s)
+    bug_commit_test.go:12: Resolve: /usr/bin/git is not usable (searched PATH=/opt/homebrew/Cellar/go/1.27.0/libexec/bin:/Users/mariomh/.nvm/versions/node/v24.16.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/Users/mariomh/.codex/tmp/arg0/codex-arg0JeDWos:/Users/mariomh/.nvm/versions/node/v24.16.0/bin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/Users/mariomh/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin): /usr/bin/git --version: timed out after 15s
+--- FAIL: TestChangedSinceIsTheUniqueUnionOfCommittedStagedUnstagedAndUntracked (237.42s)
+    change_since_test.go:23: gittest: git push origin main (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestChangedSinceIsTheUniqueUnionOfCommittedStagedUnstagedAndUntr298331911/001/clone): signal: killed
+--- FAIL: TestFilesChangedByListsAMergeAgainstItsFirstParentAndNothingForARoot (153.43s)
+    change_since_test.go:94: list the worktrees of /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestFilesChangedByListsAMergeAgainstItsFirstParentAndNothingForA4045119993/001/clone: /usr/bin/git worktree list --porcelain -z: timed out after 15s
+--- FAIL: TestCollectConflictSnapshotsBoundsAndCoverage (122.39s)
+    conflict_snapshot_test.go:16: EnsureWorktree: look up local branch lf/91-region-snapshots: /usr/bin/git show-ref --verify -- refs/heads/lf/91-region-snapshots: timed out after 15s: fatal: 'refs/heads/lf/91-region-snapshots' - not a valid ref
+--- FAIL: TestCollectConflictSnapshotsOriginalAndRegionBounds (78.52s)
+    --- FAIL: TestCollectConflictSnapshotsOriginalAndRegionBounds/original (77.30s)
+        conflict_snapshot_test.go:49: EnsureWorktree: list the worktrees of /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCollectConflictSnapshotsOriginalAndRegionBoundsoriginal3809002523/001/clone: /usr/bin/git worktree list --porcelain -z: timed out after 15s
+--- FAIL: TestCollectConflictSnapshotsUnsupportedModesAndTypes (476.95s)
+    --- FAIL: TestCollectConflictSnapshotsUnsupportedModesAndTypes/mode (98.71s)
+        conflict_snapshot_test.go:79: EnsureWorktree: look up local branch lf/93-unsupported: /usr/bin/git show-ref --verify -- refs/heads/lf/93-unsupported: timed out after 15s: fatal: 'refs/heads/lf/93-unsupported' - not a valid ref
+    --- FAIL: TestCollectConflictSnapshotsUnsupportedModesAndTypes/symlink (103.28s)
+        conflict_snapshot_test.go:79: EnsureWorktree: look up local branch lf/93-unsupported: /usr/bin/git show-ref --verify -- refs/heads/lf/93-unsupported: timed out after 15s: fatal: 'refs/heads/lf/93-unsupported' - not a valid ref
+    --- FAIL: TestCollectConflictSnapshotsUnsupportedModesAndTypes/delete (128.68s)
+        conflict_snapshot_test.go:79: EnsureWorktree: look up remote branch origin/lf/93-unsupported: /usr/bin/git show-ref --verify -- refs/remotes/origin/lf/93-unsupported: exit status 128: fatal: 'refs/remotes/origin/lf/93-unsupported' - not a valid ref
+    --- FAIL: TestCollectConflictSnapshotsUnsupportedModesAndTypes/rename (60.65s)
+        conflict_snapshot_test.go:79: Open(/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCollectConflictSnapshotsUnsupportedModesAndTypesrename3535987028/001/clone): /usr/bin/git rev-parse --show-toplevel: timed out after 15s
+    --- FAIL: TestCollectConflictSnapshotsUnsupportedModesAndTypes/binary (40.97s)
+        conflict_snapshot_test.go:79: Open(/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCollectConflictSnapshotsUnsupportedModesAndTypesbinary3666122193/001/clone): /usr/bin/git rev-parse --is-bare-repository: timed out after 15s
+    --- FAIL: TestCollectConflictSnapshotsUnsupportedModesAndTypes/invalid_UTF8 (39.78s)
+        conflict_snapshot_test.go:79: Open(/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCollectConflictSnapshotsUnsupportedModesAndTypesinvalid_UTF407029160/001/clone): /usr/bin/git rev-parse --is-bare-repository: timed out after 15s
+--- FAIL: TestCollectConflictSnapshotsConfiguredAggregateBudget (432.57s)
+    --- FAIL: TestCollectConflictSnapshotsConfiguredAggregateBudget/9000 (159.75s)
+        conflict_snapshot_test.go:133: gittest: git push origin main (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCollectConflictSnapshotsConfiguredAggregateBudget90002756894604/001/clone): signal: killed
+    --- FAIL: TestCollectConflictSnapshotsConfiguredAggregateBudget/270000 (268.61s)
+        conflict_snapshot_test.go:133: gittest: git push origin main (in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCollectConflictSnapshotsConfiguredAggregateBudget2700002063278373/001/clone): signal: killed
+--- FAIL: TestDriftPinnedComparisonNeverReadsDirtyOrExpandsPathspec (60.60s)
+    drift_test.go:34: oversized blob accepted
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/git	5064.238s
+2026/10/21 10:35:32 http: TLS handshake error from 127.0.0.1:59701: write tcp 127.0.0.1:59700->127.0.0.1:59701: use of closed network connection
+--- FAIL: TestStalledBodyTimeoutComparison (8.62s)
+    polling_cache_http_test.go:239: runtime: go1.27.0
+    --- FAIL: TestStalledBodyTimeoutComparison/http2=false/sub_issues/context=false (2.46s)
+        polling_cache_http_test.go:296: server did not observe cancellation
+    --- FAIL: TestStalledBodyTimeoutComparison/http2=false/sub_issues/context=true (1.22s)
+        polling_cache_http_test.go:296: server did not observe cancellation
+    --- FAIL: TestStalledBodyTimeoutComparison/http2=true/sub_issues/context=false (1.24s)
+        polling_cache_http_test.go:296: server did not observe cancellation
+    --- FAIL: TestStalledBodyTimeoutComparison/http2=true/sub_issues/context=true (1.42s)
+        polling_cache_http_test.go:296: server did not observe cancellation
+    --- FAIL: TestStalledBodyTimeoutComparison/http2=true/issue/context=false (1.54s)
+        polling_cache_http_test.go:256: http2: stream closed
+        polling_cache_http_test.go:296: server did not observe cancellation
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/github	498.070s
+--- FAIL: TestChatNativeTransportDisablesToolsAndDiscardsAmbientSecrets (17.08s)
+    chat_test.go:31: chat transport: {Answer:[123 34 112 111 105 110 116 115 34 58 91 93 125] Usage:<nil>} doctor provider process or bounded output failed
+--- FAIL: TestRecordedClaudePatchVersionEvidence (15.75s)
+    conversation_recorded_test.go:178: patch rejected: {Answer:[114 101 99 111 114 100 101 100 32 97 110 115 119 101 114] Session:{Ref:factory-session Resume:factory-session}} context deadline exceeded
+--- FAIL: TestRecordedClaudeProbeRecovery (44.96s)
+    --- FAIL: TestRecordedClaudeProbeRecovery/exec_/bin/sleep_30 (32.11s)
+        conversation_recorded_test.go:204: recovery: {Answer:[] Session:{Ref:factory-session Resume:}} context deadline exceeded identities=0
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/harness	920.935s
+--- FAIL: TestProbeTransientRecoveryAndBounds (226.71s)
+    --- FAIL: TestProbeTransientRecoveryAndBounds/kill_-KILL_$$1 (59.43s)
+        conversation_capability_test.go:39: recovery: "" conversation capability probe temporarily unavailable: context deadline exceeded
+            context deadline exceeded [1s 2s]
+    --- FAIL: TestProbeTransientRecoveryAndBounds/exec_/bin/sleep_301 (54.64s)
+        conversation_capability_test.go:39: recovery: "" conversation capability probe temporarily unavailable: signal: killed
+            context deadline exceeded [1s 2s]
+    --- FAIL: TestProbeTransientRecoveryAndBounds/exit_70 (28.33s)
+        conversation_capability_test.go:35: ordinary exit retried: [1s 2s] conversation capability probe temporarily unavailable: context deadline exceeded
+            context deadline exceeded
+    --- FAIL: TestProbeTransientRecoveryAndBounds/exit_71 (22.00s)
+        conversation_capability_test.go:35: ordinary exit retried: [1s 2s] conversation capability probe temporarily unavailable: signal: killed
+            context deadline exceeded
+--- FAIL: TestConversationFailureStartBoundary (34.00s)
+    --- FAIL: TestConversationFailureStartBoundary/wait (29.22s)
+        conversation_test.go:96: lost wait cause: &agent.ConversationFailure{Phase:"process_wait", NoProcessStarted:false, Cause:context.deadlineExceededError{}}
+--- FAIL: TestStartAbsentBoundAndCancellation (13.33s)
+    --- FAIL: TestStartAbsentBoundAndCancellation/exhausted (12.78s)
+        start_test.go:111: recovery exceeded bound
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/providerprocess	439.383s
+--- FAIL: TestRuntimeMissingSiblingBindingWinsAgainstSlowInitialCapture (426.12s)
+    runtime_test.go:250: waiting for initial source read: context deadline exceeded
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/standards	2990.999s
+FAIL

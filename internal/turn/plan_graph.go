@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -51,6 +52,9 @@ type planGraphRuntime struct {
 	discussion bool
 	// rewindReason explains verified changes against the retained prior request.
 	rewindReason string
+	// picked is the selected story as it was when it was picked, so a review can
+	// explain a stage that this request's own result moved back.
+	picked planPickSnapshot
 	// creating reports that the current pick is a promoted story still owed its
 	// first draft, which is what keeps the story creation cycle going.
 	creating bool
@@ -80,6 +84,9 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if route == "legacy" {
 		return result, false, nil
 	}
+	if out, retired, retireErr := retireFinishedPlanLaunch(ctx, o, req, result); retired || retireErr != nil {
+		return out, true, retireErr
+	}
 	specs, err := PlanSpecs()
 	if err != nil {
 		return result, true, err
@@ -108,6 +115,9 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		return result, true, err
 	}
 	r.ownerID = ownerID
+	if err = r.releaseParkedWithoutAgent(ctx, definition.Profile); err != nil {
+		return result, true, err
+	}
 	r.discussion = req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.ownerID && ParseCommand(req.Trigger.Body).Kind == KindFreeText
 	feature, featureErr := o.DB.GetManagedFeature(ctx, r.parentRef.String())
 	if featureErr != nil && !errors.Is(featureErr, store.ErrNotFound) {
@@ -202,6 +212,94 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		r.logNotice(r.reportStop(ctx, admission.Instance.ID), "plan-stopped")
 	}
 	return out, true, err
+}
+
+// planAnswerNotApplied is posted for an input bound to a Plan instance that
+// finished without applying it. It names no internal state.
+const planAnswerNotApplied = "This answer was not applied; please post it again."
+
+// planParkedHold bounds how long an owner comment waits for a Plan instance
+// parked at a non-agent step to finish through its own scheduled retry.
+const planParkedHold = 15 * time.Minute
+
+// errPlanStepFinishing defers an owner comment while a parked Plan step can
+// still finish on its own; the daemon keeps the comment pending and retries it.
+var errPlanStepFinishing = errors.New("a Plan step of this task is still finishing; this comment is taken up after it")
+
+// retireFinishedPlanLaunch answers an input whose retained launch is bound to an
+// instance that is no longer running. Replaying that launch can never reach an
+// agent, so the input is retired with a visible reason instead of retried. It
+// runs before any saved capture is restored, so an unrestorable capture of a
+// finished launch is retired too.
+func retireFinishedPlanLaunch(ctx context.Context, o Options, req Request, result Result) (Result, bool, error) {
+	if store.IsGraphTrigger(req.Trigger.CommentID) {
+		return result, false, nil
+	}
+	id, found, err := o.DB.WorkflowLaunchInstance(ctx, req.SessionID, req.Trigger.CommentID)
+	if err != nil || !found {
+		return result, false, err
+	}
+	instance, err := o.DB.GetGraphInstance(ctx, id)
+	if err != nil {
+		return result, false, err
+	}
+	if instance.Status == store.GraphRunning {
+		return result, false, nil
+	}
+	if req.Trigger.PlanReply != nil {
+		return result, true, &PlanReplyRefusal{Reason: planAnswerNotApplied, Err: fmt.Errorf("plan launch of comment %d is bound to finished instance %d", req.Trigger.CommentID, id)}
+	}
+	out, err := prelaunchRefused(ctx, o, result, planAnswerNotApplied)
+	return out, true, err
+}
+
+// releaseParkedWithoutAgent keeps a fresh owner comment from binding to a Plan
+// instance parked at a non-agent step: that instance's remaining path may end
+// without an agent pass, and the comment would never reach an agent. While the
+// instance can still move through its own scheduled retry, and for at most
+// planParkedHold after the comment, the comment is deferred. After that the
+// parked instance is cancelled, so the launch starts a successor whose agent
+// pass receives the comment.
+func (r *planGraphRuntime) releaseParkedWithoutAgent(ctx context.Context, profile *graphexec.Profile) error {
+	trigger := r.req.Trigger
+	if trigger.CommentID <= 0 || store.IsGraphTrigger(trigger.CommentID) {
+		return nil
+	}
+	launched, err := r.opts.DB.HasWorkflowLaunch(ctx, r.req.SessionID, trigger.CommentID)
+	if err != nil || launched {
+		return err
+	}
+	instance, err := r.opts.DB.LatestWorkflowInstance(ctx, r.req.SessionID, "plan")
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if instance.Status != store.GraphRunning || instance.CurrentNode == profile.Start {
+		return nil
+	}
+	if node, ok := profile.Node(instance.CurrentNode); !ok || node.Action == ResearchAgentAction {
+		return nil
+	}
+	attempts, err := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+	if err != nil {
+		return err
+	}
+	for _, attempt := range attempts {
+		if attempt.Status == store.GraphPending || attempt.Status == store.GraphRunning {
+			// A step in flight is left to the existing active-invocation guard.
+			return nil
+		}
+	}
+	if !instance.NextDueAt.IsZero() && r.opts.MCP.Now().Before(trigger.CreatedAt.Add(planParkedHold)) {
+		return errPlanStepFinishing
+	}
+	reason := fmt.Sprintf("plan instance parked at %s with no agent step left; an owner comment starts the next pass", instance.CurrentNode)
+	if err = r.opts.DB.CancelWorkflowGraphs(context.WithoutCancel(ctx), r.req.SessionID, "plan", reason, r.opts.MCP.Now()); err != nil {
+		return fmt.Errorf("release plan parking without an agent step: %w", err)
+	}
+	return nil
 }
 
 // releaseMismatchedParking ends a parked instance whose next agent stage is no
@@ -331,7 +429,8 @@ func (r *planGraphRuntime) selectStory(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	r.selected, r.stage, r.creating = pick.Key, pick.Stage, pick.Create
+	r.setPick(s, pick.Key, pick.Stage)
+	r.creating = pick.Create
 	return nil
 }
 
@@ -340,8 +439,20 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 	if err != nil || s.SharedRevision == "" {
 		return err
 	}
+	normalized := r.req.Trigger.Body
+	if r.req.Trigger.AuthorID == r.ownerID {
+		normalized, err = ResolvePlanDecision(ctx, r.opts.DB, r.parentRef.String(), r.req.Trigger.CommentID, r.req.Trigger.AuthorID, r.req.Trigger.Body, r.opts.MCP.Now(), r.req.Trigger.ReplyToCommentID)
+	}
+	if err != nil {
+		return &PlanReplyRefusal{Reason: err.Error(), Err: err}
+	}
+	// The source bytes remain in the retained decision binding and trigger.
+	originalBody := r.req.Trigger.Body
+	r.req.Trigger.Body = normalized
+	defer func() { r.req.Trigger.Body = originalBody }()
 	if r.req.Trigger.PlanReply != nil {
 		reply := *r.req.Trigger.PlanReply
+		reply.Body = normalized
 		if reply.OwnerID != r.ownerID || reply.ActorID != r.req.Trigger.AuthorID || reply.ID != r.req.Trigger.CommentID {
 			return errors.New("plan child reply authority mismatch")
 		}
@@ -372,7 +483,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 	}
 	if strings.HasPrefix(strings.TrimSpace(commandtext.Normalize(r.req.Trigger.Body)), "/approve-plan-set ") {
 		if slices.Contains(s.ConsumedReplies, r.req.Trigger.CommentID) && s.AssembledApproval == s.PlanSetRevision() {
-			return nil
+			return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan-set", strings.TrimSpace(commandtext.Normalize(r.req.Trigger.Body)))
 		}
 		if err = s.ApproveAssembled(r.ownerID, r.req.Trigger.AuthorID, r.req.Trigger.CommentID, r.req.Trigger.Body, r.scope); err != nil {
 			if errors.Is(err, planbrief.ErrPlanAssembledStale) {
@@ -380,7 +491,10 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 			}
 			return err
 		}
-		return r.persist(ctx, s, rev)
+		if err = r.persist(ctx, s, rev); err != nil {
+			return err
+		}
+		return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan-set", strings.TrimSpace(commandtext.Normalize(r.req.Trigger.Body)))
 	}
 	if key, ok := planStoryCommandKey(r.req.Trigger.Body); ok {
 		return r.applyParentStoryCommand(ctx, s, key)
@@ -401,12 +515,21 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 // read fresh and saved with the revision check, so a sibling story saving at the
 // same moment keeps its change and this one is retried, never lost.
 func (r *planGraphRuntime) applyReply(ctx context.Context, reply planbrief.PlanOwnerReply) error {
-	return r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(s *planbrief.PlanState) (bool, error) {
-		if _, err := s.ApplyOwnerReply(reply); err != nil {
-			return false, &PlanReplyRefusal{Reason: planReplyRefusalReason, Err: err}
+	approved := false
+	err := r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(s *planbrief.PlanState) (bool, error) {
+		var e error
+		replayed := slices.Contains(s.ConsumedReplies, reply.ID)
+		approved, e = s.ApplyOwnerReply(reply)
+		approved = approved || replayed
+		if e != nil {
+			return false, &PlanReplyRefusal{Reason: planReplyRefusalReason, Err: e}
 		}
 		return true, nil
 	})
+	if err == nil && approved {
+		return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan", strings.TrimSpace(commandtext.Normalize(reply.Body)))
+	}
+	return err
 }
 
 var planStoryCommandPattern = regexp.MustCompile(`^/approve-plan (story-[0-9]{3,}) (?:story|technical|acceptance) \S+$`)
@@ -464,7 +587,7 @@ func (r *planGraphRuntime) policy() WorkflowPolicy {
 		if err := specs.Register(graphexec.PlanStorySpec()); err != nil {
 			return err
 		}
-		return activities.Register(graphexec.PlanStoryAction, planGraphHandler(r.effect))
+		return activities.Register(graphexec.PlanStoryAction, planStoryEffect{r: r})
 	}
 	return p
 }
@@ -585,7 +708,30 @@ func (r *planGraphRuntime) control(ctx context.Context, _ Options, a ActivityReq
 	return ActivityResult{Outcome: outcome}, nil
 }
 
-func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
+// planStoryEffect is the production lf_plan_story handler. ExecuteNodeAction
+// takes the parent story-progress lock through it before reserving an attempt,
+// so a busy parent defers the step without spending node limit or budget.
+type planStoryEffect struct {
+	r      *planGraphRuntime
+	locked bool
+}
+
+func (e planStoryEffect) Execute(ctx context.Context, o Options, a ActivityRequest) (ActivityResult, error) {
+	return e.r.effect(ctx, o, a, e.locked)
+}
+
+func (e planStoryEffect) lockParent(ctx context.Context) (func() error, error) {
+	return lockPlanStory(ctx, 250*time.Millisecond, planStoryLockWait, func() (func() error, error) {
+		return e.r.opts.DB.LockStoryProgress(ctx, e.r.parentRef.String(), e.r.opts.MCP.Paths.StoryProgressLocksDir())
+	})
+}
+
+func (e planStoryEffect) withParentLocked() ActivityHandler {
+	e.locked = true
+	return e
+}
+
+func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequest, locked bool) (ActivityResult, error) {
 	node, _, err := r.load(ctx, a)
 	if err != nil {
 		return ActivityResult{}, err
@@ -609,7 +755,7 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 		return ActivityResult{}, err
 	}
 	h := PlanStoryActivity{DB: r.opts.DB, Forge: forge, Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
-	receipt, err := h.Apply(ctx, authority, request)
+	receipt, err := h.apply(ctx, authority, request, locked)
 	if err != nil {
 		return ActivityResult{}, err
 	}
@@ -635,12 +781,11 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	target := r.result.Ref
 	kind := a.Attrs["lf_kind"]
 	text := node.Comment
+	var display *store.OwnerDecisionDisplay
 	if kind == "review" && r.rewindReason != "" {
 		text += "\n\n" + r.rewindReason
 	}
-	for _, q := range node.Questions {
-		text += "\n\n- " + q
-	}
+	text += planQuestionLines(node.Questions)
 	if r.stage == planSetStage && kind == "review" {
 		if text, err = r.setReviewText(s, node, text); err != nil {
 			return ActivityResult{}, err
@@ -658,13 +803,34 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 			}
 			// Only this story's own entry changes, so the wait is saved through the
 			// shared helper: a sibling saving at the same moment keeps its change.
+			// The command comes from the saved state the approval check reads, so
+			// a stage this request's result moved back is never shown stale.
+			var saved planbrief.PlanState
+			command := ""
 			if err = r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(st *planbrief.PlanState) (bool, error) {
-				return true, st.OpenPlanWait(r.selected, key, waitKind, d.IssueID)
+				if err := st.OpenPlanWait(r.selected, key, waitKind, d.IssueID); err != nil {
+					return false, err
+				}
+				saved, command = *st, st.PlanCurrentCommand(r.selected)
+				return true, nil
 			}); err != nil {
 				return ActivityResult{}, err
 			}
 			if waitKind == "review" {
-				text += fmt.Sprintf("\n\nTo promote this exact candidate, reply `/approve-plan %s %s %s`.", r.selected, r.stage, d.Candidate)
+				var issues map[string]int
+				if planStageMovedBack(saved, r.selected, r.stage) {
+					if issues, err = r.storyIssueNumbers(ctx); err != nil {
+						return ActivityResult{}, err
+					}
+				}
+				text += planReviewCommandText(r.picked, r.stage, saved, r.selected, issues, command)
+				for _, item := range saved.Stories {
+					if item.Key == r.selected && item.Wait != nil && strings.HasPrefix(command, "/approve-plan ") {
+						display = &store.OwnerDecisionDisplay{TaskRef: r.parentRef.String(), Action: "/approve-plan", Target: command, Revision: item.Wait.Revision, InstanceID: a.InstanceID, CreatedAt: r.opts.MCP.Now()}
+						ref := store.OwnerDecisionReference(r.parentRef.String(), "/approve-plan", command, item.Wait.Revision)
+						text += "\n\nShort reply: `/approve-plan " + ref + "`."
+					}
+				}
 			}
 			if waitKind == "retire" {
 				text += fmt.Sprintf("\n\nTo retire this exact candidate as not planned, reply `/retire-plan %s %s`.", r.selected, d.Candidate)
@@ -679,21 +845,70 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 		return ActivityResult{}, err
 	}
 	intent := reporter.deliveryIntent(r.result.Ref, target, r.req.SessionID, run.TriggerCommentID, run.ID, key)
-	raw, err := json.Marshal(planPublication{Intent: intent, Text: text})
-	if err != nil {
-		return ActivityResult{}, err
-	}
-	// Plan's per-story waits are independent. This generic final-kind delivery
-	// journals bytes without creating Research's single instance-wide owner wait.
-	if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: a.InstanceID, SourceAttemptID: source.ID, Node: a.Node, Kind: "final", Candidate: raw}); err != nil {
+	// A retry of the same source attempt posts the text saved first, as the
+	// failure comment does: the saved text is the truth for that attempt.
+	saved, err := reporter.db.GetGraphComment(ctx, intent.Key)
+	switch {
+	case err == nil:
+		var retained planPublication
+		if err = json.Unmarshal(saved.Candidate, &retained); err != nil {
+			return ActivityResult{}, fmt.Errorf("retained Plan comment: %w", err)
+		}
+		if retained.Intent.Key != intent.Key || retained.Text == "" {
+			return ActivityResult{}, errors.New("retained Plan comment identity mismatch")
+		}
+		if retained.Text != text && r.opts.Logger != nil {
+			r.opts.Logger.WarnContext(ctx, "retained Plan comment differs from the newly built text; posting the retained text", "delivery_key", intent.Key)
+		}
+		intent, text, display = retained.Intent, retained.Text, retained.Display
+	case errors.Is(err, store.ErrNotFound):
+		raw, marshalErr := json.Marshal(planPublication{Intent: intent, Text: text, Display: display})
+		if marshalErr != nil {
+			return ActivityResult{}, marshalErr
+		}
+		// Plan's per-story waits are independent. This generic final-kind delivery
+		// journals bytes without creating Research's single instance-wide owner wait.
+		if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: a.InstanceID, SourceAttemptID: source.ID, Node: a.Node, Kind: "final", Candidate: raw}); err != nil {
+			return ActivityResult{}, err
+		}
+	default:
 		return ActivityResult{}, err
 	}
 	posted, err := reporter.deliver(ctx, intent, func() (redact.Body, error) { return reporter.renderer.RenderReportDelivery(ctx, text, "") })
 	if err != nil {
 		return ActivityResult{}, err
 	}
+	if display != nil {
+		display.PublicationID = posted.CommentID
+		if err = r.opts.DB.PutOwnerDecisionDisplay(ctx, *display); err != nil {
+			return ActivityResult{}, err
+		}
+	}
 	payload, err := json.Marshal(posted)
 	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: payload}, err
+}
+
+// planQuestionLines lists each Plan question with its ID, its options and the
+// recommended option, as Spike does, so the owner can answer "q1 a, q2 b".
+func planQuestionLines(qs []agentresult.Question) string {
+	var b strings.Builder
+	for _, q := range qs {
+		b.WriteString("\n\n- **" + q.ID + "** " + strings.TrimSpace(q.Text) + questionOptionLines(q))
+	}
+	return b.String()
+}
+
+// questionOptionLines lists a question's options under it and marks the
+// recommended one. A question without options adds nothing.
+func questionOptionLines(q agentresult.Question) string {
+	var b strings.Builder
+	for _, o := range q.Options {
+		b.WriteString("\n  - `" + o.ID + "` " + strings.TrimSpace(o.Text))
+		if o.ID == q.RecommendedOption {
+			b.WriteString(" (recommended)")
+		}
+	}
+	return b.String()
 }
 
 func (r *planGraphRuntime) retire(ctx context.Context, s planbrief.PlanState, _ int64, reply planbrief.PlanOwnerReply) error {
@@ -812,4 +1027,113 @@ func PlanContentScope(definition *teamsource.WorkflowDefinition) (planbrief.Cont
 		guidance = append(guidance, selected.ID)
 	}
 	return planbrief.ReleaseScope(roles, guidance), nil
+}
+
+var planReviewStages = []string{"story", "technical", "acceptance"}
+
+// planStageMovedBack reports whether the saved story now sits at an earlier
+// stage than the one this request picked.
+func planStageMovedBack(saved planbrief.PlanState, key, picked string) bool {
+	for _, item := range saved.Stories {
+		if item.Key == key {
+			now, then := slices.Index(planReviewStages, item.Stage), slices.Index(planReviewStages, picked)
+			return now >= 0 && then >= 0 && now < then
+		}
+	}
+	return false
+}
+
+// storyIssueNumbers maps each Plan story key to its issue number, when it has one.
+func (r *planGraphRuntime) storyIssueNumbers(ctx context.Context) (map[string]int, error) {
+	drafts, err := r.opts.DB.ListPlanStoryDrafts(ctx, r.parentRef.String())
+	if err != nil {
+		return nil, err
+	}
+	issues := map[string]int{}
+	for _, d := range drafts {
+		if d.IssueNumber > 0 {
+			issues[d.Key] = d.IssueNumber
+		}
+	}
+	return issues, nil
+}
+
+// planReviewCommandText ends a review with the command the approval check
+// accepts now. When this request's own result moved the story back to an
+// earlier stage, it first says so, names why and says what happens next.
+func planReviewCommandText(picked planPickSnapshot, pickedStage string, saved planbrief.PlanState, key string, issues map[string]int, command string) string {
+	text := ""
+	if planStageMovedBack(saved, key, pickedStage) {
+		var item planbrief.PlanStoryState
+		for _, candidate := range saved.Stories {
+			if candidate.Key == key {
+				item = candidate
+			}
+		}
+		stage := item.Stage
+		paragraph := []string{"This update changed the " + stage + " stage of this story, so it needs your approval again first."}
+		if stage == "story" {
+			paragraph[0] = "This update changed the story itself, so it needs your approval again first."
+		}
+		var reasons []string
+		if picked.known {
+			if storyDescriptionRevision(item.Draft) != picked.description {
+				reasons = append(reasons, "its description changed")
+			}
+			deps := item.Draft.Dependencies
+			if !slices.Equal(deps.StoryKeys, picked.deps.StoryKeys) || !slices.Equal(deps.IssueRefs, picked.deps.IssueRefs) {
+				reasons = append(reasons, fmt.Sprintf("its dependencies changed: it now depends on %s (before: %s)", planDependencyList(deps, issues, "no other story"), planDependencyList(picked.deps, issues, "none")))
+			}
+			if saved.SharedRevision != picked.shared {
+				reasons = append(reasons, "shared decisions changed")
+			}
+		}
+		if len(reasons) > 0 {
+			paragraph = append(paragraph, "The reason: "+strings.Join(reasons, " and ")+".")
+		} else {
+			paragraph = append(paragraph, "Review resumes at the "+stage+" stage. Approvals from that stage must be renewed.")
+		}
+		var waiting []string
+		for _, dep := range item.Draft.Dependencies.StoryKeys {
+			approved := false
+			for _, upstream := range saved.Stories {
+				if upstream.Key == dep {
+					ref, err := saved.ReviewRevision(dep, pickedStage)
+					approved = err == nil && upstream.Approvals[pickedStage] == ref
+				}
+			}
+			if !approved {
+				waiting = append(waiting, planStoryLabel(dep, issues))
+			}
+		}
+		if len(waiting) == 0 {
+			paragraph = append(paragraph, fmt.Sprintf("Approving the %s stage starts a new %s review of this story.", stage, pickedStage))
+		} else {
+			paragraph = append(paragraph, fmt.Sprintf("After you approve the %s stage, the %s review of this story starts once the %s stage of %s is approved.", stage, pickedStage, pickedStage, strings.Join(waiting, " and ")))
+		}
+		text += "\n\n" + strings.Join(paragraph, " ")
+	}
+	if command == "" {
+		return text + "\n\nThe next review of this story will show the approval command."
+	}
+	return text + "\n\nTo promote this exact candidate, reply `" + command + "`."
+}
+
+func planStoryLabel(key string, issues map[string]int) string {
+	if n := issues[key]; n > 0 {
+		return fmt.Sprintf("%s (#%d)", key, n)
+	}
+	return key
+}
+
+func planDependencyList(deps planbrief.DependencyContent, issues map[string]int, empty string) string {
+	var out []string
+	for _, key := range deps.StoryKeys {
+		out = append(out, planStoryLabel(key, issues))
+	}
+	out = append(out, deps.IssueRefs...)
+	if len(out) == 0 {
+		return empty
+	}
+	return strings.Join(out, ", ")
 }

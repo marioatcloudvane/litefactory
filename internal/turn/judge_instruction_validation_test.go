@@ -32,7 +32,7 @@ func TestJudgeRetainedInstructionValidation(t *testing.T) {
 	}
 	sum := sha256.Sum256(capture.Instructions())
 	cfg := judgeConfiguration{Role: string(capture.Instructions()), RoleDigest: hex.EncodeToString(sum[:]), Instructions: raw, InstructionDigest: capture.Snapshot().EffectiveDigest}
-	if _, err := validateJudgeInstructions(cfg); err != nil {
+	if err := validateJudgeInstructions(cfg); err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
@@ -49,7 +49,7 @@ func TestJudgeRetainedInstructionValidation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			invalid := cfg
 			test.change(&invalid)
-			if _, err := validateJudgeInstructions(invalid); err == nil {
+			if err := validateJudgeInstructions(invalid); err == nil {
 				t.Fatal("invalid retained instructions accepted")
 			}
 		})
@@ -70,7 +70,7 @@ func TestJudgeHistoricalCaptureRefusesLaunchAndAllowsRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence, err := json.Marshal(JudgeEvidenceSnapshot{})
+	evidence, err := json.Marshal(judgeContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestJudgeCaptureAdmissionBoundaries(t *testing.T) {
 	if err != nil || len(cfg.Instructions) != 0 {
 		t.Fatalf("historical report-only capture: %+v %v", cfg, err)
 	}
-	if _, err := validateJudgeInstructions(cfg); err == nil {
+	if err := validateJudgeInstructions(cfg); err == nil {
 		t.Fatal("historical report-only configuration can launch")
 	}
 	request.GraphInstanceID = 0
@@ -122,10 +122,10 @@ func TestJudgeCaptureAdmissionBoundaries(t *testing.T) {
 		t.Fatalf("cancelled capture: %v", err)
 	}
 	cfg.Instructions = make([]byte, 2*instructionpackage.MaxCaptureBytes+1)
-	if _, err := validateJudgeInstructions(cfg); err == nil {
+	if err := validateJudgeInstructions(cfg); err == nil {
 		t.Fatal("oversized retained capture accepted")
 	}
-	if _, err := service.launch(t.Context(), store.JudgeRequest{}, &cfg, JudgeEvidenceSnapshot{}, config.JudgeInvocation{}); err == nil {
+	if _, err := service.launch(t.Context(), store.JudgeRequest{}, &cfg, nil, config.JudgeInvocation{}); err == nil {
 		t.Fatal("invalid capture reached launch allocation")
 	}
 }

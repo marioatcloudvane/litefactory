@@ -14,24 +14,24 @@ import (
 
 // validateJudgeInstructions checks only durable bytes. Report recovery deliberately
 // does not call it because historical requests may have no complete capture.
-func validateJudgeInstructions(cfg judgeConfiguration) (*instructionpackage.RoleCapture, error) {
+func validateJudgeInstructions(cfg judgeConfiguration) error {
 	if len(cfg.Instructions) == 0 {
-		return nil, errors.New("judge instruction capture is missing; historical role-only captures cannot launch")
+		return errors.New("judge instruction capture is missing; historical role-only captures cannot launch")
 	}
 	capture, err := instructionpackage.Restore(cfg.Instructions)
 	if err != nil {
-		return nil, fmt.Errorf("judge retained instruction capture: %w", err)
+		return fmt.Errorf("judge retained instruction capture: %w", err)
 	}
 	data := capture.Snapshot()
 	if data.Role != instructionpackage.JudgeRole {
-		return nil, errors.New("judge retained instruction capture has the wrong role")
+		return errors.New("judge retained instruction capture has the wrong role")
 	}
 	role := capture.Instructions()
 	sum := sha256.Sum256(role)
 	if cfg.Role != string(role) || cfg.RoleDigest != hex.EncodeToString(sum[:]) || cfg.InstructionDigest != data.EffectiveDigest {
-		return nil, errors.New("judge retained instruction identity mismatch")
+		return errors.New("judge retained instruction identity mismatch")
 	}
-	return capture, nil
+	return nil
 }
 
 func (s *JudgeService) captureJudgeConfiguration(ctx context.Context, in JudgeRequest, invocation config.JudgeInvocation) (judgeConfiguration, error) {

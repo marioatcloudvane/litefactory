@@ -1,7 +1,7 @@
 {
   "name": "Python FastAPI with React",
   "slug": "python-fastapi",
-  "version": "1.0.2",
+  "version": "1.0.5",
   "description": "Python FastAPI backend and React TypeScript Vite frontend with captured stack guidance and locked check recipes.",
   "tags": [
     "python",
@@ -10,5 +10,5 @@
     "typescript",
     "vite"
   ],
-  "download": "python-fastapi/v1.0.2"
+  "download": "python-fastapi/v1.0.5"
 }

@@ -5,6 +5,6 @@
 > [!CAUTION]
 > litefactory did not record how run 94 ended — it was most likely interrupted between finishing the run and reporting on it. The local log is the authority on what happened.
 
-**Base branch sync**
+**Preparation caveat**
 
-litefactory skipped syncing this branch with `origin/main` (9 commit(s) behind): the branch is more commits behind than the configured cap allows.
+base synchronization (9 behind): the branch is more commits behind than the configured cap allows.

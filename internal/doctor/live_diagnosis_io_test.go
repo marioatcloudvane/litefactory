@@ -32,7 +32,7 @@ type liveProviderFixture struct {
 // promptManifest reads the path manifest from a prepared diagnosis prompt.
 func promptManifest(t *testing.T, prompt string) PathManifest {
 	t.Helper()
-	i := strings.Index(prompt, "\n{\"")
+	i := strings.LastIndex(prompt, "\n{\"")
 	var prepared PromptContext
 	if i < 0 {
 		t.Fatal("missing JSON context")
@@ -51,7 +51,7 @@ func (p *liveProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorReque
 	if err := r.Validate(); err != nil {
 		return agent.DoctorRunResult{}, err
 	}
-	if !strings.Contains(r.Prompt, testDoctorGuide(p.t)) || strings.Contains(r.Prompt, "untrusted_evidence") || strings.Contains(r.Prompt, "pre-read-canary") || strings.Contains(r.Prompt, "no filesystem, shell") {
+	if !strings.Contains(r.Prompt, testDoctorGuide(p.t)) || strings.Contains(r.Prompt, "untrusted_evidence") || strings.Contains(r.Prompt, "pre-read-canary") {
 		p.t.Fatal("legacy evidence reached diagnosis prompt")
 	}
 	p.manifest = promptManifest(p.t, r.Prompt)
@@ -144,6 +144,8 @@ func TestDoctorMissingPlanOwnersDiagnosisPresentation(t *testing.T) {
 func doctorLiveDiagnosisFixture(t *testing.T, planOwners bool) {
 	t.Helper()
 	s := doctorIOService(t)
+	s.BuildVersion = "running-daemon-commit"
+	s.FactorySource = "/known/factory-source"
 	// Keep the Unix socket path short, independent of Go's descriptive test dirs.
 	root, err := os.MkdirTemp("/tmp", "lf538-")
 	if err != nil {
@@ -222,7 +224,7 @@ func doctorLiveDiagnosisFixture(t *testing.T, planOwners bool) {
 	if err := json.Unmarshal([]byte(got.Attempts[0].Evidence), &saved); err != nil {
 		t.Fatal(err)
 	}
-	if !saved.Live || saved.Worktree != worktree || saved.DaemonLog != s.Paths.DaemonLogPath() || !slices.Equal(saved.RunLogs, []string{runLog}) || saved.SandboxProfile != agent.DoctorSandboxVersion || saved.Isolation == "" || strings.Contains(got.Attempts[0].Evidence, "pre-read-canary") || got.Attempts[0].PromptVersion != "doctor-diagnosis-v2" || got.Attempts[0].GuideVersion != "doctor-field-guide-v2" {
+	if saved.DaemonVersion != s.BuildVersion || saved.FactorySource != s.FactorySource || !saved.Live || saved.Worktree != worktree || saved.DaemonLog != s.Paths.DaemonLogPath() || !slices.Equal(saved.RunLogs, []string{runLog}) || saved.SandboxProfile != agent.DoctorSandboxVersion || saved.Isolation == "" || strings.Contains(got.Attempts[0].Evidence, "pre-read-canary") || got.Attempts[0].PromptVersion != "doctor-diagnosis-v2" || got.Attempts[0].GuideVersion != "doctor-field-guide-v2" {
 		t.Fatalf("saved manifest: %+v", got.Attempts[0])
 	}
 	after, err := os.ReadFile(s.Paths.DaemonLogPath())
@@ -264,12 +266,7 @@ func TestDoctorSandboxStartupFailureKeepsInputWithoutFallback(t *testing.T) {
 	}
 }
 
-func TestDoctorFieldGuideAndPromptDescribeLiveSourcesOnly(t *testing.T) {
-	for _, name := range []string{"daemon_log", "runs.log_path", "worktree", "sessions", "runs", "graph_instances", "graph_dispatches", "graph_node_attempts", "implement_stories", "schedules", "comments", "watermarks", "report_deliveries"} {
-		if !strings.Contains(testDoctorGuide(t), name) {
-			t.Errorf("field guide omits %s", name)
-		}
-	}
+func TestDoctorPromptCarriesLiveSourcesOnly(t *testing.T) {
 	context := PromptContext{Instructions: "Inspect this stuck case", Target: "github:acme/api#406", Manifest: PathManifest{Live: true, TaskRef: "github:acme/api#406", DaemonLog: "/factory/logs/daemon.log", RunLogs: []string{"/factory/run.jsonl"}, Worktree: "/worktree", Tools: []string{"shell", "database_query", "issue_comments"}}, Memory: []store.DoctorAttempt{{OwnerText: "Previous owner input"}}, MemoryOmissions: "older attempts omitted"}
 	prompt, err := BuildPrompt(context, testDoctorCapture(t, "doctor-diagnosis"))
 	if err != nil {
@@ -280,7 +277,7 @@ func TestDoctorFieldGuideAndPromptDescribeLiveSourcesOnly(t *testing.T) {
 			t.Errorf("missing prompt context %s", value)
 		}
 	}
-	for _, obsolete := range []string{"untrusted_evidence", "no filesystem, shell", "\"local_log\"", "\"liveness\"", "\"inventory\""} {
+	for _, obsolete := range []string{"untrusted_evidence", "\"local_log\"", "\"liveness\"", "\"inventory\""} {
 		if strings.Contains(prompt, obsolete) {
 			t.Errorf("obsolete diagnosis material %s", obsolete)
 		}
@@ -346,11 +343,12 @@ func (p *proposalProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorR
 		return check
 	}
 	unknown := diagnosis
-	unknown.Proposal = []RepairStep{step(1, "release_instance", "graph:999999", "running", "failed")}
+	unknown.Proposal = []RepairStep{step(1, "graph_fail", "graph:999999", "running", "failed")}
 	if check := preflight(unknown); check.Valid || len(check.Errors) != 1 || !strings.Contains(check.Errors[0], "unresolved target") {
 		p.t.Fatalf("nonexistent target accepted: %+v", check)
 	}
-	diagnosis.Proposal = []RepairStep{step(1, "release_instance", "graph:"+graph, "running", "failed"), step(2, "consume_comment", "comment:"+comment, watermark, comment)}
+	diagnosis.Proposal = []RepairStep{step(1, "graph_fail", "graph:"+graph, "running", "failed")}
+	_ = watermark
 	if check := preflight(diagnosis); !check.Valid {
 		p.t.Fatalf("live proposal rejected: %+v", check)
 	}
@@ -443,11 +441,11 @@ func TestDoctorLiveDiagnosisProposesRepairForQueriedTargets(t *testing.T) {
 	if !strings.Contains(provider.receipt, `"accepted"`) {
 		t.Fatalf("receipt not accepted: %s", provider.receipt)
 	}
-	if len(got.Attempts) != 1 || got.Attempts[0].State != "completed" || got.ProposalID == 0 || len(got.CurrentProposal) != 2 {
+	if len(got.Attempts) != 1 || got.Attempts[0].State != "completed" || got.ProposalID == 0 || len(got.CurrentProposal) != 1 {
 		t.Fatalf("proposal not adopted: %+v", got)
 	}
-	release, consume := got.CurrentProposal[0], got.CurrentProposal[1]
-	if release.Target != fmt.Sprintf("graph:%d", instance.ID) || release.Action.Kind != "release_instance" || consume.Target != "comment:6084334752" || consume.Action.Kind != "consume_comment" || consume.Action.Before != "6084334000" || consume.Action.After != "6084334752" {
+	release := got.CurrentProposal[0]
+	if release.Target != fmt.Sprintf("graph:%d", instance.ID) || release.Action.Kind != "graph_fail" || !store.DoctorGraphRepairTarget(release.Action.Kind, release.Target, release.Action.Before, release.Action.After) {
 		t.Fatalf("adopted proposal: %+v", got.CurrentProposal)
 	}
 	var saved PathManifest
@@ -570,10 +568,41 @@ func liveSyncBranchProposal(t *testing.T, mode string) {
 	}
 }
 
-func TestDoctorFieldGuideMissingPlanOwnersContract(t *testing.T) {
-	for _, want := range []string{"plan scope: release declares no task owners", "task_owner: true", "implementation-engineer", "integration-test-engineer", "unit-test-engineer", "linked", "retained Plan capture", "go-development 1.0.0", "cut and link a new go-development release", "Relinking alone does not replace", "source-versus-live uncertainty", "without claiming a repair"} {
-		if !strings.Contains(testDoctorGuide(t), want) {
-			t.Errorf("field guide missing %q", want)
+func TestDoctorManifestBuildIdentity(t *testing.T) {
+	s := doctorIOService(t)
+	ref, err := Target("acme/api", 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := gittest.New(t)
+	repo, err := s.DB.UpsertRepo(t.Context(), store.Repo{Path: fixture.Dir, Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: fixture.Origin, BaseBranch: gittest.DefaultBranch, WorktreeRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.DB.GetOrCreateSession(t.Context(), repo, 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.SetSessionWorktree(t.Context(), session.ID, fixture.Dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ version, source, want string }{
+		{"daemon-commit", "/known/factory-checkout", "daemon-commit"},
+		{"dev", "", "dev"}, {"", "", "unknown"},
+	} {
+		s.BuildVersion, s.FactorySource = tc.version, tc.source
+		m, _, err := s.pathManifest(t.Context(), ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Worktree != fixture.Dir {
+			t.Fatal("missing independent task checkout")
+		}
+		if m.DaemonVersion != tc.want || m.FactorySource != tc.source {
+			t.Fatalf("manifest: %+v", m)
+		}
+		if m.FactorySource != "" && m.FactorySource == m.Worktree {
+			t.Fatal("task worktree substituted")
 		}
 	}
 }

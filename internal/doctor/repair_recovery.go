@@ -12,7 +12,7 @@ import (
 // ReconcileRepair observes possible file writes without restarting an agent.
 // Even an exact intended result remains held for reviewed continuation when the
 // original execution did not reach verified handoff.
-func (s *Service) ReconcileRepair(ctx context.Context, ref naming.Ref) (operation store.DoctorRepair, err error) {
+func (s *Service) ReconcileRepair(ctx context.Context, ref naming.Ref, expectedID ...string) (operation store.DoctorRepair, err error) {
 	ref = canonicalTarget(ref)
 	unlock, err := s.repairEffectLock(ctx, ref)
 	if err != nil {
@@ -22,6 +22,9 @@ func (s *Service) ReconcileRepair(ctx context.Context, ref naming.Ref) (operatio
 	operation, err = s.DB.ReadDoctorRepair(ctx, ref.String())
 	if err != nil {
 		return operation, err
+	}
+	if len(expectedID) > 0 && operation.ID != expectedID[0] {
+		return operation, errors.New("doctor recovery operation changed")
 	}
 	if operation.State == "restart_pending" || operation.State == "recovered" || operation.State == "completed" || operation.State == "failed" {
 		return operation, nil
@@ -35,6 +38,23 @@ func (s *Service) ReconcileRepair(ctx context.Context, ref naming.Ref) (operatio
 		typed = typed && store.DoctorRepairToolKind(step.Kind)
 	}
 	if typed {
+		graph := len(steps) > 0
+		verified := graph
+		for _, step := range steps {
+			graph = graph && store.DoctorGraphRepairKind(step.Kind)
+			verified = verified && step.State == "verified"
+		}
+		if graph && verified && !operation.Fenced {
+			// The atomic journal, rather than a lost agent summary, confirms
+			// the complete local repair. This does not dispatch continuation.
+			if err = s.DB.VerifyDoctorGraphRepair(ctx, operation.ID); err == nil {
+				err = s.DB.SettleDoctorTypedRepair(ctx, operation.ID, true, "")
+				if err != nil {
+					return operation, err
+				}
+				return s.DB.ReadDoctorRepair(ctx, ref.String())
+			}
+		}
 		if err = s.DB.SettleDoctorTypedRepair(ctx, operation.ID, false, "Interrupted repair retained without replay; unfinished effects require owner review"); err != nil {
 			return operation, err
 		}

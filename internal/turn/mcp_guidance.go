@@ -50,6 +50,9 @@ func mcpGuidance(ctx context.Context, spec *agent.MCPLaunchSpec, service *AgentR
 	if checkpoint {
 		b.WriteString("\nCheckpoints: feedback_preflight({\"kind\":\"checkpoint\",\"input\":C}) → evidence_submit(C) → receipts_get({\"request_id\":ID}). C uses the supplied stage contribution contract, separately from application result P. Engineering completion requires actual captured checks; assessment references retained evidence. Keep complete terminal findings; partial live checkpoints never excuse omissions.\n")
 	}
+	if has("standards_categories", "standards_read") {
+		b.WriteString("\nStandards that apply to you: standards_categories({}) lists their categories; read the ones relevant to this work with standards_read({\"categories\":[ID,...]}) and pass next_cursor to continue.\n")
+	}
 	if has("issues_list") {
 		b.WriteString("\nIssue lookup: issues_list({\"state\":\"open\",\"page\":1,\"per_page\":20}) returns repository-local summaries, not full bodies or comments.\n")
 	}

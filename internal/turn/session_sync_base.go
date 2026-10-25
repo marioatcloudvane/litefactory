@@ -94,8 +94,11 @@ func (r *BugRuntime) graphSyncBaseBinding(sessionID int64) SyncBaseBinding {
 		if err != nil {
 			return SyncBaseTarget{}, err
 		}
-		if pin.Digest != r.definition.Profile.Digest || pin.TeamSnapshotDigest != r.definition.Digest {
+		if pin.Digest != r.definition.Profile.Digest {
 			return SyncBaseTarget{}, errors.New("base sync differs from pinned factory workflow")
+		}
+		if ok, err := pinnedContent(ctx, r.opts.DB, pin, instance.ID, a.NodeAttemptID, r.definition.Digest); err != nil || !ok {
+			return SyncBaseTarget{}, errors.Join(errors.New("base sync differs from pinned factory workflow"), err)
 		}
 		node, ok := r.definition.Profile.Node(a.Node)
 		if !ok || node.Action != graphexec.SyncBaseAction {
@@ -206,4 +209,45 @@ func (r *BugRuntime) syncBaseBranch(ctx context.Context, s store.Session, repo s
 		return "", err
 	}
 	return storyBaseBranch(ctx, r.opts, clone, s, repo), nil
+}
+
+// pinnedContent reports whether digest is the workflow content pinned for this
+// attempt. Graph definitions are shared by topology, so their team snapshot is
+// the first session's; a later session's own retained capture is its pin.
+func pinnedContent(ctx context.Context, db *store.DB, pin store.GraphDefinition, instanceID, attemptID int64, digest string) (bool, error) {
+	if pin.TeamSnapshotDigest == digest {
+		return true, nil
+	}
+	capture, err := db.WorkflowCaptureForAttempt(ctx, attemptID)
+	if errors.Is(err, store.ErrGraphInvariant) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return capture.InstanceID == instanceID && capture.ContentDigest == digest, nil
+}
+
+func (b sessionSyncCheckout) DeferredHead(ctx context.Context, working string) (head string, err error) {
+	err = b.withCheckout(ctx, func(c GitSyncBaseCheckout) error { var e error; head, e = c.DeferredHead(ctx, working); return e })
+	return
+}
+
+// PreparationFreshness observes the retained branch against the fetched selected
+// base. A healthy retained checkout needs no refresh or publication to proceed.
+func (b sessionSyncCheckout) PreparationFreshness(ctx context.Context, working, base string) (head string, behind int, err error) {
+	err = b.withCheckout(ctx, func(c GitSyncBaseCheckout) error {
+		var observeErr error
+		head, observeErr = c.DeferredHead(ctx, working)
+		if observeErr != nil {
+			return observeErr
+		}
+		divergence, observeErr := c.Worktree.Divergence(ctx, "refs/remotes/"+b.runtime.opts.remote()+"/"+base)
+		if observeErr != nil {
+			return observeErr
+		}
+		behind = divergence.Behind
+		return nil
+	})
+	return
 }

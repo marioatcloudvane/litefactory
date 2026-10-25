@@ -158,12 +158,47 @@ func TestStatusAndCommands(t *testing.T) {
 	if texts[0] != "Running: true. Heartbeat age: 10s. Discovery paused: true." {
 		t.Fatal(texts[0])
 	}
-	for _, fragment := range []string{"Runs in flight: 2", "Pause reason: rate limit", "2026-10-10T12:01:00Z", "Polling: 0 repositories"} {
+	for _, fragment := range []string{"Running now: 0 (+2 unidentified).", "Pause reason: rate limit", "2026-10-10T12:01:00Z", "Polling: 0 repositories"} {
 		if !strings.Contains(texts[1], fragment) {
 			t.Fatalf("status lacks %q: %s", fragment, texts[1])
 		}
 	}
 }
+
+// TestStatusShowsRunsHeldBesideConnectionPause: a free-disk hold has its own
+// line after the pause reason, separate from a scoped connection pause.
+func TestStatusShowsRunsHeldBesideConnectionPause(t *testing.T) {
+	t.Parallel()
+	db := database(t)
+	at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	summary := "project 1 linear https://api.linear.app: rate-limit backoff until 2026-10-10T12:03:00Z"
+	held := "New runs wait: free disk 1.4 GB is below the 2 GB minimum."
+	if err := db.ReplaceHealthSnapshot(t.Context(), store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at.Add(-10 * time.Second), PauseReason: summary, RunsHeld: held}, nil); err != nil {
+		t.Fatal(err)
+	}
+	s := messaging.New(db, "test", "owner", []string{"channel"}, nil, messaging.FactoryStatus{DB: db})
+	text, status, err := s.RunCommand(t.Context(), messaging.Message{Transport: "test", ID: "status", Channel: "channel", Sender: "owner", Command: "status"}, at)
+	if err != nil || status != "success" {
+		t.Fatalf("status: %s %v", status, err)
+	}
+	lines := strings.Split(text, "\n")
+	pause, runs := -1, -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, "Pause reason: "+summary+".") {
+			pause = i
+		}
+		if line == "Runs held: "+held {
+			runs = i
+		}
+	}
+	if pause < 0 || runs != pause+1 {
+		t.Fatalf("status lacks separate pause and runs-held lines: %s", text)
+	}
+	if strings.Contains(lines[pause], "free disk") {
+		t.Fatalf("disk hold under the pause reason: %s", text)
+	}
+}
+
 func TestClaimFencesStaleCompletion(t *testing.T) {
 	t.Parallel()
 	db := database(t)
@@ -233,5 +268,74 @@ func TestDeliveryLogLine(t *testing.T) {
 				t.Fatalf("log carries reply text: %s", lines[0])
 			}
 		})
+	}
+}
+
+func TestStatusExplainsAStoryRestartedByTheMergeStep(t *testing.T) {
+	t.Parallel()
+	db := database(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 21, 16, 0, 0, 0, time.UTC)
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory", BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := db.GetOrCreateSession(ctx, repo, 728)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "chat", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: parent.ID, DefinitionID: def.ID, CurrentNode: "merge", StartedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	ref := parent.TaskRef
+	seeds := []store.ImplementStorySeed{{Key: "story-001", Position: 0, Branch: "lf/1"}, {Key: "story-002", Position: 1, Branch: "lf/2"}, {Key: "story-003", Position: 2, Branch: "lf/3"}}
+	if err := db.EnsureImplementStories(ctx, ref, 1, seeds, at); err != nil {
+		t.Fatal(err)
+	}
+	move := func(key, from, to string, revision int64, reason string) store.ImplementStory {
+		t.Helper()
+		in := store.ImplementTransition{Parent: ref, Generation: 1, Key: key, From: from, To: to, ExpectedRevision: revision, Reason: reason, At: at}
+		if to == store.ImplementMerged {
+			in.MergeCommit = "feedface"
+		}
+		row, err := db.TransitionImplementStory(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	const reason = "the story conflicts with the work already merged in internal/cli/commands.go; its worker is started again to resolve the conflict"
+	for _, key := range []string{"story-001", "story-002", "story-003"} {
+		row := move(key, store.ImplementWaiting, store.ImplementRunning, 1, "")
+		row = move(key, store.ImplementRunning, store.ImplementDone, row.Revision, "")
+		switch key {
+		case "story-001":
+			// Restarted by the merge step and running again.
+			row = move(key, store.ImplementDone, store.ImplementParked, row.Revision, reason)
+			row = move(key, store.ImplementParked, store.ImplementWaiting, row.Revision, "")
+			move(key, store.ImplementWaiting, store.ImplementRunning, row.Revision, "")
+		case "story-002":
+			move(key, store.ImplementDone, store.ImplementParked, row.Revision, "the story's branch was not found, so there is nothing to merge")
+		case "story-003":
+			move(key, store.ImplementDone, store.ImplementMerged, row.Revision, "")
+		}
+	}
+	s := messaging.New(db, "test", "owner", []string{"channel"}, nil, messaging.FactoryStatus{DB: db})
+	text, status, err := s.RunCommand(ctx, messaging.Message{Transport: "test", ID: "status", Channel: "channel", Sender: "owner", Command: "status", Arguments: map[string]string{"project": "acme/litefactory", "issue": "728"}}, at)
+	if err != nil || status != "success" {
+		t.Fatalf("status: %s %v", status, err)
+	}
+	if want := "story-001 running, restarted after: " + reason; !strings.Contains(text, want) {
+		t.Fatalf("missing %q: %s", want, text)
+	}
+	if got := strings.Count(text, "restarted after:"); got != 1 {
+		t.Fatalf("a parked or merged story must not show a restart reason (%d found): %s", got, text)
+	}
+	if !strings.Contains(text, "story-002 parked, parked: the story's branch was not found") {
+		t.Fatalf("parked story line changed: %s", text)
 	}
 }

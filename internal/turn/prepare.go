@@ -25,6 +25,9 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
+	// standardsRole names the role whose graph node grants it the optional
+	// standards read; empty grants nothing. Nothing requires its use.
+	standardsRole  string
 	stackGuidance  string
 	stackSetup     bool
 	mcpRuntime     *MCPRuntime
@@ -129,11 +132,11 @@ func prepare(
 	session store.Session,
 	ref naming.Ref,
 	logger *slog.Logger,
-) (*preparation, error) {
+) (prepared *preparation, prepareErr error) {
 	// A story worker was admitted by its parent's approval. The story issue's
 	// own Plan row (#475) neither gates it nor is approved by it.
 	storyWorker := false
-	if req.mode() == "implement" {
+	if req.mode() == "implement" && req.Workflow != agent.WorkflowBug {
 		_, err := opts.DB.ImplementStoryByWorkerSession(ctx, session.ID)
 		switch {
 		case err == nil:
@@ -143,7 +146,15 @@ func prepare(
 		}
 		if !storyWorker {
 			if err := opts.DB.CheckManagedReadiness(ctx, ref.String()); err != nil {
-				return nil, err
+				if errors.Is(err, store.ErrPlanNotReady) {
+					req.preparationAssessment = true
+					req.Tools = []string{"Read", "Glob", "Grep"}
+					req.AllowedTools = nil
+					req.ToolProfile = "validate"
+					req.CodexSandbox = "read-only"
+				} else {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -183,49 +194,20 @@ func prepare(
 	}
 
 	session, branch, worktree, sync, _, err := prepareClone(ctx, opts, req, clone, session, repo, author, logger, nil)
+	defer func() {
+		if prepareErr != nil && (preparationSyncDeferred(sync) || (sync.Task != nil && preparationSyncDeferred(*sync.Task))) {
+			prepareErr = &preparationObservationError{cause: prepareErr, sync: sync}
+		}
+	}()
 	if err != nil {
 		return nil, err
 	}
-	// AC-4.1: a blocked merge preview stops the turn here, before anything
-	// else below is created or mutated — no segment, no runs row, no
-	// run-artifact directory — and the branch itself is untouched, because
-	// [git.Worktree.MergePreview] never performed one (US-2). syncBase
-	// produces the blocked outcome regardless of this flag (US-2's own scope
-	// boundary); [Options.BlockRunOnConflict] is what turns it into a refusal
-	// rather than a run that merely discloses the conflict and goes ahead.
-	// Distance refuses unconditionally: unlike a conflict, there is no
-	// BlockRunOnConflict-style "disclose and carry on" reading of a cap. An
-	// operator who wants the run to go ahead raises the cap or sets it to 0.
-	if sync.Outcome == syncOutcomeTooFarBehind {
-		return nil, &syncRefusal{
-			tooFarBehind: true,
-			observation:  &sync,
-			behind:       sync.Behind,
-			maxBehind:    opts.AutoSyncMaxBehind,
-			branch:       sync.Branch, base: sync.Base,
-		}
-	}
-	// A story worker resolves a conflict with its feature branch itself: the
-	// factory starts the merge and leaves the conflict for the worker. The
-	// Implement coordinator's own agent (the sync resolver) does the same for a
-	// conflict between the base branch and the feature branch, in the parent's
-	// worktree.
+	// Preparation observations do not remove the request's admitted authority.
+	// In particular, never start a speculative conflicted merge in retained work.
 	coordinatorAgent := req.mode() == "implement" && req.Workflow != agent.WorkflowBug && !storyWorker && req.researchDefinition != nil
 	storyMerge, err := startStoryMerge(ctx, storyWorker || coordinatorAgent, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync)
 	if err != nil {
 		return nil, err
-	}
-	if sync.Outcome == syncOutcomeBlocked && opts.BlockRunOnConflict && storyMerge == nil {
-		return nil, &syncRefusal{
-			observation: &sync,
-			conflicts:   append([]string(nil), sync.Conflicts...),
-			branch:      sync.Branch, base: sync.Base,
-			files:            sync.ConflictFiles,
-			snapshots:        sync.ConflictSnapshots,
-			collectionReason: sync.ConflictCollectionReason,
-			excluded:         sync.ConflictExcluded,
-			baseSHA:          sync.BaseSHA, branchSHA: sync.BranchSHA, inputs: sync.ConflictInputs,
-		}
 	}
 	if session.WorktreePath != worktree.Path() {
 		if err = opts.DB.SetSessionWorktree(ctx, session.ID, worktree.Path()); err != nil {
@@ -433,14 +415,23 @@ func prepare(
 	if err != nil {
 		return nil, err
 	}
+	ownerGuidance, err := opts.DB.OwnerGuidanceForRun(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	instruction, err := ownerInstructionForStep(ctx, opts.DB, req, session.ID)
+	if err != nil {
+		return nil, err
+	}
 	promptInput := harness.PromptInput{
+		OwnerGuidanceRevision: ownerGuidance.Revision, OwnerGuidanceBody: ownerGuidance.Body,
 		Ref:               ref,
 		FeatureSlug:       session.FeatureSlug,
 		Branch:            branch,
 		Mode:              req.mode(),
 		Workflow:          req.Workflow,
 		RunOrdinal:        run.Ordinal,
-		Instruction:       req.Command.Text,
+		Instruction:       instruction,
 		IssueTitle:        req.Issue.Title,
 		IssueReference:    display.Reference(),
 		IssueBody:         req.Issue.Body,
@@ -466,9 +457,17 @@ func prepare(
 	if storyMerge != nil {
 		promptInput.DeferredSync = *storyMerge
 	}
-	if !storyWorker {
+	if !storyWorker && !req.preparationAssessment && req.Workflow != agent.WorkflowBug {
 		if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
-			return nil, err
+			if errors.Is(err, store.ErrPlanNotReady) {
+				req.preparationAssessment = true
+				req.Tools = []string{"Read", "Glob", "Grep"}
+				req.AllowedTools = nil
+				req.ToolProfile = "validate"
+				req.CodexSandbox = "read-only"
+			} else {
+				return nil, err
+			}
 		}
 	}
 	if req.researchDefinition == nil {
@@ -485,7 +484,7 @@ func prepare(
 	}
 	// A story worker's story comes from the Implement graph, not from a
 	// parent bundle or contract of its own story issue.
-	if !storyWorker {
+	if !storyWorker && !req.preparationAssessment && req.Workflow != agent.WorkflowBug {
 		if err := prepareApprovedContext(ctx, opts, &promptInput, run.ID); err != nil {
 			return nil, err
 		}
@@ -494,6 +493,9 @@ func prepare(
 		} else if !errors.Is(contractErr, store.ErrNotFound) {
 			return nil, contractErr
 		}
+	}
+	if err := retainPreparationCaveats(ctx, opts, req, &run, &promptInput); err != nil {
+		return nil, err
 	}
 	// Populated on every path, cold or resumed (harness itself renders the
 	// pointer only on the cold path — see [harness.PromptInput.SessionArtifactDir]).
@@ -512,7 +514,7 @@ func prepare(
 	}
 
 	var retainedStackGuidance string
-	if req.standaloneDefinition != nil {
+	if req.standaloneDefinition != nil && !req.preparationAssessment {
 		guidance, err := standaloneStackGuidance(req.standaloneDefinition)
 		if err != nil {
 			return nil, err
@@ -575,7 +577,7 @@ func prepare(
 
 	return &preparation{
 		stackGuidance:    retainedStackGuidance,
-		stackSetup:       req.standaloneDefinition != nil && standaloneStackSetupAllowed(req),
+		stackSetup:       !req.preparationAssessment && req.standaloneDefinition != nil && standaloneStackSetupAllowed(req),
 		researchInstance: req.researchInstance,
 		nodeWrite:        req.nodeWrite,
 		resultPass:       req.resultPass,
@@ -755,7 +757,12 @@ func prepareClone(
 		if err != nil {
 			return session, branch, worktree, syncResult{Task: &task}, nil, failuref(err, "base synchronization could not resolve %s", baseRef)
 		}
-		sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)
+		var sync syncResult
+		if preparationSyncDeferred(task) {
+			sync, err = observeDeferredBase(ctx, opts, worktree, baseSHA)
+		} else {
+			sync, err = syncBase(ctx, opts, req, worktree, repo, author, logger)
+		}
 		sync.Phase, sync.Task = "base", &task
 		inputs.TargetPhase, inputs.TargetRef = "base", inputs.BaseRef
 		sync.ConflictInputs = inputs
@@ -867,10 +874,6 @@ const (
 	syncOutcomeBlocked       syncOutcome = "blocked"
 	syncOutcomeSkipped       syncOutcome = "skipped"
 	syncOutcomeDeferredDirty syncOutcome = "deferred_dirty"
-	// syncOutcomeTooFarBehind is distance alone: further behind than
-	// [Options.AutoSyncMaxBehind] allows, so no merge was ever previewed.
-	// It refuses the run; see [syncRefusal.tooFarBehind].
-	syncOutcomeTooFarBehind syncOutcome = "too_far_behind"
 )
 
 // syncResult is what [syncBase] reached for one task branch: the outcome, the
@@ -949,8 +952,8 @@ func withinSyncCap(opts Options, behind int) bool {
 // nil case by design: AC-3.1 requires a report for a branch that was already
 // current to be byte-identical to one from before this feature existed.
 //
-// A base conflict allowed by existing policy remains visible here. Task
-// conflicts always refuse before launch through [report.ReplyRefusesSync].
+// Unresolved task and base observations stay visible without preventing
+// the original request from reaching its permitted work.
 func reportSync(sync syncResult) *report.Sync {
 	if sync.Outcome == syncOutcomeUpToDate {
 		return nil
@@ -1027,19 +1030,11 @@ func syncBase(
 			append(logFields, slog.String("outcome", string(syncOutcomeSkipped)), slog.String("reason", reason))...)
 		return syncResult{Outcome: syncOutcomeSkipped, Behind: divergence.Behind, Ahead: divergence.Ahead, Reason: reason}, nil
 	}
-	// Over the cap refuses the run rather than skipping past it. A skip would
-	// let the run proceed against a branch known to be stale, disclosed only
-	// in a report nobody has to read; the cap says this branch is too far
-	// gone to merge unattended, and stopping is the honest answer to that.
-	// Being switched off, just above, stays a skip: an operator who turned
-	// sync off asked for the run to go ahead.
 	if !withinSyncCap(opts, divergence.Behind) {
-		logger.Info("base sync: too far behind",
-			append(logFields, slog.String("outcome", string(syncOutcomeTooFarBehind)),
-				slog.Int("max_behind", opts.AutoSyncMaxBehind))...)
 		return syncResult{
-			Outcome: syncOutcomeTooFarBehind, Behind: divergence.Behind, Ahead: divergence.Ahead,
-			Branch: worktree.Branch(), Base: repo.BaseBranch,
+			Outcome: syncOutcomeSkipped, Behind: divergence.Behind, Ahead: divergence.Ahead,
+			Branch: worktree.Branch(), Base: baseRef,
+			Reason: fmt.Sprintf("automatic merge skipped: %d commits behind exceeds the limit of %d", divergence.Behind, opts.AutoSyncMaxBehind),
 		}, nil
 	}
 
@@ -1069,7 +1064,7 @@ func syncBase(
 			append(logFields, slog.String("outcome", string(syncOutcomeBlocked)), slog.Any("conflicts", preview.Conflicts))...)
 		blocked := syncResult{
 			Outcome: syncOutcomeBlocked, Behind: divergence.Behind, Ahead: divergence.Ahead, Conflicts: preview.Conflicts,
-			Branch: worktree.Branch(), Base: repo.BaseBranch,
+			Branch: worktree.Branch(), Base: repo.BaseBranch, Reason: "base commits conflict with local commits",
 		}
 		// US-12: the branch and base tips this preview was evaluated against
 		// are captured here, still inside the same gate acquisition, so a
@@ -1643,6 +1638,9 @@ func ensureWorktree(
 		return nil, failuref(err, "the worktree path for issue %d could not be derived", session.IssueNumber)
 	}
 
+	if session.WorktreePath != "" {
+		dir = session.WorktreePath
+	}
 	ensured, err := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{
 		Dir:        dir,
 		Branch:     branch,
@@ -1696,39 +1694,55 @@ func storyBaseBranch(ctx context.Context, opts Options, clone *git.Clone, sessio
 	return parent.Branch
 }
 
-// startStoryMerge gives a story worker its conflict with the feature branch, and
-// the Implement sync resolver its conflict with the base branch, as work instead
-// of refusing the run. On a blocked sync it starts merging
-// baseRef into the story branch and leaves the conflicts in the worktree; on a
-// later run that finds that merge still in progress (a deferred sync) it
-// reports the paths still unmerged. It returns nil when there is no such
-// conflict, and for every run that is neither.
+// startStoryMerge exposes deferred preparation without touching the checkout.
 func startStoryMerge(ctx context.Context, storyWorker bool, worktree *git.Worktree, baseRef, featureBranch string, sync syncResult) (*harness.DeferredSyncContext, error) {
-	if !storyWorker {
+	if !storyWorker || !preparationSyncDeferred(sync) {
 		return nil, nil
 	}
-	switch sync.Outcome {
-	case syncOutcomeBlocked:
-	case syncOutcomeDeferredDirty:
-		_, err := worktree.RevParse(ctx, "MERGE_HEAD", git.RevParseOptions{})
-		if errors.Is(err, git.ErrRevisionNotFound) {
-			return nil, nil
-		}
-		if err != nil {
-			return nil, failuref(err, "whether a merge is in progress on %s could not be read", worktree.Branch())
-		}
-	default:
-		return nil, nil
-	}
-	conflicts, err := worktree.StartMerge(ctx, baseRef)
+	conflicts := append([]string(nil), sync.Conflicts...)
+	changes, err := worktree.Status(ctx)
 	if err != nil {
-		return nil, failuref(err, "merging %s into %s to resolve its conflicts could not be started", baseRef, worktree.Branch())
+		return nil, failuref(err, "retained conflicts could not be inspected")
 	}
-	return &harness.DeferredSyncContext{
-		Deferred: true, Branch: worktree.Branch(), Base: baseRef,
-		Behind: sync.Behind, Ahead: sync.Ahead,
-		FeatureBranch: featureBranch, Conflicts: conflicts,
-	}, nil
+	if len(conflicts) == 0 {
+		for _, change := range changes {
+			if change.Kind == git.ChangeUnmerged {
+				conflicts = append(conflicts, change.Path)
+			}
+		}
+	}
+	return &harness.DeferredSyncContext{Deferred: true, Branch: worktree.Branch(), Base: baseRef, Behind: sync.Behind, Ahead: sync.Ahead, FeatureBranch: featureBranch, Conflicts: conflicts}, nil
+}
+
+// preparationSyncDeferred is an observation, never an execution permission.
+func preparationSyncDeferred(s syncResult) bool {
+	return s.Behind > 0 && (s.Outcome == syncOutcomeBlocked || s.Outcome == syncOutcomeDeferredDirty || s.Outcome == syncOutcomeSkipped)
+}
+
+// observeDeferredBase continues inspection after unresolved task reconciliation,
+// without allowing a base merge to conceal or mutate that unresolved state.
+func observeDeferredBase(ctx context.Context, opts Options, w *git.Worktree, baseSHA string) (syncResult, error) {
+	d, err := w.Divergence(ctx, baseSHA)
+	if err != nil {
+		return syncResult{}, failuref(err, "base divergence could not be observed after deferred task reconciliation")
+	}
+	s := syncResult{Outcome: syncOutcomeUpToDate, Behind: d.Behind, Ahead: d.Ahead, Branch: w.Branch()}
+	if d.Behind == 0 {
+		return s, nil
+	}
+	s.Outcome, s.Reason = syncOutcomeSkipped, "base synchronization deferred while task reconciliation remains unresolved"
+	if !withinSyncCap(opts, d.Behind) {
+		s.Reason = fmt.Sprintf("automatic merge skipped: %d commits behind exceeds the limit of %d; task reconciliation remains unresolved", d.Behind, opts.AutoSyncMaxBehind)
+		return s, nil
+	}
+	preview, err := w.MergePreview(ctx, baseSHA)
+	if err != nil {
+		return s, failuref(err, "base merge could not be previewed after deferred task reconciliation")
+	}
+	if !preview.Clean {
+		s.Outcome, s.Conflicts, s.Reason = syncOutcomeBlocked, preview.Conflicts, "base commits conflict with local commits; task reconciliation remains unresolved"
+	}
+	return s, nil
 }
 
 // allocateRun inserts the runs row before the subprocess starts (S-1).
@@ -1808,8 +1822,10 @@ func requestPermissions(req Request) agent.Permissions {
 			Payload: harness.ToolSurface{
 				Tools: req.Tools, AllowedTools: req.AllowedTools,
 				// A validate surface holding Bash is a reviewer's read-only
-				// shell: the runner refuses everything AllowedTools does not name.
-				ReadOnlyShell: req.ToolProfile == "validate" && slices.Contains(req.Tools, "Bash"),
+				// shell, and so is a Spike read node's: the runner refuses
+				// everything AllowedTools does not name and keeps the worktree
+				// unwritable. A Spike write node (the fixer) is not one.
+				ReadOnlyShell: slices.Contains(req.Tools, "Bash") && (req.ToolProfile == "validate" || (req.ToolProfile == string(agent.ModeSpike) && !req.nodeWrite)),
 			},
 		}
 	}
