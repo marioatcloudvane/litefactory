@@ -235,7 +235,7 @@ const planUpstreamWait = "this story waits for the owner or for an upstream stor
 
 // planAnswerNotApplied is posted for an input bound to a Plan instance that
 // finished without applying it. It names no internal state.
-const planAnswerNotApplied = "This answer was not applied; please post it again."
+const planAnswerNotApplied = "This answer was not applied; please post it again. Its earlier workflow attempt has finished; reposting on this issue starts a fresh attempt against the saved current workflow. No story approval or change was made from this answer, and any approval must match the current review command."
 
 // planParkedHold bounds how long an owner comment waits for a Plan instance
 // parked at a non-agent step to finish through its own scheduled retry.
@@ -541,7 +541,7 @@ func (r *planGraphRuntime) applyReply(ctx context.Context, reply planbrief.PlanO
 		approved, e = s.ApplyOwnerReply(reply)
 		approved = approved || replayed
 		if e != nil {
-			return false, &PlanReplyRefusal{Reason: planReplyRefusalReason, Err: e}
+			return false, &PlanReplyRefusal{Reason: planRefusedReplyGuidance(*s, reply), Err: e}
 		}
 		return true, nil
 	})

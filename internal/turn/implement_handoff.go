@@ -283,6 +283,9 @@ func renderImplementHandoffNotes(a ImplementAuthority, rows []store.ImplementSto
 				}
 			}
 		}
+		if !story.AlreadyComplete || ok {
+			suffix += implementDecisionGuidance(a, story, row, dependencies, displays...)
+		}
 		tr := tableRow{prefix: "| " + label + " | " + display + " | ", info: info, suffix: suffix + " |\n"}
 		fixed += len(tr.prefix) + len(tr.suffix)
 		table = append(table, tr)
@@ -364,6 +367,62 @@ func waitingSentence(story ImplementStory, row store.ImplementStory, state map[s
 		return "ready to start."
 	}
 	return "waiting for " + strings.Join(blockers, ", ") + " to be merged."
+}
+
+// implementDecisionGuidance keeps actions and their effects outside the clipped
+// worker summary. A long reason must not hide the route to its actual decision.
+func implementDecisionGuidance(a ImplementAuthority, story ImplementStory, row store.ImplementStory, state map[string]store.ImplementStory, displays ...map[string]implementDisplay) string {
+	decision := func(key string) string {
+		if len(displays) > 0 && displays[0][key].ReplyURL != "" {
+			return "[blocking decision for " + escapeImplementText(key) + "](" + displays[0][key].ReplyURL + ")"
+		}
+		return "blocking decision for " + escapeImplementText(key) + " (confirmed report destination unavailable)"
+	}
+	if row.State == store.ImplementParked {
+		var dependents []string
+		for _, candidate := range a.Stories {
+			if state[candidate.Key].State == store.ImplementMerged || candidate.AlreadyComplete {
+				continue
+			}
+			if slices.Contains(candidate.Dependencies, story.Key) {
+				dependents = append(dependents, escapeImplementText(candidate.Key))
+			}
+		}
+		text := " Read the " + decision(story.Key) + "; reply on the parent issue naming " + escapeImplementText(story.Key) + " with the decision or changed guidance it needs. The existing restart rules apply; the reply does not approve or merge the story."
+		if len(dependents) > 0 {
+			text += " Must merge before " + strings.Join(dependents, ", ") + " can be admitted."
+		}
+		return text
+	}
+	if row.State == store.ImplementDone {
+		return " The coordinator attempts the merge automatically; no owner decision is requested unless it parks."
+	}
+	if row.State == store.ImplementRunning || row.State == store.ImplementMerged {
+		return ""
+	}
+	var steps []string
+	for _, dep := range story.Dependencies {
+		d, ok := state[dep]
+		if ok && d.State == store.ImplementMerged {
+			continue
+		}
+		switch {
+		case !ok:
+			steps = append(steps, escapeImplementText(dep)+": retained dependency state unavailable; no decision can be inferred")
+		case d.State == store.ImplementParked:
+			steps = append(steps, "first resolve the "+decision(dep)+" by replying on the parent with that story key and the requested decision or guidance")
+		case d.State == store.ImplementRunning:
+			steps = append(steps, escapeImplementText(dep)+" is running; wait for its result")
+		case d.State == store.ImplementDone:
+			steps = append(steps, escapeImplementText(dep)+" is queued for automatic merge")
+		default:
+			steps = append(steps, escapeImplementText(dep)+" is queued and must finish and merge first")
+		}
+	}
+	if len(steps) == 0 {
+		return " Existing admission will start it when capacity and prerequisites permit; no owner reply is needed."
+	}
+	return " " + strings.Join(steps, "; ") + ". After every prerequisite merges, existing admission can reconsider " + escapeImplementText(story.Key) + "; a reply alone does not start it."
 }
 
 // safeImplementProgress keeps worker text inert even when it contains Markdown,

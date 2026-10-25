@@ -499,6 +499,8 @@ type Reply struct {
 	SourceStoryIssue                int
 	SourceCommentID                 int64
 	SourceParentURL, SourceReplyURL string
+	// DecisionURL is a provider-observed destination for the retained workflow decision.
+	DecisionURL string
 	// Ref is the task the comment was on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -914,40 +916,42 @@ func (r Reply) body() string {
 		b.WriteString("The `Coding Agent: …` label on this issue does not name a usable coding-agent tool. ")
 		b.WriteString(agentRefusalSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label " +
+		b.WriteString("Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`, then comment again on this issue. The label " +
 			"text is not repeated here on purpose.")
 
 	case ReplyBugModeSwitch:
 		b.WriteString("This task is already admitted to the standalone Bug workflow. A mode command cannot replace or cancel it. Its workflow and retained progress are unchanged.")
 	case ReplyDoctorUnsupported:
 		b.WriteString("Doctor is currently supported only on GitHub. No Doctor job or repair was started. Other commands on this ticket can continue.")
+		b.WriteString(sectionGap + "Ask the factory operator to inspect this unsupported Doctor request on the factory host: `" + TaskInspectionCommand(r.Ref.String()) + "`.")
 
 	case ReplyBugUnavailable:
 		b.WriteString("Bug admission is retained, but execution is unavailable: the registered Bug policy, graph package, result decoder, shared-service preparation and factory role permission bindings are not installed. No agent was launched. The task remains resumable in Bug.")
+		b.WriteString(sectionGap + "Ask the factory operator to restore the installed team’s Bug workflow bindings before another Bug attempt on this issue.")
 	case ReplyMissingTicketPublisher:
 		fmt.Fprintf(&b, "The retained %s ticket connection for %s/%s has no usable verified publisher. Implement is blocked.", r.Ref.Forge, r.Ref.Owner, r.Ref.Repo)
 		b.WriteString(sectionGap)
-		b.WriteString("Restore and verify the ticket connection's original publishing account, then send a fresh `/implement <instruction>` command. The configured project approver remains unchanged.")
+		b.WriteString("Ask the factory operator to restore and verify the ticket connection's original publishing account, then send a fresh `/implement <instruction>` command. The configured project approver remains unchanged.")
 	case ReplyMissingTeam:
 		b.WriteString("This repository has no linked installed team for the requested workflow. Nothing was run.")
 		b.WriteString(sectionGap)
-		b.WriteString("Link a suitable installed team to the repository, then comment again.")
+		b.WriteString("Ask the factory operator to select a suitable installed team with `litefactory team link <name> <version>` from this repository’s registered clone on the factory host, then comment again on this issue. Replace the name and version with the installed team’s values.")
 	case ReplyUnsupportedWorkflow:
 		b.WriteString("The linked team does not provide the requested workflow. Nothing was run.")
 		b.WriteString(sectionGap)
-		b.WriteString("Select a workflow supported by the linked team, or link a suitable installed team, then comment again.")
+		b.WriteString("Ask the factory operator to inspect the linked team’s supported workflows on the factory host with `litefactory team inspect <name> <version>`, using that installed team’s name and version, before selecting a supported workflow on this issue.")
 	case ReplyMissingModeMapping:
 		b.WriteString("The selected mode has no label mapping on this Linear connection. Nothing was run.")
 		b.WriteString(sectionGap)
 		if r.MissingMode.Valid() {
-			fmt.Fprintf(&b, "Add a label ID for `%s` to the connection's `--mode-labels`, or label the issue with a mapped mode, then comment again.", r.MissingMode)
+			fmt.Fprintf(&b, "Ask the factory operator to add a label ID for `%s` to the connection's `--mode-labels`, or label the issue with a mapped mode, then comment again on this issue.", r.MissingMode)
 		} else {
-			b.WriteString("Add the selected mode's label ID to the connection's `--mode-labels`, or label the issue with a mapped mode, then comment again.")
+			b.WriteString("Ask the factory operator to add the selected mode's label ID to the connection's `--mode-labels`, or label the issue with a mapped mode, then comment again on this issue.")
 		}
 	case ReplyMalformedModeLabel:
 		b.WriteString("The `Mode: …` label on this issue is malformed or unknown. Nothing was run.")
 		b.WriteString(sectionGap)
-		b.WriteString("Use exactly `Mode: Research`, `Mode: Plan`, `Mode: Implement`, `Mode: Validate`, or `Mode: Spike`.")
+		b.WriteString("Use exactly `Mode: Research`, `Mode: Plan`, `Mode: Implement`, `Mode: Validate`, or `Mode: Spike`, then comment again on this issue.")
 
 	case ReplyAmbiguousModeLabels:
 		b.WriteString("This issue carries more than one `Mode: …` label, so no mode was chosen and nothing was run.")
@@ -963,15 +967,15 @@ func (r Reply) body() string {
 	case ReplyGraphReplyBetweenQuestions:
 		b.WriteString(graphReplyBetweenQuestionsSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("If it still applies, please post it again as a reply to the open question or review.")
+		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Reply to the current question or review to continue this workflow; this comment did not answer it."))
 	case ReplyBugCommentNotApplied:
 		b.WriteString("This comment could not be applied to the bug work at its current step, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
-		b.WriteString("Reply to the latest question or review instead. To approve a review, put `/approve-bug analysis <revision>` on the first line, using the revision that review names.")
+		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Use the current question or review and its exact reply. Answering the question continues analysis; its approval command approves only the displayed Bug revision."))
 	case ReplyImplementCommentNotApplied:
 		b.WriteString("This Implement comment did not select any parked stories, so no stories were resumed.")
 		b.WriteString(sectionGap)
-		b.WriteString("Name a parked story key to resume it with your guidance, or name no existing story key to resume all parked stories. Running and merged stories are unchanged.")
+		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Name a parked story key to resume it with your guidance, or name no existing story key to resume all parked stories. Running and merged stories are unchanged."))
 	case ReplyGraphResumeRefused:
 		b.WriteString("This comment could not resume the stopped work")
 		if resumeNodePattern.MatchString(r.ResumeNode) {
@@ -983,22 +987,22 @@ func (r Reply) body() string {
 		}
 		b.WriteString(", so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
-		b.WriteString("If it still applies, please reply again once that has changed.")
+		b.WriteString("Ask the factory operator to inspect the retained stop on the factory host: `" + TaskInspectionCommand(r.Ref.String()) + "`.")
 	case ReplyGraphOwnerWaitRefused:
 		b.WriteString("This comment could not be used because the workflow is already handling another reply or question, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
 		b.WriteString("A question that is already answered cannot accept another answer. ")
-		b.WriteString("If it still applies, please post it again after the workflow has posted its next update.")
+		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Use the current question or review only if it still waits for your reply. Otherwise wait for the workflow’s next update; no second answer was applied."))
 	case ReplyCodeControlRefused:
-		b.WriteString("This delivery command was set aside and nothing was recorded, pushed, merged or closed, because only the task's owner can give it.")
+		b.WriteString("This delivery command was set aside and nothing was recorded, pushed, merged or closed, because only the task's owner can give it. Ask that owner to post the delivery command as a new comment on this issue.")
 	case ReplyValidateCommentNotApplied:
-		b.WriteString("Validate is running or waiting for you; nothing was run. The Validate report lists what blocks and the commands. Give each command as its own comment on this issue.")
+		b.WriteString("Validate is running or waiting for you; nothing was run. " + workflowDecisionDestination(r.DecisionURL, "Use the current Validate report for blockers, prerequisites and commands. Give each command as its own comment on this issue; this reply approved no check, finding or delivery."))
 	case ReplyImplementFinished:
 		b.WriteString("Implement is finished: every story is merged. Nothing was run. Next step: start Validate by commenting `/validate`.")
 	case ReplyImplementFinishedAutoValidate:
 		b.WriteString("Implement is finished: every story is merged. Nothing was run. Validate starts automatically; its report will appear here.")
 	case ReplyImplementFinishedValidated:
-		b.WriteString("Implement is finished and Validate has already finished on it. Nothing was run. The Validate report shows the result.")
+		b.WriteString("Implement is finished and Validate has already finished on it. Nothing was run. " + workflowDecisionDestination(r.DecisionURL, "The Validate report shows the result and any remaining delivery decisions. Checks and findings do not grant push, merge or close permission."))
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")
 		b.WriteString(sectionGap)
@@ -1098,7 +1102,7 @@ func (r Reply) body() string {
 	case ReplyScheduleInvalid:
 		b.WriteString("I could not schedule that request. Litefactory accepts ")
 		b.WriteString("`/schedule -by HH:MM:SS <payload>`, `/schedule -to MM/DD/YYYY HH:MM:SS [ZONE] <payload>`, ")
-		b.WriteString("or `/schedule --after <id[,id...]> -by HH:MM:SS <payload>`.")
+		b.WriteString("or `/schedule --after <id[,id...]> -by HH:MM:SS <payload>`. Post the corrected request as a new comment on this issue; nothing was scheduled for this request.")
 
 	case ReplyScheduleConfirmed:
 		if r.Schedule.ID <= 0 {
@@ -1124,6 +1128,7 @@ func (r Reply) body() string {
 			return ""
 		}
 		fmt.Fprintf(&b, "Scheduled work `%d` will not run because one of its prerequisites failed.", r.Schedule.ID)
+		b.WriteString(sectionGap + "Inspect the failed prerequisite on the factory host: `" + TaskInspectionCommand(r.Ref.String()) + "`. This blocked item will not resume by waiting.")
 
 	case ReplyScheduleProposalReady:
 		if r.Schedule.ProposalID <= 0 || r.Schedule.Count <= 0 {
@@ -1144,7 +1149,7 @@ func (r Reply) body() string {
 		fmt.Fprintf(&b, "Rejected schedule proposal `%d`.", r.Schedule.ProposalID)
 
 	case ReplyScheduleProposalFailed:
-		b.WriteString("I could not produce a valid schedule proposal. No work was scheduled.")
+		b.WriteString("I could not produce a valid schedule proposal. No work was scheduled. Post a fresh `/schedule <instruction>` comment on this issue to request a new proposal.")
 
 	case ReplyConfirmInvalid:
 		b.WriteString("I could not accept that confirmation. Litefactory accepts exactly " +
@@ -1153,7 +1158,7 @@ func (r Reply) body() string {
 
 	case ReplyConfirmNotOwner:
 		b.WriteString("Only this task's issue owner may confirm a proposal. Nothing was applied and the " +
-			"proposal's status is unchanged.")
+			"proposal's status is unchanged. Ask the issue owner to post the exact confirmation from the current proposal as a new comment on this issue.")
 
 	case ReplyConfirmUnknownProposal:
 		if r.Confirm.ProposalID > 0 {
@@ -1161,7 +1166,7 @@ func (r Reply) body() string {
 		} else {
 			b.WriteString("I have no pending proposal with that id for this task. ")
 		}
-		b.WriteString("Nothing was applied.")
+		b.WriteString("Nothing was applied. Use the proposal number from the latest resolution suggestion on this issue; if none remains eligible, ask for a fresh suggestion in a new comment.")
 
 	case ReplyConfirmExpiredProposal:
 		fmt.Fprintf(&b, "Proposal `%d` has expired and can no longer be confirmed. Nothing was applied.", r.Confirm.ProposalID)
@@ -1184,7 +1189,7 @@ func (r Reply) body() string {
 			b.WriteString("\n" + fence + "\n" + reason + "\n" + fence)
 		}
 		b.WriteString(sectionGap)
-		b.WriteString("Resolve the reported issue manually or request regeneration and confirm the new proposal number. A failed cleanup or push can leave local changes; the reported failure describes the outcome.")
+		b.WriteString("A failed cleanup or push can leave local changes; the reported failure describes the outcome. Ask the factory operator to inspect the affected task before another confirmation: `" + TaskInspectionCommand(r.Ref.String()) + "` on the factory host.")
 
 	case ReplyAppliesResolution:
 		fmt.Fprintf(&b, "Applied proposal `%d`.", r.Confirm.ProposalID)
@@ -1307,4 +1312,12 @@ const conflictPathRejectionSentence = "%d of the conflicting path(s) could not b
 type CreationReply struct {
 	Envelope, Hash, Relationship string
 	Publication                  CreationPublication
+}
+
+// workflowDecisionDestination renders an observed destination without inventing one.
+func workflowDecisionDestination(link, guidance string) string {
+	if ticketBrowserURL(link) {
+		return guidance + " [Open the current decision report](" + link + ")."
+	}
+	return guidance + " The current decision destination is not confirmed or recoverable yet; wait for its published update before choosing again."
 }

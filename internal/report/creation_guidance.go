@@ -26,11 +26,14 @@ func CreationGuidance(publication CreationPublication) string {
 	case CreationPublicationLegacy:
 		text += "For an eligible legacy Research publishing attempt, post a further ordinary comment to start the attempt. This requires the proposal and publishing capability to remain eligible and does not guarantee publication."
 	case CreationPublicationGraph:
-		text += "Graph Research cannot publish this batch. Another ordinary comment does not enable publication in that workflow."
+		text += "Graph Research cannot publish this batch. Another ordinary comment does not enable publication in that workflow. Ask the factory operator to inspect publishing eligibility for this retained proposal on the factory host using `litefactory logs --all`."
 	case CreationPublicationUnavailable:
-		text += "Publishing capability was unavailable when this guidance was prepared. Another ordinary comment does not establish publishing eligibility."
+		text += "Publishing capability was unavailable when this guidance was prepared. Another ordinary comment does not establish publishing eligibility. Ask the factory operator to inspect the unavailable publishing capability on the factory host using `litefactory logs --all`."
 	default:
-		text += "Publishing eligibility is unknown. This proposal does not establish that another ordinary comment can start an eligible publishing attempt."
+		text += "Publishing eligibility is unknown. This proposal does not establish that another ordinary comment can start an eligible publishing attempt. Ask the factory operator to inspect publishing eligibility on the factory host using `litefactory logs --all`."
+	}
+	if publication != CreationPublicationLegacy {
+		return text
 	}
 	return text + "\n\nTo renew expired approval, post a fresh approval comment. Reuse the retained proposal and its approval command only while it remains current and eligible; otherwise a new eligible proposal is required. Replaying the old approval comment does not renew consent."
 }

@@ -58,7 +58,8 @@ Never return a clean verdict when something essential could not be read (for exa
 
 Write for the owner in plain, short sentences. No paths, commit ids or line numbers in the prose; those belong in the citations.
 
-- `summary`: two to four sentences. What you challenged, your overall judgment, and the most important change.
+- `summary`: two to four sentences. What you challenged, your overall judgment, and the most important change. Explain the consequence for the owner's decision and material uncertainty. Do not repeat supplied explanations or imply that this advisory review approved or started anything. Keep an uneventful review short.
+- When a correction requires an owner decision, give only supported replies or commands and their destination, permitted actor, required owner-supplied evidence and consequences. Put prerequisites first, distinguish independent choices and recommend an option only when evidence supports it. Do not invent an approval route or ask for a reply to a routine finding.
 - Each finding:
   - `title`: a short name for the problem, at most 120 characters, e.g. "No proof that the analysts produce useful rules".
   - `severity`, by how much it threatens the outcome:

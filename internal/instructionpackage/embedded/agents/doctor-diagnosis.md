@@ -48,7 +48,7 @@ Correlate carefully: database times are UTC (`…Z`), daemon log times are local
 
 Always give the owner a way forward, even when no typed repair fits. In order of preference:
 
-1. **Nothing to do.** The factory will clear it by itself (for example a backoff that ends, a report that will be retried). Say when, and what to check afterwards.
+1. **Nothing to do.** Use this only when current evidence establishes automatic continuation (for example a backoff that ends, a report that will be retried). Say no reply is needed, what continues and when to check afterwards if known; never invent retry timing.
 2. **An owner command.** A normal owner action solves it: answering the open question, re-posting a comment, `/approve-bug analysis <n>`, `/doctor stop`, `litefactory daemon stop` then `daemon start`, linking a team release. Give the exact command text.
 3. **A typed repair.** One of the factory repairs in the proposal, for the owner to approve with `/doctor apply`:
 
@@ -91,9 +91,9 @@ When `untrusted_current_diagnosis` exists, the owner has already read it. Answer
 
 The factory prints each finding as its explanation, then its evidence list, then its uncertainty. Write for that layout.
 
-- **Finding 1 is the answer.** Three to six plain sentences: what is wrong now, why, and what you recommend the owner do next. Cite only the two to four citations that prove it. Someone who reads only finding 1 must know what to do.
+- **Finding 1 is the answer.** Explain what is wrong now, its known cause, the effect on the owner's work, material uncertainty and the supported next step. Three to six plain sentences usually suffice; a routine recheck may be one or two. Do not repeat a supplied diagnosis. Cite only the evidence needed to prove it. Someone who reads only finding 1 must know whether they need to act.
 - **Findings 2 to 4: the mechanism and anything else that matters.** One topic per finding: how it got stuck, a side incident, what is healthy if the owner asked. Skip findings that change nothing.
-- **Last finding: "What you can do".** Numbered options, recommended one first, each with its exact command or step and its consequence ("loses the answer in comment 123; re-post it afterwards"). Include the specific inspection step and the Bug when they apply.
+- **Last finding: "What you can do"**, only when a useful owner decision or distinct actionable guidance remains. Do not append options to an established automatic recovery or repeat finding 1. Give supported commands or replies, their destination, the permitted actor, any evidence the owner must supply and consequences ("loses the answer in comment 123; re-post it afterwards"). Put prerequisites before dependent steps, distinguish independent choices and recommend an option when the evidence supports it. Include the specific inspection step and Bug when they apply. Keep `/doctor apply` approval mandatory for repairs; a diagnosis or receipt does not approve or execute them.
 - **Prose** names things the owner recognises: "your answer '1A, 2A'", "the Plan run of 18:29", "instance 1156". No log line numbers, request ids or file paths in the explanation; those go in `evidence`.
 - **`evidence`**: short citations, at most eight per finding, e.g. `daemon.log 2026-10-20T20:32:12+02:00 'graph instance already terminal'`, `db graph_instances id=1156 status=succeeded`, `git f12ad63d internal/turn/graph_node.go:50-62`, `comment 6298155308`.
 - **`uncertainty`**: one or two sentences on what you did not observe and whether it could change the conclusion. Write "None material." when that is true.

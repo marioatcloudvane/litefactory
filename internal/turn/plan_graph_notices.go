@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
@@ -28,6 +30,7 @@ type planStoryRow struct {
 	Dependencies           []string
 	Approved               []string
 	Command                string
+	Guidance               string
 }
 
 // planTableCell keeps text inside one Markdown table cell.
@@ -55,7 +58,7 @@ func (r *planGraphRuntime) planStoryRows(ctx context.Context, s planbrief.PlanSt
 		if !item.Active() {
 			continue
 		}
-		row := planStoryRow{Key: item.Key, Name: item.Draft.Name, Description: item.Draft.Problem, Dependencies: item.Draft.Dependencies.StoryKeys, Command: s.PlanCurrentCommand(item.Key)}
+		row := planStoryRow{Key: item.Key, Name: item.Draft.Name, Description: item.Draft.Problem, Dependencies: item.Draft.Dependencies.StoryKeys, Command: currentPlanNoticeCommand(s, item)}
 		if e, ok := entries[item.Key]; ok {
 			if row.Name == "" {
 				row.Name = e.Name
@@ -69,7 +72,7 @@ func (r *planGraphRuntime) planStoryRows(ctx context.Context, s planbrief.PlanSt
 				row.Approved = append(row.Approved, stage)
 			}
 		}
-		draft, e := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), item.Key)
+		draft, e := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), item.Key)
 		switch {
 		case e == nil && draft.IssueID > 0:
 			row.Issue = draft.IssueNumber
@@ -87,9 +90,177 @@ func (r *planGraphRuntime) planStoryRows(ctx context.Context, s planbrief.PlanSt
 		default:
 			return nil, false, e
 		}
+		row.Guidance = planNoticeGuidance(s, item)
+		switch {
+		case row.Issue == 0:
+			row.Command = ""
+			row.Guidance = "The story has no retained sub-issue binding; its reply destination is unavailable. No approval can be offered here."
+		case item.Wait != nil && item.Wait.IssueID != draft.IssueID:
+			row.Command = ""
+			row.Guidance = "The saved owner wait does not match the retained sub-issue binding. A current bound review is required before approval."
+		case item.Wait != nil:
+			link, err := r.planWaitLink(ctx, item, row.Issue)
+			if err != nil {
+				return nil, false, err
+			}
+			if link != "" {
+				row.Guidance += " [Read the retained review or questions](" + link + ")."
+			} else {
+				row.Guidance += " An exact published review/question link is not confirmed."
+			}
+
+		}
 		rows = append(rows, row)
 	}
 	return rows, complete, nil
+}
+
+// Historical waits may predate graph correlation. Such identities establish no
+// exact publication destination; they are missing presentation facts, not I/O failures.
+func planWaitIdentity(id string) (int64, int64, bool) {
+	parts := strings.Split(id, ":")
+	if len(parts) != 4 || parts[0] != "plan-review" {
+		return 0, 0, false
+	}
+	instance, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	source, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return instance, source, instance > 0 && source > 0
+}
+
+// Wait correlation identifies the original publication even when the story has
+// since moved to its own session or the parent is answering in a later run.
+func (r *planGraphRuntime) planWaitLink(ctx context.Context, item planbrief.PlanStoryState, child int) (string, error) {
+	instance, source, correlated := planWaitIdentity(item.Wait.ID)
+	if !correlated {
+		return "", nil
+	}
+	attempt, err := r.opts.DB.GetGraphNodeAttempt(ctx, source)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if attempt.InstanceID != instance || attempt.RunID < 1 {
+		return "", nil
+	}
+	run, err := r.opts.DB.GetRun(ctx, attempt.RunID)
+	if err != nil {
+		return "", err
+	}
+	session, err := r.opts.DB.GetSession(ctx, run.SessionID)
+	if err != nil {
+		return "", err
+	}
+	task, err := naming.ParseRef(session.TaskRef)
+	if err != nil {
+		return "", err
+	}
+	target := r.parentRef
+	target.Issue = child
+	if task.String() != r.parentRef.String() && task.String() != target.String() {
+		return "", nil
+	}
+	reporter := r.opts.ResearchReporter
+	if reporter == nil {
+		return "", nil
+	}
+	intent := reporter.deliveryIntent(task, target, session.ID, run.TriggerCommentID, run.ID, item.Wait.ID)
+	delivery, err := r.opts.DB.GetReportDelivery(ctx, intent.Key)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !delivery.Completed || delivery.CommentID < 1 {
+		return "", nil
+	}
+	forge, err := r.storyForge()
+	if err != nil {
+		return "", err
+	}
+	_, link, err := reportSourceLinks(ctx, forge, r.parentRef, child, delivery.CommentID)
+	return link, err
+}
+
+// Notice commands must pass the same freshness and prerequisite checks as replies.
+func currentPlanNoticeCommand(s planbrief.PlanState, item planbrief.PlanStoryState) string {
+	command := s.PlanCurrentCommand(item.Key)
+	if command == "" || item.Wait == nil || item.Wait.Stage != item.Stage || s.PlanReplyReason(item.Key, command) != "" {
+		return ""
+	}
+	return command
+}
+
+func planNoticeGuidance(s planbrief.PlanState, item planbrief.PlanStoryState) string {
+	var holds []string
+	for _, hold := range []string{item.Hold, item.LifecycleHold, item.EffectHold} {
+		if hold != "" {
+			holds = append(holds, hold)
+		}
+	}
+	keys := make([]string, 0, len(item.EffectHolds))
+	for key := range item.EffectHolds {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		holds = append(holds, key+": "+item.EffectHolds[key])
+	}
+	if len(holds) > 0 {
+		return "Resolve this hold before approval: " + strings.Join(holds, "; ") + ". No safe repair command is established by these retained facts; approval cannot bypass the hold."
+	}
+	if reason := s.PlanReplyHold(item.Key); reason != "" {
+		return reason + " Prerequisites: " + dependencyCell(item.Draft.Dependencies.StoryKeys) + "."
+	}
+	if !s.UpstreamApproved(item.Key, item.Stage) {
+		return "Prerequisite stage approvals are required first: " + dependencyCell(item.Draft.Dependencies.StoryKeys) + ". Use those stories' current reviews; their approval permits normal admission to reconsider this story, without starting it automatically."
+	}
+	if item.Wait == nil {
+		return "No owner decision is waiting; the next stage remains subject to normal admission."
+	}
+	revision, err := s.ReviewRevision(item.Key, item.Stage)
+	if err != nil || revision != item.Wait.Revision || item.Wait.Candidate != item.Candidate || item.Wait.Stage != item.Stage {
+		return "The saved review is out of date. An updated review is required before approval; nothing is approved by this notice."
+	}
+	if item.Wait.Kind == "question" && len(item.Draft.Questions) > 0 {
+		return "Answer the open questions on the sub-issue before approval: " + strings.Join(item.Draft.Questions, "; ") + ". Your answer permits revision and another review."
+	}
+	if command := currentPlanNoticeCommand(s, item); command != "" {
+		if item.Wait.Kind == "retire" {
+			return "This reply confirms retirement of this candidate as not planned; dependent work still needs its prerequisites resolved."
+		}
+		return "This reply approves only the displayed stage; later stages and the final plan review still need their existing approvals."
+	}
+	return "An earlier stage or current review is required before this stage can be approved."
+}
+
+func planRefusedReplyGuidance(s planbrief.PlanState, reply planbrief.PlanOwnerReply) string {
+	reason := "Nothing was approved. "
+	if reply.ID < 1 || reply.OwnerID < 1 || reply.ActorID != reply.OwnerID {
+		return reason + "Only the authenticated owner can approve this story on its bound sub-issue."
+	}
+	if why := s.PlanReplyReason(reply.Key, reply.Body); why != "" {
+		return reason + why
+	}
+	for _, item := range s.Stories {
+		if item.Key != reply.Key {
+			continue
+		}
+		reason += "This reply names a different owner wait or sub-issue from the current review. "
+		if command := currentPlanNoticeCommand(s, item); command != "" {
+			return reason + "On this story's bound sub-issue, the current command is `" + command + "`. It approves only that stage; later approvals remain required."
+		}
+		return reason + planNoticeGuidance(s, item)
+	}
+	return reason + "This story is no longer part of the plan. Review the remaining stories on the parent issue."
 }
 
 func issueLink(ref naming.Ref, number int, reference ...string) string {
@@ -166,15 +337,15 @@ func planReadyText(ref naming.Ref, rows []planStoryRow) string {
 func planWaitingText(ref naming.Ref, rows []planStoryRow) string {
 	var out strings.Builder
 	out.WriteString("**Nothing to do here right now: the plan is waiting for your reviews on the sub-issues.**\n\n")
-	out.WriteString("| ID | Name | Sub-issue | Command that works now |\n|---|---|---|---|\n")
+	out.WriteString("| ID | Name | Sub-issue | Command that works now | Cause and next step |\n|---|---|---|---|---|\n")
 	for _, row := range rows {
 		command := "no review waiting"
 		if row.Command != "" {
 			command = "`" + row.Command + "`"
 		}
-		fmt.Fprintf(&out, "| `%s` | %s | %s | %s |\n", row.Key, planTableCell(row.Name), issueLink(ref, row.Issue, row.Reference), command)
+		fmt.Fprintf(&out, "| `%s` | %s | %s | %s | %s |\n", row.Key, planTableCell(row.Name), issueLink(ref, row.Issue, row.Reference), command, planTableCell(row.Guidance))
 	}
-	out.WriteString("\nReply on each sub-issue with its command to approve it, or in plain words to change it. A story with no review waiting is still being worked on or has an unresolved problem reported on its sub-issue.\n")
+	out.WriteString("\nReply on each sub-issue with its command to approve it, or in plain words to change it. Resolve the listed prerequisites first. Independent stories can continue through normal admission; a reply does not itself start dependent work.\n")
 	return out.String()
 }
 
@@ -298,6 +469,18 @@ func (r *planGraphRuntime) reportStop(ctx context.Context, instanceID int64) err
 		text, ok := planStopText(r.definition.Profile, t.FromNode, t.OnOutcome)
 		if !ok {
 			return nil
+		}
+		source, found := r.definition.Profile.Node(t.FromNode)
+		if found && source.Action == graphexec.ResearchIfAction && t.OnOutcome == "false" {
+			state, _, err := r.state(ctx)
+			if err != nil {
+				return err
+			}
+			rows, _, err := r.planStoryRows(ctx, state)
+			if err != nil {
+				return err
+			}
+			text = "**Plan stopped: no stage has work to do right now.**\n\n" + planWaitingText(r.result.Ref, rows)
 		}
 		return r.planNotice(ctx, fmt.Sprintf("plan-stopped:%d", instanceID), text)
 	}

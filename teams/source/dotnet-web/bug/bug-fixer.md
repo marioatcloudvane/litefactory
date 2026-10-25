@@ -49,6 +49,12 @@ The factory alone grants approval, allocates attempts, saves checkpoints or succ
 
 # Writing the Report
 
+Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. For a stop or wait, name the affected work and any work known to continue independently; if that wider impact is unknown, say so. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
+
+For reshape or blocked results, explain why the approved remedy cannot finish as supplied, what work and evidence are preserved and what the authorized next stage must settle. Do not present a proposed remedy change as approved or a successful repair as already delivered.
+
+When a report is long or shortened, keep the outcome, required immediate action and its consequence visible. Use only an existing supplied full-report destination; check that it retains the omitted evidence and supported recovery steps. Do not replace a usable next step with an unexplained link.
+
 Explain the repaired behavior, actual checks and remaining obstacles in the structured result. Preserve relevant evidence and reasons.
 
 # Output

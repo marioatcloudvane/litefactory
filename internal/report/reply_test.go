@@ -54,7 +54,7 @@ func TestGraphReplyBetweenQuestionsRefusalSaysNotUsedAndResend(t *testing.T) {
 		"before its current question or review was posted",
 		"it was not used",
 		"nothing was run for it",
-		"post it again as a reply to the open question or review",
+		"this comment did not answer it",
 	)
 }
 
@@ -67,7 +67,7 @@ func TestRenderReplyBugCommentNotApplied(t *testing.T) {
 		t.Fatalf("RenderReply: %v", err)
 	}
 	text := body.String()
-	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "/approve-bug analysis <revision>") || !report.ReplyBugCommentNotApplied.RefusesMode() {
+	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "its exact reply") || !report.ReplyBugCommentNotApplied.RefusesMode() {
 		t.Fatalf("reply:\n%s", text)
 	}
 }
@@ -182,10 +182,10 @@ func TestRenderReplyPlainParentCommentRefusals(t *testing.T) {
 		name string
 		want []string
 	}{
-		{report.ReplyValidateCommentNotApplied, "validate_comment_not_applied", []string{"Validate is running or waiting for you; nothing was run.", "The Validate report lists what blocks and the commands.", "its own comment"}},
+		{report.ReplyValidateCommentNotApplied, "validate_comment_not_applied", []string{"Validate is running or waiting for you; nothing was run.", "blockers, prerequisites and commands", "its own comment"}},
 		{report.ReplyImplementFinished, "implement_finished", []string{"Implement is finished: every story is merged.", "Nothing was run.", "commenting `/validate`"}},
 		{report.ReplyImplementFinishedAutoValidate, "implement_finished_auto_validate", []string{"Implement is finished: every story is merged.", "Nothing was run.", "Validate starts automatically"}},
-		{report.ReplyImplementFinishedValidated, "implement_finished_validated", []string{"Implement is finished and Validate has already finished on it.", "Nothing was run.", "The Validate report shows the result."}},
+		{report.ReplyImplementFinishedValidated, "implement_finished_validated", []string{"Implement is finished and Validate has already finished on it.", "Nothing was run.", "The Validate report shows the result and any remaining delivery decisions."}},
 	} {
 		body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: tc.kind})
 		if err != nil {
@@ -203,5 +203,30 @@ func TestRenderReplyPlainParentCommentRefusals(t *testing.T) {
 		if tc.kind.String() != tc.name || !tc.kind.RefusesMode() || tc.kind.RefusesTools() || tc.kind.RefusesAgent() || tc.kind.RefusesSwitch() || tc.kind.RefusesSync() || tc.kind.IsConfirmationReply() {
 			t.Errorf("%s is in the wrong refusal family", tc.kind.String())
 		}
+	}
+}
+
+// Retained refusals must carry their actionable route through the final signed
+// reply, rather than relying on a renderer fragment or a generic retry hint.
+func TestRuntimeRefusalInspectionRoutes(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []report.ReplyKind{report.ReplyDoctorUnsupported, report.ReplyGraphResumeRefused, report.ReplyScheduleBlocked} {
+		t.Run(kind.String(), func(t *testing.T) {
+			t.Parallel()
+			body, err := newReporter(t).RenderReply(t.Context(), report.Reply{
+				Ref: testRef, Kind: kind, Schedule: report.ScheduleReply{ID: 71},
+				ResumeNode: "agent", ResumeReason: "saved launch is missing",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := body.String()
+			if strings.Count(text, report.TaskInspectionCommand(testRef.String())) != 1 || !strings.Contains(text, "factory host") || body.Truncated() {
+				t.Fatalf("refusal lost its single affected-task inspection route: %s", text)
+			}
+			if !strings.Contains(text, report.ReplyMarker(testRef)) {
+				t.Fatalf("missing affected-task marker: %s", text)
+			}
+		})
 	}
 }

@@ -82,7 +82,7 @@ func (r *Reporter) ReportGraphDispatchStop(ctx context.Context, dispatch store.G
 		return Posted{}, err
 	}
 	if projection == nil {
-		projection = &report.StopRecovery{Step: dispatch.Node, Disposition: "cancelled", Reason: dispatch.CancellationReason, Unresolved: "The retained graph and saved launch could not be established.", NextStep: "Use `/doctor inspect the stopped dispatch and its saved launch` before repeating work. Diagnosis authorizes no repair."}
+		projection = &report.StopRecovery{Step: dispatch.Node, Disposition: "cancelled", Reason: dispatch.CancellationReason, Unresolved: "The retained graph and saved launch could not be established.", NextStep: "Ask the factory operator to inspect on the factory host: `" + report.TaskInspectionCommand(session.TaskRef) + "`."}
 	}
 	return r.deliverRecoveryProjection(ctx, intent, projection, "")
 }

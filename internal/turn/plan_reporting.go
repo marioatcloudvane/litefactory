@@ -31,7 +31,24 @@ func (r *Reporter) ReportPlanNotices(ctx context.Context, parent naming.Ref, ses
 		intent := r.deliveryIntent(parent, parent, sessionID, 0, 0, purpose)
 		intent.TriggerNamespace = "plan-observation"
 		_, err = r.deliver(ctx, intent, func() (redact.Body, error) {
-			return r.renderer.RenderReportDelivery(ctx, report.PlanStoryNoticeText(notice.State), "")
+			text := report.PlanStoryNoticeText(notice.State)
+			held := len(notice.State.RequestHolds) > 0 || notice.State.Hold != "" || notice.State.LifecycleHold != "" || notice.State.Effect != "" || notice.State.EffectHold != ""
+			if held {
+				draft, readErr := r.db.GetPlanStoryDraft(ctx, parent.String(), notice.State.Key)
+				switch {
+				case errors.Is(readErr, store.ErrNotFound), readErr == nil && (draft.IssueID < 1 || draft.IssueNumber < 1):
+					text += "\n\nThe retained story has no confirmed issue binding; its inspection destination is unavailable."
+				case readErr != nil:
+					return redact.Body{}, readErr
+				default:
+					display, displayErr := lookupTicketDisplay(ctx, r.forge, parent, draft.IssueNumber)
+					if displayErr != nil {
+						return redact.Body{}, displayErr
+					}
+					text += "\n\nAffected story: " + display.Link() + ". Inspect the original bound issue before resolving its reported hold; this link supplies no approval."
+				}
+			}
+			return r.renderer.RenderReportDelivery(ctx, text, "")
 		})
 		if errors.Is(err, ErrReportReceiptUncertain) {
 			pending++

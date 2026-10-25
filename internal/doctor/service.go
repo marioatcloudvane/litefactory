@@ -65,16 +65,19 @@ type DiagnoseRequest struct {
 
 // Conversation is bounded display data; complete history remains in the store.
 type Conversation struct {
-	ProposalID      int64                    `json:"proposal_id,omitempty"`
-	Repair          *store.DoctorRepair      `json:"repair,omitempty"`
-	RepairSteps     []store.DoctorRepairStep `json:"repair_steps,omitempty"`
-	Restart         *store.DoctorRestart     `json:"restart,omitempty"`
-	CurrentProposal []RepairStep             `json:"current_proposal,omitempty"`
-	Conversation    store.DoctorConversation `json:"conversation"`
-	Attempts        []store.DoctorAttempt    `json:"attempts"`
-	HistoryWindow   string                   `json:"history_window"`
-	Diagnosis       *Diagnosis               `json:"diagnosis,omitempty"`
-	ApplyAvailable  bool                     `json:"apply_available"`
+	// RepairInspectionRequired is transient presentation context after a command
+	// returns an error; a nonterminal phase alone does not prove active recovery.
+	RepairInspectionRequired bool                     `json:"-"`
+	ProposalID               int64                    `json:"proposal_id,omitempty"`
+	Repair                   *store.DoctorRepair      `json:"repair,omitempty"`
+	RepairSteps              []store.DoctorRepairStep `json:"repair_steps,omitempty"`
+	Restart                  *store.DoctorRestart     `json:"restart,omitempty"`
+	CurrentProposal          []RepairStep             `json:"current_proposal,omitempty"`
+	Conversation             store.DoctorConversation `json:"conversation"`
+	Attempts                 []store.DoctorAttempt    `json:"attempts"`
+	HistoryWindow            string                   `json:"history_window"`
+	Diagnosis                *Diagnosis               `json:"diagnosis,omitempty"`
+	ApplyAvailable           bool                     `json:"apply_available"`
 }
 
 // Diagnose preserves input and fresh evidence even when the provider refuses.

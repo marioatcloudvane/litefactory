@@ -15,7 +15,7 @@ failure and what you fixed. The factory measures the change and tests it again.
 {
   "result": {
     "outcome": "completed",
-    "comment": "Fixed the rounding error that made the totals test fail; one file changed. Not run by me, the factory tests it again.",
+    "comment": "Fixed the rounding error that made the totals test fail; the failing test now passes. The factory still needs to measure the change and run its checks.",
     "payload": {
       "validate": {
         "repair": {

@@ -294,7 +294,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, err
 	}
+	var turnOpts turn.Options
 	reporter, err := turn.NewReporter(turn.ReporterOptions{
+		ValidateHead: func(ctx context.Context, session store.Session) (string, error) {
+			return turn.ValidatePublicationHead(ctx, turnOpts, session)
+		},
 		BotUserID:    identities.BotUserID,
 		StoryLockDir: s.Paths.StoryProgressLocksDir(),
 		DB:           s.DB,
@@ -458,7 +462,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	for _, diagnostic := range s.Config.WorkerTimeoutDiagnostics() {
 		s.Logger.Warn(diagnostic)
 	}
-	turnOpts := turn.Options{
+	turnOpts = turn.Options{
 		WorkerTimeoutSeconds: s.Config.Settings.WorkerTimeoutSeconds,
 		WorkerTimeoutSource:  s.Config.WorkerTimeoutSource(),
 		ProjectApprovers:     true,

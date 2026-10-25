@@ -25,7 +25,7 @@ type NoticeEvent struct {
 	Key, Kind, Workflow, From, To, Question, QuestionLink string
 	// Title is the issue title read live for the notice; Asked names what an
 	// owner wait asks for (question or review).
-	Title, Asked         string
+	Title, Asked, Cause  string
 	DisplayKey, IssueURL string
 	NeedsGuidance        bool
 	Task                 naming.Ref
@@ -76,6 +76,9 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 		// mode; they are factory internals, never owner notices.
 		return nil, nil
 	case "owner_waits":
+		if parked {
+			e.Cause = strings.TrimSpace(r.StopReason)
+		}
 		// Only a published wait that still waits for the owner is announced.
 		published := r.State == "waiting" && r.Published
 		e.Key = "wait:" + r.Key + "@" + store.FormatTime(r.At) + "@" + r.TaskRef
@@ -112,7 +115,9 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 				stopped.NeedsGuidance = true
 			}
 			stopped.Question = ""
-			stopped.QuestionLink = ""
+			if !published {
+				stopped.QuestionLink = ""
+			}
 			stopped.Asked = ""
 			if published {
 				return []NoticeEvent{stopped, e}, nil
@@ -201,6 +206,12 @@ func NoticeText(e NoticeEvent) string {
 	if !strings.HasSuffix(action, "?") && !strings.HasSuffix(action, "!") && !strings.HasSuffix(action, ".") {
 		action += "."
 	}
+	if cause := noticeSentence(e.Cause); cause != "" && e.Kind == "stopped" {
+		action += " Cause: " + noticeLimit(cause, 240)
+		if !strings.HasSuffix(action, ".") && !strings.HasSuffix(action, "?") && !strings.HasSuffix(action, "!") {
+			action += "."
+		}
+	}
 	if e.Usage != nil && (e.Kind == "completed" || e.Kind == "failed" || e.Kind == "stopped") {
 		if cost := noticeUsage(e.Usage); cost != "" {
 			action += " " + cost
@@ -212,6 +223,14 @@ func NoticeText(e NoticeEvent) string {
 	}
 	if e.QuestionLink != "" {
 		link = e.QuestionLink
+	}
+	switch {
+	case e.Kind == "stopped" && e.NeedsGuidance && e.QuestionLink != "":
+		action += " Open the report below and reply with the requested decision or guidance."
+	case e.Kind == "stopped" && e.NeedsGuidance && e.Cause != "":
+		action += " The decision report is not confirmed yet; follow the issue below for its publication."
+	case e.Kind == "failed" || e.Kind == "stopped":
+		action += " Open the issue below to inspect its retained report before requesting more work."
 	}
 	suffix := action
 	if link != "" {

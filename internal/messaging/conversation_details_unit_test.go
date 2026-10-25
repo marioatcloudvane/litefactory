@@ -230,9 +230,9 @@ func TestConversationDetailsEmptyAndExpiredNeverSubstitute(t *testing.T) {
 				at = at.Add(24 * time.Hour)
 			}
 			reply := detailsUnitFreeze(t, run, answer, at)
-			want := "No tool results were obtained for this answer."
+			want := "No tool results were obtained for this answer. Ask a narrower question here naming the task or project to inspect."
 			if expired {
-				want = "Details for this answer have expired."
+				want = "Details for this answer have expired. Ask your question again here to obtain current evidence."
 			}
 			if reply.ReplyText != want || reply.ReplyAttachment != "" {
 				t.Fatalf("details substituted content: %+v", reply)

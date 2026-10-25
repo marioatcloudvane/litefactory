@@ -45,7 +45,7 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 			ref = store.OwnerDecisionReference(st.DecisionTask, action, validateDecisionTarget(st), st.Revision)
 		}
 		if action == ValidateShipCommand {
-			fmt.Fprintf(&b, "Ship this displayed commit despite its displayed blockers: `%s %s -- <reason>`.\n\n", action, ref)
+			fmt.Fprintf(&b, "Ship this displayed commit despite its displayed blockers: `%s %s -- <reason>`. %s\n\n", action, ref, validateShipConsequence)
 		} else {
 			fmt.Fprintf(&b, "Return reviewed work to Implement: `%s %s -- <requested change>`.\n\n", action, ref)
 		}

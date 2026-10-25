@@ -711,6 +711,11 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	if err := recoverPlanPublications(ctx, opts, session.ID); err != nil {
 		return result, err
 	}
+	if opts.ResearchReporter != nil {
+		if err := opts.ResearchReporter.RecoverValidatePublications(ctx, session.ID); err != nil {
+			return result, err
+		}
+	}
 	if err := recoverResearchPublications(ctx, opts, session.ID); err != nil {
 		return result, err
 	}

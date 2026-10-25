@@ -3,6 +3,7 @@ package turn
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
@@ -37,6 +38,9 @@ func TestAdmitReplyChildRefusalIsAPlanReplyRefusal(t *testing.T) {
 	var refusal *PlanReplyRefusal
 	if !errors.As(err, &refusal) || refusal.Reason == "" {
 		t.Fatalf("admitReply error = %v, want a PlanReplyRefusal", err)
+	}
+	if !strings.Contains(refusal.Reason, "different owner wait or sub-issue") || !strings.Contains(refusal.Reason, reply.Body) || strings.Contains(refusal.Reason, "may be") {
+		t.Fatalf("refusal lacks current grounded guidance: %s", refusal.Reason)
 	}
 	after, _, err := f.db.GetPlanWorkflowState(t.Context(), f.ref().String())
 	mustProgress(t, err)

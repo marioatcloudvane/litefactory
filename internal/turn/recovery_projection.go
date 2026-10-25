@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -19,14 +20,19 @@ func ProjectGraphRecovery(ctx context.Context, db *store.DB, sessionID int64) (*
 	if err != nil {
 		return nil, err
 	}
+	session, err := db.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	inspect := "Ask the factory operator to inspect on the factory host: `" + report.TaskInspectionCommand(session.TaskRef) + "`."
 	out := &report.StopRecovery{InstanceID: instance.ID, Step: instance.CurrentNode, Disposition: instance.Status, Route: "inspect",
 		Reason: "The retained graph has work at this step.", Unresolved: "Completion of this step is not confirmed.",
-		NextStep: "Use `/doctor inspect the latest stopped step and its saved launch; identify one supported continuation` before repeating work. Diagnosis authorizes no repair."}
+		NextStep: inspect}
 	if instance.Status == store.GraphSucceeded {
 		out.Route = "completed"
 		out.Reason = "The graph records successful completion."
 		out.Unresolved = "Any outstanding report or external effect must settle through its existing reconciliation."
-		out.NextStep = "Read the retained result; do not reopen completed work because a report is missing."
+		out.NextStep = inspect
 		return out, nil
 	}
 	if instance.Status != store.GraphRunning {
@@ -37,6 +43,11 @@ func ProjectGraphRecovery(ctx context.Context, db *store.DB, sessionID int64) (*
 		if e == nil && dispatch.CancellationReason != "" {
 			out.Reason = dispatch.CancellationReason
 			out.DispatchID = dispatch.ID
+		}
+		if e == nil && dispatch.AllocatedRunID > 0 {
+			if e := projectRecoveryRun(ctx, db, sessionID, dispatch.AllocatedRunID, out); e != nil {
+				return nil, e
+			}
 		}
 		return out, nil
 	}
@@ -68,14 +79,20 @@ func ProjectGraphRecovery(ctx context.Context, db *store.DB, sessionID int64) (*
 		return nil, err
 	}
 	out.DispatchID, out.LaunchID, out.ActionID, out.DueAt = dispatch.ID, dispatch.LaunchID, dispatch.ID, dispatch.DueAt
-	out.Disposition = dispatch.Status
 	if dispatch.Node != instance.CurrentNode {
+		out.Unresolved = fmt.Sprintf("The latest dispatch belongs to step %s; no dispatch for this current step is confirmed.", dispatch.Node)
 		return out, nil
 	}
+	out.Disposition = dispatch.Status
 	switch dispatch.Status {
 	case "pending":
 		out.Route = "wait-scheduled"
 		out.Reason = fmt.Sprintf("Graph action %d is pending; eligible at %s.", dispatch.ID, dispatch.DueAt.UTC().Format("01/02/2006 15:04:05 UTC"))
+		if dispatch.DueAt.IsZero() {
+			out.Reason = fmt.Sprintf("Graph action %d is pending; its eligibility time is unknown.", dispatch.ID)
+			out.NextStep = inspect
+			return out, nil
+		}
 		out.NextStep = "Please wait. Eligibility is not a guaranteed start time; admission and capacity still apply. No recovery command is needed."
 	case "reserved", "running":
 		out.Route = "wait-running"
@@ -87,6 +104,9 @@ func ProjectGraphRecovery(ctx context.Context, db *store.DB, sessionID int64) (*
 			out.Reason = "The dispatch was cancelled."
 		}
 		if dispatch.AllocatedRunID != 0 {
+			if e := projectRecoveryRun(ctx, db, sessionID, dispatch.AllocatedRunID, out); e != nil {
+				return nil, e
+			}
 			return out, nil
 		}
 		if !instance.NextDueAt.IsZero() {
@@ -101,7 +121,13 @@ func ProjectGraphRecovery(ctx context.Context, db *store.DB, sessionID int64) (*
 		for _, attempt := range attempts {
 			if attempt.Status == store.GraphPending || attempt.Status == store.GraphRunning {
 				out.Route = "inspect-attempt"
-				out.NextStep = "Use `/doctor inspect the active attempt blocking this cancelled dispatch` before attempting continuation. Diagnosis authorizes no repair."
+				out.Unresolved = "The retained attempt has no run record establishing whether execution is active."
+				out.NextStep = inspect
+				if attempt.RunID > 0 {
+					if e := projectRecoveryRun(ctx, db, sessionID, attempt.RunID, out); e != nil {
+						return nil, e
+					}
+				}
 				return out, nil
 			}
 		}
@@ -135,7 +161,47 @@ func ProjectGraphRecovery(ctx context.Context, db *store.DB, sessionID int64) (*
 		}
 		out.Route = "inspect-launch"
 		out.Unresolved = "This stopped step has no saved launch to resume from; an ordinary reply cannot dispatch it."
-		out.NextStep = "Use `/doctor inspect the missing saved launch for the latest stopped step` to identify a supported successor or operator action. Diagnosis authorizes no repair."
+		out.NextStep = inspect
+	}
+	if dispatch.Status != "pending" && dispatch.Status != "reserved" && dispatch.Status != "running" && dispatch.AllocatedRunID > 0 {
+		if err := projectRecoveryRun(ctx, db, sessionID, dispatch.AllocatedRunID, out); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
+}
+
+// projectRecoveryRun correlates the affected run rather than defaulting to the
+// newest run, which may belong to different work in the session.
+func projectRecoveryRun(ctx context.Context, db *store.DB, sessionID, runID int64, out *report.StopRecovery) error {
+	run, err := db.GetRun(ctx, runID)
+	if errors.Is(err, store.ErrNotFound) {
+		out.Unresolved = "The allocated run record is missing; execution status is unknown."
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if run.SessionID != sessionID {
+		return fmt.Errorf("graph recovery run belongs to a different session")
+	}
+	session, err := db.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	out.Unresolved = ""
+	if run.Status == store.RunRunning || run.Status == store.RunPrelaunch {
+		out.Route = "wait-run"
+		out.Reason += fmt.Sprintf(" Run %d is %s.", run.Ordinal, run.Status)
+		out.NextStep = "Please wait for the existing run to settle; no owner action is needed."
+		return nil
+	}
+	out.Route = "inspect-run"
+	out.Reason += fmt.Sprintf(" Run %d has retained status %s.", run.Ordinal, run.Status)
+	ref, err := naming.ParseRef(session.TaskRef)
+	if err != nil {
+		return err
+	}
+	out.NextStep = fmt.Sprintf("Inspect run %d on the factory host: `%s`.", run.Ordinal, report.RunInspectionCommand(ref, run.Ordinal))
+	return nil
 }
