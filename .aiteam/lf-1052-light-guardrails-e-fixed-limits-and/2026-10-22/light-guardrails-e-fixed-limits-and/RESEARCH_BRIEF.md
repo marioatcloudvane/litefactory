@@ -17,6 +17,7 @@ Shape issue #1052 into a buildable scope covering owner publication policy and c
 - **d9** — Address the judge's timeout-routing concern with a proposed separate Implement story timeout route rather than claiming the existing failed outcome can pause without repair charges.
 - **d10** — Narrow the proposed manual-resume change to Implement stories and retain existing coordinator and other-mode graph transitions and retry accounting.
 - **d11** — Remove proposed approval-lifetime configuration, role policy tables, configurable ceilings and advance interruption in response to the owner's simplification goal.
+- **d12** — Explain each pending choice through current behavior, proposed behavior, a concrete example, benefit and tradeoff without interpreting the clarification request as approval.
 
 
 ## Assumptions
@@ -29,34 +30,34 @@ Shape issue #1052 into a buildable scope covering owner publication policy and c
 
 ## Open questions
 
-### q1 — Should authenticated owner publication be exempt from the repository volume quota?
+### q1 — Should your approved proposals be allowed to create issues after the repository reaches 20 in 24 hours?
 
 _Asked of: Product Owner Questions_
 
-- **exempt** — Recommended: remove the owner-publication volume check, retaining five drafts and all identity, immutable-content and duplicate protections.  *(recommended)*
-- **configurable** — Retain the existing 20-artifact rolling quota in this change; approved publication may still be refused for volume, but no new quota settings are added.
+- **exempt** — Recommended: yes; remove the owner-publication volume check so an approved three-issue proposal can proceed even after 20 issues, keeping five drafts per proposal, owner approval and duplicate checks.  *(recommended)*
+- **configurable** — No; keep the existing shared rolling quota, accepting that the factory may refuse an approved proposal because the repository has used its capacity.
 
-### q2 — Should approval expiry bound initial admission rather than an already elected publication?
-
-_Asked of: Product Owner Questions_
-
-- **short_admission** — Recommended for simplicity: retain the fixed 30-minute admission window and allow durably elected immutable publication to finish afterward, subject to cancellation, supersession and duplicate protection.  *(recommended)*
-- **strict_day** — Retain the existing 30-minute expiry checks at admission and publication; this minimizes behavior change but keeps failures caused by publication delay.
-- **day_admission** — Use a fixed 24-hour admission window and allow an elected publication to finish later; this also helps processing delays but broadens approval lifetime.
-
-### q4 — Should manual resume after timeout be limited to Implement story workers?
+### q2 — Should publication accepted within 30 minutes be allowed to finish after that window?
 
 _Asked of: Product Owner Questions_
 
-- **owner_resume** — Recommended: a separate timeout outcome parks Implement stories, bypasses repair accounting and automatic retry, reports retained progress, and requires owner resume through normal synchronization; other worker types retain their existing transitions and accounting.  *(recommended)*
-- **count_failure** — Keep all existing failure and retry transitions, including Implement repair charges; simplify only clocks and retained evidence.
+- **short_admission** — Recommended: keep 30 minutes to accept your approval; if accepted at 10:29 after a 10:00 approval, publication may finish at 10:31. First acceptance at 10:31 still requires fresh approval; cancellation and duplicate checks remain.  *(recommended)*
+- **strict_day** — Keep today's expiry checks at acceptance and publication; even publication accepted at 10:29 may need fresh approval if the publication check happens after 10:30.
+- **day_admission** — Extend the acceptance window to a fixed 24 hours and let accepted publication finish later; this also helps delayed acceptance but makes approval usable for much longer.
 
-### q3 — Should execution limits use one default plus node overrides?
+### q4 — Should a timed-out Implement story pause for your decision instead of automatically using repair retries?
+
+_Asked of: Product Owner Questions_
+
+- **owner_resume** — Recommended: retain progress, park and report the story without a repair charge, and resume only when you ask; you control further spending but must take an extra action. Other worker types keep their current retry rules.  *(recommended)*
+- **count_failure** — Keep current automatic retry and failure accounting, including repair charges for Implement timeouts; you intervene less often, but repeated timeouts can spend the repair allowance.
+
+### q3 — Should workers use one default allowance with explicit node overrides and two hours for Implement stories?
 
 _Asked of: Technical Questions_
 
-- **single_default** — Recommended: one seconds-based default of 1,800 seconds, existing minute-based node overrides, a 120-minute Implement story node, and the existing 24-hour absolute bound; migrate provider settings exactly and reject conflicting legacy defaults until resolved.  *(recommended)*
-- **config_only** — Use the same simplified policy and migration, but leave Implement at the 30-minute default until operators explicitly raise it.
+- **single_default** — Recommended: use a 30-minute default, two hours for the shipped Implement story worker and existing explicit node limits elsewhere; apply one deadline to graph and provider, preserving legacy seconds during migration. Longer stories gain time but occupy resources longer.  *(recommended)*
+- **config_only** — Use the same single-clock policy and migration, but leave Implement at 30 minutes until an operator explicitly raises it; fewer default resources are occupied, but long stories may still time out.
 
 ## Research documents
 
