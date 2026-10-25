@@ -1,0 +1,38 @@
+{
+  "base": "base-team",
+  "replace": [
+    "bug/bug-analyst.md",
+    "bug/bug-fixer.md",
+    "bug/bug.dot",
+    "bug/skills/bug-analysis-result/result.md",
+    "bug/skills/bug-repair-result/result.md",
+    "implement/implement.dot",
+    "implement/skills/implement-result/node-result.md",
+    "implement/story-worker.md",
+    "implement/sync-resolver.md",
+    "plan/plan-set.md",
+    "plan/plan-story.md",
+    "plan/plan-technical.md",
+    "plan/skills/plan-story-set/SKILL.md",
+    "research/research.md",
+    "research/shaping.md",
+    "spike/spike-fixer.md",
+    "spike/spike-investigator.md",
+    "stack-profile.json",
+    "validate/skills/validate-repair-report/node-result.md",
+    "validate/validate-acceptance.md",
+    "validate/validate-architecture.md",
+    "validate/validate-code.md",
+    "validate/validate-repair.md",
+    "validate/validate.dot"
+  ],
+  "exclude": [
+    "bug/skills/litefactory-rules/SKILL.md",
+    "bug/skills/litefactory-rules/litefactory.md",
+    "implement/skills/litefactory-rules/SKILL.md",
+    "implement/skills/litefactory-rules/litefactory.md",
+    "plan/skills/plan-go-guidance/SKILL.md",
+    "validate/skills/litefactory-rules/SKILL.md",
+    "validate/skills/litefactory-rules/litefactory.md"
+  ]
+}
