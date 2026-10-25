@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ func TestResearchNativeBundleFilesystem(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	definition, err := teamsource.CaptureResearch(t.Context(), registry)
+	definition, err := teamsourcetest.CaptureResearch(t.Context(), registry)
 	if err != nil {
 		t.Fatal(err)
 	}

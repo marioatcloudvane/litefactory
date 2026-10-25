@@ -1,10 +1,10 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // The shipped graph is the two-stage one now, so these assert what actually
@@ -16,7 +16,7 @@ func shapingProfile(t *testing.T) *graphexec.Profile {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := teamsource.CaptureResearch(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 	if err != nil {
 		t.Fatalf("capture shipped Research: %v", err)
 	}

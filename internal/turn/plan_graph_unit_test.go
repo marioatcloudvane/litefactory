@@ -53,7 +53,7 @@ func TestPlanRuntime_RetainedResultIsTheOnlySourceOfAskAndDone(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := planRetainedFrom("ask", ask.Result)
-	if err != nil || got.Request != nil || got.Set != nil || len(got.Questions) != 1 || got.Questions[0] != "Who needs this?" || got.Comment != "Please clarify the intended actor." {
+	if err != nil || got.Request != nil || got.Set != nil || len(got.Questions) != 1 || got.Questions[0].Text != "Who needs this?" || got.Comment != "Please clarify the intended actor." {
 		t.Fatalf("question corrupted: %+v %v", got, err)
 	}
 	if _, err = planRetainedFrom("done", ask.Result); err == nil {
@@ -147,5 +147,22 @@ func TestPlanRuntime_FactoryStageControls(t *testing.T) {
 	}
 	if PlanWorkflowPolicy().Mode != agent.ModePlan || ResearchWorkflowPolicy().Mode != agent.ModeResearch {
 		t.Fatal("workflow modes changed")
+	}
+}
+
+// #1127: a Plan question shows its ID, its trimmed text, every option and the
+// recommended marker on that option only.
+func TestPlanQuestionLinesShowIDOptionsAndRecommendation(t *testing.T) {
+	t.Parallel()
+	got := planQuestionLines([]ar.Question{
+		{ID: "q-1", Audience: "business", Text: "  Who needs this?\n", RecommendedOption: "b", Options: []ar.Option{{ID: "a", Text: "Owners"}, {ID: "b", Text: " Agents "}}},
+		{ID: "q-2", Audience: "technical", Text: "Which store?"},
+	})
+	want := "\n\n- **q-1** Who needs this?\n  - `a` Owners\n  - `b` Agents (recommended)\n\n- **q-2** Which store?"
+	if got != want {
+		t.Fatalf("question lines:\n%q\nwant\n%q", got, want)
+	}
+	if strings.Count(got, "(recommended)") != 1 {
+		t.Fatalf("only the recommended option is marked: %q", got)
 	}
 }

@@ -1,12 +1,12 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // quotedModeCommand finds a backticked mode command a reply tells the owner to
@@ -22,7 +22,7 @@ func TestNextStepCommandsStartARun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := teamsource.CaptureResearch(t.Context(), specs)
+	d, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 	if err != nil {
 		t.Fatal(err)
 	}

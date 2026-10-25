@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io"
 	"net/http"
 	"strings"
@@ -195,7 +196,7 @@ func TestValidateShipCommentContinuesTheWaitingInstanceThroughTheTick(t *testing
 	t.Cleanup(func() { check(authority.Close(context.WithoutCancel(ctx))) })
 	specs, err := turn.ValidateFlowSpecs()
 	check(err)
-	captured, err := teamsource.CaptureValidate(ctx, specs)
+	captured, err := teamsourcetest.CaptureValidate(ctx, specs)
 	check(err)
 	forge := &shipTickForge{}
 	lockDir := t.TempDir()
@@ -206,7 +207,7 @@ func TestValidateShipCommentContinuesTheWaitingInstanceThroughTheTick(t *testing
 		if workflow != agent.WorkflowValidate {
 			t.Errorf("only Validate runs here, not %s", workflow)
 		}
-		definition, err := teamsource.CaptureValidate(ctx, specs)
+		definition, err := teamsourcetest.CaptureValidate(ctx, specs)
 		if err != nil {
 			return nil, err
 		}

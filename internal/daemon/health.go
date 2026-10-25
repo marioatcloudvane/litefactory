@@ -91,7 +91,15 @@ func (d *Daemon) publishHealth(ctx context.Context, now time.Time) {
 	if summary := d.scopedPauseSummary(now); summary != "" {
 		listener.PauseReason = summary
 	}
-	listener.RunsInFlight = d.inflight.size()
+	if held := d.runsHeld.Load(); held != nil {
+		listener.RunsHeld = *held
+	}
+	listener.InFlightSessions = d.inflight.list()
+	listener.InFlightLabels = d.inflight.listLabels()
+	listener.RunsInFlight = len(listener.InFlightSessions)
+	if d.pool != nil {
+		listener.SlotsUsed, listener.SlotsTotal = d.pool.capacity()
+	}
 	sig := healthSignature(listener, rows)
 	if p.written && sig == p.signature && now.Sub(p.writtenAt) < healthRefreshInterval {
 		return
@@ -167,8 +175,9 @@ func healthSignature(l store.ListenerStatus, rows []store.RepoDiscoveryStatus) s
 		}
 		return t.UTC().Format(time.RFC3339Nano)
 	}
-	fmt.Fprintf(&b, "%q %t %s %t %q %s %s %d %q", l.ListenAddress, l.Listening, at(l.DaemonStartedAt),
-		l.DiscoveryPaused, l.PauseReason, at(l.PausedSince), at(l.ExpectedResumeAt), l.RunsInFlight, l.ChatStatus)
+	fmt.Fprintf(&b, "%q %t %s %t %q %s %s %d %q %v %v %d/%d %q", l.ListenAddress, l.Listening, at(l.DaemonStartedAt),
+		l.DiscoveryPaused, l.PauseReason, at(l.PausedSince), at(l.ExpectedResumeAt), l.RunsInFlight, l.ChatStatus,
+		l.InFlightSessions, l.InFlightLabels, l.SlotsUsed, l.SlotsTotal, l.RunsHeld)
 	for _, r := range rows {
 		fmt.Fprintf(&b, "|%d %s %s %s %t %t %s", r.RepoID, at(r.LastDeliveryAt), at(r.LastPollFinishedAt),
 			at(r.NextPollDueAt), r.PollOwed, r.SecretPresent, r.WebhookMode)

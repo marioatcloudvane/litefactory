@@ -8,27 +8,35 @@ import (
 
 func TestMinFreeDiskSettings_DefaultAndTemplate(t *testing.T) {
 	t.Parallel()
-	if d := Defaults(); d.Settings.MinFreeDiskGB != 15 || DefaultMinFreeDiskGB != 15 {
-		t.Fatalf("min_free_disk_gb default = %d, want 15", d.Settings.MinFreeDiskGB)
+	if d := Defaults(); d.Settings.MinFreeDiskGB != 2 || DefaultMinFreeDiskGB != 2 {
+		t.Fatalf("min_free_disk_gb default = %d, want 2", d.Settings.MinFreeDiskGB)
 	}
 	contents := DefaultFileContents()
-	if !strings.Contains(string(contents), "  min_free_disk_gb: 15 # valid range: 0..10000\n") {
+	if !strings.Contains(string(contents), "  min_free_disk_gb: 2 # valid range: 0..10000\n") {
 		t.Fatalf("config template does not document min_free_disk_gb:\n%s", contents)
 	}
 	cfg, err := Decode(bytes.NewReader(contents))
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	if cfg.Settings.MinFreeDiskGB != 15 || cfg.Settings.MinFreeDiskBytes() != 15<<30 {
+	if cfg.Settings.MinFreeDiskGB != 2 || cfg.Settings.MinFreeDiskBytes() != 2<<30 {
 		t.Fatalf("decoded min_free_disk_gb = %d (%d bytes)", cfg.Settings.MinFreeDiskGB, cfg.Settings.MinFreeDiskBytes())
 	}
-	stripped := strings.Replace(string(contents), "  min_free_disk_gb: 15 # valid range: 0..10000\n", "", 1)
+	stripped := strings.Replace(string(contents), "  min_free_disk_gb: 2 # valid range: 0..10000\n", "", 1)
 	cfg, err = Decode(strings.NewReader(stripped))
 	if err != nil {
 		t.Fatalf("Decode without key: %v", err)
 	}
-	if cfg.Settings.MinFreeDiskGB != 15 {
-		t.Fatalf("omitted min_free_disk_gb = %d, want default 15", cfg.Settings.MinFreeDiskGB)
+	if cfg.Settings.MinFreeDiskGB != 2 {
+		t.Fatalf("omitted min_free_disk_gb = %d, want default 2", cfg.Settings.MinFreeDiskGB)
+	}
+	explicit := strings.Replace(string(contents), "  min_free_disk_gb: 2 # valid range: 0..10000\n", "  min_free_disk_gb: 15\n", 1)
+	cfg, err = Decode(strings.NewReader(explicit))
+	if err != nil {
+		t.Fatalf("Decode explicit key: %v", err)
+	}
+	if cfg.Settings.MinFreeDiskGB != 15 || cfg.Settings.MinFreeDiskBytes() != 15<<30 {
+		t.Fatalf("explicit min_free_disk_gb = %d, want override 15", cfg.Settings.MinFreeDiskGB)
 	}
 }
 

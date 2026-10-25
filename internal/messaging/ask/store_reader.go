@@ -152,3 +152,9 @@ func (s StoreReader) ReadDiscoveryPause(ctx context.Context) (bool, bool, error)
 	snapshot, err := s.Reader.ReadHealthSnapshot(ctx)
 	return snapshot.Listener.DiscoveryPaused, snapshot.Found, err
 }
+
+// ReadRunsHeld uses the daemon's published health snapshot.
+func (s StoreReader) ReadRunsHeld(ctx context.Context) (string, error) {
+	snapshot, err := s.Reader.ReadHealthSnapshot(ctx)
+	return snapshot.Listener.RunsHeld, err
+}

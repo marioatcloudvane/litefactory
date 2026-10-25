@@ -3,7 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
-	"os"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,8 +20,9 @@ func workerSyncBindingFixture(t *testing.T) (*fixture, *implementRuntime, Activi
 	t.Helper()
 	f, _, req := assembledImplementFixture(t, nil)
 	seedImplementStory(t, f)
-	raw, err := os.ReadFile("../teamsource/implement/implement.dot")
+	goFiles, err := teamsourcetest.Files(teamsourcetest.Go)
 	mustProgress(t, err)
+	raw := goFiles["implement/implement.dot"]
 	profile, err := graphexec.ParseProfile(raw)
 	mustProgress(t, err)
 	definition := &teamsource.WorkflowDefinition{Profile: profile, Digest: strings.Repeat("a", 64)}

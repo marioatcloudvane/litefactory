@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"net/http"
 	"slices"
 	"strings"
@@ -1433,10 +1434,20 @@ func TestLowDiskHoldsDispatchUntilSpaceReturns(t *testing.T) {
 		!strings.Contains(logs, "free_bytes=1073741824") || !strings.Contains(logs, "required_bytes=16106127360") {
 		t.Fatalf("low-disk warning missing free and required bytes\nlogs:\n%s", logs)
 	}
+	listener := f.healthListener()
+	if listener.RunsHeld != "New runs wait: free disk 1.0 GB is below the 15 GB minimum." {
+		t.Fatalf("published runs held = %q while the guard holds runs", listener.RunsHeld)
+	}
+	if strings.Contains(listener.PauseReason, "free disk") {
+		t.Fatalf("disk hold under the pause reason: %q", listener.PauseReason)
+	}
 
 	free.Store(20 << 30)
 	for i := 0; i < 3 && len(f.turns.calls()) < 2; i++ {
 		f.settle()
+	}
+	if held := f.healthListener().RunsHeld; held != "" {
+		t.Fatalf("published runs held = %q after space returned", held)
 	}
 	var texts []string
 	for _, c := range f.turns.calls() {
@@ -1445,6 +1456,54 @@ func TestLowDiskHoldsDispatchUntilSpaceReturns(t *testing.T) {
 	if !slices.Contains(texts, "add a health endpoint") || !slices.Contains(texts, "scheduled payload") {
 		t.Fatalf("owed work after space returned = %q, want the comment and the schedule\nlogs:\n%s", texts, f.logs)
 	}
+}
+
+// TestLowDiskHoldClearedBySkippedTick: a tick that returns before the disk
+// guard runs, here one skipped while backing off from a forge rate limit,
+// publishes no stale run hold.
+func TestLowDiskHoldClearedBySkippedTick(t *testing.T) {
+	f := newFixture(t)
+	const retryAfter = 45 * time.Second
+	f.plantCursor()
+	f.issue("Disk guard")
+	f.settle()
+	f.daemon = f.newLowDiskDaemon(15<<30, func(string) (uint64, error) { return 1 << 30, nil })
+	f.forge.addComment(testIssue, 41, owner(), "/spike held by the disk guard")
+	f.settle()
+	if held := f.healthListener().RunsHeld; held == "" {
+		t.Fatalf("no run hold published below the threshold\nlogs:\n%s", f.logs)
+	}
+
+	f.forge.mu.Lock()
+	f.forge.quotaReset = f.clock.Now().Add(retryAfter).Unix()
+	f.forge.mu.Unlock()
+	issuesBefore, _, _, _ := f.forge.counts()
+	f.forge.onListIssues = func(w http.ResponseWriter, call int) bool {
+		if call != issuesBefore+1 {
+			return false
+		}
+		writeRateLimit(w, retryAfter)
+		return true
+	}
+	if _, err := f.tickErr(); !errors.As(err, new(*github.RateLimitError)) {
+		t.Fatalf("rate-limited tick error = %v, want a *github.RateLimitError", err)
+	}
+	if skipped := f.settle(); !skipped.Skipped {
+		t.Fatal("the tick after a rate limit was not skipped")
+	}
+	if held := f.healthListener().RunsHeld; held != "" {
+		t.Fatalf("skipped tick kept a stale run hold %q", held)
+	}
+}
+
+// healthListener reads the published listener row.
+func (f *fixture) healthListener() store.ListenerStatus {
+	f.t.Helper()
+	snap, err := f.db.ReadHealthSnapshot(f.t.Context())
+	if err != nil || !snap.Found {
+		f.t.Fatalf("read health snapshot: found=%v err=%v", snap.Found, err)
+	}
+	return snap.Listener
 }
 
 // newLowDiskDaemon rebuilds the fixture daemon with the free-disk guard.
@@ -1832,7 +1891,7 @@ func finishedResearchOptions(t *testing.T, f *fixture, driver turn.ResearchLaunc
 	})
 	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "finished-research", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{"claude": runner}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, ResearchDriver: driver, SubIssueCreator: f.client, MCP: &turn.MCPRuntime{Authority: authority, Paths: f.paths, Executable: "/factory/litefactory", Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID, Now: f.clock.Now}}
 	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-		def, err := teamsource.CaptureResearch(ctx, specs)
+		def, err := teamsourcetest.CaptureResearch(ctx, specs)
 		if err != nil {
 			return nil, err
 		}

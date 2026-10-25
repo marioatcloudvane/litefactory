@@ -35,7 +35,26 @@ func approveEffect(t *testing.T, db *store.DB, session store.Session, step store
 		sourceID = source[0]
 	}
 	prefix := "effects-" + sourceID
-	conversation, e := db.BeginDoctorAttempt(ctx, session.TaskRef, store.DoctorAttempt{ID: prefix, SourceID: prefix, OwnerText: "fixture", PromptVersion: doctor.PromptVersion, GuideVersion: doctor.GuideVersion})
+	_, proposal := doctorProposalFixture(t, db, session.TaskRef, prefix, prefix, step, evidence)
+	if e := db.PresentDoctorProposal(ctx, session.TaskRef, prefix+"-presentation", proposal); e != nil {
+		t.Fatal(e)
+	}
+	op, e := db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: prefix + "-repair", SourceID: sourceID, Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: prefix + "-presentation"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = db.AcknowledgeDoctorExclusion(ctx, op.ID, "factory"); e != nil {
+		t.Fatal(e)
+	}
+	return op
+}
+
+// doctorProposalFixture records one accepted doctor attempt, made by sourceID,
+// whose diagnosis proposes step; it returns the conversation and proposal.
+func doctorProposalFixture(t *testing.T, db *store.DB, taskRef, prefix, sourceID string, step store.DoctorRepairStep, evidence store.DoctorEvidence) (store.DoctorConversation, int64) {
+	t.Helper()
+	ctx := t.Context()
+	conversation, e := db.BeginDoctorAttempt(ctx, taskRef, store.DoctorAttempt{ID: prefix, SourceID: sourceID, OwnerText: "fixture", PromptVersion: doctor.PromptVersion, GuideVersion: doctor.GuideVersion})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -73,17 +92,7 @@ func approveEffect(t *testing.T, db *store.DB, session store.Session, step store
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = db.PresentDoctorProposal(ctx, session.TaskRef, prefix+"-presentation", proposal); e != nil {
-		t.Fatal(e)
-	}
-	op, e := db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: prefix + "-repair", SourceID: sourceID, Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: prefix + "-presentation"})
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = db.AcknowledgeDoctorExclusion(ctx, op.ID, "factory"); e != nil {
-		t.Fatal(e)
-	}
-	return op
+	return conversation, proposal
 }
 
 func TestFactoryDoctorConsumeConfirmedAndUncertain(t *testing.T) {

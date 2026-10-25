@@ -25,7 +25,7 @@ func run() int {
 	flag.Var(&sources, "source", "repository-relative canonical source directory; repeat for multiple teams")
 	flag.Parse()
 	if len(sources) == 0 {
-		sources = append(sources, "internal/teamsource")
+		sources = append(sources, "teams/source/go-development")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

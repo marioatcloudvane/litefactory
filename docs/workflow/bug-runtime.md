@@ -2,7 +2,7 @@
 
 [Documentation](../README.md) · [Workflow guide](../guides/workflow.md)
 
-The Bug workflow fixes one bug end to end: diagnose, wait for your approval, repair, then deliver the fix. The flow is in `internal/teamsource/bug/bug.dot`.
+The Bug workflow fixes one bug end to end: diagnose, wait for your approval, repair, then deliver the fix. The flow is in `teams/source/base-team/bug/bug.dot`.
 
 ## Starting a Bug task
 

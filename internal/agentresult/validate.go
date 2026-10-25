@@ -93,7 +93,9 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 			add(&d, p+".recommended_option", "reference", "existing option ID", "unresolved", "Reference a supplied option.")
 		}
 	}
-	questionMode := ctx.Mode == "research" || ctx.Mode == "plan" || ctx.Mode == "spike" || ctx.Workflow == agent.WorkflowBug
+	// Of the Implement agents, only the sync resolver (a coordinator agent) may
+	// ask: it offers the owner resolutions for a conflict it cannot settle.
+	questionMode := ctx.Mode == "research" || ctx.Mode == "plan" || ctx.Mode == "spike" || ctx.Workflow == agent.WorkflowBug || (ctx.Mode == "implement" && ctx.CoordinatorRole)
 	if len(r.Questions) > 0 && (!ctx.QuestionsAllowed || !questionMode || r.Outcome == "completed") {
 		add(&d, "$.result.questions", "authorization", "permitted questions on unfinished Research or Plan", "disallowed questions", "Follow trusted question permission and report an unfinished outcome.")
 	}
