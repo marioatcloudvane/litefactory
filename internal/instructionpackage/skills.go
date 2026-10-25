@@ -18,12 +18,37 @@ func selectedSkills(role string) []string {
 		return []string{"doctor-field-guide"}
 	case "doctor-repair":
 		return []string{"doctor-field-guide", "doctor-repair-authority"}
+	case "conversation-factory":
+		return []string{StandardsAuthoringSkill}
 	default:
 		return nil
 	}
 }
 
-func roleClosure(role string, read func(string) ([]byte, error)) (map[string][]byte, error) {
+// StandardsAuthoringSkill guides the conversation agent through authoring a
+// standard, from the confirmed start to the one publish step.
+const StandardsAuthoringSkill = "standards-authoring"
+
+// optionalSkills joined a role after captures of it were retained, and after
+// the pinned legacy baseline: a package or capture without one selects it not.
+var optionalSkills = map[string]bool{StandardsAuthoringSkill: true}
+
+// presentSkills is the selection for role among the files has holds.
+func presentSkills(role string, has func(string) bool) []string {
+	var out []string
+	for _, name := range selectedSkills(role) {
+		if !optionalSkills[name] || has("skills/"+name+"/SKILL.md") {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func (p *Package) skillsFor(role string) []string {
+	return presentSkills(role, func(name string) bool { _, ok := p.files[name]; return ok })
+}
+
+func roleClosure(role string, selected []string, read func(string) ([]byte, error)) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	bounded := map[string][]byte{}
 	totalRead := 0
@@ -56,7 +81,7 @@ func roleClosure(role string, read func(string) ([]byte, error)) (map[string][]b
 	if err := validateText(files[rolePath(role)]); err != nil {
 		return nil, err
 	}
-	_, skills, err := skillclosure.Load(selectedSkills(role), read)
+	_, skills, err := skillclosure.Load(selected, read)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +151,7 @@ func (c *RoleCapture) SkillInstructions(name string) []byte {
 }
 
 func (p *Package) selectSkillFiles(ctx context.Context, role string) (map[string][]byte, map[string]Source, []Diagnostic, error) {
-	shipped, err := roleClosure(role, func(name string) ([]byte, error) {
+	shipped, err := roleClosure(role, p.skillsFor(role), func(name string) ([]byte, error) {
 		raw, ok := p.files[name]
 		if !ok {
 			return nil, fmt.Errorf("missing shipped instruction %s", name)
@@ -180,7 +205,7 @@ func (p *Package) selectSkillFiles(ctx context.Context, role string) (map[string
 		}
 		return raw, nil
 	}
-	files, err := roleClosure(role, read)
+	files, err := roleClosure(role, p.skillsFor(role), read)
 	if err != nil {
 		return fallback(failedName, ownerErrorUnlessCategorized(err))
 	}

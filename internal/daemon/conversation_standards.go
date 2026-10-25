@@ -129,10 +129,18 @@ func (a *ConversationStandards) Read(ctx context.Context, r messaging.StandardsR
 	var e error
 	switch r.Operation {
 	case "discover":
-		return messaging.StandardsResult{Text: "Standards: inspect categories, standards, book history, proposals and authoring sessions; start, answer, edit, continue, validate, complete or rebase authoring; approve exact proposals or exceptions and separately publish an approved proposal, each as a confirmed action; start a log analysis of one project as a confirmed action and inspect saved analyses."}, nil
+		return messaging.StandardsResult{Text: "Standards: inspect categories, standards, book history, proposals and authoring sessions; start authoring as a confirmed action, then answer, edit or continue the draft and, once it has no open questions and nothing blocking, publish it in one step (complete, approve and publish); approve or publish proposals from elsewhere, and approve exceptions, each as a confirmed action; start a log analysis of one project as a confirmed action and inspect saved analyses."}, nil
 	case "book.current", "book.categories", "book.standards":
 		var revision store.StandardsRevision
 		revision, e = a.Book.Current(ctx)
+		if errors.Is(e, store.ErrStandardsUnpublished) {
+			// An empty book is an answer, not a failure: nothing is published
+			// yet, so a first standard brings its own new category.
+			if r.Operation == "book.categories" {
+				return messaging.StandardsResult{Text: "[]", References: map[string]string{"kind": "book", "revision": "0"}}, nil
+			}
+			return messaging.StandardsResult{Text: "The book of standards is empty: no categories and no standards are published yet. A first standard proposes its own new category.", References: map[string]string{"kind": "book", "revision": "0"}}, nil
+		}
 		v = revision
 		if e == nil && r.Operation == "book.categories" {
 			v = revision.Snapshot.Categories
@@ -239,6 +247,11 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 				if q.State == "pending" {
 					answers = append(answers, standards.AuthoringAnswer{QuestionID: q.ID, Text: args["text"]})
 				}
+			}
+			if len(answers) == 0 {
+				// With no open question the reply is the owner's note on the
+				// draft, such as "make it shorter".
+				answers = append(answers, standards.AuthoringAnswer{Text: args["text"]})
 			}
 		}
 		if e == nil {
@@ -350,6 +363,12 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 			r.Arguments["id"] = strings.TrimPrefix(r.Arguments["id"], "authoring-")
 			delete(r.Arguments, "version")
 		}
+		if r.Arguments["id"] == "" {
+			if id := a.conversationSession(ctx, r.ChannelID); id != "" {
+				r.Arguments = maps.Clone(r.Arguments)
+				r.Arguments["id"] = id
+			}
+		}
 		// The owner's answers, changes and "again" go to the newest draft.
 		if r.Arguments["version"] == "" && a.Authoring != nil {
 			v, e := a.Authoring.Show(ctx, r.Arguments["id"], 0)
@@ -364,6 +383,21 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 		}
 		if a.Analyses != nil && r.Operation == "author.continue" && a.Analyses.authorRunning(r.Arguments["id"]) {
 			return messaging.StandardsResult{Text: "The author is already working on the next draft; I'll post it here."}, nil
+		}
+	case "author.edit", "author.validate", "author.complete", "author.rebase", "author.publish":
+		// These act on this conversation's session at its newest version
+		// unless the request names others; ids and versions are never the
+		// owner's to give.
+		resolved, newer, e := a.resolveSession(ctx, r)
+		if e != nil {
+			return messaging.StandardsResult{}, e
+		}
+		if newer != nil {
+			return *newer, nil
+		}
+		r = resolved
+		if r.Operation == "author.publish" {
+			return a.publish(ctx, r)
 		}
 	}
 	result, d, done, e := a.admit(ctx, r)
@@ -552,19 +586,168 @@ func (a *ConversationStandards) AuthorSession(ctx context.Context, channel strin
 		if e != nil {
 			return messaging.StandardsAuthorSession{}, false, e
 		}
+		out := messaging.StandardsAuthorSession{ID: v.ID, Version: v.Version, Stage: "draft", Rule: strings.TrimSpace(v.Draft.Rule), Running: a.Analyses != nil && a.Analyses.authorRunning(v.ID)}
 		if v.Status == "completed" {
-			return messaging.StandardsAuthorSession{}, false, nil
-		}
-		out := messaging.StandardsAuthorSession{ID: v.ID, Version: v.Version, Rule: strings.TrimSpace(v.Draft.Rule), Running: a.Analyses != nil && a.Analyses.authorRunning(v.ID)}
-		for _, q := range v.Questions {
-			if q.State == "pending" {
-				out.QuestionIDs = append(out.QuestionIDs, q.ID)
-				out.Questions = append(out.Questions, authorQuestion(len(out.Questions)+1, q))
+			// A proposal not yet in the book is still this conversation's
+			// work: publishing it again picks up where it stopped.
+			if v.Proposal == nil || a.DB == nil {
+				return messaging.StandardsAuthorSession{}, false, nil
 			}
+			if _, e = a.DB.StandardsPublishedRevision(ctx, v.Proposal.ProposalID, v.Proposal.Version); !errors.Is(e, store.ErrNotFound) {
+				return messaging.StandardsAuthorSession{}, false, e
+			}
+			out.Stage = "proposal"
+			return out, true, nil
 		}
+		for _, q := range v.Pending() {
+			out.QuestionIDs = append(out.QuestionIDs, q.ID)
+			out.Questions = append(out.Questions, authorQuestion(len(out.Questions)+1, q))
+		}
+		for _, p := range v.Blocking() {
+			out.Blocking = append(out.Blocking, standards.PlainProblem(p))
+		}
+		out.Ready = v.Ready() && !out.Running
 		return out, true, nil
 	}
 	return messaging.StandardsAuthorSession{}, false, nil
+}
+
+// conversationSession is the id of the author session channel works on, or "".
+func (a *ConversationStandards) conversationSession(ctx context.Context, channel string) string {
+	session, found, err := a.AuthorSession(ctx, channel)
+	if err != nil || !found {
+		return ""
+	}
+	return session.ID
+}
+
+// resolveSession points r at this conversation's author session and its
+// newest version when r names neither. A version older than the newest of a
+// draft means the owner has not seen the newest draft yet: newer then shows
+// it instead of acting on the old one.
+func (a *ConversationStandards) resolveSession(ctx context.Context, r messaging.StandardsRequest) (messaging.StandardsRequest, *messaging.StandardsResult, error) {
+	if a.Authoring == nil || a.Authoring.Store == nil {
+		return r, nil, nil
+	}
+	r.Arguments = maps.Clone(r.Arguments)
+	if r.Arguments == nil {
+		r.Arguments = map[string]string{}
+	}
+	// A proposal the author produced is named after its session.
+	r.Arguments["id"] = strings.TrimPrefix(r.Arguments["id"], "authoring-")
+	if r.Arguments["id"] == "" {
+		if r.Arguments["id"] = a.conversationSession(ctx, r.ChannelID); r.Arguments["id"] == "" {
+			return r, nil, errors.New("standards: this conversation has no standard in progress; start one first")
+		}
+	}
+	v, e := a.Authoring.Show(ctx, r.Arguments["id"], 0)
+	if e != nil {
+		return r, nil, e
+	}
+	if given, err := strconv.ParseInt(r.Arguments["version"], 10, 64); err == nil && given < v.Version && v.Status != "completed" {
+		refs := map[string]string{"kind": "author", "id": v.ID, "version": strconv.FormatInt(v.Version, 10)}
+		if a.Analyses != nil && a.Analyses.authorRunning(v.ID) {
+			return r, &messaging.StandardsResult{Text: "The author is still working on the next draft, so I didn't change anything. I'll post the draft here.", References: refs}, nil
+		}
+		return r, &messaging.StandardsResult{Text: "The author has a newer draft than the one you saw, so I didn't change anything yet. " + authorDraftText(v), References: refs}, nil
+	}
+	r.Arguments["version"] = strconv.FormatInt(v.Version, 10)
+	return r, nil, nil
+}
+
+// publish takes this conversation's draft into the book in one owner step:
+// it completes the clean draft into a proposal, approves that proposal with
+// the digest it was just given and publishes it. Each step is its own
+// receipt-backed operation, so a retry never repeats an effect, and the
+// steps already done are found in the session and the book: asking to
+// publish again after a partial failure resumes where it stopped.
+func (a *ConversationStandards) publish(ctx context.Context, r messaging.StandardsRequest) (messaging.StandardsResult, error) {
+	for _, op := range []string{"author.publish", "proposal.publish"} {
+		if e := a.capability(op); e != nil {
+			return messaging.StandardsResult{}, e
+		}
+	}
+	id := r.Arguments["id"]
+	refs := map[string]string{"kind": "author", "id": id, "version": r.Arguments["version"]}
+	if a.Analyses != nil && a.Analyses.authorRunning(id) {
+		return messaging.StandardsResult{Text: "The author is still working on the next draft, so I haven't published anything. I'll post the draft here; tell me to publish it once you're happy with it.", References: refs}, nil
+	}
+	v, e := a.Authoring.Show(ctx, id, 0)
+	if e != nil {
+		return messaging.StandardsResult{}, e
+	}
+	var proposal store.StandardsProposalVersion
+	done := ""
+	if v.Status == "completed" && v.Proposal != nil {
+		proposal = *v.Proposal
+	} else {
+		if !v.Ready() {
+			return messaging.StandardsResult{Text: "I can't publish it yet, so nothing was changed. " + authorDraftText(v), References: refs}, nil
+		}
+		if _, e = a.once(ctx, r, "author.complete", "complete", map[string]string{"id": id, "version": strconv.FormatInt(v.Version, 10)}); e != nil {
+			return messaging.StandardsResult{Text: "I couldn't turn the draft into a proposal: " + plainStandardsReason(e) + ". Nothing was published.", References: refs}, nil
+		}
+		if proposal, e = a.Authoring.Store.GetStandardsAuthoringCompletion(ctx, id); e != nil {
+			return messaging.StandardsResult{}, e
+		}
+		done = "I turned the draft into a proposal"
+	}
+	args := map[string]string{"id": proposal.ProposalID, "version": strconv.FormatInt(proposal.Version, 10), "digest": proposal.ChangeDigest}
+	if _, e = a.once(ctx, r, "proposal.approve", "approve", args); e != nil {
+		return messaging.StandardsResult{Text: publishPartial(done, "approve it", e), References: refs}, nil
+	}
+	if done == "" {
+		done = "I approved the proposal"
+	} else {
+		done += " and approved it"
+	}
+	published, e := a.once(ctx, r, "proposal.publish", "publish", args)
+	if e != nil {
+		return messaging.StandardsResult{Text: publishPartial(done, "publish it", e), References: refs}, nil
+	}
+	published.Text = "Published: \"" + strings.TrimSpace(v.Draft.Rule) + "\" is now in the book of standards (revision " + published.References["revision"] + ")."
+	return published, nil
+}
+
+// publishPartial tells the owner exactly how far publishing got.
+func publishPartial(done, step string, err error) string {
+	if done == "" {
+		done = "The proposal is ready"
+	}
+	return done + ", but I couldn't " + step + ": " + plainStandardsReason(err) + ". It is not in the book yet; tell me to publish it again and I'll pick up from there."
+}
+
+// once runs one step of r as its own admitted operation, keyed after r, and
+// returns the retained outcome when that step already ran.
+func (a *ConversationStandards) once(ctx context.Context, r messaging.StandardsRequest, operation, name string, args map[string]string) (messaging.StandardsResult, error) {
+	step := r
+	step.Operation = operation
+	step.Arguments = args
+	step.OperationKey = r.OperationKey + "/" + name
+	result, d, done, e := a.admit(ctx, step)
+	if done || e != nil {
+		return result, e
+	}
+	return a.run(ctx, step, d)
+}
+
+// plainStandardsReason says why a standards step failed in the owner's words.
+func plainStandardsReason(err error) string {
+	switch {
+	case errors.Is(err, store.ErrStandardsConflict):
+		return "the book or the draft changed meanwhile"
+	case errors.Is(err, store.ErrStandardsAuthoringSettled):
+		return "that proposal is already approved or published"
+	}
+	var invalid *standards.ValidationError
+	if errors.As(err, &invalid) {
+		parts := make([]string, 0, len(invalid.Problems))
+		for _, p := range invalid.Problems {
+			parts = append(parts, standards.PlainProblem(p))
+		}
+		return strings.Join(parts, "; ")
+	}
+	return strings.TrimPrefix(err.Error(), "standards: ")
 }
 
 // run executes one admitted operation and records its outcome.
@@ -640,9 +823,22 @@ func authorDraftText(v standards.AuthoringSession) string {
 		n++
 		b.WriteString(authorQuestion(n, q) + "\n")
 	}
-	next := "Say it's good and I'll turn it into a proposal, tell me what to change, or ask for the full draft."
-	if n > 0 {
+	blocking := v.Blocking()
+	if len(blocking) > 0 {
+		b.WriteString("\nStill in the way of publishing it:\n")
+		for _, p := range blocking {
+			b.WriteString("- " + standards.PlainProblem(p) + "\n")
+		}
+	}
+	// Publishing is offered only for a draft that can be published as it is.
+	var next string
+	switch {
+	case n > 0:
 		next = "Answer here, for example \"1a, 2b\" or in your own words, and the author works them in. Ask for the full draft if you want it."
+	case len(blocking) > 0:
+		next = "Tell me how to fix these and the author works them in, or say \"again\" and it fixes them itself."
+	default:
+		next = "Say it's good and I'll publish it to the book, tell me what to change, or ask for the full draft."
 	}
 	return b.String() + "\n" + next
 }
@@ -743,9 +939,7 @@ func (a *ConversationStandards) Recover(ctx context.Context, r messaging.Standar
 	if e = json.Unmarshal(o.RequestJSON, &saved); e != nil {
 		return messaging.StandardsResult{}, true, e
 	}
-	requestedArgs, _ := json.Marshal(r.Arguments)
-	savedArgs, _ := json.Marshal(saved.Arguments)
-	if saved.Operation != r.Operation || saved.OwnerID != r.OwnerID || saved.ChannelID != r.ChannelID || saved.Transport != r.Transport || string(requestedArgs) != string(savedArgs) {
+	if saved.Operation != r.Operation || saved.OwnerID != r.OwnerID || saved.ChannelID != r.ChannelID || saved.Transport != r.Transport || !sameStandardsArguments(saved.Arguments, r.Arguments) {
 		return messaging.StandardsResult{}, true, store.ErrStandardsConflict
 	}
 	if o.Status == "completed" {
@@ -772,6 +966,30 @@ func (a *ConversationStandards) Recover(ctx context.Context, r messaging.Standar
 		}
 	}
 	return result, true, e
+}
+
+// sameStandardsArguments reports whether requested is the request saved as
+// saved: the factory may have filled in the session and its version, which
+// the request left out.
+func sameStandardsArguments(saved, requested map[string]string) bool {
+	if len(saved) < len(requested) {
+		return false
+	}
+	for name, value := range saved {
+		asked, ok := requested[name]
+		switch {
+		case name == "id" && strings.TrimPrefix(asked, "authoring-") == value, name == "version" && !ok:
+		case name == "id" && !ok:
+		case !ok || asked != value:
+			return false
+		}
+	}
+	for name := range requested {
+		if _, ok := saved[name]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func standardsExceptionRequest(args map[string]string) (standardsexceptions.Request, error) {

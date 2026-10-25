@@ -36,7 +36,7 @@ settings:
   feature_prefix: "lf"
   worktree_root: ""
   worktree_retain_days: 14
-  min_free_disk_gb: 15
+  min_free_disk_gb: 2
   log_level: "info"
   auto_sync_base: true
   auto_sync_max_behind: 100
@@ -122,7 +122,7 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 | `settings.deploy_backup_keep` | integer | `5` | 1 to 100 | Newest pre-deploy database backups the daily cleanup keeps. |
 | `settings.log_retain_days` | integer | `30` | 1 to 3650 | Days rotated global log files are kept before daily deletion. |
 | `settings.archive_retain_days` | integer | `30` | 1 to 3650 | Days archive files and the run logs they cover are kept before daily deletion. |
-| `settings.min_free_disk_gb` | integer | `15` | 0 to 10000 | Runs and check commands wait while free disk is below this many GB. `0` turns the guard off. |
+| `settings.min_free_disk_gb` | integer | `2` | 0 to 10000 | Runs and check commands wait while free disk is below this many GB. `0` turns the guard off. |
 | `settings.log_level` | string | `info` | `debug`, `info`, `warn`, `error` (case does not matter) | Log detail. `--level` on `daemon run` or `daemon start` overrides it for that run. |
 | `settings.attachment_max_image_bytes` | integer | `5242880` (5 MiB) | 1024 to 209715200 | Largest single image. |
 | `settings.attachment_max_document_bytes` | integer | `10485760` (10 MiB) | 1024 to 209715200 | Largest single document. |
@@ -132,8 +132,8 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 | `settings.mcp_auto_start` | boolean | `true` | `true` or `false` (strict) | Prepare the factory MCP registration for each run. See [MCP](../guides/mcp.md). |
 | `settings.allow_mcp_story_creation` | boolean | `false` | `true` or `false` (strict) | Allows the story-creation capability. Each creation still needs an exact, short-lived owner approval. |
 | `settings.auto_sync_base` | boolean | `true` | `true` or `false` | Bring a task branch up to date with its base branch before a run. See [sync and conflicts](../guides/sync-and-conflicts.md). |
-| `settings.auto_sync_max_behind` | integer | `100` | 0 or more (no upper limit) | A branch further behind than this many commits refuses the run. `0` means no limit. Negative values are refused. |
-| `settings.block_run_on_conflict` | boolean | `true` | `true` or `false` | When syncing hits a merge conflict, stop the run. When false, the run goes ahead on the unsynced branch. |
+| `settings.auto_sync_max_behind` | integer | `100` | 0 or more (no upper limit) | Limits automatic merges in task/base preparation. Beyond the cap, synchronization is skipped and the original request continues with a caveat. `0` means unlimited. Negative values are refused. |
+| `settings.block_run_on_conflict` | boolean | `true` | `true` or `false` | Deprecated compatibility setting. Both values allow the original request to continue through preparation conflicts with preserved edits and a caveat. Final save and integration checks still apply. |
 | `settings.suggest_conflict_resolution` | boolean | `false` | `true` or `false` | After a blocked conflict, ask a model (with no tools) to suggest a fix and post it. This sends repository file content to a model. Applying a suggestion needs separate approval. |
 | `settings.conflict_proposal_ttl_hours` | integer | `24` | 1 to 720 | Hours a conflict suggestion stays pending before it expires. |
 | `settings.conflict_content_max_bytes` | integer | `16384` (16 KiB) | 256 to 1048576 | Total conflicting file content sent to the model in one blocked merge. |

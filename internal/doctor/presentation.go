@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // RenderConversation retains full findings and immutable proposal review details.
@@ -52,7 +54,17 @@ func RenderConversation(c Conversation) string {
 		} else if c.Repair.State == "recovered" || c.Repair.State == "completed" {
 			outcome = "repaired"
 		}
+		graphRepair := len(c.RepairSteps) > 0
+		for _, step := range c.RepairSteps {
+			graphRepair = graphRepair && store.DoctorGraphRepairKind(step.Kind)
+		}
+		if graphRepair && c.Repair.State == "completed" {
+			outcome = "stale blocker removed; approved graph repair verified"
+		}
 		fmt.Fprintf(&body, "Overall: %s\n", outcome)
+		if graphRepair {
+			body.WriteString("Graph repair and any separately approved inverse commit all dependent rows, guidance handoff, verification and numbered journal entries together, or no repair changes. Repair alone does not establish continuation admitted or work completed.\n")
+		}
 		if c.Repair.Failure != "" {
 			fmt.Fprintf(&body, "Unresolved: %s\n", c.Repair.Failure)
 		}

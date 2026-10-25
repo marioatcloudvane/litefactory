@@ -68,11 +68,11 @@ func TestInitializeApproversTreatsUnknownHistoricalAuthorAsOwner(t *testing.T) {
 				t.Fatal(err)
 			}
 			// An instruction comment without a recorded author id (NULL/0).
-			if _, err = db.RecordComment(t.Context(), store.Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorHandle: "owner", Body: "instruction", CreatedAt: time.Now(), Classification: store.ClassificationInstruction}); err != nil {
+			if _, err = store.SeedHistoricalComment(t, db, store.Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorHandle: "owner", Body: "instruction", CreatedAt: time.Now(), Classification: store.ClassificationInstruction}); err != nil {
 				t.Fatal(err)
 			}
 			if tc.otherAuthor > 0 {
-				if _, err = db.RecordComment(t.Context(), store.Comment{SessionID: session.ID, ForgeCommentID: 124, AuthorHandle: "other", AuthorUserID: tc.otherAuthor, Body: "instruction", CreatedAt: time.Now(), Classification: store.ClassificationInstruction}); err != nil {
+				if _, err = store.SeedHistoricalComment(t, db, store.Comment{SessionID: session.ID, ForgeCommentID: 124, AuthorHandle: "other", AuthorUserID: tc.otherAuthor, Body: "instruction", CreatedAt: time.Now(), Classification: store.ClassificationInstruction}); err != nil {
 					t.Fatal(err)
 				}
 			}

@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"io/fs"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
@@ -51,7 +52,13 @@ func ValidateBugParent(p *graphexec.Profile) error {
 		return err
 	}
 	if p.Digest != expected.Digest {
-		return errors.New("bug parent differs from factory-pinned topology and bounds")
+		// Earlier captured gates preserve their four-outcome stop behavior.
+		legacy := strings.ReplaceAll(string(raw), ",retry,deferred", ",retry")
+		legacy = strings.ReplaceAll(legacy, ` sync_before_fixer -> fixer [lf_on="deferred"];`, "")
+		previous, parseErr := graphexec.ParseProfile([]byte(legacy))
+		if parseErr != nil || p.Digest != previous.Digest {
+			return errors.New("bug parent differs from factory-pinned topology and bounds")
+		}
 	}
 	return graphexec.ValidateOwnerConversationGraph(p)
 }

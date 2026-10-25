@@ -848,6 +848,15 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		}
 	}
 
+	if result.ConflictProposal == nil && result.SessionID > 0 && result.TriggerCommentID > 0 {
+		proposal, err := r.db.GetConflictProposalBySource(ctx, result.SessionID, result.TriggerCommentID)
+		if err == nil {
+			result.ConflictProposal = &proposal
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return report.Run{}, err
+		}
+	}
+
 	ordinal := result.Run.Ordinal
 	if ordinal < 1 {
 		// A preparation failure never allocated a run row, and so never got an
@@ -865,9 +874,12 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		return report.Run{}, err
 	}
 	return report.Run{
-		Meter:   metering,
-		Ref:     result.Ref,
-		Ordinal: ordinal,
+		PreparationCaveats:       append([]string(nil), result.Run.PreparationCaveats...),
+		ConflictProposal:         conflictProposalForRun(result.ConflictProposal),
+		ConflictSuggestionFailed: result.ConflictSuggestionFailed,
+		Meter:                    metering,
+		Ref:                      result.Ref,
+		Ordinal:                  ordinal,
 		// result.Run.Agent is the segment's own value (store.AgentClaude for
 		// every run this tree can produce today) rather than anything
 		// re-derived here, so the report names the tool that actually ran
@@ -910,6 +922,13 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		// (S-2, AC-016).
 		Stories: storyTally(ctx, result, r.db, r.log),
 	}, nil
+}
+
+func conflictProposalForRun(proposal *store.ConflictProposal) *report.ConflictProposal {
+	if proposal == nil {
+		return nil
+	}
+	return conflictProposalReply(*proposal)
 }
 
 // briefPath is the repository-relative path of this task's RESEARCH_BRIEF.md,

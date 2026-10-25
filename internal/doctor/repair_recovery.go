@@ -38,6 +38,23 @@ func (s *Service) ReconcileRepair(ctx context.Context, ref naming.Ref, expectedI
 		typed = typed && store.DoctorRepairToolKind(step.Kind)
 	}
 	if typed {
+		graph := len(steps) > 0
+		verified := graph
+		for _, step := range steps {
+			graph = graph && store.DoctorGraphRepairKind(step.Kind)
+			verified = verified && step.State == "verified"
+		}
+		if graph && verified && !operation.Fenced {
+			// The atomic journal, rather than a lost agent summary, confirms
+			// the complete local repair. This does not dispatch continuation.
+			if err = s.DB.VerifyDoctorGraphRepair(ctx, operation.ID); err == nil {
+				err = s.DB.SettleDoctorTypedRepair(ctx, operation.ID, true, "")
+				if err != nil {
+					return operation, err
+				}
+				return s.DB.ReadDoctorRepair(ctx, ref.String())
+			}
+		}
 		if err = s.DB.SettleDoctorTypedRepair(ctx, operation.ID, false, "Interrupted repair retained without replay; unfinished effects require owner review"); err != nil {
 			return operation, err
 		}

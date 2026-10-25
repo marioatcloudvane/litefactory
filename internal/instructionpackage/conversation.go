@@ -167,8 +167,15 @@ func (c *ConversationCapture) Legacy() bool { return c.data.Legacy }
 // Native supplies both provider-level instructions and plain prompt instructions.
 func (c *ConversationCapture) Native() string { return string(c.roles[0].Instructions()) }
 
-// Factory supplies the factory envelope instructions.
-func (c *ConversationCapture) Factory() string { return string(c.roles[1].Instructions()) }
+// Factory supplies the factory envelope instructions, followed by the skills
+// selected for them; a capture retained before a skill existed has none.
+func (c *ConversationCapture) Factory() string {
+	text := string(c.roles[1].Instructions())
+	if skill := c.roles[1].SkillInstructions(StandardsAuthoringSkill); len(skill) > 0 {
+		text += "\n\n" + string(skill)
+	}
+	return text
+}
 
 // Correction supplies the strict-validation correction fragment.
 func (c *ConversationCapture) Correction() string { return string(c.roles[2].Instructions()) }

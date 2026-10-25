@@ -11,7 +11,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
-          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+          "sha256": "bb06cf39865a346c96b19f38762920f725b7e14abafd4384d2c1c0eff61bd4fa"
         },
         {
           "direction": "input",
@@ -111,7 +111,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
-          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+          "sha256": "bb06cf39865a346c96b19f38762920f725b7e14abafd4384d2c1c0eff61bd4fa"
         },
         {
           "direction": "input",
@@ -235,7 +235,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
-          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+          "sha256": "bb06cf39865a346c96b19f38762920f725b7e14abafd4384d2c1c0eff61bd4fa"
         },
         {
           "direction": "input",
@@ -407,7 +407,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
-          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+          "sha256": "bb06cf39865a346c96b19f38762920f725b7e14abafd4384d2c1c0eff61bd4fa"
         },
         {
           "direction": "input",
@@ -531,7 +531,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
-          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+          "sha256": "bb06cf39865a346c96b19f38762920f725b7e14abafd4384d2c1c0eff61bd4fa"
         },
         {
           "direction": "input",

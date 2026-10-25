@@ -63,7 +63,11 @@ func TestBugSyncFixerClaimTraversesRetriesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	complete(recovered, "current", "fixer")
+	complete(recovered, "deferred", "fixer")
+	if source, e := db.GraphBugMechanicalAllowance(t.Context(), inst.ID, "fixer", gate); e != nil || source != 0 {
+		t.Fatalf("legacy gate admitted deferred preparation: source=%d err=%v", source, e)
+	}
+	gate.AllowDeferred = true
 	source, err := db.GraphBugMechanicalAllowance(t.Context(), inst.ID, "fixer", gate)
 	if err != nil || source != first.ID {
 		t.Fatalf("source=%d err=%v", source, err)

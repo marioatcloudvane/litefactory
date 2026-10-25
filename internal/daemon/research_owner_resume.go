@@ -17,7 +17,7 @@ import (
 func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) error {
 	var ownerID int64
 	if isCodeAuthorityControl(turn.ParseCommand(trigger.Body).Name) {
-		c := github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
+		c := github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
 		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
 			return err
 		}
@@ -68,7 +68,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 				return nil
 			}
 		}
-		if wait.ReplyID == trigger.CommentID && wait.ReplyBody == trigger.Body && wait.ReplyAuthorID == trigger.AuthorID && trigger.AuthorID == ownerID {
+		if wait.ReplyID == trigger.CommentID && wait.ReplyBody == trigger.Body && wait.ReplyAuthorID == trigger.AuthorID && wait.ReplyToCommentID == trigger.ReplyToCommentID && trigger.AuthorID == ownerID {
 			return nil
 		}
 		return store.ErrGraphOwnerWait
@@ -76,7 +76,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 	if wait.State != "waiting" {
 		return nil
 	}
-	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, ownerID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
+	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, ownerID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
 	return err
 }
 
@@ -99,7 +99,7 @@ func AdmitGraphOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID
 	if err != nil {
 		return wait, err
 	}
-	return db.ClaimGraphOwnerReply(ctx, store.GraphOwnerReply{InstanceID: instanceID, OwnerID: ownerID, AuthorID: comment.Author.ID, CommentID: comment.ID, QuestionCommentID: delivery.CommentID, TaskRef: taskRef, SourceRef: sourceRef, Mode: mode, Workflow: graphReplyWorkflow(mode), DeliveryKey: wait.DeliveryKey, Body: comment.Body, At: at})
+	return db.ClaimGraphOwnerReply(ctx, store.GraphOwnerReply{InstanceID: instanceID, OwnerID: ownerID, AuthorID: comment.Author.ID, CommentID: comment.ID, ReplyToCommentID: comment.ReplyToCommentID, QuestionCommentID: delivery.CommentID, TaskRef: taskRef, SourceRef: sourceRef, Mode: mode, Workflow: graphReplyWorkflow(mode), DeliveryKey: wait.DeliveryKey, Body: comment.Body, At: at})
 }
 
 // AdmitResearchOwnerReply supplies the production Research mode fence.

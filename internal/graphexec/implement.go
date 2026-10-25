@@ -212,6 +212,16 @@ func ValidateImplementGraph(p *Profile) error {
 		case ImplementReportDoneAction:
 			c.reportDone(n)
 		case SyncBaseAction:
+			if slices.Contains(n.Outcomes, "deferred") {
+				success, a := Decide(p, n.Name, "synced")
+				deferred, b := Decide(p, n.Name, "deferred")
+				if target, exists := p.Node(success); exists && target.Action == ImplementReportDoneAction {
+					c.fail("final synchronization %s cannot defer before reporting completion", n.Name)
+				}
+				if !a || !b || success != deferred {
+					c.fail("sync %s deferred outcome must continue with permitted work", n.Name)
+				}
+			}
 			if c.isWorkerSync(n) {
 				c.workerSync(n)
 				continue
@@ -352,14 +362,24 @@ func (c *implementCheck) reportDone(n Node) {
 // isResolver reports whether n is a sync resolver agent: an agent whose success
 // reaches the resolved decision.
 func (c *implementCheck) isResolver(n Node) bool {
-	if n.Action != "lf_agent" {
+	return ImplementSyncResolver(c.p, n.Name)
+}
+
+// ImplementSyncResolver reports whether the named node of an Implement graph is
+// a sync resolver agent: an agent whose success reaches the resolved decision.
+func ImplementSyncResolver(p *Profile, name string) bool {
+	if p == nil {
 		return false
 	}
-	to, ok := Decide(c.p, n.Name, "success")
+	n, ok := p.Node(name)
+	if !ok || n.Action != "lf_agent" {
+		return false
+	}
+	to, ok := Decide(p, n.Name, "success")
 	if !ok {
 		return false
 	}
-	target, ok := c.p.Node(to)
+	target, ok := p.Node(to)
 	return ok && target.Action == ImplementResolvedAction
 }
 
@@ -461,7 +481,7 @@ func (c *implementCheck) workerSync(n Node) {
 			}
 			c.fail("worker sync %s incoming path must pass the budget", n.Name)
 		}
-		if exists && edge.To == worker.Name && (edge.From != n.Name || (edge.On != "synced" && edge.On != "current")) {
+		if exists && edge.To == worker.Name && (edge.From != n.Name || (edge.On != "synced" && edge.On != "current" && edge.On != "deferred")) {
 			c.fail("worker agent %s incoming path must pass its worker sync", worker.Name)
 		}
 	}

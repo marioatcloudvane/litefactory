@@ -17,7 +17,7 @@ type RepairRequest struct {
 
 // TypedRepairToolKinds is the closed catalog of approved factory repairs.
 func TypedRepairToolKinds() []string {
-	return []string{"cancel_schedule", "consume_comment", "park_story", "release_instance", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
+	return []string{"cancel_schedule", "consume_comment", "graph_attempt_cancel", "graph_dispatch_cancel", "graph_fail", "graph_wait_cancel", "park_story", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
 }
 
 // RepairToolNames returns exactly the typed repairs and scoped communication.
