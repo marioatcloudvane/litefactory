@@ -58,17 +58,14 @@ You are done when the fix and its one regression test are written and you have r
 
 # Writing the Report
 
-Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. For a stop or wait, name the affected work and any work known to continue independently; if that wider impact is unknown, say so. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
 Explain the intended effect of the change separately from measured results: the factory has not checked this change yet. Say what remains unknown without claiming automatic success or delivery.
 
-When a report is long or shortened, keep the outcome, required immediate action and its consequence visible. Use only an existing supplied full-report destination; check that it retains the omitted evidence and supported recovery steps. Do not replace a usable next step with an unexplained link.
+The factory lays out the measured result and records the note; the prose is yours, and it is published as written.
 
-Your `comment` is what the owner reads first. Lead with what you changed in one short paragraph, then what is unfinished. The factory lays out the measured result and records the note; the prose is yours, and it is published as written.
-
- - Keep it short and concrete.
- - Never claim the change works or is checked. The factory measures and checks it after you finish.
- - No code identifiers, no file paths and no line numbers in the comment. Those belong in your fix report.
+- Never claim the change works or is checked. The factory measures and checks it after you finish.
+- No code identifiers, no file paths and no line numbers in the comment. Those belong in your fix report.
 
 # Output
 
