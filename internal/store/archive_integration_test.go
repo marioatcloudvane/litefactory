@@ -180,3 +180,88 @@ func TestArchiveIntegrationClosedIssueIgnoresPendingBookkeeping(t *testing.T) {
 		t.Fatal("archived comments still present")
 	}
 }
+
+func TestArchiveOwnerInputHistoryOrdersForeignKeysAndKeepsUndeliveredLive(t *testing.T) {
+	db := newTestDB(t)
+	i := graphTestInstance(t, db)
+	session, err := db.GetSession(t.Context(), i.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	family := ArchiveFamily{SessionID: session.ID, RepoID: session.RepoID, TaskRef: session.TaskRef, IssueClosed: true}
+	// A terminal family still owns its stranded instruction; closure does not
+	// withdraw one-time direction that has not reached a logical step.
+	recordOwnerInput(t, db, session.ID, 20, "Keep the explanation for the next worker.")
+	if _, err = db.RetainOwnerInstruction(t.Context(), session.ID, 20, 42, "Keep the explanation for the next worker.", OwnerInputTarget{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SetGraphInstanceStatus(t.Context(), i.ID, GraphSucceeded, time.Time{}, graphTestTime()); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := db.GetArchiveOwner(t.Context(), session.ID, graphTestTime())
+	if err != nil || owner.UndeletableReason != "owner_instruction_undelivered" {
+		t.Fatalf("pending input not visible archive debt: %+v %v", owner, err)
+	}
+	trailer := archiveITTrailer(t, db, family)
+	if _, err = db.DeleteArchivedFamily(t.Context(), family, trailer, graphTestTime()); !errors.Is(err, ErrArchiveNotSettled) {
+		t.Fatalf("closed family discarded pending input: %v", err)
+	}
+	pending, err := db.ListOwnerInstructions(t.Context(), session.ID, 0)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("stranded input lost: %+v %v", pending, err)
+	}
+
+	// A later eligible instance takes the input; completed history may then move
+	// as a whole, with bindings before displays and snapshots before guidance.
+	next, err := db.CreateGraphInstance(t.Context(), GraphInstance{SessionID: session.ID, DefinitionID: i.DefinitionID, CurrentNode: "work", StartedAt: graphTestTime()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := testRun(t, db, session.ID, 30)
+	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: next.ID, Node: "work", RunID: run.ID, AcceptOwnerInput: true, StartedAt: graphTestTime()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordOwnerInput(t, db, session.ID, 40, "/guide Use ISO dates.")
+	if _, err = db.SetOwnerGuidance(t.Context(), session.ID, 40, 42, "Use ISO dates."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.OwnerGuidanceForRun(t.Context(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	display := OwnerDecisionDisplay{TaskRef: session.TaskRef, Action: "/return", Target: "reviewed", Revision: "revision", InstanceID: next.ID, PublicationID: 50, CreatedAt: graphTestTime()}
+	if err = db.PutOwnerDecisionDisplay(t.Context(), display); err != nil {
+		t.Fatal(err)
+	}
+	display, err = db.LatestOwnerDecisionDisplay(t.Context(), session.TaskRef, "/return")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.PutOwnerDecisionBinding(t.Context(), OwnerDecisionBinding{TaskRef: session.TaskRef, CommentID: 60, AuthorID: 42, Body: "/return -- change date", Normalized: "/return revision -- change date", Display: display, CreatedAt: graphTestTime()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.PutValidateReturn(t.Context(), ValidateReturn{InstanceID: next.ID, Parent: session.TaskRef, Generation: 1, Commit: "abc", ReportRevision: "revision", CommentID: 60, AuthorID: 42, Explanation: "change date", Context: "full reviewed context", CreatedAt: graphTestTime()}); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CompleteGraphNodeAttempt(t.Context(), attempt.ID, GraphCompletion{Status: GraphSucceeded, Outcome: "done", FinishedAt: graphTestTime(), InstanceStatus: GraphSucceeded}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.FinishRun(t.Context(), run.ID, RunOutcome{Status: RunSucceeded, FinishedAt: graphTestTime()}); err != nil {
+		t.Fatal(err)
+	}
+	trailer = archiveITTrailer(t, db, family)
+	for _, table := range []string{"owner_instruction_inputs", "owner_run_guidance", "issue_owner_guidance", "owner_decision_bindings", "owner_decision_displays", "validate_returns"} {
+		if trailer.Counts[table] != 1 {
+			t.Fatalf("missing %s from archive: %v", table, trailer.Counts)
+		}
+	}
+	deleted, err := db.DeleteArchivedFamily(t.Context(), family, trailer, graphTestTime())
+	if err != nil {
+		t.Fatalf("completed owner history failed FK-safe archive: %v", err)
+	}
+	for _, table := range []string{"owner_instruction_inputs", "owner_run_guidance", "issue_owner_guidance", "owner_decision_bindings", "owner_decision_displays", "validate_returns"} {
+		if deleted[table] != 1 {
+			t.Fatalf("history %s remained live: %v", table, deleted)
+		}
+	}
+}

@@ -96,7 +96,10 @@ func (db *DB) StartGraphNodeAttempt(ctx context.Context, in GraphAttemptStart) (
 				return e
 			}
 		}
-		return graphReplyAllocationTx(ctx, tx, in, out.ID)
+		if e = graphReplyAllocationTx(ctx, tx, in, out.ID); e != nil {
+			return e
+		}
+		return assignOwnerInstructionsTx(ctx, tx, in, out.ID, instance.SessionID)
 	})
 	if err != nil {
 		return GraphNodeAttempt{}, fmt.Errorf("store: start graph node attempt: %w", err)
