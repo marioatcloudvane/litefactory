@@ -507,3 +507,20 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 	}
 	return pending, nil
 }
+
+// resumeValidatePublications uses the ordinary report-recovery cadence. Managed
+// parents already poll while Validate waits, so no owner reply or new timer is
+// needed to settle retained parts and their current parent index.
+func (d *Daemon) resumeValidatePublications(ctx context.Context, t *task) error {
+	reporter, ok := d.reporter.(interface {
+		RecoverValidatePublications(context.Context, int64) error
+	})
+	if !ok {
+		return nil
+	}
+	source := store.ReportRecovery{Key: fmt.Sprintf("validate-publications:%d", t.session.ID), SessionID: t.session.ID, Task: t.ref.String()}
+	_, err := d.guardedReportAttempt(ctx, source, func() (turn.Posted, error) {
+		return turn.Posted{}, reporter.RecoverValidatePublications(ctx, t.session.ID)
+	})
+	return err
+}

@@ -516,7 +516,7 @@ func TestPlanFinishedLaunch_StoryReplyRetiredThenSuccessor(t *testing.T) {
 	attempts := p.attempts(t, p.parked.ID)
 	_, err := Execute(t.Context(), p.f.opts, req)
 	var refusal *PlanReplyRefusal
-	if !errors.As(err, &refusal) || refusal.Reason != "This answer was not applied; please post it again." {
+	if !errors.As(err, &refusal) || !strings.Contains(refusal.Reason, "earlier workflow attempt has finished") || !strings.Contains(refusal.Reason, "reposting on this issue") || !strings.Contains(refusal.Reason, "fresh attempt") {
 		t.Fatalf("finished binding was not retired: %v", err)
 	}
 	if p.attempts(t, p.parked.ID) != attempts || p.latest(t).ID != p.parked.ID {

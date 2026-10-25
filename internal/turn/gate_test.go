@@ -224,6 +224,8 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// Validate pins the integration head: one fetch and one read, in one
 		// acquisition.
 		"IntegrationHead": {},
+		// Read the displayed local branch under the clone gate without fetching.
+		"ValidatePublicationHead": {},
 		// Validate's host bindings: the task worktree is created or reused,
 		// a kept repair is committed, the tested commit is pushed and a story
 		// branch is fetched and fast-forwarded to it, each in one acquisition.

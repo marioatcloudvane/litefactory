@@ -21,13 +21,6 @@ type planSetRefusal struct{ reason string }
 
 func (e *planSetRefusal) Error() string { return e.reason }
 
-// planReplyRefusalReason is the owner-facing text for a child reply the review
-// rules refuse. It names no internal state, so it is safe to post.
-const planReplyRefusalReason = "This reply could not be applied to the current review of this story: " +
-	"it may be out of date, the story, a story it depends on or a shared decision may have changed, " +
-	"or open questions or an earlier approval may still be needed. Nothing was approved. " +
-	"Wait for the updated review and use the command it shows."
-
 // PlanReplyRefusal is a child reply the review rules decline. Retrying the same
 // reply can never succeed, so the daemon answers it on the sub-issue and
 // consumes it instead of retrying. Store and save failures are not refusals.
@@ -58,6 +51,10 @@ func planSetRefused(s planbrief.PlanState, why string) error {
 	reason := "Story set not promoted: " + why
 	if set := s.StorySet; set != nil && set.Revision != "" && !set.Promoted {
 		reason += fmt.Sprintf(" The current proposed set is revision %s; to promote exactly that set, reply `%s`.", set.Revision, planbrief.PlanSetPromotionCommand(set.Revision))
+	} else if set != nil && set.Promoted {
+		reason += " The set is already promoted; continue the existing story reviews on their sub-issues. This reply creates no new approval."
+	} else {
+		reason += " No current set proposal is available to approve. Reply on this parent issue in plain words with the requested Plan change; the resulting set review will show its exact promotion command."
 	}
 	return &planSetRefusal{reason: reason}
 }

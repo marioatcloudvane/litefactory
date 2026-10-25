@@ -499,6 +499,8 @@ type Reply struct {
 	SourceStoryIssue                int
 	SourceCommentID                 int64
 	SourceParentURL, SourceReplyURL string
+	// DecisionURL is a provider-observed destination for the retained workflow decision.
+	DecisionURL string
 	// Ref is the task the comment was on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -965,15 +967,15 @@ func (r Reply) body() string {
 	case ReplyGraphReplyBetweenQuestions:
 		b.WriteString(graphReplyBetweenQuestionsSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("If it still applies, please post it again as a reply to the open question or review.")
+		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Reply to the current question or review to continue this workflow; this comment did not answer it."))
 	case ReplyBugCommentNotApplied:
 		b.WriteString("This comment could not be applied to the bug work at its current step, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
-		b.WriteString("Reply to the latest question or review instead. To approve a review, put `/approve-bug analysis <revision>` on the first line, using the revision that review names.")
+		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Use the current question or review and its exact reply. Answering the question continues analysis; its approval command approves only the displayed Bug revision."))
 	case ReplyImplementCommentNotApplied:
 		b.WriteString("This Implement comment did not select any parked stories, so no stories were resumed.")
 		b.WriteString(sectionGap)
-		b.WriteString("Name a parked story key to resume it with your guidance, or name no existing story key to resume all parked stories. Running and merged stories are unchanged.")
+		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Name a parked story key to resume it with your guidance, or name no existing story key to resume all parked stories. Running and merged stories are unchanged."))
 	case ReplyGraphResumeRefused:
 		b.WriteString("This comment could not resume the stopped work")
 		if resumeNodePattern.MatchString(r.ResumeNode) {
@@ -990,17 +992,17 @@ func (r Reply) body() string {
 		b.WriteString("This comment could not be used because the workflow is already handling another reply or question, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
 		b.WriteString("A question that is already answered cannot accept another answer. ")
-		b.WriteString("If it still applies, please post it again after the workflow has posted its next update.")
+		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Use the current question or review only if it still waits for your reply. Otherwise wait for the workflow’s next update; no second answer was applied."))
 	case ReplyCodeControlRefused:
 		b.WriteString("This delivery command was set aside and nothing was recorded, pushed, merged or closed, because only the task's owner can give it. Ask that owner to post the delivery command as a new comment on this issue.")
 	case ReplyValidateCommentNotApplied:
-		b.WriteString("Validate is running or waiting for you; nothing was run. The Validate report lists what blocks and the commands. Give each command as its own comment on this issue.")
+		b.WriteString("Validate is running or waiting for you; nothing was run. " + workflowDecisionDestination(r.DecisionURL, "Use the current Validate report for blockers, prerequisites and commands. Give each command as its own comment on this issue; this reply approved no check, finding or delivery."))
 	case ReplyImplementFinished:
 		b.WriteString("Implement is finished: every story is merged. Nothing was run. Next step: start Validate by commenting `/validate`.")
 	case ReplyImplementFinishedAutoValidate:
 		b.WriteString("Implement is finished: every story is merged. Nothing was run. Validate starts automatically; its report will appear here.")
 	case ReplyImplementFinishedValidated:
-		b.WriteString("Implement is finished and Validate has already finished on it. Nothing was run. The Validate report shows the result.")
+		b.WriteString("Implement is finished and Validate has already finished on it. Nothing was run. " + workflowDecisionDestination(r.DecisionURL, "The Validate report shows the result and any remaining delivery decisions. Checks and findings do not grant push, merge or close permission."))
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")
 		b.WriteString(sectionGap)
@@ -1310,4 +1312,12 @@ const conflictPathRejectionSentence = "%d of the conflicting path(s) could not b
 type CreationReply struct {
 	Envelope, Hash, Relationship string
 	Publication                  CreationPublication
+}
+
+// workflowDecisionDestination renders an observed destination without inventing one.
+func workflowDecisionDestination(link, guidance string) string {
+	if ticketBrowserURL(link) {
+		return guidance + " [Open the current decision report](" + link + ")."
+	}
+	return guidance + " The current decision destination is not confirmed or recoverable yet; wait for its published update before choosing again."
 }

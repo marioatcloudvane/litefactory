@@ -48,6 +48,13 @@ func (r *Reporter) ReportOwnerInput(ctx context.Context, ref naming.Ref, session
 			}
 		}
 		if !guidance {
+			link, err := r.workflowDecisionURL(ctx, ref, sessionID, report.ReplyGraphOwnerWaitRefused)
+			if err != nil {
+				return redact.Body{}, err
+			}
+			if link != "" {
+				fmt.Fprintf(&b, "\nCurrent workflow decision: [open the report or question](%s). Use its current reply to settle that decision; retaining this instruction did not answer it or grant delivery permission.\n", link)
+			}
 			b.WriteString("\nInspect the retained instruction targets on the factory host: `" + report.TaskInspectionCommand(ref.String()) + "`. Waiting does not start an ineligible step.\n")
 		}
 		return r.renderer.RenderReportDelivery(ctx, b.String(), "")
