@@ -205,3 +205,23 @@ func TestOwnerInputNewAttemptAfterCrashReusesLogicalInputAndStopsAfterSuccess(t 
 		t.Fatalf("later successful loop repeated input: %+v %v", inputs, err)
 	}
 }
+
+func TestParseOwnerInputTargetSharesAdmissionAndRecoveryGrammar(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want OwnerInputTarget
+		bad  bool
+	}{
+		{body: "Please tell instance=7 to use ISO dates."},
+		{body: "Input-Target: instance=7 node=worker launch=9\nExact original text.", want: OwnerInputTarget{InstanceID: 7, Node: "worker", LaunchID: 9}},
+		{body: "Input-Target: instance=7 node=worker instance=8", bad: true},
+		{body: "Input-Target: instance=7 node=../worker", bad: true},
+		{body: "Input-Target: instance=7 node=worker launch=0", bad: true},
+		{body: "Input-Target: node=worker", bad: true},
+	} {
+		got, err := ParseOwnerInputTarget(tc.body)
+		if (err != nil) != tc.bad || (!tc.bad && got != tc.want) {
+			t.Errorf("target %q=%+v err=%v", tc.body, got, err)
+		}
+	}
+}

@@ -85,7 +85,10 @@ A displayed Plan stage also accepts `/approve-plan` or `/approve-plan d-…`;
 the assembled plan accepts `/approve-plan-set` or `/approve-plan-set d-…`.
 A bare reply requires one unchanged target across the unresolved displays for
 that action. After replacement, use the short reference shown with the new
-review. An explicit reference has priority and is never silently retargeted.
+review. An explicit reference or a provider's threaded reply to that review
+selects its exact displayed target before bare shorthand is considered. A
+reference takes priority when both are present. Neither is silently retargeted;
+replying to an older or edited replacement display requires a fresh reference.
 
 Plan controls only work on a task running the graph Plan workflow. Anywhere
 else they are answered as unknown commands. See
@@ -100,6 +103,9 @@ all unresolved displays for that action identify the same target and no newer
 target has been shown. A replacement requires its displayed short reference;
 a delayed reference never selects newer work. Full revision commands remain
 available, but a revision displayed for different delivery heads is ambiguous.
+On providers with threaded replies, replying directly to an unchanged report
+also binds a short command to that report. GitHub issue comments do not carry
+threaded reply metadata; use the displayed short reference there when needed.
 
 | Syntax | What it causes |
 | --- | --- |

@@ -21,7 +21,7 @@ var creationIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3
 
 const userFields = "id displayName active app archivedAt"
 const issueFields = "id identifier url title description createdAt updatedAt creator { " + userFields + " } assignee { " + userFields + " } team { id } project { id } parent { id } state { id type } labels(first: 100) { nodes { id name } pageInfo { hasNextPage } }"
-const commentFields = "id body url createdAt updatedAt user { " + userFields + " } issue { id team { id } project { id } }"
+const commentFields = "id body url createdAt updatedAt parent { id issue { id } } user { " + userFields + " } issue { id team { id } project { id } }"
 
 type user struct {
 	ID          string
@@ -43,6 +43,7 @@ type issue struct {
 	}
 }
 type comment struct {
+	Parent               *comment
 	ID, Body, URL        string
 	CreatedAt, UpdatedAt time.Time
 	User                 *user
@@ -165,7 +166,14 @@ func (c *Client) reply(ref ticket.Ref, item comment) (ticket.Reply, error) {
 	if err != nil {
 		return ticket.Reply{}, failure("reply", ticket.Conflict, "provider reply representation differs")
 	}
-	return ticket.Reply{Ticket: ref, Identity: c.identity(item.ID), Author: c.actor(item.User), Body: body, ProviderBody: item.Body, Representation: Representation, BrowserURL: item.URL, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, nil
+	var replyTo ticket.Identity
+	if item.Parent != nil {
+		if item.Parent.ID == "" || item.Parent.Issue == nil || item.Parent.Issue.ID != ref.Identity.RemoteID {
+			return ticket.Reply{}, failure("reply", ticket.Conflict, "parent reply belongs to another ticket")
+		}
+		replyTo = c.identity(item.Parent.ID)
+	}
+	return ticket.Reply{ReplyTo: replyTo, Ticket: ref, Identity: c.identity(item.ID), Author: c.actor(item.User), Body: body, ProviderBody: item.Body, Representation: Representation, BrowserURL: item.URL, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, nil
 }
 
 // RepliesAfter reads a bounded reply page with a ticket-bound opaque continuation.

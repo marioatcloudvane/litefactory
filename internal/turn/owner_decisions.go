@@ -24,7 +24,7 @@ func ResolveValidateDecision(ctx context.Context, opts Options, req ActivityRequ
 		return ValidateCommand{}, store.OwnerDecisionBinding{}, err
 	}
 	if saved, e := opts.DB.GetOwnerDecisionBinding(ctx, session.TaskRef, wait.ReplyID); e == nil {
-		if saved.Body != wait.ReplyBody || saved.AuthorID != wait.ReplyAuthorID {
+		if saved.Body != wait.ReplyBody || saved.AuthorID != wait.ReplyAuthorID || saved.ReplyToCommentID != wait.ReplyToCommentID {
 			return ValidateCommand{}, saved, errors.New("the admitted owner decision changed on replay")
 		}
 		c, e := ParseValidateCommand(saved.Normalized)
@@ -40,9 +40,16 @@ func ResolveValidateDecision(ctx context.Context, opts Options, req ActivityRequ
 		if cmd.Revision != st.Revision {
 			return cmd, store.OwnerDecisionBinding{}, nil
 		}
-		// Explicit revisions remain compatible with retained legacy reports.
-		d, e := opts.DB.ExplicitOwnerDecisionDisplay(ctx, session.TaskRef, cmd.Name, cmd.Revision)
-		if errors.Is(e, store.ErrNotFound) {
+		// Explicit revisions remain compatible with retained legacy reports,
+		// but supplied transport identity must still name that same display.
+		var d store.OwnerDecisionDisplay
+		var e error
+		if wait.ReplyToCommentID > 0 {
+			d, e = opts.DB.ResolveOwnerDecisionDisplay(ctx, session.TaskRef, cmd.Name, "", wait.ReplyToCommentID)
+		} else {
+			d, e = opts.DB.ExplicitOwnerDecisionDisplay(ctx, session.TaskRef, cmd.Name, cmd.Revision)
+		}
+		if errors.Is(e, store.ErrNotFound) && wait.ReplyToCommentID == 0 {
 			return cmd, store.OwnerDecisionBinding{}, nil
 		}
 		if e != nil {
@@ -51,11 +58,11 @@ func ResolveValidateDecision(ctx context.Context, opts Options, req ActivityRequ
 		if d.InstanceID != req.InstanceID || d.Revision != cmd.Revision {
 			return cmd, store.OwnerDecisionBinding{}, errors.New("the explicit report revision is stale")
 		}
-		b := store.OwnerDecisionBinding{TaskRef: session.TaskRef, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, Body: wait.ReplyBody, Normalized: wait.ReplyBody, Display: d, CreatedAt: wait.ClaimedAt}
+		b := store.OwnerDecisionBinding{TaskRef: session.TaskRef, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, ReplyToCommentID: wait.ReplyToCommentID, Body: wait.ReplyBody, Normalized: wait.ReplyBody, Display: d, CreatedAt: wait.ClaimedAt}
 		e = opts.DB.PutOwnerDecisionBinding(ctx, b)
 		return cmd, b, e
 	}
-	d, err := opts.DB.ResolveOwnerDecisionDisplay(ctx, session.TaskRef, cmd.Name, cmd.Reference, 0)
+	d, err := opts.DB.ResolveOwnerDecisionDisplay(ctx, session.TaskRef, cmd.Name, cmd.Reference, wait.ReplyToCommentID)
 	if err != nil {
 		return cmd, store.OwnerDecisionBinding{}, err
 	}
@@ -70,7 +77,7 @@ func ResolveValidateDecision(ctx context.Context, opts Options, req ActivityRequ
 	if strings.TrimSpace(tail) != "" {
 		normalized += " " + strings.TrimSpace(tail)
 	}
-	b := store.OwnerDecisionBinding{TaskRef: session.TaskRef, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, Body: wait.ReplyBody, Normalized: normalized, Display: d, CreatedAt: wait.ClaimedAt}
+	b := store.OwnerDecisionBinding{TaskRef: session.TaskRef, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, ReplyToCommentID: wait.ReplyToCommentID, Body: wait.ReplyBody, Normalized: normalized, Display: d, CreatedAt: wait.ClaimedAt}
 	if err = opts.DB.PutOwnerDecisionBinding(ctx, b); err != nil {
 		return cmd, b, err
 	}
@@ -84,12 +91,16 @@ func validateDecisionTarget(st ValidateState) string {
 
 // ResolvePlanDecision retains a shorthand approval's exact displayed command.
 // Existing full commands continue through the established Plan checks.
-func ResolvePlanDecision(ctx context.Context, db *store.DB, task string, comment, author int64, body string, now time.Time) (string, error) {
-	return ResolvePlanStoryDecision(ctx, db, task, comment, author, body, now, "")
+func ResolvePlanDecision(ctx context.Context, db *store.DB, task string, comment, author int64, body string, now time.Time, replyTo ...int64) (string, error) {
+	return ResolvePlanStoryDecision(ctx, db, task, comment, author, body, now, "", replyTo...)
 }
 
 // ResolvePlanStoryDecision scopes child shorthand while preserving exact refs.
-func ResolvePlanStoryDecision(ctx context.Context, db *store.DB, task string, comment, author int64, body string, now time.Time, key string) (string, error) {
+func ResolvePlanStoryDecision(ctx context.Context, db *store.DB, task string, comment, author int64, body string, now time.Time, key string, replyTo ...int64) (string, error) {
+	publicationID := int64(0)
+	if len(replyTo) > 0 {
+		publicationID = replyTo[0]
+	}
 	fields := strings.Fields(commandtext.Normalize(body))
 	if len(fields) == 0 || (fields[0] != "/approve-plan" && fields[0] != "/approve-plan-set") {
 		return body, nil
@@ -100,7 +111,7 @@ func ResolvePlanStoryDecision(ctx context.Context, db *store.DB, task string, co
 		return body, nil
 	}
 	if b, e := db.GetOwnerDecisionBinding(ctx, task, comment); e == nil {
-		if b.Body != body || b.AuthorID != author {
+		if b.Body != body || b.AuthorID != author || b.ReplyToCommentID != publicationID {
 			return body, errors.New("the admitted Plan decision changed on replay")
 		}
 		return b.Normalized, nil
@@ -114,14 +125,14 @@ func ResolvePlanStoryDecision(ctx context.Context, db *store.DB, task string, co
 	var d store.OwnerDecisionDisplay
 	var err error
 	if key != "" && fields[0] == "/approve-plan" {
-		d, err = db.ResolveOwnerStoryDecisionDisplay(ctx, task, fields[0], reference, 0, key)
+		d, err = db.ResolveOwnerStoryDecisionDisplay(ctx, task, fields[0], reference, publicationID, key)
 	} else {
-		d, err = db.ResolveOwnerDecisionDisplay(ctx, task, fields[0], reference, 0)
+		d, err = db.ResolveOwnerDecisionDisplay(ctx, task, fields[0], reference, publicationID)
 	}
 	if err != nil {
 		return body, err
 	}
-	if err = db.PutOwnerDecisionBinding(ctx, store.OwnerDecisionBinding{TaskRef: task, CommentID: comment, AuthorID: author, Body: body, Normalized: d.Target, Display: d, CreatedAt: now}); err != nil {
+	if err = db.PutOwnerDecisionBinding(ctx, store.OwnerDecisionBinding{TaskRef: task, CommentID: comment, AuthorID: author, ReplyToCommentID: publicationID, Body: body, Normalized: d.Target, Display: d, CreatedAt: now}); err != nil {
 		return body, err
 	}
 	return d.Target, nil

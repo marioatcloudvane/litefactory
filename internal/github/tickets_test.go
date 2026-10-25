@@ -74,6 +74,28 @@ func TestTicketAdapterQualifiedResolutionAndNumericReplyOrder(t *testing.T) {
 	}
 }
 
+func TestTicketAdapterPreservesObservedReplyParentQualification(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") })
+	a := newTicketAdapter(t, f)
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: a.Origin(), RemoteID: "700"}, Locator: ticketLocator(a)}
+	observed := github.Comment{ID: 123, Author: github.User{ID: 42}, APIURL: f.Server.URL + "/repos/" + testRepo.String() + "/issues/comments/123", IssueAPIURL: f.Server.URL + "/repos/" + testRepo.String() + "/issues/7"}
+	for _, parent := range []int64{0, 100} {
+		observed.ReplyToCommentID = parent
+		reply, err := a.QualifyReply(ref, observed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parent == 0 {
+			if reply.ReplyTo.RemoteID != "" {
+				t.Fatal("unthreaded observation acquired a parent")
+			}
+		} else if !reply.ReplyTo.Equal(ticket.Identity{Provider: ticket.GitHub, Origin: a.Origin(), RemoteID: "100"}) {
+			t.Fatalf("parent lost provider qualification: %+v", reply.ReplyTo)
+		}
+	}
+}
+
 func TestTicketAdapterRefusesCollidingDestinationBeforeMutation(t *testing.T) {
 	t.Parallel()
 	var base string
