@@ -172,3 +172,14 @@ Evidence:
 - `internal/graphexec/research_control.go:132`
 - `internal/turn/research_brief_activity.go:145`
 - `internal/config/config.go:569`
+
+## f20
+
+Plan stage rights are Go: create is valid only at stage story, the story stage may change only intent, dependencies and conversation, the technical stage may not touch criteria or tasks, and the stage vocabulary is story/technical/acceptance. A one-pass plan needs a new full stage; prompts, roles, skills and bounds per stage are already DOT attributes.
+
+Evidence:
+
+- `internal/graphexec/plan_story.go:92`
+- `internal/graphexec/plan_story.go:154`
+- `internal/graphexec/plan_control.go:41`
+- `internal/teamsource/plan/plan.dot:1`
