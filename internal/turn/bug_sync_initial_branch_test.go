@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 func TestBugInitialUnpublishedBranchSynchronizesWithoutPublication(t *testing.T) {
@@ -22,7 +22,7 @@ func TestBugInitialUnpublishedBranchSynchronizesWithoutPublication(t *testing.T)
 			ctx := t.Context()
 			specs, err := SimplifiedBugSpecs()
 			mustProgress(t, err)
-			definition, err := teamsource.CaptureBugParent(ctx, specs)
+			definition, err := teamsourcetest.CaptureBug(ctx, specs)
 			mustProgress(t, err)
 			runtime := &BugRuntime{opts: f.opts, definition: definition}
 			f.session, err = f.db.FreezeSessionSlug(ctx, f.session.ID, testSlug, testBranch)

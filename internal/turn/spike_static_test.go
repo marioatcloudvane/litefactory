@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // spikeGoSources are the non-test Go files that make up graph Spike in this package.
@@ -36,7 +36,7 @@ func spikeGoSources(t *testing.T) map[string]string {
 func TestSpikeGoNamesNoGraphNodeAndPicksNoStep(t *testing.T) {
 	specs, err := SpikeSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CaptureSpike(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureSpike(t.Context(), specs)
 	mustProgress(t, err)
 	for name, source := range spikeGoSources(t) {
 		for _, node := range definition.Profile.Nodes {
@@ -87,7 +87,7 @@ func TestSpikeHasNoTopologyValidatorInTheGenericEngine(t *testing.T) {
 func TestSpikeLimitsAreDeclaredInTheGraphFile(t *testing.T) {
 	specs, err := SpikeSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CaptureSpike(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureSpike(t.Context(), specs)
 	mustProgress(t, err)
 	limits := map[string]int{}
 	for _, node := range definition.Profile.Nodes {
@@ -129,7 +129,7 @@ func TestSpikeLimitsAreDeclaredInTheGraphFile(t *testing.T) {
 func TestSpikeRepairsOnceAfterAFailedCheck(t *testing.T) {
 	specs, err := SpikeSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CaptureSpike(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureSpike(t.Context(), specs)
 	mustProgress(t, err)
 	profile := definition.Profile
 	next := func(from, outcome string) graphexec.Node {

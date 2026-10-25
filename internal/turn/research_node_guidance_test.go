@@ -1,13 +1,13 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 var fencedJSON = regexp.MustCompile("(?s)```json\\n(.*?)\\n```")
@@ -22,7 +22,7 @@ func TestShippedNodeResultResourceDecodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := teamsource.CaptureResearch(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 	if err != nil {
 		t.Fatal(err)
 	}

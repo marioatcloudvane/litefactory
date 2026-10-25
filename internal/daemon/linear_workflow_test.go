@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io"
 	"log/slog"
 	"net/http"
@@ -970,7 +971,7 @@ func linearSetApproval(t *testing.T, d *Daemon, remote *linearWorkflowServer, ad
 	linearWorkflowCheck(t, err)
 	opts := turn.Options{DB: d.db, Git: binary, Paths: paths, InstanceID: "linear-set-test", Logger: d.log, ProjectApprovers: true, CloneGate: linearApprovalNoAgent{}, Runners: turn.RunnerSet{"claude": linearApprovalNoAgent{}}, ResearchReporter: reporter, SubIssueCreator: bridge, MCP: &turn.MCPRuntime{Paths: paths, Redactor: redactor, Now: time.Now}}
 	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-		definition, err := teamsource.CapturePlan(ctx, specs)
+		definition, err := teamsourcetest.CapturePlan(ctx, specs)
 		if err != nil {
 			return nil, err
 		}
@@ -1142,7 +1143,7 @@ func linearImplementAdmission(t *testing.T, d *Daemon, remote *linearWorkflowSer
 	defer status.Close()
 	opts.MCP.ImplementStatus = status
 	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-		definition, err := teamsource.CaptureImplement(ctx, specs)
+		definition, err := teamsourcetest.CaptureImplement(ctx, specs)
 		if err != nil {
 			return nil, err
 		}

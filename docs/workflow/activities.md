@@ -16,9 +16,9 @@ suite [lf_action="lf_validate_suite", lf_outcomes="passed,failed,blocked,retry",
 suite -> repair_budget [lf_on="failed"];
 ```
 
-- The graphs live in the team sources: `internal/teamsource/<mode>/<mode>.dot`
-  (go-development), `internal/teamsource/python-fastapi/…`,
-  `internal/teamsource/swift-ios/…` and `teams/source/dotnet-web/…`. All four
+- The graphs live in the team sources: `teams/source/base-team/<mode>/<mode>.dot`
+  (go-development), `teams/source/python-fastapi/…`,
+  `teams/source/swift-ios/…` and `teams/source/dotnet-web/…`. All four
   teams use the same activities. Released copies sit under `teams/<team>/v<version>/`.
 - Topology belongs in the DOT, never in Go. The code registers activities and
   checks graphs; it does not define them.

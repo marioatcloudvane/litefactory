@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -763,7 +764,7 @@ func TestPlanFailureDaemon_OwnerReplyRunsFreshStoryDraft(t *testing.T) {
 			opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "retry-test", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{"claude": runner}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, SubIssueCreator: remote, MCP: &turn.MCPRuntime{Authority: authority, Paths: mcpPaths, Executable: "/factory/litefactory", Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID, Now: time.Now}}
 			opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "test-model", "flagship": "test-model"}}
 			opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-				def, err := teamsource.CapturePlan(ctx, specs)
+				def, err := teamsourcetest.CapturePlan(ctx, specs)
 				if err != nil {
 					return nil, err
 				}

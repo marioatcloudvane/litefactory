@@ -13,7 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 )
 
 func failureBodies(forge *fakeForge) []string {
@@ -201,7 +201,7 @@ func TestPlanFailure_ShippedGraphRoutesEveryFailureToTheOneCommentNode(t *testin
 	t.Parallel()
 	specs, err := PlanSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CapturePlan(t.Context(), specs)
+	definition, err := teamsourcetest.CapturePlan(t.Context(), specs)
 	mustProgress(t, err)
 	node, err := failureCommentNode(definition.Profile)
 	mustProgress(t, err)

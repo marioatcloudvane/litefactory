@@ -2,6 +2,7 @@ package turn
 
 import (
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"strings"
 	"testing"
 	"time"
@@ -9,7 +10,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // parentPostsWith returns the bodies posted on the parent issue that contain needle.
@@ -216,7 +216,7 @@ func TestPlanNotices_StaleChildReplyIsAnsweredOnTheChildWithTheCurrentCommand(t 
 func TestPlanNotices_EveryStopTerminalHasAnExplanation(t *testing.T) {
 	specs, err := PlanSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CapturePlan(t.Context(), specs)
+	definition, err := teamsourcetest.CapturePlan(t.Context(), specs)
 	mustProgress(t, err)
 	loops := 0
 	for _, e := range definition.Profile.Edges {
@@ -249,7 +249,7 @@ func TestPlanNotices_OutOfPassesStopIsReportedOnce(t *testing.T) {
 	f, _, base, _, forge := graphPlanFixtureWithForge(t, "agent")
 	specs, err := PlanSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CapturePlan(t.Context(), specs)
+	definition, err := teamsourcetest.CapturePlan(t.Context(), specs)
 	mustProgress(t, err)
 	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: definition.Profile.Team, Mode: "plan", ProfileVersion: definition.Profile.ProfileVersion, Path: "plan/plan.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	mustProgress(t, err)
@@ -351,7 +351,7 @@ func TestPlanNotices_NoWorkStopShowsCurrentDecision(t *testing.T) {
 	command := state.PlanCurrentCommand(state.Stories[0].Key)
 	specs, err := PlanSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CapturePlan(t.Context(), specs)
+	definition, err := teamsourcetest.CapturePlan(t.Context(), specs)
 	mustProgress(t, err)
 	from := ""
 	for _, edge := range definition.Profile.Edges {

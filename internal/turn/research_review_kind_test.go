@@ -1,12 +1,12 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // The review gate rode on the question kind when it was first built, and could
@@ -37,7 +37,7 @@ func TestShippedGraphRoutesDoneToAReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := teamsource.CaptureResearch(t.Context(), specs)
+	d, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 	if err != nil {
 		t.Fatal(err)
 	}

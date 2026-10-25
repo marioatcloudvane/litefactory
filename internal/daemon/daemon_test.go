@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"log/slog"
@@ -517,7 +517,7 @@ func TestInterruptedGraphDispatchStartupAndTick(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			def, err := teamsource.CaptureSpike(ctx, specs)
+			def, err := teamsourcetest.CaptureSpike(ctx, specs)
 			if err != nil {
 				t.Fatal(err)
 			}

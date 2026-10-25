@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"html"
 	"io/fs"
 	"os"
@@ -70,14 +71,15 @@ func enableWorkerSyncFixture(f *fixture) {
 		if workflow != agent.WorkflowImplement {
 			return fixtureWorkflowSource(ctx, repo, workflow, specs)
 		}
-		return fixtureInstalled(teamsource.CaptureImplement(ctx, specs))
+		return fixtureInstalled(teamsourcetest.CaptureImplement(ctx, specs))
 	}
 }
 
 // Earlier captured worker gates retain their strict conflict routing.
 func enableStrictWorkerSyncFixture(t *testing.T, f *fixture) {
 	t.Helper()
-	source := os.DirFS(filepath.Join("..", "teamsource", "implement"))
+	source, err := teamsourcetest.Workflow("go-development", "implement")
+	mustProgress(t, err)
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(source, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {

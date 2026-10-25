@@ -28,95 +28,53 @@ func (e Entry) String() string { return e.Workflow + " | " + e.Stage + " | " + e
 
 // Source lists the grantable actions of one repository.
 //
-// SWAP POINT FOR #317: the built-in source below is temporary. It reads the
-// hardcoded built-in workflows and returns the same list for every
-// repository. Issue #317 replaces it with a source that reads each
-// repository's own graphs. Nothing outside this interface has to change.
+// The repository source below reads the repository's selected installed team.
 type Source interface {
 	Catalogue(ctx context.Context, repo store.Repo) ([]Entry, error)
 }
 
-// Capture loads one built-in workflow graph.
-type Capture func(ctx context.Context) (*graphexec.Profile, error)
+// Resolver captures one workflow of the repository's selected installed team.
+type Resolver func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error)
 
-// BuiltinSource is the temporary catalogue source (swap point for #317). It
-// walks the hardcoded built-in workflows and collects their lf_rights nodes,
-// ignoring the repository.
-type BuiltinSource struct {
-	Captures []Capture
+// RepositorySource lists the lf_rights actions of the repository's selected
+// installed team. A repository with no selected team has no actions.
+type RepositorySource struct {
+	Resolve Resolver
 }
 
-// NewBuiltinSource wires the shipped bug, plan, research, implement and spike
-// workflows. The validate workflow joins this list when it exists.
-func NewBuiltinSource() BuiltinSource {
-	return BuiltinSource{Captures: []Capture{
-		func(ctx context.Context) (*graphexec.Profile, error) {
-			specs, err := turn.SimplifiedBugSpecs()
-			if err != nil {
-				return nil, err
-			}
-			d, err := teamsource.CaptureBugParent(ctx, specs)
-			if err != nil {
-				return nil, err
-			}
-			return d.Profile, nil
-		},
-		func(ctx context.Context) (*graphexec.Profile, error) {
-			specs, err := turn.PlanSpecs()
-			if err != nil {
-				return nil, err
-			}
-			d, err := teamsource.CapturePlan(ctx, specs)
-			if err != nil {
-				return nil, err
-			}
-			return d.Profile, nil
-		},
-		func(ctx context.Context) (*graphexec.Profile, error) {
-			specs, err := turn.ResearchSpecs()
-			if err != nil {
-				return nil, err
-			}
-			d, err := teamsource.CaptureResearch(ctx, specs)
-			if err != nil {
-				return nil, err
-			}
-			return d.Profile, nil
-		},
-		func(ctx context.Context) (*graphexec.Profile, error) {
-			specs, err := turn.ImplementSpecs()
-			if err != nil {
-				return nil, err
-			}
-			d, err := teamsource.CaptureImplement(ctx, specs)
-			if err != nil {
-				return nil, err
-			}
-			return d.Profile, nil
-		},
-		func(ctx context.Context) (*graphexec.Profile, error) {
-			specs, err := turn.WorkflowSpecs(turn.SpikeWorkflowPolicy())
-			if err != nil {
-				return nil, err
-			}
-			d, err := teamsource.CaptureSpike(ctx, specs)
-			if err != nil {
-				return nil, err
-			}
-			return d.Profile, nil
-		},
-	}}
+// NewRepositorySource reads workflows through resolve, the same repository
+// workflow source the daemon uses.
+func NewRepositorySource(resolve Resolver) RepositorySource {
+	return RepositorySource{Resolve: resolve}
 }
 
-// Catalogue implements Source. The repository is ignored.
-func (s BuiltinSource) Catalogue(ctx context.Context, _ store.Repo) ([]Entry, error) {
+// Catalogue implements Source.
+func (s RepositorySource) Catalogue(ctx context.Context, repo store.Repo) ([]Entry, error) {
+	type workflowSpecs struct {
+		workflow agent.Workflow
+		specs    func() (graphexec.Registry, error)
+	}
+	list := []workflowSpecs{
+		{agent.WorkflowBug, turn.SimplifiedBugSpecs},
+		{agent.WorkflowPlan, turn.PlanSpecs},
+		{agent.WorkflowResearch, turn.ResearchSpecs},
+		{agent.WorkflowImplement, turn.ImplementSpecs},
+		{agent.WorkflowSpike, func() (graphexec.Registry, error) { return turn.WorkflowSpecs(turn.SpikeWorkflowPolicy()) }},
+	}
 	var profiles []*graphexec.Profile
-	for _, capture := range s.Captures {
-		p, err := capture(ctx)
+	for _, w := range list {
+		specs, err := w.specs()
 		if err != nil {
 			return nil, fmt.Errorf("rights catalogue: %w", err)
 		}
-		profiles = append(profiles, p)
+		d, err := s.Resolve(ctx, repo, w.workflow, specs)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil // no team is selected for this repository
+		}
+		if err != nil {
+			return nil, fmt.Errorf("rights catalogue: %w", err)
+		}
+		profiles = append(profiles, d.Profile)
 	}
 	return EntriesFromProfiles(profiles...)
 }

@@ -3,6 +3,7 @@ package teamrelease
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -261,7 +262,8 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		}
 	}
 	for _, mode := range []string{"research", "plan", "implement", "validate", "spike", "bug"} {
-		shared, err := os.ReadFile(filepath.Join("../teamsource", mode, mode+".dot"))
+		goFiles, err := teamsourcetest.Files("go-development")
+		shared := goFiles[mode+"/"+mode+".dot"]
 		if err != nil {
 			t.Fatal(err)
 		}
