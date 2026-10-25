@@ -173,7 +173,13 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	var stderrTail []byte
 	exited := false
 	failure := func(code int, tail []byte) { exited, exitCode, stderrTail = true, code, tail }
-	err = runScopedDoctorProcess(ctx, r.binary.Path, args, env, request, operation, r.timeout, observe, failure, r.logger)
+	var oversized providerprocess.OversizedObserver
+	if operation == "judge" && r.logger != nil {
+		oversized = func(kind string, largestDroppedBytes, totalBytes int) {
+			r.logger.Warn("judge provider output oversized", "attempt", request.Attempt, "provider", "claude", "largest_dropped_line_bytes", largestDroppedBytes, "total_bytes", totalBytes, "kind", kind)
+		}
+	}
+	err = runScopedDoctorProcess(ctx, r.binary.Path, args, env, request, operation, r.timeout, observe, failure, oversized, r.logger)
 	if exited {
 		r.logDoctorFailure(ctx, request, operation, exitCode, stderrTail, terminalErrors)
 	}

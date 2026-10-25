@@ -23,12 +23,18 @@ const ValidateReviewAccess = "read"
 
 // ValidateEvidence is one suite command of the tested commit, offered to every
 // reviewer as a retained check it may cite. Only a passed one proves anything.
+// A command that did not pass carries the end of its retained output, so a
+// reviewer can name the failure instead of only marking items unverified.
 type ValidateEvidence struct {
-	ID     string
-	Argv   []string
-	State  string
-	Reason string
+	ID         string
+	Argv       []string
+	State      string
+	Reason     string
+	OutputTail string `json:"output_tail,omitempty"`
 }
+
+// validateEvidenceTailBytes bounds the output tail one evidence entry carries.
+const validateEvidenceTailBytes = 4096
 
 // ValidateReviewRequest is everything one reviewer needs. It is built from
 // factory state only.
@@ -463,9 +469,22 @@ func (h ValidateReviewActivity) evidence(ctx context.Context, opts Options, suit
 	}
 	out := make([]ValidateEvidence, 0, len(commands))
 	for _, c := range commands {
-		out = append(out, ValidateEvidence{ID: validateCheckID(suite.Output.RunID, c.Position), Argv: c.Argv, State: c.State, Reason: c.Reason})
+		e := ValidateEvidence{ID: validateCheckID(suite.Output.RunID, c.Position), Argv: c.Argv, State: c.State, Reason: c.Reason}
+		if c.State != store.SuitePassed {
+			e.OutputTail = tailText(c.OutputTail, validateEvidenceTailBytes)
+		}
+		out = append(out, e)
 	}
 	return out, nil
+}
+
+// tailText keeps at most limit bytes from the end of text, cut on a valid UTF-8
+// boundary.
+func tailText(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	return strings.ToValidUTF8(text[len(text)-limit:], "")
 }
 
 func validateCheckID(runID int64, position int) string {

@@ -44,6 +44,7 @@ You may, and are asked to, hand the story's tasks to subagents (with your subage
 The factory runs you inside a graph it owns. It, not you, decides what happens after your result.
 
  - You get your own story as it was approved, the stories it builds on, and, when this is a repair, the reason the earlier attempt failed and any owner guidance. Deal with that first: you continue on the same branch, so earlier work may already be there.
+ - When the factory names your parent's session directory, it is approved Research and Plan context for your story, not an archived earlier session: read the Research findings, decisions and plan your criteria refer to there.
  - The outcome of your submitted result steers the run. `completed` is saved and the story becomes done. `incomplete` gives the story another attempt: the factory runs you again with your reason as the earlier failure, and parks the story and asks the owner only once the attempts are spent. `blocked` parks the story at once with your reason, and the factory asks the owner for you.
  - You cannot ask the owner a question. You cannot approve, publish or move to another mode.
 
