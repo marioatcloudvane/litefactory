@@ -351,7 +351,7 @@ func TestPlanNotices_NoWorkStopShowsCurrentDecision(t *testing.T) {
 	command := state.PlanCurrentCommand(state.Stories[0].Key)
 	specs, err := PlanSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CapturePlan(t.Context(), specs)
+	definition, err := teamsourcetest.CapturePlan(t.Context(), specs)
 	mustProgress(t, err)
 	from := ""
 	for _, edge := range definition.Profile.Edges {

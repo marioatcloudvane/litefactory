@@ -78,7 +78,8 @@ func enableWorkerSyncFixture(f *fixture) {
 // Earlier captured worker gates retain their strict conflict routing.
 func enableStrictWorkerSyncFixture(t *testing.T, f *fixture) {
 	t.Helper()
-	source := os.DirFS(filepath.Join("..", "teamsource", "implement"))
+	source, err := teamsourcetest.Workflow("go-development", "implement")
+	mustProgress(t, err)
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(source, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
