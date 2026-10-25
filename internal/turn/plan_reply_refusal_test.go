@@ -13,6 +13,13 @@ import (
 func TestAdmitReplyChildRefusalIsAPlanReplyRefusal(t *testing.T) {
 	f, _, base, _, _ := graphPlanFixtureWithForge(t, "agent")
 	s := planbrief.PlanState{SharedRevision: "initial", Stories: []planbrief.PlanStoryState{{Key: "story-009", Stage: "acceptance", Candidate: "plan-55-600", Approvals: map[string]string{}, Draft: planbrief.PlanDraft{Key: "story-009"}}}}
+	// Earlier stages are approved, so the wait is one a command can satisfy;
+	// a read clears a wait behind a stale earlier approval (#1160).
+	for _, stage := range []string{"story", "technical"} {
+		ref, err := s.ReviewRevision("story-009", stage)
+		mustProgress(t, err)
+		s.Stories[0].Approvals[stage] = ref
+	}
 	revision, err := s.ReviewRevision("story-009", "acceptance")
 	mustProgress(t, err)
 	s.Stories[0].Wait = &planbrief.PlanWait{ID: "wait", Stage: "acceptance", Candidate: "plan-55-600", Revision: revision, Kind: "review", IssueID: 3980}
