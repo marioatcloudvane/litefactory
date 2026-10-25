@@ -121,6 +121,10 @@ func TestGraphShippedDOTScope(t *testing.T) {
 			}
 		}
 	}
+	// The shared base-team holds the same six graphs with a {{team}} placeholder.
+	for _, workflow := range workflows {
+		allowed["../../teams/source/base-team/"+workflow+"/"+workflow+".dot"] = true
+	}
 	err = filepath.WalkDir(filepath.Join("..", ".."), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

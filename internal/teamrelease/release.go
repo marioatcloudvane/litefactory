@@ -158,6 +158,9 @@ func GenerateSources(ctx context.Context, repo string, check bool, sources []str
 
 func candidateSource(ctx context.Context, root *os.Root, sourceRoot string) (map[string][]byte, teampackage.Release, error) {
 	var release teampackage.Release
+	if err := refuseBase(root, sourceRoot); err != nil {
+		return nil, release, err
+	}
 	raw, err := read(root, sourceRoot+"/release.json")
 	if err != nil {
 		return nil, release, err
@@ -173,27 +176,19 @@ func candidateSource(ctx context.Context, root *os.Root, sourceRoot string) (map
 	if !safe(release.Slug) || strings.Contains(release.Slug, "/") || !safe(release.Download) || !strings.HasPrefix(release.Download, release.Slug+"/") || release.Download == "go-development/v1" || len(release.Files) != 0 || release.Checksum != "" {
 		return nil, release, errors.New("internal/teamsource/release.json: invalid identity, unsafe/immutable download path or authored hashes")
 	}
-	files := map[string][]byte{}
-	profile, err := read(root, sourceRoot+"/stack-profile.json")
+	files, err := resolveSource(ctx, root, sourceRoot, release.Slug)
 	if err != nil {
-		return nil, release, fmt.Errorf("stack-profile.json: %w", err)
+		return nil, release, err
+	}
+	profile, ok := files["stack-profile.json"]
+	if !ok {
+		return nil, release, errors.New("stack-profile.json: missing from the resolved source")
 	}
 	if _, err := config.DecodeStackProfile(profile); err != nil {
 		return nil, release, err
 	}
-	files["stack-profile.json"] = profile
 	for _, w := range workflows {
-		if err := ctx.Err(); err != nil {
-			return nil, release, err
-		}
-		source, err := tree(root, sourceRoot+"/"+w)
-		if err != nil {
-			return nil, release, err
-		}
-		for name, raw := range source {
-			files[w+"/"+name] = raw
-		}
-		graph, ok := source[w+".dot"]
+		graph, ok := files[w+"/"+w+".dot"]
 		if !ok || !bytes.Contains(graph, []byte(`team="`+release.Slug+`"`)) {
 			return nil, release, fmt.Errorf("%s/%s.dot: missing selected team graph identity", w, w)
 		}
