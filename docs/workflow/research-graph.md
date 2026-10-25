@@ -4,7 +4,7 @@
 
 Research understands a request before anyone solves it. It reads the real code, asks you what it cannot decide, and ends with a brief that Plan can use. Start it with `/research <text>` (see [owner commands](../guides/owner-commands.md)).
 
-Research always runs as a graph. The flow is written in `internal/teamsource/research/research.dot`; the code only supplies the steps. There is no repository setting that changes the route.
+Research always runs as a graph. The flow is written in `teams/source/base-team/research/research.dot`; the code only supplies the steps. There is no repository setting that changes the route.
 
 ## Two stages
 

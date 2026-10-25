@@ -10,6 +10,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/teampackage"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"github.com/cloudvane/litefactory/internal/turn"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ import (
 func secondSource(t *testing.T, root string) string {
 	t.Helper()
 	const second = "internal/temporary-team"
-	for name, raw := range snapshot(t, filepath.Join(root, "internal/teamsource")) {
+	for name, raw := range snapshot(t, filepath.Join(root, "teams/source/go-development")) {
 		raw = bytes.ReplaceAll(raw, []byte("go-development"), []byte("temporary-team"))
 		put(t, filepath.Join(root, second, filepath.FromSlash(name)), raw)
 	}
@@ -45,7 +46,7 @@ func TestMultipleSourcesPreservePublishedReleaseAndExactSelection(t *testing.T) 
 	first := releaseCatalogue(t, root).Releases[0]
 	before := snapshot(t, filepath.Join(root, "teams", first.Download))
 	second := secondSource(t, root)
-	sources := []string{"internal/teamsource", second}
+	sources := []string{"teams/source/go-development", second}
 	if err := GenerateSources(t.Context(), root, false, sources); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func TestMultipleSourcesPreservePublishedReleaseAndExactSelection(t *testing.T) 
 		}
 	}
 	all := snapshot(t, root)
-	if err := GenerateSources(t.Context(), root, false, []string{second, "internal/teamsource"}); err != nil {
+	if err := GenerateSources(t.Context(), root, false, []string{second, "teams/source/go-development"}); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(all, snapshot(t, root)) {
@@ -109,7 +110,7 @@ func TestInvalidSecondSourceLeavesWholePublicationUnchanged(t *testing.T) {
 	before := snapshot(t, filepath.Join(root, "teams"))
 	put(t, filepath.Join(root, second, config.StackProfilePath), []byte(`{"version":99}`))
 	mutated := snapshot(t, filepath.Join(root, "internal"))
-	if err := GenerateSources(t.Context(), root, false, []string{"internal/teamsource", second}); err == nil {
+	if err := GenerateSources(t.Context(), root, false, []string{"teams/source/go-development", second}); err == nil {
 		t.Fatal("invalid candidate accepted")
 	}
 	if !reflect.DeepEqual(before, snapshot(t, filepath.Join(root, "teams"))) || !reflect.DeepEqual(mutated, snapshot(t, filepath.Join(root, "internal"))) {
@@ -119,13 +120,14 @@ func TestInvalidSecondSourceLeavesWholePublicationUnchanged(t *testing.T) {
 
 // Exercise canonical source closure without generating or modifying published releases.
 func TestCanonicalPlanTaskOwnersSurviveRetainedReplay(t *testing.T) {
-	for _, root := range []string{"internal/teamsource", "internal/teamsource/python-fastapi", "internal/teamsource/swift-ios", "teams/source/dotnet-web"} {
+	for _, root := range []string{"teams/source/go-development", "teams/source/python-fastapi", "teams/source/swift-ios", "teams/source/dotnet-web"} {
 		t.Run(root, func(t *testing.T) {
-			source := os.DirFS(filepath.Join("../..", root))
-			raw, err := os.ReadFile(filepath.Join("../..", root, config.StackProfilePath))
+			resolved, err := teamsourcetest.Files(filepath.Base(root))
 			if err != nil {
 				t.Fatal(err)
 			}
+			source := teamsource.RetainedFiles(resolved)
+			raw := resolved[config.StackProfilePath]
 			profile, err := config.ResolveStackProfile(raw, nil)
 			if err != nil {
 				t.Fatal(err)

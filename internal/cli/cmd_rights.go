@@ -11,6 +11,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/rights"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -309,7 +310,11 @@ func withRights(ctx context.Context, env *Env, o *rightsFlags, needLookup bool, 
 	if err != nil {
 		return Preconditionf("configured numeric owner identity required: %v", err)
 	}
-	var source rights.Source = rights.NewBuiltinSource()
+	resolve, err := daemon.RepositoryWorkflowSource(rt.paths, rt.db)
+	if err != nil {
+		return err
+	}
+	var source rights.Source = rights.NewRepositorySource(rights.Resolver(resolve))
 	if env.RightsCatalogue != nil {
 		source = env.RightsCatalogue
 	}

@@ -16,6 +16,9 @@ var legacyJudgeResourcePaths = []string{"resources/judge/evidence-suffix.md", "r
 
 func capturePaths(role string) []string {
 	paths := []string{CataloguePath, rolePath(role)}
+	if role == ConversationInboxOrganizerRole {
+		paths = append(paths, InboxOrganizerSchemaPath)
+	}
 	if role == StandardsAuthorRole {
 		paths = append(paths, StandardsAuthorSchemaPath)
 	}

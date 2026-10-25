@@ -30,6 +30,11 @@ type workflowRefusal struct {
 func (e *workflowRefusal) Error() string { return e.cause.Error() }
 func (e *workflowRefusal) Unwrap() error { return e.cause }
 
+// RepositoryWorkflowSource resolves a repository's selected installed team.
+func RepositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSourceResolver, error) {
+	return repositoryWorkflowSource(paths, db)
+}
+
 func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSourceResolver, error) {
 	manager, err := teampackage.New(teampackage.Options{Paths: paths, Validate: turn.ValidateTeamWorkflows, InUse: func(ctx context.Context, id teampackage.Identity) ([]string, error) {
 		return db.RepositoryTeamUses(ctx, id.Source, id.Slug, id.Version)

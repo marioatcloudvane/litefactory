@@ -15,11 +15,11 @@ import (
 // with "--agent ... not found" while all unit tests stayed green.
 func TestClaudeDeliveryAddressesItsRenderedRole(t *testing.T) {
 	t.Parallel()
-	research, err := CaptureResearch(t.Context(), researchTestRegistry(t))
+	research, err := captureResearchGo(t.Context(), t, researchTestRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := CapturePlan(t.Context(), planPackageRegistry(t))
+	plan, err := capturePlan(t.Context(), t, planPackageRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -83,11 +83,11 @@ func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
 			var check func(*graphexec.Profile) error
 			sourceNode := "investigate"
 			if mode == agent.ModeResearch {
-				assets = researchAssets
+				assets = RetainedFiles(teamFiles(t, goTeam))
 				policy = graphexec.ResearchControlPolicy()
 				check = graphexec.ValidateResearchControlGraph
 			} else {
-				assets = planAssets
+				assets = RetainedFiles(teamFiles(t, goTeam))
 				policy = graphexec.PlanControlPolicy()
 				check = graphexec.ValidatePlanControlGraph
 				sourceNode = "technical_agent"

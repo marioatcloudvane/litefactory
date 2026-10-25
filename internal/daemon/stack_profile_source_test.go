@@ -5,7 +5,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"github.com/cloudvane/litefactory/internal/turn"
 	"os"
 	"path/filepath"
@@ -35,7 +35,7 @@ func TestRepositorySourceRetainsModernProfileAndRefusesProfilelessUnknownTeam(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	captured, err := teamsource.CaptureImplement(t.Context(), specs)
+	captured, err := teamsourcetest.CaptureImplement(t.Context(), specs)
 	if err != nil {
 		t.Fatal(err)
 	}

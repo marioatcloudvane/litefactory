@@ -2,7 +2,7 @@
 
 [Documentation](../README.md) · [Workflow guide](../guides/workflow.md)
 
-Plan turns a Research brief (or a plain request) into small stories you approve, one stage at a time. Implement then builds the approved stories. Plan uses the graph in `internal/teamsource/plan/plan.dot` and Implement uses `internal/teamsource/implement/implement.dot`. Start Plan with `/plan <text>` and Implement with `/implement <text>`. The exact approval commands are in [owner commands](../guides/owner-commands.md).
+Plan turns a Research brief (or a plain request) into small stories you approve, one stage at a time. Implement then builds the approved stories. Plan uses the graph in `teams/source/base-team/plan/plan.dot` and Implement uses `teams/source/base-team/implement/implement.dot`. Start Plan with `/plan <text>` and Implement with `/implement <text>`. The exact approval commands are in [owner commands](../guides/owner-commands.md).
 
 ## How Plan works
 

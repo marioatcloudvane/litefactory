@@ -126,5 +126,5 @@ func (s *Service) refreshConversationInstructions(ctx context.Context, r *conver
 // conversationInstructionsDiffer compares the instruction text the model sees,
 // not provenance: equal text needs no refresh.
 func conversationInstructionsDiffer(a, b *instructionpackage.ConversationCapture) bool {
-	return a.Native() != b.Native() || a.Factory() != b.Factory() || a.Correction() != b.Correction() || a.ActionOutcome() != b.ActionOutcome() || a.Reasoner() != b.Reasoner()
+	return a.Native() != b.Native() || a.Factory() != b.Factory() || a.Correction() != b.Correction() || a.ActionOutcome() != b.ActionOutcome() || a.Reasoner() != b.Reasoner() || a.InboxOrganizer() != b.InboxOrganizer()
 }

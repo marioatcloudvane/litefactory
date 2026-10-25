@@ -149,6 +149,7 @@ func (d *Daemon) tickPhase(ctx context.Context, run func(context.Context) error)
 func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	hb := &heartbeat{source: wakeSourceFrom(ctx), counts: &discoveryCounts{}}
 	startedAt := d.now()
+	d.runsHeld.Store(nil)
 	d.quotas.tick(startedAt)
 	hb.startedAt = startedAt
 	// Last, whatever path the tick leaves by: the heartbeat line and the health
@@ -225,7 +226,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	// Code-host controls have their own sources and must be polled even when
 	// work-management replies come from Linear.
-	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.PollCodeDeliveryControls(ctx) }); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.PollCodeDeliveryControls(ctx, startedAt) }); err != nil {
 		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
 		if providerRateLimited(err) {
 			if d.connections == nil {
@@ -597,7 +598,10 @@ func (d *Daemon) discover(
 			}
 		}
 		if d.connections != nil {
-			if connectionEnabled {
+			// Hook delivery recovery is the listing's safety net, not a poll: a
+			// pass starts on a listing tick and only an unfinished one continues
+			// on the ticks after it.
+			if connectionEnabled && (due[repo.ID] || d.hookRecoveryUnfinished(repo.ID)) {
 				if err := d.recoverHookDeliveries(ctx, q, now, due[repo.ID]); err != nil {
 					if ctx.Err() != nil {
 						return nil, ctx.Err()
@@ -607,7 +611,7 @@ func (d *Daemon) discover(
 						d.rateLimited(ctx, repoLog, now, err)
 					}
 				}
-			} else {
+			} else if !connectionEnabled {
 				delete(d.hookRecovery, repo.ID)
 			}
 		}
@@ -1016,6 +1020,24 @@ func (c *candidate) addSource(source string) {
 	}
 }
 
+// standingSources re-offer a task because of what it is, not because anything
+// new arrived for it. backlog is here because its flag is already set: marking
+// it again records nothing new.
+var standingSources = []string{"graph_owner_wait", "plan_recovery", "managed_registry", "backlog"}
+
+// standingOnly reports whether every source of c is a standing one, so it
+// brings no unconsumed input. The backlog flag means only unconsumed input
+// (#1138): a capacity deferral or dispatch of such a candidate does not set it,
+// and an idle task stays off the every-tick backlog.
+func (c *candidate) standingOnly() bool {
+	for _, source := range c.sources {
+		if !slices.Contains(standingSources, source) {
+			return false
+		}
+	}
+	return len(c.sources) > 0
+}
+
 // repoQueue is one repository's eligible sessions plus the rotation state used
 // to walk them.
 //
@@ -1232,7 +1254,11 @@ type task struct {
 	// hinted is set when a webhook named this task's issue. Its comment
 	// listing then takes the operational lane, so an owner's comment does not
 	// wait behind background discovery.
-	hinted    bool
+	hinted bool
+	// standing is set when only standing sources dispatched this task, so its
+	// backlog flag was not set at dispatch. A worker that ends without a clean
+	// drain sets it then: whatever it left behind is owed input.
+	standing  bool
 	repo      store.Repo
 	forgeRepo github.Repo
 	issue     github.Issue
@@ -1470,8 +1496,12 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	// session this tick took out of the eligible set is marked, not only the ones
 	// that get a slot: a session deferred for want of a slot has to be found
 	// again next tick, and with the poll cursor monotonic this flag is the only
-	// thing that will find it.
-	d.markBacklog(ctx, c.log, c.session.ID)
+	// thing that will find it. A candidate brought only by standing sources
+	// carries no unconsumed input, so it is not marked: its own source finds it
+	// again when it has due work, and the listing otherwise (#1138).
+	if !c.standingOnly() {
+		d.markBacklog(ctx, c.log, c.session.ID)
+	}
 
 	reservation, reason := d.reserveInput()
 	if reservation == nil {
@@ -1482,6 +1512,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 			"next tick reconsiders it against fresh state")
 		return offerSkipped
 	}
+	d.inflight.label(c.session.ID, strings.Join(c.sources, "+"))
 
 	readCtx := ctx
 	if c.discoveryReservation == nil && d.connections != nil {
@@ -1604,7 +1635,9 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 func (d *Daemon) deferRest(ctx context.Context, queues []*repoQueue, result *TickResult) {
 	for _, q := range queues {
 		for _, c := range q.rest() {
-			d.markBacklog(ctx, c.log, c.session.ID)
+			if !c.standingOnly() {
+				d.markBacklog(ctx, c.log, c.session.ID)
+			}
 			result.Deferred++
 		}
 	}
@@ -1706,6 +1739,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		log:          c.log,
 		tickAt:       tickAt,
 		hinted:       slices.Contains(c.sources, "webhook"),
+		standing:     c.standingOnly(),
 		workerLog:    c.log.With(slog.Any("dispatch_sources", slices.Clone(c.sources)), slog.Time("tick_at", tickAt)),
 	}, nil
 }
@@ -1745,6 +1779,16 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
+	clean := false
+	if t.standing {
+		// Dispatched without a backlog flag: any exit short of a clean drain
+		// left input or work behind, and the flag is what brings it back.
+		defer func() {
+			if !clean {
+				d.markBacklog(ctx, t.log, t.session.ID)
+			}
+		}()
+	}
 	if err := d.recoverPlanStories(ctx, t); err != nil {
 		d.stopped(ctx, t, "could not reconcile Plan stories", errors.Join(err, d.reportPlanProgress(ctx, t)))
 		return
@@ -1836,6 +1880,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		// rather than a defer: a defer would fire on the error returns above too,
 		// which is exactly the stale-false the protocol forbids.
 		d.clearBacklog(ctx, t)
+		clean = true
 		// Consecutive-failure counting ends where the backlog flag does: this
 		// task has just made progress, so whatever it was failing at is no
 		// longer failing.
@@ -2196,7 +2241,9 @@ func (d *Daemon) consumed(ctx context.Context, sessionID, commentID int64) (bool
 // forge's listings can still see (RD-2).
 //
 //	Protocol — the tick sets needs_poll = 1 for every session it takes out
-//	of the eligible set, before the worker starts. A fully drained, error-free
+//	of the eligible set, before the worker starts, unless only standing
+//	sources brought it ([candidate.standingOnly]); such a worker sets it on
+//	any exit short of a clean drain instead. A fully drained, error-free
 //	drain/bootstrap clears it, as does an explicit closed observation during
 //	materialisation (US-1 AC-7). Other exits retain retry intent. Stale-true
 //	is recoverable after a clean drain or confirmed closure; stale-false can
@@ -2788,6 +2835,15 @@ func (d *Daemon) run(
 	if handled, err := d.recoverGraphReply(ctx, t, trigger, command); handled || err != nil {
 		return d.leave(ctx, t, log, "stopped graph reply recovery deferred", err)
 	}
+	// A plain parent comment the pinned Implement mode cannot use — Validate is
+	// running, or Implement already finished — is answered, not run (#1123).
+	if kind, err := d.plainParentCommentRefusal(ctx, t, trigger, mode, workflow, command); err != nil {
+		return d.leave(ctx, t, log, "could not tell which workflow a plain parent comment belongs to", err)
+	} else if kind != report.ReplyInvalid {
+		log.InfoContext(ctx, "plain parent comment has no Implement work to continue; refusing it with a reply",
+			slog.String("reply", kind.String()))
+		return d.refuseMode(ctx, t, trigger, kind, "")
+	}
 
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
@@ -3357,6 +3413,9 @@ func (d *Daemon) lowDisk(ctx context.Context) bool {
 		slog.String("path", d.diskPath),
 		slog.Uint64("free_bytes", free),
 		slog.Uint64("required_bytes", d.minFreeDiskBytes))
+	held := fmt.Sprintf("New runs wait: free disk %.1f GB is below the %d GB minimum.",
+		float64(free)/(1<<30), d.minFreeDiskBytes>>30)
+	d.runsHeld.Store(&held)
 	return true
 }
 

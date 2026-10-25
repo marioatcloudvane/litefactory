@@ -96,7 +96,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 			d.prepareFailed(ctx, t, err)
 			log.ErrorContext(ctx, "could not read the issue for scheduled work; it remains pending", slog.Any("error", err))
 		} else {
-			log.InfoContext(ctx, "scheduled work is not started because its issue is closed")
+			d.settleClosedSchedule(ctx, log, scheduled, tickAt)
 		}
 		return true
 	}
@@ -121,11 +121,33 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 	t.capacity = reservation
 	t.scheduled = &reserved
 	t.issue = issue
+	d.inflight.label(session.ID, "due_schedule")
 	t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"due_schedule"}), slog.Time("tick_at", tickAt))
 	t.workerLog.DebugContext(ctx, "worker dispatched")
 	go d.runDoctorGuardedWorker(sessionContext(workerCtx, scheduled.SessionID), t, func(ctx context.Context) { d.runScheduled(ctx, t, reserved) })
 	result.Dispatched++
 	return true
+}
+
+// settleClosedSchedule ends a due schedule whose issue is closed without a run,
+// as a graph dispatch is cancelled on closure, so it is not offered again on
+// every tick. It is recorded as failed so dependent schedules do not run either.
+func (d *Daemon) settleClosedSchedule(ctx context.Context, log *slog.Logger, scheduled store.Schedule, tickAt time.Time) {
+	reserved, ok, err := d.db.ReserveSchedule(ctx, scheduled.ID, tickAt.UTC())
+	if err != nil || !ok {
+		if err != nil {
+			log.ErrorContext(ctx, "could not settle scheduled work on a closed issue; it remains pending", slog.Any("error", err))
+		}
+		return
+	}
+	if _, err := d.db.FinishSchedule(ctx, reserved.ID, store.ScheduleFailed, 0, tickAt.UTC()); err != nil {
+		log.ErrorContext(ctx, "could not settle scheduled work on a closed issue; it remains pending", slog.Any("error", err))
+		if _, requeueErr := d.db.RequeueSchedule(ctx, reserved.ID, tickAt.UTC()); requeueErr != nil {
+			log.ErrorContext(ctx, "could not return scheduled work to pending", slog.Any("error", requeueErr))
+		}
+		return
+	}
+	log.InfoContext(ctx, "scheduled work settled without a run because its issue is closed")
 }
 
 // readScheduledIssue keeps scheduled ticket routing and code preparation pinned

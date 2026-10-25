@@ -61,6 +61,25 @@ func TestOwnerAnswersReachTheAuthorWithoutAProposal(t *testing.T) {
 	}
 }
 
+func TestOwnerChangesToAnAuthorProposalReachTheAuthorWithoutAProposal(t *testing.T) {
+	f := newJudgedConversation(t)
+	withAuthorSession(f, false)
+	f.say(t, "make it shorter and crisper", "", func(p factoryConversationPrompt) string {
+		id, start, end := span(p, p.OwnerInput)
+		return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"revise"},{"name":"id","reference":%q},{"name":"text","source_id":%q,"start":%d,"end":%d}]}`, p.AuthorSession.Reference, id, start, end)
+	})
+	if len(f.ops.executed) != 1 {
+		t.Fatalf("change not passed on: %+v", f.ops.executed)
+	}
+	got := f.ops.executed[0]
+	if got.Operation != "author.revise" || got.Arguments["id"] != "conversation-discord:3:nl-exec:abc" || got.Arguments["text"] != "make it shorter and crisper" || !strings.Contains(got.OperationKey, ":nl-direct:") {
+		t.Fatalf("revise request: %+v", got)
+	}
+	if _, err := f.s.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
+		t.Fatal("revising created a proposal")
+	}
+}
+
 func TestAuthorRunningIsReportedOnlyWhenItRuns(t *testing.T) {
 	f := newJudgedConversation(t)
 	withAuthorSession(f, true)

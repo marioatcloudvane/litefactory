@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -120,7 +121,7 @@ func TestShippedResearchGraphDeclaresAFailurePublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := teamsource.CaptureResearch(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 	if err != nil {
 		t.Fatal(err)
 	}

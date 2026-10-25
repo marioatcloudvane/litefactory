@@ -13,9 +13,9 @@ var researchDotAttr = regexp.MustCompile(`(\w+)="([^"]*)"`)
 func TestResearchGraphConditionsReferenceShippedRoles(t *testing.T) {
 	t.Parallel()
 	read := func(name string) string {
-		raw, err := researchAssets.ReadFile("research/" + name)
-		if err != nil {
-			t.Fatal(err)
+		raw, ok := teamFiles(t, goTeam)["research/"+name]
+		if !ok {
+			t.Fatalf("research/%s is not in the go team source", name)
 		}
 		return string(raw)
 	}

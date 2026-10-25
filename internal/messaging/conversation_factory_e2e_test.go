@@ -73,7 +73,7 @@ if [ "$step" = 1 ]; then
  printf 'acme/app#42' > "$state/fixture-target"
 fi
 if [ "$step" = 2 ]; then
- case "$(cat "$state/fixture-prompt-$step")" in *'no running tasks or owner waits found.'*) ;; *) exit 28;; esac
+ case "$(cat "$state/fixture-prompt-$step")" in *'Running now: 0.'*) ;; *) exit 28;; esac
 fi
 if [ "$step" = 3 ]; then
  [ "$(cat "$state/fixture-target")" = acme/app#42 ] || exit 26

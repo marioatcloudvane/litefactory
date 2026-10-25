@@ -238,18 +238,32 @@ func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*re
 		if number < 1 {
 			continue
 		}
-		session, err := d.managedChildSession(ctx, q.repo, row.Parent, number, remoteID)
+		// Work is checked from local state first: a story with nothing to do, or
+		// whose worker is already bound, costs no ticket read.
+		id, ok, err := d.implementWork(ctx, row, now)
 		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			// One story whose task cannot be resolved must not fail discovery for
-			// every other task and project; it is retried on the next tick.
-			q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
-				slog.String("parent", row.Parent), slog.String("story", row.Key), slog.Any("error", err))
+			return err
+		}
+		if !ok {
 			continue
 		}
-		if row.WorkerSession != session.ID {
+		var session store.Session
+		if row.WorkerSession != 0 {
+			if session, err = d.db.GetSession(ctx, row.WorkerSession); err != nil {
+				return err
+			}
+		} else {
+			session, err = d.storySession(ctx, q.repo, row.Parent, number, remoteID)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				// One story whose task cannot be resolved must not fail discovery for
+				// every other task and project; it is retried on the next tick.
+				q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
+					slog.String("parent", row.Parent), slog.String("story", row.Key), slog.Any("error", err))
+				continue
+			}
 			if err := d.db.SetImplementWorkerSession(ctx, row.Parent, row.Generation, row.Key, session.ID, now.UTC()); err != nil {
 				if errors.Is(err, store.ErrImplementConflict) {
 					continue
@@ -257,13 +271,13 @@ func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*re
 				return err
 			}
 			row.WorkerSession = session.ID
-		}
-		id, ok, err := d.implementWork(ctx, row, now)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
+			// A bound worker has its own retry identities.
+			if id, ok, err = d.implementWork(ctx, row, now); err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
 		}
 		attempted, err := d.db.ScheduleAttempted(ctx, session.ID, id)
 		if err != nil {
