@@ -253,3 +253,49 @@ func TestValidateResolverQuestionMustBePublished(t *testing.T) {
 		t.Fatalf("unpublished wait admitted: %v", err)
 	}
 }
+
+// #1169: an Implement question rests on a factory step that last ran inside an
+// agent's run. Resuming that same factory step runlessly is allowed; an agent
+// step, another node, or another workflow is still refused, and the refusal is
+// recognizable so the daemon can answer the owner instead of holding admission.
+func TestImplementFactoryOriginResumesRunlessDespiteInheritedRun(t *testing.T) {
+	for _, tc := range []struct {
+		name, workflow, node string
+		factory, allowed     bool
+	}{
+		{"factory step at origin", "implement", "sync_start", true, true},
+		{"agent step at origin", "implement", "sync_start", false, false},
+		{"factory step elsewhere", "implement", "merge", true, false},
+		{"other workflow", "research", "sync_start", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, reply := ownerReplyFixture(t, true, tc.workflow, "sync_start", "ask_owner", "question")
+			reply.Workflow = tc.workflow
+			if _, err := db.ClaimGraphOwnerReply(t.Context(), reply); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.sql.ExecContext(t.Context(), `UPDATE graph_instances SET current_node=? WHERE id=?`, tc.node, reply.InstanceID); err != nil {
+				t.Fatal(err)
+			}
+			attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: reply.InstanceID, Node: tc.node, FactoryStep: tc.factory, Limit: 8, StartedAt: reply.At})
+			if !tc.allowed {
+				if !errors.Is(err, ErrGraphInvariant) || !errors.Is(err, ErrGraphReplyNotResumable) {
+					t.Fatalf("mismatched continuation: %v", err)
+				}
+				origin, releaseErr := db.ReleaseGraphOwnerReply(t.Context(), reply.InstanceID, reply.CommentID)
+				wait, waitErr := db.GetGraphOwnerWait(t.Context(), reply.InstanceID)
+				if releaseErr != nil || waitErr != nil || origin != "sync_start" || wait.State != "waiting" || wait.ReplyID != 0 {
+					t.Fatalf("released wait: %q %+v %v %v", origin, wait, releaseErr, waitErr)
+				}
+				if _, err := db.ClaimGraphOwnerReply(t.Context(), reply); err != nil {
+					t.Fatalf("a released question accepts a new reply: %v", err)
+				}
+				return
+			}
+			wait, waitErr := db.GetGraphOwnerWait(t.Context(), reply.InstanceID)
+			if err != nil || waitErr != nil || wait.State != "allocated" || wait.ContinuationAttemptID != attempt.ID || attempt.RunID != 0 {
+				t.Fatalf("runless factory continuation: %+v %+v %v %v", wait, attempt, err, waitErr)
+			}
+		})
+	}
+}
