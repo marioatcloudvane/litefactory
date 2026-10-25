@@ -127,7 +127,8 @@ func TestReportRecoverySQLiteTickPreservesOrderingAndOtherTaskCapacity(t *testin
 }
 
 // releasePendingBugFixture uses the Doctor proposal/approval fixture protocol,
-// then the real typed release and settlement against the private test database.
+// then an exact atomic dispatch cancellation and instance failure against the
+// private test database. Both transitions are approved together.
 func releasePendingBugFixture(t *testing.T, f *fixture, instance store.GraphInstance) {
 	t.Helper()
 	ctx := t.Context()
@@ -145,7 +146,22 @@ func releasePendingBugFixture(t *testing.T, f *fixture, instance store.GraphInst
 	check(f.db.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "release", Provider: "claude", ConfiguredModel: "test", Evidence: string(evidence)}))
 	binding, err := f.db.BindDoctorResultAttempt(ctx, "release")
 	check(err)
-	proposal := []byte(fmt.Sprintf(`[{"number":1,"target":"graph:%d","action":{"kind":"release_instance","before":"running","after":"failed"}}]`, instance.ID))
+	dispatch, err := f.db.LatestGraphDispatch(ctx, instance.ID)
+	check(err)
+	steps := []struct {
+		Number int                      `json:"number"`
+		Target string                   `json:"target"`
+		Action store.DoctorRepairAction `json:"action"`
+	}{
+		{Number: 1, Target: fmt.Sprintf("graph_dispatch:%d", dispatch.ID)},
+		{Number: 2, Target: fmt.Sprintf("graph:%d", instance.ID)},
+	}
+	for index, kind := range []string{"graph_dispatch_cancel", "graph_fail"} {
+		steps[index].Action, err = f.db.PrepareDoctorGraphAction(ctx, session.TaskRef, kind, steps[index].Target, "Remove confirmed stale work so supported Bug successor admission can proceed")
+		check(err)
+	}
+	proposal, err := json.Marshal(steps)
+	check(err)
 	snapshot := append(append([]byte(`{"proposal":`), proposal...), '}')
 	_, err = f.db.RecordResult(ctx, store.ResultRecord{Binding: binding, RequestID: "release-result", Payload: snapshot, Snapshot: snapshot, Diagnostics: []byte(`{"valid":true,"errors":[]}`), Retired: []byte(`[]`), Accepted: true})
 	check(err)
@@ -156,10 +172,12 @@ func releasePendingBugFixture(t *testing.T, f *fixture, instance store.GraphInst
 	op, err := f.db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "release", SourceID: "release-approval", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: "release-presentation"})
 	check(err)
 	check(f.db.AcknowledgeDoctorExclusion(ctx, op.ID, "fixture"))
-	step, err := f.db.ApplyDoctorTypedRows(ctx, op.ID, 1, "release_instance")
+	check(f.db.ApplyDoctorGraphRepair(ctx, op.ID))
+	check(f.db.VerifyDoctorGraphRepair(ctx, op.ID))
+	journal, err := f.db.DoctorRepairSteps(ctx, op.ID)
 	check(err)
-	if step.State != "verified" {
-		t.Fatalf("release: %+v", step)
+	if len(journal) != 2 || journal[0].State != "verified" || journal[1].State != "verified" {
+		t.Fatalf("atomic stale-work repair: %+v", journal)
 	}
 	check(f.db.SettleDoctorTypedRepair(ctx, op.ID, true, ""))
 }

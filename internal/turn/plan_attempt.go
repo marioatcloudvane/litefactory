@@ -36,13 +36,23 @@ func preparePlanAttempt(worktree, branch string, run store.Run, in *harness.Prom
 			return err
 		}
 	}
-	if in.PlanContextPath == "" {
-		in.PlanContextPath, err = findPlanningContext(root, *in)
-		if err != nil {
-			return err
+	// Optional context is evidence, never an admission or authority requirement.
+	// Keep its validation strict, but do not launch with bytes that failed it.
+	in.PlanWorkingContext = ""
+	if in.PlanContextUnavailable == "" {
+		if in.PlanContextPath == "" {
+			in.PlanContextPath, err = findPlanningContext(root, *in)
+		}
+		if err == nil && in.PlanContextPath != "" {
+			in.PlanWorkingContext, err = readPlanningContext(root, in.PlanContextPath, *in)
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Warn("optional planning context unavailable", slog.Any("error", err))
+			in.PlanContextUnavailable = "Optional planning context is unavailable; its source was preserved and excluded from this request."
+			in.PlanWorkingContext = ""
 		}
 	}
-	if in.PlanContextPath == "" {
+	if in.PlanContextPath == "" || in.PlanContextUnavailable != "" {
 		var dir string
 		for _, marker := range []string{planbrief.FileName, "RESEARCH_BRIEF.md"} {
 			if found, ok := findSessionDir(worktree, branch, in.Ref.Issue, run.StartedAt, marker, log); ok {
@@ -56,11 +66,11 @@ func preparePlanAttempt(worktree, branch string, run store.Run, in *harness.Prom
 				return err
 			}
 		}
+		if in.PlanContextUnavailable != "" {
+			// Never replace unusable source, even on a resumed subprocess attempt.
+			dir = filepath.Join(dir, "plan-attempt-"+rand.Text())
+		}
 		in.PlanContextPath = filepath.ToSlash(filepath.Join(dir, planbrief.ContextFileName))
-	}
-	in.PlanWorkingContext, err = readPlanningContext(root, in.PlanContextPath, *in)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
 	}
 	in.PlanOutcomePath = planbrief.OutcomeFileName
 	in.PlanRunID = run.ID

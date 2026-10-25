@@ -282,7 +282,11 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			return w.finish(ctx, w.failed(ctx, scope, step, err, true))
 		}
 		if step.Status == store.GraphFailed {
-			return w.finish(ctx, w.failed(ctx, scope, step, errors.New(step.Activity.Diagnostic), false))
+			cause := errors.New(step.Activity.Diagnostic)
+			if step.Exhausted {
+				cause = &GraphLimitError{Node: step.Node, Diagnostic: step.Activity.Diagnostic}
+			}
+			return w.finish(ctx, w.failed(ctx, scope, step, cause, false))
 		}
 		if step.Deferred || (step.Activity.Outcome == "retry" && step.NextNode == step.Node) {
 			w.result.GraphDeferred = step.Deferred

@@ -103,7 +103,7 @@ func TestSpikeRetiredOrCrossModeProvenanceIsRefusedBeforeAnyAgent(t *testing.T) 
 		_, err := f.db.AdmitWorkflowPath(t.Context(), f.session.ID, "legacy")
 		mustProgress(t, err)
 		out, err := Execute(t.Context(), f.opts, req)
-		if err != nil || out.Reason != spikeRetiredReason || out.Succeeded() || forge.attemptCount() != 0 {
+		if err != nil || !strings.HasPrefix(out.Reason, spikeRetiredReason) || out.Succeeded() || forge.attemptCount() != 0 {
 			t.Fatalf("recorded legacy route was not refused: %+v err=%v", out, err)
 		}
 		if route := spikePersistedRoute(t, f); route != "legacy" {
@@ -117,7 +117,7 @@ func TestSpikeRetiredOrCrossModeProvenanceIsRefusedBeforeAnyAgent(t *testing.T) 
 		f, forge, req := assembledSpikeFixture(t, spikeDoneRunner(t), "")
 		req.Continuation = &store.Continuation{}
 		out, handled, err := admitSpikeExecution(t.Context(), f.opts, req, Result{Session: f.session, SessionID: f.session.ID})
-		if err != nil || !handled || out.Reason != spikeRetiredReason || forge.attemptCount() != 0 {
+		if err != nil || !handled || !strings.HasPrefix(out.Reason, spikeRetiredReason) || forge.attemptCount() != 0 {
 			t.Fatalf("handled=%v err=%v out=%+v", handled, err, out)
 		}
 	})

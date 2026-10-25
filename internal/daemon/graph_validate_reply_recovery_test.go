@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -84,8 +85,17 @@ func stoppedValidateFixture(t *testing.T, launched bool) (*fixture, store.GraphI
 // Validate, although the reply itself resolves to Implement (#558).
 func TestOwnerReplyResumesValidateStoppedAtRepairAgent(t *testing.T) {
 	f, instance, cancelled, calls := stoppedValidateFixture(t, true)
-	f.forge.addComment(testIssue, 42, owner(), "Please resume")
+	assertValidateStopNotice(t, f, instance, true)
+	if _, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("fixture must have no published question wait: %v", err)
+	}
+	const reply = "Continue the saved validation; retain the earlier edits and check the repair."
+	f.forge.addComment(testIssue, 42, owner(), reply)
 	f.settle()
+	input, err := f.db.GetOwnerInstruction(t.Context(), instance.SessionID, 42)
+	if err != nil || input.Body != reply || input.ActorID != ownerID {
+		t.Fatalf("owner reply guidance was not retained: %+v %v", input, err)
+	}
 	if len(*calls) != 1 || !store.IsGraphTrigger((*calls)[0].Trigger.CommentID) || (*calls)[0].Mode != agent.ModeValidate {
 		t.Fatalf("calls: %+v\n%s", *calls, f.logs)
 	}
@@ -94,7 +104,7 @@ func TestOwnerReplyResumesValidateStoppedAtRepairAgent(t *testing.T) {
 		t.Fatalf("ran dispatch %d, cancelled %d", resumed, cancelled.ID)
 	}
 	latest, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
-	if err != nil || latest.ID != resumed || latest.Node != "repair_agent" {
+	if err != nil || latest.ID != resumed || latest.Node != "repair_agent" || latest.LaunchID != cancelled.LaunchID || latest.InstanceID != instance.ID {
 		t.Fatalf("no fresh repair_agent dispatch: %+v %v", latest, err)
 	}
 	wm, exists, err := f.db.GetWatermark(t.Context(), instance.SessionID)
@@ -112,6 +122,7 @@ func TestOwnerReplyResumesValidateStoppedAtRepairAgent(t *testing.T) {
 // and consumes it, instead of running it as an ordinary comment.
 func TestOwnerReplyOnUnresumableStoppedWorkIsAnswered(t *testing.T) {
 	f, instance, cancelled, calls := stoppedValidateFixture(t, false)
+	assertValidateStopNotice(t, f, instance, false)
 	f.forge.addComment(testIssue, 42, owner(), "Please resume")
 	f.settle()
 	if len(*calls) != 0 {
@@ -138,5 +149,40 @@ func TestOwnerReplyOnUnresumableStoppedWorkIsAnswered(t *testing.T) {
 	f.settle()
 	if posts2, _, _ := f.forge.snapshot(); len(posts2) != len(posts) || len(*calls) != 0 {
 		t.Fatal("replay answered again")
+	}
+}
+
+// The same notice owner used for exhausted dispatches describes an explicitly
+// stopped latest Validate instance before its owner sends a continuation reply.
+func assertValidateStopNotice(t *testing.T, f *fixture, instance store.GraphInstance, launched bool) {
+	t.Helper()
+	dispatch, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.reporter.ReportGraphDispatchStop(t.Context(), dispatch); err != nil {
+		t.Fatal(err)
+	}
+	posts, _, _ := f.forge.snapshot()
+	if len(posts) != 1 {
+		t.Fatalf("stop notices: %v", posts)
+	}
+	for _, want := range []string{"repair_agent", "startup stopped"} {
+		if !strings.Contains(posts[0], want) {
+			t.Fatalf("stop notice lacks %q: %s", want, posts[0])
+		}
+	}
+	if launched {
+		if !strings.Contains(posts[0], "Reply on this open issue") || strings.Contains(posts[0], "/doctor") {
+			t.Fatalf("saved step notice must select the ordinary reply: %s", posts[0])
+		}
+	} else if !strings.Contains(posts[0], "no saved launch") || !strings.Contains(posts[0], "/doctor inspect") || strings.Contains(posts[0], "Reply on this open issue") {
+		t.Fatalf("missing launch notice must explain refusal and select inspection: %s", posts[0])
+	}
+	if _, err = f.reporter.ReportGraphDispatchStop(t.Context(), dispatch); err != nil {
+		t.Fatal(err)
+	}
+	if again, _, _ := f.forge.snapshot(); len(again) != len(posts) {
+		t.Fatalf("unchanged stop notice was duplicated: %v", again)
 	}
 }

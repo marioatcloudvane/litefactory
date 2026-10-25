@@ -321,49 +321,32 @@ func TestReportFailedRunStillPostsAndAdvances(t *testing.T) {
 	}
 }
 
-// TestReportReadinessRefusalPostsWithNoRunRow is the other half of AC-4.1: a turn
-// that never reached claude allocated no run, and still owes the issue a
-// comment. The watermark advances on its own, because there is no run row to
-// carry it.
-func TestReportReadinessRefusalPostsWithNoRunRow(t *testing.T) {
+// An unready managed request still delivers its read-only preparation result.
+func TestReportManagedPreparationAssessment(t *testing.T) {
 	t.Parallel()
-
-	f := newFixture(t, newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-		t.Error("claude ran after preparation failed")
-		return nil, nil
-	}))
+	var f *fixture
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		return succeeded(req, f.paths.Home()), nil
+	})
+	f = newFixture(t, runner)
 	if err := f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}); err != nil {
 		t.Fatal(err)
 	}
 	forge := newFakeForge(t)
-	reporter := newReporter(t, f, forge, nil)
-
-	req := f.request()
-	req.Mode = "implement"
-	req.Command = ParseCommand("/implement work")
-	result := f.execute(req)
-	if result.Disposition != DispositionPrepareFailed {
-		t.Fatalf("disposition = %s, want %s", result.Disposition, DispositionPrepareFailed)
+	result := f.execute(f.request())
+	if result.Disposition != DispositionRan || result.Committed || result.Pushed {
+		t.Fatalf("assessment failed or saved changes: %+v", result)
 	}
-	posted, err := reporter.ReportTurn(t.Context(), result)
+	posted, err := newReporter(t, f, forge, nil).ReportTurn(t.Context(), result)
 	if err != nil {
-		t.Fatalf("ReportTurn: %v\nlogs:\n%s", err, f.logs)
+		t.Fatal(err)
 	}
-
-	post := forge.only(t)
-	switch {
-	case !strings.HasPrefix(post.body, report.StatusMarker(f.ref(), 1)):
-		t.Errorf("body does not carry the marker of the run that would have been:\n%s", post.body)
-	case !strings.Contains(post.body, "No agent launched"):
-		t.Errorf("body does not say what could not be done:\n%s", post.body)
-	case posted.Run.ID != 0:
-		t.Errorf("Posted.Run.ID = %d, want 0: no run row was ever allocated", posted.Run.ID)
+	body := forge.only(t).body
+	if !strings.Contains(body, "Preparation caveat") || !strings.Contains(body, "limited to preparation and reading") || strings.Contains(body, "No agent launched") {
+		t.Fatalf("missing truthful preparation result: %s", body)
 	}
-	if runs := f.runs(); len(runs) != 0 {
-		t.Errorf("allocated %d runs, want 0", len(runs))
-	}
-	if wm := watermark(t, f); wm != testComment {
-		t.Errorf("watermark = %d, want %d", wm, testComment)
+	if posted.Run.ID == 0 || len(f.runs()) != 1 || runner.callCount() != 1 || watermark(t, f) != testComment {
+		t.Fatal("assessment or normal delivery did not complete once")
 	}
 }
 

@@ -42,6 +42,8 @@ func (s Snapshot) AssignedTo(identity Identity) bool {
 
 // Reply identity is scoped to its exact ticket and qualified author.
 type Reply struct {
+	// ReplyTo is the provider-observed parent comment identity, when available.
+	ReplyTo        Identity  `json:"reply_to,omitempty"`
 	ProviderBody   string    `json:"provider_body,omitempty"`
 	Representation string    `json:"representation,omitempty"`
 	Ticket         Ref       `json:"ticket"`

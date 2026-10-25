@@ -104,12 +104,17 @@ func TestDoctorRepairGraphCancellationPreservesHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposal := []byte(fmt.Sprintf(`[{"number":1,"target":"graph_attempt:%d","action":{"kind":"graph_attempt_cancel","before":"running","after":"cancelled"}},{"number":2,"target":"graph:%d","action":{"kind":"graph_fail","before":"running","after":"failed"}}]`, attempt.ID, instance.ID))
-	_, presentation := retainedRowProposal(t, db, session, proposal)
-	op, err := db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "graph-repair", SourceID: "approve", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation})
-	if err != nil {
-		t.Fatal(err)
+	targets := []string{fmt.Sprintf("graph_attempt:%d", attempt.ID), fmt.Sprintf("graph:%d", instance.ID)}
+	kinds := []string{"graph_attempt_cancel", "graph_fail"}
+	var steps []DoctorRepairStep
+	for i, kind := range kinds {
+		a, e := db.PrepareDoctorGraphAction(ctx, session.TaskRef, kind, targets[i], "Confirmed abandoned runless attempt")
+		if e != nil {
+			t.Fatal(e)
+		}
+		steps = append(steps, DoctorRepairStep{Number: i + 1, Kind: kind, Target: targets[i], Before: a.Before, After: a.After})
 	}
+	op := graphApproveSteps(t, db, session, "graph-repair", steps)
 	if _, err = db.ReconcileWorkflowGraphs(ctx, "implement", graphTestTime()); err != nil {
 		t.Fatal(err)
 	}
@@ -117,18 +122,8 @@ func TestDoctorRepairGraphCancellationPreservesHistory(t *testing.T) {
 	if err = db.sql.QueryRowContext(ctx, `SELECT status FROM graph_node_attempts WHERE id=?`, attempt.ID).Scan(&state); err != nil || state != "running" {
 		t.Fatal("held graph recovered", state, err)
 	}
-	if err = db.AcknowledgeDoctorExclusion(ctx, op.ID, "instance"); err != nil {
+	if err = db.ApplyDoctorGraphRepair(ctx, op.ID); err != nil {
 		t.Fatal(err)
-	}
-	for _, n := range []int{1, 2} {
-		if err = db.BackupDoctorRows(ctx, op.ID, n); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, n := range []int{1, 2} {
-		if err = db.ApplyDoctorRows(ctx, op.ID, n); err != nil {
-			t.Fatal(n, err)
-		}
 	}
 	if err = db.sql.QueryRowContext(ctx, `SELECT status FROM graph_instances WHERE id=?`, instance.ID).Scan(&state); err != nil || state != "failed" {
 		t.Fatal(state, err)

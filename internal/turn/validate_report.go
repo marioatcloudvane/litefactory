@@ -3,6 +3,7 @@ package turn
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -28,6 +29,33 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	rows := validateStoryRows(st, target)
 	fmt.Fprintf(&b, "%s **Validate report** · commit `%s` · suite %s · revision `%s`\n\n", validateOverallLight(st, rows), short(st.Commit), st.Suite.Outcome, st.Revision)
 	b.WriteString("Delivery: " + deliveryText(st, target) + "\n\n")
+	if st.DeliveryCommit != "" {
+		fmt.Fprintf(&b, "Displayed delivery commit: `%s`. Test evidence remains bound to `%s`.\n\n", st.DeliveryCommit, st.Commit)
+	}
+	for _, action := range []string{ValidateShipCommand, ValidateReturnCommand} {
+		if !st.Assessed || st.Reimplementing || effectDone(st.Effects.Close) {
+			continue
+		}
+		if action == ValidateReturnCommand && (!st.Reimplement || !st.Assessed || st.Reimplementing) {
+			continue
+		}
+		ref := store.OwnerDecisionReference("", action, validateDecisionTarget(st), st.Revision)
+		// The publication hook supplies the task-bound reference below when known.
+		if st.DecisionTask != "" {
+			ref = store.OwnerDecisionReference(st.DecisionTask, action, validateDecisionTarget(st), st.Revision)
+		}
+		if action == ValidateShipCommand {
+			fmt.Fprintf(&b, "Ship this displayed commit despite its displayed blockers: `%s %s -- <reason>`.\n\n", action, ref)
+		} else {
+			fmt.Fprintf(&b, "Return reviewed work to Implement: `%s %s -- <requested change>`.\n\n", action, ref)
+		}
+	}
+	if roles, _ := st.notReviewed(); len(roles) > 0 && st.Suite.Outcome == store.SuitePassed {
+		b.WriteString("To rerun the missing reviews: " + validateRetryStep(st.Commit) + "\n\n")
+	}
+	if legacy := st.implementLine(); legacy != "" {
+		b.WriteString("Legacy repair option: " + legacy + "\n\n")
+	}
 	switch {
 	case strings.TrimSpace(notice) != "" && st.Reimplementing:
 		b.WriteString("> **Sent back to Implement:** " + planTableCell(notice) + "\n\n")
@@ -61,6 +89,21 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	}
 	if st.Handback != nil {
 		b.WriteString("\n**What still needs fixing:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 600)) + "\n")
+	}
+	if len(st.Open) > 0 {
+		b.WriteString("\n**Displayed blockers:**\n")
+		for _, blocker := range st.Open {
+			b.WriteString("- " + planTableCell(blocker) + "\n")
+		}
+	}
+	if w := st.Waiver; w != nil {
+		fmt.Fprintf(&b, "\n**Owner shipping waiver:** task %s · Validate %d · tested `%s` · displayed delivery `%s` · report `%s` · evidence revision `%s` · authenticated owner %d · source comment %d · time %s.\n\nReason: %s\n", planTableCell(w.Task), w.InstanceID, w.TestedCommit, w.DeliveryCommit, w.ReportRevision, w.EvidenceRevision, w.ActorID, w.CommentID, w.CreatedAt.UTC().Format(time.RFC3339Nano), planTableCell(w.Reason))
+		for _, blocker := range w.Blockers {
+			b.WriteString("- Waived blocker: " + planTableCell(blocker) + "\n")
+		}
+		if st.DeliveryCommit != "" && st.DeliveryCommit != w.DeliveryCommit {
+			b.WriteString("\nThe current displayed head differs from the retained waiver; a fresh shipping decision is required.\n")
+		}
 	}
 	var closeSet []int
 	if target != nil {
@@ -347,6 +390,9 @@ func effectText(name string, e *store.ValidateEffect) string {
 
 func deliveryText(st ValidateState, target *ValidateDeliveryTarget) string {
 	var parts []string
+	if effectDone(st.Effects.Close) && st.Waiver != nil && len(st.Waiver.Blockers) > 0 {
+		parts = append(parts, "shipped with owner waiver")
+	}
 	for _, e := range []struct {
 		name   string
 		effect *store.ValidateEffect

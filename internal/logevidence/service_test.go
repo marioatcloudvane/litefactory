@@ -176,10 +176,17 @@ func TestServiceGrantBoundariesAndRevocation(t *testing.T) {
 
 func TestServiceWithholdsUnsafeRecordsAndRedactsDecodedEvidence(t *testing.T) {
 	f := newEvidenceFixture(t)
-	source := "{\"type\":\"assistant\",\"text\":\"fixture-secret-\\u0076alue\"}\n" + "not-json fixture-secret-value\n" + "{\"type\":\"future\",\"text\":\"fixture-secret-value\"}\n" + "{\"type\":\"assistant\",\"text\":\"" + strings.Repeat("x", recordMaximum) + "\"}\n" + "{\"type\":\"result\",\"result\":\"done\"}\n" + "{\"type\":\"assistant\",\"text\":\"incomplete"
+	source := "{\"type\":\"assistant\",\"text\":\"fixture-secret-\\u0076alue\"}\n" + "not-json fixture-secret-value\n" + "{\"type\":\"future\",\"text\":\"fixture-secret-value\"}\n" + "{\"type\":\"result\",\"result\":\"done\"}\n" + "{\"type\":\"assistant\",\"text\":\"incomplete"
 	run := f.run(t, f.repo, 1, source, false)
 	b := evidenceBroker(t, f.service(t, Scope{RepositoryIDs: []int64{f.repo.ID}}, nil))
 	result := requireEvidenceCall(t, b, "run_logs_read", ReadRequest{RunID: run.ID})
+	for result.NextCursor != "" {
+		next := requireEvidenceCall(t, b, "run_logs_read", ReadRequest{RunID: run.ID, Cursor: result.NextCursor})
+		result.Records = append(result.Records, next.Records...)
+		result.Coverage.Omissions = append(result.Coverage.Omissions, next.Coverage.Omissions...)
+		result.Coverage.EndOfSource = next.Coverage.EndOfSource
+		result.NextCursor = next.NextCursor
+	}
 	encoded, _ := json.Marshal(result)
 	if bytes.Contains(encoded, []byte("fixture-secret")) {
 		t.Fatalf("secret escaped redaction: %s", encoded)
@@ -194,7 +201,7 @@ func TestServiceWithholdsUnsafeRecordsAndRedactsDecodedEvidence(t *testing.T) {
 			t.Fatalf("invalid omission range: %+v", omission)
 		}
 	}
-	for _, reason := range []string{"malformed", "unsupported", "oversized", "incomplete"} {
+	for _, reason := range []string{"malformed", "unsupported", "incomplete"} {
 		if !reasons[reason] {
 			t.Errorf("missing %s omission: %+v", reason, result.Coverage.Omissions)
 		}

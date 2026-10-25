@@ -227,3 +227,27 @@ func pinnedContent(ctx context.Context, db *store.DB, pin store.GraphDefinition,
 	}
 	return capture.InstanceID == instanceID && capture.ContentDigest == digest, nil
 }
+
+func (b sessionSyncCheckout) DeferredHead(ctx context.Context, working string) (head string, err error) {
+	err = b.withCheckout(ctx, func(c GitSyncBaseCheckout) error { var e error; head, e = c.DeferredHead(ctx, working); return e })
+	return
+}
+
+// PreparationFreshness observes the retained branch against the fetched selected
+// base. A healthy retained checkout needs no refresh or publication to proceed.
+func (b sessionSyncCheckout) PreparationFreshness(ctx context.Context, working, base string) (head string, behind int, err error) {
+	err = b.withCheckout(ctx, func(c GitSyncBaseCheckout) error {
+		var observeErr error
+		head, observeErr = c.DeferredHead(ctx, working)
+		if observeErr != nil {
+			return observeErr
+		}
+		divergence, observeErr := c.Worktree.Divergence(ctx, "refs/remotes/"+b.runtime.opts.remote()+"/"+base)
+		if observeErr != nil {
+			return observeErr
+		}
+		behind = divergence.Behind
+		return nil
+	})
+	return
+}

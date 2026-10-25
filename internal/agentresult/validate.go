@@ -194,6 +194,13 @@ func contribution(c agent.Contribution, ctx Context, p string, d *Diagnostics) {
 	mergeDiagnostics(d, cd, p)
 }
 func validateImplement(p *Implement, outcome string, ctx Context, d *Diagnostics) {
+	if len(p.ReturnAllocation) > 0 && !ctx.CoordinatorRole {
+		add(d, "$.result.payload.implement.return_allocation", "forbidden", "coordinator routing advice", "worker allocation", "Only the existing coordinator may suggest return allocation.")
+	}
+	if len(p.ReturnAllocation) > 100 {
+		add(d, "$.result.payload.implement.return_allocation", "limit", "at most 100 entries", "too many", "Reduce routing advice.")
+	}
+
 	if len(p.Deviations) > MaxImplementDeviations {
 		add(d, "$.result.payload.implement.deviations", "limit", "at most 20 deviations", "too many deviations", "Keep only the decisions the plan did not settle, one line each.")
 	}

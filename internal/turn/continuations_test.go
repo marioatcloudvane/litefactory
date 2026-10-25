@@ -114,9 +114,9 @@ func TestInterruptionDurableBeforeAnnouncementAndReplay(t *testing.T) {
 				t.Fatalf("untruthful report: %s", post.body)
 			}
 			if want == 1 {
-				command := "/schedule -to " + actions[0].DueAt.UTC().Format("01/02/2006 15:04:05 UTC")
-				if !strings.Contains(post.body, command) {
-					t.Fatalf("missing absolute persisted command %q: %s", command, post.body)
+				due := actions[0].DueAt.UTC().Format("01/02/2006 15:04:05 UTC")
+				if !strings.Contains(post.body, due) || !strings.Contains(post.body, "Please wait") || strings.Contains(post.body, "/schedule") {
+					t.Fatalf("missing persisted eligibility/wait guidance: %s", post.body)
 				}
 				saved, err := f.db.GetContinuation(t.Context(), actions[0].ID)
 				if err != nil || saved.AnnouncementCommentID != post.id {

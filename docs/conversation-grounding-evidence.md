@@ -1,7 +1,7 @@
 # Conversation grounding and answer details review evidence
 
-`TestConversationGroundingDetailsOwnerJourney` is the single main-path test for
-this story. It runs the same owner journey through the production Claude and
+`TestConversationGroundingDetailsOwnerJourney` covers the existing grounding and
+answer-details owner journey. It runs the same owner journey through the production Claude and
 Codex adapters with controlled executable fixtures. Production intake, ongoing
 session coordination, typed question lookup, temporary SQLite persistence,
 ordered answer delivery and the explicit `/details` command are exercised.
@@ -22,6 +22,61 @@ invocation traces check that the second invocation resumes the first session.
 This fixture proves local wiring and saved-result association. Its fabricated
 capability responses and native event streams do not establish real provider
 isolation, model memory, or Discord remote delivery guarantees.
+
+## Captured conversation recovery
+
+`TestConversationCapturedEvidenceFollowupAndRestart` exercises the grounded
+conversation recovery path with a real temporary database and a controlled
+response-only provider. It admits owner text, captures a permitted Ask lookup,
+continues the discussion and reopens the database before another follow-up.
+It compares retained source identities, revisions, protected content and capture
+metadata across that restart. It also names an explicit issue and checks that
+unrelated discussion evidence and Ask history are excluded with a visible gap.
+This is local wiring evidence; its fixture does not establish provider memory,
+remote history completeness or real transport delivery guarantees. Execution
+results belong to the story worker's verification report.
+
+Conversation turns reuse the shared retained-evidence contract. A saved source
+link carries its repository and issue association, original source owner and
+revision, capture time, capture coverage and availability. Its supplied view has
+a byte range and a separate digest after protection. Original capture coverage
+and the supplied excerpt describe different things: neither establishes that the
+whole discussion was captured. Existing owner, reply and lookup budgets still
+apply; omissions remain explicit when a view or reasoner summary is narrowed.
+
+The current request's explicit project or issue overrides retained focus. Matching
+uses the registered repository and exact known issue association; unknown issue
+association is not a match. Named factory tasks can be resolved directly when
+older tasks fall outside the bounded project list. A named issue absent from the
+bounded open-issue read has missing current issue text, not proof of closure or
+absence. Historical support keeps its capture time and cannot establish current
+workflow state or new owner approval. Proposals and confirmations continue to
+require the admitted exact owner spans and current confirmation gates.
+
+An Ask lookup supplies current facts in `bundle` and eligible local Ask turns in
+`history`. Historical turns preserve the stored question excerpt and delivered
+answer, with source identity, revision and delivery time where recorded; they do
+not recreate the full original question. Explicit issue requests omit Ask history.
+Other projects' Ask replies are excluded. The bounded lookup carries its own
+coverage and gaps, including unavailable history, excluded policy context and
+content omitted at the existing result limit.
+
+The conversation and reasoner receive `retained_evidence` and `context_gaps` as
+untrusted explanatory history. They must explain material gaps in ordinary
+language: content may be shortened, expired, unavailable, excluded by policy or
+have unknown legacy capture coverage. A successfully read excerpt is never a
+claim of complete history. Retries reuse the captured identity rather than
+inventing missing evidence, and uncertain provider replay remains refused.
+
+Existing answer details exports authorized saved source views and their metadata
+alongside captured lookup results. It performs no new lookup or model call.
+Current owner/channel and registered repository access are checked again before
+restored context or details are disclosed, and protection precedes persistence
+and disclosure. Revoked access is not revived by an old link or saved prompt.
+Retention windows and pending-delivery protections remain unchanged; expired or
+missing sources are gaps. Details exclude raw provider requests, transcripts,
+private reasoning and protected source paths. The answering model keeps its
+existing tool isolation and bounded factory-mediated lookups.
 
 ## Reproducible manual review scenarios
 

@@ -66,7 +66,7 @@ func TestBugFreshSyncRejectsBlockedInterruptedAndPreviouslyUsedEvidence(t *testi
 			}
 		})
 	}
-	for _, outcome := range []string{"synced", "current"} {
+	for _, outcome := range []string{"synced", "current", "deferred"} {
 		t.Run(outcome, func(t *testing.T) {
 			f, p, instance := bugSyncRestartFixture(t)
 			gate, _ := graphexec.BugFixerSyncGate(p)
@@ -186,6 +186,9 @@ func TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions(t *testing.T)
 			_, err = git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: workpath, Branch: branch, BaseBranch: gittest.DefaultBranch})
 			mustProgress(t, err)
 			f.repo.GitIn(workpath, "push", "origin", branch)
+			if claimed {
+				advanceSyncBase(t, f.repo, 1)
+			}
 			dirty := filepath.Join(workpath, "retained.txt")
 			mustProgress(t, os.WriteFile(dirty, []byte("unpublished retained repair\n"), 0600))
 			locked, err := f.db.AcquireSessionLock(ctx, f.session.ID, f.opts.InstanceID)
@@ -196,23 +199,23 @@ func TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions(t *testing.T)
 			permissions := 0
 			runtime := &BugRuntime{opts: f.opts, cfg: BugRuntimeConfig{OwnerID: 7, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
 				permissions++
-				return BugRolePermissions{}, errors.New("fixer permissions reached before safe sync")
+				return BugRolePermissions{}, errors.New("authorized fixer permissions observed")
 			}}}
 			_, err = runtime.executeGraph(ctx, Request{SessionID: f.session.ID, Workflow: agent.WorkflowBug}, Result{Session: f.session})
-			mustProgress(t, err)
-			if permissions != 0 {
-				t.Fatal("unsafe retained checkout reached fixer permissions")
+			if err == nil || !strings.Contains(err.Error(), "authorized fixer permissions observed") || permissions != 1 {
+				t.Fatalf("deferred preparation lost fixer authority: permissions=%d err=%v", permissions, err)
 			}
 			attempts, err := f.db.ListGraphNodeAttempts(ctx, instance.ID)
 			mustProgress(t, err)
+			wantOutcome := "current"
+			if claimed {
+				wantOutcome = "deferred"
+			}
 			syncs := 0
 			for _, attempt := range attempts {
-				if attempt.Node == fixer {
-					t.Fatal("fixer dispatched while synchronization blocked")
-				}
 				if attempt.Node == gate.Name {
 					syncs++
-					if syncs > 1 && (attempt.Status != store.GraphSucceeded || attempt.Outcome != "conflict") {
+					if syncs > 1 && (attempt.Status != store.GraphSucceeded || attempt.Outcome != wantOutcome) {
 						t.Fatalf("unsafe checkout sync=%+v", attempt)
 					}
 				}
@@ -230,11 +233,6 @@ func TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions(t *testing.T)
 			}
 			if !rerouted {
 				t.Fatal("restart did not traverse declared sync prerequisite")
-			}
-			wait, err := f.db.GetGraphOwnerWait(ctx, instance.ID)
-			mustProgress(t, err)
-			if wait.State != "waiting" || wait.OriginNode != gate.Name {
-				t.Fatalf("sync blockage did not park: %+v", wait)
 			}
 			body, err := os.ReadFile(dirty)
 			mustProgress(t, err)
@@ -254,11 +252,7 @@ func TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions(t *testing.T)
 					t.Fatalf("original authenticated continuation %d lost", originalReply)
 				}
 			}
-			delivery, err := f.db.GetReportDelivery(ctx, wait.DeliveryKey)
-			mustProgress(t, err)
-			if !strings.Contains(delivery.Body, "retained") {
-				t.Fatal("parking omitted actual retained-work blockage")
-			}
+
 		})
 	}
 }

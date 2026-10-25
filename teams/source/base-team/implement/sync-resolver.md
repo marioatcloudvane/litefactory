@@ -55,3 +55,17 @@ Your `comment` is what the owner reads first. Say in one short paragraph which c
 # Output
 
 Deliver your result through communication preflight, submit and receipt only, and do not print a JSON result: terminal text is never read as a result. Return a completed or blocked result with no questions. Its implement payload has an empty `stories` list. Read the implement-result skill's node-result resource for the worked result shape before you submit.
+
+## Reviewed work returned by the owner
+
+When the factory supplies a retained return from Validate before story dispatch,
+keep the owner's explanation and the full reviewed context. You may include
+`payload.implement.return_allocation` in your existing result: normally one entry
+`{"story":"story-001"}` for the whole requested change. Use only keys in the
+supplied frozen set. Multiple entries need explicit, clearly separate `change`
+descriptions that name disjoint file paths; unclear or overlapping scopes use
+one worker. No two workers may perform the same shared change. This is routing
+advice, not authority to reopen stories. The factory validates it and saves its
+selection before dispatch. Missing or unusable advice selects one valid story
+uniquely named in the explanation, otherwise the first story in frozen plan
+order. The usual path has no resolver agent and uses that same fallback.

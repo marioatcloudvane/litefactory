@@ -153,6 +153,7 @@ func reserveDoctorRepairTx(ctx context.Context, tx *sql.Tx, a DoctorApproval, ou
 	if err != nil {
 		return err
 	}
+	graphTargets := map[string]bool{}
 	for index, step := range proposed {
 		if step.Number != index+1 || step.Action == nil || len(step.Action.After) > 65536 {
 			return errors.New("doctor proposal lacks exact repair action")
@@ -195,6 +196,27 @@ func reserveDoctorRepairTx(ctx context.Context, tx *sql.Tx, a DoctorApproval, ou
 				return errors.New("invalid doctor file target")
 			}
 		default:
+			if DoctorGraphRepairKind(kind) {
+				if graphTargets[step.Target] {
+					return errors.New("duplicate graph repair target")
+				}
+				graphTargets[step.Target] = true
+				if !DoctorGraphRepairTarget(kind, step.Target, step.Action.Before, step.Action.After) {
+					return errors.New("graph repair requires exact row manifest")
+				}
+				image, _, e := graphStepImages(DoctorRepairStep{Before: step.Action.Before, After: step.Action.After})
+				if e != nil {
+					return e
+				}
+				current, e := graphTargetImage(ctx, tx, a.TaskRef, kind, step.Target, image.Reason)
+				if e != nil {
+					return e
+				}
+				if !graphImagesEqual(image, current) {
+					return errors.New("graph exact proposal changed before approval")
+				}
+				break
+			}
 			if !DoctorRowRepairTarget(kind, step.Target, step.Action.Before, step.Action.After) && !DoctorTypedRowRepairTarget(kind, step.Target, step.Action.Before, step.Action.After) {
 				return errors.New("unsupported or unsafe doctor row repair")
 			}

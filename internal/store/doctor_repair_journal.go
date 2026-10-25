@@ -177,6 +177,37 @@ func (db *DB) stopDoctorRepair(ctx context.Context, ref, reason string, onlyStop
 		if r.State == "verified" || r.State == "restart_pending" || r.State == "recovered" || r.State == "completed" || r.State == "failed" || r.State == "stopped" {
 			return nil
 		}
+		var graphCount, total int
+		if err = tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(CASE WHEN kind IN('graph_dispatch_cancel','graph_wait_cancel','graph_attempt_cancel','graph_fail') THEN 1 ELSE 0 END),0) FROM doctor_repair_steps WHERE repair_id=?`, r.ID).Scan(&total, &graphCount); err != nil {
+			return err
+		}
+		if graphCount > 0 {
+			graphState := "needs_review"
+			if graphCount == total {
+				steps, e := graphStepsTx(ctx, tx, r.ID)
+				if e != nil {
+					return e
+				}
+				noWrite, verified := true, true
+				for _, step := range steps {
+					noWrite = noWrite && (step.State == "pending" || step.State == "backed_up")
+					verified = verified && step.State == "verified"
+				}
+				if noWrite {
+					graphState = "stopped"
+				} else if verified && verifyGraphStepsTx(ctx, tx, r, steps) == nil {
+					graphState = "failed"
+				}
+			}
+			if graphState != "needs_review" {
+				if _, err = tx.ExecContext(ctx, `UPDATE doctor_repair_holds SET active=0 WHERE repair_id=?`, r.ID); err != nil {
+					return err
+				}
+			}
+			_, err = tx.ExecContext(ctx, `UPDATE doctor_repairs SET state=?,fenced=1,failure=?,revision=revision+1,updated_at=? WHERE id=?`, graphState, reason, FormatTime(nowUTC()), r.ID)
+			return err
+		}
+
 		var count, legacy int
 		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM doctor_repair_steps WHERE repair_id=? AND state IN('write_intent','verified','uncertain')`, r.ID).Scan(&count); err != nil {
 			return err

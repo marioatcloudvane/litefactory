@@ -251,6 +251,7 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		current = legacySourceWithoutPreparationDeferral(t, w, current)
 		current = withoutStandardsGrant(t, current)
 		if w == "bug" {
 			current = legacyBugSourceWithoutSyncGate(t, current)
@@ -502,6 +503,35 @@ func TestPublicationFailureRestoresEntireBatch(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, repo)) {
 		t.Fatal("partial publication damaged prior output")
 	}
+}
+
+// Released snapshots keep their original preparation routes. Reverse only the
+// exact canonical deferred outcomes and edges added by Preparation caveats;
+// every other source byte remains subject to the historical contract checks.
+func legacySourceWithoutPreparationDeferral(t *testing.T, workflow string, source []byte) []byte {
+	t.Helper()
+	var changes []struct{ current, legacy string }
+	switch workflow {
+	case "bug":
+		changes = []struct{ current, legacy string }{
+			{` sync_before_fixer [lf_action="lf_sync_base",lf_outcomes="synced,current,conflict,retry,deferred",lf_limit="8",lf_park="owner",lf_stop="conflict,failed,invalid,exhausted"];`, ` sync_before_fixer [lf_action="lf_sync_base",lf_outcomes="synced,current,conflict,retry",lf_limit="8",lf_park="owner",lf_stop="conflict,failed,invalid,exhausted"];`},
+			{` sync_before_fixer -> fixer [lf_on="deferred"];` + "\n", ""},
+		}
+	case "implement":
+		changes = []struct{ current, legacy string }{
+			{` sync_start          [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry,deferred", lf_limit="32"];`, ` sync_start          [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="32"];`},
+			{` sync_before_worker [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry,deferred", lf_limit="8"];`, ` sync_before_worker [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"];`},
+			{` sync_start          -> merge               [lf_on="deferred"];` + "\n", ""},
+			{` sync_before_worker -> worker_agent [lf_on="deferred"];` + "\n", ""},
+		}
+	}
+	for _, change := range changes {
+		if bytes.Count(source, []byte(change.current)) != 1 {
+			t.Fatalf("canonical %s preparation differs from approved source delta: %s", workflow, change.current)
+		}
+		source = bytes.Replace(source, []byte(change.current), []byte(change.legacy), 1)
+	}
+	return source
 }
 
 // Released Bug definitions retain their direct repair routes. Admit only the

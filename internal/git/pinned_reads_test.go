@@ -53,3 +53,21 @@ func TestPinnedReadsSeeOnlyThePinnedCommit(t *testing.T) {
 		t.Fatal("pinned reads changed repository state")
 	}
 }
+
+func TestPinnedStreamCanCloseBeforeEOF(t *testing.T) {
+	repo := gittest.New(t)
+	repo.WriteFile("long.txt", strings.Repeat("retained ä🙂\n", 1<<17))
+	commit := repo.Commit("Retain large immutable object")
+	stream, directory, err := git.OpenPinnedRead(t.Context(), openFixture(t, repo), commit, "long.txt")
+	if err != nil || directory {
+		t.Fatalf("open: directory=%v error=%v", directory, err)
+	}
+	buffer := make([]byte, 4096)
+	if n, err := stream.Read(buffer); err != nil || n == 0 {
+		t.Fatalf("first read: %d %v", n, err)
+	}
+	// Closing a partially consumed source must release a child blocked on its
+	// output pipe. Its cancelled exit is expected, and Close is idempotent.
+	_ = stream.Close()
+	_ = stream.Close()
+}

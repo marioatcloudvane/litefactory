@@ -82,7 +82,7 @@ func TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark(t *testing.T) {
 		t.Fatalf("announcement bookkeeping: %+v %v", saved, err)
 	}
 	posts, _, _ := f.forge.snapshot()
-	if len(posts) != 0 || !strings.Contains(retained, "/schedule -to") {
+	if len(posts) != 0 || strings.Contains(retained, "/schedule") || !strings.Contains(retained, "Please wait") || !strings.Contains(retained, action.DueAt.UTC().Format("01/02/2006 15:04:05 UTC")) {
 		t.Fatalf("replayed announcement: %v", posts)
 	}
 	if f.watermark() != 999 || len(f.turns.calls()) != 0 {

@@ -90,6 +90,7 @@ func TestPythonFastAPIReleasePreservesHistoryAndClosure(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		original = legacySourceWithoutPreparationDeferral(t, w, original)
 		if w == "implement" {
 			original = withoutGoStoryWorkerSlotPolicy(t, original)
 		}
