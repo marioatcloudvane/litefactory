@@ -3,6 +3,9 @@ package rights_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,6 +23,11 @@ const (
 )
 
 var clock = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+
+const untaggedDOT = `digraph {team=builtin;mode=plan;profile_version=1;start=plain;
+plain [lf_action=lf_ask,lf_kind=question,lf_outcomes=published];
+done [lf_terminal=true];
+plain -> done [lf_on=published];}`
 
 const fixtureDOT = `digraph {team=builtin;mode=plan;profile_version=1;start=review;
 review [lf_action=lf_ask,lf_kind=question,lf_rights="approve,request_changes",lf_outcomes=published];
@@ -101,9 +109,14 @@ func TestCatalogueListsOnlyTaggedActionsAndIgnoresRepository(t *testing.T) {
 	if len(entries) != 2 || entries[0].String() != "plan | review | approve" || entries[1].String() != "plan | review | request_changes" {
 		t.Fatalf("entries: %v", entries)
 	}
-	src := rights.BuiltinSource{Captures: []rights.Capture{func(context.Context) (*graphexec.Profile, error) {
-		return graphexec.ParseProfile([]byte(fixtureDOT))
-	}}}
+	src := rights.NewRepositorySource(func(_ context.Context, _ store.Repo, w agent.Workflow, _ graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		dot := untaggedDOT
+		if w == agent.WorkflowPlan {
+			dot = fixtureDOT
+		}
+		p, err := graphexec.ParseProfile([]byte(dot))
+		return &teamsource.WorkflowDefinition{Profile: p}, err
+	})
 	a, err := src.Catalogue(t.Context(), store.Repo{ID: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -114,15 +127,22 @@ func TestCatalogueListsOnlyTaggedActionsAndIgnoresRepository(t *testing.T) {
 	}
 }
 
-func TestShippedWorkflowsLoadIntoCatalogue(t *testing.T) {
-	entries, err := rights.NewBuiltinSource().Catalogue(t.Context(), store.Repo{ID: 1})
-	if err != nil {
-		t.Fatalf("built-in catalogue: %v", err)
+func TestRepositorySourceIsEmptyWithoutSelectedTeam(t *testing.T) {
+	src := rights.NewRepositorySource(func(context.Context, store.Repo, agent.Workflow, graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		return nil, fmt.Errorf("no linked installed team: %w", store.ErrNotFound)
+	})
+	entries, err := src.Catalogue(t.Context(), store.Repo{ID: 1})
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("entries %v, err %v", entries, err)
 	}
-	for _, e := range entries {
-		if e.Workflow == "implement" {
-			t.Fatalf("implement offers a right: %v", e)
-		}
+}
+
+func TestRepositorySourceReportsOtherFailures(t *testing.T) {
+	src := rights.NewRepositorySource(func(context.Context, store.Repo, agent.Workflow, graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		return nil, errors.New("boom")
+	})
+	if _, err := src.Catalogue(t.Context(), store.Repo{ID: 1}); err == nil {
+		t.Fatal("expected an error")
 	}
 }
 

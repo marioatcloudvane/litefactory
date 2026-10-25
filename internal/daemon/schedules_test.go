@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"net/http"
 	"os"
 	"strings"
@@ -311,7 +312,7 @@ func TestValidateImplementScheduleHandsOffUntilWorkerParks(t *testing.T) {
 	t.Cleanup(func() { check(authority.Close(context.WithoutCancel(ctx))) })
 	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "coordinator-regression", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{agent.Kind(store.AgentClaude): noAgentRunner{t}}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, SubIssueCreator: f.client, MCP: &turn.MCPRuntime{Authority: authority, Paths: f.paths, Executable: "/factory/litefactory", Now: f.clock.Now, Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID}}
 	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-		definition, e := teamsource.CaptureImplement(ctx, specs)
+		definition, e := teamsourcetest.CaptureImplement(ctx, specs)
 		if e != nil {
 			return nil, e
 		}

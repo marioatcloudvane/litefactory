@@ -11,9 +11,9 @@ import (
 
 func planEmbeddedText(t *testing.T, name string) string {
 	t.Helper()
-	raw, err := planAssets.ReadFile("plan/" + name)
-	if err != nil {
-		t.Fatal(err)
+	raw, ok := teamFiles(t, goTeam)["plan/"+name]
+	if !ok {
+		t.Fatalf("plan/%s is not in the go team source", name)
 	}
 	return string(raw)
 }

@@ -2,6 +2,7 @@ package teamrelease
 
 import (
 	"bytes"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -33,7 +34,7 @@ func resolveRoot(t *testing.T, inherit string, child map[string]string) *os.Root
 func TestResolveReplaceAddExcludeAndVariables(t *testing.T) {
 	root := resolveRoot(t, `{"base":"base-x","replace":["plan/a.md"],"exclude":["plan/b.md"],"variables":{"lang":"go"}}`,
 		map[string]string{"plan/a.md": "kid a {{lang}}", "plan/c.md": "kid c"})
-	got, err := resolveSource(t.Context(), root, "teams/source/kid", "kid-team")
+	got, err := teamsource.ResolveSource(t.Context(), root, "teams/source/kid", "kid-team")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestResolveReplaceAddExcludeAndVariables(t *testing.T) {
 func TestResolveReportsEveryProblemSorted(t *testing.T) {
 	root := resolveRoot(t, `{"base":"base-x","replace":["plan/zz.md"],"exclude":["plan/a.md","plan/none.md"],"variables":{"team":"x","extra":"y"}}`,
 		map[string]string{"plan/a.md": "kid", "plan/b.md": "collides"})
-	_, err := resolveSource(t.Context(), root, "teams/source/kid", "kid-team")
+	_, err := teamsource.ResolveSource(t.Context(), root, "teams/source/kid", "kid-team")
 	if err == nil {
 		t.Fatal("bad input accepted")
 	}
@@ -72,19 +73,19 @@ func TestResolveReportsEveryProblemSorted(t *testing.T) {
 
 func TestResolveMissingBaseAndUndeclaredPlaceholder(t *testing.T) {
 	root := resolveRoot(t, `{"base":"nope"}`, nil)
-	_, err := resolveSource(t.Context(), root, "teams/source/kid", "kid-team")
+	_, err := teamsource.ResolveSource(t.Context(), root, "teams/source/kid", "kid-team")
 	if err == nil || !strings.Contains(err.Error(), "teams/source/kid/inherit.json: base nope: missing or unreadable base") {
 		t.Fatalf("missing base: %v", err)
 	}
 	root = resolveRoot(t, `{"base":"base-x","variables":{"lang":"go"}}`, nil)
 	put(t, filepath.Join(root.Name(), "teams/source/base-x/plan/b.md"), []byte("{{ghost}}"))
-	_, err = resolveSource(t.Context(), root, "teams/source/kid", "kid-team")
+	_, err = teamsource.ResolveSource(t.Context(), root, "teams/source/kid", "kid-team")
 	want := "teams/source/kid/inherit.json: variable ghost: used in base file plan/b.md but not declared by base base-x"
 	if err == nil || err.Error() != want {
 		t.Fatalf("undeclared: %v", err)
 	}
 	root = resolveRoot(t, `{"base":"base-x","variables":{"lang":"a\nb"}}`, nil)
-	_, err = resolveSource(t.Context(), root, "teams/source/kid", "kid-team")
+	_, err = teamsource.ResolveSource(t.Context(), root, "teams/source/kid", "kid-team")
 	if err == nil || !strings.Contains(err.Error(), "variable lang: value must be a single line without {{") {
 		t.Fatalf("multi-line value: %v", err)
 	}
@@ -92,7 +93,7 @@ func TestResolveMissingBaseAndUndeclaredPlaceholder(t *testing.T) {
 
 func TestResolveRejectsUnknownManifestFields(t *testing.T) {
 	root := resolveRoot(t, `{"base":"base-x","bogus":1}`, nil)
-	if _, err := resolveSource(t.Context(), root, "teams/source/kid", "kid-team"); err == nil {
+	if _, err := teamsource.ResolveSource(t.Context(), root, "teams/source/kid", "kid-team"); err == nil {
 		t.Fatal("unknown field accepted")
 	}
 }
@@ -117,7 +118,7 @@ func TestBaseTeamChildMatchesGoDevelopmentRelease(t *testing.T) {
 	for name, raw := range snapshot(t, "../../teams/source/base-team") {
 		put(t, filepath.Join(root, "teams/source/base-team", filepath.FromSlash(name)), raw)
 	}
-	release, err := os.ReadFile("../teamsource/release.json")
+	release, err := os.ReadFile("../../teams/source/go-development/release.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,6 @@
 # Go development team source
 
-Edit the six workflow directories here. Each mode ships only its own roles, its
+This folder holds only `release.json` and `inherit.json`; the six workflow folders and `stack-profile.json` come from `teams/source/base-team`. Edit the shared content there. Each mode ships only its own roles, its
 result skills and the skills its graph names; there is no shared guidance tree.
 Role frontmatter, graphs and result skills retain their existing contracts.
 `release.json` owns the release metadata; it must not contain generated

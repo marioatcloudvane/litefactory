@@ -23,3 +23,9 @@ A team source can name a base in `inherit.json`:
 - `exclude` removes a base file; the team must not also provide it.
 - `{{name}}` in base files is filled from `variables`. `{{team}}` is always the release slug and cannot be set. Every other declared variable must be set.
 - One level only: a base cannot name a base. All problems are reported together, sorted.
+
+## Where each source lives
+
+- `teams/source/go-development`: release metadata and `inherit.json`; inherits `base-team`. This is the release command's default source.
+- `teams/source/python-fastapi`, `teams/source/swift-ios`, `teams/source/dotnet-web`: full sources. Some files inside still name the old `internal/teamsource/...` path in their text; they are built into releases, so they stay as they are.
+- The program holds no team content. Tests load teams from these folders.

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -50,12 +51,12 @@ func TestRepositoryWorkflowSourceEditableSelectionAcrossSixWorkflows(t *testing.
 		specs    func() (graphexec.Registry, error)
 		capture  func(context.Context, graphexec.Registry) (*teamsource.WorkflowDefinition, error)
 	}{
-		{agent.WorkflowResearch, turn.ResearchSpecs, teamsource.CaptureResearch},
-		{agent.WorkflowPlan, turn.PlanSpecs, teamsource.CapturePlan},
-		{agent.WorkflowImplement, turn.ImplementSpecs, teamsource.CaptureImplement},
-		{agent.WorkflowValidate, turn.ValidateFlowSpecs, teamsource.CaptureValidate},
-		{agent.WorkflowSpike, turn.SpikeSpecs, teamsource.CaptureSpike},
-		{agent.WorkflowBug, turn.SimplifiedBugSpecs, teamsource.CaptureBugParent},
+		{agent.WorkflowResearch, turn.ResearchSpecs, teamsourcetest.CaptureResearch},
+		{agent.WorkflowPlan, turn.PlanSpecs, teamsourcetest.CapturePlan},
+		{agent.WorkflowImplement, turn.ImplementSpecs, teamsourcetest.CaptureImplement},
+		{agent.WorkflowValidate, turn.ValidateFlowSpecs, teamsourcetest.CaptureValidate},
+		{agent.WorkflowSpike, turn.SpikeSpecs, teamsourcetest.CaptureSpike},
+		{agent.WorkflowBug, turn.SimplifiedBugSpecs, teamsourcetest.CaptureBug},
 	}
 	dir := filepath.Join(paths.TeamsInstalledDir(), "local", "custom", "1.0.0")
 	content := filepath.Join(dir, "content")
