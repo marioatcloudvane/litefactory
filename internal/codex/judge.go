@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -77,7 +78,7 @@ func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (_ ag
 	}
 	collector := newUsageCaptureCollector(ctx, request.Invocation.Usage)
 	state := streamState{}
-	err = providerprocess.RunJudgeProcess(ctx, r.binary.Path, args, env, request, r.timeout, func(line []byte) { collector.observe(line); state.consumeLine(line) })
+	err = providerprocess.RunJudgeProcess(ctx, r.binary.Path, args, env, request, r.timeout, func(line []byte) { collector.observe(line); state.consumeLine(line) }, judgeOversizedLogger(r.logger, request.Invocation.Attempt, "codex"))
 	if state.failed && ctx.Err() == nil && (err == nil || errors.Is(err, providerprocess.ErrProviderExit)) && judgeCapacity(state.failureDetail) {
 		err = agent.ErrJudgeUnavailable
 	}
@@ -88,6 +89,17 @@ func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (_ ag
 		err = fmt.Errorf("judge provider turn failed: %s: %w", boundedDoctorDetail(state.failureDetail), err)
 	}
 	return agent.JudgeRunResult{ProviderVersion: version[1], Usage: collector.finish()}, err
+}
+
+// judgeOversizedLogger records, once per run, that the judge transport skipped
+// oversized provider output instead of ending the judge.
+func judgeOversizedLogger(logger *slog.Logger, attempt, provider string) providerprocess.OversizedObserver {
+	if logger == nil {
+		return nil
+	}
+	return func(kind string, largestDroppedBytes, totalBytes int) {
+		logger.Warn("judge provider output oversized", "attempt", attempt, "provider", provider, "largest_dropped_line_bytes", largestDroppedBytes, "total_bytes", totalBytes, "kind", kind)
+	}
 }
 
 // judgeCapacity applies only to an explicit failed native terminal event.
