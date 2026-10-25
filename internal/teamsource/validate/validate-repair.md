@@ -56,7 +56,7 @@ You are done when every failure is either fixed and its failing test run again, 
 
 # Writing the Report
 
-Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
+Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. For a stop or wait, name the affected work and any work known to continue independently; if that wider impact is unknown, say so. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
 
 Explain the effect of each remaining failure on the reviewed work and why repair is outside the bound or its cause remains uncertain. Keep the existing concrete handback objective in the repair report; do not turn it into an owner question or claim that a handback has already returned work to Implement. State repair, retest and delivery status separately, only as established by supplied evidence.
 

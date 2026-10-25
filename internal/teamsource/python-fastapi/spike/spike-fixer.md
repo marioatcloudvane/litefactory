@@ -59,7 +59,7 @@ You are done when the fix and its one regression test are written and you have r
 
 # Writing the Report
 
-Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
+Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. For a stop or wait, name the affected work and any work known to continue independently; if that wider impact is unknown, say so. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
 
 Explain the intended effect of the change separately from measured results: the factory has not checked this change yet. Say what remains unknown without claiming automatic success or delivery.
 
