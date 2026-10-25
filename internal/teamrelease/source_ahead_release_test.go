@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/config"
@@ -17,6 +18,11 @@ import (
 func TestCanonicalSourceAheadOfPublishedRelease(t *testing.T) {
 	root := fixture(t)
 	for name, raw := range snapshot(t, "../../teams") {
+		// The fixture already holds the go source resolved to flat files; copying
+		// the real child's inherit.json over it would make every file a collision.
+		if strings.HasPrefix(name, "source/") {
+			continue
+		}
 		put(t, filepath.Join(root, "teams", filepath.FromSlash(name)), raw)
 	}
 	prior := releaseCatalogue(t, root)
@@ -24,7 +30,7 @@ func TestCanonicalSourceAheadOfPublishedRelease(t *testing.T) {
 	for _, release := range prior.Releases {
 		history[release.Download] = snapshot(t, filepath.Join(root, "teams", release.Download))
 	}
-	metaPath := filepath.Join(root, "internal/teamsource/release.json")
+	metaPath := filepath.Join(root, "teams/source/go-development/release.json")
 	raw, err := os.ReadFile(metaPath)
 	if err != nil {
 		t.Fatal(err)
@@ -41,12 +47,12 @@ func TestCanonicalSourceAheadOfPublishedRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, metaPath, raw)
-	source := snapshot(t, filepath.Join(root, "internal/teamsource"))
+	source := snapshot(t, filepath.Join(root, "teams/source/go-development"))
 	generate(t, root)
 	if err := Generate(t.Context(), root, true); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(source, snapshot(t, filepath.Join(root, "internal/teamsource"))) {
+	if !reflect.DeepEqual(source, snapshot(t, filepath.Join(root, "teams/source/go-development"))) {
 		t.Fatal("candidate build rewrote editable source")
 	}
 	after := releaseCatalogue(t, root)
