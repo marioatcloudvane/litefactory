@@ -2,6 +2,7 @@ package planbrief_test
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -487,10 +488,10 @@ func TestPlanWorkflow_StrandedStoryRuleLeavesOtherStatesAlone(t *testing.T) {
 		}
 	})
 	cases := map[string]func(*planbrief.PlanState){
+		// OpenPlanWait opens no wait behind a stale earlier approval (#1160),
+		// so a wait saved before that rule is set directly.
 		"waiting": func(s *planbrief.PlanState) {
-			if err := s.OpenPlanWait("story-002", "wait-q", "question", 101); err != nil {
-				t.Fatal(err)
-			}
+			s.Stories[1].Wait = &planbrief.PlanWait{ID: "wait-q", Stage: "technical", Candidate: s.Stories[1].Candidate, Kind: "question", IssueID: 101}
 		},
 		"effect held":           func(s *planbrief.PlanState) { s.Stories[1].EffectHold = "held" },
 		"upstream not approved": func(s *planbrief.PlanState) { delete(s.Stories[0].Approvals, "story") },
@@ -589,4 +590,215 @@ func TestPlanWorkflow_QuestionWaitKeepsExactMatching(t *testing.T) {
 			t.Fatal("question wait without content approved")
 		}
 	})
+}
+
+// dependantFixture has story-002 depend on story-001, with story-001's story
+// stage approved and story-002 drafted at its story stage.
+func dependantFixture(t *testing.T) planbrief.PlanState {
+	t.Helper()
+	s := workflowFixture(t, "story-001", "story-002")
+	s.Stories[1].Draft.Dependencies.StoryKeys = []string{"story-001"}
+	r := workflowReply(t, &s, 0, 10)
+	if ok, err := s.ApplyOwnerReply(r); err != nil || !ok {
+		t.Fatalf("approve story-001 story: %v %v", ok, err)
+	}
+	return s
+}
+
+func TestPlanWorkflow_UpstreamPublishingIsItsOwnError(t *testing.T) {
+	t.Parallel()
+	s := dependantFixture(t)
+	s.Stories[0].Effect, s.Stories[0].EffectRequest = "pending", "plan-request-1-2"
+	_, err := s.ReviewRevision("story-002", "story")
+	if !errors.Is(err, planbrief.ErrPlanUpstreamPublishing) || err.Error() != "plan dependency story-001 is still publishing its stage" {
+		t.Fatalf("publishing upstream error = %v", err)
+	}
+	if _, err := s.UpstreamReferences("story-002", "story"); !errors.Is(err, planbrief.ErrPlanUpstreamPublishing) {
+		t.Fatalf("UpstreamReferences error = %v", err)
+	}
+	// The story's own publication, and every real hold, keep the old error.
+	if _, err := s.ReviewRevision("story-001", "story"); err == nil || errors.Is(err, planbrief.ErrPlanUpstreamPublishing) || err.Error() != "plan dependency story-001 is inactive or unresolved" {
+		t.Fatalf("own publication error = %v", err)
+	}
+	holds := map[string]func(*planbrief.PlanStoryState){
+		"hold":           func(st *planbrief.PlanStoryState) { st.Hold = "owner edit conflict" },
+		"lifecycle hold": func(st *planbrief.PlanStoryState) { st.LifecycleHold = "unavailable" },
+		"effect hold":    func(st *planbrief.PlanStoryState) { st.EffectHold = "uncertain" },
+		"effect holds":   func(st *planbrief.PlanStoryState) { st.EffectHolds = map[string]string{"r": "uncertain"} },
+		"closed":         func(st *planbrief.PlanStoryState) { st.Lifecycle.State = "closed" },
+		"retired":        func(st *planbrief.PlanStoryState) { st.Retired = true },
+		"failed effect":  func(st *planbrief.PlanStoryState) { st.Effect = "failed" },
+	}
+	for name, hold := range holds {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			held := cloneWorkflow(t, s)
+			hold(&held.Stories[0])
+			_, err := held.ReviewRevision("story-002", "story")
+			if err == nil || errors.Is(err, planbrief.ErrPlanUpstreamPublishing) || err.Error() != "plan dependency story-001 is inactive or unresolved" {
+				t.Fatalf("held upstream error = %v", err)
+			}
+		})
+	}
+}
+
+// technicalOnlyEdit returns the story's draft with only its technical section changed.
+func technicalOnlyEdit(t *testing.T, d planbrief.PlanDraft) planbrief.PlanDraft {
+	t.Helper()
+	raw, _ := json.Marshal(d.Architecture)
+	var arch planbrief.PlanArchitecture
+	if err := json.Unmarshal(raw, &arch); err != nil {
+		t.Fatal(err)
+	}
+	d.Architecture = &arch
+	d.Architecture.General[0].Decision = "owner revised the contract"
+	return d
+}
+
+func TestPlanWorkflow_PutCandidateNeverMovesPastAnUnapprovedStage(t *testing.T) {
+	t.Parallel()
+	s := workflowFixture(t, "story-003")
+	if err := s.OpenPlanWait("story-003", "wait-story", "review", 100); err != nil {
+		t.Fatal(err)
+	}
+	edit := technicalOnlyEdit(t, s.Stories[0].Draft)
+	if edit.StageRevision("story") != s.Stories[0].Draft.StageRevision("story") {
+		t.Fatal("fixture edit changed the story stage")
+	}
+	if err := s.PutCandidate(edit, "technical", "owner-edit-x"); err != nil {
+		t.Fatal(err)
+	}
+	item := s.Stories[0]
+	if item.Stage != "story" || item.Candidate != "owner-edit-x" || item.Wait != nil || len(item.Approvals) != 0 {
+		t.Fatalf("owner technical edit moved the story: %+v", item)
+	}
+	if stage, _, ok := s.StoryNextStep("story-003"); stage != "story" || !ok {
+		t.Fatalf("next step after the edit = (%q, %v), want story", stage, ok)
+	}
+	r := workflowReply(t, &s, 0, 30)
+	if r.Stage != "story" || r.Body != "/approve-plan story-003 story owner-edit-x" {
+		t.Fatalf("review after the edit = %+v", r)
+	}
+	if ok, err := s.ApplyOwnerReply(r); err != nil || !ok {
+		t.Fatalf("story approval after the edit: %v %v", ok, err)
+	}
+
+	// An approved story still returns to a changed earlier stage.
+	approved := workflowFixture(t, "a")
+	approveWorkflowStory(t, &approved, 0, 40)
+	if err := approved.PutCandidate(technicalOnlyEdit(t, approved.Stories[0].Draft), "technical", "owner-edit-y"); err != nil {
+		t.Fatal(err)
+	}
+	if approved.Stories[0].Stage != "technical" || approved.Stories[0].Approvals["story"] == "" {
+		t.Fatalf("approved story did not return to technical: %+v", approved.Stories[0])
+	}
+}
+
+// staleWaitFixture saves the #1155 shape: story-002 waits at technical while
+// its story approval no longer matches its story revision.
+func staleWaitFixture(t *testing.T) planbrief.PlanState {
+	t.Helper()
+	s := dependantFixture(t)
+	r := workflowReply(t, &s, 1, 20)
+	if ok, err := s.ApplyOwnerReply(r); err != nil || !ok {
+		t.Fatalf("approve story-002 story: %v %v", ok, err)
+	}
+	r = workflowReply(t, &s, 0, 21)
+	if ok, err := s.ApplyOwnerReply(r); err != nil || !ok {
+		t.Fatalf("approve story-001 technical: %v %v", ok, err)
+	}
+	if err := s.OpenPlanWait("story-002", "wait-technical", "review", 101); err != nil {
+		t.Fatal(err)
+	}
+	if s.Stories[1].Wait == nil || s.Stories[1].Wait.Stage != "technical" {
+		t.Fatalf("fixture wait not at technical: %+v", s.Stories[1])
+	}
+	s.Stories[1].Approvals["story"] = "stale-story-approval"
+	return s
+}
+
+func TestPlanWorkflow_NoWaitBehindAStaleEarlierApproval(t *testing.T) {
+	t.Parallel()
+	t.Run("repair clears the wait only", func(t *testing.T) {
+		t.Parallel()
+		s := staleWaitFixture(t)
+		before := cloneWorkflow(t, s)
+		if !s.ClearStaleWaits() {
+			t.Fatal("stale wait was not cleared")
+		}
+		item, prior := s.Stories[1], before.Stories[1]
+		if item.Wait != nil || item.Stage != prior.Stage || item.Candidate != prior.Candidate || !reflect.DeepEqual(item.Approvals, prior.Approvals) {
+			t.Fatalf("repair changed more than the wait: %+v", item)
+		}
+		if !reflect.DeepEqual(s.Stories[0], before.Stories[0]) {
+			t.Fatal("repair changed the upstream story")
+		}
+		if stage, _, ok := s.StoryNextStep("story-002"); stage != "story" || !ok {
+			t.Fatalf("next step after repair = (%q, %v), want story", stage, ok)
+		}
+		if s.ClearStaleWaits() {
+			t.Fatal("repair is not idempotent")
+		}
+	})
+	t.Run("no wait is opened", func(t *testing.T) {
+		t.Parallel()
+		s := staleWaitFixture(t)
+		s.Stories[1].Wait = nil
+		for _, kind := range []string{"review", "question"} {
+			if err := s.OpenPlanWait("story-002", "wait-"+kind, kind, 101); err != nil {
+				t.Fatal(err)
+			}
+			if s.Stories[1].Wait != nil {
+				t.Fatalf("%s wait opened behind a stale approval: %+v", kind, s.Stories[1].Wait)
+			}
+		}
+		if stage, _, ok := s.StoryNextStep("story-002"); stage != "story" || !ok {
+			t.Fatalf("next step = (%q, %v), want story", stage, ok)
+		}
+	})
+	t.Run("healthy waits stay", func(t *testing.T) {
+		t.Parallel()
+		s := staleWaitFixture(t)
+		s.Stories[1].Approvals["story"], _ = s.ReviewRevision("story-002", "story")
+		if s.ClearStaleWaits() || s.Stories[1].Wait == nil {
+			t.Fatal("a current wait was cleared")
+		}
+	})
+	for name, hold := range map[string]func(*planbrief.PlanStoryState){
+		"upstream publishing": func(st *planbrief.PlanStoryState) { st.Effect, st.EffectRequest = "pending", "plan-request-9-9" },
+		"upstream held":       func(st *planbrief.PlanStoryState) { st.EffectHold = "uncertain" },
+	} {
+		t.Run(name+" leaves the wait untouched", func(t *testing.T) {
+			t.Parallel()
+			s := staleWaitFixture(t)
+			s.Stories[1].Approvals["story"], _ = s.ReviewRevision("story-002", "story")
+			wait := *s.Stories[1].Wait
+			hold(&s.Stories[0])
+			// Uncomputable revisions are no evidence: even a mismatching approval stays.
+			s.Stories[1].Approvals["story"] = "unknowable-now"
+			if s.ClearStaleWaits() || s.Stories[1].Wait == nil || *s.Stories[1].Wait != wait {
+				t.Fatalf("wait changed while the upstream revision could not be computed: %+v", s.Stories[1].Wait)
+			}
+		})
+	}
+}
+
+func TestPlanWorkflow_EarlierStageRefusalNamesTheWorkingCommand(t *testing.T) {
+	t.Parallel()
+	s := staleWaitFixture(t)
+	// The read repair normally clears this wait first; the refusal must still
+	// say what works now if such a state is ever read unrepaired.
+	wait := s.Stories[1].Wait
+	got := s.PlanReplyReason("story-002", "/approve-plan story-002 technical "+wait.Candidate)
+	if !strings.HasPrefix(got, "An earlier stage of this story needs your approval again before this stage can be approved.") || !strings.Contains(got, "its next review will show the command to use.") || strings.Contains(got, "/approve-plan story-002 technical") {
+		t.Fatalf("refusal names no way forward, or the refused command: %q", got)
+	}
+	if s.Stories[1].Wait == nil {
+		t.Fatal("explaining a reply changed the state")
+	}
+	s.ClearStaleWaits()
+	got = s.PlanReplyReason("story-002", "/approve-plan story-002 technical "+wait.Candidate)
+	if !strings.Contains(got, "Nothing on this story is waiting for your approval right now; its next review will show the command to use.") {
+		t.Fatalf("repaired reply explanation = %q", got)
+	}
 }
