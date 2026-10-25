@@ -98,6 +98,29 @@ func (d PlanDraft) StageRevision(stage string) string {
 	return d.Revision()
 }
 
+// ErrPlanUpstreamPublishing matches the error ReviewRevision returns while a
+// dependency is only in its publication window: its stage result is being
+// published (Effect "pending") and nothing holds it. It is transient, unlike
+// every other dependency problem, which stays "inactive or unresolved".
+var ErrPlanUpstreamPublishing = errors.New("a plan dependency is still publishing its stage")
+
+// PlanUpstreamPublishingText is the fixed part of the publishing error's text.
+const PlanUpstreamPublishingText = "is still publishing its stage"
+
+type planUpstreamPublishing struct{ key string }
+
+func (e planUpstreamPublishing) Error() string {
+	return "plan dependency " + e.key + " " + PlanUpstreamPublishingText
+}
+
+func (e planUpstreamPublishing) Is(target error) bool { return target == ErrPlanUpstreamPublishing }
+
+// publishingOnly reports that a story is blocked by nothing but its own stage
+// result being published.
+func publishingOnly(item *PlanStoryState) bool {
+	return item.Active() && item.Effect == "pending" && item.Hold == "" && item.LifecycleHold == "" && item.EffectHold == "" && len(item.EffectHolds) == 0
+}
+
 // ReviewRevision binds a story to current shared decisions and transitive inputs.
 func (s *PlanState) ReviewRevision(key, stage string) (string, error) {
 	if !slices.Contains(planStages, stage) {
@@ -118,6 +141,9 @@ func (s *PlanState) ReviewRevision(key, stage string) (string, error) {
 			return err
 		}
 		if !item.Active() || item.Blocked() {
+			if k != key && publishingOnly(item) {
+				return planUpstreamPublishing{key: k}
+			}
 			return fmt.Errorf("plan dependency %s is inactive or unresolved", k)
 		}
 		visiting[k] = true
@@ -161,6 +187,7 @@ func (s *PlanState) PutCandidate(d PlanDraft, stage, candidate string) error {
 	if item.Retired {
 		return errors.New("retired Plan story cannot be revised")
 	}
+	before := item.Stage
 	earliest := ""
 	for _, st := range planStages {
 		if item.Draft.StageRevision(st) != d.StageRevision(st) {
@@ -174,9 +201,14 @@ func (s *PlanState) PutCandidate(d PlanDraft, stage, candidate string) error {
 	if earliest != "" {
 		s.Invalidate(d.Key, earliest, "")
 	}
-	// Filling a new stage does not move an earlier unapproved story forward.
+	// Filling a new stage does not move an earlier unapproved story forward, and
+	// neither does a change to a later stage than the story stands at: the story
+	// never moves past a stage the owner has not approved.
 	if slices.Index(planStages, stage) < slices.Index(planStages, item.Stage) {
 		item.Stage = stage
+	}
+	if slices.Contains(planStages, before) && slices.Index(planStages, before) < slices.Index(planStages, item.Stage) {
+		item.Stage = before
 	}
 	return nil
 }
@@ -360,8 +392,53 @@ func (s *PlanState) OpenPlanWait(key, id, kind string, issueID int64) error {
 	if err != nil {
 		return err
 	}
+	// No command could satisfy a wait behind a computably stale earlier
+	// approval. None is opened; StoryNextStep re-offers that earlier stage, and
+	// its review shows the command that works.
+	if kind != "retire" && s.staleEarlierApproval(item, item.Stage) {
+		return nil
+	}
 	item.Wait = &PlanWait{ID: id, Stage: item.Stage, Candidate: item.Candidate, Revision: ref, Kind: kind, IssueID: issueID}
 	return nil
+}
+
+// staleEarlierApproval reports that some stage before stage has an approval
+// that differs from that stage's review revision. It reports false whenever any
+// of those revisions cannot be computed (an upstream story publishing, held,
+// closed or retired): an uncomputable revision is no evidence of staleness.
+func (s *PlanState) staleEarlierApproval(item *PlanStoryState, stage string) bool {
+	stale := false
+	for _, up := range planStages[:max(0, slices.Index(planStages, stage))] {
+		ref, err := s.ReviewRevision(item.Key, up)
+		if err != nil {
+			return false
+		}
+		if item.Approvals[up] != ref {
+			stale = true
+		}
+	}
+	return stale
+}
+
+// ClearStaleWaits removes every open question or review wait that sits behind
+// a computably stale earlier approval, because no command can satisfy it. The
+// story keeps its stage, approvals and candidate; StoryNextStep then re-offers
+// the earliest unapproved stage, whose review shows the working command. A
+// wait whose earlier revisions cannot be computed is left exactly as it is.
+// It reports whether any wait was cleared.
+func (s *PlanState) ClearStaleWaits() bool {
+	changed := false
+	for i := range s.Stories {
+		item := &s.Stories[i]
+		if item.Wait == nil || item.Wait.Kind == "retire" {
+			continue
+		}
+		if s.staleEarlierApproval(item, item.Wait.Stage) {
+			item.Wait = nil
+			changed = true
+		}
+	}
+	return changed
 }
 
 // approvableWait reports whether the story's open wait can accept an exact

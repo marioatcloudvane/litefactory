@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -99,9 +100,15 @@ func TestProjectApproverPopulatedMigrationFreezesAuthenticatedHistory(t *testing
 	if err != nil || !reflect.DeepEqual(watermark, gotWatermark) {
 		t.Fatalf("consumption changed: %+v %v", gotWatermark, err)
 	}
-	gotState, gotRevision, err := db.GetPlanWorkflowState(t.Context(), session.TaskRef)
-	if err != nil || gotRevision != revision || !reflect.DeepEqual(state, gotState) {
-		t.Fatalf("saved approval/wait changed: %+v %v", gotState, err)
+	// The saved row itself is compared: a read repairs a wait that no command
+	// could satisfy (#1160), which this fixture's wait is, but the migration
+	// must not change what was saved.
+	var gotRevision int64
+	var gotState string
+	err = db.sql.QueryRowContext(t.Context(), `SELECT revision,state_json FROM plan_workflow_states WHERE parent=?`, session.TaskRef).Scan(&gotRevision, &gotState)
+	wantState, marshalErr := json.Marshal(state)
+	if err != nil || marshalErr != nil || gotRevision != revision || gotState != string(wantState) {
+		t.Fatalf("saved approval/wait changed: %s %v %v", gotState, err, marshalErr)
 	}
 	gotDelivery, err := db.GetReportDelivery(t.Context(), delivery.Key)
 	if err != nil || !reflect.DeepEqual(delivery, gotDelivery) {

@@ -11,6 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -240,6 +241,9 @@ func (w *researchWorkflow) failed(ctx context.Context, scope func(context.Contex
 		}
 	}
 
+	if w.deferPlanUpstream(ctx, step, cause) {
+		return nil
+	}
 	if w.policy.Mode == agent.ModePlan && w.definition != nil {
 		if node, ok := w.definition.Profile.Node(step.Node); ok && (node.Action == "lf_comment" || node.Action == "lf_ask") {
 			// The retained reply is the recovery debt. A second failure notice
@@ -259,6 +263,129 @@ func (w *researchWorkflow) failed(ctx context.Context, scope func(context.Contex
 		return cause
 	}
 	return errors.Join(cause, w.publishFailure(ctx, scope, step, cause))
+}
+
+// deferPlanUpstream ends a failed Plan agent step quietly when the only reason
+// it failed is that an upstream story was publishing its stage result, in
+// factory-scheduled Plan work. The step's result is not applied and nothing is
+// posted; the run then ends with the existing "waits for an upstream story"
+// outcome, and the story is offered again once that publication lands. An
+// owner-started run, any other schedule and any other cause still fail and
+// tell the owner. The attempt stays failed with the publishing diagnostic and
+// StopOnFailure has already ended the instance, so nothing is parked.
+func (w *researchWorkflow) deferPlanUpstream(ctx context.Context, step GraphNodeResult, cause error) bool {
+	if w.policy.Mode != agent.ModePlan || w.planUpstream == nil || w.prep == nil || !w.agentStep(step) {
+		return false
+	}
+	trigger := w.req.Trigger
+	if !store.IsScheduleTrigger(trigger.CommentID) || trigger.Body != PlanWorkPayload || trigger.PlanReply != nil {
+		return false
+	}
+	recorded := w.planUpstream.recorded()
+	publishing := errors.Is(cause, planbrief.ErrPlanUpstreamPublishing)
+	if !publishing && (recorded == nil || !errors.Is(cause, errNoRetainedResult)) {
+		return false
+	}
+	if !publishing {
+		// The submit was refused while the upstream published, so nothing was
+		// retained and the attempt's diagnostic names only the missing result.
+		// Keep the publishing cause on the attempt, where recovery and the
+		// daemon's resume rule read it.
+		if _, err := w.opts.DB.RecordGraphOutput(context.WithoutCancel(ctx), store.GraphOutput{NodeAttemptID: step.AttemptID, Kind: store.GraphOutputDiagnostic, Payload: []byte(recorded.Error()), CreatedAt: w.opts.MCP.Now()}); err != nil {
+			return false
+		}
+	}
+	w.planUpstream.mu.Lock()
+	w.planUpstream.deferred = true
+	w.planUpstream.cause = errors.Join(cause, recorded)
+	w.planUpstream.mu.Unlock()
+	if w.opts.Logger != nil {
+		w.opts.Logger.InfoContext(ctx, "Plan step deferred while an upstream story publishes its stage", "node", step.Node, "attempt_id", step.AttemptID, "cause", errors.Join(cause, recorded).Error())
+	}
+	return true
+}
+
+// PlanUpstreamPublishingDiagnostic reports that a failed Plan agent attempt's
+// diagnostic is the upstream-publishing refusal.
+func PlanUpstreamPublishingDiagnostic(diagnostic string) bool {
+	return strings.Contains(diagnostic, planbrief.PlanUpstreamPublishingText)
+}
+
+// PlanUpstreamFailureDiagnostic reports that a failed Plan agent attempt's
+// diagnostic names an upstream-dependency problem: a dependency inactive or
+// unresolved, still publishing, or a stale upstream binding.
+func PlanUpstreamFailureDiagnostic(diagnostic string) bool {
+	return PlanUpstreamPublishingDiagnostic(diagnostic) || strings.Contains(diagnostic, "is inactive or unresolved") || strings.Contains(diagnostic, "storyrequest.upstream stale_binding")
+}
+
+// PlanAttemptDiagnostics joins every diagnostic output an attempt kept.
+func PlanAttemptDiagnostics(ctx context.Context, db *store.DB, attemptID int64) (string, error) {
+	outputs, err := db.ListGraphOutputs(ctx, attemptID)
+	if err != nil {
+		return "", err
+	}
+	var parts []string
+	for _, output := range outputs {
+		if output.Kind == store.GraphOutputDiagnostic {
+			parts = append(parts, string(output.Payload))
+		}
+	}
+	return strings.Join(parts, "\n"), nil
+}
+
+// PlanLatestAgentFailedUpstream reports that the latest agent attempt of a
+// task's latest Plan instance failed with an upstream-dependency diagnostic.
+// Plan agent nodes are named after their stage with an "_agent" suffix.
+func PlanLatestAgentFailedUpstream(ctx context.Context, db *store.DB, sessionID int64) (bool, error) {
+	instance, err := db.LatestWorkflowInstance(ctx, sessionID, string(agent.ModePlan))
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	attempts, err := db.ListGraphNodeAttempts(ctx, instance.ID)
+	if err != nil {
+		return false, err
+	}
+	for i := len(attempts) - 1; i >= 0; i-- {
+		if !strings.HasSuffix(attempts[i].Node, "_agent") {
+			continue
+		}
+		if attempts[i].Status != store.GraphFailed {
+			return false, nil
+		}
+		diagnostic, err := PlanAttemptDiagnostics(ctx, db, attempts[i].ID)
+		if err != nil {
+			return false, err
+		}
+		return PlanUpstreamFailureDiagnostic(diagnostic), nil
+	}
+	return false, nil
+}
+
+// PlanRunDeferredForUpstream reports that a Plan run was the factory's own
+// scheduled Plan work whose latest failed attempt was deferred because an
+// upstream story was publishing its stage. Such a run owes no failure comment.
+func PlanRunDeferredForUpstream(ctx context.Context, db *store.DB, run store.Run, triggerBody string) (bool, error) {
+	if !store.IsScheduleTrigger(run.TriggerCommentID) || triggerBody != PlanWorkPayload {
+		return false, nil
+	}
+	attempts, err := db.ListGraphNodeAttemptsByRun(ctx, run.ID)
+	if err != nil {
+		return false, err
+	}
+	for i := len(attempts) - 1; i >= 0; i-- {
+		if attempts[i].Status != store.GraphFailed {
+			continue
+		}
+		diagnostic, err := PlanAttemptDiagnostics(ctx, db, attempts[i].ID)
+		if err != nil {
+			return false, err
+		}
+		return PlanUpstreamPublishingDiagnostic(diagnostic), nil
+	}
+	return false, nil
 }
 
 // agentStep reports whether a failed step was a graph agent (lf_agent) node.
@@ -352,6 +479,9 @@ func (r *planGraphRuntime) stepCause(ctx context.Context, source store.GraphNode
 func ensurePlanFailureReported(ctx context.Context, opts Options, req Request, run store.Run) error {
 	if _, stopped := run.OwnerStop(); stopped {
 		return nil
+	}
+	if deferred, err := PlanRunDeferredForUpstream(ctx, opts.DB, run, req.Trigger.Body); err != nil || deferred {
+		return err
 	}
 	reported, err := opts.DB.GraphFailureReported(ctx, run.ID, PlanFailureNode)
 	if err != nil || reported {

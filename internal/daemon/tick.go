@@ -2981,6 +2981,13 @@ func (d *Daemon) run(
 			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
 			return nil
 		}
+		// A claimed owner reply the open wait can never allocate is refused once,
+		// visibly, and its claim released, instead of holding admission forever (#1169).
+		if errors.Is(err, store.ErrGraphReplyNotResumable) && trigger.CommentID > 0 {
+			if handled, refuseErr := d.refuseUnresumableReply(ctx, t, trigger, string(mode), err); handled || refuseErr != nil {
+				return refuseErr
+			}
+		}
 		left := d.leave(ctx, t, log, "the turn could not be conducted", err)
 		if trigger.PlanReply != nil && left == nil {
 			// A child reply's cursor advances whenever run returns nil, and leave
@@ -3149,6 +3156,20 @@ func (d *Daemon) requirePlanFailureReported(ctx context.Context, result turn.Res
 		return fmt.Errorf("read the failure comment of failed Plan run %d: %w", result.Run.ID, err)
 	}
 	if !reported {
+		// Factory-scheduled Plan work deferred while an upstream story published
+		// its stage owes no failure comment, even when the run was recovered as
+		// failed: the story is offered again once that publication lands.
+		if scheduled, err := d.db.GetScheduleByTrigger(ctx, result.Run.TriggerCommentID); err == nil && scheduled.Payload == planWorkPayload {
+			deferred, err := turn.PlanRunDeferredForUpstream(ctx, d.db, result.Run, scheduled.Payload)
+			if err != nil {
+				return err
+			}
+			if deferred {
+				return nil
+			}
+		} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
 		attempts, err := d.db.ListGraphNodeAttemptsByRun(ctx, result.Run.ID)
 		if err != nil {
 			return err

@@ -169,6 +169,10 @@ func (db *DB) GetPlanWorkflowState(ctx context.Context, parent string) (planbrie
 	if err = json.Unmarshal([]byte(raw), &state); err != nil {
 		return state, 0, fmt.Errorf("decode retained Plan state: %w", err)
 	}
+	// A wait behind a computably stale earlier approval can never be approved.
+	// Every reader and writer comes through here, so every reply path sees it
+	// cleared and the next write saves that.
+	state.ClearStaleWaits()
 	return state, revision, nil
 }
 
