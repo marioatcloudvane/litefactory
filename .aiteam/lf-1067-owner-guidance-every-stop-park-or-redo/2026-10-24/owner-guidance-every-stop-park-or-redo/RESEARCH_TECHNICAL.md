@@ -209,7 +209,7 @@ Evidence:
 
 ## f21
 
-Run outcome branch inventory: succeeded N; nil result D: speculative interruption/local logs without exact recovery; interrupted D: feature incomplete but recovery section may qualify it (producer assessment remains unassessed); failed nonzero D: process status/diagnostic, no recovery; failed signal D: no exit status/recovery; clean exit with rejected shared result D: distinguishes rejection but no repair action; timed out D: timeout/narrowing alternatives lack concrete supported steps; abandoned D: blanket comment-again advice needs comparison with automatic recovery; no result D: unsupported credential diagnosis; unrecognised outcome D: bug/logs without recovery. Failure overlays before-agent, after-success and secondary-failure D: causal error/work location but no precise actions; partial managed-feature success D: remaining stories open without their states or next step. Recovery section branches manual-only, missing due time, succeeded and other terminal status D: unstructured reason or vague inspect-result action; pending/reserved with due time and running C for local wait instruction, with affected work delegated to full report; StopRecovery is data-driven and unassessed until its producers are traced.
+Run outcome branch inventory: succeeded N; nil result D for speculative interruption/local logs without exact recovery; interrupted D at base text, with its recovery producer assessed in f31; failed nonzero/signal/rejected shared result D for no precise recovery; timed out D for broad timeout/narrowing alternatives; abandoned D because generic comment-again advice can conflict with automatic relaunch; no-result D for unsupported credential diagnosis; unrecognised outcome D for bug/logs without action. Failure overlays before-agent/after-success/secondary-failure D; partial managed-feature success D for remaining work without states. Recovery manual-only/missing-due/succeeded/other terminal status D; pending/reserved with due time and running C locally for wait instruction. StopRecovery producer classifications are now in f30 rather than unassessed.
 
 Evidence:
 
@@ -217,7 +217,7 @@ Evidence:
 - `internal/report/run.go:399`
 - `internal/report/run.go:474`
 - `internal/report/recovery.go:18`
-- `internal/report/recovery.go:53`
+- `internal/turn/recovery_projection.go:13`
 
 ## f22
 
@@ -236,7 +236,7 @@ Evidence:
 
 ## f24
 
-Remaining unassessed source inventory after the current pass: Doctor diagnosis/apply/restart/rollback entry refusals and their transport rendering; conversation proposal confirmation, permission/access, details/inbox, argument and command failures; lifecycle and owner-input guidance messages; final mapping of those producers to owner-visible reports. Historical immutable releases and live provider/incident behavior remain explicitly outside the source audit's completeness claim. Validate, graph recovery, Research/Spike/Plan message and maintained role classifications are now recorded in f25–f35.
+Source-inventory remainder from prior checkpoints is now assessed in f37–f43: Doctor commands and recovery rendering, conversation confirmation/access/details/inbox/arguments, transport pauses, owner-input and lifecycle reporting. The coverage boundary is current owner-facing reporting families and their producer-to-message paths, not every low-level error string or live installed environment; inapplicable internal and unauthorized-suppressed paths are identified. Historical immutable releases and live provider/incident behavior remain outside the source audit; no unassessed source family remains in the retained scope.
 
 _No source reference was recorded for this finding._
 
@@ -380,3 +380,101 @@ Evidence:
 
 - `internal/turn/validate_ship_waiver_test.go:10`
 - `internal/turn/implement_graph_run_test.go:1504`
+
+## f37
+
+Doctor command/publication inventory (D=deficient, C=locally compliant, N=no owner-visible stop/ask/redo): usage C for diagnose/stop forms and effects; unauthorized or replayed authority N, intentionally ignored without disclosure; unavailable service/identity/provider/model/isolation/redaction failures D when surfaced as diagnosis failure, no task-specific operator remedy; busy command N while retained/requeued; apply-unavailable with active repair D, only repair ID/state; apply-unavailable without proposal D, generic diagnosis placeholder; no admitted apply operation C for exact fresh-diagnosis command and no repair claim; diagnosis interrupted twice D, command placeholder rather than concrete request. Diagnosis failure publication prepends the raw reason before RenderConversation; it can lack cause translation and complete recovery options. Initial/no diagnosis D despite generic Doctor continuation footer.
+
+Evidence:
+
+- `internal/doctor/command.go:24`
+- `internal/daemon/doctor.go:336`
+- `internal/daemon/doctor.go:578`
+- `internal/daemon/doctor.go:603`
+- `internal/daemon/doctor.go:708`
+- `internal/daemon/doctor_repair_recovery.go:72`
+
+## f38
+
+Doctor repair/restart/rollback inventory: before-head/base drift, advisor refusal/timeout, confirmation failure, merge/recheck/push rejection and unknown tool error D at fixed reason layer; final repair renderer adds a concrete fresh-diagnosis command, which is C locally but still does not explain related blocked/continuing work. Consume-comment watermark/state drift, rate limit, forge refusal, unknown post outcome and not-posted C locally for /doctor check and separate approval consequence. Graph repair/rollback invalid request, missing reason/target/precondition, changed graph row or protected exact manifest D when passed to generic failed diagnosis: preserve fail-closed semantics and give concrete safe inspection. Restart absent route/observer, changed operation, undispatched or unconfirmed restart D if surfaced as status/error: no repeat dispatch remains correct, supported inspection is missing. Restart pending N while reconciliation owns it; completed/recovered N as success, without claiming workflow continuation. CLI diagnose/status unconditionally says Apply unavailable (D) even though separate apply exists; CLI missing presentation D, incomplete 'doctor status' command; CLI stop pending C for honest asynchronous settlement, settled CLI/issue stop D for generic or absent resume steps.
+
+Evidence:
+
+- `internal/doctor/repair.go:24`
+- `internal/doctor/repair.go:52`
+- `internal/doctor/graph_proposal.go:15`
+- `internal/doctor/restart.go:20`
+- `internal/doctor/presentation.go:88`
+- `internal/cli/cmd_doctor.go:164`
+- `internal/cli/doctor_native.go:184`
+- `internal/daemon/doctor.go:592`
+
+## f39
+
+Conversation proposal inventory: exact feature-idea request C locally as clarification; draft-approved wording request D, no concrete current preview route; already-confirmed action C for waiting but saved-outcome inspection is vague; too-large/protection-changed proposal D, shorten instruction lacks permitted exact continuation; yes/cancel proposals C locally because exact reply and action consequence are retained; explicit cancel N as completed requested cancellation; stale confirmation to earlier message D, 'say yes' lacks direct current proposal link; expired/already-used/unknown proposal D, generic ask-again; proposal digest/project/question/preview/protection drift and disabled action D, generic fresh proposal instead of concrete current request; valid queued diagnosis C for posting result and separate issue repair gate. No effect is inferred from a confirmation or narration failure.
+
+Evidence:
+
+- `internal/messaging/conversation_actions.go:31`
+- `internal/messaging/conversation_actions.go:145`
+- `internal/messaging/conversation_actions.go:245`
+- `internal/messaging/conversation_actions.go:353`
+- `internal/messaging/natural_proposal.go:15`
+- `internal/messaging/natural.go:277`
+
+## f40
+
+Conversation execution/failure inventory: no-process provider failure, provider failure, format rejection after correction and timeout D, cause is grounded but generic ask-again; API quota and transient access C locally for specific wait timing, no restoration options; permanent access D if surfaced, no authorized operator action; ambiguous project/task C when concrete supplied candidates or example reply exists, otherwise D for generic name-field request; oversized/missing protected field D for no concrete corrected reply. Native provider unavailable/authorization/disk/invalid identity/previous exit uncertain/isolation/missing session/no answer D in conversationUnavailable because retained state is stated without actionable restoration. Interrupted turn with saved session C locally: next message resumes, old input not replayed. Lookup budget D for generic narrow request; missing fact reference D for latest-information fallback without recovery; action execution or display-protection uncertainty D for vague check-target or generic /status instead of exact supported inspection. State/authority checks and refusal to replay uncertain effects are correct and remain unchanged.
+
+Evidence:
+
+- `internal/messaging/conversation_cause.go:17`
+- `internal/messaging/conversation.go:389`
+- `internal/messaging/conversation.go:479`
+- `internal/messaging/conversation_factory.go:546`
+- `internal/messaging/natural_execution.go:25`
+- `internal/messaging/conversation_actions.go:451`
+- `internal/messaging/presentation/conversation.go:56`
+
+## f41
+
+Details/inbox/standards/read-command inventory: bad details reference D for no exact /details invocation; unavailable/denied/expired details D for missing safe current action; no tool results N, truthful empty export; inbox access unavailable D, operator restoration absent; bad/expired snapshot, changed source/wait/open reference D, refresh/browse wording lacks exact invocation despite retained navigation references; current inbox item C locally for stored Next/Destination, complete guidance still depends on source; live-ticket refresh unavailable D, recorded wait retained but no task-specific inspection; organized inbox invalid request/reference and coverage-restricted reference D, return/coverage navigation exists without precise owner action. Standards operation unavailable/terms missing/owner publication words missing/project or protected-request drift D where final refusal is generic or raw error; standards discovery help C locally for separate approval/publication semantics. Research read/answer wrappers: unavailable diagnosis, long note, queue failure, no open question, failed question lookup, unavailable answer, failed protection/storage and unconfirmed prior answer D, mostly no exact recovery; target ambiguity with supplied candidates C locally; unknown project/no task D. Internal lookup omissions remain evidence gaps, not invented absence or approval.
+
+Evidence:
+
+- `internal/messaging/conversation_details.go:19`
+- `internal/messaging/owner_inbox.go:78`
+- `internal/messaging/owner_inbox.go:186`
+- `internal/messaging/owner_inbox.go:235`
+- `internal/messaging/owner_inbox_organizer.go:444`
+- `internal/messaging/conversation_standards.go:126`
+- `internal/messaging/research.go:117`
+- `internal/messaging/research.go:185`
+
+## f42
+
+Transport/status/lifecycle inventory: wrong channel/owner admission N, suppressed intentionally; retired/expired details command delivery N, closed without publishing; confirmed transport delivery N; transient access or send failure N, retained automatic retry rather than owner stop; disabled authorization, permanent channel refusal, permanent answer-details refusal and changed source access N at transport because publishing there is forbidden, but authorized retained health/status explanations D for lacking exact operator restoration. Notice failed/stopped/waiting/question D: workflow label plus one clipped sentence/link can omit cause, affected work and action; transition and automatic-abandonment notice suppression N. Conversation multipart rendering C for preserving text across parts; protected proposal too-large refusal D at its caller, cannot truncate exact consent. Parked status summary D for generic parent reply and internal parent identity; Plan child content/access/identity/parent/membership/lifecycle holds D, broad verify/restore instructions with no exact safe action; closed/reopened observation flows to Plan notice classification f33. Standing guidance set/clear N; retained undelivered one-time input D, no eligible next-step action and raw instance/launch targeting in the explanation.
+
+Evidence:
+
+- `internal/messaging/conversation_delivery.go:15`
+- `internal/messaging/service.go:255`
+- `internal/messaging/service.go:802`
+- `internal/messaging/notices.go:162`
+- `internal/messaging/presentation/conversation.go:74`
+- `internal/daemon/plan_child_lifecycle.go:13`
+- `internal/turn/owner_input_reporting.go:21`
+
+## f43
+
+Coverage reconciliation: f19–f20 classify fixed factory replies and scheduling/creation/confirmation; f21/f31 cover run outcomes and recovery producers; f25–f29 cover Validate admission, controls, reports, truncation, repair and remote effects; f30 covers graph stops/dispatch projection; f32–f33 cover Research/Spike/Plan publication and notices; f34–f35 cover maintained stack/shared instructions; f37–f42 finish Doctor/conversation/transport/owner-input/lifecycle. C means the named branch's local instruction is usable, not that the complete assembled report already meets all four issue requirements; D identifies missing guidance, not a demand to add alternatives when none exist. Source coverage cannot establish the state of historical installed teams, live permissions/provider failures or the original incident.
+
+_No source reference was recorded for this finding._
+
+## f44
+
+Final verification passed: go test ./internal/messaging -run '^TestConversationCauseReplyNamesTypedCause$' -count=1. Together with f23 and f36 this is five targeted existing tests across the code rechecks, not a full suite or live end-to-end incident reproduction. The worktree remains unchanged.
+
+Evidence:
+
+- `internal/messaging/conversation_cause_test.go:13`

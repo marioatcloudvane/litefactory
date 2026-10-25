@@ -17,11 +17,15 @@ Shape issue #1067 into a buildable scope covering all owner-facing stops, parks,
 - **d9** — Allow concise chat notices to link full guidance while retaining cause, affected work and an immediate actionable next step.
 - **d10** — Keep unavailable recovery explicit and retain stops with safe fallback guidance when explanations or state are missing.
 - **d11** — Deliver agent instruction changes through new supported releases for every maintained stack and shared agents without rewriting historical releases or silently upgrading installations.
-- **d12** — Complete a classified reporting-branch inventory before finishing shaping and require representative command, consequence, ordering, stale-state and authorization checks for acceptance.
+- **d12** — Use the completed classified source inventory as the repair boundary and require representative command, consequence, ordering, stale-state and authorization checks on complete owner-facing reports.
 - **d13** — Keep #1067 responsible for factory stop guidance and command consequences while treating #1128's agent-report format and shared-skill design as related separate work.
 - **d14** — Preserve existing reasoned shipping waivers and displayed decision references while explaining the factual blockers and unchanged test evidence they retain.
 - **d15** — Keep every omitted recovery item reachable through a complete linked report that actually contains its commands and consequences.
 - **d16** — Preserve current role-specific question permissions, including sync resolver questions delivered through the factory, without giving story workers direct owner questions.
+- **d17** — Expose recovery only through existing authorized channels and retain safe operator guidance when channel or source access prevents owner delivery.
+- **d18** — Judge the four guidance requirements on complete assembled reports rather than treating a locally compliant branch as a blanket exemption.
+- **d19** — Derive independent-work statements from the current task's retained state and say when that state is unknown rather than claiming all factory work has stopped.
+- **d20** — Keep owner-required evidence as an explicit input placeholder and never prefill an acceptance verdict, waiver reason or unverified cause.
 
 
 ## Assumptions
