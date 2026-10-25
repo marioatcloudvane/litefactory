@@ -432,3 +432,40 @@ func TestPrintDaemonHeartbeatScopedPauses(t *testing.T) {
 		}
 	}
 }
+
+// TestPrintDaemonHeartbeatRunsHeld shows a free-disk hold on its own row next
+// to an active scoped connection pause.
+func TestPrintDaemonHeartbeatRunsHeld(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	summary := "project 1 linear https://api.linear.app: rate-limit backoff until 2026-10-12T12:03:00Z"
+	held := "New runs wait: free disk 1.4 GB is below the 2 GB minimum."
+	var out bytes.Buffer
+	status := store.ListenerStatus{WrittenAt: now, LastHeartbeatStartedAt: now, PauseReason: summary, RunsHeld: held}
+	if err := printDaemonHeartbeat(&out, heartbeatSnapshot(status), now, true, now); err != nil {
+		t.Fatal(err)
+	}
+	pauses, runs := "", ""
+	for _, line := range strings.Split(out.String(), "\n") {
+		switch {
+		case strings.HasPrefix(line, "connection pauses"):
+			pauses = line
+		case strings.HasPrefix(line, "runs held"):
+			runs = line
+		}
+	}
+	if !strings.Contains(pauses, summary) || strings.Contains(pauses, "free disk") {
+		t.Fatalf("connection pauses row = %q:\n%s", pauses, &out)
+	}
+	if !strings.HasSuffix(runs, held) || strings.Contains(runs, "rate-limit") {
+		t.Fatalf("runs held row = %q:\n%s", runs, &out)
+	}
+	out.Reset()
+	status.RunsHeld = ""
+	if err := printDaemonHeartbeat(&out, heartbeatSnapshot(status), now, true, now); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "runs held") {
+		t.Fatalf("runs held row without a hold:\n%s", &out)
+	}
+}
