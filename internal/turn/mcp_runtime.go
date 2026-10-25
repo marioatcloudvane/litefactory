@@ -128,6 +128,9 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	if err := p.bindFinalRoute(ctx, &req, session); err != nil {
 		return nil, err
 	}
+	if err := p.attachRetainedWorkflowEvidence(ctx, prep, &req, session); err != nil {
+		return nil, fmt.Errorf("prepare retained workflow evidence: %w", err)
+	}
 	result, err = runPreparedProvider(ctx, prep, req)
 	return p.finalize(ctx, prep, session, result, err)
 }

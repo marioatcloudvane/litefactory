@@ -78,6 +78,10 @@ func archived(name, where string) ArchiveTable {
 // the parents they reference. Streaming uses the reverse, parents first. A
 // later story adds Plan tables by inserting them here in foreign-key order.
 var archiveRegistry = []ArchiveTable{
+	// Evidence links follow the owning task's retention lifecycle. Doctor's
+	// existing archive guard continues to protect conversations and repairs.
+	archived("retained_evidence_sources", `task IN `+inFT),
+	archived("retained_evidence_manifests", `task IN `+inFT),
 	// Story progress.
 	archived("story_progress_effects", `run_id IN `+subSPR),
 	archived("story_progress_events", `run_id IN `+subSPR),
@@ -248,6 +252,7 @@ var archiveRetained = map[string]ArchiveClass{
 	// bounded chat retention rather than one family's archive lifecycle.
 	"chat_conversation_actions":       ArchiveClassGlobal,
 	"chat_conversation_exchanges":     ArchiveClassGlobal,
+	"chat_conversation_evidence":      ArchiveClassGlobal,
 	"chat_conversation_references":    ArchiveClassGlobal,
 	"chat_conversation_answers":       ArchiveClassGlobal,
 	"chat_conversation_answer_parts":  ArchiveClassGlobal,

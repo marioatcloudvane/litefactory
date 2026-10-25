@@ -39,6 +39,29 @@ func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task
 	return tasks, more, err
 }
 
+// ReadIssueTasks resolves an exact registered target without treating omission
+// from the bounded project list as absence. It does not fetch remote history.
+func (s StoreReader) ReadIssueTasks(ctx context.Context, repo store.Repo, issue int) ([]Task, error) {
+	finder, ok := s.Reader.(interface {
+		FindSessionByIssue(context.Context, int, string, string) (store.Session, error)
+	})
+	if !ok {
+		tasks, _, err := s.ReadProjectTasks(ctx, repo.ID)
+		return tasks, err
+	}
+	session, err := finder.FindSessionByIssue(ctx, issue, repo.Owner, repo.Name)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if session.RepoID != repo.ID || session.IssueNumber != issue {
+		return nil, errors.New("ask: named issue does not match registered repository")
+	}
+	return s.ReadTaskSessions(ctx, []store.Session{session})
+}
+
 // ReadTaskSessions projects explicitly selected sessions using the same current facts.
 func (s StoreReader) ReadTaskSessions(ctx context.Context, sessions []store.Session) ([]Task, error) {
 	var tasks []Task
@@ -151,4 +174,10 @@ func (s StoreReader) ownerWait(ctx context.Context, sessionID int64) (*OwnerWait
 func (s StoreReader) ReadDiscoveryPause(ctx context.Context) (bool, bool, error) {
 	snapshot, err := s.Reader.ReadHealthSnapshot(ctx)
 	return snapshot.Listener.DiscoveryPaused, snapshot.Found, err
+}
+
+// ReadRunsHeld uses the daemon's published health snapshot.
+func (s StoreReader) ReadRunsHeld(ctx context.Context) (string, error) {
+	snapshot, err := s.Reader.ReadHealthSnapshot(ctx)
+	return snapshot.Listener.RunsHeld, err
 }

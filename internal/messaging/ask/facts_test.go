@@ -71,6 +71,7 @@ func TestProjectResolution(t *testing.T) {
 type factory struct {
 	tasks  []ask.Task
 	paused bool
+	held   string
 	err    error
 }
 
@@ -79,6 +80,9 @@ func (f *factory) ReadProjectTasks(context.Context, int64) ([]ask.Task, bool, er
 }
 func (f *factory) ReadDiscoveryPause(context.Context) (bool, bool, error) {
 	return f.paused, true, nil
+}
+func (f *factory) ReadRunsHeld(context.Context) (string, error) {
+	return f.held, nil
 }
 
 type forge struct {
@@ -131,6 +135,38 @@ func TestFreshFactsAndForgeFailure(t *testing.T) {
 	}
 	if strings.Contains(b.Facts[3].Text, "running") {
 		t.Fatalf("old task state survived: %+v", b)
+	}
+}
+
+// TestFactsRunsHeldFollowsDiscovery: a published run hold is the fact right
+// after the discovery fact; without one no such fact appears.
+func TestFactsRunsHeldFollowsDiscovery(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC)
+	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app", BaseBranch: "main"}
+	f := &factory{held: "New runs wait: free disk 1.4 GB is below the 2 GB minimum."}
+	c := ask.Collector{Factory: f, Issues: &forge{}}
+	b, err := c.Collect(t.Context(), repo, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := -1
+	for j, fact := range b.Facts {
+		if strings.HasPrefix(fact.Text, "Discovery paused: ") {
+			i = j
+		}
+	}
+	if i < 0 || i+1 >= len(b.Facts) || b.Facts[i+1].Text != "Runs held: New runs wait: free disk 1.4 GB is below the 2 GB minimum." {
+		t.Fatalf("runs held fact not after discovery: %+v", b.Facts)
+	}
+	f.held = ""
+	if b, err = c.Collect(t.Context(), repo, at); err != nil {
+		t.Fatal(err)
+	}
+	for _, fact := range b.Facts {
+		if strings.HasPrefix(fact.Text, "Runs held:") {
+			t.Fatalf("runs held fact without a hold: %+v", b.Facts)
+		}
 	}
 }
 
