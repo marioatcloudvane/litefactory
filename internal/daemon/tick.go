@@ -1219,10 +1219,11 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 // owned by that worker, including sequential refinement copies. Nothing is
 // shared with another worker, so no lock is needed.
 type task struct {
-	discoveryReservation   *discoveryReservation
-	prepareFailureRecorded bool
-	observations           []store.PendingTicketObservation
-	enrollmentAt           time.Time
+	implementTimeoutResumed bool
+	discoveryReservation    *discoveryReservation
+	prepareFailureRecorded  bool
+	observations            []store.PendingTicketObservation
+	enrollmentAt            time.Time
 	// workerLog holds immutable admission context for worker lifetime events.
 	workerLog *slog.Logger
 	worker    *workerState
@@ -2184,6 +2185,9 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 // so the queue stops and a later tick retries, with no queue and no "busy"
 // reply (AC-3.1).
 func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, error) {
+	if err := d.recoverImplementTimeoutForTask(ctx, t); err != nil {
+		return false, err
+	}
 	// Recovery must finish even when the watermark leaves no new comments.
 	if err := d.retireModeSelections(ctx, t.session.ID); err != nil {
 		return false, fmt.Errorf("retire completed mode selections: %w", err)
@@ -2215,7 +2219,9 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 		// Refresh after each actionable instruction so later owner label edits
 		// are observed before admitting another trigger. Persistent selection
 		// does not make this tick's issue snapshot authoritative forever.
-		if len(d.classifiers) > 0 && turn.ParseCommand(c.Body).Spawns() {
+		timeoutResumed := t.implementTimeoutResumed
+		t.implementTimeoutResumed = false
+		if len(d.classifiers) > 0 && turn.ParseCommand(c.Body).Spawns() && !timeoutResumed {
 			return true, nil
 		}
 	}
@@ -2448,6 +2454,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 
 	if commandForCode.Kind == turn.KindJudge {
 		return d.handleJudge(ctx, t, c, qualifiedReply != nil)
+	}
+
+	if handled, err := d.handleImplementTimeoutReply(ctx, t, c); handled {
+		return err
 	}
 
 	// A graph Plan story issue that is a task of its own has its owner comments
@@ -2981,6 +2991,13 @@ func (d *Daemon) run(
 			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
 			return nil
 		}
+		// A claimed owner reply the open wait can never allocate is refused once,
+		// visibly, and its claim released, instead of holding admission forever (#1169).
+		if errors.Is(err, store.ErrGraphReplyNotResumable) && trigger.CommentID > 0 {
+			if handled, refuseErr := d.refuseUnresumableReply(ctx, t, trigger, string(mode), err); handled || refuseErr != nil {
+				return refuseErr
+			}
+		}
 		left := d.leave(ctx, t, log, "the turn could not be conducted", err)
 		if trigger.PlanReply != nil && left == nil {
 			// A child reply's cursor advances whenever run returns nil, and leave
@@ -3149,6 +3166,20 @@ func (d *Daemon) requirePlanFailureReported(ctx context.Context, result turn.Res
 		return fmt.Errorf("read the failure comment of failed Plan run %d: %w", result.Run.ID, err)
 	}
 	if !reported {
+		// Factory-scheduled Plan work deferred while an upstream story published
+		// its stage owes no failure comment, even when the run was recovered as
+		// failed: the story is offered again once that publication lands.
+		if scheduled, err := d.db.GetScheduleByTrigger(ctx, result.Run.TriggerCommentID); err == nil && scheduled.Payload == planWorkPayload {
+			deferred, err := turn.PlanRunDeferredForUpstream(ctx, d.db, result.Run, scheduled.Payload)
+			if err != nil {
+				return err
+			}
+			if deferred {
+				return nil
+			}
+		} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
 		attempts, err := d.db.ListGraphNodeAttemptsByRun(ctx, result.Run.ID)
 		if err != nil {
 			return err

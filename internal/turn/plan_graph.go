@@ -65,6 +65,10 @@ type planGraphRuntime struct {
 	parentRef    naming.Ref
 	parentNumber int
 	story        string
+	// prepared is the basis the current agent attempt was prepared against.
+	prepared planPreparedBasis
+	// upstream carries an upstream-publishing refusal to the failure path.
+	upstream planUpstreamDeferral
 }
 
 type planGraphHandler func(context.Context, Options, ActivityRequest) (ActivityResult, error)
@@ -173,7 +177,7 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 			}
 			out := result
 			out.ResearchGraph = true
-			out.Reason = "this story waits for the owner or for an upstream story"
+			out.Reason = planUpstreamWait
 			return out, true, nil
 		}
 		out, err := r.settled(ctx)
@@ -205,6 +209,12 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	definition.Profile.Digest = actual.Digest
 	policy := r.policy()
 	out, err := ExecuteWorkflow(ctx, o, req, result, definition, admission, policy)
+	if err == nil && out.Err == nil && r.upstream.deferred {
+		// The step ended quietly while an upstream story published its stage.
+		out.ResearchGraph = true
+		out.Reason = planUpstreamWait
+		return out, true, nil
+	}
 	if err == nil && out.Err == nil && r.story == "" && !r.discussion {
 		// Where the run stopped, the owner hears why and what to do next.
 		_, noticeErr := r.storiesCreated(ctx)
@@ -213,6 +223,15 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	}
 	return out, true, err
 }
+
+// PlanWorkPayload is the instruction of a run the factory starts by itself for
+// a Plan task. The stage, the story and everything else the run needs come from
+// the saved Plan state, never from this text.
+const PlanWorkPayload = "Continue the Plan work of this issue."
+
+// planUpstreamWait is the outcome of a story run that has nothing to do now
+// because it waits for the owner or for an upstream story.
+const planUpstreamWait = "this story waits for the owner or for an upstream story"
 
 // planAnswerNotApplied is posted for an input bound to a Plan instance that
 // finished without applying it. It names no internal state.
@@ -615,6 +634,13 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 			return ResearchInvocation{}, err
 		}
 	}
+	r.prepared = planPreparedBasis{attempt: a.NodeAttemptID, upstream: slices.Clone(upstream)}
+	if r.stage != planSetStage {
+		if review, reviewErr := s.ReviewRevision(r.selected, r.stage); reviewErr == nil {
+			r.prepared.review = review
+		}
+	}
+	w.planUpstream = &r.upstream
 	upstreamJSON, err := json.Marshal(upstream)
 	if err != nil {
 		return ResearchInvocation{}, err

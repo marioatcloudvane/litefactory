@@ -142,7 +142,7 @@ and `lf_spike_issue`, `failed` is a finding, not a fault.
 | `lf_model_tier` | agent | Model tier. | `flagship`, `balanced`, `fast` (node, then role frontmatter, then graph default) |
 | `lf_task` | agent | Task text. | 1–65536 bytes (node, then role, then graph default) |
 | `lf_access` | agent | Tool access. | `read`, `write` (Validate repair: write; Bug analyst: read) |
-| `lf_budget` | agent | Time budget per run in minutes. | 1–60 |
+| `lf_budget` | agent | Time budget per run in minutes. | 1–1440 |
 | `lf_response` | agent | Routes the agent's retained result as the outcome. | `result` (only with `lf_park=owner`) |
 | `lf_park` | Bug nodes | Parks at the owner instead of failing. | `owner` |
 | `lf_stop` | Bug nodes | Outcomes that park at the owner (no edge). | from blocked, failed, invalid, exhausted, stale (first four required) |

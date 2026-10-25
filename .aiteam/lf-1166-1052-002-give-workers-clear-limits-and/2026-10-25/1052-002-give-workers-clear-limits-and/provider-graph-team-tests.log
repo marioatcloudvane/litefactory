@@ -1,0 +1,5 @@
+ok  	github.com/cloudvane/litefactory/internal/agent	5.352s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	3.452s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	3.301s
+ok  	github.com/cloudvane/litefactory/internal/harness	126.137s
+ok  	github.com/cloudvane/litefactory/internal/codex	179.326s

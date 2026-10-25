@@ -43,7 +43,7 @@ func TestValidateGraphRefusesAWeakenedFlow(t *testing.T) {
 			return strings.Replace(s, `lf_budget="15", lf_limit="2"`, `lf_budget="15", lf_limit="3"`, 1)
 		}, "exceeds 2 repair rounds"},
 		"no time budget":           {func(s string) string { return strings.Replace(s, ` lf_budget="15",`, ``, 1) }, "lf_budget"},
-		"a budget over the bound":  {func(s string) string { return strings.Replace(s, `lf_budget="15"`, `lf_budget="61"`, 1) }, "lf_budget"},
+		"a budget over the bound":  {func(s string) string { return strings.Replace(s, `lf_budget="15"`, `lf_budget="1441"`, 1) }, "lf_budget"},
 		"a read-only repair agent": {func(s string) string { return strings.Replace(s, `lf_access="write"`, `lf_access="read"`, 1) }, "lf_access=write"},
 		"a kept repair that skips the suite": {func(s string) string {
 			return strings.Replace(s, `repair_check  -> suite         [lf_on="kept"]`, `repair_check  -> review        [lf_on="kept"]`, 1)
@@ -110,7 +110,7 @@ func TestValidateGraphMustStartAtTheSuite(t *testing.T) {
 }
 
 func TestAgentBudgetAttributeIsValidatedAndBounded(t *testing.T) {
-	for value, ok := range map[string]bool{"1": true, "15": true, "60": true, "0": false, "61": false, "-3": false, "15m": false, "": false} {
+	for value, ok := range map[string]bool{"1": true, "15": true, "60": true, "0": false, "1440": true, "1441": false, "-3": false, "15m": false, "": false} {
 		_, present, err := graphexec.AgentBudget(map[string]string{graphexec.BudgetAttribute: value})
 		if ok && (err != nil || !present) || !ok && err == nil {
 			t.Errorf("budget %q: present=%v err=%v", value, present, err)

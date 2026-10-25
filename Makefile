@@ -38,6 +38,16 @@ empty :=
 space := $(empty) $(empty)
 MIXED_PACKAGES := ./internal/turn ./internal/store ./internal/cli
 RACE_TESTS_store := \
+	TestOtherWorkerTimeoutDoesNotHoldImplementStory \
+	TestWorkerTimingSnapshotSurvivesReplay \
+	TestImplementTimeoutPendingReplyResumesExactlyOnce \
+	TestImplementTimeoutCannotBypassAuthenticatedResume \
+	TestAttemptTimeoutAtomicallyHoldsItsImplementWorker \
+	TestAttemptTimeoutPreservesSubsecondParentAllowance \
+	TestImplementTimeoutReplyUsesObservedRemoteNoticeTime \
+	TestImplementTimeoutEqualTimestampNeedsObservedNoticeOrder \
+	TestHeldRunningStoryDoesNotConsumeImplementCapacity \
+	TestRestartDowntimePreservesExpiredWorkerDeadline \
 	TestStandardsExceptionsTransitionsIndependentConnections \
 	TestStandardsRunCompetingBindingsAndSelectionVersions \
 	TestStandardsCompetingPublications \
@@ -147,6 +157,24 @@ RACE_TESTS_store := \
 	TestWorkflowBoundaryAmbiguousPriorEvidenceStops \
 	TestWorkflowBoundaryWorktreeCleanupRetainsAdmission
 RACE_TESTS_turn := \
+	TestGraphTimeoutSettlementRestoresMissingStopBeforeRetry \
+	TestImplementTimeoutRedactsBeforeLedgerClipping \
+	TestNonGraphFinalizationBoundsBlockedTransportJoin \
+	TestSubmissionWorkerTimingFollowsTypedPlanPromptBinding \
+	TestGraphParentDeadlineTimeoutSettlesAndKeepsDiagnostic \
+	TestGraphParentDeadlineKeepsCleanupFailureWhenHookCannotSettle \
+	TestAgentBudgetCancelsTheRunAndRecordsATimeout \
+	TestAgentBudgetDoesNotTouchARunThatFinishes \
+	TestAgentBudgetShutdownIsNotATimeout \
+	TestValidateAfterAgentFailureSettlesFailedButNotShutdown \
+	TestWorkerDeadlineSetupExpiryWithoutProcessResult \
+	TestWorkerDeadlineParentCancellationIsNotTimeout \
+	TestWorkerDeadlineRetainsPersistedTimingOnReplay \
+	TestWorkerDeadlineNodeOverrideSurvivesShortProviderFallback \
+	TestWorkerDeadlineCleanupHangAndFailure \
+	TestWorkerDeadlineParentExpiryIsTimeout \
+	TestWorkerSubmissionTimeoutRetainsActualReceiptAcrossRestart \
+	TestWorkerDeadlineAcceptedResearchSurvivesExpiry \
 	TestSlotCapacityStaysReservedThroughWorkflowFinalization \
 	TestWorkflowJudgeStartupRecoveryBeforeGenericReconciliation \
 	TestSlotCapacityWorkflowWaitsAndResumesWithoutReplay \

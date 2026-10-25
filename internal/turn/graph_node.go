@@ -220,7 +220,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer, AllowDeferred: slices.Contains(gate.Outcomes, "deferred")}
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, FactoryStep: node.Action != ResearchAgentAction, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Exhausted = true
@@ -357,6 +357,28 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 		}
 	}
 	completionCtx := ctx
+	if (!out.Activity.cleanupDeadline.IsZero() || errors.Is(ctx.Err(), context.DeadlineExceeded)) && out.AttemptID > 0 {
+		// A recorded deadline remains a timeout after its parent context has
+		// expired. Complete local bookkeeping without extending provider work
+		// or remote notice delivery. External cancellation retains its path.
+		settlement, cancel := agent.TimeoutSettlementContext(ctx)
+		defer cancel()
+		_, timeoutErr := opts.DB.GetAttemptTimeout(settlement, out.AttemptID)
+		if errors.Is(timeoutErr, store.ErrNotFound) && !out.Activity.cleanupDeadline.IsZero() {
+			// Collection failure cannot turn known expiry into an ordinary retry.
+			// Recover only the already persisted timing fact, not fresh process evidence.
+			timing, timingErr := opts.DB.GetAttemptTiming(settlement, out.AttemptID, 0)
+			if timingErr != nil {
+				return out, fmt.Errorf("read timed-out attempt policy: %w", timingErr)
+			}
+			timeoutErr = opts.DB.RecordAttemptTimeout(settlement, store.AttemptTimeout{NodeAttemptID: out.AttemptID, Budget: timing.Allowance, TimedOutAt: timing.Deadline})
+		}
+		if timeoutErr == nil {
+			completionCtx = settlement
+		} else if !errors.Is(timeoutErr, store.ErrNotFound) {
+			return out, fmt.Errorf("read graph timeout settlement: %w", timeoutErr)
+		}
+	}
 	ownerStopped := false
 	if !succeeded && req.RunID != 0 && ctx.Err() != nil {
 		// An owner stop cancels the worker context; settle the attempt anyway so
