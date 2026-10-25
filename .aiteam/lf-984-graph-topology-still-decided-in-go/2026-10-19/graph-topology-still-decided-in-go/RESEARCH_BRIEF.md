@@ -6,11 +6,14 @@ Inventory where Go decides topology and where hard states block orchestration, t
 
 ## Decisions
 
-- **d1** — Split into small issues: B1 retry and lifetime rules, B2 heal-instead-of-block checks, B3 no silent stops plus the Plan-to-Implement story case, B4 doctor repair, and A1-A4 for topology. Decided by me from the owner's direction.
-- **d2** — Owner-reply resume is a named DOT edge; without one the current origin-node behaviour remains the fallback. Decided by me (my earlier recommendation).
-- **d3** — Bug digest pin is replaced by the existing structural check; the shipped graph passes it. Decided by me (my earlier recommendation).
-- **d4** — Plan stage configurability (#957) is out of this issue. Decided by me (my earlier recommendation).
-- **d5** — Track B ships before Track A, because its faults are blocking sessions now. From the owner's principles 1-4 and 6.
+- **d1** — Split into B1 retry and lifetimes, B2 narrowed heal, B3 no silent stops, B4 doctor repair on the existing flow, and A1-A4 for topology.
+- **d2** — Owner-reply resume is a named DOT edge; without one, the origin-node behaviour remains the fallback.
+- **d3** — Bug digest pin is replaced by the existing structural check.
+- **d4** — Plan stage configurability (#957) is out of this issue.
+- **d5** — Track B ships before Track A.
+- **d6** — B2 is limited to the story comment sweep after hand repair, 'dispatch no longer matches' and 'instance already terminal'. Identity checks that guard actor or ticket ownership stay hard stops.
+- **d7** — B4 extends the existing doctor repair flow (holds, drain, approval, journal) and does not rebuild it. Doctor repair holds join the lifetime list in B1.
+- **d8** — Light guardrails C (#1050) and E (#1052) stay with their own issues and are out of this scope.
 
 
 ## Assumptions
