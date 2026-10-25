@@ -37,12 +37,12 @@ func admitSpikeExecution(ctx context.Context, opts Options, req Request, result 
 		if graph {
 			return result, true, errors.New("spike graphs require explicit owner continuation")
 		}
-		out, err := prelaunchRefused(ctx, opts, result, spikeRetiredReason)
+		out, err := refuseLegacySpike(ctx, opts, req, result)
 		return out, true, err
 	}
 	if err := opts.DB.AdmitSpikePath(ctx, req.SessionID); err != nil {
 		if errors.Is(err, store.ErrSpikeLegacyRetired) {
-			out, refuseErr := prelaunchRefused(ctx, opts, result, spikeRetiredReason)
+			out, refuseErr := refuseLegacySpike(ctx, opts, req, result)
 			return out, true, refuseErr
 		}
 		return result, true, err
@@ -121,4 +121,12 @@ func resumeSpikeDispatch(ctx context.Context, opts Options, req Request, result 
 		return result, errors.New("retained spike graph does not match the running instance; the parked stage cannot resume")
 	}
 	return ExecuteSpikeWorkflow(ctx, opts, req, result, definition, retainedAdmission(ctx, opts.DB, req, instance, "spike"))
+}
+
+func refuseLegacySpike(ctx context.Context, opts Options, req Request, result Result) (Result, error) {
+	passage, err := legacyRecoveryContext(ctx, opts.DB, req)
+	if err != nil {
+		return result, err
+	}
+	return prelaunchRefused(ctx, opts, result, spikeRetiredReason+passage)
 }

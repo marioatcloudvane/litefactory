@@ -170,6 +170,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("submission_criterion_history", byTask),
 	archived("submission_generations", byTask),
 	// Reports.
+	archived("recovery_notice_dispositions", bySession),
 	archived("report_deliveries", byRunSess),
 	archived("report_delivery_legacy_runs", byRun),
 	archived("report_recoveries", byRunSess),

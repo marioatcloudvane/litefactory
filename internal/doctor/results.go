@@ -81,6 +81,9 @@ func (s *ResultService) prepare(ctx context.Context, data []byte) (ResultInput, 
 	if input.ExpectedRevision < 0 {
 		return input, nil, errors.New("doctor result revision must be nonnegative")
 	}
+	if err := s.prepareGraphProposal(ctx, &input.Diagnosis); err != nil {
+		return input, nil, err
+	}
 	if err := ValidateDiagnosis(input.Diagnosis, s.evidence); err != nil {
 		return input, nil, err
 	}
@@ -143,7 +146,7 @@ func (s *ResultService) prepare(ctx context.Context, data []byte) (ResultInput, 
 	}
 	for i := range input.Diagnosis.Proposal {
 		p := &input.Diagnosis.Proposal[i]
-		if p.Action != nil {
+		if p.Action != nil && !store.DoctorGraphRepairKind(p.Action.Kind) {
 			if err := s.clean(ctx, &p.Action.After); err != nil {
 				return input, nil, err
 			}
@@ -195,6 +198,20 @@ func (s *ResultService) Preflight(ctx context.Context, data []byte) (ResultDiagn
 // Correlation hashes apply to the redacted canonical input; callers retry the
 // same request ID and input, then recover its receipt before any new submission.
 func (s *ResultService) Submit(ctx context.Context, requestID string, data []byte) (store.ResultReceipt, error) {
+	// Recover the exact recorded request before recapturing graph state. A
+	// refreshed timestamp or related row must never change a lost receipt.
+	if prior, err := s.Receipt(ctx, requestID); err == nil {
+		var retained struct {
+			OriginalDigest string `json:"original_digest"`
+		}
+		digest := sha256.Sum256(data)
+		if prior.Attempt != s.binding.Attempt || json.Unmarshal(prior.Payload, &retained) != nil || retained.OriginalDigest != hex.EncodeToString(digest[:]) {
+			return store.ResultReceipt{}, store.ErrResultCorrelation
+		}
+		return s.db.ReplayResultRequest(ctx, s.binding, requestID, prior.Payload)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return store.ResultReceipt{}, err
+	}
 	input, snapshot, err := s.prepare(ctx, data)
 	if err != nil {
 		return store.ResultReceipt{}, err

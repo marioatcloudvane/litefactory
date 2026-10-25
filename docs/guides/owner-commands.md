@@ -220,3 +220,9 @@ No command was found that the parser used to accept and now refuses. The old
 Discord is driven by ordinary messages in a channel bound to a conversation,
 not by GitHub comments. Its only slash command is `/details`, which shows saved
 raw details for a conversation answer. See [Discord](../discord.md).
+
+For stopped work, follow the single recommendation in its retained stop notice. Pending automatic recovery needs no command: wait until admission can start the existing action. Ordinary owner guidance resumes a supported current Bug or Research question once. It can also resume the latest cancelled unallocated graph dispatch from its saved launch, including Validate on an Implement issue without a question wait. A missing saved launch retains refusal; it never falls back to ordinary Implement.
+
+For a stale blocker, `/doctor <concrete inspection question>` is diagnosis only. `/doctor apply` approves exactly the displayed proposal. The four bounded graph transitions are dispatch cancellation, wait cancellation, attempt cancellation and instance failure. A whole dependent graph repair, its guidance handoff, verification and numbered journal commit together or all abort. Rollback needs a separate exact inverse proposal and approval and is refused after related progress. Repair does not itself authorize continuation or prove completion. See [Recovery](../operations/recovery.md) and [Doctor](../operations/doctor.md).
+
+Retired single-agent Spike uses a fresh graph task with `/spike`; unsupported legacy Bug uses a new issue for the same bug. Carry the prepared historical context and source link to the new task and post the new link on the old one. Legacy Research needing migration requires operator inspection. Existing history, edits and completed effects remain intact.

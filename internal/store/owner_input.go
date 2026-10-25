@@ -37,44 +37,51 @@ func (db *DB) RetainOwnerInstruction(ctx context.Context, sessionID, commentID, 
 		return out, graphInvariant("invalid ordinary owner instruction")
 	}
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		c, e := scanComment(tx.QueryRowContext(ctx, `SELECT `+commentColumns+` FROM comments WHERE session_id=? AND forge_comment_id=?`, sessionID, commentID))
-		if e != nil {
-			return e
-		}
-		if c.AuthorUserID != ownerID || c.Classification != ClassificationInstruction || c.Body != body {
-			return graphInvariant("owner instruction source mismatch")
-		}
-		if target.InstanceID > 0 {
-			var matches bool
-			if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_instances WHERE id=? AND session_id=?)`, target.InstanceID, sessionID).Scan(&matches); e != nil {
-				return e
-			}
-			if !matches {
-				return graphInvariant("owner instruction target belongs to another task")
-			}
-			if target.LaunchID > 0 {
-				if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM research_launch_definitions WHERE id=? AND instance_id=?)`, target.LaunchID, target.InstanceID).Scan(&matches); e != nil {
-					return e
-				}
-				if !matches {
-					return graphInvariant("owner instruction launch differs from target")
-				}
-			}
-		}
-		_, e = tx.ExecContext(ctx, `INSERT INTO owner_instruction_inputs(comment_id,session_id,target_instance_id,target_node,target_launch_id) VALUES(?,?,?,?,?) ON CONFLICT(comment_id) DO NOTHING`, c.ID, sessionID, target.InstanceID, target.Node, target.LaunchID)
-		if e != nil {
-			return e
-		}
-		out, e = scanOwnerInstruction(tx.QueryRowContext(ctx, `SELECT `+ownerInstructionColumns+` FROM owner_instruction_inputs o JOIN comments c ON c.id=o.comment_id WHERE o.comment_id=?`, c.ID))
-		if e != nil {
-			return e
-		}
-		if out.Target != target {
-			return graphInvariant("owner instruction target changed on replay")
-		}
-		return nil
+		var e error
+		out, e = retainOwnerInstructionTx(ctx, tx, sessionID, commentID, ownerID, body, target)
+		return e
 	})
 	return out, err
+}
+
+// retainOwnerInstructionTx shares the authenticated handoff with atomic Doctor repair.
+func retainOwnerInstructionTx(ctx context.Context, tx *sql.Tx, sessionID, commentID, ownerID int64, body string, target OwnerInputTarget) (OwnerInstruction, error) {
+	c, e := scanComment(tx.QueryRowContext(ctx, `SELECT `+commentColumns+` FROM comments WHERE session_id=? AND forge_comment_id=?`, sessionID, commentID))
+	if e != nil {
+		return OwnerInstruction{}, e
+	}
+	if c.AuthorUserID != ownerID || c.Classification != ClassificationInstruction || c.Body != body {
+		return OwnerInstruction{}, graphInvariant("owner instruction source mismatch")
+	}
+	if target.InstanceID > 0 {
+		var matches bool
+		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_instances WHERE id=? AND session_id=?)`, target.InstanceID, sessionID).Scan(&matches); e != nil {
+			return OwnerInstruction{}, e
+		}
+		if !matches {
+			return OwnerInstruction{}, graphInvariant("owner instruction target belongs to another task")
+		}
+		if target.LaunchID > 0 {
+			if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM research_launch_definitions WHERE id=? AND instance_id=?)`, target.LaunchID, target.InstanceID).Scan(&matches); e != nil {
+				return OwnerInstruction{}, e
+			}
+			if !matches {
+				return OwnerInstruction{}, graphInvariant("owner instruction launch differs from target")
+			}
+		}
+	}
+	_, e = tx.ExecContext(ctx, `INSERT INTO owner_instruction_inputs(comment_id,session_id,target_instance_id,target_node,target_launch_id) VALUES(?,?,?,?,?) ON CONFLICT(comment_id) DO NOTHING`, c.ID, sessionID, target.InstanceID, target.Node, target.LaunchID)
+	if e != nil {
+		return OwnerInstruction{}, e
+	}
+	out, e := scanOwnerInstruction(tx.QueryRowContext(ctx, `SELECT `+ownerInstructionColumns+` FROM owner_instruction_inputs o JOIN comments c ON c.id=o.comment_id WHERE o.comment_id=?`, c.ID))
+	if e != nil {
+		return OwnerInstruction{}, e
+	}
+	if out.Target != target {
+		return OwnerInstruction{}, graphInvariant("owner instruction target changed on replay")
+	}
+	return out, nil
 }
 
 const ownerInstructionColumns = `o.session_id,c.forge_comment_id,c.author_user_id,c.body,o.target_instance_id,o.target_node,o.target_launch_id,COALESCE(o.assigned_attempt_id,0),o.assigned_at`

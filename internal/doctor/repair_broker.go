@@ -29,7 +29,7 @@ func StartRepairBroker(ctx context.Context, directory, attempt string, results *
 			}
 			schema := json.RawMessage(`{"type":"object","properties":{"step":{"type":"integer","minimum":1,"maximum":30}},"required":["step"],"additionalProperties":false}`)
 			for _, kind := range store.DoctorRepairToolKinds() {
-				list.Tools = append(list.Tools, submission.ToolSpec{Name: kind, Description: "Back up, apply and recheck the matching approved numbered repair", InputSchema: schema})
+				list.Tools = append(list.Tools, submission.ToolSpec{Name: kind, Description: "Apply only the matching approved numbered tool; graph tools atomically back up, apply, hand off guidance, verify and journal the entire approved graph manifest", InputSchema: schema})
 			}
 			return json.Marshal(list)
 		}
