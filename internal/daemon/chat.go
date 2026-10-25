@@ -129,6 +129,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	a := discord.New(discord.Options{ApplicationID: o.Settings.ApplicationID, PublicKey: key, Token: token, APIURL: o.APIURL, Client: o.Client})
 	s := messaging.New(d.db, "discord", o.Settings.OwnerID, o.Settings.ChannelIDs, a, messaging.FactoryStatus{DB: d.db})
 	s.Logger = d.log
+	s.EnableOwnerInbox(ownerInboxReader{daemon: d})
 	s.Instructions = o.Instructions
 	s.InstructionDiagnostics = o.InstructionDiagnostics
 	sanitizer := redact.New(redact.Options{Logger: d.log, Token: token})
@@ -314,6 +315,9 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 			}
 			if err := d.chatResearchNotes(ctx); err != nil {
 				d.log.WarnContext(ctx, "chat answer note remains pending")
+			}
+			if err := d.chatDiagnosisResults(ctx, time.Now()); err != nil {
+				d.log.WarnContext(ctx, "chat diagnosis result remains unposted; retrying on the next pass")
 			}
 			if d.chat.collector != nil {
 				if err := d.chat.collector.Collect(ctx, time.Now()); err != nil {

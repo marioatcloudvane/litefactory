@@ -28,6 +28,9 @@ func TestConversationCaptureRetainsAllRolesAndPinnedLegacy(t *testing.T) {
 	if captured.Reasoner() == "" || legacy.Reasoner() != "" {
 		t.Fatal("reasoner role must be captured when shipped and absent from the legacy baseline")
 	}
+	if captured.InboxOrganizer() == "" || legacy.InboxOrganizer() != "" {
+		t.Fatal("organizer must be captured in shipped instructions and absent from legacy")
+	}
 	// The shipped roles evolve; the pinned legacy roles stay the migration
 	// baseline for conversations bound before instruction capture existed.
 	for _, pair := range [][2]string{{captured.Native(), legacy.Native()}, {captured.Factory(), legacy.Factory()}, {captured.Correction(), legacy.Correction()}, {captured.ActionOutcome(), legacy.ActionOutcome()}} {
@@ -90,5 +93,33 @@ func TestConversationCaptureHonorsCancellationAndRejectsEmptyEncoding(t *testing
 	}
 	if _, err := (&ConversationCapture{}).Encode(); err == nil {
 		t.Fatal("empty aggregate encoded")
+	}
+}
+
+func TestConversationCaptureWithoutOrganizerKeepsReasoner(t *testing.T) {
+	pkg, err := ShippedConversationPackage(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, _, err := pkg.CaptureConversation(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := current.data
+	data.Roles = data.Roles[:5]
+	data.Digest = conversationDigest(data)
+	raw, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := RestoreConversation(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Reasoner() == "" || old.InboxOrganizer() != "" {
+		t.Fatal("older capture must retain reasoner and fall back for organizer")
+	}
+	if len(current.roles[5].Resource(InboxOrganizerSchemaPath)) == 0 {
+		t.Fatal("organizer schema missing from capture closure")
 	}
 }

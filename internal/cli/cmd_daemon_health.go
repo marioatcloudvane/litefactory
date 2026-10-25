@@ -141,6 +141,9 @@ func printDaemonHeartbeat(w io.Writer, snap store.HealthSnapshot, lastCompleted 
 			fmt.Fprintf(tw, "connection pauses\t%s\n", l.PauseReason)
 		}
 	}
+	if l.RunsHeld != "" {
+		fmt.Fprintf(tw, "runs held\t%s\n", l.RunsHeld)
+	}
 	fmt.Fprintf(tw, "runs in flight\t%d (as of %s)\n", l.RunsInFlight, daemonAge(now.Sub(l.WrittenAt)))
 	return tw.Flush()
 }

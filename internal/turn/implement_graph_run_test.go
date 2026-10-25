@@ -23,6 +23,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
@@ -1446,6 +1447,10 @@ func TestImplementCoordinatorBlockedResolverAsksTheOwnerAndPushesNothing(t *test
 	if len(questions) != 1 || !strings.Contains(questions[0], "shared.go") || !strings.Contains(questions[0], "two different handlers") {
 		t.Fatalf("one question names the conflicting file and the resolver's reason: %q", questions)
 	}
+	// #1142: a resolver that sends no questions gets the factory's own q1, as before.
+	if !strings.Contains(html.UnescapeString(questions[0]), "- **Conflict in `shared.go`**: Shared.go: main and the merged stories want two different handlers.\n") || strings.Contains(questions[0], "**q1**") {
+		t.Fatalf("the fallback question is unchanged: %q", questions[0])
+	}
 	f.repo.Git("fetch", "--quiet", "origin")
 	if after := f.repo.Git("rev-parse", "origin/lf/123-feature"); after != before {
 		t.Fatalf("nothing is pushed: feature moved from %s to %s", before, after)
@@ -1454,6 +1459,102 @@ func TestImplementCoordinatorBlockedResolverAsksTheOwnerAndPushesNothing(t *test
 	mustProgress(t, err)
 	if got := f.repo.GitIn(sess.WorktreePath, "rev-parse", "MERGE_HEAD"); got != mainTip {
 		t.Fatalf("the unresolved merge stays in progress, uncommitted: MERGE_HEAD=%q", got)
+	}
+}
+
+const syncResolverAsksJSON = `{"version":1,"response":"blocked","result":{"outcome":"blocked","comment":"The conflict could not be resolved.","reason":"shared.go: main and the merged stories want two different handlers.","questions":[{"id":"q1","audience":"technical","text":"Which handler should the feature branch keep?","options":[{"id":"a","text":"Keep the feature branch's handler"},{"id":"b","text":"Take main's handler"},{"id":"c","text":"Combine both behind one handler"}],"recommended_option":"c"}],"payload":{"implement":{"stories":[]}}}}`
+
+// #1142: a blocked resolver may ask its own questions. The owner sees each with
+// its ID, options and recommendation instead of the factory's q1, and the owner's
+// answer reaches the resolver's next run as guidance.
+func TestImplementCoordinatorResolverQuestionsReachTheOwnerWithTheirOptions(t *testing.T) {
+	var prompts []string
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompts = append(prompts, req.Prompt)
+		if len(prompts) == 1 {
+			submitLiveResult(t, req, syncResolverAsksJSON)
+		} else {
+			mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
+			submitLiveResult(t, req, syncResolvedJSON)
+		}
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledImplementFixture(t, runner)
+	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	mainTip := seedMainFeatureConflict(t, f)
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	runOwedImplementStages(t, f, req)
+	if trail := implementTrail(t, f); trailIndex(trail, "sync_start_resolved:blocked") < 0 {
+		t.Fatalf("the asking resolver stops at the owner wait: %v", trail)
+	}
+	var questions []string
+	for _, post := range forge.all() {
+		if strings.Contains(post.body, "could not settle") {
+			questions = append(questions, html.UnescapeString(post.body))
+		}
+	}
+	if len(questions) != 1 {
+		t.Fatalf("one owner question: %q", questions)
+	}
+	for _, want := range []string{"The conflict is in `shared.go`. Shared.go: main and the merged stories want two different handlers.", "- **q1** Which handler should the feature branch keep?", "\n  - `a` Keep the feature branch's handler\n", "\n  - `b` Take main's handler\n", "\n  - `c` Combine both behind one handler (recommended)"} {
+		if !strings.Contains(questions[0], want) {
+			t.Errorf("the question lacks %q:\n%s", want, questions[0])
+		}
+	}
+	if strings.Contains(questions[0], "Conflict in") || strings.Count(questions[0], "(recommended)") != 1 {
+		t.Fatalf("the resolver's questions replace the fallback: %s", questions[0])
+	}
+
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	if err != nil || wait.State != "waiting" {
+		t.Fatalf("the owner has one open question: %+v %v", wait, err)
+	}
+	asked, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
+	mustProgress(t, err)
+	mustProgress(t, f.db.FinishGraphDispatch(t.Context(), asked.ID, time.Now()))
+	delivery, err := f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+	mustProgress(t, err)
+	const reply = "q1 b"
+	_, err = f.db.ClaimGraphOwnerReply(t.Context(), store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: 77, AuthorID: 77, CommentID: delivery.CommentID + 100, QuestionCommentID: delivery.CommentID, TaskRef: parent, SourceRef: parent, Mode: "implement", Workflow: "implement", DeliveryKey: wait.DeliveryKey, Body: reply, At: time.Now()})
+	mustProgress(t, err)
+	answer := req
+	answer.Trigger.CommentID, answer.Trigger.Body = delivery.CommentID+100, reply
+	if _, err := Execute(t.Context(), f.opts, answer); err != nil {
+		t.Fatal(err)
+	}
+	runOwedImplementStages(t, f, req)
+	if len(prompts) != 2 || !strings.Contains(prompts[1], reply) {
+		t.Fatalf("the resolver runs again with the owner's answer as guidance: %d runs", len(prompts))
+	}
+	if !remoteHolds(t, f, "lf/123-feature", mainTip) {
+		t.Fatal("the resolved merge was not pushed to the feature branch")
+	}
+}
+
+// #1142: a story worker still cannot ask; its result with questions is refused
+// at submit.
+func TestImplementWorkerResultWithQuestionsIsStillRefused(t *testing.T) {
+	var refused bool
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		ask := `{"result":{"outcome":"blocked","comment":"Built what could be built.","reason":"The payment API key is not available.","questions":[{"id":"q1","audience":"technical","text":"Which key?","options":[{"id":"a","text":"Test key"},{"id":"b","text":"Live key"}],"recommended_option":"a"}],"payload":{"implement":{"stories":[]}}}}`
+		got := mcpDecodeSubmission(t, mcpToolCall(t, submission.Client{DescriptorPath: req.MCPLaunch.DescriptorPath()}, "communication_submit", []byte(ask)))
+		for _, d := range got.Validation.Diagnostics.Diagnostics {
+			refused = refused || (!got.Validation.Valid && d.Path == "$.result.questions" && d.Code == "authorization")
+		}
+		submitLiveResult(t, req, implementBlockedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	if !refused {
+		t.Fatal("a story worker's result with questions was accepted")
 	}
 }
 
@@ -1780,5 +1881,44 @@ func TestImplementCoordinatorResumeResolvesAConflictWithMainBeforeStoriesStart(t
 	}
 	if row := implementStatesOf(t, f, parent)["story-001"]; row.State != store.ImplementRunning {
 		t.Fatalf("the story restarts once main is in: %+v", row)
+	}
+}
+
+// #1123 c8: once Implement has finished with every story merged, a plain owner
+// comment sent through the Implement runtime admits a new coordinator that
+// reaches the completion step and posts "Implement is finished" again. The
+// turn does not refuse it; the daemon guard that keeps such comments out of
+// Implement is what prevents the repeated note.
+func TestImplementPlainCommentAfterFinishedImplementRepostsCompletion(t *testing.T) {
+	f, forge, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("the coordinator never writes code")
+		return nil, nil
+	}))
+	parent := seedImplementParent(t, f,
+		store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
+		store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002})
+	mergeImplementStories(t, f, parent, map[string]string{}, "story-001", "story-002")
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	first, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	if first.Status == store.GraphRunning || len(implementCompletionReplies(forge)) != 1 {
+		t.Fatalf("the first coordinator finishes with one completion reply: %+v %d", first, len(implementCompletionReplies(forge)))
+	}
+
+	req.Trigger.CommentID++
+	req.Trigger.Body = "what are the blocking findings? tell me exactly"
+	req.Command = ParseCommand(req.Trigger.Body)
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("the plain comment is admitted into Implement: %+v %v", out, err)
+	}
+	second, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	if second.ID <= first.ID || second.CurrentNode != "finished" {
+		t.Fatalf("a new coordinator reaches the completion step: first %+v second %+v", first, second)
+	}
+	if got := implementCompletionReplies(forge); len(got) != 2 {
+		t.Fatalf("the completion note is posted again: %d", len(got))
 	}
 }

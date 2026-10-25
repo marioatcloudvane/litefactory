@@ -582,7 +582,7 @@ const (
 	DefaultDeployBackupKeep     = 5
 	DefaultLogRetainDays        = 30
 	DefaultArchiveRetainDays    = 30
-	DefaultMinFreeDiskGB        = 15
+	DefaultMinFreeDiskGB        = 2
 	DefaultLogLevel             = "info"
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"

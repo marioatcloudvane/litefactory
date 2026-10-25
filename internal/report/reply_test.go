@@ -172,3 +172,36 @@ func TestMissingModeMappingReply(t *testing.T) {
 		}
 	}
 }
+
+// #1123: a plain parent comment Implement cannot use is answered with a fixed
+// reply that names the true state and next step, never parked-story guidance.
+func TestRenderReplyPlainParentCommentRefusals(t *testing.T) {
+	rep := newReporter(t)
+	for _, tc := range []struct {
+		kind report.ReplyKind
+		name string
+		want []string
+	}{
+		{report.ReplyValidateCommentNotApplied, "validate_comment_not_applied", []string{"Validate is running or waiting for you; nothing was run.", "The Validate report lists what blocks and the commands.", "its own comment"}},
+		{report.ReplyImplementFinished, "implement_finished", []string{"Implement is finished: every story is merged.", "Nothing was run.", "commenting `/validate`"}},
+		{report.ReplyImplementFinishedAutoValidate, "implement_finished_auto_validate", []string{"Implement is finished: every story is merged.", "Nothing was run.", "Validate starts automatically"}},
+		{report.ReplyImplementFinishedValidated, "implement_finished_validated", []string{"Implement is finished and Validate has already finished on it.", "Nothing was run.", "The Validate report shows the result."}},
+	} {
+		body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: tc.kind})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		text := body.String()
+		for _, want := range append([]string{report.ReplyMarker(testRef)}, tc.want...) {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s lacks %q:\n%s", tc.name, want, text)
+			}
+		}
+		if strings.Contains(text, "parked") {
+			t.Errorf("%s carries parked-story instructions:\n%s", tc.name, text)
+		}
+		if tc.kind.String() != tc.name || !tc.kind.RefusesMode() || tc.kind.RefusesTools() || tc.kind.RefusesAgent() || tc.kind.RefusesSwitch() || tc.kind.RefusesSync() || tc.kind.IsConfirmationReply() {
+			t.Errorf("%s is in the wrong refusal family", tc.kind.String())
+		}
+	}
+}
