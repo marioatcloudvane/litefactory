@@ -34,6 +34,10 @@ func (r *factoryConversationRun) propose(ctx context.Context, inv Invocation, en
 		return s.conversationOutcome(ctx, r.t, "completed", "Please provide the exact feature idea for the proposed draft.", r.at)
 	}
 	if standardsDirect(p.Invocation) {
+		if p.Invocation.Arguments["action"] == "publish" && !spansCurrent(envelope, "text", r.t.SourceID) {
+			// Only the owner's current message can say to publish.
+			return s.conversationOutcome(ctx, r.t, "completed", "Tell me in your own words that the draft is good to publish, and I'll publish it.", r.at)
+		}
 		return r.direct(ctx, p)
 	}
 	d, err := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.c.ChannelRef)
@@ -293,15 +297,28 @@ func (r *factoryConversationRun) authorize(ctx context.Context, d store.NaturalD
 
 // standardsDirect reports the author steps that run without a confirmation:
 // they record the owner's own words or ask the author for its next draft.
-// Starting a session (it costs money), turning a draft into a proposal,
-// approval and publication stay confirmed.
+// publish is the owner's one step from a clean draft into the book: the
+// owner's words in the current message that say so are its confirmation.
+// Starting a session (it costs money), completing a draft on its own and the
+// approval and publication of other proposals stay confirmed.
 func standardsDirect(inv Invocation) bool {
 	if inv.Command != "standards-author" {
 		return false
 	}
 	switch inv.Arguments["action"] {
-	case "answer", "revise", "continue", "edit", "validate", "rebase":
+	case "answer", "revise", "continue", "edit", "validate", "rebase", "publish":
 		return true
+	}
+	return false
+}
+
+// spansCurrent reports whether argument name of envelope is a span of the
+// owner message source.
+func spansCurrent(envelope ConversationEnvelope, name, source string) bool {
+	for _, arg := range envelope.Arguments {
+		if arg.Name == name {
+			return arg.SourceID != "" && arg.SourceID == source
+		}
 	}
 	return false
 }

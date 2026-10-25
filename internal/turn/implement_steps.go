@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -401,7 +402,9 @@ func implementResultOverride(ctx context.Context, w *researchWorkflow, a Activit
 // resolved merge, which is committed and pushed to the feature branch, and the
 // graph syncs again. A blocked answer is put to the owner as one question naming
 // the conflicting files, and nothing is pushed. An incomplete answer, or a save
-// that failed, is retried through the sync.
+// that failed, is retried through the sync, unless the worktree holds no merge
+// in progress and no conflicted file: then there was nothing to resolve, and
+// the stop is put to the owner like a blocked answer.
 //
 //	resolved  the resolution is committed and pushed
 //	blocked   the owner question is published
@@ -430,7 +433,55 @@ func (rt *implementRuntime) resolved(ctx context.Context, opts Options, a Activi
 	case agentresult.ImplementResponseBlocked:
 		return rt.askResolver(ctx, opts, a, node)
 	}
+	// Another sync would only hand the same conflict to a resolver that found
+	// nothing to resolve (#1164), so that stop goes to the owner instead.
+	nothing, err := rt.nothingToResolve(ctx)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	if nothing {
+		said := strings.TrimSpace(node.Result.Reason)
+		node.Result.Reason = "The resolver found no merge in progress and no conflicted files in the parent's worktree, so syncing again would only repeat the same conflict"
+		if said != "" {
+			node.Result.Reason += ". The resolver said: " + said
+		}
+		node.Result.Questions = nil
+		return rt.askResolver(ctx, opts, a, node)
+	}
 	return implementResult("retry", map[string]any{"response": node.Response, "reason": strings.TrimSpace(node.Result.Reason)})
+}
+
+// nothingToResolve reports that the run's worktree, the parent's, holds no merge
+// in progress and no unmerged path: the state a resolver is never given work in.
+// It is read from the worktree, never from the resolver's words. A run without
+// an admitted worktree reports false, which keeps the retry.
+func (rt *implementRuntime) nothingToResolve(ctx context.Context) (bool, error) {
+	if rt.worktree == nil {
+		return false, nil
+	}
+	if worktree, err := rt.worktree(); err == nil {
+		return mergeAbsent(ctx, worktree)
+	}
+	return false, nil
+}
+
+// mergeAbsent reports that worktree has no merge in progress and no unmerged path.
+func mergeAbsent(ctx context.Context, worktree *git.Worktree) (bool, error) {
+	if _, err := worktree.RevParse(ctx, "MERGE_HEAD", git.RevParseOptions{}); err == nil {
+		return false, nil
+	} else if !errors.Is(err, git.ErrRevisionNotFound) {
+		return false, fmt.Errorf("read whether a merge is in progress on %s: %w", worktree.Branch(), err)
+	}
+	changes, err := worktree.Status(ctx)
+	if err != nil {
+		return false, fmt.Errorf("read the conflicted paths on %s: %w", worktree.Branch(), err)
+	}
+	for _, change := range changes {
+		if change.Kind == git.ChangeUnmerged {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // askResolver publishes the blocked resolver's answer as owner questions on the

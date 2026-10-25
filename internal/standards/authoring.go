@@ -141,6 +141,55 @@ type AuthoringSession struct {
 	Attempts []store.StandardsAuthoringAttempt `json:"attempts,omitempty"`
 }
 
+// ErrNotProposal reports a change request for a session that is still a draft:
+// only a completed proposal can be revised; a draft takes answers and edits.
+var ErrNotProposal = errors.New("standards: this standard is still a draft, not a proposal, so there is nothing to revise; tell the author what to change as an answer, or edit the field")
+
+// Blocking lists what keeps the draft from completing, apart from its open
+// questions: every problem the book's validation finds in it. It is derived
+// from the draft each time, so it never lags behind a saved version.
+func (v AuthoringSession) Blocking() []Problem {
+	_, problems := authorValidate(v)
+	out := []Problem{}
+	for _, p := range problems {
+		if !strings.HasPrefix(p.Field, "questions.") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// Pending lists the questions the owner has not answered yet.
+func (v AuthoringSession) Pending() []AuthoringQuestion {
+	out := []AuthoringQuestion{}
+	for _, q := range v.Questions {
+		if q.State == "pending" {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// Ready reports a draft with no open question and nothing blocking: it can be
+// completed, approved and published as it is.
+func (v AuthoringSession) Ready() bool {
+	return v.Status == "draft" && len(v.Pending()) == 0 && len(v.Blocking()) == 0
+}
+
+// PlainProblem says one problem in the owner's words: the field it is about
+// and what is wrong with it.
+func PlainProblem(p Problem) string {
+	field := p.Field
+	if i := strings.LastIndexAny(field, ".]"); i >= 0 && i+1 < len(field) {
+		field = strings.TrimPrefix(field[i+1:], ".")
+	}
+	label := map[string]string{"category_id": "Category", "rule": "Rule", "description": "Description", "evidence": "Evidence", "scope": "Scope", "check": "Check", "applies_to": "Applies to", "category_filter": "Category filter", "operations": "Change", "name": "Category name", "id": "ID", "draft": "Draft", "context": "Context"}[field]
+	if label == "" {
+		label = strings.ReplaceAll(field, "_", " ")
+	}
+	return label + ": " + p.Message
+}
+
 func authorID(prefix string) string { return prefix + rand.Text() }
 func authorDecode(r store.StandardsAuthoringSession) (AuthoringSession, error) {
 	s := AuthoringSession{ID: r.ID, Version: r.Version, Mode: r.Mode, TargetID: r.TargetID, Status: r.Status}
@@ -327,6 +376,12 @@ func (s *Authoring) Answer(ctx context.Context, id string, expected int64, answe
 			continue
 		}
 		seen[a.QuestionID] = true
+		if a.QuestionID == "" {
+			// A reply with no open question to answer is the owner's note on
+			// the draft; the author reads it as an answered question.
+			v.Questions = append(v.Questions, AuthoringQuestion{ID: authorID("q-"), Text: "What should change in the draft?", State: "answered", Answer: a.Text, AnswerEvents: []AuthoringAnswerEvent{{ID: authorID("answer-"), Text: a.Text, Operator: strconv.FormatInt(s.Book.OwnerID, 10), CreatedVersion: v.Version + 1}}, CreatedVersion: v.Version + 1})
+			continue
+		}
 		i := slices.IndexFunc(v.Questions, func(q AuthoringQuestion) bool { return q.ID == a.QuestionID })
 		if i < 0 {
 			problems = append(problems, fmt.Errorf("%w: unknown question %s", ErrInvalid, a.QuestionID))
@@ -369,6 +424,15 @@ func (s *Authoring) Edit(ctx context.Context, id string, expected int64, in Auth
 	}
 	if in.CategoryID != nil && v.NewCategory != nil && v.NewCategory.ID != *in.CategoryID {
 		v.NewCategory = nil
+	}
+	if in.CategoryID != nil && v.NewCategory == nil && !slices.ContainsFunc(v.Base.Categories, func(c Category) bool { return c.ID == *in.CategoryID }) {
+		return v, fmt.Errorf("%w: category %s is not in the book; ask the author to propose it as a new category", ErrInvalid, *in.CategoryID)
+	}
+	if in.Check != nil && !slices.Contains([]string{store.StandardsCheckAutomated, store.StandardsCheckSemiAutomated, store.StandardsCheckManual}, *in.Check) {
+		return v, fmt.Errorf("%w: check must be automated, semi_automated or manual", ErrInvalid)
+	}
+	if in.AppliesTo != nil && slices.ContainsFunc(*in.AppliesTo, func(role string) bool { return strings.TrimSpace(role) == "" }) {
+		return v, fmt.Errorf("%w: applies_to needs role names", ErrInvalid)
 	}
 	fields := []struct {
 		name string
@@ -473,16 +537,9 @@ func (s *Authoring) Complete(ctx context.Context, id string, expected int64) (st
 	}
 	after, problems := authorValidate(v)
 	if len(problems) > 0 {
-		invalid := &ValidationError{problems}
-		cur, ce := s.input(ctx, id, expected)
-		if ce != nil {
-			return store.StandardsProposalVersion{}, errors.Join(invalid, ce)
-		}
-		cur.Diagnostics = problems
-		if _, ce = s.save(ctx, cur); ce != nil {
-			return store.StandardsProposalVersion{}, errors.Join(invalid, ce)
-		}
-		return store.StandardsProposalVersion{}, invalid
+		// A refused completion changes nothing: the session keeps its
+		// version, and its problems are derived from the draft (Blocking).
+		return store.StandardsProposalVersion{}, &ValidationError{problems}
 	}
 	p := store.StandardsProposalVersion{ProposalID: "authoring-" + id, Version: 1, BaseRevision: v.BaseRevision, SchemaVersion: 1, Operations: canonicalOps(authorOps(v)), ChangeDigest: changeDigest(v.BaseRevision, authorOps(v)), ResultDigest: snapshotDigest(after), Author: strconv.FormatInt(s.Book.OwnerID, 10)}
 	return s.Store.CompleteStandardsAuthoring(ctx, id, expected, p)
@@ -500,7 +557,10 @@ func (s *Authoring) Reopen(ctx context.Context, id string, expected int64, reque
 	if e != nil {
 		return v, e
 	}
-	if v.Version != expected || v.Status != "completed" || v.Proposal == nil {
+	if v.Status != "completed" || v.Proposal == nil {
+		return v, ErrNotProposal
+	}
+	if v.Version != expected {
 		return v, store.ErrStandardsConflict
 	}
 	operator := strconv.FormatInt(s.Book.OwnerID, 10)
@@ -633,16 +693,18 @@ type authorDraftOutput struct {
 
 // authorDraft is everything the author sees of a session.
 type authorDraft struct {
-	Intent         string               `json:"intent"`
-	Mode           string               `json:"mode"`
-	Original       *Standard            `json:"original,omitempty"`
-	Draft          Standard             `json:"draft"`
-	NewCategory    *Category            `json:"new_category,omitempty"`
-	OperatorFields []string             `json:"operator_fields"`
-	Questions      []AuthoringQuestion  `json:"questions"`
-	Book           authorBook           `json:"book"`
-	RebaseChanges  []Change             `json:"rebase_changes,omitempty"`
-	Project        *projectread.Project `json:"project,omitempty"`
+	Intent         string              `json:"intent"`
+	Mode           string              `json:"mode"`
+	Original       *Standard           `json:"original,omitempty"`
+	Draft          Standard            `json:"draft"`
+	NewCategory    *Category           `json:"new_category,omitempty"`
+	OperatorFields []string            `json:"operator_fields"`
+	Questions      []AuthoringQuestion `json:"questions"`
+	// Diagnostics is what keeps the draft from completing; each item needs a fix.
+	Diagnostics   []Problem            `json:"diagnostics"`
+	Book          authorBook           `json:"book"`
+	RebaseChanges []Change             `json:"rebase_changes,omitempty"`
+	Project       *projectread.Project `json:"project,omitempty"`
 }
 
 // authorBook is the published book, narrowed by the owner's category filter;
@@ -662,7 +724,7 @@ func authorPrompt(role string, v AuthoringSession) (string, error) {
 			book.Standards = append(book.Standards, x)
 		}
 	}
-	b, e := json.Marshal(authorDraft{v.Intent, v.Mode, v.Original, v.Draft, v.NewCategory, v.Overrides, v.Questions, book, v.RebaseChanges, v.Project})
+	b, e := json.Marshal(authorDraft{v.Intent, v.Mode, v.Original, v.Draft, v.NewCategory, v.Overrides, v.Questions, v.Blocking(), book, v.RebaseChanges, v.Project})
 	if e != nil {
 		return "", e
 	}
@@ -786,6 +848,10 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 		if !slices.Contains(v.Overrides, f.name) {
 			f.take()
 		}
+	}
+	if v.NewCategory != nil && strings.TrimSpace(v.Draft.CategoryID) == "" {
+		// A proposed new category is the draft's category unless it names another.
+		v.Draft.CategoryID = v.NewCategory.ID
 	}
 	v.Draft.AppliesTo = sortedRoles(v.Draft.AppliesTo)
 	_, v.Diagnostics = authorValidate(v)

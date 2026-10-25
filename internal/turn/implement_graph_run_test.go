@@ -18,7 +18,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -944,25 +943,12 @@ func seedStoryParentConflict(t *testing.T, f *fixture) string {
 	return tip
 }
 
-// The simulated agent starts its authorized merge; preparation only previews.
-func startAuthorizedFixtureMerge(t *testing.T, f *fixture, req agent.Request, base string) {
-	t.Helper()
-	clone, err := f.opts.Git.Open(t.Context(), f.repo.Dir)
-	mustProgress(t, err)
-	branch := f.repo.GitIn(req.WorktreePath, "branch", "--show-current")
-	ensured, err := git.EnsureWorktree(t.Context(), clone, git.EnsureWorktreeOptions{Dir: req.WorktreePath, Branch: branch, BaseBranch: gittest.DefaultBranch, Remote: "origin"})
-	mustProgress(t, err)
-	_, err = ensured.Worktree.StartMerge(t.Context(), "origin/"+base)
-	mustProgress(t, err)
-}
-
 // A story whose branch conflicts with its parent's branch is not refused: the
 // worker starts on the started merge, resolves it, and the save concludes it.
 func TestImplementWorkerResolvesAConflictWithItsParentsBranch(t *testing.T) {
 	var prompt, mergeHead string
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		startAuthorizedFixtureMerge(t, f, req, "lf/900-feature")
 		prompt = req.Prompt
 		mergeHead = f.repo.GitIn(req.WorktreePath, "rev-parse", "MERGE_HEAD")
 		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // story and merged sibling\n"), 0o600))
@@ -1009,7 +995,6 @@ func TestImplementWorkerRestartedByTheMergeStepSeesTheConflictInItsPrompt(t *tes
 	var prompt string
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		startAuthorizedFixtureMerge(t, f, req, "lf/900-feature")
 		prompt = req.Prompt
 		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // story and merged sibling\n"), 0o600))
 		submitLiveResult(t, req, implementCompletedJSON)
@@ -1055,7 +1040,6 @@ func TestImplementWorkerUnresolvedConflictParksAndTheOwnerRestartRuns(t *testing
 	var prompts []string
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		startAuthorizedFixtureMerge(t, f, req, "lf/900-feature")
 		prompts = append(prompts, req.Prompt)
 		if len(prompts) == 1 {
 			submitLiveResult(t, req, implementConflictBlockedJSON)
@@ -1410,12 +1394,13 @@ func seedMainFeatureConflict(t *testing.T, f *fixture) string {
 // the parent's worktree; the factory saves its completed answer and the same
 // sync runs again and finds main in.
 func TestImplementCoordinatorResolvesAConflictWithMainThroughTheResolver(t *testing.T) {
-	var prompt, mergeHead string
+	var prompt, mergeHead, unmerged string
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		startAuthorizedFixtureMerge(t, f, req, "main")
 		prompt = req.Prompt
+		// #1164: preparation, not the agent, starts the conflicted merge.
 		mergeHead = f.repo.GitIn(req.WorktreePath, "rev-parse", "MERGE_HEAD")
+		unmerged = f.repo.GitIn(req.WorktreePath, "diff", "--name-only", "--diff-filter=U")
 		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
 		submitLiveResult(t, req, syncResolvedJSON)
 		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
@@ -1437,8 +1422,8 @@ func TestImplementCoordinatorResolvesAConflictWithMainThroughTheResolver(t *test
 			t.Fatalf("trail = %v, want it to begin %v", trail, want)
 		}
 	}
-	if mergeHead != mainTip {
-		t.Fatalf("MERGE_HEAD = %q, want main's tip %s", mergeHead, mainTip)
+	if mergeHead != mainTip || unmerged != "shared.go" {
+		t.Fatalf("MERGE_HEAD = %q with unmerged %q, want main's tip %s with shared.go unmerged", mergeHead, unmerged, mainTip)
 	}
 	for _, want := range []string{"## Merge conflict to resolve", `- "shared.go"`, "Do not commit"} {
 		if !strings.Contains(prompt, want) {
@@ -1461,7 +1446,6 @@ func TestImplementCoordinatorResolvesAConflictWithMainThroughTheResolver(t *test
 func TestImplementCoordinatorBlockedResolverAsksTheOwnerAndPushesNothing(t *testing.T) {
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		startAuthorizedFixtureMerge(t, f, req, "main")
 		submitLiveResult(t, req, syncResolverBlockedJSON)
 		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
 	})
@@ -1521,7 +1505,6 @@ func TestImplementCoordinatorResolverQuestionsReachTheOwnerWithTheirOptions(t *t
 	var prompts []string
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		startAuthorizedFixtureMerge(t, f, req, "main")
 		prompts = append(prompts, req.Prompt)
 		if len(prompts) == 1 {
 			submitLiveResult(t, req, syncResolverAsksJSON)
@@ -1589,6 +1572,110 @@ func TestImplementCoordinatorResolverQuestionsReachTheOwnerWithTheirOptions(t *t
 	}
 }
 
+const syncResolverIncompleteJSON = `{"version":1,"response":"incomplete","result":{"outcome":"incomplete","comment":"The conflict is not resolved yet.","reason":"No merge is in progress in my worktree.","payload":{"implement":{"stories":[]}}}}`
+
+// implementPostsContaining returns the bodies of the forge's posts that contain text.
+func implementPostsContaining(forge *fakeForge, text string) []string {
+	var out []string
+	for _, post := range forge.all() {
+		if body := html.UnescapeString(post.body); strings.Contains(body, text) {
+			out = append(out, body)
+		}
+	}
+	return out
+}
+
+// #1164: a resolver whose worktree holds no merge in progress and no conflicted
+// file had nothing to resolve. Its incomplete answer reaches the owner as one
+// question instead of another identical sync.
+func TestImplementCoordinatorResolverWithNothingToResolveAsksTheOwner(t *testing.T) {
+	calls := 0
+	var f *fixture
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		f.repo.GitIn(req.WorktreePath, "merge", "--abort")
+		submitLiveResult(t, req, syncResolverIncompleteJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	var forge *fakeForge
+	var req Request
+	f, forge, req = assembledImplementFixture(t, runner)
+	seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	seedMainFeatureConflict(t, f)
+
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	runOwedImplementStages(t, f, req)
+	trail := implementTrail(t, f)
+	if calls != 1 || trailIndex(trail, "sync_start_resolved:blocked") < 0 || trailIndex(trail, "sync_start_resolved:retry") >= 0 {
+		t.Fatalf("nothing to resolve goes to the owner, not another sync: %d resolver runs, trail %v", calls, trail)
+	}
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	if instance.CurrentNode != "waiting" || err != nil || wait.State != "waiting" {
+		t.Fatalf("the coordinator rests at one open owner question: %+v %+v %v", instance, wait, err)
+	}
+	questions := implementPostsContaining(forge, "could not settle")
+	if len(questions) != 1 || !strings.Contains(questions[0], "no merge in progress") {
+		t.Fatalf("one question says there was nothing to resolve: %q", questions)
+	}
+}
+
+// #1164: a coordinator step whose dispatch limit is exhausted stops the
+// instance and tells the owner once, on the parent, what stopped and how to
+// resume.
+func TestImplementCoordinatorExhaustedStepTellsTheOwnerOnce(t *testing.T) {
+	calls := 0
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		submitLiveResult(t, req, syncResolverIncompleteJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledImplementFixture(t, runner)
+	seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	seedMainFeatureConflict(t, f)
+
+	var failures []error
+	var last Request
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		failures = append(failures, err)
+	}
+	for range 20 {
+		dispatch, ok, err := f.db.NextFreshGraphDispatch(t.Context(), f.session.ID)
+		mustProgress(t, err)
+		if !ok {
+			break
+		}
+		reserved, ok, err := f.db.ReserveGraphDispatch(t.Context(), dispatch.ID, dispatch.DueAt)
+		if err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		last = req
+		last.Trigger.CommentID, last.Trigger.Body = reserved.TriggerID(), "Continue the workflow."
+		if _, err := Execute(t.Context(), f.opts, last); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	var limit *GraphLimitError
+	if len(failures) != 1 || !errors.As(failures[0], &limit) || limit.Node != "sync_start_resolve" {
+		t.Fatalf("the resolver's exhausted limit stops the coordinator: %d resolver runs, %v", calls, failures)
+	}
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	if instance.Status != store.GraphFailed {
+		t.Fatalf("the instance stops: %+v", instance)
+	}
+	// A repeat of the report finds the one retained comment.
+	rt := &implementRuntime{opts: f.opts}
+	mustProgress(t, rt.reportExhausted(t.Context(), instance.ID, limit))
+	stops := implementPostsContaining(forge, "Implement stopped at step `sync_start_resolve`")
+	if len(stops) != 1 || !strings.Contains(stops[0], "dispatch limit 3 exhausted") || !strings.Contains(stops[0], "Reply on this issue to resume") {
+		t.Fatalf("one owner comment says what stopped and how to resume: %q", stops)
+	}
+}
+
 // #1142: a story worker still cannot ask; its result with questions is refused
 // at submit.
 func TestImplementWorkerResultWithQuestionsIsStillRefused(t *testing.T) {
@@ -1618,7 +1705,6 @@ func TestImplementCoordinatorResolvesAConflictWithMainBeforeReportingDone(t *tes
 	resolves := 0
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		startAuthorizedFixtureMerge(t, f, req, "main")
 		resolves++
 		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
 		submitLiveResult(t, req, syncResolvedJSON)
