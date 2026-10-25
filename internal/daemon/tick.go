@@ -2981,6 +2981,13 @@ func (d *Daemon) run(
 			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
 			return nil
 		}
+		// A claimed owner reply the open wait can never allocate is refused once,
+		// visibly, and its claim released, instead of holding admission forever (#1169).
+		if errors.Is(err, store.ErrGraphReplyNotResumable) && trigger.CommentID > 0 {
+			if handled, refuseErr := d.refuseUnresumableReply(ctx, t, trigger, string(mode), err); handled || refuseErr != nil {
+				return refuseErr
+			}
+		}
 		left := d.leave(ctx, t, log, "the turn could not be conducted", err)
 		if trigger.PlanReply != nil && left == nil {
 			// A child reply's cursor advances whenever run returns nil, and leave

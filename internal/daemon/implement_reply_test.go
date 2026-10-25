@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -217,5 +218,54 @@ func TestMissingTicketPublisherRefusalDeliveryAndAuthentication(t *testing.T) {
 				t.Fatal("command became ordinary guidance")
 			}
 		})
+	}
+}
+
+// #1169: a claimed owner reply the store can never allocate to the open wait is
+// answered once and consumed, and the question waits for a new reply, instead
+// of an endless silent admission hold.
+func TestImplementUnresumableReplyIsRefusedOnceAndReleased(t *testing.T) {
+	b := newBetweenQuestions(t)
+	f := b.f
+	definition, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("b", 64), CreatedAt: b.at})
+	betweenCheck(t, err)
+	b.instance, err = f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: b.session.ID, DefinitionID: definition.ID, CurrentNode: "shape", StartedAt: b.at, NextDueAt: b.at})
+	betweenCheck(t, err)
+	b.shapeAsks(t)
+	f.issueWithLabels("Implement the feature", "Mode: Implement")
+	f.turns.set(func(context.Context, turn.Request) (turn.Result, error) {
+		return turn.Result{}, fmt.Errorf("reserve graph node: %w", store.ErrGraphReplyNotResumable)
+	})
+	f.forge.addComment(testIssue, betweenGenuineReply, owner(), "story-001: retry")
+	if !settleUntilHandled(f, betweenGenuineReply, 6) {
+		t.Fatalf("unresumable reply was never consumed: %s", f.logs)
+	}
+	for range 3 {
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	runs := 0
+	for _, req := range f.turns.calls() {
+		if req.Trigger.CommentID == betweenGenuineReply {
+			runs++
+		}
+	}
+	if runs != 1 {
+		t.Fatalf("the refused reply ran %d times, want once", runs)
+	}
+	posted, _, _ := f.forge.snapshot()
+	count := 0
+	for _, text := range posted {
+		if strings.Contains(text, "could not resume the stopped work at `shape`") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("refusals = %d, want exactly one; posts=%v", count, posted)
+	}
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), b.instance.ID)
+	betweenCheck(t, err)
+	if wait.State != "waiting" || wait.ReplyID != 0 {
+		t.Fatalf("the question waits for a new reply: %+v", wait)
 	}
 }
