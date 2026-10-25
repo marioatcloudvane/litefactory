@@ -1,0 +1,24 @@
+=== RUN   TestRuntimeConversationStopWrappersAssembled
+=== RUN   TestRuntimeConversationStopWrappersAssembled/draft_unavailable
+    runtime_inventory_test.go:100: Final retained owner reply (uncertain):
+        Drafting is unavailable; no issue was created. Ask the factory operator to inspect drafting service availability using \`litefactory logs --all\` on the factory host.
+=== RUN   TestRuntimeConversationStopWrappersAssembled/draft_failure
+    runtime_inventory_test.go:100: Final retained owner reply (uncertain):
+        Feature generation was interrupted or unavailable. No issue was created. Ask the factory operator to inspect the retained preview using \`litefactory logs --all\` on the factory host before requesting another draft.
+=== RUN   TestRuntimeConversationStopWrappersAssembled/confirmation_unavailable
+    runtime_inventory_test.go:100: Final retained owner reply (uncertain):
+        Feature confirmation is unavailable; this command created no issue. Ask the factory operator to inspect confirmation service availability using \`litefactory logs --all\` on the factory host.
+=== RUN   TestRuntimeConversationStopWrappersAssembled/creation_uncertain
+    runtime_inventory_test.go:100: Final retained owner reply (uncertain):
+        Feature creation outcome is uncertain. Ask the factory operator to inspect the retained preview and destination issue using \`litefactory logs --all\` on the factory host before another confirmation.
+=== RUN   TestRuntimeConversationStopWrappersAssembled/outcome_protection_unavailable
+    runtime_inventory_test.go:100: Final retained owner reply (uncertain):
+        The action finished, but its outcome could not be protected for display. Send "show factory status" here to inspect retained work before requesting it again.
+--- PASS: TestRuntimeConversationStopWrappersAssembled (0.15s)
+    --- PASS: TestRuntimeConversationStopWrappersAssembled/draft_unavailable (0.05s)
+    --- PASS: TestRuntimeConversationStopWrappersAssembled/draft_failure (0.03s)
+    --- PASS: TestRuntimeConversationStopWrappersAssembled/confirmation_unavailable (0.03s)
+    --- PASS: TestRuntimeConversationStopWrappersAssembled/creation_uncertain (0.02s)
+    --- PASS: TestRuntimeConversationStopWrappersAssembled/outcome_protection_unavailable (0.03s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/messaging	1.102s

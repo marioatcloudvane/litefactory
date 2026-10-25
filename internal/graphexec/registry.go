@@ -113,7 +113,7 @@ const BudgetAttribute = "lf_budget"
 
 // MaxAgentBudgetMinutes is the largest time budget a node may declare, so a typo
 // cannot turn a bounded agent into an effectively unbounded one.
-const MaxAgentBudgetMinutes = 60
+const MaxAgentBudgetMinutes = 1440
 
 // AgentBudget reads the time budget a node declares, in whole minutes. The second
 // result is false when it declares none. A value that is not a whole number of

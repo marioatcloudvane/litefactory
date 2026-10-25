@@ -80,7 +80,7 @@ func (r *Reporter) attachRecoveryReport(ctx context.Context, rep *RunReport) err
 	if run.SemanticOutcome != "interrupted" {
 		return nil
 	}
-	rep.Run.Recovery = &report.Recovery{ManualReason: run.RecoveryReason}
+	rep.Run.Recovery = &report.Recovery{ManualReason: run.RecoveryReason, InspectionCommand: report.RunInspectionCommand(rep.Run.Ref, run.Ordinal)}
 	if rep.Run.Result == nil {
 		exit := agent.SignalExitCode
 		if run.ExitCode != nil {
@@ -92,10 +92,21 @@ func (r *Reporter) attachRecoveryReport(ctx context.Context, rep *RunReport) err
 	rep.Run.Result.Outcome = agent.OutcomeInterrupted
 	c, err := r.db.GetContinuationBySource(ctx, run.ID)
 	if errors.Is(err, store.ErrNotFound) {
+		rep.Run.Recovery.NoContinuation = true
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("load recovery announcement: %w", err)
+	}
+	if c.AllocatedRunID > 0 {
+		affected, e := r.db.GetRun(ctx, c.AllocatedRunID)
+		if e != nil {
+			return fmt.Errorf("load recovery run: %w", e)
+		}
+		if affected.SessionID != run.SessionID {
+			return fmt.Errorf("recovery run belongs to a different session")
+		}
+		rep.Run.Recovery.InspectionCommand = report.RunInspectionCommand(rep.Run.Ref, affected.Ordinal)
 	}
 	rep.Run.Recovery.Status = c.Status
 	if c.CancellationReason != "" {

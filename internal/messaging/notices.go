@@ -213,6 +213,9 @@ func NoticeText(e NoticeEvent) string {
 	if e.QuestionLink != "" {
 		link = e.QuestionLink
 	}
+	if e.Kind == "failed" || e.Kind == "stopped" {
+		action += " Open the issue below to inspect its retained report before requesting more work."
+	}
 	suffix := action
 	if link != "" {
 		suffix += "\n" + link

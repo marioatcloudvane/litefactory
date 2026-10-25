@@ -23,7 +23,7 @@ func (m conversationDraftModel) Answer(ctx context.Context, _ int64, prompt stri
 // terminal reply and must not be rewritten by outcome narration.
 func (s *Service) conversationDraft(ctx context.Context, c store.Conversation, _ ConversationBinding, t store.ConversationTurn, inv Invocation, at time.Time, invoke func(context.Context, string) ([]byte, error)) (string, error) {
 	if s.drafter == nil || invoke == nil {
-		return "Drafting unavailable right now.", nil
+		return "Drafting is unavailable; no issue was created. Ask the factory operator to inspect drafting service availability using `litefactory logs --all` on the factory host.", nil
 	}
 	if inv.Command != "draft" || c.OwnerID != s.owner || !s.channels[c.ChannelRef] || c.Transport != s.transport {
 		return "", errors.New("conversation draft authorization unavailable")

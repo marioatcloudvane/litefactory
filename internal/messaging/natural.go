@@ -97,7 +97,7 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 			return err.Error(), nil //nolint:nilerr // Invalid selections are owner-visible clarifications, not retryable failures.
 		}
 		if s.standards == nil {
-			return "Standards operations are unavailable.", nil
+			return "Standards operations are unavailable; no standards action was performed. Ask the factory operator to inspect standards service availability using `litefactory logs --all` on the factory host.", nil
 		}
 		args := p.Invocation.Arguments
 		if args["project"] != "" && args["repository_id"] == "" {
@@ -279,7 +279,7 @@ func analysisWindow(phrase string, now time.Time) (string, string, bool) {
 func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.Time) (string, error) {
 	if standardsCommand(p.Invocation.Command) {
 		if s.standards == nil {
-			return "Standards operations are unavailable.", nil
+			return "Standards operations are unavailable; no standards action was performed. Ask the factory operator to inspect standards service availability using `litefactory logs --all` on the factory host.", nil
 		}
 		if _, err := standardsOperation(p.Invocation); err != nil {
 			return err.Error(), nil //nolint:nilerr // A retired selection is a saved refusal, not retryable work.
@@ -323,7 +323,7 @@ func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.
 			return refusal, nil
 		}
 		if s.research == nil {
-			return "Research answers are unavailable.", nil
+			return "Research answers are unavailable; no answer was recorded. Open " + researchIssueURL(ref) + " to inspect its current question before sending another answer.", nil
 		}
 		q, e := s.research.Current(ctx, ref)
 		if e != nil {

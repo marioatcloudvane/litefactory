@@ -1,0 +1,245 @@
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/unknown_command
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        I do not recognise `/unknown`. Litefactory accepts `/research`, `/plan`, `/implement`, `/validate`, `/spike`, and `/schedule`.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/missing_instruction
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        `/spike` needs something to work on. Say what you want tried, on the same line or the ones after it:
+        
+        ```text
+        /spike see whether the flaky checkout test is a race in the fixture
+        ```
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/legacy_permission_label
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        This issue carries the old `lf:tools=` label, which litefactory no longer reads. Nothing was run: litefactory refuses a run it cannot resolve the tools for rather than falling back to its default ones.
+        
+        Remove every `lf:tools=` label and comment again. Litefactory now selects `research`, `plan`, `implement`, or `validate` permissions automatically from the resolved run mode, so no permission label is needed. The label text is not repeated here on purpose.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/ambiguous_tool
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        This issue carries more than one `Coding Agent: …` label, so there is no single answer to which coding-agent tool this run should have used. Nothing was run: litefactory refuses a run it cannot resolve the coding-agent tool for rather than falling back to a different one.
+        
+        Neither label was chosen and they were not combined. Leave exactly one `Coding Agent: Claude` or `Coding Agent: Codex` label on the issue and comment again.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/malformed_tool
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        The `Coding Agent: …` label on this issue does not name a usable coding-agent tool. Nothing was run: litefactory refuses a run it cannot resolve the coding-agent tool for rather than falling back to a different one.
+        
+        Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`, then comment again on this issue. The label text is not repeated here on purpose.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/unknown_tool
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        This issue asks for the coding-agent tool `unregistered`, which litefactory has no implementation registered for. Nothing was run: litefactory refuses a run it cannot resolve the coding-agent tool for rather than falling back to a different one.
+        
+        Take the `Coding Agent: …` label off the issue, or change it to a tool litefactory has running, and comment again.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/recovery_tool_changed
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        This automatic recovery attempt was continuing a run under a different coding-agent tool than the issue's `Coding Agent:` label names now. Nothing was run: litefactory refuses a run it cannot resolve the coding-agent tool for rather than falling back to a different one.
+        
+        Automatic recovery has to continue the exact run it recorded, not one under a newly switched tool, so it stops here rather than guessing. An ordinary comment does not have this problem — litefactory switches the running coding-agent tool to match the current label automatically and starts a fresh conversation under it. Comment again to run under the current label.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/malformed_mode
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        The `Mode: …` label on this issue is malformed or unknown. Nothing was run.
+        
+        Use exactly `Mode: Research`, `Mode: Plan`, `Mode: Implement`, `Mode: Validate`, or `Mode: Spike`, then comment again on this issue.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/ambiguous_mode
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        This issue carries more than one `Mode: …` label, so no mode was chosen and nothing was run.
+        
+        Leave exactly one canonical Mode label and comment again.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/changed_mode
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        The issue's mode changed while its recorded mode transition was pending, so nothing was run.
+        
+        Leave exactly one canonical Mode label for the stage you want, and comment again. A new explicit mode command can replace that selection.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/missing_team
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        This repository has no linked installed team for the requested workflow. Nothing was run.
+        
+        Ask the factory operator to select a suitable installed team with `litefactory team link <name> <version>` from this repository’s registered clone on the factory host, then comment again on this issue. Replace the name and version with the installed team’s values.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/unsupported_workflow
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        The linked team does not provide the requested workflow. Nothing was run.
+        
+        Ask the factory operator to inspect the linked team’s supported workflows on the factory host with `litefactory team inspect <name> <version>`, using that installed team’s name and version, before selecting a supported workflow on this issue.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/missing_mode_mapping
+    runtime_inventory_test.go:65: <!-- lf:reply task=linear:acme/API#123 -->
+        
+        The selected mode has no label mapping on this Linear connection. Nothing was run.
+        
+        Ask the factory operator to add a label ID for `implement` to the connection's `--mode-labels`, or label the issue with a mapped mode, then comment again on this issue.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/publisher_unavailable
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        The retained github ticket connection for acme/acme-api has no usable verified publisher. Implement is blocked.
+        
+        Ask the factory operator to restore and verify the ticket connection's original publishing account, then send a fresh `/implement <instruction>` command. The configured project approver remains unchanged.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/bug_unavailable
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        Bug admission is retained, but execution is unavailable: the registered Bug policy, graph package, result decoder, shared-service preparation and factory role permission bindings are not installed. No agent was launched. The task remains resumable in Bug.
+        
+        Ask the factory operator to restore the installed team’s Bug workflow bindings before another Bug attempt on this issue.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/delivery_permission
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        This delivery command was set aside and nothing was recorded, pushed, merged or closed, because only the task's owner can give it. Ask that owner to post the delivery command as a new comment on this issue.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/sync_conflict
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        This task's branch could not be merged with the base branch cleanly, so litefactory stopped before starting the agent. Nothing was run: litefactory refuses a run it cannot merge the base branch into cleanly rather than guessing at a resolution or running against a stale branch.
+        
+        Conflicting path(s) (1):
+        ```
+        main.go
+        ```
+        
+        Resolve the conflict on the base branch or on this task's branch, then comment again.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/sync_cap
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        This task's branch is 11 commit(s) behind `main`, more than the configured cap of 10, so litefactory stopped before starting the agent. Nothing was run: a branch this far behind is merged deliberately, not automatically before a run. Merge the base branch into this task's branch yourself, or raise `auto_sync_max_behind` (0 removes the cap entirely), then comment again.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/schedule_grammar
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        I could not schedule that request. Litefactory accepts `/schedule -by HH:MM:SS <payload>`, `/schedule -to MM/DD/YYYY HH:MM:SS [ZONE] <payload>`, or `/schedule --after <id[,id...]> -by HH:MM:SS <payload>`. Post the corrected request as a new comment on this issue; nothing was scheduled for this request.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/schedule_proposal_failed
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        I could not produce a valid schedule proposal. No work was scheduled. Post a fresh `/schedule <instruction>` comment on this issue to request a new proposal.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/schedule_choice
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        Schedule proposal `23` contains 2 item(s). Use `/schedule --accept 23` to arm it, or `/schedule --reject 23` to discard it.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/confirmation_owner
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        Only this task's issue owner may confirm a proposal. Nothing was applied and the proposal's status is unchanged. Ask the issue owner to post the exact confirmation from the current proposal as a new comment on this issue.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/confirmation_unknown
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        I have no pending proposal `23` for this task. Nothing was applied. Use the proposal number from the latest resolution suggestion on this issue; if none remains eligible, ask for a fresh suggestion in a new comment.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/confirmation_expired
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        Proposal `23` has expired and can no longer be confirmed. Nothing was applied.
+        
+        Comment again to ask for a fresh suggestion.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+=== RUN   TestRuntimeInventoryCommonAssembledGuidance/confirmation_superseded
+    runtime_inventory_test.go:65: <!-- lf:reply task=github:acme/acme-api#123 -->
+        
+        Proposal `23` no longer matches this task's current branch or base/task inputs, or lacks verified input binding, and cannot be applied. Nothing was applied.
+        
+        Comment again to ask for a fresh suggestion.
+        
+        _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+        
+--- PASS: TestRuntimeInventoryCommonAssembledGuidance (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/unknown_command (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/missing_instruction (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/legacy_permission_label (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/ambiguous_tool (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/malformed_tool (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/unknown_tool (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/recovery_tool_changed (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/malformed_mode (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/ambiguous_mode (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/changed_mode (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/missing_team (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/unsupported_workflow (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/missing_mode_mapping (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/publisher_unavailable (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/bug_unavailable (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/delivery_permission (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/sync_conflict (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/sync_cap (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/schedule_grammar (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/schedule_proposal_failed (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/schedule_choice (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/confirmation_owner (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/confirmation_unknown (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/confirmation_expired (0.00s)
+    --- PASS: TestRuntimeInventoryCommonAssembledGuidance/confirmation_superseded (0.00s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/report	0.248s

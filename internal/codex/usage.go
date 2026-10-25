@@ -163,12 +163,14 @@ func (c *usageCollector) finish() *agent.UsageCoverage {
 	}
 	// After process exit, start new scans for at most two seconds to drain persisted
 	// records. This is bounded finalization, never a new provider execution.
-	drain, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 2*time.Second)
+	evidence, stopEvidence := agent.EvidenceContext(c.ctx)
+	defer stopEvidence()
+	drain, cancel := context.WithTimeout(evidence, 2*time.Second)
 	defer cancel()
 	previousContext := c.ctx
 	// Each scan keeps its own two-second bound; the drain deadline only stops
 	// new scans, so it cannot cut a scan short and mark the source incomplete.
-	c.ctx = context.WithoutCancel(previousContext)
+	c.ctx = evidence
 	defer func() { c.ctx = previousContext }()
 	// Bound delayed child flush collection by the drain deadline. This timer
 	// belongs to finalization only, not subprocess retry scheduling.

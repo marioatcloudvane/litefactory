@@ -61,7 +61,8 @@ func runMeteredWith(ctx context.Context, prep *preparation, logger *slog.Logger,
 		outcome = "cancelled"
 	}
 	zeroCostRefusal := result != nil && result.ProviderReportedZeroCostRefusal && outcome == "failure"
-	finish := context.WithoutCancel(ctx)
+	finish, cancel := agent.EvidenceContext(ctx)
+	defer cancel()
 	if err := prep.meterDB.FinishMeterAttemptWithRefusal(finish, attempt.ID, outcome, status, version, format, codes, zeroCostRefusal); err != nil {
 		prep.stoppedRepairs = append(prep.stoppedRepairs, func(c context.Context) error {
 			return prep.meterDB.FinishMeterAttemptWithRefusal(c, attempt.ID, outcome, status, version, format, codes, zeroCostRefusal)

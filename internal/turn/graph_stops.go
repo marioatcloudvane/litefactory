@@ -198,7 +198,7 @@ func (r *Reporter) RecoverGraphStopQuestion(ctx context.Context, key string) (Po
 		return Posted{}, err
 	}
 	if projection == nil {
-		projection = &report.StopRecovery{Step: question.Origin, Reason: question.Reason, Disposition: "stopped", Route: "inspect", Unresolved: "Completion of this step is not confirmed.", NextStep: "Use `/doctor inspect this retained stop and its supported continuation` before repeating work. Diagnosis authorizes no repair."}
+		projection = &report.StopRecovery{Step: question.Origin, Reason: question.Reason, Disposition: "stopped", Route: "inspect", Unresolved: "Completion of this step is not confirmed.", NextStep: "Ask the factory operator to inspect on the factory host: `" + report.TaskInspectionCommand(session.TaskRef) + "`."}
 	}
 	body := fmt.Sprintf("Work stopped at `%s` (%s).\n\n%s", question.Origin, question.Cause, question.Reason)
 	return r.deliverRecoveryProjection(ctx, delivery, projection, body)

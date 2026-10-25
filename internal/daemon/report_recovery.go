@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -219,9 +220,48 @@ func (d *Daemon) recoveryFailure(ctx context.Context, source store.ReportRecover
 		}
 	}
 	if !exists || escalate || previous.State != state {
-		d.log.ErrorContext(ctx, "report recovery pending", slog.String("task", source.Task), slog.String("delivery", source.DeliveryKey), slog.String("recovery", source.Key), slog.Int64("run_id", source.RunID), slog.String("state", state), slog.String("reason", reason), slog.Int("recovery_attempts", source.Attempts), slog.Bool("escalated", source.Escalated), slog.Time("next_eligible", source.NextAt))
+		d.log.ErrorContext(ctx, "report recovery pending", slog.String("task", source.Task), slog.String("delivery", source.DeliveryKey), slog.String("recovery", source.Key), slog.Int64("run_id", source.RunID), slog.String("state", state), slog.String("reason", reason), slog.String("disposition", d.reportRecoveryDisposition(ctx, source)), slog.Int("recovery_attempts", source.Attempts), slog.Bool("escalated", source.Escalated), slog.Time("next_eligible", source.NextAt))
 	}
 }
+
+// reportRecoveryDisposition observes execution separately from delivery. A missing
+// receipt never grants permission to repeat the retained work.
+func (d *Daemon) reportRecoveryDisposition(ctx context.Context, source store.ReportRecovery) string {
+	execution := "The execution outcome is unknown."
+	if d.db != nil && source.RunID > 0 {
+		if run, err := d.db.GetRun(ctx, source.RunID); err == nil {
+			switch run.Status {
+			case store.RunPrelaunch:
+				execution = fmt.Sprintf("Run %d is prepared; execution is not confirmed.", run.Ordinal)
+			case store.RunRunning:
+				execution = fmt.Sprintf("Run %d is running; completion is not confirmed.", run.Ordinal)
+			case store.RunSucceeded, store.RunFailed, store.RunReported:
+				outcome := run.SemanticOutcome
+				switch outcome {
+				case "succeeded", "failed", "interrupted", "timed_out", "abandoned", "no_result":
+				default:
+					outcome = ""
+				}
+				if outcome == "" {
+					switch {
+					case run.Succeeded():
+						outcome = "succeeded"
+					case run.Status == store.RunFailed || run.ExitCode != nil || run.Error != "":
+						outcome = "not successful"
+					default:
+						outcome = "unknown"
+					}
+				}
+				execution = fmt.Sprintf("Run %d has a retained %s outcome; its work will not be rerun for report delivery.", run.Ordinal, outcome)
+			}
+		}
+	}
+	if source.State == "stopped" {
+		return execution + " Reporting is stopped. Ask the factory operator to inspect this task on the factory host: " + report.TaskInspectionCommand(source.Task) + "."
+	}
+	return execution + " Report delivery is " + source.State + "; automatic reconciliation is pending. Wait; no owner action is needed."
+}
+
 func (d *Daemon) recoverySucceeded(ctx context.Context, key string) {
 	d.recoveries.mu.Lock()
 	defer d.recoveries.mu.Unlock()

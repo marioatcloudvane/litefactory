@@ -30,7 +30,18 @@ func (r *MCPRuntime) PublishApprovedCreation(ctx context.Context, intentID int64
 		return nil, errors.New("creation publishing unavailable")
 	}
 	a := r.CreationAuthorizer
-	pub, proposal, err := a.store.ClaimOwnerPublication(ctx, intentID, a.enabled)
+	var pub store.OwnerPublication
+	var proposal store.CreationProposal
+	var err error
+	if ctx.Err() != nil {
+		// Cancellation may stop accepted work, but must not admit new work.
+		pub, proposal, err = a.store.LookupOwnerPublication(context.WithoutCancel(ctx), intentID)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, ctx.Err()
+		}
+	} else {
+		pub, proposal, err = a.store.ClaimOwnerPublication(ctx, intentID, a.enabled)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +58,11 @@ func (r *MCPRuntime) PublishApprovedCreation(ctx context.Context, intentID int64
 	// handled one at a time, so no further lock is needed.
 	if pub.State == "dispatched" {
 		state, cause := r.publishOwnerArtifacts(ctx, db, intentID, e)
-		if err := a.store.FinishOwnerPublication(context.WithoutCancel(ctx), intentID, state); err != nil {
+		reason := ""
+		if cause != nil {
+			reason = cause.Error()
+		}
+		if err := a.store.FinishOwnerPublication(context.WithoutCancel(ctx), intentID, state, reason); err != nil {
 			return nil, err
 		}
 		out.State = state
@@ -55,7 +70,7 @@ func (r *MCPRuntime) PublishApprovedCreation(ctx context.Context, intentID int64
 			out.Reason = cause.Error()
 		}
 	}
-	artifacts, err := db.OwnerArtifacts(ctx, intentID)
+	artifacts, err := db.OwnerArtifacts(context.WithoutCancel(ctx), intentID)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +79,7 @@ func (r *MCPRuntime) PublishApprovedCreation(ctx context.Context, intentID int64
 		return nil, err
 	}
 	for _, d := range artifacts {
-		display, err := lookupTicketDisplay(ctx, r.Creation, source, d.IssueNumber)
+		display, err := lookupTicketDisplay(context.WithoutCancel(ctx), r.Creation, source, d.IssueNumber)
 		if err != nil {
 			return nil, err
 		}
@@ -81,20 +96,22 @@ func (r *MCPRuntime) publishOwnerArtifacts(ctx context.Context, db *store.DB, in
 		return "uncertain", err
 	}
 	repo := github.RepoFromRef(source)
+	known, err := db.OwnerArtifacts(context.WithoutCancel(ctx), intentID)
+	if err != nil {
+		return "uncertain", err
+	}
 	for i, a := range e.Artifacts {
-		begun, err := db.BeginOwnerArtifact(ctx, intentID, i)
-		if err != nil {
-			return "uncertain", err
+		if k := slices.IndexFunc(known, func(k store.OwnerPublicationArtifact) bool { return k.Ordinal == i }); k >= 0 {
+			if known[k].IssueID < 1 {
+				return "uncertain", fmt.Errorf("draft %d was started before an interruption and its issue was never confirmed", i+1)
+			}
+			if a.ParentIssue > 0 && known[k].Relationship != "attached" {
+				return "uncertain", fmt.Errorf("draft %d has a confirmed issue but its required attachment was never confirmed", i+1)
+			}
+			continue
 		}
-		if !begun {
-			known, err := db.OwnerArtifacts(ctx, intentID)
-			if err != nil {
-				return "uncertain", err
-			}
-			if slices.ContainsFunc(known, func(k store.OwnerPublicationArtifact) bool { return k.Ordinal == i && k.IssueID > 0 }) {
-				continue
-			}
-			return "uncertain", fmt.Errorf("draft %d was started before an interruption and its issue was never confirmed", i+1)
+		if err := r.checkOwnerPublicationWrite(ctx, intentID); err != nil {
+			return "uncertain", err
 		}
 		// Reapplying redaction is hygiene only. Any changed byte demands new review.
 		title, err := r.Redactor.Apply(ctx, a.Title, 256)
@@ -108,6 +125,16 @@ func (r *MCPRuntime) publishOwnerArtifacts(ctx context.Context, db *store.DB, in
 		if title.String() != a.Title || body.String() != a.Body || title.Truncated() || body.Truncated() {
 			return "uncertain", errors.New("reviewed creation content changed")
 		}
+		begun, err := db.BeginOwnerArtifact(ctx, intentID, i)
+		if err != nil {
+			return "uncertain", err
+		}
+		if !begun {
+			return "uncertain", fmt.Errorf("draft %d was already started; its outcome must not be retried", i+1)
+		}
+		if err := r.checkOwnerPublicationWrite(ctx, intentID); err != nil {
+			return "uncertain", err
+		}
 		issue, err := createTicketEffect(ctx, r.Creation, fmt.Sprintf("owner-artifact:%d:%d", intentID, i), repo, a.ParentIssue, title, body)
 		if err != nil {
 			return "uncertain", fmt.Errorf("create draft %d: %w", i+1, err)
@@ -119,14 +146,17 @@ func (r *MCPRuntime) publishOwnerArtifacts(ctx context.Context, db *store.DB, in
 		if a.ParentIssue > 0 {
 			detail.Relationship = "uncertain"
 		}
-		if err := db.SaveOwnerArtifact(ctx, intentID, detail); err != nil {
+		if err := db.SaveOwnerArtifact(context.WithoutCancel(ctx), intentID, detail); err != nil {
 			return "uncertain", err
 		}
 		if a.ParentIssue > 0 {
+			if err := r.checkOwnerPublicationWrite(ctx, intentID); err != nil {
+				return "uncertain", err
+			}
 			if err := r.Creation.AddSubIssue(ctx, repo, a.ParentIssue, issue.ID); err != nil {
 				return "uncertain", fmt.Errorf("attach %s under its approved parent: %w", displayIssue(source, issue).Reference(), err)
 			}
-			parent, err := r.Creation.GetParentIssue(ctx, repo, issue.Number)
+			parent, err := r.Creation.GetParentIssue(context.WithoutCancel(ctx), repo, issue.Number)
 			if err != nil {
 				return "uncertain", err
 			}
@@ -134,10 +164,22 @@ func (r *MCPRuntime) publishOwnerArtifacts(ctx context.Context, db *store.DB, in
 				return "uncertain", fmt.Errorf("%s is not attached under its approved parent", displayIssue(source, issue).Reference())
 			}
 			detail.Relationship = "attached"
-			if err := db.SaveOwnerArtifact(ctx, intentID, detail); err != nil {
+			if err := db.SaveOwnerArtifact(context.WithoutCancel(ctx), intentID, detail); err != nil {
 				return "uncertain", err
 			}
 		}
 	}
 	return "confirmed", nil
+}
+
+// A retained claim bypasses expiry, but never cancellation or replacement of the
+// exact approved proposal. Check immediately before each new remote write.
+func (r *MCPRuntime) checkOwnerPublicationWrite(ctx context.Context, intentID int64) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("publication execution stopped: %w", err)
+	}
+	if err := r.CreationAuthorizer.store.CheckOwnerPublicationCurrent(ctx, intentID); err != nil {
+		return fmt.Errorf("approved publication is no longer current: %w", err)
+	}
+	return nil
 }

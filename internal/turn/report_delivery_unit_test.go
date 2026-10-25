@@ -151,7 +151,7 @@ func TestGraphDispatchStopNoticeUsesDurableDelivery(t *testing.T) {
 		t.Fatalf("duplicate notice: %+v %+v", first, second)
 	}
 	body := forge.only(t).body
-	if !strings.Contains(body, "startup refused") || !strings.Contains(body, "/doctor inspect the stopped dispatch") {
+	if !strings.Contains(body, "startup refused") || strings.Count(body, report.TaskInspectionCommand(f.session.TaskRef)) != 1 || strings.Contains(body, "/doctor inspect") {
 		t.Fatalf("notice: %s", body)
 	}
 	if watermark(t, f) != 0 {

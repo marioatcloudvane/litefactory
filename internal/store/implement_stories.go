@@ -67,7 +67,11 @@ type ImplementStory struct {
 	GuidanceQuestion string
 	// Deviations are the decisions the worker's accepted completed answer
 	// recorded where the plan was silent, one per line, or empty.
-	Deviations string
+	Deviations          string
+	TimeoutAttemptID    int64
+	TimeoutParkRevision int64
+	TimeoutDeliveryKey  string
+	TimeoutCommentID    string
 }
 
 // ImplementResumeGuidance says how an owner's reply on the parent issue
@@ -130,7 +134,7 @@ func validImplementMove(from, to string) bool {
 	return false
 }
 
-const implementColumns = `parent,generation,story_key,position,branch,state,reason,merge_commit,revision,created_at,updated_at,state_at,attempts,park_origin,worker_session,last_failure,guidance,guidance_question,deviations`
+const implementColumns = `parent,generation,story_key,position,branch,state,reason,merge_commit,revision,created_at,updated_at,state_at,attempts,park_origin,worker_session,last_failure,guidance,guidance_question,deviations,timeout_attempt_id,timeout_park_revision,timeout_delivery_key,timeout_comment_id`
 
 // EnsureImplementStories adds a waiting row for every seed the ledger does not
 // hold yet and leaves existing rows untouched, so it is safe to repeat.
@@ -192,7 +196,7 @@ func (db *DB) LatestImplementStories(ctx context.Context, parent string) ([]Impl
 // CountImplementRunning counts the stories of one parent generation that are running.
 func (db *DB) CountImplementRunning(ctx context.Context, parent string, generation int64) (int, error) {
 	var n int
-	err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM implement_stories WHERE parent=? AND generation=? AND state=?`, parent, generation, ImplementRunning).Scan(&n)
+	err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM implement_stories WHERE parent=? AND generation=? AND state=? AND timeout_attempt_id=0`, parent, generation, ImplementRunning).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("store: count running implement stories: %w", err)
 	}
@@ -248,15 +252,18 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 			set = ",park_origin='',attempts=0,last_failure='',worker_session=0,guidance=?,guidance_question=''"
 			extra = []any{in.Guidance}
 		case in.To == ImplementRunning:
-			set = ",worker_session=0"
+			// A timeout resume retains its worker session; ordinary resumes clear it on the move to waiting.
 		}
 		query := `UPDATE implement_stories SET state=?,reason=?,merge_commit=?,revision=revision+1,updated_at=?,state_at=?` + set + `
  WHERE parent=? AND generation=? AND story_key=? AND state=? AND revision=?`
 		args := []any{in.To, reason, in.MergeCommit, stamp, stamp}
 		args = append(args, extra...)
 		args = append(args, in.Parent, in.Generation, in.Key, in.From, in.ExpectedRevision)
+		if in.To == ImplementRunning || in.To == ImplementWaiting || in.To == ImplementDone {
+			query += ` AND timeout_attempt_id=0`
+		}
 		if in.To == ImplementRunning {
-			query += ` AND (SELECT COUNT(*) FROM implement_stories WHERE parent=? AND generation=? AND state=?)<?`
+			query += ` AND (SELECT COUNT(*) FROM implement_stories WHERE parent=? AND generation=? AND state=? AND timeout_attempt_id=0)<?`
 			args = append(args, in.Parent, in.Generation, ImplementRunning, MaxImplementRunning)
 		}
 		res, err := tx.ExecContext(ctx, query, args...)
@@ -272,7 +279,7 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 			return err
 		}
 		if changed == 0 {
-			if in.To == ImplementRunning && row.State == in.From && row.Revision == in.ExpectedRevision {
+			if in.To == ImplementRunning && row.State == in.From && row.Revision == in.ExpectedRevision && row.TimeoutAttemptID == 0 {
 				return ErrImplementCap
 			}
 			return ErrImplementConflict
@@ -280,6 +287,13 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 		if in.To == ImplementRunning && in.StandardsRootRunID != 0 {
 			if err := saveStandardsStoryInvocationTx(ctx, tx, in.Parent, in.Generation, in.Key, row.StateAt, in.StandardsRootRunID); err != nil {
 				return fmt.Errorf("%w: %w", ErrStandardsHandoffPersistence, err)
+			}
+		}
+		if in.To == ImplementParked && row.TimeoutAttemptID > 0 {
+			var err error
+			row, _, err = applyPendingImplementTimeoutReplyTx(ctx, tx, row, in.At)
+			if err != nil {
+				return err
 			}
 		}
 		out = row
@@ -294,7 +308,7 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 func scanImplementStory(row scanner) (ImplementStory, error) {
 	var s ImplementStory
 	var created, updated, stateAt string
-	if err := row.Scan(&s.Parent, &s.Generation, &s.Key, &s.Position, &s.Branch, &s.State, &s.Reason, &s.MergeCommit, &s.Revision, &created, &updated, &stateAt, &s.Attempts, &s.ParkOrigin, &s.WorkerSession, &s.LastFailure, &s.Guidance, &s.GuidanceQuestion, &s.Deviations); err != nil {
+	if err := row.Scan(&s.Parent, &s.Generation, &s.Key, &s.Position, &s.Branch, &s.State, &s.Reason, &s.MergeCommit, &s.Revision, &created, &updated, &stateAt, &s.Attempts, &s.ParkOrigin, &s.WorkerSession, &s.LastFailure, &s.Guidance, &s.GuidanceQuestion, &s.Deviations, &s.TimeoutAttemptID, &s.TimeoutParkRevision, &s.TimeoutDeliveryKey, &s.TimeoutCommentID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ImplementStory{}, ErrNotFound
 		}
@@ -380,7 +394,7 @@ func (db *DB) RecordImplementFailure(ctx context.Context, parent string, generat
 	}
 	var out ImplementStory
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE implement_stories SET attempts=MIN(attempts+1,?),last_failure=?,revision=revision+1,updated_at=? WHERE parent=? AND generation=? AND story_key=? AND state=?`,
+		res, err := tx.ExecContext(ctx, `UPDATE implement_stories SET attempts=MIN(attempts+1,?),last_failure=?,revision=revision+1,updated_at=? WHERE parent=? AND generation=? AND story_key=? AND state=? AND timeout_attempt_id=0`,
 			MaxImplementAttempts, reason, FormatTime(at), parent, generation, key, ImplementRunning)
 		if err != nil {
 			return fmt.Errorf("store: record implement failure: %w", err)
@@ -406,7 +420,7 @@ func (db *DB) RecordImplementFailure(ctx context.Context, parent string, generat
 // yet, or its session is not running a turn right now. Rows are in parent and
 // plan order.
 func (db *DB) ListImplementStoriesNeedingWorker(ctx context.Context) ([]ImplementStory, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+implementColumns+` FROM implement_stories WHERE state=? AND (worker_session=0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id=worker_session AND s.state=?)) AND parent NOT IN (SELECT parent_task FROM managed_parent_closures) ORDER BY parent,generation,position`, ImplementRunning, SessionRunning)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+implementColumns+` FROM implement_stories WHERE timeout_attempt_id=0 AND state=? AND (worker_session=0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id=worker_session AND s.state=?)) AND parent NOT IN (SELECT parent_task FROM managed_parent_closures) ORDER BY parent,generation,position`, ImplementRunning, SessionRunning)
 	if err != nil {
 		return nil, fmt.Errorf("store: list running implement stories: %w", err)
 	}

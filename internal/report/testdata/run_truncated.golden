@@ -42,7 +42,7 @@ a distinguishable line of the run's final message [line 0033]
 a distinguishable line of the run's final message [line 0034]
 a distinguishable line of the run's final message [line 0035]
 a distinguishable line of the run's final message [line 0036]
-a distinguishable line of the run's final message [line 0037]
-a distinguishable line of the run's final message [line 0038]
 
 _[litefactory: cut to fit the comment size limit. The full run is at `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl`.]_
+
+Ask the factory operator to inspect the saved event log on the factory host: `litefactory logs 'github:acme/acme-api#123' --run 2 --raw`.
