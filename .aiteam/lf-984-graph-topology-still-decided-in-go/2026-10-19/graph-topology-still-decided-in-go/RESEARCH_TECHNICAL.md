@@ -183,3 +183,12 @@ Evidence:
 - `internal/graphexec/plan_story.go:154`
 - `internal/graphexec/plan_control.go:41`
 - `internal/teamsource/plan/plan.dot:1`
+
+## f21
+
+The DOT already has a lf_field attribute on lf_if, with Go supplying the value (for example response), and Validate already has separate push, PR, merge and close nodes. Both are footholds for moving decisions into the graph: more published facts for lf_if, and generic effect nodes.
+
+Evidence:
+
+- `internal/teamsource/plan/plan.dot:28`
+- `internal/graphexec/validate_flow.go:217`
