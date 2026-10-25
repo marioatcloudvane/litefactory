@@ -20,6 +20,9 @@ const swiftSource = "teams/source/swift-ios"
 func swiftFixture(t *testing.T) string {
 	t.Helper()
 	root := fixture(t)
+	for name, raw := range snapshot(t, "../../teams/source/base-team") {
+		put(t, filepath.Join(root, "teams/source/base-team", filepath.FromSlash(name)), raw)
+	}
 	for name, raw := range snapshot(t, "../../teams/source/swift-ios") {
 		put(t, filepath.Join(root, swiftSource, filepath.FromSlash(name)), raw)
 	}
