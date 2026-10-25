@@ -317,6 +317,14 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 			if ended, err = rt.endWaitingSameCommit(ctx, existing, now); err != nil {
 				return rt.result, err
 			}
+			// A run that nothing can advance any more (its step was stopped,
+			// or its run never started) is ended too; one with anything in
+			// flight keeps answering that it has already started.
+			if !ended {
+				if ended, err = rt.endIdleSameCommit(ctx, existing, now); err != nil {
+					return rt.result, err
+				}
+			}
 		}
 		if auto || !ended {
 			return rt.alreadyStarted(ctx, existing)
@@ -412,6 +420,20 @@ func (rt *validateRuntimeState) endWaitingSameCommit(ctx context.Context, entry 
 		return false, err
 	}
 	return db.CancelIdleGraphOwnerWait(ctx, entry.InstanceID, claimedReply, "the owner started Validate again on the same commit", now)
+}
+
+// endIdleSameCommit cancels a running instance on this commit that has nothing
+// owed, attempted, running, waiting, held, scheduled or in flight, after
+// settling prelaunch runs whose own dispatch is no longer live. The entry gate
+// is checked first, as for a waiting run. The daemon's recovery pass already
+// resumes such an instance by itself; the owner needs this restart only when
+// the instance hit its retry cap or its saved launch cannot be resumed.
+func (rt *validateRuntimeState) endIdleSameCommit(ctx context.Context, entry store.ValidateEntry, now time.Time) (bool, error) {
+	gate, err := ValidateEntryGate(ctx, rt.opts.DB, rt.session)
+	if err != nil || !gate.Open {
+		return false, err
+	}
+	return rt.opts.DB.CancelIdleValidateInstance(ctx, entry.InstanceID, "the owner started Validate again on the same commit", now)
 }
 
 // openOwnerWait reports whether an owner wait still counts as open. A wait

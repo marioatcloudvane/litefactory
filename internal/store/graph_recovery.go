@@ -285,3 +285,59 @@ AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=i.id AND d.a
 	}
 	return cancelled, nil
 }
+
+// CancelIdleValidateInstance ends one running Validate instance that nothing
+// can advance any more, so an owner's /validate on the same commit can start a
+// fresh one. The session's orphaned graph prelaunch runs are settled first, in
+// the same transaction, because they would otherwise keep the instance looking
+// busy. The caller holds the session lock and has checked the Validate entry
+// gate. It reports false when anything is still owed, attempted, running,
+// waiting, held, scheduled or in flight for the instance, or when it never had
+// a dispatch.
+func (db *DB) CancelIdleValidateInstance(ctx context.Context, instanceID int64, reason string, at time.Time) (cancelled bool, err error) {
+	if instanceID < 1 || strings.TrimSpace(reason) == "" || at.IsZero() {
+		return false, graphInvariant("invalid idle Validate cancellation")
+	}
+	err = db.withTx(ctx, func(tx *sql.Tx) error {
+		var sessionID int64
+		if e := tx.QueryRowContext(ctx, `SELECT session_id FROM graph_instances WHERE id=?`, instanceID).Scan(&sessionID); e != nil {
+			if errors.Is(e, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return e
+		}
+		if _, e := settleOrphanedGraphPrelaunchTx(ctx, tx, sessionID, at); e != nil {
+			return e
+		}
+		// The stranded rule without its cancelled-latest-dispatch clause, on
+		// purpose: an instance whose step was stopped at its retry cap is
+		// exactly what the owner may restart. Every in-flight check stays. An
+		// instance that never had a dispatch was interrupted at its start and
+		// resumes when its own start comment is read again, so it is kept.
+		instance, e := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances g
+WHERE g.id=? AND EXISTS(SELECT 1 FROM graph_definitions def WHERE def.id=g.definition_id AND def.mode='validate')
+AND EXISTS(SELECT 1 FROM graph_dispatches past WHERE past.instance_id=g.id) AND `+idleGraphInstancePredicate, instanceID))
+		if errors.Is(e, ErrNotFound) {
+			return nil
+		}
+		if e != nil {
+			return e
+		}
+		finished := at
+		if finished.Before(instance.StartedAt) {
+			finished = instance.StartedAt
+		}
+		if e = setGraphInstanceTx(ctx, tx, instance.ID, instance.CurrentNode, GraphCancelled, time.Time{}, finished); e != nil {
+			return e
+		}
+		if _, e = recordGraphTransitionTx(ctx, tx, GraphTransition{InstanceID: instance.ID, FromNode: instance.CurrentNode, ToNode: instance.CurrentNode, OnOutcome: reason, At: finished}); e != nil {
+			return e
+		}
+		cancelled = true
+		return nil
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: cancel idle Validate instance: %w", err)
+	}
+	return cancelled, nil
+}
