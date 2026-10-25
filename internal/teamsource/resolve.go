@@ -1,4 +1,4 @@
-package teamrelease
+package teamsource
 
 import (
 	"bytes"
@@ -33,24 +33,24 @@ var (
 	placeholder  = regexp.MustCompile(`\{\{([^{}\n]*)\}\}`)
 )
 
-// refuseBase stops a base from being built as a team.
-func refuseBase(root *os.Root, source string) error {
+// RefuseBase stops a base from being built as a team.
+func RefuseBase(root *os.Root, source string) error {
 	if _, err := root.Lstat(source + "/base.json"); err == nil {
 		return fmt.Errorf("%s: %s is a base, not a team", source, path.Base(source))
 	}
 	return nil
 }
 
-// resolveSource returns the files of one source (path to bytes): stack-profile.json
+// ResolveSource returns the files of one source (path to bytes): stack-profile.json
 // and the workflow folders. A source without inherit.json resolves to its own
 // folder. It only reads files; every inheritance problem is reported together,
 // sorted, one per line.
-func resolveSource(ctx context.Context, root *os.Root, source, slug string) (map[string][]byte, error) {
+func ResolveSource(ctx context.Context, root *os.Root, source, slug string) (map[string][]byte, error) {
 	if _, err := root.Lstat(source + "/inherit.json"); errors.Is(err, fs.ErrNotExist) {
 		return ownFiles(ctx, root, source, true)
 	}
 	manifestPath := source + "/inherit.json"
-	raw, err := read(root, manifestPath)
+	raw, err := readFile(root, manifestPath)
 	if err != nil {
 		return nil, err
 	}
@@ -67,11 +67,11 @@ func resolveSource(ctx context.Context, root *os.Root, source, slug string) (map
 	fail := func(format string, args ...any) {
 		faults = append(faults, manifestPath+": "+fmt.Sprintf(format, args...))
 	}
-	if m.Base == "" || !safe(m.Base) || strings.Contains(m.Base, "/") {
+	if m.Base == "" || !safePath(m.Base) || strings.Contains(m.Base, "/") {
 		return nil, fmt.Errorf("%s: base %q: not a valid base name", manifestPath, m.Base)
 	}
 	baseDir := path.Dir(source) + "/" + m.Base
-	braw, err := read(root, baseDir+"/base.json")
+	braw, err := readFile(root, baseDir+"/base.json")
 	if err != nil {
 		return nil, fmt.Errorf("%s: base %s: missing or unreadable base (%s/base.json): %w", manifestPath, m.Base, baseDir, err)
 	}
@@ -210,21 +210,21 @@ func resolveSource(ctx context.Context, root *os.Root, source, slug string) (map
 }
 
 func inResolution(p string) bool {
-	if !safe(p) {
+	if !safePath(p) {
 		return false
 	}
 	if p == "stack-profile.json" {
 		return true
 	}
 	first, rest, ok := strings.Cut(p, "/")
-	return ok && rest != "" && slices.Contains(workflows, first)
+	return ok && rest != "" && slices.Contains(sourceWorkflows, first)
 }
 
 // ownFiles reads stack-profile.json and the workflow folders of one folder.
 // A strict source must hold them (as before); a manifest side may lack them.
 func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[string][]byte, error) {
 	files := map[string][]byte{}
-	profile, err := read(root, dir+"/stack-profile.json")
+	profile, err := readFile(root, dir+"/stack-profile.json")
 	switch {
 	case err == nil:
 		files["stack-profile.json"] = profile
@@ -233,7 +233,7 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 	case !errors.Is(err, fs.ErrNotExist):
 		return nil, err
 	}
-	for _, w := range workflows {
+	for _, w := range sourceWorkflows {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -242,7 +242,7 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 				continue
 			}
 		}
-		source, err := tree(root, dir+"/"+w)
+		source, err := sourceTree(root, dir+"/"+w)
 		if err != nil {
 			return nil, err
 		}
@@ -251,4 +251,105 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 		}
 	}
 	return files, nil
+}
+
+var sourceWorkflows = []string{"bug", "implement", "plan", "research", "spike", "validate"}
+
+// SafePath reports whether name is a clean, relative, portable path.
+func SafePath(name string) bool { return safePath(name) }
+
+// ReadSourceFile reads one regular source file under root, refusing symlinks and oversize files.
+func ReadSourceFile(root *os.Root, name string) ([]byte, error) { return readFile(root, name) }
+
+// SourceTree reads every file under dir (relative path to bytes), refusing symlinks.
+func SourceTree(root *os.Root, dir string) (map[string][]byte, error) { return sourceTree(root, dir) }
+
+// SafeAncestors refuses a name whose existing ancestors are symlinks or not directories.
+func SafeAncestors(root *os.Root, name string) error { return safeAncestors(root, name) }
+
+func safePath(name string) bool {
+	return name != "." && fs.ValidPath(name) && path.Clean(name) == name && !strings.ContainsAny(name, "\\:\x00\r\n%?#")
+}
+
+func safeAncestors(root *os.Root, name string) error {
+	if !safePath(name) {
+		return fmt.Errorf("%s: unsafe path", name)
+	}
+	parts := strings.Split(name, "/")
+	for i := range parts {
+		p := strings.Join(parts[:i+1], "/")
+		info, err := root.Lstat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 || (i < len(parts)-1 && !info.IsDir()) {
+			return fmt.Errorf("%s: symlink or invalid directory", p)
+		}
+	}
+	return nil
+}
+
+func readFile(root *os.Root, name string) ([]byte, error) {
+	if err := safeAncestors(root, name); err != nil {
+		return nil, err
+	}
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > MaxSourceBytes {
+		return nil, fmt.Errorf("%s: nonregular or oversized source", name)
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	after, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(info, after) {
+		return nil, fmt.Errorf("%s: source changed while opening", name)
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, MaxSourceBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > MaxSourceBytes {
+		return nil, fmt.Errorf("%s: oversized source", name)
+	}
+	return raw, nil
+}
+
+func sourceTree(root *os.Root, dir string) (map[string][]byte, error) {
+	if err := safeAncestors(root, dir); err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{}
+	err := fs.WalkDir(root.FS(), dir, func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(name, dir+"/")
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%s: symlink source/output", name)
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !safePath(rel) {
+			return fmt.Errorf("%s: unsafe source/output path", name)
+		}
+		raw, err := readFile(root, name)
+		if err != nil {
+			return err
+		}
+		files[rel] = raw
+		return nil
+	})
+	return files, err
 }

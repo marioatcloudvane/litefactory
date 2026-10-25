@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 )
 
 func captureImplement(ctx context.Context) (*teamsource.WorkflowDefinition, error) {
@@ -11,7 +12,7 @@ func captureImplement(ctx context.Context) (*teamsource.WorkflowDefinition, erro
 	if err != nil {
 		return nil, err
 	}
-	definition, err := teamsource.CaptureImplement(ctx, specs)
+	definition, err := teamsourcetest.CaptureImplement(ctx, specs)
 	if err != nil {
 		return nil, fmt.Errorf("capture current shipped Implement: %w", err)
 	}

@@ -26,13 +26,16 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
+// defaultSource is the canonical source built when none is named.
+const defaultSource = "teams/source/go-development"
+
 var workflows = []string{"bug", "implement", "plan", "research", "spike", "validate"}
 
 // Generate validates a complete candidate before replacing any generated output.
 // Check mode reports every drifted path and never writes source or release files.
 // Prior output is restored if publication fails partway through the batch.
 func Generate(ctx context.Context, repo string, check bool) error {
-	return GenerateSources(ctx, repo, check, []string{"internal/teamsource"})
+	return GenerateSources(ctx, repo, check, []string{defaultSource})
 }
 
 // GenerateSources publishes a combined catalogue from explicit repository-relative
@@ -158,7 +161,7 @@ func GenerateSources(ctx context.Context, repo string, check bool, sources []str
 
 func candidateSource(ctx context.Context, root *os.Root, sourceRoot string) (map[string][]byte, teampackage.Release, error) {
 	var release teampackage.Release
-	if err := refuseBase(root, sourceRoot); err != nil {
+	if err := teamsource.RefuseBase(root, sourceRoot); err != nil {
 		return nil, release, err
 	}
 	raw, err := read(root, sourceRoot+"/release.json")
@@ -168,15 +171,15 @@ func candidateSource(ctx context.Context, root *os.Root, sourceRoot string) (map
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&release); err != nil {
-		return nil, release, fmt.Errorf("internal/teamsource/release.json: %w", err)
+		return nil, release, fmt.Errorf("%s/release.json: %w", sourceRoot, err)
 	}
 	if err := d.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return nil, release, errors.New("internal/teamsource/release.json: trailing JSON")
+		return nil, release, fmt.Errorf("%s/release.json: trailing JSON", sourceRoot)
 	}
 	if !safe(release.Slug) || strings.Contains(release.Slug, "/") || !safe(release.Download) || !strings.HasPrefix(release.Download, release.Slug+"/") || release.Download == "go-development/v1" || len(release.Files) != 0 || release.Checksum != "" {
-		return nil, release, errors.New("internal/teamsource/release.json: invalid identity, unsafe/immutable download path or authored hashes")
+		return nil, release, fmt.Errorf("%s/release.json: invalid identity, unsafe/immutable download path or authored hashes", sourceRoot)
 	}
-	files, err := resolveSource(ctx, root, sourceRoot, release.Slug)
+	files, err := teamsource.ResolveSource(ctx, root, sourceRoot, release.Slug)
 	if err != nil {
 		return nil, release, err
 	}
@@ -255,91 +258,14 @@ func candidateSource(ctx context.Context, root *os.Root, sourceRoot string) (map
 	return files, release, nil
 }
 
-func safe(name string) bool {
-	return name != "." && fs.ValidPath(name) && path.Clean(name) == name && !strings.ContainsAny(name, "\\:\x00\r\n%?#")
-}
+func safe(name string) bool { return teamsource.SafePath(name) }
 
-func safeAncestors(root *os.Root, name string) error {
-	if !safe(name) {
-		return fmt.Errorf("%s: unsafe path", name)
-	}
-	parts := strings.Split(name, "/")
-	for i := range parts {
-		p := strings.Join(parts[:i+1], "/")
-		info, err := root.Lstat(p)
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if info.Mode()&fs.ModeSymlink != 0 || (i < len(parts)-1 && !info.IsDir()) {
-			return fmt.Errorf("%s: symlink or invalid directory", p)
-		}
-	}
-	return nil
-}
+func safeAncestors(root *os.Root, name string) error { return teamsource.SafeAncestors(root, name) }
 
-func read(root *os.Root, name string) ([]byte, error) {
-	if err := safeAncestors(root, name); err != nil {
-		return nil, err
-	}
-	info, err := root.Lstat(name)
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || info.Size() > teamsource.MaxSourceBytes {
-		return nil, fmt.Errorf("%s: nonregular or oversized source", name)
-	}
-	f, err := root.Open(name)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	after, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !os.SameFile(info, after) {
-		return nil, fmt.Errorf("%s: source changed while opening", name)
-	}
-	raw, err := io.ReadAll(io.LimitReader(f, teamsource.MaxSourceBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(raw)) > teamsource.MaxSourceBytes {
-		return nil, fmt.Errorf("%s: oversized source", name)
-	}
-	return raw, nil
-}
+func read(root *os.Root, name string) ([]byte, error) { return teamsource.ReadSourceFile(root, name) }
 
 func tree(root *os.Root, dir string) (map[string][]byte, error) {
-	if err := safeAncestors(root, dir); err != nil {
-		return nil, err
-	}
-	files := map[string][]byte{}
-	err := fs.WalkDir(root.FS(), dir, func(name string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel := strings.TrimPrefix(name, dir+"/")
-		if d.Type()&fs.ModeSymlink != 0 {
-			return fmt.Errorf("%s: symlink source/output", name)
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !safe(rel) {
-			return fmt.Errorf("%s: unsafe source/output path", name)
-		}
-		raw, err := read(root, name)
-		if err != nil {
-			return err
-		}
-		files[rel] = raw
-		return nil
-	})
-	return files, err
+	return teamsource.SourceTree(root, dir)
 }
 
 func validatePackage(ctx context.Context, files map[string][]byte, release teampackage.Release, catalogue []byte) error {
@@ -364,7 +290,7 @@ func validatePackage(ctx context.Context, files map[string][]byte, release teamp
 		return err
 	}
 	if _, _, err := manager.Install(ctx, cataloguePath, release.Slug, release.Version); err != nil {
-		return fmt.Errorf("internal/teamsource/release.json candidate catalogue/release: %w", err)
+		return fmt.Errorf("%s candidate catalogue/release: %w", release.Slug, err)
 	}
 	return nil
 }

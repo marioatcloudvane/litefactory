@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"strings"
 	"testing"
 	"time"
@@ -308,7 +309,7 @@ func TestWorkflowJudgeStartupRecoveryBeforeGenericReconciliation(t *testing.T) {
 			f.opts.Judge = service
 			specs, err := ResearchSpecs()
 			mustProgress(t, err)
-			definition, err := teamsource.CaptureResearch(t.Context(), specs)
+			definition, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 			mustProgress(t, err)
 			files := teamsource.RetainedFiles(definition.Files)
 			original := `investigate -> brief       [lf_on="success"];`

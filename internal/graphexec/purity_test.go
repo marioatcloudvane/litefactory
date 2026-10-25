@@ -54,12 +54,6 @@ func TestGraphPackagePurity(t *testing.T) {
 // source and embedded copies. No general nested graph namespace is admitted.
 // Any other DOT file is an unexpected workflow or a stray copy.
 var shippedDOT = map[string]bool{
-	"../../internal/teamsource/bug/bug.dot":             true,
-	"../../internal/teamsource/research/research.dot":   true,
-	"../../internal/teamsource/plan/plan.dot":           true,
-	"../../internal/teamsource/spike/spike.dot":         true,
-	"../../internal/teamsource/implement/implement.dot": true,
-	"../../internal/teamsource/validate/validate.dot":   true,
 	// The immutable pre-consolidation release remains historical evidence.
 	"../../teams/go-development/v1/bug/bug.dot":             true,
 	"../../teams/go-development/v1/implement/implement.dot": true,
@@ -72,7 +66,7 @@ var shippedDOT = map[string]bool{
 func TestGraphShippedDOTScope(t *testing.T) {
 	// The current distribution path has one author: canonical release metadata.
 	// Admit only its six existing workflows, never a general graph namespace.
-	raw, err := os.ReadFile("../teamsource/release.json")
+	raw, err := os.ReadFile("../../teams/source/go-development/release.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +110,6 @@ func TestGraphShippedDOTScope(t *testing.T) {
 		for _, workflow := range workflows {
 			allowed["../../teams/"+r.Download+"/"+workflow+"/"+workflow+".dot"] = true
 			if r.Slug != "go-development" {
-				allowed["../../internal/teamsource/"+r.Slug+"/"+workflow+"/"+workflow+".dot"] = true
 				allowed["../../teams/source/"+r.Slug+"/"+workflow+"/"+workflow+".dot"] = true
 			}
 		}

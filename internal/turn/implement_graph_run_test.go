@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"html"
 	"io/fs"
 	"os"
@@ -70,7 +71,7 @@ func enableWorkerSyncFixture(f *fixture) {
 		if workflow != agent.WorkflowImplement {
 			return fixtureWorkflowSource(ctx, repo, workflow, specs)
 		}
-		return fixtureInstalled(teamsource.CaptureImplement(ctx, specs))
+		return fixtureInstalled(teamsourcetest.CaptureImplement(ctx, specs))
 	}
 }
 

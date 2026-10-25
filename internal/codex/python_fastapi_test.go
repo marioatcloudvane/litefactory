@@ -45,7 +45,7 @@ printf '%s\n' '{"type":"turn.completed"}'`)
 // canonical source currently names, so the test follows the owner's releases.
 func releasedPythonProfile(t *testing.T) []byte {
 	t.Helper()
-	meta, err := os.ReadFile("../teamsource/python-fastapi/release.json")
+	meta, err := os.ReadFile("../../teams/source/python-fastapi/release.json")
 	if err != nil {
 		t.Fatal(err)
 	}
