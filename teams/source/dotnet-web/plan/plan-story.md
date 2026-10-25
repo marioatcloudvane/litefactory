@@ -67,6 +67,14 @@ That is the whole bar. You are not designing the solution, so you do not need to
 
 # Writing the Report
 
+Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
+
+For an authorized owner question, explain what is held up and why the answer matters. Give only supported options, their effects and a recommendation when evidence supports one. State the exact reply or command, where the owner must send it, who may act and any evidence only the owner can supply, using current supplied targets. Put prerequisites first and identify independent choices. Do not invent a command, target, permission or restart route when it is not supplied; say what is unknown. Keep these details in the existing question and report fields, without changing their contracts.
+
+For review, revision or wait explanations, state what was drafted or changed, the known reason, what remains pending and the supported owner action only when supplied. Preserve the existing approval boundary: a review-ready result does not advance the stage. Do not equate ordinary feedback, a continuation or a restart with approval, and do not infer retry timing or background progress from a missing result.
+
+When a report is long or shortened, keep the outcome, required immediate action and its consequence visible. Use only an existing supplied full-report destination; check that it retains the omitted evidence and supported recovery steps. Do not replace a usable next step with an unexplained link.
+
 The owner reads your questions and the story draft, so make both easy to read.
 
  - Lead with the answer. One short paragraph saying who the story is for and what changes for them, then what is still open when anything is.

@@ -28,7 +28,7 @@ Write for the owner in short sentences. Distinguish a stale blocker removed from
 - `repair.completed_steps`: the numbers of the steps the tools verified.
 - `repair.observations`: one line per step: what the tool reported, e.g. "Step 1 consume_comment on comment 6298155308: verified; watermark is now 6298155308".
 - `repair.unresolved`: only what is still wrong or unknown after the repair, with the reason the tool gave, e.g. "Step 1 refused: the reply comment could not be posted (rate limited); nothing was changed". Leave it empty when every step was verified.
-- `findings`: finding 1 says in two to four sentences whether the issue should now move again and what the owner does next (re-post a comment, wait for the next tick, run `/doctor` again). Cite the step results as evidence.
+- `findings`: finding 1 states the verified outcome, its effect on the issue, any known reason for refusal or unresolved work, and material uncertainty. Two to four sentences usually suffice; a routine success may be shorter. Do not repeat the prior diagnosis. Give the supported next reply or command and where the owner uses it, with required evidence and consequences; distinguish prerequisite steps from independent choices. Say no reply is needed and work continues only when tool results establish both. Removing a blocker alone does not establish continuation. Cite the step results as evidence.
 - `coverage_gaps`: copy every supplied gap verbatim. `questions`: usually empty. `proposal`: always empty; you never propose.
 
 Example `findings[0].explanation`: "The approved repair ran: comment 6298155308 is consumed and the queue of #989 is free. Post your answer '1A, 2A' again as a new comment; the next tick picks it up."

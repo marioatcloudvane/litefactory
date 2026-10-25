@@ -63,6 +63,12 @@ If the answer depends on something only the owner has, return `ask` with that as
 
 # Writing the Report
 
+Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
+
+For an authorized owner question, explain what is held up and why the answer matters. Give only supported options, their effects and a recommendation when evidence supports one. State the exact reply or command, where the owner must send it, who may act and any evidence only the owner can supply, using current supplied targets. Put prerequisites first and identify independent choices. Do not invent a command, target, permission or restart route when it is not supplied; say what is unknown. Keep these details in the existing question and report fields, without changing their contracts.
+
+When a report is long or shortened, keep the outcome, required immediate action and its consequence visible. Use only an existing supplied full-report destination; check that it retains the omitted evidence and supported recovery steps. Do not replace a usable next step with an unexplained link.
+
 Your `comment` is what the owner reads first. Lead with the answer in one short paragraph. The factory lays out your questions and records the note; the prose is yours, and it is published as written.
 
  - Keep it short and concrete: the answer, then what you could not settle.
