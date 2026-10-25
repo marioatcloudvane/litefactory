@@ -12,7 +12,7 @@ import (
 // The canonical roles declare capability tiers. Native delivery resolves those
 // tiers through configuration, without a second literal-model host tree.
 func TestAgentTiersMatchCanonicalRoleFrontmatter(t *testing.T) {
-	roles, err := filepath.Glob(filepath.Join(moduleRoot(t), "internal", "teamsource", "*", "*.md"))
+	roles, err := filepath.Glob(filepath.Join(moduleRoot(t), "teams", "source", "base-team", "*", "*.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
