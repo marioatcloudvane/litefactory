@@ -362,14 +362,24 @@ func (c *implementCheck) reportDone(n Node) {
 // isResolver reports whether n is a sync resolver agent: an agent whose success
 // reaches the resolved decision.
 func (c *implementCheck) isResolver(n Node) bool {
-	if n.Action != "lf_agent" {
+	return ImplementSyncResolver(c.p, n.Name)
+}
+
+// ImplementSyncResolver reports whether the named node of an Implement graph is
+// a sync resolver agent: an agent whose success reaches the resolved decision.
+func ImplementSyncResolver(p *Profile, name string) bool {
+	if p == nil {
 		return false
 	}
-	to, ok := Decide(c.p, n.Name, "success")
+	n, ok := p.Node(name)
+	if !ok || n.Action != "lf_agent" {
+		return false
+	}
+	to, ok := Decide(p, n.Name, "success")
 	if !ok {
 		return false
 	}
-	target, ok := c.p.Node(to)
+	target, ok := p.Node(to)
 	return ok && target.Action == ImplementResolvedAction
 }
 
