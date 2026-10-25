@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -328,6 +329,32 @@ func (rt *implementRuntime) resumeStories(ctx context.Context, reply string) (in
 	}
 	resumed := 0
 	for _, row := range rows {
+		if row.TimeoutAttemptID != 0 {
+			// Parent inputs reach applyReply only after the daemon's authenticated
+			// owner admission; no agent payload can supply this trigger.
+			trigger := rt.req.Trigger
+			if trigger.CommentID <= 0 || store.IsPrivateTrigger(trigger.CommentID) || trigger.AuthorID <= 0 {
+				return resumed, store.ErrImplementConflict
+			}
+			noticeAt, err := implementTimeoutNoticeTime(ctx, rt.opts, row)
+			if err != nil {
+				return resumed, err
+			}
+			_, applied, err := rt.opts.DB.ResumeImplementTimeout(ctx, store.ImplementTimeoutReply{
+				Source: rt.parentRef.Forge, Task: rt.parentRef.String(), CommentID: strconv.FormatInt(trigger.CommentID, 10),
+				AuthorID: strconv.FormatInt(trigger.AuthorID, 10), OwnerID: strconv.FormatInt(trigger.AuthorID, 10),
+				Parent: row.Parent, Generation: row.Generation, Key: row.Key, TimeoutAttemptID: row.TimeoutAttemptID,
+				ParkRevision: row.TimeoutParkRevision, DeliveryKey: row.TimeoutDeliveryKey, NoticeCommentID: row.TimeoutCommentID,
+				NoticeCreatedAt: noticeAt, Guidance: strings.TrimSpace(reply), At: trigger.CreatedAt,
+			})
+			if err != nil {
+				return resumed, err
+			}
+			if applied {
+				resumed++
+			}
+			continue
+		}
 		_, err := rt.opts.DB.TransitionImplementStory(ctx, store.ImplementTransition{
 			Parent: rt.parentRef.String(), Generation: rt.generation, Key: row.Key,
 			From: store.ImplementParked, To: store.ImplementWaiting, ExpectedRevision: row.Revision,
@@ -462,6 +489,20 @@ func (rt *implementRuntime) parkHook(ctx context.Context, opts Options, instance
 	rows, err := opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)
 	if err != nil {
 		return ParkDecision{}, err
+	}
+	state := map[string]store.ImplementStory{}
+	for _, row := range rows {
+		state[row.Key] = row
+	}
+	managed, err := opts.DB.ListManagedStories(ctx, rt.parentRef.String(), int(rt.generation))
+	if err != nil {
+		return ParkDecision{}, err
+	}
+	for _, story := range managed {
+		row, ok := state[story.Key]
+		if ok && row.State == store.ImplementWaiting && row.TimeoutAttemptID == 0 && dependenciesMerged(ImplementStory{Dependencies: story.Dependencies}, state) {
+			return ParkDecision{}, nil
+		}
 	}
 	running, done := 0, 0
 	for _, row := range rows {

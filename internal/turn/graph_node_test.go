@@ -715,3 +715,132 @@ func TestGraphNodeOwnerStopSettlesCancelledAttempt(t *testing.T) {
 		t.Fatalf("run lost owner stop: %+v", stopped)
 	}
 }
+
+// A shorter parent deadline can expire during setup. The provider never starts,
+// yet the real graph must retain its timeout transition and cleanup diagnostic
+// so an idle held story can publish its own notice after the caller returns.
+func TestGraphParentDeadlineTimeoutSettlesAndKeepsDiagnostic(t *testing.T) {
+	f, forge, _ := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Fatal("expired setup launched a provider")
+		return nil, nil
+	}))
+	seedImplementStory(t, f)
+	segment, err := f.db.GetOrCreateSegment(t.Context(), f.session.ID, 1, "parent-timeout-worker", store.AgentClaude)
+	mustProgress(t, err)
+	run, err := f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Mode: string(agent.ModeImplement), Agent: store.AgentClaude, TriggerCommentID: 974, LogPath: func(int) string { return "timeout.log" }})
+	mustProgress(t, err)
+	req := f.graphRequest(graphTestDOT, nil)
+	req.RunID = run.ID
+	policy := ImplementWorkflowPolicy()
+	policy.AfterAgentFailure = implementAfterAgentFailure
+	handler := AgentActivity{Policy: policy, Prepare: func(ctx context.Context, _ Options, _ ActivityRequest) (ResearchInvocation, error) {
+		<-ctx.Done()
+		return ResearchInvocation{}, ctx.Err()
+	}}
+	mustProgress(t, req.Activities.Register("lf_implement_work", handler))
+	f.opts.WorkerTimeoutSeconds = 1800
+	f.opts.WorkerTimeoutSource = "settings.worker_timeout_seconds"
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	result, err := ExecuteNodeAction(ctx, f.opts, req)
+	if err != nil || result.NextNode != "end" || result.Activity.Outcome != "failed" {
+		t.Fatalf("deadline lost graph completion: %+v %v", result, err)
+	}
+	attempt, err := f.db.GetGraphNodeAttempt(t.Context(), result.AttemptID)
+	mustProgress(t, err)
+	if attempt.Status != store.GraphSucceeded || attempt.Outcome != "failed" {
+		t.Fatalf("timeout outcome not durable: %+v", attempt)
+	}
+	outputs, err := f.db.ListGraphOutputs(t.Context(), attempt.ID)
+	mustProgress(t, err)
+	found := false
+	for _, output := range outputs {
+		if output.Kind == store.GraphOutputDiagnostic && strings.Contains(string(output.Payload), "Process evidence unavailable") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing-process diagnostic lost: %+v", outputs)
+	}
+	row := implementWorkerRow(t, f)
+	if row.TimeoutAttemptID != attempt.ID || row.Attempts != 0 {
+		t.Fatalf("timeout hold not durable: %+v", row)
+	}
+	// A newly constructed factory-only runtime needs no expired worker context.
+	mustProgress(t, RecoverImplementTimeoutPark(t.Context(), f.opts, row))
+	parked := implementWorkerRow(t, f)
+	if parked.State != store.ImplementParked || parked.TimeoutCommentID == "" || forge.attemptCount() != 1 {
+		t.Fatalf("notice recovery lost held work: %+v", parked)
+	}
+}
+
+func TestGraphParentDeadlineKeepsCleanupFailureWhenHookCannotSettle(t *testing.T) {
+	f, forge, _ := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Fatal("timeout settlement launched a provider")
+		return nil, nil
+	}))
+	seedImplementStory(t, f)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	const diagnostic = "Process evidence unavailable. Cleanup collection failed: collector deadline exceeded."
+	handler := &graphTestHandler{
+		results: map[string][]ActivityResult{"work": {{Diagnostic: diagnostic}}},
+		errs:    map[string]error{"work": errors.Join(ErrAgentTimedOut, context.DeadlineExceeded)},
+		hook: func(ctx context.Context, _ Options, request ActivityRequest) {
+			<-ctx.Done()
+			// The stop was durable before bounded collection exhausted its allowance.
+			mustProgress(t, f.db.RecordAttemptTimeout(t.Context(), store.AttemptTimeout{NodeAttemptID: request.NodeAttemptID, Budget: 91 * time.Second, TimedOutAt: time.Now()}))
+		},
+	}
+	req := f.graphRequest(graphTestDOT, handler)
+	req.StopOnFailure = true
+	result, err := ExecuteNodeAction(ctx, f.opts, req)
+	if !errors.Is(err, ErrAgentTimedOut) || strings.Contains(err.Error(), "complete graph activity") {
+		t.Fatalf("timeout failed local settlement: %+v %v", result, err)
+	}
+	row := implementWorkerRow(t, f)
+	if strings.Contains(row.LastFailure, diagnostic) {
+		t.Fatal("fixture did not leave short atomic stop evidence")
+	}
+	mustProgress(t, RecoverImplementTimeoutPark(t.Context(), f.opts, row))
+	if !strings.Contains(forge.only(t).body, "collector deadline exceeded") {
+		t.Fatalf("notice lost cleanup evidence: %+v", forge.only(t))
+	}
+}
+
+func TestGraphTimeoutSettlementRestoresMissingStopBeforeRetry(t *testing.T) {
+	f, _, _ := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Fatal("settlement invoked provider")
+		return nil, nil
+	}))
+	seedImplementStory(t, f)
+	const allowance = 91 * time.Second
+	deadline := time.Now().UTC().Add(-time.Second)
+	handler := &graphTestHandler{
+		results: map[string][]ActivityResult{"work": {{cleanupDeadline: deadline, Diagnostic: "Timeout evidence collection unavailable."}}},
+		errs:    map[string]error{"work": ErrAgentTimedOut},
+		hook: func(ctx context.Context, _ Options, request ActivityRequest) {
+			_, err := f.db.EnsureAttemptTiming(ctx, store.AttemptTiming{NodeAttemptID: request.NodeAttemptID, StartedAt: deadline.Add(-allowance), Deadline: deadline, Allowance: allowance, Source: "node"})
+			mustProgress(t, err)
+		},
+	}
+	req := f.graphRequest(graphTestDOT, handler)
+	req.StopOnFailure = true
+	result, err := ExecuteNodeAction(t.Context(), f.opts, req)
+	if !errors.Is(err, ErrAgentTimedOut) || strings.Contains(err.Error(), "complete graph activity") {
+		t.Fatalf("settlement lost expiry: %+v %v", result, err)
+	}
+	receipt, err := f.db.GetAttemptTimeout(t.Context(), result.AttemptID)
+	mustProgress(t, err)
+	row := implementWorkerRow(t, f)
+	if receipt.Budget != allowance || row.TimeoutAttemptID != result.AttemptID || row.Attempts != 0 {
+		t.Fatalf("missing receipt enabled retry: %+v %+v", receipt, row)
+	}
+	workers, err := f.db.ListImplementStoriesNeedingWorker(t.Context())
+	mustProgress(t, err)
+	for _, worker := range workers {
+		if worker.WorkerSession == row.WorkerSession {
+			t.Fatal("timed-out worker became runnable")
+		}
+	}
+}

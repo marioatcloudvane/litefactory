@@ -66,8 +66,10 @@ type Config struct {
 	// missing stanza leaves Bug checks blocked, without affecting other work.
 	BugChecks *BugCheckIsolation `yaml:"bug_checks"`
 	// Standards holds owner-started standards analysis settings.
-	Standards  StandardsSettings `yaml:"standards"`
-	agentOrder []Kind
+	Standards                StandardsSettings `yaml:"standards"`
+	workerTimeoutSource      string
+	workerTimeoutDiagnostics []string
+	agentOrder               []Kind
 }
 
 // AgentOrder returns configured coding agents in YAML declaration order. The
@@ -101,6 +103,8 @@ type Providers struct {
 // Keeping these values in config, rather than introducing a settings service,
 // preserves the existing immutable configuration flow to runtime consumers.
 type Settings struct {
+	// WorkerTimeoutSeconds is the default allowance for one logical worker attempt.
+	WorkerTimeoutSeconds int `yaml:"worker_timeout_seconds"`
 	// TeamSource is an anonymous HTTPS catalogue; empty uses DefaultTeamSource.
 	TeamSource string `yaml:"team_source"`
 	// PollIntervalMinutes is the fallback discovery poll interval: how often
@@ -202,13 +206,8 @@ type Codex struct {
 	// ModelTier selects the concrete model through tiers.model_by_tier.codex.
 	ModelTier Tier `yaml:"model_tier"`
 
-	// TimeoutSeconds is the hard wall-clock kill for one Codex run, bounded
-	// the same way [Claude.TimeoutSeconds] is (T-7.1). There is no
-	// cross-run default the way [Defaults] pre-populates Claude's: a
-	// pointer-nested stanza like this one is only allocated once the
-	// operator's YAML mentions agents.codex at all, at which point
-	// [Defaults] has already run, so an operator who configures agents.codex
-	// must write this explicitly.
+	// TimeoutSeconds is a deprecated migration input for WorkerTimeoutSeconds.
+	// Runtime attempt deadlines take precedence over this adapter fallback.
 	TimeoutSeconds int `yaml:"timeout_seconds"`
 
 	// WritableRoots are absolute directories made writable alongside the
@@ -342,10 +341,8 @@ type Claude struct {
 	// anything at all. [Load] resolves the default once, before validation, so
 	// config validation and the harness read the same slice.
 	ToolCeiling []string `yaml:"tool_ceiling"`
-	// TimeoutSeconds is the hard wall-clock kill for one run. It is
-	// independent of any event-driven completion detection because a bad
-	// credential makes claude retry internally and hang indefinitely,
-	// emitting no result event at all (SD-3).
+	// TimeoutSeconds is a deprecated migration input for WorkerTimeoutSeconds.
+	// Runtime attempt deadlines take precedence over this adapter fallback.
 	TimeoutSeconds int `yaml:"timeout_seconds"`
 	// ForwardAnthropicEnv opts into forwarding ANTHROPIC_* variables from the
 	// daemon's environment to the claude child. Off by default, and it should
@@ -444,12 +441,13 @@ func Defaults() Config {
 
 		Webhook: Webhook{Listen: DefaultWebhookListen},
 		Settings: Settings{
-			TeamSource:          DefaultTeamSource,
-			PollIntervalMinutes: DefaultPollIntervalMinutes,
-			MaxConcurrentRuns:   DefaultMaxConcurrentRuns,
-			DefaultBaseBranch:   "",
-			FeaturePrefix:       DefaultFeaturePrefix,
-			WorktreeRoot:        "",
+			WorkerTimeoutSeconds: DefaultWorkerTimeoutSeconds,
+			TeamSource:           DefaultTeamSource,
+			PollIntervalMinutes:  DefaultPollIntervalMinutes,
+			MaxConcurrentRuns:    DefaultMaxConcurrentRuns,
+			DefaultBaseBranch:    "",
+			FeaturePrefix:        DefaultFeaturePrefix,
+			WorktreeRoot:         "",
 
 			WorktreeRetainDays:         DefaultWorktreeRetainDays,
 			DeployBackupKeep:           DefaultDeployBackupKeep,
@@ -566,6 +564,7 @@ const (
 	DefaultLogLevel             = "info"
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"
+	DefaultWorkerTimeoutSeconds = 1800
 	DefaultClaudeTimeoutSeconds = 1800
 	DefaultClaudeAutoCompact    = "100k"
 	DefaultCodexBinary          = "codex"
@@ -690,6 +689,9 @@ func Decode(r io.Reader) (*Config, error) {
 			return &cfg, nil
 		}
 		return nil, friendlyYAMLError(err)
+	}
+	if err := cfg.resolveWorkerTimeout(data); err != nil {
+		return nil, err
 	}
 	cfg.normalize()
 
@@ -1107,4 +1109,55 @@ func (s Settings) MinFreeDiskBytes() uint64 {
 		return 0
 	}
 	return uint64(s.MinFreeDiskGB) << 30
+}
+
+func yamlField(node *yaml.Node, key string) *yaml.Node {
+	return yamlFieldSeen(node, key, make(map[*yaml.Node]bool))
+}
+
+func yamlFieldSeen(node *yaml.Node, key string, seen map[*yaml.Node]bool) *yaml.Node {
+	if node == nil || seen[node] {
+		return nil
+	}
+	seen[node] = true
+	defer delete(seen, node)
+	if node.Kind == yaml.AliasNode {
+		return yamlFieldSeen(node.Alias, key, seen)
+	}
+	if node.Kind == yaml.SequenceNode {
+		for _, child := range node.Content {
+			if field := yamlFieldSeen(child, key, seen); field != nil {
+				return field
+			}
+		}
+		return nil
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "<<" {
+			if field := yamlFieldSeen(node.Content[i+1], key, seen); field != nil {
+				return field
+			}
+		}
+	}
+	return nil
+}
+
+func workerTimeoutScalarTag(node *yaml.Node) string {
+	seen := make(map[*yaml.Node]bool)
+	for node != nil && !seen[node] {
+		seen[node] = true
+		if node.Kind != yaml.AliasNode {
+			return node.Tag
+		}
+		node = node.Alias
+	}
+	return ""
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 )
 
 // ReportOwnerInput uses the existing immutable delivery journal and confirmed
@@ -45,6 +46,9 @@ func (r *Reporter) ReportOwnerInput(ctx context.Context, ref naming.Ref, session
 				}
 				b.WriteString(".\n")
 			}
+		}
+		if !guidance {
+			b.WriteString("\nInspect the retained instruction targets on the factory host: `" + report.TaskInspectionCommand(ref.String()) + "`. Waiting does not start an ineligible step.\n")
 		}
 		return r.renderer.RenderReportDelivery(ctx, b.String(), "")
 	})

@@ -23,7 +23,7 @@ func conversationCauseReply(err error, at time.Time) string {
 	case errors.As(err, &failure) && failure.NoProcessStarted:
 		return "The model provider could not be started for this message. Please ask again."
 	case errors.As(err, &failure):
-		return "The model provider failed before finishing an answer. Please ask again."
+		return "The model provider failed before a completed answer was saved; its completion is unknown."
 	}
 	return ""
 }
@@ -48,7 +48,7 @@ func conversationSpecificCause(err error, at time.Time) string {
 		}
 		return "My answer was rejected by the format check, even after one retry, so I didn't send it. Please ask again."
 	case errors.Is(err, context.DeadlineExceeded):
-		return "The model took too long to answer. Please ask again."
+		return "The model took too long to answer; completion is unknown."
 	}
 	return ""
 }

@@ -43,7 +43,7 @@ To say no, leave the rule as the owner gave it or empty, explain in notes and as
 
 # Result
 
-Answer with exactly one JSON object as described in the response schema, and nothing else. notes tells the owner in plain words what you did: what the draft is based on, what you pushed back on and why, and which standard it sharpens or replaces, if any.
+Answer with exactly one JSON object as described in the response schema, and nothing else. notes tells the owner in plain words what you did: what the draft is based on, what you pushed back on and why, and which standard it sharpens or replaces, if any. Explain the effect on the draft and material uncertainty without repeating supplied explanations; a routine update may be one or two sentences. For a needed decision, explain the supported reply and destination, who can act, required owner evidence and consequences. Put prerequisites first, identify independent choices and recommend an option when supported. Never imply that a draft or accepted response is published; say no reply is needed and work continues only when supplied state establishes both.
 
 Repository evidence is pinned to one commit. For `repo_read`, assemble only the
 `content` fields, which preserve text and line endings; `text` is display context.

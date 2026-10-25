@@ -69,6 +69,10 @@ func (t *StoryTally) valid() bool {
 // Every field except Ref and Ordinal is allowed to be absent. A run that
 // crashed on its way to reporting still gets a comment (AC-4.1).
 type Run struct {
+	RecoveredTimeout bool
+	WorkerLimit      time.Duration
+	WorkerDeadline   time.Time
+
 	PreparationCaveats       []string
 	ConflictProposal         *ConflictProposal
 	ConflictSuggestionFailed bool
@@ -278,6 +282,10 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 	var c cuts
 	view := describeOutcome(run)
 	logPath := run.logPath()
+	inspection := RunInspectionCommand(run.Ref, run.Ordinal) + " --raw"
+	if logPath == "" {
+		inspection = TaskInspectionCommand(run.Ref.String())
+	}
 
 	var sections [numSections]string
 	sections[secFixed] = fixedSection(run, view)
@@ -292,9 +300,9 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 	//    that says what happened.
 	if sections[secResult] != "" {
 		if room := r.roomFor(sections, secResult); room > len(resultHeading)+minTailBytes {
-			sections[secResult], c.result = truncateEnd(sections[secResult], resultCutNotice(logPath), room)
+			sections[secResult], c.result = truncateEnd(sections[secResult], resultCutNotice(logPath, inspection), room)
 		} else {
-			sections[secResult] = droppedResultNotice(logPath)
+			sections[secResult] = droppedResultNotice(logPath, inspection)
 			c.result = true
 		}
 	}
@@ -426,6 +434,9 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 	if run.CommitSHA != "" {
 		v.lead += worktreeNote(run.WorktreePath)
 	}
+	if run.Result == nil || v.word == "not completed" {
+		v.lead += "\n\nInspect on the factory host: `" + RunInspectionCommand(run.Ref, run.Ordinal) + "`."
+	}
 	return v
 }
 
@@ -477,8 +488,7 @@ func describeRunOutcome(run Run) outcomeView {
 		return outcomeView{
 			word:  "outcome unknown",
 			alert: "CAUTION",
-			lead: fmt.Sprintf("litefactory did not record how run %d ended — it was most likely interrupted "+
-				"between finishing the run and reporting on it. The local log is the authority on what happened.", n),
+			lead:  fmt.Sprintf("litefactory did not record how run %d ended. Completion and the cause are unknown. Inspect on the factory host: `%s`.", n, RunInspectionCommand(run.Ref, n)),
 		}
 	}
 
@@ -509,27 +519,29 @@ func describeRunOutcome(run Run) outcomeView {
 			diagnostic, _ = truncateEnd(diagnostic, "…", 1024)
 			lead += "\n\nDiagnostic: " + codeSpan(diagnostic)
 		}
+		lead += "\n\nInspect on the factory host: `" + RunInspectionCommand(run.Ref, n) + "`."
 		return outcomeView{word: "failed", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeTimedOut:
-		lead := fmt.Sprintf("Run %d ran past the configured timeout for `%s` and litefactory killed it", n, tool)
+		lead := fmt.Sprintf("Run %d exceeded the configured timeout for `%s`", n, tool)
+		if run.RecoveredTimeout {
+			lead = fmt.Sprintf("Run %d’s recorded deadline for `%s` expired before restart; process completion evidence was unavailable", n, tool)
+		}
 		if d, ok := run.duration(); ok {
 			lead += " after " + formatDuration(d)
 		}
 		lead += ". The work it had done up to that point is still in the worktree. " +
-			"Raise the timeout or narrow the task, then comment again."
+			"Existing retries continue under the worker’s current policy. If the worker is waiting for input, reply on this issue to continue."
 		return outcomeView{word: "timed out", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeAbandoned:
-		lead := fmt.Sprintf("Run %d was abandoned because litefactory was shutting down. "+
-			"Nothing failed and nothing crashed: the daemon was asked to stop while the run was in flight, "+
-			"so it stopped. Comment again to run it.", n)
+		lead := fmt.Sprintf("Run %d is recorded as abandoned. "+
+			"Completion and any external effects are not confirmed. "+
+			"Inspect the retained work on the factory host before deciding whether to continue: `%s`.", n, RunInspectionCommand(run.Ref, n))
 		return outcomeView{word: "abandoned", alert: "NOTE", lead: lead}
 
 	case agent.OutcomeNoResult:
-		lead := fmt.Sprintf("Run %d exited cleanly without ever reporting a result. "+
-			"In practice this is usually a stale `%s` credential: the tool retries internally about ten times "+
-			"and then goes quiet. Run `%s` once by hand to check it is still logged in, then comment again.", n, tool, tool)
+		lead := fmt.Sprintf("Run %d exited without a recorded result. Completion and the cause are unknown. Inspect on the factory host: `%s`.", n, RunInspectionCommand(run.Ref, n))
 		return outcomeView{word: "no result", alert: "WARNING", lead: lead}
 
 	default:
@@ -537,7 +549,7 @@ func describeRunOutcome(run Run) outcomeView {
 			word:  "outcome unrecognised",
 			alert: "CAUTION",
 			lead: fmt.Sprintf("Run %d finished with an outcome litefactory does not recognise (%s). "+
-				"This is a bug in litefactory, not in the task. The local log is the authority.", n, res.Outcome),
+				"Completion is unknown. Inspect on the factory host: `%s`.", n, res.Outcome, RunInspectionCommand(run.Ref, n)),
 		}
 	}
 }
@@ -615,6 +627,12 @@ func metadataList(run Run, view outcomeView) string {
 		lines = append(lines, "- **"+label+":** "+value)
 	}
 
+	if run.WorkerLimit > 0 {
+		add("Worker limit", fmt.Sprintf("%g seconds", run.WorkerLimit.Seconds()))
+	}
+	if !run.WorkerDeadline.IsZero() {
+		add("Worker deadline", run.WorkerDeadline.UTC().Format(time.RFC3339Nano))
+	}
 	// The one Commit case that survives (AC-3.1): a non-success run that
 	// committed nothing still needs to say where whatever it did produce still
 	// is. A run with no branch has no worktree to name, and a run that either
@@ -909,22 +927,38 @@ func resultSection(run Run, view outcomeView) string {
 	// Cut with no notice, close whatever the cut opened, then add the notice —
 	// so the line explaining the cut is never itself inside a code block. The
 	// room reserved covers the notice and the longest fence it could need.
-	if cut, ok := truncateEnd(text, "", maxResultBytes-len(resultOverlongNotice)-maxFenceBytes); ok {
-		text = closeOpenFence(cut) + resultOverlongNotice
+	notice := resultOverlongNotice + completeRunInspection(run)
+	if cut, ok := truncateEnd(text, "", maxResultBytes-len(notice)-maxFenceBytes); ok {
+		text = closeOpenFence(cut) + notice
 	}
 	return resultHeading + sectionGap + text
 }
 
+// completeRunInspection uses the unfiltered raw route so omitted commands and
+// consequences in the saved final event remain available to the operator.
+func completeRunInspection(run Run) string {
+	if run.logPath() == "" {
+		return "\n\nNo saved event log is identified. Ask the factory operator to inspect retained diagnostics on the factory host: `" + TaskInspectionCommand(run.Ref.String()) + "`."
+	}
+	return "\n\nAsk the factory operator to inspect the saved event log on the factory host: `" + RunInspectionCommand(run.Ref, run.Ordinal) + " --raw`."
+}
+
 // resultCutNotice ends a final message that had to be shortened.
-func resultCutNotice(logPath string) string {
-	return sectionGap + "_[litefactory: cut to fit the comment size limit. The full run is at " + logLocation(logPath) + ".]_"
+func resultCutNotice(logPath, inspection string) string {
+	if logPath == "" {
+		return sectionGap + "_[litefactory: cut to fit the comment size limit; no saved event log is identified.]_" + sectionGap + "Ask the factory operator to inspect retained diagnostics on the factory host: `" + inspection + "`."
+	}
+	return sectionGap + "_[litefactory: cut to fit the comment size limit. The full run is at " + logLocation(logPath) + ".]_" + sectionGap + "Ask the factory operator to inspect the saved event log on the factory host: `" + inspection + "`."
 }
 
 // droppedResultNotice replaces a final message there was no room for at all.
-func droppedResultNotice(logPath string) string {
+func droppedResultNotice(logPath, inspection string) string {
+	if logPath == "" {
+		return resultHeading + sectionGap + "_Omitted to fit the comment size limit; no saved event log is identified._" + sectionGap + "Ask the factory operator to inspect retained diagnostics on the factory host: `" + inspection + "`."
+	}
 	return resultHeading + sectionGap +
 		"_Omitted to fit the comment size limit. The run's final message is in the local log at " +
-		logLocation(logPath) + "._"
+		logLocation(logPath) + "._" + sectionGap + "Ask the factory operator to inspect the saved event log on the factory host: `" + inspection + "`."
 }
 
 // logLocation renders the local log path for a notice, or a phrase standing in

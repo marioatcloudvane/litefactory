@@ -23,13 +23,15 @@ func TestImplementAttemptGuidanceAsksOnlyTheStoryWorkerToDelegateAndStatesTheLim
 		delegate bool
 		limit    string
 	}{
-		{"worker with runner timeout", implement, worker, timedRunner(6 * time.Hour), true, "wall-clock limit of 360 minutes"},
-		{"smaller node budget wins", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "45"}, timedRunner(6 * time.Hour), true, "wall-clock limit of 45 minutes"},
-		{"larger node budget loses", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "50"}, timedRunner(20 * time.Minute), true, "wall-clock limit of 20 minutes"},
-		{"budget without runner timeout", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "30"}, nil, true, "wall-clock limit of 30 minutes"},
+		{"worker with runner timeout", implement, worker, timedRunner(6 * time.Hour), true, "wall-clock limit of 21600 seconds"},
+		{"smaller node budget wins", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "45"}, timedRunner(6 * time.Hour), true, "wall-clock limit of 2700 seconds"},
+		{"larger node budget wins", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "50"}, timedRunner(20 * time.Minute), true, "wall-clock limit of 3000 seconds"},
+		{"budget without runner timeout", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "30"}, nil, true, "wall-clock limit of 1800 seconds"},
+		{"effective parent beats node", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "120"}, effectiveWorkerLimit(61 * time.Second), true, "wall-clock limit of 61 seconds"},
+		{"exact legacy seconds", implement, worker, effectiveWorkerLimit(121 * time.Second), true, "wall-clock limit of 121 seconds"},
 		{"no known limit", implement, worker, nil, true, "This attempt has a wall-clock limit; there is no other budget"},
-		{"other implement node", implement, map[string]string{"lf_agent_markdown": "go-unit-test-engineer"}, timedRunner(time.Hour), false, "wall-clock limit of 60 minutes"},
-		{"main role delivery decides the role", agent.Request{Mode: string(agent.ModeImplement), Delivery: &agent.Delivery{MainRole: "story-worker"}}, map[string]string{}, timedRunner(time.Hour), true, "wall-clock limit of 60 minutes"},
+		{"other implement node", implement, map[string]string{"lf_agent_markdown": "go-unit-test-engineer"}, timedRunner(time.Hour), false, "wall-clock limit of 3600 seconds"},
+		{"main role delivery decides the role", agent.Request{Mode: string(agent.ModeImplement), Delivery: &agent.Delivery{MainRole: "story-worker"}}, map[string]string{}, timedRunner(time.Hour), true, "wall-clock limit of 3600 seconds"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

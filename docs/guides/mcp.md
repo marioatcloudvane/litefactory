@@ -35,7 +35,11 @@ A Research run can propose new issues, but it cannot create them by itself.
 3. You approve with `/mcp-create <sha256> linked`, or `/mcp-create <sha256> attach` to also attach the new issues as sub-issues of the source issue. Use the hash exactly as posted. If the content changes, the agent must draft again and you approve again.
 4. After approval, the factory creates the issues and posts which ones were created.
 
-Approval lasts 30 minutes. At most five issues per proposal and twenty per repository in any 24 hours are allowed; effects that are still pending or uncertain count towards the limit. If the factory is not sure whether an issue was created, it checks before it tries again, so you do not get duplicates.
+A new publication must be durably accepted strictly before the approval comment is 30 minutes old. Approval alone does not establish that acceptance. At most five issues per proposal are allowed; the factory has no repository publication-volume cap. Provider permissions, throttling and failures still apply.
+
+Publication accepted within that window can continue after expiry without renewed approval while the approved proposal remains current and execution is not cancelled. It skips confirmed artifacts and publishes only remaining unbegun artifacts. Replacement or cancellation stops remaining creation and attachment writes and preserves known issue identities. Reporting a historical outcome does not authorize more writes.
+
+If an issue creation outcome is unknown, or a required attachment is unconfirmed, publication stops as uncertain. The factory does not automatically retry or complete uncertain writes. Check the repository before requesting a new proposal containing only what is still missing; otherwise a new approval could create duplicates. Historical refusals remain refusals, including refusals under the former repository-volume cap. A fresh approval can be admitted under the current policy while the proposal remains eligible.
 
 ## When a response is lost
 

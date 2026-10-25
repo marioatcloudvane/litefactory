@@ -4,7 +4,7 @@ Research and Plan profiles can add an `lf_judge` node to challenge a saved sourc
 
 The judge requires an explicit `lf_source` naming an `lf_agent` node in the same captured graph instance, a positive `lf_limit`, and exactly the `success,failed` outcomes. It pins that source node's latest completed attempt. A failed, question-only, missing or otherwise ineligible latest result is explained without selecting older work or another node. Only saved substantive Research results and Plans are eligible; a saved draft need not have owner approval.
 
-Optional overrides are `lf_agent=claude|codex|other`, `lf_model`, `lf_thinking`, `lf_focus` and `lf_budget` (1–60 minutes). These use the [shared judging settings](judge.md). `other` means the opposite of the recorded source provider. One availability fallback may use the source provider; invalid settings and isolation failures do not permit fallback. The shared total budget, any shorter node budget and cancellation cover both launches.
+Optional overrides are `lf_agent=claude|codex|other`, `lf_model`, `lf_thinking`, `lf_focus` and `lf_budget` (1–1440 minutes). These use the [shared judging settings](judge.md). `other` means the opposite of the recorded source provider. One availability fallback may use the source provider; invalid settings and isolation failures do not permit fallback. The shared total budget, any shorter node budget and cancellation cover both launches.
 
 This fragment inserts judging before an existing owner review:
 
