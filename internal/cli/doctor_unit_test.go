@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -110,6 +112,41 @@ func TestDoctorStopCLIReportsOnlyLocally(t *testing.T) {
 			check(err)
 			if len(debts) != 0 || len(commands) != 0 {
 				t.Fatal("CLI created issue report debt")
+			}
+		})
+	}
+}
+
+func TestDoctorLocalPresentationUsesCurrentCapabilityAndSettlement(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, state, want string
+		available         bool
+	}{
+		{"proposal", "", "litefactory doctor apply owner/repo 47", true},
+		{"unverified", "", "Apply capability was not verified for this readout", false},
+		{"active", "applying", "Wait; no owner action is needed", true},
+		{"settled", "completed", "litefactory logs --all --grep 'github:owner/repo#47'", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := doctor.Conversation{Conversation: store.DoctorConversation{ID: 7, TaskRef: "github:owner/repo#47"}, ApplyAvailable: tc.available}
+			if tc.name == "proposal" {
+				c.CurrentProposal = []doctor.RepairStep{{Number: 1, Target: "run:7"}}
+			}
+			if tc.state != "" {
+				c.Repair = &store.DoctorRepair{ID: "retained-7", TaskRef: c.Conversation.TaskRef, State: tc.state}
+			}
+			var out bytes.Buffer
+			if err := renderDoctor(&out, c); err != nil {
+				t.Fatal(err)
+			}
+			text := out.String()
+			if !strings.Contains(text, tc.want) || strings.Contains(text, "Repeat doctor") {
+				t.Fatalf("incorrect local next step: %s", text)
+			}
+			if (tc.available || tc.state != "") && strings.Contains(text, "Apply is unavailable") {
+				t.Fatalf("available or retained repair misreported: %s", text)
 			}
 		})
 	}

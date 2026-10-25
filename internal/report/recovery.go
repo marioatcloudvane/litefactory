@@ -9,18 +9,32 @@ import (
 // Recovery describes an already-persisted factory action. Rendering never
 // creates scheduling or continuation authority.
 type Recovery struct {
-	ActionID     int64
-	DueAt        time.Time
-	Status       string
-	ManualReason string
+	ActionID          int64
+	DueAt             time.Time
+	Status            string
+	ManualReason      string
+	InspectionCommand string
+	NoContinuation    bool
 }
 
 func recoverySection(recovery *Recovery) string {
 	if recovery == nil {
 		return ""
 	}
+	next := "Inspect on the factory host: `" + recovery.InspectionCommand + "`."
+	if recovery.InspectionCommand == "" {
+		next = "Ask the factory operator to inspect the retained recovery state in the daemon logs."
+	}
 	if recovery.ActionID <= 0 {
-		return "**Session-limit recovery**\n\n" + sanitize(recovery.ManualReason)
+		disposition := "Whether an automatic action is scheduled is unknown."
+		if recovery.NoContinuation {
+			disposition = "Nothing is scheduled to resume this interrupted run."
+		}
+		reason := recoveryCause(recovery.ManualReason)
+		if reason == "" {
+			reason = "No reason for the scheduling decision was retained."
+		}
+		return "**Session-limit recovery**\n\n" + disposition + " " + sanitize(reason) + "\n\n" + next
 	}
 	status := recovery.Status
 	if status == "" {
@@ -29,16 +43,25 @@ func recoverySection(recovery *Recovery) string {
 	switch status {
 	case "pending", "reserved":
 		if recovery.DueAt.IsZero() {
-			return "**Session-limit recovery**\n\nThe automatic action has no confirmed eligibility time. Inspect its retained state before continuing."
+			return fmt.Sprintf("**Session-limit recovery**\n\nAutomatic action %d is %s; its eligibility time is unknown.\n\n%s", recovery.ActionID, oneLine(status), next)
 		}
 		return fmt.Sprintf("**Session-limit recovery**\n\nAutomatic action %d is %s; eligible at %s. Please wait. Eligibility is not a guaranteed start time; admission and capacity still apply. No recovery command is needed.", recovery.ActionID, status, recovery.DueAt.UTC().Format("01/02/2006 15:04:05 UTC"))
 	case "running":
 		return fmt.Sprintf("**Session-limit recovery**\n\nAutomatic action %d is running. Please wait for its result; completion is not yet confirmed.", recovery.ActionID)
 	case "succeeded":
-		return fmt.Sprintf("**Session-limit recovery**\n\nAutomatic action %d succeeded. Consult its retained result for confirmed completed work and remaining stops; report delivery may settle separately.", recovery.ActionID)
+		return fmt.Sprintf("**Session-limit recovery**\n\nAutomatic action %d succeeded; report delivery may settle separately.\n\n%s", recovery.ActionID, next)
 	default:
-		return fmt.Sprintf("**Session-limit recovery**\n\nAutomatic action %d is %s. %s\n\nInspect the retained result before providing further guidance; do not repeat uncertain effects.", recovery.ActionID, oneLine(status), sanitize(recovery.ManualReason))
+		return fmt.Sprintf("**Session-limit recovery**\n\nAutomatic action %d is %s. %s\n\n%s", recovery.ActionID, oneLine(status), sanitize(recoveryCause(recovery.ManualReason)), next)
 	}
+}
+
+// recoveryCause removes only known factory advice, retaining diagnostic clauses
+// that may themselves contain semicolons. Presentation never rewrites the row.
+func recoveryCause(reason string) string {
+	for _, advice := range []string{"; resume manually after the limit lifts.", "; manual recovery is required.", "; resume manually"} {
+		reason = strings.TrimSuffix(reason, advice)
+	}
+	return strings.TrimSpace(strings.Replace(reason, "; resume manually: ", ": ", 1))
 }
 
 // StopRecovery is a read-only projection of retained graph progress. IDs bind

@@ -639,10 +639,9 @@ func TestEveryOutcomeRendersDistinguishably(t *testing.T) {
 		t.Error("the abandoned report raises a caution callout for something that is nobody's fault")
 	}
 
-	// A no-result run is the SD-3 stall. The report has to name the likely
-	// cause, because "no result" on its own is not actionable.
+	// A missing result does not establish a credential failure.
 	containsAll(t, "the no-result report", bodies[harness.OutcomeNoResult],
-		"without ever reporting a result", "credential", "logged in")
+		"without a recorded result", "cause are unknown", "--run 3")
 
 	// A timeout says what to change; a plain failure quotes the exit status.
 	containsAll(t, "the timed-out report", bodies[harness.OutcomeTimedOut], "timeout", "still in the worktree")

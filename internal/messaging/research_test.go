@@ -90,7 +90,7 @@ func TestResearchCommandResolutionAndPrivateInput(t *testing.T) {
 		t.Fatalf("long question lost binding: %q", text)
 	}
 	ports.fail = true
-	if text := run("storage-error", "answer", map[string]string{"project": "acme/app", "issue": "1", "revision": "123456789abc", "text": "private answer"}); text != "your answer was not recorded; nothing was applied" {
+	if text := run("storage-error", "answer", map[string]string{"project": "acme/app", "issue": "1", "revision": "123456789abc", "text": "private answer"}); !strings.Contains(text, "nothing was applied") || !strings.Contains(text, "https://github.com/acme/app/issues/1") {
 		t.Fatalf("storage error: %q", text)
 	}
 	before := ports.calls

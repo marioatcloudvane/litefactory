@@ -87,12 +87,22 @@ func (d *Daemon) replayContinuationCancellation(ctx context.Context, notice stor
 	if err != nil {
 		return err
 	}
+	inspectionRun := source
+	if notice.AllocatedRunID > 0 {
+		inspectionRun, err = d.db.GetRun(ctx, notice.AllocatedRunID)
+		if err != nil {
+			return err
+		}
+		if inspectionRun.SessionID != session.ID {
+			return fmt.Errorf("continuation run belongs to another session")
+		}
+	}
 	reason := fmt.Sprintf("Automatic recovery action %d was cancelled: %s", notice.ID, notice.CancellationReason)
 	posted, err := d.reportRun(ctx, turn.RunReport{
 		SessionID: session.ID, CommentID: notice.TriggerID(),
 		Run: report.Run{Ref: ref, Ordinal: source.Ordinal, Agent: source.Agent, Branch: session.Branch, WorktreePath: notice.Context.Worktree, LogPath: source.LogPath,
 			Result:   &agent.RunResult{Outcome: agent.OutcomeInterrupted, ExitCode: agent.SignalExitCode, Reason: reason, StartedAt: source.StartedAt, FinishedAt: notice.FinishedAt},
-			Recovery: &report.Recovery{ManualReason: reason}},
+			Recovery: &report.Recovery{ActionID: notice.ID, Status: "cancelled", ManualReason: reason, InspectionCommand: report.RunInspectionCommand(ref, inspectionRun.Ordinal)}},
 	})
 	if err != nil {
 		return fmt.Errorf("report cancellation of automatic action %d: %w", notice.ID, err)
