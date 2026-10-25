@@ -120,7 +120,12 @@ func (s *PlanState) PlanReplyReason(key, body string) string {
 		for _, stage := range planStages[:max(0, slices.Index(planStages, item.Stage))] {
 			ref, err := s.ReviewRevision(key, stage)
 			if err != nil || item.Approvals[stage] != ref {
-				return "An earlier stage of this story needs your approval again before this stage can be approved."
+				// This wait can never be approved, so the command that works is
+				// the one the state shows once that wait is cleared.
+				repaired := *s
+				repaired.Stories = slices.Clone(s.Stories)
+				repaired.ClearStaleWaits()
+				return repaired.withCurrentCommand(key, "An earlier stage of this story needs your approval again before this stage can be approved.")
 			}
 		}
 	}

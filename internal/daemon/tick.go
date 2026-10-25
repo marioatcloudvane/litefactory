@@ -3156,6 +3156,20 @@ func (d *Daemon) requirePlanFailureReported(ctx context.Context, result turn.Res
 		return fmt.Errorf("read the failure comment of failed Plan run %d: %w", result.Run.ID, err)
 	}
 	if !reported {
+		// Factory-scheduled Plan work deferred while an upstream story published
+		// its stage owes no failure comment, even when the run was recovered as
+		// failed: the story is offered again once that publication lands.
+		if scheduled, err := d.db.GetScheduleByTrigger(ctx, result.Run.TriggerCommentID); err == nil && scheduled.Payload == planWorkPayload {
+			deferred, err := turn.PlanRunDeferredForUpstream(ctx, d.db, result.Run, scheduled.Payload)
+			if err != nil {
+				return err
+			}
+			if deferred {
+				return nil
+			}
+		} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
 		attempts, err := d.db.ListGraphNodeAttemptsByRun(ctx, result.Run.ID)
 		if err != nil {
 			return err
