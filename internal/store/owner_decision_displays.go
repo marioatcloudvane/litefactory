@@ -155,6 +155,7 @@ func (db *DB) resolveOwnerDecisionDisplay(ctx context.Context, task, action, ref
 type OwnerDecisionBinding struct {
 	TaskRef             string
 	CommentID, AuthorID int64
+	ReplyToCommentID    int64
 	Body, Normalized    string
 	Display             OwnerDecisionDisplay
 	CreatedAt           time.Time
@@ -164,7 +165,7 @@ type OwnerDecisionBinding struct {
 func (db *DB) GetOwnerDecisionBinding(ctx context.Context, task string, comment int64) (b OwnerDecisionBinding, err error) {
 	var display int64
 	var at string
-	err = db.sql.QueryRowContext(ctx, `SELECT task_ref,comment_id,author_id,body,display_id,normalized,created_at FROM owner_decision_bindings WHERE task_ref=? AND comment_id=?`, task, comment).Scan(&b.TaskRef, &b.CommentID, &b.AuthorID, &b.Body, &display, &b.Normalized, &at)
+	err = db.sql.QueryRowContext(ctx, `SELECT task_ref,comment_id,author_id,body,display_id,normalized,created_at,reply_to_comment_id FROM owner_decision_bindings WHERE task_ref=? AND comment_id=?`, task, comment).Scan(&b.TaskRef, &b.CommentID, &b.AuthorID, &b.Body, &display, &b.Normalized, &at, &b.ReplyToCommentID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return b, ErrNotFound
 	}
@@ -184,7 +185,7 @@ func (db *DB) PutOwnerDecisionBinding(ctx context.Context, b OwnerDecisionBindin
 	if b.TaskRef == "" || b.CommentID < 1 || b.AuthorID < 1 || b.Body == "" || b.Normalized == "" || b.Display.ID < 1 || b.CreatedAt.IsZero() {
 		return graphInvariant("invalid owner decision binding")
 	}
-	_, err := db.sql.ExecContext(ctx, `INSERT INTO owner_decision_bindings(task_ref,comment_id,author_id,body,display_id,normalized,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, b.TaskRef, b.CommentID, b.AuthorID, b.Body, b.Display.ID, b.Normalized, FormatTime(b.CreatedAt))
+	_, err := db.sql.ExecContext(ctx, `INSERT INTO owner_decision_bindings(task_ref,comment_id,author_id,body,display_id,normalized,created_at,reply_to_comment_id) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, b.TaskRef, b.CommentID, b.AuthorID, b.Body, b.Display.ID, b.Normalized, FormatTime(b.CreatedAt), b.ReplyToCommentID)
 	if err != nil {
 		return err
 	}
@@ -192,7 +193,7 @@ func (db *DB) PutOwnerDecisionBinding(ctx context.Context, b OwnerDecisionBindin
 	if err != nil {
 		return err
 	}
-	if saved.Body != b.Body || saved.AuthorID != b.AuthorID || saved.Normalized != b.Normalized || saved.Display.ID != b.Display.ID {
+	if saved.Body != b.Body || saved.AuthorID != b.AuthorID || saved.Normalized != b.Normalized || saved.Display.ID != b.Display.ID || saved.ReplyToCommentID != b.ReplyToCommentID {
 		return graphInvariant("owner decision binding replay changed")
 	}
 	return nil

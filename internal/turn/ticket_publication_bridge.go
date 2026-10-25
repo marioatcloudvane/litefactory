@@ -166,7 +166,17 @@ func legacyPublicationReply(reply ticket.Reply, ref ticket.Ref) (github.Comment,
 			return github.Comment{}, errors.New("legacy publication author is not a GitHub actor ID")
 		}
 	}
-	return github.Comment{ID: id, Body: reply.Body, Author: github.User{ID: actorID, Login: reply.Author.Handle, IsBot: reply.Author.IsBot}, HTMLURL: reply.BrowserURL, APIURL: string(ref.Identity.Origin) + "/repos/" + ref.Locator.Container + "/issues/comments/" + strconv.FormatInt(id, 10), IssueAPIURL: string(ref.Identity.Origin) + "/repos/" + ref.Locator.Container + "/issues/" + ref.Locator.Key, CreatedAt: reply.CreatedAt, UpdatedAt: reply.UpdatedAt}, nil
+	var replyTo int64
+	if reply.ReplyTo.RemoteID != "" {
+		if reply.ReplyTo.Provider != ref.Identity.Provider || reply.ReplyTo.Origin != ref.Identity.Origin {
+			return github.Comment{}, store.ErrTicketIdentityConflict
+		}
+		replyTo, err = strconv.ParseInt(reply.ReplyTo.RemoteID, 10, 64)
+		if err != nil || replyTo < 1 {
+			return github.Comment{}, store.ErrTicketIdentityConflict
+		}
+	}
+	return github.Comment{ReplyToCommentID: replyTo, ID: id, Body: reply.Body, Author: github.User{ID: actorID, Login: reply.Author.Handle, IsBot: reply.Author.IsBot}, HTMLURL: reply.BrowserURL, APIURL: string(ref.Identity.Origin) + "/repos/" + ref.Locator.Container + "/issues/comments/" + strconv.FormatInt(id, 10), IssueAPIURL: string(ref.Identity.Origin) + "/repos/" + ref.Locator.Container + "/issues/" + ref.Locator.Key, CreatedAt: reply.CreatedAt, UpdatedAt: reply.UpdatedAt}, nil
 }
 
 // PostComment translates only at the existing serialized ledger boundary.

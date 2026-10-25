@@ -347,6 +347,9 @@ type Trigger struct {
 	//
 	// Negative is neither, and is refused.
 	CommentID int64
+	// ReplyToCommentID is the explicit provider reply parent, when available.
+	// It never names the active question merely because a wait is open.
+	ReplyToCommentID int64
 	// Body is the comment text, verbatim and untrusted.
 	Body string
 	// Author is the handle that wrote it. It is the owner — the classification

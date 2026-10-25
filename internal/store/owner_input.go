@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,6 +19,45 @@ type OwnerInputTarget struct {
 	InstanceID int64
 	Node       string
 	LaunchID   int64
+}
+
+// ParseOwnerInputTarget reads only explicit first-line metadata. It does not
+// modify the admitted bytes, infer a target from prose or choose a replacement.
+// Daemon admission and transactional recovery share this exact grammar.
+func ParseOwnerInputTarget(body string) (OwnerInputTarget, error) {
+	var out OwnerInputTarget
+	line, _, _ := strings.Cut(strings.TrimSpace(body), "\n")
+	if !strings.HasPrefix(line, "Input-Target:") {
+		return out, nil
+	}
+	seen := map[string]bool{}
+	for _, field := range strings.Fields(strings.TrimPrefix(line, "Input-Target:")) {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok || seen[key] {
+			return out, errors.New("invalid explicit owner input target")
+		}
+		seen[key] = true
+		switch key {
+		case "instance", "launch":
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || n < 1 {
+				return out, errors.New("invalid owner input target identity")
+			}
+			if key == "instance" {
+				out.InstanceID = n
+			} else {
+				out.LaunchID = n
+			}
+		case "node":
+			out.Node = value
+		default:
+			return out, fmt.Errorf("unknown owner input target field %q", key)
+		}
+	}
+	if out.InstanceID < 1 || !ownerInputNodePattern.MatchString(out.Node) {
+		return out, errors.New("owner input target needs instance and valid node")
+	}
+	return out, nil
 }
 
 // OwnerInstruction retains admitted bytes through its immutable comment source.

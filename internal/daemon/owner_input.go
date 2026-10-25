@@ -3,8 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -52,40 +50,7 @@ func (d *Daemon) retainOrdinaryOwnerInput(ctx context.Context, t *task, c github
 // Input-Target is explicit metadata, never inferred from prose or remapped to a
 // replacement instance. The immutable body (including this line) is retained.
 func ownerInputTarget(body string) (store.OwnerInputTarget, error) {
-	var out store.OwnerInputTarget
-	line, _, _ := strings.Cut(strings.TrimSpace(body), "\n")
-	if !strings.HasPrefix(line, "Input-Target:") {
-		return out, nil
-	}
-	fields := strings.Fields(strings.TrimPrefix(line, "Input-Target:"))
-	seen := map[string]bool{}
-	for _, field := range fields {
-		key, value, ok := strings.Cut(field, "=")
-		if !ok || seen[key] {
-			return out, errors.New("invalid explicit owner input target")
-		}
-		seen[key] = true
-		switch key {
-		case "instance", "launch":
-			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || n < 1 {
-				return out, errors.New("invalid owner input target identity")
-			}
-			if key == "instance" {
-				out.InstanceID = n
-			} else {
-				out.LaunchID = n
-			}
-		case "node":
-			out.Node = value
-		default:
-			return out, fmt.Errorf("unknown owner input target field %q", key)
-		}
-	}
-	if out.InstanceID < 1 || out.Node == "" {
-		return out, errors.New("owner input target needs instance and node")
-	}
-	return out, nil
+	return store.ParseOwnerInputTarget(body)
 }
 
 func (d *Daemon) handleOwnerGuide(ctx context.Context, t *task, c github.Comment) error {

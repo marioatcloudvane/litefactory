@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -346,5 +347,89 @@ func TestDoctorGraphManifestPreservesLargeIntegerIdentities(t *testing.T) {
 	}
 	if err = db.VerifyDoctorGraphRepair(ctx, rollback.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDoctorGraphWaitHandoffRetainsUnrecordedExplicitTargetAndInverse(t *testing.T) {
+	for _, withLaunch := range []bool{false, true} {
+		t.Run(fmt.Sprint("launch-", withLaunch), func(t *testing.T) {
+			db, instance, session, steps := graphAtomicFixture(t)
+			ctx := t.Context()
+			target := OwnerInputTarget{InstanceID: instance.ID, Node: "target_worker"}
+			if withLaunch {
+				result, err := db.sql.ExecContext(ctx, `INSERT INTO research_launch_definitions(session_id,trigger_id,instance_id,content_digest,topology_digest,files) VALUES(?,?,?,'content','topology',X'7B7D')`, session.ID, 99, instance.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				target.LaunchID, err = result.LastInsertId()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			body := fmt.Sprintf("Input-Target: instance=%d node=%s", target.InstanceID, target.Node)
+			if target.LaunchID > 0 {
+				body += fmt.Sprintf(" launch=%d", target.LaunchID)
+			}
+			body += "\n  Retain these exact targeted bytes.  \n"
+			// Model the crash gap: the authenticated comment and claimed wait survived,
+			// but ordinary-input admission had not yet saved a row.
+			if _, err := db.sql.ExecContext(ctx, `UPDATE comments SET body=? WHERE session_id=? AND forge_comment_id=99`, body, session.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.sql.ExecContext(ctx, `UPDATE graph_owner_waits SET reply_body=? WHERE delivery_key='atomic-wait'`, body); err != nil {
+				t.Fatal(err)
+			}
+			for j, s := range steps {
+				action, err := db.PrepareDoctorGraphAction(ctx, session.TaskRef, s.Kind, s.Target, "Preserve an unrecorded explicit receiver")
+				if err != nil {
+					t.Fatal(err)
+				}
+				steps[j].Before, steps[j].After = action.Before, action.After
+				if s.Kind == "graph_wait_cancel" {
+					before, after, err := graphStepImages(steps[j])
+					if err != nil {
+						t.Fatal(err)
+					}
+					if before.Guidance != nil || after.Guidance["target_node"] != target.Node || fmt.Sprint(after.Guidance["target_instance_id"]) != fmt.Sprint(target.InstanceID) || fmt.Sprint(after.Guidance["target_launch_id"]) != fmt.Sprint(target.LaunchID) {
+						t.Fatalf("proposal lost explicit target: before=%+v after=%+v", before.Guidance, after.Guidance)
+					}
+				}
+			}
+			op := graphApproveSteps(t, db, session, "targeted-forward", steps)
+			if err := db.ApplyDoctorGraphRepair(ctx, op.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.VerifyDoctorGraphRepair(ctx, op.ID); err != nil {
+				t.Fatal(err)
+			}
+			input, err := db.GetOwnerInstruction(ctx, session.ID, 99)
+			if err != nil || input.Body != body || input.Target != target || input.AttemptID != 0 {
+				t.Fatalf("handoff changed target or bytes: %+v %v", input, err)
+			}
+			if err := db.ApplyDoctorGraphRepair(ctx, op.ID); err != nil {
+				t.Fatalf("replay changed handoff: %v", err)
+			}
+			if err := db.SettleDoctorTypedRepair(ctx, op.ID, true, ""); err != nil {
+				t.Fatal(err)
+			}
+			inverse, err := db.PrepareDoctorGraphRollback(ctx, session.TaskRef, op.ID, "Restore the exact source wait and remove only its new input")
+			if err != nil {
+				t.Fatal(err)
+			}
+			rollback := graphApproveSteps(t, db, session, "targeted-inverse", inverse)
+			if err := db.ApplyDoctorGraphRepair(ctx, rollback.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.VerifyDoctorGraphRepair(ctx, rollback.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.GetOwnerInstruction(ctx, session.ID, 99); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("inverse retained new input: %v", err)
+			}
+			wait, err := db.GetGraphOwnerWait(ctx, instance.ID)
+			if err != nil || wait.ReplyBody != body || wait.State != "claimed" {
+				t.Fatalf("inverse changed admitted wait bytes: %+v %v", wait, err)
+			}
+		})
 	}
 }
