@@ -26,44 +26,23 @@ Establish the current foundations and gaps for issue #1108: an HTTPS Streamable 
 - **d18** — Initial proxy limits are 64 KiB request bodies, 2 requests per second per source IP with burst 10, a global 10 requests per second with burst 30, at most four concurrent tool reads and a 15-second tool deadline.
 - **d19** — Proxy streaming responses disable buffering, response timeouts exceed the tool deadline, excess requests receive 429 and invalid origins are rejected without affecting existing webhook routes.
 - **d20** — Structured audit records capture authorization outcomes, MCP connects, tool names, duration and refusal category using internal correlation identifiers while excluding credentials, URL queries, request bodies and overview content.
-- **d21** — Acceptance requires real HTTPS connector login and overview invocation for the selected client targets plus verified non-owner refusal, wrong audience or scope refusal, expiry, replay, revocation, restart, bounded output and proxy limits.
+- **d21** — Per the owner's q3 answer, acceptance requires real HTTPS login, token refresh and overview invocation in both claude.ai and ChatGPT, plus non-owner, audience, scope, expiry, replay, revocation, restart, output-bound and proxy-limit checks.
 - **d22** — GitHub credentials are used only for identity verification and are never accepted as MCP bearer credentials or forwarded to a connector.
 - **d23** — Daemon shutdown cancels pending overview reads, and authentication or store failures must not turn into anonymous access or fabricated successful results.
+- **d24** — Per the owner's q1 answer, connector grants cover all daemon-registered repositories including private repositories, with consent stating that later registrations are included.
+- **d25** — Per the owner's q2 answer, recent delivery means confirmed owner-facing reports and review publications during the rolling seven-day UTC interval ending at result generation, without code merge or deployment claims.
+- **d26** — The overview rejects unexpected arguments and returns equivalent structured and text results within a combined 256 KiB limit, with summaries capped at 512 UTF-8 bytes and trailing entries removed with explicit truncation warnings when necessary.
+- **d27** — Health includes heartbeat age, worker occupancy, discovery pause and dispatch holds, with source timestamps and an explicit stale label after five minutes.
+- **d28** — Changing the configured owner invalidates all existing connector grants.
 
 
 ## Assumptions
 
 - **a1** — Use an explicitly pinned numeric owner ID matching the daemon owner rather than silently adopting a different local GitHub login; this follows the repository's stable identity convention.
 - **a2** — The overview is a bounded projection of recorded factory facts rather than remote issue-history scraping; this follows the read-only goal and existing projections.
-- **a3** — The proposed recent window is seven days and list caps are 50; delivery meaning awaits q2 while these reversible defaults are shaping choices.
+- **a3** — The seven-day recent-report window and list caps of 50 remain shaping defaults, while the owner explicitly selected confirmed reports in q2.
 - **a4** — Live nginx configuration, OAuth application setup and real connector compatibility remain unverified; authentic deployment acceptance is required rather than inferred from documentation.
 - **a5** — Dynamic registration is the initial interoperability route; both providers document automatic registration, so metadata URL fetching is deferred.
-
-
-## Open questions
-
-### q1 — Which repositories may a connected assistant see?
-
-_Asked of: Product Owner Questions_
-
-- **all** — Recommended: all repositories registered with this daemon, including private-repository task summaries; show this coverage during owner consent.  *(recommended)*
-- **allowlist** — Only an explicit configured repository allowlist; show no repository data when the list is empty and apply the filter to health counts as well as task lists.
-
-### q2 — What should the recent-delivery section mean?
-
-_Asked of: Product Owner Questions_
-
-- **reports** — Recommended: confirmed owner-facing reports and review publications from the last seven days, labelled by kind; do not imply code was merged or deployed.  *(recommended)*
-- **features** — Only confirmed code or feature deliveries from the last seven days; report unavailable evidence explicitly and omit ordinary workflow reports.
-- **both** — Include both confirmed reports and code or feature deliveries over seven days, separately labelled and verified from their respective records.
-
-### q3 — Which hosted clients must pass before this slice is accepted?
-
-_Asked of: Product Owner Questions_
-
-- **claude** — Recommended: require claude.ai login and overview invocation first; document ChatGPT compatibility as unverified unless separately tested, keeping the scope aligned with the issue's either-client goal.  *(recommended)*
-- **both** — Require both claude.ai and ChatGPT login, refresh and overview invocation; both owner accounts and connector access become acceptance prerequisites.
-- **chatgpt** — Require ChatGPT first and document claude.ai compatibility as unverified unless separately tested.
 
 ## Research documents
 
