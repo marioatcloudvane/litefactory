@@ -142,3 +142,33 @@ Evidence:
 Per-mode vocabulary items (ImplementAwaitNode, PlanFailureNode, MaxImplementAttempts, ValidateMaxRepairRounds) are still present by symbol; their wider uses were not re-read.
 
 _No source reference was recorded for this finding._
+
+## f17
+
+One DOT file is one workflow. team.config maps six fixed keys (research, plan, implement, validate, spike, bug) to one path each, the file name is free, and a mixed-mode graph fails node/mode validation. The workflow itself is chosen by command, label or classifier, not by the graph.
+
+Evidence:
+
+- `internal/daemon/mode.go:132`
+- `internal/graphexec/validate.go:126`
+- `internal/agent/workflow.go:58`
+
+## f18
+
+Plan validation pins shape but no node set; the runtime fixes one stage per run, names agents <stage>_agent, answers the approval gate review_ready always, and advances stages only through /approve-plan. A chained three-stage plan with no approvals therefore cannot run through DOT edges alone.
+
+Evidence:
+
+- `internal/graphexec/plan_control.go:68`
+- `internal/turn/plan_graph.go:701`
+- `internal/turn/plan_graph_pick.go:38`
+
+## f19
+
+An all-lf_agent graph is valid in Research (and Spike without a final comment) only. Plan, Implement, Validate and Bug require their own start nodes and actions. Research publication needs a successful lf_research_brief. Research tool profile restricts Bash, and runs stop at 30 minutes by default.
+
+Evidence:
+
+- `internal/graphexec/research_control.go:132`
+- `internal/turn/research_brief_activity.go:145`
+- `internal/config/config.go:569`
