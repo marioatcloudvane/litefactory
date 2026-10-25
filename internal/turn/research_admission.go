@@ -84,7 +84,7 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 		return result, true, err
 	}
 	if selected != "graph" {
-		return result, true, errors.New("legacy Research task requires manual operator migration")
+		return result, true, errors.New("legacy Research task requires manual operator migration. Use /doctor inspect this legacy Research history and identify the operator migration required; do not repeat retained findings or completed work. Diagnosis authorizes no repair")
 	}
 	if opts.ResearchDriver == nil {
 		return result, true, errors.New("research graph execution is selected but the application graph driver is unavailable")

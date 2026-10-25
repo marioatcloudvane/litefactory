@@ -55,7 +55,11 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 			return store.WorkflowAdmission{}, err
 		}
 		if pin.ProfileVersion != 2 {
-			err := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused")
+			passage, contextErr := legacyRecoveryContext(ctx, r.opts.DB, req)
+			if contextErr != nil {
+				return store.WorkflowAdmission{}, contextErr
+			}
+			err := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused. Open a new issue for the same bug using existing Bug intake." + passage)
 			if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 				err = bugReplyNotApplied(err)
 			}
@@ -79,7 +83,11 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 			return store.WorkflowAdmission{}, e
 		}
 		if pin.Digest != r.definition.Profile.Digest || pin.ProfileVersion != 2 {
-			e := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused")
+			passage, contextErr := legacyRecoveryContext(ctx, r.opts.DB, req)
+			if contextErr != nil {
+				return store.WorkflowAdmission{}, contextErr
+			}
+			e := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused. Open a new issue for the same bug using existing Bug intake." + passage)
 			if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 				e = bugReplyNotApplied(e)
 			}
@@ -327,7 +335,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 	var prerequisite *store.BugSyncPrerequisite
 	if gate, ok := graphexec.BugFixerSyncGate(r.definition.Profile); ok {
 		fixer, _ := graphexec.Decide(r.definition.Profile, gate.Name, "synced")
-		prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer}
+		prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer, AllowDeferred: slices.Contains(gate.Outcomes, "deferred")}
 	}
 	for {
 		if e = ctx.Err(); e != nil {

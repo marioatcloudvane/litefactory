@@ -298,13 +298,26 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (operation st
 	if err != nil {
 		return fail(err)
 	}
+	if err = os.MkdirAll(s.Paths.DoctorScratchDir(), 0700); err != nil {
+		return fail(err)
+	}
+	scratch, err := os.MkdirTemp(s.Paths.DoctorScratchDir(), "repair-")
+	if err != nil {
+		return fail(err)
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(scratch)) }()
+	handoff, err := s.PrepareRetainedEvidence(ctx, request.Target, id, scratch)
+	if err != nil {
+		return fail(err)
+	}
 	manifest, err := json.Marshal(struct {
+		RetainedEvidenceIndex  string
 		OperationID            string
 		OwnerInstruction       string
 		UntrustedEvidence      store.DoctorEvidence
 		ApprovedSteps          []store.DoctorRepairStep
 		UntrustedPriorFindings *Diagnosis
-	}{operation.ID, "Apply only this exact approved immutable proposal", evidence, steps, prior})
+	}{handoff.Index, operation.ID, "Apply only this exact approved immutable proposal", evidence, steps, prior})
 	if err != nil {
 		return fail(err)
 	}
@@ -316,14 +329,6 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (operation st
 	if err != nil || safe.Truncated() {
 		return fail(errors.New("doctor repair prompt redaction failed"))
 	}
-	if err = os.MkdirAll(s.Paths.DoctorScratchDir(), 0700); err != nil {
-		return fail(err)
-	}
-	scratch, err := os.MkdirTemp(s.Paths.DoctorScratchDir(), "repair-")
-	if err != nil {
-		return fail(err)
-	}
-	defer func() { err = errors.Join(err, os.Remove(scratch)) }()
 	meter, err := s.DB.StartDoctorMeterAttempt(ctx, id, string(provider))
 	if err != nil {
 		return fail(err)
@@ -495,7 +500,14 @@ func (t *RepairTools) ApplyTyped(ctx context.Context, number int, kind string) (
 				}
 			}
 		default:
-			step, err = t.service.DB.ApplyDoctorTypedRows(ctx, t.operation, number, kind)
+			if store.DoctorGraphRepairKind(kind) {
+				err = t.service.DB.ApplyDoctorGraphRepair(ctx, t.operation)
+				if err == nil {
+					step, err = t.step(ctx, number)
+				}
+			} else {
+				step, err = t.service.DB.ApplyDoctorTypedRows(ctx, t.operation, number, kind)
+			}
 		}
 	}
 	if err != nil {
@@ -549,6 +561,9 @@ func (t *RepairTools) Backup(ctx context.Context, number int) (err error) {
 	if err != nil {
 		return err
 	}
+	if store.DoctorGraphRepairKind(step.Kind) {
+		return errors.New("graph backups are part of the atomic whole-repair operation")
+	}
 	switch step.Kind {
 	case "session_file", "worktree_file":
 		return t.service.backupRepairFile(ctx, t.target, t.operation, step)
@@ -567,6 +582,9 @@ func (t *RepairTools) Write(ctx context.Context, number int) (err error) {
 	step, err := t.step(ctx, number)
 	if err != nil {
 		return err
+	}
+	if store.DoctorGraphRepairKind(step.Kind) {
+		return t.service.DB.ApplyDoctorGraphRepair(ctx, t.operation)
 	}
 	switch step.Kind {
 	case "session_file", "worktree_file":
@@ -595,6 +613,8 @@ func (t *RepairTools) verifyAll(ctx context.Context) error {
 			if err = t.service.RepairEffects.Verify(ctx, t.target, step); err != nil {
 				return err
 			}
+		} else if store.DoctorGraphRepairKind(step.Kind) {
+			return t.service.DB.VerifyDoctorGraphRepair(ctx, t.operation)
 		} else if err = t.service.DB.VerifyDoctorRows(ctx, t.operation, step.Number); err != nil {
 			return fmt.Errorf("verify doctor row: %w", err)
 		}
@@ -618,6 +638,9 @@ func (t *RepairTools) Verify(ctx context.Context, number int) (err error) {
 	}
 	if step.Kind == "session_file" || step.Kind == "worktree_file" {
 		return t.service.verifyReplacedFile(ctx, t.target, step)
+	}
+	if store.DoctorGraphRepairKind(step.Kind) {
+		return t.service.DB.VerifyDoctorGraphRepair(ctx, t.operation)
 	}
 	return t.service.DB.VerifyDoctorRows(ctx, t.operation, number)
 }

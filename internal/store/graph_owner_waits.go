@@ -31,6 +31,7 @@ type GraphOwnerWait struct {
 	OriginNode                  string
 	AllowRunless                bool
 	ReplyID                     int64
+	ReplyToCommentID            int64
 	ReplyBody                   string
 	ReplyAuthorID               int64
 	ClaimedAt                   time.Time
@@ -38,12 +39,12 @@ type GraphOwnerWait struct {
 	AllowanceAttemptID          int64
 }
 
-const graphWaitColumns = `delivery_key,instance_id,COALESCE(source_attempt_id,0),state,COALESCE(reply_id,0),COALESCE(reply_body,''),COALESCE(reply_author_id,0),claimed_at,COALESCE(continuation_attempt_id,0),COALESCE(origin_node,''),allow_runless,COALESCE(allowance_attempt_id,0),reply_source`
+const graphWaitColumns = `delivery_key,instance_id,COALESCE(source_attempt_id,0),state,COALESCE(reply_id,0),COALESCE(reply_body,''),COALESCE(reply_author_id,0),claimed_at,COALESCE(continuation_attempt_id,0),COALESCE(origin_node,''),allow_runless,COALESCE(allowance_attempt_id,0),reply_source,reply_to_comment_id`
 
 func scanGraphOwnerWait(row scanner) (GraphOwnerWait, error) {
 	var out GraphOwnerWait
 	var at sql.NullString
-	err := row.Scan(&out.DeliveryKey, &out.InstanceID, &out.SourceAttemptID, &out.State, &out.ReplyID, &out.ReplyBody, &out.ReplyAuthorID, &at, &out.ContinuationAttemptID, &out.OriginNode, &out.AllowRunless, &out.AllowanceAttemptID, &out.ReplySource)
+	err := row.Scan(&out.DeliveryKey, &out.InstanceID, &out.SourceAttemptID, &out.State, &out.ReplyID, &out.ReplyBody, &out.ReplyAuthorID, &at, &out.ContinuationAttemptID, &out.OriginNode, &out.AllowRunless, &out.AllowanceAttemptID, &out.ReplySource, &out.ReplyToCommentID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, ErrNotFound
 	}
@@ -63,6 +64,7 @@ func (db *DB) GetGraphOwnerWait(ctx context.Context, instanceID int64) (GraphOwn
 // OwnerID is the configured numeric identity, SourceRef the observed issue source.
 type GraphOwnerReply struct {
 	InstanceID, OwnerID, AuthorID, CommentID, QuestionCommentID int64
+	ReplyToCommentID                                            int64
 	TaskRef, SourceRef, Mode, Workflow, DeliveryKey, Body       string
 	At                                                          time.Time
 }
@@ -75,7 +77,7 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 }
 
 func (db *DB) claimGraphOwnerReply(ctx context.Context, in GraphOwnerReply, chat bool) (out GraphOwnerWait, err error) {
-	if in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || (in.QuestionCommentID < 1 && in.Workflow != "bug") || (strings.TrimSpace(in.Mode) == "" && in.Workflow != "bug") || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
+	if in.ReplyToCommentID < 0 || in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || (in.QuestionCommentID < 1 && in.Workflow != "bug") || (strings.TrimSpace(in.Mode) == "" && in.Workflow != "bug") || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
 		return out, graphInvariant("invalid authenticated graph reply")
 	}
 	if chat {
@@ -144,7 +146,7 @@ func (db *DB) claimGraphOwnerReply(ctx context.Context, in GraphOwnerReply, chat
 		if chat {
 			source = "chat"
 		}
-		_, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=?,reply_source=? WHERE delivery_key=?`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), source, in.DeliveryKey)
+		_, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=?,reply_source=?,reply_to_comment_id=? WHERE delivery_key=?`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), source, in.ReplyToCommentID, in.DeliveryKey)
 		if e != nil {
 			return e
 		}

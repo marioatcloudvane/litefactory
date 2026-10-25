@@ -28,7 +28,8 @@ type ArchiveFamily struct {
 	TaskRef   string
 	// IssueClosed is set once the forge confirmed the issue closed. Closing
 	// withdraws every pending wait, report and effect, so only active work then
-	// blocks the delete; the archive file still keeps every row.
+	// blocks the delete, apart from undelivered owner input and retained
+	// references which must stay live; the archive file keeps every other row.
 	IssueClosed bool
 }
 
@@ -62,9 +63,12 @@ type archivePendingCheck struct {
 	query  string
 }
 
+const ownerInstructionArchivePendingSQL = `SELECT EXISTS(SELECT 1 FROM owner_instruction_inputs WHERE session_id IN ` + inFS + ` AND assigned_attempt_id IS NULL)`
+
 const workflowJudgeArchiveReferenceSQL = `SELECT EXISTS(SELECT 1 FROM judge_requests WHERE caller_kind='workflow' AND (graph_instance_id IN ` + subInst + ` OR judge_node_attempt_id IN ` + subNodeAt + ` OR source_node_attempt_id IN ` + subNodeAt + `))`
 
 var archivePendingChecks = []archivePendingCheck{
+	{"owner_instruction_undelivered", ownerInstructionArchivePendingSQL},
 	{"workflow_judge_reference", workflowJudgeArchiveReferenceSQL},
 	{"graph_instance_unfinished", `SELECT EXISTS(SELECT 1 FROM graph_instances WHERE id IN ` + subInst + ` AND status='running') OR EXISTS(SELECT 1 FROM graph_node_attempts WHERE id IN ` + subNodeAt + ` AND status IN ('pending','running'))`},
 	{"graph_owner_wait_open", `SELECT EXISTS(SELECT 1 FROM graph_owner_waits WHERE instance_id IN ` + subInst + ` AND state IN ('waiting','claimed','allocated'))`},
@@ -84,9 +88,9 @@ func archivePendingArgs(f ArchiveFamily, now time.Time) []any {
 }
 
 // archiveUndeletable names the pending checks that keep even a closed issue's
-// family: their rows cannot be deleted without a migration, so writing an
-// archive file would only end in a failed delete.
-var archiveUndeletable = map[string]bool{"bug_history_retained": true, "doctor_reference": true, "workflow_judge_reference": true}
+// family: references prevent deletion, or live undelivered owner input must
+// remain available to its future receiver even when no next step exists.
+var archiveUndeletable = map[string]bool{"bug_history_retained": true, "doctor_reference": true, "workflow_judge_reference": true, "owner_instruction_undelivered": true}
 
 // archivePendingReason returns the first unfinished condition, "" when the
 // family is settled, and an error when any check cannot be read.
@@ -378,6 +382,13 @@ func recheckArchiveSettled(ctx context.Context, tx *sql.Tx, f ArchiveFamily, now
 		return fmt.Errorf("%w: active work", ErrArchiveNotSettled)
 	}
 	if f.IssueClosed {
+		var undelivered bool
+		if err := tx.QueryRowContext(ctx, archiveCTE+ownerInstructionArchivePendingSQL, archiveNamed(f)...).Scan(&undelivered); err != nil {
+			return fmt.Errorf("recheck owner input: %w", err)
+		}
+		if undelivered {
+			return fmt.Errorf("%w: owner_instruction_undelivered", ErrArchiveNotSettled)
+		}
 		var judgeReference bool
 		if err := tx.QueryRowContext(ctx, archiveCTE+workflowJudgeArchiveReferenceSQL, archiveNamed(f)...).Scan(&judgeReference); err != nil {
 			return fmt.Errorf("recheck workflow judge references: %w", err)

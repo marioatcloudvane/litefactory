@@ -41,6 +41,7 @@ separate steps. New to the terminology? Read the [glossary](glossary.md).
 - [CLI reference](cli/command-reference.md) ([CLI overview](cli/README.md))
 - [Configuration overview](configuration/README.md) and [config.yaml reference](configuration/config-yaml.md)
 - [Coding agents](configuration/coding-agents.md)
+- [Retained evidence handoffs](retained-evidence.md)
 - [Permissions](configuration/permissions.md)
 - [Glossary](glossary.md)
 

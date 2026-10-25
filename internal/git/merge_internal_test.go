@@ -69,3 +69,10 @@ func TestParseMergePreviewCleanIgnoresExtraOutput(t *testing.T) {
 		t.Errorf("Conflicts = %v, want empty on a clean preview", preview.Conflicts)
 	}
 }
+
+func TestParseMergePreviewConflictWithoutPaths(t *testing.T) {
+	preview, err := parseMergePreview("treeid\x00\x00", false)
+	if err != nil || preview.Clean || preview.TreeSHA != "treeid" || len(preview.Conflicts) != 0 {
+		t.Fatalf("preview=%+v error=%v", preview, err)
+	}
+}

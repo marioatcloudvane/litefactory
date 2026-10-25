@@ -1,0 +1,42 @@
+Latest successful complete package results (race enabled except store, turn, daemon and cli):
+ok  	github.com/cloudvane/litefactory/internal/agentresult	3.176s
+ok  	github.com/cloudvane/litefactory/internal/cli	27.675s
+ok  	github.com/cloudvane/litefactory/internal/config	5.257s
+ok  	github.com/cloudvane/litefactory/internal/daemon	106.495s
+ok  	github.com/cloudvane/litefactory/internal/doctor	68.870s
+ok  	github.com/cloudvane/litefactory/internal/drift	21.645s
+ok  	github.com/cloudvane/litefactory/internal/git	34.677s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	2.012s
+ok  	github.com/cloudvane/litefactory/internal/harness	69.232s
+ok  	github.com/cloudvane/litefactory/internal/loganalysis	20.428s
+ok  	github.com/cloudvane/litefactory/internal/logevidence	20.644s
+ok  	github.com/cloudvane/litefactory/internal/logreader	2.130s
+ok  	github.com/cloudvane/litefactory/internal/messaging	243.291s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	3.178s
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	9.458s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	1.918s
+ok  	github.com/cloudvane/litefactory/internal/messaging/response	3.226s
+ok  	github.com/cloudvane/litefactory/internal/meterview	4.661s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	10.929s
+ok  	github.com/cloudvane/litefactory/internal/projectread	3.868s
+ok  	github.com/cloudvane/litefactory/internal/report	12.952s
+ok  	github.com/cloudvane/litefactory/internal/repos	3.346s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	6.833s
+ok  	github.com/cloudvane/litefactory/internal/standards	51.699s
+ok  	github.com/cloudvane/litefactory/internal/standardsexceptions	10.074s
+ok  	github.com/cloudvane/litefactory/internal/store	88.960s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/teampackage	4.249s
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	23.750s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	2.719s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	11.292s
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	462.196s
+
+Pinned lint:
+golangci-lint v2.13.1 (installed)
+0 issues.
+
+Build: go build ./... (exit 0; no output)
+Formatter: gofmt -l on changed package directories (exit 0; no output)

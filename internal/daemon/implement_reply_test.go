@@ -48,7 +48,7 @@ func TestImplementUnusableReplyDeliveryAndAuthentication(t *testing.T) {
 					t.Fatal("failed refusal delivery consumed input")
 				}
 				pending, found, err := f.db.FindPendingReportDelivery(t.Context(), f.session().ID, 91)
-				if err != nil || !found || !strings.Contains(pending.Body, "This Implement comment did not select any parked stories") {
+				if err != nil || !found || !strings.Contains(pending.Body, "Your instruction is retained and undelivered") {
 					t.Fatalf("missing durable refusal: %+v %v %v", pending, found, err)
 				}
 				f.forge.onPostComment = nil
@@ -65,7 +65,7 @@ func TestImplementUnusableReplyDeliveryAndAuthentication(t *testing.T) {
 			posted, _, _ := f.forge.snapshot()
 			count := 0
 			for _, text := range posted {
-				if strings.Contains(text, "This Implement comment did not select any parked stories") {
+				if strings.Contains(text, "Your instruction is retained and undelivered") {
 					count++
 				}
 			}
@@ -75,6 +75,10 @@ func TestImplementUnusableReplyDeliveryAndAuthentication(t *testing.T) {
 			}
 			if count != want {
 				t.Fatalf("refusals = %d; posts=%v", count, posted)
+			}
+			input, inputErr := f.db.GetOwnerInstruction(t.Context(), f.session().ID, 91)
+			if inputErr != nil || input.AttemptID != 0 || input.Body != body {
+				t.Fatalf("unusable input not retained: %+v %v", input, inputErr)
 			}
 			f.forge.addComment(testIssue, 900041, owner(), "/unknown-command story-001")
 			if !settleUntilHandled(f, 900041, 6) {
@@ -131,12 +135,16 @@ func TestImplementClaimedQuestionConflictIsAnsweredAndConsumed(t *testing.T) {
 	posted, _, _ := f.forge.snapshot()
 	count := 0
 	for _, text := range posted {
-		if strings.Contains(text, "already handling another reply or question") {
+		if strings.Contains(text, "Your instruction is retained and undelivered") {
 			count++
 		}
 	}
 	if count != 1 {
 		t.Fatalf("refusal count = %d, posts=%v", count, posted)
+	}
+	input, inputErr := f.db.GetOwnerInstruction(t.Context(), f.session().ID, 150)
+	if inputErr != nil || input.AttemptID != 0 || input.Body != "story-002: retry too" {
+		t.Fatalf("occupied wait input lost: %+v %v", input, inputErr)
 	}
 }
 

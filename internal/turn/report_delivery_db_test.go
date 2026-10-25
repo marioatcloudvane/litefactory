@@ -10,12 +10,12 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func TestReportDeliveryRefusalSurvivesReceiptLossAndReadinessChange(t *testing.T) {
-	runner := newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-		t.Error("original refused command launched an agent")
-		return nil, errors.New("unexpected launch")
+func TestReportDeliveryAssessmentSurvivesReceiptLossAndReadinessChange(t *testing.T) {
+	var f *fixture
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		return succeeded(req, f.paths.Home()), nil
 	})
-	f := newFixture(t, runner)
+	f = newFixture(t, runner)
 	if err := f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}); err != nil {
 		t.Fatal(err)
 	}
@@ -23,8 +23,8 @@ func TestReportDeliveryRefusalSurvivesReceiptLossAndReadinessChange(t *testing.T
 	request.Mode = "implement"
 	request.Command = ParseCommand("/implement work")
 	refused := f.execute(request)
-	if !strings.Contains(refused.Reason, "No agent launched") {
-		t.Fatalf("not a readiness refusal: %+v", refused)
+	if refused.Disposition != DispositionRan || len(refused.Run.PreparationCaveats) == 0 {
+		t.Fatalf("not a managed preparation assessment: %+v", refused)
 	}
 	forge := newFakeForge(t)
 	reporter := newReporter(t, f, forge, nil)
@@ -55,7 +55,7 @@ func TestReportDeliveryRefusalSurvivesReceiptLossAndReadinessChange(t *testing.T
 		t.Fatal(err)
 	}
 	retry := f.execute(request)
-	if runner.callCount() != 0 || len(f.runs()) != 0 {
+	if runner.callCount() != 1 || len(f.runs()) != 1 {
 		t.Fatal("changed readiness launched refused source")
 	}
 	// A renderer that always fails proves pending recovery does not rerender
@@ -70,8 +70,8 @@ func TestReportDeliveryRefusalSurvivesReceiptLossAndReadinessChange(t *testing.T
 	if _, pending, err := reconstructed.ReportPending(t.Context(), f.session.ID, request.Trigger.CommentID); err != nil || pending {
 		t.Fatalf("completed refusal remains pending: %v %v", pending, err)
 	}
-	if runner.callCount() != 0 {
-		t.Fatal("refusal recovery launched")
+	if runner.callCount() != 1 {
+		t.Fatal("assessment recovery launched again")
 	}
 }
 

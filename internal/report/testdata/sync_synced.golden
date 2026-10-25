@@ -4,7 +4,3 @@
 
 > [!CAUTION]
 > litefactory did not record how run 91 ended — it was most likely interrupted between finishing the run and reporting on it. The local log is the authority on what happened.
-
-**Base branch sync**
-
-litefactory synced this branch with `origin/main` before the run started: it was 3 commit(s) behind and is now 1 ahead. Merge commit: `a1b2c3d4e5f60718293a4b5c6d7e8f9012345678`.

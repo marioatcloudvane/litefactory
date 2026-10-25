@@ -106,13 +106,14 @@ func graphBugSyncAllowanceTx(ctx context.Context, tx *sql.Tx, in GraphAttemptSta
 		}
 		next := gate.SyncNode
 		if a.Node == gate.SyncNode {
+			permitted := a.Outcome == "synced" || a.Outcome == "current" || gate.AllowDeferred && a.Outcome == "deferred"
 			if idx == len(attempts)-1 && !pending {
-				if a.Outcome != "synced" && a.Outcome != "current" {
+				if !permitted {
 					return false, nil
 				}
 				next = gate.FixerNode
 			} else if a.Outcome != "retry" {
-				if a.Outcome != "synced" && a.Outcome != "current" {
+				if !permitted {
 					return false, nil
 				}
 				var recovered bool

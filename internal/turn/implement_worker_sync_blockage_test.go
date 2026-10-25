@@ -29,7 +29,7 @@ func TestImplementWorkerSyncBlockagesPreserveWorkWithoutLaunching(t *testing.T) 
 						t.Error("blocked sync launched worker")
 						return nil, nil
 					}))
-					enableWorkerSyncFixture(f)
+					enableStrictWorkerSyncFixture(t, f)
 					f.opts.GraphRetryDelay = delay
 					seedImplementStory(t, f)
 					_, err := f.db.FreezeSessionSlug(t.Context(), f.session.ID, testSlug, "lf/story-001")

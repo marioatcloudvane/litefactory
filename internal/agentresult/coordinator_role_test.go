@@ -60,3 +60,17 @@ func TestImplementOnlyTheCoordinatorRoleMayAsk(t *testing.T) {
 		t.Fatalf("the story worker's blocked result without questions: %+v", d)
 	}
 }
+
+func TestReturnAllocationIsCoordinatorAdviceOnly(t *testing.T) {
+	raw := []byte(`{"result":{"outcome":"completed","comment":"Resolved the base conflict.","payload":{"implement":{"return_allocation":[{"story":"story-001"}]}}}}`)
+	coordinator := Context{SchemaVersion: SchemaVersion, Mode: "implement", WorkflowVersion: 2, CoordinatorRole: true}
+	result, d := Create(raw, coordinator)
+	if !d.Valid || len(result.Payload.Implement.ReturnAllocation) != 1 {
+		t.Fatalf("coordinator allocation: %+v %+v", result, d)
+	}
+	worker := coordinator
+	worker.CoordinatorRole = false
+	if _, d := Create(raw, worker); d.Valid {
+		t.Fatal("worker may not allocate returned work")
+	}
+}

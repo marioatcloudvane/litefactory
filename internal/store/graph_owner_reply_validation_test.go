@@ -13,6 +13,7 @@ func TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage(t *testing.T)
 		name   string
 		mutate func(*GraphOwnerReply)
 	}{
+		{"negative parent", func(in *GraphOwnerReply) { in.ReplyToCommentID = -1 }},
 		{"missing owner", func(in *GraphOwnerReply) { in.OwnerID = 0 }},
 		{"non-owner author", func(in *GraphOwnerReply) { in.AuthorID = 8 }},
 		{"missing reply identity", func(in *GraphOwnerReply) { in.CommentID = 0 }},

@@ -152,9 +152,9 @@ func testDispatchExhaustion(t *testing.T, bug bool) {
 	count := 0
 	posts, _, _ := f.forge.snapshot()
 	for _, body := range posts {
-		if strings.Contains(body, "Work stopped at "+instance.CurrentNode+":") {
+		if strings.Contains(body, "Work at `"+instance.CurrentNode+"`") {
 			count++
-			if !strings.Contains(body, "startup refused") || !strings.Contains(body, "Reply on this open issue to resume") {
+			if !strings.Contains(body, "startup refused") || !strings.Contains(body, "Reply on this open issue with guidance to resume") {
 				t.Fatalf("notice: %s", body)
 			}
 		}
@@ -183,7 +183,7 @@ func TestCancelledGraphNeedsReplyAfterReopening(t *testing.T) {
 	}
 	posts, _, _ := f.forge.snapshot()
 	for _, p := range posts {
-		if strings.Contains(p, "Work stopped at") {
+		if strings.Contains(p, "Work at `") {
 			t.Fatal("closure announced recovery")
 		}
 	}
@@ -323,7 +323,7 @@ func TestRunlessNodeLimitStopsAndReports(t *testing.T) {
 				}
 			} else {
 				posts, _, _ := f.forge.snapshot()
-				if len(posts) != 1 || !strings.Contains(posts[0], `node "merge" dispatch limit 1 exhausted`) || !strings.Contains(posts[0], "Reply on this open issue to resume") {
+				if len(posts) != 1 || !strings.Contains(posts[0], `node "merge" dispatch limit 1 exhausted`) || !strings.Contains(posts[0], "/doctor inspect") || strings.Contains(posts[0], "Reply on this open issue") {
 					t.Fatalf("stop notice: %v", posts)
 				}
 			}

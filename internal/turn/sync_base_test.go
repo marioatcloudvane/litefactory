@@ -3,6 +3,8 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -163,7 +165,7 @@ func TestSyncBaseBindsAnyWorkingBranchUnderAnyMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec, ok := specs.Resolve(graphexec.SyncBaseAction)
-	if !ok || spec.Mode != agent.ModeSpike || !slices.Equal(spec.Outcomes, []string{"synced", "current", "conflict", "retry"}) {
+	if !ok || spec.Mode != agent.ModeSpike || !slices.Equal(spec.Outcomes, []string{"synced", "current", "conflict", "retry", "deferred"}) {
 		t.Fatalf("%+v %v", spec, ok)
 	}
 	res, err := SyncBaseActivity{binding}.Execute(t.Context(), Options{}, ActivityRequest{Mode: agent.ModeSpike})
@@ -199,4 +201,81 @@ type countingScratch struct {
 func (s *countingScratch) Publish(ctx context.Context, branch, expected string) error {
 	*s.pushes++
 	return s.ImplementScratch.Publish(ctx, branch, expected)
+}
+
+func TestPreWorkSyncConflictDefersWithoutPublishing(t *testing.T) {
+	g := newSyncGit(t)
+	g.advance(implementFeature, "shared.txt", "feature\n")
+	g.advance(gittest.DefaultBranch, "shared.txt", "base\n")
+	before := g.remoteFeature()
+	req := g.req()
+	req.Attrs = map[string]string{"lf_outcomes": "synced,current,conflict,retry,deferred"}
+	res, err := (SyncBaseActivity{SyncBaseBinding{Repo: g.bindings.Repo, Bind: g.bindings.implementSyncBase}}).Execute(t.Context(), Options{}, req)
+	if err != nil || res.Outcome != "deferred" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	var out syncBaseOutput
+	mustProgress(t, json.Unmarshal(res.Output, &out))
+	if out.Reason == "" || len(out.Conflicts) != 1 || out.Conflicts[0] != "shared.txt" || g.remoteFeature() != before || g.scratchLeft() != 0 {
+		t.Fatalf("deferral lost evidence or mutated source: %+v", out)
+	}
+}
+
+func TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged(t *testing.T) {
+	for _, scenario := range []string{"dirty current", "ahead current", "absent remote current", "dirty behind"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newFixture(t, nil)
+			dir := seedTaskWorktree(t, f)
+			_, err := f.db.FreezeSessionSlug(t.Context(), f.session.ID, testSlug, testBranch)
+			mustProgress(t, err)
+			mustProgress(t, f.db.SetSessionWorktree(t.Context(), f.session.ID, dir))
+			session := f.reloadSession()
+			if scenario != "absent remote current" {
+				f.repo.GitIn(dir, "push", "origin", testBranch)
+			}
+			if scenario == "ahead current" || scenario == "absent remote current" {
+				commitInSyncDir(t, f.repo, dir, "local.txt", "local authorized work")
+			}
+			if scenario == "dirty current" || scenario == "dirty behind" {
+				mustProgress(t, os.WriteFile(filepath.Join(dir, "retained.txt"), []byte("retained edits"), 0600))
+			}
+			if scenario == "dirty behind" {
+				advanceSyncBase(t, f.repo, 1)
+			}
+			clone, err := f.opts.Git.Open(t.Context(), f.repo.Dir)
+			mustProgress(t, err)
+			mustProgress(t, clone.Fetch(t.Context(), "origin"))
+			beforeRemote := f.repo.Git("ls-remote", "origin", "refs/heads/"+testBranch)
+			checkout := sessionSyncCheckout{runtime: &BugRuntime{opts: f.opts}, session: session}
+			target := SyncBaseTarget{Working: testBranch, Base: gittest.DefaultBranch, Checkout: checkout, Lock: func(context.Context) (func() error, bool, error) { return func() error { return nil }, true, nil }}
+			if scenario == "absent remote current" {
+				target.PreparationReason = "retained working branch has unpublished history; preserve it before retrying base synchronization"
+			}
+			binding := SyncBaseBinding{Repo: GitImplementRepo{Clone: clone, Remote: "origin", ScratchRoot: t.TempDir(), Author: syncTestAuthor}, Bind: func(context.Context, Options, ActivityRequest) (SyncBaseTarget, error) { return target, nil }}
+			var result ActivityResult
+			gittest.AssertUnchanged(t, dir, func() {
+				result, err = (SyncBaseActivity{binding}).Execute(t.Context(), f.opts, ActivityRequest{Attrs: map[string]string{"lf_outcomes": "synced, current, conflict, retry, deferred"}})
+			})
+			mustProgress(t, err)
+			var evidence syncBaseOutput
+			mustProgress(t, json.Unmarshal(result.Output, &evidence))
+			if scenario == "dirty behind" {
+				if result.Outcome != "deferred" || evidence.Reason == "" {
+					t.Fatalf("stale dirty checkout was hidden: %+v", evidence)
+				}
+			} else if result.Outcome != "current" || evidence.Reason != "" || !evidence.CheckoutVerified || !evidence.CheckoutUnchanged {
+				t.Fatalf("healthy retained checkout warned or refreshed: %+v", evidence)
+			}
+			if after := f.repo.Git("ls-remote", "origin", "refs/heads/"+testBranch); after != beforeRemote {
+				t.Fatal("observing preparation published retained work")
+			}
+			if scenario == "dirty current" || scenario == "dirty behind" {
+				body, readErr := os.ReadFile(filepath.Join(dir, "retained.txt"))
+				mustProgress(t, readErr)
+				if string(body) != "retained edits" {
+					t.Fatal("retained edits changed")
+				}
+			}
+		})
+	}
 }

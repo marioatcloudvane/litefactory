@@ -42,11 +42,14 @@ Diagnosis currently runs on Claude. Codex diagnosis is switched off in the code 
 
 ## Repairs
 
-A proposal is a numbered list of steps. Each step names one repair from a fixed list of eight, the exact thing it touches, what it expects to find first, what it will change, why, and how to undo it:
+A proposal is a numbered list of steps. Each step names one repair from a closed repair catalog, the exact thing it touches, what it expects to find first, what it will change, why, and how to undo it:
 
 | Repair | What it does |
 | --- | --- |
-| `release_instance` | Marks a stuck workflow graph instance as failed and cancels its open owner waits and queued work. Only allowed when nothing for it is running. |
+| `graph_dispatch_cancel` | Cancels a pending, reserved or running dispatch only when no allocated run or related attempt is active. |
+| `graph_wait_cancel` | Cancels a waiting, claimed or allocated wait only when no continuation is active. Valid unhandled ordinary replies retain their exact guidance, optional targets and existing assignments. Unassigned guidance remains visibly undelivered. |
+| `graph_attempt_cancel` | Cancels a pending or running attempt only when its run is absent or stopped. |
+| `graph_fail` | Fails a running instance only when no active attempt, live dispatch or wait remains, including changes in the same approved transaction. |
 | `resume_story` | Puts a parked Implement story back to waiting, with its attempts reset. |
 | `park_story` | Parks an Implement story that is not running. |
 | `stop_run` | Stops a run, as the owner stop would. |
@@ -59,7 +62,9 @@ To apply:
 
 1. Read the whole proposal. In the terminal, run `litefactory doctor status <owner/name> <issue>` first; `doctor apply` refuses if you have not seen the current proposal in full.
 2. Approve it with `/doctor apply` on the issue, or `litefactory doctor apply <owner/name> <issue>`.
-3. Read the result. For every step it shows its state and a backup reference. Each step is backed up before it runs and checked again afterwards.
+3. Read the result. For every step it shows its state and a backup reference. Graph repairs show exact before/after values, related-row preconditions, the reason and verification plan. Their whole approved manifest is validated and applied in one database transaction, including dependent transitions, reply-guidance handoff, postimage verification and numbered journals. Either all commit together once or no repair changes commit. Step numbers never create separate commit boundaries.
+
+Graph rollback is a separately proposed and approved inverse of a retained verified repair, selected by its repair journal identity. It verifies backup integrity and exact postimages and refuses after related work advances, even if statuses later return to their old values. Dependent reversals, guidance dispositions, verification and numbered reversal journals commit together or all abort. There is no partial rollback, general row editor or fifth forward graph transition. The former cascading `release_instance` repair is unavailable for new proposals; historical records remain intact.
 
 Good to know:
 
@@ -92,9 +97,9 @@ The tests use fakes and temporary databases. They do not prove that your install
 To try a repair safely, use a disposable instance and issue with no active worker:
 
 1. Make a graph instance stuck on purpose and note its state.
-2. Send `/doctor` asking why it is stuck. Check that the proposal has a `release_instance` step for that instance.
+2. Send `/doctor` asking why it is stuck. Check that the exact proposal uses only the necessary bounded graph transitions and captures related-work checks.
 3. Send `/doctor apply`. Check the reply lists the step with a backup reference and a passed recheck.
-4. Confirm the instance is now failed, its waits and queued work are cancelled and the hold is released.
-5. Confirm the daemon stayed up and the next tick offers new work for the story.
+4. Confirm every approved row and journal changed together, verification passed, and the hold is released only after a proven outcome. Uncertain outcomes retain exclusion for inspection.
+5. Read the supported next step. A repaired row alone is not recovered work: resume only through existing reply, Research or successor admission.
 
 See also: [Troubleshooting](troubleshooting.md), [Recovery](recovery.md), [CLI reference](../cli/command-reference.md).

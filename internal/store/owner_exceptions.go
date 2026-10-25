@@ -124,7 +124,7 @@ func (db *DB) SaveOwnerExceptionReport(ctx context.Context, id, commentID int64)
 // ListReadinessExceptions returns immutable exact readiness expansions for the
 // delivery gate. Callers match concrete child/evidence keys, never wildcard text.
 func (db *DB) ListReadinessExceptions(ctx context.Context, parent string, generation int) ([]ExceptionObligation, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT expansion_json FROM owner_exceptions WHERE parent_task=? AND generation=? ORDER BY id`, parent, generation)
+	rows, err := db.sql.QueryContext(ctx, `SELECT expansion_json FROM owner_exceptions WHERE parent_task=? AND generation=? AND validate_instance_id IS NULL ORDER BY id`, parent, generation)
 	if err != nil {
 		return nil, err
 	}
