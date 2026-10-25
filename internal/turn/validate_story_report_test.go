@@ -244,3 +244,24 @@ func TestValidateStoryCommentBeyondTheFloorStillNamesEveryFinding(t *testing.T) 
 		renderStoryDelivery(t, body)
 	}
 }
+
+// #1182 C6: while the suite fails, the story's Your part points to the suite
+// failure once instead of a check prompt per item; with a passed suite the
+// per-item prompts remain.
+func TestValidateStoryYourPartPointsToTheFailedSuite(t *testing.T) {
+	st := ValidateState{Revision: "r1", Commit: strings.Repeat("c", 40), Suite: validateSuiteOutput{Outcome: store.SuiteFailed}}
+	for _, name := range []string{"AC-001", "AC-002"} {
+		st.Findings = append(st.Findings, ValidateFinding{ID: "story-002:" + name, Story: "story-002", Name: name, Role: "acceptance", Criterion: true, Blocking: true, State: findingAwaitingCheck})
+	}
+	body := renderValidateStoryComment(st, ValidateIssueRef{Key: "story-002"}, 843)
+	want := "**Your part:** the suite did not pass on commit `" + short(st.Commit) + "`; these items cannot be settled while it fails: `AC-001`, `AC-002`. See the suite failure on the parent #843."
+	if strings.Count(body, "**Your part") != 1 || !strings.Contains(body, want) || strings.Contains(body, "awaits your check") || strings.Contains(body, ValidateCheckCommand) {
+		t.Fatalf("failed suite Your part:\n%s", body)
+	}
+	st.Suite.Outcome = store.SuitePassed
+	body = renderValidateStoryComment(st, ValidateIssueRef{Key: "story-002"}, 843)
+	if strings.Count(body, "awaits your check") != 2 || !strings.Contains(body, ValidateCheckCommand) || strings.Contains(body, "suite did not pass") {
+		t.Fatalf("passed suite Your part:\n%s", body)
+	}
+	renderStoryDelivery(t, body)
+}

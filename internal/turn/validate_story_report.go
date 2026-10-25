@@ -227,8 +227,18 @@ func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, refer
 	}
 
 	var items []validateStoryLine
+	var waiting []string
+	// A recorded suite outcome other than passed: no owner check can settle an
+	// item until the suite passes.
+	suiteFailed := st.Suite.Outcome != "" && st.Suite.Outcome != store.SuitePassed
 	for _, f := range findings {
 		if !validateOwnerItem(st, f) {
+			continue
+		}
+		if suiteFailed && (f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable()) {
+			// No check can settle it while the suite fails; it is named on
+			// the single suite line below.
+			waiting = append(waiting, "`"+f.Name+"`")
 			continue
 		}
 		look := ""
@@ -262,14 +272,22 @@ func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, refer
 
 	blockHead := "\n**Blocks**\n\n"
 	itemHead := fmt.Sprintf("\n**Your part** (give each command as its own comment on the parent %s):\n\n", reference)
+	suiteLine := ""
+	if len(waiting) > 0 {
+		suiteLine = fmt.Sprintf("\n**Your part:** the suite did not pass on commit `%s`; these items cannot be settled while it fails: %s. See the suite failure on the parent %s.\n", short(st.Commit), strings.Join(waiting, ", "), reference)
+	}
 	closing := ""
 	if fit > 0 {
-		blocks, items, closing = fitValidateStoryLines(b.Len(), fit-len(reference)-100, blockHead, itemHead, blocks, items)
+		blocks, items, closing = fitValidateStoryLines(b.Len()+len(suiteLine), fit-len(reference)-100, blockHead, itemHead, blocks, items)
 	}
 	if len(blocks) > 0 {
 		b.WriteString(blockHead + joinValidateStoryLines(blocks) + "\n")
 	}
+	b.WriteString(suiteLine)
 	if len(items) == 0 && closing == "" {
+		if suiteLine != "" {
+			return b.String()
+		}
 		b.WriteString("\n**Your part:** nothing to do.\n")
 		return b.String()
 	}
