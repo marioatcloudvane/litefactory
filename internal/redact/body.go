@@ -41,6 +41,8 @@ type Body struct {
 	// belt-and-braces alongside the empty text: an explicit flag makes the
 	// poster's refusal unambiguous even for a legitimately empty body.
 	valid bool
+	// policyID is populated only for a complete evidence preparation.
+	policyID string
 }
 
 // String returns the redacted body. It is safe to send to a forge; that is the

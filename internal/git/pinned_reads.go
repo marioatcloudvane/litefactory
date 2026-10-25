@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -155,5 +156,32 @@ func (c *Clone) PinnedRead(ctx context.Context, commit, path string, byteLimit i
 		return out, false, err
 	default:
 		return "", false, fmt.Errorf("%s is a %s, not a file or directory: %w", path, kind, ErrInvalidArgument)
+	}
+}
+
+// OpenPinnedRead opens an immutable blob or tree listing for incremental private
+// preparation. The caller must close it, including on cancellation.
+func OpenPinnedRead(ctx context.Context, c *Clone, commit, path string) (io.ReadCloser, bool, error) {
+	if err := c.pinned(commit, 1); err != nil {
+		return nil, false, err
+	}
+	path, err := pinnedPath(path)
+	if err != nil {
+		return nil, false, err
+	}
+	object := commit + ":" + path
+	kind, err := c.runner.run(ctx, readTimeout, "--no-replace-objects", "cat-file", "-t", object)
+	if err != nil {
+		return nil, false, ErrRevisionNotFound
+	}
+	switch kind {
+	case "blob":
+		stream, err := c.runner.openRead(ctx, "--no-replace-objects", "cat-file", "blob", object)
+		return stream, false, err
+	case "tree":
+		stream, err := c.runner.openRead(ctx, "--no-optional-locks", "--no-replace-objects", "ls-tree", "-z", object)
+		return stream, true, err
+	default:
+		return nil, false, ErrInvalidArgument
 	}
 }

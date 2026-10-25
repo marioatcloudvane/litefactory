@@ -2,6 +2,8 @@ package report
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +69,10 @@ func (t *StoryTally) valid() bool {
 // Every field except Ref and Ordinal is allowed to be absent. A run that
 // crashed on its way to reporting still gets a comment (AC-4.1).
 type Run struct {
+	PreparationCaveats       []string
+	ConflictProposal         *ConflictProposal
+	ConflictSuggestionFailed bool
+
 	// Meter contains prepared frozen metering values, independent of legacy
 	// cost. It is retained as an input even though the run comment no longer
 	// renders it.
@@ -170,20 +176,10 @@ type Run struct {
 	ToolsRequested []string
 	ToolProfile    string
 
-	// Sync is what litefactory's automatic branch sync reached for this run's
-	// task branch, before the run itself started (US-2). Nil renders no sync
-	// section at all — a caller that does not populate this field, or a repo
-	// where auto-sync has not landed, reports exactly as it did before this
-	// field existed. A non-nil Sync whose Outcome is [SyncUpToDate] also
-	// renders nothing (AC-3.1): the branch already had everything the base
-	// did, and that is not itself something to disclose.
-	//
-	// Every other outcome gets a rendered sentence, [SyncSkipped] included —
-	// a skip is never silent (AC-3.2), whatever caused it.
-	Sync *Sync
-
-	// TaskSync is retained as an input even though the run comment no longer
-	// renders it; [Sync] is the one disclosure this package still writes.
+	// Sync and TaskSync retain the separate preparation observations. Only
+	// unresolved freshness contributes to the combined preparation caveat;
+	// current, absent and successfully synchronized branches stay quiet.
+	Sync     *Sync
 	TaskSync *Sync
 
 	// BriefPath is the repository-relative, slash-separated path of this task's
@@ -285,7 +281,7 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 
 	var sections [numSections]string
 	sections[secFixed] = fixedSection(run, view)
-	sections[secSync] = syncSection(run)
+	sections[secSync] = r.preparationSection(run, len(sections[secFixed]))
 	sections[secResult] = resultSection(run, view)
 
 	if body := join(sections[:]); len(body) <= r.budget {
@@ -706,6 +702,9 @@ type Sync struct {
 	// Outcome was decided: how many commits Base had that the branch did
 	// not, and how many the branch had that Base did not.
 	Behind, Ahead int
+	// CountsUnavailable is true when a graph retained a condition without
+	// measuring divergence. Do not invent counts for that observation.
+	CountsUnavailable bool
 
 	// Base is the base ref sync compared against and, when Outcome is
 	// [SyncSynced], the ref that was merged in — for example
@@ -716,12 +715,8 @@ type Sync struct {
 	// Outcome is [SyncSynced] and the merge actually moved the branch.
 	CommitSHA string
 
-	// Conflicts lists the paths a blocked merge preview reported, exactly as
-	// given. It is rendered inside a fenced block by [conflictsBlock], so a
-	// path cannot become markup in the comment (S-2) no matter what it
-	// contains — but this package does not sanitise or truncate the list
-	// itself, or decide which paths are safe to show at all. That is a
-	// caller's job (US-5); this renderer shows whatever list it is handed.
+	// Conflicts retains detailed observed paths for callers. The concise
+	// preparation passage does not render path lists.
 	Conflicts []string
 
 	// Reason is why sync did not complete, in a sentence fit to render
@@ -733,80 +728,99 @@ type Sync struct {
 	Reason string
 }
 
-const syncHeading = "**Base branch sync**"
-
-// syncSection renders the base-branch-sync disclosure (US-3). A nil Sync, or
-// one whose Outcome is [SyncUpToDate], renders nothing at all (AC-3.1): a
-// section that is merely empty would still look like something was omitted,
-// and the point of this rendering nothing here is that there is nothing to
-// say.
-//
-// Every other outcome gets a rendered sentence, [SyncSkipped] included
-// (AC-3.2) — see [Sync.Reason].
-func syncSection(run Run) string {
-	sync := run.Sync
-	if sync == nil || sync.Outcome == SyncUpToDate {
+// PreparationCaveat renders one bounded passage shared by ordinary and graph
+// results. Resolved freshness never creates a warning.
+func PreparationCaveat(caveats []string, syncs ...*Sync) string {
+	reasons := make([]string, 0, len(caveats)+len(syncs))
+	add := func(reason string) {
+		reason = oneLine(sanitize(reason))
+		if reason != "" && !slices.Contains(reasons, reason) {
+			reasons = append(reasons, reason)
+		}
+	}
+	for _, c := range caveats {
+		add(c)
+	}
+	for _, s := range syncs {
+		if s == nil || s.Outcome == SyncUpToDate || s.Outcome == SyncSynced || string(s.Outcome) == "absent" {
+			continue
+		}
+		if s.Outcome == SyncSkipped && s.Behind == 0 {
+			continue
+		}
+		phase := s.Phase
+		if phase == "" {
+			phase = "base"
+		}
+		reason := s.Reason
+		if reason == "" {
+			switch s.Outcome {
+			case SyncBlocked:
+				reason = "merging would conflict; existing work was preserved"
+			case SyncDeferredDirty:
+				reason = "uncommitted changes were preserved"
+			default:
+				reason = "synchronization remains unresolved"
+			}
+		}
+		if s.CountsUnavailable {
+			add(fmt.Sprintf("%s synchronization: %s.", phase, reason))
+		} else {
+			add(fmt.Sprintf("%s synchronization (%d behind): %s.", phase, s.Behind, reason))
+		}
+	}
+	if len(reasons) == 0 {
 		return ""
 	}
+	return "**Preparation caveat**" + sectionGap + strings.Join(reasons, " ")
+}
 
-	var withBase string
-	if sync.Base != "" {
-		withBase = " with " + codeSpan(sync.Base)
+// preparationSection keeps advisory proposals in the original run's normal
+// delivery. Prepared diffs are expendable; mandatory confirmation metadata is
+// retained before them and no proposal is applied by rendering it.
+func (r *Reporter) preparationSection(run Run, fixedBytes int) string {
+	caveats := append([]string(nil), run.PreparationCaveats...)
+	if run.ConflictSuggestionFailed {
+		caveats = append(caveats, conflictSuggestionFailedSentence)
 	}
-
-	var lead string
-	switch sync.Outcome {
-	case SyncSynced:
-		lead = fmt.Sprintf("litefactory synced this branch%s before the run started: "+
-			"it was %d commit(s) behind and is now %d ahead.", withBase, sync.Behind, sync.Ahead)
-		if sync.CommitSHA != "" {
-			lead += " Merge commit: " + codeSpan(sync.CommitSHA) + "."
+	section := PreparationCaveat(caveats, run.TaskSync, run.Sync)
+	if run.ConflictProposal == nil {
+		return section
+	}
+	metadata, err := conflictPreviewMetadata(Reply{Ref: run.Ref, ConflictProposal: run.ConflictProposal})
+	if err != nil {
+		return section
+	}
+	metadata = strings.TrimPrefix(metadata, ReplyMarker(run.Ref)+sectionGap)
+	if section == "" {
+		section = "**Preparation caveat**"
+	}
+	section += sectionGap + metadata
+	// Leave room for the fixed run status and an omitted-result notice.
+	limit := r.budget - fixedBytes - 1024
+	if len(section)+len(conflictDiffOmission) > limit {
+		// Never truncate complete proposal metadata into misleading confirmation
+		// advice. The durable proposal remains available for inspection.
+		return PreparationCaveat(append(caveats, "Suggested conflict resolution could not fit this result; resolve manually or regenerate."), run.TaskSync, run.Sync)
+	}
+	omitted := false
+	for _, file := range run.ConflictProposal.Files {
+		content := sanitize(file.Diff)
+		if content == "" {
+			continue
 		}
-
-	case SyncBlocked:
-		lead = fmt.Sprintf("litefactory could not sync this branch%s: merging would conflict, "+
-			"so the branch was left as it was (%d commit(s) behind) and the run went ahead against it.",
-			withBase, sync.Behind)
-
-	case SyncSkipped:
-		reason := oneLine(sync.Reason)
-		if reason == "" {
-			reason = "no reason was recorded for it"
+		fence := fenceFor(content)
+		block := sectionGap + fence + "\n" + strconv.Quote(sanitize(file.Path)) + "\n" + content + "\n" + fence
+		if len(section)+len(block)+len(conflictDiffOmission) > limit {
+			omitted = true
+			continue
 		}
-		lead = fmt.Sprintf("litefactory skipped syncing this branch%s (%d commit(s) behind): %s.",
-			withBase, sync.Behind, reason)
-
-	case SyncDeferredDirty:
-		lead = fmt.Sprintf("litefactory deferred syncing this branch%s to preserve uncommitted changes "+
-			"for this run to inspect and finish (%d commit(s) behind, %d ahead). "+
-			"The base was not merged; this run proceeded on the current task base. "+
-			"Synchronization will be reconsidered on the next eligible clean run.", withBase, sync.Behind, sync.Ahead)
-
-	case SyncFailed:
-		reason := oneLine(sanitize(sync.Reason))
-		if reason == "" {
-			reason = "the attempt failed without recording why"
-		}
-		lead = fmt.Sprintf("litefactory tried to sync this branch%s but could not: %s.", withBase, reason)
-
-	default:
-		lead = fmt.Sprintf("litefactory recorded a base branch sync outcome it does not recognise (%s).", sync.Outcome)
+		section += block
 	}
-
-	var b strings.Builder
-	b.WriteString(syncHeading)
-	b.WriteString(sectionGap)
-	b.WriteString(lead)
-	if sync.LocalSHA != "" {
-		fmt.Fprintf(&b, " Compared local %s and remote %s.", codeSpan(sync.LocalSHA), codeSpan(sync.RemoteSHA))
+	if omitted {
+		section += conflictDiffOmission
 	}
-
-	if sync.Outcome == SyncBlocked && len(sync.Conflicts) > 0 {
-		b.WriteString(sectionGap)
-		fmt.Fprintf(&b, "Conflicting path(s) (%d):\n", len(sync.Conflicts))
-		b.WriteString(conflictsBlock(sync.Conflicts))
-	}
-	return b.String()
+	return section
 }
 
 // conflictsBlock quotes conflicting paths inside a fenced block, so a path

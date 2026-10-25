@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
@@ -531,6 +532,10 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		Invocation:     agent.InvocationResearchNode,
 		Graph:          &agent.GraphInvocation{InstanceID: vr.InstanceID, AttemptID: vr.NodeAttemptID, RunID: run.ID, Node: nodeName},
 	}
+	ownerGuidance, err := opts.DB.OwnerGuidanceForRun(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
 	prompt, err := validateReviewPrompt(vr)
 	if err != nil {
 		return nil, err
@@ -541,7 +546,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 	if delivery == nil || delivery.MainRole == "" {
 		prompt += policy.Guidance
 	}
-	request.Prompt = prompt
+	request.Prompt = prompt + harness.OwnerGuidanceSection(ownerGuidance.Revision, ownerGuidance.Body)
 	prep := &preparation{standardsRole: vr.StandardsRole, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
 	w := &researchWorkflow{opts: opts, req: nodeReq, policy: policy, prep: prep}
 	scope := cloneResultContext(vr.Scope)

@@ -12,11 +12,12 @@ const SyncBaseAction = "lf_sync_base"
 // branch for one mode:
 //
 //	synced    the base was merged and the working branch was published
-//	current   the working branch already holds the base; checkout is refreshed
+//	current   the working branch already holds the base; retained edits stay intact
 //	conflict  merge conflict or retained-work safety blockage requiring owner action
 //	retry     the working branch is busy or moved
+//	deferred  known preparation remains unresolved; admitted work continues
 func SyncBaseSpec(mode agent.Mode) ActionSpec {
-	return ActionSpec{Name: SyncBaseAction, Mode: mode, Outcomes: []string{"synced", "current", "conflict", "retry"}}
+	return ActionSpec{Name: SyncBaseAction, Mode: mode, Outcomes: []string{"synced", "current", "conflict", "retry", "deferred"}}
 }
 
 // SyncBaseWorkflowSpec admits synchronization for a workflow identity, including

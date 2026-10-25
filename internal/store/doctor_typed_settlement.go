@@ -7,7 +7,7 @@ import (
 )
 
 // SettleDoctorTypedRepair fences a finished typed execution and releases its
-// target hold. It never replays a write or removes a retained backup.
+// target hold only for proven aborts or verified commits. It never replays a write.
 func (db *DB) SettleDoctorTypedRepair(ctx context.Context, id string, success bool, reason string) error {
 	return db.withTx(ctx, func(tx *sql.Tx) error {
 		r, err := readDoctorRepair(tx.QueryRowContext(ctx, `SELECT `+doctorRepairColumns+` FROM doctor_repairs WHERE id=?`, id))
@@ -31,6 +31,7 @@ func (db *DB) SettleDoctorTypedRepair(ctx context.Context, id string, success bo
 			return err
 		}
 		count := 0
+		graphCount, graphVerified, graphNoWrite := 0, 0, true
 		valid := true
 		typed := true
 		for rows.Next() {
@@ -40,6 +41,13 @@ func (db *DB) SettleDoctorTypedRepair(ctx context.Context, id string, success bo
 				return err
 			}
 			count++
+			if DoctorGraphRepairKind(kind) {
+				graphCount++
+				if stepState == "verified" {
+					graphVerified++
+				}
+				graphNoWrite = graphNoWrite && (stepState == "pending" || stepState == "backed_up")
+			}
 			typed = typed && DoctorRepairToolKind(kind)
 			valid = valid && stepState == "verified" && backup != "" && observed != ""
 		}
@@ -49,6 +57,23 @@ func (db *DB) SettleDoctorTypedRepair(ctx context.Context, id string, success bo
 		}
 		if count == 0 || !typed {
 			return errors.New("repair settlement requires a typed manifest")
+		}
+		if graphCount > 0 {
+			if graphCount != count {
+				return errors.New("mixed graph repair settlement refused")
+			}
+			if graphVerified == count {
+				steps, e := graphStepsTx(ctx, tx, id)
+				if e != nil {
+					return e
+				}
+				if e = verifyGraphStepsTx(ctx, tx, r, steps); e != nil {
+					return e
+				}
+			} else if !graphNoWrite || success {
+				_, err = tx.ExecContext(ctx, `UPDATE doctor_repairs SET state='needs_review',fenced=1,failure=?,revision=revision+1,updated_at=? WHERE id=?`, "Graph repair outcome requires inspection: "+reason, FormatTime(nowUTC()), id)
+				return err
+			}
 		}
 		if success && (!valid || r.Fenced || r.ExclusionID == "") {
 			return errors.New("repair is not fully rechecked")

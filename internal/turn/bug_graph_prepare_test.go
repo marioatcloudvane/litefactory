@@ -12,10 +12,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// The fixer commits earlier work, then synchronizes; any sync problem becomes
-// a note in its prompt. The analyst reads the worktree as it is: no commit, no
-// synchronization. Nothing about the source is stored in the database.
-func TestGraphSourcePreparationCommitsThenSynchronizes(t *testing.T) {
+// Fixer preparation observes both phases without committing retained work.
+// The analyst reads the existing worktree without synchronization.
+func TestGraphSourcePreparationPreservesThenObserves(t *testing.T) {
 	for _, variant := range []string{"synchronize", "disabled", "conflict", "remote task dirty", "analyst"} {
 		t.Run(variant, func(t *testing.T) {
 			f, _, inst := approvedGraphRepairFixture(t)
@@ -79,25 +78,18 @@ func TestGraphSourcePreparationCommitsThenSynchronizes(t *testing.T) {
 				}
 				return
 			}
-			if strings.Contains(f.repo.GitIn(w.Path(), "status", "--porcelain"), file) {
-				t.Fatal("earlier work was not committed")
+			if head != original || !strings.Contains(f.repo.GitIn(w.Path(), "status", "--porcelain"), file) {
+				t.Fatal("fixer observation changed retained edits, index or branch")
 			}
-			switch variant {
-			case "conflict":
-				if !strings.Contains(note, "conflicts in README.md") {
-					t.Fatalf("conflict not told to the fixer: %q", note)
-				}
-			case "disabled":
-				if !strings.Contains(note, "was not merged") {
-					t.Fatalf("disabled sync not told to the fixer: %q", note)
-				}
-			default:
-				merged, e := os.ReadFile(filepath.Join(w.Path(), "main-change.txt"))
-				mustProgress(t, e)
-				if string(merged) != "new main\n" {
-					t.Fatal("main or the remote task branch was not merged")
-				}
+			if variant != "disabled" && !strings.Contains(note, "synchronization remains unresolved") {
+				t.Fatalf("unresolved freshness not disclosed: %s", note)
 			}
+			observed, e := f.db.GetRun(t.Context(), run.ID)
+			mustProgress(t, e)
+			if len(observed.SyncObservations) != 2 {
+				t.Fatalf("source observations not durable: %+v", observed)
+			}
+
 			if outputs, e := f.db.ListGraphOutputs(t.Context(), attempt.ID); e != nil || len(outputs) != 0 {
 				t.Fatalf("source facts were stored in the database: %d outputs, %v", len(outputs), e)
 			}

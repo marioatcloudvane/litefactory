@@ -10,8 +10,9 @@ import (
 )
 
 type planPublication struct {
-	Intent store.ReportDelivery `json:"intent"`
-	Text   string               `json:"text"`
+	Intent  store.ReportDelivery        `json:"intent"`
+	Text    string                      `json:"text"`
+	Display *store.OwnerDecisionDisplay `json:"decision_display,omitempty"`
 }
 
 func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) error {
@@ -46,6 +47,13 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 							return err
 						}
 					}
+					delivery, err = o.DB.GetReportDelivery(ctx, intent.Key)
+					if err != nil {
+						return err
+					}
+					if err = retainRecoveredPlanDisplay(ctx, o, intent, delivery); err != nil {
+						return err
+					}
 					continue
 				}
 				if !errors.Is(err, store.ErrNotFound) {
@@ -63,6 +71,13 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 				}); err != nil {
 					return err
 				}
+				delivery, err = o.DB.GetReportDelivery(ctx, intent.Key)
+				if err != nil {
+					return err
+				}
+				if err = retainRecoveredPlanDisplay(ctx, o, intent, delivery); err != nil {
+					return err
+				}
 			}
 			if len(page) < 100 {
 				break
@@ -76,4 +91,19 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 		instance.ID = prior
 	}
 	return nil
+}
+
+func retainRecoveredPlanDisplay(ctx context.Context, o Options, intent store.GraphCommentIntent, delivery store.ReportDelivery) error {
+	if !delivery.Completed || delivery.CommentID < 1 || len(intent.Candidate) == 0 {
+		return nil
+	}
+	var p planPublication
+	if err := json.Unmarshal(intent.Candidate, &p); err != nil {
+		return err
+	}
+	if p.Display == nil {
+		return nil
+	}
+	p.Display.PublicationID = delivery.CommentID
+	return o.DB.PutOwnerDecisionDisplay(ctx, *p.Display)
 }

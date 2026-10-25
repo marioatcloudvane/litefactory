@@ -12,6 +12,9 @@ import (
 
 // DoctorRowRepairTarget validates the closed operation catalog without executing SQL.
 func DoctorRowRepairTarget(kind, target, before, after string) bool {
+	if DoctorGraphRepairKind(kind) && strings.HasPrefix(before, "{") {
+		return DoctorGraphRepairTarget(kind, target, before, after)
+	}
 	prefix, ok := doctorRowPrefixes[kind]
 	if !ok || !strings.HasPrefix(target, prefix+":") || len(target) > 512 || before == after {
 		return false
@@ -103,6 +106,9 @@ func (db *DB) BackupDoctorRows(ctx context.Context, id string, number int) error
 		if err != nil {
 			return err
 		}
+		if DoctorGraphRepairKind(step.Kind) {
+			return errors.New("graph backups belong to whole atomic repair")
+		}
 		if step.State == "backed_up" || step.State == "verified" {
 			return nil
 		}
@@ -137,6 +143,9 @@ func (db *DB) ApplyDoctorRows(ctx context.Context, id string, number int) error 
 		step, err := doctorRepairStepTx(ctx, tx, id, number)
 		if err != nil {
 			return err
+		}
+		if DoctorGraphRepairKind(step.Kind) {
+			return errors.New("graph transitions require whole atomic repair")
 		}
 		current, _, err := doctorRowSnapshot(ctx, tx, r.TaskRef, step.Kind, step.Target)
 		if err != nil {
@@ -226,9 +235,16 @@ func (db *DB) VerifyDoctorRows(ctx context.Context, id string, number int) error
 			return err
 		}
 		var state string
-		if DoctorRepairToolKind(s.Kind) {
+		switch {
+		case DoctorGraphRepairKind(s.Kind):
+			steps, e := graphStepsTx(ctx, tx, id)
+			if e != nil {
+				return e
+			}
+			return verifyGraphStepsTx(ctx, tx, r, steps)
+		case DoctorRepairToolKind(s.Kind):
 			state, _, err = doctorTypedRowSnapshot(ctx, tx, r.TaskRef, s.Kind, s.Target)
-		} else {
+		default:
 			state, _, err = doctorRowSnapshot(ctx, tx, r.TaskRef, s.Kind, s.Target)
 		}
 		if err != nil {

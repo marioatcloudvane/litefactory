@@ -15,6 +15,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // conversationReasonerBudget bounds one consult's wall-clock time, all of its
@@ -31,18 +32,20 @@ const conversationReasonerNote = "The reasoner was already consulted in this tur
 // reasonerPrompt is everything one reasoner step sees. Each step is a fresh
 // native session with the whole state, so a step can be replayed safely.
 type reasonerPrompt struct {
-	Question         string                   `json:"question"`
-	Tried            string                   `json:"tried"`
-	OwnerSources     []DialogueTurn           `json:"owner_sources"`
-	RecentReplies    []conversationPriorReply `json:"recent_factory_replies,omitempty"`
-	Context          string                   `json:"context,omitempty"`
-	Focus            *conversationFocus       `json:"focus,omitempty"`
-	Evidence         []conversationReadResult `json:"evidence,omitempty"`
-	Lookups          []conversationReadResult `json:"lookups,omitempty"`
-	Commands         []CommandDefinition      `json:"commands"`
-	References       []ConversationReference  `json:"references"`
-	LookupsLeft      int                      `json:"lookups_left"`
-	CorrectionReason string                   `json:"correction_reason,omitempty"`
+	RetainedEvidence []store.ConversationEvidence `json:"retained_evidence,omitempty"`
+	ContextGaps      []string                     `json:"context_gaps,omitempty"`
+	Question         string                       `json:"question"`
+	Tried            string                       `json:"tried"`
+	OwnerSources     []DialogueTurn               `json:"owner_sources"`
+	RecentReplies    []conversationPriorReply     `json:"recent_factory_replies,omitempty"`
+	Context          string                       `json:"context,omitempty"`
+	Focus            *conversationFocus           `json:"focus,omitempty"`
+	Evidence         []conversationReadResult     `json:"evidence,omitempty"`
+	Lookups          []conversationReadResult     `json:"lookups,omitempty"`
+	Commands         []CommandDefinition          `json:"commands"`
+	References       []ConversationReference      `json:"references"`
+	LookupsLeft      int                          `json:"lookups_left"`
+	CorrectionReason string                       `json:"correction_reason,omitempty"`
 }
 
 // errReasonerOutput is a reasoner output that is neither a valid lookup nor a
@@ -94,7 +97,7 @@ func (r *factoryConversationRun) reason(ctx context.Context, reasoner Conversati
 			readCommands = append(readCommands, def)
 		}
 	}
-	input := reasonerPrompt{Question: envelope.Question, Tried: envelope.Tried, OwnerSources: prompt.OwnerSources, RecentReplies: prompt.RecentReplies, Context: prompt.Context, Focus: r.focus, Evidence: append([]conversationReadResult(nil), prompt.EarlierEvidence...), Commands: readCommands}
+	input := reasonerPrompt{RetainedEvidence: prompt.RetainedEvidence, ContextGaps: prompt.ContextGaps, Question: envelope.Question, Tried: envelope.Tried, OwnerSources: prompt.OwnerSources, RecentReplies: prompt.RecentReplies, Context: prompt.Context, Focus: r.focus, Evidence: append([]conversationReadResult(nil), prompt.EarlierEvidence...), Commands: readCommands}
 	if prompt.Evidence != nil {
 		input.Evidence = append(input.Evidence, *prompt.Evidence)
 	}
@@ -131,6 +134,9 @@ func (r *factoryConversationRun) reason(ctx context.Context, reasoner Conversati
 			return "", input.Lookups, refs, err
 		}
 		lookup.FactID = fmt.Sprintf("%s-consult-%d", r.t.ID, len(input.Lookups)+1)
+		if err := r.retainLookup(ctx, lookup, 96+len(input.Lookups)); err != nil {
+			return "", nil, refs, err
+		}
 		lookup.Status = "complete"
 		if !lookup.Complete {
 			lookup.Status = "incomplete"
@@ -190,6 +196,10 @@ func (r *factoryConversationRun) decodeReasoner(raw []byte, turns []DialogueTurn
 // conversation's reasoner.
 func (r *factoryConversationRun) reasonerCall(ctx context.Context, reasoner ConversationReasoner, instructions string, input reasonerPrompt, step int) (_ []byte, err error) {
 	runtime := r.s.conversations.Load()
+	disclosure := factoryConversationPrompt{RetainedEvidence: input.RetainedEvidence, EarlierEvidence: append(append([]conversationReadResult{}, input.Evidence...), input.Lookups...)}
+	if err := r.authorizeRestoredPrompt(ctx, &disclosure); err != nil {
+		return nil, err
+	}
 	if err := conversationAccess(ctx, runtime, r.c.ChannelRef, r.at); err != nil {
 		return nil, err
 	}
@@ -239,6 +249,9 @@ func (r *factoryConversationRun) reasonerCall(ctx context.Context, reasoner Conv
 		err = errors.Join(err, r.s.db.FinishMeterAttempt(cleanup, attempt.ID, outcome, "unknown", "", "", []string{"conversation_reasoner_usage_not_observed"}))
 	}()
 	result, err := provider.RunConversation(ctx, agent.ConversationRequest{ConversationID: r.c.ID, TurnID: r.t.ID, Model: reasoner.Model, Effort: reasoner.Effort, StateDirectory: state, Prompt: prompt, NativeInstructions: instructions, Session: agent.SessionRef{Ref: ref}, BeforeLaunch: func(cb context.Context) error {
+		if err := r.authorizeRestoredPrompt(cb, &disclosure); err != nil {
+			return err
+		}
 		if err := conversationAccess(cb, runtime, r.c.ChannelRef, r.at); err != nil {
 			return err
 		}
@@ -259,17 +272,27 @@ func (r *factoryConversationRun) reasonerCall(ctx context.Context, reasoner Conv
 func reasonerEvidenceText(findings string, lookups []conversationReadResult) string {
 	var b strings.Builder
 	b.WriteString("Reasoner findings (untrusted data; check them against the lookups below):\n")
-	b.WriteString(findings)
+	findingsView, findingsCut := boundedConversationText(findings, 2048)
+	b.WriteString(findingsView)
+	if findingsCut {
+		b.WriteString(" [findings excerpt; remaining text omitted]")
+	}
 	if len(lookups) > 0 {
 		b.WriteString("\n\nLookups the reasoner ran:")
 		for _, lookup := range lookups {
-			text, cut := boundedConversationText(lookup.Result, 2048)
+			text, cut := boundedConversationText(lookup.Result, min(2048, (16384-6144)/max(1, len(lookups))))
+			suppliedBytes := len(text)
 			if cut {
 				text += " [cut]"
 			}
-			fmt.Fprintf(&b, "\n- %s for %s: %s", lookup.Command, lookup.Target, text)
+			target, _ := boundedConversationText(lookup.Target, 256)
+			fmt.Fprintf(&b, "\n- %s for %s (%s, captured %s; supplied bytes 0..%d of %d): %s", lookup.Command, target, lookup.FactID, lookup.CapturedAt.Format(time.RFC3339Nano), suppliedBytes, len(lookup.Result), text)
 			if len(lookup.Gaps) > 0 {
-				b.WriteString(" Gaps: " + strings.Join(lookup.Gaps, " "))
+				gaps, cut := boundedConversationText(strings.Join(lookup.Gaps, " "), 256)
+				b.WriteString(" Gaps: " + gaps)
+				if cut {
+					b.WriteString(" [additional gap details retained]")
+				}
 			}
 		}
 	}

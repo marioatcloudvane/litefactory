@@ -22,6 +22,8 @@ const CommentSizeLimit = 65536
 
 // Comment is an issue comment.
 type Comment struct {
+	// ReplyToCommentID is explicit provider parent metadata; zero means absent.
+	ReplyToCommentID int64
 	// QualifiedReply retains opaque provider evidence at the legacy workflow boundary.
 	QualifiedReply *ticket.Reply
 	// APIURL and IssueAPIURL retain response provenance for the neutral adapter.

@@ -5,6 +5,6 @@
 > [!CAUTION]
 > litefactory did not record how run 96 ended — it was most likely interrupted between finishing the run and reporting on it. The local log is the authority on what happened.
 
-**Base branch sync**
+**Preparation caveat**
 
-litefactory tried to sync this branch with `origin/main` but could not: git merge exited 128: fatal: refusing to merge unrelated histories.
+base synchronization (5 behind): git merge exited 128: fatal: refusing to merge unrelated histories.
