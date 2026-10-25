@@ -39,6 +39,7 @@ func joinSessionCleanup(runnerErr, cleanupErr error) error {
 
 func runSubmissionBound(ctx context.Context, prep *preparation, req agent.Request) (result *agent.RunResult, err error) {
 	if prep.submissionOptions == nil {
+		req.Prompt += prep.workerTiming
 		return runMCPBound(ctx, prep, req, nil)
 	}
 	if prep.planSubmission != nil {
@@ -63,6 +64,7 @@ func runSubmissionBound(ctx context.Context, prep *preparation, req agent.Reques
 			req.Prompt = strings.TrimSuffix(req.Prompt, oldPrompt) + updated
 		}
 	}
+	req.Prompt += prep.workerTiming
 	session, err := StartSubmissionSession(ctx, *prep.submissionOptions)
 	if err != nil {
 		return nil, err
@@ -70,7 +72,12 @@ func runSubmissionBound(ctx context.Context, prep *preparation, req agent.Reques
 	if session == nil {
 		return runMCPBound(ctx, prep, req, nil)
 	}
-	defer func() { err = joinSessionCleanup(err, session.Close(context.WithoutCancel(ctx))) }()
+	defer func() {
+		// Accepted submission recovery retains its own durable publication
+		// authority. Bound this attempt's join without cancelling that work or
+		// starting a second recovery operation.
+		err = joinSessionCleanup(err, closeInvocation(ctx, func() error { return session.Close(context.WithoutCancel(ctx)) }))
+	}()
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, err

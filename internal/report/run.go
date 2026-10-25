@@ -69,6 +69,10 @@ func (t *StoryTally) valid() bool {
 // Every field except Ref and Ordinal is allowed to be absent. A run that
 // crashed on its way to reporting still gets a comment (AC-4.1).
 type Run struct {
+	RecoveredTimeout bool
+	WorkerLimit      time.Duration
+	WorkerDeadline   time.Time
+
 	PreparationCaveats       []string
 	ConflictProposal         *ConflictProposal
 	ConflictSuggestionFailed bool
@@ -512,12 +516,15 @@ func describeRunOutcome(run Run) outcomeView {
 		return outcomeView{word: "failed", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeTimedOut:
-		lead := fmt.Sprintf("Run %d ran past the configured timeout for `%s` and litefactory killed it", n, tool)
+		lead := fmt.Sprintf("Run %d exceeded the configured timeout for `%s`", n, tool)
+		if run.RecoveredTimeout {
+			lead = fmt.Sprintf("Run %d’s recorded deadline for `%s` expired before restart; process completion evidence was unavailable", n, tool)
+		}
 		if d, ok := run.duration(); ok {
 			lead += " after " + formatDuration(d)
 		}
 		lead += ". The work it had done up to that point is still in the worktree. " +
-			"Raise the timeout or narrow the task, then comment again."
+			"Existing retries continue under the worker’s current policy. If the worker is waiting for input, reply on this issue to continue."
 		return outcomeView{word: "timed out", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeAbandoned:
@@ -615,6 +622,12 @@ func metadataList(run Run, view outcomeView) string {
 		lines = append(lines, "- **"+label+":** "+value)
 	}
 
+	if run.WorkerLimit > 0 {
+		add("Worker limit", fmt.Sprintf("%g seconds", run.WorkerLimit.Seconds()))
+	}
+	if !run.WorkerDeadline.IsZero() {
+		add("Worker deadline", run.WorkerDeadline.UTC().Format(time.RFC3339Nano))
+	}
 	// The one Commit case that survives (AC-3.1): a non-success run that
 	// committed nothing still needs to say where whatever it did produce still
 	// is. A run with no branch has no worktree to name, and a run that either

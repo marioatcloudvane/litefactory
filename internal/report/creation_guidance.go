@@ -19,7 +19,7 @@ const (
 // the proposal, workflow configuration or approval deadline has changed.
 func CreationGuidance(publication CreationPublication) string {
 	if publication == CreationPublicationFactory {
-		return "Approving publishes these exact issues right away; no further comment or run is needed. Only the newest proposal on this issue can be approved, and a changed draft needs a new proposal."
+		return "Approving publishes these exact issues right away; no further comment or run is needed. Only the newest proposal on this issue can be approved, and a changed draft needs a new proposal. New publication must be durably accepted strictly before approval plus 30 minutes; approval alone is not publication acceptance. Once accepted, expiry alone does not stop publication while the approved proposal remains current and execution is not cancelled. There is no factory repository-volume cap; the five-issue proposal limit and provider limits still apply. Unknown creation or unconfirmed required attachment stops publication without automatic retry. Historical outcomes grant no authority for further writes."
 	}
 	text := "Approval alone starts no publication. Its 30-minute lifetime begins at the trusted approval-comment timestamp; an eligible publishing attempt must bind the approval before expiry.\n\n"
 	switch publication {

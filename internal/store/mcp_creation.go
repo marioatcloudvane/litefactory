@@ -12,20 +12,11 @@ import (
 // MCPCreationApprovalTTL is the non-sliding lifetime from trusted comment creation.
 const MCPCreationApprovalTTL = 30 * time.Minute
 
-// MCPCreationWindow defines the rolling quota window for confirmed artifacts.
-const MCPCreationWindow = 24 * time.Hour
-
 // MCPCreationAttemptLimit caps artifact units in a single proposal.
 const MCPCreationAttemptLimit = 5
 
-// MCPCreationRepositoryLimit caps charged artifact units per repository.
-const MCPCreationRepositoryLimit = 20
-
 // ErrCreationAuthority reports absent, stale or mismatched creation authorization.
 var ErrCreationAuthority = errors.New("store: creation authority refused")
-
-// ErrCreationQuota reports an immediate refusal of excess artifact volume.
-var ErrCreationQuota = errors.New("store: creation volume limit exceeded")
 
 // ErrCreationConflict reports an attempt to change immutable approved content.
 var ErrCreationConflict = errors.New("store: immutable creation approval or content conflict")

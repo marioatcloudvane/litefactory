@@ -73,8 +73,8 @@ func TestFinishedRepairRoundIsImmutable(t *testing.T) {
 func TestAttemptTimeoutIsRecordedOnce(t *testing.T) { // AC-004
 	db := newTestDB(t)
 	attempt := graphTestAttempt(t, db, graphTestInstance(t, db), 3)
-	if err := db.RecordAttemptTimeout(t.Context(), AttemptTimeout{NodeAttemptID: attempt.ID, Budget: time.Second / 2, TimedOutAt: graphTestTime()}); err == nil {
-		t.Fatal("a budget under a second was accepted")
+	if err := db.RecordAttemptTimeout(t.Context(), AttemptTimeout{NodeAttemptID: attempt.ID, Budget: 0, TimedOutAt: graphTestTime()}); err == nil {
+		t.Fatal("a zero budget was accepted")
 	}
 	if _, err := db.GetAttemptTimeout(t.Context(), attempt.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("before: %v", err)

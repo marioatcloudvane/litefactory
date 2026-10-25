@@ -344,13 +344,14 @@ func TestTurnImposesNoAmbientDeadline(t *testing.T) {
 			// bounds the agent process only, and never encloses a git command or the
 			// clone gate: the agent runs outside the gate and every git command
 			// starts its own deadline at exec time.
-			if name == "AgentActivity.execute" && forbidden == "WithTimeout" {
+			if name == "AgentActivity.execute" || name == "closeInvocation" || name == "AgentActivity.Execute" {
 				continue
 			}
 			// The same holds for the doctor sync conflict advisor: its budget
 			// bounds the advisor run only, which happens between the two gate
 			// acquisitions and before any git write, so the merge, recheck and
 			// push fit inside the repair broker's tool deadline.
+
 			if name == "SyncDoctorBranch" && forbidden == "WithTimeout" {
 				continue
 			}

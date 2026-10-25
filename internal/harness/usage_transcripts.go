@@ -492,7 +492,9 @@ func (c *usageCollector) finalizeTranscripts() {
 		return
 	}
 	originalCtx := c.ctx
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(originalCtx), 2*time.Second)
+	evidence, stopEvidence := agent.EvidenceContext(originalCtx)
+	defer stopEvidence()
+	ctx, cancel := context.WithTimeout(evidence, 2*time.Second)
 	defer cancel()
 	c.ctx = ctx
 	c.transcripts.finalRemaining = usageTranscriptBytes

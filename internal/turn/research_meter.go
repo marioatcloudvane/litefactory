@@ -15,6 +15,10 @@ import (
 // must call this function again so that it receives a distinct meter attempt.
 // It never retries the agent or changes graph/result/publication state.
 func RunResearchMetered(ctx context.Context, db *store.DB, kind agent.Kind, req agent.Request, runner agent.Runner) (*agent.RunResult, error) {
+	return runResearchMetered(ctx, db, kind, req, runner, nil)
+}
+
+func runResearchMetered(ctx context.Context, db *store.DB, kind agent.Kind, req agent.Request, runner agent.Runner, stopped func()) (*agent.RunResult, error) {
 	if db == nil || runner == nil || req.Invocation != agent.InvocationResearchNode || req.Graph == nil || req.Usage != nil {
 		return nil, errors.New("research meter requires a bound graph request without a second collector")
 	}
@@ -35,6 +39,9 @@ func RunResearchMetered(ctx context.Context, db *store.DB, kind agent.Kind, req 
 		return err
 	}}
 	result, runErr := runner.Run(ctx, req)
+	if stopped != nil {
+		stopped()
+	}
 	outcome, status, version, format := "failure", "unknown", "", ""
 	codes := []string{"missing_evidence"}
 	if result != nil {
@@ -61,7 +68,9 @@ func RunResearchMetered(ctx context.Context, db *store.DB, kind agent.Kind, req 
 		outcome = "cancelled"
 	}
 	refusal := result != nil && result.ProviderReportedZeroCostRefusal && outcome == "failure"
-	if err := db.FinishMeterAttemptWithRefusal(context.WithoutCancel(ctx), a.ID, outcome, status, version, format, codes, refusal); err != nil {
+	cleanup, cancel := agent.EvidenceContext(ctx)
+	defer cancel()
+	if err := db.FinishMeterAttemptWithRefusal(cleanup, a.ID, outcome, status, version, format, codes, refusal); err != nil {
 		return result, errors.Join(runErr, fmt.Errorf("finalize research meter attempt %s: %w", a.ID, err))
 	}
 	return result, runErr

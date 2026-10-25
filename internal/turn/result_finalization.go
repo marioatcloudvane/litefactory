@@ -123,16 +123,19 @@ func (p *preparedMCP) finalize(ctx context.Context, prep *preparation, session *
 	}
 	// Join transports before inspecting the final revision; no live request
 	// may race final evidence validation or terminal workflow projection.
-	var closeErr error
-	if p.resultBroker != nil {
-		closeErr = errors.Join(closeErr, p.resultBroker.Close())
-	}
-	if p.broker != nil {
-		closeErr = errors.Join(closeErr, p.broker.Close())
-	}
-	if session != nil && session.broker != nil {
-		closeErr = errors.Join(closeErr, session.broker.Close())
-	}
+	closeErr := closeInvocation(ctx, func() error {
+		var joined error
+		if p.resultBroker != nil {
+			joined = errors.Join(joined, p.resultBroker.Close())
+		}
+		if p.broker != nil {
+			joined = errors.Join(joined, p.broker.Close())
+		}
+		if session != nil && session.broker != nil {
+			joined = errors.Join(joined, session.broker.Close())
+		}
+		return joined
+	})
 	if result.Succeeded() && ctx.Err() != nil {
 		result = result.Clone()
 		result.Outcome = agent.OutcomeAbandoned
@@ -141,11 +144,17 @@ func (p *preparedMCP) finalize(ctx context.Context, prep *preparation, session *
 		}
 		result.Reason = ctx.Err().Error()
 	}
-	finalCtx := context.WithoutCancel(ctx)
-	snapshot, finalErr := p.consumeFinalResult(finalCtx, session, result.ResultText)
-	finalErr = errors.Join(finalErr, closeErr)
+	finalCtx, cancelFinal := agent.EvidenceContext(ctx)
+	defer cancelFinal()
+	var snapshot agentresult.Snapshot
+	finalErr := closeErr
+	// A timed-out join leaves live request outcomes unknown. Retain existing
+	// receipts without interpreting terminal output or starting projection.
+	if closeErr == nil {
+		snapshot, finalErr = p.consumeFinalResult(finalCtx, session, result.ResultText)
+	}
 	if finalErr == nil && runErr == nil && result.Succeeded() && ctx.Err() == nil {
-		finalErr = p.projectFinalWorkflow(finalCtx, prep, session, snapshot)
+		finalErr = p.projectFinalWorkflow(context.WithoutCancel(ctx), prep, session, snapshot)
 	}
 	if finalErr == nil {
 		result = result.Clone()
