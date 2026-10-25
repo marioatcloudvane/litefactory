@@ -390,6 +390,13 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				return run.failed(ctx, err)
 			}
 			envelope, inv, err = DecodeConversationEnvelope(raw, ConversationDecodeRequest{Turns: turns, Commands: s.ConversationCommands(), References: refs, OwnerID: s.owner, ChannelID: c.ChannelRef, Now: at, Proposal: proposal})
+			if err == nil && !corrected {
+				// A standards change missing terms the agent can supply goes
+				// back to it once, rather than to the owner as a question.
+				if gap := standardsProposeGap(envelope, inv, t.SourceID); gap != "" {
+					err = &ConversationEnvelopeError{Reason: gap}
+				}
+			}
 			if err != nil {
 				if !corrected && run.calls < run.maxCalls() {
 					corrected = true
