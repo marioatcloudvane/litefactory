@@ -23,6 +23,16 @@ var (
 )
 
 func repoRoot() string {
+	if wd, err := os.Getwd(); err == nil {
+		for dir := wd; ; dir = filepath.Dir(dir) {
+			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+				return dir
+			}
+			if filepath.Dir(dir) == dir {
+				break
+			}
+		}
+	}
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..")
 }
