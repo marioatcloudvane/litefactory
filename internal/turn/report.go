@@ -873,7 +873,17 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 	if err != nil {
 		return report.Run{}, err
 	}
+	var timing store.AttemptTiming
+	if r.db != nil && result.Run.ID > 0 {
+		var timingErr error
+		timing, timingErr = r.db.GetAttemptTiming(ctx, 0, result.Run.ID)
+		if timingErr != nil && !errors.Is(timingErr, store.ErrNotFound) {
+			return report.Run{}, timingErr
+		}
+	}
 	return report.Run{
+		WorkerLimit:              timing.Allowance,
+		WorkerDeadline:           timing.Deadline,
 		PreparationCaveats:       append([]string(nil), result.Run.PreparationCaveats...),
 		ConflictProposal:         conflictProposalForRun(result.ConflictProposal),
 		ConflictSuggestionFailed: result.ConflictSuggestionFailed,

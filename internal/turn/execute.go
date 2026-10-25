@@ -84,6 +84,10 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// WorkerTimeoutSeconds is the resolved owner default; node overrides take precedence.
+	WorkerTimeoutSeconds int
+	WorkerTimeoutSource  string
+
 	// GraphRetryDelay is the host-supplied delay for busy admission and self-retry.
 	GraphRetryDelay time.Duration
 	// ProjectApprovers enables project-qualified production ticket authority.

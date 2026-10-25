@@ -32,6 +32,8 @@ const (
 	MaxMaxConcurrentRuns = 16
 	// MinClaudeTimeoutSeconds and MaxClaudeTimeoutSeconds bound the hard
 	// wall-clock kill for one run.
+	MinWorkerTimeoutSeconds = 60
+	MaxWorkerTimeoutSeconds = 86400
 	MinClaudeTimeoutSeconds = 60
 	MaxClaudeTimeoutSeconds = 86400
 	// MinWorktreeRetainDays and MaxWorktreeRetainDays bound the retention
@@ -119,6 +121,9 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.Webhook.validate()...)
 	errs = append(errs, c.validateChat()...)
 	s := &c.Settings
+	if s.WorkerTimeoutSeconds < MinWorkerTimeoutSeconds || s.WorkerTimeoutSeconds > MaxWorkerTimeoutSeconds {
+		errs = append(errs, fmt.Errorf("settings.worker_timeout_seconds: %d is out of range; must be between %d and %d", s.WorkerTimeoutSeconds, MinWorkerTimeoutSeconds, MaxWorkerTimeoutSeconds))
+	}
 	if s.PollIntervalMinutes < MinPollIntervalMinutes || s.PollIntervalMinutes > MaxPollIntervalMinutes {
 		errs = append(errs, fmt.Errorf("settings.poll_interval_minutes: %d is out of range; must be between %d and %d",
 			s.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes))
