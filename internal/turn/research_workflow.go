@@ -325,6 +325,9 @@ type researchWorkflow struct {
 	// saved reports that a graph step already committed and pushed this run's
 	// worktree, so the end of the run does not save it again.
 	saved bool
+	// planUpstream is a graph Plan run's channel from its result resolver: an
+	// upstream story that was only publishing its stage during the attempt.
+	planUpstream *planUpstreamDeferral
 }
 
 // saveNow commits and pushes the run's worktree for a step that decided the work
