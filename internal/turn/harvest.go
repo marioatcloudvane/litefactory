@@ -454,7 +454,7 @@ func save(
 	runResult *harness.RunResult,
 	logger *slog.Logger,
 ) Result {
-	if prep.promptInput.Validation != nil {
+	if prep.promptInput.Validation != nil || prep.reqAssessment() {
 		return result
 	}
 	if _, stopped := result.Run.OwnerStop(); stopped {

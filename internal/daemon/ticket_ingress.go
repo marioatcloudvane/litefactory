@@ -210,7 +210,7 @@ func (d *Daemon) eligibleProjectComment(ctx context.Context, sessionID int64, c 
 }
 
 func (d *Daemon) projectTrigger(ctx context.Context, sessionID int64, c github.Comment) (turn.Trigger, error) {
-	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID, CreatedAt: c.CreatedAt}
+	trigger := turn.Trigger{ReplyToCommentID: c.ReplyToCommentID, CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID, CreatedAt: c.CreatedAt}
 	if d.connections == nil {
 		return trigger, nil
 	}

@@ -100,11 +100,9 @@ func clipIdentity(value string) string {
 	return strings.ToValidUTF8(value[:limit], "") + "…"
 }
 
-// planContextRefusal is a retained planning context that can never be admitted
-// as it stands: malformed, foreign to this task, or ambiguous. Unlike a
-// transient read failure it fails identically on every retry, so [Execute]
-// refuses the turn with an explanation instead of leaving the trigger
-// unconsumed and the task's queue silently stopped (#289).
+// planContextRefusal identifies retained context that cannot be admitted:
+// malformed, foreign to this task, or ambiguous. Preparation preserves it and
+// continues without its bytes; current-attempt output remains strictly checked.
 type planContextRefusal struct {
 	path string
 	err  error

@@ -46,7 +46,17 @@ func (db *DB) RecordTicketReply(ctx context.Context, sessionID int64, reply tick
 		if !ref.Equal(reply.Ticket) {
 			return ErrTicketIdentityConflict
 		}
-		result, err = recordComment(ctx, tx, Comment{SessionID: sessionID, ForgeCommentID: commentID, AuthorUserID: authorID, AuthorHandle: reply.Author.Handle, AuthorIsBot: reply.Author.IsBot, Body: reply.Body, CreatedAt: reply.CreatedAt, Classification: classification})
+		var replyTo int64
+		if reply.ReplyTo.RemoteID != "" {
+			if reply.ReplyTo.Provider != reply.Identity.Provider || reply.ReplyTo.Origin != reply.Identity.Origin {
+				return ErrTicketIdentityConflict
+			}
+			replyTo, err = storedReplyID(ctx, tx, "comment", reply.ReplyTo, false)
+			if err != nil {
+				return err
+			}
+		}
+		result, err = recordComment(ctx, tx, Comment{ReplyToCommentID: replyTo, SessionID: sessionID, ForgeCommentID: commentID, AuthorUserID: authorID, AuthorHandle: reply.Author.Handle, AuthorIsBot: reply.Author.IsBot, Body: reply.Body, CreatedAt: reply.CreatedAt, Classification: classification})
 		if err != nil {
 			return err
 		}

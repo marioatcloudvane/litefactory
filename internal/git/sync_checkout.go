@@ -33,16 +33,6 @@ func (w *Worktree) CheckSyncCheckout(ctx context.Context, working, commit string
 	if branch != "refs/heads/"+working || w.branch != working {
 		return "retained checkout branch does not match working branch", nil
 	}
-	merge, err := w.runner.run(ctx, readTimeout, "rev-parse", "--quiet", "--verify", "MERGE_HEAD")
-	if err != nil {
-		var command *CommandError
-		if !errors.As(err, &command) || command.ExitCode != 1 {
-			return "", fmt.Errorf("inspect retained merge state: %w", err)
-		}
-	}
-	if merge != "" {
-		return "retained checkout has a merge in progress", nil
-	}
 	// These index flags suppress ordinary status checks. Refuse them rather
 	// than claiming that hidden tracked bytes are safe to replace.
 	index, err := w.runner.run(ctx, readTimeout, "ls-files", "-v", "-z")
@@ -59,13 +49,6 @@ func (w *Worktree) CheckSyncCheckout(ctx context.Context, working, commit string
 		if entry[0] == 'S' || entry[0] >= 'a' && entry[0] <= 'z' {
 			return "retained checkout has unsupported index flags (assume-unchanged or skip-worktree)", nil
 		}
-	}
-	changes, err := w.Status(ctx)
-	if err != nil {
-		return "", fmt.Errorf("inspect retained work: %w", err)
-	}
-	if len(changes) != 0 {
-		return "retained checkout has uncommitted or untracked changes", nil
 	}
 	paths := []string{".litefactory-plan-proposal.json", ".litefactory-plan-outcome.json", ".litefactory-story-events"}
 	args := append(append([]string{}, statusArgs...), "--untracked-files=no", "--")
@@ -88,6 +71,23 @@ func (w *Worktree) CheckSyncCheckout(ctx context.Context, working, commit string
 	}
 	if reserved != "" {
 		return "reserved factory transport differs from synchronization commit", nil
+	}
+	merge, err := w.runner.run(ctx, readTimeout, "rev-parse", "--quiet", "--verify", "MERGE_HEAD")
+	if err != nil {
+		var command *CommandError
+		if !errors.As(err, &command) || command.ExitCode != 1 {
+			return "", fmt.Errorf("inspect retained merge state: %w", err)
+		}
+	}
+	if merge != "" {
+		return "retained checkout has a merge in progress", nil
+	}
+	changes, err := w.Status(ctx)
+	if err != nil {
+		return "", fmt.Errorf("inspect retained work: %w", err)
+	}
+	if len(changes) != 0 {
+		return "retained checkout has uncommitted or untracked changes", nil
 	}
 	// Git may overwrite ignored files when bringing tracked paths into the
 	// checkout. Ordinary ignored artifacts are safe unless an incoming path

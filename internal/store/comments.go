@@ -38,6 +38,8 @@ type Comment struct {
 	SessionID int64
 	// ForgeCommentID is the forge's id for the comment, unique per session.
 	ForgeCommentID int64
+	// ReplyToCommentID retains explicit parent metadata with admitted bytes.
+	ReplyToCommentID int64
 	// AuthorHandle is the author's login, for display.
 	AuthorHandle string
 	// AuthorUserID is the author's numeric forge id — the durable identity
@@ -71,7 +73,7 @@ type Comment struct {
 // handed the same tag. Callers should leave Tag empty and let the store
 // allocate.
 func (db *DB) RecordComment(ctx context.Context, c Comment) (Comment, error) {
-	if c.SessionID == 0 || c.ForgeCommentID == 0 {
+	if c.SessionID == 0 || c.ForgeCommentID == 0 || c.ReplyToCommentID < 0 {
 		return Comment{}, errors.New("store: record comment: session id and forge comment id are required")
 	}
 	if !c.Classification.valid() {
@@ -178,7 +180,7 @@ func (c Classification) valid() bool {
 // scanComment expects.
 const commentColumns = `
     id, session_id, forge_comment_id, author_handle, author_user_id,
-    author_is_bot, body, created_at, classification, tag, recorded_at`
+    author_is_bot, body, created_at, classification, tag, recorded_at, reply_to_comment_id`
 
 func scanComment(s scanner) (Comment, error) {
 	var (
@@ -190,7 +192,7 @@ func scanComment(s scanner) (Comment, error) {
 		recordedAt     sql.NullString
 	)
 	err := s.Scan(&c.ID, &c.SessionID, &c.ForgeCommentID, &c.AuthorHandle, &authorUserID,
-		&c.AuthorIsBot, &c.Body, &createdAt, &classification, &tag, &recordedAt)
+		&c.AuthorIsBot, &c.Body, &createdAt, &classification, &tag, &recordedAt, &c.ReplyToCommentID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Comment{}, ErrNotFound
@@ -223,6 +225,9 @@ func recordComment(ctx context.Context, tx *sql.Tx, c Comment) (Comment, error) 
 		c.SessionID, c.ForgeCommentID))
 	switch {
 	case err == nil:
+		if existing.ReplyToCommentID != c.ReplyToCommentID {
+			return Comment{}, graphInvariant("admitted reply-to identity changed on replay")
+		}
 		return existing, nil
 	case !errors.Is(err, ErrNotFound):
 		return Comment{}, err
@@ -240,11 +245,11 @@ func recordComment(ctx context.Context, tx *sql.Tx, c Comment) (Comment, error) 
 	stored, err := scanComment(tx.QueryRowContext(ctx, `
 INSERT INTO comments (
     session_id, forge_comment_id, author_handle, author_user_id, author_is_bot,
-    body, created_at, classification, tag, recorded_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    body, created_at, classification, tag, recorded_at,reply_to_comment_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
 RETURNING `+commentColumns,
 		c.SessionID, c.ForgeCommentID, c.AuthorHandle, nullID(c.AuthorUserID), c.AuthorIsBot,
 		c.Body, FormatTime(c.CreatedAt), string(c.Classification), nullString(c.Tag),
-		FormatTime(c.RecordedAt)))
+		FormatTime(c.RecordedAt), c.ReplyToCommentID))
 	return stored, err
 }

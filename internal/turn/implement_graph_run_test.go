@@ -18,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -71,6 +72,36 @@ func enableWorkerSyncFixture(f *fixture) {
 			return fixtureWorkflowSource(ctx, repo, workflow, specs)
 		}
 		return fixtureInstalled(teamsource.CaptureImplement(ctx, specs))
+	}
+}
+
+// Earlier captured worker gates retain their strict conflict routing.
+func enableStrictWorkerSyncFixture(t *testing.T, f *fixture) {
+	t.Helper()
+	source := os.DirFS(filepath.Join("..", "teamsource", "implement"))
+	files := fstest.MapFS{}
+	mustProgress(t, fs.WalkDir(source, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		raw, err := fs.ReadFile(source, name)
+		if err != nil {
+			return err
+		}
+		if name == "implement.dot" {
+			shape := strings.ReplaceAll(string(raw), ",retry,deferred", ",retry")
+			shape = strings.ReplaceAll(shape, ` sync_start          -> merge               [lf_on="deferred"];`, "")
+			shape = strings.ReplaceAll(shape, ` sync_before_worker -> worker_agent [lf_on="deferred"];`, "")
+			raw = []byte(shape)
+		}
+		files[name] = &fstest.MapFile{Data: raw, Mode: 0644}
+		return nil
+	}))
+	f.opts.WorkflowSource = func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		if workflow != agent.WorkflowImplement {
+			return fixtureWorkflowSource(ctx, repo, workflow, specs)
+		}
+		return fixtureInstalled(teamsource.CaptureWorkflow(ctx, files, "implement.dot", "go-development", agent.ModeImplement, specs))
 	}
 }
 
@@ -913,12 +944,25 @@ func seedStoryParentConflict(t *testing.T, f *fixture) string {
 	return tip
 }
 
+// The simulated agent starts its authorized merge; preparation only previews.
+func startAuthorizedFixtureMerge(t *testing.T, f *fixture, req agent.Request, base string) {
+	t.Helper()
+	clone, err := f.opts.Git.Open(t.Context(), f.repo.Dir)
+	mustProgress(t, err)
+	branch := f.repo.GitIn(req.WorktreePath, "branch", "--show-current")
+	ensured, err := git.EnsureWorktree(t.Context(), clone, git.EnsureWorktreeOptions{Dir: req.WorktreePath, Branch: branch, BaseBranch: gittest.DefaultBranch, Remote: "origin"})
+	mustProgress(t, err)
+	_, err = ensured.Worktree.StartMerge(t.Context(), "origin/"+base)
+	mustProgress(t, err)
+}
+
 // A story whose branch conflicts with its parent's branch is not refused: the
 // worker starts on the started merge, resolves it, and the save concludes it.
 func TestImplementWorkerResolvesAConflictWithItsParentsBranch(t *testing.T) {
 	var prompt, mergeHead string
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		startAuthorizedFixtureMerge(t, f, req, "lf/900-feature")
 		prompt = req.Prompt
 		mergeHead = f.repo.GitIn(req.WorktreePath, "rev-parse", "MERGE_HEAD")
 		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // story and merged sibling\n"), 0o600))
@@ -963,13 +1007,16 @@ func TestImplementWorkerResolvesAConflictWithItsParentsBranch(t *testing.T) {
 // worker prompt: preparation starts the merge of its parent's branch.
 func TestImplementWorkerRestartedByTheMergeStepSeesTheConflictInItsPrompt(t *testing.T) {
 	var prompt string
+	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		startAuthorizedFixtureMerge(t, f, req, "lf/900-feature")
 		prompt = req.Prompt
 		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // story and merged sibling\n"), 0o600))
 		submitLiveResult(t, req, implementCompletedJSON)
 		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
 	})
-	f, _, req := assembledImplementFixture(t, runner)
+	var req Request
+	f, _, req = assembledImplementFixture(t, runner)
 	seedImplementStory(t, f)
 	ctx := t.Context()
 	const reason = "the story conflicts with the work already merged in shared.go; its worker is started again to resolve the conflict"
@@ -1008,6 +1055,7 @@ func TestImplementWorkerUnresolvedConflictParksAndTheOwnerRestartRuns(t *testing
 	var prompts []string
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		startAuthorizedFixtureMerge(t, f, req, "lf/900-feature")
 		prompts = append(prompts, req.Prompt)
 		if len(prompts) == 1 {
 			submitLiveResult(t, req, implementConflictBlockedJSON)
@@ -1365,6 +1413,7 @@ func TestImplementCoordinatorResolvesAConflictWithMainThroughTheResolver(t *test
 	var prompt, mergeHead string
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		startAuthorizedFixtureMerge(t, f, req, "main")
 		prompt = req.Prompt
 		mergeHead = f.repo.GitIn(req.WorktreePath, "rev-parse", "MERGE_HEAD")
 		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
@@ -1412,6 +1461,7 @@ func TestImplementCoordinatorResolvesAConflictWithMainThroughTheResolver(t *test
 func TestImplementCoordinatorBlockedResolverAsksTheOwnerAndPushesNothing(t *testing.T) {
 	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		startAuthorizedFixtureMerge(t, f, req, "main")
 		submitLiveResult(t, req, syncResolverBlockedJSON)
 		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
 	})
@@ -1469,7 +1519,9 @@ const syncResolverAsksJSON = `{"version":1,"response":"blocked","result":{"outco
 // answer reaches the resolver's next run as guidance.
 func TestImplementCoordinatorResolverQuestionsReachTheOwnerWithTheirOptions(t *testing.T) {
 	var prompts []string
+	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		startAuthorizedFixtureMerge(t, f, req, "main")
 		prompts = append(prompts, req.Prompt)
 		if len(prompts) == 1 {
 			submitLiveResult(t, req, syncResolverAsksJSON)
@@ -1479,7 +1531,9 @@ func TestImplementCoordinatorResolverQuestionsReachTheOwnerWithTheirOptions(t *t
 		}
 		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
 	})
-	f, forge, req := assembledImplementFixture(t, runner)
+	var forge *fakeForge
+	var req Request
+	f, forge, req = assembledImplementFixture(t, runner)
 	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
 	mainTip := seedMainFeatureConflict(t, f)
 	if _, err := Execute(t.Context(), f.opts, req); err != nil {
@@ -1562,13 +1616,17 @@ func TestImplementWorkerResultWithQuestionsIsStillRefused(t *testing.T) {
 // final sync's resolver, and the completion reply follows the resolved merge.
 func TestImplementCoordinatorResolvesAConflictWithMainBeforeReportingDone(t *testing.T) {
 	resolves := 0
+	var f *fixture
 	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		startAuthorizedFixtureMerge(t, f, req, "main")
 		resolves++
 		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
 		submitLiveResult(t, req, syncResolvedJSON)
 		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
 	})
-	f, forge, req := assembledImplementFixture(t, runner)
+	var forge *fakeForge
+	var req Request
+	f, forge, req = assembledImplementFixture(t, runner)
 	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
 	if _, err := Execute(t.Context(), f.opts, req); err != nil {
 		t.Fatal(err)
@@ -1838,49 +1896,33 @@ func TestImplementCoordinatorResumeWithMainUnchangedLeavesTheFeatureBranch(t *te
 	}
 }
 
-// #966: a conflict with main on resume goes to the resolver before any story
-// restarts.
-func TestImplementCoordinatorResumeResolvesAConflictWithMainBeforeStoriesStart(t *testing.T) {
-	var f *fixture
-	var startedBeforeResolve bool
-	var parent string
-	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		startedBeforeResolve = implementStatesOf(t, f, parent)["story-001"].State == store.ImplementRunning
-		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
-		submitLiveResult(t, req, syncResolvedJSON)
-		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
-	})
-	f, _, req := assembledImplementFixture(t, runner)
-	var instance store.GraphInstance
-	var wait store.GraphOwnerWait
-	parent, instance, wait = parkAndAskImplementOwner(t, f, req)
+// Resumption keeps the same original request and starts permitted stories while
+// unresolved preparation freshness remains a caveat.
+func TestImplementCoordinatorResumeDefersConflictAndStartsPermittedStories(t *testing.T) {
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Fatal("preparation conflict must not launch a resolver")
+		return nil, nil
+	}))
+	parent, instance, wait := parkAndAskImplementOwner(t, f, req)
 	mainTip := seedMainFeatureConflict(t, f)
-
-	// The daemon closes a runless coordinator dispatch after its run; this
-	// harness does not, and the resumed run parks before the resolver.
+	before := f.repo.Git("rev-parse", "origin/lf/123-feature")
 	asked, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
 	mustProgress(t, err)
 	mustProgress(t, f.db.FinishGraphDispatch(t.Context(), asked.ID, time.Now()))
 	replyToImplementOwner(t, f, req, parent, instance, wait)
 	runOwedImplementStages(t, f, req)
 	resumed := afterAsk(t, implementTrail(t, f))
-	want := []string{"sync_start:conflict", "sync_start_resolve:success", "sync_start_resolved:resolved", "sync_start:current"}
+	want := []string{"sync_start:deferred", "merge:none", "ready:started"}
 	for i, step := range want {
 		if i >= len(resumed) || resumed[i] != step {
-			t.Fatalf("trail after the reply = %v, want it to begin %v", resumed, want)
+			t.Fatalf("resumed trail=%v, want prefix %v", resumed, want)
 		}
 	}
-	if started := trailIndex(resumed, "ready:started"); started < len(want) {
-		t.Fatalf("no story restarts before the conflict is resolved: %v", resumed)
-	}
-	if startedBeforeResolve {
-		t.Fatal("the story restarted before the resolver ran")
-	}
-	if !remoteHolds(t, f, "lf/123-feature", mainTip) {
-		t.Fatal("the resolved merge was not pushed to the feature branch")
+	if remoteHolds(t, f, "lf/123-feature", mainTip) || f.repo.Git("rev-parse", "origin/lf/123-feature") != before {
+		t.Fatal("deferred base synchronization changed feature history")
 	}
 	if row := implementStatesOf(t, f, parent)["story-001"]; row.State != store.ImplementRunning {
-		t.Fatalf("the story restarts once main is in: %+v", row)
+		t.Fatalf("story did not restart: %+v", row)
 	}
 }
 

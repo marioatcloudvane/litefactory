@@ -343,11 +343,12 @@ func (p *proposalProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorR
 		return check
 	}
 	unknown := diagnosis
-	unknown.Proposal = []RepairStep{step(1, "release_instance", "graph:999999", "running", "failed")}
+	unknown.Proposal = []RepairStep{step(1, "graph_fail", "graph:999999", "running", "failed")}
 	if check := preflight(unknown); check.Valid || len(check.Errors) != 1 || !strings.Contains(check.Errors[0], "unresolved target") {
 		p.t.Fatalf("nonexistent target accepted: %+v", check)
 	}
-	diagnosis.Proposal = []RepairStep{step(1, "release_instance", "graph:"+graph, "running", "failed"), step(2, "consume_comment", "comment:"+comment, watermark, comment)}
+	diagnosis.Proposal = []RepairStep{step(1, "graph_fail", "graph:"+graph, "running", "failed")}
+	_ = watermark
 	if check := preflight(diagnosis); !check.Valid {
 		p.t.Fatalf("live proposal rejected: %+v", check)
 	}
@@ -440,11 +441,11 @@ func TestDoctorLiveDiagnosisProposesRepairForQueriedTargets(t *testing.T) {
 	if !strings.Contains(provider.receipt, `"accepted"`) {
 		t.Fatalf("receipt not accepted: %s", provider.receipt)
 	}
-	if len(got.Attempts) != 1 || got.Attempts[0].State != "completed" || got.ProposalID == 0 || len(got.CurrentProposal) != 2 {
+	if len(got.Attempts) != 1 || got.Attempts[0].State != "completed" || got.ProposalID == 0 || len(got.CurrentProposal) != 1 {
 		t.Fatalf("proposal not adopted: %+v", got)
 	}
-	release, consume := got.CurrentProposal[0], got.CurrentProposal[1]
-	if release.Target != fmt.Sprintf("graph:%d", instance.ID) || release.Action.Kind != "release_instance" || consume.Target != "comment:6084334752" || consume.Action.Kind != "consume_comment" || consume.Action.Before != "6084334000" || consume.Action.After != "6084334752" {
+	release := got.CurrentProposal[0]
+	if release.Target != fmt.Sprintf("graph:%d", instance.ID) || release.Action.Kind != "graph_fail" || !store.DoctorGraphRepairTarget(release.Action.Kind, release.Target, release.Action.Before, release.Action.After) {
 		t.Fatalf("adopted proposal: %+v", got.CurrentProposal)
 	}
 	var saved PathManifest

@@ -299,3 +299,39 @@ func TestGraphRunlessStopProgressSurvivesShorteningAndLostAcknowledgment(t *test
 		t.Fatalf("retry changed stop or allowance: %+v", recovered)
 	}
 }
+
+func TestGraphStopMaterialUpdateKeepsOriginalWaitAndNotice(t *testing.T) {
+	f, forge, _, instance := persistentStopReporterFixture(t)
+	key := retainPersistentStopQuestion(t, f, instance)
+	reporter := newReporter(t, f, forge, nil)
+	original, err := reporter.RecoverGraphStopQuestion(t.Context(), key)
+	mustProgress(t, err)
+	retained, err := f.db.GetReportDelivery(t.Context(), key)
+	mustProgress(t, err)
+	_, err = f.db.ClaimGraphOwnerReply(t.Context(), store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: 42, AuthorID: 42, CommentID: original.CommentID + 1, QuestionCommentID: original.CommentID, TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug", DeliveryKey: key, Body: "Keep the findings and continue this step", At: time.Now().UTC()})
+	mustProgress(t, err)
+	update, err := reporter.RecoverGraphStopQuestion(t.Context(), key)
+	mustProgress(t, err)
+	if update.CommentID == original.CommentID || len(forge.all()) != 2 {
+		t.Fatalf("material update missing: %+v %+v", original, update)
+	}
+	again, err := reporter.RecoverGraphStopQuestion(t.Context(), key)
+	mustProgress(t, err)
+	if again.CommentID != update.CommentID || len(forge.all()) != 2 {
+		t.Fatal("unchanged disposition duplicated notice")
+	}
+	originalAfter, err := f.db.GetReportDelivery(t.Context(), key)
+	mustProgress(t, err)
+	if originalAfter != retained {
+		t.Fatal("material update rewrote original immutable notice")
+	}
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	mustProgress(t, err)
+	if wait.DeliveryKey != key || wait.State != "claimed" || watermark(t, f) != 0 {
+		t.Fatalf("informational update consumed input or changed original wait: %+v watermark=%d", wait, watermark(t, f))
+	}
+	posts := forge.all()
+	if !strings.Contains(posts[1].body, key) || !strings.Contains(posts[1].body, "continuation admitted") || strings.Contains(posts[1].body, "confirmed completion") {
+		t.Fatalf("update overclaims recovery or lost linkage: %s", posts[1].body)
+	}
+}

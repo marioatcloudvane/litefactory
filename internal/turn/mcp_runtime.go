@@ -191,7 +191,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	} else if prep.resultPass != "" {
 		workContext += "#" + prep.resultPass
 	}
-	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
+	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement" && !prep.reqAssessment(), Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if prep.typedPlan != nil {
 		contextValue.PlanScope = prep.typedPlan.scope
 	}
@@ -231,7 +231,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 				return agentresult.Context{}, store.ErrResultAuthority
 			}
 		}
-		if service != nil && req.Mode == "implement" {
+		if service != nil && session != nil && req.Mode == "implement" {
 			c, _, err := resolveResultEngineeringContext(check, runtime.Authority.db, service.Binding(), prep.worktree, session.binding.Generation, contextValue)
 			return c, err
 		}
@@ -246,7 +246,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		}
 		o.Resolve, o.ReadTargets, o.EditTargets = override.Resolve, slices.Clone(override.Targets), slices.Clone(override.Targets)
 	}
-	if req.Mode == "implement" {
+	if req.Mode == "implement" && !prep.reqAssessment() {
 		o.PrepareAggregate = func(check context.Context, b store.ResultBinding, ref agent.EngineeringContribution, capture agent.AggregateCapture) (store.ResultAggregate, error) {
 			selected := make([]store.ResultStoryRevision, 0, len(contextValue.Stories))
 			for key, story := range contextValue.Stories {
@@ -327,9 +327,10 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		return nil, nil, err
 	}
 	var evidence *EvidenceService
-	// A graph node of Implement or Validate submits only its application result:
-	// it runs without a story checkpoint session, so it collects no evidence.
-	withoutEvidence := (req.Mode == "implement" || req.Mode == "validate") && req.Invocation == agent.InvocationResearchNode
+	// A graph node of Implement or Validate, or a managed preparation assessment,
+	// submits only its application result. Without a story checkpoint session
+	// it cannot collect engineering evidence.
+	withoutEvidence := prep.reqAssessment() || (req.Mode == "implement" || req.Mode == "validate") && req.Invocation == agent.InvocationResearchNode
 	if (req.Mode == "implement" || req.Mode == "validate") && !withoutEvidence {
 		evidence, err = NewEvidenceService(session, receipts)
 		if err != nil {

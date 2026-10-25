@@ -121,6 +121,14 @@ var archiveRegistry = []ArchiveTable{
 	archived("bug_events", bySession),
 	archived("bug_repairs", bySession),
 	archived("bug_tasks", bySession),
+	// Owner input and decision history. These reference comments, attempts and
+	// guidance below, so their dependants must be streamed/deleted together.
+	archived("owner_instruction_inputs", bySession),
+	archived("owner_run_guidance", byRun),
+	archived("issue_owner_guidance", bySession),
+	archived("owner_decision_bindings", `task_ref IN `+inFT),
+	archived("owner_decision_displays", `task_ref IN `+inFT),
+	archived("validate_returns", byParent),
 	// Graph.
 	archived("graph_effects", `instance_id IN `+subInst),
 	archived("graph_outputs", `node_attempt_id IN `+subNodeAt),
@@ -166,6 +174,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("submission_criterion_history", byTask),
 	archived("submission_generations", byTask),
 	// Reports.
+	archived("recovery_notice_dispositions", bySession),
 	archived("report_deliveries", byRunSess),
 	archived("report_delivery_legacy_runs", byRun),
 	archived("report_recoveries", byRunSess),
