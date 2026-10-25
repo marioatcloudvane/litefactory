@@ -59,3 +59,22 @@ func (c GitSyncBaseCheckout) Refresh(ctx context.Context, working, commit string
 	}
 	return nil
 }
+
+// DeferredHead verifies retained branch identity without refreshing its files or index.
+func (c GitSyncBaseCheckout) DeferredHead(ctx context.Context, working string) (string, error) {
+	if c.Worktree == nil || c.Worktree.Branch() != working {
+		return "", errors.New("deferred checkout differs from working branch")
+	}
+	head, err := c.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if err != nil {
+		return "", err
+	}
+	reason, err := c.Guard(ctx, working, head)
+	if err != nil {
+		return "", err
+	}
+	if reason != "" && !knownRetainedPreparation(reason) {
+		return "", errors.New(reason)
+	}
+	return head, nil
+}

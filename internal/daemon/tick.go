@@ -2335,6 +2335,11 @@ func (d *Daemon) ownCodeComment(ctx context.Context, sessionID int64, c github.C
 // met and then leaves by that same door. See [Daemon.leave].
 func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) error {
 	ctx = sessionContext(ctx, t.session.ID)
+	var err error
+	c, err = d.admittedOrdinaryComment(ctx, t, c)
+	if err != nil {
+		return err
+	}
 	qualifiedReply, err := d.qualifyReply(ctx, t.session.ID, c)
 	if err != nil {
 		return err
@@ -2415,6 +2420,27 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		// nothing runs, the comment is consumed (AC-2.14, AC-2.15).
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
 		return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
+	}
+
+	// Retain ordinary owner bytes before routing, acknowledging ingestion or
+	// any occupied-wait/no-next-step refusal can advance the comment cursor.
+	if fields := strings.Fields(c.Body); len(fields) > 0 && fields[0] == "/guide" {
+		return d.handleOwnerGuide(ctx, t, c)
+	}
+	if commandForCode.Kind == turn.KindFreeText {
+		retained, err := d.retainOrdinaryOwnerInput(ctx, t, c)
+		if err != nil {
+			return err
+		}
+		if retained {
+			target, err := ownerInputTarget(c.Body)
+			if err != nil {
+				return err
+			}
+			if target.InstanceID > 0 {
+				return d.reportOwnerInput(ctx, t, c.ID, false)
+			}
+		}
 	}
 
 	t.commentUnderWay = c.ID
@@ -2842,6 +2868,9 @@ func (d *Daemon) run(
 	} else if kind != report.ReplyInvalid {
 		log.InfoContext(ctx, "plain parent comment has no Implement work to continue; refusing it with a reply",
 			slog.String("reply", kind.String()))
+		if command.Kind == turn.KindFreeText {
+			return d.reportOwnerInput(ctx, t, trigger.CommentID, false)
+		}
 		return d.refuseMode(ctx, t, trigger, kind, "")
 	}
 
@@ -2866,7 +2895,7 @@ func (d *Daemon) run(
 				workflow != agent.WorkflowBug && command.Kind == turn.KindFreeText {
 				log.InfoContext(ctx, "Owner comment refused while the wait holds another reply; refusing it with a reply",
 					slog.Any("error", err))
-				return d.refuseMode(ctx, t, trigger, report.ReplyGraphOwnerWaitRefused, "")
+				return d.reportOwnerInput(ctx, t, trigger.CommentID, false)
 			}
 			return d.leave(ctx, t, log, "Research owner reply admission failed", err)
 		}

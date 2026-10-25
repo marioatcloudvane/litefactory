@@ -77,6 +77,13 @@ func admitImplementExecution(ctx context.Context, opts Options, req Request, res
 		if featureErr != nil {
 			return result, true, featureErr
 		}
+		if feature.State == "planning" {
+			if err := opts.DB.CheckManagedReadiness(ctx, result.Ref.String()); errors.Is(err, store.ErrPlanNotReady) {
+				return result, false, nil
+			} else if err != nil {
+				return result, true, err
+			}
+		}
 		rt.generation = int64(feature.Generation)
 	default:
 		return result, true, err
@@ -100,6 +107,9 @@ func admitImplementExecution(ctx context.Context, opts Options, req Request, res
 		return result, false, nil
 	}
 	out, err := rt.admit(ctx)
+	if errors.Is(err, errManagedPreparationAssessment) {
+		return result, false, nil
+	}
 	return out, true, err
 }
 
@@ -119,11 +129,14 @@ func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
 	} else {
 		if err := rt.opts.DB.CheckManagedReadiness(ctx, rt.parentRef.String()); err != nil {
 			if errors.Is(err, store.ErrPlanNotReady) {
-				return readinessRefused(ctx, rt.opts, rt.result)
+				return rt.result, errManagedPreparationAssessment
 			}
 			return rt.result, err
 		}
 		if err := prepareManagedScope(ctx, rt.opts, rt.req, rt.parentRef); err != nil {
+			if errors.Is(err, store.ErrPlanNotReady) {
+				return rt.result, errManagedPreparationAssessment
+			}
 			return rt.result, err
 		}
 		feature, err := rt.opts.DB.GetManagedFeature(ctx, rt.parentRef.String())

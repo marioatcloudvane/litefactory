@@ -100,19 +100,16 @@ settings:
   mcp_auto_start: %t
   # Creation also requires one exact, short-lived owner approval.
   allow_mcp_story_creation: %t
-  # Auto-sync keeps a feature branch caught up with its base without being
-  # asked. It is on by default because staying behind quietly is the problem
-  # this feature exists to fix, and blocking on conflict is on by default
-  # because guessing wrong about a conflict is worse than stopping to ask.
+  # Attempt task/base synchronization before permitted work. Unresolved
+  # preparation conditions are reported in the normal result.
   auto_sync_base: %t
-  # A branch further behind than this refuses the run rather than skipping
-  # the sync: a run against a branch known to be stale is the failure this
-  # feature exists to prevent, and distance makes it worse, not safer.
-  # 0 means no cap — always merge, and let a real conflict be the only thing
-  # that stops a run. A negative value is a config load error, never silently
-  # clamped to 0 or to this default. The default of %d is a judgment call,
-  # not a measurement — no data set determined it; tune it for your pace.
+  # Automatic-merge distance limit for task/base preparation. Beyond it,
+  # skip synchronization and continue with a caveat. 0 means unlimited.
+  # Negative values are invalid. The default of %d is an operator-tunable
+  # judgment, not a measurement.
   auto_sync_max_behind: %d
+  # Deprecated compatibility setting: either value permits preparation
+  # continuation through conflicts, preserving edits and reporting a caveat.
   block_run_on_conflict: %t
   # Suggesting a resolution is off by default: this is the first place
   # litefactory sends repository file content to a model, and turning it on

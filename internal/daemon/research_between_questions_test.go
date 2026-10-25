@@ -22,7 +22,7 @@ const (
 )
 
 // betweenRefusalText identifies the one diagnostic reply.
-const betweenRefusalText = "arrived while the workflow was still working"
+const betweenRefusalText = "Your instruction is retained and undelivered"
 
 type betweenQuestions struct {
 	f        *fixture
@@ -280,7 +280,7 @@ func TestResearchBetweenQuestions_HeldWhileAttemptRuns(t *testing.T) {
 // is answered once and consumed, instead of retrying forever; the open claim is
 // untouched.
 func TestResearchOwnerWaitRefusalIsAnsweredOnceAndConsumed(t *testing.T) {
-	const ownerWaitText = "already handling another reply or question"
+	const ownerWaitText = "Your instruction is retained and undelivered"
 	b := newBetweenQuestions(t)
 	f := b.f
 	b.shapeAsks(t)
@@ -314,7 +314,20 @@ func TestResearchOwnerWaitRefusalIsAnsweredOnceAndConsumed(t *testing.T) {
 		t.Fatalf("refusal replies = %d, want 1\nlogs:\n%s", got, f.logs)
 	}
 	if _, ran := turnFor(f, second); ran {
-		t.Fatal("the refused comment was handed to an agent")
+		t.Fatal("the pending comment started a separate agent")
+	}
+	pending, err := f.db.ListOwnerInstructions(t.Context(), f.sessionOf(testIssue).ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, input := range pending {
+		if input.CommentID == second && input.Body == "Also, one more thought" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("occupied-wait input was lost: %+v", pending)
 	}
 	for range 3 {
 		f.clock.advance(time.Minute)

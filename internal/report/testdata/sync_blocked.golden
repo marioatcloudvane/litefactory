@@ -5,12 +5,6 @@
 > [!CAUTION]
 > litefactory did not record how run 92 ended — it was most likely interrupted between finishing the run and reporting on it. The local log is the authority on what happened.
 
-**Base branch sync**
+**Preparation caveat**
 
-litefactory could not sync this branch with `origin/main`: merging would conflict, so the branch was left as it was (2 commit(s) behind) and the run went ahead against it.
-
-Conflicting path(s) (2):
-```
-internal/cli/task.go
-docs/readme.md
-```
+base synchronization (2 behind): merging would conflict; existing work was preserved.

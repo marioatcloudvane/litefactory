@@ -107,6 +107,16 @@ func (d *Daemon) classifyMode(ctx context.Context, t *task, instruction string) 
 }
 
 func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, kind report.ReplyKind, mode agent.Mode) error {
+	// Ordinary direction remains pending when a question or terminal workflow
+	// cannot accept it. A refused decision command keeps its existing response.
+	if trigger.CommentID > 0 && turn.ParseCommand(trigger.Body).Kind == turn.KindFreeText {
+		switch kind {
+		case report.ReplyGraphReplyBetweenQuestions, report.ReplyGraphOwnerWaitRefused,
+			report.ReplyImplementCommentNotApplied, report.ReplyValidateCommentNotApplied,
+			report.ReplyImplementFinished, report.ReplyImplementFinishedAutoValidate, report.ReplyImplementFinishedValidated:
+			return d.reportOwnerInput(ctx, t, trigger.CommentID, false)
+		}
+	}
 	if trigger.CommentID == 0 && kind != report.ReplyBugUnavailable && kind != report.ReplyMissingModeMapping && kind != report.ReplyMissingTeam && kind != report.ReplyUnsupportedWorkflow {
 		t.log.InfoContext(ctx, "refusing issue-body mode selection; there is no comment to answer")
 		return nil

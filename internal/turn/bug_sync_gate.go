@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -33,7 +34,8 @@ func graphBugFreshSync(ctx context.Context, db *store.DB, p *graphexec.Profile, 
 		return errors.New("fixer requires a fresh successful base synchronization")
 	}
 	last := attempts[len(attempts)-1]
-	if last.Node != gate.Name || last.Status != store.GraphSucceeded || (last.Outcome != "synced" && last.Outcome != "current") {
+	permitted := last.Outcome == "synced" || last.Outcome == "current" || last.Outcome == "deferred" && slices.Contains(gate.Outcomes, "deferred")
+	if last.Node != gate.Name || last.Status != store.GraphSucceeded || !permitted {
 		return errors.New("fixer requires a fresh successful base synchronization")
 	}
 	transitions, err := db.ListGraphTransitions(ctx, instanceID)

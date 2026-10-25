@@ -165,6 +165,11 @@ func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Op
 	if err != nil {
 		return false, err
 	}
+	if effectDone(st.Effects.Close) || st.Reimplementing {
+		if err := opts.DB.ResolveOwnerDecisionInstance(ctx, req.InstanceID); err != nil {
+			return false, err
+		}
+	}
 	var target *ValidateDeliveryTarget
 	if b.Delivery.Target != nil {
 		if t, err := b.Delivery.Target(ctx, opts, req); err == nil {
@@ -174,6 +179,23 @@ func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Op
 	report, err := opts.DB.GetValidateReport(ctx, req.InstanceID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return false, err
+	}
+	instance, err := opts.DB.GetGraphInstance(ctx, req.InstanceID)
+	if err != nil {
+		return false, err
+	}
+	session, err := opts.DB.GetSession(ctx, instance.SessionID)
+	if err != nil {
+		return false, err
+	}
+	st.DecisionTask = session.TaskRef
+	// Display the actual delivery head separately from the tested evidence.
+	if b.Delivery.Head != nil {
+		if head, headErr := b.Delivery.Head(ctx); headErr == nil {
+			st.DeliveryCommit = head
+		} else {
+			return false, headErr
+		}
 	}
 	text := renderValidateReport(st, target, report.Notice)
 	// The story sub-issues follow the parent report: they are written only when
@@ -192,6 +214,31 @@ func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Op
 			err = opts.DB.PutValidateReport(ctx, saved)
 		}
 		reportErr = err
+	}
+	if reportErr == nil {
+		saved, e := opts.DB.GetValidateReport(ctx, req.InstanceID)
+		if e == nil {
+			instance, ie := opts.DB.GetGraphInstance(ctx, req.InstanceID)
+			if ie == nil {
+				session, se := opts.DB.GetSession(ctx, instance.SessionID)
+				if se == nil {
+					if !effectDone(st.Effects.Close) && !st.Reimplementing {
+						for _, action := range ValidateControlCommands {
+							if action == ValidateReturnCommand && (!st.Reimplement || !st.Assessed || st.Reimplementing) {
+								continue
+							}
+							d := store.OwnerDecisionDisplay{TaskRef: session.TaskRef, Action: action, Target: validateDecisionTarget(st), Revision: st.Revision, InstanceID: req.InstanceID, PublicationID: saved.CommentID, TestedCommit: st.Commit, DeliveryCommit: st.DeliveryCommit, CreatedAt: b.now(opts)}
+							e = errors.Join(e, opts.DB.PutOwnerDecisionDisplay(ctx, d))
+						}
+					}
+				} else {
+					e = se
+				}
+			} else {
+				e = ie
+			}
+		}
+		reportErr = errors.Join(reportErr, e)
 	}
 	return changed, errors.Join(storyErr, reportErr)
 }

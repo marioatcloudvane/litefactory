@@ -233,7 +233,7 @@ const MaxMergeConflictPaths = 500
 // the parser stops there rather than needing to know anything about the
 // messages section's own internal shape.
 func parseMergePreview(out string, clean bool) (MergePreview, error) {
-	if out == "" {
+	if out == "" || strings.HasPrefix(out, "\x00") {
 		return MergePreview{}, fmt.Errorf("%w: missing tree id", ErrInvalidArgument)
 	}
 	fields := strings.Split(out, "\x00")
@@ -258,9 +258,6 @@ func parseMergePreview(out string, clean bool) (MergePreview, error) {
 			continue
 		}
 		preview.Conflicts = append(preview.Conflicts, path)
-	}
-	if len(preview.Conflicts) == 0 {
-		return MergePreview{}, fmt.Errorf("%q: %w: conflicted but no paths listed", out, ErrInvalidArgument)
 	}
 	return preview, nil
 }

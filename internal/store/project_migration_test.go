@@ -44,16 +44,14 @@ func TestProjectMigrationPreservesPopulatedSessionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := db.AllocateRun(t.Context(), AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "spike", Agent: "claude", TriggerCommentID: 123, LogPath: func(int) string { return "/retained/log.jsonl" }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err = db.FinishRun(t.Context(), run.ID, RunOutcome{Status: RunSucceeded})
-	if err != nil {
-		t.Fatal(err)
-	}
+	run := seedHistoricalRunSnapshot(t, db, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "spike", Agent: "claude", TriggerCommentID: 123, LogPath: func(int) string { return "/retained/log.jsonl" }}, RunSucceeded)
 	body := "original prepared\nreport bytes <!-- lf:retained -->"
-	delivery, err := db.EnsureReportDelivery(t.Context(), ReportDelivery{Key: "retained-delivery", SessionID: session.ID, RunID: run.ID, TriggerID: 123, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "comment", Purpose: "run_report", BotUserID: 99, Body: body, Marker: "<!-- lf:retained -->"})
+	// Seed historical delivery directly: its current allocator reads the current run schema.
+	_, err = db.sql.ExecContext(t.Context(), `INSERT INTO report_deliveries(delivery_key,identity_version,session_id,run_id,trigger_id,task,destination,trigger_namespace,purpose,bot_user_id,body,marker) VALUES('retained-delivery',1,?,?,123,?,?,'comment','run_report',99,?,'<!-- lf:retained -->')`, session.ID, run.ID, session.TaskRef, session.TaskRef, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := db.GetReportDelivery(t.Context(), "retained-delivery")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,58 +14,45 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func TestReadinessRefusalBeforeAllocationAndRacedAllocation(t *testing.T) {
+func TestUnreadyScopeContinuesAssessmentAndReusesRacedAllocation(t *testing.T) {
 	for _, allocated := range []bool{false, true} {
 		t.Run(map[bool]string{false: "early", true: "allocated"}[allocated], func(t *testing.T) {
-			runner := newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-				t.Fatal("refusal launched agent")
-				return nil, nil
+			var f *fixture
+			runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+				if req.Permissions.Profile != "validate" || !strings.Contains(req.Prompt, "limited to preparation and reading") {
+					t.Fatal("unready managed request gained implementation authority")
+				}
+				return succeeded(req, f.paths.Home()), nil
 			})
-			f := newFixture(t, runner)
+			f = newFixture(t, runner)
 			req := f.request()
 			req.Command = ParseCommand("/implement finish")
 			req.Mode = "implement"
-			if err := f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}); err != nil {
-				t.Fatal(err)
-			}
+			mustProgress(t, f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}))
 			if allocated {
-				if err := f.db.SetManagedFeatureReady(t.Context(), f.session.TaskRef, 1, true); err != nil {
-					t.Fatal(err)
-				}
-				// Approval cannot read the forge: preparation must leave the same ordinal retryable.
+				mustProgress(t, f.db.SetManagedFeatureReady(t.Context(), f.session.TaskRef, 1, true))
+				// Required approval reads remain failures and preserve the same allocation.
 				for range 2 {
 					if _, err := Execute(t.Context(), f.opts, req); err == nil {
-						t.Fatal("missing forge unexpectedly prepared")
+						t.Fatal("missing forge unexpectedly prepared approval")
 					}
 					runs := f.runs()
 					if len(runs) != 1 || runs[0].Status != store.RunPrelaunch || runs[0].Ordinal != 1 {
 						t.Fatalf("retry allocation=%+v", runs)
 					}
 				}
-				if err := f.db.SetManagedFeatureReady(t.Context(), f.session.TaskRef, 1, false); err != nil {
-					t.Fatal(err)
-				}
+				mustProgress(t, f.db.SetManagedFeatureReady(t.Context(), f.session.TaskRef, 1, false))
 			}
 			result, err := Execute(t.Context(), f.opts, req)
-			if err != nil {
-				t.Fatal(err)
+			if err != nil || runner.callCount() != 1 || result.Harness == nil {
+				t.Fatalf("original request did not reach assessment: %+v %v", result, err)
 			}
-			if !strings.Contains(result.Reason, "No agent launched") || !strings.Contains(result.Reason, "fresh /implement") {
-				t.Fatalf("refusal explanation=%q", result.Reason)
-			}
-			if runner.callCount() != 0 {
-				t.Fatal("refused request ran")
-			}
-			if watermark(t, f) != 0 {
-				t.Fatal("refusal consumed without explanation delivery")
+			if result.Committed || result.Pushed || watermark(t, f) != 0 {
+				t.Fatal("assessment saved or consumed the request before delivery")
 			}
 			runs := f.runs()
-			if allocated {
-				if len(runs) != 1 || runs[0].Status != store.RunFailed || runs[0].SemanticOutcome != "refused" {
-					t.Fatalf("raced refusal=%+v", runs)
-				}
-			} else if len(runs) != 0 {
-				t.Fatalf("early refusal allocated=%+v", runs)
+			if len(runs) != 1 || runs[0].Status != store.RunSucceeded || runs[0].Ordinal != 1 {
+				t.Fatalf("assessment did not use the request's allocation: %+v", runs)
 			}
 		})
 	}

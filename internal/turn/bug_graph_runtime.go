@@ -327,7 +327,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 	var prerequisite *store.BugSyncPrerequisite
 	if gate, ok := graphexec.BugFixerSyncGate(r.definition.Profile); ok {
 		fixer, _ := graphexec.Decide(r.definition.Profile, gate.Name, "synced")
-		prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer}
+		prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer, AllowDeferred: slices.Contains(gate.Outcomes, "deferred")}
 	}
 	for {
 		if e = ctx.Err(); e != nil {

@@ -35,8 +35,7 @@ func blockedProposal(t *testing.T) (*fixture, string, store.ConflictProposal) {
 
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-			t.Error("claude ran though the base branch could not be merged in cleanly")
-			return nil, errors.New("must not be reached")
+			return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 		}),
 		propose: conflictSuggestion,
 	}
@@ -268,9 +267,8 @@ func TestApplyConfirmedResolutionRefusesAlreadyDecidedProposal(t *testing.T) {
 // actually observable — [ExecuteApplyResolution] calls [prepareClone]
 // directly rather than through [prepare], so it never reaches
 // [allocateRun]. The blocked run that produced the proposal in the first
-// place already stopped before allocating one too (AC-4.1, prepare.go), so
-// no runs row exists for this session at any point across the whole
-// propose-then-confirm lifecycle.
+// place now continues the original owner request and allocates its one run.
+// Explicit confirmation must not allocate another run.
 func TestApplyConfirmedResolutionAllocatesNoRunsRow(t *testing.T) {
 	t.Parallel()
 
@@ -279,8 +277,8 @@ func TestApplyConfirmedResolutionAllocatesNoRunsRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRuns after the blocked proposal run: %v", err)
 	}
-	if len(before) != 0 {
-		t.Fatalf("runs after the blocked proposal run = %d, want 0: a blocked sync preview must not allocate one", len(before))
+	if len(before) != 1 {
+		t.Fatalf("runs after continued request = %d, want 1", len(before))
 	}
 
 	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
@@ -298,8 +296,8 @@ func TestApplyConfirmedResolutionAllocatesNoRunsRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRuns after applying the confirmed resolution: %v", err)
 	}
-	if len(after) != 0 {
-		t.Fatalf("runs after applying a confirmed resolution = %d, want 0: the apply turn is agentless and allocates no run of its own", len(after))
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("explicit confirmation changed ordinary run history: before=%+v after=%+v", before, after)
 	}
 }
 

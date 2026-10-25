@@ -58,6 +58,16 @@ Spike never ask. Writing "do not ask" or "no questions" in the instruction turns
 questions off. The tag line is removed before the text is used, and a comment
 that is only the tag does nothing.
 
+## Retained instructions and standing guidance
+
+Ordinary owner instructions are retained until assigned to the next eligible
+logical step, including when another reply occupies its wait or no next step
+exists. An explicit target restricts which step can receive them. Pending input
+is shown as undelivered; assignment does not grant a new run or scope.
+`/guide <text>` sets or replaces optional issue guidance, `/guide` views it,
+and `/guide clear` withdraws it. These controls do not start work and remain
+separate from one-time instructions and decisions. See [owner input](owner-input.md).
+
 ## Controls on a parent issue
 
 These are not modes. They answer a proposal the factory posted, and the posted
@@ -71,14 +81,25 @@ comment shows the exact text to copy.
 | `/plan-new-story` | Reserves one more story key. Exact text, nothing else in the comment. | Does not write the story; Plan does that next. |
 | `/approve-bug analysis <revision>` | On a Bug task, approves the posted analysis so the fix starts. | Does not work on a task that is not a Bug task. |
 
+A displayed Plan stage also accepts `/approve-plan` or `/approve-plan d-…`;
+the assembled plan accepts `/approve-plan-set` or `/approve-plan-set d-…`.
+A bare reply requires one unchanged target across the unresolved displays for
+that action. After replacement, use the short reference shown with the new
+review. An explicit reference has priority and is never silently retargeted.
+
 Plan controls only work on a task running the graph Plan workflow. Anywhere
 else they are answered as unknown commands. See
 [Plan workflow](../workflow/plan-graph.md) and [Bug workflow](../workflow/bug-runtime.md).
 
 ## Validate controls
 
-Validate posts a report with a 12-character revision. Each command is the whole
-comment, on one line (at most 2048 characters), and names that revision.
+Validate posts a report with a 12-character revision and short decision references.
+Each command is the whole comment, on one line (at most 2048 characters).
+You may replace `<rev>` with the displayed `d-…` reference or leave it out when
+all unresolved displays for that action identify the same target and no newer
+target has been shown. A replacement requires its displayed short reference;
+a delayed reference never selects newer work. Full revision commands remain
+available, but a revision displayed for different delivery heads is ambiguous.
 
 | Syntax | What it causes |
 | --- | --- |
@@ -89,7 +110,16 @@ comment, on one line (at most 2048 characters), and names that revision.
 | `/validate-push <rev>` | Push the validated branch. |
 | `/validate-merge <rev> <pr-number> <head-sha>` | Merge that pull request at that exact head commit. |
 | `/validate-close <rev> <issue-number>...` | Close the listed issues (1 to 64). |
-| `/validate-ship <rev> -- <evidence>` | Confirm shipping, with what you checked by hand. |
+| `/validate-ship [reference] -- <reason>` | Authorizes shipment of the displayed delivery commit despite all its displayed blockers, then pushes, merges and closes. |
+| `/return [reference] -- <requested change>` | [Returns reviewed work](return-reviewed-work.md) directly to Implement on the same feature branch with your explanation. |
+| `/validate-implement <rev> [-- <guidance>]` | Legacy return of blocking findings or suite failures to Implement. |
+
+Shipping keeps the original failed tests, missing reviews and other evidence.
+Its audit retains the tested commit and the displayed delivery commit separately,
+exact blocker identities and evidence revision, authenticated owner, source
+comment, reason and time. Changed work, new blockers or changed evidence require
+a fresh decision. Confirmed delivery says “shipped with owner waiver”; a failed
+or uncertain delivery keeps its actual status.
 
 A stale revision, wrong grammar or an issue with no Validate run is refused and
 changes nothing. See [Validate](../workflow/validate.md) and
