@@ -230,7 +230,11 @@ func (a *Tickets) reply(ref ticket.Ref, comment Comment) (ticket.Reply, error) {
 	if comment.ID < 1 {
 		return ticket.Reply{}, errors.New("response has no immutable reply identity")
 	}
-	return ticket.Reply{Ticket: ref, Identity: ticket.Identity{Provider: ticket.GitHub, Origin: a.origin, RemoteID: strconv.FormatInt(comment.ID, 10)},
+	var replyTo ticket.Identity
+	if comment.ReplyToCommentID > 0 {
+		replyTo = ticket.Identity{Provider: ticket.GitHub, Origin: a.origin, RemoteID: strconv.FormatInt(comment.ReplyToCommentID, 10)}
+	}
+	return ticket.Reply{ReplyTo: replyTo, Ticket: ref, Identity: ticket.Identity{Provider: ticket.GitHub, Origin: a.origin, RemoteID: strconv.FormatInt(comment.ID, 10)},
 		Author: a.actor(comment.Author), Body: comment.Body, BrowserURL: comment.HTMLURL, CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt}, nil
 }
 

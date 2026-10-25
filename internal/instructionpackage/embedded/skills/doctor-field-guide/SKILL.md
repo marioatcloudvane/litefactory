@@ -98,7 +98,7 @@ SELECT delivery_key,trigger_id,purpose,possibly_sent,comment_id,completed FROM r
 | Symptom | Likely cause | Remedy |
 | --- | --- | --- |
 | Every retry fails with "graph instance already terminal"; the comment stays unconsumed; backoff grows | The comment's launch is bound to an instance that already finished (one launch per trigger) | `consume_comment`, then the owner re-posts the comment; factory defect |
-| A dispatch or attempt stays running after a restart; the story never re-dispatches | Abandoned run not reconciled | `release_instance` if nothing runs; otherwise `stop_run` |
+| A dispatch or attempt stays running after a restart; the story never re-dispatches | Abandoned run not reconciled | The exact bounded `graph_dispatch_cancel` or `graph_attempt_cancel` proposal if its related work is inactive; `graph_fail` only after no live attempt, dispatch or wait remains. Use ordinary owner replies after repair only when saved-launch admission supports them. |
 | `runs.status=running` but no process and no new log lines | Hung or orphaned agent | `stop_run` |
 | Story parked after three attempts | Repeated worker failure; read `last_failure` | Fix the cause, then the owner's guidance reply or `resume_story` |
 | Delivery possibly sent with no comment id; the task holds | Uncertain POST; the factory never re-posts blindly | Find the bot comment by its marker; no typed repair today (manual receipt or Bug) |

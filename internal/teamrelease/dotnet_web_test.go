@@ -260,6 +260,7 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		shared = legacySourceWithoutPreparationDeferral(t, mode, shared)
 		shared = withoutStandardsGrant(t, shared)
 		if mode == "bug" {
 			shared = legacyBugSourceWithoutSyncGate(t, shared)

@@ -91,15 +91,19 @@ func (r *planGraphRuntime) assembledComment(ctx context.Context, s planbrief.Pla
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(planPublication{Intent: intent, Text: text})
+	display := store.OwnerDecisionDisplay{TaskRef: r.parentRef.String(), Action: "/approve-plan-set", Target: "/approve-plan-set " + ref, Revision: ref, InstanceID: instance.ID, CreatedAt: r.opts.MCP.Now()}
+	raw, err := json.Marshal(planPublication{Intent: intent, Text: text, Display: &display})
 	if err != nil {
 		return err
 	}
 	if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: instance.ID, SourceAttemptID: source.ID, Node: "acceptance_review", Kind: "final", Candidate: raw}); err != nil {
 		return err
 	}
-	_, err = reporter.deliver(ctx, intent, func() (redact.Body, error) { return reporter.renderer.RenderReportDelivery(ctx, text, "") })
-	return err
+	posted, err := reporter.deliver(ctx, intent, func() (redact.Body, error) { return reporter.renderer.RenderReportDelivery(ctx, text, "") })
+	if err != nil {
+		return err
+	}
+	return r.opts.DB.PutOwnerDecisionDisplay(ctx, store.OwnerDecisionDisplay{TaskRef: r.parentRef.String(), Action: "/approve-plan-set", Target: "/approve-plan-set " + ref, Revision: ref, InstanceID: instance.ID, PublicationID: posted.CommentID, CreatedAt: r.opts.MCP.Now()})
 }
 
 // assembledText is the final plan review: the story set table with each
@@ -123,6 +127,8 @@ func (r *planGraphRuntime) assembledText(ctx context.Context, s planbrief.PlanSt
 		fmt.Fprintf(&body, "\nNo longer part of the plan (closed or retired): %s.\n", strings.Join(inactive, ", "))
 	}
 	fmt.Fprintf(&body, "\nTo approve exactly this plan, reply `/approve-plan-set %s`.\nQuestions here reach the set agent; questions on a story reach its current stage. Answers leave approvals unchanged. To change something, reply on the story's sub-issue in plain words; a changed plan gets a new final review.\n", ref)
+	shortRef := store.OwnerDecisionReference(r.parentRef.String(), "/approve-plan-set", "/approve-plan-set "+ref, ref)
+	fmt.Fprintf(&body, "\nShort reply: `/approve-plan-set %s`.\n", shortRef)
 	return body.String(), nil
 }
 

@@ -127,6 +127,15 @@ func refreshImplementHandoff(ctx context.Context, b ImplementBindings, opts Opti
 		return out, false, errors.New("hand-off report exceeds its size limit")
 	}
 	text += implementValidateNextStep(opts.ValidateAutoStart)
+	if req.InstanceID != 0 {
+		caveat, err := graphPreparationCaveat(ctx, b.DB, req.InstanceID)
+		if err != nil {
+			return out, false, err
+		}
+		if caveat != "" {
+			text += "\n\n" + caveat
+		}
+	}
 	body, err := b.Redactor.Apply(ctx, text, implementHandoffLimit)
 	if err != nil {
 		return implementHandoffOutput{}, false, fmt.Errorf("render hand-off: %w", err)

@@ -328,7 +328,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 		reason = "the command is not enabled for this kind, or has too many arguments"
 		return bad()
 	}
-	reason = "an argument is not an exact owner span, a current factory reference, or (lookup only) a plain value"
+	reason = "an argument is not an exact owner span, a current factory reference, or a plain value (lookups, and standards action, category_id, check, applies_to, version and mode)"
 	var arguments []map[string]json.RawMessage
 	if json.Unmarshal(fields["arguments"], &arguments) != nil {
 		return bad()
@@ -347,7 +347,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 				rejected.Name = arg.Name
 				ungrounded = true
 			}
-			reason = rejected.Detail() + "; each argument needs an exact owner span, a current factory reference, or (lookup only) a plain value"
+			reason = rejected.Detail() + "; each argument needs an exact owner span, a current factory reference, or a plain value (lookups, and standards action, category_id, check, applies_to, version and mode)"
 		}
 		if _, exists := inv.Arguments[arg.Name]; exists {
 			ground("given more than once")
@@ -406,8 +406,8 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 				return bad()
 			}
 		case exactConversationFields(f, "name", "value"):
-			if (envelope.Kind != "lookup" && (!standardsCommand(envelope.Command) || arg.Name != "action")) || conversationProtectedArgument(envelope.Command, arg.Name) || arg.Value == "" {
-				ground("a plain value is allowed only in lookups")
+			if (envelope.Kind != "lookup" && (!standardsCommand(envelope.Command) || !standardsPlainValue(arg.Name))) || conversationProtectedArgument(envelope.Command, arg.Name) || arg.Value == "" {
+				ground("a plain value is allowed only in lookups, and in standards changes for action, category_id, check, applies_to, version and mode")
 				return bad()
 			}
 			value = arg.Value
@@ -479,6 +479,17 @@ func argumentFaults(err error) string {
 func conversationProtectedContent(name string) bool {
 	switch name {
 	case "text", "note", "intent", "title", "body", "operations", "request", "reason", "config", "departure", "name":
+		return true
+	}
+	return false
+}
+
+// standardsPlainValue names the standards change arguments that take a plain
+// value: enum and id fields the factory validates against the book and its
+// enums. Prose stays an exact owner span.
+func standardsPlainValue(name string) bool {
+	switch name {
+	case "action", "category_id", "check", "applies_to", "version", "mode":
 		return true
 	}
 	return false

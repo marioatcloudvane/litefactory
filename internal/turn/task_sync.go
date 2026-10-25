@@ -30,7 +30,7 @@ func syncTask(ctx context.Context, opts Options, req Request, clone *git.Clone, 
 	}
 	d, err := w.Divergence(ctx, s.BaseSHA)
 	if err != nil {
-		return s, taskRefusal(s, err.Error())
+		return s, failuref(err, "task reconciliation failed for %s", s.Base)
 	}
 	s.Behind, s.Ahead = d.Behind, d.Ahead
 	if req.mode() == "validate" {
@@ -41,17 +41,22 @@ func syncTask(ctx context.Context, opts Options, req Request, clone *git.Clone, 
 	if s.Behind == 0 {
 		return s, nil
 	}
+	if !withinSyncCap(opts, s.Behind) {
+		s.Outcome, s.Reason = syncOutcomeSkipped, fmt.Sprintf("automatic merge skipped: %d commits behind exceeds the limit of %d", s.Behind, opts.AutoSyncMaxBehind)
+		return s, nil
+	}
 	changes, err := w.Status(ctx)
 	if err != nil {
-		return s, taskRefusal(s, err.Error())
+		return s, failuref(err, "task reconciliation failed for %s", s.Base)
 	}
 	if len(changes) > 0 {
-		return s, taskRefusal(s, "uncommitted changes must be preserved and finished before incorporating remote task commits")
+		s.Outcome, s.Reason = syncOutcomeDeferredDirty, "uncommitted changes were preserved before incorporating remote task commits"
+		return s, nil
 	}
 	if s.Ahead > 0 {
 		preview, err := w.MergePreview(ctx, s.BaseSHA)
 		if err != nil {
-			return s, taskRefusal(s, err.Error())
+			return s, failuref(err, "task reconciliation failed for %s", s.Base)
 		}
 		if !preview.Clean {
 			s.Outcome = syncOutcomeBlocked
@@ -65,24 +70,18 @@ func syncTask(ctx context.Context, opts Options, req Request, clone *git.Clone, 
 					s.ConflictFiles = conflictAdvisorFiles(s.ConflictSnapshots)
 				}
 			}
-			return s, taskRefusal(s, "remote task commits conflict with local commits")
+			s.Reason = "remote task commits conflict with local commits"
+			return s, nil
 		}
 	}
 	merged, err := w.MergeBase(ctx, s.BaseSHA, git.MergeOptions{Author: author, FastForwardOnly: s.Ahead == 0})
 	if err != nil {
-		return s, taskRefusal(s, err.Error())
+		return s, failuref(err, "task reconciliation failed for %s", s.Base)
 	}
 	s.Outcome = syncOutcomeSynced
 	s.SyncCommitSHA = merged.Head
 	logger.Info("task branch reconciled", "ref", s.Base, "before", s.BranchSHA, "remote", s.BaseSHA, "after", merged.Head)
 	return s, nil
-}
-
-func taskRefusal(s syncResult, reason string) *syncRefusal {
-	s.Outcome = syncOutcomeBlocked
-	s.Reason = reason
-	return &syncRefusal{phase: "task", observation: &s, branch: s.Branch, base: s.Base, branchSHA: s.BranchSHA, baseSHA: s.BaseSHA,
-		conflicts: s.Conflicts, snapshots: s.ConflictSnapshots, files: s.ConflictFiles, excluded: s.ConflictExcluded, collectionReason: s.ConflictCollectionReason}
 }
 
 func observation(s syncResult) store.SyncObservation {

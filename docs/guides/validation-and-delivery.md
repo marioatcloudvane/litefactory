@@ -21,12 +21,15 @@ The run ends as assessed, handed back to Implement with what must change, or blo
 
 ## Your commands
 
-Every command names the current report revision and must be the whole comment. The report shows the exact text. In short:
+Every command must be the whole comment. Use the displayed short reference,
+the explicit report revision, or omit the target when it is unambiguous.
+Replacement displays require their short reference; delayed replies cannot
+approve replacement work. The report shows the commands:
 
 - `/validate-check` records your manual verdict on a criterion nobody could verify.
 - `/validate-finding` chooses to repair a finding, defer it, or turn it into a new bug or story issue.
 - `/validate-push`, `/validate-merge` and `/validate-close` push the tested commit and open the pull request, merge it at the exact head, and close the parent and story issues.
-- `/validate-ship` does the whole normal case in one command: it records your evidence for the open manual checks, defers the optional findings, pushes, merges and closes. It is refused, and records nothing, if the suite did not pass, a review has no usable result, a failed criterion or blocking finding is open, or an issue you chose is not created yet.
+- `/validate-ship [reference] -- <reason>` authorizes the displayed delivery commit despite all its exact displayed blockers, including a failed suite, missing reviews, failed criteria and operational blockers, then pushes, merges and closes. Original evidence remains factual and tied to the tested commit; it is never rewritten as passing. The audit retains both commits, the exact blockers and evidence revision, owner, source comment, reason and time. New blockers, changed evidence or later undisplayed branch drift require a fresh decision. Confirmed completion says “shipped with owner waiver”; failed and uncertain operations keep their actual state.
 
 Exact syntax: [owner commands](owner-commands.md#validate-controls).
 

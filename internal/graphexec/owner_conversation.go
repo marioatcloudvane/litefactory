@@ -69,8 +69,15 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 			}
 		case SyncBaseAction:
 			syncs++
-			if len(n.Outcomes) != 4 || !slices.Contains(n.Outcomes, "synced") || !slices.Contains(n.Outcomes, "current") || !slices.Contains(n.Outcomes, "conflict") || !slices.Contains(n.Outcomes, "retry") {
+			if (len(n.Outcomes) != 4 && len(n.Outcomes) != 5) || !slices.Contains(n.Outcomes, "synced") || !slices.Contains(n.Outcomes, "current") || !slices.Contains(n.Outcomes, "conflict") || !slices.Contains(n.Outcomes, "retry") {
 				faults = append(faults, fmt.Errorf("base sync %q requires its four outcomes", n.Name))
+			}
+			if slices.Contains(n.Outcomes, "deferred") {
+				current, a := Decide(p, n.Name, "current")
+				deferred, b := Decide(p, n.Name, "deferred")
+				if !a || !b || current != deferred {
+					faults = append(faults, fmt.Errorf("base sync %q deferred outcome must reach permitted work", n.Name))
+				}
 			}
 			for _, outcome := range []string{"conflict", "retry"} {
 				if next, ok := Decide(p, n.Name, outcome); ok && (!gated || n.Name != gate.Name || outcome != "retry" || next != n.Name) {
@@ -175,7 +182,7 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 	for _, edge := range p.Edges {
 		allowed := edge.From == loop.Name && (edge.On == "analyse" || edge.On == "approved") || edge.From == analyst.Name && (edge.On == "ask" || edge.On == "done") || edge.From == fixer.Name && (edge.On == "reshape" || edge.On == "succeeded") || edge.From == final.Name && (edge.On == "completed" || edge.On == "revalidate")
 		if node, exists := p.Node(edge.From); exists && node.Action == SyncBaseAction {
-			allowed = edge.On == "synced" || edge.On == "current" || gated && node.Name == gate.Name && edge.On == "retry" && edge.To == gate.Name
+			allowed = edge.On == "synced" || edge.On == "current" || edge.On == "deferred" || gated && node.Name == gate.Name && edge.On == "retry" && edge.To == gate.Name
 		}
 		if !allowed {
 			faults = append(faults, fmt.Errorf("edge %q to %q bypasses conversation authority", edge.From, edge.To))

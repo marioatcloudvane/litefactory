@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -95,11 +96,13 @@ type ImplementBindings struct {
 	LockDir  string
 	Repo     ImplementRepo
 	// Now overrides the clock; nil uses the run's clock.
-	Now          func() time.Time
-	Bind         ImplementBind
-	ProgressRead func(context.Context, string, int64) ([]store.ImplementProgressReport, error)
-	StatusBind   ImplementBind
-	Status       ImplementStatusRefresher
+	Now              func() time.Time
+	Bind             ImplementBind
+	ProgressRead     func(context.Context, string, int64) ([]store.ImplementProgressReport, error)
+	StatusBind       ImplementBind
+	Status           ImplementStatusRefresher
+	AdvanceReturn    func(context.Context, string, string, string) (bool, error)
+	ReturnAllocation func(context.Context, ActivityRequest) ([]agentresult.ReturnAllocation, error)
 }
 
 // RegisterImplementActivities registers the three Implement factory activities
@@ -216,6 +219,9 @@ func (h ImplementReadyActivity) Execute(ctx context.Context, opts Options, req A
 	}
 	defer bestEffortImplementStatus(ctx, opts, h.b.Status, a.Parent.String(), a.Generation)
 	parent := a.Parent.String()
+	if err := h.b.applyReviewedReturn(ctx, opts, req, a); err != nil {
+		return ActivityResult{}, err
+	}
 	now := h.b.now(opts)
 	if err := h.b.DB.EnsureImplementStories(ctx, parent, a.Generation, a.seeds(), now); err != nil {
 		return ActivityResult{}, err

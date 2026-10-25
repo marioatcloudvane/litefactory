@@ -75,6 +75,34 @@ func doctorTypedRowSnapshot(ctx context.Context, tx *sql.Tx, ref, kind, target s
 // ApplyDoctorTypedRows backs up, applies and rechecks one approved row tool atomically.
 // The caller supplies only its closed tool name and the reserved step number.
 func (db *DB) ApplyDoctorTypedRows(ctx context.Context, id string, number int, kind string) (out DoctorRepairStep, err error) {
+	if DoctorGraphRepairKind(kind) {
+		steps, e := db.DoctorRepairSteps(ctx, id)
+		if e != nil {
+			return out, e
+		}
+		matched := false
+		for _, step := range steps {
+			if step.Number == number && step.Kind == kind {
+				matched = true
+			}
+		}
+		if !matched {
+			return out, errors.New("graph tool not in approved manifest")
+		}
+		if err = db.ApplyDoctorGraphRepair(ctx, id); err != nil {
+			return out, err
+		}
+		steps, e = db.DoctorRepairSteps(ctx, id)
+		if e != nil {
+			return out, e
+		}
+		for _, step := range steps {
+			if step.Number == number {
+				return step, nil
+			}
+		}
+		return out, errors.New("missing graph journal")
+	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		r, e := doctorRepairAuthority(ctx, tx, id)
 		if e != nil {

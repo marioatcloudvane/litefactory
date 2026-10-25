@@ -165,7 +165,7 @@ func (p *plainCommentParent) assertRefused(t *testing.T, id int64, before int, w
 	}
 }
 
-const validateRunningReply = "Validate is running or waiting for you; nothing was run."
+const validateRunningReply = "Your instruction is retained and undelivered"
 
 // #1123 c1: while the latest Validate instance runs, in any step, a plain
 // owner comment on the parent runs no Implement turn and gets one fixed reply.
@@ -194,7 +194,7 @@ func TestPlainCommentWhileValidateRunsIsRefused(t *testing.T) {
 			before := len(p.postedSince(0))
 			p.f.forge.addComment(testIssue, 44, owner(), "what are the blocking findings? tell me exactly")
 			p.f.settle()
-			p.assertRefused(t, 44, before, validateRunningReply, "Validate report")
+			p.assertRefused(t, 44, before, validateRunningReply, "Undelivered owner instructions")
 		})
 	}
 }
@@ -222,7 +222,7 @@ func TestPlainCommentAfterFinishedImplementIsRefused(t *testing.T) {
 			before := len(p.postedSince(0))
 			p.f.forge.addComment(testIssue, 44, owner(), "is it done?")
 			p.f.settle()
-			p.assertRefused(t, 44, before, "Implement is finished", "Nothing was run", tc.want)
+			p.assertRefused(t, 44, before, "Your instruction is retained and undelivered", "Undelivered owner instructions")
 		})
 	}
 }
