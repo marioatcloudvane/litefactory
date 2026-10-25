@@ -16,16 +16,16 @@ import (
 )
 
 // taskConflictFixture uses an independent remote task tip, leaving origin/main
-// unchanged. No ordinary runner may start while a proposal is being prepared.
+// unchanged. The ordinary runner leaves the checkout untouched so a later
+// explicit confirmation can still use the original proposal.
 func taskConflictFixture(t *testing.T, advisor func(context.Context, agent.ConflictResolutionRequest) (agent.ConflictResolution, error)) (*fixture, string) {
 	t.Helper()
 	runner := &stubConflictRunner{stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-		t.Error("ordinary runner started during task conflict")
-		return nil, errors.New("unexpected runner")
+		return nil, errors.New("fixture leaves the original request unchanged for explicit confirmation")
 	}), propose: advisor}
 	f := newFixture(t, runner)
 	f.opts.AutoSyncBase = true
-	f.opts.BlockRunOnConflict = false // task refusal cannot inherit permissive base policy
+	f.opts.BlockRunOnConflict = false // compatibility setting does not prevent continuation
 	f.opts.SuggestConflictResolution = true
 	f.opts.ConflictContentMaxBytes = 1 << 16
 	dir := seedTaskWorktree(t, f)
@@ -44,7 +44,7 @@ func taskBlockedProposal(t *testing.T) (*fixture, string, store.ConflictProposal
 	t.Helper()
 	f, dir := taskConflictFixture(t, conflictSuggestion)
 	result := f.execute(f.request())
-	if result.Disposition != DispositionSyncRefused || result.ConflictProposal == nil {
+	if result.Disposition != DispositionRan || result.ConflictProposal == nil {
 		t.Fatalf("task proposal: %+v\n%s", result, f.logs)
 	}
 	p, err := f.db.GetConflictProposal(t.Context(), result.ConflictProposal.ID)
@@ -127,8 +127,8 @@ func TestTaskConflictProposalPreviewAndApply(t *testing.T) {
 		t.Fatalf("consumption %s %v", refusal, err)
 	}
 	runs, err := f.db.ListRuns(t.Context(), f.session.ID)
-	if err != nil || len(runs) != 0 {
-		t.Fatalf("agentless proposal/apply allocated runs: %v %v", runs, err)
+	if err != nil || len(runs) != 1 || runs[0].ID != result.Run.ID {
+		t.Fatalf("confirmation allocated a run beyond the original request: %v %v", runs, err)
 	}
 }
 
@@ -242,7 +242,7 @@ func TestTaskConflictAdvisorFallback(t *testing.T) {
 			})
 			gittest.AssertUnchanged(t, dir, func() {
 				r := f.execute(f.request())
-				if r.Disposition != DispositionSyncRefused || r.ConflictProposal != nil || !r.ConflictSuggestionFailed {
+				if r.Disposition != DispositionRan || r.ConflictProposal != nil || !r.ConflictSuggestionFailed {
 					t.Fatalf("unsupported proposal accepted: %+v", r)
 				}
 				forge := newFakeForge(t)
@@ -251,8 +251,8 @@ func TestTaskConflictAdvisorFallback(t *testing.T) {
 					t.Fatal(err)
 				}
 				body := forge.only(t).body
-				if !strings.Contains(body, "No suggested resolution") || !strings.Contains(body, "then comment again") {
-					t.Fatalf("missing manual recovery: %s", body)
+				if !strings.Contains(body, "No suggested resolution") || !strings.Contains(body, "task synchronization") || strings.Count(body, "Preparation caveat") != 1 {
+					t.Fatalf("missing combined manual-resolution caveat: %s", body)
 				}
 			})
 		})

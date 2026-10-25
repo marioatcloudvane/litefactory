@@ -14,12 +14,12 @@ import (
 )
 
 // PrepareGraphBugSource readies the task worktree for one Bug agent and
-// returns a short note for its prompt. Git is the record: nothing about the
-// source is stored in the factory database.
+// returns a short note for its prompt. Synchronization observations are retained
+// on the current run for ordinary result delivery.
 //
-// The analyst reads the worktree as it is. The fixer first commits any work
-// left in the worktree, then synchronizes with the task branch and main; a
-// conflict or a branch too far behind is told to the fixer, never a refusal.
+// The analyst reads the worktree as it is. Fixer preparation observes task
+// and base freshness without committing retained edits. Known unresolved
+// conditions continue with a caveat; operational and identity errors still fail.
 func PrepareGraphBugSource(ctx context.Context, opts Options, request Request, activity ActivityRequest, worktree *git.Worktree, repo store.Repo, author git.Author, logger *slog.Logger, at time.Time, synchronize bool) (string, error) {
 	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || worktree == nil || logger == nil || at.IsZero() || activity.Workflow != agent.WorkflowBug || activity.Mode != "" || request.Workflow != agent.WorkflowBug || request.Mode != "" {
 		return "", errors.New("source preparation requires an admitted Bug factory allocation")
@@ -49,29 +49,41 @@ func PrepareGraphBugSource(ctx context.Context, opts Options, request Request, a
 	defer release()
 	var note strings.Builder
 	if synchronize {
-		// Preserve earlier work in git before synchronizing; the commit is
-		// part of the branch the factory later delivers.
-		if _, e = worktree.Commit(ctx, git.CommitOptions{Summary: "Preserve Bug work before synchronizing", Task: session.TaskRef, Workflow: "bug", Run: attempt.Attempt, Author: author}); e != nil {
+		if e = clone.Fetch(ctx, opts.remote()); e != nil {
 			return "", e
 		}
 		task, e := syncTask(ctx, opts, request, clone, worktree, author, logger)
 		if e != nil {
-			fmt.Fprintf(&note, "The task branch could not be synchronized with its remote copy: %s.\n", e.Error())
-		} else if task.Outcome == syncOutcomeBlocked {
-			fmt.Fprintf(&note, "The task branch could not be synchronized with its remote copy: %s.\n", task.Reason)
+			return "", e
 		}
-		base, e := syncBase(ctx, opts, request, worktree, repo, author, logger)
+		local, e := worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
 		if e != nil {
 			return "", e
 		}
-		switch base.Outcome {
-		case syncOutcomeBlocked:
-			fmt.Fprintf(&note, "The branch was not merged with %s: it conflicts in %s. Repair on the current branch; delivery will try the validated conflict advisor, then return here for fresh checks or ask the owner if resolution fails.\n", repo.BaseBranch, strings.Join(base.Conflicts, ", "))
-		case syncOutcomeTooFarBehind, syncOutcomeDeferredDirty, syncOutcomeSkipped:
-			if base.Reason != "" {
-				fmt.Fprintf(&note, "The branch was not merged with %s: %s.\n", repo.BaseBranch, base.Reason)
+		baseRef := opts.remote() + "/" + repo.BaseBranch
+		baseSHA, e := worktree.RevParse(ctx, baseRef, git.RevParseOptions{})
+		if e != nil {
+			return "", e
+		}
+		var base syncResult
+		if preparationSyncDeferred(task) {
+			base, e = observeDeferredBase(ctx, opts, worktree, baseSHA)
+		} else {
+			base, e = syncBase(ctx, opts, request, worktree, repo, author, logger)
+		}
+		if e != nil {
+			return "", e
+		}
+		base.Phase, base.Base, base.BranchSHA, base.BaseSHA = "base", baseRef, local, baseSHA
+		if _, e = opts.DB.RecordRunSyncObservations(ctx, attempt.RunID, []store.SyncObservation{observation(task), observation(base)}); e != nil {
+			return "", e
+		}
+		for _, s := range []syncResult{task, base} {
+			if preparationSyncDeferred(s) {
+				fmt.Fprintf(&note, "%s synchronization remains unresolved: %s. Existing edits and branch were preserved; continue only authorized repair work.\n", s.Phase, s.Reason)
 			}
 		}
+
 	}
 	head, e := worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
 	if e != nil {

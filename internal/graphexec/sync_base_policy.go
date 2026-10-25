@@ -25,13 +25,19 @@ func withoutExplicitSync(p *Profile) (*Profile, error) {
 			if n.Limit < 1 {
 				return "", fmt.Errorf("base sync %q requires a finite bound", name)
 			}
-			if len(n.Outcomes) != 4 || !slices.Contains(n.Outcomes, "synced") || !slices.Contains(n.Outcomes, "current") || !slices.Contains(n.Outcomes, "conflict") || !slices.Contains(n.Outcomes, "retry") {
+			if (len(n.Outcomes) != 4 && len(n.Outcomes) != 5) || !slices.Contains(n.Outcomes, "synced") || !slices.Contains(n.Outcomes, "current") || !slices.Contains(n.Outcomes, "conflict") || !slices.Contains(n.Outcomes, "retry") {
 				return "", fmt.Errorf("base sync %q requires its four outcomes", name)
 			}
 			synced, a := Decide(p, name, "synced")
 			current, b := Decide(p, name, "current")
 			if !a || !b || synced != current {
 				return "", fmt.Errorf("base sync %q success outcomes must continue to the same node", name)
+			}
+			if slices.Contains(n.Outcomes, "deferred") {
+				deferred, routed := Decide(p, name, "deferred")
+				if !routed || deferred != synced {
+					return "", fmt.Errorf("base sync %q deferred outcome must continue with permitted work", name)
+				}
 			}
 			for _, outcome := range []string{"conflict", "retry"} {
 				next, routed := Decide(p, name, outcome)

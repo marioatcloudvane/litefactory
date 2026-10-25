@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,16 +16,29 @@ import (
 )
 
 // A Plan agent that abbreviates the context's parent (as run 4 of #273 did)
-// must be told so by its own run, and the next turn must refuse with an
-// explanation rather than stay unconsumed on every tick (#289).
-func TestMalformedPlanningContextIsReportedThenRefused(t *testing.T) {
+// must be told so by its own run. The next request continues without admitting
+// or replacing the invalid source.
+func TestMalformedPlanningContextIsReportedThenContinues(t *testing.T) {
 	var f *fixture
 	launches := 0
+	var originalPath string
+	var originalWorktree string
+	var originalBytes []byte
 	runner := newStubRunner(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
 		launches++
 		writePlanOutcome(t, req, "discussion")
+		if launches == 2 {
+			if req.PlanContextPath == originalPath || req.PlanWorkingContext != "" || !strings.Contains(req.Prompt, "Optional planning context is unavailable") {
+				t.Fatal("unavailable context was admitted or destination reused")
+			}
+			writePlanContext(t, f, req)
+			return succeeded(req, f.paths.Home()), nil
+		}
+		originalPath = req.PlanContextPath
+		originalWorktree = req.WorktreePath
 		s := f.reloadSession()
 		writePlanJSON(t, filepath.Join(req.WorktreePath, req.PlanContextPath), planbrief.WorkingContext{Version: 1, Parent: fmt.Sprint(req.Ref.Issue), Branch: s.Branch, Feature: s.FeatureSlug, Scope: "Audit stories", Decisions: "None", Assumptions: "None", Questions: "None"})
+		originalBytes, _ = os.ReadFile(filepath.Join(req.WorktreePath, originalPath))
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
@@ -48,19 +62,19 @@ func TestMalformedPlanningContextIsReportedThenRefused(t *testing.T) {
 		t.Fatalf("writing run did not report its malformed context: err=%v", written.Err)
 	}
 
-	refused, err := turn("Check the assessment")
-	if err != nil {
-		t.Fatalf("malformed context left the trigger unconsumed instead of refusing: %v", err)
+	continued, err := turn("Check the assessment")
+	if err != nil || !continued.Succeeded() {
+		t.Fatalf("request did not continue: %+v err=%v logs=%s", continued, err, f.logs)
 	}
-	if launches != 1 {
-		t.Fatalf("refused context launched an agent: launches=%d", launches)
+	if launches != 2 {
+		t.Fatalf("expected same request to launch: launches=%d", launches)
 	}
-	if refused.Disposition != DispositionPrepareFailed || !strings.Contains(refused.Reason, planbrief.ContextFileName) || !strings.Contains(refused.Reason, "No agent launched") || !strings.Contains(refused.Reason, `expected "`+f.ref().String()+`"`) {
-		t.Fatalf("refusal explanation: disposition=%s reason=%q", refused.Disposition, refused.Reason)
+	actual, err := os.ReadFile(filepath.Join(originalWorktree, originalPath))
+	mustProgress(t, err)
+	if string(actual) != string(originalBytes) {
+		t.Fatal("unusable original context modified")
 	}
-	if refused.Run.ID == 0 || refused.Run.Status != store.RunFailed || refused.Run.SemanticOutcome != "refused" {
-		t.Fatalf("refused run not terminal: %+v", refused.Run)
-	}
+
 }
 
 func TestPlanningContextRefusalClassification(t *testing.T) {

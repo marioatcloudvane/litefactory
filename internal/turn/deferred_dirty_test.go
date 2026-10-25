@@ -130,7 +130,7 @@ func TestSyncBaseDirtyPolicyPrecedence(t *testing.T) {
 		enabled bool
 		cap     int
 		want    syncOutcome
-	}{{"up to date", 0, true, 0, syncOutcomeUpToDate}, {"disabled", 1, false, 0, syncOutcomeSkipped}, {"over cap", 2, true, 1, syncOutcomeTooFarBehind}, {"eligible", 1, true, 0, syncOutcomeDeferredDirty}} {
+	}{{"up to date", 0, true, 0, syncOutcomeUpToDate}, {"disabled", 1, false, 0, syncOutcomeSkipped}, {"over cap", 2, true, 1, syncOutcomeSkipped}, {"eligible", 1, true, 0, syncOutcomeDeferredDirty}} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := gittest.New(t)
@@ -196,7 +196,7 @@ func TestReporterDisclosesDeferredDirtyWithoutSuccessClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := forge.only(t).body
-	for _, want := range []string{"deferred syncing", "preserve uncommitted changes", "2 commit(s) behind, 0 ahead", "The base was not merged"} {
+	for _, want := range []string{"Preparation caveat", "uncommitted changes", "2 behind", "base synchronization"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("report lacks %q: %s", want, body)
 		}
