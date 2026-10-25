@@ -88,7 +88,7 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		}
 	}
 	if st.Handback != nil {
-		b.WriteString("\n**What still needs fixing:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 600)) + "\n")
+		b.WriteString("\n**What still needs fixing:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 2000)) + "\n")
 	}
 	if len(st.Open) > 0 {
 		b.WriteString("\n**Displayed blockers:**\n")
