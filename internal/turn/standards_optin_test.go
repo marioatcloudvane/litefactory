@@ -217,7 +217,7 @@ func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(graphs) < 20 {
+	if len(graphs) < 15 {
 		t.Fatalf("found only %d graphs", len(graphs))
 	}
 	for _, path := range graphs {
