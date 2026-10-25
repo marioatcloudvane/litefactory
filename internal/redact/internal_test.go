@@ -13,6 +13,7 @@ package redact
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -26,6 +27,26 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
+
+func TestPrepareFailsClosed(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name string
+		pass func(string) (string, Counts)
+	}{
+		{"panic", func(string) (string, Counts) { panic("matching failed") }},
+		{"residual", func(text string) (string, Counts) { return text, Counts{} }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := New(Options{Environ: []string{"TEST_SECRET=private-literal"}})
+			r.pass = tt.pass
+			view, err := r.Prepare(context.Background(), "private-literal")
+			if !errors.Is(err, ErrRedactionFailed) || view.Valid() || view.String() != "" {
+				t.Fatalf("incomplete redaction escaped: valid=%v err=%v", view.Valid(), err)
+			}
+		})
+	}
+}
 
 // TestApplyRecoversFromAPanickingPass is AC-4.9.
 //

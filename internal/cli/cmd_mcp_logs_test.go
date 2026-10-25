@@ -134,7 +134,7 @@ func TestMCPLogsAuthorizedPreviousRunsEndToEnd(t *testing.T) {
 		if i == 1 {
 			expectedStart, expectedEnd = firstEnd, int64(len(source))
 		}
-		if citation.Version != 1 || citation.RunID != selected.ID || citation.Ordinal != selected.Ordinal || citation.TaskRef != "github:fixture/logs#202" || citation.Start != expectedStart || citation.End != expectedEnd || citation.Digest != hex.EncodeToString(sum[:]) || citation.Policy == "" {
+		if citation.Version != 2 || citation.SourceRevision == "" || citation.ViewDigest == "" || citation.RunID != selected.ID || citation.Ordinal != selected.Ordinal || citation.TaskRef != "github:fixture/logs#202" || citation.Start != expectedStart || citation.End != expectedEnd || citation.Digest != hex.EncodeToString(sum[:]) || citation.Policy == "" {
 			t.Fatalf("unusable citation: %+v", citation)
 		}
 	}

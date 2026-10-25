@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/retainedevidence"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -33,7 +34,7 @@ func (h AskHistory) ReadAskHistory(ctx context.Context, channel string) (ask.His
 		if len(lines) != 4 || !strings.HasPrefix(lines[0], "> ") || !strings.HasPrefix(lines[1], "> Project: ") || lines[2] != "[lf:ask:v1]" {
 			continue
 		}
-		turn := ask.Turn{Question: strings.TrimPrefix(lines[0], "> "), Project: strings.TrimPrefix(lines[1], "> Project: "), Answer: lines[3], At: r.FinishedAt}
+		turn := ask.Turn{Question: strings.TrimPrefix(lines[0], "> "), Project: strings.TrimPrefix(lines[1], "> Project: "), Answer: lines[3], At: r.FinishedAt, SourceID: r.Transport + ":" + r.MessageID, Revision: retainedevidence.Digest([]byte(raw))}
 		encoded, err := json.Marshal(turn)
 		if err != nil {
 			return out, err
