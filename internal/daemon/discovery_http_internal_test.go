@@ -181,7 +181,7 @@ func (f *discoveryHTTPFixture) task(t *testing.T, repoName string) (*task, store
 }
 func (f *discoveryHTTPFixture) discover(t *testing.T, task *task, story store.ManagedStory) error {
 	t.Helper()
-	return f.d.discoverStoryComments(f.d.discoveryContext(t.Context()), task, f.client, story)
+	return f.d.discoverStoryComments(f.d.discoveryContext(t.Context()), task, f.client, story, nil)
 }
 func (f *discoveryHTTPFixture) cursor(t *testing.T, task *task, child int) int64 {
 	t.Helper()
@@ -210,7 +210,7 @@ func TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent(t *testing.T) {
 			task  *task
 			story store.ManagedStory
 		}{{a, sa}, {b, sb}} {
-			if err := f.d.discoverStoryComments(ctx, pair.task, f.client, pair.story); err != nil {
+			if err := f.d.discoverStoryComments(ctx, pair.task, f.client, pair.story, nil); err != nil {
 				t.Fatal(err)
 			}
 		}

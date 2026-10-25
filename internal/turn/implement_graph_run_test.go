@@ -2051,3 +2051,74 @@ func TestImplementPlainCommentAfterFinishedImplementRepostsCompletion(t *testing
 		t.Fatalf("the completion note is posted again: %d", len(got))
 	}
 }
+
+// #1169: after a resolver question was answered and the resolver settled the
+// conflict, the coordinator's later base sync ran inside the resolver's run.
+// A story that parks afterwards is asked about on that sync, and the owner's
+// reply naming it must still resume the story through the runless sync.
+func TestImplementReplyResumesAParkedStoryAfterAnAnsweredResolverQuestion(t *testing.T) {
+	calls := 0
+	var f *fixture
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		if calls == 1 {
+			submitLiveResult(t, req, syncResolverAsksJSON)
+		} else {
+			mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
+			submitLiveResult(t, req, syncResolvedJSON)
+		}
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	var req Request
+	f, _, req = assembledImplementFixture(t, runner)
+	// The released go-development graph (v1.0.3 and later) that #998 ran: a
+	// main conflict goes to the resolver, and the owner question rests on the
+	// coordinator base sync.
+	enableStrictWorkerSyncFixture(t, f)
+	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	seedMainFeatureConflict(t, f)
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	runOwedImplementStages(t, f, req)
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	if err != nil || wait.State != "waiting" {
+		t.Fatalf("the resolver question is open: %+v %v %v", wait, err, implementTrail(t, f))
+	}
+	asked, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
+	mustProgress(t, err)
+	mustProgress(t, f.db.FinishGraphDispatch(t.Context(), asked.ID, time.Now()))
+	delivery, err := f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+	mustProgress(t, err)
+	_, err = f.db.ClaimGraphOwnerReply(t.Context(), store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: 77, AuthorID: 77, CommentID: delivery.CommentID + 100, QuestionCommentID: delivery.CommentID, TaskRef: parent, SourceRef: parent, Mode: "implement", Workflow: "implement", DeliveryKey: wait.DeliveryKey, Body: "q1 b", At: time.Now()})
+	mustProgress(t, err)
+	answer := req
+	answer.Trigger.CommentID, answer.Trigger.Body = delivery.CommentID+100, "q1 b"
+	if _, err := Execute(t.Context(), f.opts, answer); err != nil {
+		t.Fatal(err)
+	}
+	runOwedImplementStages(t, f, req)
+	row := implementStatesOf(t, f, parent)["story-001"]
+	if row.State != store.ImplementRunning {
+		t.Fatalf("the story starts once the conflict is resolved: %+v", row)
+	}
+
+	_, err = f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: parent, Generation: 1, Key: "story-001", From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: "The worker stopped with a blocked answer: main is red.", At: implementClock})
+	mustProgress(t, err)
+	mustProgress(t, wakeImplementParent(t.Context(), f.db, parent, time.Now()))
+	runOwedImplementStages(t, f, req)
+	wait, err = f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	if err != nil || wait.State != "waiting" {
+		t.Fatalf("the parked story is asked about: %+v %v", wait, err)
+	}
+
+	replyToImplementOwner(t, f, req, parent, instance, wait)
+	if row := implementStatesOf(t, f, parent)["story-001"]; row.State != store.ImplementRunning || !strings.Contains(row.Guidance, "main is fixed now") {
+		t.Fatalf("the owner's reply naming the parked story resumes it: %+v", row)
+	}
+	if wait, err = f.db.GetGraphOwnerWait(t.Context(), instance.ID); err != nil || wait.State != "allocated" {
+		t.Fatalf("the reply was allocated to the resumed sync: %+v %v", wait, err)
+	}
+}
