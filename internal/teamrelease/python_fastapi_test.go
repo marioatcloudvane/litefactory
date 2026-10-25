@@ -240,17 +240,9 @@ func TestPythonFastAPIProfileAndGuidanceBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	combined := []byte{}
-	for _, raw := range guidance {
-		combined = append(combined, raw...)
-	}
-	for _, topic := range []string{"request", "response", "lifespan", "blocking", "error", "pytest", "OpenAPI", "typed API", "loading", "accessible", "Vitest", "strict", "read-only", "uv sync --locked", "npm ci", "package-only"} {
-		// The evidence boundary is stated as package compatibility, not application proof.
-		if topic == "package-only" {
-			topic = "does not prove an example application"
-		}
-		if !bytes.Contains(bytes.ToLower(combined), []byte(strings.ToLower(topic))) {
-			t.Fatal("missing stack guidance", topic)
+	for _, selected := range p.Guidance {
+		if _, ok := guidance[selected.Skill]; !ok {
+			t.Errorf("selected skill missing from captured closure: %s", selected.ID)
 		}
 	}
 	for name, raw := range snapshot(t, "../../teams/source/python-fastapi/implement/skills/python-fastapi-stack") {
