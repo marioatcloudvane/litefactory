@@ -49,7 +49,7 @@ func runScopedDoctorProcess(ctx context.Context, binary string, args, env []stri
 		return providerprocess.RunDoctorProcess(ctx, binary, args, env, request, timeout, observe)
 	}
 	if operation == "judge" {
-		return providerprocess.RunJudgeProcess(ctx, binary, args, env, agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}, timeout, observe)
+		return providerprocess.RunJudgeProcess(ctx, binary, args, env, agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}, timeout, observe, nil)
 	}
 	return providerprocess.RunRepairProcess(ctx, binary, args, env, agent.RepairRequest{Invocation: request, Operation: operation}, timeout, observe)
 }

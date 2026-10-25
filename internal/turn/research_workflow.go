@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
@@ -445,7 +446,37 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 	if err != nil {
 		return ResearchInvocation{}, route.abort(ctx, err)
 	}
-	return w.finishRoute(ctx, route, &req, "\nFactory supplied session artifact directory: "+sessionPath+"\n"+saved+predecessor+handoff+continuation, sessionPath)
+	return w.finishRoute(ctx, route, &req, sessionDirectoryContext(sessionPath, prep.parentSessionDir, prep.parentSessionFiles)+saved+predecessor+handoff+continuation, sessionPath)
+}
+
+// parentSessionContext names, in order, the parent session files a story worker
+// is pointed at, each with what it holds for the story's criteria.
+var parentSessionContext = []struct{ name, meaning string }{
+	{naming.ResearchTechnicalName, "holds the Research findings: the classified inventory named in this story's criteria"},
+	{naming.ResearchBriefName, "holds the Research decisions and assumptions named in this story's criteria"},
+	{planbrief.FileName, "holds the plan"},
+}
+
+// sessionDirectoryContext is the session directory line of a graph invocation.
+// A story worker with a parent session directory gets two lines instead: its own
+// directory only for its outputs, and the parent's as approved context, naming
+// only the files that are present there.
+func sessionDirectoryContext(own, parent string, files []string) string {
+	if parent == "" {
+		return "\nFactory supplied session artifact directory: " + own + "\n"
+	}
+	var b strings.Builder
+	b.WriteString("\nFactory supplied session artifact directory, only where this story's own outputs go: " + own + "\n")
+	b.WriteString("Factory supplied parent session directory: " + parent + ". It is approved Research and Plan context for this story, not an archived earlier session.")
+	for _, file := range parentSessionContext {
+		for _, present := range files {
+			if present == file.name {
+				b.WriteString(" " + file.name + " there " + file.meaning + ".")
+			}
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 // handoffContext is the policy's saved context from earlier agent stages of this
