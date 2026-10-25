@@ -17,13 +17,14 @@ Shape issue #1067 into a buildable scope covering all owner-facing stops, parks,
 - **d9** — Allow concise chat notices to link full guidance while retaining cause, affected work and an immediate actionable next step.
 - **d10** — Keep unavailable recovery explicit and retain stops with safe fallback guidance when explanations or state are missing.
 - **d11** — Deliver agent instruction changes through new supported releases for every maintained stack and shared agents without rewriting historical releases or silently upgrading installations.
-- **d12** — Require a branch-by-branch coverage record and representative behavioral checks of command validity, consequences, priority, stale state and unchanged authority before acceptance.
+- **d12** — Complete a classified reporting-branch inventory before finishing shaping and require representative command, consequence, ordering, stale-state and authorization checks for acceptance.
+- **d13** — Keep #1067 responsible for factory stop guidance and command consequences while treating #1128's agent-report format and shared-skill design as related separate work.
 
 
 ## Assumptions
 
 - **a1** — Treat 'all paths' as all owner-facing workflow and factory reporting families, including scheduling, confirmations and chat; internal errors matter when they reach those surfaces.
-- **a2** — The four Wanted requirements in the supplied issue define the comparison criteria. An exact command means a valid command based on current retained state, not fabricated approval or a promise that retry resets limits.
+- **a2** — The four Wanted requirements define the comparison criteria; valid recovery guidance must distinguish retained same-instance limits from fresh allowances explicitly supported by story or coordinator restart.
 - **a3** — The historical incident remains owner-reported; acceptance covers the reported pattern through reproducible scenarios rather than requiring access to its original live state.
 - **a4** — The issue's demand for all paths includes currently maintained stack release sources and shared factory surfaces, while historical immutable releases receive an explicit upgrade boundary.
 - **a5** — A short chat notice may link a full authoritative report when it still explains cause, affected work and the immediate next action.
