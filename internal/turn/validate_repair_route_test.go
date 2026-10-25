@@ -3,6 +3,11 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/bugchecks"
+	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/gittest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -131,3 +136,94 @@ func TestValidateRepairRoundUsesTheLiveRepairReport(t *testing.T) {
 		t.Fatalf("rounds %+v %v", rounds, err)
 	}
 }
+
+// #1183: an owner /validate whose stage waited for run capacity resumes
+// from a graph dispatch, under the factory's synthetic command. On a separated
+// managed feature in its approved scope the repair agent's run still starts.
+func TestValidateDispatchResumesIntoTheRepairAgent(t *testing.T) {
+	a := newAdoptFlow(t)
+	ctx := t.Context()
+	// The repair round resets a real worktree to the tested commit.
+	binary, err := git.Resolve(ctx)
+	if err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	clone, err := binary.Open(ctx, a.f.repo.Dir)
+	mustProgress(t, err)
+	ensured, err := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: filepath.Join(t.TempDir(), "wt"), Branch: "lf/1183-repair", BaseBranch: gittest.DefaultBranch})
+	mustProgress(t, err)
+	mustProgress(t, os.MkdirAll(filepath.Join(ensured.Worktree.Path(), flowSessionDir), 0o700))
+	a.head, err = ensured.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	mustProgress(t, err)
+	realBind := a.f.opts.Validate.Bind
+	a.f.opts.Validate.Bind = func(ctx context.Context, o Options, r Request, e store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
+		suite, flow, err := realBind(ctx, o, r, e)
+		flow.Worktree = func() (*git.Worktree, error) { return ensured.Worktree, nil }
+		run := suite.Run
+		suite.Run = func(ctx context.Context, dir string, c config.BugCheckCommand, started func(bugchecks.CommandResult) error) bugchecks.CommandResult {
+			res := run(ctx, dir, c, started)
+			code := 1
+			res.Exit, res.Outcome = &code, "failed"
+			return res
+		}
+		return suite, flow, err
+	}
+	a.f.opts.Validate.Permissions = validateRepairResolver(t)
+	var agentRuns []store.Run
+	var agentErrs []error
+	a.f.opts.Runners = runnerSet(lifecycleMCPHost(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
+		runs, err := a.f.db.ListRuns(ctx, a.f.session.ID)
+		if err == nil && len(runs) > 0 {
+			agentRuns = append(agentRuns, runs[len(runs)-1])
+		}
+		agentErrs = append(agentErrs, err)
+		return nil, errValidateStop
+	}))
+	feature, err := a.f.db.GetManagedFeature(ctx, a.f.session.TaskRef)
+	mustProgress(t, err)
+	if feature.WorkflowVersion != store.WorkflowSeparated || feature.State != "implementing" {
+		t.Fatalf("fixture feature %+v", feature)
+	}
+	// No run capacity is free: the owner's start parks the owed stage.
+	a.f.opts.GraphRetryDelay = time.Minute
+	if _, err := Execute(WithStepCapacity(ctx, fullCapacity{}), a.f.opts, a.request(6001, validateOwnerID, "/validate check the finished work")); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := a.f.db.LatestWorkflowInstance(ctx, a.f.session.ID, "validate")
+	mustProgress(t, err)
+	dispatch, err := a.f.db.LatestGraphDispatch(ctx, inst.ID)
+	mustProgress(t, err)
+	// As on #998 the deferred stage is the suite; the dispatch's run then goes
+	// on through the failed suite to the repair agent.
+	if dispatch.Status != "pending" || dispatch.Node != inst.CurrentNode || (inst.CurrentNode != "suite" && inst.CurrentNode != "repair_agent") || len(agentRuns) != 0 {
+		t.Fatalf("instance at %s, dispatch %+v, agent runs %d", inst.CurrentNode, dispatch, len(agentRuns))
+	}
+	reserved, ok, err := a.f.db.ReserveGraphDispatch(ctx, dispatch.ID, dispatch.DueAt)
+	mustProgress(t, err)
+	if !ok {
+		t.Fatal("reserve refused")
+	}
+	// The daemon's dispatch request: a graph trigger and a synthetic command.
+	instruction := "Continue the workflow at its " + reserved.Node + " stage."
+	req := a.f.request()
+	req.Mode = agent.ModeValidate
+	req.Trigger = Trigger{CommentID: reserved.TriggerID(), Body: instruction, Author: "owner"}
+	req.Command = Command{Kind: KindFreeText, Text: instruction}
+	out, err := Execute(ctx, a.f.opts, req)
+	if err != nil && strings.Contains(err.Error(), "managed Validate requires") {
+		t.Fatalf("the resumed repair stage was refused: %v", err)
+	}
+	if len(agentRuns) != 1 || agentErrs[0] != nil {
+		t.Fatalf("the repair agent did not start: runs=%+v errs=%v out=%+v err=%v", agentRuns, agentErrs, out, err)
+	}
+	if got := agentRuns[0]; got.Status != store.RunRunning || got.TriggerCommentID != reserved.TriggerID() {
+		t.Fatalf("repair run %+v", got)
+	}
+}
+
+// fullCapacity admits nothing, as a worker pool with every slot taken.
+type fullCapacity struct{}
+
+func (fullCapacity) Replace(context.Context, int) (bool, error) { return false, nil }
+func (fullCapacity) Release()                                   {}
+func (fullCapacity) Capacity() (int, int)                       { return 4, 4 }

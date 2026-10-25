@@ -732,3 +732,110 @@ func TestListDueCoordinatorGraphDispatchesSelectsOnlyCoordinators(t *testing.T) 
 		t.Fatalf("a non-positive limit is refused: %v", err)
 	}
 }
+
+// A prelaunch run whose own dispatch is finished or cancelled can never be
+// resumed. It is settled as failed, one session at a time, so the session's
+// recovery is no longer blocked; live dispatches, doctor holds and Bug
+// sessions keep theirs. The stranded rule itself is unchanged.
+func TestOrphanedGraphPrelaunchRunsAreSettled(t *testing.T) {
+	for _, tc := range []struct {
+		status            string
+		guard             string
+		settled, stranded bool
+	}{
+		{status: "finished", settled: true, stranded: true},
+		{status: "cancelled", settled: true},
+		{status: "pending"},
+		{status: "reserved"},
+		{status: "running"},
+		{status: "finished", guard: "doctor"},
+		{status: "finished", guard: "bug"},
+	} {
+		t.Run(tc.status+tc.guard, func(t *testing.T) {
+			db, launch := captureFixture(t)
+			ctx, at := t.Context(), graphTestTime()
+			admitted, err := db.AdmitWorkflowLaunch(ctx, launch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			instance := admitted.Instance
+			exec := func(query string, args ...any) {
+				t.Helper()
+				if _, err := db.sql.ExecContext(ctx, query, args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reason := ""
+			if tc.status == "cancelled" {
+				reason = "graph stage \"work\" could not start in 3 attempts"
+			}
+			res, err := db.sql.ExecContext(ctx, `INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id,cancellation_reason) VALUES(?,?,?,?,?,?,?,?)`, instance.ID, instance.SessionID, instance.CurrentNode, FormatTime(at), tc.status, FormatTime(at), admitted.LaunchID, reason)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := res.LastInsertId()
+			if err != nil {
+				t.Fatal(err)
+			}
+			segment, err := db.GetOrCreateSegment(ctx, instance.SessionID, 1, "orphan", AgentClaude)
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: instance.SessionID, SegmentID: segment.ID, Mode: "research", Agent: AgentClaude, TriggerCommentID: GraphDispatch{ID: id}.TriggerID(), StartedAt: at, Prelaunch: true, LogPath: func(int) string { return "orphan.log" }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch tc.guard {
+			case "doctor":
+				session, err := db.GetSession(ctx, instance.SessionID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, presentation := retainedPollProposal(t, db, session)
+				if _, err := db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "orphan-hold", SourceID: "orphan-input", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
+					t.Fatal(err)
+				}
+			case "bug":
+				exec(`DELETE FROM workflow_admissions WHERE session_id=?`, instance.SessionID)
+				exec(`INSERT INTO workflow_admissions(session_id,version,family,workflow,source_trigger) VALUES(?,1,'standalone','bug',0)`, instance.SessionID)
+			}
+			sessions, err := db.ListOrphanedGraphPrelaunchSessions(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if listed := len(sessions) == 1 && sessions[0] == instance.SessionID; listed != tc.settled || (!tc.settled && len(sessions) != 0) {
+				t.Fatalf("candidates=%v want listed=%v", sessions, tc.settled)
+			}
+			n, err := db.SettleOrphanedGraphPrelaunchRuns(ctx, instance.SessionID, at.Add(time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := db.GetRun(ctx, run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.settled {
+				if n != 1 || got.Status != RunFailed || got.Error == "" || (reason != "" && got.Error != reason) {
+					t.Fatalf("settled=%d run=%+v", n, got)
+				}
+			} else if n != 0 || got.Status != RunPrelaunch {
+				t.Fatalf("settled=%d run status=%s", n, got.Status)
+			}
+			stranded, err := db.ListStrandedGraphDispatches(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, d := range stranded {
+				found = found || (d.InstanceID == instance.ID && d.Node == instance.CurrentNode)
+			}
+			if found != tc.stranded {
+				t.Fatalf("stranded=%v want %v: %+v", found, tc.stranded, stranded)
+			}
+			var dispatches int
+			if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_dispatches WHERE instance_id=?`, instance.ID).Scan(&dispatches); err != nil || dispatches != 1 {
+				t.Fatalf("dispatches=%d err=%v", dispatches, err)
+			}
+		})
+	}
+}
