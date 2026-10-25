@@ -510,6 +510,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// US-4's hard stop for the conflicts US-2's auto-sync cannot
 		// resolve on its own, read from the same validated configuration
 		// as the two fields above and bound the same way.
+		//nolint:staticcheck // SA1019: the deprecated setting is still bound until it is removed.
 		BlockRunOnConflict: s.Config.Settings.BlockRunOnConflict,
 		// US-11's suggested-resolution advisor, read and bound the same
 		// way: the flag defaults to false in config.Defaults, so a

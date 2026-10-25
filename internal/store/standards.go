@@ -304,6 +304,20 @@ func (db *DB) GetStandardsApproval(ctx context.Context, id string, version int64
 	return a, err
 }
 
+// StandardsPublishedRevision returns the book revision that published the
+// exact proposal version, or ErrNotFound while it is unpublished.
+func (db *DB) StandardsPublishedRevision(ctx context.Context, id string, version int64) (int64, error) {
+	var revision int64
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		e := tx.QueryRowContext(ctx, `SELECT revision_id FROM standards_publications WHERE proposal_id=? AND version=?`, id, version).Scan(&revision)
+		if errors.Is(e, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return e
+	})
+	return revision, err
+}
+
 // ApproveStandardsProposal records exact local approval after checking the current version and book head.
 func (db *DB) ApproveStandardsProposal(ctx context.Context, a StandardsApproval) (StandardsApproval, error) {
 	if a.Owner == "" || !StandardsProvenanceValid(a.Provenance) {

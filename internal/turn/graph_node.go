@@ -41,11 +41,22 @@ type GraphNodeRequest struct {
 // and exhausted limits. Status is the instance status, not the activity outcome.
 type GraphNodeResult struct {
 	// Deferred means admission is waiting. AttemptID is zero if no work began.
-	Deferred               bool
+	Deferred bool
+	// Exhausted means the node's dispatch limit was spent before it could run.
+	Exhausted              bool
 	InstanceID, AttemptID  int64
 	Node, NextNode, Status string
 	Activity               ActivityResult
 }
+
+// GraphLimitError is the cause of a graph run that stopped because a node's
+// dispatch limit was exhausted. Its text is the step's diagnostic.
+type GraphLimitError struct {
+	Node       string
+	Diagnostic string
+}
+
+func (e *GraphLimitError) Error() string { return e.Diagnostic }
 
 // parentSerializedActivity serializes on a Plan parent's story-progress lock,
 // which ExecuteNodeAction takes before reserving the attempt.
@@ -212,6 +223,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
+		out.Exhausted = true
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
 		if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction {
 			out.Activity.Diagnostic, err = graphBugSyncExhaustionDiagnostic(context.WithoutCancel(ctx), opts.DB, instance.ID, node.Name, out.Activity.Diagnostic)

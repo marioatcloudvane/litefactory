@@ -126,3 +126,53 @@ func TestStartCompleteApproveAndPublishStayConfirmed(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnersWordsPublishTheDraftInOneStep(t *testing.T) {
+	f := newJudgedConversation(t)
+	withAuthorSession(f, false)
+	f.say(t, "yes, good, publish it", "", func(p factoryConversationPrompt) string {
+		id, start, end := span(p, "yes, good, publish it")
+		return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"publish"},{"name":"id","reference":%q},{"name":"text","source_id":%q,"start":%d,"end":%d}]}`, p.AuthorSession.Reference, id, start, end)
+	})
+	if len(f.ops.executed) != 1 || f.ops.executed[0].Operation != "author.publish" || f.ops.executed[0].Arguments["id"] != "conversation-discord:3:nl-exec:abc" || !strings.Contains(f.ops.executed[0].OperationKey, ":nl-direct:") {
+		t.Fatalf("publish not run once on the owner's words: %+v", f.ops.executed)
+	}
+	if _, err := f.s.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
+		t.Fatal("publishing asked for a second confirmation")
+	}
+}
+
+func TestPublishWithoutTheOwnersWordsGoesBackToTheAgentOnce(t *testing.T) {
+	f := newJudgedConversation(t)
+	withAuthorSession(f, false)
+	f.say(t, "ship it", "", func(p factoryConversationPrompt) string {
+		if p.CorrectionReason == "" {
+			return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"publish"},{"name":"id","reference":%q}]}`, p.AuthorSession.Reference)
+		}
+		id, start, end := span(p, "ship it")
+		return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"publish"},{"name":"text","source_id":%q,"start":%d,"end":%d}]}`, id, start, end)
+	})
+	if len(f.provider.prompts) < 2 || f.provider.prompts[0].CorrectionReason != "" || !strings.Contains(f.provider.prompts[1].CorrectionReason, "text") {
+		t.Fatalf("missing term not sent to the correction: %d prompts", len(f.provider.prompts))
+	}
+	if len(f.ops.executed) != 1 || f.ops.executed[0].Operation != "author.publish" || f.ops.executed[0].Arguments["text"] != "ship it" {
+		t.Fatalf("corrected publish not run: %+v", f.ops.executed)
+	}
+}
+
+func TestStandardsEnumFieldsTakePlainValuesButProseNeedsTheOwnersWords(t *testing.T) {
+	f := newJudgedConversation(t)
+	withAuthorSession(f, false)
+	f.say(t, "put it in delivery", "", func(p factoryConversationPrompt) string {
+		return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"edit"},{"name":"id","reference":%q},{"name":"category_id","value":"delivery"},{"name":"check","value":"manual"}]}`, p.AuthorSession.Reference)
+	})
+	if len(f.ops.executed) != 1 || f.ops.executed[0].Arguments["category_id"] != "delivery" || f.ops.executed[0].Arguments["check"] != "manual" {
+		t.Fatalf("plain enum values refused: %+v", f.ops.executed)
+	}
+	f.say(t, "describe it better", "", func(p factoryConversationPrompt) string {
+		return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"edit"},{"name":"id","reference":%q},{"name":"description","value":"A better description."}]}`, p.AuthorSession.Reference)
+	})
+	if len(f.ops.executed) != 1 {
+		t.Fatalf("plain prose accepted: %+v", f.ops.executed[1:])
+	}
+}

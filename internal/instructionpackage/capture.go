@@ -52,7 +52,7 @@ func (p *Package) Capture(ctx context.Context, role string) (*RoleCapture, []Dia
 		return nil, nil, unknownRole(role)
 	}
 	selectFiles := p.selectFiles
-	if len(selectedSkills(role)) != 0 {
+	if len(p.skillsFor(role)) != 0 {
 		selectFiles = p.selectSkillFiles
 	}
 	files, sources, diagnostics, err := selectFiles(ctx, role)
@@ -158,7 +158,10 @@ func validateCapture(data CaptureData) error {
 		return fmt.Errorf("invalid capture digest")
 	}
 	expectedPaths := retainedCapturePaths(data.Role, len(data.Files))
-	hasSkills := len(selectedSkills(data.Role)) != 0
+	skills := presentSkills(data.Role, func(name string) bool {
+		return slices.ContainsFunc(data.Files, func(f CapturedFile) bool { return f.Path == name })
+	})
+	hasSkills := len(skills) != 0
 	if len(data.Files) < 2 || len(data.Files) > MaxFiles {
 		return fmt.Errorf("invalid capture file count")
 	}
@@ -212,7 +215,7 @@ func validateCapture(data CaptureData) error {
 		}
 	}
 	if hasSkills {
-		closure, err := roleClosure(data.Role, func(name string) ([]byte, error) {
+		closure, err := roleClosure(data.Role, skills, func(name string) ([]byte, error) {
 			raw, ok := files[name]
 			if !ok {
 				return nil, fmt.Errorf("missing captured closure file %s", name)

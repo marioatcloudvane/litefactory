@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -204,8 +205,14 @@ func prepare(
 	}
 	// Preparation observations do not remove the request's admitted authority.
 	// In particular, never start a speculative conflicted merge in retained work.
-	coordinatorAgent := req.mode() == "implement" && req.Workflow != agent.WorkflowBug && !storyWorker && req.researchDefinition != nil
-	storyMerge, err := startStoryMerge(ctx, storyWorker || coordinatorAgent, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync)
+	// The only runs whose job is the conflict itself are a story worker, which
+	// resolves its conflict with the feature branch, and the Implement
+	// coordinator's sync resolver, which resolves the base branch's conflict in
+	// the parent's worktree (#1164). For them the factory starts the merge and
+	// leaves the conflict in the worktree; every other run only observes.
+	syncResolver := req.mode() == "implement" && req.Workflow != agent.WorkflowBug && !storyWorker && !req.preparationAssessment &&
+		req.researchDefinition != nil && graphexec.ImplementSyncResolver(req.researchDefinition.Profile, req.researchNode)
+	storyMerge, err := startStoryMerge(ctx, storyWorker || syncResolver, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync)
 	if err != nil {
 		return nil, err
 	}
@@ -1694,10 +1701,34 @@ func storyBaseBranch(ctx context.Context, opts Options, clone *git.Clone, sessio
 	return parent.Branch
 }
 
-// startStoryMerge exposes deferred preparation without touching the checkout.
-func startStoryMerge(ctx context.Context, storyWorker bool, worktree *git.Worktree, baseRef, featureBranch string, sync syncResult) (*harness.DeferredSyncContext, error) {
-	if !storyWorker || !preparationSyncDeferred(sync) {
+// startStoryMerge gives a story worker its conflict with the feature branch,
+// and the Implement sync resolver its conflict with the base branch, as work.
+// On a blocked base sync it starts merging baseRef into the branch and leaves
+// the conflicts in the worktree; a merge already in progress is reused and its
+// still-unmerged paths reported. A base observation made while task
+// reconciliation is unresolved never starts a merge, and any other deferred
+// observation is exposed without touching the checkout. It returns nil for a
+// run that resolves no conflict.
+func startStoryMerge(ctx context.Context, resolvesConflict bool, worktree *git.Worktree, baseRef, featureBranch string, sync syncResult) (*harness.DeferredSyncContext, error) {
+	if !resolvesConflict || !preparationSyncDeferred(sync) {
 		return nil, nil
+	}
+	if startsConflictMerge(sync) {
+		start := sync.Outcome == syncOutcomeBlocked
+		if !start {
+			_, err := worktree.RevParse(ctx, "MERGE_HEAD", git.RevParseOptions{})
+			if err != nil && !errors.Is(err, git.ErrRevisionNotFound) {
+				return nil, failuref(err, "whether a merge is in progress on %s could not be read", worktree.Branch())
+			}
+			start = err == nil
+		}
+		if start {
+			conflicts, err := worktree.StartMerge(ctx, baseRef)
+			if err != nil {
+				return nil, failuref(err, "merging %s into %s to resolve its conflicts could not be started", baseRef, worktree.Branch())
+			}
+			return &harness.DeferredSyncContext{Deferred: true, Branch: worktree.Branch(), Base: baseRef, Behind: sync.Behind, Ahead: sync.Ahead, FeatureBranch: featureBranch, Conflicts: conflicts}, nil
+		}
 	}
 	conflicts := append([]string(nil), sync.Conflicts...)
 	changes, err := worktree.Status(ctx)
@@ -1712,6 +1743,17 @@ func startStoryMerge(ctx context.Context, storyWorker bool, worktree *git.Worktr
 		}
 	}
 	return &harness.DeferredSyncContext{Deferred: true, Branch: worktree.Branch(), Base: baseRef, Behind: sync.Behind, Ahead: sync.Ahead, FeatureBranch: featureBranch, Conflicts: conflicts}, nil
+}
+
+// startsConflictMerge reports a base sync that stopped on a conflict a
+// resolving run may be given as work: a blocked base merge, or a merge already
+// in progress (deferred_dirty). A base observation made after task
+// reconciliation was deferred is excluded: merging then would conceal it.
+func startsConflictMerge(s syncResult) bool {
+	if s.Task != nil && preparationSyncDeferred(*s.Task) {
+		return false
+	}
+	return s.Outcome == syncOutcomeBlocked || s.Outcome == syncOutcomeDeferredDirty
 }
 
 // preparationSyncDeferred is an observation, never an execution permission.
