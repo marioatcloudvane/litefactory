@@ -71,8 +71,18 @@ func (d *Daemon) legacyReply(ctx context.Context, r ticket.Reply) (github.Commen
 	if err != nil {
 		return github.Comment{}, err
 	}
+	var replyTo int64
+	if r.ReplyTo.RemoteID != "" {
+		if r.ReplyTo.Provider != r.Identity.Provider || r.ReplyTo.Origin != r.Identity.Origin {
+			return github.Comment{}, store.ErrTicketIdentityConflict
+		}
+		replyTo, err = d.db.LocalTicketSlot(ctx, "comment", r.ReplyTo)
+		if err != nil {
+			return github.Comment{}, err
+		}
+	}
 	copyReply := r
-	return github.Comment{ID: slot, Author: author, Body: r.Body, HTMLURL: r.BrowserURL, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, QualifiedReply: &copyReply}, nil
+	return github.Comment{ReplyToCommentID: replyTo, ID: slot, Author: author, Body: r.Body, HTMLURL: r.BrowserURL, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, QualifiedReply: &copyReply}, nil
 }
 func (d *Daemon) bindingRef(ctx context.Context, a TicketIngress, origin ticket.Origin, r github.Repo, i github.Issue) (ticket.Ref, error) {
 	if ingressProvider(a) == ticket.GitHub {

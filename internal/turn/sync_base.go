@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -19,6 +20,9 @@ type SyncBaseTarget struct {
 	Base    string
 	// ExpectedHead pins the checked repair when the caller requires it.
 	ExpectedHead string
+	// PreparationReason is a factory-observed retained unpublished checkout.
+	// It defers only declared pre-work routes; it cannot waive final synchronization.
+	PreparationReason string
 	// Lock takes the working branch's lock. It returns ok false, with no error,
 	// when another writer holds it; the step then answers retry.
 	Lock func(context.Context) (unlock func() error, ok bool, err error)
@@ -61,14 +65,15 @@ func RegisterSyncBase(specs *graphexec.Registry, activities *ActivityRegistry, m
 type SyncBaseActivity struct{ b SyncBaseBinding }
 
 type syncBaseOutput struct {
-	Working          string   `json:"working"`
-	Base             string   `json:"base"`
-	Result           string   `json:"result"`
-	Commit           string   `json:"commit,omitempty"`
-	Conflicts        []string `json:"conflicts,omitempty"`
-	Reason           string   `json:"reason,omitempty"`
-	Publication      string   `json:"publication,omitempty"`
-	CheckoutVerified bool     `json:"checkout_verified,omitempty"`
+	Working           string   `json:"working"`
+	Base              string   `json:"base"`
+	Result            string   `json:"result"`
+	Commit            string   `json:"commit,omitempty"`
+	Conflicts         []string `json:"conflicts,omitempty"`
+	Reason            string   `json:"reason,omitempty"`
+	Publication       string   `json:"publication,omitempty"`
+	CheckoutVerified  bool     `json:"checkout_verified,omitempty"`
+	CheckoutUnchanged bool     `json:"checkout_unchanged,omitempty"`
 }
 
 // Execute returns
@@ -78,6 +83,10 @@ type syncBaseOutput struct {
 //	conflict  merge conflict or retained-work safety blockage; reason is specific
 //	          and paths are included only for merge conflicts
 //	retry     the lock is busy or the branch moved
+//	deferred  known preparation remains unresolved, on a declared pre-work route
+//
+// Healthy retained checkouts report current without refreshing their edits.
+// Final synchronization keeps its strict published-head and checkout checks.
 //
 // A cancelled context, a git outage or a forge outage is an error.
 func (h SyncBaseActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (res ActivityResult, err error) {
@@ -88,6 +97,7 @@ func (h SyncBaseActivity) Execute(ctx context.Context, opts Options, req Activit
 	if strings.TrimSpace(target.Working) == "" || strings.TrimSpace(target.Base) == "" || target.Working == target.Base || target.Lock == nil {
 		return ActivityResult{}, errors.New("the base sync needs a working branch, a different base branch and a lock")
 	}
+	allowDeferred := slices.ContainsFunc(strings.Split(req.Attrs["lf_outcomes"], ","), func(outcome string) bool { return strings.TrimSpace(outcome) == "deferred" })
 	out := syncBaseOutput{Working: target.Working, Base: target.Base}
 	unlock, ok, err := target.Lock(ctx)
 	if err != nil {
@@ -98,7 +108,13 @@ func (h SyncBaseActivity) Execute(ctx context.Context, opts Options, req Activit
 		return implementResult("retry", out)
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
-
+	if target.PreparationReason != "" {
+		if allowDeferred && knownWorkerPreparation(target.PreparationReason) {
+			return deferredSyncResult(ctx, target, out, target.PreparationReason)
+		}
+		out.Result, out.Reason = "conflict", target.PreparationReason
+		return implementResult("conflict", out)
+	}
 	scratch, err := h.b.Repo.Begin(ctx, target.Working)
 	if err != nil {
 		return ActivityResult{}, fmt.Errorf("prepare base sync: %w", err)
@@ -120,16 +136,31 @@ func (h SyncBaseActivity) Execute(ctx context.Context, opts Options, req Activit
 			return ActivityResult{}, fmt.Errorf("inspect retained checkout: %w", guardErr)
 		}
 		if reason != "" {
+			if allowDeferred && knownWorkerPreparation(reason) {
+				return deferredSyncResult(ctx, target, out, reason)
+			}
 			out.Result, out.Reason = "conflict", reason
 			return implementResult("conflict", out)
 		}
 	}
 
+	if allowDeferred && opts.AutoSyncMaxBehind > 0 {
+		behind, measured, measureErr := syncBehind(ctx, scratch, target.Base)
+		if measureErr != nil {
+			return ActivityResult{}, measureErr
+		}
+		if measured && !withinSyncCap(opts, behind) {
+			return deferredSyncResult(ctx, target, out, fmt.Sprintf("automatic base merge skipped: %d commits behind exceeds the limit of %d", behind, opts.AutoSyncMaxBehind))
+		}
+	}
 	head, merged, err := scratch.Merge(ctx, target.Base)
 	switch {
 	case errors.Is(err, git.ErrMergeConflict):
 		out.Result, out.Reason = "conflict", fmt.Sprintf("%s conflicts with %s; the working branch is unchanged", target.Base, target.Working)
 		out.Conflicts = syncConflictPaths(ctx, scratch, target.Base)
+		if allowDeferred {
+			return deferredSyncResult(ctx, target, out, out.Reason)
+		}
 		if h.b.ResolveConflict == nil {
 			return implementResult("conflict", out)
 		}
@@ -220,4 +251,59 @@ func finishSyncCheckout(ctx context.Context, target SyncBaseTarget, out syncBase
 		out.CheckoutVerified = true
 	}
 	return implementResult(out.Result, out)
+}
+
+// A declared deferred route continues only known preparation conditions.
+func knownRetainedPreparation(reason string) bool {
+	return reason == "retained checkout has uncommitted or untracked changes" || reason == "retained checkout has a merge in progress"
+}
+
+func deferredSyncResult(ctx context.Context, target SyncBaseTarget, out syncBaseOutput, reason string) (ActivityResult, error) {
+	out.Result, out.Reason = "deferred", reason
+	if target.Checkout != nil {
+		retained, ok := target.Checkout.(interface {
+			DeferredHead(context.Context, string) (string, error)
+		})
+		if !ok {
+			return ActivityResult{}, errors.New("preparation deferral requires retained checkout identity verification")
+		}
+		head, err := retained.DeferredHead(ctx, target.Working)
+		if err != nil {
+			return ActivityResult{}, err
+		}
+		out.Commit, out.CheckoutVerified = head, true
+		if observer, ok := target.Checkout.(interface {
+			PreparationFreshness(context.Context, string, string) (string, int, error)
+		}); ok {
+			observed, behind, observeErr := observer.PreparationFreshness(ctx, target.Working, target.Base)
+			if observeErr != nil {
+				return ActivityResult{}, observeErr
+			}
+			if observed != head {
+				return ActivityResult{}, errors.New("retained checkout changed while observing preparation freshness")
+			}
+			if behind == 0 {
+				out.Result, out.Reason, out.Conflicts = "current", "", nil
+				out.CheckoutUnchanged = true
+				return implementResult("current", out)
+			}
+		}
+	}
+	return implementResult("deferred", out)
+}
+
+func syncBehind(ctx context.Context, scratch ImplementScratch, base string) (int, bool, error) {
+	if gated, ok := scratch.(gatedScratch); ok {
+		scratch = gated.ImplementScratch
+	}
+	actual, ok := scratch.(*gitScratch)
+	if !ok {
+		return 0, false, nil
+	}
+	d, err := actual.wt.Divergence(ctx, "refs/remotes/"+actual.repo.Remote+"/"+base)
+	return d.Behind, true, err
+}
+
+func knownWorkerPreparation(reason string) bool {
+	return knownRetainedPreparation(reason) || reason == "retained working branch has unpublished history; preserve it before retrying base synchronization" || reason == "retained local commits are not contained in synchronization commit"
 }

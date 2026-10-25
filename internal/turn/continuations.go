@@ -97,9 +97,9 @@ func (r *Reporter) attachRecoveryReport(ctx context.Context, rep *RunReport) err
 	if err != nil {
 		return fmt.Errorf("load recovery announcement: %w", err)
 	}
-	if c.Status == "cancelled" {
+	rep.Run.Recovery.Status = c.Status
+	if c.CancellationReason != "" {
 		rep.Run.Recovery.ManualReason = c.CancellationReason
-		return nil
 	}
 	rep.Run.Recovery.ActionID = c.ID
 	rep.Run.Recovery.DueAt = c.DueAt

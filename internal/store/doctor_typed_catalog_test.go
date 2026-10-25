@@ -9,7 +9,7 @@ import (
 
 func TestDoctorTypedRepairCatalog(t *testing.T) {
 	t.Parallel()
-	want := []string{"cancel_schedule", "consume_comment", "park_story", "release_instance", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
+	want := []string{"cancel_schedule", "consume_comment", "graph_attempt_cancel", "graph_dispatch_cancel", "graph_fail", "graph_wait_cancel", "park_story", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
 	if got := DoctorRepairToolKinds(); !slices.Equal(got, want) {
 		t.Fatalf("catalog = %v, want %v", got, want)
 	}
@@ -18,7 +18,7 @@ func TestDoctorTypedRepairCatalog(t *testing.T) {
 			t.Errorf("typed repair kind %q refused", kind)
 		}
 	}
-	for _, kind := range []string{"", "poll_flag", "session_file", "worktree_file", "run_interrupt", "session_unlock", "report_completion", "watermark_rewind", "graph_dispatch_cancel", "graph_wait_cancel", "graph_attempt_cancel", "graph_fail", "doctor_write", "execute_sql", "release_instance ", "Release_instance"} {
+	for _, kind := range []string{"", "poll_flag", "session_file", "worktree_file", "run_interrupt", "session_unlock", "report_completion", "watermark_rewind", "release_instance", "doctor_write", "execute_sql", "release_instance ", "Release_instance"} {
 		if DoctorRepairToolKind(kind) {
 			t.Errorf("noncatalog kind %q accepted", kind)
 		}
@@ -91,7 +91,7 @@ func TestDoctorTypedRepairMigrationRetainsLegacyJournal(t *testing.T) {
 			t.Fatal("new schema refused typed kind", kind, err)
 		}
 	}
-	if err = insertKind(30, "execute_sql"); err == nil {
+	if err = insertKind(40, "execute_sql"); err == nil {
 		t.Fatal("schema accepted an unknown kind")
 	}
 	for _, query := range []string{

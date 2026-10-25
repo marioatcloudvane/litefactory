@@ -206,10 +206,10 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		var prerequisite *store.BugSyncPrerequisite
 		if gate, exists := graphexec.BugFixerSyncGate(req.Profile); exists {
 			if fixer, valid := graphexec.Decide(req.Profile, gate.Name, "synced"); valid {
-				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer}
+				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer, AllowDeferred: slices.Contains(gate.Outcomes, "deferred")}
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
@@ -257,7 +257,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		out.Deferred, out.NextNode = true, node.Name
 		return out, nil
 	}
-	if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction && (dispatchErr != nil || (activity.Outcome != "synced" && activity.Outcome != "current")) {
+	if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction && (dispatchErr != nil || (activity.Outcome != "synced" && activity.Outcome != "current" && activity.Outcome != "deferred")) {
 		out.Activity.Diagnostic = graphBugSyncDiagnostic(activity)
 	}
 	// Owner cancellation must park even when private result submission completed

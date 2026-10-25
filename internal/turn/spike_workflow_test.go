@@ -337,7 +337,7 @@ func TestSpikeAdmissionKnownLegacyHistoryIsRefusedBeforeDispatch(t *testing.T) {
 	_, err = f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: seg.ID, Mode: "spike", Agent: store.AgentClaude, TriggerCommentID: 1, LogPath: func(int) string { return "old.log" }})
 	mustProgress(t, err)
 	out, handled, err := admitSpikeExecution(t.Context(), f.opts, req, Result{Session: f.session, SessionID: f.session.ID})
-	if err != nil || !handled || forge.attemptCount() != 0 || out.Reason != spikeRetiredReason || out.Disposition != DispositionPrepareFailed {
+	if err != nil || !handled || forge.attemptCount() != 0 || !strings.HasPrefix(out.Reason, spikeRetiredReason) || out.Disposition != DispositionPrepareFailed {
 		t.Fatalf("a legacy-history task was not refused: handled=%v err=%v out=%+v", handled, err, out)
 	}
 	if _, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "spike"); err == nil {

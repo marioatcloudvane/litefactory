@@ -32,8 +32,13 @@ func TestDirtyConfirmationRecoveryLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := captureRetained(t, f, dir)
+	recoveredOnce := false
 	runner := &stubConflictRunner{
 		stubRunner: newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+			if recoveredOnce {
+				return succeeded(req, f.paths.Home()), nil // Leave the fresh proposal unchanged for explicit confirmation.
+			}
+			recoveredOnce = true
 			assertRetained(t, before, captureRetained(t, f, req.WorktreePath))
 			if !strings.Contains(req.Prompt, "The base was not merged") {
 				t.Errorf("recovery prompt lacks deferral disclosure: %s", req.Prompt)
@@ -105,7 +110,7 @@ func TestDirtyConfirmationRecoveryLifecycle(t *testing.T) {
 	if err != nil || next.Status != store.ConflictProposalPending || next.BranchSHA != savedHead || next.BaseSHA != proposal.BaseSHA {
 		t.Fatalf("fresh proposal = %+v, %v", next, err)
 	}
-	if runner.callCount() != 1 || runner.proposeCallCount() != 1 {
-		t.Fatal("fresh clean conflict did not reach only the advisor")
+	if runner.callCount() != 2 || runner.proposeCallCount() != 1 {
+		t.Fatal("fresh clean conflict did not reach the advisor and continue the original request")
 	}
 }

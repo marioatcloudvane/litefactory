@@ -38,10 +38,19 @@ func (rt *implementRuntime) workerSyncBaseBinding() SyncBaseBinding {
 		if err := rt.verifyWorkerSyncInvocation(ctx, a); err != nil {
 			return SyncBaseTarget{}, err
 		}
-		if err := rt.prepareWorkerSyncCheckout(ctx, a); err != nil {
-			return SyncBaseTarget{}, err
+		preparationErr := rt.prepareWorkerSyncCheckout(ctx, a)
+		var deferred *workerSyncDeferred
+		if preparationErr != nil && !errors.As(preparationErr, &deferred) {
+			return SyncBaseTarget{}, preparationErr
 		}
-		return original(ctx, opts, a)
+		target, err := original(ctx, opts, a)
+		if err != nil {
+			return target, err
+		}
+		if deferred != nil {
+			target.PreparationReason = deferred.reason
+		}
+		return target, nil
 	}
 	return binding
 }

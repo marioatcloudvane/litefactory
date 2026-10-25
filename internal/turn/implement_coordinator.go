@@ -47,9 +47,37 @@ func (rt *implementRuntime) bind(ctx context.Context, opts Options, _ ActivityRe
 	if err != nil {
 		return ImplementAuthority{}, err
 	}
+	returned, returnErr := opts.DB.LatestValidateReturn(ctx, parent, int64(feature.Generation))
+	if returnErr != nil && !errors.Is(returnErr, store.ErrNotFound) {
+		return ImplementAuthority{}, returnErr
+	}
+	selected := map[string]bool{}
+	if returnErr == nil {
+		if !returned.Applied {
+			for _, r := range revisions {
+				selected[r.Key] = true
+			}
+		} else {
+			var allocation []agentresult.ReturnAllocation
+			if err := json.Unmarshal([]byte(returned.Selection), &allocation); err != nil {
+				return ImplementAuthority{}, err
+			}
+			rows, e := opts.DB.ListImplementStories(ctx, parent, int64(feature.Generation))
+			if e != nil {
+				return ImplementAuthority{}, e
+			}
+			for _, s := range allocation {
+				for _, r := range rows {
+					if s.Story == r.Key && r.State != store.ImplementMerged {
+						selected[s.Story] = true
+					}
+				}
+			}
+		}
+	}
 	unfinished := map[string]bool{}
 	for _, r := range revisions {
-		if r.State != "completed" && !r.EngineeringComplete {
+		if selected[r.Key] || r.State != "completed" && !r.EngineeringComplete {
 			unfinished[r.Key] = true
 		}
 	}

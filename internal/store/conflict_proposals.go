@@ -210,6 +210,19 @@ func (db *DB) GetConflictProposal(ctx context.Context, id int64) (ConflictPropos
 	return p, nil
 }
 
+// GetConflictProposalBySource reads the proposal bound to the original request
+// without regenerating it or changing its confirmation status.
+func (db *DB) GetConflictProposalBySource(ctx context.Context, sessionID, triggerCommentID int64) (ConflictProposal, error) {
+	p, err := getConflictProposalBySource(ctx, db.sql, sessionID, triggerCommentID)
+	if err != nil {
+		return ConflictProposal{}, err
+	}
+	if err := loadConflictProposalFiles(ctx, db.sql, &p); err != nil {
+		return ConflictProposal{}, err
+	}
+	return p, nil
+}
+
 // ExpireConflictProposals closes proposals created before cutoff. The
 // caller supplies its own clock, so expiry needs neither a timer nor a
 // goroutine, the same as [DB.ExpireScheduleProposals].
