@@ -305,3 +305,44 @@ func TestValidateReviewShutdownLeavesTheRowPending(t *testing.T) {
 		}
 	}
 }
+
+// #1182 C1: after a failed suite every reviewer gets the failed command's
+// output tail under output_tail; passed commands carry none.
+func TestValidateReviewEvidenceCarriesTheFailedOutputTail(t *testing.T) {
+	f := newFlowFixture(t)
+	f.suiteExit = func(string) int { return 1 }
+	f.agent = func(int, *flowFixture) (agentresult.ValidateRepair, ActivityResult) {
+		return handbackReport("the sum is wrong"), ActivityResult{}
+	}
+	f.runToEnd()
+	if len(f.reviewers.started) == 0 {
+		t.Fatal("no reviewer started")
+	}
+	for _, req := range f.reviewers.started {
+		failed := 0
+		for _, e := range req.Evidence {
+			if e.State == store.SuitePassed {
+				if e.OutputTail != "" {
+					t.Fatalf("%s: a passed command carries output: %+v", req.Role, e)
+				}
+				continue
+			}
+			failed++
+			if !strings.Contains(e.OutputTail, "TestTotal") {
+				t.Fatalf("%s: the failed command's tail is missing: %+v", req.Role, e)
+			}
+			raw, err := json.Marshal(e)
+			if err != nil || !strings.Contains(string(raw), `"output_tail":`) {
+				t.Fatalf("%s: evidence JSON %s %v", req.Role, raw, err)
+			}
+		}
+		if failed == 0 {
+			t.Fatalf("%s: no failed evidence: %+v", req.Role, req.Evidence)
+		}
+	}
+	long := strings.Repeat("ä", validateEvidenceTailBytes) + "TestX failed"
+	tail := tailText(long, validateEvidenceTailBytes)
+	if len(tail) > validateEvidenceTailBytes || !strings.HasSuffix(tail, "TestX failed") || !utf8ValidPrefix(tail) {
+		t.Fatalf("tail is not bounded or not valid UTF-8: %d bytes", len(tail))
+	}
+}
