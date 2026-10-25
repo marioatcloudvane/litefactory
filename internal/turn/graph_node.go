@@ -209,7 +209,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer}
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)

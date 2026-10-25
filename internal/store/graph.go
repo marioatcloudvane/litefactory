@@ -97,6 +97,8 @@ type BugSyncPrerequisite struct {
 // GraphAttemptStart reserves the next attempt. Limit zero is unbounded; a
 // positive limit caps total dispatches of this node across the entire instance.
 type GraphAttemptStart struct {
+	// AcceptOwnerInput is set only for a substantive agent invocation.
+	AcceptOwnerInput    bool
 	BugSyncPrerequisite *BugSyncPrerequisite
 	// ResearchPriorNodes maps captured ancestor stages to this shipped stage.
 	ResearchPriorNodes map[int64]string

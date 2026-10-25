@@ -288,10 +288,18 @@ type UserStory struct {
 	Notes   []string `json:"notes,omitempty"`
 }
 
+// ReturnAllocation is optional routing advice from the existing coordinator agent.
+// The factory validates keys and falls back when advice is unusable.
+type ReturnAllocation struct {
+	Story  string `json:"story"`
+	Change string `json:"change,omitempty"`
+}
+
 // Implement references retained story and aggregate engineering proof.
 type Implement struct {
-	Stories         []ImplementationStory          `json:"stories,omitempty"`
-	AggregateChecks *agent.EngineeringContribution `json:"aggregate_checks,omitempty"`
+	ReturnAllocation []ReturnAllocation             `json:"return_allocation,omitempty"`
+	Stories          []ImplementationStory          `json:"stories,omitempty"`
+	AggregateChecks  *agent.EngineeringContribution `json:"aggregate_checks,omitempty"`
 	// Deviations are the decisions a story worker made where the plan was
 	// silent, one short line each: what was chosen, why, file:line.
 	Deviations []string `json:"deviations,omitempty"`

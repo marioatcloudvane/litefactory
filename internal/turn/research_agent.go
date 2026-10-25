@@ -180,7 +180,11 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	if err != nil {
 		return out, err
 	}
-	req.Prompt += attemptGuidance
+	ownerInput, err := graphOwnerInputSection(ctx, opts.DB, a.NodeAttemptID)
+	if err != nil {
+		return out, err
+	}
+	req.Prompt += attemptGuidance + ownerInput
 	if invocation.Observe != nil {
 		invocation.Observe(req)
 	}
@@ -220,7 +224,7 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 			}
 			cold.Prompt += guidance
 		}
-		cold.Prompt += attemptGuidance
+		cold.Prompt += attemptGuidance + ownerInput
 		cold.Path = agent.PathColdAfterResumeRefused
 		if invocation.Observe != nil {
 			invocation.Observe(cold)

@@ -234,7 +234,9 @@ type PromptInput struct {
 	// with the command word stripped, or the whole comment body when the
 	// comment named no command. Trusted: it is the repository owner's own
 	// request either way.
-	Instruction string
+	Instruction           string
+	OwnerGuidanceRevision int64
+	OwnerGuidanceBody     string
 
 	// IssueTitle, IssueBody and IssueAuthor describe the issue. Untrusted.
 	IssueTitle  string
@@ -507,6 +509,7 @@ func BuildPrompt(in PromptInput) (string, error) {
 			capText(sync.Branch, 256), capText(sync.Base, 256), sync.Behind, sync.Ahead)
 	}
 
+	b.WriteString(OwnerGuidanceSection(in.OwnerGuidanceRevision, in.OwnerGuidanceBody))
 	b.WriteString("\n## Instruction\n\n")
 	b.WriteString(strings.TrimSpace(in.Instruction))
 	b.WriteString("\n")

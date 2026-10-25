@@ -44,6 +44,9 @@ func (b ValidateFlowBindings) remote(ctx context.Context, opts Options, req Acti
 	if err != nil {
 		return nil, fmt.Errorf("resolve the delivery target: %w", err)
 	}
+	if action != graphexec.ValidateIssueAction && st.Waiver != nil && !st.waiverCurrent() {
+		return nil, errors.New("shipping exception is stale: changed evidence requires a fresh owner decision")
+	}
 	return &validateRemote{b: b, opts: opts, req: req, st: st, target: target}, nil
 }
 
@@ -66,7 +69,7 @@ func (r *validateRemote) headMatches(ctx context.Context) (string, bool, error) 
 	if err != nil {
 		return "", false, fmt.Errorf("read the branch head: %w", err)
 	}
-	return head, head == r.st.Commit, nil
+	return head, head == r.st.deliveryCommit(), nil
 }
 
 // intent returns the effect of a kind that waits to be carried out.
@@ -209,7 +212,7 @@ func (r *validateRemote) issueContent(ctx context.Context, f ValidateFinding, ma
 
 // ---- push -------------------------------------------------------------------
 
-// ValidatePushActivity pushes the tested commit guarded by the expected remote
+// ValidatePushActivity pushes the displayed delivery commit guarded by the expected remote
 // head, then finds or creates the pull request into the base.
 type ValidatePushActivity struct{ b ValidateFlowBindings }
 
@@ -219,7 +222,7 @@ func (h ValidatePushActivity) Execute(ctx context.Context, opts Options, req Act
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
-	commit := r.st.Commit
+	commit := r.st.deliveryCommit()
 	push, pushing, err := r.intent(ctx, store.EffectPush, commit)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
@@ -234,7 +237,7 @@ func (h ValidatePushActivity) Execute(ctx context.Context, opts Options, req Act
 	if head, ok, err := r.headMatches(ctx); err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	} else if !ok {
-		why := fmt.Sprintf("The branch head moved to %s; the tested commit is %s. Nothing was pushed.", short(head), short(commit))
+		why := fmt.Sprintf("The branch head moved to %s; the displayed delivery commit is %s. Nothing was pushed.", short(head), short(commit))
 		for _, e := range []store.ValidateEffect{push, pr} {
 			if e.State == store.EffectIntent {
 				if err := r.settle(ctx, e, store.EffectFailed, map[string]any{}, why); err != nil {
@@ -272,9 +275,9 @@ func (h ValidatePushActivity) Execute(ctx context.Context, opts Options, req Act
 	return done(map[string]any{"acted": true})
 }
 
-// push publishes the tested commit unless the remote branch already holds it.
+// push publishes the delivery commit unless the remote branch already holds it.
 func (r *validateRemote) push(ctx context.Context, e store.ValidateEffect) error {
-	commit := r.st.Commit
+	commit := r.st.deliveryCommit()
 	remote, err := r.b.Delivery.code().GetDeliveryHead(ctx, r.target.Repo, r.target.Branch)
 	if err != nil {
 		if !errors.Is(err, github.ErrNotFound) {
@@ -285,7 +288,7 @@ func (r *validateRemote) push(ctx context.Context, e store.ValidateEffect) error
 	if remote == commit {
 		return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Head: commit}, "")
 	}
-	// A pull request from the branch merged at the tested commit already
+	// A pull request from the branch merged at the delivery commit already
 	// delivered it (the merge may have deleted the remote branch): nothing to push.
 	if prs, err := r.b.Delivery.code().ListDeliveryPRs(ctx, r.target.Repo, r.target.Branch); err == nil {
 		for _, p := range prs {
@@ -300,14 +303,14 @@ func (r *validateRemote) push(ctx context.Context, e store.ValidateEffect) error
 	case readErr == nil && after == commit:
 		return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Head: commit}, "")
 	case pushErr != nil:
-		return r.settle(ctx, e, store.EffectFailed, map[string]any{}, "Pushing the tested commit failed: "+pushErr.Error())
+		return r.settle(ctx, e, store.EffectFailed, map[string]any{}, "Pushing the delivery commit failed: "+pushErr.Error())
 	}
-	return r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The push reported success but the remote branch does not hold the tested commit yet.")
+	return r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The push reported success but the remote branch does not hold the delivery commit yet.")
 }
 
-// openPR finds the pull request of the branch at the tested commit or creates it.
+// openPR finds the pull request at the displayed delivery commit or creates it.
 func (r *validateRemote) openPR(ctx context.Context, e store.ValidateEffect) error {
-	commit := r.st.Commit
+	commit := r.st.deliveryCommit()
 	find := func() (github.DeliveryPR, bool, error) {
 		prs, err := r.b.Delivery.code().ListDeliveryPRs(ctx, r.target.Repo, r.target.Branch)
 		if err != nil {
@@ -346,7 +349,14 @@ func (r *validateRemote) openPR(ctx context.Context, e store.ValidateEffect) err
 		if accepted != "" {
 			accepted = "Accepted deviations (blocking review findings the owner accepted):\n\n" + accepted + "\n"
 		}
-		body, err := r.b.Delivery.Redactor.Apply(ctx, fmt.Sprintf("Validated and confirmed by the owner. Tested commit `%s` of issue %s.\n\n%s<!-- lf:validate-pr run=%d -->", commit, r.target.Parent.display().Reference(), accepted, r.req.InstanceID), 65536)
+		authorization := fmt.Sprintf("Owner-authorized delivery commit `%s`. Suite and review evidence is retained at tested commit `%s` (suite: %s).\n\n", commit, r.st.Commit, r.st.Suite.Outcome)
+		if r.st.Waiver != nil {
+			authorization += fmt.Sprintf("Owner waiver by actor %d, source comment %d: %s\n\nDisplayed blockers (facts remain unchanged):\n", r.st.Waiver.ActorID, r.st.Waiver.CommentID, r.st.Waiver.Reason)
+			for _, blocker := range r.st.Waiver.Blockers {
+				authorization += "- " + blocker + "\n"
+			}
+		}
+		body, err := r.b.Delivery.Redactor.Apply(ctx, fmt.Sprintf("%s\nIssue %s.\n\n%s<!-- lf:validate-pr run=%d -->", authorization, r.target.Parent.display().Reference(), accepted, r.req.InstanceID), 65536)
 		if err != nil {
 			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, err.Error())
 		}
@@ -361,7 +371,7 @@ func (r *validateRemote) openPR(ctx context.Context, e store.ValidateEffect) err
 		}
 	}
 	if pr.Head != commit {
-		return r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("Pull request #%d is at head %s, not the tested commit %s.", pr.Number, short(pr.Head), short(commit)))
+		return r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("Pull request #%d is at head %s, not the displayed delivery commit %s.", pr.Number, short(pr.Head), short(commit)))
 	}
 	return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Number: pr.Number, Head: pr.Head}, "")
 }
@@ -448,13 +458,19 @@ func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req Ac
 	}
 	e := *r.st.Effects.Close
 	if e.State == store.EffectSucceeded {
+		if err := opts.DB.ResolveOwnerDecisionInstance(ctx, req.InstanceID); err != nil {
+			return ActivityResult{Diagnostic: err.Error()}, err
+		}
+		if _, err := r.b.RefreshValidateReport(ctx, opts, req); err != nil {
+			return ActivityResult{Diagnostic: err.Error()}, err
+		}
 		return validateJSONResult("closed", map[string]any{"acted": false})
 	}
 	if e.State != store.EffectIntent {
 		return validateJSONResult("open", map[string]any{"acted": false})
 	}
 	set := r.target.CloseSet()
-	if e.Target != validateNumbers(set) {
+	if e.Target != r.st.closeEffectTarget(set) {
 		if err := r.settle(ctx, e, store.EffectFailed, map[string]any{}, "The issues to close changed since the command: "+validateNumbers(set)); err != nil {
 			return ActivityResult{}, err
 		}
@@ -463,7 +479,7 @@ func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req Ac
 	if head, ok, err := r.headMatches(ctx); err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	} else if !ok {
-		if err := r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("The branch head moved to %s; the confirmed head is %s. Nothing was closed.", short(head), short(r.st.Commit))); err != nil {
+		if err := r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("The branch head moved to %s; the confirmed head is %s. Nothing was closed.", short(head), short(r.st.deliveryCommit()))); err != nil {
 			return ActivityResult{}, err
 		}
 		return validateJSONResult("open", map[string]any{"acted": false, "stale": true})
@@ -494,6 +510,12 @@ func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req Ac
 	}
 	if err := r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Closed: closed}, ""); err != nil {
 		return ActivityResult{}, err
+	}
+	if err := opts.DB.ResolveOwnerDecisionInstance(ctx, req.InstanceID); err != nil {
+		return ActivityResult{Diagnostic: err.Error()}, err
+	}
+	if _, err := r.b.RefreshValidateReport(ctx, opts, req); err != nil {
+		return ActivityResult{Diagnostic: err.Error()}, err
 	}
 	return validateJSONResult("closed", map[string]any{"acted": true, "closed": closed})
 }

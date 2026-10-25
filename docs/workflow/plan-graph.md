@@ -15,7 +15,7 @@ Plan runs in four stages. The factory, not the agent, decides which stage a run 
 | Technical | How it will be built and which role owns each task. | Each story. |
 | Acceptance | Acceptance criteria written as checks a person can make, and the final review of the whole plan. | Each story, then the assembled plan. |
 
-In every stage the agent either asks you a question, answers a discussion comment without changing anything, or drafts and then shows you a review. A review is not an approval: a stage moves on only when you send the exact approve command the review shows. Replies that mix a change request with an approval, or that point at an out-of-date review, do not approve.
+In every stage the agent either asks you a question, answers a discussion comment without changing anything, or drafts and then shows you a review. A review is not an approval: a stage moves on only when you send the exact approve command the review shows. Replies that mix a change request with an approval, or that point at an out-of-date review, do not approve. You can reply `/approve-plan` when only one unchanged target is unresolved for that action, or use the displayed short `d-…` reference. A replacement requires its displayed short reference. Explicit references take priority and never select a newer target. The assembled review supports the same shorthand with `/approve-plan-set`.
 
 Questions and reviews wait for your reply with no time limit. If a stage runs out of its passes, it stops in a state you can resume with a reply. A failed agent or a failed issue update posts the cause and stops; nothing retries on its own.
 
