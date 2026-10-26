@@ -50,7 +50,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 
 In each existing finding, explain the affected behavior, the evidence and why it matters to acceptance or safe delivery. Separate a confirmed defect from missing proof, and retain the concrete check or repair objective. You cannot ask the owner, choose repair or return, approve or ship; describe those dispositions only when the supplied evidence establishes them.
 
-No Go identifiers, no file paths and no line numbers in the comment.
+No implementation identifiers, no file paths and no line numbers in the comment.
 
 # Output
 

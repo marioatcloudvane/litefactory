@@ -61,7 +61,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 
 Explain the effect of each remaining failure on the reviewed work and why repair is outside the bound or its cause remains uncertain. Keep the existing concrete handback objective in the repair report; do not turn it into an owner question or claim that a handback has already returned work to Implement. State repair, retest and delivery status separately, only as established by supplied evidence.
 
-No Go identifiers, no file paths and no line numbers in the comment; those belong in your repair report.
+No implementation identifiers, no file paths and no line numbers in the comment; those belong in your repair report.
 
 # Output
 

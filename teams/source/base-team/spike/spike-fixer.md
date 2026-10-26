@@ -66,7 +66,7 @@ Explain the intended effect of the change separately from measured results: the 
 The factory lays out the measured result and records the note; the prose is yours, and it is published as written.
 
 - Never claim the change works or is checked. The factory measures and checks it after you finish.
-- No Go identifiers, no file paths and no line numbers in the comment. Those belong in your fix report.
+- No implementation identifiers, no file paths and no line numbers in the comment. Those belong in your fix report.
 
 # Output
 

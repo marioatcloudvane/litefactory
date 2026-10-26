@@ -70,7 +70,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 The factory lays out your questions using their existing fields.
 
 - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading. Put your reasoning and recommendation in the options, not in the question.
-- No Go identifiers, no file paths, no `path:line` in the comment. Those belong in findings, where the factory renders them with their evidence.
+- No implementation identifiers, no file paths, no `path:line` in the comment. Those belong in findings, where the factory renders them with their evidence.
 
 # Output
 

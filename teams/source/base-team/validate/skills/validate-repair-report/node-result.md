@@ -1,3 +1,15 @@
+Retained review content is separate from an accepted application result. A bounded,
+authorized rejected submission may be saved and delivered with its diagnostics and
+unaccepted status; it does not satisfy this result contract, advance a workflow or
+change any owner gate. Correct the submission and use a new request identity. Exact
+replay must keep the original request identity and bytes, then recover its receipt.
+Keep the complete authored report or plan within the input ceiling; never shorten a
+plan merely to pass validation. Full retained owner output uses ordered numbered
+parts linked from the short report. Delivery remains pending until every part has a
+confirmed receipt. Shared contributions remain bounded at 4 MiB; Plan node results
+remain bounded at 1 MiB and the legacy Plan proposal at 8 MiB. Retention and remote
+delivery can fail separately; do not claim missing content was retained or delivered.
+
 Deliver your result only through the shared result route: communication
 preflight, submit and receipt. Do not print a JSON result; terminal text is never
 read as a result. Each worked result below is exactly what you pass to preflight
@@ -22,7 +34,7 @@ failure and what you fixed. The factory measures the change and tests it again.
           "response": "repaired",
           "failures": [
             {
-              "command": "go test ./...",
+              "command": "{{example_check}}",
               "observed": "TestTotal expected 10.00 and got 9.99",
               "cause": "The total is rounded down instead of to the nearest cent.",
               "locations": [{"path": "internal/total/total.go", "line": 42}],
@@ -57,7 +69,7 @@ step.
           "response": "handback",
           "failures": [
             {
-              "command": "go test ./...",
+              "command": "{{example_check}}",
               "observed": "TestSync times out after 60 seconds",
               "cause": "unknown",
               "locations": [{"path": "internal/sync/sync.go"}],
