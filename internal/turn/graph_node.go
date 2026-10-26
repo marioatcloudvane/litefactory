@@ -150,7 +150,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	}
 	// A busy Plan parent is temporary contention: take its story-progress lock
 	// before reserving, so waiting spends no node attempt or revision budget.
-	if serialized, ok := handler.(parentSerializedActivity); ok && workflow == agent.WorkflowPlan && node.Action == graphexec.PlanStoryAction {
+	if serialized, ok := handler.(parentSerializedActivity); ok && workflow == agent.WorkflowPlan && (node.Action == graphexec.PlanStoryAction || node.Action == graphexec.PlanApproveAction) {
 		unlock, lockErr := serialized.lockParent(ctx)
 		if errors.Is(lockErr, store.ErrStoryProgressBusy) {
 			out.Deferred = true

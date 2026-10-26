@@ -28,7 +28,7 @@ import (
 // shared result route, judged by the Plan decoder and retained as a reference to the
 // accepted shared result; the policy carries no result format of its own.
 func PlanWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{AcceptAfterProcessFailure: true, Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec(), graphexec.PlanGateSpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
+	return WorkflowPolicy{AcceptAfterProcessFailure: true, Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec(), graphexec.PlanGateSpec(), graphexec.PlanApproveSpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
 }
 
 // PlanSpecs validates the packaged Plan under Plan's own control and result policy.
@@ -613,7 +613,10 @@ func (r *planGraphRuntime) policy() WorkflowPolicy {
 		if err := activities.Register(graphexec.PlanStoryAction, planStoryEffect{r: r}); err != nil {
 			return err
 		}
-		return activities.Register(graphexec.PlanGateAction, planGraphHandler(r.gate))
+		if err := activities.Register(graphexec.PlanGateAction, planGraphHandler(r.gate)); err != nil {
+			return err
+		}
+		return activities.Register(graphexec.PlanApproveAction, planApproveEffect{r: r})
 	}
 	return p
 }

@@ -33,11 +33,14 @@ type PlanState struct {
 
 // PlanStoryState retains one story's current stage, candidate and owner gates.
 type PlanStoryState struct {
-	Key           string            `json:"key"`
-	Stage         string            `json:"stage"`
-	Candidate     string            `json:"candidate"`
-	Draft         PlanDraft         `json:"draft"`
-	Approvals     map[string]string `json:"approvals"`
+	Key       string            `json:"key"`
+	Stage     string            `json:"stage"`
+	Candidate string            `json:"candidate"`
+	Draft     PlanDraft         `json:"draft"`
+	Approvals map[string]string `json:"approvals"`
+	// ApprovedBy records who gave the current approval of a stage: owner or graph.
+	// A missing entry reads as owner, which holds for every earlier saved state.
+	ApprovedBy    map[string]string `json:"approved_by,omitempty"`
 	Wait          *PlanWait         `json:"wait,omitempty"`
 	Retired       bool              `json:"retired"`
 	Replacements  []string          `json:"replacements,omitempty"`
@@ -249,6 +252,10 @@ func (s *PlanState) Invalidate(key, stage, hold string) {
 		}
 		for _, phase := range planStages[from:] {
 			delete(st.Approvals, phase)
+			delete(st.ApprovedBy, phase)
+		}
+		if len(st.ApprovedBy) == 0 {
+			st.ApprovedBy = nil
 		}
 		st.Wait = nil
 		st.Stage = stage
@@ -275,6 +282,7 @@ func (s *PlanState) SetSharedRevision(revision string) error {
 	s.SharedRevision = revision
 	for i := range s.Stories {
 		s.Stories[i].Approvals = map[string]string{}
+		s.Stories[i].ApprovedBy = nil
 		s.Stories[i].Wait = nil
 		s.Stories[i].Stage = "story"
 	}
@@ -497,25 +505,136 @@ func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
 		item.Wait = nil
 		return false, nil
 	}
+	if err := s.approvalChecks(item); err != nil {
+		return false, err
+	}
+	s.ConsumedReplies = append(s.ConsumedReplies, r.ID)
+	item.Wait = nil
+	approve(item, item.Stage, ref, ApprovalByOwner)
+	return true, nil
+}
+
+// Approval sources recorded next to a stage approval.
+const (
+	ApprovalByOwner = "owner"
+	ApprovalByGraph = "graph"
+)
+
+// approvalChecks holds the rules both approvers share: no hold, an applied
+// effect, no open questions, and a current approval of every earlier stage.
+func (s *PlanState) approvalChecks(item *PlanStoryState) error {
 	if item.Hold != "" || (item.Effect != "" && item.Effect != "applied") || len(item.Draft.Questions) > 0 {
-		return false, errors.New("plan review has unresolved questions or effects")
+		return errors.New("plan review has unresolved questions or effects")
 	}
 	for _, stage := range planStages[:max(0, slices.Index(planStages, item.Stage))] {
 		upstream, e := s.ReviewRevision(item.Key, stage)
 		if e != nil || item.Approvals[stage] != upstream {
-			return false, errors.New("plan promotion lacks current upstream approval")
+			return errors.New("plan promotion lacks current upstream approval")
 		}
 	}
-	s.ConsumedReplies = append(s.ConsumedReplies, r.ID)
-	item.Wait = nil
+	return nil
+}
+
+// approve is the one place an approval is written: the stage approval, who gave
+// it, and the move to the next stage.
+func approve(item *PlanStoryState, stage, ref, source string) {
 	if item.Approvals == nil {
 		item.Approvals = map[string]string{}
 	}
-	item.Approvals[item.Stage] = ref
-	if n := slices.Index(planStages, item.Stage); n >= 0 && n < 2 {
+	if item.ApprovedBy == nil {
+		item.ApprovedBy = map[string]string{}
+	}
+	item.Approvals[stage] = ref
+	item.ApprovedBy[stage] = source
+	if n := slices.Index(planStages, stage); n >= 0 && n < 2 && stage == item.Stage {
 		item.Stage = planStages[n+1]
 	}
-	return true, nil
+}
+
+// GraphApproval is the outcome of ApproveByGraph: approved, review, superseded or
+// blocked, with a short factual reason for the last three.
+type GraphApproval struct {
+	Outcome string
+	Reason  string
+}
+
+// ApproveByGraph records a stage approval given by an ungated graph stage. It
+// is tied to the identity the run applied (stage, candidate, effect request) and
+// must run inside one saved-state update, so every guard is read at the moment
+// of recording. Only a new approval writes anything.
+func (s *PlanState) ApproveByGraph(key, stage, candidate, request string) (GraphApproval, error) {
+	if !slices.Contains(planStages, stage) {
+		return GraphApproval{}, errors.New("invalid Plan approval stage")
+	}
+	item, err := s.story(key)
+	if err != nil {
+		return GraphApproval{}, err
+	}
+	same := item.Candidate == candidate && item.EffectRequest == request
+	ref, refErr := s.ReviewRevision(key, stage)
+	// (a) Replay of an approval that already stands for this exact applied draft.
+	if same && refErr == nil && item.Approvals[stage] == ref {
+		return GraphApproval{Outcome: "approved"}, nil
+	}
+	// (b) The saved story is no longer the one this run applied.
+	if item.Stage != stage || !same {
+		return GraphApproval{Outcome: "superseded", Reason: "the story's stage, candidate or effect request changed since this draft was applied"}, nil
+	}
+	// (c) Held, blocked or without a computable revision.
+	if !item.Active() || item.Blocked() {
+		return GraphApproval{Outcome: "blocked", Reason: "the story is held or its stage result is not applied"}, nil
+	}
+	if refErr != nil {
+		return GraphApproval{Outcome: "blocked", Reason: "the review revision cannot be computed: " + refErr.Error()}, nil
+	}
+	// (d) An earlier stage's approval no longer matches.
+	for _, up := range planStages[:slices.Index(planStages, stage)] {
+		upRef, e := s.ReviewRevision(key, up)
+		if e != nil {
+			return GraphApproval{Outcome: "blocked", Reason: "the review revision of the " + up + " stage cannot be computed: " + e.Error()}, nil
+		}
+		if item.Approvals[up] != upRef {
+			return GraphApproval{Outcome: "superseded", Reason: "the " + up + " stage approval is no longer current"}, nil
+		}
+	}
+	// (e) Anything else that needs the owner.
+	switch {
+	case !s.UpstreamApproved(key, stage):
+		return GraphApproval{Outcome: "review", Reason: "an upstream story is not approved at this stage"}, nil
+	case item.Wait != nil:
+		return GraphApproval{Outcome: "review", Reason: "a wait is already open"}, nil
+	case len(item.Draft.Questions) > 0:
+		return GraphApproval{Outcome: "review", Reason: "the draft has open questions"}, nil
+	}
+	if err := s.approvalChecks(item); err != nil {
+		return GraphApproval{Outcome: "blocked", Reason: err.Error()}, nil
+	}
+	approve(item, stage, ref, ApprovalByGraph)
+	return GraphApproval{Outcome: "approved"}, nil
+}
+
+// GraphApprovedStage names one stage of one story whose current approval came
+// from the graph.
+type GraphApprovedStage struct{ Key, Stage string }
+
+// GraphApprovedStages lists, in story and stage order, the approvals the graph
+// gave that are still current.
+func (s *PlanState) GraphApprovedStages() []GraphApprovedStage {
+	var out []GraphApprovedStage
+	for _, item := range s.Stories {
+		if !item.Active() {
+			continue
+		}
+		for _, stage := range planStages {
+			if item.ApprovedBy[stage] != ApprovalByGraph {
+				continue
+			}
+			if ref, err := s.ReviewRevision(item.Key, stage); err == nil && item.Approvals[stage] == ref {
+				out = append(out, GraphApprovedStage{Key: item.Key, Stage: stage})
+			}
+		}
+	}
+	return out
 }
 
 // ConfirmRetirement validates owner evidence; the activity still owns remote closure.

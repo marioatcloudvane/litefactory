@@ -55,7 +55,8 @@ var planFailureOutcomes = []string{"failed", "conflict", "uncertain"}
 //     review-ready, which is not approval;
 //   - agents have a role, route success to a question decision reading that same
 //     agent, and route failure to the failure comment;
-//   - a story effect reads an agent, and only an owner gate follows it;
+//   - a story effect reads an agent, and only an owner gate follows it, or the
+//     graph's own guarded approval (lf_plan_approve) with an owner stop as fallback;
 //   - a failing outcome of any node reaches the one failure comment, which ends
 //     at a terminal;
 //   - a question wait ends at a terminal, a review wait at a terminal or a
@@ -147,6 +148,8 @@ func (c *planCheck) node(n Node) {
 		c.ask(n)
 	case PlanGateAction:
 		c.stop(n)
+	case PlanApproveAction:
+		c.approve(n)
 	case JudgeAction:
 		c.agentSource(n)
 		c.advisoryContinuation(n, map[string]bool{})
@@ -266,6 +269,12 @@ func (c *planCheck) effect(n Node) {
 		}
 		return
 	}
+	if gate.Action == PlanApproveAction {
+		if gate.Attrs["lf_source"] != source.Name {
+			c.fail("plan effect %s must be approved as %s's result", n.Name, source.Name)
+		}
+		return
+	}
 	if gate.Action != ResearchIfAction || gate.Attrs["lf_condition"] != PlanControlPolicy().Approved {
 		c.fail("plan effect %s must be followed by an owner gate", n.Name)
 		return
@@ -315,6 +324,35 @@ func (c *planCheck) stop(n Node) {
 	}
 	if target, ok := c.next(n, "published"); ok && !target.Terminal && target.Action != ResearchLoopAction {
 		c.fail("plan gate %s must end at a terminal or a bounded loop", n.Name)
+	}
+}
+
+// approve is the graph's own approval of an ungated stage. It may never promote:
+// any doubt reaches an owner stop of the same agent, a replaced or rewound stage
+// ends quietly at a terminal, and a block or failure reaches the failure comment.
+// The set stage keeps its owner gate and may not use it.
+func (c *planCheck) approve(n Node) {
+	source, ok := c.agentSource(n)
+	if !ok {
+		return
+	}
+	if source.Name == "set_agent" || source.Attrs["lf_agent_markdown"] == "plan-set" {
+		c.fail("plan approval %s may not follow the set stage, which keeps its owner gate and review", n.Name)
+	}
+	if target, found := c.next(n, "approved"); found && !target.Terminal && target.Action != ResearchLoopAction {
+		c.fail("plan approval %s must end approved at a terminal or a bounded loop", n.Name)
+	}
+	if target, found := c.next(n, "review"); found {
+		stop := target.Action == PlanGateAction || (target.Action == "lf_ask" && target.Attrs["lf_kind"] == "review")
+		if !stop || target.Attrs["lf_source"] != source.Name {
+			c.fail("plan approval %s must hand review to %s's owner stop", n.Name, source.Name)
+		}
+	}
+	if target, found := c.next(n, "superseded"); found && !target.Terminal {
+		c.fail("plan approval %s must end superseded at a terminal", n.Name)
+	}
+	if to, found := Decide(c.p, n.Name, "blocked"); !found || to != PlanFailureNode {
+		c.fail("plan approval %s outcome blocked must reach %s", n.Name, PlanFailureNode)
 	}
 }
 
