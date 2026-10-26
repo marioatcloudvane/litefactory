@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -27,7 +28,7 @@ import (
 // shared result route, judged by the Plan decoder and retained as a reference to the
 // accepted shared result; the policy carries no result format of its own.
 func PlanWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{AcceptAfterProcessFailure: true, Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
+	return WorkflowPolicy{AcceptAfterProcessFailure: true, Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec(), graphexec.PlanGateSpec(), graphexec.PlanApproveSpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
 }
 
 // PlanSpecs validates the packaged Plan under Plan's own control and result policy.
@@ -606,7 +607,16 @@ func (r *planGraphRuntime) policy() WorkflowPolicy {
 		if err := specs.Register(graphexec.PlanStorySpec()); err != nil {
 			return err
 		}
-		return activities.Register(graphexec.PlanStoryAction, planStoryEffect{r: r})
+		if err := specs.Register(graphexec.PlanGateSpec()); err != nil {
+			return err
+		}
+		if err := activities.Register(graphexec.PlanStoryAction, planStoryEffect{r: r}); err != nil {
+			return err
+		}
+		if err := activities.Register(graphexec.PlanGateAction, planGraphHandler(r.gate)); err != nil {
+			return err
+		}
+		return activities.Register(graphexec.PlanApproveAction, planApproveEffect{r: r})
 	}
 	return p
 }
@@ -789,6 +799,14 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 	return ActivityResult{Outcome: receipt.Outcome, Kind: store.GraphOutputJSON, Output: raw}, err
 }
 
+// gate is the lf_gate handler: today's review publication with kind review.
+func (r *planGraphRuntime) gate(ctx context.Context, o Options, a ActivityRequest) (ActivityResult, error) {
+	attrs := maps.Clone(a.Attrs)
+	attrs["lf_kind"] = "review"
+	a.Attrs = attrs
+	return r.comment(ctx, o, a)
+}
+
 func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
 	if a.Attrs["lf_kind"] == "advisory" {
 		return executeAdvisoryComment(ctx, r.opts, a, r.definition.Profile, r.opts.ResearchReporter)
@@ -833,11 +851,12 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 			// a stage this request's result moved back is never shown stale.
 			var saved planbrief.PlanState
 			command := ""
+			gateCommand, gateArgs := a.Attrs["lf_command"], strings.Split(a.Attrs["lf_args"], ",")
 			if err = r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(st *planbrief.PlanState) (bool, error) {
 				if err := st.OpenPlanWait(r.selected, key, waitKind, d.IssueID); err != nil {
 					return false, err
 				}
-				saved, command = *st, st.PlanCurrentCommand(r.selected)
+				saved, command = *st, st.PlanCommand(r.selected, gateCommand, gateArgs)
 				return true, nil
 			}); err != nil {
 				return ActivityResult{}, err
