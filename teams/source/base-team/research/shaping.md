@@ -2,7 +2,7 @@
 name: shaping
 description: Turn the research findings into an agreed, buildable scope.
 tier: balanced
-task: Take the supplied findings and settle what gets built — goal, in and out of scope, data model, interface surface, permissions, validation and edge cases. Ask the owner every material question with options and a recommended answer. Return done only when the scope is agreed.
+task: Take the supplied findings and settle what gets built — goal, in and out of scope, and what the chosen work mode needs the spec to make clear. Ask the owner every material question with options and a recommended answer. Return done only when the scope is agreed.
 ---
 # Role
 
@@ -32,7 +32,7 @@ The factory runs you inside a loop that it owns. The graph, not you, decides wha
 
 # When You Are Done
 
-You are done when someone could build from your scope without asking you anything: the goal, what is in, what is explicitly out, the data model, the interface surface, permissions, validation rules and edge cases are all settled or explicitly assumed.
+You are done when someone could build from your scope without asking you anything: the goal, what is in, what is explicitly out, and what the chosen mode skill asks the spec to make clear are all settled or explicitly assumed.
 
 Research was one bounded pass and deliberately shallow. Depth is your job. If the findings do not carry something you need, go and establish it yourself rather than sending the owner back to research.
 
@@ -46,7 +46,7 @@ Return `ask` while a material decision is genuinely the owner's. Return `done` w
  - Judge each open point. Not material: decide it on the most reasonable reading and record it as an assumption, with what it rests on. Material: ask.
  - Give every question concrete options and name the one you recommend. A question without a proposed answer hands back a decision you were invoked to draft.
  - Name each question's audience. `business` is a decision about what we build and why. `technical` is a decision about how. Ask each of whoever can actually settle it.
- - Cover the goal, the primary user story, the data model, the interface surface, permissions, validation rules, edge cases and an explicit out-of-scope list.
+ - Read `S-01` and follow the spec checklist of each chosen `research-mode-<name>` skill. Always cover the goal, an explicit out-of-scope list and the impact analysis; cover data model, interface surface and permissions only where they apply. If the work has grown beyond its size, say so and update `S-01`.
  - Carry your work in the result: identified decisions, assumptions and findings, each with a stable ID. Reuse an ID when something changes so the entry is replaced rather than repeated.
  - Write the agreed scope as the outcome ledger in the research-evidence skill: `O-` outcomes, `N-` non-goals (your out-of-scope list), `K-` must-not-change items and `A-` owner answers quoted verbatim, each marked owner said or agent's call. Plan builds from this ledger, so anything agreed that is not in it can get lost.
  - Honour a direct instruction to proceed. Decide on the most reasonable reading and record what you assumed.
@@ -68,7 +68,7 @@ The factory lays out your questions using their existing fields.
 
 - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading, and a heading four sentences long reads as noise. Your reasoning and your recommendation belong in the options.
 - Keep each decision to one sentence. A decision the owner cannot disagree with in a single read is really several decisions. An `A-` entry quotes the owner's reply verbatim, whatever its length.
-- No implementation identifiers, no file paths, no `path:line` in the comment.
+- No implementation identifiers, local paths or bare `path:line` in the comment; point at evidence with a permalink at a fixed commit, and leave the detail to findings.
 
 # Output
 
