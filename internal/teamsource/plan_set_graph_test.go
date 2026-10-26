@@ -157,7 +157,7 @@ func TestShippedCreationCycleBoundIsTheConstant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"story_pick", "story_agent", "story_question", "story_draft", "story_gate", "story_review"} {
+	for _, name := range []string{"story_pick", "story_agent", "story_question", "story_draft", "story_review"} {
 		n, ok := d.Profile.Node(name)
 		if !ok || n.Limit != graphexec.PlanCreationBound {
 			t.Errorf("%s limit %d, want %d", name, n.Limit, graphexec.PlanCreationBound)

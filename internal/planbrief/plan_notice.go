@@ -61,12 +61,23 @@ func (s *PlanState) PlanReplyHold(key string) string {
 // owner wait, or empty when the story waits for no owner command. It reads only
 // saved state, so the command it names is the one the latest review shows.
 func (s *PlanState) PlanCurrentCommand(key string) string {
+	return s.PlanCommand(key, "", nil)
+}
+
+// PlanCommand is the one builder of the owner command a Plan wait shows and
+// accepts. A graph names the approval command and its ordered arguments; empty
+// means today's /approve-plan with story, stage and candidate. Any other name
+// or order renders nothing, so a posted command is always one Go can match.
+func (s *PlanState) PlanCommand(key, name string, args []string) string {
 	item, err := s.story(key)
 	if err != nil || item.Wait == nil || item.Candidate == "" || item.Wait.Candidate != item.Candidate {
 		return ""
 	}
 	switch {
 	case approvableWait(item) && (item.Wait.Kind == "review" || len(item.Draft.Questions) == 0):
+		if name != "" && (name != "/approve-plan" || strings.Join(args, ",") != "story,stage,candidate") {
+			return ""
+		}
 		return "/approve-plan " + key + " " + item.Stage + " " + item.Candidate
 	case item.Wait.Kind == "retire":
 		return "/retire-plan " + key + " " + item.Candidate
