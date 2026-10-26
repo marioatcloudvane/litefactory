@@ -15,6 +15,8 @@ issue ──► Research ──► Plan ──► Implement ──► Validate �
          questions   approvals  worktrees     3 reviewers
 ```
 
+NOTE: litefactory is experimental. Contact me if you want to use it!
+
 ## Why it is different
 
 - **Workflows are graphs, not prompts.** Research, Plan, Implement, Validate, Bug and
