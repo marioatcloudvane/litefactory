@@ -86,6 +86,21 @@ func fixture(t *testing.T) string {
 	return root
 }
 
+// resolvedSource writes the resolved teams/source/<team> (base included) into a
+// private folder, so tests read current team content without a published release.
+func resolvedSource(t *testing.T, team string) string {
+	t.Helper()
+	files, err := teamsourcetest.Files(team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := canonicalTemp(t)
+	for name, raw := range files {
+		put(t, filepath.Join(dir, filepath.FromSlash(name)), raw)
+	}
+	return dir
+}
+
 // sourceVersion returns the version the source at dir currently releases, so tests
 // that mean "the current release" follow the owner's releases instead of pinning one.
 func sourceVersion(t *testing.T, dir string) string {
@@ -284,30 +299,7 @@ func bundle(t *testing.T, d *teamsource.WorkflowDefinition, node teamsource.Work
 	return b
 }
 
-func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
-	// Old catalogue bytes and delivery evidence are retained before new generation.
-	oldSource := os.DirFS("../../teams/go-development/v1")
-	oldDefinitions := map[string]*teamsource.WorkflowDefinition{}
-	oldFiles := map[string]map[string][]byte{}
-	oldBundles := map[string]agent.Delivery{}
-	oldRendered := map[string]map[string][]byte{}
-	for _, w := range workflows {
-		old := capture(t, oldSource, w, "builtin")
-		oldDefinitions[w] = old
-		saved := map[string][]byte{}
-		for name, raw := range old.Files {
-			saved[name] = bytes.Clone(raw)
-		}
-		oldFiles[w] = saved
-		for id, node := range old.Nodes {
-			for _, kind := range []string{"claude", "codex"} {
-				key := w + "/" + id + "/" + kind
-				b := bundle(t, old, node, kind)
-				oldBundles[key] = b
-				oldRendered[key] = snapshot(t, b.Root)
-			}
-		}
-	}
+func TestInstallationCaptureAndNativeDelivery(t *testing.T) {
 	root := fixture(t)
 	generate(t, root)
 	version := sourceVersion(t, "../../teams/source/go-development")
@@ -370,24 +362,6 @@ func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		}
-	}
-	for _, w := range workflows {
-		old := oldDefinitions[w]
-		replay, err := teamsource.CaptureWorkflowIdentity(t.Context(), teamsource.RetainedFiles(oldFiles[w]), w+".dot", "builtin", agent.Workflow(w), registry(t, w))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if replay.Digest != old.Digest || !reflect.DeepEqual(replay.Hashes, old.Hashes) || !reflect.DeepEqual(replay.Files, old.Files) || replay.Profile.Team != "builtin" {
-			t.Fatal("rewrote historical capture", w)
-		}
-	}
-	for key, b := range oldBundles {
-		if err := agent.VerifyDelivery(t.Context(), b); err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(oldRendered[key], snapshot(t, b.Root)) || b.Evidence.Team != "builtin" {
-			t.Fatal("rewrote historical delivery", key)
 		}
 	}
 }

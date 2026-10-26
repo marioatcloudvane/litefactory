@@ -47,22 +47,6 @@ func TestGraphPackagePurity(t *testing.T) {
 	}
 }
 
-// shippedDOT is the closed approved set of captured workflow resources and
-// their declared editable sources. Plan ships both its neutral source and its
-// embedded runtime copy; Research retains its existing captured resource.
-// Bug ships one bounded simplified parent, with exact
-// source and embedded copies. No general nested graph namespace is admitted.
-// Any other DOT file is an unexpected workflow or a stray copy.
-var shippedDOT = map[string]bool{
-	// The immutable pre-consolidation release remains historical evidence.
-	"../../teams/go-development/v1/bug/bug.dot":             true,
-	"../../teams/go-development/v1/implement/implement.dot": true,
-	"../../teams/go-development/v1/plan/plan.dot":           true,
-	"../../teams/go-development/v1/research/research.dot":   true,
-	"../../teams/go-development/v1/spike/spike.dot":         true,
-	"../../teams/go-development/v1/validate/validate.dot":   true,
-}
-
 func TestGraphShippedDOTScope(t *testing.T) {
 	// The current distribution path has one author: canonical release metadata.
 	// Admit only its six existing workflows, never a general graph namespace.
@@ -79,10 +63,9 @@ func TestGraphShippedDOTScope(t *testing.T) {
 	if !fs.ValidPath(release.Download) || !strings.HasPrefix(release.Download, "go-development/") {
 		t.Fatal("unsafe current release path")
 	}
-	allowed := make(map[string]bool, len(shippedDOT)+6)
-	for name := range shippedDOT {
-		allowed[name] = true
-	}
+	// One frozen test fixture: the pre-worker-sync Implement graph that saved
+	// instances may still run. It is test data, never a release or a source.
+	allowed := map[string]bool{"../../internal/turn/testdata/implement-v1.0.2/implement.dot": true}
 	workflows := []string{"research", "plan", "implement", "validate", "spike", "bug"}
 	for _, workflow := range workflows {
 		allowed["../../teams/"+release.Download+"/"+workflow+"/"+workflow+".dot"] = true

@@ -42,13 +42,15 @@ const implementTaskParent = "github:acme/acme-api#900"
 func assembledImplementFixture(t *testing.T, runner Runner) (*fixture, *fakeForge, Request) {
 	t.Helper()
 	f := newFixture(t, runner)
-	// Existing runtime regressions exercise supported pinned worker graphs,
-	// including their automatic preparation and conflict-resolution behavior.
+	// Saved Implement instances keep running on the graph they were admitted with.
+	// These regressions run the pre-worker-sync graph (a frozen test fixture, not
+	// a release) so its conflict and resolver routing stays covered; the current
+	// source graph is selected with enableWorkerSyncFixture.
 	f.opts.WorkflowSource = func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 		if workflow != agent.WorkflowImplement {
 			return fixtureWorkflowSource(ctx, repo, workflow, specs)
 		}
-		return fixtureInstalled(teamsource.CaptureWorkflow(ctx, os.DirFS(filepath.Join("..", "..", "teams", "go-development", "v1.0.2", "implement")), "implement.dot", "go-development", agent.ModeImplement, specs))
+		return fixtureInstalled(teamsource.CaptureWorkflow(ctx, os.DirFS(filepath.Join("testdata", "implement-v1.0.2")), "implement.dot", "go-development", agent.ModeImplement, specs))
 	}
 	authority, err := NewAttemptAuthority(t.Context(), f.db)
 	mustProgress(t, err)
@@ -65,7 +67,7 @@ func assembledImplementFixture(t *testing.T, runner Runner) (*fixture, *fakeForg
 }
 
 // enableWorkerSyncFixture selects the editable canonical gate rather than the
-// released graph used by compatibility fixtures.
+// frozen pre-worker-sync graph used by assembledImplementFixture.
 func enableWorkerSyncFixture(f *fixture) {
 	f.opts.WorkflowSource = func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 		if workflow != agent.WorkflowImplement {

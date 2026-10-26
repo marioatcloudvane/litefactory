@@ -27,6 +27,9 @@ func TestResearchNativeBundleFilesystem(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := registry.Register(graphexec.JudgeSpec(agent.ModeResearch)); err != nil {
+		t.Fatal(err)
+	}
 	definition, err := teamsourcetest.CaptureResearch(t.Context(), registry)
 	if err != nil {
 		t.Fatal(err)

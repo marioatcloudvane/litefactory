@@ -121,8 +121,9 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input registrationRequest
+	// RFC 7591 §2: metadata the server does not understand is ignored, not
+	// refused. Hosted clients (Claude) send fields such as client_uri or scope.
 	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
 		oauthInputError(w, err, "invalid_client_metadata")
 		return

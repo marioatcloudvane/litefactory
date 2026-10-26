@@ -126,7 +126,7 @@ func TestBaseTeamChildBuildsCurrentBaseInventory(t *testing.T) {
 	if err := GenerateSources(t.Context(), root, false, []string{"teams/source/go-child"}); err != nil {
 		t.Fatal(err)
 	}
-	built := snapshot(t, filepath.Join(root, "teams/go-development/v1.0.5"))
+	built := snapshot(t, filepath.Join(root, "teams/go-development", "v"+sourceVersion(t, "../../teams/source/go-development")))
 	want := snapshot(t, "../../teams/source/base-team")
 	delete(want, "base.json")
 	for name, raw := range own {

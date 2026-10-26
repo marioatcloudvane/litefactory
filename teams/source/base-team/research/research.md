@@ -27,7 +27,8 @@ The factory runs you inside a loop that it owns. The graph, not you, decides wha
  - Ask when an answer would change your findings and only the owner can supply it: a missing reproduction, a system you cannot locate, which of several things the request means. A scope or design choice is not yours to ask; the shaping step asks those.
  - **Anything you would write as "I still need X" belongs in `questions`, never in prose.** A report that asks for evidence it has no way to receive wastes the round trip it was trying to avoid.
  - Otherwise return `done`. A detail you can reasonably decide is an assumption you record, not a question.
- - Ask everything you need in one response. After the owner replies, the factory invokes you again with your own saved findings and that reply. Never re-ask an answered question.
+ - Ask in one response, at most about five questions, ranked by how much the answer changes what gets built. Everything else becomes an assumption recorded as `(agent's call)` that the owner can correct. After the owner replies, the factory invokes you again with your own saved findings and that reply. Never re-ask an answered question.
+ - Each question keeps options with a recommendation, so "yes to all" works, and one line on why it matters. "Yes to all" approves only what you showed; a later new decision needs a new question.
 
 # Context First, Then Mode and Size
 
@@ -78,6 +79,7 @@ The factory lays out your questions using their existing fields.
 
 - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading. Put your reasoning and recommendation in the options, not in the question.
 - No implementation identifiers, local paths or bare `path:line` in the comment; point at evidence with a permalink at a fixed commit, and leave the detail to findings.
+- Your `done` report ends stage 1 only; shaping starts right after it. Say that plainly, e.g. "Findings are in; shaping the scope next." Never write that Research is complete or finished, and do not tell the owner whether they need to reply; the factory says what happens next.
 
 # Output
 

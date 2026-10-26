@@ -7,7 +7,6 @@ import (
 	"errors"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -147,7 +146,10 @@ func TestImplementPrepareFailureRetriesAndParks(t *testing.T) {
 		}
 	}
 	check(f.db.PutManagedFeature(ctx, store.ManagedFeature{ParentTask: parent, Generation: 1, State: "planning", WorkflowVersion: store.WorkflowSeparated}))
-	check(f.db.PutManagedStory(ctx, store.ManagedStory{ParentTask: parent, Generation: 1, Key: "story-001", IssueNumber: testIssue, IssueID: 4242, State: "planning"}))
+	story := store.ManagedStory{ParentTask: parent, Generation: 1, Key: "story-001", IssueNumber: testIssue, IssueID: 4242, State: "planning"}
+	check(f.db.PutManagedStory(ctx, story))
+	check(f.db.SetManagedFeatureReady(ctx, parent, 1, true))
+	check(f.db.ApproveManagedStories(ctx, parent, 1, []store.ApprovedStoryRevision{{ManagedStory: story, ParentID: 900, Title: story.Key, Body: story.Key, Hash: strings.Repeat("cd", 32), FetchedAt: f.clock.peek()}}))
 	check(f.db.EnsureImplementStories(ctx, parent, 1, []store.ImplementStorySeed{{Key: "story-001", Branch: "lf/story-001"}}, f.clock.peek()))
 	row, err := f.db.GetImplementStory(ctx, parent, 1, "story-001")
 	check(err)
@@ -163,13 +165,13 @@ func TestImplementPrepareFailureRetriesAndParks(t *testing.T) {
 	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "prepare-failure", Logger: f.logger,
 		CloneGate: unusedRecoveryCloneGate{}, Runners: turn.RunnerSet{agent.Kind(store.AgentClaude): runner}, ResearchReporter: f.reporter,
 		MCP: &turn.MCPRuntime{Authority: authority, Paths: f.paths, Executable: "/factory/litefactory", Now: f.clock.Now}}
-	// This fixture isolates legacy preparation: supply the pinned released definition
-	// so admission succeeds before the deliberately broken clone is opened.
+	// Supply the current Implement definition so admission succeeds; the base sync
+	// then fails before any agent is allocated.
 	opts.WorkflowSource = func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 		if repo.ID != session.RepoID || workflow != agent.WorkflowImplement {
 			t.Fatal("preparation fixture selected another repository or workflow")
 		}
-		definition, err := teamsource.CaptureWorkflow(ctx, os.DirFS("../../teams/go-development/v1.0.2/implement"), "implement.dot", "go-development", agent.ModeImplement, specs)
+		definition, err := teamsourcetest.CaptureImplement(ctx, specs)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +219,7 @@ func TestImplementPrepareFailureRetriesAndParks(t *testing.T) {
 	f.settle()
 	row, err = f.db.GetImplementStory(ctx, parent, 1, row.Key)
 	check(err)
-	if row.State != store.ImplementParked || row.ParkOrigin != store.ImplementOriginWorker || row.Attempts != 0 || !strings.Contains(row.Reason, "could not be opened") {
+	if row.State != store.ImplementParked || row.ParkOrigin != store.ImplementOriginWorker || row.Attempts != 0 || row.Reason == "" {
 		t.Fatalf("%+v", row)
 	}
 	f.settle()

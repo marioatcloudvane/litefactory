@@ -23,11 +23,5 @@ The generated release has a sorted SHA-256 inventory and inventory checksum. It
 uses the existing schema-1 installer, local clone and installed-only selection
 interfaces. No runtime generation or source fallback is added.
 
-`teams/go-development/v1` is a non-release historical fixture: it is not in
-`teams/teams.json` and is never generated. Saved-capture replay and graph purity
-tests use it as the pre-consolidation baseline. `history/bug.profile` pins the
-former builtin topology for saved-capture admission only. Existing saved
-captures, delivery bundles, provenance and their hashes are not rewritten.
-
 The litefactory repository rules live in the `litefactory-rules` skill of the
 implement, bug and validate modes and apply only to litefactory.
