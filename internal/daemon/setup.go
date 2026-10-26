@@ -51,7 +51,8 @@ import (
 // lifetime. Saved project versions resolve their own external references once
 // when loaded; refresh explicitly verifies the same retained actor.
 type Setup struct {
-	// ConnectorControl is registered only by the factory local grant command host.
+	// ConnectorControl may override the shared local grant service for trusted composition.
+	// Open installs the shipped service when remote serving is enabled and this is nil.
 	ConnectorControl *connector.LocalControl
 	// ConnectorOverview supplies only the remote read projection.
 	ConnectorOverview connector.OverviewProvider
@@ -364,7 +365,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		webhookOpts = &WebhookOptions{Listener: ln, Secrets: s.WebhookSecrets, PublicURL: s.Config.Webhook.PublicURL}
 	}
 
-	remoteConnector, connectorErr := prepareRemoteConnector(ctx, s)
+	remoteConnector, connectorErr := prepareFactoryRemoteConnector(ctx, s)
 	if connectorErr != nil {
 		return nil, Startup{}, errors.Join(connectorErr, lock.Close())
 	}
@@ -863,4 +864,18 @@ func waitImplementStatus(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// prepareFactoryRemoteConnector binds the shipped local commands' durable service
+// before the remote boundary checks readiness. No remote configuration can turn
+// this capability on independently of its implementation.
+func prepareFactoryRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRuntime, error) {
+	if s.Config.RemoteConnector.Enabled && s.ConnectorControl == nil {
+		control, err := connector.NewLocalControl(ctx, s.DB, connector.NewGrantService(s.DB))
+		if err != nil {
+			return nil, err
+		}
+		s.ConnectorControl = control
+	}
+	return prepareRemoteConnector(ctx, s)
 }
