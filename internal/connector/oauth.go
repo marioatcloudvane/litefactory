@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,6 +33,9 @@ func (s *Server) oauthRoutes(mux *http.ServeMux) {
 type oauthResponse struct {
 	http.ResponseWriter
 	status int
+	// code is the OAuth error code a refusal sent, so the audit line can name
+	// which check refused (it never carries credentials).
+	code string
 }
 
 func (w *oauthResponse) WriteHeader(status int) {
@@ -56,6 +60,9 @@ func (s *Server) authorizationHandler(handler http.HandlerFunc) http.HandlerFunc
 			outcome, reason = "error", "dependency_unavailable"
 		case response.status >= 400:
 			outcome, reason = "refusal", "invalid_authorization"
+			if response.code != "" {
+				reason = path.Base(r.URL.Path) + ":" + response.code
+			}
 		case r.URL.Path == "/litefactory/oauth/consent" && r.PostForm.Get("decision") == "deny":
 			outcome, reason = "refusal", "owner_denied"
 		default:
@@ -293,7 +300,9 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if form.Get("resource") != s.cfg.ResourceURL || (form.Get("scope") != "" && form.Get("scope") != Scope) {
+	// RFC 8707 lets a client leave resource out of the token request; the
+	// grant stays bound to the one configured resource either way.
+	if resource := form.Get("resource"); (resource != "" && resource != s.cfg.ResourceURL) || (form.Get("scope") != "" && form.Get("scope") != Scope) {
 		oauthError(w, http.StatusBadRequest, "invalid_target")
 		return
 	}
@@ -456,6 +465,9 @@ func oauthInputError(w http.ResponseWriter, err error, code string) {
 }
 
 func oauthError(w http.ResponseWriter, status int, code string) {
+	if response, ok := w.(*oauthResponse); ok {
+		response.code = code
+	}
 	writeJSON(w, status, map[string]string{"error": code})
 }
 

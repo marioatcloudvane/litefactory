@@ -226,3 +226,26 @@ func TestRedirectRegistrationRequiresUnambiguousHTTPS(t *testing.T) {
 		}
 	}
 }
+
+func TestTokenResourceIsOptionalAndRefusalsNameTheCheck(t *testing.T) {
+	t.Parallel()
+	f := newConnectorFixture(t, nil)
+	server := f.server(t)
+	client := registerConnectorClient(t, server, "Client", "none")
+	code, verifier, _ := f.issueCode(t, client)
+	values := url.Values{"grant_type": {"authorization_code"}, "client_id": {client.ClientID}, "redirect_uri": {"https://client.example/callback"}, "resource": {"https://attacker.example/mcp"}, "code": {code}, "code_verifier": {verifier}}
+	response := connectorForm(t, server, f.issuer+"/oauth/token", values, nil)
+	if response.Code != http.StatusBadRequest || !strings.Contains(f.logs.String(), `"reason":"token:invalid_target"`) {
+		t.Fatalf("wrong resource: HTTP %d, audit %s", response.Code, f.logs.String())
+	}
+	values.Del("resource")
+	response = connectorForm(t, server, f.issuer+"/oauth/token", values, nil)
+	var tokens connectorTestTokens
+	connectorDecode(t, response, &tokens)
+	if response.Code != http.StatusOK || tokens.AccessToken == "" || tokens.RefreshToken == "" {
+		t.Fatalf("token without resource: HTTP %d %s", response.Code, response.Body.String())
+	}
+	if f.ping(t, server, tokens.AccessToken).Code != http.StatusOK {
+		t.Fatal("token issued without resource does not reach the configured resource")
+	}
+}
