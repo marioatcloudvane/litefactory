@@ -253,7 +253,7 @@ func (w *researchWorkflow) failed(ctx context.Context, scope func(context.Contex
 		return nil
 	}
 	if w.policy.Mode == agent.ModePlan && w.definition != nil {
-		if node, ok := w.definition.Profile.Node(step.Node); ok && (node.Action == "lf_comment" || node.Action == "lf_ask") {
+		if node, ok := w.definition.Profile.Node(step.Node); ok && (node.Action == "lf_comment" || node.Action == "lf_ask" || node.Action == graphexec.PlanGateAction) {
 			// The retained reply is the recovery debt. A second failure notice
 			// for the same input would make its pending delivery ambiguous.
 			return cause

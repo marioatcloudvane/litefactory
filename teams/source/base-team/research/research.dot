@@ -11,6 +11,12 @@
 // response it reads, so a later stage bootstraps from its own default instead
 // of inheriting the previous one's. The ask default initializes only the first
 // evaluation of each stage.
+//
+// Before a shaped draft goes to the owner for review, a builder check judges
+// the saved result and publishes its advice as a short comment just above the
+// draft it checked (lf_format="brief": AI;DR and one line per point). It is
+// advisory: it cannot decide, ask or approve, and success and failure both
+// continue to the same review. Shaping folds its points into the next pass.
 digraph research {
  graph [team="{{team}}", mode="research", profile_version="1", start="loop"];
 
@@ -33,6 +39,8 @@ digraph research {
  clarify     [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];
  review      [lf_action="lf_ask", lf_outcomes="published", lf_kind="review",   lf_limit="8", lf_source="shape"];
  agreed      [lf_action="lf_comment", lf_outcomes="published", lf_kind="final",    lf_limit="1", lf_source="shape"];
+ buildcheck  [lf_action="lf_judge", lf_outcomes="success,failed", lf_source="shape", lf_agent="codex", lf_limit="8", lf_focus="Builder check of the shaping draft the owner sees right after this comment. Read only the pinned saved shaping result (the source of its brief), not the discussion. You will plan from this alone. Raise only points whose answer would change what gets built. Check that every O- outcome is clear and testable, that N-/K- boundaries are explicit, that the impact analysis names what is touched, who depends on it and what must be retired or migrated, and that S-01 mode and size fit the request. Start each finding title with who settles it: 'Owner's:' (only the owner can decide what gets built; ask it as a plain question), 'Agent's call:' (Shaping may decide; the correction says what to assume) or 'Already answered:' (the brief should say it more clearly). Owner's points first. Summary: start with 'AI;DR:' and say in one or two plain sentences whether the draft is buildable and how many points need the owner (say none when none), and that Shaping folds the rest into its next pass. Owner language only: no factory terms such as captures, nodes, validation or saved results. One short sentence each for concern, impact and correction. Advisory only."];
+ buildadvice [lf_action="lf_comment", lf_outcomes="published", lf_kind="advisory", lf_format="brief", lf_limit="8", lf_source="buildcheck"];
 
  // ---- Failure and terminals ----------------------------------------------
  failed      [lf_action="lf_comment", lf_outcomes="published", lf_kind="failure",  lf_limit="1"];
@@ -64,7 +72,10 @@ digraph research {
  settled     -> agreed      [lf_on="true"];    // the owner approved
  settled     -> shaped      [lf_on="false"];
  shaped      -> clarify     [lf_on="true"];    // needs an answer
- shaped      -> review      [lf_on="false"];   // has a draft; asks if it stands
+ shaped      -> buildcheck  [lf_on="false"];   // has a draft; builder check first
+ buildcheck  -> buildadvice [lf_on="success"];
+ buildcheck  -> buildadvice [lf_on="failed"];  // advisory: a failed check is published, not fatal
+ buildadvice -> review      [lf_on="published"]; // then asks if it stands
  clarify     -> waiting     [lf_on="published"];
  review      -> waiting     [lf_on="published"];
  agreed      -> complete    [lf_on="published"];

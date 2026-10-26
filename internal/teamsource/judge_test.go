@@ -18,9 +18,6 @@ func TestWorkflowJudgeResourceCapture(t *testing.T) {
  challenge -> end [lf_on="success"];
  challenge -> end [lf_on="failed"];`)
 	registry := researchTestRegistry(t)
-	if err := registry.Register(graphexec.JudgeSpec(agent.ModeResearch)); err != nil {
-		t.Fatal(err)
-	}
 	def, err := CaptureWorkflow(t.Context(), source, "research.dot", "builtin", agent.ModeResearch, registry)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +105,7 @@ func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
 				{Name: "lf_comment", Mode: mode, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"final", "failure", "advisory"}}}},
 			}
 			if mode == agent.ModePlan {
-				specs = append(specs, graphexec.PlanStorySpec())
+				specs = append(specs, graphexec.PlanStorySpec(), graphexec.PlanGateSpec())
 			} else {
 				specs = append(specs, graphexec.ActionSpec{Name: "lf_research_brief", Mode: mode, Outcomes: []string{"success", "failed"}})
 			}
@@ -167,9 +164,6 @@ func TestFreshJudgeCaptureFromRootRetainedFiles(t *testing.T) {
  challenge [lf_action="lf_judge",lf_source="work",lf_limit="1",lf_outcomes="success,failed"];
  challenge -> end [lf_on="success"];
  challenge -> end [lf_on="failed"];`)
-				if err := registry.Register(graphexec.JudgeSpec(agent.ModeResearch)); err != nil {
-					t.Fatal(err)
-				}
 			}
 			source := RetainedFiles{}
 			for path, file := range fixture {

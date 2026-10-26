@@ -13,6 +13,10 @@ import (
 // JudgeAction challenges a pinned saved result without decision authority.
 const JudgeAction = "lf_judge"
 
+// JudgeFormatAttribute names how an advisory comment renders its judge report.
+// Only an advisory lf_comment may declare it.
+const JudgeFormatAttribute = "lf_format"
+
 // JudgeSpec declares the shared advisory execution contract.
 func JudgeSpec(mode agent.Mode) ActionSpec {
 	return ActionSpec{Name: JudgeAction, Mode: mode, Outcomes: []string{"success", "failed"}, Attributes: map[string]AttributeSpec{
@@ -28,6 +32,9 @@ func ValidateJudgeGraph(p *Profile) error {
 	}
 	var faults []error
 	for _, n := range p.Nodes {
+		if _, set := n.Attrs[JudgeFormatAttribute]; set && (n.Action != "lf_comment" || n.Attrs["lf_kind"] != "advisory") {
+			faults = append(faults, fmt.Errorf("node %q: %s applies only to an advisory comment", n.Name, JudgeFormatAttribute))
+		}
 		if n.Action != JudgeAction && n.Attrs["lf_kind"] != "advisory" {
 			continue
 		}

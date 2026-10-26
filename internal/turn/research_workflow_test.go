@@ -40,6 +40,11 @@ func assembledResearchFixture(t *testing.T, runner Runner) (*fixture, *fakeForge
 	f.opts.MCP.BotID = 9999
 	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
 	f.opts.ResearchDriver = ExecuteResearchWorkflow
+	// The shipped graph runs an advisory builder check before each review.
+	judge, _, _ := judgeRecoveryFixture(t)
+	judge.DB = f.db
+	judge.Providers[agent.Kind("codex")], judge.Providers[agent.Kind("claude")] = &recoveryJudgeRunner{}, &recoveryJudgeRunner{}
+	f.opts.Judge = judge
 	dir := filepath.Join(f.repo.Dir, ".litefactory")
 	mustProgress(t, os.MkdirAll(dir, 0700))
 	mustProgress(t, os.WriteFile(filepath.Join(dir, "research.yaml"), []byte("execution: graph\n"), 0600))

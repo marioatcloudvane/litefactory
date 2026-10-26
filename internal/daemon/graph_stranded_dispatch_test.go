@@ -18,8 +18,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-// These rows model the pre-fix stop: consumed owner authority, exhausted fixer,
-// successful revalidation transition, and no continuation work after reopening.
+// These rows model the pre-fix stop: an approved diagnosis, consumed owner
+// authority, exhausted fixer, successful revalidation followed by a current base
+// sync, and no continuation work after reopening.
 func TestStrandedBugStartupAndTick(t *testing.T) {
 	for _, entry := range []string{"startup", "tick"} {
 		t.Run(entry, func(t *testing.T) {
@@ -51,7 +52,14 @@ func TestStrandedBugStartupAndTick(t *testing.T) {
 			check(err)
 			a, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "conversation", Limit: 16, StartedAt: at})
 			check(err)
-			check(f.db.CompleteGraphNodeAttempt(ctx, a.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "approved", FinishedAt: at, InstanceStatus: store.GraphRunning, Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "conversation", ToNode: "fixer", OnOutcome: "approved", At: at}}))
+			check(f.db.CompleteGraphNodeAttempt(ctx, a.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "approved", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: []byte(`{"record":"diagnosis","revision":1,"digest":"approved","review_ready":true}`)}, {Kind: store.GraphOutputJSON, Payload: []byte(`{"record":"diagnosis_approval","revision":1,"digest":"approved"}`)}}, Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "conversation", ToNode: "sync_before_fixer", OnOutcome: "approved", At: at}}))
+			syncCurrent := func() {
+				t.Helper()
+				s, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "sync_before_fixer", Limit: 8, StartedAt: at})
+				check(err)
+				check(f.db.CompleteGraphNodeAttempt(ctx, s.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "current", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: []byte(`{"working":"lf/bug","base":"main","result":"current"}`)}}, Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "sync_before_fixer", ToNode: "fixer", OnOutcome: "current", At: at}}))
+			}
+			syncCurrent()
 			for i := range 3 {
 				a, err = f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "fixer", Limit: 3, StartedAt: at})
 				check(err)
@@ -63,7 +71,8 @@ func TestStrandedBugStartupAndTick(t *testing.T) {
 			check(f.db.CompleteGraphNodeAttempt(ctx, a.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "succeeded", FinishedAt: at, InstanceStatus: store.GraphRunning, Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "fixer", ToNode: "finalization", OnOutcome: "succeeded", At: at}}))
 			final, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "finalization", Limit: 16, StartedAt: at})
 			check(err)
-			check(f.db.CompleteGraphNodeAttempt(ctx, final.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "revalidate", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: []byte(`{"record":"delivery_progress","outcome":"revalidate","reason":"main was merged"}`)}}, Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "finalization", ToNode: "fixer", OnOutcome: "revalidate", At: at}}))
+			check(f.db.CompleteGraphNodeAttempt(ctx, final.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "revalidate", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: []byte(`{"record":"delivery_progress","outcome":"revalidate","reason":"main was merged"}`)}}, Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "finalization", ToNode: "sync_before_fixer", OnOutcome: "revalidate", At: at}}))
+			syncCurrent()
 			before, err := f.db.ListGraphNodeAttempts(ctx, instance.ID)
 			check(err)
 			oldWait, err := f.db.GetGraphOwnerWait(ctx, instance.ID)

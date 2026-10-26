@@ -2,6 +2,10 @@
   "version": 1,
   "guidance": [
     {
+      "id": "owner-report",
+      "skill": "plan/skills/owner-report/SKILL.md"
+    },
+    {
       "id": "python-fastapi",
       "skill": "plan/skills/plan-python-fastapi-guidance/SKILL.md"
     },
@@ -19,246 +23,110 @@
       "amd64"
     ],
     "executables": [
-      "python3",
-      "node",
-      "uv",
-      "npm"
+      "python3"
     ]
   },
   "setup": [
     {
-      "name": "backend-host",
-      "argv": [
-        "python3",
-        "-c",
-        "import sys,subprocess\nif sys.version_info[:3] != (3,14,0): sys.exit('Python version incompatible: required 3.14.0')\ntry: version=subprocess.check_output(['uv','--version'],text=True).split()[1]\nexcept (OSError,subprocess.CalledProcessError): sys.exit('Missing required executable: uv')\nif version != '0.10.12': sys.exit('uv version incompatible: required 0.10.12')\n"
-      ],
-      "cwd": "backend",
-      "timeout_seconds": 300
-    },
-    {
-      "name": "backend-inputs",
-      "argv": [
-        "python3",
-        "-c",
-        "import pathlib,sys,tomllib\nfor name in ('pyproject.toml','uv.lock'):\n if not pathlib.Path(name).is_file(): sys.exit('Missing required backend manifest: '+name)\np=tomllib.loads(pathlib.Path('pyproject.toml').read_text())\nif not pathlib.Path('tests').is_dir() or not any(pathlib.Path('tests').rglob('test_*.py')): sys.exit('Missing required backend tests: tests/test_*.py')\n"
-      ],
-      "cwd": "backend",
-      "timeout_seconds": 300
-    },
-    {
-      "name": "frontend-host",
-      "argv": [
-        "node",
-        "-e",
-        "if(process.versions.node!=='24.16.0')throw Error('Node version incompatible: required 24.16.0');let v;try{v=require('node:child_process').execFileSync('npm',['--version'],{encoding:'utf8'}).trim()}catch(e){throw Error('Missing required executable: npm')}if(v!=='11.13.0')throw Error('npm version incompatible: required 11.13.0');"
-      ],
-      "cwd": "frontend",
-      "timeout_seconds": 300
-    },
-    {
-      "name": "frontend-inputs",
-      "argv": [
-        "node",
-        "-e",
-        "const fs=require('node:fs');for(const n of ['package.json','package-lock.json','tsconfig.json'])if(!fs.existsSync(n))throw Error('Missing required frontend manifest: '+n);const p=JSON.parse(fs.readFileSync('package.json','utf8'));for(const n of ['typecheck','lint','test','build'])if(!p.scripts?.[n])throw Error('Missing required frontend script: '+n);if(/passWithNoTests|if-present/.test(JSON.stringify(p.scripts)))throw Error('Successful test skips forbidden');const ts=JSON.parse(fs.readFileSync('tsconfig.json','utf8'));if(ts.compilerOptions?.strict!==true)throw Error('TypeScript strict checking required in tsconfig.json');const files=fs.readdirSync('.',{recursive:true}).filter(n=>!n.startsWith('node_modules/')&&!n.startsWith('dist/'));if(!files.some(n=>/\\.(test|spec)\\.[jt]sx?$/.test(n)))throw Error('Missing required frontend tests');"
-      ],
-      "cwd": "frontend",
-      "timeout_seconds": 300
-    },
-    {
       "name": "backend-sync",
       "argv": [
-        "uv",
-        "sync",
-        "--locked",
-        "--all-groups",
-        "--python",
-        "3.14.0",
-        "--no-python-downloads",
-        "--cache-dir",
-        ".cache/uv"
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport configparser, tomllib\nproject = None\nfor candidate in (root, root / 'backend'):\n    if any(confined(candidate / name).is_file() for name in ('pyproject.toml', 'requirements.txt')):\n        project = confined(candidate)\n        break\nif project is None:\n    sys.exit('Missing Python manifest: pyproject.toml or requirements.txt')\nmanifest = confined(project / 'pyproject.toml')\nlock = confined(project / 'uv.lock')\nrequirements = confined(project / 'requirements.txt')\nvenv = confined(project / '.venv')\nconfined(venv / 'bin')\ncache = confined(project / '.cache')\nconfined(cache / 'uv')\nconfined(cache / 'pip')\npython = str(venv / 'bin' / 'python')\nconfig = tomllib.loads(manifest.read_text()) if manifest.is_file() else {}\nif manifest.is_file() and lock.is_file():\n    run(['uv', 'sync', '--locked', '--all-groups', '--no-python-downloads', '--cache-dir', str(cache / 'uv')], project)\nelse:\n    if not venv.exists():\n        run([sys.executable, '-m', 'venv', str(venv)], project)\n    args = ['-r', str(requirements)] if requirements.is_file() else ['.']\n    run([python, '-m', 'pip', 'install', '--cache-dir', str(cache / 'pip')] + args, project)\n"
       ],
-      "cwd": "backend",
+      "cwd": ".",
       "timeout_seconds": 900
     },
     {
       "name": "frontend-ci",
       "argv": [
-        "npm",
-        "ci",
-        "--ignore-scripts",
-        "--engine-strict",
-        "--cache",
-        ".cache/npm"
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport json, shutil\nexcluded = {'.git', '.venv', 'venv', 'env', 'node_modules', 'dist', 'build', 'coverage', 'htmlcov', '__pycache__', '.cache', '.next', '.nuxt', '.output', 'vendor', '.tox', '.nox', '.mypy_cache', '.pytest_cache', '.ruff_cache'}\npackages = []\nfor current, dirs, files in os.walk(root):\n    dirs[:] = sorted(name for name in dirs if name not in excluded)\n    for name in dirs:\n        confined(pathlib.Path(current) / name)\n    if 'package.json' in files:\n        location = confined(pathlib.Path(current))\n        manifest = confined(location / 'package.json')\n        packages.append((location, json.loads(manifest.read_text())))\nif packages:\n    for tool in ('node', 'npm'):\n        if shutil.which(tool) is None:\n            sys.exit('Missing required executable: ' + tool)\nfor location, package in packages:\n    confined(location / 'node_modules')\n    cache = confined(location / '.cache' / 'npm')\n    lock = confined(location / 'package-lock.json')\n    run(['npm', 'ci' if lock.is_file() else 'install', '--engine-strict', '--ignore-scripts', '--cache', str(cache)], location)\n"
       ],
-      "cwd": "frontend",
+      "cwd": ".",
       "timeout_seconds": 900
     }
   ],
   "checks": [
     {
-      "name": "backend-host",
-      "argv": [
-        "python3",
-        "-c",
-        "import sys,subprocess\nif sys.version_info[:3] != (3,14,0): sys.exit('Python version incompatible: required 3.14.0')\ntry: version=subprocess.check_output(['uv','--version'],text=True).split()[1]\nexcept (OSError,subprocess.CalledProcessError): sys.exit('Missing required executable: uv')\nif version != '0.10.12': sys.exit('uv version incompatible: required 0.10.12')\n"
-      ],
-      "cwd": "backend",
-      "timeout_seconds": 300
-    },
-    {
-      "name": "backend-inputs",
-      "argv": [
-        "python3",
-        "-c",
-        "import pathlib,sys,tomllib\nfor name in ('pyproject.toml','uv.lock'):\n if not pathlib.Path(name).is_file(): sys.exit('Missing required backend manifest: '+name)\np=tomllib.loads(pathlib.Path('pyproject.toml').read_text())\nif not pathlib.Path('tests').is_dir() or not any(pathlib.Path('tests').rglob('test_*.py')): sys.exit('Missing required backend tests: tests/test_*.py')\n"
-      ],
-      "cwd": "backend",
-      "timeout_seconds": 300
-    },
-    {
-      "name": "backend-versions",
-      "argv": [
-        "uv",
-        "run",
-        "--no-sync",
-        "--no-python-downloads",
-        "python",
-        "-c",
-        "import importlib.metadata as m,sys\nif m.version('fastapi') != '0.142.4': sys.exit('Backend version incompatible: fastapi required 0.142.4')\nif m.version('pydantic') != '2.14.0': sys.exit('Backend version incompatible: pydantic required 2.14.0')\nif m.version('ruff') != '0.17.0': sys.exit('Backend version incompatible: ruff required 0.17.0')\nif m.version('mypy') != '2.4.0': sys.exit('Backend version incompatible: mypy required 2.4.0')\nif m.version('pytest') != '9.1.1': sys.exit('Backend version incompatible: pytest required 9.1.1')\nif m.version('httpx') != '0.28.1': sys.exit('Backend version incompatible: httpx required 0.28.1')\n"
-      ],
-      "cwd": "backend",
-      "timeout_seconds": 300
-    },
-    {
       "name": "backend-format",
       "argv": [
-        "uv",
-        "run",
-        "--no-sync",
-        "--no-python-downloads",
-        "ruff",
-        "format",
-        "--check",
-        "."
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport configparser, tomllib\nproject = None\nfor candidate in (root, root / 'backend'):\n    if any(confined(candidate / name).is_file() for name in ('pyproject.toml', 'requirements.txt')):\n        project = confined(candidate)\n        break\nif project is None:\n    sys.exit('Missing Python manifest: pyproject.toml or requirements.txt')\nmanifest = confined(project / 'pyproject.toml')\nlock = confined(project / 'uv.lock')\nrequirements = confined(project / 'requirements.txt')\nvenv = confined(project / '.venv')\nconfined(venv / 'bin')\ncache = confined(project / '.cache')\nconfined(cache / 'uv')\nconfined(cache / 'pip')\npython = str(venv / 'bin' / 'python')\nconfig = tomllib.loads(manifest.read_text()) if manifest.is_file() else {}\nenabled = 'ruff' in config.get('tool', {}) or any(confined(project / name).is_file() for name in ('ruff.toml', '.ruff.toml'))\nif enabled:\n    run([python, '-m'] + ['ruff', 'format', '--check', '.'], project)\n"
       ],
-      "cwd": "backend",
+      "cwd": ".",
       "timeout_seconds": 300
     },
     {
       "name": "backend-lint",
       "argv": [
-        "uv",
-        "run",
-        "--no-sync",
-        "--no-python-downloads",
-        "ruff",
-        "check",
-        "."
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport configparser, tomllib\nproject = None\nfor candidate in (root, root / 'backend'):\n    if any(confined(candidate / name).is_file() for name in ('pyproject.toml', 'requirements.txt')):\n        project = confined(candidate)\n        break\nif project is None:\n    sys.exit('Missing Python manifest: pyproject.toml or requirements.txt')\nmanifest = confined(project / 'pyproject.toml')\nlock = confined(project / 'uv.lock')\nrequirements = confined(project / 'requirements.txt')\nvenv = confined(project / '.venv')\nconfined(venv / 'bin')\ncache = confined(project / '.cache')\nconfined(cache / 'uv')\nconfined(cache / 'pip')\npython = str(venv / 'bin' / 'python')\nconfig = tomllib.loads(manifest.read_text()) if manifest.is_file() else {}\nenabled = 'ruff' in config.get('tool', {}) or any(confined(project / name).is_file() for name in ('ruff.toml', '.ruff.toml'))\nif enabled:\n    run([python, '-m'] + ['ruff', 'check', '.'], project)\n"
       ],
-      "cwd": "backend",
+      "cwd": ".",
       "timeout_seconds": 300
     },
     {
       "name": "backend-types",
       "argv": [
-        "uv",
-        "run",
-        "--no-sync",
-        "--no-python-downloads",
-        "mypy",
-        "."
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport configparser, tomllib\nproject = None\nfor candidate in (root, root / 'backend'):\n    if any(confined(candidate / name).is_file() for name in ('pyproject.toml', 'requirements.txt')):\n        project = confined(candidate)\n        break\nif project is None:\n    sys.exit('Missing Python manifest: pyproject.toml or requirements.txt')\nmanifest = confined(project / 'pyproject.toml')\nlock = confined(project / 'uv.lock')\nrequirements = confined(project / 'requirements.txt')\nvenv = confined(project / '.venv')\nconfined(venv / 'bin')\ncache = confined(project / '.cache')\nconfined(cache / 'uv')\nconfined(cache / 'pip')\npython = str(venv / 'bin' / 'python')\nconfig = tomllib.loads(manifest.read_text()) if manifest.is_file() else {}\nini = configparser.ConfigParser()\nini.read([str(confined(project / name)) for name in ('mypy.ini', '.mypy.ini', 'setup.cfg')])\nenabled = 'mypy' in config.get('tool', {}) or ini.has_section('mypy')\nif enabled:\n    run([python, '-m'] + ['mypy', '.'], project)\n"
       ],
-      "cwd": "backend",
+      "cwd": ".",
       "timeout_seconds": 300
     },
     {
       "name": "backend-tests",
       "argv": [
-        "uv",
-        "run",
-        "--no-sync",
-        "--no-python-downloads",
-        "pytest",
-        "tests"
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport configparser, tomllib\nproject = None\nfor candidate in (root, root / 'backend'):\n    if any(confined(candidate / name).is_file() for name in ('pyproject.toml', 'requirements.txt')):\n        project = confined(candidate)\n        break\nif project is None:\n    sys.exit('Missing Python manifest: pyproject.toml or requirements.txt')\nmanifest = confined(project / 'pyproject.toml')\nlock = confined(project / 'uv.lock')\nrequirements = confined(project / 'requirements.txt')\nvenv = confined(project / '.venv')\nconfined(venv / 'bin')\ncache = confined(project / '.cache')\nconfined(cache / 'uv')\nconfined(cache / 'pip')\npython = str(venv / 'bin' / 'python')\nconfig = tomllib.loads(manifest.read_text()) if manifest.is_file() else {}\nrun([python, '-m'] + ['pytest'], project)\n"
       ],
-      "cwd": "backend",
-      "timeout_seconds": 300
-    },
-    {
-      "name": "frontend-host",
-      "argv": [
-        "node",
-        "-e",
-        "if(process.versions.node!=='24.16.0')throw Error('Node version incompatible: required 24.16.0');let v;try{v=require('node:child_process').execFileSync('npm',['--version'],{encoding:'utf8'}).trim()}catch(e){throw Error('Missing required executable: npm')}if(v!=='11.13.0')throw Error('npm version incompatible: required 11.13.0');"
-      ],
-      "cwd": "frontend",
-      "timeout_seconds": 300
-    },
-    {
-      "name": "frontend-inputs",
-      "argv": [
-        "node",
-        "-e",
-        "const fs=require('node:fs');for(const n of ['package.json','package-lock.json','tsconfig.json'])if(!fs.existsSync(n))throw Error('Missing required frontend manifest: '+n);const p=JSON.parse(fs.readFileSync('package.json','utf8'));for(const n of ['typecheck','lint','test','build'])if(!p.scripts?.[n])throw Error('Missing required frontend script: '+n);if(/passWithNoTests|if-present/.test(JSON.stringify(p.scripts)))throw Error('Successful test skips forbidden');const ts=JSON.parse(fs.readFileSync('tsconfig.json','utf8'));if(ts.compilerOptions?.strict!==true)throw Error('TypeScript strict checking required in tsconfig.json');const files=fs.readdirSync('.',{recursive:true}).filter(n=>!n.startsWith('node_modules/')&&!n.startsWith('dist/'));if(!files.some(n=>/\\.(test|spec)\\.[jt]sx?$/.test(n)))throw Error('Missing required frontend tests');"
-      ],
-      "cwd": "frontend",
-      "timeout_seconds": 300
-    },
-    {
-      "name": "frontend-versions",
-      "argv": [
-        "node",
-        "-e",
-        "const p=require('./package.json');if(require('react/package.json').version!=='19.3.0')throw Error('Frontend version incompatible: react required 19.3.0');if(require('react-dom/package.json').version!=='19.3.0')throw Error('Frontend version incompatible: react-dom required 19.3.0');if(require('vite/package.json').version!=='8.3.4')throw Error('Frontend version incompatible: vite required 8.3.4');if(require('typescript/package.json').version!=='7.0.2')throw Error('Frontend version incompatible: typescript required 7.0.2');if(require('@vitejs/plugin-react/package.json').version!=='6.1.2')throw Error('Frontend version incompatible: @vitejs/plugin-react required 6.1.2');if(require('eslint/package.json').version!=='10.12.0')throw Error('Frontend version incompatible: eslint required 10.12.0');if(require('vitest/package.json').version!=='5.0.3')throw Error('Frontend version incompatible: vitest required 5.0.3');if(require('@testing-library/react/package.json').version!=='16.3.3')throw Error('Frontend version incompatible: @testing-library/react required 16.3.3');if(require('@types/react/package.json').version!=='19.3.0')throw Error('Frontend version incompatible: @types/react required 19.3.0');if(require('@types/react-dom/package.json').version!=='19.3.0')throw Error('Frontend version incompatible: @types/react-dom required 19.3.0');for(const [n,t] of Object.entries({typecheck:'tsc',lint:'eslint',test:'vitest',build:'vite'}))if(!p.scripts[n].includes(t))throw Error('Required frontend script tool missing: '+n);"
-      ],
-      "cwd": "frontend",
+      "cwd": ".",
       "timeout_seconds": 300
     },
     {
       "name": "frontend-typecheck",
       "argv": [
-        "npm",
-        "run",
-        "typecheck",
-        "--"
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport json, shutil\nexcluded = {'.git', '.venv', 'venv', 'env', 'node_modules', 'dist', 'build', 'coverage', 'htmlcov', '__pycache__', '.cache', '.next', '.nuxt', '.output', 'vendor', '.tox', '.nox', '.mypy_cache', '.pytest_cache', '.ruff_cache'}\npackages = []\nfor current, dirs, files in os.walk(root):\n    dirs[:] = sorted(name for name in dirs if name not in excluded)\n    for name in dirs:\n        confined(pathlib.Path(current) / name)\n    if 'package.json' in files:\n        location = confined(pathlib.Path(current))\n        manifest = confined(location / 'package.json')\n        packages.append((location, json.loads(manifest.read_text())))\nif packages:\n    for tool in ('node', 'npm'):\n        if shutil.which(tool) is None:\n            sys.exit('Missing required executable: ' + tool)\nfor location, package in packages:\n    confined(location / 'node_modules')\n    cache = confined(location / '.cache' / 'npm')\n    lock = confined(location / 'package-lock.json')\n    if 'typecheck' in package.get('scripts', {}):\n        run(['npm', 'run', 'typecheck'], location)\n"
       ],
-      "cwd": "frontend",
+      "cwd": ".",
       "timeout_seconds": 600
     },
     {
       "name": "frontend-lint",
       "argv": [
-        "npm",
-        "run",
-        "lint",
-        "--"
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport json, shutil\nexcluded = {'.git', '.venv', 'venv', 'env', 'node_modules', 'dist', 'build', 'coverage', 'htmlcov', '__pycache__', '.cache', '.next', '.nuxt', '.output', 'vendor', '.tox', '.nox', '.mypy_cache', '.pytest_cache', '.ruff_cache'}\npackages = []\nfor current, dirs, files in os.walk(root):\n    dirs[:] = sorted(name for name in dirs if name not in excluded)\n    for name in dirs:\n        confined(pathlib.Path(current) / name)\n    if 'package.json' in files:\n        location = confined(pathlib.Path(current))\n        manifest = confined(location / 'package.json')\n        packages.append((location, json.loads(manifest.read_text())))\nif packages:\n    for tool in ('node', 'npm'):\n        if shutil.which(tool) is None:\n            sys.exit('Missing required executable: ' + tool)\nfor location, package in packages:\n    confined(location / 'node_modules')\n    cache = confined(location / '.cache' / 'npm')\n    lock = confined(location / 'package-lock.json')\n    if 'lint' in package.get('scripts', {}):\n        run(['npm', 'run', 'lint'], location)\n"
       ],
-      "cwd": "frontend",
+      "cwd": ".",
       "timeout_seconds": 600
     },
     {
       "name": "frontend-test",
       "argv": [
-        "npm",
-        "run",
-        "test",
-        "--",
-        "--run"
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport json, shutil\nexcluded = {'.git', '.venv', 'venv', 'env', 'node_modules', 'dist', 'build', 'coverage', 'htmlcov', '__pycache__', '.cache', '.next', '.nuxt', '.output', 'vendor', '.tox', '.nox', '.mypy_cache', '.pytest_cache', '.ruff_cache'}\npackages = []\nfor current, dirs, files in os.walk(root):\n    dirs[:] = sorted(name for name in dirs if name not in excluded)\n    for name in dirs:\n        confined(pathlib.Path(current) / name)\n    if 'package.json' in files:\n        location = confined(pathlib.Path(current))\n        manifest = confined(location / 'package.json')\n        packages.append((location, json.loads(manifest.read_text())))\nif packages:\n    for tool in ('node', 'npm'):\n        if shutil.which(tool) is None:\n            sys.exit('Missing required executable: ' + tool)\nfor location, package in packages:\n    confined(location / 'node_modules')\n    cache = confined(location / '.cache' / 'npm')\n    lock = confined(location / 'package-lock.json')\n    if 'test' in package.get('scripts', {}):\n        run(['npm', 'run', 'test'], location)\n"
       ],
-      "cwd": "frontend",
+      "cwd": ".",
       "timeout_seconds": 600
     },
     {
       "name": "frontend-build",
       "argv": [
-        "npm",
-        "run",
-        "build",
-        "--"
+        "python3",
+        "-c",
+        "import os, pathlib, subprocess, sys\nroot = pathlib.Path.cwd().resolve()\ndef confined(path):\n    path = pathlib.Path(path)\n    if not path.resolve().is_relative_to(root):\n        sys.exit('Selected path escapes worktree: ' + str(path))\n    return path\ndef run(args, cwd):\n    subprocess.run(args, cwd=cwd, check=True)\nimport json, shutil\nexcluded = {'.git', '.venv', 'venv', 'env', 'node_modules', 'dist', 'build', 'coverage', 'htmlcov', '__pycache__', '.cache', '.next', '.nuxt', '.output', 'vendor', '.tox', '.nox', '.mypy_cache', '.pytest_cache', '.ruff_cache'}\npackages = []\nfor current, dirs, files in os.walk(root):\n    dirs[:] = sorted(name for name in dirs if name not in excluded)\n    for name in dirs:\n        confined(pathlib.Path(current) / name)\n    if 'package.json' in files:\n        location = confined(pathlib.Path(current))\n        manifest = confined(location / 'package.json')\n        packages.append((location, json.loads(manifest.read_text())))\nif packages:\n    for tool in ('node', 'npm'):\n        if shutil.which(tool) is None:\n            sys.exit('Missing required executable: ' + tool)\nfor location, package in packages:\n    confined(location / 'node_modules')\n    cache = confined(location / '.cache' / 'npm')\n    lock = confined(location / 'package-lock.json')\n    if 'build' in package.get('scripts', {}):\n        run(['npm', 'run', 'build'], location)\n"
       ],
-      "cwd": "frontend",
+      "cwd": ".",
       "timeout_seconds": 600
     }
   ],

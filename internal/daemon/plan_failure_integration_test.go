@@ -763,6 +763,13 @@ func TestPlanFailureDaemon_OwnerReplyRunsFreshStoryDraft(t *testing.T) {
 			}
 			opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "retry-test", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{"claude": runner}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, SubIssueCreator: remote, MCP: &turn.MCPRuntime{Authority: authority, Paths: mcpPaths, Executable: "/factory/litefactory", Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID, Now: time.Now}}
 			opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "test-model", "flagship": "test-model"}}
+			// The shipped graph runs an advisory judge before each review; with no
+			// judge provider configured it fails and still continues to the review.
+			judgeConfig, err := config.Decode(strings.NewReader("agents:\n  claude: {}\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			opts.Judge = &turn.JudgeService{DB: f.db, Config: judgeConfig, Providers: map[agent.Kind]agent.JudgeRunner{}, Paths: mcpPaths, Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{})}
 			opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 				def, err := teamsourcetest.CapturePlan(ctx, specs)
 				if err != nil {

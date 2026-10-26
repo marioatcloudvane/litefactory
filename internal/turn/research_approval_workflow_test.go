@@ -120,7 +120,7 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 				mustProgress(t, err)
 				again, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
 				mustProgress(t, err)
-				if !final.Succeeded() || instance.Status == store.GraphSucceeded || again.State != "waiting" || again.DeliveryKey == wait.DeliveryKey || calls != 3 || forge.attemptCount() != 3 {
+				if !final.Succeeded() || instance.Status == store.GraphSucceeded || again.State != "waiting" || again.DeliveryKey == wait.DeliveryKey || calls != 3 || forge.attemptCount() != 5 {
 					t.Fatalf("changed or unapproved candidate completed the stage: %+v %+v %+v calls=%d posts=%d", final, instance, again, calls, forge.attemptCount())
 				}
 				review, err := f.db.GetGraphComment(t.Context(), again.DeliveryKey)
@@ -136,7 +136,8 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 			mustProgress(t, err)
 			instance, err = f.db.LatestResearchInstance(t.Context(), f.session.ID)
 			mustProgress(t, err)
-			if !final.Succeeded() || instance.Status != store.GraphSucceeded || calls != 2 || forge.attemptCount() != 3 {
+			// Posts: report, builder-check advice, review, final.
+			if !final.Succeeded() || instance.Status != store.GraphSucceeded || calls != 2 || forge.attemptCount() != 4 {
 				t.Fatalf("authenticated approval failed: %+v %+v calls=%d posts=%d", final, instance, calls, forge.attemptCount())
 			}
 			// Factory approval settles the retained review without another worker.
@@ -145,7 +146,7 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 			}
 			replay, err := Execute(t.Context(), f.opts, req)
 			mustProgress(t, err)
-			if replay.Run.ID != final.Run.ID || calls != 2 || forge.attemptCount() != 3 {
+			if replay.Run.ID != final.Run.ID || calls != 2 || forge.attemptCount() != 4 {
 				t.Fatal("duplicate input repeated continuation")
 			}
 

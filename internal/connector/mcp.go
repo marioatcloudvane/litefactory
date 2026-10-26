@@ -133,7 +133,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		} else {
 			version = protocolLatest
 		}
-		s.rpcResult(w, req.ID, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "litefactory", "version": "1"}})
+		s.rpcResult(w, req.ID, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "litefactory", "version": "1"}, "instructions": serverInstructions})
 		s.audit(r, event, "success", "initialized", tool, start)
 	case "ping":
 		s.rpcResult(w, req.ID, map[string]any{})
@@ -141,7 +141,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		tools := []any{}
 		if s.overview != nil {
-			tools = append(tools, map[string]any{"name": "factory_overview", "description": "Read the factory overview for all registered repositories.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, "outputSchema": overviewOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
+			tools = append(tools, map[string]any{"name": "factory_overview", "description": overviewToolDescription, "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, "outputSchema": overviewOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
 		}
 		s.rpcResult(w, req.ID, map[string]any{"tools": tools})
 		s.audit(r, event, "success", "listed", tool, start)
@@ -240,3 +240,9 @@ func (s *Server) writeRPC(w http.ResponseWriter, value map[string]any) bool {
 	_, _ = w.Write(body)
 	return true
 }
+
+// overviewToolDescription and serverInstructions tell the client model how to
+// use the overview, so it answers from one call without re-analysing the data.
+const overviewToolDescription = "Read the owner's software factory: health, work in progress, questions and reviews waiting for the owner (oldest first, with links), and reports confirmed in the last seven days, across all registered repositories. One call answers most questions about the factory. Lead with what needs the owner, then what is running, then health only if something is wrong."
+
+const serverInstructions = "Litefactory is the owner's software factory. Call factory_overview once per question and answer from it: start with anything waiting for the owner (with its link), then running work, then recent reports. Keep the answer short; quote item titles and links rather than raw fields, and only go into details the owner asks for. If health is stale or a coverage warning is present, say so in one line. This connector is read-only."

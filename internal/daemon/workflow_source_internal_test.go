@@ -81,6 +81,10 @@ func TestRepositoryWorkflowSourceEditableSelectionAcrossSixWorkflows(t *testing.
 			t.Fatal(err)
 		}
 		for name, raw := range def.Files {
+			// Factory judge resources are captured, never shipped in team content.
+			if strings.HasPrefix(name, "judge/") {
+				continue
+			}
 			write(string(v.workflow)+"/"+name, raw)
 		}
 		mapping.WriteString(string(v.workflow) + ": " + string(v.workflow) + "/" + string(v.workflow) + ".dot\n")

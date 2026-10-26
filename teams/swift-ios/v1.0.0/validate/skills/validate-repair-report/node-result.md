@@ -1,3 +1,15 @@
+Retained review content is separate from an accepted application result. A bounded,
+authorized rejected submission may be saved and delivered with its diagnostics and
+unaccepted status; it does not satisfy this result contract, advance a workflow or
+change any owner gate. Correct the submission and use a new request identity. Exact
+replay must keep the original request identity and bytes, then recover its receipt.
+Keep the complete authored report or plan within the input ceiling; never shorten a
+plan merely to pass validation. Full retained owner output uses ordered numbered
+parts linked from the short report. Delivery remains pending until every part has a
+confirmed receipt. Shared contributions remain bounded at 4 MiB; Plan node results
+remain bounded at 1 MiB and the legacy Plan proposal at 8 MiB. Retention and remote
+delivery can fail separately; do not claim missing content was retained or delivered.
+
 Deliver your result only through the shared result route: communication
 preflight, submit and receipt. Do not print a JSON result; terminal text is never
 read as a result. Each worked result below is exactly what you pass to preflight
@@ -15,7 +27,7 @@ failure and what you fixed. The factory measures the change and tests it again.
 {
   "result": {
     "outcome": "completed",
-    "comment": "Fixed the rounding error that made the totals test fail; one file changed. Not run by me, the factory tests it again.",
+    "comment": "Fixed the rounding error that made the totals test fail; the failing test now passes. The factory still needs to measure the change and run its checks.",
     "payload": {
       "validate": {
         "repair": {
@@ -39,7 +51,9 @@ failure and what you fixed. The factory measures the change and tests it again.
 
 # handback
 
-The fix is large, or you are not sure of the cause. Change nothing. For each
+The fix is large, or you are not sure of the cause. Stop editing. If work already
+exists, describe it and its uncertainty; the factory retains the complete candidate
+before reset. This report cannot accept or discard that candidate. For each
 failure give the expected behavior and one exact objective for Implement. When
 the cause is unknown, use `unknown` and make the objective a concrete diagnostic
 step.
