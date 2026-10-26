@@ -11,6 +11,11 @@
 // response it reads, so a later stage bootstraps from its own default instead
 // of inheriting the previous one's. The ask default initializes only the first
 // evaluation of each stage.
+//
+// Before a shaped draft goes to the owner for review, a builder check judges
+// the saved result and publishes its advice as a comment. It is advisory: it
+// cannot decide, ask or approve, and success and failure both continue to the
+// same review.
 digraph research {
  graph [team="{{team}}", mode="research", profile_version="1", start="loop"];
 
@@ -18,7 +23,7 @@ digraph research {
  loop        [lf_action="lf_loop",    lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="investigate"];
  continuing [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="continue", lf_limit="8", lf_source="investigate"];
  brief [lf_action="lf_research_brief", lf_outcomes="success,failed", lf_source="investigate", lf_limit="8"];
- investigate [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="research", lf_skills="research-evidence", lf_limit="8"];
+ investigate [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="research", lf_skills="research-evidence,research-mode-feature,research-mode-change,research-mode-bug,research-mode-refactor,research-mode-integration,research-mode-operations,research-mode-agent-guidance", lf_limit="8"];
  question    [lf_action="lf_if",      lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="investigate"];
  ask         [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="investigate"];
  report      [lf_action="lf_comment", lf_outcomes="published", lf_kind="final",    lf_limit="1", lf_source="investigate"];
@@ -27,12 +32,14 @@ digraph research {
  shapeloop   [lf_action="lf_loop",    lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="shape"];
  shapecontinue [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="continue", lf_limit="8", lf_source="shape"];
  shapebrief [lf_action="lf_research_brief", lf_outcomes="success,failed", lf_source="shape", lf_limit="8"];
- shape       [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="shaping", lf_skills="research-evidence", lf_limit="8"];
+ shape       [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="shaping", lf_skills="research-evidence,research-mode-feature,research-mode-change,research-mode-bug,research-mode-refactor,research-mode-integration,research-mode-operations,research-mode-agent-guidance", lf_limit="8"];
  settled     [lf_action="lf_if",      lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8", lf_source="shape"];
  shaped      [lf_action="lf_if",      lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="shape"];
  clarify     [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];
  review      [lf_action="lf_ask", lf_outcomes="published", lf_kind="review",   lf_limit="8", lf_source="shape"];
  agreed      [lf_action="lf_comment", lf_outcomes="published", lf_kind="final",    lf_limit="1", lf_source="shape"];
+ buildcheck  [lf_action="lf_judge", lf_outcomes="success,failed", lf_source="shape", lf_agent="codex", lf_limit="8", lf_focus="Builder check. Read only the pinned saved shaping result (the source of its brief), not the discussion. You will plan from this alone. List only the questions whose answer would change what gets built, sorted into: already answered (the brief should say it more clearly), agent's call (Research may decide; say what it would assume), owner's (needs the owner). Check that every O- outcome is clear and testable, that N-/K- boundaries are explicit, that the impact analysis names what is touched, who depends on it and what must be retired or migrated, and that S-01 mode and size fit the request. Keep it short: AI;DR first, then the three groups; omit empty groups. Advisory only."];
+ buildadvice [lf_action="lf_comment", lf_outcomes="published", lf_kind="advisory", lf_limit="8", lf_source="buildcheck"];
 
  // ---- Failure and terminals ----------------------------------------------
  failed      [lf_action="lf_comment", lf_outcomes="published", lf_kind="failure",  lf_limit="1"];
@@ -64,7 +71,10 @@ digraph research {
  settled     -> agreed      [lf_on="true"];    // the owner approved
  settled     -> shaped      [lf_on="false"];
  shaped      -> clarify     [lf_on="true"];    // needs an answer
- shaped      -> review      [lf_on="false"];   // has a draft; asks if it stands
+ shaped      -> buildcheck  [lf_on="false"];   // has a draft; builder check first
+ buildcheck  -> buildadvice [lf_on="success"];
+ buildcheck  -> buildadvice [lf_on="failed"];  // advisory: a failed check is published, not fatal
+ buildadvice -> review      [lf_on="published"]; // then asks if it stands
  clarify     -> waiting     [lf_on="published"];
  review      -> waiting     [lf_on="published"];
  agreed      -> complete    [lf_on="published"];

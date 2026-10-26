@@ -21,6 +21,10 @@ func researchTestRegistry(t *testing.T) graphexec.Registry {
 			t.Fatal(err)
 		}
 	}
+	// The shipped Research graph carries a judge node, as production registers.
+	if err := r.Register(graphexec.JudgeSpec(agent.ModeResearch)); err != nil {
+		t.Fatal(err)
+	}
 	return r
 }
 
