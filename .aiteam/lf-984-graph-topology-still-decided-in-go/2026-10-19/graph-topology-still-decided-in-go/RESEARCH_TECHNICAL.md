@@ -192,3 +192,14 @@ Evidence:
 
 - `internal/teamsource/plan/plan.dot:28`
 - `internal/graphexec/validate_flow.go:217`
+
+## f22
+
+Plan approval is not wired into agent activities. It comes from the validator-required shape (effect, owner gate, review ask), the gate always answered review_ready, and the approval fact written only by ApplyOwnerReply. The daemon offers a story's next stage only when earlier approvals are current. The final plan approval (/approve-plan-set) is a separate Go handoff and stays owner-only.
+
+Evidence:
+
+- `internal/turn/plan_graph.go:727`
+- `internal/graphexec/plan_control.go:252`
+- `internal/planbrief/plan_workflow.go:510`
+- `internal/planbrief/plan_workflow.go:631`
