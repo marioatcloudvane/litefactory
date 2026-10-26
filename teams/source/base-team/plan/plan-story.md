@@ -46,7 +46,7 @@ That is the whole bar. You are not designing the solution, so you do not need to
 
  - Read plan-evidence and plan-story-shaping before you start, and use the factory-supplied node-result and final-result instructions.
  - Check the story you were given first. Judging clarity before looking is how a question gets asked that the story or its earlier answers already settle.
- - Read the outcome ledger in RESEARCH_BRIEF.md before drafting and follow plan-evidence's Outcome ledger: relevant `N-`/`K-` entries verbatim in Not in Scope, a `Covers:` note, and a `Ruling:` note for any narrowed outcome.
+ - Read the outcome ledger in RESEARCH_BRIEF.md before drafting and follow plan-evidence's Outcome ledger: relevant `N-`/`K-` entries verbatim in Not in Scope, a `Covers:` note, and a `Ruling:` note for any narrowed outcome. Let `S-01` shape the story (plan-evidence Work modes).
  - Supply typed story content: an unprefixed name, actor/want/benefit, a brief plain-language problem and In-Scope/Not in Scope lists. The factory's story activity, lf_plan_story, applies the retained story request; you never publish through direct forge calls.
  - Keep the request to the selected story only. The factory binds the parent, the story, the stage and the issue.
  - Reuse decisions, assumptions and answered questions. Keep what the owner settled, replace what changed, and drop what is superseded.
