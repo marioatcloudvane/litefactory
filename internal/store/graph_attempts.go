@@ -63,7 +63,19 @@ func (db *DB) StartGraphNodeAttempt(ctx context.Context, in GraphAttemptStart) (
 				return graphInvariant("mechanical owner allowance is unavailable or already consumed")
 			}
 		}
-		spent := maximum
+		spent, resumed, e := graphAutomaticDispatchesTx(ctx, tx, in.InstanceID, in.Node)
+		if e != nil {
+			return e
+		}
+		// The declared base sync gate keeps its cumulative budget: an owner
+		// reply cannot clean a retained checkout, so it must not buy more syncs.
+		// A workflow whose graph caps its owner rounds with lf_limit keeps it too.
+		if in.LimitSpansReplies || (in.BugSyncPrerequisite != nil && in.Node == in.BugSyncPrerequisite.SyncNode) {
+			spent, resumed = maximum, false
+		}
+		// Owner input in this instance starts a fresh allowance; until then a
+		// captured Research ancestor's dispatches since its own last owner input
+		// still count, so a topology restart cannot reset a loop guard.
 		for ancestor, node := range in.ResearchPriorNodes {
 			var eligible bool
 			if e = tx.QueryRowContext(ctx, `WITH RECURSIVE history(id) AS (SELECT predecessor_id FROM research_successors WHERE instance_id=? UNION ALL SELECT r.predecessor_id FROM research_successors r JOIN history h ON r.instance_id=h.id) SELECT EXISTS(SELECT 1 FROM history h JOIN graph_instances i ON i.id=h.id JOIN graph_definitions d ON d.id=i.definition_id WHERE h.id=? AND d.mode='research')`, in.InstanceID, ancestor).Scan(&eligible); e != nil {
@@ -72,11 +84,13 @@ func (db *DB) StartGraphNodeAttempt(ctx context.Context, in GraphAttemptStart) (
 			if !eligible {
 				return graphInvariant("Research budget source is not an ancestor")
 			}
-			var count int
-			if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_node_attempts WHERE instance_id=? AND node=?`, ancestor, node).Scan(&count); e != nil {
+			count, _, e := graphAutomaticDispatchesTx(ctx, tx, ancestor, node)
+			if e != nil {
 				return e
 			}
-			spent += count
+			if !resumed {
+				spent += count
+			}
 		}
 		if in.Limit > 0 && spent >= in.Limit {
 			allowed, claimErr := graphClaimAllowsAttemptTx(ctx, tx, in)
