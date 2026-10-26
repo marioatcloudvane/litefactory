@@ -61,6 +61,7 @@ graph checks. Bug registers only `lf_agent` and its own `lf_loop` variant.
 | Activity | What it does | Outcomes | Attributes | Effects | Used in |
 |---|---|---|---|---|---|
 | `lf_plan_story` | Applies the agent's story draft (create, update, retire) to the parent's story sub-issues. | `applied, conflict, failed, uncertain` | `lf_source` (an agent node) | 💬 📌 (issues, sub-issues, comments) | plan |
+| `lf_plan_approve` | Plan only. Approves a story, technical or acceptance stage that has no gate, on behalf of the graph, when the applied draft is still current and every guard holds at the moment of saving. Records the approval as given by the graph. Not allowed after the set stage. | `approved, review, superseded, blocked, failed` | `lf_source` (an agent node) | 📌 (saved Plan state) | plan |
 
 ## Implement
 
