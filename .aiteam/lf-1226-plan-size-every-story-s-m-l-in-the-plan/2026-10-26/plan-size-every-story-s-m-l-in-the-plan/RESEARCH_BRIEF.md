@@ -15,6 +15,13 @@ Give every Plan story a size (S, M or L) with a one-line reason, assigned by the
 - **N-02** — No backfill and no sizing of old plans, including when they are next changed. (owner said: "New plans only. Existing plans without sizes keep working; no backfill.")
 - **K-01** — Existing saved plans and sets without sizes must keep loading, keep their revision and keep working. (owner said: "Existing plans without sizes keep working")
 - **K-02** — Set rules stay: 1 to 12 entries, unique ids and names, no cycles, only the owner promotes. (agent's call)
+- **O-05** — The factory refuses a new set where any story lacks a valid size (S, M or L) or a one-line reason. (agent's call)
+- **O-06** — The owner table in the plan set shows size and reason next to each story, rendered by the factory. The acceptance role is told to show them next to each story in the final review. (agent's call)
+- **O-07** — The size and reason are passed to the story, technical and acceptance stages, whose role texts set depth: S few tasks and short criteria, M normal, L full. (agent's call)
+- **O-08** — The reason is a single line of at most 280 characters, the same limit as the intent. (agent's call)
+- **N-03** — The factory does not enforce task counts or criteria lengths per size; depth is guided by role text only. (agent's call)
+- **K-03** — Coverage of agreed outcomes and proof-link checks stay identical at every size. (owner said: "Coverage of agreed outcomes and proof links stay required at every size.")
+- **K-04** — Team releases are regenerated from the base source and stay at version 1.0.0; no hand edits to generated copies. (agent's call)
 
 
 ## Assumptions
