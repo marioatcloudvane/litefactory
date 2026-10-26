@@ -290,6 +290,9 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		rt.entry = entry
 		return rt.launch(ctx, spikeNow(opts))
 	}
+	if err := opts.DB.CheckRepairWorktree(ctx, rt.session.ID, 0); err != nil {
+		return rt.refuse(ctx, err.Error())
+	}
 	// Pin the commit once, at entry. A later push never changes this run.
 	head, err := IntegrationHead(ctx, opts, rt.session)
 	if err != nil {
@@ -684,6 +687,9 @@ func (rt *validateRuntimeState) entryOf(ctx context.Context, instanceID int64) (
 // execute advances the captured graph under the task lock through the shared
 // driver, with the host's bindings for this entry.
 func (rt *validateRuntimeState) execute(ctx context.Context, definition *teamsource.WorkflowDefinition, admission store.WorkflowAdmission) (Result, error) {
+	if err := rt.opts.DB.CheckRepairWorktree(ctx, rt.session.ID, rt.entry.InstanceID); err != nil {
+		return rt.result, err
+	}
 	policy := ValidateWorkflowPolicy()
 	policy.WriteGrant = func(req Request) (Request, error) {
 		return validateRepairGrant(rt.opts.Validate.Permissions, req)

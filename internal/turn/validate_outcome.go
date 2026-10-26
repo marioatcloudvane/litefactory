@@ -304,6 +304,19 @@ func countFailing(commands []store.SuiteCommand) int {
 	return n
 }
 
+// handbackInstructionTail is how many characters of a failure's retained
+// output the owner instruction shows.
+const handbackInstructionTail = 300
+
+// tailRunes keeps at most limit characters from the end of text.
+func tailRunes(text string, limit int) string {
+	r := []rune(text)
+	if len(r) <= limit {
+		return text
+	}
+	return string(r[len(r)-limit:])
+}
+
 // ownerHandbackInstruction is the text an owner can copy to start the repair
 // run. It names the commit, the failures and one objective for each, and the
 // factory path that sends them back to Implement.
@@ -322,6 +335,12 @@ func ownerHandbackInstruction(h ValidateHandback) string {
 				}
 			}
 			fmt.Fprintf(&b, " (look at %s)", strings.Join(where, ", "))
+		}
+		if cause := strings.TrimSpace(f.Cause); cause != "" && !strings.EqualFold(cause, agentresult.RepairUnknownCause) {
+			b.WriteString(" Cause: " + strings.Join(strings.Fields(cause), " "))
+		}
+		if tail := strings.Join(strings.Fields(tailRunes(f.OutputTail, handbackInstructionTail)), " "); tail != "" {
+			b.WriteString(" Output tail: " + tail)
 		}
 	}
 	b.WriteString("\nThen comment `" + ValidateStartCommand + "` to run Validate again.")

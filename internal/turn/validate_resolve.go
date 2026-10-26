@@ -106,6 +106,21 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 	if st.Waiver != nil && st.Waiver.CommentID == wait.ReplyID {
 		return h.continueShip(ctx, opts, req, st, wait, now, refuse)
 	}
+	// A saved candidate decision survives a crash before the graph transition.
+	// Match the authenticated original source before checking the now-new report
+	// revision; this replays authorization and never creates another decision.
+	if cmd, e := ParseValidateCommand(wait.ReplyBody); e == nil && cmd.Name == ValidateRepairCommand && cmd.RepairAction != "inspect" {
+		if c, e := opts.DB.GetRepairCandidate(ctx, cmd.Candidate); e == nil && c.InstanceID == req.InstanceID && c.ReviewDigest == cmd.ReviewDigest && c.SourceID == fmt.Sprint(wait.ReplyID) && c.Principal == fmt.Sprint(wait.ReplyAuthorID) && c.Resolution == cmd.RepairAction {
+			if e = verifyCandidateEvidence(c); e != nil {
+				return refuse("wait", e.Error())
+			}
+			outcome := "wait"
+			if c.Resolution == "accept" && c.ResultCommit == "" {
+				outcome = "apply_repair"
+			}
+			return validateResolveResult(outcome, "replayed retained repair decision", st)
+		}
+	}
 	// A reply this run already acted on (a restart replays the step) goes to the
 	// same step again. Every step recovers on its own, so nothing is done twice.
 	if outcome, ok := replayedValidateReply(ctx, opts, st, wait.ReplyID, repairs); ok {
@@ -122,6 +137,9 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 	}
 	if cmd.Revision != st.Revision {
 		return refuse("stale", fmt.Sprintf("The command names revision `%s`, but the current report revision is `%s`. %s", cmd.Revision, st.Revision, validateCurrentGuidance(ctx, opts, req, st)))
+	}
+	if cmd.Name == ValidateRepairCommand {
+		return h.resolveCandidate(ctx, opts, req, st, wait, cmd)
 	}
 	delivery := st.Commit
 	if cmd.Name == ValidateShipCommand && binding.Display.DeliveryCommit != "" {

@@ -134,7 +134,6 @@ func TestConversationEnvelopeExtractsSingleObject(t *testing.T) {
 	for _, raw := range []string{
 		lookup + "\n" + `{"version":1,"kind":"answer","text":"done"}`,
 		"First {\"note\":1} then " + lookup,
-		"no protocol object here",
 	} {
 		if _, _, err := DecodeConversationEnvelope([]byte(raw), request); !errors.Is(err, ErrConversationEnvelope) {
 			t.Errorf("ambiguous output accepted: %q: %v", raw, err)

@@ -15,6 +15,11 @@ func (db *DB) EnsureDoctorDeliveries(ctx context.Context, c DoctorCommand, parts
 	if len(parts) == 0 || len(parts) > 20 || botID <= 0 {
 		return errors.New("invalid doctor presentation")
 	}
+	parts = append([]string(nil), parts...)
+	contentParts := len(parts)
+	if contentParts > 1 {
+		parts = append(parts, doctorIndexTemplate)
+	}
 	return db.withTx(ctx, func(tx *sql.Tx) error {
 		current, err := scanDoctorCommand(tx.QueryRowContext(ctx, `SELECT `+doctorCommandColumns+` FROM doctor_inbox WHERE id=? AND state='completed'`, c.ID))
 		if err != nil {
@@ -45,8 +50,13 @@ func (db *DB) EnsureDoctorDeliveries(ctx context.Context, c DoctorCommand, parts
 			sum := sha256.Sum256([]byte(fmt.Sprintf("doctor:%d:%d:%d", c.ID, c.ProposalID, i+1)))
 			key := hex.EncodeToString(sum[:])
 			marker := "<!-- lf:doctor delivery=" + key + " -->"
-			body = fmt.Sprintf("Doctor response — part %d/%d\n\n%s\n\n%s", i+1, len(parts), body, marker)
-			if _, err := tx.ExecContext(ctx, `INSERT INTO report_deliveries(delivery_key,identity_version,session_id,trigger_id,run_id,task,destination,trigger_namespace,purpose,bot_user_id,body,marker,doctor_command_id) VALUES(?,1,NULL,?,NULL,?,?,'doctor','doctor-response',?,?,?,?)`, key, c.CommentID, c.TaskRef, c.TaskRef, botID, body, marker, c.ID); err != nil {
+			purpose := "doctor-response"
+			if i == contentParts {
+				purpose = "doctor-response-index"
+			} else {
+				body = fmt.Sprintf("Doctor response — part %d/%d\n\n%s\n\n%s", i+1, contentParts, body, marker)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO report_deliveries(delivery_key,identity_version,session_id,trigger_id,run_id,task,destination,trigger_namespace,purpose,bot_user_id,body,marker,doctor_command_id) VALUES(?,1,NULL,?,NULL,?,?,'doctor',?,?,?,?,?)`, key, c.CommentID, c.TaskRef, c.TaskRef, purpose, botID, body, marker, c.ID); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO doctor_presentations(command_id,proposal_id,entry_point,part,total,delivery_key) VALUES(?,?,'github',?,?,?)`, c.ID, nullID(c.ProposalID), i+1, len(parts), key); err != nil {

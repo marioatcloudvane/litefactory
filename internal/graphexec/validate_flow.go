@@ -33,12 +33,14 @@ const (
 	// ValidateImplementAction reopens the stories with blocking findings and
 	// starts the parent's Implement coordinator on the same feature branch.
 	ValidateImplementAction = "lf_validate_implement"
+	// ValidateRepairApplyAction adopts only an exactly authorized retained tree.
+	ValidateRepairApplyAction = "lf_validate_repair_apply"
 )
 
 // ValidateResolveOutcomes are the outcomes of resolving the owner's reply.
 // The repair and implement outcomes are optional in a graph: profiles released
 // before them keep validating without them.
-var ValidateResolveOutcomes = []string{"wait", "create_issue", "push", "merge", "close", "stale", "repair", "implement"}
+var ValidateResolveOutcomes = []string{"wait", "create_issue", "push", "merge", "close", "stale", "repair", "implement", "apply_repair"}
 
 // ValidateMaxRepairRounds is the most repair rounds any Validate graph may
 // declare. The graph declares the bound it uses, at or below this.
@@ -143,10 +145,16 @@ func ValidateImplementSpec() ActionSpec {
 	return ActionSpec{Name: ValidateImplementAction, Mode: agent.ModeValidate, Outcomes: []string{"started"}}
 }
 
+// ValidateRepairApplySpec declares the separately journaled owner adoption step.
+// A verified tree returns to the suite; a refusal returns to the report.
+func ValidateRepairApplySpec() ActionSpec {
+	return ActionSpec{Name: ValidateRepairApplyAction, Mode: agent.ModeValidate, Outcomes: []string{"applied", "blocked"}}
+}
+
 // ValidateSpecs lists every action of the Validate graph, the agent aside.
 func ValidateSpecs() []ActionSpec {
 	return []ActionSpec{ValidateSuiteSpec(), ValidateRepairBudgetSpec(), ValidateRepairCheckSpec(), ValidateReviewSpec(), ValidateOutcomeSpec(),
-		ValidateResolveSpec(), ValidateReportSpec(), ValidateAskSpec(), ValidateIssueSpec(), ValidatePushSpec(), ValidateMergeSpec(), ValidateCloseSpec(), ValidateImplementSpec()}
+		ValidateResolveSpec(), ValidateReportSpec(), ValidateAskSpec(), ValidateIssueSpec(), ValidatePushSpec(), ValidateMergeSpec(), ValidateCloseSpec(), ValidateImplementSpec(), ValidateRepairApplySpec()}
 }
 
 // ValidateFlowGraph checks the structure a Validate graph declares. It pins few
@@ -209,6 +217,18 @@ func ValidateFlowGraph(p *Profile) error {
 			c.edge(n, "done", func(t Node) bool { return t.Action == ValidateReportAction || t.Action == ValidateResolveAction }, "must report or return to the owner resolution")
 		case ValidateCloseAction:
 			c.closeStep(n)
+		case ValidateRepairApplyAction:
+			c.edge(n, "applied", action(ValidateSuiteAction), "must run the suite on the adopted commit")
+			c.edge(n, "blocked", action(ValidateReportAction), "must report the blocked adoption")
+			for _, e := range p.Edges {
+				if e.To != n.Name {
+					continue
+				}
+				source, ok := p.Node(e.From)
+				if !ok || source.Action != ValidateResolveAction || e.On != "apply_repair" {
+					c.fail("validate adoption node %s may only be reached by owner resolution apply_repair", n.Name)
+				}
+			}
 		case ValidateImplementAction:
 			c.named(n, "lf_suite", ValidateSuiteAction)
 			c.edge(n, "started", func(t Node) bool { return t.Terminal }, "must end at a terminal")
@@ -219,6 +239,9 @@ func ValidateFlowGraph(p *Profile) error {
 		if counts[action] != 1 {
 			c.fail("validate graph requires exactly one %s node, has %d", action, counts[action])
 		}
+	}
+	if counts[ValidateRepairApplyAction] > 1 {
+		c.fail("validate graph allows at most one %s node, has %d", ValidateRepairApplyAction, counts[ValidateRepairApplyAction])
 	}
 	if counts[ValidateImplementAction] > 1 {
 		c.fail("validate graph allows at most one %s node, has %d", ValidateImplementAction, counts[ValidateImplementAction])
@@ -334,6 +357,9 @@ func (c *flowCheck) resolve(n Node) {
 	c.edge(n, "close", action(ValidateCloseAction), "must close")
 	if slices.Contains(n.Outcomes, "repair") {
 		c.edge(n, "repair", action(ValidateRepairBudgetAction), "must start a repair round")
+	}
+	if slices.Contains(n.Outcomes, "apply_repair") {
+		c.edge(n, "apply_repair", action(ValidateRepairApplyAction), "must reach exact repair adoption")
 	}
 	if slices.Contains(n.Outcomes, "implement") {
 		c.edge(n, "implement", action(ValidateImplementAction), "must hand the findings back to Implement")
