@@ -48,7 +48,7 @@ digraph plan {
 
  // ---- Stage 3: technical ---------------------------------------------------
  technical_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="technical", lf_limit="8"];
- technical_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-technical", lf_skills="plan-technical-shaping", lf_limit="8"];
+ technical_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-technical", lf_standards="plan-technical", lf_skills="plan-technical-shaping", lf_limit="8"];
  technical_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="technical_agent", lf_limit="8"];
  technical_draft    [lf_action="lf_plan_story", lf_source="technical_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="8"];
  technical_gate     [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8"];

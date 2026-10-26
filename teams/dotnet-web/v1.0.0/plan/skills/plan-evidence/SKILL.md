@@ -31,3 +31,17 @@ complete typed validation, nonempty acyclic active scope with no dangling/retire
 dependencies, resolved material questions, no pending edits/effects, exact third-
 stage approval, confirmed publication and successful save. Draft publication,
 input acknowledgment and local approval never freeze implementation scope.
+
+# Outcome ledger
+RESEARCH_BRIEF.md lists the agreed Research decisions as an outcome ledger: `O-`
+agreed outcome, `N-` non-goal, `K-` must not change, `A-` owner answer (verbatim).
+Read it before drafting. A brief without prefixes: treat each decision as an outcome.
+`S-01` gives the work mode and size; let it set the depth and shape of the plan.
+- Copy each relevant `N-` and `K-` entry verbatim, with its ID, into Not in Scope.
+- Each story names what it delivers in a user-story note: `Covers: O-01, O-03`.
+- Narrowing, splitting or dropping an agreed outcome is allowed; say it in one note:
+  `Ruling: O-04 — <what changed> — <why> — <cost if wrong>`. Never narrow silently.
+  An owner reply can supersede an outcome; cite it (`A-02` or the reply).
+- Set and assembled-plan reviews open with every uncovered `O-` ID and every
+  `Ruling`, then a compact `O-ID → story` table. This informs the owner; it is
+  never a gate, and an uncovered outcome is shown, not blocked.

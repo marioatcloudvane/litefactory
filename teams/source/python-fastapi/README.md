@@ -3,8 +3,8 @@
 This is the canonical source of python-fastapi 1.0.0. Generate the distribution with:
 
 ```sh
-go run ./cmd/teamrelease -source internal/teamsource/python-fastapi
-go run ./cmd/teamrelease -check -source internal/teamsource -source internal/teamsource/python-fastapi
+go run ./cmd/teamrelease -source teams/source/python-fastapi
+go run ./cmd/teamrelease -check -source teams/source/python-fastapi
 ```
 
 Only the owner releases and links versions: fixes and features edit this source and never change the version or publish a release. Published release bytes are immutable. The distribution is a derived artifact.
