@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 )
 
@@ -275,5 +276,97 @@ func TestStoryTextURLs(t *testing.T) {
 		if got := render(tt.in); got != tt.want {
 			t.Errorf("storyText(%q)\n got %q\nwant %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+// constraintStory grows an uncapped typed list so the rendered story reaches
+// any size.
+func constraintStory(n int, item func(int) string) planbrief.TypedStory {
+	s := renderFixture()
+	s.Architecture.Constraints = nil
+	for i := 0; i < n; i++ {
+		s.Architecture.Constraints = append(s.Architecture.Constraints, item(i))
+	}
+	return s
+}
+
+func TestRenderTypedStoryParts_BodyWithinRedactorBudgetAtAnySize(t *testing.T) {
+	budget := redact.Budget(planbrief.MaxStoryBodyBytes)
+	for n := 400; n <= 1000; n++ {
+		s := constraintStory(n, func(i int) string { return fmt.Sprintf("rule%05d %s", i, strings.Repeat("z", 90)) })
+		body, parts, err := report.RenderTypedStoryParts(s, renderScope())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(body)+512 > budget {
+			t.Fatalf("%d constraints: body of %d bytes exceeds the redactor budget", n, len(body))
+		}
+		if len(parts) > 0 && !strings.Contains(body, "the full draft is in the numbered part comments") {
+			t.Fatalf("%d constraints: shortened body does not point to the parts", n)
+		}
+	}
+}
+
+// Exact boundary on the typed path, measured on the unfitted story with its
+// story marker: the fitted body passes the reporter and the parts keep it all.
+func TestRenderTypedStoryParts_ExactRedactorBudget(t *testing.T) {
+	rep, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: 65536})
+	if err != nil {
+		t.Fatal(err)
+	}
+	story := testStory()
+	prefix := report.StoryMarker(story.Ref, story.ID) + "\n\n"
+	budget := redact.Budget(planbrief.MaxStoryBodyBytes)
+	for _, target := range []int{budget, budget + 1} {
+		var s planbrief.TypedStory
+		var full string
+		found := false
+		for _, suffix := range []string{"", "y", "yy", "yyy"} {
+			s = constraintStory(1, func(int) string { return "x" + suffix })
+			base, err := report.RenderTypedStory(s, renderScope())
+			if err != nil {
+				t.Fatal(err)
+			}
+			s = constraintStory(1, func(int) string { return strings.Repeat("x", 1+target-len(prefix)-len(base)) + suffix })
+			if full, err = report.RenderTypedStory(s, renderScope()); err == nil && len(prefix)+len(full) == target {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("no story measures exactly %d bytes", target)
+		}
+		body, parts, err := report.RenderTypedStoryParts(s, renderScope())
+		if err != nil {
+			t.Fatal(err)
+		}
+		story.Excerpt = body
+		if _, err := rep.RenderCompleteStory(t.Context(), story); err != nil {
+			t.Fatalf("%d bytes: fitted body refused: %v", target, err)
+		}
+		if len(parts) > 0 && strings.Join(parts, "") != full {
+			t.Fatalf("%d bytes: parts do not hold the full story", target)
+		}
+	}
+}
+
+func TestRenderTypedStoryParts_HardCutKeepsPointer(t *testing.T) {
+	s := constraintStory(12000, func(i int) string { return fmt.Sprintf("rule%05d", i) })
+	body, parts, err := report.RenderTypedStoryParts(s, renderScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body)+512 > redact.Budget(planbrief.MaxStoryBodyBytes) || !strings.Contains(body, planbrief.PlanShortenedMarker) || !strings.Contains(body, "the full draft is in the numbered part comments") {
+		t.Fatalf("hard-cut body of %d bytes lacks pointer or exceeds budget", len(body))
+	}
+	joined := strings.Join(parts, "")
+	offset := 0
+	for i := 0; i < 12000; i++ {
+		line := fmt.Sprintf("- rule%05d\n", i)
+		at := strings.Index(joined[offset:], line)
+		if at < 0 {
+			t.Fatalf("parts lost %q", line)
+		}
+		offset += at + len(line)
 	}
 }
