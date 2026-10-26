@@ -333,7 +333,7 @@ unchanged. Asks first, then done for each stage and operation.
 {
   "result": {
     "outcome": "completed",
-    "comment": "Recorded the architecture and selected Go guidance.",
+    "comment": "Recorded the architecture and selected the {{guidance_id}} guidance.",
     "payload": {
       "plan": {
         "storyrequest": {
@@ -363,7 +363,7 @@ unchanged. Asks first, then done for each stage and operation.
                 }
               ]
             },
-            "guidance": ["go"]
+            "guidance": ["{{guidance_id}}"]
           }
         }
       }
@@ -407,7 +407,7 @@ unchanged. Asks first, then done for each stage and operation.
                 }
               ]
             },
-            "guidance": ["go"],
+            "guidance": ["{{guidance_id}}"],
             "criteria": [
               {
                 "id": "AC-001",

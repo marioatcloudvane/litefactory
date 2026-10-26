@@ -58,7 +58,7 @@ including the regression test file, and every kind of change.
         "findings": ["Record the root cause."],
         "proposed_fix": {
           "defects": ["Name the one defect."],
-          "files": ["path/to/source.go", "path/to/source_test.go"],
+          "files": ["path/to/{{example_file}}", "path/to/{{example_test_file}}"],
           "change_kinds": ["code", "test"],
           "regression_test": "Name of the test that fails before and passes after."
         }
@@ -112,8 +112,8 @@ change is checked: the factory checks it after you finish.
         "not_done": [],
         "fix_report": {
           "defect": "Name the one defect you fixed.",
-          "files": ["path/to/source.go", "path/to/source_test.go"],
-          "regression_test": "path/to/source_test.go",
+          "files": ["path/to/{{example_file}}", "path/to/{{example_test_file}}"],
+          "regression_test": "path/to/{{example_test_file}}",
           "change_kinds": [],
           "summary": "One or two sentences on what changed and why."
         }
@@ -145,8 +145,8 @@ change is checked: the factory checks it after you finish.
         "not_done": [],
         "fix_report": {
           "defect": "Name the one defect you fixed.",
-          "files": ["path/to/source.go", "path/to/source_test.go"],
-          "regression_test": "path/to/source_test.go",
+          "files": ["path/to/{{example_file}}", "path/to/{{example_test_file}}"],
+          "regression_test": "path/to/{{example_test_file}}",
           "change_kinds": [],
           "summary": "One or two sentences on what changed and why."
         }
