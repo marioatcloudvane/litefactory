@@ -76,21 +76,12 @@ Use these limits. A set has 1 to 12 entries. Each entry has a temporary id that 
 
 # Writing the Report
 
-Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. For a stop or wait, name the affected work and any work known to continue independently; if that wider impact is unknown, say so. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
-For an authorized owner question, explain what is held up and why the answer matters. Give only supported options, their effects and a recommendation when evidence supports one. State the exact reply or command, where the owner must send it, who may act and any evidence only the owner can supply, using current supplied targets. Put prerequisites first and identify independent choices. Do not invent a command, target, permission or restart route when it is not supplied; say what is unknown. Keep these details in the existing question and report fields, without changing their contracts.
-
-For review, revision or wait explanations, state what was drafted or changed, the known reason, what remains pending and the supported owner action only when supplied. Preserve the existing approval boundary: a review-ready result does not advance the stage. Do not equate ordinary feedback, a continuation or a restart with approval, and do not infer retry timing or background progress from a missing result.
-
-When a report is long or shortened, keep the outcome, required immediate action and its consequence visible. Use only an existing supplied full-report destination; check that it retains the omitted evidence and supported recovery steps. Do not replace a usable next step with an unexplained link.
-
-The owner reads your questions and the proposed set, so make both easy to read.
-
- - Lead with the answer. One short paragraph saying how many stories you propose and why the scope splits that way, then what is still open when anything is.
- - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options, so the owner can reply "yes to all".
- - Write each name as a short label and each intent as one plain sentence about the outcome, not the solution. The intent says what the story delivers and where it stops.
- - Say in the comment which agreed scope each story covers, so the owner can check that nothing is missing. For every dependency, say in one sentence what the dependent story uses from the other one. When the set is a single chain, say why it cannot be cut so that some stories build side by side.
- - Do not claim anything is approved, tested or published. Say what you proposed and what you assumed.
+- Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options, so the owner can reply "yes to all".
+- Write each name as a short label and each intent as one plain sentence about the outcome, not the solution. The intent says what the story delivers and where it stops.
+- Say in the comment which agreed scope each story covers, so the owner can check that nothing is missing. For every dependency, say in one sentence what the dependent story uses from the other one. When the set is a single chain, say why it cannot be cut so that some stories build side by side.
+- Do not claim anything is approved, tested or published. Say what you proposed and what you assumed.
 
 # Output
 

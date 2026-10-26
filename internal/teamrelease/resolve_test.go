@@ -111,10 +111,9 @@ func TestBaseIsNotATeam(t *testing.T) {
 	}
 }
 
-// The real base-team plus an unchanged child must build a go-development
-// release with the same file set as the published 1.0.5. Content may be ahead
-// of the published release, so bytes are not compared.
-func TestBaseTeamChildMatchesGoDevelopmentRelease(t *testing.T) {
+// An empty child must package the current base inventory. Source may add files
+// ahead of an immutable published release; base metadata is not distributable.
+func TestBaseTeamChildBuildsCurrentBaseInventory(t *testing.T) {
 	root := canonicalTemp(t)
 	for name, raw := range snapshot(t, "../../teams/source/base-team") {
 		put(t, filepath.Join(root, "teams/source/base-team", filepath.FromSlash(name)), raw)
@@ -129,7 +128,10 @@ func TestBaseTeamChildMatchesGoDevelopmentRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	built := snapshot(t, filepath.Join(root, "teams/go-development/v1.0.5"))
-	want := snapshot(t, "../../teams/go-development/v1.0.5")
+	want := snapshot(t, "../../teams/source/base-team")
+	delete(want, "base.json")
+	want["team.config"] = nil
+	want["GENERATED.md"] = nil
 	if len(built) != len(want) {
 		t.Fatalf("built %d files, want %d", len(built), len(want))
 	}
