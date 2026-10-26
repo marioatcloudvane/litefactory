@@ -19,6 +19,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/connector"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -50,6 +51,10 @@ import (
 // lifetime. Saved project versions resolve their own external references once
 // when loaded; refresh explicitly verifies the same retained actor.
 type Setup struct {
+	// ConnectorControl is registered only by the factory local grant command host.
+	ConnectorControl *connector.LocalControl
+	// ConnectorOverview supplies only the remote read projection.
+	ConnectorOverview connector.OverviewProvider
 	// BuildVersion identifies the running process; FactorySource is set only when known.
 	BuildVersion  string
 	FactorySource string
@@ -358,6 +363,16 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}()
 		webhookOpts = &WebhookOptions{Listener: ln, Secrets: s.WebhookSecrets, PublicURL: s.Config.Webhook.PublicURL}
 	}
+
+	remoteConnector, connectorErr := prepareRemoteConnector(ctx, s)
+	if connectorErr != nil {
+		return nil, Startup{}, errors.Join(connectorErr, lock.Close())
+	}
+	defer func() {
+		if !handedOver && remoteConnector != nil {
+			_ = remoteConnector.listener.Close()
+		}
+	}()
 
 	chatOpts, chatErr := prepareChat(ctx, s.Config, s.WebhookSecrets)
 	if chatErr != nil {
@@ -699,6 +714,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
+	daemon.remoteConnector = remoteConnector
 	handedOver = true
 	validateSlots.bind(daemon.pool)
 	if daemon.webhook != nil {
