@@ -249,3 +249,17 @@ func TestTokenResourceIsOptionalAndRefusalsNameTheCheck(t *testing.T) {
 		t.Fatal("token issued without resource does not reach the configured resource")
 	}
 }
+
+func TestRegistrationIgnoresUnknownMetadata(t *testing.T) {
+	t.Parallel()
+	f := newConnectorFixture(t, nil)
+	handler := f.server(t)
+	response := connectorJSON(t, handler, "https://cloudvane.at/litefactory/oauth/register", map[string]any{"client_name": "Claude", "redirect_uris": []string{"https://client.example/callback"}, "token_endpoint_auth_method": "none", "grant_types": []string{"authorization_code", "refresh_token"}, "response_types": []string{"code"}, "scope": "factory:overview", "client_uri": "https://client.example", "logo_uri": "https://client.example/logo.png"}, nil)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("registration with unknown metadata: HTTP %d %s", response.Code, response.Body.String())
+	}
+	response = connectorJSON(t, handler, "https://cloudvane.at/litefactory/oauth/register", map[string]any{"client_name": "Client", "redirect_uris": []string{"http://client.example/callback"}, "token_endpoint_auth_method": "none"}, nil)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("known metadata is still validated: HTTP %d", response.Code)
+	}
+}
