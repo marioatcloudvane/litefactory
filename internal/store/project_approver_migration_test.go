@@ -54,17 +54,7 @@ func TestProjectApproverPopulatedMigrationFreezesAuthenticatedHistory(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	delivery, err := db.EnsureReportDelivery(t.Context(), ReportDelivery{Key: "retained-report", SessionID: session.ID, TriggerID: 123, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "comment", Purpose: "reply", BotUserID: 99, Body: "original prepared\npublication bytes", Marker: "retained-marker"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.MarkReportDeliverySent(t.Context(), delivery.Key); err != nil {
-		t.Fatal(err)
-	}
-	delivery, err = db.GetReportDelivery(t.Context(), delivery.Key)
-	if err != nil {
-		t.Fatal(err)
-	}
+	delivery := seedLegacyApproverReport(t, db, ReportDelivery{Key: "retained-report", SessionID: session.ID, TriggerID: 123, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "comment", Purpose: "reply", BotUserID: 99, Body: "original prepared\npublication bytes", Marker: "retained-marker", PossiblySent: true})
 	if err = db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -194,9 +184,7 @@ func TestProjectApproverLegacyRunlessReportRequiresExactSource(t *testing.T) {
 			if _, err = SeedHistoricalComment(t, db, Comment{SessionID: session.ID, ForgeCommentID: 123, AuthorUserID: 42, AuthorHandle: "owner", Body: "unrelated instruction", CreatedAt: time.Now(), Classification: ClassificationInstruction}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = db.EnsureReportDelivery(t.Context(), ReportDelivery{Key: "missing-source", SessionID: session.ID, TriggerID: trigger, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "forge", Purpose: "reply", BotUserID: 99, Body: "original bytes", Marker: "retained"}); err != nil {
-				t.Fatal(err)
-			}
+			seedLegacyApproverReport(t, db, ReportDelivery{Key: "missing-source", SessionID: session.ID, TriggerID: trigger, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "forge", Purpose: "reply", BotUserID: 99, Body: "original bytes", Marker: "retained"})
 			if err = db.Migrate(t.Context()); err != nil {
 				t.Fatal(err)
 			}
@@ -246,4 +234,21 @@ func legacyProjectApproverConnection(t *testing.T, db *DB, repo Repo) Connection
 		t.Fatal(err)
 	}
 	return connection
+}
+
+// Seed only columns present before the approver migration. Reading the old row
+// explicitly keeps later delivery metadata out of this historical fixture.
+func seedLegacyApproverReport(t *testing.T, db *DB, delivery ReportDelivery) ReportDelivery {
+	t.Helper()
+	delivery.Version = 1
+	_, err := db.sql.ExecContext(t.Context(), `INSERT INTO report_deliveries(delivery_key,identity_version,session_id,trigger_id,task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, delivery.Key, delivery.Version, delivery.SessionID, delivery.TriggerID, delivery.Task, delivery.Destination, delivery.TriggerNamespace, delivery.Purpose, delivery.BotUserID, delivery.Body, delivery.Marker, delivery.PossiblySent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored ReportDelivery
+	err = db.sql.QueryRowContext(t.Context(), `SELECT delivery_key,identity_version,session_id,trigger_id,task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,completed,legacy FROM report_deliveries WHERE delivery_key=?`, delivery.Key).Scan(&stored.Key, &stored.Version, &stored.SessionID, &stored.TriggerID, &stored.Task, &stored.Destination, &stored.TriggerNamespace, &stored.Purpose, &stored.BotUserID, &stored.Body, &stored.Marker, &stored.PossiblySent, &stored.Completed, &stored.Legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stored
 }

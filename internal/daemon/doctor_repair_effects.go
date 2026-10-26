@@ -204,7 +204,7 @@ func (f *FactoryDoctorRepairEffects) consume(ctx context.Context, target naming.
 	if comment.ID <= 0 || comment.Author.ID != f.BotID {
 		return step, fmt.Errorf("%w: doctor reply lacks trusted bot receipt", doctor.ErrRepairReplyUncertain)
 	}
-	if e = f.DB.ConfirmDoctorConsumeDelivery(ctx, op.ID, step.Number, key, comment.ID); e != nil {
+	if e = f.DB.ConfirmDoctorConsumeDelivery(ctx, op.ID, step.Number, key, comment.ID, comment.HTMLURL); e != nil {
 		return step, consumeStateFailure(e)
 	}
 	applied, e := f.DB.ApplyDoctorConsumeComment(ctx, op.ID, step.Number, key)

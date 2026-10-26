@@ -141,7 +141,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		tools := []any{}
 		if s.overview != nil {
-			tools = append(tools, map[string]any{"name": "factory_overview", "description": "Read the factory overview for all registered repositories.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
+			tools = append(tools, map[string]any{"name": "factory_overview", "description": "Read the factory overview for all registered repositories.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, "outputSchema": overviewOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
 		}
 		s.rpcResult(w, req.ID, map[string]any{"tools": tools})
 		s.audit(r, event, "success", "listed", tool, start)
@@ -191,7 +191,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 
 func emptyArguments(raw json.RawMessage) bool {
 	if len(raw) == 0 {
-		return true
+		return false
 	}
 	var arguments map[string]json.RawMessage
 	return json.Unmarshal(raw, &arguments) == nil && arguments != nil && len(arguments) == 0

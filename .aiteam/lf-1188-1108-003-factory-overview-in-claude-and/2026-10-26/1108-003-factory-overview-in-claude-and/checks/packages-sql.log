@@ -1,0 +1,27 @@
+2026/10/26 06:43:32 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen3348385063/001/litefactory.db
+--- FAIL: TestDoctorMigrationPreservesWorkflowDelivery (0.18s)
+    doctor_inbox_test.go:214: store: retain report delivery: SQL logic error: no such column: confirmed_at (1)
+--- FAIL: TestProjectApproverPopulatedMigrationFreezesAuthenticatedHistory (0.66s)
+    project_approver_migration_test.go:59: store: retain report delivery: SQL logic error: no such column: confirmed_at (1)
+--- FAIL: TestProjectApproverLegacyRunlessReportRequiresExactSource (1.35s)
+    --- FAIL: TestProjectApproverLegacyRunlessReportRequiresExactSource/0 (0.71s)
+        project_approver_migration_test.go:198: store: retain report delivery: SQL logic error: no such column: confirmed_at (1)
+    --- FAIL: TestProjectApproverLegacyRunlessReportRequiresExactSource/456 (0.64s)
+        project_approver_migration_test.go:198: store: retain report delivery: SQL logic error: no such column: confirmed_at (1)
+--- FAIL: TestProjectMigrationPreservesPopulatedSessionHistory (0.59s)
+    project_migration_test.go:56: store: read report delivery: SQL logic error: no such column: confirmed_at (1)
+--- FAIL: TestInitializeApproversTreatsUnknownHistoricalAuthorAsOwner (1.24s)
+    --- FAIL: TestInitializeApproversTreatsUnknownHistoricalAuthorAsOwner/unknown-author (0.62s)
+        project_approver_initialize_external_test.go:81: store: retain report delivery: SQL logic error: no such column: confirmed_at (1)
+    --- FAIL: TestInitializeApproversTreatsUnknownHistoricalAuthorAsOwner/different-author (0.62s)
+        project_approver_initialize_external_test.go:81: store: retain report delivery: SQL logic error: no such column: confirmed_at (1)
+2026/10/26 06:45:03 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants1957419319/001/litefactory.db
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	130.289s
+--- FAIL: TestGraphStopMaterialUpdateKeepsOriginalWaitAndNotice (0.05s)
+    graph_stop_recovery_persistent_test.go:326: material update rewrote original immutable notice
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	643.719s
+ok  	github.com/cloudvane/litefactory/internal/daemon	154.588s
+ok  	github.com/cloudvane/litefactory/internal/cli	43.579s
+FAIL

@@ -539,7 +539,7 @@ func (d *Daemon) deliverChatAnswerNote(ctx context.Context, delivery store.Repor
 			}
 			for _, c := range comments.Comments {
 				if c.Author.ID == delivery.BotUserID && c.Body == delivery.Body {
-					if _, e = d.db.ConfirmReportDelivery(ctx, delivery.Key, c.ID); e != nil {
+					if _, e = d.db.ConfirmReportDelivery(ctx, delivery.Key, c.ID, c.HTMLURL); e != nil {
 						return e
 					}
 					_, e = d.db.CompleteReportDelivery(ctx, delivery.Key)
@@ -570,7 +570,7 @@ func (d *Daemon) deliverChatAnswerNote(ctx context.Context, delivery store.Repor
 	if comment.ID < 1 || comment.Author.ID != delivery.BotUserID {
 		return errors.New("chat note receipt lacks bot identity")
 	}
-	if _, err = d.db.ConfirmReportDelivery(ctx, delivery.Key, comment.ID); err != nil {
+	if _, err = d.db.ConfirmReportDelivery(ctx, delivery.Key, comment.ID, comment.HTMLURL); err != nil {
 		return err
 	}
 	_, err = d.db.CompleteReportDelivery(ctx, delivery.Key)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ReportDelivery is one immutable, final redacted report/reply intent. The
@@ -20,15 +21,25 @@ type ReportDelivery struct {
 	PossiblySent                                 bool
 	CommentID                                    int64
 	Completed, Legacy                            bool
+	ConfirmedAt                                  time.Time
+	ConfirmedURL                                 string
 }
 
-const reportDeliveryColumns = `delivery_key,identity_version,COALESCE(session_id,0),trigger_id,COALESCE(run_id,0),task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,COALESCE(comment_id,0),completed,legacy`
+const reportDeliveryColumns = `delivery_key,identity_version,COALESCE(session_id,0),trigger_id,COALESCE(run_id,0),task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,COALESCE(comment_id,0),completed,legacy,confirmed_at,COALESCE(confirmed_url,'')`
 
 func scanReportDelivery(row scanner) (ReportDelivery, error) {
 	var d ReportDelivery
-	err := row.Scan(&d.Key, &d.Version, &d.SessionID, &d.TriggerID, &d.RunID, &d.Task, &d.Destination, &d.TriggerNamespace, &d.Purpose, &d.BotUserID, &d.Body, &d.Marker, &d.PossiblySent, &d.CommentID, &d.Completed, &d.Legacy)
+	var confirmed sql.NullString
+	err := row.Scan(&d.Key, &d.Version, &d.SessionID, &d.TriggerID, &d.RunID, &d.Task, &d.Destination, &d.TriggerNamespace, &d.Purpose, &d.BotUserID, &d.Body, &d.Marker, &d.PossiblySent, &d.CommentID, &d.Completed, &d.Legacy, &confirmed, &d.ConfirmedURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ReportDelivery{}, ErrNotFound
+	}
+	if err == nil && confirmed.Valid {
+		t, parseErr := ParseTime(confirmed.String)
+		if parseErr != nil {
+			return ReportDelivery{}, parseErr
+		}
+		d.ConfirmedAt = t
 	}
 	return d, err
 }
@@ -51,7 +62,7 @@ func (db *DB) EnsureReportDelivery(ctx context.Context, want ReportDelivery) (Re
 	if want.Key == "" || want.Version != 1 || want.SessionID <= 0 || want.TriggerID < 0 || want.RunID < 0 || want.Task == "" || want.Destination == "" || want.TriggerNamespace == "" || want.Purpose == "" || want.BotUserID <= 0 || want.Body == "" || want.Marker == "" {
 		return ReportDelivery{}, errors.New("store: invalid report delivery identity or intent")
 	}
-	if want.CommentID != 0 || want.Completed {
+	if want.CommentID != 0 || want.Completed || !want.ConfirmedAt.IsZero() || want.ConfirmedURL != "" {
 		return ReportDelivery{}, errors.New("store: a new report intent cannot claim confirmation")
 	}
 	var out ReportDelivery
@@ -165,9 +176,18 @@ func (db *DB) MarkReportDeliverySent(ctx context.Context, key string) (bool, err
 
 // ConfirmReportDelivery persists externally verified delivery. A saved receipt
 // cannot be replaced by a different comment, even if the original was deleted.
-func (db *DB) ConfirmReportDelivery(ctx context.Context, key string, commentID int64) (ReportDelivery, error) {
+// The first receipt records its local confirmation time atomically. Historical
+// receipts remain undated on retry; a missing destination URL may be retained.
+func (db *DB) ConfirmReportDelivery(ctx context.Context, key string, commentID int64, confirmedURL ...string) (ReportDelivery, error) {
 	if commentID <= 0 {
 		return ReportDelivery{}, errors.New("store: report receipt requires positive comment identity")
+	}
+	var destinationURL string
+	if len(confirmedURL) > 1 {
+		return ReportDelivery{}, errors.New("store: multiple confirmation URLs")
+	}
+	if len(confirmedURL) == 1 {
+		destinationURL = confirmedURL[0]
 	}
 	var out ReportDelivery
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
@@ -178,13 +198,17 @@ func (db *DB) ConfirmReportDelivery(ctx context.Context, key string, commentID i
 		if current.CommentID != 0 && current.CommentID != commentID {
 			return errors.New("report delivery already has a different receipt")
 		}
-		out, err = scanReportDelivery(tx.QueryRowContext(ctx, `UPDATE report_deliveries SET possibly_sent=1,comment_id=? WHERE delivery_key=? RETURNING `+reportDeliveryColumns, commentID, key))
+		out, err = confirmReportDeliveryTx(ctx, tx, key, commentID, destinationURL)
 		return err
 	})
 	if err != nil {
 		return ReportDelivery{}, fmt.Errorf("store: confirm report delivery: %w", err)
 	}
 	return out, nil
+}
+
+func confirmReportDeliveryTx(ctx context.Context, tx *sql.Tx, key string, commentID int64, destinationURL string) (ReportDelivery, error) {
+	return scanReportDelivery(tx.QueryRowContext(ctx, `UPDATE report_deliveries SET possibly_sent=1,confirmed_at=CASE WHEN comment_id IS NULL THEN ? ELSE confirmed_at END,confirmed_url=CASE WHEN COALESCE(confirmed_url,'')='' THEN NULLIF(?,'') ELSE confirmed_url END,comment_id=? WHERE delivery_key=? RETURNING `+reportDeliveryColumns, FormatTime(nowUTC()), destinationURL, commentID, key))
 }
 
 // CompleteReportDelivery acknowledges the delivery, run and original source in
