@@ -28,6 +28,31 @@ litefactory <command> [<subcommand>] [arguments] [flags]
 
 `--help` and `--version` exit with `0`.
 
+## Connector grants
+
+These commands use the existing selected factory database without requiring a
+running daemon, remote configuration, credentials or network access. All accept
+`--json`; explicit invocation is sufficient without confirmation.
+
+| Command | Arguments and result |
+| --- | --- |
+| `connector grants list` | No arguments. All retained grants in creation-time/ID order; an empty list succeeds. |
+| `connector grants inspect` | `<grant-id>`. The same safe summary for one exact ID. |
+| `connector grants revoke` | `<grant-id>`. Revoke every family under the exact grant, or report already revoked. |
+| `connector grants revoke-all` | No arguments. Atomically revoke every existing grant, including old owner generations; report newly revoked count. |
+
+Output includes factory home, reach, effective status, renewable grant lifetime
+and separate unexpired access-token counts/expiries, without credentials. Times
+are UTC. Successful revocation refuses the next protected request and renewal,
+including connected clients, and survives reconnect and daemon restart. Other
+grants remain usable after single-grant revocation.
+
+Empty and repeated operations exit `0`; unknown retained IDs or missing database
+exit `3`; syntax errors exit `2`; storage, cancellation and output failures exit
+`1`. A failed output write after commit does not undo revocation. Inspect/retry
+an unconfirmed operation. See [Connector grants](connector-grants.md) for coverage,
+serialized revoke-all boundaries, retention and recovery limits.
+
 ## Standards book
 
 All `standards` commands emit JSON and use the initialized local database. See
