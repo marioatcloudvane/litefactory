@@ -426,3 +426,50 @@ func TestConnectorStartupPinMismatchNeverRevivesAndNearExpiryRefresh(t *testing.
 		t.Fatalf("audience mismatch: %v", err)
 	}
 }
+
+// Consent stores the owner's chosen scope subset and calendar-month expiry, up
+// to ConnectorMaxGrantMonths, and refuses anything outside those bounds.
+func TestConnectorConsentScopeAndLifetimeBounds(t *testing.T) {
+	db := newTestDB(t)
+	o := connectorTestOwner(t, db, 42)
+	connectorTestClient(t, db, "a")
+	for i, test := range []struct {
+		name, browserScope, grantScope string
+		expires                        time.Time
+		ok                             bool
+	}{
+		{"one month", connectorTestScope, connectorTestScope, ConnectorGrantExpiry(connectorTestNow, 1), true},
+		{"maximum", connectorTestScope, connectorTestScope, ConnectorMaxGrantExpiry(connectorTestNow), true},
+		{"beyond maximum", connectorTestScope, connectorTestScope, ConnectorMaxGrantExpiry(connectorTestNow).Add(time.Second), false},
+		{"subset of requested", connectorTestScope + " other:read", connectorTestScope, ConnectorGrantExpiry(connectorTestNow, 1), true},
+		{"unrequested scope", connectorTestScope, connectorTestScope + " other:read", ConnectorGrantExpiry(connectorTestNow, 1), false},
+		{"empty scope", connectorTestScope, "", ConnectorGrantExpiry(connectorTestNow, 1), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			id := fmt.Sprintf("bounds-%d", i)
+			b := ConnectorBrowser{ID: id, ClientID: "a", RedirectURI: "https://client.test/callback", Resource: connectorTestResource, Scope: test.browserScope, PKCEChallenge: "challenge", NonceDigest: "nonce", UpstreamStateDigest: "upstream", OwnerGeneration: o.Generation, ExpiresAt: connectorTestNow.Add(10 * time.Minute)}
+			if err := db.CreateConnectorBrowser(t.Context(), b, 42, connectorTestNow); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.VerifyConnectorBrowser(t.Context(), id, "nonce", "upstream", 42, connectorTestNow); err != nil {
+				t.Fatal(err)
+			}
+			g := ConnectorGrant{ID: id, ClientID: "a", Resource: b.Resource, Scope: test.grantScope, OwnerID: 42, OwnerGeneration: o.Generation, CreatedAt: connectorTestNow, ExpiresAt: test.expires}
+			c := ConnectorCode{Digest: "code-" + id, GrantID: id, ClientID: "a", RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: test.grantScope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: connectorTestNow.Add(5 * time.Minute)}
+			err := db.ConsentConnectorBrowser(t.Context(), id, "nonce", 42, connectorTestNow, g, c, true)
+			if test.ok != (err == nil) {
+				t.Fatalf("consent: %v, want ok=%v", err, test.ok)
+			}
+			if test.ok {
+				x := ConnectorExchange{Digest: c.Digest, ClientID: "a", RedirectURI: b.RedirectURI, Resource: b.Resource, PKCEChallenge: b.PKCEChallenge, OwnerID: 42, Now: connectorTestNow, Pair: ConnectorTokenPair{AccessDigest: "access-" + id, RefreshDigest: "refresh-" + id, AccessExpiresAt: connectorTestNow.Add(15 * time.Minute)}}
+				got, err := db.ExchangeConnectorCode(t.Context(), x)
+				if err != nil || got.Scope != test.grantScope || !got.ExpiresAt.Equal(test.expires) {
+					t.Fatalf("exchange: %+v %v", got, err)
+				}
+			}
+		})
+	}
+	if !ConnectorGrantExpiry(time.Date(2026, 1, 31, 12, 0, 0, 0, time.FixedZone("x", 3600)), 1).Equal(time.Date(2026, 3, 3, 11, 0, 0, 0, time.UTC)) {
+		t.Fatal("a month is not AddDate(0, 1, 0) in UTC")
+	}
+}

@@ -125,15 +125,37 @@ name is client supplied, not a verified vendor identity. Registration supports
 methods. Metadata URL fetching is unsupported. S256 PKCE is mandatory.
 
 Each new grant requires fresh GitHub verification and an explicit Allow action.
-The escaped consent page names the client ID, redirect host, exact resource,
-`factory:overview` scope and absolute expiry, and explains that access covers all
-registered repositories, including private and future registrations. Browser
-cookies use authenticated encryption, Secure, HttpOnly and SameSite=Lax. Cookies
-never authorize MCP. Denial and failed sign-in issue no connector grant.
+The escaped consent page shows, in separate cards: who is asking (the client
+name, marked as client supplied and unverified, the client ID and the redirect
+host); what it can access (the exact resource, one pre-ticked checkbox per
+requested scope with a one-line explanation, and the note that access covers all
+registered repositories, including private and future registrations); how long
+(the grant duration); and the Allow and Deny actions. The page uses only its own
+fixed inline style and script, allowed by hash in its Content-Security-Policy.
+Browser cookies use authenticated encryption, Secure, HttpOnly and
+SameSite=Lax. Cookies never authorize MCP. Denial and failed sign-in issue no
+connector grant.
 
-Authorization codes expire in five minutes and bind client, redirect, resource
-and PKCE. Access tokens expire within 15 minutes or at grant expiry, whichever
-comes first. Refresh rotates without extending the 30-day absolute grant expiry.
+The authorization request's `scope` is a space-separated list of known scopes;
+today the only one is `factory:overview`. Allow requires at least one ticked
+scope; the script disables Allow when none is ticked, and the server refuses an
+Allow without a scope, or with a scope that is unknown or was not requested,
+with 400 `invalid_scope` and no grant. The grant records the ticked scopes as a
+space-separated string. Every MCP request requires a grant that includes
+`factory:overview`; any other grant is refused with 403 `insufficient_scope`.
+
+The owner chooses the grant duration: 1, 3, 6, 12 or 24 months, default 1. A
+month is a calendar month in UTC: the expiry is the consent time plus
+`AddDate(0, n, 0)`, so 31 January plus one month is 3 March (2 March in a leap
+year). The server accepts only those five values and computes the absolute
+expiry at consent; any other value is refused with 400 and no grant. The store
+refuses a grant expiring more than 24 months after its creation.
+
+Authorization codes expire in five minutes and bind client, redirect, resource,
+granted scope and PKCE. A token request may omit `scope`; if it names one, it
+must be exactly the grant's scope set. Access tokens expire within 15 minutes or
+at grant expiry, whichever comes first. Refresh rotates without extending the
+absolute grant expiry chosen at consent.
 Replaying a spent refresh credential revokes the entire family, even after a
 restart; a lost refresh response therefore requires fresh owner consent.
 
@@ -150,7 +172,8 @@ it cannot retract bytes already returned.
 ## Protocol, limits and diagnostics
 
 Every MCP request, including initialize, ping and listing, requires a
-factory-issued Bearer token for the exact resource and scope. Initialization
+factory-issued Bearer token for the exact resource whose grant includes the
+`factory:overview` scope. Initialization
 negotiates `2025-06-18` or `2025-11-25`; subsequent requests must include a supported
 `MCP-Protocol-Version`. Send JSON with `Accept: application/json, text/event-stream`.
 Responses are request-scoped JSON, notifications receive 202, authenticated GET
