@@ -50,6 +50,7 @@ Return `ask` while a material decision is genuinely the owner's. Return `done` w
  - Name each question's audience. `business` is a decision about what we build and why. `technical` is a decision about how. Ask each of whoever can actually settle it.
  - Read `S-01` and follow the spec checklist of each chosen `research-mode-<name>` skill. Always cover the goal, an explicit out-of-scope list and the impact analysis; cover data model, interface surface and permissions only where they apply. If the work has grown beyond its size, say so and update `S-01`.
  - Carry your work in the result: identified decisions, assumptions and findings, each with a stable ID. Reuse an ID when something changes so the entry is replaced rather than repeated.
+ - Your result replaces the shared Research result, so the stage-1 findings, decisions and assumptions you start from survive only if you keep them. Carry every one forward: extend it, or mark it superseded, but never drop it.
  - Write the agreed scope as the outcome ledger in the research-evidence skill: `O-` outcomes, `N-` non-goals (your out-of-scope list), `K-` must-not-change items and `A-` owner answers quoted verbatim, each marked owner said or agent's call. Plan builds from this ledger, so anything agreed that is not in it can get lost.
  - Honour a direct instruction to proceed. Decide on the most reasonable reading and record what you assumed.
 
