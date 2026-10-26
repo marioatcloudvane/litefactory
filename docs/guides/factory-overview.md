@@ -30,7 +30,8 @@ the MCP Inspector do not prove hosted-client compatibility.
 - In Claude, add a custom remote connector with the configured HTTPS MCP URL.
   Select OAuth sign-in and **Register automatically** when the client offers an
   OAuth-client choice. The server does not support metadata-URL registration.
-  Complete GitHub owner sign-in and the explicit consent page. Enable the
+  Complete GitHub owner sign-in and the explicit consent page, keeping
+  `factory:overview` ticked and choosing a grant duration. Enable the
   connector in a conversation and request the factory overview. Team and
   Enterprise permissions can restrict adding connectors; record the actual
   account settings. See [Claude's connector instructions](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).

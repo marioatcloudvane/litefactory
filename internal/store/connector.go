@@ -213,7 +213,7 @@ func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest strin
 		if !allow {
 			return nil
 		}
-		if g.ID == "" || g.ClientID != b.ClientID || g.Resource != b.Resource || g.Scope != b.Scope || g.OwnerID != pin || g.OwnerGeneration != b.OwnerGeneration || !g.ExpiresAt.After(now) || g.ExpiresAt.After(now.Add(30*24*time.Hour)) || c.Digest == "" || c.GrantID != g.ID || c.ClientID != b.ClientID || c.RedirectURI != b.RedirectURI || c.Resource != b.Resource || c.Scope != b.Scope || c.PKCEChallenge != b.PKCEChallenge || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(5*time.Minute)) {
+		if g.ID == "" || g.ClientID != b.ClientID || g.Resource != b.Resource || !ConnectorScopeSubset(g.Scope, b.Scope) || g.OwnerID != pin || g.OwnerGeneration != b.OwnerGeneration || !g.ExpiresAt.After(now) || g.ExpiresAt.After(ConnectorMaxGrantExpiry(now)) || c.Digest == "" || c.GrantID != g.ID || c.ClientID != b.ClientID || c.RedirectURI != b.RedirectURI || c.Resource != b.Resource || c.Scope != g.Scope || c.PKCEChallenge != b.PKCEChallenge || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(5*time.Minute)) {
 			return ErrConnectorInvalid
 		}
 		var count int
@@ -298,7 +298,8 @@ func (db *DB) ExchangeConnectorCode(ctx context.Context, x ConnectorExchange) (C
 	var g ConnectorGrant
 	err := db.connectorWrite(ctx, func(tx *sql.Conn) error {
 		var id string
-		err := tx.QueryRowContext(ctx, `SELECT grant_id FROM connector_codes WHERE digest=? AND client_id=? AND redirect_uri=? AND resource=? AND scope=? AND pkce_challenge=? AND consumed_at IS NULL AND expires_at>?`, x.Digest, x.ClientID, x.RedirectURI, x.Resource, x.Scope, x.PKCEChallenge, FormatTime(x.Now)).Scan(&id)
+		var scope string
+		err := tx.QueryRowContext(ctx, `SELECT grant_id,scope FROM connector_codes WHERE digest=? AND client_id=? AND redirect_uri=? AND resource=? AND pkce_challenge=? AND consumed_at IS NULL AND expires_at>?`, x.Digest, x.ClientID, x.RedirectURI, x.Resource, x.PKCEChallenge, FormatTime(x.Now)).Scan(&id, &scope)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrConnectorInvalid
 		}
@@ -308,6 +309,9 @@ func (db *DB) ExchangeConnectorCode(ctx context.Context, x ConnectorExchange) (C
 		g, err = connectorGrant(ctx, tx, id, x.OwnerID, x.Now)
 		if err != nil {
 			return err
+		}
+		if g.Scope != scope || !connectorScopeMatches(x.Scope, g.Scope) {
+			return ErrConnectorInvalid
 		}
 		if err = insertConnectorPair(ctx, tx, g, x.Pair, x.Now, ""); err != nil {
 			return err
@@ -337,7 +341,7 @@ func (db *DB) RotateConnectorRefresh(ctx context.Context, x ConnectorExchange) (
 		if err != nil {
 			return err
 		}
-		if g.ClientID != x.ClientID || g.Resource != x.Resource || g.Scope != x.Scope {
+		if g.ClientID != x.ClientID || g.Resource != x.Resource || !connectorScopeMatches(x.Scope, g.Scope) {
 			return ErrConnectorInvalid
 		}
 		if consumed.Valid {
@@ -373,7 +377,7 @@ func (db *DB) CheckConnectorAccess(ctx context.Context, digest string, pin int64
 		return g, err
 	}
 	g.ExpiresAt, err = ParseTime(expiry)
-	if err == nil && g.Scope != scope {
+	if err == nil && !ConnectorScopeHas(g.Scope, scope) {
 		return ConnectorGrant{}, ErrConnectorScope
 	}
 	return g, err

@@ -12,14 +12,59 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Scope is the only authority this connector can issue.
+// Scope is the read authority behind the factory_overview tool. Every MCP
+// request requires a grant whose scope contains it.
 const Scope = "factory:overview"
+
+// ScopeInfo names one scope the connector can issue and says in one plain line
+// what it allows. The consent page shows the description next to the scope.
+type ScopeInfo struct{ Name, Description string }
+
+// KnownScopes lists every scope the connector can issue, in display order. A
+// client may request any non-empty subset; the owner ticks which to grant.
+var KnownScopes = []ScopeInfo{
+	{Name: Scope, Description: "Read the factory overview: health, current activity, open owner questions and reviews, and last week's publications. Read-only; it cannot change factory work."},
+}
+
+func knownScope(name string) bool {
+	return slices.ContainsFunc(KnownScopes, func(k ScopeInfo) bool { return k.Name == name })
+}
+
+func scopeNames() []string {
+	names := make([]string, len(KnownScopes))
+	for i, k := range KnownScopes {
+		names[i] = k.Name
+	}
+	return names
+}
+
+// normalizeScope validates an RFC 6749 scope string against KnownScopes and
+// returns it in catalogue order. Empty, repeated or unknown scopes are refused.
+func normalizeScope(raw string) (string, bool) {
+	tokens, ok := store.ConnectorScopes(raw)
+	if !ok {
+		return "", false
+	}
+	for _, token := range tokens {
+		if !knownScope(token) {
+			return "", false
+		}
+	}
+	var out []string
+	for _, k := range KnownScopes {
+		if slices.Contains(tokens, k.Name) {
+			out = append(out, k.Name)
+		}
+	}
+	return strings.Join(out, " "), true
+}
 
 // Options supplies dependencies resolved by trusted daemon composition.
 type Options struct {

@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
-	"html/template"
 	"net/http"
 	"net/url"
 	"time"
@@ -17,13 +16,12 @@ import (
 const browserCookieName = "__Host-lf_connector"
 
 type browserCookie struct {
-	Transaction  string `json:"t"`
-	Nonce        string `json:"n"`
-	Verifier     string `json:"v,omitempty"`
-	CSRF         string `json:"c,omitempty"`
-	Expires      int64  `json:"e"`
-	GrantExpires int64  `json:"g,omitempty"`
-	Verified     bool   `json:"a,omitempty"`
+	Transaction string `json:"t"`
+	Nonce       string `json:"n"`
+	Verifier    string `json:"v,omitempty"`
+	CSRF        string `json:"c,omitempty"`
+	Expires     int64  `json:"e"`
+	Verified    bool   `json:"a,omitempty"`
 }
 
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +33,12 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	if q.Get("response_type") != "code" || q.Get("resource") != s.cfg.ResourceURL || q.Get("scope") != Scope || q.Get("code_challenge_method") != "S256" || !validChallenge(q.Get("code_challenge")) || len(q.Get("state")) > 2048 {
+	if q.Get("response_type") != "code" || q.Get("resource") != s.cfg.ResourceURL || q.Get("code_challenge_method") != "S256" || !validChallenge(q.Get("code_challenge")) || len(q.Get("state")) > 2048 {
+		oauthError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	scope, ok := normalizeScope(q.Get("scope"))
+	if !ok {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
@@ -66,7 +69,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	b := store.ConnectorBrowser{ID: credentials[0], ClientID: client.ID, RedirectURI: q.Get("redirect_uri"), State: q.Get("state"), Resource: s.cfg.ResourceURL, Scope: Scope, PKCEChallenge: q.Get("code_challenge"), NonceDigest: digest(credentials[1]), UpstreamStateDigest: digest(credentials[3]), OwnerGeneration: owner.Generation, ExpiresAt: now.Add(10 * time.Minute)}
+	b := store.ConnectorBrowser{ID: credentials[0], ClientID: client.ID, RedirectURI: q.Get("redirect_uri"), State: q.Get("state"), Resource: s.cfg.ResourceURL, Scope: scope, PKCEChallenge: q.Get("code_challenge"), NonceDigest: digest(credentials[1]), UpstreamStateDigest: digest(credentials[3]), OwnerGeneration: owner.Generation, ExpiresAt: now.Add(10 * time.Minute)}
 	cookie := browserCookie{Transaction: b.ID, Nonce: credentials[1], Verifier: credentials[2], Expires: b.ExpiresAt.Unix()}
 	encodedCookie, err := s.encodeBrowserCookie(cookie)
 	if err != nil {
@@ -145,7 +148,7 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
-	cookie.Verified, cookie.Verifier, cookie.CSRF, cookie.GrantExpires = true, "", csrf, s.now().Add(30*24*time.Hour).Unix()
+	cookie.Verified, cookie.Verifier, cookie.CSRF = true, "", csrf
 	encodedCookie, err := s.encodeBrowserCookie(cookie)
 	if err != nil {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
@@ -162,33 +165,23 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var page bytes.Buffer
-	if err := consentPage.Execute(&page, consentData{ClientName: client.Name, ClientID: client.ID, RedirectHost: redirect.Host, Resource: b.Resource, Scope: b.Scope, Expires: time.Unix(cookie.GrantExpires, 0).UTC().Format(time.RFC3339), CSRF: csrf}); err != nil {
+	if err := consentPage.Execute(&page, newConsentData(client, redirect.Host, b, csrf, s.now())); err != nil {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
 	setBrowserCookie(w, encodedCookie, int(time.Unix(cookie.Expires, 0).Sub(s.now())/time.Second))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// The connector-wide policy forbids all styles and scripts; the consent
+	// page allows exactly its own fixed inline style and script by hash.
+	w.Header().Set("Content-Security-Policy", consentCSP)
 	_, _ = w.Write(page.Bytes())
 }
-
-type consentData struct{ ClientName, ClientID, RedirectHost, Resource, Scope, Expires, CSRF string }
-
-var consentPage = template.Must(template.New("consent").Parse(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authorize Litefactory access</title></head>
-<body><main><h1>Authorize a client</h1><p>You are signed in as this Litefactory installation's owner.</p>
-<p><strong>{{.ClientName}}</strong> requests read-only access to your factory overview.</p>
-<p>The client supplied this name; it is not a verified vendor identity.</p>
-<dl><dt>Client ID</dt><dd>{{.ClientID}}</dd><dt>Redirect host</dt><dd>{{.RedirectHost}}</dd><dt>Resource</dt><dd>{{.Resource}}</dd><dt>Scope</dt><dd>{{.Scope}}</dd><dt>Grant expires</dt><dd>{{.Expires}}</dd></dl>
-<p>Access covers all registered repositories, including private repositories and repositories registered in the future. Access tokens expire within 15 minutes. Refreshing cannot extend the grant expiry.</p>
-<p>You can stop access using your local Litefactory grant controls.</p>
-<form method="post" action="/litefactory/oauth/consent"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button name="decision" value="allow" type="submit">Allow</button> <button name="decision" value="deny" type="submit">Deny</button></form>
-</main></body></html>`))
 
 func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
-	form, err := readForm(r)
+	form, err := readConsentForm(r)
 	if err != nil {
 		oauthInputError(w, err, "invalid_request")
 		return
@@ -203,6 +196,25 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	allow := form.Get("decision") == "allow"
+	now := s.now()
+	// Deny never depends on the scope or duration fields. Allow needs at least
+	// one ticked scope that the client requested and the connector knows, and
+	// one of the offered durations; anything else is refused without a grant
+	// and leaves the pending consent usable.
+	grantScope, grantExpires := b.Scope, now
+	if allow {
+		var ok bool
+		if grantScope, ok = consentScope(form["scope"], b.Scope); !ok {
+			oauthError(w, http.StatusBadRequest, "invalid_scope")
+			return
+		}
+		months, ok := grantMonths(form.Get("duration"))
+		if !ok {
+			oauthError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		grantExpires = store.ConnectorGrantExpiry(now, months)
+	}
 	grantID, err := randomCredential()
 	if err != nil {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
@@ -213,9 +225,8 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
-	now := s.now()
-	grant := store.ConnectorGrant{ID: grantID, ClientID: b.ClientID, Resource: b.Resource, Scope: b.Scope, OwnerID: s.cfg.OwnerID, OwnerGeneration: b.OwnerGeneration, CreatedAt: now, ExpiresAt: time.Unix(cookie.GrantExpires, 0).UTC()}
-	authorizationCode := store.ConnectorCode{Digest: digest(code), GrantID: grantID, ClientID: b.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: b.Scope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: now.Add(5 * time.Minute)}
+	grant := store.ConnectorGrant{ID: grantID, ClientID: b.ClientID, Resource: b.Resource, Scope: grantScope, OwnerID: s.cfg.OwnerID, OwnerGeneration: b.OwnerGeneration, CreatedAt: now, ExpiresAt: grantExpires}
+	authorizationCode := store.ConnectorCode{Digest: digest(code), GrantID: grantID, ClientID: b.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: grantScope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: now.Add(5 * time.Minute)}
 	if err := s.db.ConsentConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, now, grant, authorizationCode, allow); err != nil {
 		storeOAuthError(w, err)
 		return
