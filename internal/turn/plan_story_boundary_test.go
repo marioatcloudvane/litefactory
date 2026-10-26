@@ -19,6 +19,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -742,5 +743,164 @@ func TestPlanStoryHeldLockExpires(t *testing.T) {
 	}
 	if _, err := h.DB.GetPlanStoryCandidate(t.Context(), a.Parent, r.RequestID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("timeout retained candidate: %v", err)
+	}
+}
+
+// planFullVisible is the full visible draft the activity would publish and the
+// marker-inclusive size of its unfitted body (visible draft, hidden plan
+// content and both markers), measured before any fitting.
+func planFullVisible(t *testing.T, a PlanStoryAuthority, r graphexec.PlanStoryRequest) (string, int) {
+	t.Helper()
+	rendered, err := report.RenderPlanDraftParts(362, 1, r.Draft, r.Stage, a.ContentScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := strings.Join(rendered.Parts, "")
+	if len(rendered.Parts) == 0 {
+		full, _, _ = strings.Cut(rendered.Body, "\n<!-- lf:plan-content")
+	}
+	raw, err := json.Marshal(r.Draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers := planStoryMarker(a, r.Draft.Key) + "\n" + planRequestMarker(r) + "\n"
+	return full, len(markers) + len(full) + len("\n<!-- lf:plan-content v=1 data=") + len(raw) + len(" -->\n")
+}
+
+// planDraftAtSize grows the problem text until the unfitted body plus markers
+// is exactly target bytes.
+func planDraftAtSize(t *testing.T, a PlanStoryAuthority, r graphexec.PlanStoryRequest, target int) graphexec.PlanStoryRequest {
+	t.Helper()
+	for _, suffix := range []string{"", "<", ">", "&", "\"", "'", "|", "*", "#", "é", "y z", "ab-"} {
+		r.Draft.Problem = "x" + suffix
+		_, base := planFullVisible(t, a, r)
+		if (target-base)%2 != 0 || target < base {
+			continue
+		}
+		r.Draft.Problem = strings.Repeat("x", 1+(target-base)/2) + suffix
+		if _, got := planFullVisible(t, a, r); got == target {
+			return r
+		}
+	}
+	t.Fatalf("no draft measures exactly %d bytes", target)
+	return r
+}
+
+// planPartPayloads returns the posted part comments without their headers.
+func planPartPayloads(t *testing.T, f *planBoundaryForge) []string {
+	t.Helper()
+	var out []string
+	for _, c := range f.comments {
+		text, _ := c["body"].(string)
+		if len(text) > github.CommentSizeLimit || strings.Contains(text, "_[litefactory: body truncated") {
+			t.Fatalf("part comment of %d bytes is oversized or truncated", len(text))
+		}
+		_, payload, ok := strings.Cut(text, "**\n\n")
+		if !ok || !strings.HasPrefix(text, "<!-- lf:plan-part ") {
+			t.Fatalf("part comment has no header: %.120q", text)
+		}
+		out = append(out, payload)
+	}
+	return out
+}
+
+// Exact redactor budget: a draft whose unfitted body plus markers is exactly at
+// redact.Budget(MaxStoryBodyBytes) publishes whole; one byte more publishes a
+// shortened body with the full draft in part comments.
+func TestPlanBoundaryDraftAtRedactorBudgetPublishes(t *testing.T) {
+	budget := redact.Budget(planbrief.MaxStoryBodyBytes)
+	for _, target := range []int{budget, budget + 1} {
+		t.Run(fmt.Sprint(target), func(t *testing.T) {
+			h, f, a, r, _ := planBoundarySetup(t)
+			h.Redactor = redact.New(redact.Options{Environ: []string{}})
+			r = planDraftAtSize(t, a, r, target)
+			full, _ := planFullVisible(t, a, r)
+			planApply(t, h, a, r, "applied")
+			body, _ := f.child["body"].(string)
+			if strings.Contains(body, "_[litefactory: body truncated") || len(body) > planbrief.MaxStoryBodyBytes {
+				t.Fatalf("posted body of %d bytes was truncated", len(body))
+			}
+			parts := planPartPayloads(t, f)
+			if target == budget {
+				if strings.Contains(body, planbrief.PlanShortenedMarker) || len(parts) != 0 || !strings.Contains(body, full) {
+					t.Fatalf("draft at the budget was not published whole: parts=%d", len(parts))
+				}
+				return
+			}
+			if !strings.Contains(body, planbrief.PlanShortenedMarker) || strings.Join(parts, "") != full {
+				t.Fatalf("draft over the budget: shortened=%v parts=%d", strings.Contains(body, planbrief.PlanShortenedMarker), len(parts))
+			}
+		})
+	}
+}
+
+// Redaction growth in the body: many 8-byte secrets become 10-byte markers and
+// push a body that fitted before redaction past the limit; it still publishes.
+func TestPlanBoundaryBodyRedactionGrowthPublishes(t *testing.T) {
+	h, f, a, r, _ := planBoundarySetup(t)
+	h.Redactor = redact.New(redact.Options{Environ: []string{"LF_TEST_TOKEN=abcdefgh"}})
+	r.Draft.Problem = strings.Repeat("abcdefgh ", 3440)
+	if _, size := planFullVisible(t, a, r); size > redact.Budget(planbrief.MaxStoryBodyBytes) {
+		t.Fatalf("fixture must fit before redaction: %d", size)
+	}
+	planApply(t, h, a, r, "applied")
+	body, _ := f.child["body"].(string)
+	if strings.Contains(body, "_[litefactory: body truncated") || strings.Contains(body, "abcdefgh") || len(body) > planbrief.MaxStoryBodyBytes {
+		t.Fatalf("body of %d bytes truncated or exposes the secret", len(body))
+	}
+	for _, part := range planPartPayloads(t, f) {
+		if strings.Contains(part, "abcdefgh") {
+			t.Fatal("part exposes the secret")
+		}
+	}
+}
+
+// Redaction growth in parts: parts are sized after redaction, so none is cut
+// and together they hold the complete redacted draft.
+func TestPlanBoundaryPartRedactionGrowthPublishes(t *testing.T) {
+	h, f, a, r, _ := planBoundarySetup(t)
+	h.Redactor = redact.New(redact.Options{Environ: []string{"LF_TEST_TOKEN=abcdefgh"}})
+	r.Draft.Problem = strings.Repeat("abcdefgh ", 6667)
+	full, _ := planFullVisible(t, a, r)
+	planApply(t, h, a, r, "applied")
+	parts := planPartPayloads(t, f)
+	for _, part := range parts {
+		if strings.Contains(part, "abcdefgh") {
+			t.Fatal("part exposes the secret")
+		}
+	}
+	if strings.Join(parts, "") != strings.ReplaceAll(full, "abcdefgh", redact.Replacement) {
+		t.Fatalf("redacted parts are incomplete: %d parts", len(parts))
+	}
+}
+
+// Credential safety when splitting: a credential inside an unbroken run longer
+// than a part, or straddling the unredacted split point, is never posted whole
+// or in fragments, and nothing is lost.
+func TestPlanBoundarySplitNeverExposesCredential(t *testing.T) {
+	const secret = "Zq7Xw9Kp2Lm4Nv6B"
+	for name, problem := range map[string]string{
+		"long run":   strings.Repeat("y", 30000) + secret + strings.Repeat("y", 40000),
+		"straddling": strings.Repeat("y", report.PlanPartLimit-8) + secret + strings.Repeat("y", 20000),
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, f, a, r, _ := planBoundarySetup(t)
+			h.Redactor = redact.New(redact.Options{Environ: []string{"LF_TEST_TOKEN=" + secret}})
+			r.Draft.Problem = problem
+			full, _ := planFullVisible(t, a, r)
+			planApply(t, h, a, r, "applied")
+			parts := planPartPayloads(t, f)
+			body, _ := f.child["body"].(string)
+			for _, text := range append([]string{body}, parts...) {
+				for i := 0; i+6 <= len(secret); i++ {
+					if strings.Contains(text, secret[i:i+6]) {
+						t.Fatalf("posted text exposes credential fragment %q", secret[i:i+6])
+					}
+				}
+			}
+			if strings.Join(parts, "") != strings.ReplaceAll(full, secret, redact.Replacement) {
+				t.Fatalf("redacted parts are incomplete: %d parts", len(parts))
+			}
+		})
 	}
 }
