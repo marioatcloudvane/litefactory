@@ -65,11 +65,12 @@ If one of those four answers depends on something only the owner has, return `as
 
 # Writing the Report
 
-Your `comment` is what the owner reads. The factory lays out your questions; the prose is yours, and it is published as written.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
- - Lead with the answer. One short paragraph, then `## What I found` and, when anything is open, `## What is still open`.
- - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading. Put your reasoning and recommendation in the options, not in the question.
- - No implementation identifiers, no file paths, no `path:line` in the comment. Those belong in findings, where the factory renders them with their evidence.
+The factory lays out your questions using their existing fields.
+
+- Keep a question's `text` to the question itself, in one line. The factory renders it as a heading. Put your reasoning and recommendation in the options, not in the question.
+- No implementation identifiers, no file paths, no `path:line` in the comment. Those belong in findings, where the factory renders them with their evidence.
 
 # Output
 

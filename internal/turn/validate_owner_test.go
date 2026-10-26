@@ -126,7 +126,7 @@ func TestOwnerNonOwnerReplyChangesNothing(t *testing.T) {
 	// And the resolve step checks the reply author against the resolved owner.
 	o.reply(o.owner+5, o.command(ValidateCheckCommand, "story-002:AC-002", "pass", "-- x"))
 	o.toOwner()
-	if !strings.Contains(o.notice(), "Only the owner") || len(o.state().Open) == 0 {
+	if !strings.Contains(o.notice(), "Only the owner") || !strings.Contains(o.notice(), "configured owner") || !strings.Contains(o.notice(), "current report's choices") || len(o.state().Open) == 0 {
 		t.Fatalf("notice %q", o.notice())
 	}
 }
@@ -936,7 +936,7 @@ func TestOwnerLiveReviewVerdicts(t *testing.T) {
 		}
 		ids = append(ids, f.ID)
 		body := renderValidateStoryComment(before, ValidateIssueRef{Key: f.Story}, 843)
-		if f.State != findingAwaitingCheck || !strings.Contains(body, ValidateCheckCommand+" "+before.Revision+" "+f.ID+" pass|fail -- <evidence>") || strings.Contains(body, "failed") || strings.Contains(body, "only on a new tested snapshot") {
+		if f.State != findingAwaitingCheck || (!strings.Contains(body, ValidateCheckCommand+" "+before.Revision+" "+f.ID+" pass -- <what you checked>") || !strings.Contains(body, ValidateCheckCommand+" "+before.Revision+" "+f.ID+" fail -- <what you saw>")) || strings.Contains(body, "failed") || strings.Contains(body, "only on a new tested snapshot") {
 			t.Fatalf("awaiting review: %+v\n%s", f, body)
 		}
 	}
@@ -1094,7 +1094,7 @@ func TestOwnerShipFromTheLinearTicketOwner(t *testing.T) {
 			nodes := o.toOwner()
 			st := o.state()
 			if !tc.ships {
-				if !strings.Contains(o.notice(), "Only the owner can give Validate commands.") || o.records() != before || len(o.forge.pushes) != 0 {
+				if !strings.Contains(o.notice(), "Only the owner can give Validate commands.") || !strings.Contains(o.notice(), "configured code approver") || o.records() != before || len(o.forge.pushes) != 0 {
 					t.Fatalf("a refused author shipped: notice %q path %s", o.notice(), joinNodes(nodes))
 				}
 				return
@@ -1225,7 +1225,7 @@ func TestOwnerAcceptsABlockingReviewFindingAsADeliberateDeviation(t *testing.T) 
 	if next := strings.Join(before.NextCommands(nil), "\n"); !strings.Contains(next, accept) {
 		t.Fatalf("NextCommands offers no accept: %s", next)
 	}
-	if body := renderValidateStoryComment(before, ValidateIssueRef{Key: "story-002"}, 843); !strings.Contains(body, "|accept -- <reason>") || !strings.Contains(body, "accept it as a deliberate deviation") {
+	if body := renderValidateStoryComment(before, ValidateIssueRef{Key: "story-002"}, 843); !strings.Contains(body, accept) || strings.Contains(body, "|accept -- <reason>") || !strings.Contains(body, "accept it as a deliberate deviation") {
 		t.Fatalf("the story comment offers no accept:\n%s", body)
 	}
 	if !strings.Contains(strings.Join(before.Open, " "), "accept -- <reason>") {

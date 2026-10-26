@@ -19,7 +19,7 @@ import (
 // one factory comment lists only what the story needs from the owner. A forge
 // failure is returned so the next refresh retries; a conflict with the frozen
 // requirements is logged and leaves the body alone.
-func (b ValidateFlowBindings) refreshValidateStories(ctx context.Context, opts Options, req ActivityRequest, st ValidateState, target ValidateDeliveryTarget) error {
+func (b ValidateFlowBindings) refreshValidateStories(ctx context.Context, opts Options, req ActivityRequest, st ValidateState, target ValidateDeliveryTarget, parentReportURL ...string) error {
 	if !st.Assessed || st.Suite.Outcome != store.SuitePassed {
 		return nil
 	}
@@ -34,6 +34,14 @@ func (b ValidateFlowBindings) refreshValidateStories(ctx context.Context, opts O
 	task, err := naming.ParseRef(session.TaskRef)
 	if err != nil {
 		return err
+	}
+	st, err = opts.ResearchReporter.redactValidateFindingSummaries(ctx, st)
+	if err != nil {
+		return err
+	}
+	reference := target.Parent.display().Reference()
+	if len(parentReportURL) > 0 && parentReportURL[0] != "" {
+		reference = "[current Validate report](" + parentReportURL[0] + ")"
 	}
 	var faults []error
 	for _, s := range target.Stories {
@@ -50,7 +58,7 @@ func (b ValidateFlowBindings) refreshValidateStories(ctx context.Context, opts O
 				continue
 			}
 		}
-		text := renderValidateStoryComment(st, s, target.Parent.Number, target.Parent.display().Reference())
+		text := renderValidateStoryComment(st, s, target.Parent.Number, reference)
 		if err := opts.ResearchReporter.reportValidateStory(ctx, session.ID, task, s.Number, fmt.Sprintf("validate-story:%d:%s", req.InstanceID, s.Key), text); err != nil {
 			faults = append(faults, fmt.Errorf("story %s (%s) comment: %w", s.Key, s.display().Reference(), err))
 		}
@@ -187,7 +195,7 @@ func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, refer
 		}
 	}
 	if len(notReviewed) > 0 {
-		b.WriteString("\n**Not reviewed**\n\n" + strings.Join(notReviewed, "\n") + "\n")
+		b.WriteString("\n**Not reviewed**\n\n" + strings.Join(notReviewed, "\n") + "\n\n" + validateRetryStep(st.Commit) + " Reply on the parent " + reference + ".\n")
 	}
 
 	var blocks []validateStoryLine
@@ -219,30 +227,37 @@ func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, refer
 	}
 
 	var items []validateStoryLine
-	rev := st.Revision
+	var waiting []string
+	// A recorded suite outcome other than passed: no owner check can settle an
+	// item until the suite passes.
+	suiteFailed := st.Suite.Outcome != "" && st.Suite.Outcome != store.SuitePassed
 	for _, f := range findings {
 		if !validateOwnerItem(st, f) {
 			continue
 		}
+		if suiteFailed && (f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable()) {
+			// No check can settle it while the suite fails; it is named on
+			// the single suite line below.
+			waiting = append(waiting, "`"+f.Name+"`")
+			continue
+		}
 		look := ""
 		if sum := strings.TrimSpace(f.Summary); sum != "" {
-			look = ": " + planTableCell(shortenFindingText(sum, bound))
+			look = ": " + escapeImplementText(shortenFindingText(sum, bound))
 		}
-		switch {
-		case f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable():
-			format := "- `%s` awaits your check%s\n  `%s %s %s pass|fail -- <evidence>`"
-			items = append(items, validateStoryLine{
-				full: fmt.Sprintf(format, f.Name, look, ValidateCheckCommand, rev, f.ID),
-				bare: fmt.Sprintf(format, f.Name, "", ValidateCheckCommand, rev, f.ID),
-			})
-		case f.needsChoice() && f.Choice == nil:
-			choices := "repair|issue bug|issue story"
-			if f.Optional {
-				choices += "|defer"
-			}
-			if f.acceptable() {
-				choices += "|accept -- <reason>"
-			}
+		one := st
+		bareFinding := f
+		bareFinding.Summary = ""
+		one.Findings = []ValidateFinding{bareFinding}
+		actions := validateDecisionItems(one)
+		if len(actions) == 0 {
+			continue
+		}
+		_, tail, _ := strings.Cut(actions[0], "\n")
+		intro := fmt.Sprintf("- `%s`", f.Name)
+		if f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable() {
+			intro += " awaits your check"
+		} else {
 			kind := "optional finding"
 			if f.Blocking {
 				kind = "blocking finding"
@@ -250,28 +265,29 @@ func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, refer
 			if f.Criterion {
 				kind = "failed criterion"
 			}
-			format := "- `%s` (%s) needs your choice%s\n  `%s %s %s %s`"
-			items = append(items, validateStoryLine{
-				full: fmt.Sprintf(format, f.Name, kind, look, ValidateFindingCommand, rev, f.ID, choices),
-				bare: fmt.Sprintf(format, f.Name, kind, "", ValidateFindingCommand, rev, f.ID, choices),
-			})
-		default:
-			e := st.Effects.Issues[f.ID]
-			line := fmt.Sprintf("- The issue for `%s` is %s (%s); repeat your choice\n  `%s %s %s issue %s`", f.Name, e.State, planTableCell(clipText(e.Error, 160)), ValidateFindingCommand, rev, f.ID, f.Choice.IssueKind)
-			items = append(items, validateStoryLine{full: line, bare: line})
+			intro += " (" + kind + ") needs your choice"
 		}
+		items = append(items, validateStoryLine{full: intro + look + "\n  " + tail, bare: intro + "\n  " + tail})
 	}
 
 	blockHead := "\n**Blocks**\n\n"
 	itemHead := fmt.Sprintf("\n**Your part** (give each command as its own comment on the parent %s):\n\n", reference)
+	suiteLine := ""
+	if len(waiting) > 0 {
+		suiteLine = fmt.Sprintf("\n**Your part:** the suite did not pass on commit `%s`; these items cannot be settled while it fails: %s. See the suite failure on the parent %s.\n", short(st.Commit), strings.Join(waiting, ", "), reference)
+	}
 	closing := ""
 	if fit > 0 {
-		blocks, items, closing = fitValidateStoryLines(b.Len(), fit, blockHead, itemHead, blocks, items)
+		blocks, items, closing = fitValidateStoryLines(b.Len()+len(suiteLine), fit-len(reference)-100, blockHead, itemHead, blocks, items)
 	}
 	if len(blocks) > 0 {
 		b.WriteString(blockHead + joinValidateStoryLines(blocks) + "\n")
 	}
+	b.WriteString(suiteLine)
 	if len(items) == 0 && closing == "" {
+		if suiteLine != "" {
+			return b.String()
+		}
 		b.WriteString("\n**Your part:** nothing to do.\n")
 		return b.String()
 	}
@@ -279,7 +295,7 @@ func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, refer
 		b.WriteString(itemHead + joinValidateStoryLines(items) + "\n")
 	}
 	if closing != "" {
-		b.WriteString("\n" + closing + "\n")
+		b.WriteString("\n" + closing + " Current destination: " + reference + ".\n")
 	}
 	return b.String()
 }

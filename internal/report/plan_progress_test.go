@@ -157,3 +157,25 @@ func TestRenderReportDelivery_StripsFactoryHostPaths(t *testing.T) {
 		t.Fatalf("stripping is not stable on a retained body: %v\n%s\n%s", err, text, again.String())
 	}
 }
+
+func TestRepairDiffHostPathsRemainPrivate(t *testing.T) {
+	t.Parallel()
+	for _, prefix := range []string{"+", "-"} {
+		raw := prefix + "/Users/private/.litefactory/tasks/secret.txt"
+		safe := report.StripHostPaths(raw, nil)
+		if strings.Contains(safe, "/Users/private/") {
+			t.Fatalf("diff prefix hid private host path: %q", safe)
+		}
+	}
+}
+
+func TestPlanReplyExplanationText_LongCauseKeepsCompleteCurrentAction(t *testing.T) {
+	t.Parallel()
+	command := "/approve-plan story-009 acceptance plan-55-600"
+	consequence := "It approves only that stage; later approvals remain required."
+	reason := strings.Repeat("A retained remote cause. ", 100) + " On this story's bound sub-issue, the current command is `" + command + "`. " + consequence
+	text := report.PlanReplyExplanationText("story-009", 398, 5, reason)
+	if !strings.Contains(text, command) || !strings.Contains(text, consequence) || !strings.Contains(text, "nothing was approved") {
+		t.Fatalf("short explanation dropped the complete action: %s", text)
+	}
+}

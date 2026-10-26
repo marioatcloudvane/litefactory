@@ -39,7 +39,7 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
 		return "", fmt.Errorf("prepare claude config dir: %w", err)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
 	args = append(args, "--setting-sources", "", "--disable-slash-commands", "--agents", "{}")
@@ -94,7 +94,7 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
 		return agent.ScheduleProposal{}, fmt.Errorf("prepare claude config dir: %w", err)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
 	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
@@ -152,7 +152,7 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("prepare claude config dir: %w", err)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
 	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
@@ -838,7 +838,7 @@ func (r *Runner) exec(
 	sink io.Writer,
 	logger *slog.Logger,
 ) (*RunResult, error) {
-	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
 
 	// killSubtree runs when runCtx is already done, so it cannot use runCtx for

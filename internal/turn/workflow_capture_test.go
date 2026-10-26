@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"reflect"
 	"strings"
 	"testing"
@@ -23,12 +24,12 @@ func TestWorkflowCaptureAllSixSourcesAndRetainedReplay(t *testing.T) {
 		specs    func() (graphexec.Registry, error)
 		capture  func(context.Context, graphexec.Registry) (*teamsource.WorkflowDefinition, error)
 	}{
-		{agent.WorkflowResearch, ResearchSpecs, teamsource.CaptureResearch},
-		{agent.WorkflowPlan, PlanSpecs, teamsource.CapturePlan},
-		{agent.WorkflowImplement, ImplementSpecs, teamsource.CaptureImplement},
-		{agent.WorkflowValidate, ValidateFlowSpecs, teamsource.CaptureValidate},
-		{agent.WorkflowSpike, SpikeSpecs, teamsource.CaptureSpike},
-		{agent.WorkflowBug, SimplifiedBugSpecs, teamsource.CaptureBugParent},
+		{agent.WorkflowResearch, ResearchSpecs, teamsourcetest.CaptureResearch},
+		{agent.WorkflowPlan, PlanSpecs, teamsourcetest.CapturePlan},
+		{agent.WorkflowImplement, ImplementSpecs, teamsourcetest.CaptureImplement},
+		{agent.WorkflowValidate, ValidateFlowSpecs, teamsourcetest.CaptureValidate},
+		{agent.WorkflowSpike, SpikeSpecs, teamsourcetest.CaptureSpike},
+		{agent.WorkflowBug, SimplifiedBugSpecs, teamsourcetest.CaptureBug},
 	}
 	for _, variant := range variants {
 		for _, provenance := range []string{"local", "fetched", "builtin", ""} {

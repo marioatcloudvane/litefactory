@@ -461,22 +461,23 @@ type Daemon struct {
 	// agents is the set of coding-agent-tool Kinds this daemon has a
 	// [agent.Runner] registered for, as it stood at startup. Read-only after
 	// New; see [Options.Agents] and [Daemon.resolveAgent].
-	agents       turn.RunnerSet
-	classifiers  map[agent.Kind]agent.Classifier
-	defaultAgent agent.Kind
-	interval     time.Duration
-	schedule     *discoverySchedule
-	health       healthPublisher
-	pause        pauseState
-	digest       digest
-	fates        commentFates
-	webhook      *webhookRuntime
-	chat         *chatRuntime
-	grace        time.Duration
-	log          *slog.Logger
-	lock         *Lock
-	now          func() time.Time
-	ticks        <-chan time.Time
+	agents          turn.RunnerSet
+	classifiers     map[agent.Kind]agent.Classifier
+	defaultAgent    agent.Kind
+	interval        time.Duration
+	schedule        *discoverySchedule
+	health          healthPublisher
+	pause           pauseState
+	digest          digest
+	fates           commentFates
+	remoteConnector *remoteConnectorRuntime
+	webhook         *webhookRuntime
+	chat            *chatRuntime
+	grace           time.Duration
+	log             *slog.Logger
+	lock            *Lock
+	now             func() time.Time
+	ticks           <-chan time.Time
 	// tick replaces [Daemon.Tick] in the heartbeat loop when set. Only a test
 	// sets it; nil runs the real tick.
 	tick func(context.Context) (TickResult, error)
@@ -664,7 +665,7 @@ func (d *Daemon) Close() error {
 	// The listener goes before the lock: a replacement daemon that wins the
 	// lock must find the port free.
 	webhookErr := d.closeWebhook()
-	return errors.Join(authorityErr, hostErr, webhookErr, d.lock.Close())
+	return errors.Join(authorityErr, hostErr, webhookErr, d.closeRemoteConnector(), d.lock.Close())
 }
 
 // Reconciled is what the startup reconciliation repaired (D-B, AC-2.21).
@@ -835,11 +836,9 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 // reportAbandoned posts the failure comment for one abandoned run and consumes
 // its triggering comment, reporting whether it got that far.
 //
-// The run is reported as what it was — a run that started and was killed by a
-// shutdown — rather than as a turn that never began, which is why a synthetic
-// [harness.RunResult] is assembled here from the row. The alternative, passing
-// a nil result, renders "litefactory did not record how this ended", and
-// litefactory does know: it recorded exactly this.
+// Persisted expiry is reported as timeout; other interrupted runs retain their
+// shutdown result. Reconstructing the process result from the row preserves
+// this distinction even when no process survived to produce a result.
 func (d *Daemon) reportAbandoned(ctx context.Context, run store.Run) bool {
 	log := d.log.With(
 		slog.Int64("session_id", run.SessionID),
@@ -861,14 +860,19 @@ func (d *Daemon) reportAbandoned(ctx context.Context, run store.Run) bool {
 		return false
 	}
 
+	recovered := report.Run{RecoveredTimeout: run.SemanticOutcome == "timed_out", Ref: ref, Ordinal: run.Ordinal, Result: abandonedResult(run), Branch: session.Branch, LogPath: run.LogPath}
+	timing, timingErr := d.db.GetAttemptTiming(ctx, 0, run.ID)
+	switch {
+	case timingErr == nil:
+		recovered.WorkerLimit, recovered.WorkerDeadline = timing.Allowance, timing.Deadline
+	case !errors.Is(timingErr, store.ErrNotFound):
+		log.WarnContext(ctx, "could not read retained worker timing for recovered run", slog.Any("error", timingErr))
+		recovered.Result.Reason += " Worker timing evidence unavailable."
+	case run.SemanticOutcome == "timed_out":
+		recovered.Result.Reason += " Worker timing evidence unavailable."
+	}
 	posted, err := d.reportRun(ctx, turn.RunReport{
-		Run: report.Run{
-			Ref:     ref,
-			Ordinal: run.Ordinal,
-			Result:  abandonedResult(run),
-			Branch:  session.Branch,
-			LogPath: run.LogPath,
-		},
+		Run:       recovered,
 		SessionID: run.SessionID,
 		CommentID: run.TriggerCommentID,
 		RunID:     run.ID,
@@ -909,7 +913,15 @@ func abandonedResult(run store.Run) *harness.RunResult {
 		StartedAt:  run.StartedAt,
 		FinishedAt: run.FinishedAt,
 	}
-	if result.Reason == "" {
+	if run.SemanticOutcome == "timed_out" {
+		result.Outcome = agent.OutcomeTimedOut
+		if result.Reason == "" {
+			result.Reason = run.RecoveryReason
+		}
+		if result.Reason == "" {
+			result.Reason = "The recorded worker deadline expired before restart."
+		}
+	} else if result.Reason == "" {
 		result.Reason = store.ReasonAbandoned
 	}
 	if run.ExitCode != nil {
@@ -979,6 +991,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 
+	d.serveRemoteConnector(webCtx, &serving)
 	d.chatServe(webCtx, &serving)
 	done := make(chan struct{})
 	go func() {

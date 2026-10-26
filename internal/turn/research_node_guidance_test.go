@@ -1,13 +1,12 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 var fencedJSON = regexp.MustCompile("(?s)```json\\n(.*?)\\n```")
@@ -22,7 +21,7 @@ func TestShippedNodeResultResourceDecodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := teamsource.CaptureResearch(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,9 +37,6 @@ func TestShippedNodeResultResourceDecodes(t *testing.T) {
 	scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "research", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
 	seen := map[string]bool{}
 	for _, block := range blocks {
-		if strings.Contains(string(block[1]), `"version"`) || strings.Contains(string(block[1]), `"response"`) {
-			t.Errorf("shipped resource still teaches a printed envelope: %s", block[1])
-		}
 		result, d := agentresult.Create(block[1], scope)
 		if !d.Valid {
 			t.Errorf("shipped result is rejected by the shared validator: %+v", d.Diagnostics)

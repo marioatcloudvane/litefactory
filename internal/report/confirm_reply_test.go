@@ -179,8 +179,8 @@ func TestReplyConfirmAlreadyAppliedNamesTheIDAsANoOp(t *testing.T) {
 }
 
 // TestReplyConfirmFailedDisclosesOutcomeWithoutClaimingRestoration is AC-12.6: a failed
-// application discloses that the branch, index and commits are unchanged and
-// invites a retry.
+// application preserves uncertainty about local changes and requires inspection
+// before another confirmation.
 func TestReplyConfirmFailedDisclosesOutcomeWithoutClaimingRestoration(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
@@ -194,9 +194,10 @@ func TestReplyConfirmFailedDisclosesOutcomeWithoutClaimingRestoration(t *testing
 	}
 	containsAll(t, "the failed-application reply", body.String(),
 		"I could not complete application of proposal `15`",
-		"Resolve the reported issue manually",
+		"Ask the factory operator",
 		"failed cleanup or push can leave local changes",
-		"confirm the new proposal number",
+		"before another confirmation",
+		report.TaskInspectionCommand(testRef.String()),
 	)
 }
 

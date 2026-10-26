@@ -518,11 +518,26 @@ func (d *Daemon) implementCoordinatorDispatch(ctx context.Context, dispatch stor
 // Reconciliation owns no execution: only an idle task can surrender its stale
 // dispatch. Both startup and ticks use the same durable and in-memory fences.
 func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) error {
-	interrupted, err := d.db.ListInterruptedGraphDispatches(ctx)
+	// A prelaunch run whose own dispatch is finished or cancelled can never be
+	// resumed, yet it blocks stranded recovery and closure cleanup for its whole
+	// session. Settle such runs first, one claimed and locked session at a time.
+	orphaned, err := d.db.ListOrphanedGraphPrelaunchSessions(ctx)
 	if err != nil {
 		return err
 	}
 	var faults error
+	for _, sessionID := range orphaned {
+		if !d.enterDoctorGuarded(ctx, sessionID) {
+			continue
+		}
+		err := d.settleOrphanedGraphPrelaunch(ctx, sessionID, at)
+		d.inflight.leave(sessionID)
+		faults = errors.Join(faults, err)
+	}
+	interrupted, err := d.db.ListInterruptedGraphDispatches(ctx)
+	if err != nil {
+		return errors.Join(faults, err)
+	}
 	for _, dispatch := range interrupted {
 		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
 			continue
@@ -544,6 +559,21 @@ func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) err
 		faults = errors.Join(faults, err)
 	}
 	return faults
+}
+
+func (d *Daemon) settleOrphanedGraphPrelaunch(ctx context.Context, sessionID int64, at time.Time) (err error) {
+	locked, err := d.db.AcquireSessionLock(ctx, sessionID, d.instanceID)
+	if err != nil || !locked {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, d.db.ReleaseSessionLock(context.WithoutCancel(ctx), sessionID, d.instanceID))
+	}()
+	settled, err := d.db.SettleOrphanedGraphPrelaunchRuns(ctx, sessionID, at)
+	if err == nil && settled > 0 {
+		d.log.InfoContext(ctx, "failed prelaunch runs whose graph dispatch is no longer live", slog.Int64("session_id", sessionID), slog.Int("runs", settled))
+	}
+	return err
 }
 
 func (d *Daemon) reconcileGraphDispatch(ctx context.Context, dispatch store.GraphDispatch, at time.Time) (err error) {

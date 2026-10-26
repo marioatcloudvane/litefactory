@@ -4,7 +4,7 @@
 
 Validate checks finished work and helps you ship it. It tests one exact commit, may repair a failing suite a little, has three read-only reviewers assess the result, and then hands the decisions to you. Start it with `/validate <text>`, or let `validate.auto_start` start it once Implement has merged every story. For the owner's view, see [validation and delivery](../guides/validation-and-delivery.md).
 
-The graph is `internal/teamsource/validate/validate.dot`, and it is the only place the flow lives: the order, the repair bound, the time budget, the measured limits and the reviewers are declared there. Go supplies steps and never picks the next one.
+The graph is `teams/source/base-team/validate/validate.dot`, and it is the only place the flow lives: the order, the repair bound, the time budget, the measured limits and the reviewers are declared there. Go supplies steps and never picks the next one.
 
 ## The suite
 
@@ -29,10 +29,11 @@ repair check -> kept:       suite (on the new commit)
                 blocked:    review
 review -> outcome -> assessed | handed_back | blocked
 owner resolve -> repair: repair budget (owner-chosen findings)
+                 apply_repair: exact retained adoption -> suite | blocked: report
 ```
 
 A finished suite result for the commit is reused as it is. The suite runs again
-only on the commit a kept repair made. A blocked suite is not a code failure, so it
+only on a new commit from a kept repair or verified owner adoption. A blocked suite is not a code failure, so it
 is not repaired; it still gets reviews and ends blocked with the suite's reason.
 
 ## Repair
@@ -40,8 +41,9 @@ is not repaired; it still gets reviews and ends blocked with the suite's reason.
 At most two repair rounds per run, declared as `lf_rounds` on the budget step and
 as the limit of the repair agent. A round is counted from the moment it starts, so
 a round that times out or is interrupted is used. Before anything else, the budget
-step settles a round a restart left unfinished: the worktree goes back to the
-commit before the round and the round is recorded as interrupted.
+step first reconciles retained capture, reset and application intents with the
+actual Git state. No worker can use an unresolved worktree. Before reset, a complete
+candidate must be saved and verified; failed capture leaves the source intact.
 
 The repair agent has write access only if the operator granted the `validate-repair` permission profile under `tool_profiles.permissions` (see [permissions](../configuration/permissions.md)); without it only the repair step is refused, and reviewers stay read-only. It also has a time budget (`lf_budget`, in minutes, at
 most 60; the graph declares 15). The budget bounds the agent run only, never the
@@ -50,8 +52,34 @@ out. The check step measures what the agent really changed against the commit
 before the round, with the limits the graph declares (`lf_max_files` and
 `lf_forbid`: package, dependency, schema, api, deleted or skipped tests, changed
 acceptance criteria). A change inside the limits is committed by the factory. A
-change over them is retained as a diff, the worktree is reset and the flow goes to
-review and then a handback.
+change over them, including a handback, is captured as a complete immutable tree,
+binary-capable patch and path/mode manifest before reset. The short round diff
+is only a preview. Full candidate bytes drive the existing risk rules; unknown
+analysis never appears safe. The flow goes to review and then a handback.
+
+### Retained candidate review and adoption
+
+The owner uses `/validate-repair <report-revision> <candidate-id> <review-digest>
+inspect|accept|discard`. The report links every ordered review part, including the
+complete patch, changed paths and modes, flag reasons, diagnosis, measured risks
+and uncertainty. Receipt reconciliation uses the existing multipart delivery
+journal. Missing delivery or redaction leaves review incomplete and acceptance
+unavailable. Reset and restart do not resolve a pending candidate.
+
+Only the authenticated owner can resolve the current report's exact candidate and
+review digest. Acceptance additionally requires existing code authority, a clean
+worktree on the unchanged reviewed base and unchanged frozen scope. Frozen
+acceptance-criteria and protected session-scope changes remain ineligible. A changed
+candidate or branch needs fresh review; no rebase or merge is implicit.
+
+The resolve step records authorization only. The separate
+`lf_validate_repair_apply` step journals the intended commit before mutation,
+installs exactly the retained tree, verifies the resulting tree and records the
+result commit. Its `applied` edge returns to the suite and all reviewers; `blocked`
+returns to the report. Restart reconciles base, intended result, actual branch and
+tree rather than blindly replaying. Pending, discarded and authorization-only
+records never select the tested commit. Discard applies no files. Historical
+flagged rounds, two-round budgets and shipping gates stay unchanged.
 
 ### Repairs the owner chooses
 

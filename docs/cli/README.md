@@ -5,6 +5,7 @@ Use the terminal to register repositories, manage teams, run the daemon and look
 | Topic | Use it for |
 | --- | --- |
 | [Repositories](repositories.md) | Register a clone and choose its base branch, branch prefix and worktree folder. |
+| [Connector grants](connector-grants.md) | Inspect connector reach and lifetime, or revoke access locally. |
 | [Teams](teams.md) | Install, copy, link and remove team packages of agent instructions. |
 | [Standards book](standards.md) | Propose, review, approve and publish shared guidance with retained history. |
 | [Command reference](command-reference.md) | Every command, argument, flag, default and exit code. |

@@ -49,6 +49,8 @@ type ReporterOptions struct {
 	// StoryLockDir is config.Paths.StoryProgressLocksDir, shared by every process.
 	BotUserID    int64
 	StoryLockDir string
+	// ValidateHead reads the current delivery head before publishing recovered guidance.
+	ValidateHead func(context.Context, store.Session) (string, error)
 	// DB is the open database. Required.
 	//
 	// It is the concrete store and not a narrow interface, deliberately, and it
@@ -101,6 +103,7 @@ func (o ReporterOptions) validate() error {
 //
 // A Reporter is immutable after construction and safe for concurrent use.
 type Reporter struct {
+	validateHead func(context.Context, store.Session) (string, error)
 	botUserID    int64
 	storyLockDir string
 	db           *store.DB
@@ -126,7 +129,7 @@ func NewReporter(opts ReporterOptions) (*Reporter, error) {
 			return nil, errors.Join(fmt.Errorf("story acknowledgement lock directory must be a real directory"), err)
 		}
 	}
-	return &Reporter{db: opts.DB, forge: opts.Forge, renderer: opts.Renderer, log: opts.Logger, botUserID: opts.BotUserID, storyLockDir: opts.StoryLockDir}, nil
+	return &Reporter{validateHead: opts.ValidateHead, db: opts.DB, forge: opts.Forge, renderer: opts.Renderer, log: opts.Logger, botUserID: opts.BotUserID, storyLockDir: opts.StoryLockDir}, nil
 }
 
 // Posted is what a report left behind.
@@ -607,6 +610,11 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 	}
 
 	intent := r.deliveryIntent(ref, destination, rep.SessionID, rep.CommentID, rep.RunID, "run-report")
+	if renderer, ok := r.renderer.(interface {
+		RenderRunParts(context.Context, report.Run) (redact.Body, []redact.Body, error)
+	}); ok {
+		return r.deliverRunParts(ctx, intent, rep, renderer)
+	}
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
 		if refinement != nil {
 			var err error
@@ -692,7 +700,16 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 				return redact.Body{}, err
 			}
 		}
+		var decisionURL string
+		if workflowDecisionReply(kind) {
+			var err error
+			decisionURL, err = r.workflowDecisionURL(ctx, req.Ref, req.SessionID, kind)
+			if err != nil {
+				return redact.Body{}, err
+			}
+		}
 		return r.renderer.RenderReply(ctx, report.Reply{
+			DecisionURL:     decisionURL,
 			SourceParentURL: parentURL, SourceReplyURL: replyURL,
 			Ref:                      req.Ref,
 			SourceStoryIssue:         sourceStory,
@@ -873,7 +890,17 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 	if err != nil {
 		return report.Run{}, err
 	}
+	var timing store.AttemptTiming
+	if r.db != nil && result.Run.ID > 0 {
+		var timingErr error
+		timing, timingErr = r.db.GetAttemptTiming(ctx, 0, result.Run.ID)
+		if timingErr != nil && !errors.Is(timingErr, store.ErrNotFound) {
+			return report.Run{}, timingErr
+		}
+	}
 	return report.Run{
+		WorkerLimit:              timing.Allowance,
+		WorkerDeadline:           timing.Deadline,
 		PreparationCaveats:       append([]string(nil), result.Run.PreparationCaveats...),
 		ConflictProposal:         conflictProposalForRun(result.ConflictProposal),
 		ConflictSuggestionFailed: result.ConflictSuggestionFailed,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/retainedevidence"
 	"github.com/cloudvane/litefactory/internal/store"
 )
+
+var errConversationBudget = errors.New("conversation budget exhausted")
 
 type factoryConversationPrompt struct {
 	RetainedEvidence []store.ConversationEvidence `json:"retained_evidence,omitempty"`
@@ -39,7 +42,7 @@ type factoryConversationPrompt struct {
 	Focus      *conversationFocus `json:"focus,omitempty"`
 	Correction string             `json:"correction,omitempty"`
 	// CorrectionReason is the factory's plain reason the previous output was
-	// rejected, so the one correction can fix the actual defect.
+	// rejected, so a bounded correction can fix the actual defect.
 	CorrectionReason string `json:"correction_reason,omitempty"`
 	SavedOutcome     string `json:"saved_outcome,omitempty"`
 	// ConsultNote says why a consult is not available now.
@@ -92,6 +95,7 @@ type factoryConversationRun struct {
 	calls, ordinal int
 	savedOutcomes  string
 	safe           bool
+	savedPrompt    string
 	// focus is the newest project and issue this conversation resolved.
 	focus *conversationFocus
 	// consults counts this turn's reasoner consults; at most one runs.
@@ -143,8 +147,11 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 	if err := r.s.validateConversationPrompt(ctx, r.c.ID, prompt, instructions, true, r.at); err != nil {
 		return nil, err
 	}
+	if r.ordinal > 14 {
+		return nil, fmt.Errorf("%w: exchange slot budget exhausted", errConversationBudget)
+	}
 	if r.calls >= r.maxCalls() {
-		return nil, errors.New("conversation invocation budget exhausted")
+		return nil, fmt.Errorf("%w: invocation budget exhausted", errConversationBudget)
 	}
 	runtime := r.s.conversations.Load()
 	if err := conversationAccess(ctx, runtime, r.c.ChannelRef, r.at); err != nil {
@@ -160,6 +167,9 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 	protected, err := r.s.Protect(ctx, prompt)
 	if err != nil {
 		return nil, err
+	}
+	if r.savedPrompt != "" && protected != r.savedPrompt {
+		return nil, errors.New("saved continuation changed during redaction; replay refused")
 	}
 	prompt = protected
 	if err := r.s.validateConversationPrompt(ctx, r.c.ID, prompt, instructions, true, r.at); err != nil {
@@ -247,14 +257,29 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		return err
 	}
 	run := &factoryConversationRun{instructions: instructions, s: s, c: c, b: b, t: t, at: at, safe: true}
-	savedOutcomes, err := run.consumeOutcomes(work)
+	exchanges, err := s.db.ListConversationExchanges(work, t.ID)
 	if err != nil {
 		return err
 	}
+	var savedOutcomes string
+	if len(exchanges) == 0 {
+		savedOutcomes, err = run.consumeOutcomes(work)
+		if err != nil {
+			return err
+		}
+	} else {
+		for _, x := range exchanges {
+			if x.Kind == "saved_outcome" {
+				savedOutcomes += x.Result + "\n"
+			}
+		}
+	}
 	run.savedOutcomes = savedOutcomes
 	// Confirmation and cancellation never enter model interpretation.
-	if handled, err := run.confirm(work); handled || err != nil {
-		return err
+	if len(exchanges) == 0 {
+		if handled, err := run.confirm(work); handled || err != nil {
+			return err
+		}
 	}
 	// A live proposal stays open: the agent judges whether this message
 	// confirms it, cancels it or changes the request (a new proposal).
@@ -352,7 +377,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		return err
 	}
 	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes, OpenProposal: open, AuthorSession: author}
-	corrected, lookups, pendingLookup, err := run.resumeBoundary(work, &prompt)
+	corrections, lookups, pendingLookup, err := run.resumeBoundary(work, &prompt)
 	if err != nil {
 		return run.failed(ctx, err)
 	}
@@ -385,12 +410,17 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				return err
 			}
 			var raw []byte
-			raw, err = run.invoke(work, string(encoded))
+			requestPrompt := string(encoded)
+			if run.savedPrompt != "" {
+				requestPrompt = run.savedPrompt
+			}
+			raw, err = run.invoke(work, requestPrompt)
+			run.savedPrompt = ""
 			if err != nil {
 				return run.failed(ctx, err)
 			}
 			envelope, inv, err = DecodeConversationEnvelope(raw, ConversationDecodeRequest{Turns: turns, Commands: s.ConversationCommands(), References: refs, OwnerID: s.owner, ChannelID: c.ChannelRef, Now: at, Proposal: proposal})
-			if err == nil && !corrected {
+			if err == nil && corrections == 0 {
 				// A standards change missing terms the agent can supply goes
 				// back to it once, rather than to the owner as a question.
 				if gap := standardsProposeGap(envelope, inv, t.SourceID); gap != "" {
@@ -398,8 +428,8 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				}
 			}
 			if err != nil {
-				if !corrected && run.calls < run.maxCalls() {
-					corrected = true
+				if corrections < 2 && run.calls < run.maxCalls() && run.ordinal <= 13 {
+					corrections++
 					prompt.Correction = instructions.Correction()
 					prompt.CorrectionReason = conversationEnvelopeReason(err)
 					// The provider completed, but its invalid envelope cannot serve as
@@ -423,7 +453,13 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 					continue
 				}
 				s.logConversationFailure(ctx, c, t, agent.ConversationError(err, "validation", false))
-				return s.conversationOutcome(ctx, t, "completed", conversationCauseReply(err, at), at)
+				limit := "The response correction limit was reached. "
+				if run.calls >= run.maxCalls() {
+					limit = "The conversation invocation budget was reached. "
+				} else if run.ordinal > 13 {
+					limit = "The conversation exchange slot budget was reached. "
+				}
+				return run.limit(ctx, limit+conversationCauseReply(err, at))
 			}
 			prompt.Correction, prompt.CorrectionReason = "", ""
 			run.ordinal++
@@ -458,6 +494,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		case "lookup":
 			if lookups >= 3 || run.calls >= run.maxCalls() {
 				break
+			}
+			if run.ordinal > 13 {
+				return run.failed(ctx, fmt.Errorf("%w: exchange slot budget exhausted before lookup", errConversationBudget))
 			}
 			lookups++
 			result, ref, err := run.lookup(work, inv)
@@ -502,6 +541,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			prompt.Focus = run.focus
 			prompt.addEvidence(result)
 		case "consult":
+			if run.ordinal > 13 {
+				return run.failed(ctx, fmt.Errorf("%w: exchange slot budget exhausted before consult", errConversationBudget))
+			}
 			if run.consults > 0 {
 				prompt.ConsultNote = conversationReasonerNote
 				break
@@ -543,18 +585,28 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			prompt.addEvidence(result)
 		}
 	}
-	return s.conversationOutcome(ctx, t, "completed", "The lookup budget was reached before a completed answer. Current evidence is retained, but the answer is unavailable. Please narrow the question.", at)
+	return run.limit(ctx, "The conversation invocation or lookup budget was reached before a completed answer. Current evidence is retained, but the answer is unavailable. Please narrow the question.")
+}
+
+func (r *factoryConversationRun) limit(ctx context.Context, notice string) error {
+	if r.savedOutcomes != "" {
+		notice = "Saved action outcome:\n" + r.savedOutcomes + "\n\n" + notice
+	}
+	return r.s.conversationOutcome(ctx, r.t, "completed", notice, r.at)
 }
 
 func (r *factoryConversationRun) failed(ctx context.Context, cause error) error {
 	r.s.logConversationFailure(ctx, r.c, r.t, cause)
-	if errors.Is(cause, errConversationInstructions) {
+	if errors.Is(cause, errConversationInstructions) && r.savedOutcomes == "" {
 		return cause
 	}
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+	if errors.Is(cause, errConversationBudget) {
+		return r.limit(cleanup, cause.Error()+". No further work was launched; retained outcomes and evidence may be incomplete.")
+	}
 	if r.savedOutcomes != "" {
-		if err := r.s.conversationOutcome(cleanup, r.t, "interrupted", r.savedOutcomes, r.at); err != nil {
+		if err := r.s.conversationOutcome(cleanup, r.t, "interrupted", r.savedOutcomes+"\n\nThe follow-up answer could not be completed. No action was repeated; remaining context may be incomplete.", r.at); err != nil {
 			return err
 		}
 		if r.c.SessionHandle == "" && !conversationPreStartRetry(cause) {
@@ -583,9 +635,9 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 	}
 	// Even a correction or continuation can have uncertain provider completion.
 	if reply := conversationCauseReply(cause, r.at); reply != "" {
-		return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply+" Your next message continues the same conversation.", r.at)
+		return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply+" The provider input will not be replayed. Ask here for the status of your previous request; your next message continues the retained conversation.", r.at)
 	}
-	return r.s.conversationOutcome(cleanup, r.t, "interrupted", "The conversation turn was interrupted or unavailable before a completed answer was saved. Its provider input will not be replayed. Your next message will resume the retained session.", r.at)
+	return r.s.conversationOutcome(cleanup, r.t, "interrupted", "The conversation turn was interrupted or unavailable before a completed answer was saved. Its provider input will not be replayed. Ask here for the status of your previous request; your next message resumes the retained session.", r.at)
 }
 
 func (r *factoryConversationRun) references(ctx context.Context) ([]ConversationReference, error) {
@@ -860,24 +912,67 @@ type conversationPendingLookup struct {
 	Request    string               `json:"-"`
 }
 
-func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *factoryConversationPrompt) (bool, int, *conversationPendingLookup, error) {
+func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *factoryConversationPrompt) (int, int, *conversationPendingLookup, error) {
+	if r.instructions == nil {
+		capture, err := r.s.restoreConversationInstructions(ctx, r.c.ID, r.at)
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		r.instructions = capture
+	}
 	exchanges, err := r.s.db.ListConversationExchanges(ctx, r.t.ID)
 	if err != nil {
-		return false, 0, nil, err
+		return 0, 0, nil, err
 	}
 	if len(exchanges) == 0 {
-		return false, 0, nil, nil
+		return 0, 0, nil, nil
 	}
-	corrected, lookups := false, 0
-	for _, x := range exchanges {
+	current := *prompt
+	corrections, lookups := 0, 0
+	for i, x := range exchanges {
+		if x.Ordinal != i+1 || x.TurnID != r.t.ID || x.Ordinal > 16 {
+			return 0, 0, nil, errors.New("invalid conversation journal sequence")
+		}
+		if x.Kind == "correction" {
+			if err := r.s.validateConversationPrompt(ctx, r.c.ID, x.Request, r.instructions, true, r.at); err != nil {
+				return 0, 0, nil, err
+			}
+			var saved factoryConversationPrompt
+			if err := json.Unmarshal([]byte(x.Request), &saved); err != nil {
+				return 0, 0, nil, err
+			}
+			if saved.Correction == "" || saved.CorrectionReason == "" {
+				return 0, 0, nil, errors.New("missing saved correction feedback")
+			}
+			corrections++
+			if !x.Complete {
+				return 0, 0, nil, errors.New("incomplete conversation correction boundary")
+			}
+			if corrections > 2 {
+				return 0, 0, nil, fmt.Errorf("%w: correction limit exceeded in saved journal", errConversationBudget)
+			}
+		}
+		if !validConversationTransition(exchanges, i) {
+			return 0, 0, nil, errors.New("inconsistent conversation journal boundary")
+		}
 		r.ordinal = x.Ordinal
 		if x.Kind == "provider" {
 			r.calls++
-			if err := json.Unmarshal([]byte(x.Request), prompt); err != nil {
-				return false, 0, nil, err
+			if x.ProviderAttempt != fmt.Sprintf("%s:%d", r.t.ID, r.calls) {
+				return 0, 0, nil, errors.New("invalid saved provider attempt identity")
 			}
-			if prompt.Correction != "" {
-				corrected = true
+			if x.Complete && x.Gaps == "provider_not_started" {
+				if i != len(exchanges)-1 {
+					return 0, 0, nil, errors.New("invalid pre-start journal boundary")
+				}
+				r.calls--
+			}
+			if err := r.s.validateConversationPrompt(ctx, r.c.ID, x.Request, r.instructions, true, r.at); err != nil {
+				return 0, 0, nil, err
+			}
+			*prompt = factoryConversationPrompt{}
+			if err := json.Unmarshal([]byte(x.Request), prompt); err != nil {
+				return 0, 0, nil, err
 			}
 		}
 		if x.Kind == "lookup" {
@@ -887,73 +982,112 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 			r.consults++
 		}
 	}
+	if r.calls > r.maxCalls() || lookups > 3 || r.consults > 1 {
+		return 0, 0, nil, fmt.Errorf("%w: saved journal exceeds turn limits", errConversationBudget)
+	}
 	last := exchanges[len(exchanges)-1]
 	switch last.Kind {
 	case "saved_outcome":
 		if r.calls == 0 {
-			return corrected, lookups, nil, nil
+			return corrections, lookups, nil, nil
 		}
 	case "lookup", "consult":
+		if r.c.SessionHandle == "" {
+			return 0, 0, nil, agent.ErrConversationSessionMissing
+		}
+		if err := r.validateContinuationContext(ctx, prompt); err != nil {
+			return 0, 0, nil, err
+		}
 		// A saved consult without its evidence runs again: the reasoner is
 		// stateless and read-only, so a repeat cannot double an effect.
 		var pending conversationPendingLookup
 		if !last.Complete {
-			return false, 0, nil, errors.New("incomplete saved lookup")
+			return 0, 0, nil, errors.New("incomplete saved lookup")
 		}
 		if err := json.Unmarshal([]byte(last.Request), &pending); err != nil {
-			return false, 0, nil, err
+			return 0, 0, nil, err
 		}
 		if pending.Envelope.Kind != last.Kind {
-			return false, 0, nil, errors.New("invalid saved lookup")
+			return 0, 0, nil, errors.New("invalid saved lookup")
+		}
+		encoded, err := json.Marshal(pending.Envelope)
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		if pending.Envelope.Kind == "lookup" && len(pending.Envelope.Arguments) == 0 {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				return 0, 0, nil, err
+			}
+			fields["arguments"] = json.RawMessage("[]")
+			encoded, err = json.Marshal(fields)
+			if err != nil {
+				return 0, 0, nil, err
+			}
+		}
+		_, inv, err := DecodeConversationEnvelope(encoded, ConversationDecodeRequest{Turns: current.OwnerSources, Commands: r.s.ConversationCommands(), References: current.References, OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, Now: r.at})
+		if err != nil || !reflect.DeepEqual(inv, pending.Invocation) {
+			return 0, 0, nil, errors.New("saved lookup no longer matches current sources or target")
 		}
 		pending.Request = last.Request
+		prompt.References = current.References
+		prompt.OwnerSources = current.OwnerSources
 		prompt.Correction, prompt.CorrectionReason = "", ""
 		if last.Kind == "consult" {
 			r.consults--
-			return corrected, lookups, &pending, nil
+			return corrections, lookups, &pending, nil
 		}
-		return corrected, lookups - 1, &pending, nil
+		return corrections, lookups - 1, &pending, nil
 	case "evidence":
+		if err := r.validateContinuationContext(ctx, prompt); err != nil {
+			return 0, 0, nil, err
+		}
 		result, err := decodeConversationEvidence(last)
 		if err != nil {
-			return false, 0, nil, err
+			return 0, 0, nil, err
 		}
 		if result.Command == "inbox" {
 			if id := result.Arguments["inbox_snapshot"]; id != "" {
 				if err = r.s.authorizeInboxResult(ctx, r.c.ChannelRef, result, r.at); err != nil {
-					return false, 0, nil, err
+					return 0, 0, nil, err
 				}
 			}
 			r.inboxResume = &result
-			return corrected, lookups, nil, nil
+			return corrections, lookups, nil, nil
 		}
 		if err := r.retainLookup(ctx, result, 32+last.Ordinal); err != nil {
-			return false, 0, nil, err
+			return 0, 0, nil, err
 		}
 		prompt.addEvidence(result)
 		prompt.Correction, prompt.CorrectionReason = "", ""
 		refs, err := r.references(ctx)
 		if err != nil {
-			return false, 0, nil, err
+			return 0, 0, nil, err
 		}
 		prompt.References = refs
-		return corrected, lookups, nil, nil
+		return corrections, lookups, nil, nil
 	case "correction":
 		if !last.Complete {
-			return false, 0, nil, errors.New("incomplete correction boundary")
+			return 0, 0, nil, errors.New("incomplete correction boundary")
 		}
+		*prompt = factoryConversationPrompt{}
 		if err := json.Unmarshal([]byte(last.Request), prompt); err != nil {
-			return false, 0, nil, err
+			return 0, 0, nil, err
 		}
-		return true, lookups, nil, nil
+		if err := r.validateSavedContinuation(ctx, last.Request, prompt); err != nil {
+			return 0, 0, nil, err
+		}
+		return corrections, lookups, nil, nil
 	case "provider":
 		if last.Complete && last.Gaps == "provider_not_started" {
+			if err := r.validateSavedContinuation(ctx, last.Request, prompt); err != nil {
+				return 0, 0, nil, err
+			}
 			// Reuse the identical pre-launch journal slot and invocation count.
-			r.calls--
 			r.ordinal--
-			return corrected, lookups, nil, nil
+			return corrections, lookups, nil, nil
 		}
 	}
 	r.safe = false
-	return false, 0, nil, errors.New("provider completion uncertain; replay refused")
+	return 0, 0, nil, errors.New("provider completion uncertain; replay refused")
 }

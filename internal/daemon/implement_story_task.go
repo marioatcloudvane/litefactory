@@ -101,7 +101,7 @@ func (d *Daemon) implementWork(ctx context.Context, row store.ImplementStory, at
 // story with no instance, or whose last instance ended, is offered, and a story
 // whose runs keep ending on a fault is parked with its latest cause.
 func (d *Daemon) implementWorkable(ctx context.Context, row store.ImplementStory) (int64, bool, error) {
-	if row.State != store.ImplementRunning {
+	if row.TimeoutAttemptID != 0 || row.State != store.ImplementRunning {
 		return 0, false, nil
 	}
 	if row.WorkerSession == 0 {
@@ -207,6 +207,12 @@ func (d *Daemon) implementWorkSettled(ctx context.Context, t *task, scheduled st
 // next tick, so several stories build side by side and one that fails stops no
 // other.
 func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate, now time.Time) error {
+	if err := d.graphImplementTimeoutReplies(ctx, byRepo, seen); err != nil {
+		return err
+	}
+	if err := d.readyImplementTimeoutResumes(ctx, now); err != nil {
+		return err
+	}
 	rows, err := d.db.ListImplementStoriesNeedingWorker(ctx)
 	if err != nil {
 		return err

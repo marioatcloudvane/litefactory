@@ -35,11 +35,11 @@ profile. `litefactory init` writes both.
 ## The graph
 
 The whole flow lives in one file,
-[`internal/teamsource/spike/spike.dot`](../../internal/teamsource/spike/spike.dot).
+[`teams/source/base-team/spike/spike.dot`](../../teams/source/base-team/spike/spike.dot).
 Order, limits, access levels, size thresholds and the status written for each
 path are declared there; Go supplies steps and never picks the next one. Roles are
 `spike-investigator` and `spike-fixer`, both using the
-[`spike-result`](../../internal/teamsource/spike/skills/spike-result/SKILL.md)
+[`spike-result`](../../teams/source/base-team/spike/skills/spike-result/SKILL.md)
 skill, which defines the result each response must carry. Read those files rather
 than a copy here.
 

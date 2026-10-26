@@ -25,7 +25,7 @@ func TestShippedPlanGraphWalkPicksUpTheSetRoleFromTheDefinition(t *testing.T) {
 	t.Parallel()
 	var plan *shippedWorkflow
 	for _, w := range discoverShippedWorkflows(t) {
-		if w.Name == "plan" {
+		if w.Name == goTeam+"/plan" {
 			plan = &w
 		}
 	}
@@ -52,7 +52,7 @@ func TestShippedPlanGraphWalkPicksUpTheSetRoleFromTheDefinition(t *testing.T) {
 // node reads the set skill.
 func TestPlanSetAgentNodeCapturesTheShippedRoleAndSkill(t *testing.T) {
 	t.Parallel()
-	d, err := CapturePlan(t.Context(), planPackageRegistry(t))
+	d, err := capturePlan(t.Context(), t, planPackageRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestShippedCreationCycleBoundIsTheConstant(t *testing.T) {
 	if graphexec.PlanCreationBound != planbrief.MaxPlanStorySetEntries+1 {
 		t.Fatalf("bound %d is not the set limit %d plus one revision pass", graphexec.PlanCreationBound, planbrief.MaxPlanStorySetEntries)
 	}
-	d, err := CapturePlan(t.Context(), planPackageRegistry(t))
+	d, err := capturePlan(t.Context(), t, planPackageRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestShippedCreationCycleBoundIsTheConstant(t *testing.T) {
 // through a failure or exhausted loop.
 func TestShippedPlanGraphSkipsTheSetStageWhenTheDecisionIsFalse(t *testing.T) {
 	t.Parallel()
-	d, err := CapturePlan(t.Context(), planPackageRegistry(t))
+	d, err := capturePlan(t.Context(), t, planPackageRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}

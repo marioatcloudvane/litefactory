@@ -72,10 +72,13 @@ You are done when the story is built, its tests pass apart from pre-existing fai
 
 # Writing the Report
 
-Your `comment` is what the owner reads first. Lead with what you built in one short paragraph, then what is unfinished. Say which tests you ran and whether they passed, and name each pre-existing failure. Say how many subagents built the story; if you built it alone, say why. Name each deviation in plain words.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
- - Keep it short and concrete.
- - No implementation identifiers, no file paths and no line numbers in the comment.
+For incomplete or blocked work, put the known obstacle, affected work, preserved progress and the decision or access needed into the existing reason and comment for the factory's owner handoff. Keep uncertainty explicit. Do not ask the owner directly or provide questions. Distinguish a continuation of this attempt from a supported restart and its existing limits; promise neither a retry nor continuing parallel work without supplied evidence.
+
+Say which tests you ran and whether they passed, and name each pre-existing failure. Say how many subagents built the story; if you built it alone, say why. Name each deviation in plain words.
+
+No implementation identifiers, no file paths and no line numbers in the comment.
 
 # Output
 

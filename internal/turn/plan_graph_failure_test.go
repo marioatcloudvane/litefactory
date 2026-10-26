@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,8 +11,9 @@ import (
 	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 )
 
 func failureBodies(forge *fakeForge) []string {
@@ -199,7 +201,7 @@ func TestPlanFailure_ShippedGraphRoutesEveryFailureToTheOneCommentNode(t *testin
 	t.Parallel()
 	specs, err := PlanSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CapturePlan(t.Context(), specs)
+	definition, err := teamsourcetest.CapturePlan(t.Context(), specs)
 	mustProgress(t, err)
 	node, err := failureCommentNode(definition.Profile)
 	mustProgress(t, err)
@@ -216,4 +218,311 @@ func TestPlanFailure_ShippedGraphRoutesEveryFailureToTheOneCommentNode(t *testin
 	if _, err := failureCommentNode(&graphexec.Profile{}); err == nil {
 		t.Error("a graph with no failure comment node was admitted")
 	}
+}
+
+// upstreamAgent is the creation agent with hooks around one story stage, so a
+// test can move an upstream story while a dependant's agent is running.
+type upstreamAgent struct {
+	creationAgent
+	// instead, when it reports true, replaces the agent's own work.
+	instead func(s planAgentStep) (*agent.RunResult, bool)
+	// after runs once the agent has submitted, before the factory accepts.
+	after func(s planAgentStep)
+}
+
+// upstreamFixture is indepFixture with hooks: story-001 depends on story-002,
+// and story-003 on both. It ends with story-002's technical stage approved and
+// its acceptance review waiting, so story-001's technical stage is owed.
+func upstreamFixture(t *testing.T) (*fixture, *graphPlanHTTP, Request, *fakeForge, *upstreamAgent) {
+	t.Helper()
+	u := &upstreamAgent{}
+	var fx *fixture
+	inner := u.behave(t, &fx)
+	f, remote, base, forge, _ := graphPlanAgentFixture(t, func(s planAgentStep) (*agent.RunResult, error) {
+		if u.instead != nil {
+			if out, ok := u.instead(s); ok {
+				return out, nil
+			}
+		}
+		out, err := inner(s)
+		if u.after != nil {
+			u.after(s)
+		}
+		return out, err
+	})
+	fx = f
+	revision := saveProposedSet(t, f, promoteEntries())
+	if _, err := Execute(t.Context(), f.opts, promoteTrigger(base, 900, 7, promoteCommand(revision))); err != nil {
+		t.Fatalf("promotion: %v logs=%s", err, f.logs.String())
+	}
+	draftAllStories(t, f, base)
+	indepApprove(t, f, base, "story-002", 940)
+	if w := indepStory(t, f, "story-002").Wait; w == nil || w.Stage != "acceptance" {
+		t.Fatalf("story-002 should wait for its acceptance review: %+v", w)
+	}
+	state := graphPlanState(t, f)
+	if stage, _, ok := state.StoryNextStep("story-001"); stage != "technical" || !ok {
+		t.Fatalf("story-001 technical stage is not owed: %q %v", stage, ok)
+	}
+	return f, remote, base, forge, u
+}
+
+// planWorkRun is the factory's own scheduled Plan work for one story task.
+func planWorkRun(t *testing.T, f *fixture, base Request, key string) Request {
+	t.Helper()
+	req := asStoryTask(t, f, base, key)
+	req.Trigger = Trigger{CommentID: (store.Schedule{ID: nextStoryTrigger()}).TriggerID(), Body: PlanWorkPayload, Author: "owner", AuthorID: 7}
+	req.Command = Command{Kind: KindFreeText, Text: PlanWorkPayload}
+	return req
+}
+
+// setUpstream changes story-002's saved state, as its own stage completion does.
+func setUpstream(t *testing.T, f *fixture, change func(*planbrief.PlanStoryState)) {
+	t.Helper()
+	mustProgress(t, f.db.UpdatePlanWorkflowState(t.Context(), f.ref().String(), func(s *planbrief.PlanState) (bool, error) {
+		for i := range s.Stories {
+			if s.Stories[i].Key == "story-002" {
+				change(&s.Stories[i])
+			}
+		}
+		return true, nil
+	}))
+}
+
+func storyDigest(t *testing.T, item planbrief.PlanStoryState) string {
+	t.Helper()
+	raw, err := json.Marshal(struct {
+		Stage, Candidate string
+		Draft            planbrief.PlanDraft
+		Approvals        map[string]string
+		Wait             *planbrief.PlanWait
+	}{item.Stage, item.Candidate, item.Draft, item.Approvals, item.Wait})
+	mustProgress(t, err)
+	return string(raw)
+}
+
+// requireDeferred checks the records a quietly deferred step leaves: no failure
+// comment, a run that did not fail, a failed agent attempt carrying the
+// publishing diagnostic, a terminal instance that is not parked, and a story
+// that is exactly as it was. Replay and recovery post nothing either.
+func requireDeferred(t *testing.T, f *fixture, forge *fakeForge, req Request, out Result, err error, before string) {
+	t.Helper()
+	if err != nil || out.Err != nil {
+		t.Fatalf("deferred step failed: err=%v result=%+v logs=%s", err, out, f.logs.String())
+	}
+	if bodies := failureBodies(forge); len(bodies) != 0 {
+		t.Fatalf("a publication window posted a failure comment: %q", bodies)
+	}
+	if out.Run.ID == 0 || out.Run.Status == store.RunFailed || out.Reason != planUpstreamWait {
+		t.Fatalf("deferred run records: %+v reason=%q", out.Run, out.Reason)
+	}
+	if got := storyDigest(t, indepStory(t, f, "story-001")); got != before {
+		t.Fatalf("the deferred result changed the story:\nbefore %s\nafter  %s", before, got)
+	}
+	instance, ierr := f.db.LatestWorkflowInstance(t.Context(), req.SessionID, "plan")
+	mustProgress(t, ierr)
+	if instance.Status != store.GraphFailed || !instance.NextDueAt.IsZero() {
+		t.Fatalf("deferred instance is running or parked: %+v", instance)
+	}
+	attempts, aerr := f.db.ListGraphNodeAttemptsByRun(t.Context(), out.Run.ID)
+	mustProgress(t, aerr)
+	var agentAttempt store.GraphNodeAttempt
+	for _, a := range attempts {
+		if a.Node == "technical_agent" {
+			agentAttempt = a
+		}
+	}
+	diagnostic, derr := PlanAttemptDiagnostics(t.Context(), f.db, agentAttempt.ID)
+	mustProgress(t, derr)
+	if agentAttempt.Status != store.GraphFailed || !strings.Contains(diagnostic, "plan dependency story-002 is still publishing its stage") {
+		t.Fatalf("deferred attempt %+v diagnostic %q", agentAttempt, diagnostic)
+	}
+	if failed, ferr := PlanLatestAgentFailedUpstream(t.Context(), f.db, req.SessionID); ferr != nil || !failed {
+		t.Fatalf("resume rule does not see the upstream failure: %v %v", failed, ferr)
+	}
+	run, rerr := f.db.GetRun(t.Context(), out.Run.ID)
+	mustProgress(t, rerr)
+	recovered := run
+	recovered.Status, recovered.Error = store.RunFailed, "recovered after restart"
+	for _, r := range []store.Run{run, recovered} {
+		mustProgress(t, ensurePlanFailureReported(t.Context(), f.opts, req, r))
+	}
+	if bodies := failureBodies(forge); len(bodies) != 0 {
+		t.Fatalf("replay or recovery posted a failure comment: %q", bodies)
+	}
+	if replay, rerr := Execute(t.Context(), f.opts, req); rerr != nil || replay.Run.ID != out.Run.ID || len(failureBodies(forge)) != 0 {
+		t.Fatalf("replay of the deferred run: %v run=%d", rerr, replay.Run.ID)
+	}
+	if latest, lerr := f.db.LatestWorkflowInstance(t.Context(), req.SessionID, "plan"); lerr != nil || latest.Status == store.GraphRunning {
+		t.Fatalf("a Plan instance is left running or parked: %+v %v", latest, lerr)
+	}
+}
+
+// #1160 c9/c14: in factory-scheduled Plan work, an upstream story that enters
+// its publication window while the dependant's agent runs ends the step
+// quietly, whether the window opens before acceptance or already refuses the
+// agent's submit.
+func TestPlanFailure_UpstreamPublicationWindowDefersQuietly(t *testing.T) {
+	t.Run("pending before acceptance", func(t *testing.T) {
+		f, _, base, forge, u := upstreamFixture(t)
+		before := storyDigest(t, indepStory(t, f, "story-001"))
+		u.after = func(s planAgentStep) {
+			if s.story == "story-001" && s.stage == "technical" {
+				setUpstream(t, f, func(st *planbrief.PlanStoryState) { st.Effect, st.EffectRequest = "pending", "plan-request-77-78" })
+			}
+		}
+		req := planWorkRun(t, f, base, "story-001")
+		out, err := Execute(t.Context(), f.opts, req)
+		u.after = nil
+		requireDeferred(t, f, forge, req, out, err, before)
+	})
+	t.Run("pending at submit", func(t *testing.T) {
+		f, _, base, forge, u := upstreamFixture(t)
+		before := storyDigest(t, indepStory(t, f, "story-001"))
+		refused := false
+		u.instead = func(s planAgentStep) (*agent.RunResult, bool) {
+			if s.story != "story-001" || s.stage != "technical" {
+				return nil, false
+			}
+			setUpstream(t, f, func(st *planbrief.PlanStoryState) { st.Effect, st.EffectRequest = "pending", "plan-request-77-78" })
+			request := integrationCreateRequest(s.story)
+			binding, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), s.story)
+			mustProgress(t, err)
+			request.Operation, request.ExpectedRevision = "update", binding.Revision
+			mustProgress(t, json.Unmarshal([]byte(binding.DraftJSON), &request.Draft))
+			request.Draft.Architecture = &planbrief.PlanArchitecture{General: []planbrief.GeneralDecision{{Area: "Roles", Decision: "Reuse focused roles", Rationale: "Existing boundaries"}}}
+			request.Draft.Guidance = []string{"agent-setup"}
+			request.ChangedSections = []string{"architecture", "guidance"}
+			good := integrationDone(request, "Drafted "+s.story)
+			r, err := s.client.Call(t.Context(), "communication_submit", submitBytes(t, good))
+			if err == nil && r.Error == "" {
+				var got AgentResultSubmission
+				mustProgress(t, json.Unmarshal(r.Result, &got))
+				if got.Validation.Valid {
+					t.Fatalf("a submit during the publication window was accepted: %+v", got)
+				}
+			}
+			refused = true
+			// The upstream's publication lands before the factory accepts.
+			setUpstream(t, f, func(st *planbrief.PlanStoryState) { st.Effect = "applied" })
+			return agentDone(t, good), true
+		}
+		req := planWorkRun(t, f, base, "story-001")
+		out, err := Execute(t.Context(), f.opts, req)
+		u.instead = nil
+		if !refused {
+			t.Fatal("the agent did not run")
+		}
+		requireDeferred(t, f, forge, req, out, err, before)
+	})
+}
+
+// ownerReplyRun is an owner's plain reply on a story's own issue.
+func ownerReplyRun(t *testing.T, f *fixture, base Request, key string, id int64, body string) Request {
+	t.Helper()
+	req := asStoryTask(t, f, base, key)
+	binding, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), key)
+	mustProgress(t, err)
+	reply := &planbrief.PlanOwnerReply{ID: id, OwnerID: 7, ActorID: 7, IssueID: binding.IssueID, Key: key, Body: body}
+	req.Trigger = Trigger{CommentID: id, Body: body, Author: "owner", AuthorID: 7, PlanReply: reply}
+	req.Command = Command{Kind: KindFreeText, Text: body}
+	return req
+}
+
+// requireToldOwner checks that the owner got the one existing failure comment
+// naming the cause and that the dependant's result was not applied.
+func requireToldOwner(t *testing.T, f *fixture, forge *fakeForge, out Result, cause, before string) {
+	t.Helper()
+	requireFailureComment(t, forge, cause)
+	if out.Run.Status != store.RunFailed {
+		t.Fatalf("a told failure finished nominally: %+v", out.Run)
+	}
+	if before != "" {
+		if got := storyDigest(t, indepStory(t, f, "story-001")); got != before {
+			t.Fatalf("the refused result changed the story:\nbefore %s\nafter  %s", before, got)
+		}
+	}
+}
+
+// #1160 c10: a real hold, an owner-started run, another schedule, or a change
+// to the dependant's review basis still tells the owner as before.
+func TestPlanFailure_RealUpstreamProblemsStillTellTheOwner(t *testing.T) {
+	pending := func(st *planbrief.PlanStoryState) { st.Effect, st.EffectRequest = "pending", "plan-request-77-78" }
+	t.Run("held upstream in Plan work", func(t *testing.T) {
+		f, _, base, forge, u := upstreamFixture(t)
+		before := storyDigest(t, indepStory(t, f, "story-001"))
+		u.after = func(s planAgentStep) {
+			if s.story == "story-001" {
+				setUpstream(t, f, func(st *planbrief.PlanStoryState) { pending(st); st.EffectHold = "the effect is uncertain" })
+			}
+		}
+		out, _ := Execute(t.Context(), f.opts, planWorkRun(t, f, base, "story-001"))
+		requireToldOwner(t, f, forge, out, "plan dependency story-002 is inactive or unresolved", before)
+	})
+	t.Run("owner reply with the upstream publishing", func(t *testing.T) {
+		f, _, base, forge, u := upstreamFixture(t)
+		before := storyDigest(t, indepStory(t, f, "story-001"))
+		ran := false
+		u.after = func(s planAgentStep) {
+			if s.story == "story-001" {
+				ran = true
+				setUpstream(t, f, pending)
+			}
+		}
+		out, _ := Execute(t.Context(), f.opts, ownerReplyRun(t, f, base, "story-001", 5101, "Please keep the technical design small."))
+		if !ran {
+			t.Fatalf("the owner's reply did not run the stage: %+v logs=%s", out, f.logs.String())
+		}
+		requireToldOwner(t, f, forge, out, "plan dependency story-002 is still publishing its stage", before)
+	})
+	t.Run("another schedule with the upstream publishing", func(t *testing.T) {
+		f, _, base, forge, u := upstreamFixture(t)
+		before := storyDigest(t, indepStory(t, f, "story-001"))
+		u.after = func(s planAgentStep) {
+			if s.story == "story-001" {
+				setUpstream(t, f, pending)
+			}
+		}
+		req := planWorkRun(t, f, base, "story-001")
+		req.Trigger.Body, req.Command.Text = "Check the plan every morning.", "Check the plan every morning."
+		out, _ := Execute(t.Context(), f.opts, req)
+		requireToldOwner(t, f, forge, out, "plan dependency story-002 is still publishing its stage", before)
+	})
+	t.Run("upstream change at the dependant's stage", func(t *testing.T) {
+		f, _, base, forge, u := upstreamFixture(t)
+		u.after = func(s planAgentStep) {
+			if s.story != "story-001" {
+				return
+			}
+			mustProgress(t, f.db.UpdatePlanWorkflowState(t.Context(), f.ref().String(), func(st *planbrief.PlanState) (bool, error) {
+				for _, item := range st.Stories {
+					if item.Key == "story-002" {
+						changed := technicalChange(t, item.Draft)
+						return true, st.PutCandidate(changed, "technical", "upstream-technical-change")
+					}
+				}
+				return false, nil
+			}))
+		}
+		out, _ := Execute(t.Context(), f.opts, planWorkRun(t, f, base, "story-001"))
+		requireToldOwner(t, f, forge, out, "storyrequest.upstream", "")
+		if item := indepStory(t, f, "story-001"); item.Wait != nil {
+			t.Fatalf("a stale result opened a review: %+v", item.Wait)
+		}
+	})
+}
+
+// technicalChange returns d with only its technical decisions changed.
+func technicalChange(t *testing.T, d planbrief.PlanDraft) planbrief.PlanDraft {
+	t.Helper()
+	raw, err := json.Marshal(d.Architecture)
+	mustProgress(t, err)
+	var arch planbrief.PlanArchitecture
+	mustProgress(t, json.Unmarshal(raw, &arch))
+	if len(arch.General) == 0 {
+		t.Fatal("draft has no technical decisions")
+	}
+	arch.General[0].Decision = "A revised technical decision"
+	d.Architecture = &arch
+	return d
 }

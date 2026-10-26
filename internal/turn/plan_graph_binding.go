@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
+	"sync"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/planbrief"
@@ -66,10 +69,83 @@ func (r *planGraphRuntime) resultContext(ctx context.Context, a ActivityRequest)
 	}
 	binding, err := planGraphBinding(state, r.selected, r.stage, a.InstanceID, a.NodeAttemptID, existing)
 	if err != nil {
+		r.notePublishing(a, err)
 		return agentresult.Context{}, err
 	}
+	binding.Upstream = r.reboundUpstream(state, a, binding.Upstream)
 	binding.Discussion = r.discussion
 	return agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "plan", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: questionPermission(r.req.mode(), r.req.Command), PlanScope: r.scope, PlanGraph: &binding}, nil
+}
+
+// planPreparedBasis is what one agent attempt of a story stage was prepared
+// against: the exact upstream references and the story's review revision for
+// that stage. It lives only in the process that prepared the attempt.
+type planPreparedBasis struct {
+	attempt  int64
+	upstream []string
+	review   string
+}
+
+// planUpstreamDeferral carries, from the result resolver to the failure path of
+// the same run, the first refusal met because an upstream story was only
+// publishing its stage, and whether the failed step was ended quietly for it.
+type planUpstreamDeferral struct {
+	// mu guards publishing: the resolver runs on the result service's goroutine.
+	mu         sync.Mutex
+	publishing error
+	deferred   bool
+	// cause is the failed step's cause joined with the publishing refusal.
+	cause error
+}
+
+// recorded returns the kept publishing refusal, if any.
+func (d *planUpstreamDeferral) recorded() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.publishing
+}
+
+// notePublishing keeps the first upstream-publishing refusal the resolver met
+// during an attempt (preflight, submit or acceptance). A refused submit retains
+// nothing, so without this the cause would be lost by acceptance time.
+func (r *planGraphRuntime) notePublishing(a ActivityRequest, err error) {
+	if !errors.Is(err, planbrief.ErrPlanUpstreamPublishing) {
+		return
+	}
+	r.upstream.mu.Lock()
+	defer r.upstream.mu.Unlock()
+	if r.upstream.publishing == nil {
+		r.upstream.publishing = fmt.Errorf("attempt %d: %w", a.NodeAttemptID, err)
+	}
+}
+
+// reboundUpstream keeps the upstream references the attempt was prepared with
+// when only a dependency's candidate name moved since: the story's own
+// candidate is unchanged and so is its review revision for the stage, so the
+// result was written against the same reviewed basis (#1172). Any other change,
+// including an owner edit of the story itself, keeps the current list, and the
+// recorded result is then refused as stale.
+func (r *planGraphRuntime) reboundUpstream(state planbrief.PlanState, a ActivityRequest, current []string) []string {
+	basis := r.prepared
+	if r.stage == planSetStage || basis.attempt != a.NodeAttemptID || basis.review == "" || slices.Equal(basis.upstream, current) {
+		return current
+	}
+	own := func(refs []string) []string {
+		var out []string
+		for _, ref := range refs {
+			if strings.HasPrefix(ref, r.selected+":") {
+				out = append(out, ref)
+			}
+		}
+		return out
+	}
+	if !slices.Equal(own(basis.upstream), own(current)) {
+		return current
+	}
+	if review, err := state.ReviewRevision(r.selected, r.stage); err != nil || review != basis.review {
+		return current
+	}
+	return slices.Clone(basis.upstream)
 }
 
 // resultResolver adapts resultContext to the shared service's resolver hook for

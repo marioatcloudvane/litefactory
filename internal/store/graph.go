@@ -111,8 +111,12 @@ type GraphAttemptStart struct {
 	LaunchID             int64
 	Node                 string
 	RunID                int64
-	Limit                int
-	StartedAt            time.Time
+	// FactoryStep marks a node the factory runs itself, without an agent. A
+	// factory step needs no run of its own, even when an earlier attempt of it
+	// ran inside an agent's run.
+	FactoryStep bool
+	Limit       int
+	StartedAt   time.Time
 }
 
 // GraphCompletion commits attempt, outputs, transition and instance progress

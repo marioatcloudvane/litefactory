@@ -76,13 +76,12 @@ Use these limits. A set has 1 to 12 entries. Each entry has a temporary id that 
 
 # Writing the Report
 
-The owner reads your questions and the proposed set, so make both easy to read.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
- - Lead with the answer. One short paragraph saying how many stories you propose and why the scope splits that way, then what is still open when anything is.
- - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options, so the owner can reply "yes to all".
- - Write each name as a short label and each intent as one plain sentence about the outcome, not the solution. The intent says what the story delivers and where it stops.
- - Say in the comment which agreed scope each story covers, so the owner can check that nothing is missing. For every dependency, say in one sentence what the dependent story uses from the other one. When the set is a single chain, say why it cannot be cut so that some stories build side by side.
- - Do not claim anything is approved, tested or published. Say what you proposed and what you assumed.
+- Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options, so the owner can reply "yes to all".
+- Write each name as a short label and each intent as one plain sentence about the outcome, not the solution. The intent says what the story delivers and where it stops.
+- Say in the comment which agreed scope each story covers, so the owner can check that nothing is missing. For every dependency, say in one sentence what the dependent story uses from the other one. When the set is a single chain, say why it cannot be cut so that some stories build side by side.
+- Do not claim anything is approved, tested or published. Say what you proposed and what you assumed.
 
 # Output
 

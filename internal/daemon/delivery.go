@@ -41,6 +41,13 @@ func (d *Daemon) handleDelivery(ctx context.Context, t *task, c github.Comment, 
 	return d.leave(ctx, t, log, "could not consume delivery control", err)
 }
 
+func isCodeAuthorityBody(body string) bool {
+	if c, err := turn.ParseValidateCommand(body); err == nil && c.Name == turn.ValidateRepairCommand {
+		return c.RepairAction == "accept"
+	}
+	return isCodeAuthorityControl(turn.ParseCommand(body).Name)
+}
+
 func isCodeAuthorityControl(name string) bool {
 	return name == "/deliver" || name == "/merge" || name == "/validate-ship" || name == "/validate-push" || name == "/validate-merge" || name == "/validate-close"
 }
@@ -90,7 +97,7 @@ func (d *Daemon) authorizeCodeControl(ctx context.Context, sessionID int64, c gi
 // never covers /doctor apply, the publisher or a stale comment.
 func (d *Daemon) authorizeTicketOwnerCodeControl(ctx context.Context, sessionID int64, c github.Comment) error {
 	refused := errors.New("ticket actor is not the verified owner of this task's ticket connection")
-	if !isCodeAuthorityControl(turn.ParseCommand(c.Body).Name) {
+	if !isCodeAuthorityBody(c.Body) {
 		return refused
 	}
 	ids, err := d.projectTicketIdentities(ctx, sessionID)

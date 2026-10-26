@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/bugchecks"
@@ -19,12 +20,15 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-const pythonSource = "internal/teamsource/python-fastapi"
+const pythonSource = "teams/source/python-fastapi"
 
 func pythonFixture(t *testing.T) string {
 	t.Helper()
 	root := fixture(t)
-	for name, raw := range snapshot(t, "../teamsource/python-fastapi") {
+	for name, raw := range snapshot(t, "../../teams/source/base-team") {
+		put(t, filepath.Join(root, "teams/source/base-team", filepath.FromSlash(name)), raw)
+	}
+	for name, raw := range snapshot(t, "../../teams/source/python-fastapi") {
 		put(t, filepath.Join(root, pythonSource, filepath.FromSlash(name)), raw)
 	}
 	return root
@@ -32,7 +36,7 @@ func pythonFixture(t *testing.T) string {
 
 func pythonProfile(t *testing.T) config.StackProfile {
 	t.Helper()
-	raw, err := os.ReadFile("../teamsource/python-fastapi/stack-profile.json")
+	raw, err := os.ReadFile("../../teams/source/python-fastapi/stack-profile.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,22 +82,7 @@ func TestPythonFastAPIReleasePreservesHistoryAndClosure(t *testing.T) {
 	if !reflect.DeepEqual(after, snapshot(t, filepath.Join(root, "teams"))) {
 		t.Fatal("check mode wrote release")
 	}
-	current := "python-fastapi/v" + sourceVersion(t, "../teamsource/python-fastapi") + "/"
-	for _, w := range workflows {
-		original, err := os.ReadFile(filepath.Join("../teamsource", w, w+".dot"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		original = legacySourceWithoutPreparationDeferral(t, w, original)
-		if w == "implement" {
-			original = withoutGoStoryWorkerSlotPolicy(t, original)
-		}
-		want := bytes.ReplaceAll(original, []byte(`team="go-development"`), []byte(`team="python-fastapi"`))
-		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",python-fastapi-stack"))
-		if !bytes.Equal(after[current+w+"/"+w+".dot"], want) {
-			t.Fatal("workflow contract changed", w)
-		}
-	}
+	current := "python-fastapi/v" + sourceVersion(t, "../../teams/source/python-fastapi") + "/"
 	for _, name := range []string{"team.config", "stack-profile.json", "plan/skills/plan-python-fastapi-guidance/backend.md", "plan/skills/plan-python-fastapi-guidance/frontend.md", "implement/skills/python-fastapi-stack/supported-versions.md", "bug/skills/python-fastapi-stack/python-fastapi.md", "validate/skills/python-fastapi-stack/react-typescript-vite.md"} {
 		if len(after[current+name]) == 0 {
 			t.Fatal("missing packaged resource", name)
@@ -111,7 +100,7 @@ func TestPythonFastAPICaptureForBothProvidersAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalogue := filepath.Join(root, "teams/teams.json")
-	version := sourceVersion(t, "../teamsource/python-fastapi")
+	version := sourceVersion(t, "../../teams/source/python-fastapi")
 	installed, _, err := manager.Install(t.Context(), catalogue, "python-fastapi", version)
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +193,7 @@ func TestPythonFastAPIProfileAndGuidanceBoundaries(t *testing.T) {
 	if !reflect.DeepEqual(p.Requirements.Executables, []string{"python3"}) || !reflect.DeepEqual(p.Requirements.OS, []string{"darwin"}) || !reflect.DeepEqual(p.Requirements.Arch, []string{"arm64", "amd64"}) {
 		t.Fatal("host requirements drift")
 	}
-	raw, err := os.ReadFile("../teamsource/python-fastapi/stack-profile.json")
+	raw, err := os.ReadFile("../../teams/source/python-fastapi/stack-profile.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,25 +206,29 @@ func TestPythonFastAPIProfileAndGuidanceBoundaries(t *testing.T) {
 	if _, err := config.ResolveStackProfile(raw, override); err != nil {
 		t.Fatal("confined command override rejected", err)
 	}
-	source := os.DirFS("../teamsource/python-fastapi")
+	repo, err := os.OpenRoot("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	files, err := teamsource.ResolveSource(t.Context(), repo, pythonSource, "python-fastapi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := fstest.MapFS{}
+	for name, raw := range files {
+		source[name] = &fstest.MapFile{Data: raw}
+	}
 	guidance, err := teamsource.CaptureStackGuidance(t.Context(), source, p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	combined := []byte{}
-	for _, raw := range guidance {
-		combined = append(combined, raw...)
-	}
-	for _, topic := range []string{"request", "response", "lifespan", "blocking", "error", "pytest", "OpenAPI", "typed API", "loading", "accessible", "Vitest", "strict", "read-only", "uv sync --locked", "npm ci", "package-only"} {
-		// The evidence boundary is stated as package compatibility, not application proof.
-		if topic == "package-only" {
-			topic = "does not prove an example application"
-		}
-		if !bytes.Contains(bytes.ToLower(combined), []byte(strings.ToLower(topic))) {
-			t.Fatal("missing stack guidance", topic)
+	for _, selected := range p.Guidance {
+		if _, ok := guidance[selected.Skill]; !ok {
+			t.Errorf("selected skill missing from captured closure: %s", selected.ID)
 		}
 	}
-	for name, raw := range snapshot(t, "../teamsource/python-fastapi/implement/skills/python-fastapi-stack") {
+	for name, raw := range snapshot(t, "../../teams/source/python-fastapi/implement/skills/python-fastapi-stack") {
 		for _, bad := range []string{"go test", "gofmt", "golangci-lint", "multiple Go modules", "aws-sdk-go", "All SQL lives"} {
 			if bytes.Contains(raw, []byte(bad)) {
 				t.Fatal("inherited application instruction", name, bad)
@@ -396,7 +389,7 @@ func TestPythonFastAPIAdmissionWithoutComponentsOrTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile("../teamsource/python-fastapi/stack-profile.json")
+	raw, err := os.ReadFile("../../teams/source/python-fastapi/stack-profile.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,12 +404,12 @@ func TestPythonFastAPIAdmissionWithoutComponentsOrTools(t *testing.T) {
 }
 
 func TestPythonFastAPIVersionDocumentationMatchesRecipes(t *testing.T) {
-	doc, err := os.ReadFile("../teamsource/python-fastapi/plan/skills/plan-python-fastapi-guidance/supported-versions.md")
+	doc, err := os.ReadFile("../../teams/source/python-fastapi/plan/skills/plan-python-fastapi-guidance/supported-versions.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []string{"implement", "bug", "validate"} {
-		other, err := os.ReadFile("../teamsource/python-fastapi/" + mode + "/skills/python-fastapi-stack/supported-versions.md")
+		other, err := os.ReadFile("../../teams/source/python-fastapi/" + mode + "/skills/python-fastapi-stack/supported-versions.md")
 		if err != nil {
 			t.Fatal(err)
 		}

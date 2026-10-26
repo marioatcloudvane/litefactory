@@ -84,10 +84,10 @@ func (s *ResultService) prepareGraphProposal(ctx context.Context, d *Diagnosis) 
 			for _, exact := range []string{p.Action.Before, p.Action.After} {
 				visible, err := s.redactor.Apply(ctx, exact, 65536)
 				if err != nil {
-					return err
+					return fmt.Errorf("%w: %w", errReviewRedaction, err)
 				}
 				if visible.Truncated() || visible.String() != exact {
-					return errors.New("graph repair unavailable: exact row manifest contains protected values and cannot be displayed unchanged; inspect the retained stop with Doctor")
+					return fmt.Errorf("%w: graph repair unavailable: exact row manifest contains protected values and cannot be displayed unchanged; inspect the retained stop with Doctor", errReviewRedaction)
 				}
 			}
 		}

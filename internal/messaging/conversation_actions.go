@@ -222,7 +222,7 @@ func (r *factoryConversationRun) confirmJudged(ctx context.Context, envelope Con
 	if envelope.Confirmation == nil || envelope.Confirmation.SourceID != r.t.SourceID || d.State != "awaiting_confirmation" || d.Code == "" || envelope.Proposal != d.Code {
 		return r.complete(ctx, naturalUnavailable)
 	}
-	if _, ok := ownerSpan(r.t.Source, *envelope.Confirmation); !ok {
+	if !validOwnerConfirmationSpan(r.t.Source, *envelope.Confirmation) {
 		return r.complete(ctx, naturalUnavailable)
 	}
 	return r.authorize(ctx, d)
@@ -417,17 +417,17 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 			}
 
 			if err != nil {
-				text = "Feature generation was interrupted or unavailable. No issue was created; please check the saved preview before requesting another draft."
+				text = "Feature generation was interrupted or unavailable. No issue was created. Ask the factory operator to inspect the retained preview using `litefactory logs --all` on the factory host before requesting another draft."
 				reply.OutcomeStatus = string(presentation.Uncertain)
 			}
 		case "confirm":
 			if s.confirmer == nil {
-				text = "Feature confirmation unavailable."
+				text = "Feature confirmation is unavailable; this command created no issue. Ask the factory operator to inspect confirmation service availability using `litefactory logs --all` on the factory host."
 			} else {
 				var err error
 				text, err = s.confirmer.Confirm(executionCtx, s.transport, r.c.ChannelRef, reply.MessageID, p.Invocation.Arguments["code"], r.at)
 				if err != nil {
-					text = "Feature creation outcome is uncertain. Check the saved preview and issue before requesting another confirmation."
+					text = "Feature creation outcome is uncertain. Ask the factory operator to inspect the retained preview and destination issue using `litefactory logs --all` on the factory host before another confirmation."
 					reply.OutcomeStatus = string(presentation.Uncertain)
 				}
 			}
@@ -436,7 +436,7 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 			handler := s.commands[reply.Command]
 			s.mu.RUnlock()
 			if handler == nil {
-				text = "This action is no longer enabled. Nothing was applied."
+				text = "This action is no longer enabled. Nothing was applied; ask for a fresh proposal here."
 			} else {
 				execution, assessment := presentation.WithAssessment(ctx)
 				var err error
@@ -448,7 +448,7 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 					return s.conversationOutcome(ctx, r.t, "completed", "I've queued the diagnosis. I'll post what it finds here as soon as it's ready; any repair still goes through review on the issue.", r.at)
 				}
 				if err != nil {
-					text = "The confirmed action was interrupted after execution began. Its effect is uncertain; check the target before requesting it again."
+					text = "The confirmed action was interrupted after execution began. Its effect is uncertain. " + naturalInspection(p.Invocation.Arguments)
 					reply.OutcomeStatus = string(presentation.Uncertain)
 				}
 			}
@@ -461,7 +461,7 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 	defer cancel()
 	protected, err := s.Protect(cleanup, text)
 	if err != nil || reply.Command == "draft" && protected != text {
-		protected = "The action finished, but its outcome could not be protected for display. Check the target before requesting it again."
+		protected = "The action finished, but its outcome could not be protected for display. " + naturalInspection(nil)
 		reply.OutcomeStatus = string(presentation.Uncertain)
 	}
 	reply.ReplyText = protected

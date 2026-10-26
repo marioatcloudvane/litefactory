@@ -176,7 +176,7 @@ func assertValidateStopNotice(t *testing.T, f *fixture, instance store.GraphInst
 		if !strings.Contains(posts[0], "Reply on this open issue") || strings.Contains(posts[0], "/doctor") {
 			t.Fatalf("saved step notice must select the ordinary reply: %s", posts[0])
 		}
-	} else if !strings.Contains(posts[0], "no saved launch") || !strings.Contains(posts[0], "/doctor inspect") || strings.Contains(posts[0], "Reply on this open issue") {
+	} else if !strings.Contains(posts[0], "no saved launch") || !strings.Contains(posts[0], "litefactory logs --all --grep") || strings.Contains(posts[0], "Reply on this open issue") {
 		t.Fatalf("missing launch notice must explain refusal and select inspection: %s", posts[0])
 	}
 	if _, err = f.reporter.ReportGraphDispatchStop(t.Context(), dispatch); err != nil {

@@ -3,6 +3,7 @@ package turn
 import (
 	"errors"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"testing"
@@ -66,12 +67,18 @@ func TestValidateStorySubIssueTicksAndOneComment(t *testing.T) {
 		t.Fatalf("one comment on the sub-issue: %d", len(comments))
 	}
 	first := comments[0]
-	template := "`" + ValidateCheckCommand + " " + st.Revision + " story-002:AC-002 pass|fail -- <evidence>`"
-	if strings.Count(first.Body, template) != 1 || strings.Count(first.Body, ValidateCheckCommand) != 1 || strings.Contains(first.Body, ValidateFindingCommand) {
-		t.Fatalf("one template for the open check:\n%s", first.Body)
+	for _, verdict := range []string{"pass -- <what you checked>", "fail -- <what you saw>"} {
+		command := ValidateCheckCommand + " " + st.Revision + " story-002:AC-002 " + verdict
+		if strings.Count(first.Body, command) != 1 {
+			t.Fatalf("each valid check command is offered once: %s", first.Body)
+		}
+		if _, err := ParseValidateCommand(command); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !strings.Contains(first.Body, "on the parent #497") || !strings.HasPrefix(first.Body, lightYellow) {
-		t.Errorf("commands are given on the parent and the story is yellow:\n%s", first.Body)
+	parent := o.forge.bodies("**Validate report**")
+	if len(parent) != 1 || !strings.Contains(first.Body, "]("+parent[0].HTMLURL+")") || !strings.HasPrefix(first.Body, lightYellow) {
+		t.Errorf("checks route to exact parent report and story is yellow: %s", first.Body)
 	}
 
 	o.say(o.command(ValidateCheckCommand, "story-002:AC-002", "pass", "-- opened it, fine"))
@@ -159,13 +166,13 @@ func renderStoryDelivery(t *testing.T, body string) {
 func TestValidateStoryCommentShowsWholeFindingText(t *testing.T) {
 	text := longFindingText(1500)
 	body := renderValidateStoryComment(storyFindingsState(1, text), ValidateIssueRef{Key: "story-002"}, 843)
-	if strings.Count(body, text) != 2 || strings.Contains(body, "...") {
+	if strings.Count(html.UnescapeString(body), text) != 2 || strings.Contains(body, "...") {
 		t.Fatalf("the whole summary under Blocks and Your part:\n%s", body)
 	}
 	long := longFindingText(10000)
 	body = renderValidateStoryComment(storyFindingsState(1, long), ValidateIssueRef{Key: "story-002"}, 843)
 	want := shortenFindingText(long, validateFindingTextLimit)
-	if strings.Count(body, want) != 2 || !strings.Contains(body, "."+findingTextShortened) {
+	if strings.Count(html.UnescapeString(body), want) != 2 || !strings.Contains(body, "."+findingTextShortened) {
 		t.Fatalf("the long summary is cut at a sentence end with the note:\n%s", body)
 	}
 }
@@ -189,8 +196,8 @@ func TestValidateStoryCommentWithManyLongFindingsFits(t *testing.T) {
 			t.Fatalf("%s does not say its text was shortened: %s", name, line)
 		}
 	}
-	if strings.Count(body, findingTextShortened) != 60 {
-		t.Fatalf("every Blocks and Your part entry is shortened: %d", strings.Count(body, findingTextShortened))
+	if strings.Count(html.UnescapeString(body), findingTextShortened) != 60 {
+		t.Fatalf("every Blocks and Your part entry is shortened: %d", strings.Count(html.UnescapeString(body), findingTextShortened))
 	}
 	renderStoryDelivery(t, body)
 }
@@ -236,4 +243,25 @@ func TestValidateStoryCommentBeyondTheFloorStillNamesEveryFinding(t *testing.T) 
 		}
 		renderStoryDelivery(t, body)
 	}
+}
+
+// #1182 C6: while the suite fails, the story's Your part points to the suite
+// failure once instead of a check prompt per item; with a passed suite the
+// per-item prompts remain.
+func TestValidateStoryYourPartPointsToTheFailedSuite(t *testing.T) {
+	st := ValidateState{Revision: "r1", Commit: strings.Repeat("c", 40), Suite: validateSuiteOutput{Outcome: store.SuiteFailed}}
+	for _, name := range []string{"AC-001", "AC-002"} {
+		st.Findings = append(st.Findings, ValidateFinding{ID: "story-002:" + name, Story: "story-002", Name: name, Role: "acceptance", Criterion: true, Blocking: true, State: findingAwaitingCheck})
+	}
+	body := renderValidateStoryComment(st, ValidateIssueRef{Key: "story-002"}, 843)
+	want := "**Your part:** the suite did not pass on commit `" + short(st.Commit) + "`; these items cannot be settled while it fails: `AC-001`, `AC-002`. See the suite failure on the parent #843."
+	if strings.Count(body, "**Your part") != 1 || !strings.Contains(body, want) || strings.Contains(body, "awaits your check") || strings.Contains(body, ValidateCheckCommand) {
+		t.Fatalf("failed suite Your part:\n%s", body)
+	}
+	st.Suite.Outcome = store.SuitePassed
+	body = renderValidateStoryComment(st, ValidateIssueRef{Key: "story-002"}, 843)
+	if strings.Count(body, "awaits your check") != 2 || !strings.Contains(body, ValidateCheckCommand) || strings.Contains(body, "suite did not pass") {
+		t.Fatalf("passed suite Your part:\n%s", body)
+	}
+	renderStoryDelivery(t, body)
 }

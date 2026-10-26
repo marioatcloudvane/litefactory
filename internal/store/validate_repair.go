@@ -227,12 +227,29 @@ type AttemptTimeout struct {
 // RecordAttemptTimeout retains a timeout once. A second record for the same
 // attempt is ignored: the first fact stands.
 func (db *DB) RecordAttemptTimeout(ctx context.Context, in AttemptTimeout) error {
-	if in.NodeAttemptID < 1 || in.Budget < time.Second || in.TimedOutAt.IsZero() {
+	if in.NodeAttemptID < 1 || in.Budget <= 0 || in.TimedOutAt.IsZero() {
 		return errors.New("store: invalid attempt timeout")
 	}
-	_, err := db.sql.ExecContext(ctx, `INSERT OR IGNORE INTO graph_attempt_timeouts(node_attempt_id,budget_seconds,timed_out_at) VALUES(?,?,?)`, in.NodeAttemptID, int64(in.Budget/time.Second), FormatTime(in.TimedOutAt))
+	return db.withTx(ctx, func(tx *sql.Tx) error { return recordAttemptTimeoutTx(ctx, tx, in) })
+}
+
+func recordAttemptTimeoutTx(ctx context.Context, tx *sql.Tx, in AttemptTimeout) error {
+	inserted, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO graph_attempt_timeouts(node_attempt_id,budget_seconds,timed_out_at,budget_ns) VALUES(?,?,?,?)`, in.NodeAttemptID, int64((in.Budget-1)/time.Second)+1, FormatTime(in.TimedOutAt), int64(in.Budget))
 	if err != nil {
 		return fmt.Errorf("store: record attempt timeout: %w", err)
+	}
+	n, err := inserted.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return nil
+	}
+	// Hold authority and timeout evidence become durable together. This runs
+	// before best-effort evidence cleanup or any remote notice delivery.
+	_, err = tx.ExecContext(ctx, `UPDATE implement_stories SET timeout_attempt_id=?,timeout_park_revision=revision+1,last_failure=?,updated_at=? WHERE state='running' AND timeout_attempt_id=0 AND worker_session IN (SELECT i.session_id FROM graph_instances i JOIN graph_definitions d ON d.id=i.definition_id JOIN graph_node_attempts a ON a.instance_id=i.id WHERE a.id=? AND d.mode='implement')`, in.NodeAttemptID, fmt.Sprintf("Worker timed out after %s; available work is retained. Additional process and cleanup evidence is unavailable until collection completes.", in.Budget), FormatTime(in.TimedOutAt), in.NodeAttemptID)
+	if err != nil {
+		return fmt.Errorf("store: hold timed-out implement story: %w", err)
 	}
 	return nil
 }
@@ -240,8 +257,9 @@ func (db *DB) RecordAttemptTimeout(ctx context.Context, in AttemptTimeout) error
 // GetAttemptTimeout returns the timeout of an attempt or ErrNotFound.
 func (db *DB) GetAttemptTimeout(ctx context.Context, attemptID int64) (AttemptTimeout, error) {
 	var seconds int64
+	var ns sql.NullInt64
 	var at string
-	err := db.sql.QueryRowContext(ctx, `SELECT budget_seconds,timed_out_at FROM graph_attempt_timeouts WHERE node_attempt_id=?`, attemptID).Scan(&seconds, &at)
+	err := db.sql.QueryRowContext(ctx, `SELECT budget_seconds,timed_out_at,budget_ns FROM graph_attempt_timeouts WHERE node_attempt_id=?`, attemptID).Scan(&seconds, &at, &ns)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AttemptTimeout{}, ErrNotFound
 	}
@@ -252,15 +270,27 @@ func (db *DB) GetAttemptTimeout(ctx context.Context, attemptID int64) (AttemptTi
 	if err != nil {
 		return AttemptTimeout{}, err
 	}
-	return AttemptTimeout{NodeAttemptID: attemptID, Budget: time.Duration(seconds) * time.Second, TimedOutAt: t}, nil
+	budget := time.Duration(seconds) * time.Second
+	if ns.Valid {
+		budget = time.Duration(ns.Int64)
+	}
+	return AttemptTimeout{NodeAttemptID: attemptID, Budget: budget, TimedOutAt: t}, nil
 }
 
 // LatestKeptRepairCommit returns the commit of the newest kept repair round of an
-// instance, or ErrNotFound when none was kept. It is the commit the suite runs
-// on after a repair; with no kept repair the suite runs on the commit under review.
+// instance, including verified owner adoptions, or ErrNotFound when none exists.
+// Pending and discarded candidates never select the commit the suite runs on.
 func (db *DB) LatestKeptRepairCommit(ctx context.Context, instanceID int64) (string, error) {
 	var commit string
-	err := db.sql.QueryRowContext(ctx, `SELECT result_commit FROM validate_repair_rounds WHERE instance_id=? AND state='kept' ORDER BY round DESC LIMIT 1`, instanceID).Scan(&commit)
+	err := db.sql.QueryRowContext(ctx, `SELECT result_commit FROM (
+ SELECT result_commit,round AS repair_round FROM validate_repair_rounds WHERE instance_id=? AND state='kept'
+ UNION ALL
+ SELECT j.result_commit,r.round AS repair_round FROM validate_repair_candidate_journal j
+ JOIN validate_repair_candidate_decisions d ON d.candidate_id=j.candidate_id
+ JOIN validate_repair_candidates c ON c.id=j.candidate_id
+ JOIN validate_repair_rounds r ON r.id=c.round_id
+ WHERE c.instance_id=? AND j.phase='apply' AND j.state='complete' AND d.action='accept'
+ ) ORDER BY repair_round DESC LIMIT 1`, instanceID, instanceID).Scan(&commit)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}

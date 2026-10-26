@@ -100,7 +100,11 @@ func TestReportDeliveryRecoveryRequiresTrustedExactEvidence(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &Reporter{forge: deliveryCommentReader{comments: tc.comments, err: tc.err, destination: destination}}
-			id, err := r.recoverDelivery(t.Context(), intent, destination)
+			receipt, err := r.recoverDeliveryReceipt(t.Context(), intent, destination)
+			id := receipt.ID
+			if id != 0 && receipt.HTMLURL != exact(id).HTMLURL {
+				t.Fatalf("recovered destination lost: %+v", receipt)
+			}
 			if id != tc.want || (err != nil) != (tc.want == 0) {
 				t.Fatalf("receipt=%d err=%v want=%d", id, err, tc.want)
 			}
@@ -151,7 +155,7 @@ func TestGraphDispatchStopNoticeUsesDurableDelivery(t *testing.T) {
 		t.Fatalf("duplicate notice: %+v %+v", first, second)
 	}
 	body := forge.only(t).body
-	if !strings.Contains(body, "startup refused") || !strings.Contains(body, "/doctor inspect the stopped dispatch") {
+	if !strings.Contains(body, "startup refused") || strings.Count(body, report.TaskInspectionCommand(f.session.TaskRef)) != 1 || strings.Contains(body, "/doctor inspect") {
 		t.Fatalf("notice: %s", body)
 	}
 	if watermark(t, f) != 0 {

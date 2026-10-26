@@ -54,6 +54,18 @@ webhook:
   # sends payloads unencrypted.
   public_url: %q
 
+# Remote reads stay closed until the local grant command host is installed.
+remote_connector:
+  enabled: false
+  listen: "127.0.0.1:8788"
+  resource_url: "https://cloudvane.at/litefactory/mcp"
+  issuer_url: "https://cloudvane.at/litefactory"
+  owner_id: 0
+  github_client_id: ""
+  github_secret: {env: ""}
+  cookie_secret: {env: ""}
+  allowed_origins: []
+
 # Optional shared manual advisory settings. Empty model uses the provider flagship tier.
 # judge:
 #   agent: other # claude, codex, other; omitted uses the task provider
@@ -70,6 +82,8 @@ webhook:
 #   log_analysis:
 #     upstream: github:marioatcloudvane/litefactory
 settings:
+  # Default worker allowance; explicit node lf_budget minutes take precedence.
+  worker_timeout_seconds: %d # valid range: 60..86400
   # Anonymous HTTPS catalogue for machine-level team installation.
   team_source: %q
   # Daemon scheduling, repository defaults, worktree placement and logging.
@@ -149,13 +163,11 @@ agents:
     # prevents ambient permissions from the operator's personal settings.
     # An omitted tool_ceiling defaults to exactly tools.
     settings_path: %q # empty means $LF_HOME/claude-settings.json
-    timeout_seconds: %d
     forward_anthropic_env: %t
 
   codex:
     binary: %q
     model_tier: %q
-    timeout_seconds: %d
     writable_roots: [] # add absolute compiler-cache paths only when needed
     network_access: false
     allow_user_config: false
@@ -174,6 +186,7 @@ tool_profiles:
 		d.ValidateMode.AutoStart,
 		d.Webhook.Listen,
 		d.Webhook.PublicURL,
+		d.Settings.WorkerTimeoutSeconds,
 		d.Settings.TeamSource,
 		d.Settings.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
@@ -199,8 +212,8 @@ tool_profiles:
 		d.Providers.GitHub.APIBase,
 		claude.Binary, claude.ModelTier, claude.AutoCompact,
 		yamlList(4, "tools", claude.Tools), yamlList(4, "allowed_tools", claude.AllowedTools), yamlList(4, "tool_ceiling", claude.ToolCeiling),
-		claude.SettingsPath, claude.TimeoutSeconds, claude.ForwardAnthropicEnv,
-		codex.Binary, codex.ModelTier, codex.TimeoutSeconds,
+		claude.SettingsPath, claude.ForwardAnthropicEnv,
+		codex.Binary, codex.ModelTier,
 		renderModelByTier(d.Tiers.ModelByTier),
 	)
 	for _, name := range canonicalPermissionProfiles {

@@ -30,6 +30,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -76,8 +77,9 @@ func (f *doctorTestForge) ListCommentsAfter(_ context.Context, _ github.Repo, _ 
 	}
 	return out, nil
 }
-func (f *doctorTestForge) PostComment(_ context.Context, _ github.Repo, _ int, body redact.Body) (github.Comment, error) {
+func (f *doctorTestForge) PostComment(_ context.Context, repo github.Repo, issue int, body redact.Body) (github.Comment, error) {
 	c := github.Comment{ID: int64(100 + len(f.posts)), Body: body.String(), Author: github.User{ID: 99}}
+	c.HTMLURL = fmt.Sprintf("https://github.com/%s/%s/issues/%d#issuecomment-%d", repo.Owner, repo.Name, issue, c.ID)
 	f.posts = append(f.posts, c)
 	return c, f.postErr
 }
@@ -980,8 +982,8 @@ func TestDoctorApplyOutcomeConverges(t *testing.T) {
 						t.Fatal(body)
 					}
 				}
-				if !strings.Contains(body, "Next:") {
-					t.Fatal(body)
+				if strings.Count(body, report.TaskInspectionCommand(session.TaskRef)) != 1 || strings.Contains(body, "fresh diagnosis") || strings.Contains(body, "Continue with /doctor") {
+					t.Fatalf("repair outcome lost its single affected-task inspection route: %s", body)
 				}
 				if state == "failed" && !strings.Contains(body, "Fixture repair failed") {
 					t.Fatal(body)

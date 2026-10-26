@@ -84,6 +84,10 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// WorkerTimeoutSeconds is the resolved owner default; node overrides take precedence.
+	WorkerTimeoutSeconds int
+	WorkerTimeoutSource  string
+
 	// GraphRetryDelay is the host-supplied delay for busy admission and self-retry.
 	GraphRetryDelay time.Duration
 	// ProjectApprovers enables project-qualified production ticket authority.
@@ -696,6 +700,11 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		return result, err
 	}
 
+	if req.mode() != string(agent.ModeValidate) {
+		if err := opts.DB.CheckRepairWorktree(ctx, session.ID, 0); err != nil {
+			return result, err
+		}
+	}
 	if req.Workflow == agent.WorkflowBug {
 		out, executeErr := opts.Bug.Execute(ctx, req, result)
 		return out, workflowRequestError(ctx, opts, req, session, executeErr)
@@ -706,6 +715,11 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	// insert anyway; looking first is what turns that into a clean no-op.
 	if err := recoverPlanPublications(ctx, opts, session.ID); err != nil {
 		return result, err
+	}
+	if opts.ResearchReporter != nil {
+		if err := opts.ResearchReporter.RecoverValidatePublications(ctx, session.ID); err != nil {
+			return result, err
+		}
 	}
 	if err := recoverResearchPublications(ctx, opts, session.ID); err != nil {
 		return result, err

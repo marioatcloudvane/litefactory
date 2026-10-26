@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/projectconnection"
+	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -86,4 +87,11 @@ func (e turnExecutor) PollStoryProgress(ctx context.Context) error {
 // RecoverWorkflowJudges settles advisory bookkeeping at quiescent startup.
 func (e turnExecutor) RecoverWorkflowJudges(ctx context.Context, at time.Time) error {
 	return turn.RecoverWorkflowJudges(ctx, e.opts, at)
+}
+
+// RecoverImplementTimeout delivers and settles only factory-owned timeout
+// bookkeeping after a stopped worker. No provider or worktree step runs here.
+func (e turnExecutor) RecoverImplementTimeout(ctx context.Context, row store.ImplementStory) error {
+	ctx = sessionContext(ctx, row.WorkerSession)
+	return turn.RecoverImplementTimeoutPark(ctx, e.opts, row)
 }

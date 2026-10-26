@@ -6,6 +6,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 func bugSyncRestartFixture(t *testing.T) (*fixture, *graphexec.Profile, store.GraphInstance) {
@@ -22,7 +22,7 @@ func bugSyncRestartFixture(t *testing.T) (*fixture, *graphexec.Profile, store.Gr
 	f := newFixture(t, nil)
 	specs, err := SimplifiedBugSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CaptureBugParent(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureBug(t.Context(), specs)
 	mustProgress(t, err)
 	profile := definition.Profile
 	gate, ok := graphexec.BugFixerSyncGate(profile)

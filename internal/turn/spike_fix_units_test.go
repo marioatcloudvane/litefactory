@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +12,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 func TestWriteAccessMapsToTheSpikeFixerToolsUnderTheModeCeiling(t *testing.T) {
@@ -197,7 +197,7 @@ func TestSpikeReportStatesTheMeasuredCheckAndTheFilingFromRecords(t *testing.T) 
 func TestShippedSpikeFixPathHasNoReturnEdgeAndNoOwnerWaitForTheFixer(t *testing.T) {
 	specs, err := SpikeSpecs()
 	mustProgress(t, err)
-	definition, err := teamsource.CaptureSpike(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureSpike(t.Context(), specs)
 	mustProgress(t, err)
 	profile := definition.Profile
 	node := func(action string, attr, value string) []string {

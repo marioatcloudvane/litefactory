@@ -19,30 +19,30 @@ import (
 func (s *Service) answerDetails(ctx context.Context, r store.ChatReply, id string, at time.Time) error {
 	a, err := s.db.ReadConversationAnswer(ctx, s.transport, s.owner, r.ChannelRef, id)
 	if errors.Is(err, store.ErrNotFound) {
-		return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied.", at)
+		return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied. Ask your question again in this authorized conversation to obtain a current answer.", at)
 	}
 	if err != nil {
 		return err
 	}
 	if !a.ExpiredAt.IsZero() || !a.CompletedAt.IsZero() && !at.Before(a.CompletedAt.Add(24*time.Hour)) {
-		return s.saveDetailsNotice(ctx, r, "Details for this answer have expired.", at)
+		return s.saveDetailsNotice(ctx, r, "Details for this answer have expired. Ask your question again here to obtain current evidence.", at)
 	}
 	results, err := s.authorizedAnswerResults(ctx, a, at)
 	if err != nil {
 		if errors.Is(err, errAnswerDetailsDenied) {
-			return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied.", at)
+			return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied. Ask your question again in this authorized conversation to obtain a current answer.", at)
 		}
 		return err
 	}
 	sources, err := s.authorizedAnswerSources(ctx, a, at)
 	if err != nil {
 		if errors.Is(err, errAnswerDetailsDenied) {
-			return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied.", at)
+			return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied. Ask your question again in this authorized conversation to obtain a current answer.", at)
 		}
 		return err
 	}
 	if len(results) == 0 && len(sources) == 0 {
-		return s.saveDetailsNotice(ctx, r, "No tool results were obtained for this answer.", at)
+		return s.saveDetailsNotice(ctx, r, "No tool results were obtained for this answer. Ask a narrower question here naming the task or project to inspect.", at)
 	}
 	export := struct {
 		AnswerID   string                       `json:"answer_id"`

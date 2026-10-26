@@ -94,10 +94,32 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
 	}
 	if wait.ReplyAuthorID != owner {
-		return refuse("wait", "Only the owner can give Validate commands.")
+		approver := "configured owner"
+		if opts.ProjectApprovers {
+			approver = "configured code approver"
+			if !isValidateCodeControlBody(wait.ReplyBody) {
+				approver = "configured ticket approver"
+			}
+		}
+		return refuse("wait", "Only the owner can give Validate commands. Ask the "+approver+" to make their own decision using the current report's choices; this reply gave no permission. "+validateCurrentGuidance(ctx, opts, req, st))
 	}
 	if st.Waiver != nil && st.Waiver.CommentID == wait.ReplyID {
 		return h.continueShip(ctx, opts, req, st, wait, now, refuse)
+	}
+	// A saved candidate decision survives a crash before the graph transition.
+	// Match the authenticated original source before checking the now-new report
+	// revision; this replays authorization and never creates another decision.
+	if cmd, e := ParseValidateCommand(wait.ReplyBody); e == nil && cmd.Name == ValidateRepairCommand && cmd.RepairAction != "inspect" {
+		if c, e := opts.DB.GetRepairCandidate(ctx, cmd.Candidate); e == nil && c.InstanceID == req.InstanceID && c.ReviewDigest == cmd.ReviewDigest && c.SourceID == fmt.Sprint(wait.ReplyID) && c.Principal == fmt.Sprint(wait.ReplyAuthorID) && c.Resolution == cmd.RepairAction {
+			if e = verifyCandidateEvidence(c); e != nil {
+				return refuse("wait", e.Error())
+			}
+			outcome := "wait"
+			if c.Resolution == "accept" && c.ResultCommit == "" {
+				outcome = "apply_repair"
+			}
+			return validateResolveResult(outcome, "replayed retained repair decision", st)
+		}
 	}
 	// A reply this run already acted on (a restart replays the step) goes to the
 	// same step again. Every step recovers on its own, so nothing is done twice.
@@ -114,7 +136,10 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		return refuse("wait", err.Error())
 	}
 	if cmd.Revision != st.Revision {
-		return refuse("stale", fmt.Sprintf("The command names revision `%s`, but the current report revision is `%s`. Use the commands in the latest report.", cmd.Revision, st.Revision))
+		return refuse("stale", fmt.Sprintf("The command names revision `%s`, but the current report revision is `%s`. %s", cmd.Revision, st.Revision, validateCurrentGuidance(ctx, opts, req, st)))
+	}
+	if cmd.Name == ValidateRepairCommand {
+		return h.resolveCandidate(ctx, opts, req, st, wait, cmd)
 	}
 	delivery := st.Commit
 	if cmd.Name == ValidateShipCommand && binding.Display.DeliveryCommit != "" {
@@ -125,7 +150,7 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		return ActivityResult{Diagnostic: err.Error()}, fmt.Errorf("read the branch head: %w", err)
 	}
 	if head != delivery {
-		return refuse("stale", fmt.Sprintf("The branch head is now `%s`, not the displayed delivery commit `%s`. That decision is stale; use the latest report and give a fresh decision.", short(head), short(delivery)))
+		return refuse("stale", fmt.Sprintf("The branch head is now `%s`, not the displayed delivery commit `%s`. That decision is stale. Comment `%s` to validate the current head before making a new delivery choice. Nothing was approved or delivered.", short(head), short(delivery), ValidateStartCommand))
 	}
 	notReviewed := func(id string) (ActivityResult, error) {
 		return refuse("wait", fmt.Sprintf("`%s` was not reviewed: its reviewer has no usable result, so it takes no check or choice. %s", id, validateRetryStep(st.Commit)))
@@ -322,7 +347,11 @@ func (h ValidateResolveActivity) continueShip(ctx context.Context, opts Options,
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
 	}
 	if wait.ReplyAuthorID != owner {
-		return refuse("wait", "Only the owner can give Validate commands.")
+		approver := "configured owner"
+		if opts.ProjectApprovers {
+			approver = "configured code approver"
+		}
+		return refuse("wait", "Only the owner can give Validate commands. Ask the "+approver+" to give their own reasoned shipping decision using the current report's choices; this reply gave no permission. "+validateCurrentGuidance(ctx, opts, req, st))
 	}
 	head, err := h.b.Delivery.Head(ctx)
 	if err != nil {

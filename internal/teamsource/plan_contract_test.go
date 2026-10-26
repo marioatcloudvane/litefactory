@@ -38,7 +38,7 @@ func planPackageRegistry(t *testing.T) graphexec.Registry {
 
 func planPackageFixture(t *testing.T) fstest.MapFS {
 	t.Helper()
-	source, err := fs.Sub(planAssets, "plan")
+	source, err := fs.Sub(teamFS(t, goTeam), "plan")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func planPackageFixture(t *testing.T) fstest.MapFS {
 
 func TestPlanPackageClosureAndDigest(t *testing.T) {
 	t.Parallel()
-	definition, err := CapturePlan(t.Context(), planPackageRegistry(t))
+	definition, err := capturePlan(t.Context(), t, planPackageRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestPlanPackageClosureAndDigest(t *testing.T) {
 	}
 	fixture := planPackageFixture(t)
 	for name := range fixture {
-		if strings.HasPrefix(name, "skills/plan-go-guidance/") || strings.HasPrefix(name, "skills/plan-agent-setup-guidance/") {
+		if strings.HasPrefix(name, "skills/plan-go-guidance/") || strings.HasPrefix(name, "skills/plan-agent-setup-guidance/") || strings.HasPrefix(name, "skills/owner-report/") {
 			if _, captured := definition.Files[name]; captured {
 				t.Fatal("unselected stack guidance leaked into neutral graph capture", name)
 			}
@@ -160,7 +160,7 @@ func TestPlanPackageRejectsInvalidClosure(t *testing.T) {
 
 func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 	t.Parallel()
-	d, err := CapturePlan(t.Context(), planPackageRegistry(t))
+	d, err := capturePlan(t.Context(), t, planPackageRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 // session that already has stories skips the set stage and when the cycle ends.
 func TestPlanPackageDeclaresSetStageAndCreationCycle(t *testing.T) {
 	t.Parallel()
-	d, err := CapturePlan(t.Context(), planPackageRegistry(t))
+	d, err := capturePlan(t.Context(), t, planPackageRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestPlanPackageDeclaresSetStageAndCreationCycle(t *testing.T) {
 
 func TestPlanPackageNativeContracts(t *testing.T) {
 	t.Parallel()
-	d, err := CapturePlan(t.Context(), planPackageRegistry(t))
+	d, err := capturePlan(t.Context(), t, planPackageRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,14 +315,14 @@ func TestPlanPackageNeutralGuidanceAndReuseFixtures(t *testing.T) {
 
 func TestPlanCaptureLeavesTheResearchClosureUnchanged(t *testing.T) {
 	t.Parallel()
-	before, err := CaptureResearch(t.Context(), researchTestRegistry(t))
+	before, err := captureResearchGo(t.Context(), t, researchTestRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = CapturePlan(t.Context(), planPackageRegistry(t)); err != nil {
+	if _, err = capturePlan(t.Context(), t, planPackageRegistry(t)); err != nil {
 		t.Fatal(err)
 	}
-	after, err := CaptureResearch(t.Context(), researchTestRegistry(t))
+	after, err := captureResearchGo(t.Context(), t, researchTestRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}

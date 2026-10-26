@@ -150,3 +150,33 @@ func TestImplementParkAnswerRedactionBeforeEncoding(t *testing.T) {
 		}
 	}
 }
+
+func TestImplementTimeoutParkRecoveryAfterInterruptedNotice(t *testing.T) {
+	f, forge, _ := parkNoteFixture(t)
+	row, err := f.db.HoldImplementStoryTimeout(t.Context(), f.session.ID, 11, "The worker exceeded its effective limit of 91 seconds.", implementClock)
+	mustProgress(t, err)
+	intended := row.Revision + 1
+	ctx, cancel := context.WithCancel(t.Context())
+	forge.afterPost = cancel
+	if err = RecoverImplementTimeoutPark(ctx, f.opts, row); err == nil {
+		t.Fatal("lost publication response was hidden")
+	}
+	row = implementWorkerRow(t, f)
+	if row.State != store.ImplementRunning || row.TimeoutAttemptID != 11 {
+		t.Fatalf("interrupted settlement lost hold: %+v", row)
+	}
+	forge.recover()
+	// A new factory runtime has neither the interrupted graph nor its process.
+	mustProgress(t, RecoverImplementTimeoutPark(t.Context(), f.opts, row))
+	parked := implementWorkerRow(t, f)
+	if parked.State != store.ImplementParked || parked.Revision != intended || parked.TimeoutCommentID == "" {
+		t.Fatalf("recovery did not finish exact hold: %+v", parked)
+	}
+	mustProgress(t, RecoverImplementTimeoutPark(t.Context(), f.opts, parked))
+	if forge.attemptCount() != 1 {
+		t.Fatal("recovery posted a second timeout notice")
+	}
+	if after := implementWorkerRow(t, f); after.Revision != parked.Revision {
+		t.Fatal("recovery changed settled revision")
+	}
+}

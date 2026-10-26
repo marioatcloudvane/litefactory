@@ -21,6 +21,9 @@ func (s *Service) RecoverSource(ctx context.Context, ref naming.Ref, source stri
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
 	a, request, data, err := s.DB.DoctorSourceReceipt(ctx, source)
+	if errors.Is(err, store.ErrNotFound) {
+		return s.recoverRejectedSource(ctx, ref, source)
+	}
 	if err != nil {
 		return out, err
 	}
@@ -68,7 +71,45 @@ func (s *Service) RecoverSource(ctx context.Context, ref naming.Ref, source stri
 		return out, err
 	}
 	out.Conversation = owner
+	out.Review = nil
 	out.Diagnosis = &diagnosis
 	out.CurrentProposal = diagnosis.Proposal
+	return out, nil
+}
+
+func (s *Service) recoverRejectedSource(ctx context.Context, ref naming.Ref, source string) (Conversation, error) {
+	var out Conversation
+	attempt, receipt, err := s.DB.DoctorSourceRejectedReview(ctx, source)
+	if err != nil {
+		return out, err
+	}
+	owner, err := s.DB.DoctorConversationByID(ctx, attempt.ConversationID)
+	if err != nil {
+		return out, err
+	}
+	if owner.TaskRef != ref.String() {
+		return out, store.ErrDoctorFenced
+	}
+	if err = s.checkRetainedInstructions(ctx, attempt.ID); err != nil {
+		return out, err
+	}
+	if attempt.State == "running" {
+		if err = s.DB.FailDoctorAttempt(ctx, attempt.ID, "interrupted", "Rejected diagnosis recovered for review; no accepted result was adopted"); err != nil {
+			return out, err
+		}
+	}
+	out, err = s.ReadConversation(ctx, ref)
+	if err != nil {
+		return out, err
+	}
+	out.Review, err = s.reviewFromReceipt(ctx, receipt)
+	if err != nil {
+		return out, err
+	}
+	out.Conversation = owner
+	out.Diagnosis = nil
+	out.CurrentProposal = nil
+	out.ProposalID = 0
+	out.ApplyAvailable = false
 	return out, nil
 }

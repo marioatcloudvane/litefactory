@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"path"
 	"slices"
 	"strings"
@@ -18,7 +19,7 @@ func captureValidate(t *testing.T) *teamsource.WorkflowDefinition {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := teamsource.CaptureValidate(t.Context(), specs)
+	definition, err := teamsourcetest.CaptureValidate(t.Context(), specs)
 	if err != nil {
 		t.Fatalf("the packaged Validate graph does not capture: %v", err)
 	}

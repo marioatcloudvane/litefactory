@@ -157,10 +157,15 @@ func (h ValidateReportActivity) Execute(ctx context.Context, opts Options, req A
 
 // RefreshValidateReport builds the report from the records and posts or edits
 // the one comment. It reports whether the comment changed.
-func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Options, req ActivityRequest) (bool, error) {
+func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Options, req ActivityRequest) (changed bool, err error) {
 	if opts.ResearchReporter == nil {
 		return false, errors.New("validate report requires the factory reporter")
 	}
+	unlock, err := opts.ResearchReporter.lockValidateReport(ctx, req.InstanceID)
+	if err != nil {
+		return false, err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
 	st, err := LoadValidateState(ctx, opts, b.Profile, req.InstanceID)
 	if err != nil {
 		return false, err
@@ -180,6 +185,16 @@ func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Op
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return false, err
 	}
+	st.CandidateLinks = map[string]string{}
+	for i, c := range st.Candidates {
+		link, e := opts.ResearchReporter.publishRepairReview(ctx, c)
+		if e == nil {
+			st.CandidateLinks[c.ID] = link
+			if fresh, e := opts.DB.GetRepairCandidate(ctx, c.ID); e == nil {
+				st.Candidates[i] = fresh
+			}
+		}
+	}
 	instance, err := opts.DB.GetGraphInstance(ctx, req.InstanceID)
 	if err != nil {
 		return false, err
@@ -198,22 +213,66 @@ func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Op
 		}
 	}
 	text := renderValidateReport(st, target, report.Notice)
+	taskRef, err := naming.ParseRef(session.TaskRef)
+	if err != nil {
+		return false, err
+	}
+	text, parts, err := opts.ResearchReporter.prepareValidateGuidance(ctx, session.ID, taskRef, st, b.Profile, text, report.Notice, b.now(opts))
+	if err != nil {
+		return false, err
+	}
 	// The story sub-issues follow the parent report: they are written only when
 	// the report changed. A failed story write never suppresses the parent
 	// report; the report is still posted or edited, and its saved digest is
 	// cleared so the next refresh retries the stories and edits it in place.
 	var storyErr error
-	if target != nil && (report.CommentID == 0 || report.Digest != fmt.Sprintf("%x", sha256.Sum256([]byte(text)))) {
-		storyErr = b.refreshValidateStories(ctx, opts, req, st, *target)
+	needsStories := target != nil && (report.CommentID == 0 || report.Digest != fmt.Sprintf("%x", sha256.Sum256([]byte(text))))
+	current, err := LoadValidateState(ctx, opts, b.Profile, req.InstanceID)
+	if err != nil {
+		return false, err
+	}
+	if current.Revision != st.Revision {
+		return false, errors.New("Validate evidence changed while preparing report; refresh required")
+	}
+	if b.Delivery.Head != nil {
+		head, headErr := b.Delivery.Head(ctx)
+		if headErr != nil {
+			return false, headErr
+		}
+		if head != st.DeliveryCommit {
+			return false, errors.New("Validate delivery head changed while preparing report; refresh required")
+		}
 	}
 	changed, reportErr := opts.ResearchReporter.ReportValidate(ctx, req.InstanceID, st.Revision, report.Notice, text, b.now(opts))
-	if storyErr != nil && reportErr == nil {
-		saved, err := opts.DB.GetValidateReport(ctx, req.InstanceID)
-		if err == nil {
-			saved.Digest = ""
-			err = opts.DB.PutValidateReport(ctx, saved)
+	if reportErr == nil {
+		for _, part := range parts {
+			_, partErr := opts.ResearchReporter.dispatchDelivery(ctx, part)
+			reportErr = errors.Join(reportErr, partErr)
 		}
-		reportErr = err
+	}
+	if reportErr == nil && needsStories {
+		saved, e := opts.DB.GetValidateReport(ctx, req.InstanceID)
+		if e == nil {
+			link, linkErr := opts.ResearchReporter.observedDecisionURL(ctx, taskRef, saved.CommentID)
+			switch {
+			case linkErr != nil:
+				storyErr = linkErr
+			case link == "":
+				storyErr = errors.New("current parent Validate report destination is not confirmed")
+			default:
+				storyErr = b.refreshValidateStories(ctx, opts, req, st, *target, link)
+			}
+		} else {
+			storyErr = e
+		}
+		if storyErr != nil {
+			saved, e := opts.DB.GetValidateReport(ctx, req.InstanceID)
+			if e == nil {
+				saved.Digest = ""
+				e = opts.DB.PutValidateReport(ctx, saved)
+			}
+			reportErr = errors.Join(reportErr, e)
+		}
 	}
 	if reportErr == nil {
 		saved, e := opts.DB.GetValidateReport(ctx, req.InstanceID)
@@ -359,6 +418,73 @@ func (h ValidateAskActivity) Execute(ctx context.Context, opts Options, req Acti
 		return ActivityResult{}, err
 	}
 	candidate := validateQuestionCandidate(st, closeSet, report.Notice)
+	destination := "The current report destination is not confirmed yet; its existing refresh must finish before omitted choices can be followed."
+	if report.CommentID > 0 && report.Revision == st.Revision && h.b.Delivery.Head != nil {
+		instance, e := opts.DB.GetGraphInstance(ctx, req.InstanceID)
+		if e != nil {
+			return ActivityResult{}, e
+		}
+		session, e := opts.DB.GetSession(ctx, instance.SessionID)
+		if e != nil {
+			return ActivityResult{}, e
+		}
+		display, e := opts.DB.LatestOwnerDecisionDisplay(ctx, session.TaskRef, ValidateShipCommand)
+		if e != nil && !errors.Is(e, store.ErrNotFound) {
+			return ActivityResult{}, e
+		}
+		head, headErr := h.b.Delivery.Head(ctx)
+		if headErr != nil {
+			return ActivityResult{}, headErr
+		}
+		bound := e == nil && display.InstanceID == req.InstanceID && display.Revision == st.Revision && display.PublicationID == report.CommentID && display.TestedCommit == st.Commit && display.DeliveryCommit == head
+		// A current partial index is a useful destination before all decision
+		// displays exist. Its immutable manifest binds presentation facts only;
+		// this link neither approves a choice nor claims complete publication.
+		if !bound {
+			rows, readErr := opts.DB.ListSessionReportDeliveries(ctx, session.ID)
+			if readErr != nil {
+				return ActivityResult{}, readErr
+			}
+			for _, row := range rows {
+				if !strings.HasPrefix(row.Purpose, validatePartPurpose) {
+					continue
+				}
+				_, raw, ok := strings.Cut(row.Purpose, "|")
+				if !ok {
+					continue
+				}
+				var m validateGuidanceManifest
+				if readErr = json.Unmarshal([]byte(raw), &m); readErr != nil {
+					return ActivityResult{}, readErr
+				}
+				if m.Instance != req.InstanceID || m.Revision != st.Revision || m.Commit != st.Commit || m.Head != head || m.PartialDigest != report.Digest {
+					continue
+				}
+				digest, readErr := opts.ResearchReporter.validateManifestReportDigest(ctx, row, m, report)
+				if readErr != nil {
+					return ActivityResult{}, readErr
+				}
+				if digest == m.PartialDigest {
+					bound = true
+					break
+				}
+			}
+		}
+		if bound {
+			ref, e := naming.ParseRef(session.TaskRef)
+			if e != nil {
+				return ActivityResult{}, e
+			}
+			link, e := opts.ResearchReporter.observedDecisionURL(ctx, ref, report.CommentID)
+			if e != nil {
+				return ActivityResult{}, e
+			}
+			if link != "" {
+				destination = "Use the [current Validate report](" + link + ") for every item's current choices, prerequisites and consequences. Its publication status states whether all omitted guidance is confirmed."
+			}
+		}
+	}
+	candidate.Comment += "\n\n" + destination
 	policy := ValidateWorkflowPolicy()
 	scope := policy.baseContext(true)
 	posted, key, err := opts.ResearchReporter.ReportWorkflowCandidate(ctx, source, req.Node, "question", candidate, scope, "", policy)
@@ -384,7 +510,7 @@ func validateQuestionCandidate(st ValidateState, closeSet []int, notice string) 
 	if strings.TrimSpace(notice) != "" {
 		comment.WriteString("\n\n**Your last command changed nothing:** " + strings.TrimSpace(notice))
 	}
-	reason := "Next: " + st.NextStep(closeSet) + "\n\nNothing is pushed, merged or closed until you give the command for it. One confirmation never implies the next."
+	reason := "Next: " + st.NextStep(closeSet) + "\n\nNothing is pushed, merged or closed without owner authority. Individual push, merge and close commands authorize only their named step; the explicit reasoned shipping command authorizes the whole existing ordered sequence and stops if a step fails or remains uncertain."
 	c := agentresult.Result{Outcome: "incomplete", Comment: comment.String(), Reason: reason, Payload: agentresult.Payload{Validate: &agentresult.Validate{}}}
 	for i, o := range st.Open {
 		if i >= 12 {

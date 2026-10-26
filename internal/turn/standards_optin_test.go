@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -205,7 +206,7 @@ func TestGrantedRoleGetsOptionalStandardsTools(t *testing.T) {
 func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 	want := map[string][]string{"implement": {"story-worker"}, "plan": {"plan-technical"}, "validate": {"validate-architecture"}}
 	var graphs []string
-	for _, root := range []string{"../teamsource", "../../teams/source"} {
+	for _, root := range []string{"../../teams/source"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".dot") {
 				graphs = append(graphs, path)
@@ -216,7 +217,7 @@ func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(graphs) < 20 {
+	if len(graphs) < 15 {
 		t.Fatalf("found only %d graphs", len(graphs))
 	}
 	for _, path := range graphs {
@@ -250,10 +251,11 @@ func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 func TestStandardsGrantFollowsPinnedNode(t *testing.T) {
 	profileOf := func(mode string) *graphexec.Profile {
 		t.Helper()
-		raw, err := os.ReadFile(filepath.Join("../teamsource", mode, mode+".dot"))
+		files, err := teamsourcetest.Files(teamsourcetest.Go)
 		if err != nil {
 			t.Fatal(err)
 		}
+		raw := files[mode+"/"+mode+".dot"]
 		profile, err := graphexec.ParseProfile(raw)
 		if err != nil {
 			t.Fatal(err)

@@ -74,13 +74,12 @@ Stop when another hour of reading would not change those answers, and return `do
 
 # Writing the Report
 
-The owner reads your questions and your architecture, so make both easy to follow.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
- - Lead with the answer. One short paragraph saying how the story fits the system and what it reuses, then what is still open when anything is.
- - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options.
- - Write each decision with its area, the decision and the reason, so the owner can challenge the reason and not only the outcome.
- - Keep the architecture technology-neutral in its reasoning. Name concrete technology only where an applicable guidance skill or an existing decision requires it.
- - Do not claim anything is approved, tested or published. Say what you decided and what you assumed.
+- Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options.
+- Write each decision with its area, the decision and the reason, so the owner can challenge the reason and not only the outcome.
+- Keep the architecture technology-neutral in its reasoning. Name concrete technology only where an applicable guidance skill or an existing decision requires it.
+- Do not claim anything is approved, tested or published. Say what you decided and what you assumed.
 
 # Output
 

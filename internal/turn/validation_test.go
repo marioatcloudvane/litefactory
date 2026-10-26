@@ -166,6 +166,35 @@ func TestManagedValidateRequiresExplicitModeAndSeparatedApproval(t *testing.T) {
 	}
 }
 
+func TestManagedValidateGraphContinuationTrustsAdmittedInstance(t *testing.T) {
+	f := newFixture(t, nil)
+	setupVersionedProgressScope(t, f, 0)
+	ref, err := naming.ParseRef(f.session.TaskRef)
+	mustProgress(t, err)
+	continued := func(instance int64) Request {
+		req := f.request()
+		req.Mode = agent.ModeValidate
+		req.Trigger.CommentID = store.GraphDispatch{ID: 1262}.TriggerID()
+		req.Command = Command{Kind: KindFreeText, Text: "Continue the workflow at its repair_agent stage."}
+		req.researchInstance = instance
+		return req
+	}
+	if err := prepareManagedScope(t.Context(), f.opts, continued(1495), ref); err != nil {
+		t.Fatalf("admitted graph continuation refused: %v", err)
+	}
+	if err := prepareManagedScope(t.Context(), f.opts, continued(0), ref); err == nil {
+		t.Fatal("graph trigger without an admitted instance accepted")
+	}
+	feature, err := f.db.GetManagedFeature(t.Context(), f.session.TaskRef)
+	mustProgress(t, err)
+	feature.State = "completed"
+	mustProgress(t, f.db.CompareManagedFeature(t.Context(), feature, "implementing"))
+	err = prepareManagedScope(t.Context(), f.opts, continued(1495), ref)
+	if err == nil || !strings.Contains(err.Error(), "managed Validate requires explicit owner /validate and approved scope") {
+		t.Fatalf("stale scope accepted on continuation: %v", err)
+	}
+}
+
 func TestManagedValidateRejectsStaleRetainedAttribution(t *testing.T) {
 	f, _, runID, root := engineeringRun(t)
 	original := engineeringEvent(t, f, runID, root)

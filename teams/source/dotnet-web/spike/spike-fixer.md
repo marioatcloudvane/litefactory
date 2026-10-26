@@ -58,11 +58,14 @@ You are done when the fix and its one regression test are written and you have r
 
 # Writing the Report
 
-Your `comment` is what the owner reads first. Lead with what you changed in one short paragraph, then what is unfinished. The factory lays out the measured result and records the note; the prose is yours, and it is published as written.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
- - Keep it short and concrete.
- - Never claim the change works or is checked. The factory measures and checks it after you finish.
- - No implementation identifiers, no file paths and no line numbers in the comment. Those belong in your fix report.
+Explain the intended effect of the change separately from measured results: the factory has not checked this change yet. Say what remains unknown without claiming automatic success or delivery.
+
+The factory lays out the measured result and records the note; the prose is yours, and it is published as written.
+
+- Never claim the change works or is checked. The factory measures and checks it after you finish.
+- No implementation identifiers, no file paths and no line numbers in the comment. Those belong in your fix report.
 
 # Output
 

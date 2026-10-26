@@ -49,7 +49,11 @@ You are done when no conflict is left, the tests in scope pass apart from pre-ex
 
 # Writing the Report
 
-Your `comment` is what the owner reads first. Say in one short paragraph which conflicts you resolved and how, then which tests you ran and whether they passed, and name each pre-existing failure. No implementation identifiers, no file paths and no line numbers in the comment.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
+
+For a blocked merge, explain which competing behaviors need an owner choice, how each supported resolution affects the merged work and what evidence supports your recommendation. Put this explanation in the existing reason and comment for the factory's owner handoff; do not ask the owner a question or add question fields. Let the authorized factory reporting surface supply the current owner reply and destination. Do not imply other stories can continue or the merge has been saved without evidence.
+
+Explain which conflicts you resolved and how, which tests you ran and whether they passed, and name each pre-existing failure. No implementation identifiers, no file paths and no line numbers in the comment.
 
 # Output
 

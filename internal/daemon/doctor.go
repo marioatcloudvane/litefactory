@@ -602,15 +602,16 @@ func (d *Daemon) doctorControls(ctx context.Context) error {
 			}
 		case "apply":
 			body = "Doctor apply is unavailable. This command did not approve or perform a repair."
-			if blocking, err := d.db.ReadDoctorRepair(ctx, c.TaskRef); err == nil && !doctorRepairSettled(blocking.State) {
-				body += " Repair " + blocking.ID + " for this task is still in state " + blocking.State + "."
-			} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+			if blocking, err := d.db.ReadDoctorRepair(ctx, c.TaskRef); err == nil {
+				body += " Retained repair " + blocking.ID + " for this task is in state " + blocking.State + "; this command did not change it."
+			} else if !errors.Is(err, store.ErrNotFound) {
 				return err
 			} else {
-				body += " There is no current proposal to apply; `/doctor <instructions>` asks for a fresh diagnosis."
+				body += " No retained repair was found for this task."
 			}
+			body += "\n\nAsk the factory operator to inspect this task on the factory host: `" + report.TaskInspectionCommand(c.TaskRef) + "`."
 		}
-		if c.Operation != "stop" {
+		if c.Operation != "stop" && c.Operation != "apply" {
 			body += "\n\nContinue with `/doctor <instructions>`."
 		}
 		safe, err := d.doctor.service.Redactor.Apply(ctx, body, 262144)
@@ -709,7 +710,7 @@ func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
 	if runErr != nil {
 		body = "Doctor request did not complete: " + runErr.Error() + "\n\n" + body
 	}
-	safe, err := d.doctor.service.Redactor.Apply(context.WithoutCancel(ctx), body, 262144)
+	safe, err := d.doctor.service.Redactor.ApplyReviewJSONDisplay(context.WithoutCancel(ctx), body, 262144)
 	if err != nil {
 		return err
 	}
@@ -769,7 +770,12 @@ func (d *Daemon) recoverDoctor(ctx context.Context) error {
 		}
 		if err == nil {
 			body := doctor.RenderConversation(conversation)
-			failures = append(failures, d.db.CompleteDoctorCommand(ctx, c.ID, body, conversation.Conversation.ID))
+			safe, redactErr := d.doctor.service.Redactor.ApplyReviewJSONDisplay(ctx, body, 262144)
+			if redactErr != nil {
+				failures = append(failures, redactErr)
+				continue
+			}
+			failures = append(failures, d.db.CompleteDoctorCommand(ctx, c.ID, safe.String(), conversation.Conversation.ID))
 			continue
 		}
 		if !errors.Is(err, store.ErrNotFound) {
@@ -825,6 +831,11 @@ func (d *Daemon) publishDoctor(ctx context.Context) error {
 	return errors.Join(failures...)
 }
 func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery store.ReportDelivery) error {
+	prepared, ready, err := d.db.PrepareDoctorDelivery(ctx, delivery.Key)
+	if err != nil || !ready {
+		return err
+	}
+	delivery = prepared
 	if d.connections != nil {
 		source, err := d.db.GetDoctorDeliverySource(ctx, delivery.Key)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -863,17 +874,29 @@ func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery 
 		if err != nil {
 			return err
 		}
+		var confirmed int64
+		var confirmedURL string
 		for _, c := range page.Comments {
-			if c.Author.ID == delivery.BotUserID && strings.Contains(c.Body, delivery.Marker) && c.Body == delivery.Body {
-				if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, c.ID); err != nil {
-					return err
-				}
-				return d.db.CompleteDoctorDelivery(ctx, delivery.Key)
+			if c.Author.ID != delivery.BotUserID || !strings.Contains(c.Body, delivery.Marker) {
+				continue
 			}
+			if c.Body != delivery.Body || !doctorCommentAtDestination(c, ref) {
+				return errors.New("doctor delivery receipt conflicts with retained intent")
+			}
+			if confirmed == 0 || c.ID < confirmed {
+				confirmed = c.ID
+				confirmedURL = c.HTMLURL
+			}
+		}
+		if confirmed != 0 {
+			if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, confirmed, confirmedURL); err != nil {
+				return err
+			}
+			return d.db.CompleteDoctorDelivery(ctx, delivery.Key)
 		}
 		return d.db.AdvanceDoctorDeliveryProbe(ctx, delivery.Key, page.NextPage) // Absence is not proof to repost; debt stays uncertain.
 	}
-	safe, err := d.doctor.service.Redactor.Apply(ctx, delivery.Body, 65536)
+	safe, err := d.doctor.service.Redactor.ApplyReviewDisplay(ctx, delivery.Body, 65536)
 	if err != nil {
 		return err
 	}
@@ -886,12 +909,15 @@ func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery 
 	}
 	comment, err := forge.PostComment(ctx, repo, ref.Issue, safe)
 	if err != nil {
+		if errors.Is(err, github.ErrRateLimited) {
+			return errors.Join(err, d.db.UnmarkReportDeliverySent(context.WithoutCancel(ctx), delivery.Key))
+		}
 		return err
 	}
 	if comment.ID <= 0 || comment.Author.ID != delivery.BotUserID {
 		return fmt.Errorf("doctor post receipt lacks trusted bot identity")
 	}
-	if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, comment.ID); err != nil {
+	if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, comment.ID, comment.HTMLURL); err != nil {
 		return err
 	}
 	return d.db.CompleteDoctorDelivery(ctx, delivery.Key)
@@ -899,10 +925,3 @@ func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery 
 
 // doctorRepairSettled mirrors the terminal states excluded by the store's
 // one-active-repair-per-task index.
-func doctorRepairSettled(state string) bool {
-	switch state {
-	case "recovered", "stopped", "completed", "failed":
-		return true
-	}
-	return false
-}

@@ -19,6 +19,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/connector"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -28,6 +29,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
+	"github.com/cloudvane/litefactory/internal/overview"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -50,6 +52,11 @@ import (
 // lifetime. Saved project versions resolve their own external references once
 // when loaded; refresh explicitly verifies the same retained actor.
 type Setup struct {
+	// ConnectorControl may override the shared local grant service for trusted composition.
+	// Open installs the shipped service when remote serving is enabled and this is nil.
+	ConnectorControl *connector.LocalControl
+	// ConnectorOverview supplies only the remote read projection.
+	ConnectorOverview connector.OverviewProvider
 	// BuildVersion identifies the running process; FactorySource is set only when known.
 	BuildVersion  string
 	FactorySource string
@@ -294,7 +301,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, err
 	}
+	var turnOpts turn.Options
 	reporter, err := turn.NewReporter(turn.ReporterOptions{
+		ValidateHead: func(ctx context.Context, session store.Session) (string, error) {
+			return turn.ValidatePublicationHead(ctx, turnOpts, session)
+		},
 		BotUserID:    identities.BotUserID,
 		StoryLockDir: s.Paths.StoryProgressLocksDir(),
 		DB:           s.DB,
@@ -354,6 +365,19 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}()
 		webhookOpts = &WebhookOptions{Listener: ln, Secrets: s.WebhookSecrets, PublicURL: s.Config.Webhook.PublicURL}
 	}
+
+	if s.Config.RemoteConnector.Enabled && s.ConnectorOverview == nil {
+		s.ConnectorOverview = overview.New(s.DB, sharedRedactor, s.Now, s.Paths.Home())
+	}
+	remoteConnector, connectorErr := prepareFactoryRemoteConnector(ctx, s)
+	if connectorErr != nil {
+		return nil, Startup{}, errors.Join(connectorErr, lock.Close())
+	}
+	defer func() {
+		if !handedOver && remoteConnector != nil {
+			_ = remoteConnector.listener.Close()
+		}
+	}()
 
 	chatOpts, chatErr := prepareChat(ctx, s.Config, s.WebhookSecrets)
 	if chatErr != nil {
@@ -455,8 +479,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}
 	}
 	judgeService := &turn.JudgeService{Logger: s.Logger, DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
-	turnOpts := turn.Options{
-		ProjectApprovers: true,
+	for _, diagnostic := range s.Config.WorkerTimeoutDiagnostics() {
+		s.Logger.Warn(diagnostic)
+	}
+	turnOpts = turn.Options{
+		WorkerTimeoutSeconds: s.Config.Settings.WorkerTimeoutSeconds,
+		WorkerTimeoutSource:  s.Config.WorkerTimeoutSource(),
+		ProjectApprovers:     true,
 		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {
 			snapshot, e := s.DB.GetExecutionSnapshot(ctx, session.ID)
 			if e != nil {
@@ -690,6 +719,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
+	daemon.remoteConnector = remoteConnector
 	handedOver = true
 	validateSlots.bind(daemon.pool)
 	if daemon.webhook != nil {
@@ -838,4 +868,18 @@ func waitImplementStatus(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// prepareFactoryRemoteConnector binds the shipped local commands' durable service
+// before the remote boundary checks readiness. No remote configuration can turn
+// this capability on independently of its implementation.
+func prepareFactoryRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRuntime, error) {
+	if s.Config.RemoteConnector.Enabled && s.ConnectorControl == nil {
+		control, err := connector.NewLocalControl(ctx, s.DB, connector.NewGrantService(s.DB))
+		if err != nil {
+			return nil, err
+		}
+		s.ConnectorControl = control
+	}
+	return prepareRemoteConnector(ctx, s)
 }

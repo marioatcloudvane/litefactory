@@ -330,7 +330,10 @@ func (r *planGraphRuntime) unappliedReply(ctx context.Context) error {
 		case !item.Active():
 			reason = s.PlanReplyHold(r.story)
 		case item.Wait != nil:
-			reason = "This story is waiting for the owner's reply to its current review."
+			reason = planNoticeGuidance(s, item)
+			if command := currentPlanNoticeCommand(s, item); command != "" {
+				reason += " The current owner command on this story is `" + command + "`."
+			}
 		case !s.UpstreamApproved(item.Key, item.Stage):
 			reason = "This story needs approval of its upstream stories before its next stage can run."
 		default:

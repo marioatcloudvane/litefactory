@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"html"
 	"io/fs"
 	"os"
@@ -70,14 +71,15 @@ func enableWorkerSyncFixture(f *fixture) {
 		if workflow != agent.WorkflowImplement {
 			return fixtureWorkflowSource(ctx, repo, workflow, specs)
 		}
-		return fixtureInstalled(teamsource.CaptureImplement(ctx, specs))
+		return fixtureInstalled(teamsourcetest.CaptureImplement(ctx, specs))
 	}
 }
 
 // Earlier captured worker gates retain their strict conflict routing.
 func enableStrictWorkerSyncFixture(t *testing.T, f *fixture) {
 	t.Helper()
-	source := os.DirFS(filepath.Join("..", "teamsource", "implement"))
+	source, err := teamsourcetest.Workflow("go-development", "implement")
+	mustProgress(t, err)
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(source, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -642,6 +644,95 @@ func TestImplementWorkerSyncsWithItsParentsBranch(t *testing.T) {
 	}
 	if !sawDependency {
 		t.Fatal("the worker ran without the work merged into its parent's branch")
+	}
+}
+
+// runStoryWorkerWithParentSession commits the named files into the parent's
+// session directory on the parent's branch, runs the story worker through the
+// Implement workflow and returns the prompt it received with the parent
+// directory.
+func runStoryWorkerWithParentSession(t *testing.T, files ...string) (prompt, parentDir string) {
+	t.Helper()
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompt = req.Prompt
+		submitLiveResult(t, req, implementCompletedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	ctx := t.Context()
+	parent := f.otherSession(900)
+	const parentBranch = "lf/900-feature"
+	_, err := f.db.FreezeSessionSlug(ctx, parent.ID, "feature", parentBranch)
+	mustProgress(t, err)
+	parentDir, err = naming.AITeamSessionDir(parentBranch, implementClock.AddDate(0, 0, -3), "feature")
+	mustProgress(t, err)
+	f.repo.Git("checkout", "--quiet", "-b", parentBranch)
+	f.repo.WriteFile("parent.go", "package api\n")
+	for _, name := range files {
+		f.repo.WriteFile(parentDir+"/"+name, "# "+name+"\n")
+	}
+	f.repo.Commit("parent research and plan")
+	f.repo.Git("push", "--quiet", "origin", parentBranch)
+	f.repo.Git("checkout", "--quiet", "-")
+
+	out, err := Execute(ctx, f.opts, req)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("%+v %v", out, err)
+	}
+	return prompt, parentDir
+}
+
+// AC-4, AC-5: a story worker is pointed at its parent's session directory as
+// approved context, with each Research file's meaning, and its own directory is
+// named only for its outputs.
+func TestImplementWorkerPromptNamesTheParentSessionDirectory(t *testing.T) {
+	prompt, parentDir := runStoryWorkerWithParentSession(t, naming.ResearchBriefName, naming.ResearchTechnicalName, "plan_brief.md")
+	line := ""
+	for _, l := range strings.Split(prompt, "\n") {
+		if strings.HasPrefix(l, "Factory supplied parent session directory: ") {
+			line = l
+		}
+	}
+	for _, want := range []string{
+		"Factory supplied parent session directory: " + parentDir + ".",
+		"approved Research and Plan context for this story, not an archived earlier session",
+		"RESEARCH_TECHNICAL.md there holds the Research findings: the classified inventory named in this story's criteria.",
+		"RESEARCH_BRIEF.md there holds the Research decisions and assumptions named in this story's criteria.",
+		"plan_brief.md there holds the plan.",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("the parent pointer lacks %q:\n%s", want, line)
+		}
+	}
+	if !strings.Contains(prompt, "\nFactory supplied session artifact directory, only where this story's own outputs go: ") {
+		t.Fatalf("the worker's own directory is not labelled as its output location:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Factory supplied session artifact directory: ") {
+		t.Fatalf("the worker still sees its own directory as the session artifact directory:\n%s", prompt)
+	}
+}
+
+// AC-8: a Research file missing from the parent's directory is not named.
+func TestImplementWorkerPromptLeavesOutMissingParentFiles(t *testing.T) {
+	prompt, parentDir := runStoryWorkerWithParentSession(t, naming.ResearchBriefName, "plan_brief.md")
+	if !strings.Contains(prompt, "Factory supplied parent session directory: "+parentDir+".") || !strings.Contains(prompt, "RESEARCH_BRIEF.md there holds") {
+		t.Fatalf("the parent pointer or its Research brief is missing:\n%s", prompt)
+	}
+	if strings.Contains(prompt, naming.ResearchTechnicalName) {
+		t.Fatalf("the pointer names a Research file that does not exist:\n%s", prompt)
+	}
+}
+
+// AC-6: a story worker whose parent has no session directory keeps the
+// ordinary session directory line.
+func TestImplementWorkerPromptWithoutParentSessionDirectoryIsUnchanged(t *testing.T) {
+	prompt, _ := runStoryWorkerWithParentSession(t)
+	if strings.Contains(prompt, "parent session directory") {
+		t.Fatalf("a parent pointer was named without a parent session directory:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "\nFactory supplied session artifact directory: ") {
+		t.Fatalf("the ordinary session directory line is missing:\n%s", prompt)
 	}
 }
 
@@ -2048,5 +2139,76 @@ func TestImplementPlainCommentAfterFinishedImplementRepostsCompletion(t *testing
 	}
 	if got := implementCompletionReplies(forge); len(got) != 2 {
 		t.Fatalf("the completion note is posted again: %d", len(got))
+	}
+}
+
+// #1169: after a resolver question was answered and the resolver settled the
+// conflict, the coordinator's later base sync ran inside the resolver's run.
+// A story that parks afterwards is asked about on that sync, and the owner's
+// reply naming it must still resume the story through the runless sync.
+func TestImplementReplyResumesAParkedStoryAfterAnAnsweredResolverQuestion(t *testing.T) {
+	calls := 0
+	var f *fixture
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		if calls == 1 {
+			submitLiveResult(t, req, syncResolverAsksJSON)
+		} else {
+			mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
+			submitLiveResult(t, req, syncResolvedJSON)
+		}
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	var req Request
+	f, _, req = assembledImplementFixture(t, runner)
+	// The released go-development graph (v1.0.3 and later) that #998 ran: a
+	// main conflict goes to the resolver, and the owner question rests on the
+	// coordinator base sync.
+	enableStrictWorkerSyncFixture(t, f)
+	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	seedMainFeatureConflict(t, f)
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	runOwedImplementStages(t, f, req)
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	if err != nil || wait.State != "waiting" {
+		t.Fatalf("the resolver question is open: %+v %v %v", wait, err, implementTrail(t, f))
+	}
+	asked, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
+	mustProgress(t, err)
+	mustProgress(t, f.db.FinishGraphDispatch(t.Context(), asked.ID, time.Now()))
+	delivery, err := f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+	mustProgress(t, err)
+	_, err = f.db.ClaimGraphOwnerReply(t.Context(), store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: 77, AuthorID: 77, CommentID: delivery.CommentID + 100, QuestionCommentID: delivery.CommentID, TaskRef: parent, SourceRef: parent, Mode: "implement", Workflow: "implement", DeliveryKey: wait.DeliveryKey, Body: "q1 b", At: time.Now()})
+	mustProgress(t, err)
+	answer := req
+	answer.Trigger.CommentID, answer.Trigger.Body = delivery.CommentID+100, "q1 b"
+	if _, err := Execute(t.Context(), f.opts, answer); err != nil {
+		t.Fatal(err)
+	}
+	runOwedImplementStages(t, f, req)
+	row := implementStatesOf(t, f, parent)["story-001"]
+	if row.State != store.ImplementRunning {
+		t.Fatalf("the story starts once the conflict is resolved: %+v", row)
+	}
+
+	_, err = f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: parent, Generation: 1, Key: "story-001", From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: "The worker stopped with a blocked answer: main is red.", At: implementClock})
+	mustProgress(t, err)
+	mustProgress(t, wakeImplementParent(t.Context(), f.db, parent, time.Now()))
+	runOwedImplementStages(t, f, req)
+	wait, err = f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	if err != nil || wait.State != "waiting" {
+		t.Fatalf("the parked story is asked about: %+v %v", wait, err)
+	}
+
+	replyToImplementOwner(t, f, req, parent, instance, wait)
+	if row := implementStatesOf(t, f, parent)["story-001"]; row.State != store.ImplementRunning || !strings.Contains(row.Guidance, "main is fixed now") {
+		t.Fatalf("the owner's reply naming the parked story resumes it: %+v", row)
+	}
+	if wait, err = f.db.GetGraphOwnerWait(t.Context(), instance.ID); err != nil || wait.State != "allocated" {
+		t.Fatalf("the reply was allocated to the resumed sync: %+v %v", wait, err)
 	}
 }

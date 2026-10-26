@@ -144,7 +144,13 @@ var archiveRegistry = []ArchiveTable{
 	archived("validate_choices", `instance_id IN `+subInst),
 	archived("validate_effects", `instance_id IN `+subInst),
 	archived("validate_reviews", `instance_id IN `+subInst),
+	archived("validate_repair_candidate_reviews", `candidate_id IN (SELECT id FROM validate_repair_candidates WHERE instance_id IN `+subInst+`)`),
+	archived("validate_repair_candidate_decisions", `candidate_id IN (SELECT id FROM validate_repair_candidates WHERE instance_id IN `+subInst+`)`),
+	archived("validate_repair_candidate_journal", `instance_id IN `+subInst),
+	archived("validate_repair_candidates", `instance_id IN `+subInst),
 	archived("validate_repair_rounds", `instance_id IN `+subInst),
+	archived("worker_attempt_timing", `(node_attempt_id IN `+subNodeAt+` OR run_id IN `+inFR+`)`),
+	archived("implement_timeout_replies", byParent),
 	archived("graph_attempt_timeouts", `node_attempt_id IN `+subNodeAt),
 	archived("implement_stories", byParent),
 	archived("validate_entries", bySession),
@@ -213,6 +219,12 @@ func isPlanArchiveTable(name string) bool { return strings.HasPrefix(name, "plan
 
 // archiveRetained classifies every table the archive never deletes from.
 var archiveRetained = map[string]ArchiveClass{
+	// Connector authority spans all task families. Its bounded expiry cleanup
+	// retains refresh lineage through grant expiry rather than task archival.
+	"connector_owner": ArchiveClassGlobal, "connector_clients": ArchiveClassGlobal,
+	"connector_browsers": ArchiveClassGlobal, "connector_codes": ArchiveClassGlobal,
+	"connector_grants": ArchiveClassGlobal, "connector_access": ArchiveClassGlobal,
+	"connector_refresh": ArchiveClassGlobal,
 	// Standalone bounded analyses are not members of an issue-task archive.
 	"drift_analyses": ArchiveClassGlobal, "drift_analyst_runs": ArchiveClassGlobal,
 	"drift_evidence": ArchiveClassGlobal, "drift_receipts": ArchiveClassGlobal, "drift_proposal_links": ArchiveClassGlobal,

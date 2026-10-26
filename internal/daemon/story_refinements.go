@@ -131,9 +131,15 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	// closes before the execution recheck and turn below.
 	sweepCtx, checks := withContainerChecks(ctx)
 	defer checks.close()
+	// Comments the Plan state already consumed were handled on the Plan path;
+	// a legacy parent has an empty state.
+	plan, _, err := d.db.GetPlanWorkflowState(ctx, t.ref.String())
+	if err != nil {
+		return true, err
+	}
 	for n := 0; n < min(16, len(stories)); n++ {
 		s := stories[(start+n)%len(stories)]
-		discoveryErr := d.discoverStoryComments(sweepCtx, t, relation, s)
+		discoveryErr := d.discoverStoryComments(sweepCtx, t, relation, s, plan.ConsumedReplies)
 		if errors.Is(discoveryErr, ErrDiscoveryDeferred) {
 			discoveryDeferred = true
 			break
@@ -275,7 +281,7 @@ func (d *Daemon) storiesToSweep(ctx context.Context, t *task, f store.ManagedFea
 	return out
 }
 
-func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation storyRelationForge, s store.ManagedStory) error {
+func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation storyRelationForge, s store.ManagedStory, consumed []int64) error {
 	child, err := d.discoveryIssue(ctx, t.forgeRepo, s.IssueNumber)
 	if err != nil {
 		return err
@@ -298,9 +304,30 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 		return err
 	}
 	slices.SortFunc(comments, func(a, b github.Comment) int { return cmp.Compare(a.ID, b.ID) })
+	// A story with its own session answers its own comments; whatever that
+	// session has already dealt with (at or below its watermark) is not the
+	// parent's to handle again (#1157).
+	var handled int64
+	if session, found, err := d.ownStorySession(ctx, t, s.IssueNumber, s.IssueID); err != nil {
+		return err
+	} else if found {
+		wm, exists, err := d.db.GetWatermark(ctx, session.ID)
+		if err != nil {
+			return err
+		}
+		if exists {
+			handled = wm.LastCommentID
+		}
+	}
 	ids := d.ticketIdentities(ctx)
 	for _, c := range comments {
 		if c.ID <= after {
+			continue
+		}
+		if c.ID <= handled || slices.Contains(consumed, c.ID) {
+			if err := d.db.AdvanceStoryDiscovery(ctx, t.session.ID, s.IssueNumber, c.ID); err != nil {
+				return err
+			}
 			continue
 		}
 		if routed, err := d.dispatchJudgeChild(withoutContainerChecks(ctx), t, child, c); err != nil {

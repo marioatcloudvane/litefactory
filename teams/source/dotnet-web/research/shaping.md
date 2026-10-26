@@ -61,12 +61,13 @@ Return `ask` while a material decision is genuinely the owner's. Return `done` w
 
 # Writing the Report
 
-Your `comment` is what the owner reads. The factory lays out your questions; the prose is yours, and it is published as written.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
- - Lead with the agreed scope in one short paragraph, then `## In scope`, `## Out of scope`, and `## Open decisions` when any remain.
- - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading, and a heading four sentences long reads as noise. Your reasoning and your recommendation belong in the options.
- - Keep each decision to one sentence. A decision the owner cannot disagree with in a single read is really several decisions.
- - No implementation identifiers, no file paths, no `path:line` in the comment.
+The factory lays out your questions using their existing fields.
+
+- Keep a question's `text` to the question itself, in one line. The factory renders it as a heading, and a heading four sentences long reads as noise. Your reasoning and your recommendation belong in the options.
+- Keep each decision to one sentence. A decision the owner cannot disagree with in a single read is really several decisions.
+- No implementation identifiers, no file paths, no `path:line` in the comment.
 
 # Output
 

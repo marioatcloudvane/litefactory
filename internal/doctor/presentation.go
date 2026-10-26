@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -14,6 +15,9 @@ import (
 // The caller redacts before retaining publication intent or writing output.
 func RenderConversation(c Conversation) string {
 	var body strings.Builder
+	if c.Review != nil {
+		body.WriteString(RenderRejectedDiagnosisReview(*c.Review))
+	}
 	if c.Repair == nil {
 		body.WriteString("Doctor diagnosis\n\n")
 	}
@@ -48,7 +52,7 @@ func RenderConversation(c Conversation) string {
 	}
 	if c.Repair != nil {
 		fmt.Fprintf(&body, "\nRepair %s: %s\n", c.Repair.ID, c.Repair.State)
-		outcome := "rechecked"
+		outcome := "not settled"
 		if c.Repair.Failure != "" || c.Repair.State == "stopped" || c.Repair.State == "needs_review" || c.Repair.State == "failed" {
 			outcome = "failed"
 		} else if c.Repair.State == "recovered" || c.Repair.State == "completed" {
@@ -66,7 +70,7 @@ func RenderConversation(c Conversation) string {
 			body.WriteString("Graph repair and any separately approved inverse commit all dependent rows, guidance handoff, verification and numbered journal entries together, or no repair changes. Repair alone does not establish continuation admitted or work completed.\n")
 		}
 		if c.Repair.Failure != "" {
-			fmt.Fprintf(&body, "Unresolved: %s\n", c.Repair.Failure)
+			fmt.Fprintf(&body, "Unresolved: %s\n", RepairFailureExplanation(c.Repair.Failure))
 		}
 		if c.Diagnosis != nil && c.Diagnosis.Repair != nil {
 			for _, note := range c.Diagnosis.Repair.Unresolved {
@@ -93,11 +97,27 @@ func RenderConversation(c Conversation) string {
 		}
 	}
 
+	if c.Repair == nil && len(c.Attempts) > 0 {
+		last := c.Attempts[len(c.Attempts)-1]
+		fmt.Fprintf(&body, "\nDiagnosis attempt %s: %s\n", last.ID, last.State)
+		if last.State == "running" {
+			body.WriteString("Diagnosis is running. Wait; no owner action is needed.\n")
+			return body.String()
+		}
+		if c.Diagnosis == nil && c.Conversation.TaskRef != "" {
+			if last.Failure != "" {
+				fmt.Fprintf(&body, "Unresolved: %s\n", last.Failure)
+			}
+			body.WriteString("No repair or restart was performed by diagnosis. Ask the factory operator to inspect the retained diagnosis on the factory host: `" + report.TaskInspectionCommand(c.Conversation.TaskRef) + "`.\n")
+			return body.String()
+		}
+	}
 	if !c.ApplyAvailable && c.Repair == nil {
 		body.WriteString("\nApply is unavailable. No repair or restart was performed by diagnosis.\n")
 	}
 	if c.Repair != nil {
-		body.WriteString("\nNext: `/doctor Recheck the repair outcome and recommend the next action` starts a fresh diagnosis from the retained journal.\n")
+		body.WriteString("\n" + RepairGuidance(c) + "\n")
+		return body.String()
 	}
 	body.WriteString("\nContinue with /doctor <instructions>; end the conversation with /doctor stop.\n")
 	return body.String()
@@ -109,14 +129,49 @@ func PresentationParts(body string) ([]string, error) {
 	if body == "" || len(body) > 262144 || !utf8.ValidString(body) {
 		return nil, errors.New("doctor presentation is empty, invalid UTF-8 or exceeds total byte budget")
 	}
-	var parts []string
-	for len(body) > 0 {
-		size := min(len(body), 48000)
-		for size < len(body) && !utf8.RuneStart(body[size]) {
-			size--
-		}
-		parts = append(parts, body[:size])
-		body = body[size:]
+	return report.SplitReviewParts(body, 48000)
+}
+
+// RepairGuidance describes retained settlement without inviting a second repair
+// or restart. It is shared by issue and local presentations.
+func RepairGuidance(c Conversation) string {
+	if c.Repair == nil {
+		return ""
 	}
-	return parts, nil
+	if c.RepairInspectionRequired {
+		task := c.Repair.TaskRef
+		if task == "" {
+			task = c.Conversation.TaskRef
+		}
+		return "The repair command did not complete; further progress is not confirmed. Inspect the retained repair on the factory host: `" + report.TaskInspectionCommand(task) + "`."
+	}
+	switch c.Repair.State {
+	case "restart_pending":
+		if c.Restart != nil && (c.Restart.State == "dispatched" || c.Restart.State == "uncertain") {
+			return "Restart settlement is pending; existing recovery is observing the retained restart. Wait; no owner action is needed."
+		}
+		fallthrough
+	case "reserved", "quiescing", "backed_up", "applying", "verifying", "verified":
+		task := c.Repair.TaskRef
+		if task == "" {
+			task = c.Conversation.TaskRef
+		}
+		return "The retained repair phase does not confirm current execution or further progress. Inspect the retained repair on the factory host: `" + report.TaskInspectionCommand(task) + "`."
+	default:
+		task := c.Repair.TaskRef
+		if task == "" {
+			task = c.Conversation.TaskRef
+		}
+		command := "litefactory logs --all"
+		if task != "" {
+			command = report.TaskInspectionCommand(task)
+		}
+		return "Repair settlement does not establish workflow completion. Inspect the retained repair outcome on the factory host: `" + command + "`."
+	}
+}
+
+// RepairFailureExplanation omits only the factory's historical next-action
+// suffix from display. The retained journal remains unchanged.
+func RepairFailureExplanation(reason string) string {
+	return strings.TrimSuffix(reason, " "+repairNextAction)
 }

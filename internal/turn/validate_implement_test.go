@@ -244,6 +244,7 @@ func TestValidateImplementReplayDoesNothingTwice(t *testing.T) {
 func TestValidateImplementLeavesAStoryWhoseBranchCannotMove(t *testing.T) {
 	f := newImplementBackFixture(t)
 	f.advance = func(branch, _ string) (bool, error) { return branch != "lf/story-003", nil }
+	f.target.Stories[2].Display = ticketDisplay{Label: "STORY-3", URL: "https://tickets.example.invalid/story-3"}
 	f.toOwner()
 	f.say(f.command(ValidateImplementCommand))
 	if f.row("story-002").State != store.ImplementWaiting || f.row("story-003").State != store.ImplementMerged {
@@ -251,6 +252,11 @@ func TestValidateImplementLeavesAStoryWhoseBranchCannotMove(t *testing.T) {
 	}
 	if f.schedules() != 1 || !strings.Contains(f.notice(), "Not reopened: story-003, because its branch cannot be moved forward to the tested commit.") {
 		t.Fatalf("notice %q schedules %d", f.notice(), f.schedules())
+	}
+	for _, fact := range []string{"https://tickets.example.invalid/story-3", "state and blockers are unchanged", "queued no repair", "branch must be reconciled", "no verified repair or retry command", "reopened stories continue", "no extra owner reply"} {
+		if !strings.Contains(f.notice(), fact) {
+			t.Fatalf("skipped-story guidance lost %q: %s", fact, f.notice())
+		}
 	}
 }
 

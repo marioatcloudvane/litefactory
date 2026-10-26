@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"net/http"
 	"slices"
 	"strings"
@@ -1890,7 +1891,7 @@ func finishedResearchOptions(t *testing.T, f *fixture, driver turn.ResearchLaunc
 	})
 	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "finished-research", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{"claude": runner}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, ResearchDriver: driver, SubIssueCreator: f.client, MCP: &turn.MCPRuntime{Authority: authority, Paths: f.paths, Executable: "/factory/litefactory", Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID, Now: f.clock.Now}}
 	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-		def, err := teamsource.CaptureResearch(ctx, specs)
+		def, err := teamsourcetest.CaptureResearch(ctx, specs)
 		if err != nil {
 			return nil, err
 		}

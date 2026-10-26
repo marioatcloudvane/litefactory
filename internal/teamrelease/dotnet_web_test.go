@@ -21,10 +21,11 @@ import (
 
 const dotnetSource = "teams/source/dotnet-web"
 
-// dotnetRelease is the published directory of the current dotnet-web release.
+// dotnetRelease selects an immutable published fixture independently of editable
+// source metadata, which may advance before the owner publishes another release.
 func dotnetRelease(t *testing.T) string {
 	t.Helper()
-	return "../../teams/dotnet-web/v" + sourceVersion(t, "../../"+dotnetSource)
+	return "../../teams/dotnet-web/v1.0.1"
 }
 
 func dotnetProfile(t *testing.T) config.ResolvedStackProfile {
@@ -47,6 +48,11 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 			put(t, filepath.Join(root, dir, name), raw)
 		}
 	}
+	catalogueBefore := releaseCatalogue(t, root)
+	historical := map[string]map[string][]byte{}
+	for _, release := range catalogueBefore.Releases {
+		historical[release.Download] = snapshot(t, filepath.Join(root, "teams", release.Download))
+	}
 	// Canonical source may advance independently of immutable published releases.
 	// Choose a fixture-only version, never changing repository release metadata.
 	metadataPath := filepath.Join(root, dotnetSource, "release.json")
@@ -68,6 +74,11 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 	if err := GenerateSources(t.Context(), root, false, []string{dotnetSource}); err != nil {
 		t.Fatal(err)
 	}
+	for _, release := range catalogueBefore.Releases {
+		if !reflect.DeepEqual(historical[release.Download], snapshot(t, filepath.Join(root, "teams", release.Download))) {
+			t.Fatal("building current source changed immutable published release", release.Download)
+		}
+	}
 	before := snapshot(t, filepath.Join(root, "teams"))
 	if err := GenerateSources(t.Context(), root, true, []string{dotnetSource}); err != nil {
 		t.Fatal(err)
@@ -78,8 +89,8 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, filepath.Join(root, "teams"))) {
 		t.Fatal("regeneration changed catalogue or historical release bytes")
 	}
-	// Rebuild this team's current release from source, retaining every other release
-	// (including this team's history).
+	// Rebuild the fixture candidate from current source while retaining every
+	// immutable repository release.
 	version := sourceVersion(t, filepath.Join(root, dotnetSource))
 	raw, err := os.ReadFile(filepath.Join(root, "teams/teams.json"))
 	if err != nil {
@@ -225,60 +236,63 @@ func TestDotnetWebCapturedGuidanceAndProviderReplay(t *testing.T) {
 }
 
 func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
-	p := dotnetProfile(t)
-	matrix, err := os.ReadFile(filepath.Join(dotnetRelease(t), "plan/skills/blazor-guidance/compatibility.md"))
-	if err != nil {
-		t.Fatal(err)
+	for _, tt := range []struct{ name, dir string }{
+		{"pinned release", dotnetRelease(t)},
+		{"current source", dotnetCandidate(t)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(tt.dir, config.StackProfilePath))
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := config.ResolveStackProfile(raw, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			matrix, err := os.ReadFile(filepath.Join(tt.dir, "plan/skills/blazor-guidance/compatibility.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			practices, err := os.ReadFile(filepath.Join(tt.dir, "plan/skills/blazor-guidance/practices.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, pin := range []string{"10.0.401", "10.0.12", "net10.0"} {
+				if !bytes.Contains(matrix, []byte(pin)) || !strings.Contains(p.Effective.Checks[0].Argv[2], pin) {
+					t.Fatal("profile/matrix pin mismatch", pin)
+				}
+			}
+			for _, term := range []string{"net10.0", "SDK default", "macOS or Linux", "wasm-tools", "AOT", "NuGet", "Node.js"} {
+				if !bytes.Contains(matrix, []byte(term)) {
+					t.Fatal("compatibility omission", term)
+				}
+			}
+			for _, term := range []string{"Static SSR", "Interactive Server", "Interactive WebAssembly", "Auto", "Standalone WebAssembly", "Prerendering", "DI lifetimes", "EditForm", "keyboard", "state ownership", "JavaScript", "authorization", "circuit", "Validate"} {
+				if !bytes.Contains(practices, []byte(term)) {
+					t.Fatal("guidance omission", term)
+				}
+			}
+			for _, c := range p.Effective.Checks {
+				if c.TimeoutSeconds <= 0 || c.Argv[0] != "sh" {
+					t.Fatal("unbounded or unexpected recipe")
+				}
+			}
+		})
 	}
-	practices, err := os.ReadFile(filepath.Join(dotnetRelease(t), "plan/skills/blazor-guidance/practices.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, pin := range []string{"10.0.401", "10.0.12", "net10.0"} {
-		if !bytes.Contains(matrix, []byte(pin)) || !strings.Contains(p.Effective.Checks[0].Argv[2], pin) {
-			t.Fatal("profile/matrix pin mismatch", pin)
-		}
-	}
-	for _, term := range []string{"net10.0", "SDK default", "macOS or Linux", "wasm-tools", "AOT", "NuGet", "Node.js"} {
-		if !bytes.Contains(matrix, []byte(term)) {
-			t.Fatal("compatibility omission", term)
-		}
-	}
-	for _, term := range []string{"Static SSR", "Interactive Server", "Interactive WebAssembly", "Auto", "Standalone WebAssembly", "Prerendering", "DI lifetimes", "EditForm", "keyboard", "state ownership", "JavaScript", "authorization", "circuit", "Validate"} {
-		if !bytes.Contains(practices, []byte(term)) {
-			t.Fatal("guidance omission", term)
-		}
-	}
-	for _, mode := range []string{"research", "plan", "implement", "validate", "spike", "bug"} {
-		shared, err := os.ReadFile(filepath.Join("../teamsource", mode, mode+".dot"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		released, err := os.ReadFile(filepath.Join(dotnetRelease(t), mode, mode+".dot"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		shared = legacySourceWithoutPreparationDeferral(t, mode, shared)
-		shared = withoutStandardsGrant(t, shared)
-		if mode == "bug" {
-			shared = legacyBugSourceWithoutSyncGate(t, shared)
-		}
-		if mode == "implement" {
-			shared = legacyImplementSourceWithoutOwnerResumeSync(t, withoutGoStoryWorkerSlotPolicy(t, shared))
-		}
-		if mode == "spike" {
-			shared = legacySpikeSourceWithoutRepair(t, shared)
-		}
-		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
-		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))
-		if !bytes.Equal(want, released) && (mode != "implement" || !pendingWorkerSyncMatchesRelease(want, released)) {
-			t.Fatal("team selection changed shared graph gates", mode)
-		}
-	}
+}
 
-	for _, c := range p.Effective.Checks {
-		if c.TimeoutSeconds <= 0 || c.Argv[0] != "sh" {
-			t.Fatal("unbounded or unexpected recipe")
+// dotnetCandidate builds dotnet-web from the current source in a private root
+// and returns the generated release directory.
+func dotnetCandidate(t *testing.T) string {
+	t.Helper()
+	root := canonicalTemp(t)
+	for _, dir := range []string{dotnetSource, "teams/source/base-team"} {
+		for name, raw := range snapshot(t, filepath.Join("../..", dir)) {
+			put(t, filepath.Join(root, dir, filepath.FromSlash(name)), raw)
 		}
 	}
+	if err := GenerateSources(t.Context(), root, false, []string{dotnetSource}); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(root, "teams/dotnet-web", "v"+sourceVersion(t, filepath.Join(root, dotnetSource)))
 }

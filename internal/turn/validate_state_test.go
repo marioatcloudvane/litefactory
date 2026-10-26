@@ -2,6 +2,7 @@ package turn
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -372,8 +373,16 @@ func TestRenderValidateReportDeliveryNextStep(t *testing.T) {
 			want = "Nothing. Delivery is complete."
 		}
 		out := renderValidateReport(st, twoTargets, "")
-		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.Contains(out, "\nNext: "+want+"\n") {
+		_, next, _ := strings.Cut(out, "\nNext: ")
+		next, _, _ = strings.Cut(next, "\n")
+		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.HasPrefix(next, want) {
 			t.Errorf("step %d wants %s:\n%s", i, want, out)
+		}
+		if i < 3 && (!strings.Contains(next, "ordered sequence") || !strings.Contains(next, "no additional confirmation") || !strings.Contains(next, "stops if a step fails or remains uncertain")) {
+			t.Errorf("step %d lost combined authority or failure consequence: %s", i, next)
+		}
+		if i == 3 && next != want {
+			t.Errorf("complete delivery offered a new decision: %s", next)
 		}
 	}
 }
@@ -480,5 +489,99 @@ func TestValidateQuestionShowsItsOptionsAndRecommendation(t *testing.T) {
 	want := "- Ship this commit?\n  - `a` Ship now\n  - `b` Check again (recommended)\n"
 	if !strings.Contains(text, want) || strings.Count(text, "(recommended)") != 1 {
 		t.Fatalf("options or marker missing:\n%s", text)
+	}
+}
+
+// #1182 C2: a stored handback's output tail reaches the owner short, as the
+// end of the stored tail, through the state-loading path.
+func TestValidateReportShowsAShortHandbackTail(t *testing.T) {
+	f := newFlowFixture(t)
+	f.suiteExit = func(string) int { return 1 }
+	f.agent = func(int, *flowFixture) (agentresult.ValidateRepair, ActivityResult) {
+		return handbackReport("the sum is wrong"), ActivityResult{}
+	}
+	f.stepTo("outcome")
+	stored := strings.Repeat("x", 500) + "END-OF-TAIL"
+	h := ValidateHandback{Commit: f.base, Failures: []HandbackFailure{{Command: "full-one", Argv: []string{"full-one"}, OutputTail: stored, Cause: "the sum is wrong", Locations: []agentresult.RepairLocation{{Path: "app/app.go", Line: 3}}, Objective: "Change Total so it returns 10."}}}
+	h.OwnerInstruction = ownerHandbackInstruction(h)
+	raw, err := json.Marshal(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.PutValidateOutcome(t.Context(), store.ValidateOutcome{InstanceID: f.instance.ID, Commit: f.base, Outcome: store.ValidateHandedBack, Assessment: []byte("[]"), Handback: raw, CreatedAt: f.clock}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := LoadValidateState(t.Context(), f.opts, f.profile, f.instance.ID)
+	if err != nil || st.Handback == nil {
+		t.Fatalf("state %+v %v", st.Handback, err)
+	}
+	out := renderValidateReport(st, nil, "")
+	_, fixing, ok := strings.Cut(out, "**What still needs fixing:**")
+	if !ok {
+		t.Fatalf("no handback section:\n%s", out)
+	}
+	fixing, _, _ = strings.Cut(fixing, "\n")
+	if !strings.Contains(fixing, "Cause: the sum is wrong") || !strings.Contains(fixing, "app/app.go:3") {
+		t.Fatalf("the failure line lacks cause or location:\n%s", fixing)
+	}
+	_, tail, ok := strings.Cut(fixing, "Output tail: ")
+	if !ok {
+		t.Fatalf("no output tail:\n%s", fixing)
+	}
+	tail, _, _ = strings.Cut(tail, " Then comment")
+	if n := len([]rune(tail)); n > handbackInstructionTail || !strings.HasSuffix(stored, tail) || !strings.HasSuffix(tail, "END-OF-TAIL") {
+		t.Fatalf("tail of %d characters %q", n, tail)
+	}
+}
+
+// #1182 C3/C4: with a failed suite the suite blocker and its bounded cause come
+// first, and the items awaiting a check share one neutral line. Readiness is
+// unchanged, and with a passed suite each item keeps its own line.
+func TestValidateFailedSuiteGroupsItemsAwaitingCheck(t *testing.T) {
+	findings := []ValidateFinding{
+		{ID: "a", State: findingAwaitingCheck, Criterion: true, Blocking: true},
+		{ID: "b", State: findingAwaitingCheck, Criterion: true, Blocking: true},
+		{ID: "c", State: findingAwaitingCheck, Blocking: true},
+		{ID: "d", State: findingOpen, Optional: true},
+	}
+	passed := vsBase(findings...)
+	passed.computeReadiness()
+	want := []string{"Item `a` awaits your check.", "Item `b` awaits your check.", "Item `c` awaits your check.", "Optional finding `d` needs a choice."}
+	if strings.Join(passed.Open, "\n") != strings.Join(want, "\n") || passed.Ready {
+		t.Fatalf("passed suite open %q ready %v", passed.Open, passed.Ready)
+	}
+
+	failed := vsBase(findings...)
+	failed.Suite.Outcome = store.SuiteFailed
+	cause := strings.Repeat("the path is wrong ", 30)
+	failed.Handback = &ValidateHandback{Failures: []HandbackFailure{{Command: "go test ./...", Cause: cause}}}
+	failed.computeReadiness()
+	if failed.Ready {
+		t.Fatal("a failed suite became ready")
+	}
+	head := failed.Open[0]
+	prefix := "The suite did not pass on commit `" + short(failed.Commit) + "` (failed): `go test ./...`: "
+	if !strings.HasPrefix(head, prefix) || len([]rune(strings.TrimPrefix(head, prefix))) > suiteCauseLimit {
+		t.Fatalf("suite blocker %q", head)
+	}
+	grouped := 0
+	for _, line := range failed.Open {
+		if line == "3 items await your check (a, b, c); they cannot be settled while the suite fails." {
+			grouped++
+		}
+		if strings.HasSuffix(line, "awaits your check.") {
+			t.Fatalf("per-item line with a failed suite: %q", failed.Open)
+		}
+	}
+	if grouped != 1 || failed.Open[1] != "3 items await your check (a, b, c); they cannot be settled while the suite fails." || !slices.Contains(failed.Open, "Optional finding `d` needs a choice.") {
+		t.Fatalf("failed suite open %q", failed.Open)
+	}
+
+	// Without a handback the blocker carries the suite's own reason.
+	bare := vsBase()
+	bare.Suite.Outcome, bare.Suite.Reason = store.SuiteFailed, "a suite command reported test failure"
+	bare.computeReadiness()
+	if bare.Ready || bare.Open[0] != "The suite did not pass on commit `"+short(bare.Commit)+"` (failed): a suite command reported test failure" {
+		t.Fatalf("no handback open %q", bare.Open)
 	}
 }

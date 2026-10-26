@@ -49,6 +49,10 @@ The factory alone grants approval, allocates attempts, saves checkpoints or succ
 
 # Writing the Report
 
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
+
+For reshape or blocked results, explain why the approved remedy cannot finish as supplied, what work and evidence are preserved and what the authorized next stage must settle. Do not present a proposed remedy change as approved or a successful repair as already delivered.
+
 Explain the repaired behavior, actual checks and remaining obstacles in the structured result. Preserve relevant evidence and reasons.
 
 # Output
