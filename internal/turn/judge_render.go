@@ -56,6 +56,27 @@ func JudgeText(p JudgePresentation) string {
 	return b.String()
 }
 
+// JudgeBriefText renders the same report as a short advisory comment, for a
+// check the factory runs for an agent before the owner reads its draft: the
+// summary, then one line per finding (its title and the change it asks for).
+// No headings, verdict line, severities or uncertainty list; the full report
+// stays saved. A node opts in with lf_format="brief".
+func JudgeBriefText(p JudgePresentation) string {
+	var b strings.Builder
+	writeJudgeProse(&b, p.Report.Summary)
+	if len(p.Report.Findings) > 0 {
+		b.WriteString("\n")
+	}
+	for _, f := range p.Report.Findings {
+		title := judgeOneLine(f.Title)
+		if title == "" {
+			title = judgeFirstSentence(f.Concern)
+		}
+		fmt.Fprintf(&b, "- **%s:** %s\n", judgeProse(title), judgeProse(judgeOneLine(f.Correction)))
+	}
+	return b.String()
+}
+
 func judgeVerdictText(verdict string, findings int) string {
 	switch verdict {
 	case "no_material_concerns":

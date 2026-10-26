@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -19,12 +20,14 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -33,6 +36,9 @@ import (
 // completed batch can make this regression pass.
 func TestImplementTimeoutStoryReplyResumesWhileSiblingRuns(t *testing.T) {
 	f := newFixture(t)
+	// Each story worker reserves its graph slot budget; room for both workers
+	// (plus a spare) keeps the timed-out story from waiting on its sibling.
+	f.daemon = f.newDaemon(daemon.Options{MaxConcurrentRuns: 7})
 	ctx := t.Context()
 	check := func(err error) {
 		t.Helper()
@@ -81,10 +87,12 @@ func TestImplementTimeoutStoryReplyResumesWhileSiblingRuns(t *testing.T) {
 		_, e = f.db.TransitionImplementStory(ctx, store.ImplementTransition{Parent: parent, Generation: 1, Key: seed.Key, From: store.ImplementWaiting, To: store.ImplementRunning, ExpectedRevision: row.Revision, At: f.clock.peek()})
 		check(e)
 	}
-	// A short runtime default is a fixture input; the captured graph deliberately
-	// has no node override, so expiry exercises the real deadline path.
+	// A short runtime default is a fixture input. The fixture drops the graph's
+	// node budgets, so the runtime default applies and expiry exercises the real
+	// deadline path.
 	files := fstest.MapFS{}
-	source := os.DirFS("../../teams/go-development/v1.0.2/implement")
+	source, srcErr := teamsourcetest.Workflow(teamsourcetest.Go, "implement")
+	check(srcErr)
 	check(fs.WalkDir(source, ".", func(name string, d fs.DirEntry, e error) error {
 		if e != nil || d.IsDir() {
 			return e
@@ -92,6 +100,9 @@ func TestImplementTimeoutStoryReplyResumesWhileSiblingRuns(t *testing.T) {
 		raw, e := fs.ReadFile(source, name)
 		if e != nil {
 			return e
+		}
+		if name == "implement.dot" {
+			raw = regexp.MustCompile(`\s*lf_budget="[0-9]+",?`).ReplaceAll(raw, nil)
 		}
 		files[name] = &fstest.MapFile{Data: raw, Mode: 0644}
 		return nil

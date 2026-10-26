@@ -112,8 +112,8 @@ A completed result and no questions.
         ],
         "decisions": [
           {
-            "id": "d1",
-            "text": "Record one settled decision."
+            "id": "O-01",
+            "text": "Record one agreed outcome, ending with its source: owner said or agent's call."
           }
         ]
       }

@@ -22,7 +22,7 @@ ask pairs with incomplete and includes matching common/analysis questions and pa
 
 Preflight complete input; correct every diagnostic. Submit, retain request_id, and read its matching receipt. On lost replies recover the known receipt before retrying identical input; corrections use a new request. Terminal text has no authority over the result or routing. End with a short plain-language note. Receipt acknowledgment, terminal text and process completion are separate facts.
 
-`analysis.boundaries` is an optional version-1 typed detail of the immutable remedy: `{ "allowed_paths": ["src/search.go", "src/search_test.go"], "excluded_paths": ["src/ranking.go"] }`. Include the files you expect the fix to change in new review-ready analysis; they guide the fixer and review and do not limit it. These fields are covered by the analysis digest and the same exact owner approval. They never grant tools or authority by themselves.
+`analysis.boundaries` is an optional version-1 typed detail of the immutable remedy: `{ "allowed_paths": ["src/{{example_file}}", "src/{{example_test_file}}"], "excluded_paths": ["docs/ranking.md"] }`. Include the files you expect the fix to change in new review-ready analysis; they guide the fixer and review and do not limit it. These fields are covered by the analysis digest and the same exact owner approval. They never grant tools or authority by themselves.
 
 `analysis.prevention` is optional: `{ "kind": "missing_standard", "note": "Handlers check input length before indexing into it." }`. Kind is `missing_standard` (the note says what rule would have prevented the bug) or `one_off` (the note says why no rule would help). Keep the note to one or two plain sentences.
 

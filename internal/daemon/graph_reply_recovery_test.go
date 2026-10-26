@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -51,10 +51,9 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 		if err != nil {
 			t.Fatal(err)
 		}
-		// These recovery fixtures retain the released pre-sync topology.
-		// Their synthetic histories model its direct conversation/fixer routes,
-		// not a newly approved canonical Bug execution.
-		capture, err := teamsource.CaptureWorkflowIdentity(t.Context(), os.DirFS("../../teams/go-development/v1.0.2/bug"), "bug.dot", "go-development", agent.WorkflowBug, specs)
+		// The recovery fixtures capture the current Bug source; their synthetic
+		// histories write the graph rows directly instead of running agents.
+		capture, err := teamsourcetest.CaptureBug(t.Context(), specs)
 		if err != nil {
 			t.Fatal(err)
 		}

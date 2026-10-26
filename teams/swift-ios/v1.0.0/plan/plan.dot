@@ -42,27 +42,24 @@ digraph plan {
  story_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-story", lf_skills="plan-story-shaping", lf_limit="13"];
  story_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="story_agent", lf_limit="13"];
  story_draft    [lf_action="lf_plan_story", lf_source="story_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="13"];
- story_gate     [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="13"];
  story_ask      [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_source="story_agent", lf_limit="8"];
- story_review   [lf_action="lf_ask", lf_outcomes="published", lf_kind="review", lf_source="story_agent", lf_limit="13"];
+ story_review [lf_action="lf_gate", lf_outcomes="published", lf_command="/approve-plan", lf_args="story,stage,candidate", lf_source="story_agent", lf_limit="13"];
 
  // ---- Stage 3: technical ---------------------------------------------------
  technical_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="technical", lf_limit="8"];
- technical_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-technical", lf_skills="plan-technical-shaping", lf_limit="8"];
+ technical_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-technical", lf_standards="plan-technical", lf_skills="plan-technical-shaping", lf_limit="8"];
  technical_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="technical_agent", lf_limit="8"];
  technical_draft    [lf_action="lf_plan_story", lf_source="technical_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="8"];
- technical_gate     [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8"];
  technical_ask      [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_source="technical_agent", lf_limit="8"];
- technical_review   [lf_action="lf_ask", lf_outcomes="published", lf_kind="review", lf_source="technical_agent", lf_limit="8"];
+ technical_review [lf_action="lf_gate", lf_outcomes="published", lf_command="/approve-plan", lf_args="story,stage,candidate", lf_source="technical_agent", lf_limit="8"];
 
  // ---- Stage 4: acceptance --------------------------------------------------
  acceptance_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="acceptance", lf_limit="8"];
  acceptance_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-acceptance", lf_skills="plan-acceptance-shaping", lf_limit="8"];
  acceptance_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="acceptance_agent", lf_limit="8"];
  acceptance_draft    [lf_action="lf_plan_story", lf_source="acceptance_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="8"];
- acceptance_gate     [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8"];
  acceptance_ask      [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_source="acceptance_agent", lf_limit="8"];
- acceptance_review   [lf_action="lf_ask", lf_outcomes="published", lf_kind="review", lf_source="acceptance_agent", lf_limit="8"];
+ acceptance_review [lf_action="lf_gate", lf_outcomes="published", lf_command="/approve-plan", lf_args="story,stage,candidate", lf_source="acceptance_agent", lf_limit="8"];
 
  set_answer [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="answer", lf_source="set_agent", lf_limit="13"];
  set_reply [lf_action="lf_comment", lf_outcomes="published", lf_kind="final", lf_source="set_agent", lf_limit="13"];
@@ -122,9 +119,7 @@ digraph plan {
  story_agent    -> story_question [lf_on="success"];
  story_question -> story_ask      [lf_on="true"];     // needs an answer
  story_question -> story_answer    [lf_on="false"];    // has a draft; apply it
- story_draft    -> story_gate     [lf_on="applied"];
- story_gate     -> promoted       [lf_on="true"];     // the owner approved
- story_gate     -> story_review   [lf_on="false"];    // asks if the draft stands
+ story_draft -> story_review [lf_on="applied"];
  story_ask      -> waiting        [lf_on="published"];
  story_review   -> story_pick     [lf_on="published"];
  story_pick     -> story_agent    [lf_on="true"];     // another story has no draft
@@ -136,9 +131,7 @@ digraph plan {
  technical_agent    -> technical_question [lf_on="success"];
  technical_question -> technical_ask      [lf_on="true"];     // needs an answer
  technical_question -> technical_answer    [lf_on="false"];    // has a draft; apply it
- technical_draft    -> technical_gate     [lf_on="applied"];
- technical_gate     -> promoted           [lf_on="true"];     // the owner approved
- technical_gate     -> technical_review   [lf_on="false"];    // asks if the draft stands
+ technical_draft -> technical_review [lf_on="applied"];
  technical_ask      -> waiting            [lf_on="published"];
  technical_review   -> waiting            [lf_on="published"];
 
@@ -148,9 +141,7 @@ digraph plan {
  acceptance_agent    -> acceptance_question [lf_on="success"];
  acceptance_question -> acceptance_ask      [lf_on="true"];     // needs an answer
  acceptance_question -> acceptance_answer    [lf_on="false"];    // has a draft; apply it
- acceptance_draft    -> acceptance_gate     [lf_on="applied"];
- acceptance_gate     -> promoted            [lf_on="true"];     // the owner approved
- acceptance_gate     -> acceptance_review   [lf_on="false"];    // asks if the draft stands
+ acceptance_draft -> acceptance_review [lf_on="applied"];
  acceptance_ask      -> waiting             [lf_on="published"];
  acceptance_review   -> waiting             [lf_on="published"];
 

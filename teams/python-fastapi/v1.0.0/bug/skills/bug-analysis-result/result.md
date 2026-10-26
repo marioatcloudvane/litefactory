@@ -1,3 +1,15 @@
+Retained review content is separate from an accepted application result. A bounded,
+authorized rejected submission may be saved and delivered with its diagnostics and
+unaccepted status; it does not satisfy this result contract, advance a workflow or
+change any owner gate. Correct the submission and use a new request identity. Exact
+replay must keep the original request identity and bytes, then recover its receipt.
+Keep the complete authored report or plan within the input ceiling; never shorten a
+plan merely to pass validation. Full retained owner output uses ordered numbered
+parts linked from the short report. Delivery remains pending until every part has a
+confirmed receipt. Shared contributions remain bounded at 4 MiB; Plan node results
+remain bounded at 1 MiB and the legacy Plan proposal at 8 MiB. Retention and remote
+delivery can fail separately; do not claim missing content was retained or delivered.
+
 # Version-1 Bug analyst results
 
 Use only communication_preflight, communication_submit and communication_receipt from the factory result service. The service binds the task, workflow bug and role bug-analyst. Keep stable criterion and question IDs.
@@ -10,10 +22,12 @@ ask pairs with incomplete and includes matching common/analysis questions and pa
 
 Preflight complete input; correct every diagnostic. Submit, retain request_id, and read its matching receipt. On lost replies recover the known receipt before retrying identical input; corrections use a new request. Terminal text has no authority over the result or routing. End with a short plain-language note. Receipt acknowledgment, terminal text and process completion are separate facts.
 
-`analysis.boundaries` is an optional version-1 typed detail of the immutable remedy: `{ "allowed_paths": ["src/search.py", "src/search_test.go"], "excluded_paths": ["src/ranking.go"] }`. Include the files you expect the fix to change in new review-ready analysis; they guide the fixer and review and do not limit it. These fields are covered by the analysis digest and the same exact owner approval. They never grant tools or authority by themselves.
+`analysis.boundaries` is an optional version-1 typed detail of the immutable remedy: `{ "allowed_paths": ["src/search.py", "src/test_search.py"], "excluded_paths": ["docs/ranking.md"] }`. Include the files you expect the fix to change in new review-ready analysis; they guide the fixer and review and do not limit it. These fields are covered by the analysis digest and the same exact owner approval. They never grant tools or authority by themselves.
 
-A blocked result example:
+`analysis.prevention` is optional: `{ "kind": "missing_standard", "note": "Handlers check input length before indexing into it." }`. Kind is `missing_standard` (the note says what rule would have prevented the bug) or `one_off` (the note says why no rule would help). Keep the note to one or two plain sentences.
+
+A blocked result example, for an obstacle no owner answer removes (a missing reproduction is not one):
 
 ```json
-{"outcome":"blocked","comment":"Investigation cannot proceed.","reason":"Reproduction evidence is unavailable.","payload":{"bug":{"response":"blocked","evidence":["Owner supplied no reproducible input."]}}}
+{"outcome":"blocked","comment":"The failing code is not in this checkout.","reason":"The bug names the billing service, which lives in another repository this run cannot read.","payload":{"bug":{"response":"blocked","evidence":["The issue cites billing/invoice.go; no such path exists in this repository or its history."]}}}
 ```

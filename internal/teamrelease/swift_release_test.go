@@ -29,12 +29,6 @@ func swiftFixture(t *testing.T) string {
 	return root
 }
 
-// swiftRelease is the published directory of the current swift-ios release.
-func swiftRelease(t *testing.T) string {
-	t.Helper()
-	return "../../teams/swift-ios/v" + sourceVersion(t, "../../teams/source/swift-ios")
-}
-
 // These tests prove offline package contracts, never live Apple execution.
 func TestSwiftIOSReleaseSelectionAndReproducibility(t *testing.T) {
 	t.Parallel()
@@ -95,7 +89,7 @@ func TestSwiftIOSReleaseSelectionAndReproducibility(t *testing.T) {
 
 func TestSwiftIOSProfileGuidanceAndMissingInputs(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile(swiftRelease(t) + "/stack-profile.json")
+	raw, err := os.ReadFile("../../teams/source/swift-ios/stack-profile.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +144,8 @@ func TestSwiftIOSInvalidSourceRejected(t *testing.T) {
 			}
 		}},
 		{"unsupported workflow", func(t *testing.T, root string) {
-			name := filepath.Join(root, swiftSource, "implement/implement.dot")
+			// Swift inherits its graphs; break the base graph its build resolves.
+			name := filepath.Join(root, "teams/source/base-team", "implement/implement.dot")
 			raw, err := os.ReadFile(name)
 			if err != nil {
 				t.Fatal(err)
@@ -187,7 +182,7 @@ func TestSwiftIOSInvalidSourceRejected(t *testing.T) {
 
 func TestSwiftIOSToolchainPreflightWithOfflineHostFacts(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile(swiftRelease(t) + "/stack-profile.json")
+	raw, err := os.ReadFile("../../teams/source/swift-ios/stack-profile.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -111,25 +111,29 @@ func TestBaseIsNotATeam(t *testing.T) {
 	}
 }
 
-// An empty child must package the current base inventory. Source may add files
+// A child that only sets the base variables and adds its own stack files must
+// package the current base inventory plus those files. Source may add files
 // ahead of an immutable published release; base metadata is not distributable.
 func TestBaseTeamChildBuildsCurrentBaseInventory(t *testing.T) {
 	root := canonicalTemp(t)
 	for name, raw := range snapshot(t, "../../teams/source/base-team") {
 		put(t, filepath.Join(root, "teams/source/base-team", filepath.FromSlash(name)), raw)
 	}
-	release, err := os.ReadFile("../../teams/source/go-development/release.json")
-	if err != nil {
-		t.Fatal(err)
+	own := snapshot(t, "../../teams/source/go-development")
+	for name, raw := range own {
+		put(t, filepath.Join(root, "teams/source/go-child", filepath.FromSlash(name)), raw)
 	}
-	put(t, filepath.Join(root, "teams/source/go-child/release.json"), release)
-	put(t, filepath.Join(root, "teams/source/go-child/inherit.json"), []byte(`{"base":"base-team"}`))
 	if err := GenerateSources(t.Context(), root, false, []string{"teams/source/go-child"}); err != nil {
 		t.Fatal(err)
 	}
-	built := snapshot(t, filepath.Join(root, "teams/go-development/v1.0.5"))
+	built := snapshot(t, filepath.Join(root, "teams/go-development", "v"+sourceVersion(t, "../../teams/source/go-development")))
 	want := snapshot(t, "../../teams/source/base-team")
 	delete(want, "base.json")
+	for name, raw := range own {
+		if strings.Contains(name, "/") || name == "stack-profile.json" {
+			want[name] = raw
+		}
+	}
 	want["team.config"] = nil
 	want["GENERATED.md"] = nil
 	if len(built) != len(want) {

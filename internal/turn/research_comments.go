@@ -35,9 +35,16 @@ type CommentActivity struct {
 	Failure  func(context.Context, store.GraphNodeAttempt) (agentresult.Result, error)
 }
 
+// JudgeFormatAttribute lets an advisory comment publish its judge report in
+// the short [JudgeBriefFormat] instead of the full report.
+const (
+	JudgeFormatAttribute = graphexec.JudgeFormatAttribute
+	JudgeBriefFormat     = "brief"
+)
+
 // ResearchCommentSpec declares the closed publication kinds and confirmed outcome.
 func ResearchCommentSpec() graphexec.ActionSpec {
-	return graphexec.ActionSpec{Name: ResearchCommentAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"final", "failure", "advisory"}}}}
+	return graphexec.ActionSpec{Name: ResearchCommentAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"final", "failure", "advisory"}}, JudgeFormatAttribute: {Values: []string{JudgeBriefFormat}}}}
 }
 
 // ResearchAskSpec declares Research question and review publication kinds.
