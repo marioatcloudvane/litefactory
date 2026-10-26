@@ -66,7 +66,7 @@ func TestConsentPageOffersScopesAndDurationsAndAllowsOnlyItsOwnInlineAssets(t *t
 			t.Errorf("CSP %q does not allow the page's inline %s", csp, tag)
 		}
 	}
-	for _, directive := range []string{"default-src 'none'", "form-action 'self'", "frame-ancestors 'none'", "base-uri 'none'"} {
+	for _, directive := range []string{"default-src 'none'", "form-action 'self' https://client.example;", "frame-ancestors 'none'", "base-uri 'none'"} {
 		if !strings.Contains(csp, directive) {
 			t.Errorf("CSP lost %q", directive)
 		}

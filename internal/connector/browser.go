@@ -173,7 +173,7 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// The connector-wide policy forbids all styles and scripts; the consent
 	// page allows exactly its own fixed inline style and script by hash.
-	w.Header().Set("Content-Security-Policy", consentCSP)
+	w.Header().Set("Content-Security-Policy", consentCSP(redirect))
 	_, _ = w.Write(page.Bytes())
 }
 

@@ -140,7 +140,13 @@ func cspHash(source string) string {
 	return "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
 }
 
-var consentCSP = "default-src 'none'; style-src " + cspHash(consentCSS) + "; script-src " + cspHash(consentJS) + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+// consentCSP allows the page's own inline style and script by hash. Browsers
+// apply form-action to the redirect that follows the form post too, so the
+// client's registered redirect origin is allowed besides 'self'; without it
+// the Allow redirect back to the client is silently blocked.
+func consentCSP(redirect *url.URL) string {
+	return "default-src 'none'; style-src " + cspHash(consentCSS) + "; script-src " + cspHash(consentJS) + "; form-action 'self' " + redirect.Scheme + "://" + redirect.Host + "; frame-ancestors 'none'; base-uri 'none'"
+}
 
 var consentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Allow access to Litefactory?</title><style>` + consentCSS + `</style></head>
