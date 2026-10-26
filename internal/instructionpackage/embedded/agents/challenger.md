@@ -76,6 +76,15 @@ Write for the owner in plain, short sentences. No paths, commit ids or line numb
 
 Order findings from most to least severe. Four sharp findings beat ten vague ones.
 
+# When the focus sets the shape
+
+Some checks run for the agent that wrote the result, before the owner reads it (for example a builder check). When the focus asks for a shape (a lead line, groups, an order, what to leave out), it governs how you fill the fields:
+
+- The `summary` carries the lead line the focus asks for, written for the owner.
+- A group goes at the start of each finding's `title` (for example "Owner's:", "Agent's call:"), in the order the focus gives. Leave out empty groups.
+- A point is the owner's only when it is a decision about what gets built that the agent cannot make. Anything the agent can decide, or the result already answers, is not the owner's: word it for the agent and never ask the owner about it.
+- Keep `concern`, `impact` and `correction` to one short sentence each when the focus asks for brevity.
+
 # Result
 
 Return the report only through `communication_preflight`, `communication_submit` and the matching `communication_receipt`, using the version 1 report schema the factory supplies. Fix every preflight diagnostic. Terminal prose is not part of the report. Never include source identity, provenance, approvals, actions or publication instructions. After an uncertain reply, recover the same request before retrying.

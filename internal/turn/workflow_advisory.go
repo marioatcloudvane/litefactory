@@ -113,7 +113,7 @@ func executeAdvisoryComment(ctx context.Context, opts Options, req ActivityReque
 		if request.CallerKind != "workflow" || request.GraphInstanceID != instance.ID || request.JudgeNodeAttemptID != source.ID || judgeDigest(request.Report) != selected.ReportDigest {
 			return ActivityResult{}, errors.New("advisory report binding or digest mismatch")
 		}
-		text, err = savedJudgeText(request.Report)
+		text, err = savedJudgeTextAs(request.Report, node.Attrs[JudgeFormatAttribute])
 		if err != nil {
 			return ActivityResult{}, err
 		}

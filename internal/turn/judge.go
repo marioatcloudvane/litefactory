@@ -279,9 +279,18 @@ func (s *JudgeService) save(ctx context.Context, q store.JudgeRequest, cfg judge
 	return savedJudgeText(raw)
 }
 func savedJudgeText(raw []byte) (string, error) {
+	return savedJudgeTextAs(raw, "")
+}
+
+// savedJudgeTextAs renders a saved report in the format an advisory node
+// declares: "brief" for the short form, otherwise the full report.
+func savedJudgeTextAs(raw []byte, format string) (string, error) {
 	var saved judgeSavedReport
 	if err := json.Unmarshal(raw, &saved); err != nil {
 		return "", err
+	}
+	if format == JudgeBriefFormat {
+		return JudgeBriefText(saved.Presentation), nil
 	}
 	return JudgeText(saved.Presentation), nil
 }
