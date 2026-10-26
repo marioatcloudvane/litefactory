@@ -52,6 +52,7 @@ Use these limits. A set has 1 to 12 entries. Each entry has a temporary id that 
  - Read plan-evidence and plan-story-set before you start, and use the factory-supplied node-result and final-result instructions.
  - Check the parent thread and the saved research scope first. Judging the split before looking is how an outcome gets missed or a question gets asked that the thread already answers.
  - Account for all agreed scope. Walk every deliverable, decision and requirement the owner and the research settled and make sure one entry covers it. Say in the comment what you deliberately left out and why.
+ - Walk the outcome ledger in RESEARCH_BRIEF.md (plan-evidence Outcome ledger). A narrowed, split or dropped `O-` outcome gets a `Ruling:` line in the comment; never narrow silently.
  - Propose several stories when several independent outcomes exist. Give one story only when the scope is truly one deliverable.
  - Give every entry a temporary id such as `s1`, a short unique name and a one-line intent. Order the entries so prerequisites come first. List in `depends_on` only the ids whose built result an entry needs in order to be built: code, data or an interface it uses. The order in which you would explain or review the stories, a shared topic or a nicer sequence is not a dependency. Leave `depends_on` out when there are none.
  - Describe boundaries in the intent: what the story delivers and where it stops, in plain language an owner can check. No implementation identifiers, file paths or `path:line` references.
@@ -80,7 +81,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 
 - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options, so the owner can reply "yes to all".
 - Write each name as a short label and each intent as one plain sentence about the outcome, not the solution. The intent says what the story delivers and where it stops.
-- Say in the comment which agreed scope each story covers, so the owner can check that nothing is missing. For every dependency, say in one sentence what the dependent story uses from the other one. When the set is a single chain, say why it cannot be cut so that some stories build side by side.
+- Say in the comment which agreed scope each story covers, so the owner can check that nothing is missing: open with any uncovered `O-` IDs and every `Ruling`, then a compact `O-ID → story` table. This is information for the owner, not a gate. For every dependency, say in one sentence what the dependent story uses from the other one. When the set is a single chain, say why it cannot be cut so that some stories build side by side.
 - Do not claim anything is approved, tested or published. Say what you proposed and what you assumed.
 
 # Output

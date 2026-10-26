@@ -12,7 +12,8 @@ one outcome into layers, chores or "part 1/part 2", and never hide several outco
 in an umbrella story.
 
 Account for all agreed scope. Each item lands in exactly one entry; say in the
-comment what you left out and why. Do not add scope nobody agreed.
+comment what you left out and why. Do not add scope nobody agreed. Map every `O-`
+outcome of the Research ledger to its entry as plan-evidence's Outcome ledger says.
 
 Boundaries: give every entry a one-line intent of at most 280 characters that says
 what the story delivers and where it stops, in plain language, with no file paths
