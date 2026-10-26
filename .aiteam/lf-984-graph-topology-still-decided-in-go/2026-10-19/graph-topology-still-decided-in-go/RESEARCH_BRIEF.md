@@ -2,27 +2,17 @@
 
 ## Request
 
-Inventory where Go decides topology and where hard states block orchestration, then settle a light-guardrails scope for follow-up work.
+Take the owner's simplification: no lf_approval auto mode; a stage without an approval activity rushes, only a generic approval activity stops and waits. State what this gets and what stays open.
 
 ## Decisions
 
-- **d1** — Split into B1 retry and lifetimes, B2 narrowed heal, B3 no silent stops, B4 doctor repair on the existing flow, and A1-A4 for topology.
-- **d2** — Owner-reply resume is a named DOT edge; without one, the origin-node behaviour remains the fallback.
-- **d3** — Bug digest pin is replaced by the existing structural check.
-- **d4** — Plan stage configurability (#957) is out of this issue.
-- **d5** — Track B ships before Track A.
-- **d6** — B2 is limited to the story comment sweep after hand repair, 'dispatch no longer matches' and 'instance already terminal'. Identity checks that guard actor or ticket ownership stay hard stops.
-- **d7** — B4 extends the existing doctor repair flow (holds, drain, approval, journal) and does not rebuild it. Doctor repair holds join the lifetime list in B1.
-- **d8** — Light guardrails C (#1050) and E (#1052) stay with their own issues and are out of this scope.
-- **d9** — Proposed, not settled: add A5 graph-controlled workflows (own stages, gates and continuation in the DOT) after A1-A3. This is a design decision for the owner.
-- **d10** — Proposed, not settled: Go keeps the safety fence (permission ceiling, owner identity, ticket ownership checks, idempotent journaled effects, cost and time ceilings, redaction, audit). Order, stage names, section rights, gate policy, retries, lifetimes and prompts move to the DOT, in four levels with a recommended stop after level 3.
-- **d11** — Proposed, not settled: 12 top-level stories, 9 now (DOT-owned limits and pinning; heal and no silent stops; doctor repair; transient and lifetimes; visible transitions; Bug graphs can change; graph safety tooling; Plan stages and facts; proof graphs) and 3 held (generic effect blocks; one structural validator; workflow registry) until the proof graphs show how Plan behaves. About 30 child stories. Cut by capability, not by mode.
-- **d12** — Proposed, not settled: first iteration is one parent with three children. A dedicated lf_plan_approval activity (owner and auto modes) replaces the gate-and-review pair; auto approvals are guarded, recorded and listed in the final review; the set stage and the final /approve-plan-set stay owner-only. Replaces the first slice of the 12-story set.
+- **d12** — Proposed, not settled: replace the earlier auto-mode design. First iteration: a generic approval activity that only stops and waits; a Plan stage with no approval node records an implicit graph-given approval and rushes on. Set promotion and the final /approve-plan-set stay owner-only.
 
 
 ## Assumptions
 
-- **a1** — Line numbers in the issue are approximate and may have drifted; the file and symbol references are assumed correct.
+- **a2** — The guards from the earlier proposal (no open question, no hold, upstream approvals current, cap on automatic re-runs, final review lists graph-given approvals) still apply to the implicit approval. Rests on keeping the safety fence of d10; not confirmed by the owner.
+- **a3** — First iteration covers Plan only; Implement, Validate and Bug validators pin their node sets and were not checked for accepting an approval node.
 
 ## Research documents
 
