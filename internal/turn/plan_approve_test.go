@@ -90,14 +90,6 @@ func ungatedTechnicalFixture(t *testing.T) (f *fixture, base Request, forge *fak
 	return f, base, forge, arm
 }
 
-// runToTechnical drafts the story stage, approves it as the owner, and so runs
-// the technical stage, which ends at the ungated approval.
-func runToTechnical(t *testing.T, f *fixture, base Request) {
-	t.Helper()
-	executeGraphPlan(t, f, base)
-	executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
-}
-
 func postsContaining(forge *fakeForge, text string) int {
 	n := 0
 	for _, post := range forge.all() {
