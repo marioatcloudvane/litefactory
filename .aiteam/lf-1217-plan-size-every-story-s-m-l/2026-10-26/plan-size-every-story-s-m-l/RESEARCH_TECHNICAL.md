@@ -87,7 +87,7 @@ Evidence:
 
 ## F-09
 
-Shaping inspection confirms set, story, technical and acceptance already have separate review boundaries; set replacement after promotion is unsupported, so refinement must live on the story rather than rewriting its promoted set. Story and technical stages cannot author tasks/criteria; acceptance owns that detail. Existing revision rules reopen the earliest affected stage and affected downstream approvals.
+Observed: set, story, technical and acceptance have separate review boundaries; replacing a promoted set is unsupported, and story/technical stages cannot author tasks or criteria. Existing revision rules reopen affected stages and downstream approvals. The earlier inference that routine refinement must occur on the story is superseded by O-04 following the owner's plan-set direction.
 
 Evidence:
 
