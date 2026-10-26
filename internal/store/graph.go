@@ -96,7 +96,9 @@ type BugSyncPrerequisite struct {
 }
 
 // GraphAttemptStart reserves the next attempt. Limit zero is unbounded; a
-// positive limit caps total dispatches of this node across the entire instance.
+// positive limit caps the node's automatic dispatches since the instance's most
+// recent owner reply. Owner replies are conversation and never use it up,
+// except under LimitSpansReplies and at the declared Bug base sync gate.
 type GraphAttemptStart struct {
 	// AcceptOwnerInput is set only for a substantive agent invocation.
 	AcceptOwnerInput    bool
@@ -115,8 +117,11 @@ type GraphAttemptStart struct {
 	// factory step needs no run of its own, even when an earlier attempt of it
 	// ran inside an agent's run.
 	FactoryStep bool
-	Limit       int
-	StartedAt   time.Time
+	// LimitSpansReplies keeps the limit cumulative across owner replies, for a
+	// workflow whose graph uses lf_limit to cap its owner rounds.
+	LimitSpansReplies bool
+	Limit             int
+	StartedAt         time.Time
 }
 
 // GraphCompletion commits attempt, outputs, transition and instance progress
