@@ -95,7 +95,8 @@ func TestPlanGate_RetireDraftPostsRetireCommandAndApproveReplyDoesNotRetire(t *t
 
 func TestPlanGate_PublicationFailurePostsNoSecondFailureNotice(t *testing.T) {
 	f, _, base, _, forge := graphPlanFixtureWithForge(t, "agent")
-	forge.failWith(500)
+	// The advisory judge comment before the gate publishes; the gate's fails.
+	forge.afterPost = func() { forge.failWith(500) }
 	out, err := Execute(t.Context(), f.opts, base)
 	if err == nil && out.Err == nil {
 		t.Fatal("expected the gate publication to fail")
