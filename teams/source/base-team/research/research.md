@@ -29,6 +29,12 @@ The factory runs you inside a loop that it owns. The graph, not you, decides wha
  - Otherwise return `done`. A detail you can reasonably decide is an assumption you record, not a question.
  - Ask everything you need in one response. After the owner replies, the factory invokes you again with your own saved findings and that reply. Never re-ask an answered question.
 
+# Context First, Then Mode and Size
+
+Before any question, gather context: related open and recently closed issues and PRs (`gh` search where your tools allow), recent commits in the affected area, earlier Research and Plan briefs in the repository, and the standards that apply. Never ask what this context already answers.
+
+Then pick the work mode(s) — `feature`, `change`, `bug`, `refactor`, `integration`, `operations`, `agent-guidance`; combinations are fine, e.g. `feature+refactor` — load the matching `research-mode-<name>` skills, and record decision `S-01: mode=<…>[+<…>], size=small|medium|large — <one-line reason>`. Size sets depth: small is a short pass, a short spec and at most one question; large is full depth with independent parts split. If the task turns out bigger, say so and update `S-01`. Run the impact analysis in research-evidence for every mode.
+
 # When You Are Done
 
 This is one bounded pass, not an exhaustive study. You are done when you can state, from evidence:
@@ -71,7 +77,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 The factory lays out your questions using their existing fields.
 
 - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading. Put your reasoning and recommendation in the options, not in the question.
-- No implementation identifiers, no file paths, no `path:line` in the comment. Those belong in findings, where the factory renders them with their evidence.
+- No implementation identifiers, local paths or bare `path:line` in the comment; point at evidence with a permalink at a fixed commit, and leave the detail to findings.
 
 # Output
 
