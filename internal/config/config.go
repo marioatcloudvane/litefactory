@@ -54,6 +54,8 @@ type Config struct {
 	ValidateMode ValidateSettings `yaml:"validate"`
 	// Webhook is the optional local listener for GitHub webhook deliveries.
 	Webhook Webhook `yaml:"webhook"`
+	// RemoteConnector is the disabled-by-default remote read boundary.
+	RemoteConnector RemoteConnector `yaml:"remote_connector"`
 
 	Providers Providers `yaml:"providers"`
 	// Tiers is the litefactory-owned tier→model table (US-6). See [Tiers].
@@ -439,7 +441,8 @@ type ToolProfileCodex struct {
 func Defaults() Config {
 	return Config{
 
-		Webhook: Webhook{Listen: DefaultWebhookListen},
+		Webhook:         Webhook{Listen: DefaultWebhookListen},
+		RemoteConnector: DefaultRemoteConnector(),
 		Settings: Settings{
 			WorkerTimeoutSeconds: DefaultWorkerTimeoutSeconds,
 			TeamSource:           DefaultTeamSource,
