@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -283,7 +284,7 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
-	form, err := readForm(r, "grant_type", "client_id", "client_secret", "code", "redirect_uri", "resource", "scope", "code_verifier", "refresh_token")
+	form, err := readForm(r)
 	if err != nil {
 		oauthInputError(w, err, "invalid_request")
 		return
@@ -378,6 +379,8 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// readForm parses a form body. With no allowed names, unrecognized parameters
+// are ignored (RFC 6749 §3.1, §3.2); with names, any other parameter is refused.
 func readForm(r *http.Request, allowed ...string) (url.Values, error) {
 	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || media != "application/x-www-form-urlencoded" || r.URL.RawQuery != "" {
@@ -386,26 +389,37 @@ func readForm(r *http.Request, allowed ...string) (url.Values, error) {
 	if err := r.ParseForm(); err != nil {
 		return nil, err
 	}
-	if err := validateParameters(r.PostForm, allowed...); err != nil {
+	if err := rejectDuplicateParameters(r.PostForm); err != nil {
 		return nil, err
+	}
+	if len(allowed) > 0 {
+		if err := onlyParameters(r.PostForm, allowed...); err != nil {
+			return nil, err
+		}
 	}
 	return r.PostForm, nil
 }
 
-func validateParameters(values url.Values, allowed ...string) error {
-	for key, entries := range values {
+// onlyParameters refuses any parameter outside allowed. Revocation uses it so
+// administration parameters such as grant_id or revoke_all are refused visibly
+// rather than ignored.
+func onlyParameters(values url.Values, allowed ...string) error {
+	for key := range values {
+		if !slices.Contains(allowed, key) {
+			return errors.New("connector: unsupported parameter")
+		}
+	}
+	return nil
+}
+
+// rejectDuplicateParameters refuses a parameter given more than once (RFC 6749
+// §3.1) and lets any other parameter through. Endpoints read only the names they
+// know, so unrecognized ones are ignored, as RFC 6749 §3.1 and §3.2 require:
+// hosted clients add optional parameters such as ui_locales.
+func rejectDuplicateParameters(values url.Values) error {
+	for _, entries := range values {
 		if len(entries) != 1 {
 			return errors.New("connector: duplicate parameter")
-		}
-		found := false
-		for _, candidate := range allowed {
-			if candidate == key {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return errors.New("connector: unsupported parameter")
 		}
 	}
 	return nil

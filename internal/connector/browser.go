@@ -31,7 +31,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil || validateParameters(q, "client_id", "redirect_uri", "response_type", "resource", "scope", "state", "code_challenge", "code_challenge_method") != nil {
+	if err != nil || rejectDuplicateParameters(q) != nil {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
@@ -107,7 +107,7 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil || validateParameters(q, "code", "state", "error", "error_description", "error_uri") != nil {
+	if err != nil || rejectDuplicateParameters(q) != nil {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
@@ -188,7 +188,7 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
-	form, err := readForm(r, "csrf_token", "decision")
+	form, err := readForm(r)
 	if err != nil {
 		oauthInputError(w, err, "invalid_request")
 		return
