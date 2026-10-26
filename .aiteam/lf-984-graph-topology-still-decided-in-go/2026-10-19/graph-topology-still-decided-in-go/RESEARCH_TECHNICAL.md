@@ -28,3 +28,13 @@ Evidence:
 
 - `internal/graphexec/registry.go:47`
 - `internal/graphexec/plan_control.go:278`
+
+## f26
+
+The owner command is built in Go as '/approve-plan <key> <stage> <candidate>' and parsed in the owner-decision code; the command list is fixed in Go. A DOT-declared command and parameter list would replace that text, with Plan's handler still writing the approval.
+
+Evidence:
+
+- `internal/planbrief/plan_workflow.go:494`
+- `internal/turn/command.go:27`
+- `internal/turn/owner_decisions.go:105`
