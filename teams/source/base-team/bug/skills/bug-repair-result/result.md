@@ -18,7 +18,7 @@ delivery can fail separately; do not claim missing content was retained or deliv
 - `reshape`: `result.outcome` is `incomplete`, with a `reason` explaining why the diagnosis or remedy must change.
 - `blocked`: `result.outcome` is `blocked`, with a `reason` naming the obstacle.
 
-`repair` holds a plain-language `summary` of what changed (or what partial work exists) and, optionally, `checks`: the commands you ran with their outcome, for example `{"command": "go test ./...", "outcome": "passed"}`. Use the repository's own checks: its README, Makefile, AGENTS or CLAUDE files, and CI configuration. Never claim a check passed that you did not run or that failed.
+`repair` holds a plain-language `summary` of what changed (or what partial work exists) and, optionally, `checks`: the commands you ran with their outcome, for example `{"command": "{{example_check}}", "outcome": "passed"}`. Use the repository's own checks: its README, Makefile, AGENTS or CLAUDE files, and CI configuration. Never claim a check passed that you did not run or that failed.
 
 The change itself lives in git: the factory commits your worktree, pushes, merges and closes. You echo no digests, revisions or factory identifiers.
 
@@ -27,5 +27,5 @@ The change itself lives in git: the factory commits your worktree, pushes, merge
 Use communication preflight, correct every diagnostic, submit, then read the matching receipt. Recover the original request after a lost reply. The final chat message is a note and never an application result.
 
 ```json
-{"result":{"outcome":"completed","comment":"Fixed: empty queries now return no matches.","payload":{"bug":{"response":"succeeded","repair":{"summary":"Guard empty input in search.go; added a regression test.","checks":[{"command":"go test ./...","outcome":"passed"}]}}}}}
+{"result":{"outcome":"completed","comment":"Fixed: empty queries now return no matches.","payload":{"bug":{"response":"succeeded","repair":{"summary":"Guard empty input in {{example_file}}; added a regression test.","checks":[{"command":"{{example_check}}","outcome":"passed"}]}}}}}
 ```

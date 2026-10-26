@@ -217,7 +217,8 @@ func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(graphs) < 15 {
+	// Every team inherits base-team's six graphs; no team source owns one today.
+	if len(graphs) < 6 {
 		t.Fatalf("found only %d graphs", len(graphs))
 	}
 	for _, path := range graphs {
