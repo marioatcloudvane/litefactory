@@ -66,8 +66,13 @@ comments or guaranteeing that a previously confirmed link remains accessible.
 
 ## Hosted verification record
 
-**2026-10-26: unresolved; neither hosted client has been verified.** This worker
-has no browser automation or authenticated hosted-client session, no supplied
+**2026-10-26: owner check handed to Validate after deployment; neither hosted
+client has been verified.** The owner's instruction on 2026-10-26 is to finish
+the engineering work without live hosted verification and retain these checks
+for the owner during Validate after deployment. AC-005 remains unverified; the
+handoff does not change or waive its requirements.
+
+This worker has no browser automation or authenticated hosted-client session, no supplied
 test HTTPS deployment (`TEST_BASE_URL`), and no test owner account credentials.
 The example public URL in the foundation guide is configuration guidance, not
 evidence of a deployed or authorized test target. No live endpoint was invoked,
@@ -85,13 +90,35 @@ and no running daemon or grant was changed.
 | Non-owner, audience/scope, expiry and refresh replay refusals | Not executed | Not executed |
 | Serialized output and configured proxy limits | Not executed | Not executed |
 
-For each later check, record UTC date, client/account settings, test deployment
-identity, registration choice, negotiated protocol and a redacted outcome. Check
-refresh after the original access token expires (at most 15 minutes), rather
-than treating a second immediate call as proof of renewal. Inspect the exact
-test grant locally, revoke it, and verify that the next newly admitted request
-and renewal fail. Reconnect and restart only the dedicated test daemon, then
-repeat the refusal check. New consent may create a new grant; it does not revive
-the revoked grant. Keep failed or unavailable checks unresolved. Automated local
-connector regressions provide engineering evidence separately and cannot turn
-this table into a hosted acceptance pass.
+### Owner steps for Validate
+
+After deployment to the dedicated test target, repeat these steps separately in
+Claude web and ChatGPT web. Keep each client's grant and observations separate.
+
+1. Follow the setup above, register the connector, sign in with the test
+   installation's GitHub owner and explicitly allow the displayed resource,
+   scope and repository coverage. Record UTC date, client/account settings,
+   deployment identity, registration choice, negotiated protocol and the
+   redacted login outcome.
+2. In a conversation, invoke `factory_overview` with `{}`. Check health, activity,
+   owner waits, recent publications, source times and coverage warnings. Record
+   the result without retaining credentials or private overview content.
+3. Let the original access token expire (at most 15 minutes), then invoke the
+   overview again. Verify token renewal without a new consent prompt and record
+   the outcome. An immediate second call does not prove renewal; if the client
+   does not expose enough evidence, leave renewal unresolved.
+4. On the test factory host, use `litefactory connector grants list` and
+   `litefactory connector grants inspect <grant-id> --json` with the intended
+   test `LF_HOME`. Identify this client's exact grant, then run
+   `litefactory connector grants revoke <grant-id>`. Verify that the next newly
+   admitted overview request and token renewal are refused. Client names and
+   ID prefixes are not revocation targets.
+5. Reconnect the client without granting fresh consent and repeat the refusal
+   check. Restart only the dedicated test daemon and verify refusal again.
+   Record both outcomes. New consent may create a new grant; it does not revive
+   the revoked grant.
+
+Record the remaining security and proxy checks in the table as executed, failed
+or unavailable, with dated redacted evidence. Keep every failed or unavailable
+check unresolved. Automated local connector regressions provide engineering
+evidence separately and cannot turn this record into a hosted acceptance pass.
