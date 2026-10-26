@@ -47,6 +47,7 @@ graph checks. Bug registers only `lf_agent` and its own `lf_loop` variant.
 | `lf_loop` (Bug owner conversation) | Publishes the Bug analysis and waits; returns `approved` only after a recorded, exact owner approval. | `analyse, approved, blocked` | `lf_contract` (=owner_conversation), optional `lf_park`, `lf_stop` | 💬 ⏸ | bug |
 | `lf_comment` | Publishes the retained result as a ticket comment. | `published` | `lf_kind` (final \| failure), optional `lf_source` | 💬 | research, plan, spike |
 | `lf_ask` | Publishes a question or review and rests at the owner wait. | `published` | `lf_kind` (question \| review), `lf_source` (required in Plan), optional `lf_rights` | 💬 ⏸ | research, plan, spike |
+| `lf_gate` | Publishes the reviewed draft with the owner command named on the node and rests at the owner wait. Replaces the `lf_if approved` and `lf_ask review` pair after a story effect; not allowed after the set stage. | `published` | `lf_command` (`/approve-plan`), `lf_args` (`story,stage,candidate`), `lf_source` (required) | 💬 ⏸ | plan |
 | `lf_sync_base` | Merges the base branch into the working branch in a scratch worktree. | `synced, current, conflict, retry` | – | 🔀 | implement |
 
 ## Research
@@ -153,6 +154,8 @@ and `lf_spike_issue`, `failed` is a finding, not a fault.
 | `lf_default` | `lf_loop` | Value before the first attempt. | research/spike: ask, done · plan: set, story, technical, acceptance |
 | `lf_kind` | `lf_comment`, `lf_ask` | Publication kind. | comment: final, failure · ask: question, review |
 | `lf_rights` | `lf_ask` | Human actions that may be delegated. | answer, request_changes, approve (not in Implement; unused in shipped graphs) |
+| `lf_command` | `lf_gate` | The owner command the gate posts and waits for. Plan only. | `/approve-plan` |
+| `lf_args` | `lf_gate` | Ordered parameters of that command, filled from saved Plan state. Plan only. | `story,stage,candidate` (exactly this order) |
 | `lf_suite` | Validate nodes | Names the suite node. | node with `lf_validate_suite` |
 | `lf_rounds` | repair budget | Repair-round bound. | 1, 2 |
 | `lf_max_files` | Validate repair check, Spike gate/check | File limit for a change. | 1–5 |
