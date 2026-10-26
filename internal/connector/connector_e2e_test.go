@@ -91,7 +91,7 @@ func TestOwnerConsentConnection(t *testing.T) {
 	if next := callback.Result().Cookies(); len(next) > 0 {
 		cookies = next
 	}
-	consent := connectorForm(t, server, fixture.issuer+"/oauth/consent", url.Values{"csrf_token": {csrf[1]}, "decision": {"allow"}}, nil, cookies...)
+	consent := connectorForm(t, server, fixture.issuer+"/oauth/consent", url.Values{"csrf_token": {csrf[1]}, "decision": {"allow"}, "scope": {Scope}, "duration": {"1"}}, nil, cookies...)
 	if consent.Code != http.StatusFound {
 		t.Fatalf("consent: HTTP %d %s", consent.Code, consent.Body.String())
 	}

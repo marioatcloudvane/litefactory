@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -51,7 +52,79 @@ type ConnectorTokenPair struct {
 	AccessExpiresAt             time.Time
 }
 
+// ConnectorMaxGrantMonths is the longest grant lifetime the owner can choose on
+// the consent page. A month is a calendar month in UTC (time.AddDate).
+const ConnectorMaxGrantMonths = 24
+
+// ConnectorGrantExpiry is the absolute expiry of a grant consented at now for
+// the given number of calendar months: now.UTC().AddDate(0, months, 0). Go
+// normalizes a day that does not exist in the target month forward, so
+// 31 January plus one month is 3 March (2 March in a leap year).
+func ConnectorGrantExpiry(now time.Time, months int) time.Time {
+	return now.UTC().AddDate(0, months, 0)
+}
+
+// ConnectorMaxGrantExpiry is the latest expiry the store accepts for a grant
+// created at now.
+func ConnectorMaxGrantExpiry(now time.Time) time.Time {
+	return ConnectorGrantExpiry(now, ConnectorMaxGrantMonths)
+}
+
+// ConnectorScopes splits an RFC 6749 scope string (scope tokens separated by
+// single spaces). It reports false for an empty set, an empty token or a
+// repeated token.
+func ConnectorScopes(scope string) ([]string, bool) {
+	if scope == "" {
+		return nil, false
+	}
+	tokens := strings.Split(scope, " ")
+	seen := make(map[string]bool, len(tokens))
+	for _, token := range tokens {
+		if token == "" || seen[token] {
+			return nil, false
+		}
+		seen[token] = true
+	}
+	return tokens, true
+}
+
+// ConnectorScopeHas reports whether a valid scope string contains token.
+func ConnectorScopeHas(scope, token string) bool {
+	tokens, ok := ConnectorScopes(scope)
+	if !ok {
+		return false
+	}
+	for _, t := range tokens {
+		if t == token {
+			return true
+		}
+	}
+	return false
+}
+
+// ConnectorScopeSubset reports whether sub is a valid, non-empty scope string
+// whose every token appears in the valid scope string super.
+func ConnectorScopeSubset(sub, super string) bool {
+	tokens, ok := ConnectorScopes(sub)
+	if !ok {
+		return false
+	}
+	for _, token := range tokens {
+		if !ConnectorScopeHas(super, token) {
+			return false
+		}
+	}
+	return true
+}
+
+// connectorScopeMatches accepts an empty request (the grant's own scope
+// applies) or a request naming exactly the grant's scope set, in any order.
+func connectorScopeMatches(requested, granted string) bool {
+	return requested == "" || (ConnectorScopeSubset(requested, granted) && ConnectorScopeSubset(granted, requested))
+}
+
 // ConnectorExchange binds a code or refresh credential to the authenticated client.
+// Scope is the scope the client asked for; empty means the grant's scope.
 type ConnectorExchange struct {
 	Digest, ClientID, RedirectURI, Resource, Scope, PKCEChallenge string
 	OwnerID                                                       int64

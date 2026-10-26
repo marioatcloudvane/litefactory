@@ -67,7 +67,7 @@ The factory lays out your questions using their existing fields.
 
 - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading, and a heading four sentences long reads as noise. Your reasoning and your recommendation belong in the options.
 - Keep each decision to one sentence. A decision the owner cannot disagree with in a single read is really several decisions.
-- No Go identifiers, no file paths, no `path:line` in the comment.
+- No implementation identifiers, no file paths, no `path:line` in the comment.
 
 # Output
 

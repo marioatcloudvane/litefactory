@@ -39,8 +39,11 @@ the grant passes the persisted authority and lifetime checks, not that the daemo
 is running or reachable. A changed or missing owner authority invalidates access;
 local inspection and revocation remain available.
 
-The renewable grant has a 30-day absolute lifetime. Issued access tokens last at
-most 15 minutes and never outlive the grant. Inspection shows the number and
+The renewable grant's absolute lifetime is the duration the owner chose on the
+consent page: 1, 3, 6, 12 or 24 calendar months (UTC), default 1. The expiry
+shown is that absolute time; renewal never moves it. The permitted scope is the
+space-separated set of scopes the owner ticked. Issued access tokens last at most
+15 minutes and never outlive the grant. Inspection shows the number and
 earliest/latest expiry of currently unexpired access tokens separately, or none
 when absent. Tokens under revoked or invalidated grants are unusable even if
 their expiry is still in the future. **Access-token expiry does not end a

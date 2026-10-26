@@ -84,3 +84,36 @@ blocker. Say what blocks you. The story is parked at once and the owner is asked
   }
 }
 ```
+
+Only the sync resolver may add `questions` to its `blocked` (or `incomplete`)
+result; every other Implement agent's result with questions is refused. Each
+question has an `id`, an `audience`, its `text`, 2 to 3 `options` and the
+`recommended_option`:
+
+```json
+{
+  "result": {
+    "outcome": "blocked",
+    "comment": "Say which conflicts are resolved and which one is not.",
+    "reason": "Say plainly which file still conflicts and why it needs a decision.",
+    "questions": [
+      {
+        "id": "q1",
+        "audience": "technical",
+        "text": "Ask the one decision the conflict needs.",
+        "options": [
+          {"id": "a", "text": "Keep the feature branch's version."},
+          {"id": "b", "text": "Take the base's version."},
+          {"id": "c", "text": "Combine both as described here."}
+        ],
+        "recommended_option": "c"
+      }
+    ],
+    "payload": {
+      "implement": {
+        "stories": []
+      }
+    }
+  }
+}
+```

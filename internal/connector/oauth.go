@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,6 +33,9 @@ func (s *Server) oauthRoutes(mux *http.ServeMux) {
 type oauthResponse struct {
 	http.ResponseWriter
 	status int
+	// code is the OAuth error code a refusal sent, so the audit line can name
+	// which check refused (it never carries credentials).
+	code string
 }
 
 func (w *oauthResponse) WriteHeader(status int) {
@@ -56,6 +60,9 @@ func (s *Server) authorizationHandler(handler http.HandlerFunc) http.HandlerFunc
 			outcome, reason = "error", "dependency_unavailable"
 		case response.status >= 400:
 			outcome, reason = "refusal", "invalid_authorization"
+			if response.code != "" {
+				reason = path.Base(r.URL.Path) + ":" + response.code
+			}
 		case r.URL.Path == "/litefactory/oauth/consent" && r.PostForm.Get("decision") == "deny":
 			outcome, reason = "refusal", "owner_denied"
 		default:
@@ -82,7 +89,7 @@ func (s *Server) resourceMetadata(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"resource": s.cfg.ResourceURL, "authorization_servers": []string{s.cfg.IssuerURL}, "scopes_supported": []string{Scope}, "bearer_methods_supported": []string{"header"}})
+	writeJSON(w, http.StatusOK, map[string]any{"resource": s.cfg.ResourceURL, "authorization_servers": []string{s.cfg.IssuerURL}, "scopes_supported": scopeNames(), "bearer_methods_supported": []string{"header"}})
 }
 
 func (s *Server) authorizationMetadata(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +98,7 @@ func (s *Server) authorizationMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"issuer": s.cfg.IssuerURL, "authorization_endpoint": s.cfg.IssuerURL + "/oauth/authorize", "token_endpoint": s.cfg.IssuerURL + "/oauth/token", "registration_endpoint": s.cfg.IssuerURL + "/oauth/register", "revocation_endpoint": s.cfg.IssuerURL + "/oauth/revoke",
-		"response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "scopes_supported": []string{Scope},
+		"response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "scopes_supported": scopeNames(),
 		"token_endpoint_auth_methods_supported": []string{"none", "client_secret_basic", "client_secret_post"}, "revocation_endpoint_auth_methods_supported": []string{"none", "client_secret_basic", "client_secret_post"}, "client_id_metadata_document_supported": false,
 	})
 }
@@ -293,7 +300,17 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if form.Get("resource") != s.cfg.ResourceURL || (form.Get("scope") != "" && form.Get("scope") != Scope) {
+	// RFC 8707 lets a client leave resource out of the token request; the
+	// grant stays bound to the one configured resource either way.
+	requestedScope := ""
+	if raw := form.Get("scope"); raw != "" {
+		var ok bool
+		if requestedScope, ok = normalizeScope(raw); !ok {
+			oauthError(w, http.StatusBadRequest, "invalid_scope")
+			return
+		}
+	}
+	if resource := form.Get("resource"); resource != "" && resource != s.cfg.ResourceURL {
 		oauthError(w, http.StatusBadRequest, "invalid_target")
 		return
 	}
@@ -308,7 +325,7 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	x := store.ConnectorExchange{ClientID: client.ID, Resource: s.cfg.ResourceURL, Scope: Scope, OwnerID: s.cfg.OwnerID, Now: now, Pair: store.ConnectorTokenPair{AccessDigest: digest(access), RefreshDigest: digest(refresh), AccessExpiresAt: now.Add(15 * time.Minute)}}
+	x := store.ConnectorExchange{ClientID: client.ID, Resource: s.cfg.ResourceURL, Scope: requestedScope, OwnerID: s.cfg.OwnerID, Now: now, Pair: store.ConnectorTokenPair{AccessDigest: digest(access), RefreshDigest: digest(refresh), AccessExpiresAt: now.Add(15 * time.Minute)}}
 	var grant store.ConnectorGrant
 	switch form.Get("grant_type") {
 	case "authorization_code":
@@ -337,7 +354,7 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	if remaining := grant.ExpiresAt.Sub(now); remaining < expires {
 		expires = remaining
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"access_token": access, "token_type": "Bearer", "expires_in": int64(expires / time.Second), "refresh_token": refresh, "scope": Scope})
+	writeJSON(w, http.StatusOK, map[string]any{"access_token": access, "token_type": "Bearer", "expires_in": int64(expires / time.Second), "refresh_token": refresh, "scope": grant.Scope})
 }
 
 func validVerifier(value string) bool {
@@ -456,6 +473,9 @@ func oauthInputError(w http.ResponseWriter, err error, code string) {
 }
 
 func oauthError(w http.ResponseWriter, status int, code string) {
+	if response, ok := w.(*oauthResponse); ok {
+		response.code = code
+	}
 	writeJSON(w, status, map[string]string{"error": code})
 }
 

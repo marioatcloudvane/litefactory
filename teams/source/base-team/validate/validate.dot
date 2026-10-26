@@ -58,11 +58,11 @@ digraph validate {
 
  // ---- Repair loop (at most two rounds) ---------------------------------------
  repair_budget [lf_action="lf_validate_repair_budget", lf_outcomes="run,spent", lf_rounds="2", lf_suite="suite", lf_limit="6"];
- repair_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="validate-repair", lf_skills="validate-repair-report,litefactory-rules", lf_access="write", lf_budget="15", lf_limit="2"];
+ repair_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="validate-repair", lf_skills="validate-repair-report,{{stack_skill}}", lf_access="write", lf_budget="15", lf_limit="2"];
  repair_check  [lf_action="lf_validate_repair_check", lf_outcomes="kept,too_big,handback,unfinished,blocked", lf_max_files="3", lf_forbid="package,dependency,schema,api,tests,criteria", lf_source="repair_agent", lf_suite="suite", lf_limit="4"];
 
  // ---- Review the final tested commit (read-only, side by side) ----------------
- review [lf_action="lf_validate_review", lf_outcomes="done,retry", lf_roles="validate-acceptance,validate-code,validate-architecture", lf_standards="validate-architecture", lf_skills="validate-review,litefactory-rules", lf_suite="suite", lf_limit="32"];
+ review [lf_action="lf_validate_review", lf_outcomes="done,retry", lf_roles="validate-acceptance,validate-code,validate-architecture", lf_standards="validate-architecture", lf_skills="validate-review,{{stack_skill}}", lf_suite="suite", lf_limit="32"];
 
  // ---- Join the findings and record the end -------------------------------------
  // It is reached once for the first end and once more after each owner repair

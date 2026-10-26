@@ -67,7 +67,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 
 The factory lays out your questions and records the note; the prose is yours, and it is published as written.
 
-- No Go identifiers, no file paths and no line numbers in the comment. Those belong in your findings.
+- No implementation identifiers, no file paths and no line numbers in the comment. Those belong in your findings.
 - Never claim a change was made. This run changes nothing.
 
 # Output

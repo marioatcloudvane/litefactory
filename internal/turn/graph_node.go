@@ -220,7 +220,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer, AllowDeferred: slices.Contains(gate.Outcomes, "deferred")}
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, FactoryStep: node.Action != ResearchAgentAction, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, FactoryStep: node.Action != ResearchAgentAction, LimitSpansReplies: limitSpansReplies(workflow), OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Exhausted = true
@@ -443,6 +443,14 @@ const researchAncestorLimit = 64
 // successors. Renamed agent nodes match their captured role; effects match names.
 // A failed or completed predecessor starts a fresh owner attempt, ending
 // allowance inheritance.
+// limitSpansReplies names the workflows whose graphs document lf_limit as the
+// cap on their owner rounds: Spike allows one question round, and Validate's
+// resolve loop stops when its limit runs out so nothing is approved. Every
+// other workflow gives each owner reply a fresh allowance (#984).
+func limitSpansReplies(workflow agent.Workflow) bool {
+	return workflow == agent.WorkflowSpike || workflow == agent.WorkflowValidate
+}
+
 func researchBudgetAncestors(ctx context.Context, db *store.DB, instance int64, node graphexec.Node) (map[int64]string, error) {
 	out := make(map[int64]string)
 	for range researchAncestorLimit { // bounded walk, not a retry loop
