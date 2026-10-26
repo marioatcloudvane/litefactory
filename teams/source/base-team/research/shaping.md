@@ -43,6 +43,7 @@ Return `ask` while a material decision is genuinely the owner's. Return `done` w
 
 # Must Do
 
+ - Start from the stage-1 findings and ledger the factory supplies in your context (and the brief and technical files in the session directory) and extend them; do not redo stage 1.
  - Settle everything you can from the supplied findings, the repository and the project context before you raise a single question.
  - Judge each open point. Not material: decide it on the most reasonable reading and record it as an assumption, with what it rests on. Material: ask, the weightiest first; past about five, decide the rest as `(agent's call)`.
  - Give every question concrete options and name the one you recommend, plus one line on why it matters. A question without a proposed answer hands back a decision you were invoked to draft. A small Mermaid diagram per option is allowed where it helps (owner-report).
