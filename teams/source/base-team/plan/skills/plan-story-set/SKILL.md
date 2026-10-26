@@ -16,7 +16,7 @@ comment what you left out and why. Do not add scope nobody agreed.
 
 Boundaries: give every entry a one-line intent of at most 280 characters that says
 what the story delivers and where it stops, in plain language, with no file paths
-or Go identifiers. Names are short, single-line and unique, at most 80 characters.
+or implementation identifiers. Names are short, single-line and unique, at most 80 characters.
 
 Order and dependencies: give every entry a temporary id (`s1`, `s2`, ...) that is
 unique inside the set and means nothing outside it. List entries so prerequisites

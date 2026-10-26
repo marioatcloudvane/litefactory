@@ -103,7 +103,7 @@ func TestImplementGraphCapturesAndEveryNodeIsBounded(t *testing.T) {
 		}
 		if n.Action == "lf_agent" {
 			roles[n.Attrs["lf_agent_markdown"]]++
-			if n.Attrs["lf_skills"] != "implement-result,litefactory-rules" || n.Limit != 3 {
+			if n.Attrs["lf_skills"] != "implement-result,go-stack,litefactory-rules" || n.Limit != 3 {
 				t.Errorf("agent node = %+v", n)
 			}
 		}
