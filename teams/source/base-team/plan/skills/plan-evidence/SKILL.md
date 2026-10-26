@@ -36,6 +36,7 @@ input acknowledgment and local approval never freeze implementation scope.
 RESEARCH_BRIEF.md lists the agreed Research decisions as an outcome ledger: `O-`
 agreed outcome, `N-` non-goal, `K-` must not change, `A-` owner answer (verbatim).
 Read it before drafting. A brief without prefixes: treat each decision as an outcome.
+`S-01` gives the work mode and size; let it set the depth and shape of the plan.
 - Copy each relevant `N-` and `K-` entry verbatim, with its ID, into Not in Scope.
 - Each story names what it delivers in a user-story note: `Covers: O-01, O-03`.
 - Narrowing, splitting or dropping an agreed outcome is allowed; say it in one note:
