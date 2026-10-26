@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -34,22 +33,14 @@ func TestOwnerReportSourceCaptureNativeDeliveryAndColdReplay(t *testing.T) {
 		{agent.WorkflowBug, turn.SimplifiedBugSpecs, []string{"analyst", "fixer"}},
 		{agent.WorkflowSpike, turn.SpikeSpecs, []string{"probe_agent", "fix_agent", "refix_agent"}},
 	}
-	for _, team := range []string{"base-team", "go-development", "swift-ios", "python-fastapi", "dotnet-web"} {
+	for _, team := range []string{"go-development", "swift-ios", "python-fastapi", "dotnet-web"} {
 		t.Run(team, func(t *testing.T) {
 			root, err := os.OpenRoot(teamsourcetest.RepoRoot())
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Every team inherits base-team, which holds no stack profile of its own.
 			sourcePath, admittedTeam := "teams/source/"+team, team
-			if team == "base-team" {
-				// A base is an abstract source, not a releasable team. Materialize
-				// it through the normal inheritance loader with an empty child.
-				if err := root.Close(); err != nil {
-					t.Fatal(err)
-				}
-				root = ownerReportBaseRoot(t)
-				sourcePath, admittedTeam = "source/owner-report-base", "owner-report-base"
-			}
 			source, err := teamsource.ResolveSource(t.Context(), root, sourcePath, admittedTeam)
 			if closeErr := root.Close(); closeErr != nil {
 				t.Fatal(closeErr)
@@ -174,24 +165,4 @@ func ownerReportMapFS(files map[string][]byte) fstest.MapFS {
 		result[name] = &fstest.MapFile{Data: slices.Clone(raw)}
 	}
 	return result
-}
-
-func ownerReportBaseRoot(t *testing.T) *os.Root {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.CopyFS(filepath.Join(dir, "source", "base-team"), os.DirFS(filepath.Join(teamsourcetest.RepoRoot(), "teams", "source", "base-team"))); err != nil {
-		t.Fatal(err)
-	}
-	child := filepath.Join(dir, "source", "owner-report-base")
-	if err := os.MkdirAll(child, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(child, "inherit.json"), []byte(`{"base":"base-team"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return root
 }

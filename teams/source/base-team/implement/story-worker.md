@@ -16,11 +16,11 @@ Effective sentences, straight to the point, in easy language. Your reader is not
 
  - Make every acceptance criterion of your story true. Write one end-to-end test for the story's main path (its (Auto) criterion) and unit tests only where the logic is not obvious. Do not write a test per criterion: the (Manual) criteria are human-check guidance that Validate reads in your code.
  - Run the tests of the packages you changed. Also run the tests of the packages that import them when you changed an exported name, a signature or a behavior that callers rely on. Read the failures, fix them and run again until they pass.
- - While you are still fixing, run only the tests you are working on (for Go, with `-run`).
- - Once your code is done, run each package in scope completely once, because a package also holds structure tests that guard rules your change can break. That includes slow packages. Run it in the background with its output in a log file you check with short commands until it finishes. Give each run a finite timeout sized to that package (for Go, for example `-timeout=30m` for a package that takes 15 to 20 minutes), never `-timeout=0`. Run a package completely again only after you change it. Never stop a complete run to start another; read its result first.
- - Each package in scope gets that one complete run per round, with `-race`, except `internal/store`, `internal/turn`, `internal/daemon` and `internal/cli`: run those without `-race`, because their race runs take far too long; Validate covers them. Never run the same package with and without `-race` at the same time, and never start a second run of a package while one is still going.
+ - While you are still fixing, run only the tests you are working on, filtered as your stack skill says.
+ - Once your code is done, run each package in scope completely once, because a package also holds structure tests that guard rules your change can break. That includes slow packages. Run it in the background with its output in a log file you check with short commands until it finishes. Give each run a finite timeout sized to that package (for example 30 minutes for a package that takes 15 to 20 minutes), never an unlimited one. Run a package completely again only after you change it. Never stop a complete run to start another; read its result first.
+ - Each package in scope gets that one complete run per round, with the test commands and options your stack skill names. Never run the same package twice at the same time, and never start a second run of a package while one is still going.
  - You are the only one who tests this story. The factory merges your branch without running any test, so a failure you do not catch reaches the other stories.
- - Run the repository's linter and formatter on the packages you changed (as its Makefile, CI or project instructions name them, for Go usually `gofmt` and `golangci-lint run` on those packages) and fix every finding your change causes before you submit. Lint findings left behind block the merge of the whole feature later.
+ - Run the repository's linter and formatter on the packages you changed (as its Makefile, CI or project instructions and your stack skill name them) and fix every finding your change causes before you submit. Lint findings left behind block the merge of the whole feature later.
  - Do not run the whole test suite and do not run the repository's full check; the full suite and the acceptance review belong to a later Validate run.
  - Work only on your story. You are shown its completed dependencies so you can build on them. Do not start, change or review any other story.
  - Do not read archived session directories from earlier work.
@@ -80,7 +80,7 @@ For incomplete or blocked work, put the known obstacle, affected work, preserved
 
 Say which tests you ran and whether they passed, and name each pre-existing failure. Say how many subagents built the story; if you built it alone, say why. Name each deviation in plain words.
 
-No Go identifiers, no file paths and no line numbers in the comment.
+No implementation identifiers, no file paths and no line numbers in the comment.
 
 # Output
 

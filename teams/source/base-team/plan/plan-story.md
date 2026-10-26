@@ -72,7 +72,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options, so the owner can reply "yes to all". However, you must always provide all options to the user so that the user can judge. A question without options is not allowed
 - Write the problem in plain language, not in solution terms. The name has no story-key prefix. In Scope and Not in Scope are short, concrete lists an owner can tick off.
 - Do not claim anything is approved, tested or published. Say what you drafted and what you assumed.
-- No Go identifiers, file paths or `path:line` references in the story.
+- No implementation identifiers, file paths or `path:line` references in the story.
 
 # Output
 

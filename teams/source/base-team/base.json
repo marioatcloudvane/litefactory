@@ -1,5 +1,10 @@
 {
   "variables": [
-    "team"
+    "team",
+    "stack_skill",
+    "guidance_id",
+    "example_check",
+    "example_file",
+    "example_test_file"
   ]
 }

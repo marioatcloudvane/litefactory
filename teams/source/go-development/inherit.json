@@ -1,3 +1,10 @@
 {
-  "base": "base-team"
+  "base": "base-team",
+  "variables": {
+    "stack_skill": "go-stack,litefactory-rules",
+    "guidance_id": "go",
+    "example_check": "go test ./...",
+    "example_file": "search.go",
+    "example_test_file": "search_test.go"
+  }
 }

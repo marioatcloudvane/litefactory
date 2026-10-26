@@ -150,7 +150,8 @@ func TestSwiftIOSInvalidSourceRejected(t *testing.T) {
 			}
 		}},
 		{"unsupported workflow", func(t *testing.T, root string) {
-			name := filepath.Join(root, swiftSource, "implement/implement.dot")
+			// Swift inherits its graphs; break the base graph its build resolves.
+			name := filepath.Join(root, "teams/source/base-team", "implement/implement.dot")
 			raw, err := os.ReadFile(name)
 			if err != nil {
 				t.Fatal(err)

@@ -444,15 +444,13 @@ func TestSyncBaseIsOneGenericStep(t *testing.T) {
 	}
 }
 
-// TestEveryShippedImplementGraphValidates checks the editable team sources, which
-// declare the base sync, and every released graph, which does not, against the
-// same checker.
+// TestEveryShippedImplementGraphValidates checks the editable base graph, which
+// declares the base sync and which every team inherits, and every released graph,
+// which does not, against the same checker. The base names its stack skill
+// through {{stack_skill}}; a sample value stands in for a team's.
 func TestEveryShippedImplementGraphValidates(t *testing.T) {
 	paths := []string{
 		"../../teams/source/base-team/implement/implement.dot",
-		"../../teams/source/python-fastapi/implement/implement.dot",
-		"../../teams/source/swift-ios/implement/implement.dot",
-		"../../teams/source/dotnet-web/implement/implement.dot",
 	}
 	released, err := filepath.Glob("../../teams/*/v*/implement/implement.dot")
 	if err != nil || len(released) == 0 {
@@ -466,7 +464,8 @@ func TestEveryShippedImplementGraphValidates(t *testing.T) {
 		if i < len(paths) && !strings.Contains(string(raw), `lf_action="lf_sync_base"`) {
 			t.Errorf("%s: the source graph declares no base sync", path)
 		}
-		if err := validateImplementDOT(t, string(raw)); err != nil {
+		dot := strings.ReplaceAll(string(raw), "{{stack_skill}}", "sample-stack")
+		if err := validateImplementDOT(t, dot); err != nil {
 			t.Errorf("%s: %v", path, err)
 		}
 	}
