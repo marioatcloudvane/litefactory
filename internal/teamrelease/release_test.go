@@ -260,6 +260,9 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 			current = withoutGoStoryWorkerSlotPolicy(t, current)
 			current = legacyImplementSourceWithoutOwnerResumeSync(t, current)
 		}
+		if w == "validate" {
+			current = legacyValidateSourceWithoutCandidateAdoption(t, current)
+		}
 		if w == "spike" {
 			current = legacySpikeSourceWithoutRepair(t, current)
 		}
@@ -608,6 +611,26 @@ func legacySpikeSourceWithoutRepair(t *testing.T, source []byte) []byte {
 	for _, change := range changes {
 		if bytes.Count(source, []byte(change.current)) != 1 {
 			t.Fatalf("canonical Spike repair differs from approved source delta: %s", change.current)
+		}
+		source = bytes.Replace(source, []byte(change.current), []byte(change.legacy), 1)
+	}
+	return source
+}
+
+// legacyValidateSourceWithoutCandidateAdoption reverses only the approved exact
+// retained-candidate owner adoption route. Historical releases retain their
+// existing bytes, budgets, authority and automatic repair policy.
+func legacyValidateSourceWithoutCandidateAdoption(t *testing.T, source []byte) []byte {
+	t.Helper()
+	changes := []struct{ current, legacy string }{
+		{"// and runs the suite on it again. Flagged and handback candidates are retained\n// completely before reset for exact owner review; they are not adopted automatically. Three\n", "// and runs the suite on it again, and rejects a change over the limits. Three\n"},
+		{`lf_outcomes="wait,create_issue,push,merge,close,implement,stale,repair,apply_repair"`, `lf_outcomes="wait,create_issue,push,merge,close,implement,stale,repair"`},
+		{" // Exact owner adoption returns through the suite and all reviewers.\n owner_repair_apply [lf_action=\"lf_validate_repair_apply\", lf_outcomes=\"applied,blocked\", lf_limit=\"4\"];\n\n", ""},
+		{" owner_resolve -> owner_repair_apply [lf_on=\"apply_repair\"];\n owner_repair_apply -> suite [lf_on=\"applied\"];\n owner_repair_apply -> owner_report [lf_on=\"blocked\"];\n", ""},
+	}
+	for _, change := range changes {
+		if bytes.Count(source, []byte(change.current)) != 1 {
+			t.Fatalf("canonical Validate adoption differs from approved source delta: %s", change.current)
 		}
 		source = bytes.Replace(source, []byte(change.current), []byte(change.legacy), 1)
 	}

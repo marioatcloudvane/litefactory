@@ -244,10 +244,6 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 			continue
 		}
 		s.refreshConversationInstructions(ctx, r, c.ID, at)
-		instructions, instructionErr := s.restoreConversationInstructions(ctx, c.ID, at)
-		if instructionErr != nil {
-			return false, instructionErr
-		}
 		if err = conversationAccess(ctx, r, channel, at); err != nil {
 			if accessRetry(err) > 0 {
 				continue
@@ -284,10 +280,28 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 						if e != nil {
 							return true, e
 						}
+						var journalOutcome string
 						for _, exchange := range exchanges {
 							if exchange.Kind == "saved_outcome" {
-								notice = "Saved action outcome:\n" + exchange.Result
+								journalOutcome = exchange.Result
 							}
+						}
+						resumable, e := s.recoverFactoryBoundary(ctx, c, b, t, at)
+						if e != nil {
+							switch {
+							case errors.Is(e, errConversationBudget):
+								notice = "The previous turn could not continue because its saved correction, invocation or exchange budget was exhausted. Its input was not replayed; retained evidence may be incomplete."
+							case errors.Is(e, errConversationInstructions) && journalOutcome != "":
+								notice = "The follow-up answer could not continue because its retained instructions could not be validated. No action was repeated; remaining context may be incomplete."
+							default:
+								return true, e
+							}
+						}
+						if resumable {
+							continue
+						}
+						if journalOutcome != "" {
+							notice = "Saved action outcome:\n" + journalOutcome + "\n\n" + notice
 						}
 					}
 					if recoveryErr == nil {
@@ -305,6 +319,10 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 			}
 			r.next = (index + 1) % len(r.channels)
 			return true, nil
+		}
+		instructions, instructionErr := s.restoreConversationInstructions(ctx, c.ID, at)
+		if instructionErr != nil {
+			return false, instructionErr
 		}
 		messages, err := s.db.PendingNaturalMessages(ctx, channel, 1)
 		if err != nil {

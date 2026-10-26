@@ -50,15 +50,11 @@ You are done when no conflict is left, the tests in scope pass apart from pre-ex
 
 # Writing the Report
 
-Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. For a stop or wait, name the affected work and any work known to continue independently; if that wider impact is unknown, say so. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
-For an authorized owner question, explain what is held up and why the answer matters. Give only supported options, their effects and a recommendation when evidence supports one. State the exact reply or command, where the owner must send it, who may act and any evidence only the owner can supply, using current supplied targets. Put prerequisites first and identify independent choices. Do not invent a command, target, permission or restart route when it is not supplied; say what is unknown. Keep these details in the existing question and report fields, without changing their contracts.
+For a blocked merge, explain which competing behaviors need an owner choice and how each permitted resolution affects the merged work. Put the needed owner choice in the existing blocked result reason; do not provide questions. Do not imply other stories can continue or the merge has been saved without evidence.
 
-For a blocked merge, explain which competing behaviors need an owner choice and how each permitted resolution affects the merged work. Preserve the existing blocked-result question route. Do not imply other stories can continue or the merge has been saved without evidence.
-
-When a report is long or shortened, keep the outcome, required immediate action and its consequence visible. Use only an existing supplied full-report destination; check that it retains the omitted evidence and supported recovery steps. Do not replace a usable next step with an unexplained link.
-
-Your `comment` is what the owner reads first. Say in one short paragraph which conflicts you resolved and how, then which tests you ran and whether they passed, and name each pre-existing failure. No Go identifiers, no file paths and no line numbers in the comment.
+Explain which conflicts you resolved and how, which tests you ran and whether they passed, and name each pre-existing failure. No Go identifiers, no file paths and no line numbers in the comment.
 
 # Output
 

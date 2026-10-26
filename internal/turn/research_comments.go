@@ -14,7 +14,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -203,17 +202,24 @@ func (r *Reporter) ReportWorkflowCandidate(ctx context.Context, source store.Gra
 	if err := r.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: source.InstanceID, SourceAttemptID: source.ID, Node: node, Kind: kind, Candidate: raw}); err != nil {
 		return Posted{}, intent.Key, err
 	}
-	posted, err := r.deliver(ctx, intent, func() (redact.Body, error) {
-		text := policy.Render(candidate, next, ref, session.Branch)
-		caveat, err := graphPreparationCaveat(ctx, r.db, source.InstanceID)
-		if err != nil {
-			return redact.Body{}, err
-		}
-		if caveat != "" {
-			text += "\n\n" + caveat
-		}
-		return r.renderer.RenderReportDelivery(ctx, text, "")
-	})
+	if saved, readErr := r.db.GetReportDelivery(ctx, intent.Key); readErr == nil {
+		posted, deliveryErr := r.dispatchDelivery(ctx, saved)
+		return posted, intent.Key, deliveryErr
+	} else if !errors.Is(readErr, store.ErrNotFound) {
+		return Posted{}, intent.Key, readErr
+	}
+	text, err := r.appendGraphResultReview(ctx, source, policy.Render(candidate, next, ref, session.Branch))
+	if err != nil {
+		return Posted{}, intent.Key, err
+	}
+	caveat, err := graphPreparationCaveat(ctx, r.db, source.InstanceID)
+	if err != nil {
+		return Posted{}, intent.Key, err
+	}
+	if caveat != "" {
+		text += "\n\n" + caveat
+	}
+	posted, err := r.deliverFullText(ctx, intent, text)
 	return posted, intent.Key, err
 }
 

@@ -163,10 +163,10 @@ func (s *ResultService) prepare(ctx context.Context, data []byte) (ResultInput, 
 func (s *ResultService) clean(ctx context.Context, value *string) error {
 	body, err := s.redactor.Apply(ctx, *value, 32768)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errReviewRedaction, err)
 	}
 	if body.Truncated() {
-		return errors.New("doctor result redaction exceeded budget")
+		return fmt.Errorf("%w: doctor result redaction exceeded budget", errReviewRedaction)
 	}
 	*value = body.String()
 	return nil
@@ -195,9 +195,12 @@ func (s *ResultService) Preflight(ctx context.Context, data []byte) (ResultDiagn
 }
 
 // Submit stores only redacted input and diagnoses in the shared result ledger.
-// Correlation hashes apply to the redacted canonical input; callers retry the
-// same request ID and input, then recover its receipt before any new submission.
+// The ledger keeps redacted canonical input plus an original input digest.
+// Callers retry the same request ID and input, then recover its receipt before
+// any new submission.
 func (s *ResultService) Submit(ctx context.Context, requestID string, data []byte) (store.ResultReceipt, error) {
+	digest := sha256.Sum256(data)
+	originalDigest := hex.EncodeToString(digest[:])
 	// Recover the exact recorded request before recapturing graph state. A
 	// refreshed timestamp or related row must never change a lost receipt.
 	if prior, err := s.Receipt(ctx, requestID); err == nil {
@@ -214,13 +217,19 @@ func (s *ResultService) Submit(ctx context.Context, requestID string, data []byt
 	}
 	input, snapshot, err := s.prepare(ctx, data)
 	if err != nil {
+		return s.reject(ctx, requestID, data, err)
+	}
+	revision, err := s.db.GetResultRevision(ctx, s.binding, 0)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.ResultReceipt{}, err
 	}
-	digest := sha256.Sum256(data)
+	if input.ExpectedRevision != revision.Revision {
+		return s.reject(ctx, requestID, data, errors.New("stale expected_revision; use the current revision with a new request"))
+	}
 	payload, err := json.Marshal(struct {
 		Input          ResultInput `json:"input"`
 		OriginalDigest string      `json:"original_digest"`
-	}{input, hex.EncodeToString(digest[:])})
+	}{input, originalDigest})
 	if err != nil {
 		return store.ResultReceipt{}, err
 	}

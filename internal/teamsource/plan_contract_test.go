@@ -80,7 +80,7 @@ func TestPlanPackageClosureAndDigest(t *testing.T) {
 	}
 	fixture := planPackageFixture(t)
 	for name := range fixture {
-		if strings.HasPrefix(name, "skills/plan-go-guidance/") || strings.HasPrefix(name, "skills/plan-agent-setup-guidance/") {
+		if strings.HasPrefix(name, "skills/plan-go-guidance/") || strings.HasPrefix(name, "skills/plan-agent-setup-guidance/") || strings.HasPrefix(name, "skills/owner-report/") {
 			if _, captured := definition.Files[name]; captured {
 				t.Fatal("unselected stack guidance leaked into neutral graph capture", name)
 			}

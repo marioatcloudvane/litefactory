@@ -113,6 +113,7 @@ threaded reply metadata; use the displayed short reference there when needed.
 | `/validate-finding <rev> <finding> repair` | Have the factory repair the finding. |
 | `/validate-finding <rev> <finding> defer` | Defer the finding. |
 | `/validate-finding <rev> <finding> issue bug\|story` | Turn the finding into a new bug or story issue. |
+| `/validate-repair <rev> <candidate-id> <review-digest> inspect\|accept\|discard` | Inspect all linked retained review parts, adopt that exact eligible candidate, or discard it without applying files. |
 | `/validate-push <rev>` | Push the validated branch. |
 | `/validate-merge <rev> <pr-number> <head-sha>` | Merge that pull request at that exact head commit. |
 | `/validate-close <rev> <issue-number>...` | Close the listed issues (1 to 64). |
@@ -126,6 +127,13 @@ exact blocker identities and evidence revision, authenticated owner, source
 comment, reason and time. Changed work, new blockers or changed evidence require
 a fresh decision. Confirmed delivery says “shipped with owner waiver”; a failed
 or uncertain delivery keeps its actual status.
+
+Retained repairs require the current report revision, candidate identity and full
+review digest shown in the report. Acceptance requires confirmed complete review,
+the authenticated task owner and existing code authority. Changed base, frozen
+scope or evidence blocks adoption; frozen acceptance-criteria edits are never
+eligible. Inspect and discard grant no code or shipping authority. Reset, restart,
+generic agreement and agent reports never count as approval.
 
 A stale revision, wrong grammar or an issue with no Validate run is refused and
 changes nothing. See [Validate](../workflow/validate.md) and

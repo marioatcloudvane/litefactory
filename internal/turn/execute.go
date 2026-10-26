@@ -700,6 +700,11 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		return result, err
 	}
 
+	if req.mode() != string(agent.ModeValidate) {
+		if err := opts.DB.CheckRepairWorktree(ctx, session.ID, 0); err != nil {
+			return result, err
+		}
+	}
 	if req.Workflow == agent.WorkflowBug {
 		out, executeErr := opts.Bug.Execute(ctx, req, result)
 		return out, workflowRequestError(ctx, opts, req, session, executeErr)
