@@ -196,6 +196,23 @@ func TestAuthorizeRejectsUnboundRequestsWithoutRedirect(t *testing.T) {
 	}
 }
 
+func TestAuthorizeIgnoresUnknownParametersAndRefusesDuplicates(t *testing.T) {
+	t.Parallel()
+	f := newConnectorFixture(t, nil)
+	handler := f.server(t)
+	client := registerConnectorClient(t, handler, "Client", "none")
+	q := url.Values{"client_id": {client.ClientID}, "redirect_uri": {"https://client.example/callback"}, "response_type": {"code"}, "resource": {f.options.Config.ResourceURL}, "scope": {Scope}, "state": {"client-state"}, "code_challenge": {digest(strings.Repeat("v", 43))}, "code_challenge_method": {"S256"}, "ui_locales": {"en-US"}, "prompt": {"consent"}}
+	response := connectorRequest(t, handler, http.MethodGet, f.issuer+"/oauth/authorize?"+q.Encode(), "", "", nil)
+	if response.Code != http.StatusFound || response.Header().Get("Location") == "" {
+		t.Fatalf("authorize with unknown optional parameters: %d %s", response.Code, response.Body.String())
+	}
+	q.Add("scope", Scope)
+	response = connectorRequest(t, handler, http.MethodGet, f.issuer+"/oauth/authorize?"+q.Encode(), "", "", nil)
+	if response.Code != http.StatusBadRequest || response.Header().Get("Location") != "" {
+		t.Fatalf("authorize with a duplicate parameter: %d %v", response.Code, response.Header())
+	}
+}
+
 func TestRedirectRegistrationRequiresUnambiguousHTTPS(t *testing.T) {
 	t.Parallel()
 	for _, raw := range []string{"http://client.example/callback", "https://client.example/callback#", "https://client.example/callback#fragment", "https://user:secret@client.example/callback", "https://client.example:0/callback", "https://client.example:65536/callback", "https://client.example:/callback", "https://*.example/callback", "https://client.example/callback\\other"} {
