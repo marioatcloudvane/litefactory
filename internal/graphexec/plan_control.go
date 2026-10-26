@@ -145,6 +145,8 @@ func (c *planCheck) node(n Node) {
 		c.effect(n)
 	case "lf_ask":
 		c.ask(n)
+	case PlanGateAction:
+		c.stop(n)
 	case JudgeAction:
 		c.agentSource(n)
 		c.advisoryContinuation(n, map[string]bool{})
@@ -255,6 +257,15 @@ func (c *planCheck) effect(n Node) {
 	if !ok {
 		return
 	}
+	if gate.Action == PlanGateAction {
+		if gate.Attrs["lf_source"] != source.Name {
+			c.fail("plan effect %s must be reviewed as %s's result", n.Name, source.Name)
+		}
+		if source.Name == "set_agent" || source.Attrs["lf_agent_markdown"] == "plan-set" {
+			c.fail("plan gate %s may not follow the set stage, which keeps its owner gate and review", gate.Name)
+		}
+		return
+	}
 	if gate.Action != ResearchIfAction || gate.Attrs["lf_condition"] != PlanControlPolicy().Approved {
 		c.fail("plan effect %s must be followed by an owner gate", n.Name)
 		return
@@ -286,6 +297,24 @@ func (c *planCheck) ask(n Node) {
 		}
 	default:
 		c.fail("plan wait %s has kind %q", n.Name, n.Attrs["lf_kind"])
+	}
+}
+
+// stop is the generic owner stop: it publishes its agent's review with the
+// closed approval command and waits. It names a source, never promotes, and
+// ends at a terminal or a bounded loop like a review.
+func (c *planCheck) stop(n Node) {
+	if _, ok := c.agentSource(n); !ok {
+		return
+	}
+	if n.Attrs["lf_command"] != PlanGateCommand {
+		c.fail("plan gate %s lf_command must be %s", n.Name, PlanGateCommand)
+	}
+	if n.Attrs["lf_args"] != PlanGateArgs {
+		c.fail("plan gate %s lf_args must be %s, in that order", n.Name, PlanGateArgs)
+	}
+	if target, ok := c.next(n, "published"); ok && !target.Terminal && target.Action != ResearchLoopAction {
+		c.fail("plan gate %s must end at a terminal or a bounded loop", n.Name)
 	}
 }
 

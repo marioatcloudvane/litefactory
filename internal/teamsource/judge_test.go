@@ -105,7 +105,7 @@ func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
 				{Name: "lf_comment", Mode: mode, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"final", "failure", "advisory"}}}},
 			}
 			if mode == agent.ModePlan {
-				specs = append(specs, graphexec.PlanStorySpec())
+				specs = append(specs, graphexec.PlanStorySpec(), graphexec.PlanGateSpec())
 			} else {
 				specs = append(specs, graphexec.ActionSpec{Name: "lf_research_brief", Mode: mode, Outcomes: []string{"success", "failed"}})
 			}
