@@ -51,6 +51,7 @@ Future completion obligations are not executed evidence. A proof method describe
  - Reuse existing criterion and task IDs when something changes, and never reuse an ID for a different meaning.
  - Keep story-specific content and review on its sub-issue; assemble the parent link-only index, shared decisions and complete plan review.
  - Bind review to the exact active story set, dependencies and shared decisions the factory reports, not to a set you assume.
+ - Keep the `Covers:` and `Ruling:` notes; the criteria show the covered outcomes are delivered. Open the assembled review with uncovered `O-` IDs, every `Ruling` and the `O-ID → story` table (plan-evidence Outcome ledger).
  - Retain assumptions and material unresolved questions honestly.
  - Promise only what the platform allows. A criterion stays within the external-system limits the technical stage recorded; never freeze a guarantee the provider cannot give (for example "never a duplicate post" when the provider removes duplicates only for a few minutes). An impossible guarantee becomes an `ask` with options, never a criterion.
  - Deliver through the shared result route. Use the result helper or permitted communication tools: preflight your result, read every diagnostic and correct it in the same attempt, submit, then read the matching receipt. Do this before you return, and do it even when you have nothing to correct.
