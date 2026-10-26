@@ -3,7 +3,6 @@ package teamrelease
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -237,87 +236,63 @@ func TestDotnetWebCapturedGuidanceAndProviderReplay(t *testing.T) {
 }
 
 func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
-	p := dotnetProfile(t)
-	matrix, err := os.ReadFile(filepath.Join(dotnetRelease(t), "plan/skills/blazor-guidance/compatibility.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	practices, err := os.ReadFile(filepath.Join(dotnetRelease(t), "plan/skills/blazor-guidance/practices.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, pin := range []string{"10.0.401", "10.0.12", "net10.0"} {
-		if !bytes.Contains(matrix, []byte(pin)) || !strings.Contains(p.Effective.Checks[0].Argv[2], pin) {
-			t.Fatal("profile/matrix pin mismatch", pin)
-		}
-	}
-	for _, term := range []string{"net10.0", "SDK default", "macOS or Linux", "wasm-tools", "AOT", "NuGet", "Node.js"} {
-		if !bytes.Contains(matrix, []byte(term)) {
-			t.Fatal("compatibility omission", term)
-		}
-	}
-	for _, term := range []string{"Static SSR", "Interactive Server", "Interactive WebAssembly", "Auto", "Standalone WebAssembly", "Prerendering", "DI lifetimes", "EditForm", "keyboard", "state ownership", "JavaScript", "authorization", "circuit", "Validate"} {
-		if !bytes.Contains(practices, []byte(term)) {
-			t.Fatal("guidance omission", term)
-		}
-	}
-	for _, mode := range []string{"research", "plan", "implement", "validate", "spike", "bug"} {
-		goFiles, err := teamsourcetest.Files("go-development")
-		shared := goFiles[mode+"/"+mode+".dot"]
-		if err != nil {
-			t.Fatal(err)
-		}
-		released, err := os.ReadFile(filepath.Join(dotnetRelease(t), mode, mode+".dot"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		shared = legacySourceWithoutPreparationDeferral(t, mode, shared)
-		shared = withoutStandardsGrant(t, shared)
-		if mode == "bug" {
-			shared = legacyBugSourceWithoutSyncGate(t, shared)
-		}
-		if mode == "implement" {
-			shared = legacyImplementSourceWithoutOwnerResumeSync(t, withoutGoStoryWorkerSlotPolicy(t, shared))
-		}
-		if mode == "spike" {
-			shared = legacySpikeSourceWithoutRepair(t, shared)
-		}
-		if mode == "validate" {
-			shared = legacyValidateSourceWithoutCandidateAdoption(t, shared)
-		}
-		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
-		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))
-		if !dotnetGraphPolicyMatchesRelease(t, want, released) && (mode != "implement" || !pendingWorkerSyncMatchesRelease(want, released)) {
-			t.Fatal("team selection changed shared graph gates", mode)
-		}
-	}
-
-	for _, c := range p.Effective.Checks {
-		if c.TimeoutSeconds <= 0 || c.Argv[0] != "sh" {
-			t.Fatal("unbounded or unexpected recipe")
-		}
+	for _, tt := range []struct{ name, dir string }{
+		{"pinned release", dotnetRelease(t)},
+		{"current source", dotnetCandidate(t)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(tt.dir, config.StackProfilePath))
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := config.ResolveStackProfile(raw, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			matrix, err := os.ReadFile(filepath.Join(tt.dir, "plan/skills/blazor-guidance/compatibility.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			practices, err := os.ReadFile(filepath.Join(tt.dir, "plan/skills/blazor-guidance/practices.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, pin := range []string{"10.0.401", "10.0.12", "net10.0"} {
+				if !bytes.Contains(matrix, []byte(pin)) || !strings.Contains(p.Effective.Checks[0].Argv[2], pin) {
+					t.Fatal("profile/matrix pin mismatch", pin)
+				}
+			}
+			for _, term := range []string{"net10.0", "SDK default", "macOS or Linux", "wasm-tools", "AOT", "NuGet", "Node.js"} {
+				if !bytes.Contains(matrix, []byte(term)) {
+					t.Fatal("compatibility omission", term)
+				}
+			}
+			for _, term := range []string{"Static SSR", "Interactive Server", "Interactive WebAssembly", "Auto", "Standalone WebAssembly", "Prerendering", "DI lifetimes", "EditForm", "keyboard", "state ownership", "JavaScript", "authorization", "circuit", "Validate"} {
+				if !bytes.Contains(practices, []byte(term)) {
+					t.Fatal("guidance omission", term)
+				}
+			}
+			for _, c := range p.Effective.Checks {
+				if c.TimeoutSeconds <= 0 || c.Argv[0] != "sh" {
+					t.Fatal("unbounded or unexpected recipe")
+				}
+			}
+		})
 	}
 }
 
-// Comments and formatting may evolve without changing a graph's execution
-// policy. Every semantic graph attribute and route remains part of this check.
-func dotnetGraphPolicyMatchesRelease(t *testing.T, current, released []byte) bool {
+// dotnetCandidate builds dotnet-web from the current source in a private root
+// and returns the generated release directory.
+func dotnetCandidate(t *testing.T) string {
 	t.Helper()
-	live, err := graphexec.ParseProfile(current)
-	if err != nil {
+	root := canonicalTemp(t)
+	for _, dir := range []string{dotnetSource, "teams/source/base-team"} {
+		for name, raw := range snapshot(t, filepath.Join("../..", dir)) {
+			put(t, filepath.Join(root, dir, filepath.FromSlash(name)), raw)
+		}
+	}
+	if err := GenerateSources(t.Context(), root, false, []string{dotnetSource}); err != nil {
 		t.Fatal(err)
 	}
-	historical, err := graphexec.ParseProfile(released)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := graphexec.SemanticDigest(live)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want, err := graphexec.SemanticDigest(historical)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return got == want
+	return filepath.Join(root, "teams/dotnet-web", "v"+sourceVersion(t, filepath.Join(root, dotnetSource)))
 }

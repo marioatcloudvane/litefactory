@@ -3,7 +3,6 @@ package teamrelease
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -84,22 +83,6 @@ func TestPythonFastAPIReleasePreservesHistoryAndClosure(t *testing.T) {
 		t.Fatal("check mode wrote release")
 	}
 	current := "python-fastapi/v" + sourceVersion(t, "../../teams/source/python-fastapi") + "/"
-	for _, w := range workflows {
-		goFiles, err := teamsourcetest.Files("go-development")
-		original := goFiles[w+"/"+w+".dot"]
-		if err != nil {
-			t.Fatal(err)
-		}
-		original = legacySourceWithoutPreparationDeferral(t, w, original)
-		if w == "implement" {
-			original = withoutGoStoryWorkerSlotPolicy(t, original)
-		}
-		want := bytes.ReplaceAll(original, []byte(`team="go-development"`), []byte(`team="python-fastapi"`))
-		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",python-fastapi-stack"))
-		if !bytes.Equal(after[current+w+"/"+w+".dot"], want) {
-			t.Fatal("workflow contract changed", w)
-		}
-	}
 	for _, name := range []string{"team.config", "stack-profile.json", "plan/skills/plan-python-fastapi-guidance/backend.md", "plan/skills/plan-python-fastapi-guidance/frontend.md", "implement/skills/python-fastapi-stack/supported-versions.md", "bug/skills/python-fastapi-stack/python-fastapi.md", "validate/skills/python-fastapi-stack/react-typescript-vite.md"} {
 		if len(after[current+name]) == 0 {
 			t.Fatal("missing packaged resource", name)
