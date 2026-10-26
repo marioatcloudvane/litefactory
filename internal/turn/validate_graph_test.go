@@ -132,7 +132,7 @@ func TestAgentBudgetAttributeIsValidatedAndBounded(t *testing.T) {
 // it, such as the released team packages, still validates.
 func TestValidateGraphWithoutTheRepairOutcomeStillValidates(t *testing.T) {
 	err := checkValidateDot(t, func(s string) string {
-		s = strings.Replace(s, `,stale,repair"`, `,stale"`, 1)
+		s = strings.Replace(s, `,stale,repair`, `,stale`, 1)
 		return strings.Replace(s, ` owner_resolve -> repair_budget      [lf_on="repair"];`+"\n", "", 1)
 	})
 	if err != nil {

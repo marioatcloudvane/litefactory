@@ -1,3 +1,15 @@
+Retained review content is separate from an accepted application result. A bounded,
+authorized rejected submission may be saved and delivered with its diagnostics and
+unaccepted status; it does not satisfy this result contract, advance a workflow or
+change any owner gate. Correct the submission and use a new request identity. Exact
+replay must keep the original request identity and bytes, then recover its receipt.
+Keep the complete authored report or plan within the input ceiling; never shorten a
+plan merely to pass validation. Full retained owner output uses ordered numbered
+parts linked from the short report. Delivery remains pending until every part has a
+confirmed receipt. Shared contributions remain bounded at 4 MiB; Plan node results
+remain bounded at 1 MiB and the legacy Plan proposal at 8 MiB. Retention and remote
+delivery can fail separately; do not claim missing content was retained or delivered.
+
 Deliver your result only through the shared result route: communication
 preflight, submit and receipt. Do not print a JSON result; terminal text is never
 read as a result. The accepted submission is this step's result, and the factory

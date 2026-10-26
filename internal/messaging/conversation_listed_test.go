@@ -125,7 +125,7 @@ func TestConversationUngroundedIssueCorrectionAndReply(t *testing.T) {
 	if err := run.s.runFactoryConversation(t.Context(), run.c, run.b, run.t, at); err != nil {
 		t.Fatal(err)
 	}
-	if provider.calls != 2 {
+	if provider.calls != 3 {
 		t.Fatalf("correction calls: %d", provider.calls)
 	}
 	var corrected factoryConversationPrompt

@@ -121,6 +121,9 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// It is not a general reset: it refuses anything but a full commit object
 		// that resolves to itself, and it is named apart from the forbidden Reset.
 		"ResetHard",
+		// Retained Validate repairs use an isolated index and owned ref; exact
+		// adoption is split at the durable apply-intent boundary.
+		"CaptureRepairCandidate", "VerifyRepairCandidate", "ResetRepairCandidate", "PrepareRepairAdoption", "ApplyRepairAdoption",
 		// Mutating, pre-US-12: the only three operations that write to a
 		// repository or a remote before this story.
 		"Commit", "Push", "MergeBase",

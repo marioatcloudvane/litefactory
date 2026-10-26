@@ -16,7 +16,7 @@ import (
 // claimGraphReply claims an owner reply for the admitted mode's parked question.
 func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) error {
 	var ownerID int64
-	if isCodeAuthorityControl(turn.ParseCommand(trigger.Body).Name) {
+	if isCodeAuthorityBody(trigger.Body) {
 		c := github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
 		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
 			return err

@@ -24,6 +24,18 @@ identities. Fixture capability responses and fixture session persistence are
 controlled test contracts, not evidence that a real provider obeys isolation or
 remembers context.
 
+The tolerant-conversation main path is
+`TestConversationTolerantCorrectionRestartJourney` in
+`internal/messaging/conversation_tolerant_recovery_test.go`. It uses the existing
+provider/store seams to stage a malformed response and a saved protected
+correction, reopen SQLite and the coordinator after lease expiry, then continue
+through a second correction, a lookup with exact quoted argument bytes and a
+plain-prose answer delivered from immutable saved parts. The controlled provider
+records native session and prompt identity; assertions check two correction
+records, unchanged invocation limits and refusal of the stale worker. This is a
+local restart fixture, not live-provider or live-Discord evidence. Its execution
+result belongs to the current story worker's final report.
+
 ## Review scenarios
 
 The following remain human review guidance. They are not additional automatic
@@ -32,10 +44,12 @@ acceptance tests or claims that live demonstrations ran.
 | Area | Controlled scenario and expected observation |
 | --- | --- |
 | Authorization | Disable a command or revoke channel access; no lookup or effect starts. References from another owner/channel, expired references, and changed question revisions are rejected or require clarification. |
-| Exact content | Remove the retained owner span, change its bytes, or ask for oversized content; no reconstructed answer is proposed. The complete action, target and protected content appear in the factory-rendered confirmation. |
-| Confirmation | Confirm an undelivered, cancelled, expired or replaced proposal; no effect starts. Repeat delivery or confirmation; it does not create another action identity. |
+| Exact content | Supply quoted follow-up data with whitespace, literal escapes and Unicode; argument bytes match the selected interior source span. Remove the retained owner span, split a UTF-8 character, forward or fence the content, or ask for oversized content; no reconstructed answer is proposed. The complete action, target and protected content appear in the factory-rendered confirmation. |
+| Confirmation | Quote agreement or confirm an undelivered, cancelled, expired or replaced proposal; no effect starts. Repeat delivery or confirmation; it does not create another action identity. |
 | Saved outcome | Make narration unavailable after the effect is saved; the fixed fallback reports the saved outcome. Retrying delivery sends saved bytes without executing the action again. |
-| Bounded recovery | Return malformed provider output, unavailable evidence or repeated lookups; at most one correction and the configured provider/lookup bounds apply. Interrupted provider input and uncertain effects are not blindly replayed. |
+| Bounded recovery | Return malformed provider output, unavailable evidence or repeated lookups; at most two corrections across the turn share the unchanged four outer calls (five with consult), three lookups and 16 exchange slots. Count each saved correction boundary once, including across lookups, restart and affirmative pre-start retries. Interrupted provider input and uncertain effects are not blindly replayed. |
+| Safe restart | Interrupt at a complete saved correction boundary; prove the previous process exited, reclaim fenced ownership and compare resumed prompt, native session, captured instructions and reconstructed counters. Missing session identity, invalid journals or uncertain launches stop continuation. Revalidate current access, sources and targets. |
+| Prose and grounding | Retain safe answer-only prose and unknown-reference wording with visible warnings and incomplete-source caveats across saved parts. Malformed, ambiguous, duplicate-key and action-shaped payloads still fail strict validation. Prior answers and fallback text never become current evidence. |
 | Compatibility | Explicit slash commands, `/details`, and unbound channels use their existing handlers. A conversational draft only prepares a feature preview, which keeps its separate confirmation gate. |
 | Evidence | Lookup request, normalized arguments, redacted result, source, capture time and coverage gaps remain linked to the owner turn. An unavailable result does not mean zero. |
 
@@ -64,7 +78,12 @@ recovery and revision checks. Native token/cost measurements are unavailable fro
 the current conversation interface; each invocation is recorded in the existing
 factory-wide ledger with unobserved usage and its actual completion outcome.
 
-## Executed final engineering checks
+## Prior conversation baseline engineering checks
+
+The following records the earlier conversation implementation's checks. It does
+not certify the tolerant-conversation changes or their current snapshot. The
+current story worker's final result records only checks actually executed for
+those changes.
 
 The final code snapshot passed `go build ./...`, `gofmt -l .` (no findings),
 `git diff --check`, and the pinned golangci-lint v2.13.1 on messaging, store and

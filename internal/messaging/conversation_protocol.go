@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
@@ -24,7 +25,7 @@ var ErrConversationEnvelope = errors.New("messaging: invalid conversation envelo
 var errInterpretation = errors.New("messaging: invalid interpretation")
 
 // ConversationEnvelopeError is a rejected provider output with a short plain
-// reason the factory can hand back in its one correction. It matches
+// reason the factory can hand back in a bounded correction. It matches
 // ErrConversationEnvelope. Argument is the argument it rejected, if any, for
 // the owner's reply; Ungrounded marks a declared argument that no owner span
 // or current factory reference supported.
@@ -69,6 +70,9 @@ func conversationObject(raw []byte) []byte {
 	if len(trimmed) > 0 && trimmed[0] == '{' && trimmed[len(trimmed)-1] == '}' && json.Valid(trimmed) {
 		return trimmed
 	}
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+		return nil
+	}
 	var found []byte
 	objects, attempts := 0, 0
 	for i := 0; i < len(raw); {
@@ -83,8 +87,7 @@ func conversationObject(raw []byte) []byte {
 		decoder := json.NewDecoder(bytes.NewReader(raw[start:]))
 		var object map[string]json.RawMessage
 		if decoder.Decode(&object) != nil {
-			i = start + 1
-			continue
+			return nil
 		}
 		end := start + int(decoder.InputOffset())
 		objects++
@@ -122,10 +125,55 @@ type ConversationSpan struct {
 	End      int    `json:"end"`
 }
 
-// ownerSpan returns the exact owner words of span, or false when the span
-// is out of bounds, splits a character or lies in quoted or forwarded text.
-func ownerSpan(text string, span ConversationSpan) (string, bool) {
-	if span.Start < 0 || span.End <= span.Start || span.End > len(text) || !utf8.ValidString(text[:span.Start]) || !utf8.ValidString(text[span.Start:span.End]) || quotedSpan(text, span.Start, span.End) {
+// validOwnerConfirmationSpan rejects out-of-bounds, quoted or forwarded agreement.
+func validOwnerConfirmationSpan(text string, span ConversationSpan) bool {
+	if span.Start < 0 || span.End <= span.Start || span.End > len(text) || !utf8.ValidString(text[:span.Start]) || !utf8.ValidString(text[span.Start:span.End]) || quotedSpan(text, span.Start, span.End) || quotedConfirmationSpan(text, span.Start, span.End) {
+		return false
+	}
+	return true
+}
+
+// quotedConfirmationSpan detects quoted context even when the selected agreement
+// is only part of a longer quote. Apostrophes within words are not delimiters.
+func quotedConfirmationSpan(text string, start, end int) bool {
+	var closing rune
+	for offset, ch := range text[:end] {
+		if offset >= start && closing != 0 {
+			return true
+		}
+		if ch == '\'' {
+			previous, _ := utf8.DecodeLastRuneInString(text[:offset])
+			next, _ := utf8.DecodeRuneInString(text[offset+1:])
+			if unicode.IsLetter(previous) && (closing == 0 || unicode.IsLetter(next)) {
+				continue
+			}
+		}
+		if closing != 0 {
+			if ch == closing {
+				closing = 0
+			}
+			continue
+		}
+		switch ch {
+		case '"', '\'', '`':
+			closing = ch
+		case '“':
+			closing = '”'
+		case '‘':
+			closing = '’'
+		}
+		if offset >= start && closing != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// ownerArgumentSpan accepts literal quoted data without giving it confirmation
+// authority. The caller selects the interior byte span of delimiter quotes;
+// selected bytes are never unescaped, trimmed or reconstructed.
+func ownerArgumentSpan(text string, span ConversationSpan) (string, bool) {
+	if span.Start < 0 || span.End <= span.Start || span.End > len(text) || !utf8.ValidString(text[:span.Start]) || !utf8.ValidString(text[span.Start:span.End]) || untrustedOwnerSpan(text, span.Start, span.End) {
 		return "", false
 	}
 	return text[span.Start:span.End], true
@@ -206,10 +254,21 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	if len(raw) == 0 || len(raw) > conversationEnvelopeLimit || !utf8.Valid(raw) {
 		return bad()
 	}
-	if raw = conversationObject(raw); raw == nil {
+	object := conversationObject(raw)
+	if object == nil && safeConversationProse(raw) {
+		// Feed answer-only prose through the same bounds and presentation checks.
+		// No command or authority can be recovered from this fallback.
+		var err error
+		object, err = json.Marshal(ConversationEnvelope{Version: 1, Kind: "answer", Text: string(raw)})
+		if err != nil {
+			return bad()
+		}
+	}
+	if object == nil {
 		reason = "the output must contain exactly one JSON object"
 		return bad()
 	}
+	raw = object
 	if uniqueJSON(raw) != nil {
 		reason = "the JSON object has duplicate keys, null values or trailing data"
 		return bad()
@@ -292,7 +351,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 			if envelope.Confirmation == nil || envelope.Confirmation.SourceID != current.SourceID {
 				return bad()
 			}
-			if _, ok := ownerSpan(current.Text, *envelope.Confirmation); !ok {
+			if !validOwnerConfirmationSpan(current.Text, *envelope.Confirmation) {
 				return bad()
 			}
 		}
@@ -339,7 +398,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	}
 	inv := Invocation{Command: envelope.Command, Arguments: map[string]string{}}
 	for i, arg := range envelope.Arguments {
-		// Each rejection names the argument and why, so the one correction can
+		// Each rejection names the argument and why, so a bounded correction can
 		// fix it; an undeclared name is untrusted and never echoed.
 		ground := func(why string) {
 			rejected = &ArgumentError{Why: why}
@@ -363,7 +422,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 					continue
 				}
 				var ok bool
-				if value, ok = ownerSpan(turn.Text, ConversationSpan{SourceID: arg.SourceID, Start: arg.Start, End: arg.End}); !ok {
+				if value, ok = ownerArgumentSpan(turn.Text, ConversationSpan{SourceID: arg.SourceID, Start: arg.Start, End: arg.End}); !ok {
 					ground("the span is not an exact part of that owner message")
 					return bad()
 				}
@@ -566,9 +625,29 @@ func validateConversationTurns(turns []DialogueTurn, commands []CommandDefinitio
 }
 
 func quotedSpan(text string, start, end int) bool {
+	if untrustedOwnerSpan(text, start, end) {
+		return true
+	}
+	// Agreement inside quote delimiters is data, including inline quotes.
+	before, after := strings.TrimSpace(text[:start]), strings.TrimSpace(text[end:])
+	for _, pair := range [][2]string{{"\"", "\""}, {"'", "'"}, {"“", "”"}, {"‘", "’"}, {"`", "`"}} {
+		if strings.HasSuffix(before, pair[0]) && strings.HasPrefix(after, pair[1]) {
+			return true
+		}
+	}
+	trimmed := strings.TrimSpace(text)
+	return len(trimmed) > 1 && ((strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"")) || (strings.HasPrefix(trimmed, "“") && strings.HasSuffix(trimmed, "”")))
+}
+
+func untrustedOwnerSpan(text string, start, end int) bool {
 	// Fenced payloads and forwarded snapshots are never independent instructions.
 	if strings.Contains(text, "```") || strings.Contains(text, "~~~") {
 		return true
+	}
+	for _, line := range strings.Split(text[:end], "\n") {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "forwarded:") {
+			return true
+		}
 	}
 	lineStart := strings.LastIndex(text[:start], "\n") + 1
 	for _, line := range strings.Split(text[lineStart:end], "\n") {
@@ -577,8 +656,7 @@ func quotedSpan(text string, start, end int) bool {
 			return true
 		}
 	}
-	trimmed := strings.TrimSpace(text)
-	return len(trimmed) > 1 && ((strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"")) || (strings.HasPrefix(trimmed, "“") && strings.HasSuffix(trimmed, "”")))
+	return false
 }
 
 // uniqueJSON catches duplicate keys at every depth and disallows null and trailing data.
