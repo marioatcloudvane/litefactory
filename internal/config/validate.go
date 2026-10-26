@@ -119,6 +119,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, err)
 	}
 	errs = append(errs, c.Webhook.validate()...)
+	errs = append(errs, c.RemoteConnector.Validate())
 	errs = append(errs, c.validateChat()...)
 	s := &c.Settings
 	if s.WorkerTimeoutSeconds < MinWorkerTimeoutSeconds || s.WorkerTimeoutSeconds > MaxWorkerTimeoutSeconds {

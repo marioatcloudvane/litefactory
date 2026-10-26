@@ -248,3 +248,18 @@ If the new setting is absent, an explicitly written legacy `agents.claude.timeou
 On timeout the factory stops the attempt and keeps available branch, worktree, session, checkpoints, logs and result receipts. A timed-out Implement story stays stopped across restart. Its story-issue notice states the effective limit and retained progress; one authorized owner reply on that issue resumes the kept work through the existing scheduler without another approval. Replaying the same reply cannot resume it again. Other workers retain their existing retry behavior, described by their timeout notice. Publication authority and recovery protections remain separate from worker timing.
 
 Factory-only evidence collection after expiry has one independent allowance of at most 30 seconds. Missing evidence and cleanup failures are reported explicitly; remote notice delivery is separate and cannot extend that allowance.
+
+## `remote_connector`
+
+The remote read connector is disabled by default. `enabled`, `listen`, fixed
+HTTPS `resource_url` and `issuer_url`, numeric `owner_id`, `github_client_id`,
+`github_secret`, `cookie_secret` and exact `allowed_origins` configure it. Secret
+references use either `keychain: {service: ..., account: ...}` or `env: NAME`;
+launchd requires the keychain. The listener is numeric loopback only, default
+`127.0.0.1:8788`. Enablement also requires the trusted local grant-control host
+from #1187; an operator setting cannot supply readiness.
+
+See [remote connector setup](../guides/remote-connector.md) for the complete
+configuration, dedicated GitHub OAuth app, fixed HTTPS proxy/discovery/callback
+routes, token policy and sibling integration contracts. Overview content and
+hosted Claude/ChatGPT checks belong to #1188.

@@ -219,6 +219,12 @@ func isPlanArchiveTable(name string) bool { return strings.HasPrefix(name, "plan
 
 // archiveRetained classifies every table the archive never deletes from.
 var archiveRetained = map[string]ArchiveClass{
+	// Connector authority spans all task families. Its bounded expiry cleanup
+	// retains refresh lineage through grant expiry rather than task archival.
+	"connector_owner": ArchiveClassGlobal, "connector_clients": ArchiveClassGlobal,
+	"connector_browsers": ArchiveClassGlobal, "connector_codes": ArchiveClassGlobal,
+	"connector_grants": ArchiveClassGlobal, "connector_access": ArchiveClassGlobal,
+	"connector_refresh": ArchiveClassGlobal,
 	// Standalone bounded analyses are not members of an issue-task archive.
 	"drift_analyses": ArchiveClassGlobal, "drift_analyst_runs": ArchiveClassGlobal,
 	"drift_evidence": ArchiveClassGlobal, "drift_receipts": ArchiveClassGlobal, "drift_proposal_links": ArchiveClassGlobal,
