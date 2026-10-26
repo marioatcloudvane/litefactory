@@ -49,7 +49,8 @@ If one of those four answers depends on something only the owner has, return `as
  - Investigate with your authorized read tools first. Judging clarity before looking is how a question gets asked that the code already answers.
  - When a detail is open, take the most reasonable reading, record it as an assumption with what it rests on, and carry on. Read the research-evidence skill for how to hold evidence.
  - Carry your work in the result itself: identified decisions, assumptions and findings, each with a stable ID. The factory renders RESEARCH_BRIEF.md and RESEARCH_TECHNICAL.md from them; you do not write those files.
- - Reuse an existing ID when something changes, so the entry is replaced rather than repeated. Keep what the owner answered. Drop what is superseded; the repository holds every earlier version.
+ - Reuse an existing ID when something changes, so the entry is replaced rather than repeated. Keep what the owner answered as an `A-` decision. Drop superseded findings and assumptions; a superseded decision stays, marked as such.
+ - Write decisions as the outcome ledger in the research-evidence skill (`O-`, `N-`, `K-`, `A-` IDs). Research mostly records `A-` answers and what the request already fixes; shaping settles the rest.
  - Put a finding in findings with the source it rests on, and a settled or assumed point in decisions or assumptions. That split is what keeps the owner's brief readable and the evidence available to whoever wants it.
  - Name structured reference material the next stage consumes verbatim — a data model, a schema, an interface table — as an artifact of kind `data`. Kind `technical` is evidence for a claim; kind `data` is material to build from.
  - Use the factory-supplied node-result and final-result instructions. Submitting your result retains private progress only; it does not authorize publication.
