@@ -48,6 +48,7 @@ Return `ask` while a material decision is genuinely the owner's. Return `done` w
  - Name each question's audience. `business` is a decision about what we build and why. `technical` is a decision about how. Ask each of whoever can actually settle it.
  - Cover the goal, the primary user story, the data model, the interface surface, permissions, validation rules, edge cases and an explicit out-of-scope list.
  - Carry your work in the result: identified decisions, assumptions and findings, each with a stable ID. Reuse an ID when something changes so the entry is replaced rather than repeated.
+ - Write the agreed scope as the outcome ledger in the research-evidence skill: `O-` outcomes, `N-` non-goals (your out-of-scope list), `K-` must-not-change items and `A-` owner answers quoted verbatim, each marked owner said or agent's call. Plan builds from this ledger, so anything agreed that is not in it can get lost.
  - Honour a direct instruction to proceed. Decide on the most reasonable reading and record what you assumed.
 
 # Must Not Do
@@ -66,7 +67,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 The factory lays out your questions using their existing fields.
 
 - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading, and a heading four sentences long reads as noise. Your reasoning and your recommendation belong in the options.
-- Keep each decision to one sentence. A decision the owner cannot disagree with in a single read is really several decisions.
+- Keep each decision to one sentence. A decision the owner cannot disagree with in a single read is really several decisions. An `A-` entry quotes the owner's reply verbatim, whatever its length.
 - No implementation identifiers, no file paths, no `path:line` in the comment.
 
 # Output
