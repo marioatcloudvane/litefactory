@@ -106,7 +106,7 @@
         },
         {
           "path": "plan/plan.dot",
-          "sha256": "637bf8c17c596f8d595eb1f137251db6a2cf883455b750811454666d7d327b9f"
+          "sha256": "1edc12c751061c74e04b0bc48de2f3d7869e36de5525a1c040ad4aa48f50b773"
         },
         {
           "path": "plan/skills/blazor-guidance/SKILL.md",
@@ -190,7 +190,7 @@
         },
         {
           "path": "research/shaping.md",
-          "sha256": "b7d163618b89142d79f9ecbe0299f2c831b2ffd8e0def57a31e3fa773998ad7d"
+          "sha256": "b9615860b1f73b6ba82082687a40660b3ddb5408507acac250979ec344df10f2"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -309,7 +309,7 @@
           "sha256": "6a7ff49b0cad8ace5f6f0158e2e4f284a5577faebfb519f0f29dc4963ab2b567"
         }
       ],
-      "checksum": "ffd01bfb7ab90af68565ab5f1b4e224f6f4cbdf561eadb516a788981807e7776"
+      "checksum": "302d5fc1c844e70efe01ff9a28eceee4233d67c344c900583c9b8dae8c578628"
     },
     {
       "name": "Go development",
@@ -415,7 +415,7 @@
         },
         {
           "path": "plan/plan.dot",
-          "sha256": "4d70266c2e15f07ed698347bd584e7a892a77ac22661b4d4dfd966dca4db59ca"
+          "sha256": "c3bbbe2f3d9617e1d24a794120bfa5fae5428a06ea113b391ca0b701c001aa0a"
         },
         {
           "path": "plan/skills/owner-report/SKILL.md",
@@ -487,7 +487,7 @@
         },
         {
           "path": "research/shaping.md",
-          "sha256": "b7d163618b89142d79f9ecbe0299f2c831b2ffd8e0def57a31e3fa773998ad7d"
+          "sha256": "b9615860b1f73b6ba82082687a40660b3ddb5408507acac250979ec344df10f2"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -606,7 +606,7 @@
           "sha256": "96d1273dc4b4542a6ecaec686b69c933f11a6f66c52294f3d5a006a1941b2887"
         }
       ],
-      "checksum": "5262085c85b68f6dddca86fc6c4725b19865fc78300e91004b37672df9dbc3c8"
+      "checksum": "c29966f0edf38382af1aa16d21b024c2ee63b6af146612303fc88e4a09b98f23"
     },
     {
       "name": "Python FastAPI with React",
@@ -724,7 +724,7 @@
         },
         {
           "path": "plan/plan.dot",
-          "sha256": "a872196c16c5433cdef0e559ae86eca07f865806bf4465c5d9561cc2bd7028b9"
+          "sha256": "b3cdcb22cd45475d13b866be08cda759375cc7ac2e34e7f7945c690c23a96826"
         },
         {
           "path": "plan/skills/owner-report/SKILL.md",
@@ -808,7 +808,7 @@
         },
         {
           "path": "research/shaping.md",
-          "sha256": "b7d163618b89142d79f9ecbe0299f2c831b2ffd8e0def57a31e3fa773998ad7d"
+          "sha256": "b9615860b1f73b6ba82082687a40660b3ddb5408507acac250979ec344df10f2"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -931,7 +931,7 @@
           "sha256": "4ca1f126bcf23b98013279684a3a3faf4b10e927638f8ae46656b7c0c5f1c0d9"
         }
       ],
-      "checksum": "22c7b3b1e6ac3b70a89d972c1b3e554b02e38d5dbc086fc92912dd3e5b81e2a9"
+      "checksum": "b30193770860c1ef84ae3a0e61f9e8ce508244aa3cf0e13d009a4efc169d5028"
     },
     {
       "name": "Swift iOS",
@@ -1030,7 +1030,7 @@
         },
         {
           "path": "plan/plan.dot",
-          "sha256": "b21f89141edcc9b19ccc051823d555aef358790416e7e0f75034dafb1b5011ae"
+          "sha256": "93e733b2ba08cd1e8156936c3c390cb151652509714af7372d4386a716cfd1b1"
         },
         {
           "path": "plan/skills/owner-report/SKILL.md",
@@ -1106,7 +1106,7 @@
         },
         {
           "path": "research/shaping.md",
-          "sha256": "b7d163618b89142d79f9ecbe0299f2c831b2ffd8e0def57a31e3fa773998ad7d"
+          "sha256": "b9615860b1f73b6ba82082687a40660b3ddb5408507acac250979ec344df10f2"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -1221,7 +1221,7 @@
           "sha256": "95ba6dbe3aea948ed0d988703b59c7688fe76abbc33af98dc117487c5d1662d5"
         }
       ],
-      "checksum": "c0999d0ec4e93e9c7b3db79e54ff926bc5144b37f93bcbc8bfbbf73bcf85ab05"
+      "checksum": "40d9c6e5cfd28e605216a092eff692731d490a91c46c88ee2e2c563ab65611be"
     }
   ]
 }
