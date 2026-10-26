@@ -461,22 +461,23 @@ type Daemon struct {
 	// agents is the set of coding-agent-tool Kinds this daemon has a
 	// [agent.Runner] registered for, as it stood at startup. Read-only after
 	// New; see [Options.Agents] and [Daemon.resolveAgent].
-	agents       turn.RunnerSet
-	classifiers  map[agent.Kind]agent.Classifier
-	defaultAgent agent.Kind
-	interval     time.Duration
-	schedule     *discoverySchedule
-	health       healthPublisher
-	pause        pauseState
-	digest       digest
-	fates        commentFates
-	webhook      *webhookRuntime
-	chat         *chatRuntime
-	grace        time.Duration
-	log          *slog.Logger
-	lock         *Lock
-	now          func() time.Time
-	ticks        <-chan time.Time
+	agents          turn.RunnerSet
+	classifiers     map[agent.Kind]agent.Classifier
+	defaultAgent    agent.Kind
+	interval        time.Duration
+	schedule        *discoverySchedule
+	health          healthPublisher
+	pause           pauseState
+	digest          digest
+	fates           commentFates
+	remoteConnector *remoteConnectorRuntime
+	webhook         *webhookRuntime
+	chat            *chatRuntime
+	grace           time.Duration
+	log             *slog.Logger
+	lock            *Lock
+	now             func() time.Time
+	ticks           <-chan time.Time
 	// tick replaces [Daemon.Tick] in the heartbeat loop when set. Only a test
 	// sets it; nil runs the real tick.
 	tick func(context.Context) (TickResult, error)
@@ -664,7 +665,7 @@ func (d *Daemon) Close() error {
 	// The listener goes before the lock: a replacement daemon that wins the
 	// lock must find the port free.
 	webhookErr := d.closeWebhook()
-	return errors.Join(authorityErr, hostErr, webhookErr, d.lock.Close())
+	return errors.Join(authorityErr, hostErr, webhookErr, d.closeRemoteConnector(), d.lock.Close())
 }
 
 // Reconciled is what the startup reconciliation repaired (D-B, AC-2.21).
@@ -990,6 +991,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 
+	d.serveRemoteConnector(webCtx, &serving)
 	d.chatServe(webCtx, &serving)
 	done := make(chan struct{})
 	go func() {

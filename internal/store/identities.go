@@ -65,7 +65,9 @@ type Identity struct {
 // numeric ids without creating a duplicate row (AC-0.7).
 //
 // DerivedAt is set by the store; whatever the caller put in that field is
-// ignored. The stored value is returned.
+// ignored. The stored value is returned. A numeric GitHub owner change also
+// advances connector authority and invalidates its grants and pending browser
+// authorizations in the same write, through the connector migration triggers.
 func (db *DB) UpsertIdentity(ctx context.Context, id Identity) (Identity, error) {
 	if id.Forge == "" || id.Role == "" {
 		return Identity{}, errors.New("store: upsert identity: forge and role are required")

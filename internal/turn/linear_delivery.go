@@ -107,6 +107,7 @@ func (p *StoryProgress) proposeDeliveryNotice(ctx context.Context, q store.Deliv
 			return err
 		}
 		var receipt int64
+		var receiptURL string
 		var publishedAt time.Time
 		for _, c := range observed {
 			if c.Author.ID == intent.BotUserID && exactProgressMarker(c.Body, marker) {
@@ -117,6 +118,7 @@ func (p *StoryProgress) proposeDeliveryNotice(ctx context.Context, q store.Deliv
 					return errors.New("ambiguous GitHub proposal comment receipts")
 				}
 				receipt = c.ID
+				receiptURL = c.HTMLURL
 				publishedAt = c.CreatedAt
 			}
 		}
@@ -143,12 +145,13 @@ func (p *StoryProgress) proposeDeliveryNotice(ctx context.Context, q store.Deliv
 				return err
 			}
 			receipt = c.ID
+			receiptURL = c.HTMLURL
 			publishedAt = c.CreatedAt
 		}
 		if err = p.db.EnrollDeliveryPRNotice(ctx, q.Key, key, publishedAt); err != nil {
 			return err
 		}
-		if _, err = p.db.ConfirmReportDelivery(ctx, key, receipt); err != nil {
+		if _, err = p.db.ConfirmReportDelivery(ctx, key, receipt, receiptURL); err != nil {
 			return err
 		}
 		if err = p.db.CompleteDeliveryPRNotice(ctx, key); err != nil {

@@ -77,7 +77,7 @@ func TestInitializeApproversTreatsUnknownHistoricalAuthorAsOwner(t *testing.T) {
 				}
 			}
 			// A pending system report delivery without a run or comment trigger.
-			if _, err = db.EnsureReportDelivery(t.Context(), store.ReportDelivery{Key: "pending-bug-report", SessionID: session.ID, TriggerID: 0, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "bug", Purpose: "report", BotUserID: 7, Body: "original bytes", Marker: "retained"}); err != nil {
+			if err = store.SeedHistoricalReportDelivery(t, db, store.ReportDelivery{Key: "pending-bug-report", SessionID: session.ID, TriggerID: 0, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "bug", Purpose: "report", BotUserID: 7, Body: "original bytes", Marker: "retained"}); err != nil {
 				t.Fatal(err)
 			}
 			if err = db.Migrate(t.Context()); err != nil {

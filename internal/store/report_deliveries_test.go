@@ -220,3 +220,35 @@ func TestBodyRefusalCompletionIsAtomic(t *testing.T) {
 		t.Fatalf("missing cleanup: %v %v", found, err)
 	}
 }
+
+func TestReportDeliveryFirstConfirmationMetadata(t *testing.T) {
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+	run := testRun(t, db, session.ID, 55)
+	if _, err := db.FinishRun(t.Context(), run.ID, RunOutcome{Status: RunFailed}); err != nil {
+		t.Fatal(err)
+	}
+	intent := reportIntent(session, run)
+	if _, err := db.EnsureReportDelivery(t.Context(), intent); err != nil {
+		t.Fatal(err)
+	}
+	first, err := db.ConfirmReportDelivery(t.Context(), intent.Key, 500, "https://github.com/acme/api/issues/123#issuecomment-500")
+	if err != nil || first.ConfirmedAt.IsZero() || first.ConfirmedURL == "" {
+		t.Fatalf("first confirmation: %+v %v", first, err)
+	}
+	retry, err := db.ConfirmReportDelivery(t.Context(), intent.Key, 500, "https://example.com/replacement")
+	if err != nil || retry.ConfirmedAt.IsZero() || !retry.ConfirmedAt.Equal(first.ConfirmedAt) || retry.ConfirmedURL != first.ConfirmedURL {
+		t.Fatalf("confirmation drift: %+v %v", retry, err)
+	}
+	if _, err := db.ConfirmReportDelivery(t.Context(), intent.Key, 501); err == nil {
+		t.Fatal("replacement receipt accepted")
+	}
+	// A pre-migration receipt remains undated even when recovery observes it again.
+	if _, err := db.sql.ExecContext(t.Context(), `UPDATE report_deliveries SET confirmed_at=NULL,confirmed_url=NULL WHERE delivery_key=?`, intent.Key); err != nil {
+		t.Fatal(err)
+	}
+	historical, err := db.ConfirmReportDelivery(t.Context(), intent.Key, 500, first.ConfirmedURL)
+	if err != nil || !historical.ConfirmedAt.IsZero() || historical.ConfirmedURL != first.ConfirmedURL {
+		t.Fatalf("historical receipt was dated: %+v %v", historical, err)
+	}
+}

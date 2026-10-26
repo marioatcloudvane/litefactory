@@ -628,7 +628,7 @@ func (r *Reporter) dispatchValidateIndex(ctx context.Context, d store.ReportDeli
 		}
 		for _, c := range comments {
 			if c.ID == meta.CommentID && c.Author.ID == d.BotUserID && c.Body == d.Body {
-				d, e = r.db.ConfirmReportDelivery(ctx, d.Key, c.ID)
+				d, e = r.db.ConfirmReportDelivery(ctx, d.Key, c.ID, c.HTMLURL)
 				if e != nil {
 					return Posted{}, e
 				}
@@ -720,16 +720,18 @@ func (r *Reporter) dispatchValidateIndex(ctx context.Context, d store.ReportDeli
 		return Posted{}, err
 	}
 	confirmed := false
+	confirmedURL := ""
 	for _, c := range comments {
 		if c.ID == meta.CommentID && c.Author.ID == d.BotUserID && c.Body == body.String() {
 			confirmed = true
+			confirmedURL = c.HTMLURL
 			break
 		}
 	}
 	if !confirmed {
 		return Posted{}, errors.New("Validate index edit is not confirmed by provider observation")
 	}
-	if _, err = r.db.ConfirmReportDelivery(ctx, d.Key, meta.CommentID); err != nil {
+	if _, err = r.db.ConfirmReportDelivery(ctx, d.Key, meta.CommentID, confirmedURL); err != nil {
 		return Posted{}, err
 	}
 	saved.Digest = meta.Digest

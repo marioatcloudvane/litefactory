@@ -100,7 +100,11 @@ func TestReportDeliveryRecoveryRequiresTrustedExactEvidence(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &Reporter{forge: deliveryCommentReader{comments: tc.comments, err: tc.err, destination: destination}}
-			id, err := r.recoverDelivery(t.Context(), intent, destination)
+			receipt, err := r.recoverDeliveryReceipt(t.Context(), intent, destination)
+			id := receipt.ID
+			if id != 0 && receipt.HTMLURL != exact(id).HTMLURL {
+				t.Fatalf("recovered destination lost: %+v", receipt)
+			}
 			if id != tc.want || (err != nil) != (tc.want == 0) {
 				t.Fatalf("receipt=%d err=%v want=%d", id, err, tc.want)
 			}

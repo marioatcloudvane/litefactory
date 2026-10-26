@@ -54,6 +54,18 @@ webhook:
   # sends payloads unencrypted.
   public_url: %q
 
+# Remote reads stay closed until the local grant command host is installed.
+remote_connector:
+  enabled: false
+  listen: "127.0.0.1:8788"
+  resource_url: "https://cloudvane.at/litefactory/mcp"
+  issuer_url: "https://cloudvane.at/litefactory"
+  owner_id: 0
+  github_client_id: ""
+  github_secret: {env: ""}
+  cookie_secret: {env: ""}
+  allowed_origins: []
+
 # Optional shared manual advisory settings. Empty model uses the provider flagship tier.
 # judge:
 #   agent: other # claude, codex, other; omitted uses the task provider
