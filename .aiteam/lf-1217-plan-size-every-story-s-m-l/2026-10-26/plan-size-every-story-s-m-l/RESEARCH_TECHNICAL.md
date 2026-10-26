@@ -84,3 +84,14 @@ Evidence:
 
 - `teams/README.md:1`
 - `teams/README.md:88`
+
+## F-09
+
+Shaping inspection confirms set, story, technical and acceptance already have separate review boundaries; set replacement after promotion is unsupported, so refinement must live on the story rather than rewriting its promoted set. Story and technical stages cannot author tasks/criteria; acceptance owns that detail. Existing revision rules reopen the earliest affected stage and affected downstream approvals.
+
+Evidence:
+
+- `teams/source/base-team/plan/plan.dot:1`
+- `teams/source/base-team/plan/skills/plan-story-set/SKILL.md:40`
+- `teams/source/base-team/plan/skills/plan-evidence/SKILL.md:6`
+- `internal/planbrief/plan_draft.go:104`
