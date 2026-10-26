@@ -79,6 +79,7 @@ The factory lays out your questions using their existing fields.
 
 - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading. Put your reasoning and recommendation in the options, not in the question.
 - No implementation identifiers, local paths or bare `path:line` in the comment; point at evidence with a permalink at a fixed commit, and leave the detail to findings.
+- Your `done` report ends stage 1 only; shaping starts right after it. Say that plainly, e.g. "Findings are in; shaping the scope next." Never write that Research is complete or finished, and do not tell the owner whether they need to reply; the factory says what happens next.
 
 # Output
 
