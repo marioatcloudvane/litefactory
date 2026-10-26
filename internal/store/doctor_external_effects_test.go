@@ -86,8 +86,12 @@ func TestSettleFencedDoctorConsumeDelivery(t *testing.T) {
 			return stopConsumeRepair(t, db, op, d)
 		}, false, true},
 		{"receipt recorded", func(t *testing.T, db *DB, op DoctorRepair, d ReportDelivery) string {
-			if e := db.ConfirmDoctorConsumeDelivery(t.Context(), op.ID, 1, d.Key, 500); e != nil {
+			if e := db.ConfirmDoctorConsumeDelivery(t.Context(), op.ID, 1, d.Key, 500, "https://github.com/acme/api/issues/123#issuecomment-500"); e != nil {
 				t.Fatal(e)
+			}
+			saved, e := db.GetReportDelivery(t.Context(), d.Key)
+			if e != nil || saved.ConfirmedAt.IsZero() || saved.ConfirmedURL == "" {
+				t.Fatalf("doctor confirmation metadata: %+v %v", saved, e)
 			}
 			return stopConsumeRepair(t, db, op, d)
 		}, true, false},

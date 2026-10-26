@@ -209,21 +209,18 @@ func TestDoctorMigrationPreservesWorkflowDelivery(t *testing.T) {
 		}
 	}
 	session := testSession(t, db, 406)
-	intent, err := db.EnsureReportDelivery(ctx, ReportDelivery{Key: "retained-workflow", SessionID: session.ID, TriggerID: 100, Task: session.TaskRef, Destination: "acme/api#406", TriggerNamespace: "issue-comment", Purpose: "reply", BotUserID: 99, Body: "Existing workflow report", Marker: "existing-marker"})
+	// Seed the retained receipt using its historical schema. Current delivery
+	// accessors require confirmation columns that this upgrade has not added yet.
+	intent := ReportDelivery{Key: "retained-workflow", SessionID: session.ID, TriggerID: 100, Task: session.TaskRef, Destination: "acme/api#406", TriggerNamespace: "issue-comment", Purpose: "reply", BotUserID: 99, Body: "Existing workflow report", Marker: "existing-marker"}
+	_, err = db.sql.ExecContext(ctx, `INSERT INTO report_deliveries(delivery_key,identity_version,session_id,trigger_id,task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,comment_id) VALUES(?,1,?,?,?,?,?,?,?,?,?,1,101)`, intent.Key, intent.SessionID, intent.TriggerID, intent.Task, intent.Destination, intent.TriggerNamespace, intent.Purpose, intent.BotUserID, intent.Body, intent.Marker)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.MarkReportDeliverySent(ctx, intent.Key); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ConfirmReportDelivery(ctx, intent.Key, 101); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
 	after, err := db.GetReportDelivery(ctx, intent.Key)
-	if err != nil || after.SessionID != session.ID || after.Body != intent.Body || after.CommentID != 101 {
+	if err != nil || after.SessionID != session.ID || after.Body != intent.Body || after.CommentID != 101 || !after.ConfirmedAt.IsZero() {
 		t.Fatalf("migration changed workflow report: %+v %v", after, err)
 	}
 	pending, err := db.ListPendingReportDeliveries(ctx)

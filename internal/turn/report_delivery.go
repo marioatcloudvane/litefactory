@@ -185,11 +185,12 @@ func (r *Reporter) dispatchDeliveryBody(ctx context.Context, delivery store.Repo
 		return Posted{}, err
 	}
 	if delivery.PossiblySent {
-		id, err := r.recoverDelivery(ctx, delivery, destination)
+		receipt, err := r.recoverDeliveryReceipt(ctx, delivery, destination)
+		id := receipt.ID
 		if err != nil {
 			return Posted{}, err
 		}
-		confirmed, confirmErr := r.db.ConfirmReportDelivery(context.WithoutCancel(ctx), delivery.Key, id)
+		confirmed, confirmErr := r.db.ConfirmReportDelivery(context.WithoutCancel(ctx), delivery.Key, id, receipt.HTMLURL)
 		err = confirmErr
 		if err != nil {
 			return Posted{CommentID: id}, err
@@ -251,7 +252,7 @@ func (r *Reporter) dispatchDeliveryBody(ctx context.Context, delivery store.Repo
 		return Posted{}, err
 	}
 	posted.CommentID = comment.ID
-	confirmed, confirmErr := r.db.ConfirmReportDelivery(context.WithoutCancel(ctx), delivery.Key, comment.ID)
+	confirmed, confirmErr := r.db.ConfirmReportDelivery(context.WithoutCancel(ctx), delivery.Key, comment.ID, comment.HTMLURL)
 	err = confirmErr
 	if err != nil {
 		return posted, err
@@ -315,26 +316,27 @@ func (r *Reporter) commentAtDestination(ctx context.Context, comment github.Comm
 	return commentAtDestination(comment, destination)
 }
 
-func (r *Reporter) recoverDelivery(ctx context.Context, delivery store.ReportDelivery, destination naming.Ref) (int64, error) {
+func (r *Reporter) recoverDeliveryReceipt(ctx context.Context, delivery store.ReportDelivery, destination naming.Ref) (github.Comment, error) {
 	if correlated, ok := r.forge.(interface {
 		RecoverCommentEffect(context.Context, string, github.Repo, int, string) (github.Comment, bool, error)
 	}); ok {
 		comment, qualified, err := correlated.RecoverCommentEffect(ctx, "report:"+delivery.Key, github.RepoFromRef(destination), destination.Issue, delivery.Body)
 		if qualified {
 			if err != nil {
-				return 0, err
+				return github.Comment{}, err
 			}
 			if comment.Author.ID != delivery.BotUserID || comment.Body != delivery.Body || !r.commentAtDestination(ctx, comment, destination) {
-				return 0, ErrReportReceiptUncertain
+				return github.Comment{}, ErrReportReceiptUncertain
 			}
-			return comment.ID, nil
+			return comment, nil
 		}
 	}
 	comments, err := r.deliveryComments(ctx, destination)
 	if err != nil {
-		return 0, err
+		return github.Comment{}, err
 	}
 	var lowest int64
+	var receipt github.Comment
 	conflict := false
 	for _, comment := range comments {
 		if comment.Author.ID != delivery.BotUserID || comment.ID <= 0 || !r.commentAtDestination(ctx, comment, destination) {
@@ -349,15 +351,16 @@ func (r *Reporter) recoverDelivery(ctx context.Context, delivery store.ReportDel
 		}
 		if lowest == 0 || comment.ID < lowest {
 			lowest = comment.ID
+			receipt = comment
 		}
 	}
 	if conflict {
-		return 0, fmt.Errorf("%w: matching delivery identity has conflicting remote content", ErrReportReceiptUncertain)
+		return github.Comment{}, fmt.Errorf("%w: matching delivery identity has conflicting remote content", ErrReportReceiptUncertain)
 	}
 	if lowest == 0 {
-		return 0, ErrReportReceiptAbsent
+		return github.Comment{}, ErrReportReceiptAbsent
 	}
-	return lowest, nil
+	return receipt, nil
 }
 func (r *Reporter) legacyRunlessConflict(ctx context.Context, delivery store.ReportDelivery, destination naming.Ref) (bool, error) {
 	comments, err := r.deliveryComments(ctx, destination)

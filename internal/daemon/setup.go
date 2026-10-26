@@ -29,6 +29,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
+	"github.com/cloudvane/litefactory/internal/overview"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -365,6 +366,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		webhookOpts = &WebhookOptions{Listener: ln, Secrets: s.WebhookSecrets, PublicURL: s.Config.Webhook.PublicURL}
 	}
 
+	if s.Config.RemoteConnector.Enabled && s.ConnectorOverview == nil {
+		s.ConnectorOverview = overview.New(s.DB, sharedRedactor, s.Now, s.Paths.Home())
+	}
 	remoteConnector, connectorErr := prepareFactoryRemoteConnector(ctx, s)
 	if connectorErr != nil {
 		return nil, Startup{}, errors.Join(connectorErr, lock.Close())

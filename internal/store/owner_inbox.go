@@ -410,14 +410,8 @@ func projectInbox(ctx context.Context, q inboxQuery) ([]InboxDecision, []InboxCo
 				return nil, nil, errors.Join(e, waits.Close())
 			}
 			d.WaitingAt, _ = ParseTime(waitingAt)
-			if d.Workflow == "plan" {
-				// Stage and set reviews use the exact current Plan policy below.
-				// Graph-only questions, including set_ask and failure recovery,
-				// have no PlanWait representation and remain independently eligible.
-				switch node {
-				case "story_ask", "story_review", "technical_ask", "technical_review", "acceptance_ask", "acceptance_review", "set_review":
-					continue
-				}
+			if planGraphWaitUsesState(d.Workflow, node) {
+				continue
 			}
 			d.Summary = "Waiting for owner " + d.Kind
 			var body struct {
@@ -499,11 +493,7 @@ func projectInbox(ctx context.Context, q inboxQuery) ([]InboxDecision, []InboxCo
 			}
 			for _, story := range state.Stories {
 				w := story.Wait
-				if w == nil || !story.Active() || w.Candidate != story.Candidate {
-					continue
-				}
-				revision, re := state.ReviewRevision(story.Key, story.Stage)
-				if re != nil || revision != w.Revision {
+				if !planStoryWaitCurrent(&state, story) {
 					continue
 				}
 				var destination string

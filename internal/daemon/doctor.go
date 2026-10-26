@@ -875,6 +875,7 @@ func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery 
 			return err
 		}
 		var confirmed int64
+		var confirmedURL string
 		for _, c := range page.Comments {
 			if c.Author.ID != delivery.BotUserID || !strings.Contains(c.Body, delivery.Marker) {
 				continue
@@ -884,10 +885,11 @@ func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery 
 			}
 			if confirmed == 0 || c.ID < confirmed {
 				confirmed = c.ID
+				confirmedURL = c.HTMLURL
 			}
 		}
 		if confirmed != 0 {
-			if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, confirmed); err != nil {
+			if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, confirmed, confirmedURL); err != nil {
 				return err
 			}
 			return d.db.CompleteDoctorDelivery(ctx, delivery.Key)
@@ -915,7 +917,7 @@ func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery 
 	if comment.ID <= 0 || comment.Author.ID != delivery.BotUserID {
 		return fmt.Errorf("doctor post receipt lacks trusted bot identity")
 	}
-	if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, comment.ID); err != nil {
+	if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, comment.ID, comment.HTMLURL); err != nil {
 		return err
 	}
 	return d.db.CompleteDoctorDelivery(ctx, delivery.Key)

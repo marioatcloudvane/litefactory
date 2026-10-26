@@ -51,7 +51,10 @@ func TestProjectMigrationPreservesPopulatedSessionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	delivery, err := db.GetReportDelivery(t.Context(), "retained-delivery")
+	// Read only the schema that existed before this migration. Current accessors
+	// also read confirmation metadata, which this historical fixture predates.
+	var delivery ReportDelivery
+	err = db.sql.QueryRowContext(t.Context(), `SELECT delivery_key,identity_version,session_id,trigger_id,COALESCE(run_id,0),task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,COALESCE(comment_id,0),completed,legacy FROM report_deliveries WHERE delivery_key='retained-delivery'`).Scan(&delivery.Key, &delivery.Version, &delivery.SessionID, &delivery.TriggerID, &delivery.RunID, &delivery.Task, &delivery.Destination, &delivery.TriggerNamespace, &delivery.Purpose, &delivery.BotUserID, &delivery.Body, &delivery.Marker, &delivery.PossiblySent, &delivery.CommentID, &delivery.Completed, &delivery.Legacy)
 	if err != nil {
 		t.Fatal(err)
 	}

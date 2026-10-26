@@ -156,7 +156,7 @@ func (db *DB) ClaimDoctorConsumeDelivery(ctx context.Context, id string, number 
 }
 
 // ConfirmDoctorConsumeDelivery stores the trusted forge receipt without consuming.
-func (db *DB) ConfirmDoctorConsumeDelivery(ctx context.Context, id string, number int, key string, comment int64) error {
+func (db *DB) ConfirmDoctorConsumeDelivery(ctx context.Context, id string, number int, key string, comment int64, confirmedURL ...string) error {
 	return db.withTx(ctx, func(tx *sql.Tx) error {
 		r, e := doctorRepairAuthority(ctx, tx, id)
 		if e != nil {
@@ -176,7 +176,14 @@ func (db *DB) ConfirmDoctorConsumeDelivery(ctx context.Context, id string, numbe
 		if _, e = tx.ExecContext(ctx, `INSERT INTO doctor_repair_write_permits(repair_id) VALUES(?)`, id); e != nil {
 			return e
 		}
-		if _, e = tx.ExecContext(ctx, `UPDATE report_deliveries SET comment_id=? WHERE delivery_key=?`, comment, key); e != nil {
+		var destinationURL string
+		if len(confirmedURL) > 1 {
+			return errors.New("store: multiple confirmation URLs")
+		}
+		if len(confirmedURL) == 1 {
+			destinationURL = confirmedURL[0]
+		}
+		if _, e = confirmReportDeliveryTx(ctx, tx, key, comment, destinationURL); e != nil {
 			return e
 		}
 		_, e = tx.ExecContext(ctx, `DELETE FROM doctor_repair_write_permits WHERE repair_id=?`, id)
