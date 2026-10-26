@@ -185,6 +185,16 @@ func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Op
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return false, err
 	}
+	st.CandidateLinks = map[string]string{}
+	for i, c := range st.Candidates {
+		link, e := opts.ResearchReporter.publishRepairReview(ctx, c)
+		if e == nil {
+			st.CandidateLinks[c.ID] = link
+			if fresh, e := opts.DB.GetRepairCandidate(ctx, c.ID); e == nil {
+				st.Candidates[i] = fresh
+			}
+		}
+	}
 	instance, err := opts.DB.GetGraphInstance(ctx, req.InstanceID)
 	if err != nil {
 		return false, err

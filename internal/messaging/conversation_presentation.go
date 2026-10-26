@@ -123,6 +123,13 @@ func (s *Service) saveConversationAnswer(ctx context.Context, t store.Conversati
 	if err != nil {
 		return err
 	}
+	for i := range facts {
+		caveats, err := s.Protect(ctx, facts[i].Caveats)
+		if err != nil {
+			return err
+		}
+		facts[i].Caveats = caveats
+	}
 	rendered, err := presentation.RenderConversation(id, blocks, facts, protected, intent...)
 	if err != nil {
 		return err

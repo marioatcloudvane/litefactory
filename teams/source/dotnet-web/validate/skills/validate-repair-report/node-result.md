@@ -39,7 +39,9 @@ failure and what you fixed. The factory measures the change and tests it again.
 
 # handback
 
-The fix is large, or you are not sure of the cause. Change nothing. For each
+The fix is large, or you are not sure of the cause. Stop editing. If work already
+exists, describe it and its uncertainty; the factory retains the complete candidate
+before reset. This report cannot accept or discard that candidate. For each
 failure give the expected behavior and one exact objective for Implement. When
 the cause is unknown, use `unknown` and make the objective a concrete diagnostic
 step.

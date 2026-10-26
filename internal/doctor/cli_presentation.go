@@ -30,7 +30,7 @@ func (s *Service) proposalForPresentation(ctx context.Context, cid int64) (int64
 // RecordPresentation is called only after the complete CLI output was written.
 // It binds the displayed immutable revision, refusing a proposal changed meanwhile.
 func (s *Service) RecordPresentation(ctx context.Context, ref naming.Ref, displayed Conversation) (string, error) {
-	if displayed.ProposalID == 0 || len(displayed.CurrentProposal) == 0 {
+	if displayed.Review != nil || displayed.ProposalID == 0 || len(displayed.CurrentProposal) == 0 {
 		return "", nil
 	}
 	ref = canonicalTarget(ref)

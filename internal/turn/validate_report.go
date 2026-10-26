@@ -90,6 +90,23 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	if st.Handback != nil {
 		b.WriteString("\n**What still needs fixing:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 2000)) + "\n")
 	}
+	for _, c := range st.Candidates {
+		fmt.Fprintf(&b, "\n**Retained repair `%s`** · %s · review `%s`\n", c.ID, c.Resolution, c.ReviewDigest)
+		if link := st.CandidateLinks[c.ID]; link != "" {
+			fmt.Fprintf(&b, "\n[Complete ordered review](%s)\n", link)
+		} else {
+			b.WriteString("\nComplete review delivery is pending.\n")
+		}
+		fmt.Fprintf(&b, "\n`%s %s %s %s inspect`\n", ValidateRepairCommand, st.Revision, c.ID, c.ReviewDigest)
+		if c.Resolution == "pending" {
+			fmt.Fprintf(&b, "\n`%s %s %s %s discard`\n", ValidateRepairCommand, st.Revision, c.ID, c.ReviewDigest)
+			if c.Eligible && c.ReviewComplete && st.RepairAdoption {
+				fmt.Fprintf(&b, "\n`%s %s %s %s accept` adopts this exact tree for fresh suite and reviewer checks.\n", ValidateRepairCommand, st.Revision, c.ID, c.ReviewDigest)
+			} else {
+				b.WriteString("\nAcceptance is unavailable: complete eligible analysis, unchanged review delivery and a graph with adoption are required; frozen criteria remain protected.\n")
+			}
+		}
+	}
 	if len(st.Open) > 0 {
 		b.WriteString("\n**Displayed blockers:**\n")
 		for _, blocker := range st.Open {

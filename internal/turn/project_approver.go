@@ -90,6 +90,9 @@ func isValidateCodeControlBody(body string) bool {
 	if len(fields) == 0 {
 		return false
 	}
+	if c, err := ParseValidateCommand(body); err == nil && c.Name == ValidateRepairCommand {
+		return c.RepairAction == "accept"
+	}
 	switch fields[0] {
 	case ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand:
 		return true

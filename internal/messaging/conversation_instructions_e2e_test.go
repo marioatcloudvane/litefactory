@@ -60,9 +60,9 @@ else
  printf '%%s' "$session" > "$state/instruction-session"
 fi
 answer='{"version":1,"kind":"answer","text":"Recorded instruction fixture reply."}'
-if [ "$step" = 1 ]; then answer='invalid envelope'; fi
+if [ "$step" = 1 ]; then answer='{'; fi
 # JSON-string encoding for the two fixed fixture responses.
-if [ "$step" = 1 ]; then wire='"invalid envelope"'; else wire='"{\"version\":1,\"kind\":\"answer\",\"text\":\"Recorded instruction fixture reply.\"}"'; fi
+if [ "$step" = 1 ]; then wire='"{"'; else wire='"{\"version\":1,\"kind\":\"answer\",\"text\":\"Recorded instruction fixture reply.\"}"'; fi
 if [ "$provider" = claude ]; then
  printf '{"type":"system","subtype":"init","session_id":"%%s","tools":[],"mcp_servers":[],"claude_code_version":"2.1.299"}\n' "$session"
  printf '{"type":"result","session_id":"%%s","result":%%s,"is_error":false}\n' "$session" "$wire"

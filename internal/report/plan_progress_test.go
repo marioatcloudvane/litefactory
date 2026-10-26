@@ -158,6 +158,17 @@ func TestRenderReportDelivery_StripsFactoryHostPaths(t *testing.T) {
 	}
 }
 
+func TestRepairDiffHostPathsRemainPrivate(t *testing.T) {
+	t.Parallel()
+	for _, prefix := range []string{"+", "-"} {
+		raw := prefix + "/Users/private/.litefactory/tasks/secret.txt"
+		safe := report.StripHostPaths(raw, nil)
+		if strings.Contains(safe, "/Users/private/") {
+			t.Fatalf("diff prefix hid private host path: %q", safe)
+		}
+	}
+}
+
 func TestPlanReplyExplanationText_LongCauseKeepsCompleteCurrentAction(t *testing.T) {
 	t.Parallel()
 	command := "/approve-plan story-009 acceptance plan-55-600"

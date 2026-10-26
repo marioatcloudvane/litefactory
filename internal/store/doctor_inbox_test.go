@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,12 +101,36 @@ func TestDoctorPresentationRequiresAllConfirmedParts(t *testing.T) {
 		t.Fatal(err)
 	}
 	deliveries, err := db.PendingDoctorDeliveries(ctx)
-	if err != nil || len(deliveries) != 2 {
+	if err != nil || len(deliveries) != 3 {
 		t.Fatalf("deliveries %+v %v", deliveries, err)
 	}
+	var ordered []ReportDelivery
+	var index ReportDelivery
+	for _, delivery := range deliveries {
+		if delivery.Purpose == "doctor-response-index" {
+			index = delivery
+		} else {
+			ordered = append(ordered, delivery)
+		}
+	}
+	if _, ready, err := db.PrepareDoctorDelivery(ctx, index.Key); err != nil || ready {
+		t.Fatalf("index ready before content receipts: %v %v", ready, err)
+	}
+	deliveries = ordered
+	deliveries = append(deliveries, index)
 	for i, d := range deliveries {
 		if complete, err := db.DoctorPresentationComplete(ctx, c.ID); err != nil || complete {
 			t.Fatalf("premature presentation %v %v", complete, err)
+		}
+		if d.Purpose == "doctor-response-index" {
+			prepared, ready, err := db.PrepareDoctorDelivery(ctx, d.Key)
+			if err != nil || !ready || !strings.Contains(prepared.Body, "#issuecomment-100") || !strings.Contains(prepared.Body, "#issuecomment-101") {
+				t.Fatalf("index missing complete part receipts: %+v %v %v", prepared, ready, err)
+			}
+			replayed, ready, err := db.PrepareDoctorDelivery(ctx, d.Key)
+			if err != nil || !ready || replayed.Body != prepared.Body {
+				t.Fatalf("index body changed on replay: %+v %v %v", replayed, ready, err)
+			}
 		}
 		if ok, err := db.MarkReportDeliverySent(ctx, d.Key); err != nil || !ok {
 			t.Fatalf("claim %v %v", ok, err)

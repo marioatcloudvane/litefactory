@@ -15,6 +15,9 @@ import (
 // The caller redacts before retaining publication intent or writing output.
 func RenderConversation(c Conversation) string {
 	var body strings.Builder
+	if c.Review != nil {
+		body.WriteString(RenderRejectedDiagnosisReview(*c.Review))
+	}
 	if c.Repair == nil {
 		body.WriteString("Doctor diagnosis\n\n")
 	}
@@ -126,16 +129,7 @@ func PresentationParts(body string) ([]string, error) {
 	if body == "" || len(body) > 262144 || !utf8.ValidString(body) {
 		return nil, errors.New("doctor presentation is empty, invalid UTF-8 or exceeds total byte budget")
 	}
-	var parts []string
-	for len(body) > 0 {
-		size := min(len(body), 48000)
-		for size < len(body) && !utf8.RuneStart(body[size]) {
-			size--
-		}
-		parts = append(parts, body[:size])
-		body = body[size:]
-	}
-	return parts, nil
+	return report.SplitReviewParts(body, 48000)
 }
 
 // RepairGuidance describes retained settlement without inviting a second repair

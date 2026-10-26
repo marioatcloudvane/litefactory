@@ -120,6 +120,9 @@ func runDoctor(ctx context.Context, env *Env, operation string, args []string) (
 
 func renderDoctor(w io.Writer, result doctor.Conversation) error {
 	var text bytes.Buffer
+	if result.Review != nil {
+		text.WriteString(doctor.RenderRejectedDiagnosisReview(*result.Review))
+	}
 	fmt.Fprintf(&text, "Doctor conversation %d · %s · generation %d\n", result.Conversation.ID, result.Conversation.State, result.Conversation.Generation)
 	if len(result.Attempts) > 0 {
 		last := result.Attempts[len(result.Attempts)-1]

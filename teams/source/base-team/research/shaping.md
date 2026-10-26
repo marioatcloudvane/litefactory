@@ -61,20 +61,13 @@ Return `ask` while a material decision is genuinely the owner's. Return `done` w
 
 # Writing the Report
 
-Explain the outcome and its effect on the owner's work in plain language. Include a relevant known cause when it helps; distinguish observed facts, inferred causes and material unknowns. For a stop or wait, name the affected work and any work known to continue independently; if that wider impact is unknown, say so. A routine update may be one or two sentences. Do not repeat explanations already supplied or add options when no decision is needed. Say no reply is needed and work continues only when current supplied evidence establishes both; submission or a receipt alone establishes neither execution, approval nor publication.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
-For an authorized owner question, explain what is held up and why the answer matters. Give only supported options, their effects and a recommendation when evidence supports one. State the exact reply or command, where the owner must send it, who may act and any evidence only the owner can supply, using current supplied targets. Put prerequisites first and identify independent choices. Do not invent a command, target, permission or restart route when it is not supplied; say what is unknown. Keep these details in the existing question and report fields, without changing their contracts.
+The factory lays out your questions using their existing fields.
 
-For review, revision or wait explanations, state what was drafted or changed, the known reason, what remains pending and the supported owner action only when supplied. Preserve the existing approval boundary: a review-ready result does not advance the stage. Do not equate ordinary feedback, a continuation or a restart with approval, and do not infer retry timing or background progress from a missing result.
-
-When a report is long or shortened, keep the outcome, required immediate action and its consequence visible. Use only an existing supplied full-report destination; check that it retains the omitted evidence and supported recovery steps. Do not replace a usable next step with an unexplained link.
-
-Your `comment` is what the owner reads. The factory lays out your questions; the prose is yours, and it is published as written.
-
- - Lead with the agreed scope in one short paragraph, then `## In scope`, `## Out of scope`, and `## Open decisions` when any remain.
- - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading, and a heading four sentences long reads as noise. Your reasoning and your recommendation belong in the options.
- - Keep each decision to one sentence. A decision the owner cannot disagree with in a single read is really several decisions.
- - No Go identifiers, no file paths, no `path:line` in the comment.
+- Keep a question's `text` to the question itself, in one line. The factory renders it as a heading, and a heading four sentences long reads as noise. Your reasoning and your recommendation belong in the options.
+- Keep each decision to one sentence. A decision the owner cannot disagree with in a single read is really several decisions.
+- No Go identifiers, no file paths, no `path:line` in the comment.
 
 # Output
 
