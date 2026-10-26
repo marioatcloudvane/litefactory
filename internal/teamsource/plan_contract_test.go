@@ -26,7 +26,7 @@ func planPackageRegistry(t *testing.T) graphexec.Registry {
 		{Name: "lf_agent", Mode: agent.ModePlan, Outcomes: []string{"success", "failed"}},
 		graphexec.ControlSpec("lf_if", policy), graphexec.ControlSpec("lf_loop", policy),
 		{Name: "lf_ask", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}}},
-		{Name: "lf_comment", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"failure", "final"}}}}, graphexec.PlanStorySpec(),
+		{Name: "lf_comment", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"failure", "final"}}}}, graphexec.PlanStorySpec(), graphexec.PlanGateSpec(),
 	}
 	for _, s := range specs {
 		if err := r.Register(s); err != nil {
@@ -172,19 +172,40 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 			if stage == "story" {
 				afterReview = "story_pick"
 			}
-			cases := []struct{ node, outcome, want string }{{stage + "_loop", "false", "stopped"}, {stage + "_question", "true", stage + "_ask"}, {stage + "_draft", "applied", stage + "_gate"}, {stage + "_draft", "uncertain", "failed"}, {stage + "_draft", "conflict", "failed"}, {stage + "_draft", "failed", "failed"}, {stage + "_agent", "failed", "failed"}, {stage + "_gate", "false", stage + "_review"}, {stage + "_gate", "true", "promoted"}, {stage + "_review", "published", afterReview}, {stage + "_ask", "published", "waiting"}}
+			draftTarget := stage + "_review"
+			if stage == "set" {
+				draftTarget = "set_gate"
+			}
+			cases := []struct{ node, outcome, want string }{{stage + "_loop", "false", "stopped"}, {stage + "_question", "true", stage + "_ask"}, {stage + "_draft", "applied", draftTarget}, {stage + "_draft", "uncertain", "failed"}, {stage + "_draft", "conflict", "failed"}, {stage + "_draft", "failed", "failed"}, {stage + "_agent", "failed", "failed"}, {stage + "_review", "published", afterReview}, {stage + "_ask", "published", "waiting"}}
 			for _, tt := range cases {
 				got, ok := graphexec.Decide(d.Profile, tt.node, tt.outcome)
 				if !ok || got != tt.want {
 					t.Errorf("%s/%s=%q,%v want %s", tt.node, tt.outcome, got, ok, tt.want)
 				}
 			}
-			gate, _ := d.Profile.Node(stage + "_gate")
-			if gate.Attrs["lf_condition"] != "approved" || gate.Attrs["lf_source"] != "" {
-				t.Fatal("promotion must require policy-owned approval, not agent output")
+			if stage == "set" {
+				for _, c := range []struct{ outcome, want string }{{"false", "set_review"}, {"true", "promoted"}} {
+					if got, ok := graphexec.Decide(d.Profile, "set_gate", c.outcome); !ok || got != c.want {
+						t.Errorf("set_gate/%s=%q,%v want %s", c.outcome, got, ok, c.want)
+					}
+				}
+				gate, _ := d.Profile.Node("set_gate")
+				if gate.Attrs["lf_condition"] != "approved" {
+					t.Fatal("promotion must require policy-owned approval, not agent output")
+				}
+				if _, ok := graphexec.Decide(d.Profile, "set_gate", "review_ready"); ok {
+					t.Fatal("review_ready directly promotes")
+				}
+				return
 			}
-			if _, ok := graphexec.Decide(d.Profile, stage+"_gate", "review_ready"); ok {
-				t.Fatal("review_ready directly promotes")
+			// Story, technical and acceptance stop at a generic owner gate: no
+			// lf_if approval pair is left, and the gate names the closed command.
+			if _, ok := d.Profile.Node(stage + "_gate"); ok {
+				t.Fatalf("%s_gate must be replaced by the lf_gate review", stage)
+			}
+			review, _ := d.Profile.Node(stage + "_review")
+			if review.Action != graphexec.PlanGateAction || review.Attrs["lf_command"] != graphexec.PlanGateCommand || review.Attrs["lf_args"] != graphexec.PlanGateArgs || review.Attrs["lf_source"] != stage+"_agent" {
+				t.Fatalf("%s_review is not the generic gate: %v", stage, review.Attrs)
 			}
 		})
 	}
@@ -229,7 +250,7 @@ func TestPlanPackageDeclaresSetStageAndCreationCycle(t *testing.T) {
 		t.Errorf("set stage lacks its captured role: %v", set.Attrs)
 	}
 	// Every node of the creation cycle carries the bound that covers a full set.
-	for _, name := range []string{"story_pick", "story_agent", "story_question", "story_draft", "story_gate", "story_review"} {
+	for _, name := range []string{"story_pick", "story_agent", "story_question", "story_draft", "story_review"} {
 		n, _ := d.Profile.Node(name)
 		if n.Limit < graphexec.PlanCreationBound {
 			t.Errorf("%s bound %d does not cover %d stories", name, n.Limit, planbrief.MaxPlanStorySetEntries)
