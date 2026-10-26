@@ -2,7 +2,8 @@
 // suite on one exact commit. A passed suite goes straight to review. A failed
 // suite gets at most two repair rounds from one write-access agent; the factory
 // measures what the agent really changed, keeps a small change as a new commit
-// and runs the suite on it again, and rejects a change over the limits. Three
+// and runs the suite on it again. Flagged and handback candidates are retained
+// completely before reset for exact owner review; they are not adopted automatically. Three
 // read-only reviewers then assess the final tested commit side by side. The run
 // ends in one of three ends: assessed, handed back to Implement, or blocked.
 //
@@ -72,7 +73,7 @@ digraph validate {
  // ---- Owner resolution ----------------------------------------------------------
  // The loop limit is lf_limit on resolve. When it runs out the run stops and
  // nothing is approved, because every effect needs a command inside the loop.
- owner_resolve [lf_action="lf_validate_resolve", lf_outcomes="wait,create_issue,push,merge,close,implement,stale,repair", lf_suite="suite", lf_limit="24"];
+ owner_resolve [lf_action="lf_validate_resolve", lf_outcomes="wait,create_issue,push,merge,close,implement,stale,repair,apply_repair", lf_suite="suite", lf_limit="24"];
  owner_report  [lf_action="lf_validate_report", lf_outcomes="done", lf_limit="64"];
  owner_ask     [lf_action="lf_validate_ask", lf_outcomes="published", lf_source="owner_resolve", lf_limit="32"];
  owner_issue   [lf_action="lf_validate_issue", lf_outcomes="done", lf_limit="24"];
@@ -80,6 +81,9 @@ digraph validate {
  owner_merge   [lf_action="lf_validate_merge", lf_outcomes="done", lf_limit="8"];
  owner_close   [lf_action="lf_validate_close", lf_outcomes="closed,open", lf_limit="8"];
  owner_implement [lf_action="lf_validate_implement", lf_outcomes="started", lf_suite="suite", lf_limit="4"];
+
+ // Exact owner adoption returns through the suite and all reviewers.
+ owner_repair_apply [lf_action="lf_validate_repair_apply", lf_outcomes="applied,blocked", lf_limit="4"];
 
  // ---- Ends ------------------------------------------------------------------------
  // waiting rests on the owner; delivered is reached only from a closed close;
@@ -119,6 +123,9 @@ digraph validate {
  outcome -> owner_resolve [lf_on="handed_back"];
  outcome -> owner_resolve [lf_on="blocked"];
 
+ owner_resolve -> owner_repair_apply [lf_on="apply_repair"];
+ owner_repair_apply -> suite [lf_on="applied"];
+ owner_repair_apply -> owner_report [lf_on="blocked"];
  owner_resolve -> owner_report       [lf_on="wait"];
  owner_resolve -> owner_report       [lf_on="stale"];
  owner_resolve -> owner_issue        [lf_on="create_issue"];

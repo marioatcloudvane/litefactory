@@ -20,8 +20,8 @@ import (
 )
 
 // ValidateRepairBudgetActivity starts one repair round. Before anything else it
-// settles a round a restart left unfinished: the worktree goes back to the
-// commit before that round, and the round counts as used. It then returns run
+// reconciles retained evidence for an unfinished round before a guarded reset;
+// the round still counts as used. It then returns run
 // while the graph's declared bound allows another round, spent when it does not.
 type ValidateRepairBudgetActivity struct{ b ValidateFlowBindings }
 
@@ -42,7 +42,7 @@ func (h ValidateRepairBudgetActivity) Execute(ctx context.Context, opts Options,
 	}
 	instance := req.InstanceID
 	if running, err := opts.DB.RunningRepairRound(ctx, instance); err == nil {
-		if err := h.settleInterrupted(ctx, opts, step, running, worktree, session); err != nil {
+		if err := h.settleInterrupted(ctx, opts, running, worktree, session); err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, err
 		}
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -117,13 +117,61 @@ func openValidateWorktree(b ValidateFlowBindings) (*git.Worktree, string, error)
 	return worktree, session, nil
 }
 
-// settleInterrupted closes a round that never reached its check: the worktree
-// goes back to the commit before the round and the round is recorded as used.
-func (h ValidateRepairBudgetActivity) settleInterrupted(ctx context.Context, opts Options, _ validateStep, round store.RepairRound, worktree *git.Worktree, session string) error {
-	if err := worktree.ResetHard(ctx, round.PreCommit, session); err != nil {
-		return fmt.Errorf("reset the interrupted repair round: %w", err)
+// settleInterrupted completes saved capture and reset boundaries before settling
+// the round. A saved flagged outcome remains historical; an unmeasured round is
+// retained as interrupted and cannot become eligible through missing analysis.
+func (h ValidateRepairBudgetActivity) settleInterrupted(ctx context.Context, opts Options, round store.RepairRound, worktree *git.Worktree, session string) error {
+	req := ActivityRequest{InstanceID: round.InstanceID}
+	var snapshot git.RepairSnapshot
+	candidates, err := opts.DB.ListRepairCandidates(ctx, round.InstanceID)
+	if err != nil {
+		return err
 	}
-	return opts.DB.FinishRepairRound(context.WithoutCancel(ctx), round.ID, store.RepairFinish{State: store.RepairInterrupted, Reason: "the round was interrupted before it was measured; the worktree was reset", At: h.b.now(opts)})
+	var candidate store.RepairCandidate
+	for _, c := range candidates {
+		if c.RoundID == round.ID {
+			candidate = c
+			snapshot, err = candidateSnapshot(c)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	finish := store.RepairFinish{State: store.RepairInterrupted, Reason: "the round was interrupted before completion; retained for inspection", At: h.b.now(opts)}
+	if snapshot.Tree == "" {
+		snapshot, err = worktree.CaptureRepairCandidate(ctx, round.PreCommit, fmt.Sprintf("%d:%d", round.InstanceID, round.ID))
+		if err != nil {
+			return err
+		}
+		candidate, err = h.b.retainRepair(ctx, opts, req, round, snapshot, finish, false)
+		if err != nil {
+			return err
+		}
+	}
+	if err = h.b.completeRepairCapture(ctx, opts, candidate); err != nil {
+		return err
+	}
+	var evidence candidateEvidence
+	if err = json.Unmarshal(candidate.Evidence, &evidence); err != nil {
+		return err
+	}
+	finish = evidence.Finish
+	finish.At = h.b.now(opts)
+	journal := store.RepairCandidateJournal{InstanceID: round.InstanceID, RoundID: round.ID, Phase: "reset", State: "intent", ExpectedBase: round.PreCommit, At: h.b.now(opts)}
+	if err = opts.DB.JournalRepairCandidate(ctx, candidate.ID, journal); err != nil {
+		return err
+	}
+	if err = worktree.VerifyRepairCandidate(ctx, snapshot); err != nil {
+		return err
+	}
+	if err = worktree.ResetRepairCandidate(ctx, snapshot, session); err != nil {
+		return err
+	}
+	journal.State = "complete"
+	if err = opts.DB.JournalRepairCandidate(ctx, candidate.ID, journal); err != nil {
+		return err
+	}
+	return opts.DB.FinishRepairRound(ctx, round.ID, finish)
 }
 
 func validateJSONResult(outcome string, v any) (ActivityResult, error) {
@@ -137,7 +185,7 @@ func validateJSONResult(outcome string, v any) (ActivityResult, error) {
 // ValidateRepairCheckActivity measures the change a repair round really made
 // against the commit before it, with the limits its graph node declares. A small
 // change is kept as a new commit; a change over the limits is retained as a diff
-// and thrown away. It never trusts the agent's account of its own change.
+// outside adopted work before reset. It never trusts the agent's account of its own change.
 //
 //	kept        a small change, committed; the suite runs again on the new commit
 //	too_big     over the file limit or a forbidden kind of change; reset
@@ -150,6 +198,7 @@ type ValidateRepairCheckActivity struct{ b ValidateFlowBindings }
 // repairDiagnosis is what the round retains of the agent's account.
 type repairDiagnosis struct {
 	Response string                      `json:"response"`
+	Reason   string                      `json:"reason,omitempty"`
 	Failures []agentresult.RepairFailure `json:"failures,omitempty"`
 }
 
@@ -174,17 +223,60 @@ func (h ValidateRepairCheckActivity) Execute(ctx context.Context, opts Options, 
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
-	// finish retains the round, resets the worktree unless the change was kept,
-	// and returns the one outcome. The reset comes first: nothing else may run
-	// on a worktree that still holds a rejected or half-made edit.
+	// A saved candidate is authoritative after a reset interruption. Otherwise
+	// capture the complete immutable tree before measuring or resetting it.
+	var snapshot git.RepairSnapshot
+	candidates, err := opts.DB.ListRepairCandidates(ctx, req.InstanceID)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	for _, c := range candidates {
+		if c.RoundID == round.ID {
+			snapshot, err = candidateSnapshot(c)
+			if err != nil {
+				return ActivityResult{}, err
+			}
+		}
+	}
+	if snapshot.Tree == "" {
+		snapshot, err = worktree.CaptureRepairCandidate(ctx, round.PreCommit, fmt.Sprintf("%d:%d", req.InstanceID, round.ID))
+		if err != nil {
+			return ActivityResult{Diagnostic: err.Error()}, fmt.Errorf("retain repair before reset: %w", err)
+		}
+	}
+	// finish saves complete evidence before reset, journals the verified reset,
+	// and settles the immutable round. An unfinished boundary holds the worktree.
 	finish := func(outcome string, in store.RepairFinish) (ActivityResult, error) {
 		in.At = h.b.now(opts)
 		if outcome != "kept" {
-			if err := worktree.ResetHard(context.WithoutCancel(ctx), round.PreCommit, session); err != nil {
-				return ActivityResult{Diagnostic: err.Error()}, fmt.Errorf("reset the rejected repair: %w", err)
+			var changed []string
+			for _, change := range snapshot.Changes {
+				changed = append(changed, change.Path)
+			}
+			files, kinds, _ := measureValidateChange(changed, snapshot.Patch, session, in.Kinds, forbid)
+			in.Files, in.Kinds, in.Diff = files, kinds, snapshot.Patch
+			sum := sha256.Sum256([]byte(snapshot.Patch))
+			in.DiffDigest = hex.EncodeToString(sum[:])
+			c, err := h.b.retainRepair(ctx, opts, req, round, snapshot, in, candidateMeasurementComplete(snapshot) && (outcome == "too_big" || outcome == "handback"))
+			if err != nil {
+				return ActivityResult{Diagnostic: err.Error()}, err
+			}
+			journal := store.RepairCandidateJournal{InstanceID: req.InstanceID, RoundID: round.ID, Phase: "reset", State: "intent", ExpectedBase: round.PreCommit, At: h.b.now(opts)}
+			if err := opts.DB.JournalRepairCandidate(ctx, c.ID, journal); err != nil {
+				return ActivityResult{}, err
+			}
+			if err := worktree.VerifyRepairCandidate(ctx, snapshot); err != nil {
+				return ActivityResult{}, err
+			}
+			if err := worktree.ResetRepairCandidate(ctx, snapshot, session); err != nil {
+				return ActivityResult{Diagnostic: err.Error()}, fmt.Errorf("reset retained repair: %w", err)
+			}
+			journal.State = "complete"
+			if err := opts.DB.JournalRepairCandidate(ctx, c.ID, journal); err != nil {
+				return ActivityResult{}, err
 			}
 		}
-		if err := opts.DB.FinishRepairRound(context.WithoutCancel(ctx), round.ID, in); err != nil {
+		if err := opts.DB.FinishRepairRound(ctx, round.ID, in); err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, err
 		}
 		return validateJSONResult(outcome, map[string]any{"round": round.Round, "state": in.State, "reason": in.Reason, "files": in.Files, "result_commit": in.ResultCommit, "diff_digest": in.DiffDigest})
@@ -210,8 +302,11 @@ func (h ValidateRepairCheckActivity) Execute(ctx context.Context, opts Options, 
 		return finish("unfinished", store.RepairFinish{NodeAttemptID: source.ID, State: store.RepairUnusable, Reason: "the repair result is unusable: " + clipText(fmt.Sprint(err), 300)})
 	}
 	report := *node.Result.Payload.Validate.Repair
-	diagnosis, _ := json.Marshal(repairDiagnosis{Response: report.Response, Failures: report.Failures})
+	diagnosis, _ := json.Marshal(repairDiagnosis{Response: report.Response, Reason: report.Reason, Failures: report.Failures})
 	base := store.RepairFinish{NodeAttemptID: source.ID, Response: report.Response, Diagnosis: string(diagnosis)}
+	for _, f := range report.Failures {
+		base.Kinds = append(base.Kinds, f.ChangeKinds...)
+	}
 	switch report.Response {
 	case agentresult.RepairResponseBlocked:
 		in := base
@@ -220,27 +315,17 @@ func (h ValidateRepairCheckActivity) Execute(ctx context.Context, opts Options, 
 	case agentresult.RepairResponseHandback:
 		in := base
 		in.State, in.Reason = store.RepairHandback, "the repair agent reported the fix as too large or uncertain"
+		if report.Reason != "" {
+			in.Reason += ": " + report.Reason
+		}
 		return finish("handback", in)
 	}
 
-	changed, err := worktree.ChangedSince(ctx, round.PreCommit)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ActivityResult{Diagnostic: ctx.Err().Error()}, ctx.Err()
-		}
-		in := base
-		in.State, in.Reason = store.RepairBlocked, "the change cannot be measured: "+clipText(err.Error(), 300)
-		return finish("blocked", in)
+	var changed []string
+	for _, change := range snapshot.Changes {
+		changed = append(changed, change.Path)
 	}
-	diff, err := worktree.DiffSince(ctx, round.PreCommit)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ActivityResult{Diagnostic: ctx.Err().Error()}, ctx.Err()
-		}
-		in := base
-		in.State, in.Reason = store.RepairBlocked, "the change cannot be read: "+clipText(err.Error(), 300)
-		return finish("blocked", in)
-	}
+	diff := snapshot.Patch
 	var declared []string
 	for _, f := range report.Failures {
 		declared = append(declared, f.ChangeKinds...)
@@ -253,7 +338,7 @@ func (h ValidateRepairCheckActivity) Execute(ctx context.Context, opts Options, 
 		in.State, in.Reason = store.RepairUnusable, "the agent reported a repair but no change was found in the worktree"
 		return finish("unfinished", in)
 	}
-	if len(files) > maxFiles || len(forbidden) > 0 {
+	if len(files) > maxFiles || len(forbidden) > 0 || !candidateMeasurementComplete(snapshot) {
 		in := base
 		in.State = store.RepairTooBig
 		in.Reason = fmt.Sprintf("%d files changed, at most %d allowed", len(files), maxFiles)

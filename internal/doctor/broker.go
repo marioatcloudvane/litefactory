@@ -31,7 +31,7 @@ func (s *ResultService) handle(ctx context.Context, q submission.Request) (json.
 
 		tools := []submission.ToolSpec{
 			{Name: "communication_preflight", Description: "Validate a doctor diagnosis without recording it", InputSchema: input},
-			{Name: "communication_submit", Description: "Retain the validated diagnosis; preserve request identity on reply loss", InputSchema: input},
+			{Name: "communication_submit", Description: "Retain a diagnosis receipt; rejected bounded safe content is review-only and never adopted; preserve request identity on reply loss", InputSchema: input},
 			{Name: "communication_receipt", Description: "Recover the exact durable receipt by request ID", InputSchema: json.RawMessage(`{"type":"object","properties":{"request_id":{"type":"string"}},"required":["request_id"],"additionalProperties":false}`)},
 		}
 		if s.repairID == "" {
@@ -123,5 +123,5 @@ func diagnosisInputSchema(repair bool) json.RawMessage {
 		required += `,"repair"`
 		extra = `,"repair":{"type":"object","properties":{"operation_id":{"type":"string"},"completed_steps":{"type":"array","items":{"type":"integer","minimum":1,"maximum":30}},"observations":{"type":"array","items":{"type":"string"}},"unresolved":{"type":"array","items":{"type":"string"}}},"required":["operation_id","completed_steps","observations","unresolved"],"additionalProperties":false}`
 	}
-	return json.RawMessage(`{"type":"object","properties":{"expected_revision":{"type":"integer","minimum":0},"diagnosis":{"type":"object","properties":{"withdraw_proposal":{"type":"boolean","description":"Explicitly withdraw the current proposal; cannot accompany a replacement."},"findings":{"type":"array","minItems":1,"maxItems":30,"items":` + findingSchema + `},"coverage_gaps":` + gapsSchema + `,"questions":` + textsSchema + `,"proposal":` + proposal + extra + `},"required":[` + required + `],"additionalProperties":false}},"required":["expected_revision","diagnosis"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","description":"Doctor input at most 65536 bytes. Rejected safe content may be retained for unaccepted review only; strict validation and owner Apply gates remain required.","properties":{"expected_revision":{"type":"integer","minimum":0},"diagnosis":{"type":"object","properties":{"withdraw_proposal":{"type":"boolean","description":"Explicitly withdraw the current proposal; cannot accompany a replacement."},"findings":{"type":"array","minItems":1,"maxItems":30,"items":` + findingSchema + `},"coverage_gaps":` + gapsSchema + `,"questions":` + textsSchema + `,"proposal":` + proposal + extra + `},"required":[` + required + `],"additionalProperties":false}},"required":["expected_revision","diagnosis"],"additionalProperties":false}`)
 }

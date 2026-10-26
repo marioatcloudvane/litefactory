@@ -203,6 +203,9 @@ func (b *Binary) Version() string {
 type runner struct {
 	binary string
 	dir    string
+	// indexFile is set only by retained-repair capture, to a private temporary
+	// index. Ambient GIT_INDEX_FILE is never inherited.
+	indexFile string
 	// mergeTreeSupported carries [Binary]'s own version check down to every
 	// [Clone] and [Worktree] built from it, so [Worktree.MergePreview] can
 	// refuse before it ever execs rather than after git rejects an option
@@ -244,6 +247,9 @@ func (r runner) runRawRecordLimit(ctx context.Context, timeout time.Duration, li
 	cmd := exec.CommandContext(cmdCtx, r.binary, args...)
 	cmd.Dir = r.dir
 	cmd.Env = childEnv()
+	if r.indexFile != "" {
+		cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+r.indexFile)
+	}
 	cmd.Stdin = nil
 	cmd.WaitDelay = waitDelay
 

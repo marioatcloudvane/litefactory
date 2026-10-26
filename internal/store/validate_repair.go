@@ -278,11 +278,19 @@ func (db *DB) GetAttemptTimeout(ctx context.Context, attemptID int64) (AttemptTi
 }
 
 // LatestKeptRepairCommit returns the commit of the newest kept repair round of an
-// instance, or ErrNotFound when none was kept. It is the commit the suite runs
-// on after a repair; with no kept repair the suite runs on the commit under review.
+// instance, including verified owner adoptions, or ErrNotFound when none exists.
+// Pending and discarded candidates never select the commit the suite runs on.
 func (db *DB) LatestKeptRepairCommit(ctx context.Context, instanceID int64) (string, error) {
 	var commit string
-	err := db.sql.QueryRowContext(ctx, `SELECT result_commit FROM validate_repair_rounds WHERE instance_id=? AND state='kept' ORDER BY round DESC LIMIT 1`, instanceID).Scan(&commit)
+	err := db.sql.QueryRowContext(ctx, `SELECT result_commit FROM (
+ SELECT result_commit,round AS repair_round FROM validate_repair_rounds WHERE instance_id=? AND state='kept'
+ UNION ALL
+ SELECT j.result_commit,r.round AS repair_round FROM validate_repair_candidate_journal j
+ JOIN validate_repair_candidate_decisions d ON d.candidate_id=j.candidate_id
+ JOIN validate_repair_candidates c ON c.id=j.candidate_id
+ JOIN validate_repair_rounds r ON r.id=c.round_id
+ WHERE c.instance_id=? AND j.phase='apply' AND j.state='complete' AND d.action='accept'
+ ) ORDER BY repair_round DESC LIMIT 1`, instanceID, instanceID).Scan(&commit)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}

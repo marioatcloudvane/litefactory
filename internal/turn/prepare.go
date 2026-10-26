@@ -143,6 +143,13 @@ func prepare(
 	ref naming.Ref,
 	logger *slog.Logger,
 ) (prepared *preparation, prepareErr error) {
+	allowedRepairInstance := int64(0)
+	if req.mode() == string(agent.ModeValidate) {
+		allowedRepairInstance = req.researchInstance
+	}
+	if err := opts.DB.CheckRepairWorktree(ctx, session.ID, allowedRepairInstance); err != nil {
+		return nil, err
+	}
 	// A story worker was admitted by its parent's approval. The story issue's
 	// own Plan row (#475) neither gates it nor is approved by it.
 	storyWorker := false

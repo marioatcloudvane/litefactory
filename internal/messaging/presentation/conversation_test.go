@@ -15,7 +15,7 @@ func TestConversationGroundingAndLosslessParts(t *testing.T) {
 		t.Fatal(err)
 	}
 	var reconstructed strings.Builder
-	for _, part := range parts[:len(parts)-2] {
+	for _, part := range parts[:len(parts)-4] {
 		if messageSize(part.Content) > MessageLimit {
 			t.Fatal("oversized part")
 		}
@@ -24,10 +24,8 @@ func TestConversationGroundingAndLosslessParts(t *testing.T) {
 	if reconstructed.String() != plain(explanation) {
 		t.Fatal("explanation lost content")
 	}
-	for _, part := range parts[len(parts)-2 : len(parts)-1] {
-		if part.Content != "I couldn't get the latest information." {
-			t.Fatalf("raw reference escaped: %q", part.Content)
-		}
+	if parts[len(parts)-4].Content != "I couldn't get the latest information." || parts[len(parts)-3].Content != "Count: 7" || !strings.Contains(parts[len(parts)-2].Content, "could not be verified") {
+		t.Fatalf("answer or warning lost: %+v", parts[len(parts)-4:])
 	}
 	last := parts[len(parts)-1]
 	if !last.Protected || !strings.HasSuffix(last.Content, "proposal bytes\nconfirm 42") {
@@ -43,6 +41,9 @@ func TestConversationExactFactAndPartialRead(t *testing.T) {
 		}
 		if parts[0].Content != "seven" {
 			t.Fatal("incorrect grounding")
+		}
+		if !complete && (len(parts) != 2 || !strings.Contains(parts[1].Content, "incomplete")) {
+			t.Fatal("missing incomplete-source warning")
 		}
 	}
 	_, err := RenderConversation("a", nil, nil, strings.Repeat("😀", 1001))

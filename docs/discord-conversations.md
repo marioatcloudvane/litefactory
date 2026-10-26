@@ -39,10 +39,19 @@ with a 15-minute proposal code. Only a later owner reply to the delivered propos
 or its exact code can authorize it. Cancellation, replacement, expiry and repeat
 confirmation cannot run it again. A draft only prepares a feature preview, which
 still requires separate confirmation. Missing exact owner content or unclear
-targets require clarification.
+targets require clarification. Exact owner-supplied quoted arguments, including a
+quoted follow-up, are accepted as data: the selected source byte span preserves
+whitespace and literal escapes inside delimiter quotes. Quoted data does not
+confirm a proposal; forwarded and fenced content remains untrusted.
 
 Each ordinary turn allows at most three lookups and four provider invocations,
-including one response correction. All continuations use the selected native
+including up to two response corrections across the whole owner turn. A consult
+permits the existing fifth invocation. Corrections consume the same call budget,
+not extra calls, and successful decoding or a lookup does not reset their count.
+The exchange journal remains bounded to 16 records; work stops when its required
+records or any existing size, lookup or call budget cannot fit. Defect feedback
+and the next correction prompt are protected and saved before launch.
+All continuations use the selected native
 session. Saved action outcomes survive explanation and delivery failures; uncertain
 provider input and effects are not replayed. A completed asynchronous diagnosis is
 supplied at the next eligible owner turn. Internal lookup exchanges are not sent
@@ -61,13 +70,22 @@ not necessarily every early detail. Each turn receives the fixed instructions ag
 
 Input is saved before launch and completed output before sending. A restarted
 factory waits for the launch lease and establishes that its old provider process
-has exited before recording an interruption. Uncertain input is never replayed.
-A saved session can then continue with the next owner message. Missing session
+has exited before reclaiming fenced ownership. A complete, validated correction
+boundary can continue with its exact saved prompt and native session. The factory
+rebuilds the remaining correction, call and lookup budgets and checks current
+access, references, targets and captured instruction identity before continuing.
+An incomplete boundary or uncertain provider input is never replayed. A saved
+session can then continue with the next owner message. Missing session
 identity or files produce a visible pause rather than a replacement conversation.
 A health lookup reports durable conversation health reasons. A removed owner
 or channel and permanent Discord refusal preserve queued work and saved answers.
 Paused state needs explicit administrative resolution; restarting alone does not
-clear a permanent refusal or invent a lost native session.
+clear a permanent refusal or invent a lost native session. Saved action outcomes
+are reconciled first and reported even when correction or recovery cannot
+continue. Neither a saved action nor an uncertain effect is repeated to improve
+its narration. Budget, persistence, redaction and recovery failures report the
+limitation and retain known outcomes and uncertainty. This covers ordinary
+process restart with retained storage, not storage loss or exactly-once effects.
 
 Within each channel, later turns wait until the predecessor's reply is acknowledged.
 Temporary delivery failures retry the exact saved bytes with the same nonce and
@@ -97,12 +115,24 @@ owner/channel scope; that selection is fixed when the command is admitted. An
 answer with no reads reports that no tool results were obtained. Unknown,
 unauthorized and expired references never substitute another answer's evidence.
 
-Free explanation is shown with **Unverified** on every continuation: its wording
-has not been established by this answer's current tool evidence. This also warns
-on paraphrases, even when they may be correct. Only an entire complete current
-source fact selected by its factory handle can remove that warning. Source
-identity, target and caveats remain attached to each fact. Prior conversation
-claims, matching numbers and provider assertions do not establish grounding.
+Free explanation remains provider wording; associating it with a source does
+not establish that its paraphrase is accurate. Source identity, target and
+caveats remain attached to each current fact. Prior conversation claims,
+matching numbers and provider assertions do not establish grounding.
+
+Bounded valid plain prose can be retained as an answer when no protocol object
+or apparent malformed protocol payload is present. Structured and action-shaped
+output still needs strict validation; fallback prose never invokes a command or
+becomes evidence. Unknown fact references keep the answer's useful wording with
+a visible factory warning. Incomplete-source caveats remain beside the text and
+in saved delivery parts. A reference association alone does not verify a
+paraphrase.
+
+New conversations capture the current versioned instruction package. An open
+turn keeps its retained instruction bytes and identity across restart. Quiescent
+bindings refresh through the existing capture rules; updating installed sources
+never rewrites a saved continuation prompt. The separately pinned legacy
+conversation package remains unchanged.
 
 Details exports the saved redacted results with result identities, normalized
 arguments, targets, capture times, statuses, completeness and gaps. It does not
