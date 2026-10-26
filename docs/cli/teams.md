@@ -12,6 +12,8 @@ litefactory team list
 litefactory team inspect NAME VERSION
 ```
 
+The standard catalogue offers one version of each team, 1.0.0. Versions stay at 1.0.0 until the owner decides otherwise.
+
 `team install` downloads the team from the catalogue, checks it, and installs it. Leave out the version to get the highest stable one. It says `Already installed` if you have it. `team list` shows what is installed, from local files only. `team inspect` checks one installed version and shows its folder, checksum and workflows.
 
 The catalogue address is `settings.team_source` in `config.yaml`. Its default is the standard catalogue. It must be an HTTPS address or an absolute file path (see [config.yaml](../configuration/config-yaml.md)). Use `--source` to pick a different catalogue for one command. Where a team name and version exist in more than one source, add `--source` so the command knows which one you mean.

@@ -2,6 +2,10 @@
   "version": 1,
   "guidance": [
     {
+      "id": "owner-report",
+      "skill": "plan/skills/owner-report/SKILL.md"
+    },
+    {
       "id": "swift-ios",
       "skill": "plan/skills/swift-ios-guidance/SKILL.md"
     },

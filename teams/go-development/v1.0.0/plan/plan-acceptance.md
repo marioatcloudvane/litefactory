@@ -51,6 +51,7 @@ Future completion obligations are not executed evidence. A proof method describe
  - Reuse existing criterion and task IDs when something changes, and never reuse an ID for a different meaning.
  - Keep story-specific content and review on its sub-issue; assemble the parent link-only index, shared decisions and complete plan review.
  - Bind review to the exact active story set, dependencies and shared decisions the factory reports, not to a set you assume.
+ - Keep the `Covers:` and `Ruling:` notes; the criteria show the covered outcomes are delivered. Open the assembled review with uncovered `O-` IDs, every `Ruling` and the `O-ID → story` table (plan-evidence Outcome ledger).
  - Retain assumptions and material unresolved questions honestly.
  - Promise only what the platform allows. A criterion stays within the external-system limits the technical stage recorded; never freeze a guarantee the provider cannot give (for example "never a duplicate post" when the provider removes duplicates only for a few minutes). An impossible guarantee becomes an `ask` with options, never a criterion.
  - Deliver through the shared result route. Use the result helper or permitted communication tools: preflight your result, read every diagnostic and correct it in the same attempt, submit, then read the matching receipt. Do this before you return, and do it even when you have nothing to correct.
@@ -76,13 +77,12 @@ Future completion obligations are not executed evidence. A proof method describe
 
 # Writing the Report
 
-The owner reads your questions, your criteria and the assembled plan, so keep them short and checkable.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
- - Lead with the answer. One short paragraph saying what will be observable when the story is done, then what is still open when anything is.
- - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options.
- - Write each criterion as something an outsider can observe, with a proof method that names how it will be shown. Keep IDs stable and readable.
- - Make each task's description say what is delivered, and link it to the criteria it serves.
- - Do not claim anything is approved, tested or published. Say what you proposed and what you assumed.
+- Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options.
+- Write each criterion as something an outsider can observe, with a proof method that names how it will be shown. Keep IDs stable and readable.
+- Make each task's description say what is delivered, and link it to the criteria it serves.
+- Do not claim anything is approved, tested or published. Say what you proposed and what you assumed.
 
 # Output
 

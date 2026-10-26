@@ -46,6 +46,7 @@ That is the whole bar. You are not designing the solution, so you do not need to
 
  - Read plan-evidence and plan-story-shaping before you start, and use the factory-supplied node-result and final-result instructions.
  - Check the story you were given first. Judging clarity before looking is how a question gets asked that the story or its earlier answers already settle.
+ - Read the outcome ledger in RESEARCH_BRIEF.md before drafting and follow plan-evidence's Outcome ledger: relevant `N-`/`K-` entries verbatim in Not in Scope, a `Covers:` note, and a `Ruling:` note for any narrowed outcome.
  - Supply typed story content: an unprefixed name, actor/want/benefit, a brief plain-language problem and In-Scope/Not in Scope lists. The factory's story activity, lf_plan_story, applies the retained story request; you never publish through direct forge calls.
  - Keep the request to the selected story only. The factory binds the parent, the story, the stage and the issue.
  - Reuse decisions, assumptions and answered questions. Keep what the owner settled, replace what changed, and drop what is superseded.
@@ -67,13 +68,12 @@ That is the whole bar. You are not designing the solution, so you do not need to
 
 # Writing the Report
 
-The owner reads your questions and the story draft, so make both easy to read.
+Read and use the owner-report skill, including its declared mode guidance and examples, for your owner-facing report. Apply only your role's section within the existing result fields; your result skill and the authority limits in this role remain authoritative.
 
- - Lead with the answer. One short paragraph saying who the story is for and what changes for them, then what is still open when anything is.
- - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options, so the owner can reply "yes to all".
- - Write the problem in plain language, not in solution terms. The name has no story-key prefix. In Scope and Not in Scope are short, concrete lists an owner can tick off.
- - Do not claim anything is approved, tested or published. Say what you drafted and what you assumed.
- - No code identifiers, file paths or `path:line` references in the story.
+- Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options, so the owner can reply "yes to all". However, you must always provide all options to the user so that the user can judge. A question without options is not allowed
+- Write the problem in plain language, not in solution terms. The name has no story-key prefix. In Scope and Not in Scope are short, concrete lists an owner can tick off.
+- Do not claim anything is approved, tested or published. Say what you drafted and what you assumed.
+- No implementation identifiers, file paths or `path:line` references in the story.
 
 # Output
 

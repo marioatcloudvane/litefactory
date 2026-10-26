@@ -4,10 +4,25 @@ The catalogue and the `<slug>/v<version>` releases are generated from the
 canonical team sources by `go run ./cmd/teamrelease`. Do not edit them. Check drift
 with `go run ./cmd/teamrelease -check`. Only the owner releases and links versions.
 
-`go-development/v1` is the immutable pre-consolidation release kept as a
-non-release fixture for historical capture and compatibility tests; it is not in
-`teams.json`. It is not a current authoring source. Saved
-runs retain those original bytes, builtin identity and hashes.
+Published releases, one per team, all at version 1.0.0:
+
+| Team | Release |
+|---|---|
+| go-development | `go-development/v1.0.0` |
+| python-fastapi | `python-fastapi/v1.0.0` |
+| dotnet-web | `dotnet-web/v1.0.0` |
+| swift-ios | `swift-ios/v1.0.0` |
+
+Versions stay at 1.0.0 until the owner decides otherwise.
+
+To build or check all four teams at once:
+
+```sh
+go run ./cmd/teamrelease -check -source teams/source/go-development -source teams/source/python-fastapi -source teams/source/dotnet-web -source teams/source/swift-ios
+```
+
+Tests read team content from `teams/source` (through `teamsourcetest`), not from a
+published release, so cutting a release does not require changing tests.
 
 ## Base and inheritance
 

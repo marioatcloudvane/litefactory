@@ -1,6 +1,7 @@
 {
   "version": 1,
   "guidance": [
+    {"id": "owner-report", "skill": "plan/skills/owner-report/SKILL.md"},
     {"id": "go", "skill": "plan/skills/plan-go-guidance/SKILL.md"},
     {"id": "agent-setup", "skill": "plan/skills/plan-agent-setup-guidance/SKILL.md"}
   ],
