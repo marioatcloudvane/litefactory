@@ -233,6 +233,23 @@ func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest strin
 		if err != nil {
 			return err
 		}
+		if ConnectorScopeHas(g.Scope, connectorDiscussionScope) {
+			if g.Target == nil {
+				return ErrConnectorInvalid
+			}
+			target, err := resolveConnectorDiscussionTarget(ctx, tx, g.Target.TaskRef)
+			if err != nil {
+				return err
+			}
+			if (g.Target.SessionID != 0 && g.Target.SessionID != target.SessionID) || (g.Target.RepoID != 0 && g.Target.RepoID != target.RepoID) || (g.Target.RepositoryRef != "" && g.Target.RepositoryRef != target.RepositoryRef) {
+				return ErrConnectorInvalid
+			}
+			if _, err = tx.ExecContext(ctx, `INSERT INTO connector_grant_targets(grant_id,task_ref,session_id,repo_id,repository_ref) VALUES(?,?,?,?,?)`, g.ID, target.TaskRef, target.SessionID, target.RepoID, target.RepositoryRef); err != nil {
+				return err
+			}
+		} else if g.Target != nil {
+			return ErrConnectorInvalid
+		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO connector_codes(digest,grant_id,client_id,redirect_uri,resource,scope,pkce_challenge,expires_at) VALUES(?,?,?,?,?,?,?,?)`, c.Digest, c.GrantID, c.ClientID, c.RedirectURI, c.Resource, c.Scope, c.PKCEChallenge, FormatTime(c.ExpiresAt))
 		return err
 	})
@@ -259,6 +276,9 @@ func connectorGrant(ctx context.Context, tx interface {
 		return g, err
 	}
 	g.ExpiresAt, err = ParseTime(expiry)
+	if err == nil && ConnectorScopeHas(g.Scope, connectorDiscussionScope) {
+		g.Target, err = connectorDiscussionTarget(ctx, tx, g.ID)
+	}
 	return g, err
 }
 
@@ -377,8 +397,14 @@ func (db *DB) CheckConnectorAccess(ctx context.Context, digest string, pin int64
 		return g, err
 	}
 	g.ExpiresAt, err = ParseTime(expiry)
-	if err == nil && !ConnectorScopeHas(g.Scope, scope) {
+	if err == nil && scope != "" && !ConnectorScopeHas(g.Scope, scope) {
 		return ConnectorGrant{}, ErrConnectorScope
+	}
+	if err == nil && ConnectorScopeHas(g.Scope, connectorDiscussionScope) && (scope == "" || scope == connectorDiscussionScope) {
+		g.Target, err = connectorDiscussionTarget(ctx, db.sql, g.ID)
+		if scope == "" && errors.Is(err, ErrConnectorInvalid) {
+			err = nil
+		}
 	}
 	return g, err
 }

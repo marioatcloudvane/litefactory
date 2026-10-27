@@ -33,8 +33,15 @@ type ConnectorBrowser struct {
 	ExpiresAt                                                        time.Time
 }
 
+// ConnectorGrantTarget is an immutable binding to a locally recorded task.
+type ConnectorGrantTarget struct {
+	TaskRef, RepositoryRef string
+	SessionID, RepoID      int64
+}
+
 // ConnectorGrant is a consented, absolute-expiry family of read credentials.
 type ConnectorGrant struct {
+	Target                        *ConnectorGrantTarget
 	ID, ClientID, Resource, Scope string
 	OwnerID, OwnerGeneration      int64
 	CreatedAt, ExpiresAt          time.Time
@@ -134,6 +141,7 @@ type ConnectorExchange struct {
 
 // ConnectorGrantSummary omits all credential material and browser state.
 type ConnectorGrantSummary struct {
+	TaskRef                                   string
 	ID, ClientID, ClientName, Resource, Scope string
 	CreatedAt, ExpiresAt, RevokedAt           time.Time
 }
