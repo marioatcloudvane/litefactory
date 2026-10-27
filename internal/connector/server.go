@@ -26,6 +26,9 @@ const Scope = "factory:overview"
 // DiscussionScope authorizes evidence for exactly one consented task.
 const DiscussionScope = "task:discussion"
 
+// CodeReviewScope independently authorizes committed code and published rules.
+const CodeReviewScope = "task:code-review"
+
 // Usage scopes grant independent recorded-usage access.
 const (
 	FactoryUsageScope    = "factory:usage"
@@ -41,6 +44,7 @@ type ScopeInfo struct{ Name, Description string }
 // client may request any non-empty subset; the owner ticks which to grant.
 var KnownScopes = []ScopeInfo{
 	{Name: DiscussionScope, Description: "Read recorded status, results, questions, research, Plan and approval evidence for the one selected task. Read-only; it cannot change work or grant workflow approval."},
+	{Name: CodeReviewScope, Description: "Read committed task/base code, reachable history and changes, and published standards and role counts for the selected task and retained code repository. Requires task:discussion; read-only."},
 	{Name: Scope, Description: "Read the factory overview: health, current activity, open owner questions and reviews, and last week's publications. Read-only; it cannot change factory work."},
 	{Name: FactoryUsageScope, Description: "Read all recorded factory usage and historical estimates, including work without a repository. Read-only."},
 	{Name: RepositoryUsageScope, Description: "Read recorded usage and historical estimates for one selected registered repository. Read-only."},
@@ -90,6 +94,7 @@ type Options struct {
 	Overview     OverviewProvider
 	TaskEvidence TaskEvidenceProvider
 	Usage        UsageProvider
+	CodeEvidence CodeEvidenceProvider
 	GitHub       GitHubIdentityProvider
 	CookieKey    []byte
 	GitHubSecret string
@@ -105,6 +110,7 @@ type Server struct {
 	overview     OverviewProvider
 	taskEvidence TaskEvidenceProvider
 	usage        UsageProvider
+	codeEvidence CodeEvidenceProvider
 	usageViews   usageCache
 	guidance     fs.FS
 	github       GitHubIdentityProvider
@@ -152,7 +158,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		github = &GitHubProvider{ClientID: opts.Config.GitHubClientID, ClientSecret: opts.GitHubSecret}
 	}
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
-	return &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}, nil
+	return &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}, nil
 }
 
 func randomCredential() (string, error) {

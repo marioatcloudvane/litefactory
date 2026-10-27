@@ -38,7 +38,15 @@ repositories, including private repositories and future registrations**.
 `task:discussion` covers only its selected canonical task, shown as
 `coverage.task_ref` in JSON and as the discussion task in text. It includes later
 recorded evidence for that same task but gives no access to other tasks, usage or
-repository code. Usage scopes are independent:
+repository code. Code review requires both `task:discussion` and `task:code-review` for the same
+exact retained task and code repository. Inspection identifies that code target
+separately from the issue repository, which can differ. It covers committed
+task/base code, relevant reachable history and the verified published standards
+book. Existing overview and discussion grants keep their prior coverage. Refresh
+cannot change the retained code target; missing or conflicting identity denies
+code access instead of following changed repository registration.
+
+Usage scopes are independent:
 
 | Scope | Inspection coverage |
 | --- | --- |
@@ -121,6 +129,13 @@ request fresh usage or a continuation: access must be denied. Already delivered
 answers remain with the client. Usage defaults to rolling 30 days and shows exact
 server-resolved UTC bounds, historical price basis and missing evidence; see
 [usage discussion](../guides/remote-connector.md#discussing-usage-and-historical-costs).
+
+For code and standards, consent to both required scopes, inspect the retained
+code target, ask about a committed file and a published rule, compare selected
+category and whole-book role counts, and follow source references. Revoke the
+grant and confirm a fresh read or continuation is denied. See the
+[code and standards guide](../guides/remote-connector.md#discussing-committed-code-and-published-standards)
+for illustrative conversations and evidence limits.
 
 See the [command reference](command-reference.md#connector-grants) or
 [CLI index](README.md).

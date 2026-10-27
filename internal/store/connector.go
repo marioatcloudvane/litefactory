@@ -250,6 +250,9 @@ func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest strin
 		} else if g.Target != nil {
 			return ErrConnectorInvalid
 		}
+		if err = insertConnectorCodeTarget(ctx, tx, g); err != nil {
+			return err
+		}
 		if err = insertConnectorUsageTargets(ctx, tx, g); err != nil {
 			return err
 		}
@@ -281,6 +284,9 @@ func connectorGrant(ctx context.Context, tx interface {
 	g.ExpiresAt, err = ParseTime(expiry)
 	if err == nil && ConnectorScopeHas(g.Scope, connectorDiscussionScope) {
 		g.Target, err = connectorDiscussionTarget(ctx, tx, g.ID)
+	}
+	if err == nil && ConnectorScopeHas(g.Scope, connectorCodeReviewScope) {
+		g.CodeTarget, err = connectorCodeTarget(ctx, tx, g.ID)
 	}
 	if err == nil {
 		err = loadConnectorUsageTargets(ctx, tx, &g)
@@ -409,6 +415,12 @@ func (db *DB) CheckConnectorAccess(ctx context.Context, digest string, pin int64
 	if err == nil && ConnectorScopeHas(g.Scope, connectorDiscussionScope) && (scope == "" || scope == connectorDiscussionScope) {
 		g.Target, err = connectorDiscussionTarget(ctx, db.sql, g.ID)
 		if scope == "" && errors.Is(err, ErrConnectorInvalid) {
+			err = nil
+		}
+	}
+	if err == nil && scope == "" && ConnectorScopeHas(g.Scope, connectorCodeReviewScope) {
+		g.CodeTarget, err = connectorCodeTarget(ctx, db.sql, g.ID)
+		if errors.Is(err, ErrConnectorInvalid) {
 			err = nil
 		}
 	}

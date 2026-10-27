@@ -275,6 +275,9 @@ func (s *Server) availableTools(grant store.ConnectorGrant) []string {
 	if s.usage != nil && (store.ConnectorScopeHas(grant.Scope, FactoryUsageScope) || len(grant.UsageTargets) > 0) {
 		names = append(names, "usage_read")
 	}
+	if s.codeEvidence != nil && grant.CodeTarget != nil && grant.Target != nil && store.ConnectorScopeHas(grant.Scope, DiscussionScope) && store.ConnectorScopeHas(grant.Scope, CodeReviewScope) {
+		names = append(names, codeToolNames...)
+	}
 	return names
 }
 

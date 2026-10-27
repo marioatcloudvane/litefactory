@@ -137,7 +137,7 @@ connector grant.
 
 The authorization request's `scope` is a space-separated list of known scopes;
 the available scopes are `factory:overview`, `task:discussion`, `factory:usage`,
-`repository:usage` and `task:usage`. Allow requires
+`repository:usage`, `task:usage` and `task:code-review`. Allow requires
 at least one ticked scope; the script disables Allow when none is ticked, and the server refuses an
 Allow without a scope, or with a scope that is unknown or was not requested,
 with 400 `invalid_scope` and no grant. The grant records the ticked scopes as a
@@ -368,6 +368,113 @@ change workflow records, grant approvals or start work. See [usage and costs](..
 for accounting details and [local grant inspection](../cli/connector-grants.md)
 for checking or ending access. These are the supported contracts, not a claim of
 completed hosted-client verification.
+
+## Discussing committed code and published standards
+
+Allow both `task:discussion` and `task:code-review` for the same existing task
+and its retained code repository. The code repository can differ from the issue
+repository. Inspect the target before allowing access; changing the task or code
+repository requires fresh consent. Existing overview and discussion grants do not
+gain code access. Revocation, expiry and installation-owner changes end access,
+including follow-up evidence reads.
+
+Use the existing client's conversation to ask about a committed file and a
+published standard. `repo_read`, `repo_grep`, `repo_log` and `repo_diff` provide
+committed task/base evidence; `standards_read` and `standards_role_counts` provide
+the verified published book and role applicability. Tool availability and
+initialization guidance require the installed providers and both live scopes on
+the exact retained target. Combined grants preserve their other tool purposes.
+Discussion cannot edit code or standards, run code or tests, approve work or
+start implementation.
+
+Repository evidence identifies the actual fully qualified local ref, full commit,
+observation time and file/line references. Choose only `task` or `base`; arbitrary
+revisions and unrelated history are refused. Commit diffs use the selected
+reachable commit's first parent (the empty tree for a root); base-to-task diffs
+compare the two pinned tree endpoints directly. Local evidence does not promise
+remote freshness. Missing refs or objects, shallow history, binary content,
+unsupported entries and size limits appear as gaps. Symlinks and submodules are
+committed entries, not permission to follow their targets.
+
+Keep the returned view token for related reads and follow protected continuation
+tokens to reach later evidence. A view retains its commit or published book
+revision and digest; a new view observes current local evidence. Views expire
+within 15 minutes and never outlive the grant. Expired, unavailable or changed
+identity evidence requires an explicit fresh read; do not combine versions.
+Evidence pages contain at most 50 items and 32 KiB of sanitized text. Complete
+serialized answers remain within 128 KiB and factual summaries within 1,000
+Unicode code points. Narrow a request when a source exceeds its acquisition
+limit. Credentials and host paths are protected before paging.
+
+Search results are extracted after complete files are sanitized. A patch is
+withheld with a named gap when its changed files contain sensitive content that
+could be cut across diff hunks; use sanitized file reads at the same view instead.
+When sanitization changes line layout, the response names the gap and omits exact
+line links rather than pointing to the wrong committed line. A local mirror or
+unrecognized remote can provide commit/ref/path evidence without a web permalink.
+
+Role counts have two separate labels: **selected categories** and **whole
+published book**. Compare them at the same book revision and digest. Each rule
+counts once for each applicable role; adding role counts does not give the number
+of unique standards. A known empty category has zero selected rules while the
+whole book can remain nonempty. Current publication does not establish which
+standards applied to an earlier run, and matching a rule to code is interpretation
+unless the retrieved evidence directly supports the claim.
+
+### Illustrative conversations
+
+These examples explain the expected conversation; they are illustrative fixtures,
+not live results, approvals or claims of a completed hosted-client walkthrough.
+Symbolic commit and book values stand for the full identifiers returned by tools.
+
+**Example A — code and a published rule**
+
+Question: “Does the committed limit match the published review rule?”
+
+Short answer: “The task's committed `limits.go` sets `Limit = 3`. Published rule
+`review-limit` requires a positive limit. The value is positive, so this line
+supports that narrow interpretation; it does not prove runtime enforcement.”
+
+Supporting evidence: `repo_read` on `task`, actual ref `refs/heads/review-task`,
+full task commit `<TASK_COMMIT>`, `limits.go:3`; `standards_read`, standard
+`review-limit`, category `review`, verified book revision `<BOOK_REVISION>` and
+digest `<BOOK_DIGEST>`. Include the returned observation time with each source.
+
+**Example B — compare count bases**
+
+Question: “How many published rules apply to the story worker in review, and in
+the whole book?”
+
+Short answer: “Selected categories: review has one rule for `story-worker`.
+Whole published book: two rules apply to `story-worker`. Both counts use the
+same publication. A rule applying to two roles is counted once for each role.”
+
+Supporting evidence: `standards_role_counts`, category `review`, selected-category
+and whole-book labels, the same `<BOOK_REVISION>` and `<BOOK_DIGEST>` as
+`standards_read`. The illustrative book has `review-limit` in `review` and
+`test-evidence` in `testing`; both apply to `story-worker`, with `review-limit`
+also applying to `validate-architecture`. Its known `empty` category has zero
+selected counts without changing the whole-book counts.
+
+**Example C — a safe refusal or named gap**
+
+Question: “Read my uncommitted change, or another repository's main branch.”
+
+Short answer: “This consent covers committed task/base evidence in the selected
+repository. It does not authorize those sources.”
+
+Supporting evidence: the consented task and repository binding and the refused
+request. For a permitted source whose local ref or object is missing, report
+that named gap instead of silently choosing another branch. After revocation,
+request fresh evidence and confirm it is denied; already delivered answers cannot
+be recalled.
+
+Owner review is a short existing-client sequence: consent; ask about code and a
+standard; compare the labeled counts; follow source references and a later page;
+then observe a named gap or safe refusal and revoke access. Engineering fixtures,
+continuation integrity, redaction and final serialized-size measurements are
+worker checks. Hosted-client verification still requires a configured test
+installation, owner consent and captured client/version evidence.
 
 ## Sibling interfaces
 

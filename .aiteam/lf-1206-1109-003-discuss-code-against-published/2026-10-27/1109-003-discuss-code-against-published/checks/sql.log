@@ -1,0 +1,18 @@
+--- FAIL: TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase (0.05s)
+    archive_integration_test.go:54: problems [connector_code_targets is not classified] <nil>
+2026/10/27 12:18:58 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen2166709035/001/litefactory.db
+--- FAIL: TestWorkflowJudgeArchivePreservesFinishedBindingOnClosedIssue (0.05s)
+    workflow_judge_archive_test.go:66: unguarded archive foreign keys: [connector_code_targets is not classified] <nil>
+--- FAIL: TestArchiveRegistryProblems_MigratedDatabaseIsClean (0.48s)
+    archive_unit_test.go:59: registry problems: [connector_code_targets is not classified]
+2026/10/27 12:21:09 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants4188335142/001/litefactory.db
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	156.029s
+--- FAIL: TestArchiveIntegrationSuiteRowsRetained (0.16s)
+    archive_integration_test.go:977: registry problems [connector_code_targets is not classified] <nil>
+    archive_integration_test.go:74: archive logs:
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/daemon	173.026s
+ok  	github.com/cloudvane/litefactory/internal/turn	773.026s
+ok  	github.com/cloudvane/litefactory/internal/cli	43.546s
+FAIL

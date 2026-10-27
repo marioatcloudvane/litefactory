@@ -234,6 +234,22 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		}
 		grant.Target = &target
 	}
+	if allow && store.ConnectorScopeHas(grantScope, CodeReviewScope) {
+		if grant.Target == nil {
+			oauthError(w, http.StatusBadRequest, "invalid_scope")
+			return
+		}
+		target, err := s.db.ResolveConnectorCodeTarget(r.Context(), grant.Target.TaskRef)
+		if err != nil {
+			storeOAuthError(w, err)
+			return
+		}
+		if target.RepositoryRef != form.Get("code_repository_ref") {
+			oauthError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		grant.CodeTarget = &target
+	}
 	if allow {
 		for _, selection := range []struct{ scope, field string }{{RepositoryUsageScope, "usage_repository_ref"}, {TaskUsageScope, "usage_task_ref"}} {
 			if !store.ConnectorScopeHas(grantScope, selection.scope) {

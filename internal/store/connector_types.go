@@ -47,6 +47,7 @@ type ConnectorUsageTarget struct {
 
 // ConnectorGrant is a consented, absolute-expiry family of read credentials.
 type ConnectorGrant struct {
+	CodeTarget                    *ConnectorCodeTarget
 	Target                        *ConnectorGrantTarget
 	UsageTargets                  []ConnectorUsageTarget
 	ID, ClientID, Resource, Scope string
@@ -150,6 +151,7 @@ type ConnectorExchange struct {
 type ConnectorGrantSummary struct {
 	TaskRef                                   string
 	UsageRepositoryRef, UsageTaskRef          string
+	CodeRepositoryRef                         string
 	ID, ClientID, ClientName, Resource, Scope string
 	CreatedAt, ExpiresAt, RevokedAt           time.Time
 }

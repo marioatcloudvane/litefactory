@@ -77,14 +77,14 @@ type consentDuration struct {
 
 type consentData struct {
 	ClientName, ClientID, RedirectHost, Resource, CSRF string
-	Discussion, Overview                               bool
+	Discussion, Overview, CodeReview                   bool
 	FactoryUsage, RepositoryUsage, TaskUsage           bool
 	Scopes                                             []consentScopeOption
 	Durations                                          []consentDuration
 }
 
 func newConsentData(client store.ConnectorClient, redirectHost string, b store.ConnectorBrowser, csrf string, now time.Time) consentData {
-	data := consentData{FactoryUsage: store.ConnectorScopeHas(b.Scope, FactoryUsageScope), RepositoryUsage: store.ConnectorScopeHas(b.Scope, RepositoryUsageScope), TaskUsage: store.ConnectorScopeHas(b.Scope, TaskUsageScope), Discussion: store.ConnectorScopeHas(b.Scope, DiscussionScope), Overview: store.ConnectorScopeHas(b.Scope, Scope), ClientName: client.Name, ClientID: client.ID, RedirectHost: redirectHost, Resource: b.Resource, CSRF: csrf}
+	data := consentData{CodeReview: store.ConnectorScopeHas(b.Scope, CodeReviewScope), FactoryUsage: store.ConnectorScopeHas(b.Scope, FactoryUsageScope), RepositoryUsage: store.ConnectorScopeHas(b.Scope, RepositoryUsageScope), TaskUsage: store.ConnectorScopeHas(b.Scope, TaskUsageScope), Discussion: store.ConnectorScopeHas(b.Scope, DiscussionScope), Overview: store.ConnectorScopeHas(b.Scope, Scope), ClientName: client.Name, ClientID: client.ID, RedirectHost: redirectHost, Resource: b.Resource, CSRF: csrf}
 	for _, known := range KnownScopes {
 		if store.ConnectorScopeHas(b.Scope, known.Name) {
 			data.Scopes = append(data.Scopes, consentScopeOption(known))
@@ -174,6 +174,7 @@ var consentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 {{if .FactoryUsage}}<p class="callout">Factory usage covers all recorded factory work, including work without a repository.</p>{{end}}
 {{if .RepositoryUsage}}<label for="usage-repository-ref">Repository for usage</label><input id="usage-repository-ref" name="usage_repository_ref" type="text" maxlength="1024" placeholder="github:owner/repository"><p class="note">Usage access covers only this registered repository.</p>{{end}}
 {{if .TaskUsage}}<label for="usage-task-ref">Task for usage</label><input id="usage-task-ref" name="usage_task_ref" type="text" maxlength="1024" placeholder="github:owner/repository#123"><p class="note">Task usage includes its recorded report family: linked and retired story history and later persisted links. Selecting a child does not include its parent or siblings. This permission does not grant task discussion, repository or factory usage.</p>{{end}}
+{{if .CodeReview}}<label for="code-repository-ref">Repository for code review</label><input id="code-repository-ref" name="code_repository_ref" type="text" maxlength="1024" placeholder="github:owner/code-repository"><p class="note">Code review also requires task:discussion for the same task below. It reads committed task/base files, search, reachable history and changes, and the published standards book. The repository must match the task’s retained code destination, which can differ from its ticket repository. It cannot edit code, change standards, run code or approve work.</p>{{end}}
 {{if .Discussion}}<label for="task-ref">Task for discussion</label><input id="task-ref" name="task_ref" type="text" maxlength="1024" placeholder="github:owner/repository#123"><p class="note">Discussion access covers only this existing task, including later evidence recorded for it. It does not include other tasks, repository code or usage.</p>{{end}}
 </section>
 <section class="card"><h2>How long</h2>
