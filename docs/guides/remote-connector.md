@@ -144,28 +144,50 @@ now offers. Following RFC 6749 §3.3, the issued scope may then differ from the
 request on the owner's instruction; the token response's `scope` names what was
 actually granted. Allow requires at least one ticked scope; the script disables
 Allow when none is ticked, and the server refuses an Allow without a scope, or
-with an unknown scope, with 400 `invalid_scope` and no grant. The selection a
-scope needs (the task for `task:discussion`, the repository for
-`task:code-review` and `repository:usage`, the task for `task:usage`) is
-required only when that scope is ticked; `task:code-review` still requires
+with an unknown scope, with 400 and no grant. `task:code-review` still requires
 `task:discussion`. The grant records the ticked scopes as a space-separated
-string. `factory:overview` permits factory-wide overview facts
-across all registered repositories, including private and future registrations.
-`task:discussion` permits recorded evidence for one existing task selected on the
-consent form, such as `github:owner/repository#123`. Enter its canonical reference;
-it must already have a local factory session in a registered repository. Consent
-does not create a session or fetch the issue. Allow atomically records the grant,
-authorization code and immutable task binding. Neither sign-in nor a pending
-consent exposes task evidence.
+string. `factory:overview` and `factory:usage` are factory-wide: overview facts
+across all registered repositories, including private and future registrations,
+and all recorded usage.
+
+The task-level and repository-level scopes (`task:discussion`,
+`task:code-review`, `repository:usage` and `task:usage`) cover
+**repositories, not single tasks**. When any of them is ticked, the owner
+chooses their repository coverage on the consent page: the checkbox **All
+repositories (including ones registered later)**, ticked by default, or
+individual registered repositories from a list of checkboxes (untick "All
+repositories" first). There is no free-text field. The client names the task
+(`github:owner/repository#123`) or repository (`github:owner/repository`) on
+each tool call, and the connector checks on every call that the task exists
+locally and belongs to a covered repository, or that the repository is covered.
+Code review reads the task's own retained code repository, derived from the
+task; it is never chosen by the client. Consent does not create a session or
+fetch an issue. Allow atomically records the grant, authorization code and
+repository coverage. Neither sign-in nor a pending consent exposes evidence.
+
+A refused Allow answers with a short page that names what was wrong, for
+example "choose all repositories or at least one registered repository for
+task:discussion", "repository not registered: …" or "task:code-review also
+needs task:discussion; tick both". Nothing is granted, and the pending consent
+stays usable for its ten minutes: go back, change the selection and allow again.
+Refused tool calls name the reason in the tool result the same way, for example
+"Access refused: task not found: …" or "Access refused: repository not covered
+by this grant: …". Reasons name only references, never credentials or local
+paths.
 
 The scopes are independent: an overview grant gains no task discussion or usage
 access, and a discussion grant grants no overview or usage access. Usage scopes
-require their own explicit consent. A combined grant contains each selected
-permission but still binds discussion to only one task. Changing tasks requires
-fresh owner consent; refresh cannot change the target. Deleting or rebinding the
-local task or repository denies discussion rather than silently binding a reused
-issue number. Later recorded evidence for the same retained task is readable
-until expiry, revocation or owner-authority invalidation.
+require their own explicit consent. Refresh keeps the grant's scope and
+repository coverage; changing either requires fresh owner consent. A listed
+repository that is later deleted or renamed is no longer covered. Deleting or
+rebinding a local task denies it rather than silently following a reused issue
+number. Later recorded evidence for covered tasks is readable until expiry,
+revocation or owner-authority invalidation.
+
+Grants made before repository coverage existed were bound to one task or
+repository. The upgrade keeps them working: each now covers the repository of
+its former binding, so other tasks in that repository become readable under
+the same scopes, and nothing outside it.
 
 The owner chooses the grant duration: 1, 3, 6, 12 or 24 months, default 1. A
 month is a calendar month in UTC: the expiry is the consent time plus
@@ -210,12 +232,12 @@ of them. A tool call whose grant lacks the tool's scope receives 403 with
 Responses are request-scoped JSON, notifications receive 202, authenticated GET
 receives 405, and no protocol session is issued. `factory_overview` accepts an
 empty object and requires `factory:overview`. `task_evidence_read` requires
-`task:discussion` and the consented task binding. `usage_read` requires the
-matching `factory:usage`, `repository:usage` or `task:usage` scope and any narrow
-target binding. Discovery lists only installed,
+`task:discussion` and a `task_ref` in a covered repository. `usage_read` requires
+the matching `factory:usage`, `repository:usage` or `task:usage` scope and, for
+repository and task usage, a repository the grant covers. Discovery lists only installed,
 authorized tools, and direct calls enforce the same permissions. Initialize
 instructions name only those tools and their distinct uses: overview questions
-use `factory_overview`; selected-task questions and supporting evidence use
+use `factory_overview`; questions about a named task and supporting evidence use
 `task_evidence_read`; recorded usage and supported historical cost questions use
 `usage_read`. Usage-only grants receive guidance for usage only. Reinitialize
 after fresh consent to receive current guidance.
@@ -252,8 +274,8 @@ access; it never enables anonymous operation.
 
 ## Discussing a selected task
 
-Connect and allow `task:discussion` for the existing task you want to discuss.
-Ask what needs attention; ask for supporting evidence when you want the recorded
+Connect and allow `task:discussion` for the repositories whose tasks you want to
+discuss, then name the task in the conversation. Ask what needs attention; ask for supporting evidence when you want the recorded
 basis. The client uses `task_evidence_read` with `task_ref` and one `section`:
 `status`, `results`, `questions`, `research`, `plan` or `approvals`. An optional
 `limit` is an integer from 1 to 50. Arbitrary paths, URLs, unknown arguments and
@@ -302,11 +324,11 @@ as the installation owner. The consent page explains each scope separately:
 | Scope | Recorded work covered |
 | --- | --- |
 | `factory:usage` | All factory usage, including recorded work without a repository. |
-| `repository:usage` | One selected registered repository, identified as `github:owner/name`. |
-| `task:usage` | One existing canonical task and its persisted report family, including retired stories and links recorded later. |
+| `repository:usage` | Any covered registered repository, named on each call as `github:owner/name`. |
+| `task:usage` | Any existing canonical task in a covered repository, named on each call, and its persisted report family, including retired stories and links recorded later. |
 
-Repository and task targets are immutable through refresh. Deleting or rebinding
-a target denies access. A task usage read includes the selected issue and its
+Repository coverage is kept through refresh. Each call is checked against it;
+deleting or rebinding a task or listed repository denies access. A task usage read includes the selected issue and its
 saved graph and legacy story links once each; reading a child includes neither
 its parent nor its siblings. Task discussion consent alone never grants this
 broader usage family, repository totals or factory totals. Revocation, expiry
@@ -385,11 +407,11 @@ completed hosted-client verification.
 
 ## Discussing committed code and published standards
 
-Allow both `task:discussion` and `task:code-review` for the same existing task
-and its retained code repository. The code repository can differ from the issue
-repository. Inspect the target before allowing access; changing the task or code
-repository requires fresh consent. Existing overview and discussion grants do not
-gain code access. Revocation, expiry and installation-owner changes end access,
+Allow both `task:discussion` and `task:code-review` for the repositories whose
+tasks you want reviewed. The client names the task on each call; the connector
+derives that task's retained code repository, which can differ from the issue
+repository, and checks that the task's issue repository is covered. Existing
+overview and discussion grants do not gain code access. Revocation, expiry and installation-owner changes end access,
 including follow-up evidence reads.
 
 Use the existing client's conversation to ask about a committed file and a
@@ -477,7 +499,7 @@ Question: “Read my uncommitted change, or another repository's main branch.”
 Short answer: “This consent covers committed task/base evidence in the selected
 repository. It does not authorize those sources.”
 
-Supporting evidence: the consented task and repository binding and the refused
+Supporting evidence: the named task, its covered repository and the refused
 request. For a permitted source whose local ref or object is missing, report
 that named gap instead of silently choosing another branch. After revocation,
 request fresh evidence and confirm it is denied; already delivered answers cannot

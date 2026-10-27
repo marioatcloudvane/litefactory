@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -37,33 +38,13 @@ func codeReviewSession(t *testing.T, db *DB) (Session, ConnectionVersion) {
 	return s, code
 }
 
-func codeReviewConsent(t *testing.T, db *DB, id string, target ConnectorCodeTarget) (ConnectorGrant, ConnectorExchange) {
+func codeReviewConsent(t *testing.T, db *DB, id string, coverage *ConnectorCoverage) (ConnectorGrant, ConnectorExchange) {
 	t.Helper()
-	discussion, err := db.ResolveConnectorDiscussionTarget(t.Context(), target.TaskRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, g, c, x := discussionConsentFixture(t, db, id, &discussion)
-	b.Scope += " " + connectorCodeReviewScope
-	// The request itself must also explicitly request the new capability.
-	if _, err = db.sql.ExecContext(t.Context(), `UPDATE connector_browsers SET scope=? WHERE id=?`, b.Scope, b.ID); err != nil {
-		t.Fatal(err)
-	}
-	g.Scope = b.Scope
-	c.Scope = b.Scope
-	x.Scope = b.Scope
-	g.CodeTarget = &target
-	if err = db.ConsentConnectorBrowser(t.Context(), b.ID, "nonce", 42, connectorTestNow, g, c, true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.ExchangeConnectorCode(t.Context(), x); err != nil {
-		t.Fatal(err)
-	}
-	return g, x
+	return grantCoverage(t, db, id, connectorTestScope+" "+connectorDiscussionScope+" "+connectorCodeReviewScope, coverage)
 }
 
-func TestConnectorCodeReviewRetainedTargetAndLifecycle(t *testing.T) {
-	for _, scenario := range []string{"retained settings", "wrong task", "revoked", "expiry", "owner generation", "deleted snapshot", "changed task branch"} {
+func TestConnectorCodeReviewDerivesTheTasksRetainedCodeAndFailsClosed(t *testing.T) {
+	for _, scenario := range []string{"retained settings", "unknown task", "revoked", "expiry", "owner generation", "deleted snapshot", "changed task branch"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := newTestDB(t)
 			connectorTestOwner(t, db, 42)
@@ -76,7 +57,8 @@ func TestConnectorCodeReviewRetainedTargetAndLifecycle(t *testing.T) {
 			if target.RepositoryRef != "github:acme/code" || target.TaskBranch != s.Branch || target.BaseBranch != "main" {
 				t.Fatalf("target %+v", target)
 			}
-			g, x := codeReviewConsent(t, db, "code", target)
+			// Coverage names the task's own repository; the code repository is derived.
+			g, x := codeReviewConsent(t, db, "code", &ConnectorCoverage{Repositories: []ConnectorRepository{{RepositoryRef: "github:acme/tickets"}}})
 			now := connectorTestNow
 			task := s.TaskRef
 			switch scenario {
@@ -86,7 +68,7 @@ func TestConnectorCodeReviewRetainedTargetAndLifecycle(t *testing.T) {
 				if _, err = db.SetConnection(t.Context(), code, code.Revision); err != nil {
 					t.Fatal(err)
 				}
-			case "wrong task":
+			case "unknown task":
 				task = "github:acme/tickets#8"
 			case "revoked":
 				err = db.RevokeConnectorGrant(t.Context(), 42, g.ID, now)
@@ -102,13 +84,29 @@ func TestConnectorCodeReviewRetainedTargetAndLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := db.CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, task, now)
-			if scenario == "retained settings" {
-				if err != nil || !reflect.DeepEqual(got.CodeTarget, &target) {
-					t.Fatalf("retained target %+v %v", got.CodeTarget, err)
+			_, got, err := db.CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, task, now)
+			switch scenario {
+			case "retained settings":
+				if err != nil || !reflect.DeepEqual(got, target) {
+					t.Fatalf("retained target %+v %v", got, err)
 				}
-			} else if err == nil {
-				t.Fatal("invalid code access allowed")
+			case "unknown task":
+				if ConnectorRefusalReason(err) != `task not found: "github:acme/tickets#8"` {
+					t.Fatalf("unknown task: %v", err)
+				}
+			case "deleted snapshot":
+				if !strings.HasPrefix(ConnectorRefusalReason(err), "no retained code for task") {
+					t.Fatalf("missing code destination: %v", err)
+				}
+			case "changed task branch":
+				// The code target is derived on each call, so it follows the task.
+				if err != nil || got.TaskBranch != "lf/wrong" {
+					t.Fatalf("derived target %+v %v", got, err)
+				}
+			default:
+				if err == nil {
+					t.Fatal("invalid code access allowed")
+				}
 			}
 		})
 	}
@@ -122,65 +120,14 @@ func TestConnectorCodeReviewRequiresBothScopesAndRetainedIdentity(t *testing.T) 
 	if _, err := db.ResolveConnectorCodeTarget(t.Context(), s.TaskRef); !errors.Is(err, ErrConnectorInvalid) {
 		t.Fatalf("missing retained identity: %v", err)
 	}
-	target, err := db.ResolveConnectorDiscussionTarget(t.Context(), s.TaskRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, g, c, x := discussionConsentFixture(t, db, "discussion", &target)
-	if err = db.ConsentConnectorBrowser(t.Context(), b.ID, "nonce", 42, connectorTestNow, g, c, true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.ExchangeConnectorCode(t.Context(), x); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, s.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorScope) {
+	_, x := grantCoverage(t, db, "discussion", connectorTestScope+" "+connectorDiscussionScope, &ConnectorCoverage{All: true})
+	if _, _, err := db.CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, s.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorScope) {
 		t.Fatalf("discussion granted code: %v", err)
 	}
-}
-
-func TestConnectorCodeReviewConsentExactBinding(t *testing.T) {
-	db := newTestDB(t)
-	connectorTestOwner(t, db, 42)
-	connectorTestClient(t, db, "client")
-	s, _ := codeReviewSession(t, db)
-	discussion, err := db.ResolveConnectorDiscussionTarget(t.Context(), s.TaskRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	target, err := db.ResolveConnectorCodeTarget(t.Context(), s.TaskRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, g, c, _ := discussionConsentFixture(t, db, "binding", &discussion)
-	b.Scope += " " + connectorCodeReviewScope
-	if _, err = db.sql.ExecContext(t.Context(), `UPDATE connector_browsers SET scope=? WHERE id=?`, b.Scope, b.ID); err != nil {
-		t.Fatal(err)
-	}
-	g.Scope = b.Scope
-	c.Scope = b.Scope
-	bad := target
-	bad.RepositoryRef = "github:unrelated/code"
-	for _, candidate := range []*ConnectorCodeTarget{nil, &bad} {
-		g.CodeTarget = candidate
-		if err = db.ConsentConnectorBrowser(t.Context(), b.ID, "nonce", 42, connectorTestNow, g, c, true); err == nil {
-			t.Fatal("invalid repository binding granted")
-		}
-	}
-	g.Scope = connectorCodeReviewScope
-	c.Scope = g.Scope
-	g.Target = nil
-	g.CodeTarget = &target
-	if err = db.ConsentConnectorBrowser(t.Context(), b.ID, "nonce", 42, connectorTestNow, g, c, true); !errors.Is(err, ErrConnectorScope) {
+	b, g, c, _ := coverageConsentFixture(t, db, "code-only", connectorCodeReviewScope, &ConnectorCoverage{All: true})
+	err := db.ConsentConnectorBrowser(t.Context(), b.ID, "nonce", 42, connectorTestNow, g, c, true)
+	if !errors.Is(err, ErrConnectorScope) || ConnectorRefusalReason(err) != "task:code-review also needs task:discussion" {
 		t.Fatalf("code without discussion: %v", err)
-	}
-	g.Scope = b.Scope
-	c.Scope = b.Scope
-	g.Target = &discussion
-	if err = db.ConsentConnectorBrowser(t.Context(), b.ID, "nonce", 42, connectorTestNow, g, c, true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.sql.ExecContext(t.Context(), `UPDATE connector_code_targets SET repository_ref='github:wrong/repo' WHERE grant_id=?`, g.ID); err == nil {
-		t.Fatal("mutable code target")
 	}
 }
 

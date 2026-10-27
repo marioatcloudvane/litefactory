@@ -148,7 +148,7 @@ func TestOwnerCodeStandardsConsentToEvidence(t *testing.T) {
 	if len(csrf) != 2 {
 		t.Fatal("missing consent CSRF")
 	}
-	consent := form(cfg.IssuerURL+"/oauth/consent", url.Values{"csrf_token": {csrf[1]}, "decision": {"allow"}, "scope": strings.Fields(scope), "duration": {"1"}, "task_ref": {target.TaskRef}, "code_repository_ref": {target.RepositoryRef}}, callback.Result().Cookies()...)
+	consent := form(cfg.IssuerURL+"/oauth/consent", url.Values{"csrf_token": {csrf[1]}, "decision": {"allow"}, "scope": strings.Fields(scope), "duration": {"1"}, "repositories": {"all"}}, callback.Result().Cookies()...)
 	if consent.Code != http.StatusFound {
 		t.Fatalf("consent: %d %s", consent.Code, consent.Body.String())
 	}

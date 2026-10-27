@@ -80,56 +80,27 @@ func (db *DB) ResolveConnectorCodeTarget(ctx context.Context, taskRef string) (C
 	return resolveConnectorCodeTarget(ctx, db.sql, taskRef)
 }
 
-func insertConnectorCodeTarget(ctx context.Context, tx *sql.Conn, g ConnectorGrant) error {
-	if !ConnectorScopeHas(g.Scope, connectorCodeReviewScope) {
-		if g.CodeTarget != nil {
-			return ErrConnectorInvalid
-		}
-		return nil
-	}
-	if !ConnectorScopeHas(g.Scope, connectorDiscussionScope) || g.Target == nil || g.CodeTarget == nil || g.CodeTarget.TaskRef != g.Target.TaskRef {
-		return ErrConnectorScope
-	}
-	target, err := resolveConnectorCodeTarget(ctx, tx, g.Target.TaskRef)
+// CheckConnectorCodeAccess checks the live token, both permissions and that
+// the grant covers the repository of the task named on this call, then
+// derives the task's retained code destination. Call before acquisition and
+// again before release.
+func (db *DB) CheckConnectorCodeAccess(ctx context.Context, digest string, pin int64, resource, taskRef string, now time.Time) (ConnectorGrant, ConnectorCodeTarget, error) {
+	g, task, err := db.CheckConnectorDiscussionAccess(ctx, digest, pin, resource, taskRef, now)
 	if err != nil {
-		return err
-	}
-	if target != *g.CodeTarget {
-		return ErrConnectorInvalid
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO connector_code_targets(grant_id,task_ref,session_id,repo_id,code_version_id,repository_ref,clone_path,remote_url,task_branch,base_branch,code_remote_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, g.ID, target.TaskRef, target.SessionID, target.RepoID, target.CodeVersionID, target.RepositoryRef, target.ClonePath, target.RemoteURL, target.TaskBranch, target.BaseBranch, target.CodeRemoteID)
-	return err
-}
-
-func connectorCodeTarget(ctx context.Context, q connectorTargetQuery, id string) (*ConnectorCodeTarget, error) {
-	var t ConnectorCodeTarget
-	err := q.QueryRowContext(ctx, `SELECT task_ref,session_id,repo_id,code_version_id,repository_ref,clone_path,remote_url,task_branch,base_branch,code_remote_id FROM connector_code_targets WHERE grant_id=?`, id).Scan(&t.TaskRef, &t.SessionID, &t.RepoID, &t.CodeVersionID, &t.RepositoryRef, &t.ClonePath, &t.RemoteURL, &t.TaskBranch, &t.BaseBranch, &t.CodeRemoteID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrConnectorInvalid
-	}
-	if err != nil {
-		return nil, err
-	}
-	current, err := resolveConnectorCodeTarget(ctx, q, t.TaskRef)
-	if err != nil {
-		return nil, err
-	}
-	if current != t {
-		return nil, ErrConnectorInvalid
-	}
-	return &t, nil
-}
-
-// CheckConnectorCodeAccess rechecks the live token, both permissions and the
-// immutable code target. Call before acquisition and again before release.
-func (db *DB) CheckConnectorCodeAccess(ctx context.Context, digest string, pin int64, resource, taskRef string, now time.Time) (ConnectorGrant, error) {
-	g, err := db.CheckConnectorDiscussionAccess(ctx, digest, pin, resource, taskRef, now)
-	if err != nil {
-		return ConnectorGrant{}, err
+		return ConnectorGrant{}, ConnectorCodeTarget{}, err
 	}
 	if !ConnectorScopeHas(g.Scope, connectorCodeReviewScope) {
-		return ConnectorGrant{}, ErrConnectorScope
+		return ConnectorGrant{}, ConnectorCodeTarget{}, connectorRefused(ErrConnectorScope, "this grant does not include %s", connectorCodeReviewScope)
 	}
-	g.CodeTarget, err = connectorCodeTarget(ctx, db.sql, g.ID)
-	return g, err
+	target, err := resolveConnectorCodeTarget(ctx, db.sql, task.TaskRef)
+	if errors.Is(err, ErrConnectorInvalid) {
+		return ConnectorGrant{}, ConnectorCodeTarget{}, connectorRefused(ErrConnectorInvalid, "no retained code for task %q: it has no recorded code destination and task branch", task.TaskRef)
+	}
+	if err != nil {
+		return ConnectorGrant{}, ConnectorCodeTarget{}, err
+	}
+	if target.SessionID != task.SessionID || target.RepoID != task.RepoID {
+		return ConnectorGrant{}, ConnectorCodeTarget{}, ErrConnectorInvalid
+	}
+	return g, target, nil
 }

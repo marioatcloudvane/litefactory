@@ -114,21 +114,46 @@ func (s *Server) openCursor(raw string) (evidenceCursor, error) {
 	return c, nil
 }
 
+// accessRefusal carries the plain reason a per-call authorization check
+// refused, so the tool result can name it.
+type accessRefusal struct{ reason string }
+
+func (e accessRefusal) Error() string { return e.reason }
+
+// accessError keeps a store refusal's plain reason and hides anything else
+// behind the fallback.
+func accessError(err error, fallback string) error {
+	if reason := store.ConnectorRefusalReason(err); reason != "" {
+		return accessRefusal{reason: reason}
+	}
+	return errors.New(fallback)
+}
+
+// refusalSummary is the tool-result summary for a refused call, or "" when
+// err carries no plain reason.
+func refusalSummary(err error) string {
+	var refusal accessRefusal
+	if errors.As(err, &refusal) {
+		return "Access refused: " + refusal.reason + "."
+	}
+	return ""
+}
+
 func (s *Server) readEvidence(ctx context.Context, credential string, a evidenceArguments) (ToolResult, error) {
-	grant, err := s.db.CheckConnectorDiscussionAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, a.TaskRef, s.now())
-	if err != nil || grant.Target == nil {
-		return ToolResult{}, errors.New("discussion access denied")
+	grant, target, err := s.db.CheckConnectorDiscussionAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, a.TaskRef, s.now())
+	if err != nil {
+		return ToolResult{}, accessError(err, "discussion access denied")
 	}
 	position := 0
 	var cursor evidenceCursor
 	if a.Cursor != "" {
 		cursor, err = s.openCursor(a.Cursor)
-		if err != nil || cursor.Grant != grant.ID || cursor.Task != a.TaskRef || cursor.Session != grant.Target.SessionID || cursor.Section != a.Section {
+		if err != nil || cursor.Grant != grant.ID || cursor.Task != target.TaskRef || cursor.Session != target.SessionID || cursor.Section != a.Section {
 			return ToolResult{}, errors.New("invalid continuation")
 		}
 		position = cursor.Offset
 	}
-	page, err := s.taskEvidence.Evidence(ctx, *grant.Target, EvidenceRequest{Section: a.Section, Offset: position, Limit: a.Limit})
+	page, err := s.taskEvidence.Evidence(ctx, target, EvidenceRequest{Section: a.Section, Offset: position, Limit: a.Limit})
 	if err != nil {
 		return ToolResult{}, err
 	}
@@ -143,7 +168,7 @@ func (s *Server) readEvidence(ctx context.Context, credential string, a evidence
 		if page.NextOffset <= position {
 			return ToolResult{}, errors.New("nonadvancing evidence page")
 		}
-		next, err = s.sealCursor(evidenceCursor{Grant: grant.ID, Task: a.TaskRef, Session: grant.Target.SessionID, Section: a.Section, Revision: page.Revision, Offset: page.NextOffset, Expires: s.now().Add(15 * time.Minute).Unix()})
+		next, err = s.sealCursor(evidenceCursor{Grant: grant.ID, Task: target.TaskRef, Session: target.SessionID, Section: a.Section, Revision: page.Revision, Offset: page.NextOffset, Expires: s.now().Add(15 * time.Minute).Unix()})
 		if err != nil {
 			return ToolResult{}, err
 		}
@@ -269,13 +294,13 @@ func (s *Server) availableTools(grant store.ConnectorGrant) []string {
 	if s.overview != nil && store.ConnectorScopeHas(grant.Scope, Scope) {
 		names = append(names, "factory_overview")
 	}
-	if s.taskEvidence != nil && grant.Target != nil && store.ConnectorScopeHas(grant.Scope, DiscussionScope) {
+	if s.taskEvidence != nil && store.ConnectorScopeHas(grant.Scope, DiscussionScope) {
 		names = append(names, "task_evidence_read")
 	}
-	if s.usage != nil && (store.ConnectorScopeHas(grant.Scope, FactoryUsageScope) || len(grant.UsageTargets) > 0) {
+	if s.usage != nil && (store.ConnectorScopeHas(grant.Scope, FactoryUsageScope) || store.ConnectorScopeHas(grant.Scope, RepositoryUsageScope) || store.ConnectorScopeHas(grant.Scope, TaskUsageScope)) {
 		names = append(names, "usage_read")
 	}
-	if s.codeEvidence != nil && grant.CodeTarget != nil && grant.Target != nil && store.ConnectorScopeHas(grant.Scope, DiscussionScope) && store.ConnectorScopeHas(grant.Scope, CodeReviewScope) {
+	if s.codeEvidence != nil && store.ConnectorScopeHas(grant.Scope, DiscussionScope) && store.ConnectorScopeHas(grant.Scope, CodeReviewScope) {
 		names = append(names, codeToolNames...)
 	}
 	return names

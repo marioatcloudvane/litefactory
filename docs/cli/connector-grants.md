@@ -27,47 +27,41 @@ filesystem permissions are the authority for this administration.
 
 List and inspect show the same safe summary for each retained grant: stable grant
 and client IDs, an escaped bounded client display name, permitted scope, resource,
-repository coverage and any selected discussion task, creation and absolute grant
+repository coverage, creation and absolute grant
 expiry, renewable status, effective status, and recorded revocation time and reason. List includes retained
 revoked and expired records, ordered by creation time and then ID. Records remain
 subject to the connector's normal cleanup; this is not an indefinite audit log.
 Times are UTC and output includes a snapshot time.
 
 Coverage follows the granted scopes. `factory:overview` covers **all registered
-repositories, including private repositories and future registrations**.
-`task:discussion` covers only its selected canonical task, shown as
-`coverage.task_ref` in JSON and as the discussion task in text. It includes later
-recorded evidence for that same task but gives no access to other tasks, usage or
-repository code. Code review requires both `task:discussion` and `task:code-review` for the same
-exact retained task and code repository. Inspection identifies that code target
-separately from the issue repository, which can differ. It covers committed
-task/base code, relevant reachable history and the verified published standards
-book. Existing overview and discussion grants keep their prior coverage. Refresh
-cannot change the retained code target; missing or conflicting identity denies
-code access instead of following changed repository registration.
+repositories, including private repositories and future registrations**;
+`factory:usage` (`coverage.factory_usage`) covers all recorded factory work,
+including work without a repository.
 
-Usage scopes are independent:
-
-| Scope | Inspection coverage |
-| --- | --- |
-| `factory:usage` | `coverage.factory_usage` indicates all recorded factory work, including work without a repository. |
-| `repository:usage` | `coverage.usage_repository_ref` identifies the one consented registered repository. |
-| `task:usage` | `coverage.usage_task_ref` identifies the selected task; `coverage.usage_task_family` marks its linked report family, including retired history and later persisted links. |
-
-Text output names the same usage coverage. A task usage grant covers the selected
-issue and persisted story links once each; a child read includes no parent or
-siblings. It does not grant repository-wide or factory-wide totals. Combined
-grants show each selected scope; existing overview and task discussion grants
-keep their prior meaning. Changing a narrow usage target requires fresh consent,
-and token refresh preserves every original target.
+The task-level and repository-level scopes (`task:discussion`,
+`task:code-review`, `repository:usage`, `task:usage`) cover repositories, not
+single tasks. JSON shows them as `coverage.repositories`: `scopes` lists which
+of them the grant holds, `all` (with `future_repositories`) means all
+registered repositories including ones registered later, and otherwise
+`repositories` lists the covered `github:owner/name` references. Text output
+prints one "Task and repository access" line with the same facts. The client
+names the task or repository on each call and every call is checked against
+this coverage. Code review requires both `task:discussion` and
+`task:code-review`; it reads the named task's own retained code repository,
+which can differ from the issue repository. `coverage.usage_task_family` marks
+that task usage includes each task's linked report family, including retired
+history and later persisted links; a child read includes no parent or
+siblings. Refresh preserves scope and coverage; changing either requires fresh
+consent. Grants made before repository coverage existed show the repository of
+their former single-task or single-repository binding.
 
 An active status means the grant passes the persisted authority and lifetime checks, not that the daemon
 is running or reachable. A changed or missing owner authority invalidates access;
 local inspection and revocation remain available. Family status does not establish
-that a discussion target or evidence source is still available: a deleted,
-missing or rebound target denies discussion even while independently authorized
-overview access can remain usable. Discovery and every evidence read enforce the
-current target binding.
+that a named task, listed repository or evidence source is still available: a
+deleted, missing or rebound task or repository denies that call even while
+independently authorized overview access can remain usable. Every evidence read
+enforces the current coverage.
 
 The renewable grant's absolute lifetime is the duration the owner chose on the
 consent page: 1, 3, 6, 12 or 24 calendar months (UTC), default 1. The expiry

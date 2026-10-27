@@ -30,26 +30,17 @@ func (db *DB) ResolveConnectorDiscussionTarget(ctx context.Context, taskRef stri
 	return resolveConnectorDiscussionTarget(ctx, db.sql, taskRef)
 }
 
-func connectorDiscussionTarget(ctx context.Context, q connectorTargetQuery, grantID string) (*ConnectorGrantTarget, error) {
-	var t ConnectorGrantTarget
-	err := q.QueryRowContext(ctx, `SELECT t.task_ref,t.session_id,t.repo_id,t.repository_ref FROM connector_grant_targets t JOIN sessions s ON s.id=t.session_id AND s.task_ref=t.task_ref AND s.repo_id=t.repo_id JOIN repos r ON r.id=t.repo_id AND r.forge||':'||r.owner||'/'||r.name=t.repository_ref WHERE t.grant_id=?`, grantID).Scan(&t.TaskRef, &t.SessionID, &t.RepoID, &t.RepositoryRef)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = ErrConnectorInvalid
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &t, nil
-}
-
-// CheckConnectorDiscussionAccess checks the live credential and immutable exact-task binding.
-func (db *DB) CheckConnectorDiscussionAccess(ctx context.Context, digest string, pin int64, resource, taskRef string, now time.Time) (ConnectorGrant, error) {
+// CheckConnectorDiscussionAccess checks the live credential and task:discussion,
+// then resolves the task named on this call and checks that the grant covers
+// its repository. Call it again before releasing evidence.
+func (db *DB) CheckConnectorDiscussionAccess(ctx context.Context, digest string, pin int64, resource, taskRef string, now time.Time) (ConnectorGrant, ConnectorGrantTarget, error) {
 	g, err := db.CheckConnectorAccess(ctx, digest, pin, resource, connectorDiscussionScope, now)
 	if err != nil {
-		return ConnectorGrant{}, err
+		return ConnectorGrant{}, ConnectorGrantTarget{}, err
 	}
-	if g.Target == nil || g.Target.TaskRef != taskRef {
-		return ConnectorGrant{}, ErrConnectorScope
+	t, err := connectorCoveredTask(ctx, db.sql, g, taskRef)
+	if err != nil {
+		return ConnectorGrant{}, ConnectorGrantTarget{}, err
 	}
-	return g, nil
+	return g, t, nil
 }
