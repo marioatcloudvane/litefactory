@@ -295,46 +295,32 @@ func (h PlanStoryActivity) apply(ctx context.Context, a PlanStoryAuthority, r gr
 	if parent.ID != a.ParentID || parent.State != github.StateOpen {
 		return receipt, errors.New("authorized parent identity or state changed")
 	}
-	render := report.RenderPlanDraftParts
-	if r.Operation != "create" {
-		render = report.RenderRetainedPlanDraftParts
-	}
 	parentRef, err := naming.ParseRef(a.Parent)
 	if err != nil {
 		return receipt, err
 	}
-	rendered, err := render(int64(a.ParentNumber), d.Ordinal, candidate, r.Stage, a.ContentScope, displayIssue(parentRef, parent).TitleKey)
-	title, body := rendered.Title, rendered.Body
-	if err != nil {
-		// Rendering is deterministic and precedes every remote mutation, so the
-		// request can never publish: record it as failed rather than erroring,
-		// which recovery would otherwise retry on every turn.
+	partHeader := func(n, total int) string {
+		return planPartMarker(a, d.Key, r, n, total) + "\n**Full draft, part " + fmt.Sprintf("%d/%d", n, total) + "**\n\n"
+	}
+	text, err := report.PreparePlanStory(ctx, h.Redactor, report.PlanStoryInput{
+		Parent: int64(a.ParentNumber), Ordinal: d.Ordinal, Draft: candidate, Stage: r.Stage, Scope: a.ContentScope,
+		Retained: r.Operation != "create", ParentKey: displayIssue(parentRef, parent).TitleKey,
+		Prefix:     planStoryMarker(a, d.Key) + "\n" + planRequestMarker(r) + "\n",
+		PartHeader: partHeader, CommentLimit: github.CommentSizeLimit,
+	})
+	var renderErr *report.PlanRenderError
+	if errors.As(err, &renderErr) || errors.Is(err, report.ErrPlanDraftCannotFit) || errors.Is(err, report.ErrPlanPartCannotFit) {
+		// Rendering and fitting are deterministic and precede every remote
+		// mutation, so the request can never publish: record it as failed rather
+		// than erroring, which recovery would otherwise retry on every turn.
 		return record("render", "failed", err.Error())
 	}
-	body = planStoryMarker(a, d.Key) + "\n" + planRequestMarker(r) + "\n" + body
-	safeTitle, err := h.Redactor.Apply(ctx, title, 256)
 	if err != nil {
 		return receipt, err
 	}
-	safeBody, err := h.Redactor.Apply(ctx, body, planbrief.MaxStoryBodyBytes)
-	if err != nil {
-		return receipt, err
-	}
-	if safeTitle.Truncated() || safeBody.Truncated() {
-		return record("render", "failed", "complete draft cannot be truncated")
-	}
-	safeParts := make([]redact.Body, len(rendered.Parts))
-	for i, part := range rendered.Parts {
-		text := planPartMarker(a, d.Key, r, i+1, len(rendered.Parts)) + "\n**Full draft, part " + fmt.Sprintf("%d/%d", i+1, len(rendered.Parts)) + "**\n\n" + part
-		if safeParts[i], err = h.Redactor.Apply(ctx, text, github.CommentSizeLimit); err != nil {
-			return receipt, err
-		}
-		if safeParts[i].Truncated() {
-			return record("render", "failed", "complete draft part cannot be truncated")
-		}
-	}
+	safeTitle, safeBody, safeParts := text.Title, text.Body, text.Parts
 	// Retain the exact redacted bytes in the revision comparison.
-	title, body = safeTitle.String(), safeBody.String()
+	title, body := safeTitle.String(), safeBody.String()
 	if reverify {
 		// Recovery is observation-only and must never reach mutation paths.
 		if len(safeParts) != 0 {
