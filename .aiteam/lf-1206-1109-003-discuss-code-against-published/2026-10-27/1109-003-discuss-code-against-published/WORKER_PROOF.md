@@ -85,15 +85,25 @@ Markdown structural checks passed UTF-8, balanced fenced blocks and the 8 KiB
 resource bound. Wording is reviewed semantically, with no exact text/hash pins.
 
 
-## Required hosted-client proof unavailable
+## Owner-deferred hosted-client walkthrough
 
-The approved worker task requires a supported existing-client walkthrough and
-client/version capture. No TEST_BASE_URL or authenticated supported client/browser
-access was supplied. No production service was tested. The protocol test cannot
-establish hosted rendering, following source links in that client, or the complete
-client walkthrough. This remains an access blocker, not an acceptance failure
-inferred from a missing observation. The factory controls any subsequent step;
-this report promises no retry or continued parallel work.
+On continuation, the factory supplied the owner's guidance: “Ignore the
+production requirenement, this is something i do afterwards manually”. This
+resolves the previous access blocker by assigning the hosted/client walkthrough
+to the owner after engineering delivery. It does not authorize production tests.
+
+The owner will manually check consent, a code-and-standard question, both labeled
+count bases, supporting source links and follow-up evidence, and a refusal or
+named gap including denial after revocation. Client/version observations remain
+unrecorded by the worker. No production service or hosted client was tested.
+The passing local protocol test establishes the engineered consent-to-evidence
+path only; hosted rendering and source navigation remain unverified.
+
+This continuation changed proof documentation only. The working tree was clean
+at entry, and the factory had retained the previous implementation and check
+records in the current branch. The complete passing package runs above remain
+the code verification; they were not repeated for this Markdown-only handoff.
+The updated documents received structural checks. Acceptance remains with Validate.
 
 ## Guidance observation
 

@@ -56,9 +56,10 @@ per-resource 8 KiB guidance ceiling. No wording or byte pins were introduced.
 
 # Limitations
 
-No configured non-production hosted Claude or ChatGPT connection, interactive
-owner session, or client/version capture was supplied for this attempt. The
-protocol integration test therefore does not establish hosted-client rendering,
-source-link navigation, or a completed hosted-client walkthrough. The guide keeps
-that distinction explicit. The scope and proof requirements remain unchanged;
-acceptance belongs to Validate.
+The owner has deferred the hosted-client walkthrough to a manual check they will
+perform afterward, including their production client where applicable. No worker
+production test was run, and no completed client walkthrough or client/version
+capture is claimed here. The protocol integration test does not establish
+hosted-client rendering or source-link navigation. Those observations remain
+pending the owner's manual check; the engineering results above remain separate
+from acceptance, which belongs to Validate.
