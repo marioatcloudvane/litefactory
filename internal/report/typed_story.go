@@ -31,22 +31,19 @@ func RenderTypedStoryParts(s planbrief.TypedStory, scope planbrief.ContentScope)
 		return "", nil, err
 	}
 	full := typedVisible(s, -1)
-	limit := planbrief.MaxStoryBodyBytes - planDraftMarkerReserve
+	limit := planBodyLimit
 	if len(full) <= limit {
 		return full, nil, nil
 	}
 	short := ""
-	for _, cut := range []int{400, 200, 100, 50, 20, 0} {
-		short = typedVisible(s, cut) + "\n> Draft shortened: the full draft is in the numbered part comments on this issue. Reply with changes instead of editing this text.\n\n" + planbrief.PlanShortenedMarker + "\n"
+	for _, cut := range planCuts {
+		short = typedVisible(s, cut) + planShortenedNotice
 		if len(short) <= limit {
 			break
 		}
 	}
 	if len(short) > limit {
-		if i := strings.LastIndex(short[:limit], "\n"); i > 0 {
-			short = short[:i+1]
-		}
-		short += planbrief.PlanShortenedMarker + "\n"
+		short = hardCutShort(typedVisible(s, 0), limit)
 	}
 	return short, SplitStoryParts(full, PlanPartLimit), nil
 }

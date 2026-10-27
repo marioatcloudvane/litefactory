@@ -11,6 +11,36 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
+// With no review waiting, ordinary input on an active story, including the
+// `/plan …` retry a failure notice offers, is consumed as feedback and approves
+// nothing; approval and retirement commands still need their wait, and an
+// inactive story still refuses (#1229).
+func TestPlanWorkflow_WaitlessFeedbackIsConsumedWithoutApproval(t *testing.T) {
+	t.Parallel()
+	reply := func(id int64, body string) planbrief.PlanOwnerReply {
+		return planbrief.PlanOwnerReply{ID: id, OwnerID: 7, ActorID: 7, IssueID: 100, Key: "a", Body: body}
+	}
+	for _, body := range []string{"/plan Continue the unfinished step from the saved Plan state.", "Please try again."} {
+		s := workflowFixture(t, "a", "b")
+		before := s.Stories[0]
+		ok, err := s.ApplyOwnerReply(reply(60, body))
+		if ok || err != nil || !slices.Contains(s.ConsumedReplies, 60) || len(s.Stories[0].Approvals) != len(before.Approvals) || s.Stories[0].Stage != before.Stage {
+			t.Fatalf("%q: ok=%v err=%v state=%+v", body, ok, err, s.Stories[0])
+		}
+	}
+	for _, body := range []string{"/approve-plan a story a-candidate", "/retire-plan a a-candidate"} {
+		s := workflowFixture(t, "a", "b")
+		if ok, err := s.ApplyOwnerReply(reply(61, body)); ok || err == nil || !strings.Contains(err.Error(), "stale or wrong-story") || len(s.ConsumedReplies) != 0 {
+			t.Fatalf("%q without a wait: ok=%v err=%v", body, ok, err)
+		}
+	}
+	s := workflowFixture(t, "a", "b")
+	s.Stories[0].Retired = true
+	if ok, err := s.ApplyOwnerReply(reply(62, "Please try again.")); ok || err == nil || len(s.ConsumedReplies) != 0 {
+		t.Fatalf("retired story accepted feedback: ok=%v err=%v", ok, err)
+	}
+}
+
 func workflowFixture(t *testing.T, keys ...string) planbrief.PlanState {
 	t.Helper()
 	s := planbrief.PlanState{SharedRevision: "shared-1"}
