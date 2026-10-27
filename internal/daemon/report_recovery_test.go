@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -24,11 +25,17 @@ type listingPoster struct {
 	comments []github.Comment
 	posts    int
 	lookups  int
+	// accept makes a POST create its comment instead of failing.
+	accept bool
 }
 
-func (p *listingPoster) PostComment(context.Context, github.Repo, int, redact.Body) (github.Comment, error) {
+func (p *listingPoster) PostComment(_ context.Context, repo github.Repo, issue int, body redact.Body) (github.Comment, error) {
 	p.posts++
-	return github.Comment{}, errors.New("recovery must not post a dropped doctor reply")
+	if !p.accept {
+		return github.Comment{}, errors.New("recovery must not post a dropped doctor reply")
+	}
+	id := int64(600 + p.posts)
+	return github.Comment{ID: id, Body: body.String(), Author: github.User{ID: 99}, HTMLURL: fmt.Sprintf("https://github.com/%s/%s/issues/%d#issuecomment-%d", repo.Owner, repo.Name, issue, id)}, nil
 }
 func (p *listingPoster) ListCommentsAfter(context.Context, github.Repo, int, int64) ([]github.Comment, error) {
 	p.lookups++
@@ -211,5 +218,44 @@ func TestStoppedRepairConsumeReplyConflictIsNotSettled(t *testing.T) {
 	}
 	if _, exists := s.delivery(t); !exists || !s.d.sessionRecoveryHeld(s.t.session.ID, s.t.tickAt) {
 		t.Fatal("conflicting reply dropped or hold released")
+	}
+}
+
+// An ordinary report whose POST failed uncertainly is reposted once after a
+// complete empty lookup, releasing the session's recovery hold.
+func TestUncertainOrdinaryReportIsRepostedAfterEmptyLookup(t *testing.T) {
+	s := newStoppedConsumeRepair(t, errors.New("reply lost"), doctor.ErrRepairReplyOutcomeUncertain)
+	ctx := t.Context()
+	// Drop the doctor reply so the ordinary report is the trigger's pending delivery.
+	s.t.tickAt = s.t.tickAt.Add(time.Hour)
+	if pending, err := s.d.resumeReport(ctx, s.t, 11); pending || err != nil {
+		t.Fatalf("doctor reply not settled: pending=%v err=%v", pending, err)
+	}
+	if s.poster.posts != 0 {
+		t.Fatal("dropped doctor reply was posted")
+	}
+	marker := "<!-- lf:delivery v=1 key=ordinary-report -->"
+	if _, err := s.d.db.EnsureReportDelivery(ctx, store.ReportDelivery{Key: "ordinary-report", Version: 1, SessionID: s.t.session.ID, TriggerID: 11, Task: s.t.session.TaskRef, Destination: s.t.session.TaskRef, TriggerNamespace: "comment", Purpose: "reply", BotUserID: 99, Body: "Report\n\n" + marker, Marker: marker}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.d.db.MarkReportDeliverySent(ctx, "ordinary-report"); err != nil {
+		t.Fatal(err)
+	}
+	source := store.ReportRecovery{Key: recoveryKey(s.t.session.ID, 11), SessionID: s.t.session.ID, TriggerID: 11, Task: s.t.ref.String()}
+	s.d.recoveryFailure(ctx, source, s.t.tickAt, &turn.DeliveryError{Key: "ordinary-report", State: "uncertain", Cause: turn.ErrReportReceiptAbsent})
+	if !s.d.sessionRecoveryHeld(s.t.session.ID, s.t.tickAt) {
+		t.Fatal("fixture did not hold the session")
+	}
+	s.poster.accept = true
+	s.t.tickAt = s.t.tickAt.Add(time.Hour)
+	pending, err := s.d.resumeReport(ctx, s.t, 11)
+	if !pending || err != nil {
+		t.Fatalf("empty lookup did not repost: pending=%v err=%v", pending, err)
+	}
+	if s.poster.posts != 1 {
+		t.Fatalf("posts=%d, want 1", s.poster.posts)
+	}
+	if s.d.sessionRecoveryHeld(s.t.session.ID, s.t.tickAt) {
+		t.Fatal("session recovery hold not released")
 	}
 }

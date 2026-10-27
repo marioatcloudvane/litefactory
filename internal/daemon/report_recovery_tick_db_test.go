@@ -92,35 +92,35 @@ func TestReportRecoverySQLiteTickPreservesOrderingAndOtherTaskCapacity(t *testin
 					t.Fatalf("confirmed receipt used lookup or stayed blocked: lists=%d/%d watermark=%d", beforeLists, afterLists, f.watermark())
 				}
 			} else {
-				if afterLists <= beforeLists || afterPosts != beforePosts || f.watermark() >= 40 || slices.Contains(f.turns.triggers(), int64(41)) {
-					t.Fatal("empty lookup resent, consumed, or advanced the ordered queue")
+				// A due complete lookup with no marker-bearing comment reposts
+				// the retained bytes once, then the ordered queue moves on.
+				if afterLists <= beforeLists || afterPosts != beforePosts+1 {
+					t.Fatalf("empty lookup did not repost once: lists=%d/%d posts=%d/%d", beforeLists, afterLists, beforePosts, afterPosts)
 				}
-				row, err := f.db.GetReportRecovery(t.Context(), key)
-				if err != nil || row.Attempts != 1 || !row.NextAt.Equal(due.Add(2*testInterval)) {
-					t.Fatalf("eligible recovery did not persist cadence: %+v %v", row, err)
-				}
-				f.forge.addComment(testIssue, 900, bot(), delivery.Body)
-				for i := 0; i < 2; i++ {
+				for i := 0; i < 3; i++ {
 					f.settle()
 				}
-				if f.watermark() >= 40 {
-					t.Fatal("trusted evidence bypassed due time")
+				posted, _, _ := f.forge.snapshot()
+				copies := 0
+				for _, body := range posted {
+					if body == delivery.Body {
+						copies++
+					}
 				}
-				tickAt = row.NextAt
-				f.settle()
-			}
-			f.settle()
-			f.settle()
-			row, err := f.db.GetReportRecovery(t.Context(), key)
-			if !errors.Is(err, store.ErrNotFound) {
-				t.Fatalf("resolved recovery retained: %+v %v", row, err)
-			}
-			saved, err := f.db.GetReportDelivery(t.Context(), delivery.Key)
-			if err != nil || !saved.Completed || saved.CommentID != 900 {
-				t.Fatalf("delivery not completed from receipt: %+v %v", saved, err)
-			}
-			if slices.Contains(f.turns.triggers(), int64(40)) || !slices.Contains(f.turns.triggers(), int64(41)) {
-				t.Fatalf("original relaunched or following source stayed blocked: %v", f.turns.triggers())
+				if copies != 1 {
+					t.Fatalf("retained report posted %d times, want 1", copies)
+				}
+				row, err := f.db.GetReportRecovery(t.Context(), key)
+				if !errors.Is(err, store.ErrNotFound) {
+					t.Fatalf("resolved recovery retained: %+v %v", row, err)
+				}
+				saved, err := f.db.GetReportDelivery(t.Context(), delivery.Key)
+				if err != nil || !saved.Completed || saved.CommentID == 0 {
+					t.Fatalf("delivery not completed from repost: %+v %v", saved, err)
+				}
+				if f.watermark() < 40 || slices.Contains(f.turns.triggers(), int64(40)) || !slices.Contains(f.turns.triggers(), int64(41)) {
+					t.Fatalf("original relaunched or following source stayed blocked: watermark=%d %v", f.watermark(), f.turns.triggers())
+				}
 			}
 		})
 	}
@@ -260,7 +260,9 @@ func TestBugPendingRefusalAfterRelease(t *testing.T) {
 				f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool { w.WriteHeader(http.StatusServiceUnavailable); return true }
 			}
 			f.settle()
-			if state == "unsent" || state == "consumed" {
+			// A possibly sent refusal whose complete lookup finds no
+			// marker-bearing comment is reposted once and settles first too.
+			if state == "unsent" || state == "consumed" || state == "uncertain" {
 				wm, _, e := f.db.GetWatermark(ctx, session.ID)
 				check(e)
 				if wm.LastCommentID != 40 || len(f.turns.calls()) != 0 {
@@ -270,7 +272,7 @@ func TestBugPendingRefusalAfterRelease(t *testing.T) {
 					t.Fatal("stale replay wrote the watermark again")
 				}
 			}
-			if state == "failed" || state == "uncertain" {
+			if state == "failed" {
 				if f.watermark() >= 40 || len(f.turns.calls()) != 0 {
 					t.Fatal("unconfirmed refusal let later input run")
 				}
@@ -287,7 +289,7 @@ func TestBugPendingRefusalAfterRelease(t *testing.T) {
 			for range 3 {
 				f.settle()
 			}
-			if state == "failed" || state == "uncertain" {
+			if state == "failed" {
 				starts, outcomes := 0, 0
 				for _, line := range strings.Split(f.logs.String(), "\n") {
 					if !strings.Contains(line, `msg="report recovery attempt`) {
@@ -331,7 +333,7 @@ func TestBugPendingRefusalAfterRelease(t *testing.T) {
 				}
 			}
 			wantPosts := 0
-			if state == "unsent" {
+			if state == "unsent" || state == "uncertain" {
 				wantPosts = 1
 			}
 			if count != wantPosts {

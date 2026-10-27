@@ -2,7 +2,6 @@ package turn
 
 import (
 	"context"
-	"errors"
 	"html"
 	"strings"
 	"testing"
@@ -126,13 +125,15 @@ func TestImplementParkNoteLostResponseAndFailure(t *testing.T) {
 			}
 			forge.recover()
 			_, retryErr := rt.parkStory(t.Context(), f.opts, ActivityRequest{})
-			if lost {
-				mustProgress(t, retryErr)
-			} else if !errors.Is(retryErr, ErrReportReceiptUncertain) {
-				t.Fatalf("expected uncertainty, got %v", retryErr)
+			// A lost response is recovered from its receipt; a failed POST whose
+			// complete lookup finds no marker-bearing comment is reposted once.
+			mustProgress(t, retryErr)
+			want := 1
+			if !lost {
+				want = 2
 			}
-			if forge.attemptCount() != 1 {
-				t.Fatal("uncertain publication duplicated")
+			if forge.attemptCount() != want || len(forge.all()) != 1 {
+				t.Fatalf("publication attempts=%d comments=%d, want %d attempts and one comment", forge.attemptCount(), len(forge.all()), want)
 			}
 		})
 	}
