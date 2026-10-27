@@ -307,31 +307,7 @@ func (s *Service) Publish(ctx context.Context, id string, version int64, d strin
 
 // Revision reads and verifies a complete immutable book revision.
 func (s *Service) Revision(ctx context.Context, id int64) (store.StandardsRevision, error) {
-	r, err := s.Store.GetStandardsRevision(ctx, id)
-	if err != nil {
-		return r, err
-	}
-	if r.SchemaVersion != 1 || snapshotDigest(r.Snapshot) != r.Digest {
-		return r, fmt.Errorf("%w: revision %d digest/schema mismatch", store.ErrStandardsCorrupt, id)
-	}
-	if err = validateSnapshot(r.Snapshot); err != nil {
-		return r, fmt.Errorf("%w: revision %d invalid: %w", store.ErrStandardsCorrupt, id, err)
-	}
-	if r.Publication == nil {
-		return r, fmt.Errorf("%w: revision %d missing publication", store.ErrStandardsCorrupt, id)
-	}
-	if err := VerifyRevision(r); err != nil {
-		return r, err
-	}
-	proposal, err := s.Store.GetStandardsProposal(ctx, r.Publication.ProposalID, r.Publication.Version)
-	if err != nil {
-		return r, fmt.Errorf("%w: revision %d proposal: %w", store.ErrStandardsCorrupt, id, err)
-	}
-	if proposal.SchemaVersion != 1 || changeDigest(proposal.BaseRevision, proposal.Operations) != proposal.ChangeDigest {
-		return r, fmt.Errorf("%w: revision %d proposal digest/schema mismatch", store.ErrStandardsCorrupt, id)
-	}
-	r.Snapshot = canonical(r.Snapshot)
-	return r, nil
+	return ReadPublishedRevision(ctx, s.Store, id)
 }
 
 // Current resolves the published head and verifies its retained snapshot.

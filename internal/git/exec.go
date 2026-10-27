@@ -205,7 +205,8 @@ type runner struct {
 	dir    string
 	// indexFile is set only by retained-repair capture, to a private temporary
 	// index. Ambient GIT_INDEX_FILE is never inherited.
-	indexFile string
+	indexFile   string
+	noLazyFetch bool
 	// mergeTreeSupported carries [Binary]'s own version check down to every
 	// [Clone] and [Worktree] built from it, so [Worktree.MergePreview] can
 	// refuse before it ever execs rather than after git rejects an option
@@ -246,7 +247,7 @@ func (r runner) runRawRecordLimit(ctx context.Context, timeout time.Duration, li
 	// between us and execve.
 	cmd := exec.CommandContext(cmdCtx, r.binary, args...)
 	cmd.Dir = r.dir
-	cmd.Env = childEnv()
+	cmd.Env = r.childEnv()
 	if r.indexFile != "" {
 		cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+r.indexFile)
 	}
@@ -290,7 +291,7 @@ func (r runner) runAllowingExit(ctx context.Context, timeout time.Duration, allo
 	// #nosec G204 -- same sanctioned exec point as run; see the comment there.
 	cmd := exec.CommandContext(cmdCtx, r.binary, args...)
 	cmd.Dir = r.dir
-	cmd.Env = childEnv()
+	cmd.Env = r.childEnv()
 	cmd.Stdin = nil
 	cmd.WaitDelay = waitDelay
 
@@ -486,7 +487,7 @@ func (r runner) openRead(ctx context.Context, args ...string) (io.ReadCloser, er
 	// #nosec G204 -- same validated binary and screened argument boundary as runRawRecordLimit.
 	cmd := exec.CommandContext(ctx, r.binary, args...)
 	cmd.Dir = r.dir
-	cmd.Env = childEnv()
+	cmd.Env = r.childEnv()
 	cmd.WaitDelay = waitDelay
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -499,4 +500,12 @@ func (r runner) openRead(ctx context.Context, args ...string) (io.ReadCloser, er
 		return nil, err
 	}
 	return &objectStream{ReadCloser: pipe, cmd: cmd, cancel: cancel}, nil
+}
+
+func (r runner) childEnv() []string {
+	env := childEnv()
+	if r.noLazyFetch {
+		env = append(env, "GIT_NO_LAZY_FETCH=1")
+	}
+	return env
 }

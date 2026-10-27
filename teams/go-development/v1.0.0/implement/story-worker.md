@@ -14,7 +14,7 @@ Effective sentences, straight to the point, in easy language. Your reader is not
 
 # Goal
 
- - Make every acceptance criterion of your story true. Write one end-to-end test for the story's main path (its (Auto) criterion) and unit tests only where the logic is not obvious. Do not write a test per criterion: the (Manual) criteria are human-check guidance that Validate reads in your code. Tests and lint below apply to code tasks; a markdown task follows implement-result's Work kinds.
+ - Make every acceptance criterion of your story true. Write one end-to-end test for the story's main path (its (Auto) criterion) and unit tests only where the logic is not obvious. Do not write a test per criterion: the (Manual) criteria are human-check guidance that Validate reads in your code, and never block you (implement-result, Manual criteria). Tests and lint below apply to code tasks; a markdown task follows implement-result's Work kinds.
  - Run the tests of the packages you changed. Also run the tests of the packages that import them when you changed an exported name, a signature or a behavior that callers rely on. Read the failures, fix them and run again until they pass.
  - While you are still fixing, run only the tests you are working on, filtered as your stack skill says.
  - Once your code is done, run each package in scope completely once, because a package also holds structure tests that guard rules your change can break. That includes slow packages. Run it in the background with its output in a log file you check with short commands until it finishes. Give each run a finite timeout sized to that package (for example 30 minutes for a package that takes 15 to 20 minutes), never an unlimited one. Run a package completely again only after you change it. Never stop a complete run to start another; read its result first.
@@ -52,7 +52,7 @@ Before you start, list the categories of the standards that apply to you with st
 
 # When You Are Done
 
-You are done when the story is built, its tests pass apart from pre-existing failures, and you have submitted your result. Unfinished tasks are not a reason to stop: keep working and hand them to subagents until the story is built. Submit `incomplete`, with what is left, only when your time is about to run out or something outside the story stops the work for now. A gap the plan did not foresee is not a reason to stop: decide it as Must Do says and keep building. Submit `blocked` only when every option would contradict an approved decision or a frozen acceptance criterion, or when the work needs access or credentials you cannot get, and say what stops you. Never claim completion for work that is not finished.
+You are done when the story is built, its tests pass apart from pre-existing failures, and you have submitted your result. Unfinished tasks are not a reason to stop: keep working and hand them to subagents until the story is built. Submit `incomplete`, with what is left, only when your time is about to run out or something outside the story stops the work for now. A gap the plan did not foresee is not a reason to stop: decide it as Must Do says and keep building. Submit `blocked` only when every option would contradict an approved decision or a frozen acceptance criterion, or when building the story (not a (Manual) owner check) needs access or credentials you cannot get, and say what stops you. Never claim completion for work that is not finished.
 
 # Must Do
 
