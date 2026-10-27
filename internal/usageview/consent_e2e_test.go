@@ -176,7 +176,7 @@ func TestOwnerConsentRecordedUsage(t *testing.T) {
 	if err != nil || len(grants) != 0 {
 		t.Fatalf("grant before Allow: %v %v", grants, err)
 	}
-	consent := request(http.MethodPost, issuer+"/oauth/consent", "application/x-www-form-urlencoded", url.Values{"csrf_token": {csrf[1]}, "decision": {"allow"}, "scope": {"factory:usage", "repository:usage", "task:usage"}, "duration": {"1"}, "usage_repository_ref": {"github:owner/project"}, "usage_task_ref": {session.TaskRef}}.Encode(), "", cookies...)
+	consent := request(http.MethodPost, issuer+"/oauth/consent", "application/x-www-form-urlencoded", url.Values{"csrf_token": {csrf[1]}, "decision": {"allow"}, "scope": {"factory:usage", "repository:usage", "task:usage"}, "duration": {"1"}, "repository": {"github:owner/project"}}.Encode(), "", cookies...)
 	if consent.Code != http.StatusFound {
 		t.Fatalf("consent: %d %s", consent.Code, consent.Body.String())
 	}

@@ -56,10 +56,8 @@ func TestConsentPageOffersScopesAndDurationsAndAllowsOnlyItsOwnInlineAssets(t *t
 			t.Errorf("scope %d: %+v, want %s checked=%v", i, boxes[i], known.Name, known.Name == Scope)
 		}
 	}
-	for _, field := range []string{"task_ref", "code_repository_ref", "usage_repository_ref", "usage_task_ref"} {
-		if !strings.Contains(page, `name="`+field+`"`) {
-			t.Errorf("consent lacks the %s selection for an offered scope", field)
-		}
+	if !strings.Contains(page, `name="repositories" value="all"`) {
+		t.Error("consent lacks the repository selection for the task-level and repository-level scopes")
 	}
 	for _, months := range GrantDurations {
 		if !strings.Contains(page, `name="duration" value="`+strconv.Itoa(months)+`"`) {
@@ -240,9 +238,9 @@ func TestConsentSelectionsRequiredOnlyWhenTicked(t *testing.T) {
 	j, _, csrf, cookie := verifiedConsent(t)
 	for name, extra := range map[string]url.Values{
 		"repository usage without repository": {"scope": {Scope, RepositoryUsageScope}},
-		"task usage without task":             {"scope": {TaskUsageScope}},
-		"discussion without task":             {"scope": {DiscussionScope}},
-		"code review without discussion":      {"scope": {CodeReviewScope}, "code_repository_ref": {"github:acme/api"}},
+		"task usage without repository":       {"scope": {TaskUsageScope}},
+		"discussion without repository":       {"scope": {DiscussionScope}},
+		"code review without discussion":      {"scope": {CodeReviewScope}, "repositories": {"all"}},
 	} {
 		extra.Set("duration", "1")
 		if code := postConsent(t, j, csrf, cookie, extra); code != http.StatusBadRequest {
@@ -250,8 +248,8 @@ func TestConsentSelectionsRequiredOnlyWhenTicked(t *testing.T) {
 		}
 	}
 	browserNoGrants(t, j.fixture)
-	// Empty selection fields of unticked scopes do not block Allow.
-	if code := postConsent(t, j, csrf, cookie, url.Values{"scope": {Scope}, "duration": {"1"}, "task_ref": {""}, "code_repository_ref": {""}, "usage_repository_ref": {""}, "usage_task_ref": {""}}); code != http.StatusFound {
+	// A repository selection does not block Allow for scopes that take none.
+	if code := postConsent(t, j, csrf, cookie, url.Values{"scope": {Scope}, "duration": {"1"}, "repository": {"github:missing/repo"}}); code != http.StatusFound {
 		t.Fatalf("allow with empty unticked selections: HTTP %d", code)
 	}
 }

@@ -1,4 +1,4 @@
-Use `usage_read` for recorded local usage and supported historical cost estimates within the consented factory, repository or task scope. Task usage includes its saved report family, including retired story history and links saved later; it does not authorize other task evidence.
+Use `usage_read` for recorded local usage and supported historical cost estimates within the consented factory, repository or task scope. Name the repository (and, for task usage, the issue) on each call; it must be in a repository the grant covers. Task usage includes its saved report family, including retired story history and links saved later; it does not authorize other task evidence.
 
 Select today, rolling_7_days, rolling_30_days, all_history, or timezone-aware RFC3339 from/to bounds. With no period, the server selects rolling_30_days. Explain the exact returned UTC bounds and scope rather than estimating dates on the client. Whole attempts are selected by their start time.
 

@@ -23,7 +23,7 @@ import (
 // Scope is the read authority behind the factory_overview tool.
 const Scope = "factory:overview"
 
-// DiscussionScope authorizes evidence for exactly one consented task.
+// DiscussionScope authorizes task evidence for tasks in covered repositories.
 const DiscussionScope = "task:discussion"
 
 // CodeReviewScope independently authorizes committed code and published rules.
@@ -45,12 +45,12 @@ type ScopeInfo struct{ Name, Description string }
 // them, pre-ticks the requested ones, and the owner ticks which to grant.
 // store.ConnectorKnownScopes must list the same names.
 var KnownScopes = []ScopeInfo{
-	{Name: DiscussionScope, Description: "Read recorded status, results, questions, research, Plan and approval evidence for the one selected task. Read-only; it cannot change work or grant workflow approval."},
-	{Name: CodeReviewScope, Description: "Read committed task/base code, reachable history and changes, and published standards and role counts for the selected task and retained code repository. Requires task:discussion; read-only."},
+	{Name: DiscussionScope, Description: "Read recorded status, results, questions, research, Plan and approval evidence for any task in the repositories selected below; the client names the task on each call. Read-only; it cannot change work or grant workflow approval."},
+	{Name: CodeReviewScope, Description: "Read committed task/base code, reachable history and changes, and published standards and role counts for any task in the selected repositories, from that task's own retained code repository. Requires task:discussion; read-only."},
 	{Name: Scope, Description: "Read the factory overview: health, current activity, open owner questions and reviews, and last week's publications. Read-only; it cannot change factory work."},
 	{Name: FactoryUsageScope, Description: "Read all recorded factory usage and historical estimates, including work without a repository. Read-only."},
-	{Name: RepositoryUsageScope, Description: "Read recorded usage and historical estimates for one selected registered repository. Read-only."},
-	{Name: TaskUsageScope, Description: "Read recorded usage and historical estimates for one selected task and its linked report family, including retired history and later persisted links. Read-only."},
+	{Name: RepositoryUsageScope, Description: "Read recorded usage and historical estimates for the repositories selected below, one repository per call. Read-only."},
+	{Name: TaskUsageScope, Description: "Read recorded usage and historical estimates for any task in the selected repositories and its linked report family, including retired history and later persisted links. Read-only."},
 }
 
 func knownScope(name string) bool {

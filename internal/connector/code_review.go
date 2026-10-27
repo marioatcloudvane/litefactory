@@ -208,7 +208,7 @@ func (s *Server) openCodeToken(raw string) (codeToken, error) {
 	}
 	return c, nil
 }
-func (s *Server) codeAccess(ctx context.Context, credential, task string) (store.ConnectorGrant, error) {
+func (s *Server) codeAccess(ctx context.Context, credential, task string) (store.ConnectorGrant, store.ConnectorCodeTarget, error) {
 	return s.db.CheckConnectorCodeAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, task, s.now())
 }
 func (s *Server) readCode(ctx context.Context, credential, name string, a codeArguments) (ToolResult, error) {
@@ -229,18 +229,18 @@ func (s *Server) readCode(ctx context.Context, credential, name string, a codeAr
 			return ToolResult{}, errors.New("invalid view; restart required")
 		}
 	}
-	g, e := s.codeAccess(ctx, credential, a.TaskRef)
-	if e != nil || g.CodeTarget == nil {
-		return ToolResult{}, errors.New("code access denied")
+	g, target, e := s.codeAccess(ctx, credential, a.TaskRef)
+	if e != nil {
+		return ToolResult{}, accessError(e, "code access denied")
 	}
-	if continuing && (token.Grant != g.ID || token.Target != *g.CodeTarget) {
+	if continuing && (token.Grant != g.ID || token.Target != target) {
 		return ToolResult{}, errors.New("evidence binding changed; restart required")
 	}
 	if !continuing {
-		token = codeToken{Grant: g.ID, Target: *g.CodeTarget, Expires: min(s.now().Add(15*time.Minute).Unix(), g.ExpiresAt.Unix())}
+		token = codeToken{Grant: g.ID, Target: target, Expires: min(s.now().Add(15*time.Minute).Unix(), g.ExpiresAt.Unix())}
 	}
 	request := CodeEvidenceRequest{Operation: name, Branch: a.Branch, Path: a.Path, Pattern: a.Pattern, Query: a.Query, Mode: a.Mode, Commit: a.Commit, Role: a.Role, Categories: a.Categories, IgnoreCase: a.IgnoreCase, StartLine: a.StartLine, Lines: a.Lines, Limit: a.Limit, Offset: offset, Pin: token.Pin}
-	page, e := s.codeEvidence.Evidence(ctx, *g.CodeTarget, request)
+	page, e := s.codeEvidence.Evidence(ctx, target, request)
 	if e != nil {
 		return ToolResult{}, e
 	}
@@ -281,7 +281,7 @@ func (s *Server) readCode(ctx context.Context, credential, name string, a codeAr
 	if e != nil || len(b) > 32<<10 {
 		return ToolResult{}, errors.New("evidence page exceeds bound")
 	}
-	if _, e = s.codeAccess(ctx, credential, a.TaskRef); e != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
+	if _, current, e := s.codeAccess(ctx, credential, a.TaskRef); e != nil || current != target || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
 		return ToolResult{}, errors.New("code access denied")
 	}
 	summary := "Locally observed committed evidence is available."
@@ -299,8 +299,11 @@ func (s *Server) readCode(ctx context.Context, credential, name string, a codeAr
 	}
 	return DiscussionResult(summary, evidence)
 }
-func codeFailureResult() ToolResult {
-	r, _ := DiscussionResult("Code and standards evidence is unavailable. Restart the view if its evidence or permission changed.", map[string]any{"version": 1, "task_ref": "", "operation": "", "pin": CodeEvidencePin{}, "gaps": []string{"source_or_authorization_unavailable_restart_required"}, "items": []any{}, "sources": []any{}, "has_more": false, "next_cursor": "", "view_token": ""})
+func codeFailureResult(summary string) ToolResult {
+	if summary == "" {
+		summary = "Code and standards evidence is unavailable. Restart the view if its evidence or permission changed."
+	}
+	r, _ := DiscussionResult(summary, map[string]any{"version": 1, "task_ref": "", "operation": "", "pin": CodeEvidencePin{}, "gaps": []string{"source_or_authorization_unavailable_restart_required"}, "items": []any{}, "sources": []any{}, "has_more": false, "next_cursor": "", "view_token": ""})
 	r.IsError = true
 	return r
 }

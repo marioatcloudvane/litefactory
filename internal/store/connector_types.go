@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -34,26 +35,92 @@ type ConnectorBrowser struct {
 	ExpiresAt                                                        time.Time
 }
 
-// ConnectorGrantTarget is an immutable binding to a locally recorded task.
+// ConnectorGrantTarget is a locally recorded task, resolved on each call.
 type ConnectorGrantTarget struct {
 	TaskRef, RepositoryRef string
 	SessionID, RepoID      int64
 }
 
-// ConnectorUsageTarget binds independently consented usage to a stable local identity.
+// ConnectorUsageTarget is the repository or task a usage read resolved to.
 type ConnectorUsageTarget struct {
 	Scope, TaskRef, RepositoryRef string
 	SessionID, RepoID             int64
 }
 
+// ConnectorRepository names one registered repository by its local identity
+// and canonical reference (forge:owner/name).
+type ConnectorRepository struct {
+	RepositoryRef string
+	RepoID        int64
+}
+
+// ConnectorCoverage says which registered repositories a grant's task-level
+// and repository-level scopes cover. All includes repositories registered
+// later; otherwise only the listed repositories are covered.
+type ConnectorCoverage struct {
+	Repositories []ConnectorRepository
+	All          bool
+}
+
+// Covers reports whether the registered repository is covered. A listed
+// repository counts only while its identity and reference both still match.
+func (c *ConnectorCoverage) Covers(repoID int64, repositoryRef string) bool {
+	if c == nil {
+		return false
+	}
+	if c.All {
+		return true
+	}
+	return slices.ContainsFunc(c.Repositories, func(r ConnectorRepository) bool {
+		return r.RepoID == repoID && r.RepositoryRef == repositoryRef
+	})
+}
+
 // ConnectorGrant is a consented, absolute-expiry family of read credentials.
+// Coverage is set when the scope includes a task-level or repository-level
+// scope (ConnectorRepositoryScoped).
 type ConnectorGrant struct {
-	CodeTarget                    *ConnectorCodeTarget
-	Target                        *ConnectorGrantTarget
-	UsageTargets                  []ConnectorUsageTarget
+	Coverage                      *ConnectorCoverage
 	ID, ClientID, Resource, Scope string
 	OwnerID, OwnerGeneration      int64
 	CreatedAt, ExpiresAt          time.Time
+}
+
+// ConnectorRefusal is an authorization refusal with a plain reason the owner
+// or client can act on, such as "task not found: …". The reason names only
+// references the caller supplied or may see; it never carries credentials or
+// local paths. errors.Is matches its kind (ErrConnectorInvalid or
+// ErrConnectorScope).
+type ConnectorRefusal struct {
+	kind   error
+	Reason string
+}
+
+func (e *ConnectorRefusal) Error() string { return e.Reason }
+func (e *ConnectorRefusal) Unwrap() error { return e.kind }
+
+func connectorRefused(kind error, format string, args ...any) error {
+	return &ConnectorRefusal{kind: kind, Reason: fmt.Sprintf(format, args...)}
+}
+
+// ConnectorRefusalReason returns the plain reason of a refusal, or "" when err
+// is not one.
+func ConnectorRefusalReason(err error) string {
+	var refusal *ConnectorRefusal
+	if errors.As(err, &refusal) {
+		return refusal.Reason
+	}
+	return ""
+}
+
+// connectorRepositoryScopes are the scopes whose reach is limited to the
+// grant's repository coverage.
+var connectorRepositoryScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, connectorRepositoryUsageScope, connectorTaskUsageScope}
+
+// ConnectorRepositoryScoped reports whether scope includes a task-level or
+// repository-level scope and therefore needs repository coverage.
+func ConnectorRepositoryScoped(scope string) bool {
+	return slices.ContainsFunc(connectorRepositoryScopes, func(s string) bool { return ConnectorScopeHas(scope, s) })
 }
 
 // ConnectorCode is a single-use, digest-only authorization code.
@@ -176,10 +243,11 @@ type ConnectorExchange struct {
 }
 
 // ConnectorGrantSummary omits all credential material and browser state.
+// Repositories lists the covered repository references of a grant that does
+// not cover all repositories; it is filled only by local inspection.
 type ConnectorGrantSummary struct {
-	TaskRef                                   string
-	UsageRepositoryRef, UsageTaskRef          string
-	CodeRepositoryRef                         string
+	Repositories                              []string
+	AllRepositories                           bool
 	ID, ClientID, ClientName, Resource, Scope string
 	CreatedAt, ExpiresAt, RevokedAt           time.Time
 }

@@ -154,7 +154,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			tools = append(tools, map[string]any{"name": "factory_overview", "description": overviewToolDescription, "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, "outputSchema": overviewOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
 		}
 		if slices.Contains(s.availableTools(grant), "task_evidence_read") {
-			tools = append(tools, map[string]any{"name": "task_evidence_read", "description": "Read six recorded evidence sections for the exact consented task, with source revisions, coverage gaps and bounded continuation pages.", "inputSchema": evidenceInputSchema(), "outputSchema": evidenceOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
+			tools = append(tools, map[string]any{"name": "task_evidence_read", "description": "Read six recorded evidence sections for one task, named by task_ref, in a repository this grant covers, with source revisions, coverage gaps and bounded continuation pages.", "inputSchema": evidenceInputSchema(), "outputSchema": evidenceOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
 		}
 		if slices.Contains(s.availableTools(grant), "usage_read") {
 			tools = append(tools, map[string]any{"name": "usage_read", "description": "Read recorded usage, supported historical cost estimates and their recorded price basis for a consented scope and server-resolved period, with bounded evidence pages.", "inputSchema": usageInputSchema(), "outputSchema": usageOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
@@ -181,7 +181,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		if params.Name == "factory_overview" && !store.ConnectorScopeHas(grant.Scope, Scope) {
 			requiredScope = Scope
 		}
-		if params.Name == "task_evidence_read" && (!store.ConnectorScopeHas(grant.Scope, DiscussionScope) || grant.Target == nil) {
+		if params.Name == "task_evidence_read" && !store.ConnectorScopeHas(grant.Scope, DiscussionScope) {
 			requiredScope = DiscussionScope
 		}
 		if requiredScope != "" {
@@ -212,8 +212,12 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				refuseRPC(-32602, "Invalid params", "params")
 				return
 			}
-			if _, err = s.usageAccess(r.Context(), credential, usageArgs); err != nil {
-				refuseRPC(-32603, "Access unavailable", "scope")
+			if _, _, err = s.usageAccess(r.Context(), credential, usageArgs); err != nil {
+				message := "Access unavailable"
+				if summary := refusalSummary(err); summary != "" {
+					message = strings.TrimSuffix(summary, ".")
+				}
+				refuseRPC(-32603, message, "scope")
 				return
 			}
 		}
@@ -255,6 +259,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		reason, outcome := "completed", "success"
 		if callErr != nil || ctx.Err() != nil {
 			result = ToolResult{Content: []TextContent{{Type: "text", Text: "Overview unavailable"}}, IsError: true}
+			refused := refusalSummary(callErr)
 			if params.Name == "task_evidence_read" {
 				gap := "source_unavailable"
 				summary := "Task evidence is unavailable."
@@ -262,14 +267,17 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 					gap = "revision_changed_restart_required"
 					summary = "Task evidence changed. Restart this section without a cursor."
 				}
+				if refused != "" {
+					gap, summary = "access_refused", refused
+				}
 				result, _ = DiscussionResult(summary, map[string]any{"version": 1, "task_ref": "", "section": evidenceArgs.Section, "generated_at": s.now().UTC(), "revision": "", "items": []any{}, "sources": []any{}, "gaps": []string{gap}, "has_more": false, "next_cursor": ""})
 				result.IsError = true
 			}
 			if params.Name == "usage_read" {
-				result = usageFailureResult()
+				result = usageFailureResult(refused)
 			}
 			if isCodeTool(params.Name) {
-				result = codeFailureResult()
+				result = codeFailureResult(refused)
 			}
 			reason = "provider"
 			outcome = "error"
@@ -280,7 +288,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		// Only a successful task read can release evidence. Failed or canceled
 		// providers return a fixed refusal with no source facts.
 		if params.Name == "task_evidence_read" && callErr == nil && ctx.Err() == nil {
-			_, accessErr := s.db.CheckConnectorDiscussionAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, evidenceArgs.TaskRef, s.now())
+			_, _, accessErr := s.db.CheckConnectorDiscussionAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, evidenceArgs.TaskRef, s.now())
 			if accessErr != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
 				refuseRPC(-32603, "Access unavailable", "credentials")
 				return
@@ -288,7 +296,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if params.Name == "usage_read" && callErr == nil && ctx.Err() == nil {
-			if _, accessErr := s.usageAccess(ctx, credential, usageArgs); accessErr != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
+			if _, _, accessErr := s.usageAccess(ctx, credential, usageArgs); accessErr != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
 				refuseRPC(-32603, "Access unavailable", "credentials")
 				return
 			}

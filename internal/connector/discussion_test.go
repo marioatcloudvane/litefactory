@@ -123,7 +123,7 @@ func TestGuidanceCapabilityComposition(t *testing.T) {
 				return EvidencePage{}, nil
 			})
 		}
-		got, err := loadGuidance(files, s.availableTools(store.ConnectorGrant{Scope: tc.scope, Target: &store.ConnectorGrantTarget{}}))
+		got, err := loadGuidance(files, s.availableTools(store.ConnectorGrant{Scope: tc.scope}))
 		if err != nil || got != tc.want {
 			t.Fatalf("%s: %q %v", tc.scope, got, err)
 		}
@@ -177,7 +177,7 @@ func TestDiscussionCursorAndRelease(t *testing.T) {
 	}
 	for _, args := range []map[string]any{{"task_ref": target.TaskRef, "section": "questions", "cursor": cursor}, {"task_ref": target.TaskRef, "section": "status", "cursor": cursor + "x"}, {"task_ref": "github:o/r#99", "section": "status", "cursor": cursor}} {
 		response := read(args)
-		if !strings.Contains(response.Body.String(), "unavailable") || calls != 1 {
+		if !strings.Contains(response.Body.String(), "unavailable") && !strings.Contains(response.Body.String(), "Access refused") || calls != 1 {
 			t.Fatalf("bad cursor released %s", response.Body.String())
 		}
 	}
@@ -214,8 +214,25 @@ func seedDiscussionTarget(t *testing.T, db *store.DB) store.ConnectorGrantTarget
 	}
 	return target
 }
+
+// issueDiscussionTokens issues tokens for scope whose repository coverage is
+// the target's repository, or all repositories when target names none.
 func issueDiscussionTokens(t *testing.T, f *connectorFixture, client connectorTestClient, target store.ConnectorGrantTarget, scope string) (string, string) {
 	t.Helper()
+	coverage := &store.ConnectorCoverage{All: true}
+	if target.RepositoryRef != "" {
+		coverage = &store.ConnectorCoverage{Repositories: []store.ConnectorRepository{{RepositoryRef: target.RepositoryRef}}}
+	}
+	return issueCoverageTokens(t, f, client, scope, coverage, f.now.Add(24*time.Hour))
+}
+
+// issueCoverageTokens uses the real durable consent transition for scope and
+// coverage; coverage is dropped for scopes that take none.
+func issueCoverageTokens(t *testing.T, f *connectorFixture, client connectorTestClient, scope string, coverage *store.ConnectorCoverage, expires time.Time) (string, string) {
+	t.Helper()
+	if !store.ConnectorRepositoryScoped(scope) {
+		coverage = nil
+	}
 	owner, err := f.db.ConnectorOwner(t.Context(), 42)
 	if err != nil {
 		t.Fatal(err)
@@ -231,10 +248,7 @@ func issueDiscussionTokens(t *testing.T, f *connectorFixture, client connectorTe
 	if err = f.db.VerifyConnectorBrowser(t.Context(), id, b.NonceDigest, b.UpstreamStateDigest, 42, f.now); err != nil {
 		t.Fatal(err)
 	}
-	g := store.ConnectorGrant{ID: id, ClientID: client.ClientID, Resource: b.Resource, Scope: scope, OwnerID: 42, OwnerGeneration: owner.Generation, CreatedAt: f.now, ExpiresAt: f.now.Add(24 * time.Hour), Target: &target}
-	if !store.ConnectorScopeHas(scope, DiscussionScope) {
-		g.Target = nil
-	}
+	g := store.ConnectorGrant{ID: id, ClientID: client.ClientID, Resource: b.Resource, Scope: scope, OwnerID: 42, OwnerGeneration: owner.Generation, CreatedAt: f.now, ExpiresAt: expires, Coverage: coverage}
 	c := store.ConnectorCode{Digest: digest(id + "code"), GrantID: id, ClientID: client.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: scope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: f.now.Add(5 * time.Minute)}
 	if err = f.db.ConsentConnectorBrowser(t.Context(), id, b.NonceDigest, 42, f.now, g, c, true); err != nil {
 		t.Fatal(err)

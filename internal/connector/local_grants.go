@@ -13,18 +13,43 @@ import (
 // ErrGrantNotFound identifies an exact ID absent from retained grant state.
 var ErrGrantNotFound = store.ErrConnectorGrantNotFound
 
-// GrantCoverage describes the scope-specific reach of a connector grant.
+// GrantCoverage describes the scope-specific reach of a connector grant. The
+// first three fields describe factory:overview. Repositories describes the
+// task-level and repository-level scopes.
 type GrantCoverage struct {
-	AllRegisteredRepositories bool   `json:"all_registered_repositories"`
-	PrivateRepositories       bool   `json:"private_repositories"`
-	FutureRepositories        bool   `json:"future_repositories"`
-	TaskRef                   string `json:"task_ref,omitempty"`
-	CodeReview                bool   `json:"code_review"`
-	CodeRepositoryRef         string `json:"code_repository_ref,omitempty"`
-	FactoryUsage              bool   `json:"factory_usage"`
-	UsageRepositoryRef        string `json:"usage_repository_ref,omitempty"`
-	UsageTaskRef              string `json:"usage_task_ref,omitempty"`
-	UsageTaskFamily           bool   `json:"usage_task_family"`
+	AllRegisteredRepositories bool                     `json:"all_registered_repositories"`
+	PrivateRepositories       bool                     `json:"private_repositories"`
+	FutureRepositories        bool                     `json:"future_repositories"`
+	Repositories              *GrantRepositoryCoverage `json:"repositories,omitempty"`
+	CodeReview                bool                     `json:"code_review"`
+	FactoryUsage              bool                     `json:"factory_usage"`
+	UsageTaskFamily           bool                     `json:"usage_task_family"`
+}
+
+// GrantRepositoryCoverage says which repositories the grant's task-level and
+// repository-level scopes cover. The client names the task or repository on
+// each call; each call is checked against this coverage.
+type GrantRepositoryCoverage struct {
+	Scopes       []string `json:"scopes"`
+	All          bool     `json:"all"`
+	Future       bool     `json:"future_repositories"`
+	Repositories []string `json:"repositories"`
+}
+
+func grantRepositoryCoverage(g store.ConnectorLocalGrant) *GrantRepositoryCoverage {
+	if !store.ConnectorRepositoryScoped(g.Scope) {
+		return nil
+	}
+	c := &GrantRepositoryCoverage{Scopes: []string{}, All: g.AllRepositories, Future: g.AllRepositories, Repositories: []string{}}
+	for _, s := range []string{DiscussionScope, CodeReviewScope, RepositoryUsageScope, TaskUsageScope} {
+		if store.ConnectorScopeHas(g.Scope, s) {
+			c.Scopes = append(c.Scopes, s)
+		}
+	}
+	for _, r := range g.Repositories {
+		c.Repositories = append(c.Repositories, safeGrantLabel(r))
+	}
+	return c
 }
 
 // GrantAccessTokens separates issued token lifetime from renewable grant lifetime.
@@ -87,7 +112,7 @@ func (s *GrantService) ListGrantSummaries(ctx context.Context, now time.Time) ([
 	}
 	out := make([]GrantSummary, 0, len(rows))
 	for _, g := range rows {
-		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{AllRegisteredRepositories: store.ConnectorScopeHas(g.Scope, Scope), PrivateRepositories: store.ConnectorScopeHas(g.Scope, Scope), FutureRepositories: store.ConnectorScopeHas(g.Scope, Scope), TaskRef: g.TaskRef, CodeReview: store.ConnectorScopeHas(g.Scope, CodeReviewScope), CodeRepositoryRef: g.CodeRepositoryRef, FactoryUsage: store.ConnectorScopeHas(g.Scope, FactoryUsageScope), UsageRepositoryRef: g.UsageRepositoryRef, UsageTaskRef: g.UsageTaskRef, UsageTaskFamily: store.ConnectorScopeHas(g.Scope, TaskUsageScope)}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
+		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{AllRegisteredRepositories: store.ConnectorScopeHas(g.Scope, Scope), PrivateRepositories: store.ConnectorScopeHas(g.Scope, Scope), FutureRepositories: store.ConnectorScopeHas(g.Scope, Scope), Repositories: grantRepositoryCoverage(g), CodeReview: store.ConnectorScopeHas(g.Scope, CodeReviewScope), FactoryUsage: store.ConnectorScopeHas(g.Scope, FactoryUsageScope), UsageTaskFamily: store.ConnectorScopeHas(g.Scope, TaskUsageScope)}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
 	}
 	return out, nil
 }

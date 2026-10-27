@@ -327,11 +327,15 @@ func (s *Server) openUsage(raw string) (usageCursor, error) {
 	return c, nil
 }
 
-func (s *Server) usageAccess(ctx context.Context, credential string, a usageArguments) (store.ConnectorGrant, error) {
-	return s.db.CheckConnectorUsageAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, a.permission(), a.Repository, a.taskRef(), s.now())
+func (s *Server) usageAccess(ctx context.Context, credential string, a usageArguments) (store.ConnectorGrant, store.ConnectorUsageTarget, error) {
+	g, t, err := s.db.CheckConnectorUsageAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, a.permission(), a.Repository, a.taskRef(), s.now())
+	if err != nil {
+		return g, t, accessError(err, "usage access unavailable")
+	}
+	return g, t, nil
 }
 func (s *Server) readUsage(ctx context.Context, credential string, a usageArguments) (result ToolResult, err error) {
-	grant, err := s.usageAccess(ctx, credential, a)
+	grant, target, err := s.usageAccess(ctx, credential, a)
 	if err != nil {
 		return result, err
 	}
@@ -362,10 +366,10 @@ func (s *Server) readUsage(ctx context.Context, credential string, a usageArgume
 			return result, e
 		}
 		if a.Scope != "factory" {
-			if len(grant.UsageTargets) != 1 {
+			if target.RepoID == 0 {
 				return result, errors.New("usage target unavailable")
 			}
-			f.RepoID = grant.UsageTargets[0].RepoID
+			f.RepoID = target.RepoID
 		}
 		f.IncludeStories = a.Scope == "task"
 		p, e := s.usage.Usage(ctx, UsageRequest{Repository: a.Repository, Filter: f, View: a.View, By: a.By, Empty: f.TimeFrom != nil && f.TimeTo != nil && f.TimeFrom.Equal(*f.TimeTo)})
@@ -443,7 +447,7 @@ func (s *Server) readUsage(ctx context.Context, credential string, a usageArgume
 	}
 	// Recheck immediately before returning the buffered projection; the transport
 	// performs another check immediately before serializing the final envelope.
-	if _, err = s.usageAccess(ctx, credential, a); err != nil || ctx.Err() != nil || v.projection.Policy != s.usage.PolicyID() || !s.now().Before(v.expires) {
+	if _, _, err = s.usageAccess(ctx, credential, a); err != nil || ctx.Err() != nil || v.projection.Policy != s.usage.PolicyID() || !s.now().Before(v.expires) {
 		return ToolResult{}, errors.New("usage access unavailable")
 	}
 	if a.Cursor == "" && usageHasMore(result) {
@@ -507,8 +511,11 @@ func usageOutputSchema() map[string]any {
 	return map[string]any{"type": "object", "required": []string{"summary", "evidence"}, "additionalProperties": false, "properties": map[string]any{"summary": map[string]any{"type": "string", "maxLength": 1000}, "evidence": map[string]any{"type": "object", "required": []string{"version", "scope", "bounds", "revision", "totals", "records", "price_basis", "gaps", "items", "has_more", "next_cursor"}, "properties": map[string]any{"items": map[string]any{"type": "array", "maxItems": 50, "items": map[string]any{"type": "object"}}, "has_more": map[string]any{"type": "boolean"}, "next_cursor": map[string]any{"type": "string"}}}}}
 }
 
-func usageFailureResult() ToolResult {
-	r, _ := DiscussionResult("Recorded usage is unavailable. Narrow the selection, or restart without a cursor if the previous view has ended.", map[string]any{"version": 1, "scope": "unavailable", "repository": "", "issue": 0, "bounds": usageBounds{Zone: "UTC", FromInclusive: true, ToExclusive: true}, "revision": "", "totals": map[string]any{"estimated_usd": nil, "priced_subtotal_usd": nil, "collection_status": "unknown", "pricing_status": "unknown"}, "records": 0, "price_basis": []any{}, "gaps": []string{"usage_unavailable_restart_or_narrow"}, "items": []any{}, "has_more": false, "next_cursor": ""})
+func usageFailureResult(summary string) ToolResult {
+	if summary == "" {
+		summary = "Recorded usage is unavailable. Narrow the selection, or restart without a cursor if the previous view has ended."
+	}
+	r, _ := DiscussionResult(summary, map[string]any{"version": 1, "scope": "unavailable", "repository": "", "issue": 0, "bounds": usageBounds{Zone: "UTC", FromInclusive: true, ToExclusive: true}, "revision": "", "totals": map[string]any{"estimated_usd": nil, "priced_subtotal_usd": nil, "collection_status": "unknown", "pricing_status": "unknown"}, "records": 0, "price_basis": []any{}, "gaps": []string{"usage_unavailable_restart_or_narrow"}, "items": []any{}, "has_more": false, "next_cursor": ""})
 	r.IsError = true
 	return r
 }

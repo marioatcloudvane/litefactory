@@ -62,37 +62,11 @@ func seedCodeProtocolTarget(t *testing.T, db *store.DB) store.ConnectorCodeTarge
 
 func issueCodeProtocolTokens(t *testing.T, f *connectorFixture, client connectorTestClient, target store.ConnectorCodeTarget, expires time.Time) (string, string) {
 	t.Helper()
-	owner, err := f.db.ConnectorOwner(t.Context(), 42)
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, err := randomCredential()
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := DiscussionScope + " " + CodeReviewScope
-	b := store.ConnectorBrowser{ID: id, ClientID: client.ClientID, RedirectURI: "https://client.example/callback", Resource: f.options.Config.ResourceURL, Scope: scope, PKCEChallenge: digest("verifier"), NonceDigest: digest(id + "nonce"), UpstreamStateDigest: digest(id + "upstream"), OwnerGeneration: owner.Generation, ExpiresAt: f.now.Add(10 * time.Minute)}
-	if err = f.db.CreateConnectorBrowser(t.Context(), b, 42, f.now); err != nil {
-		t.Fatal(err)
-	}
-	if err = f.db.VerifyConnectorBrowser(t.Context(), id, b.NonceDigest, b.UpstreamStateDigest, 42, f.now); err != nil {
-		t.Fatal(err)
-	}
 	discussion, err := f.db.ResolveConnectorDiscussionTarget(t.Context(), target.TaskRef)
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := store.ConnectorGrant{ID: id, ClientID: client.ClientID, Resource: b.Resource, Scope: scope, OwnerID: 42, OwnerGeneration: owner.Generation, CreatedAt: f.now, ExpiresAt: expires, Target: &discussion, CodeTarget: &target}
-	c := store.ConnectorCode{Digest: digest(id + "code"), GrantID: id, ClientID: client.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: scope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: f.now.Add(5 * time.Minute)}
-	if err = f.db.ConsentConnectorBrowser(t.Context(), id, b.NonceDigest, 42, f.now, g, c, true); err != nil {
-		t.Fatal(err)
-	}
-	token := id + "access"
-	_, err = f.db.ExchangeConnectorCode(t.Context(), store.ConnectorExchange{Digest: c.Digest, ClientID: client.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, OwnerID: 42, PKCEChallenge: b.PKCEChallenge, Now: f.now, Pair: store.ConnectorTokenPair{AccessDigest: digest(token), RefreshDigest: digest(id + "refresh"), AccessExpiresAt: f.now.Add(15 * time.Minute)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return token, id
+	return issueCoverageTokens(t, f, client, DiscussionScope+" "+CodeReviewScope, &store.ConnectorCoverage{Repositories: []store.ConnectorRepository{{RepositoryRef: discussion.RepositoryRef}}}, expires)
 }
 
 func TestCodeReviewStrictArguments(t *testing.T) {
@@ -294,22 +268,16 @@ func TestCodeReviewGuidanceCapabilities(t *testing.T) {
 	for _, name := range append([]string{"factory_overview", "task_evidence_read", "usage_read"}, codeToolNames...) {
 		files["guidance/"+name+".md"] = &fstest.MapFile{Data: []byte(fmt.Sprintf("fixture for %s", name))}
 	}
-	target := &store.ConnectorCodeTarget{TaskRef: "task", SessionID: 1, RepoID: 1}
-	discussion := &store.ConnectorGrantTarget{TaskRef: "task", SessionID: 1, RepoID: 1}
 	for _, tc := range []struct {
-		scope              string
-		installed, binding bool
-		count              int
-	}{{DiscussionScope + " " + CodeReviewScope, true, true, 6}, {DiscussionScope + " " + CodeReviewScope, false, true, 0}, {DiscussionScope, true, true, 0}, {CodeReviewScope, true, true, 0}, {Scope, true, true, 0}, {DiscussionScope + " " + CodeReviewScope, true, false, 0}} {
+		scope     string
+		installed bool
+		count     int
+	}{{DiscussionScope + " " + CodeReviewScope, true, 6}, {DiscussionScope + " " + CodeReviewScope, false, 0}, {DiscussionScope, true, 0}, {CodeReviewScope, true, 0}, {Scope, true, 0}} {
 		s := &Server{}
 		if tc.installed {
 			s.codeEvidence = provider
 		}
-		g := store.ConnectorGrant{Scope: tc.scope, Target: discussion}
-		if tc.binding {
-			g.CodeTarget = target
-		}
-		names := s.availableTools(g)
+		names := s.availableTools(store.ConnectorGrant{Scope: tc.scope, Coverage: &store.ConnectorCoverage{All: true}})
 		if len(names) != tc.count {
 			t.Fatalf("scope %s capabilities %v", tc.scope, names)
 		}
@@ -320,7 +288,7 @@ func TestCodeReviewGuidanceCapabilities(t *testing.T) {
 	s := &Server{codeEvidence: provider, overview: connectorFixtureOverview(func(context.Context, json.RawMessage) (ToolResult, error) { return ToolResult{}, nil }), taskEvidence: fixtureEvidence(func(context.Context, store.ConnectorGrantTarget, EvidenceRequest) (EvidencePage, error) {
 		return EvidencePage{}, nil
 	})}
-	names := s.availableTools(store.ConnectorGrant{Scope: Scope + " " + DiscussionScope + " " + CodeReviewScope, Target: discussion, CodeTarget: target})
+	names := s.availableTools(store.ConnectorGrant{Scope: Scope + " " + DiscussionScope + " " + CodeReviewScope, Coverage: &store.ConnectorCoverage{All: true}})
 	if !reflect.DeepEqual(names, append([]string{"factory_overview", "task_evidence_read"}, codeToolNames...)) {
 		t.Fatalf("combined guidance %v", names)
 	}

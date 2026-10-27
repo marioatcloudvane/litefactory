@@ -135,7 +135,7 @@ func TestUsageBoundaryDeniesBeforeProviderAndWithholdsRevokedOutput(t *testing.T
 	}}
 	f, s, token, id := usageTestServer(t, p)
 	a := usageTestArgs(t, `{"scope":"repository","repository":"github:acme/api"}`)
-	if _, err := s.readUsage(t.Context(), token, a); !errors.Is(err, store.ErrConnectorScope) || calls != 0 {
+	if _, err := s.readUsage(t.Context(), token, a); refusalSummary(err) != "Access refused: this grant does not include repository:usage." || calls != 0 {
 		t.Fatalf("pre-query scope denial calls=%d err=%v", calls, err)
 	}
 	a = usageTestArgs(t, `{"scope":"factory","view":"details","limit":1}`)
