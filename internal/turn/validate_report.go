@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/coverage"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -29,6 +30,23 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	rows := validateStoryRows(st, target)
 	fmt.Fprintf(&b, "%s **Validate report** · commit `%s` · suite %s · revision `%s`\n\n", validateOverallLight(st, rows), short(st.Commit), st.Suite.Outcome, st.Revision)
 	b.WriteString("Delivery: " + deliveryText(st, target) + "\n\n")
+	if st.Suite.AssessmentID != "" {
+		fmt.Fprintf(&b, "Coverage assessment `%s` (digest `%s`). Failed executions remain failed.\n\n", st.Suite.AssessmentID, st.Suite.AssessmentDigest)
+		if m := st.Suite.Assessment; m != nil && m.Commit == st.Commit && coverage.Digest(m) == st.Suite.AssessmentDigest {
+			fmt.Fprintf(&b, "Earlier suite commit: `%s`; pinned comparison commit: `%s`. Measured validation duration: %s.\n\n", m.PreviousCommit, m.BaseCommit, m.Duration.Round(time.Millisecond))
+			if m.FullReason != "" {
+				fmt.Fprintf(&b, "Full execution reason: %s\n\n", planTableCell(m.FullReason))
+			}
+			if m.FullDuration > 0 && m.Duration > 0 && m.Duration < m.FullDuration {
+				fmt.Fprintf(&b, "Estimated savings against comparable full execution (%s): %s.\n\n", m.FullDuration.Round(time.Millisecond), (m.FullDuration - m.Duration).Round(time.Millisecond))
+			}
+			b.WriteString("| Unit | Evidence | Original commit | Source | Reason |\n|---|---|---|---|---|\n")
+			for _, r := range m.Results {
+				fmt.Fprintf(&b, "| %s | %s | `%s` | `%s` | %s |\n", planTableCell(r.Unit), planTableCell(r.Kind), r.Origin.Commit, r.Origin.Evidence, planTableCell(r.Reason))
+			}
+			b.WriteString("\n")
+		}
+	}
 	if st.DeliveryCommit != "" {
 		fmt.Fprintf(&b, "Displayed delivery commit: `%s`. Test evidence remains bound to `%s`.\n\n", st.DeliveryCommit, st.Commit)
 	}
@@ -50,7 +68,7 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 			fmt.Fprintf(&b, "Return reviewed work to Implement: `%s %s -- <requested change>`.\n\n", action, ref)
 		}
 	}
-	if roles, _ := st.notReviewed(); len(roles) > 0 && st.Suite.Outcome == store.SuitePassed {
+	if roles, _ := st.notReviewed(); len(roles) > 0 && suiteCoverageSatisfied(st.Suite) {
 		b.WriteString("To rerun the missing reviews: " + validateRetryStep(st.Commit) + "\n\n")
 	}
 	if legacy := st.implementLine(); legacy != "" {
@@ -66,7 +84,7 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		b.WriteString("> [!CAUTION]\n> Something blocks delivery: see the red rows below.\n\n")
 	}
 	switch {
-	case st.Suite.Outcome != store.SuitePassed:
+	case !suiteCoverageSatisfied(st.Suite):
 		suite := "The full suite " + st.Suite.Outcome
 		if st.Suite.RunID != 0 {
 			suite += fmt.Sprintf(" (suite run %d)", st.Suite.RunID)
@@ -247,7 +265,7 @@ func validateStoryLight(st ValidateState, findings []ValidateFinding) string {
 // validateOverallLight is the worst state of the run: red when the suite did
 // not pass or a story blocks, green when delivery may go ahead, else yellow.
 func validateOverallLight(st ValidateState, rows []validateStoryRow) string {
-	if st.Suite.Outcome != store.SuitePassed {
+	if !suiteCoverageSatisfied(st.Suite) {
 		return lightRed
 	}
 	light := lightGreen

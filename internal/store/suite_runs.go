@@ -158,15 +158,16 @@ func (db *DB) LatestSuiteRun(ctx context.Context, instanceID int64, commit strin
 
 // ReuseSuiteRun copies the newest passed attempt of another instance on the
 // same commit, with its commands, into instanceID as that instance's next
-// attempt. The commit fixes the recipe, so the result still holds. No passed
-// attempt is ErrNotFound.
+// attempt. Coverage-contract runs are excluded: their raw passing commands may
+// cover only a selected subset and cannot establish a legacy full-suite pass.
+// No eligible passed attempt is ErrNotFound.
 func (db *DB) ReuseSuiteRun(ctx context.Context, instanceID int64, node, commit string, at time.Time) (SuiteRun, error) {
 	if instanceID < 1 || node == "" || len(commit) != 40 && len(commit) != 64 || at.IsZero() {
 		return SuiteRun{}, fmt.Errorf("store: invalid suite run reuse")
 	}
 	var out SuiteRun
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		src, err := scanSuiteRun(tx.QueryRowContext(ctx, `SELECT `+suiteRunColumns+` FROM suite_runs WHERE commit_sha=? AND state='passed' AND instance_id<>? ORDER BY id DESC LIMIT 1`, commit, instanceID))
+		src, err := scanSuiteRun(tx.QueryRowContext(ctx, `SELECT `+suiteRunColumns+` FROM suite_runs WHERE commit_sha=? AND state='passed' AND instance_id<>? AND NOT EXISTS (SELECT 1 FROM validation_evidence WHERE validation_evidence.run_id=suite_runs.id) ORDER BY id DESC LIMIT 1`, commit, instanceID))
 		if err != nil {
 			return err
 		}

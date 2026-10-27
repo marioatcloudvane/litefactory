@@ -372,7 +372,7 @@ func shortenFindingText(text string, limit int) string {
 // has a choice and no issue creation is pending, failed or uncertain.
 func (s *ValidateState) computeReadiness() {
 	s.Open = nil
-	suiteFailed := s.Suite.Outcome != store.SuitePassed
+	suiteFailed := !suiteCoverageSatisfied(s.Suite)
 	if suiteFailed {
 		blocker := fmt.Sprintf("The suite did not pass on commit `%s` (%s).", short(s.Commit), s.Suite.Outcome)
 		if cause := s.suiteCause(); cause != "" {
@@ -473,7 +473,7 @@ func (s ValidateState) revision() string {
 	h := sha256.New()
 	_, factualDigest := s.shippingEvidence()
 	fmt.Fprintf(h, "evidence=%s\n", factualDigest)
-	fmt.Fprintf(h, "run=%d\ncommit=%s\nsuite=%s\noutcome=%s\n", s.InstanceID, s.Commit, s.Suite.Outcome, s.Outcome)
+	fmt.Fprintf(h, "run=%d\ncommit=%s\nsuite=%s\noutcome=%s\nassessment=%s/%s\n", s.InstanceID, s.Commit, s.Suite.Outcome, s.Outcome, s.Suite.AssessmentID, s.Suite.AssessmentDigest)
 	for _, c := range s.Candidates {
 		fmt.Fprintf(h, "candidate=%s|%s|%s|%s\n", c.ID, c.ReviewDigest, c.Resolution, c.ResultCommit)
 	}
@@ -537,4 +537,20 @@ func validateNumbers(numbers []int) string {
 		parts[i] = strconv.Itoa(n)
 	}
 	return strings.Join(parts, " ")
+}
+
+// suiteCoverageSatisfied requires a bound immutable assessment for covered outcomes.
+func suiteCoverageSatisfied(s validateSuiteOutput) bool {
+	if s.Outcome == store.SuitePassed {
+		return true
+	}
+	if s.Outcome != "covered" || s.AssessmentID == "" || !isFullSHA(s.Commit) || len(s.AssessmentDigest) != 64 {
+		return false
+	}
+	for _, c := range s.AssessmentDigest {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
