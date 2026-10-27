@@ -226,6 +226,14 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	grant := store.ConnectorGrant{ID: grantID, ClientID: b.ClientID, Resource: b.Resource, Scope: grantScope, OwnerID: s.cfg.OwnerID, OwnerGeneration: b.OwnerGeneration, CreatedAt: now, ExpiresAt: grantExpires}
+	if allow && store.ConnectorScopeHas(grantScope, DiscussionScope) {
+		target, err := s.db.ResolveConnectorDiscussionTarget(r.Context(), form.Get("task_ref"))
+		if err != nil {
+			storeOAuthError(w, err)
+			return
+		}
+		grant.Target = &target
+	}
 	authorizationCode := store.ConnectorCode{Digest: digest(code), GrantID: grantID, ClientID: b.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: grantScope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: now.Add(5 * time.Minute)}
 	if err := s.db.ConsentConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, now, grant, authorizationCode, allow); err != nil {
 		storeOAuthError(w, err)

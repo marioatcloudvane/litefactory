@@ -13,11 +13,12 @@ import (
 // ErrGrantNotFound identifies an exact ID absent from retained grant state.
 var ErrGrantNotFound = store.ErrConnectorGrantNotFound
 
-// GrantCoverage describes the repository reach shared by connector grants.
+// GrantCoverage describes the scope-specific reach of a connector grant.
 type GrantCoverage struct {
-	AllRegisteredRepositories bool `json:"all_registered_repositories"`
-	PrivateRepositories       bool `json:"private_repositories"`
-	FutureRepositories        bool `json:"future_repositories"`
+	AllRegisteredRepositories bool   `json:"all_registered_repositories"`
+	PrivateRepositories       bool   `json:"private_repositories"`
+	FutureRepositories        bool   `json:"future_repositories"`
+	TaskRef                   string `json:"task_ref,omitempty"`
 }
 
 // GrantAccessTokens separates issued token lifetime from renewable grant lifetime.
@@ -80,7 +81,7 @@ func (s *GrantService) ListGrantSummaries(ctx context.Context, now time.Time) ([
 	}
 	out := make([]GrantSummary, 0, len(rows))
 	for _, g := range rows {
-		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{true, true, true}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
+		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{AllRegisteredRepositories: store.ConnectorScopeHas(g.Scope, Scope), PrivateRepositories: store.ConnectorScopeHas(g.Scope, Scope), FutureRepositories: store.ConnectorScopeHas(g.Scope, Scope), TaskRef: g.TaskRef}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
 	}
 	return out, nil
 }

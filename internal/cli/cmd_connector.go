@@ -172,6 +172,9 @@ func writeConnectorGrantSummaries(env *Env, home string, snapshot time.Time, gra
 	}
 	for _, grant := range grants {
 		fmt.Fprintf(&out, "\nGrant: %q\nClient: %q (%q)\nScope: %q\nResource: %q\n", grant.ID, grant.ClientID, grant.ClientName, grant.Scope, grant.Resource)
+		if grant.Coverage.TaskRef != "" {
+			fmt.Fprintf(&out, "Discussion task: %q\n", grant.Coverage.TaskRef)
+		}
 		fmt.Fprintf(&out, "Repository coverage: all registered repositories=%t; private repositories=%t; future registrations=%t\n", grant.Coverage.AllRegisteredRepositories, grant.Coverage.PrivateRepositories, grant.Coverage.FutureRepositories)
 		fmt.Fprintf(&out, "Created at: %s\nGrant expires at: %s\nRenewable: %t\nEffective status: %s (does not indicate daemon availability)\n", connectorGrantTime(grant.CreatedAt), connectorGrantTime(grant.ExpiresAt), grant.Renewable, grant.Status)
 		if grant.RevokedAt != nil {

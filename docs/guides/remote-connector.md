@@ -9,7 +9,7 @@ serving stays closed until **Local control of connector grants (#1187)** registe
 a working local command host with trusted daemon composition. Setting
 `enabled: true` cannot bypass that gate. **Factory overview in Claude and ChatGPT
 (#1188)** supplies the overview projection and verifies both hosted clients.
-Without a projection, authenticated `tools/list` returns an empty list. These
+Without an authorized installed projection, authenticated `tools/list` returns an empty list. These
 instructions do not establish hosted-client compatibility or deploy a proxy.
 
 ## Prerequisites
@@ -128,21 +128,34 @@ Each new grant requires fresh GitHub verification and an explicit Allow action.
 The escaped consent page shows, in separate cards: who is asking (the client
 name, marked as client supplied and unverified, the client ID and the redirect
 host); what it can access (the exact resource, one pre-ticked checkbox per
-requested scope with a one-line explanation, and the note that access covers all
-registered repositories, including private and future registrations); how long
-(the grant duration); and the Allow and Deny actions. The page uses only its own
+requested scope with a one-line explanation, and coverage specific to each
+scope); how long (the grant duration); and the Allow and Deny actions. The page uses only its own
 fixed inline style and script, allowed by hash in its Content-Security-Policy.
 Browser cookies use authenticated encryption, Secure, HttpOnly and
 SameSite=Lax. Cookies never authorize MCP. Denial and failed sign-in issue no
 connector grant.
 
 The authorization request's `scope` is a space-separated list of known scopes;
-today the only one is `factory:overview`. Allow requires at least one ticked
-scope; the script disables Allow when none is ticked, and the server refuses an
+the available scopes are `factory:overview` and `task:discussion`. Allow requires
+at least one ticked scope; the script disables Allow when none is ticked, and the server refuses an
 Allow without a scope, or with a scope that is unknown or was not requested,
 with 400 `invalid_scope` and no grant. The grant records the ticked scopes as a
-space-separated string. Every MCP request requires a grant that includes
-`factory:overview`; any other grant is refused with 403 `insufficient_scope`.
+space-separated string. `factory:overview` permits factory-wide overview facts
+across all registered repositories, including private and future registrations.
+`task:discussion` permits recorded evidence for one existing task selected on the
+consent form, such as `github:owner/repository#123`. Enter its canonical reference;
+it must already have a local factory session in a registered repository. Consent
+does not create a session or fetch the issue. Allow atomically records the grant,
+authorization code and immutable task binding. Neither sign-in nor a pending
+consent exposes task evidence.
+
+The scopes are independent: an overview grant gains no task discussion access,
+and a discussion grant grants no overview access. A combined grant contains both
+permissions but still binds discussion to only one task. Changing tasks requires
+fresh owner consent; refresh cannot change the target. Deleting or rebinding the
+local task or repository denies discussion rather than silently binding a reused
+issue number. Later recorded evidence for the same retained task is readable
+until expiry, revocation or owner-authority invalidation.
 
 The owner chooses the grant duration: 1, 3, 6, 12 or 24 months, default 1. A
 month is a calendar month in UTC: the expiry is the consent time plus
@@ -167,21 +180,36 @@ client cannot revoke it. Success, repeated requests and unknown tokens have the
 same empty 200 response. Invalid client authentication and cross-client requests
 are refused. Grant ID lookup, revoke-all and grant administration stay local.
 Durable revocation is checked on each protected request admitted after commit;
-it cannot retract bytes already returned.
+it cannot retract bytes already returned. Discussion rechecks authorization
+before each page and before releasing its response. Revoking a discussion-only
+grant leaves separately consented overview grants unchanged; revoking a combined
+grant ends both permissions held by that grant.
 
 ## Protocol, limits and diagnostics
 
 Every MCP request, including initialize, ping and listing, requires a
-factory-issued Bearer token for the exact resource whose grant includes the
-`factory:overview` scope. Initialization
-negotiates `2025-06-18` or `2025-11-25`; subsequent requests must include a supported
+factory-issued Bearer token for the exact resource and current installation
+owner. Initialization negotiates `2025-06-18` or `2025-11-25`; subsequent requests must include a supported
 `MCP-Protocol-Version`. Send JSON with `Accept: application/json, text/event-stream`.
 Responses are request-scoped JSON, notifications receive 202, authenticated GET
-receives 405, and no protocol session is issued. The only optional tool is
-`factory_overview`, accepting an empty object.
+receives 405, and no protocol session is issued. `factory_overview` accepts an
+empty object and requires `factory:overview`. `task_evidence_read` requires
+`task:discussion` and the consented task binding. Discovery lists only installed,
+authorized tools, and direct calls enforce the same permissions. Initialize
+instructions name only those tools and their distinct uses: overview questions
+use `factory_overview`; selected-task questions and supporting evidence use
+`task_evidence_read`. Reinitialize after fresh consent to receive current guidance.
+No grant or initialization cache expands another grant's permissions.
 
-The application enforces 64 KiB bodies, 256 KiB serialized MCP responses,
-2 requests/second per source with burst 10, 10/second globally with burst 30,
+Task discussion supplies a deterministic factual summary of at most 1,000 Unicode
+code points after redaction, including any truncation marker. Its complete
+serialized UTF-8 JSON-RPC response is at most 128 KiB (131,072 bytes), including
+envelope, metadata, escaped text, continuations and both text and structured
+representations. The common discussion serializer supports the same contract for
+future discussion tools; this story installs only task discussion. The existing
+overview response ceiling remains 256 KiB.
+
+The application enforces 64 KiB bodies, 2 requests/second per source with burst 10, 10/second globally with burst 30,
 32 handlers, four simultaneous tool reads, a 15-second tool context and a
 20-second request context. HTTP header/read/write/idle timeouts are 3/5/25/30
 seconds. GitHub requests have a 10-second deadline. Capacity refusals return
@@ -201,6 +229,50 @@ reading the body; malformed/unknown tool names use `unknown`. No credentials,
 codes, cookie contents, request bodies, query strings or overview content are
 logged. Dependency errors are sanitized. A failed store or owner check denies
 access; it never enables anonymous operation.
+
+## Discussing a selected task
+
+Connect and allow `task:discussion` for the existing task you want to discuss.
+Ask what needs attention; ask for supporting evidence when you want the recorded
+basis. The client uses `task_evidence_read` with `task_ref` and one `section`:
+`status`, `results`, `questions`, `research`, `plan` or `approvals`. An optional
+`limit` is an integer from 1 to 50. Arbitrary paths, URLs, unknown arguments and
+duplicate arguments are refused. This access cannot edit evidence, answer a
+workflow question, approve a Plan, change modes or start work; use the existing
+owner workflows for those actions.
+
+Evidence includes source references, revisions and observation times, with
+explicit gaps for missing, archived-only, unlinked, unsupported or unreadable
+records. Different sections can have different observation times; they are not
+one atomic snapshot of the whole task. A story's parent-owned evidence is limited
+to that story and necessary shared decisions. Sibling and dependency details
+outside the task grant remain withheld and are identified as gaps.
+
+Questions retain recorded choices and recommendations, answers, waiting status
+and original revision bindings. Their current, stale or unknown applicability is
+separate from whether a wait remains recorded. A newer candidate or shared review
+can make an unanswered recorded question stale; missing or incomparable bindings
+make applicability unknown. Recorded approval is distinguished from a draft or
+missing evidence, and is current only when its saved basis still matches.
+Engineering completion, acceptance and publication are separate recorded facts.
+
+Each evidence page contains at most 50 items within a 64 KiB page budget. Follow
+`next_cursor` only while `has_more` is true, using the same task, section and grant.
+Cursors are protected, advancing, time-limited and revision-bound. If evidence
+changes, restart without a cursor; do not combine old pages with the new revision.
+An oversized unreadable item is an explicit gap and does not prevent later
+readable evidence from being reached. Capacity or redaction failure refuses the
+read safely rather than returning raw evidence. Credentials and host paths are
+protected in text, links, metadata and structured output; audit records contain
+safe identifiers and outcomes rather than evidence content.
+
+To confirm access has ended, revoke the relevant grant locally and ask the client
+for fresh supporting evidence. The new read must be denied. This cannot erase
+evidence already delivered to or retained by the client.
+
+These instructions describe the supported contract. They do not claim a completed
+Claude or ChatGPT walkthrough; hosted-client verification needs its own configured
+test installation, owner consent and captured client/version results.
 
 ## Sibling interfaces
 
