@@ -124,3 +124,24 @@ Evidence:
 
 - `internal/store/suite_runs.go:39`
 - `docs/workflow/validate.md:24`
+
+## f16
+
+Source profiles cover Go, Python/FastAPI with pytest, .NET web with explicit VSTest or Microsoft.Testing.Platform selection, and Swift/iOS with xcodebuild test; Python's profile also invokes optional npm test scripts without identifying their underlying runner.
+
+Evidence:
+
+- `teams/source/python-fastapi/stack-profile.json:87`
+- `teams/source/dotnet-web/stack-profile.json:37`
+- `teams/source/swift-ios/stack-profile.json:55`
+- `teams/source/go-development/stack-profile.json:1`
+
+## f17
+
+Configuration currently accepts only the go-test failure parser, so multi-ecosystem execution adds parser/selection capability beyond the existing Go contract; compatibility must keep old declarations valid without replacing repositories' full recipes.
+
+Evidence:
+
+- `internal/config/bug_checks.go:30`
+- `internal/config/bug_checks.go:111`
+- `docs/bug-checks.md:39`
