@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"slices"
 	"strings"
@@ -19,9 +20,11 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Scope is the read authority behind the factory_overview tool. Every MCP
-// request requires a grant whose scope contains it.
+// Scope is the read authority behind the factory_overview tool.
 const Scope = "factory:overview"
+
+// DiscussionScope authorizes evidence for exactly one consented task.
+const DiscussionScope = "task:discussion"
 
 // ScopeInfo names one scope the connector can issue and says in one plain line
 // what it allows. The consent page shows the description next to the scope.
@@ -30,6 +33,7 @@ type ScopeInfo struct{ Name, Description string }
 // KnownScopes lists every scope the connector can issue, in display order. A
 // client may request any non-empty subset; the owner ticks which to grant.
 var KnownScopes = []ScopeInfo{
+	{Name: DiscussionScope, Description: "Read recorded status, results, questions, research, Plan and approval evidence for the one selected task. Read-only; it cannot change work or grant workflow approval."},
 	{Name: Scope, Description: "Read the factory overview: health, current activity, open owner questions and reviews, and last week's publications. Read-only; it cannot change factory work."},
 }
 
@@ -74,6 +78,7 @@ type Options struct {
 	Now          func() time.Time
 	LocalControl *LocalControl
 	Overview     OverviewProvider
+	TaskEvidence TaskEvidenceProvider
 	GitHub       GitHubIdentityProvider
 	CookieKey    []byte
 	GitHubSecret string
@@ -87,6 +92,8 @@ type Server struct {
 	now          func() time.Time
 	localControl *LocalControl
 	overview     OverviewProvider
+	taskEvidence TaskEvidenceProvider
+	guidance     fs.FS
 	github       GitHubIdentityProvider
 	cookie       cipher.AEAD
 	transport    *transportState
@@ -132,7 +139,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		github = &GitHubProvider{ClientID: opts.Config.GitHubClientID, ClientSecret: opts.GitHubSecret}
 	}
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
-	return &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, github: github, cookie: aead, transport: newTransportState()}, nil
+	return &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}, nil
 }
 
 func randomCredential() (string, error) {

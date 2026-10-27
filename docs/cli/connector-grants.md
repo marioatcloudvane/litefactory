@@ -27,17 +27,27 @@ filesystem permissions are the authority for this administration.
 
 List and inspect show the same safe summary for each retained grant: stable grant
 and client IDs, an escaped bounded client display name, permitted scope, resource,
-repository coverage, creation and absolute grant expiry, renewable status,
-effective status, and recorded revocation time and reason. List includes retained
+repository coverage and any selected discussion task, creation and absolute grant
+expiry, renewable status, effective status, and recorded revocation time and reason. List includes retained
 revoked and expired records, ordered by creation time and then ID. Records remain
 subject to the connector's normal cleanup; this is not an indefinite audit log.
 Times are UTC and output includes a snapshot time.
 
-Connector access covers **all registered repositories, including private
-repositories and repositories registered in the future**. An active status means
-the grant passes the persisted authority and lifetime checks, not that the daemon
+Coverage follows the granted scopes. `factory:overview` covers **all registered
+repositories, including private repositories and future registrations**.
+`task:discussion` covers only its selected canonical task, shown as
+`coverage.task_ref` in JSON and as the discussion task in text. It includes later
+recorded evidence for that same task but gives no access to other tasks, usage or
+repository code. Combined grants show both kinds of coverage; changing the task
+requires fresh consent, and token refresh preserves the original target.
+
+An active status means the grant passes the persisted authority and lifetime checks, not that the daemon
 is running or reachable. A changed or missing owner authority invalidates access;
-local inspection and revocation remain available.
+local inspection and revocation remain available. Family status does not establish
+that a discussion target or evidence source is still available: a deleted,
+missing or rebound target denies discussion even while independently authorized
+overview access can remain usable. Discovery and every evidence read enforce the
+current target binding.
 
 The renewable grant's absolute lifetime is the duration the owner chose on the
 consent page: 1, 3, 6, 12 or 24 calendar months (UTC), default 1. The expiry
@@ -56,8 +66,11 @@ authorization codes, cookies or raw authorization records.
 Successful revocation is reported only after the database confirms commit. The
 very next protected request using any token under that grant is refused,
 including on an already connected client; renewal is refused too. Reconnecting
-or restarting the daemon does not restore access. Already admitted requests and
-bytes already returned cannot be recalled.
+or restarting the daemon does not restore access. Discussion reads recheck
+authority before each page and response release.
+Bytes already returned cannot be recalled. Revoking a discussion-only grant does
+not revoke another overview grant. Revoking a combined grant ends both of its
+permissions; inspect the scopes before choosing the target.
 
 `revoke` reports whether it changed the selected grant or it was already revoked.
 A known expired grant can still be marked revoked. `revoke-all` reports the number
@@ -83,6 +96,12 @@ a failed command does not prove access remains available. These guarantees cover
 application crashes and daemon/process restarts. SQLite's current
 `synchronous=NORMAL` setting does not promise to preserve the latest commit after
 whole-machine power loss; restoring an old backup can also restore older state.
+
+For a discussion-only client, connect and consent to one existing task, ask what
+needs attention, request supporting evidence, then revoke that grant and confirm
+a fresh evidence request is denied. The connector provides six evidence sections,
+short summaries, finite continuation pages and explicit gaps; see the
+[remote connector guide](../guides/remote-connector.md#discussing-a-selected-task).
 
 See the [command reference](command-reference.md#connector-grants) or
 [CLI index](README.md).

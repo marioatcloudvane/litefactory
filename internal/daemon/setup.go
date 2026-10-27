@@ -39,6 +39,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/standardsexceptions"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/taskevidence"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 	"github.com/cloudvane/litefactory/internal/webhook"
@@ -56,7 +57,8 @@ type Setup struct {
 	// Open installs the shipped service when remote serving is enabled and this is nil.
 	ConnectorControl *connector.LocalControl
 	// ConnectorOverview supplies only the remote read projection.
-	ConnectorOverview connector.OverviewProvider
+	ConnectorOverview     connector.OverviewProvider
+	ConnectorTaskEvidence connector.TaskEvidenceProvider
 	// BuildVersion identifies the running process; FactorySource is set only when known.
 	BuildVersion  string
 	FactorySource string
@@ -368,6 +370,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 
 	if s.Config.RemoteConnector.Enabled && s.ConnectorOverview == nil {
 		s.ConnectorOverview = overview.New(s.DB, sharedRedactor, s.Now, s.Paths.Home())
+	}
+	if s.Config.RemoteConnector.Enabled && s.ConnectorTaskEvidence == nil {
+		s.ConnectorTaskEvidence = taskevidence.New(s.DB, sharedRedactor, s.Now, s.Paths.Home())
 	}
 	remoteConnector, connectorErr := prepareFactoryRemoteConnector(ctx, s)
 	if connectorErr != nil {

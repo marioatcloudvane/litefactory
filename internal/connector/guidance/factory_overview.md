@@ -1,0 +1,1 @@
+For factory health, running work, owner attention and recent reports, use `factory_overview`. Answer briefly from the returned facts. Explain missing or stale coverage. This access is read-only; a discussion answer grants no workflow approval.
