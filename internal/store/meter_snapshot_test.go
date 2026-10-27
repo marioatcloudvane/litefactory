@@ -209,3 +209,152 @@ func TestMeterSnapshotManagedFamilySelection(t *testing.T) {
 		})
 	}
 }
+
+func TestMeterSnapshotLowerAcquisitionLimits(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 915)
+	run := testRun(t, db, session.ID, 915)
+	for range 2 {
+		if _, err := db.StartMeterAttempt(ctx, run.ID, "claude"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, options := range []MeterSnapshotOptions{{MaxRows: 1}, {MaxBytes: 1}, {MaxRows: -1}, {MaxBytes: -1}, {MaxRows: 1_000_001}, {MaxBytes: (256 << 20) + 1}} {
+		snapshot, err := db.NewMeterSnapshot(ctx, MeterFilter{}, options)
+		if err == nil {
+			if err := snapshot.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+			t.Fatalf("accepted limit %+v", options)
+		}
+	}
+	var temporary int
+	if err := db.sql.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_temp_master WHERE type='table' AND name LIKE 'meter_snapshot_%'`).Scan(&temporary); err != nil {
+		t.Fatal(err)
+	}
+	if temporary != 0 {
+		t.Fatalf("failed acquisition leaked %d temporary snapshots", temporary)
+	}
+	snapshot, err := db.NewMeterSnapshot(ctx, MeterFilter{}, MeterSnapshotOptions{MaxRows: 2, MaxBytes: 16 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := snapshot.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMeterSnapshotCapturesFamilyWithoutUsage(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	repo := testRepo(t, db, "acme", "membership")
+	if _, err := db.sql.ExecContext(ctx, `INSERT INTO plan_story_drafts(parent,story_key,ordinal,issue_id,issue_number,retired) VALUES('github:acme/membership#1','retired',1,2,2,1)`); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := db.NewMeterSnapshot(ctx, MeterFilter{RepoID: repo.ID, Issue: 1, IncludeStories: true}, MeterSnapshotOptions{IncludeHistoricalRates: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := snap.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	if _, err := db.sql.ExecContext(ctx, `INSERT INTO plan_story_drafts(parent,story_key,ordinal,issue_id,issue_number) VALUES('github:acme/membership#1','later',2,3,3)`); err != nil {
+		t.Fatal(err)
+	}
+	members := snap.SelectedIssues()
+	if fmt.Sprint(members) != "[1 2]" {
+		t.Fatalf("captured membership %v", members)
+	}
+	members[0] = 999
+	if fmt.Sprint(snap.SelectedIssues()) != "[1 2]" {
+		t.Fatal("membership aliases caller slice")
+	}
+	rows, err := snap.Next(ctx, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("unexpected usage %+v", rows)
+	}
+	fresh, err := db.NewMeterSnapshot(ctx, MeterFilter{RepoID: repo.ID, Issue: 1, IncludeStories: true}, MeterSnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := fresh.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	if fmt.Sprint(fresh.SelectedIssues()) != "[1 2 3]" {
+		t.Fatalf("fresh membership %v", fresh.SelectedIssues())
+	}
+}
+
+func TestMeterSnapshotTrustedEmptyInterval(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	repo := testRepo(t, db, "acme", "empty")
+	from := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	f := MeterFilter{RepoID: repo.ID, Issue: 42, IncludeStories: true, TimeFrom: &from, TimeTo: &from}
+	if snap, err := db.NewMeterSnapshot(ctx, f, MeterSnapshotOptions{}); err == nil {
+		if err := snap.Close(ctx); err != nil {
+			t.Error(err)
+		}
+		t.Fatal("untrusted equal bounds accepted")
+	}
+	snap, err := db.NewMeterSnapshot(ctx, f, MeterSnapshotOptions{AllowEmptyInterval: true, IncludeHistoricalRates: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(snap.SelectedIssues()) != "[42]" {
+		t.Fatalf("empty interval lost membership: %v", snap.SelectedIssues())
+	}
+	rows, err := snap.Next(ctx, 256)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("empty interval rows=%v err=%v", rows, err)
+	}
+	if err := snap.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	to := from.Add(-time.Nanosecond)
+	f.TimeTo = &to
+	if reversed, err := db.NewMeterSnapshot(ctx, f, MeterSnapshotOptions{AllowEmptyInterval: true}); err == nil {
+		if err := reversed.Close(ctx); err != nil {
+			t.Error(err)
+		}
+		t.Fatal("reversed interval accepted")
+	}
+}
+
+func TestMeterSnapshotSourceLimitAppliesBeforeModelFilter(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 916)
+	run := testRun(t, db, session.ID, 916)
+	model := "other"
+	for range 2 {
+		a, err := db.StartMeterAttempt(ctx, run.ID, "claude")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.RecordMeterEvent(ctx, a.ID, "claude", agent.UsageEvent{Invocation: &agent.UsageInvocation{AttemptID: a.ID, ID: "root", SourceID: "s", SourceInvocationID: "root", Coverage: agent.UsageCoverage{Status: agent.CollectionComplete}}}); err != nil {
+			t.Fatal(err)
+		}
+		n := int64(1)
+		if err := db.RecordMeterEvent(ctx, a.ID, "claude", agent.UsageEvent{Observation: &agent.UsageObservation{AttemptID: a.ID, SourceID: "s", EventKey: "one", InvocationID: "root", ActualModel: &model, ModelProvenance: "provider", Mode: agent.CounterIncremental, Scope: agent.UsageExclusive, Tokens: agent.TokenUsage{InputUncached: &n}, Coverage: agent.UsageCoverage{Status: agent.CollectionComplete}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.FinishMeterAttempt(ctx, a.ID, "success", "complete", "v", "fixture", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if snap, err := db.NewMeterSnapshot(ctx, MeterFilter{Model: "requested"}, MeterSnapshotOptions{MaxRows: 1}); err == nil {
+		if err := snap.Close(ctx); err != nil {
+			t.Error(err)
+		}
+		t.Fatal("model filter bypassed source acquisition limit")
+	}
+}

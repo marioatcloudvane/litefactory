@@ -1,0 +1,3 @@
+Use `standards_role_counts` to compare separately labeled selected-category and whole-published-book counts at the same verified book revision and digest. Each standard counts once for each applicable role; overlapping roles mean role counts must not be summed as unique standards. A known empty category can correctly have zero selected standards while whole-book counts remain nonzero.
+
+Explain the count basis, filters and observation time. Use `standards_read` to support a count with the actual rules, retaining the same book view. Counts describe published applicability, not people, running agents, historical enforcement or compliance. Keep the answer short and factual and disclose missing or limited evidence.

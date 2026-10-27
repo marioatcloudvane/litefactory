@@ -224,7 +224,8 @@ var archiveRetained = map[string]ArchiveClass{
 	"connector_owner": ArchiveClassGlobal, "connector_clients": ArchiveClassGlobal,
 	"connector_browsers": ArchiveClassGlobal, "connector_codes": ArchiveClassGlobal,
 	"connector_grants": ArchiveClassGlobal, "connector_access": ArchiveClassGlobal,
-	"connector_refresh": ArchiveClassGlobal,
+	"connector_refresh": ArchiveClassGlobal, "connector_grant_targets": ArchiveClassGlobal,
+	"connector_usage_targets": ArchiveClassGlobal, "connector_code_targets": ArchiveClassGlobal,
 	// Standalone bounded analyses are not members of an issue-task archive.
 	"drift_analyses": ArchiveClassGlobal, "drift_analyst_runs": ArchiveClassGlobal,
 	"drift_evidence": ArchiveClassGlobal, "drift_receipts": ArchiveClassGlobal, "drift_proposal_links": ArchiveClassGlobal,

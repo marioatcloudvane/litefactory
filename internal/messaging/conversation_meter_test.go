@@ -235,12 +235,12 @@ func TestConversationMeterBreakdownInOneLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"run 1 of issue 770: USD 2.", "run 1 of issue 776: USD 3."} {
+	for _, want := range []string{"run 1 of github:acme/app#770: USD 2.", "run 1 of github:acme/app#776: USD 3."} {
 		if !strings.Contains(byRun.Result, want) {
 			t.Fatalf("run breakdown missing %q:\n%s", want, byRun.Result)
 		}
 	}
-	if strings.Contains(byRun.Result, "issue 777") {
+	if strings.Contains(byRun.Result, "github:acme/app#777") {
 		t.Fatalf("breakdown left the task scope:\n%s", byRun.Result)
 	}
 	run.ordinal++

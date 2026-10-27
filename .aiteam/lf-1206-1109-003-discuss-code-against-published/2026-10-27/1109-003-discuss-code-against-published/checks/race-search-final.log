@@ -1,0 +1,4 @@
+ok  	github.com/cloudvane/litefactory/internal/git	81.691s
+ok  	github.com/cloudvane/litefactory/internal/projectread	87.290s
+ok  	github.com/cloudvane/litefactory/internal/codeevidence	42.528s
+ok  	github.com/cloudvane/litefactory/internal/loganalysis	33.351s
