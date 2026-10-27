@@ -2,6 +2,7 @@ package report_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"html"
 	"os"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 )
 
@@ -200,5 +202,121 @@ func TestSplitStoryParts_LongLineAndMultibyte(t *testing.T) {
 		if len(p) > 10 || !utf8.ValidString(p) {
 			t.Fatalf("bad part %q", p)
 		}
+	}
+}
+
+// No body the plan renderer returns is cut by the redactor once the activity's
+// markers are added, at any size: shortening aims at the redactor budget. The
+// first sweep grows a whole body across the budget; the second moves a
+// shortened body (long list items survive the 400-rune cut) across it.
+func TestRenderPlanDraftParts_BodyWithinRedactorBudgetAtAnySize(t *testing.T) {
+	budget := redact.Budget(planbrief.MaxStoryBodyBytes)
+	check := func(name string, d planbrief.PlanDraft) {
+		t.Helper()
+		got, err := report.RenderPlanDraftParts(362, 1, d, "story", planbrief.ContentScope{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Body)+512 > budget {
+			t.Fatalf("%s: body of %d bytes exceeds the redactor budget", name, len(got.Body))
+		}
+		if len(got.Parts) > 0 && !strings.Contains(got.Body, "the full draft is in the numbered part comments") {
+			t.Fatalf("%s: shortened body does not point to the parts", name)
+		}
+	}
+	for n := 30000; n <= 34000; n += 37 {
+		d := renderDraftFixture()
+		d.Problem = strings.Repeat("x", n)
+		check(fmt.Sprintf("problem %d", n), d)
+	}
+	for n := 180; n <= 260; n++ {
+		d := renderDraftFixture()
+		d.InScope = nil
+		for i := 0; i < 256; i++ {
+			d.InScope = append(d.InScope, fmt.Sprintf("item%03d %s", i, strings.Repeat("z", n)))
+		}
+		check(fmt.Sprintf("items %d", n), d)
+	}
+}
+
+// hardCutDraft is an acceptance draft whose bare outline (cells cut to zero)
+// still exceeds the body budget: task IDs and dependency lists are never cut.
+func hardCutDraft() planbrief.PlanDraft {
+	d := renderDraftFixture()
+	d.Architecture = &planbrief.PlanArchitecture{General: []planbrief.GeneralDecision{{Area: "Owner", Decision: "Reuse roles", Rationale: "Preserve responsibilities"}}}
+	d.Criteria = []planbrief.PlanCriterion{{ID: "AC-001", Text: "Observable result", ProofMethod: "Unit test"}}
+	var ids []string
+	for i := 0; i < 256; i++ {
+		id := fmt.Sprintf("T%03d", i)
+		d.Tasks = append(d.Tasks, planbrief.TaskContent{ID: id, Description: "Implement", OwnerRole: "engineer", CriterionIDs: []string{"AC-001"}, DependsOn: append([]string(nil), ids...)})
+		ids = append(ids, id)
+	}
+	return d
+}
+
+// Hard cut: when even the bare outline exceeds the budget, the body still fits,
+// points to the parts and carries the shortened marker; the parts hold it all.
+func TestRenderPlanDraftParts_HardCutKeepsPointer(t *testing.T) {
+	got, err := report.RenderPlanDraftParts(362, 1, hardCutDraft(), "acceptance", planbrief.ContentScope{Roles: []string{"engineer"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Body)+512 > redact.Budget(planbrief.MaxStoryBodyBytes) || !strings.Contains(got.Body, planbrief.PlanShortenedMarker) || !strings.Contains(got.Body, "the full draft is in the numbered part comments") {
+		t.Fatalf("hard-cut body of %d bytes lacks pointer or exceeds budget", len(got.Body))
+	}
+	joined := strings.Join(got.Parts, "")
+	if !strings.HasPrefix(joined, "# Userstory") || !strings.Contains(joined, "# Architecture") {
+		t.Fatal("parts do not hold the whole draft")
+	}
+	offset := 0
+	for i := 0; i < 256; i++ {
+		row := fmt.Sprintf("| T%03d | Implement | engineer |", i)
+		at := strings.Index(joined[offset:], row)
+		if at < 0 {
+			t.Fatalf("parts lost %q", row)
+		}
+		offset += at + len(row)
+	}
+}
+
+// The text-preparation step redacts the complete draft before splitting it, so
+// a credential in an unbroken run longer than a part, or straddling the
+// unredacted split point, is never exposed whole or in fragments.
+func TestPreparePlanStory_SplitNeverExposesCredential(t *testing.T) {
+	const secret = "Zq7Xw9Kp2Lm4Nv6B"
+	red := redact.New(redact.Options{Environ: []string{"LF_TEST_TOKEN=" + secret}})
+	header := func(n, total int) string { return fmt.Sprintf("<!-- part %d/%d -->\n", n, total) }
+	for name, problem := range map[string]string{
+		"long run":   strings.Repeat("y", 30000) + secret + strings.Repeat("y", 40000),
+		"straddling": strings.Repeat("y", report.PlanPartLimit-8) + secret + strings.Repeat("y", 20000),
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := renderDraftFixture()
+			d.Problem = problem
+			got, err := report.PreparePlanStory(t.Context(), red, report.PlanStoryInput{Parent: 362, Ordinal: 1, Draft: d, Stage: "story", Prefix: "<!-- markers -->\n", PartHeader: header, CommentLimit: 65536})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Parts) < 2 || got.Body.Len() > planbrief.MaxStoryBodyBytes || !strings.Contains(got.Body.String(), planbrief.PlanShortenedMarker) {
+				t.Fatalf("expected a shortened body with parts: parts=%d", len(got.Parts))
+			}
+			var joined strings.Builder
+			for i, p := range got.Parts {
+				text := p.String()
+				for j := 0; j+6 <= len(secret); j++ {
+					if strings.Contains(text, secret[j:j+6]) || strings.Contains(got.Body.String(), secret[j:j+6]) {
+						t.Fatalf("credential fragment %q exposed", secret[j:j+6])
+					}
+				}
+				joined.WriteString(strings.TrimPrefix(text, header(i+1, len(got.Parts))))
+			}
+			plain, err := report.RenderPlanDraftParts(362, 1, d, "story", planbrief.ContentScope{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if joined.String() != strings.ReplaceAll(strings.Join(plain.Parts, ""), secret, redact.Replacement) {
+				t.Fatal("redacted parts are incomplete")
+			}
+		})
 	}
 }
