@@ -90,7 +90,7 @@ func correlationID(ctx context.Context) string {
 }
 
 func (s *Server) audit(r *http.Request, event, outcome, reason, tool string, start time.Time) {
-	if tool != "factory_overview" && tool != "unavailable" {
+	if tool != "factory_overview" && tool != "task_evidence_read" && tool != "unavailable" {
 		tool = "unknown"
 	}
 	s.logger.InfoContext(r.Context(), "connector outcome", slog.String("event", event), slog.String("outcome", outcome), slog.String("reason", reason), slog.String("tool", tool), slog.String("correlation_id", correlationID(r.Context())), slog.Int64("duration_ms", max(0, time.Since(start).Milliseconds())))

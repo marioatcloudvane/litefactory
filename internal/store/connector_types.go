@@ -2,6 +2,8 @@ package store
 
 import (
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -33,11 +35,92 @@ type ConnectorBrowser struct {
 	ExpiresAt                                                        time.Time
 }
 
+// ConnectorGrantTarget is a locally recorded task, resolved on each call.
+type ConnectorGrantTarget struct {
+	TaskRef, RepositoryRef string
+	SessionID, RepoID      int64
+}
+
+// ConnectorUsageTarget is the repository or task a usage read resolved to.
+type ConnectorUsageTarget struct {
+	Scope, TaskRef, RepositoryRef string
+	SessionID, RepoID             int64
+}
+
+// ConnectorRepository names one registered repository by its local identity
+// and canonical reference (forge:owner/name).
+type ConnectorRepository struct {
+	RepositoryRef string
+	RepoID        int64
+}
+
+// ConnectorCoverage says which registered repositories a grant's task-level
+// and repository-level scopes cover. All includes repositories registered
+// later; otherwise only the listed repositories are covered.
+type ConnectorCoverage struct {
+	Repositories []ConnectorRepository
+	All          bool
+}
+
+// Covers reports whether the registered repository is covered. A listed
+// repository counts only while its identity and reference both still match.
+func (c *ConnectorCoverage) Covers(repoID int64, repositoryRef string) bool {
+	if c == nil {
+		return false
+	}
+	if c.All {
+		return true
+	}
+	return slices.ContainsFunc(c.Repositories, func(r ConnectorRepository) bool {
+		return r.RepoID == repoID && r.RepositoryRef == repositoryRef
+	})
+}
+
 // ConnectorGrant is a consented, absolute-expiry family of read credentials.
+// Coverage is set when the scope includes a task-level or repository-level
+// scope (ConnectorRepositoryScoped).
 type ConnectorGrant struct {
+	Coverage                      *ConnectorCoverage
 	ID, ClientID, Resource, Scope string
 	OwnerID, OwnerGeneration      int64
 	CreatedAt, ExpiresAt          time.Time
+}
+
+// ConnectorRefusal is an authorization refusal with a plain reason the owner
+// or client can act on, such as "task not found: …". The reason names only
+// references the caller supplied or may see; it never carries credentials or
+// local paths. errors.Is matches its kind (ErrConnectorInvalid or
+// ErrConnectorScope).
+type ConnectorRefusal struct {
+	kind   error
+	Reason string
+}
+
+func (e *ConnectorRefusal) Error() string { return e.Reason }
+func (e *ConnectorRefusal) Unwrap() error { return e.kind }
+
+func connectorRefused(kind error, format string, args ...any) error {
+	return &ConnectorRefusal{kind: kind, Reason: fmt.Sprintf(format, args...)}
+}
+
+// ConnectorRefusalReason returns the plain reason of a refusal, or "" when err
+// is not one.
+func ConnectorRefusalReason(err error) string {
+	var refusal *ConnectorRefusal
+	if errors.As(err, &refusal) {
+		return refusal.Reason
+	}
+	return ""
+}
+
+// connectorRepositoryScopes are the scopes whose reach is limited to the
+// grant's repository coverage.
+var connectorRepositoryScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, connectorRepositoryUsageScope, connectorTaskUsageScope}
+
+// ConnectorRepositoryScoped reports whether scope includes a task-level or
+// repository-level scope and therefore needs repository coverage.
+func ConnectorRepositoryScoped(scope string) bool {
+	return slices.ContainsFunc(connectorRepositoryScopes, func(s string) bool { return ConnectorScopeHas(scope, s) })
 }
 
 // ConnectorCode is a single-use, digest-only authorization code.
@@ -117,10 +200,37 @@ func ConnectorScopeSubset(sub, super string) bool {
 	return true
 }
 
+// connectorKnownScopes is every scope a grant may carry. It mirrors
+// connector.KnownScopes (a connector test keeps the two in step); the store
+// refuses a grant naming anything else.
+var connectorKnownScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, "factory:overview", connectorFactoryUsageScope, connectorRepositoryUsageScope, connectorTaskUsageScope}
+
+// ConnectorKnownScopes returns the scopes the store accepts on a grant.
+func ConnectorKnownScopes() []string { return slices.Clone(connectorKnownScopes) }
+
+// connectorScopeKnown reports whether scope is a valid, non-empty scope string
+// whose every token is a known scope.
+func connectorScopeKnown(scope string) bool {
+	tokens, ok := ConnectorScopes(scope)
+	if !ok {
+		return false
+	}
+	for _, token := range tokens {
+		if !slices.Contains(connectorKnownScopes, token) {
+			return false
+		}
+	}
+	return true
+}
+
 // connectorScopeMatches accepts an empty request (the grant's own scope
-// applies) or a request naming exactly the grant's scope set, in any order.
+// applies) or a request naming a non-empty subset of the grant's scope. The
+// issued tokens always carry the grant's whole scope, which the token
+// response returns (RFC 6749 §3.3): the owner may have granted scopes the
+// client never asked for, and a client that repeats its original request at
+// the token endpoint must not lose access the owner gave it.
 func connectorScopeMatches(requested, granted string) bool {
-	return requested == "" || (ConnectorScopeSubset(requested, granted) && ConnectorScopeSubset(granted, requested))
+	return requested == "" || ConnectorScopeSubset(requested, granted)
 }
 
 // ConnectorExchange binds a code or refresh credential to the authenticated client.
@@ -133,7 +243,11 @@ type ConnectorExchange struct {
 }
 
 // ConnectorGrantSummary omits all credential material and browser state.
+// Repositories lists the covered repository references of a grant that does
+// not cover all repositories; it is filled only by local inspection.
 type ConnectorGrantSummary struct {
+	Repositories                              []string
+	AllRepositories                           bool
 	ID, ClientID, ClientName, Resource, Scope string
 	CreatedAt, ExpiresAt, RevokedAt           time.Time
 }
