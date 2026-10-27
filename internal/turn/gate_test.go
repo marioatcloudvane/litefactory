@@ -224,6 +224,8 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// Validate pins the integration head: one fetch and one read, in one
 		// acquisition.
 		"IntegrationHead": {},
+		// Coverage comparison pins the configured target before opening its scratch.
+		"validateHost.pinComparisonBase": {},
 		// Read the displayed local branch under the clone gate without fetching.
 		"ValidatePublicationHead": {},
 		// Validate's host bindings: the task worktree is created or reused,

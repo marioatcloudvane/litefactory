@@ -300,6 +300,14 @@ func (c *flowCheck) repairAgent(n Node) {
 }
 
 func (c *flowCheck) suite(n Node) {
+	if slices.Contains(n.Outcomes, "covered") {
+		if n.Attrs["lf_coverage"] != "v1" {
+			c.fail("covered suite requires versioned coverage capability")
+		}
+		c.edge(n, "covered", action(ValidateReviewAction), "must go to review")
+	} else if n.Attrs["lf_coverage"] != "" {
+		c.fail("coverage capability requires covered outcome")
+	}
 	c.edge(n, "passed", action(ValidateReviewAction), "must go to review")
 	c.edge(n, "failed", action(ValidateRepairBudgetAction), "must reach the repair budget")
 	c.edge(n, "blocked", action(ValidateReviewAction), "must go to review")

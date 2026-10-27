@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/coverage"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -26,11 +27,15 @@ const ValidateReviewAccess = "read"
 // A command that did not pass carries the end of its retained output, so a
 // reviewer can name the failure instead of only marking items unverified.
 type ValidateEvidence struct {
-	ID         string
-	Argv       []string
-	State      string
-	Reason     string
-	OutputTail string `json:"output_tail,omitempty"`
+	ProofKind          string
+	OriginID           string
+	AssessmentID       string
+	AssessmentVerified bool
+	ID                 string
+	Argv               []string
+	State              string
+	Reason             string
+	OutputTail         string `json:"output_tail,omitempty"`
 }
 
 // validateEvidenceTailBytes bounds the output tail one evidence entry carries.
@@ -460,6 +465,33 @@ func diagnosticSummary(d agentresult.Diagnostics) string {
 
 // evidence lists the suite commands of the tested run as retained checks.
 func (h ValidateReviewActivity) evidence(ctx context.Context, opts Options, suite validateSuiteView) ([]ValidateEvidence, error) {
+	if suite.Output.AssessmentID != "" {
+		m, err := validateRetainedAssessment(ctx, opts, suite.Output)
+		if err != nil {
+			return nil, err
+		}
+		if m.Complete || m.Outcome != store.SuitePassed {
+			out := make([]ValidateEvidence, 0, len(m.Results))
+			for _, r := range m.Results {
+				e := ValidateEvidence{ID: suite.Output.AssessmentID + "/" + r.Unit, ProofKind: r.Kind, OriginID: r.Origin.Evidence, AssessmentID: suite.Output.AssessmentID, AssessmentVerified: true, State: store.SuiteFailed, Reason: r.Reason}
+				for _, u := range m.Inventory.Units {
+					if u.Key == r.Unit {
+						e.Argv = []string{u.Runner, u.Selector}
+						break
+					}
+				}
+				if r.Kind == coverage.Executed || r.Kind == coverage.Inherited || r.Kind == coverage.Transient {
+					e.State = store.SuitePassed
+				}
+				if r.Kind == coverage.Unresolved {
+					e.State = store.SuiteBlocked
+				}
+				out = append(out, e)
+			}
+			return out, nil
+		}
+
+	}
 	if suite.Output.RunID == 0 {
 		return nil, nil
 	}
@@ -470,6 +502,9 @@ func (h ValidateReviewActivity) evidence(ctx context.Context, opts Options, suit
 	out := make([]ValidateEvidence, 0, len(commands))
 	for _, c := range commands {
 		e := ValidateEvidence{ID: validateCheckID(suite.Output.RunID, c.Position), Argv: c.Argv, State: c.State, Reason: c.Reason}
+		if c.State == store.SuitePassed {
+			e.ProofKind = "executed-pass"
+		}
 		if c.State != store.SuitePassed {
 			e.OutputTail = tailText(c.OutputTail, validateEvidenceTailBytes)
 		}
@@ -515,7 +550,8 @@ func validateReviewScope(role string, stories []ValidateStory, snapshot, digest 
 		for _, e := range evidence {
 			checks[e.ID] = agent.RetainedContributionCheck{
 				Story: s.Key, Revision: s.Revision, SnapshotID: snapshot, ImplementationDigest: digest,
-				Executed: e.State == store.SuitePassed || e.State == store.SuiteFailed, Passed: e.State == store.SuitePassed, Retained: true,
+				ProofKind: e.ProofKind, OriginID: e.OriginID, AssessmentID: e.AssessmentID, AssessmentVerified: e.AssessmentVerified,
+				Executed: e.ProofKind != "inherited-pass" && (e.State == store.SuitePassed || e.State == store.SuiteFailed), Passed: e.State == store.SuitePassed, Retained: true,
 			}
 		}
 		scope.Stories[s.Key] = agent.ContributionStory{
@@ -524,4 +560,40 @@ func validateReviewScope(role string, stories []ValidateStory, snapshot, digest 
 		}
 	}
 	return scope
+}
+
+// validateRetainedAssessment rejects an assessment detached from its durable result.
+func validateRetainedAssessment(ctx context.Context, opts Options, out validateSuiteOutput) (coverage.Manifest, error) {
+	var m coverage.Manifest
+	if opts.DB == nil || out.AssessmentID == "" {
+		return m, errors.New("coverage assessment unavailable")
+	}
+	e, err := opts.DB.ValidationEvidence(ctx, out.AssessmentID)
+	if err != nil {
+		return m, err
+	}
+	if e.Kind != "assessment" || e.RunID != out.RunID {
+		return m, errors.New("coverage assessment binding is invalid")
+	}
+	if err = json.Unmarshal(e.Payload, &m); err != nil {
+		return m, err
+	}
+	if m.Version != coverage.Version || m.Commit != out.Commit || coverage.Digest(m) != out.AssessmentDigest || m.Outcome != out.Outcome || e.Complete != m.Complete {
+		return m, errors.New("coverage assessment is incomplete or incompatible")
+	}
+	if !m.Complete && out.Outcome != store.SuiteBlocked {
+		if out.Outcome != store.SuitePassed || m.FullReason == "" {
+			return m, errors.New("incomplete coverage cannot settle this outcome")
+		}
+		run, err := opts.DB.GetSuiteRun(ctx, out.RunID)
+		if err != nil || run.State != store.SuitePassed || run.Commit != out.Commit {
+			return m, errors.New("incomplete assessment lacks a factual full pass")
+		}
+		for _, r := range m.Results {
+			if r.Kind == coverage.Inherited || r.Kind == coverage.PreExisting || r.Kind == coverage.Transient {
+				return m, errors.New("incomplete assessment cannot inherit or exempt failures")
+			}
+		}
+	}
+	return m, nil
 }
