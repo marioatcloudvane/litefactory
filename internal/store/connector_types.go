@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"time"
 )
@@ -132,10 +133,37 @@ func ConnectorScopeSubset(sub, super string) bool {
 	return true
 }
 
+// connectorKnownScopes is every scope a grant may carry. It mirrors
+// connector.KnownScopes (a connector test keeps the two in step); the store
+// refuses a grant naming anything else.
+var connectorKnownScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, "factory:overview", connectorFactoryUsageScope, connectorRepositoryUsageScope, connectorTaskUsageScope}
+
+// ConnectorKnownScopes returns the scopes the store accepts on a grant.
+func ConnectorKnownScopes() []string { return slices.Clone(connectorKnownScopes) }
+
+// connectorScopeKnown reports whether scope is a valid, non-empty scope string
+// whose every token is a known scope.
+func connectorScopeKnown(scope string) bool {
+	tokens, ok := ConnectorScopes(scope)
+	if !ok {
+		return false
+	}
+	for _, token := range tokens {
+		if !slices.Contains(connectorKnownScopes, token) {
+			return false
+		}
+	}
+	return true
+}
+
 // connectorScopeMatches accepts an empty request (the grant's own scope
-// applies) or a request naming exactly the grant's scope set, in any order.
+// applies) or a request naming a non-empty subset of the grant's scope. The
+// issued tokens always carry the grant's whole scope, which the token
+// response returns (RFC 6749 §3.3): the owner may have granted scopes the
+// client never asked for, and a client that repeats its original request at
+// the token endpoint must not lose access the owner gave it.
 func connectorScopeMatches(requested, granted string) bool {
-	return requested == "" || (ConnectorScopeSubset(requested, granted) && ConnectorScopeSubset(granted, requested))
+	return requested == "" || ConnectorScopeSubset(requested, granted)
 }
 
 // ConnectorExchange binds a code or refresh credential to the authenticated client.

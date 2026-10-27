@@ -41,7 +41,9 @@ const (
 type ScopeInfo struct{ Name, Description string }
 
 // KnownScopes lists every scope the connector can issue, in display order. A
-// client may request any non-empty subset; the owner ticks which to grant.
+// client may request any non-empty subset. The consent page offers all of
+// them, pre-ticks the requested ones, and the owner ticks which to grant.
+// store.ConnectorKnownScopes must list the same names.
 var KnownScopes = []ScopeInfo{
 	{Name: DiscussionScope, Description: "Read recorded status, results, questions, research, Plan and approval evidence for the one selected task. Read-only; it cannot change work or grant workflow approval."},
 	{Name: CodeReviewScope, Description: "Read committed task/base code, reachable history and changes, and published standards and role counts for the selected task and retained code repository. Requires task:discussion; read-only."},

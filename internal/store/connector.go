@@ -197,7 +197,9 @@ func (db *DB) VerifyConnectorBrowser(ctx context.Context, id, nonceDigest, upstr
 	})
 }
 
-// ConsentConnectorBrowser consumes consent once, atomically creating its grant and code.
+// ConsentConnectorBrowser consumes consent once, atomically creating its grant
+// and code. The grant may carry any non-empty set of known scopes the owner
+// ticked, including scopes the client did not request (RFC 6749 §3.3).
 func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest string, pin int64, now time.Time, g ConnectorGrant, c ConnectorCode, allow bool) error {
 	return db.connectorWrite(ctx, func(tx *sql.Conn) error {
 		b, err := getConnectorBrowser(ctx, tx, id, pin, now)
@@ -213,7 +215,7 @@ func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest strin
 		if !allow {
 			return nil
 		}
-		if g.ID == "" || g.ClientID != b.ClientID || g.Resource != b.Resource || !ConnectorScopeSubset(g.Scope, b.Scope) || g.OwnerID != pin || g.OwnerGeneration != b.OwnerGeneration || !g.ExpiresAt.After(now) || g.ExpiresAt.After(ConnectorMaxGrantExpiry(now)) || c.Digest == "" || c.GrantID != g.ID || c.ClientID != b.ClientID || c.RedirectURI != b.RedirectURI || c.Resource != b.Resource || c.Scope != g.Scope || c.PKCEChallenge != b.PKCEChallenge || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(5*time.Minute)) {
+		if g.ID == "" || g.ClientID != b.ClientID || g.Resource != b.Resource || !connectorScopeKnown(g.Scope) || g.OwnerID != pin || g.OwnerGeneration != b.OwnerGeneration || !g.ExpiresAt.After(now) || g.ExpiresAt.After(ConnectorMaxGrantExpiry(now)) || c.Digest == "" || c.GrantID != g.ID || c.ClientID != b.ClientID || c.RedirectURI != b.RedirectURI || c.Resource != b.Resource || c.Scope != g.Scope || c.PKCEChallenge != b.PKCEChallenge || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(5*time.Minute)) {
 			return ErrConnectorInvalid
 		}
 		var count int

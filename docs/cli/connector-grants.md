@@ -72,7 +72,8 @@ current target binding.
 The renewable grant's absolute lifetime is the duration the owner chose on the
 consent page: 1, 3, 6, 12 or 24 calendar months (UTC), default 1. The expiry
 shown is that absolute time; renewal never moves it. The permitted scope is the
-space-separated set of scopes the owner ticked. Issued access tokens last at most
+space-separated set of scopes the owner ticked; the consent page offers every
+known scope, so it can include scopes the client did not request. Issued access tokens last at most
 15 minutes and never outlive the grant. Inspection shows the number and
 earliest/latest expiry of currently unexpired access tokens separately, or none
 when absent. Tokens under revoked or invalidated grants are unusable even if
