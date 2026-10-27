@@ -52,7 +52,7 @@ func prepareRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRunti
 	if err != nil || len(key) != 32 {
 		return nil, errors.New("remote connector cookie key must encode exactly 32 random bytes as base64")
 	}
-	server, err := connector.New(ctx, connector.Options{Config: cfg, DB: s.DB, Logger: s.Logger, LocalControl: s.ConnectorControl, Overview: s.ConnectorOverview, TaskEvidence: s.ConnectorTaskEvidence, Usage: s.ConnectorUsage, GitHubSecret: githubSecret.Reveal(), CookieKey: key})
+	server, err := connector.New(ctx, connector.Options{Config: cfg, DB: s.DB, Logger: s.Logger, LocalControl: s.ConnectorControl, Overview: s.ConnectorOverview, TaskEvidence: s.ConnectorTaskEvidence, Usage: s.ConnectorUsage, CodeEvidence: s.ConnectorCodeEvidence, GitHubSecret: githubSecret.Reveal(), CookieKey: key})
 	if err != nil {
 		return nil, err
 	}

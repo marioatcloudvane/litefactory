@@ -18,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/bugchecks"
+	"github.com/cloudvane/litefactory/internal/codeevidence"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/connector"
 	"github.com/cloudvane/litefactory/internal/doctor"
@@ -61,6 +62,7 @@ type Setup struct {
 	ConnectorOverview     connector.OverviewProvider
 	ConnectorTaskEvidence connector.TaskEvidenceProvider
 	ConnectorUsage        connector.UsageProvider
+	ConnectorCodeEvidence connector.CodeEvidenceProvider
 	// BuildVersion identifies the running process; FactorySource is set only when known.
 	BuildVersion  string
 	FactorySource string
@@ -379,6 +381,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 
 	if s.Config.RemoteConnector.Enabled && s.ConnectorTaskEvidence == nil {
 		s.ConnectorTaskEvidence = taskevidence.New(s.DB, sharedRedactor, s.Now, s.Paths.Home())
+	}
+	if s.Config.RemoteConnector.Enabled && s.ConnectorCodeEvidence == nil {
+		s.ConnectorCodeEvidence = codeevidence.New(s.DB, gitBinary, sharedRedactor, s.Now, s.Paths.Home())
 	}
 	remoteConnector, connectorErr := prepareFactoryRemoteConnector(ctx, s)
 	if connectorErr != nil {
