@@ -3,7 +3,6 @@ package turn
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -79,10 +78,10 @@ func TestPlanFailure_AgentFailureIsPublishedOnceWithCauseAndRetry(t *testing.T) 
 	}
 }
 
-// A failure comment that cannot be published leaves the owner's comment
-// unhandled: the run is not reported and every replay fails, never reposting
-// blindly, until the delivery is settled. Once the comment is shown to have
-// reached the issue, the replay completes from the retained bytes, once.
+// A failure comment whose POST failed leaves the owner's comment unhandled:
+// the run is not reported until the delivery is settled. A replay whose
+// complete lookup finds no marker-bearing comment reposts the retained bytes
+// once and completes.
 func TestPlanFailure_UnpublishedFailureKeepsOwnerCommentUnhandled(t *testing.T) {
 	f, _, base, calls, forge := graphPlanFixtureWithForge(t, "agent", func(a *graphPlanAnswer) { a.Stop, a.Reason = agent.OutcomeTimedOut, "wall-clock limit" })
 	forge.failWith(500)
@@ -91,15 +90,6 @@ func TestPlanFailure_UnpublishedFailureKeepsOwnerCommentUnhandled(t *testing.T) 
 		t.Fatalf("failure not reported as failed: %+v err=%v", out.Run, err)
 	}
 	requireRunFailureReported(t, f, out.Run.ID, false)
-	forge.recover()
-	if _, err = Execute(t.Context(), f.opts, base); err == nil {
-		t.Fatal("a replay with no confirmed failure comment reported success")
-	}
-	requireRunFailureReported(t, f, out.Run.ID, false)
-	if attempts := forge.attemptCount(); attempts != 1 {
-		t.Fatalf("the uncertain failure comment was posted blindly again: %d attempts", attempts)
-	}
-	// The lost reply: the comment did reach the issue.
 	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
 	mustProgress(t, err)
 	comments, err := f.db.ListGraphComments(t.Context(), instance.ID, "", 10)
@@ -109,14 +99,15 @@ func TestPlanFailure_UnpublishedFailureKeepsOwnerCommentUnhandled(t *testing.T) 
 	}
 	delivery, err := f.db.GetReportDelivery(t.Context(), comments[0].Key)
 	mustProgress(t, err)
-	forge.mu.Lock()
-	forge.posts = append(forge.posts, forgePost{path: "/repos/" + f.ref().Owner + "/" + f.ref().Repo + "/issues/" + strconv.Itoa(f.ref().Issue) + "/comments", body: delivery.Body, id: 6001})
-	forge.mu.Unlock()
+	forge.recover()
 	if _, err = Execute(t.Context(), f.opts, base); err != nil {
-		t.Fatalf("replay once the comment is confirmed: %v", err)
+		t.Fatalf("replay after an empty lookup: %v", err)
 	}
 	requireRunFailureReported(t, f, out.Run.ID, true)
 	requireFailureComment(t, forge, "process outcome")
+	if attempts := forge.attemptCount(); attempts != 2 || forge.only(t).body != delivery.Body {
+		t.Fatalf("the failure comment was not reposted once from retained bytes: %d attempts", attempts)
+	}
 	if *calls != 1 {
 		t.Fatalf("the agent ran %d times", *calls)
 	}

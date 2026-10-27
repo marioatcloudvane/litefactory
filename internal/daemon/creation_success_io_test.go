@@ -286,7 +286,13 @@ func TestCreationAcceptanceIO_UntrustedEvidenceRemainsPending(t *testing.T) {
 			rejectionWatermark(t, f, 0)
 			retained, pending, err := f.db.FindPendingReportDelivery(t.Context(), f.session.ID, 70)
 			publicationMust(t, err)
-			if !pending || !retained.PossiblySent || f.posts != 1 {
+			// Untrusted evidence never authorizes a repost; a complete lookup
+			// with no marker-bearing comment reposts once (its reply is lost too).
+			want := 1
+			if variant == "missing receipt" {
+				want = 2
+			}
+			if !pending || !retained.PossiblySent || f.posts != want {
 				t.Fatalf("uncertain source lost or reposted: %+v posts=%d", retained, f.posts)
 			}
 			f.mu.Lock()
@@ -296,7 +302,7 @@ func TestCreationAcceptanceIO_UntrustedEvidenceRemainsPending(t *testing.T) {
 			task.tickAt = f.now
 			publicationMust(t, f.d.handleComment(t.Context(), task, c))
 			rejectionWatermark(t, f, 70)
-			if f.posts != 1 {
+			if f.posts != want {
 				t.Fatal("trusted reconciliation reposted")
 			}
 		})
