@@ -43,15 +43,26 @@ func Build(ctx context.Context, db Reader, f store.MeterFilter, details bool) (v
 		return v, classify(err)
 	}
 	defer func() { err = errors.Join(err, snapshot.Close(context.WithoutCancel(ctx))) }()
+	v, err = buildFromPages(func() ([]store.MeterRow, error) { return snapshot.Next(ctx, 256) }, details)
+	return v, errors.Join(err, ctx.Err())
+}
+
+// BuildFromRows aggregates already captured exclusive measurements and coverage
+// with the same exact arithmetic as the regular meter report.
+func BuildFromRows(source []store.MeterRow, details bool) (v View, err error) {
+	return buildFromPages(rowsOnce(source), details)
+}
+
+func buildFromPages(next func() ([]store.MeterRow, error), details bool) (v View, err error) {
 	summary := report.MeterSummary{CollectionStatus: "unknown", PricingStatus: "unknown", HelperOverhead: "excluded"}
 	rows := []store.MeterRow{}
 	groups := map[string]*Group{}
 	issues := map[string]*IssueSummary{}
 	refusals := map[string]bool{}
 	for {
-		page, e := snapshot.Next(ctx, 256)
-		if e != nil {
-			return v, classify(e)
+		page, err := next()
+		if err != nil {
+			return v, classify(err)
 		}
 		if len(page) == 0 {
 			break
@@ -108,7 +119,7 @@ func Build(ctx context.Context, db Reader, f store.MeterFilter, details bool) (v
 		v.Issues = append(v.Issues, *issues[key])
 	}
 	v = View{Issues: v.Issues, Summary: summary, Groups: ordered, Details: rows, AsOf: time.Now().UTC(), RefusalAttempts: len(refusals)}
-	return v, ctx.Err()
+	return v, nil
 }
 
 // WriteText preserves the existing CLI text format.
@@ -237,4 +248,9 @@ func RowCostText(row store.MeterRow) string {
 		return "Provider-reported zero-cost refusal (USD 0); token-derived pricing remains unknown; " + text
 	}
 	return text
+}
+
+// rowsOnce adapts an immutable materialization to the streaming aggregators.
+func rowsOnce(rows []store.MeterRow) func() ([]store.MeterRow, error) {
+	return func() ([]store.MeterRow, error) { page := rows; rows = nil; return page, nil }
 }

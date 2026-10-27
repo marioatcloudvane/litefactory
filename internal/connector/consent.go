@@ -77,12 +77,14 @@ type consentDuration struct {
 
 type consentData struct {
 	ClientName, ClientID, RedirectHost, Resource, CSRF string
+	Discussion, Overview                               bool
+	FactoryUsage, RepositoryUsage, TaskUsage           bool
 	Scopes                                             []consentScopeOption
 	Durations                                          []consentDuration
 }
 
 func newConsentData(client store.ConnectorClient, redirectHost string, b store.ConnectorBrowser, csrf string, now time.Time) consentData {
-	data := consentData{ClientName: client.Name, ClientID: client.ID, RedirectHost: redirectHost, Resource: b.Resource, CSRF: csrf}
+	data := consentData{FactoryUsage: store.ConnectorScopeHas(b.Scope, FactoryUsageScope), RepositoryUsage: store.ConnectorScopeHas(b.Scope, RepositoryUsageScope), TaskUsage: store.ConnectorScopeHas(b.Scope, TaskUsageScope), Discussion: store.ConnectorScopeHas(b.Scope, DiscussionScope), Overview: store.ConnectorScopeHas(b.Scope, Scope), ClientName: client.Name, ClientID: client.ID, RedirectHost: redirectHost, Resource: b.Resource, CSRF: csrf}
 	for _, known := range KnownScopes {
 		if store.ConnectorScopeHas(b.Scope, known.Name) {
 			data.Scopes = append(data.Scopes, consentScopeOption(known))
@@ -168,7 +170,11 @@ var consentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 <fieldset><legend>Scopes (untick what you do not want to grant)</legend>
 {{range .Scopes}}<label class="option"><input type="checkbox" name="scope" value="{{.Name}}" checked><span><code>{{.Name}}</code><span class="note">{{.Description}}</span></span></label>
 {{end}}</fieldset>
-<p class="callout">Access covers <strong>all registered repositories</strong>, including private repositories and repositories registered in the future.</p>
+{{if .Overview}}<p class="callout">Overview access covers <strong>all registered repositories</strong>, including private repositories and repositories registered in the future.</p>{{end}}
+{{if .FactoryUsage}}<p class="callout">Factory usage covers all recorded factory work, including work without a repository.</p>{{end}}
+{{if .RepositoryUsage}}<label for="usage-repository-ref">Repository for usage</label><input id="usage-repository-ref" name="usage_repository_ref" type="text" maxlength="1024" placeholder="github:owner/repository"><p class="note">Usage access covers only this registered repository.</p>{{end}}
+{{if .TaskUsage}}<label for="usage-task-ref">Task for usage</label><input id="usage-task-ref" name="usage_task_ref" type="text" maxlength="1024" placeholder="github:owner/repository#123"><p class="note">Task usage includes its recorded report family: linked and retired story history and later persisted links. Selecting a child does not include its parent or siblings. This permission does not grant task discussion, repository or factory usage.</p>{{end}}
+{{if .Discussion}}<label for="task-ref">Task for discussion</label><input id="task-ref" name="task_ref" type="text" maxlength="1024" placeholder="github:owner/repository#123"><p class="note">Discussion access covers only this existing task, including later evidence recorded for it. It does not include other tasks, repository code or usage.</p>{{end}}
 </section>
 <section class="card"><h2>How long</h2>
 <fieldset><legend>Grant duration</legend>

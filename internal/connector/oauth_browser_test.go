@@ -35,11 +35,16 @@ type browserJourney struct {
 
 func beginBrowserJourney(t *testing.T, identity GitHubIdentityProvider) browserJourney {
 	t.Helper()
+	return beginBrowserJourneyScopes(t, identity, Scope)
+}
+
+func beginBrowserJourneyScopes(t *testing.T, identity GitHubIdentityProvider, scopes string) browserJourney {
+	t.Helper()
 	f := newConnectorFixture(t, nil)
 	f.options.GitHub = identity
 	handler := f.server(t)
 	client := registerConnectorClient(t, handler, "Named client", "none")
-	q := url.Values{"client_id": {client.ClientID}, "redirect_uri": {"https://client.example/callback"}, "response_type": {"code"}, "resource": {f.options.Config.ResourceURL}, "scope": {Scope}, "state": {"downstream-state"}, "code_challenge": {digest(strings.Repeat("v", 43))}, "code_challenge_method": {"S256"}}
+	q := url.Values{"client_id": {client.ClientID}, "redirect_uri": {"https://client.example/callback"}, "response_type": {"code"}, "resource": {f.options.Config.ResourceURL}, "scope": {scopes}, "state": {"downstream-state"}, "code_challenge": {digest(strings.Repeat("v", 43))}, "code_challenge_method": {"S256"}}
 	r := connectorRequest(t, handler, http.MethodGet, f.issuer+"/oauth/authorize?"+q.Encode(), "", "", nil)
 	if r.Code != http.StatusFound {
 		t.Fatalf("authorize: %d %s", r.Code, r.Body.String())

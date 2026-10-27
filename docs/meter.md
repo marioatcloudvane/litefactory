@@ -36,6 +36,53 @@ The Claude and Codex readers use both the live output of the agent process and i
 
 Archiving a closed task keeps its usage and cost records, so a project's totals stay the same; the archived work just loses its link to the workflow step. Records removed by archives made before this change are not restored.
 
+## Discussing recorded usage in an existing client
+
+The remote connector's `usage_read` tool reuses these records and exact
+aggregation. Consent as the installation owner to `factory:usage`,
+`repository:usage` or `task:usage`; overview and task discussion permissions do
+not include usage. Repository access binds one registered canonical repository.
+Task access binds one existing task and its saved report family, including
+retired story history and later persisted links. A child read does not include
+its parent or siblings. No collection, recovery, price changes or workflow writes
+are available through this tool.
+
+Each new question defaults to rolling 30 days (720 hours). Select `today` (UTC
+midnight to the observed server time), `rolling_7_days` (168 hours),
+`rolling_30_days`, `all_history` (explicitly unbounded), or timezone-aware RFC3339
+`from`/`to` bounds. Named periods and explicit bounds cannot be mixed. The server
+uses one clock observation, returns exact normalized UTC bounds, and selects
+whole attempts by start time with an inclusive lower and exclusive upper bound.
+Exactly UTC midnight gives a valid empty `today` result. An explicit range with
+equal bounds is refused. These named/default periods belong to `usage_read`;
+they do not change the CLI's existing defaults or export syntax.
+
+Answers keep exact decimal USD strings, complete totals separate from known
+subtotals, collection/pricing gaps and canonical repository attribution. No
+records means no recorded evidence, not measured zero. A known zero subtotal can
+coexist with an unknown full total. Historical basis comes only from the selected
+attempts' pinned price revisions and saved valuations, including the referenced
+rates and rounding policy. Changing the current price catalogue leaves the old
+estimate and its basis unchanged. A summary previews up to 50 rate entries and
+reports the full count and whether more exist; paged details expose each
+measurement's referenced rates. Local completeness does not establish provider
+billing completeness or recover older archive losses. Helpers remain excluded.
+
+Summary answers use at most 1,000 Unicode characters after redaction; complete
+serialized responses use at most 128 KiB, including metadata and both output
+forms. Supporting pages contain at most 50 ordered items within 64 KiB and repeat
+the original whole-snapshot totals, revision and UTC bounds. Use the returned
+cursor with the same arguments and grant. Live cursors replay stable evidence;
+completed or replaced views require a fresh read. Complete summaries retain no
+view, final pages retire immediately, and new questions can replace the oldest
+idle views. There is no need to wait five minutes between ordinary questions.
+
+Connector acquisition is separately capped at 10,000 source rows and 16 MiB,
+with at most four views globally and two per grant; CLI/export limits stay
+unchanged. Limit, redaction and authorization failures withhold evidence safely.
+See [the connector guide](guides/remote-connector.md#discussing-usage-and-historical-costs)
+for arguments, continuation lifetime, consent and revocation.
+
 ## Prices
 
 Prices are USD per million tokens, and you set them yourself; nothing is fetched. Use `meter prices list` to see the current list and `meter prices set` to change one agent and model.

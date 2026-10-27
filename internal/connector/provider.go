@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // OverviewProvider is the sole read capability that the overview story supplies.
@@ -19,8 +20,30 @@ type ToolResult struct {
 	IsError           bool            `json:"isError,omitempty"`
 }
 
-// TextContent is the text representation of an overview.
+// TextContent is the text representation of a read projection.
 type TextContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+// TaskEvidenceProvider supplies only sanitized local evidence for a trusted target.
+type TaskEvidenceProvider interface {
+	Evidence(context.Context, store.ConnectorGrantTarget, EvidenceRequest) (EvidencePage, error)
+}
+
+// EvidenceRequest is a validated section and bounded advancing position.
+type EvidenceRequest struct {
+	Section string
+	Offset  int
+	Limit   int
+}
+
+// EvidencePage carries sanitized source facts and explicit coverage gaps.
+type EvidencePage struct {
+	Revision   string           `json:"revision"`
+	Items      []map[string]any `json:"items"`
+	Sources    []map[string]any `json:"sources"`
+	Gaps       []string         `json:"gaps"`
+	HasMore    bool             `json:"has_more"`
+	NextOffset int              `json:"-"`
 }

@@ -551,7 +551,7 @@ func writeRunSummary(out io.Writer, target logTarget, run store.Run) error {
 // after the run and only best-effort when the daemon is killed, so refusing to
 // show the run because of it would hide the log exactly when it is wanted.
 func readRunMeta(path string) (runMeta, string, error) {
-	// #nosec G304 -- path is litefactory's own artefact path, not user input:
+	// #nosec G304 G703 -- path is litefactory's own artefact path, not user input:
 	// naming.RunMetaPath derives it from $LF_HOME and the validated task ref of
 	// a row this daemon wrote. The command reads run artefacts by design.
 	data, err := os.ReadFile(path)
@@ -604,7 +604,7 @@ func isTerminalEvent(line []byte) bool {
 // of it and prints all of it, so a log with anything after its result event
 // shows that rather than hiding it.
 func streamLog(path string, sink logSink) (err error) {
-	// #nosec G304 -- path comes from the runs row litefactory wrote, or is
+	// #nosec G304 G703 -- path comes from the runs row litefactory wrote, or is
 	// derived by naming from $LF_HOME and the validated task ref. Reading that
 	// file is the whole point of the command.
 	f, err := os.Open(path)
@@ -635,7 +635,7 @@ func streamLog(path string, sink logSink) (err error) {
 // log rather than the log — and this is the command people reach for when they
 // need to know exactly what claude emitted.
 func copyLog(out io.Writer, path string) (err error) {
-	// #nosec G304 -- path comes from the runs row litefactory wrote, or is
+	// #nosec G304 G703 -- path comes from the runs row litefactory wrote, or is
 	// derived by naming from $LF_HOME and the validated task ref. Reading that
 	// file is the whole point of the command.
 	f, err := os.Open(path)
@@ -701,7 +701,7 @@ func tailLog(ctx context.Context, sink logSink, path string, interval time.Durat
 	buf := make([]byte, followReadSize)
 	for {
 		if f == nil {
-			// #nosec G304 -- path comes from the runs row litefactory wrote, or
+			// #nosec G304 G703 -- path comes from the runs row litefactory wrote, or
 			// is derived by naming from $LF_HOME and the validated task ref.
 			// Following that file is the whole point of the command.
 			opened, openErr := os.Open(path)
