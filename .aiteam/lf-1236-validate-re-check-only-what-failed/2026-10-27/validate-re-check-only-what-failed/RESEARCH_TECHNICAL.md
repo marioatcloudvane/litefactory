@@ -106,3 +106,21 @@ Superseded behavior is always running the full recipe for a new commit after fai
 Evidence:
 
 - `.aiteam/lf-984-graph-topology-still-decided-in-go/2026-10-19/graph-topology-still-decided-in-go/RESEARCH_BRIEF.md:1`
+
+## f14
+
+Shaping inspection confirms make test already accepts command-line PKGS selection, divides selected packages into full-race and mixed groups, and retains selected race checks for mixed packages; this is a possible existing surface for equivalent affected-package coverage without changing repository suite configuration, but recognizing completeness still needs new evidence.
+
+Evidence:
+
+- `Makefile:4`
+- `Makefile:474`
+
+## f15
+
+Impact analysis carried forward from f7-f10: the feature changes persistent suite evidence, runner selection, review citations, delivery classification, command/report surfaces and source-team guidance; old result records and immutable released captures require conservative compatibility behavior, and no new external client or permission role is required by this proposed scope.
+
+Evidence:
+
+- `internal/store/suite_runs.go:39`
+- `docs/workflow/validate.md:24`
