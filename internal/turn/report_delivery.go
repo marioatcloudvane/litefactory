@@ -186,17 +186,29 @@ func (r *Reporter) dispatchDeliveryBody(ctx context.Context, delivery store.Repo
 	}
 	if delivery.PossiblySent {
 		receipt, err := r.recoverDeliveryReceipt(ctx, delivery, destination)
-		id := receipt.ID
-		if err != nil {
-			return Posted{}, err
+		// Delivery is at-least-once: a complete lookup with no marker-bearing
+		// comment at all makes the delivery pending again, and the claim below
+		// reposts the retained bytes and marker once. A comment hidden from the
+		// lookup can leave a detectable duplicate. Legacy deliveries and doctor
+		// consume replies keep the uncertain outcome.
+		if errors.Is(err, ErrReportReceiptAbsent) && !delivery.Legacy && !strings.HasPrefix(delivery.Key, "doctor-consume:") {
+			if unmarkErr := r.db.UnmarkReportDeliverySent(context.WithoutCancel(ctx), delivery.Key); unmarkErr != nil {
+				return Posted{}, errors.Join(err, unmarkErr)
+			}
+			delivery.PossiblySent = false
+		} else {
+			id := receipt.ID
+			if err != nil {
+				return Posted{}, err
+			}
+			confirmed, confirmErr := r.db.ConfirmReportDelivery(context.WithoutCancel(ctx), delivery.Key, id, receipt.HTMLURL)
+			err = confirmErr
+			if err != nil {
+				return Posted{CommentID: id}, err
+			}
+			delivery = confirmed
+			return r.finishDelivery(ctx, delivery)
 		}
-		confirmed, confirmErr := r.db.ConfirmReportDelivery(context.WithoutCancel(ctx), delivery.Key, id, receipt.HTMLURL)
-		err = confirmErr
-		if err != nil {
-			return Posted{CommentID: id}, err
-		}
-		delivery = confirmed
-		return r.finishDelivery(ctx, delivery)
 	}
 	// Legacy task-only replies cannot establish which unconsumed request they
 	// answered. Keep the new intent durable while investigating ambiguity.
@@ -337,12 +349,15 @@ func (r *Reporter) recoverDeliveryReceipt(ctx context.Context, delivery store.Re
 	}
 	var lowest int64
 	var receipt github.Comment
-	conflict := false
+	conflict, untrusted := false, false
 	for _, comment := range comments {
-		if comment.Author.ID != delivery.BotUserID || comment.ID <= 0 || !r.commentAtDestination(ctx, comment, destination) {
+		if !strings.Contains(comment.Body, delivery.Marker) {
 			continue
 		}
-		if !strings.Contains(comment.Body, delivery.Marker) {
+		// A marker-bearing comment that cannot be trusted is a trace of the
+		// delivery, so the lookup is no longer a genuine absence.
+		if comment.Author.ID != delivery.BotUserID || comment.ID <= 0 || !r.commentAtDestination(ctx, comment, destination) {
+			untrusted = true
 			continue
 		}
 		if comment.Body != delivery.Body {
@@ -356,6 +371,9 @@ func (r *Reporter) recoverDeliveryReceipt(ctx context.Context, delivery store.Re
 	}
 	if conflict {
 		return github.Comment{}, fmt.Errorf("%w: matching delivery identity has conflicting remote content", ErrReportReceiptUncertain)
+	}
+	if lowest == 0 && untrusted {
+		return github.Comment{}, fmt.Errorf("%w: delivery marker found only on untrusted comments", ErrReportReceiptUncertain)
 	}
 	if lowest == 0 {
 		return github.Comment{}, ErrReportReceiptAbsent

@@ -116,27 +116,39 @@ func TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched(t *testing.T) {
 		t.Error("the watermark moved after a failed post, so the comment would never be reported again")
 	}
 
-	// A failed response is uncertain: an empty lookup cannot authorize another
-	// POST. Execution and source accounting remain blocked pending evidence.
+	// A failed response is uncertain. A later recovery whose complete lookup
+	// finds no comment carrying the marker reposts the retained bytes once.
 	forge.recover()
 	retry := f.execute(f.request())
 	if runner.callCount() != 1 {
 		t.Fatalf("executor relaunched %d times", runner.callCount())
 	}
-	if _, err := reporter.ReportTurn(t.Context(), retry); err == nil {
-		t.Fatal("empty lookup resolved uncertain delivery")
+	delivery, found, err := f.db.FindPendingReportDelivery(t.Context(), f.session.ID, retry.TriggerCommentID)
+	if err != nil || !found || !delivery.PossiblySent {
+		t.Fatalf("failed post not retained as possibly sent: found=%v err=%v %+v", found, err, delivery)
 	}
-	if attempts := forge.attemptCount(); attempts != 1 {
-		t.Fatalf("blind repost: %d attempts", attempts)
+	if _, pending, err := reporter.ReportPending(t.Context(), f.session.ID, retry.TriggerCommentID); err != nil || !pending {
+		t.Fatalf("empty lookup did not repost: pending=%v err=%v", pending, err)
 	}
-	if posts := forge.all(); len(posts) != 0 {
-		t.Fatalf("unexpected comments: %d", len(posts))
+	if attempts := forge.attemptCount(); attempts != 2 {
+		t.Fatalf("repost attempts = %d, want 2", attempts)
 	}
-	if run := f.runs()[0]; run.Status != store.RunSucceeded || run.ResultCommentID != 0 {
-		t.Fatalf("uncertainty completed run: %+v", run)
+	post := forge.only(t)
+	if post.body != delivery.Body || !strings.Contains(post.body, delivery.Marker) {
+		t.Fatal("repost changed the retained body or lost its marker")
 	}
-	if watermark(t, f) != 0 {
-		t.Fatal("uncertainty consumed source")
+	done, err := f.db.GetReportDelivery(t.Context(), delivery.Key)
+	if err != nil || !done.Completed || done.CommentID != post.id {
+		t.Fatalf("repost not recorded: %+v %v", done, err)
+	}
+	if run := f.runs()[0]; run.Status != store.RunReported || run.ResultCommentID != post.id {
+		t.Fatalf("repost did not report the run: %+v", run)
+	}
+	if watermark(t, f) != retry.TriggerCommentID {
+		t.Fatal("repost did not consume the source")
+	}
+	if _, pending, err := reporter.ReportPending(t.Context(), f.session.ID, retry.TriggerCommentID); err != nil || pending || forge.attemptCount() != 2 {
+		t.Fatalf("completed delivery reposted: pending=%v err=%v attempts=%d", pending, err, forge.attemptCount())
 	}
 }
 
@@ -669,6 +681,7 @@ type forgePost struct {
 	id       int64
 	authorID int64
 	htmlURL  string
+	hidden   bool
 }
 
 // fakeForge is GitHub, over real HTTP, behind a real *github.Client.
@@ -686,6 +699,9 @@ type fakeForge struct {
 	status    int
 	nextID    int64
 	afterPost func()
+	// keepFailed records a failed POST as a created comment; hideFailed keeps
+	// that comment out of lookups until unhide.
+	keepFailed, hideFailed bool
 }
 
 func newFakeForge(t *testing.T) *fakeForge {
@@ -713,7 +729,7 @@ func (f *fakeForge) handle(w http.ResponseWriter, r *http.Request) {
 		defer f.mu.Unlock()
 		comments := make([]map[string]any, 0, len(f.posts))
 		for _, post := range f.posts {
-			if post.path != r.URL.Path {
+			if post.path != r.URL.Path || post.hidden {
 				continue
 			}
 			comments = append(comments, map[string]any{"id": post.id, "body": post.body, "user": map[string]any{"id": forgePostAuthor(post), "login": "litefactory-bot"}, "html_url": forgePostURL(post), "created_at": "2026-08-23T10:00:00Z", "updated_at": "2026-08-23T10:00:00Z"})
@@ -743,6 +759,10 @@ func (f *fakeForge) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	status := f.status
 	afterPost := f.afterPost
+	if status != 0 && f.keepFailed {
+		post.hidden = f.hideFailed
+		f.posts = append(f.posts, post)
+	}
 	if status == 0 {
 		f.posts = append(f.posts, post)
 	}
@@ -786,11 +806,28 @@ func (f *fakeForge) failWith(status int) {
 	f.status = status
 }
 
+// failCreatingWith makes every subsequent post fail with status although the
+// forge creates the comment, hidden from lookups when hidden is set.
+func (f *fakeForge) failCreatingWith(status int, hidden bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.status, f.keepFailed, f.hideFailed = status, true, hidden
+}
+
 // recover puts the forge back in working order.
 func (f *fakeForge) recover() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.status = 0
+	f.status, f.keepFailed, f.hideFailed = 0, false, false
+}
+
+// unhide makes every hidden comment visible to lookups.
+func (f *fakeForge) unhide() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.posts {
+		f.posts[i].hidden = false
+	}
 }
 
 // all returns the comments the forge accepted.

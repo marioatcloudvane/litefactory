@@ -166,21 +166,16 @@ func TestPlanProgressSchedulerStaleReplyUncertainThenHealthy(t *testing.T) {
 		t.Fatalf("missing delivery debt %+v", delivery)
 	}
 	x.forge.onPostComment = nil
-	// While delivery remains unknown (no trustworthy receipt), an independent
-	// healthy input must still be routed on an eligible pass after backoff.
+	// After backoff, an independent healthy input is routed, and a complete
+	// lookup with no marker-bearing comment reposts the explanation once.
 	reopenPlanScheduler(t, x, false)
 	x.clock.advance(time.Minute)
 	x.assertHealthyReply(70)
-	if cursor := storyWatermark(x.fixture, 200); cursor >= 60 {
-		t.Fatal("healthy reply consumed held child's cursor")
-	}
+	x.settle()
 	// The explanation is posted on the child sub-issue the owner replied on.
 	if !strings.HasSuffix(delivery.Destination, "#200") {
 		t.Fatalf("explanation destination %q is not the child issue", delivery.Destination)
 	}
-	x.forge.addCommentAt(200, 900060, bot(), delivery.Body, x.clock.Now())
-	x.settle()
-	x.settle()
 	cursor := storyWatermark(x.fixture, 200)
 	// The confirmed explanation consumes the reply; the factory's own explanation
 	// on the same sub-issue is then skipped as bot input, so the cursor may pass it.
@@ -189,8 +184,18 @@ func TestPlanProgressSchedulerStaleReplyUncertainThenHealthy(t *testing.T) {
 	}
 	delivery, err = x.db.GetReportDelivery(t.Context(), explanation.DeliveryKey)
 	progressMust(t, err)
-	if !delivery.Completed || delivery.CommentID != 900060 {
-		t.Fatalf("original delivery not recovered %+v", delivery)
+	if !delivery.Completed || delivery.CommentID == 0 {
+		t.Fatalf("original delivery not reposted %+v", delivery)
+	}
+	posted, _, _ := x.forge.snapshot()
+	copies := 0
+	for _, body := range posted {
+		if body == delivery.Body {
+			copies++
+		}
+	}
+	if copies != 1 {
+		t.Fatalf("explanation posted %d times, want 1", copies)
 	}
 	for _, call := range x.turns.calls() {
 		if call.Trigger.PlanReply != nil && call.Trigger.PlanReply.Key == "affected" {
