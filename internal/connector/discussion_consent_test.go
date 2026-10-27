@@ -23,9 +23,6 @@ func TestDiscussionConsentRequiresExistingExactTaskAndReportsCoverage(t *testing
 			if !strings.Contains(page.Body.String(), `name="task_ref"`) {
 				t.Fatal("missing exact-task selection")
 			}
-			if !strings.Contains(scope, Scope) && strings.Contains(page.Body.String(), "all registered repositories") {
-				t.Fatal("discussion claims repository-wide coverage")
-			}
 			browserNoGrants(t, j.fixture)
 			if code := postConsent(t, j, csrf, cookie, url.Values{"scope": strings.Fields(scope), "duration": {"1"}, "task_ref": {"github:missing/task#1"}}); code != http.StatusBadRequest {
 				t.Fatalf("unknown target: %d", code)

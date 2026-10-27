@@ -198,13 +198,14 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 	allow := form.Get("decision") == "allow"
 	now := s.now()
 	// Deny never depends on the scope or duration fields. Allow needs at least
-	// one ticked scope that the client requested and the connector knows, and
-	// one of the offered durations; anything else is refused without a grant
-	// and leaves the pending consent usable.
+	// one ticked scope the connector knows (requested by the client or not;
+	// RFC 6749 §3.3) and one of the offered durations; anything else is
+	// refused without a grant and leaves the pending consent usable. The
+	// per-scope selections below are read only for the scopes ticked.
 	grantScope, grantExpires := b.Scope, now
 	if allow {
 		var ok bool
-		if grantScope, ok = consentScope(form["scope"], b.Scope); !ok {
+		if grantScope, ok = consentScope(form["scope"]); !ok {
 			oauthError(w, http.StatusBadRequest, "invalid_scope")
 			return
 		}

@@ -337,7 +337,9 @@ func validID(id json.RawMessage) bool {
 	}
 }
 func (s *Server) challenge(w http.ResponseWriter) {
-	w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+strings.TrimSuffix(s.cfg.IssuerURL, "/litefactory")+`/.well-known/oauth-protected-resource/litefactory/mcp"`)
+	// The scope attribute names every known scope (MCP authorization, scope
+	// discovery), so a client re-authorizing asks for all of them.
+	w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+strings.TrimSuffix(s.cfg.IssuerURL, "/litefactory")+`/.well-known/oauth-protected-resource/litefactory/mcp", scope="`+strings.Join(scopeNames(), " ")+`"`)
 }
 func (s *Server) rpcError(w http.ResponseWriter, id json.RawMessage, code int, message string) {
 	if len(id) == 0 {

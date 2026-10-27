@@ -127,9 +127,8 @@ methods. Metadata URL fetching is unsupported. S256 PKCE is mandatory.
 Each new grant requires fresh GitHub verification and an explicit Allow action.
 The escaped consent page shows, in separate cards: who is asking (the client
 name, marked as client supplied and unverified, the client ID and the redirect
-host); what it can access (the exact resource, one pre-ticked checkbox per
-requested scope with a one-line explanation, and coverage specific to each
-scope); how long (the grant duration); and the Allow and Deny actions. The page uses only its own
+host); what it can access (the exact resource, one checkbox per known scope
+with a one-line explanation, and coverage specific to each scope); how long (the grant duration); and the Allow and Deny actions. The page uses only its own
 fixed inline style and script, allowed by hash in its Content-Security-Policy.
 Browser cookies use authenticated encryption, Secure, HttpOnly and
 SameSite=Lax. Cookies never authorize MCP. Denial and failed sign-in issue no
@@ -137,11 +136,20 @@ connector grant.
 
 The authorization request's `scope` is a space-separated list of known scopes;
 the available scopes are `factory:overview`, `task:discussion`, `factory:usage`,
-`repository:usage`, `task:usage` and `task:code-review`. Allow requires
-at least one ticked scope; the script disables Allow when none is ticked, and the server refuses an
-Allow without a scope, or with a scope that is unknown or was not requested,
-with 400 `invalid_scope` and no grant. The grant records the ticked scopes as a
-space-separated string. `factory:overview` permits factory-wide overview facts
+`repository:usage`, `task:usage` and `task:code-review`. The consent page
+offers every known scope: the scopes the client requested are pre-ticked, the
+others are shown unticked and the owner may tick them. This matters when a
+client reuses an old registration and requests fewer scopes than the connector
+now offers. Following RFC 6749 §3.3, the issued scope may then differ from the
+request on the owner's instruction; the token response's `scope` names what was
+actually granted. Allow requires at least one ticked scope; the script disables
+Allow when none is ticked, and the server refuses an Allow without a scope, or
+with an unknown scope, with 400 `invalid_scope` and no grant. The selection a
+scope needs (the task for `task:discussion`, the repository for
+`task:code-review` and `repository:usage`, the task for `task:usage`) is
+required only when that scope is ticked; `task:code-review` still requires
+`task:discussion`. The grant records the ticked scopes as a space-separated
+string. `factory:overview` permits factory-wide overview facts
 across all registered repositories, including private and future registrations.
 `task:discussion` permits recorded evidence for one existing task selected on the
 consent form, such as `github:owner/repository#123`. Enter its canonical reference;
@@ -168,7 +176,9 @@ refuses a grant expiring more than 24 months after its creation.
 
 Authorization codes expire in five minutes and bind client, redirect, resource,
 granted scope and PKCE. A token request may omit `scope`; if it names one, it
-must be exactly the grant's scope set. Access tokens expire within 15 minutes or
+must be a non-empty subset of the grant's scope set (for example the client's
+original, narrower request). Tokens always carry the grant's whole scope, on
+code exchange and on refresh, and the response's `scope` says so. Access tokens expire within 15 minutes or
 at grant expiry, whichever comes first. Refresh rotates without extending the
 absolute grant expiry chosen at consent.
 Replaying a spent refresh credential revokes the entire family, even after a
@@ -191,7 +201,11 @@ grant ends every permission held by that grant.
 
 Every MCP request, including initialize, ping and listing, requires a
 factory-issued Bearer token for the exact resource and current installation
-owner. Initialization negotiates `2025-06-18` or `2025-11-25`; subsequent requests must include a supported
+owner. A request without a valid token receives 401 with
+`WWW-Authenticate: Bearer resource_metadata="…", scope="…"`; the `scope`
+attribute lists every known scope, so a client authorizing again asks for all
+of them. A tool call whose grant lacks the tool's scope receives 403 with
+`error="insufficient_scope"` and the required `scope`. Initialization negotiates `2025-06-18` or `2025-11-25`; subsequent requests must include a supported
 `MCP-Protocol-Version`. Send JSON with `Accept: application/json, text/event-stream`.
 Responses are request-scoped JSON, notifications receive 202, authenticated GET
 receives 405, and no protocol session is issued. `factory_overview` accepts an

@@ -33,14 +33,16 @@ func grantMonths(raw string) (int, bool) {
 }
 
 // consentScope turns the ticked scope checkboxes into the scope string the
-// grant records. Every ticked scope must be known and must have been in the
-// authorization request; at least one is required and none may repeat.
-func consentScope(ticked []string, requested string) (string, bool) {
+// grant records. Every ticked scope must be known; at least one is required
+// and none may repeat. The owner may tick known scopes the client did not
+// request: RFC 6749 §3.3 lets the server issue a different scope on the
+// resource owner's instructions, and the token response then names it.
+func consentScope(ticked []string) (string, bool) {
 	if len(ticked) == 0 {
 		return "", false
 	}
 	for _, scope := range ticked {
-		if scope == "" || strings.Contains(scope, " ") || !store.ConnectorScopeHas(requested, scope) {
+		if scope == "" || strings.Contains(scope, " ") || !knownScope(scope) {
 			return "", false
 		}
 	}
@@ -66,7 +68,12 @@ func readConsentForm(r *http.Request) (url.Values, error) {
 	return r.PostForm, nil
 }
 
-type consentScopeOption struct{ Name, Description string }
+// consentScopeOption is one scope checkbox. Every known scope is offered;
+// Requested pre-ticks the ones the client asked for.
+type consentScopeOption struct {
+	Name, Description string
+	Requested         bool
+}
 
 type consentDuration struct {
 	Months  int
@@ -77,18 +84,14 @@ type consentDuration struct {
 
 type consentData struct {
 	ClientName, ClientID, RedirectHost, Resource, CSRF string
-	Discussion, Overview, CodeReview                   bool
-	FactoryUsage, RepositoryUsage, TaskUsage           bool
 	Scopes                                             []consentScopeOption
 	Durations                                          []consentDuration
 }
 
 func newConsentData(client store.ConnectorClient, redirectHost string, b store.ConnectorBrowser, csrf string, now time.Time) consentData {
-	data := consentData{CodeReview: store.ConnectorScopeHas(b.Scope, CodeReviewScope), FactoryUsage: store.ConnectorScopeHas(b.Scope, FactoryUsageScope), RepositoryUsage: store.ConnectorScopeHas(b.Scope, RepositoryUsageScope), TaskUsage: store.ConnectorScopeHas(b.Scope, TaskUsageScope), Discussion: store.ConnectorScopeHas(b.Scope, DiscussionScope), Overview: store.ConnectorScopeHas(b.Scope, Scope), ClientName: client.Name, ClientID: client.ID, RedirectHost: redirectHost, Resource: b.Resource, CSRF: csrf}
+	data := consentData{ClientName: client.Name, ClientID: client.ID, RedirectHost: redirectHost, Resource: b.Resource, CSRF: csrf}
 	for _, known := range KnownScopes {
-		if store.ConnectorScopeHas(b.Scope, known.Name) {
-			data.Scopes = append(data.Scopes, consentScopeOption(known))
-		}
+		data.Scopes = append(data.Scopes, consentScopeOption{Name: known.Name, Description: known.Description, Requested: store.ConnectorScopeHas(b.Scope, known.Name)})
 	}
 	for i, months := range GrantDurations {
 		label := strconv.Itoa(months) + " months"
@@ -167,15 +170,16 @@ var consentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 </section>
 <section class="card"><h2>What it can access</h2>
 <dl><dt>Resource</dt><dd><code>{{.Resource}}</code></dd></dl>
-<fieldset><legend>Scopes (untick what you do not want to grant)</legend>
-{{range .Scopes}}<label class="option"><input type="checkbox" name="scope" value="{{.Name}}" checked><span><code>{{.Name}}</code><span class="note">{{.Description}}</span></span></label>
+<fieldset><legend>Scopes (the client's request is ticked; tick or untick what you grant)</legend>
+{{range .Scopes}}<label class="option"><input type="checkbox" name="scope" value="{{.Name}}"{{if .Requested}} checked{{end}}><span><code>{{.Name}}</code><span class="note">{{.Description}}</span></span></label>
 {{end}}</fieldset>
-{{if .Overview}}<p class="callout">Overview access covers <strong>all registered repositories</strong>, including private repositories and repositories registered in the future.</p>{{end}}
-{{if .FactoryUsage}}<p class="callout">Factory usage covers all recorded factory work, including work without a repository.</p>{{end}}
-{{if .RepositoryUsage}}<label for="usage-repository-ref">Repository for usage</label><input id="usage-repository-ref" name="usage_repository_ref" type="text" maxlength="1024" placeholder="github:owner/repository"><p class="note">Usage access covers only this registered repository.</p>{{end}}
-{{if .TaskUsage}}<label for="usage-task-ref">Task for usage</label><input id="usage-task-ref" name="usage_task_ref" type="text" maxlength="1024" placeholder="github:owner/repository#123"><p class="note">Task usage includes its recorded report family: linked and retired story history and later persisted links. Selecting a child does not include its parent or siblings. This permission does not grant task discussion, repository or factory usage.</p>{{end}}
-{{if .CodeReview}}<label for="code-repository-ref">Repository for code review</label><input id="code-repository-ref" name="code_repository_ref" type="text" maxlength="1024" placeholder="github:owner/code-repository"><p class="note">Code review also requires task:discussion for the same task below. It reads committed task/base files, search, reachable history and changes, and the published standards book. The repository must match the task’s retained code destination, which can differ from its ticket repository. It cannot edit code, change standards, run code or approve work.</p>{{end}}
-{{if .Discussion}}<label for="task-ref">Task for discussion</label><input id="task-ref" name="task_ref" type="text" maxlength="1024" placeholder="github:owner/repository#123"><p class="note">Discussion access covers only this existing task, including later evidence recorded for it. It does not include other tasks, repository code or usage.</p>{{end}}
+<p class="callout">If ticked, <code>factory:overview</code> covers <strong>all registered repositories</strong>, including private repositories and repositories registered in the future.</p>
+<p class="callout">If ticked, <code>factory:usage</code> covers all recorded factory work, including work without a repository.</p>
+<p class="note">The fields below are needed only for the scopes you tick.</p>
+<label for="usage-repository-ref">Repository for usage (<code>repository:usage</code>)</label><input id="usage-repository-ref" name="usage_repository_ref" type="text" maxlength="1024" placeholder="github:owner/repository"><p class="note">Usage access covers only this registered repository.</p>
+<label for="usage-task-ref">Task for usage (<code>task:usage</code>)</label><input id="usage-task-ref" name="usage_task_ref" type="text" maxlength="1024" placeholder="github:owner/repository#123"><p class="note">Task usage includes its recorded report family: linked and retired story history and later persisted links. Selecting a child does not include its parent or siblings. This permission does not grant task discussion, repository or factory usage.</p>
+<label for="code-repository-ref">Repository for code review (<code>task:code-review</code>)</label><input id="code-repository-ref" name="code_repository_ref" type="text" maxlength="1024" placeholder="github:owner/code-repository"><p class="note">Code review also requires task:discussion for the same task below. It reads committed task/base files, search, reachable history and changes, and the published standards book. The repository must match the task’s retained code destination, which can differ from its ticket repository. It cannot edit code, change standards, run code or approve work.</p>
+<label for="task-ref">Task for discussion (<code>task:discussion</code>)</label><input id="task-ref" name="task_ref" type="text" maxlength="1024" placeholder="github:owner/repository#123"><p class="note">Discussion access covers only this existing task, including later evidence recorded for it. It does not include other tasks, repository code or usage.</p>
 </section>
 <section class="card"><h2>How long</h2>
 <fieldset><legend>Grant duration</legend>
