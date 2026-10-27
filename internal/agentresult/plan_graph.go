@@ -20,6 +20,8 @@ const (
 	MaxPlanStorySetEntries = planbrief.MaxPlanStorySetEntries
 	// MaxPlanStoryIntentRunes bounds a story-set entry's one-line intent.
 	MaxPlanStoryIntentRunes = 280
+	// MaxPlanStorySizeReasonRunes bounds a supplied nonblank sizing reason.
+	MaxPlanStorySizeReasonRunes = 280
 	// MaxPlanStoryNameRunes bounds a story-set entry's short name.
 	MaxPlanStoryNameRunes = 80
 )
@@ -68,10 +70,12 @@ type PlanStorySet struct {
 // PlanStorySetEntry names one proposed story under a temporary identity that
 // exists only within the set. Real story keys are allocated by the factory later.
 type PlanStorySetEntry struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Intent    string   `json:"intent"`
-	DependsOn []string `json:"depends_on,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Intent     string   `json:"intent"`
+	DependsOn  []string `json:"depends_on,omitempty"`
+	Size       string   `json:"size,omitempty"`
+	SizeReason string   `json:"size_reason,omitempty"`
 }
 
 // PlanGraphBinding holds the values the factory owns for one graph Plan node. It
@@ -362,6 +366,10 @@ func validatePlanStorySet(set *PlanStorySet, d *Diagnostics) {
 			} else {
 				names[key] = i
 			}
+		}
+		reason := strings.TrimSpace(e.SizeReason)
+		if reason != "" && (strings.ContainsAny(e.SizeReason, "\r\n") || utf8.RuneCountInString(reason) > MaxPlanStorySizeReasonRunes) {
+			add(d, p+".size_reason", "size_reason", fmt.Sprintf("single-line reason of at most %d characters", MaxPlanStorySizeReasonRunes), "invalid size reason", "Supply a one-line size reason of at most 280 characters.")
 		}
 		intent := strings.TrimSpace(e.Intent)
 		if intent == "" || strings.ContainsAny(e.Intent, "\r\n") || utf8.RuneCountInString(intent) > MaxPlanStoryIntentRunes {
