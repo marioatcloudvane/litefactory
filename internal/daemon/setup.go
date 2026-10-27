@@ -42,6 +42,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/taskevidence"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
+	"github.com/cloudvane/litefactory/internal/usageview"
 	"github.com/cloudvane/litefactory/internal/webhook"
 )
 
@@ -59,6 +60,7 @@ type Setup struct {
 	// ConnectorOverview supplies only the remote read projection.
 	ConnectorOverview     connector.OverviewProvider
 	ConnectorTaskEvidence connector.TaskEvidenceProvider
+	ConnectorUsage        connector.UsageProvider
 	// BuildVersion identifies the running process; FactorySource is set only when known.
 	BuildVersion  string
 	FactorySource string
@@ -371,6 +373,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if s.Config.RemoteConnector.Enabled && s.ConnectorOverview == nil {
 		s.ConnectorOverview = overview.New(s.DB, sharedRedactor, s.Now, s.Paths.Home())
 	}
+	if s.Config.RemoteConnector.Enabled && s.ConnectorUsage == nil {
+		s.ConnectorUsage = usageview.New(s.DB, sharedRedactor, s.Paths.Home())
+	}
+
 	if s.Config.RemoteConnector.Enabled && s.ConnectorTaskEvidence == nil {
 		s.ConnectorTaskEvidence = taskevidence.New(s.DB, sharedRedactor, s.Now, s.Paths.Home())
 	}

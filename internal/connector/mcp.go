@@ -98,12 +98,16 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		var params struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read") {
+		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read" || params.Name == "usage_read") {
 			tool = params.Name
 		}
 	}
 	refuseRPC := func(code int, msg, reason string) {
-		s.rpcError(w, req.ID, code, msg)
+		if tool == "usage_read" {
+			s.writeDiscussionValue(w, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": code, "message": msg}})
+		} else {
+			s.rpcError(w, req.ID, code, msg)
+		}
 		s.audit(r, event, "refusal", reason, tool, start)
 	}
 	version := r.Header.Get("MCP-Protocol-Version")
@@ -152,6 +156,10 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		if slices.Contains(s.availableTools(grant), "task_evidence_read") {
 			tools = append(tools, map[string]any{"name": "task_evidence_read", "description": "Read six recorded evidence sections for the exact consented task, with source revisions, coverage gaps and bounded continuation pages.", "inputSchema": evidenceInputSchema(), "outputSchema": evidenceOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
 		}
+		if slices.Contains(s.availableTools(grant), "usage_read") {
+			tools = append(tools, map[string]any{"name": "usage_read", "description": "Read recorded usage, supported historical cost estimates and their recorded price basis for a consented scope and server-resolved period, with bounded evidence pages.", "inputSchema": usageInputSchema(), "outputSchema": usageOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
+		}
+
 		s.rpcResult(w, req.ID, map[string]any{"tools": tools})
 		s.audit(r, event, "success", "listed", tool, start)
 	case "tools/call":
@@ -191,6 +199,19 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		var usageArgs usageArguments
+		if params.Name == "usage_read" {
+			usageArgs, err = parseUsageArguments(params.Arguments)
+			if err != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+			if _, err = s.usageAccess(r.Context(), credential, usageArgs); err != nil {
+				refuseRPC(-32603, "Access unavailable", "scope")
+				return
+			}
+		}
+
 		select {
 		case s.transport.tools <- struct{}{}:
 			defer func() { <-s.transport.tools }()
@@ -204,9 +225,12 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		var result ToolResult
 		var callErr error
-		if params.Name == "task_evidence_read" {
+		switch params.Name {
+		case "usage_read":
+			result, callErr = s.readUsage(ctx, credential, usageArgs)
+		case "task_evidence_read":
 			result, callErr = s.readEvidence(ctx, credential, evidenceArgs)
-		} else {
+		default:
 			result, callErr = s.overview.Overview(ctx, params.Arguments)
 		}
 		reason, outcome := "completed", "success"
@@ -221,6 +245,9 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				}
 				result, _ = DiscussionResult(summary, map[string]any{"version": 1, "task_ref": "", "section": evidenceArgs.Section, "generated_at": s.now().UTC(), "revision": "", "items": []any{}, "sources": []any{}, "gaps": []string{gap}, "has_more": false, "next_cursor": ""})
 				result.IsError = true
+			}
+			if params.Name == "usage_read" {
+				result = usageFailureResult()
 			}
 			reason = "provider"
 			outcome = "error"
@@ -238,8 +265,15 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		if params.Name == "usage_read" && callErr == nil && ctx.Err() == nil {
+			if _, accessErr := s.usageAccess(ctx, credential, usageArgs); accessErr != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
+				refuseRPC(-32603, "Access unavailable", "credentials")
+				return
+			}
+		}
+
 		var written bool
-		if params.Name == "task_evidence_read" {
+		if params.Name == "task_evidence_read" || params.Name == "usage_read" {
 			written = s.writeDiscussionRPC(w, req.ID, result)
 		} else {
 			written = s.rpcResult(w, req.ID, result)
@@ -314,7 +348,12 @@ func (s *Server) writeRPC(w http.ResponseWriter, value map[string]any) bool {
 const overviewToolDescription = "Read the owner's software factory: health, work in progress, questions and reviews waiting for the owner (oldest first, with links), and reports confirmed in the last seven days, across all registered repositories. One call answers most questions about the factory. Lead with what needs the owner, then what is running, then health only if something is wrong."
 
 func (s *Server) writeDiscussionRPC(w http.ResponseWriter, id json.RawMessage, result ToolResult) bool {
-	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+	return s.writeDiscussionValue(w, map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+}
+
+func (s *Server) writeDiscussionValue(w http.ResponseWriter, value map[string]any) bool {
+	id := value["id"]
+	body, err := json.Marshal(value)
 	if err != nil || len(body) > DiscussionMaxResponseBytes {
 		body, _ = json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32603, "message": "Response unavailable"}})
 		if len(body) > DiscussionMaxResponseBytes {

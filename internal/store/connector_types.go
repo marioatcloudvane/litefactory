@@ -39,9 +39,16 @@ type ConnectorGrantTarget struct {
 	SessionID, RepoID      int64
 }
 
+// ConnectorUsageTarget binds independently consented usage to a stable local identity.
+type ConnectorUsageTarget struct {
+	Scope, TaskRef, RepositoryRef string
+	SessionID, RepoID             int64
+}
+
 // ConnectorGrant is a consented, absolute-expiry family of read credentials.
 type ConnectorGrant struct {
 	Target                        *ConnectorGrantTarget
+	UsageTargets                  []ConnectorUsageTarget
 	ID, ClientID, Resource, Scope string
 	OwnerID, OwnerGeneration      int64
 	CreatedAt, ExpiresAt          time.Time
@@ -142,6 +149,7 @@ type ConnectorExchange struct {
 // ConnectorGrantSummary omits all credential material and browser state.
 type ConnectorGrantSummary struct {
 	TaskRef                                   string
+	UsageRepositoryRef, UsageTaskRef          string
 	ID, ClientID, ClientName, Resource, Scope string
 	CreatedAt, ExpiresAt, RevokedAt           time.Time
 }

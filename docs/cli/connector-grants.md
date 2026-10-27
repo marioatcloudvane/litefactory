@@ -38,8 +38,20 @@ repositories, including private repositories and future registrations**.
 `task:discussion` covers only its selected canonical task, shown as
 `coverage.task_ref` in JSON and as the discussion task in text. It includes later
 recorded evidence for that same task but gives no access to other tasks, usage or
-repository code. Combined grants show both kinds of coverage; changing the task
-requires fresh consent, and token refresh preserves the original target.
+repository code. Usage scopes are independent:
+
+| Scope | Inspection coverage |
+| --- | --- |
+| `factory:usage` | `coverage.factory_usage` indicates all recorded factory work, including work without a repository. |
+| `repository:usage` | `coverage.usage_repository_ref` identifies the one consented registered repository. |
+| `task:usage` | `coverage.usage_task_ref` identifies the selected task; `coverage.usage_task_family` marks its linked report family, including retired history and later persisted links. |
+
+Text output names the same usage coverage. A task usage grant covers the selected
+issue and persisted story links once each; a child read includes no parent or
+siblings. It does not grant repository-wide or factory-wide totals. Combined
+grants show each selected scope; existing overview and task discussion grants
+keep their prior meaning. Changing a narrow usage target requires fresh consent,
+and token refresh preserves every original target.
 
 An active status means the grant passes the persisted authority and lifetime checks, not that the daemon
 is running or reachable. A changed or missing owner authority invalidates access;
@@ -69,7 +81,7 @@ including on an already connected client; renewal is refused too. Reconnecting
 or restarting the daemon does not restore access. Discussion reads recheck
 authority before each page and response release.
 Bytes already returned cannot be recalled. Revoking a discussion-only grant does
-not revoke another overview grant. Revoking a combined grant ends both of its
+not revoke another overview grant. Revoking a combined grant ends all of its
 permissions; inspect the scopes before choosing the target.
 
 `revoke` reports whether it changed the selected grant or it was already revoked.
@@ -102,6 +114,13 @@ needs attention, request supporting evidence, then revoke that grant and confirm
 a fresh evidence request is denied. The connector provides six evidence sections,
 short summaries, finite continuation pages and explicit gaps; see the
 [remote connector guide](../guides/remote-connector.md#discussing-a-selected-task).
+
+For usage, consent to the intended factory, repository or task scope, ask for
+recorded costs, then inspect this grant to confirm the coverage. Revoke it and
+request fresh usage or a continuation: access must be denied. Already delivered
+answers remain with the client. Usage defaults to rolling 30 days and shows exact
+server-resolved UTC bounds, historical price basis and missing evidence; see
+[usage discussion](../guides/remote-connector.md#discussing-usage-and-historical-costs).
 
 See the [command reference](command-reference.md#connector-grants) or
 [CLI index](README.md).

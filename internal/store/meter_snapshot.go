@@ -65,22 +65,44 @@ type MeterRow struct {
 type MeterSnapshotOptions struct {
 	RowBytes    func(MeterRow) (int, error)
 	HeaderBytes int
+	// MaxRows and MaxBytes may lower the default 1,000,000-row and 256 MiB
+	// acquisition limits. Zero retains the existing defaults.
+	MaxRows  int
+	MaxBytes int
+	// IncludeHistoricalRates captures only rates referenced by selected rows,
+	// in the same transaction as their frozen valuations.
+	IncludeHistoricalRates bool
+	// AllowEmptyInterval permits an equal-bound interval resolved by a trusted
+	// caller (for example today exactly at UTC midnight). Reversed bounds fail.
+	AllowEmptyInterval bool
 }
 
 // MeterSnapshot pages immutable TEMP data. It never retains a connection or
 // cursor across Next calls; Close is required even after cancellation.
 type MeterSnapshot struct {
-	db     *DB
-	name   string
-	cursor int64
-	mu     sync.Mutex
-	closed bool
+	db              *DB
+	name            string
+	cursor          int64
+	mu              sync.Mutex
+	closed          bool
+	historicalRates []MeterHistoricalRate
+	selectedIssues  []int64
 }
 
 // NewMeterSnapshot materializes at most one million rows and 256 MiB in a
 // transaction limited to thirty seconds. Output starts only after it succeeds.
 func (db *DB) NewMeterSnapshot(ctx context.Context, f MeterFilter, options MeterSnapshotOptions) (*MeterSnapshot, error) {
-	if f.TimeFrom != nil && f.TimeTo != nil && !f.TimeFrom.Before(*f.TimeTo) {
+	maxRows, maxBytes := options.MaxRows, options.MaxBytes
+	if maxRows == 0 {
+		maxRows = 1_000_000
+	}
+	if maxBytes == 0 {
+		maxBytes = 256 << 20
+	}
+	if maxRows < 1 || maxRows > 1_000_000 || maxBytes < 1 || maxBytes > 256<<20 {
+		return nil, errors.New("store: invalid meter snapshot limits")
+	}
+	if f.TimeFrom != nil && f.TimeTo != nil && (f.TimeFrom.After(*f.TimeTo) || f.TimeFrom.Equal(*f.TimeTo) && !options.AllowEmptyInterval) {
 		return nil, errors.New("store: invalid meter interval")
 	}
 	var random [16]byte
@@ -94,14 +116,42 @@ func (db *DB) NewMeterSnapshot(ctx context.Context, f MeterFilter, options Meter
 		if _, err := tx.ExecContext(bounded, `CREATE TEMP TABLE `+s.name+` (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)`); err != nil {
 			return err
 		}
+		if f.Issue > 0 {
+			s.selectedIssues = []int64{f.Issue}
+			if f.IncludeStories {
+				members, err := meterSnapshotFamily(bounded, tx, f.RepoID, f.Issue, maxRows+1)
+				if err != nil {
+					return err
+				}
+				s.selectedIssues = append(s.selectedIssues, members...)
+				slices.Sort(s.selectedIssues)
+				s.selectedIssues = slices.Compact(s.selectedIssues)
+			}
+		}
+		if len(s.selectedIssues) > maxRows {
+			return errors.New("store: meter snapshot exceeds limits; narrow scope")
+		}
+		membership, err := json.Marshal(s.selectedIssues)
+		if err != nil {
+			return err
+		}
+		membershipBytes := 0
+		if options.IncludeHistoricalRates {
+			membershipBytes = len(membership)
+		}
+		if options.HeaderBytes < 0 || options.HeaderBytes > maxBytes-membershipBytes {
+			return errors.New("store: invalid snapshot header size")
+		}
 		// Source rows are read in bounded pages within this transaction, making
 		// concurrent collection invisible until the complete snapshot is captured.
 		predicate, args := meterPredicates(f)
 		// #nosec G202 -- predicate contains constant SQL fragments only; all selectors are bound parameters.
 		query := `SELECT COALESCE(p.forge||':'||p.owner||'/'||p.name,substr(dc.task_ref,1,instr(dc.task_ref,'#')-1),'factory'),COALESCE(s.issue_number,CAST(substr(dc.task_ref,instr(dc.task_ref,'#')+1) AS INTEGER),0),COALESCE(r.ordinal,0),a.id,a.started_at,COALESCE(a.finished_at,''),a.coding_agent,COALESCE(r.mode,CASE WHEN a.authoring_session_id IS NOT NULL THEN 'standards_authoring' WHEN a.judge_attempt_id IS NOT NULL THEN 'judge' END,''),COALESCE(i.id,''),COALESCE(i.parent_id,''),m.actual_model,COALESCE(m.model_provenance,''),m.input_uncached_tokens,m.cache_read_tokens,m.cache_write_tokens,m.cache_write_5m_tokens,m.cache_write_1h_tokens,m.output_tokens,m.reasoning_tokens,a.price_revision_id,COALESCE(m.id,0),COALESCE(m.revision,0),a.collection_status,COALESCE(i.collection_status,'unknown'),COALESCE(m.collection_status,'unknown'),a.diagnostic_codes_json,COALESCE(i.diagnostic_codes_json,'[]'),COALESCE(m.diagnostic_codes_json,'[]'),a.provider_reported_zero_cost_refusal,CASE WHEN a.authoring_session_id IS NOT NULL THEN 'standards_authoring' WHEN a.presentation_owner IS NOT NULL THEN 'chat_presentation_'||po.phase WHEN a.chat_repo_id IS NOT NULL THEN 'chat_answer' WHEN a.judge_attempt_id IS NOT NULL THEN 'judge' WHEN a.doctor_attempt_id IS NOT NULL THEN 'doctor' WHEN n.id IS NULL THEN 'legacy' ELSE 'graph' END,COALESCE(r.id,0),n.instance_id,n.id,COALESCE(n.node,''),a.outcome,COALESCE(a.agent_version,''),COALESCE(a.source_format,''),COALESCE(i.source_invocation_id,'') FROM meter_attempts a LEFT JOIN chat_presentation_owners po ON po.id=a.presentation_owner LEFT JOIN graph_node_attempts n ON n.id=a.graph_node_attempt_id LEFT JOIN doctor_attempts da ON da.id=a.doctor_attempt_id LEFT JOIN doctor_conversations dc ON dc.id=da.conversation_id LEFT JOIN judge_attempts ja ON ja.id=a.judge_attempt_id LEFT JOIN judge_requests jq ON jq.id=ja.request_id LEFT JOIN runs r ON r.id=a.run_id LEFT JOIN sessions s ON s.id=COALESCE(r.session_id,jq.session_id) LEFT JOIN repos p ON p.id=po.repo_id OR p.id=a.chat_repo_id OR p.id=s.repo_id OR (a.doctor_attempt_id IS NOT NULL AND lower(substr(dc.task_ref,1,instr(dc.task_ref,'#')-1))=lower(p.forge||':'||p.owner||'/'||p.name)) LEFT JOIN meter_invocations i ON i.attempt_id=a.id LEFT JOIN meter_measurements m ON m.attempt_id=i.attempt_id AND m.invocation_id=i.id WHERE ` + predicate + ` ORDER BY p.forge,p.owner,p.name,s.issue_number,r.ordinal,a.started_at,a.id,i.id,m.actual_model LIMIT 256 OFFSET ?`
-		count, total := 0, options.HeaderBytes
+		count, total := 0, options.HeaderBytes+membershipBytes
+		sourceRows, sourceBytes := 0, 0
+		referenced := map[meterRateReference]bool{}
 		lastFilteredInvocation := [2]string{}
-		if total < 0 || total > 256<<20 {
+		if total < 0 || total > maxBytes {
 			return errors.New("store: invalid snapshot header size")
 		}
 		for offset := 0; ; offset += 256 {
@@ -121,6 +171,24 @@ func (db *DB) NewMeterSnapshot(ctx context.Context, f MeterFilter, options Meter
 				break
 			}
 			for _, row := range page {
+				// Connector limits bound acquisition, including source rows later
+				// excluded by a model filter. Defaults keep export accounting intact.
+				if options.MaxRows != 0 {
+					sourceRows++
+					if sourceRows > maxRows {
+						return errors.New("store: meter snapshot exceeds limits; narrow scope")
+					}
+				}
+				if options.MaxBytes != 0 {
+					encodedSource, err := json.Marshal(row)
+					if err != nil {
+						return err
+					}
+					if len(encodedSource) > maxBytes-sourceBytes {
+						return errors.New("store: meter snapshot exceeds limits; narrow scope")
+					}
+					sourceBytes += len(encodedSource)
+				}
 				start, err := time.Parse(time.RFC3339Nano, row.AttemptStartedAt)
 				if err != nil {
 					return err
@@ -151,6 +219,25 @@ func (db *DB) NewMeterSnapshot(ctx context.Context, f MeterFilter, options Meter
 						return err
 					}
 				}
+				if options.IncludeHistoricalRates && row.MeasurementID != 0 && row.ActualModel != nil {
+					ref := meterRateReference{row.PriceRevisionID, row.CodingAgent, *row.ActualModel}
+					if !referenced[ref] {
+						rates, err := readMeterHistoricalRates(bounded, tx, ref)
+						if err != nil {
+							return err
+						}
+						encoded, err := json.Marshal(rates)
+						if err != nil {
+							return err
+						}
+						if len(encoded) > maxBytes-total {
+							return errors.New("store: meter snapshot exceeds limits; narrow scope")
+						}
+						total += len(encoded)
+						s.historicalRates = append(s.historicalRates, rates...)
+						referenced[ref] = true
+					}
+				}
 				encoded, err := json.Marshal(row)
 				if err != nil {
 					return err
@@ -162,7 +249,7 @@ func (db *DB) NewMeterSnapshot(ctx context.Context, f MeterFilter, options Meter
 						return err
 					}
 				}
-				if size < 0 || size > 256<<20 || total > (256<<20)-size || count >= 1_000_000 {
+				if size < 0 || size > maxBytes || total > maxBytes-size || count >= maxRows {
 					return errors.New("store: meter snapshot exceeds limits; narrow scope")
 				}
 				total += size
@@ -178,6 +265,7 @@ func (db *DB) NewMeterSnapshot(ctx context.Context, f MeterFilter, options Meter
 	if err != nil {
 		return nil, fmt.Errorf("store: prepare meter snapshot: %w", err)
 	}
+	slices.SortFunc(s.historicalRates, compareMeterHistoricalRates)
 	return s, nil
 }
 func scanMeterPage(rows *sql.Rows) ([]MeterRow, error) {
