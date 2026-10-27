@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,7 +46,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		refusal(401, "credentials")
 		return
 	}
-	_, err := s.db.CheckConnectorAccess(r.Context(), digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, Scope, s.now())
+	grant, err := s.db.CheckConnectorAccess(r.Context(), digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrConnectorScope):
@@ -97,12 +98,16 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		var params struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(req.Params, &params) == nil && params.Name == "factory_overview" {
+		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name)) {
 			tool = params.Name
 		}
 	}
 	refuseRPC := func(code int, msg, reason string) {
-		s.rpcError(w, req.ID, code, msg)
+		if tool == "usage_read" || isCodeTool(tool) {
+			s.writeDiscussionValue(w, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": code, "message": msg}})
+		} else {
+			s.rpcError(w, req.ID, code, msg)
+		}
 		s.audit(r, event, "refusal", reason, tool, start)
 	}
 	version := r.Header.Get("MCP-Protocol-Version")
@@ -133,16 +138,34 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		} else {
 			version = protocolLatest
 		}
-		s.rpcResult(w, req.ID, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "litefactory", "version": "1"}, "instructions": serverInstructions})
+		instructions, guidanceErr := loadGuidance(s.guidance, s.availableTools(grant))
+		if guidanceErr != nil {
+			refuseRPC(-32603, "Tool guidance unavailable", "guidance")
+			return
+		}
+		s.rpcResult(w, req.ID, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "litefactory", "version": "1"}, "instructions": instructions})
 		s.audit(r, event, "success", "initialized", tool, start)
 	case "ping":
 		s.rpcResult(w, req.ID, map[string]any{})
 		s.audit(r, event, "success", "ping", tool, start)
 	case "tools/list":
 		tools := []any{}
-		if s.overview != nil {
+		if slices.Contains(s.availableTools(grant), "factory_overview") {
 			tools = append(tools, map[string]any{"name": "factory_overview", "description": overviewToolDescription, "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, "outputSchema": overviewOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
 		}
+		if slices.Contains(s.availableTools(grant), "task_evidence_read") {
+			tools = append(tools, map[string]any{"name": "task_evidence_read", "description": "Read six recorded evidence sections for one task, named by task_ref, in a repository this grant covers, with source revisions, coverage gaps and bounded continuation pages.", "inputSchema": evidenceInputSchema(), "outputSchema": evidenceOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
+		}
+		if slices.Contains(s.availableTools(grant), "usage_read") {
+			tools = append(tools, map[string]any{"name": "usage_read", "description": "Read recorded usage, supported historical cost estimates and their recorded price basis for a consented scope and server-resolved period, with bounded evidence pages.", "inputSchema": usageInputSchema(), "outputSchema": usageOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
+		}
+
+		for _, name := range codeToolNames {
+			if slices.Contains(s.availableTools(grant), name) {
+				tools = append(tools, map[string]any{"name": name, "description": codeToolDescription(name), "inputSchema": codeInputSchema(name), "outputSchema": codeOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
+			}
+		}
+
 		s.rpcResult(w, req.ID, map[string]any{"tools": tools})
 		s.audit(r, event, "success", "listed", tool, start)
 	case "tools/call":
@@ -150,14 +173,64 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
 		}
-		if json.Unmarshal(req.Params, &params) != nil || params.Name != "factory_overview" || s.overview == nil {
-			refuseRPC(-32602, "Unknown tool", "tool")
-			return
-		}
-		if !emptyArguments(params.Arguments) {
+		if json.Unmarshal(req.Params, &params) != nil {
 			refuseRPC(-32602, "Invalid params", "params")
 			return
 		}
+		requiredScope := ""
+		if params.Name == "factory_overview" && !store.ConnectorScopeHas(grant.Scope, Scope) {
+			requiredScope = Scope
+		}
+		if params.Name == "task_evidence_read" && !store.ConnectorScopeHas(grant.Scope, DiscussionScope) {
+			requiredScope = DiscussionScope
+		}
+		if requiredScope != "" {
+			w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+requiredScope+`"`)
+			refusal(http.StatusForbidden, "scope")
+			return
+		}
+		if !slices.Contains(s.availableTools(grant), params.Name) {
+			refuseRPC(-32602, "Unknown tool", "tool")
+			return
+		}
+		if params.Name == "factory_overview" && !emptyArguments(params.Arguments) {
+			refuseRPC(-32602, "Invalid params", "params")
+			return
+		}
+		var evidenceArgs evidenceArguments
+		if params.Name == "task_evidence_read" {
+			evidenceArgs, err = parseEvidenceArguments(params.Arguments)
+			if err != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+		}
+		var usageArgs usageArguments
+		if params.Name == "usage_read" {
+			usageArgs, err = parseUsageArguments(params.Arguments)
+			if err != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+			if _, _, err = s.usageAccess(r.Context(), credential, usageArgs); err != nil {
+				message := "Access unavailable"
+				if summary := refusalSummary(err); summary != "" {
+					message = strings.TrimSuffix(summary, ".")
+				}
+				refuseRPC(-32603, message, "scope")
+				return
+			}
+		}
+
+		var codeArgs codeArguments
+		if isCodeTool(params.Name) {
+			codeArgs, err = parseCodeArguments(params.Name, params.Arguments)
+			if err != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+		}
+
 		select {
 		case s.transport.tools <- struct{}{}:
 			defer func() { <-s.transport.tools }()
@@ -169,17 +242,73 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), ToolTimeout)
 		defer cancel()
-		result, callErr := s.overview.Overview(ctx, params.Arguments)
+		var result ToolResult
+		var callErr error
+		switch params.Name {
+		case "usage_read":
+			result, callErr = s.readUsage(ctx, credential, usageArgs)
+		case "task_evidence_read":
+			result, callErr = s.readEvidence(ctx, credential, evidenceArgs)
+		default:
+			if isCodeTool(params.Name) {
+				result, callErr = s.readCode(ctx, credential, params.Name, codeArgs)
+			} else {
+				result, callErr = s.overview.Overview(ctx, params.Arguments)
+			}
+		}
 		reason, outcome := "completed", "success"
 		if callErr != nil || ctx.Err() != nil {
 			result = ToolResult{Content: []TextContent{{Type: "text", Text: "Overview unavailable"}}, IsError: true}
+			refused := refusalSummary(callErr)
+			if params.Name == "task_evidence_read" {
+				gap := "source_unavailable"
+				summary := "Task evidence is unavailable."
+				if errors.Is(callErr, errEvidenceChanged) {
+					gap = "revision_changed_restart_required"
+					summary = "Task evidence changed. Restart this section without a cursor."
+				}
+				if refused != "" {
+					gap, summary = "access_refused", refused
+				}
+				result, _ = DiscussionResult(summary, map[string]any{"version": 1, "task_ref": "", "section": evidenceArgs.Section, "generated_at": s.now().UTC(), "revision": "", "items": []any{}, "sources": []any{}, "gaps": []string{gap}, "has_more": false, "next_cursor": ""})
+				result.IsError = true
+			}
+			if params.Name == "usage_read" {
+				result = usageFailureResult(refused)
+			}
+			if isCodeTool(params.Name) {
+				result = codeFailureResult(refused)
+			}
 			reason = "provider"
 			outcome = "error"
 		} else if result.IsError {
 			outcome = "error"
 			reason = "tool"
 		}
-		if !s.rpcResult(w, req.ID, result) {
+		// Only a successful task read can release evidence. Failed or canceled
+		// providers return a fixed refusal with no source facts.
+		if params.Name == "task_evidence_read" && callErr == nil && ctx.Err() == nil {
+			_, _, accessErr := s.db.CheckConnectorDiscussionAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, evidenceArgs.TaskRef, s.now())
+			if accessErr != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
+				refuseRPC(-32603, "Access unavailable", "credentials")
+				return
+			}
+		}
+
+		if params.Name == "usage_read" && callErr == nil && ctx.Err() == nil {
+			if _, _, accessErr := s.usageAccess(ctx, credential, usageArgs); accessErr != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
+				refuseRPC(-32603, "Access unavailable", "credentials")
+				return
+			}
+		}
+
+		var written bool
+		if params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) {
+			written = s.writeDiscussionRPC(w, req.ID, result)
+		} else {
+			written = s.rpcResult(w, req.ID, result)
+		}
+		if !written {
 			outcome = "error"
 			reason = "response_size"
 		}
@@ -216,7 +345,9 @@ func validID(id json.RawMessage) bool {
 	}
 }
 func (s *Server) challenge(w http.ResponseWriter) {
-	w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+strings.TrimSuffix(s.cfg.IssuerURL, "/litefactory")+`/.well-known/oauth-protected-resource/litefactory/mcp"`)
+	// The scope attribute names every known scope (MCP authorization, scope
+	// discovery), so a client re-authorizing asks for all of them.
+	w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+strings.TrimSuffix(s.cfg.IssuerURL, "/litefactory")+`/.well-known/oauth-protected-resource/litefactory/mcp", scope="`+strings.Join(scopeNames(), " ")+`"`)
 }
 func (s *Server) rpcError(w http.ResponseWriter, id json.RawMessage, code int, message string) {
 	if len(id) == 0 {
@@ -233,6 +364,9 @@ func (s *Server) writeRPC(w http.ResponseWriter, value map[string]any) bool {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		fallback, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": value["id"], "error": map[string]any{"code": -32603, "message": "Response unavailable"}})
+		if len(fallback) > MaxResponseBytes {
+			fallback = []byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Response unavailable"}}`)
+		}
 		_, _ = w.Write(fallback)
 		return false
 	}
@@ -241,8 +375,27 @@ func (s *Server) writeRPC(w http.ResponseWriter, value map[string]any) bool {
 	return true
 }
 
-// overviewToolDescription and serverInstructions tell the client model how to
-// use the overview, so it answers from one call without re-analysing the data.
+// overviewToolDescription retains the existing overview contract. Initialization
+// guidance is loaded separately for authorized installed capabilities.
 const overviewToolDescription = "Read the owner's software factory: health, work in progress, questions and reviews waiting for the owner (oldest first, with links), and reports confirmed in the last seven days, across all registered repositories. One call answers most questions about the factory. Lead with what needs the owner, then what is running, then health only if something is wrong."
 
-const serverInstructions = "Litefactory is the owner's software factory. Call factory_overview once per question and answer from it: start with anything waiting for the owner (with its link), then running work, then recent reports. Keep the answer short; quote item titles and links rather than raw fields, and only go into details the owner asks for. If health is stale or a coverage warning is present, say so in one line. This connector is read-only."
+func (s *Server) writeDiscussionRPC(w http.ResponseWriter, id json.RawMessage, result ToolResult) bool {
+	return s.writeDiscussionValue(w, map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+}
+
+func (s *Server) writeDiscussionValue(w http.ResponseWriter, value map[string]any) bool {
+	id := value["id"]
+	body, err := json.Marshal(value)
+	if err != nil || len(body) > DiscussionMaxResponseBytes {
+		body, _ = json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32603, "message": "Response unavailable"}})
+		if len(body) > DiscussionMaxResponseBytes {
+			body = []byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Response unavailable"}}`)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+	return true
+}

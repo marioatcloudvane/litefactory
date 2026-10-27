@@ -427,8 +427,9 @@ func TestConnectorStartupPinMismatchNeverRevivesAndNearExpiryRefresh(t *testing.
 	}
 }
 
-// Consent stores the owner's chosen scope subset and calendar-month expiry, up
-// to ConnectorMaxGrantMonths, and refuses anything outside those bounds.
+// Consent stores the owner's chosen known scopes (requested or not) and
+// calendar-month expiry, up to ConnectorMaxGrantMonths, and refuses anything
+// outside those bounds.
 func TestConnectorConsentScopeAndLifetimeBounds(t *testing.T) {
 	db := newTestDB(t)
 	o := connectorTestOwner(t, db, 42)
@@ -442,7 +443,10 @@ func TestConnectorConsentScopeAndLifetimeBounds(t *testing.T) {
 		{"maximum", connectorTestScope, connectorTestScope, ConnectorMaxGrantExpiry(connectorTestNow), true},
 		{"beyond maximum", connectorTestScope, connectorTestScope, ConnectorMaxGrantExpiry(connectorTestNow).Add(time.Second), false},
 		{"subset of requested", connectorTestScope + " other:read", connectorTestScope, ConnectorGrantExpiry(connectorTestNow, 1), true},
-		{"unrequested scope", connectorTestScope, connectorTestScope + " other:read", ConnectorGrantExpiry(connectorTestNow, 1), false},
+		{"unrequested known scope", connectorTestScope, connectorTestScope + " " + connectorFactoryUsageScope, ConnectorGrantExpiry(connectorTestNow, 1), true},
+		{"only unrequested known scope", connectorTestScope, connectorFactoryUsageScope, ConnectorGrantExpiry(connectorTestNow, 1), true},
+		{"unknown scope", connectorTestScope + " other:read", connectorTestScope + " other:read", ConnectorGrantExpiry(connectorTestNow, 1), false},
+		{"repeated scope", connectorTestScope, connectorTestScope + " " + connectorTestScope, ConnectorGrantExpiry(connectorTestNow, 1), false},
 		{"empty scope", connectorTestScope, "", ConnectorGrantExpiry(connectorTestNow, 1), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -462,6 +466,11 @@ func TestConnectorConsentScopeAndLifetimeBounds(t *testing.T) {
 			}
 			if test.ok {
 				x := ConnectorExchange{Digest: c.Digest, ClientID: "a", RedirectURI: b.RedirectURI, Resource: b.Resource, PKCEChallenge: b.PKCEChallenge, OwnerID: 42, Now: connectorTestNow, Pair: ConnectorTokenPair{AccessDigest: "access-" + id, RefreshDigest: "refresh-" + id, AccessExpiresAt: connectorTestNow.Add(15 * time.Minute)}}
+				// A client repeating its narrower original request still
+				// receives the whole grant the owner consented to.
+				if ConnectorScopeSubset(test.browserScope, test.grantScope) {
+					x.Scope = test.browserScope
+				}
 				got, err := db.ExchangeConnectorCode(t.Context(), x)
 				if err != nil || got.Scope != test.grantScope || !got.ExpiresAt.Equal(test.expires) {
 					t.Fatalf("exchange: %+v %v", got, err)

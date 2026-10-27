@@ -197,7 +197,9 @@ func (db *DB) VerifyConnectorBrowser(ctx context.Context, id, nonceDigest, upstr
 	})
 }
 
-// ConsentConnectorBrowser consumes consent once, atomically creating its grant and code.
+// ConsentConnectorBrowser consumes consent once, atomically creating its grant
+// and code. The grant may carry any non-empty set of known scopes the owner
+// ticked, including scopes the client did not request (RFC 6749 §3.3).
 func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest string, pin int64, now time.Time, g ConnectorGrant, c ConnectorCode, allow bool) error {
 	return db.connectorWrite(ctx, func(tx *sql.Conn) error {
 		b, err := getConnectorBrowser(ctx, tx, id, pin, now)
@@ -213,7 +215,7 @@ func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest strin
 		if !allow {
 			return nil
 		}
-		if g.ID == "" || g.ClientID != b.ClientID || g.Resource != b.Resource || !ConnectorScopeSubset(g.Scope, b.Scope) || g.OwnerID != pin || g.OwnerGeneration != b.OwnerGeneration || !g.ExpiresAt.After(now) || g.ExpiresAt.After(ConnectorMaxGrantExpiry(now)) || c.Digest == "" || c.GrantID != g.ID || c.ClientID != b.ClientID || c.RedirectURI != b.RedirectURI || c.Resource != b.Resource || c.Scope != g.Scope || c.PKCEChallenge != b.PKCEChallenge || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(5*time.Minute)) {
+		if g.ID == "" || g.ClientID != b.ClientID || g.Resource != b.Resource || !connectorScopeKnown(g.Scope) || g.OwnerID != pin || g.OwnerGeneration != b.OwnerGeneration || !g.ExpiresAt.After(now) || g.ExpiresAt.After(ConnectorMaxGrantExpiry(now)) || c.Digest == "" || c.GrantID != g.ID || c.ClientID != b.ClientID || c.RedirectURI != b.RedirectURI || c.Resource != b.Resource || c.Scope != g.Scope || c.PKCEChallenge != b.PKCEChallenge || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(5*time.Minute)) {
 			return ErrConnectorInvalid
 		}
 		var count int
@@ -229,8 +231,12 @@ func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest strin
 		if count >= 1000 {
 			return ErrConnectorCapacity
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO connector_grants(id,client_id,resource,scope,owner_id,generation,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)`, g.ID, g.ClientID, g.Resource, g.Scope, g.OwnerID, g.OwnerGeneration, FormatTime(g.CreatedAt), FormatTime(g.ExpiresAt))
+		all := g.Coverage != nil && g.Coverage.All
+		_, err = tx.ExecContext(ctx, `INSERT INTO connector_grants(id,client_id,resource,scope,owner_id,generation,created_at,expires_at,all_repositories) VALUES(?,?,?,?,?,?,?,?,?)`, g.ID, g.ClientID, g.Resource, g.Scope, g.OwnerID, g.OwnerGeneration, FormatTime(g.CreatedAt), FormatTime(g.ExpiresAt), all)
 		if err != nil {
+			return err
+		}
+		if err = insertConnectorCoverage(ctx, tx, g); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO connector_codes(digest,grant_id,client_id,redirect_uri,resource,scope,pkce_challenge,expires_at) VALUES(?,?,?,?,?,?,?,?)`, c.Digest, c.GrantID, c.ClientID, c.RedirectURI, c.Resource, c.Scope, c.PKCEChallenge, FormatTime(c.ExpiresAt))
@@ -238,16 +244,15 @@ func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest strin
 	})
 }
 
-func connectorGrant(ctx context.Context, tx interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, id string, pin int64, now time.Time) (ConnectorGrant, error) {
+func connectorGrant(ctx context.Context, tx *sql.Conn, id string, pin int64, now time.Time) (ConnectorGrant, error) {
 	var g ConnectorGrant
 	var created, expiry string
+	var all bool
 	o, err := connectorOwner(ctx, tx, pin)
 	if err != nil {
 		return g, err
 	}
-	err = tx.QueryRowContext(ctx, `SELECT id,client_id,resource,scope,owner_id,generation,created_at,expires_at FROM connector_grants WHERE id=? AND owner_id=? AND generation=? AND revoked_at IS NULL AND expires_at>?`, id, o.OwnerID, o.Generation, FormatTime(now)).Scan(&g.ID, &g.ClientID, &g.Resource, &g.Scope, &g.OwnerID, &g.OwnerGeneration, &created, &expiry)
+	err = tx.QueryRowContext(ctx, `SELECT id,client_id,resource,scope,owner_id,generation,created_at,expires_at,all_repositories FROM connector_grants WHERE id=? AND owner_id=? AND generation=? AND revoked_at IS NULL AND expires_at>?`, id, o.OwnerID, o.Generation, FormatTime(now)).Scan(&g.ID, &g.ClientID, &g.Resource, &g.Scope, &g.OwnerID, &g.OwnerGeneration, &created, &expiry, &all)
 	if errors.Is(err, sql.ErrNoRows) {
 		return g, ErrConnectorInvalid
 	}
@@ -259,6 +264,9 @@ func connectorGrant(ctx context.Context, tx interface {
 		return g, err
 	}
 	g.ExpiresAt, err = ParseTime(expiry)
+	if err == nil && ConnectorRepositoryScoped(g.Scope) {
+		g.Coverage, err = loadConnectorCoverage(ctx, tx, g.ID, all)
+	}
 	return g, err
 }
 
@@ -361,11 +369,14 @@ func (db *DB) RotateConnectorRefresh(ctx context.Context, x ConnectorExchange) (
 	return g, err
 }
 
-// CheckConnectorAccess checks token, family and current owner in one SQL snapshot.
+// CheckConnectorAccess checks token, family and current owner in one SQL
+// snapshot. A non-empty scope must be part of the grant. The grant's
+// repository coverage is loaded when its scope needs one.
 func (db *DB) CheckConnectorAccess(ctx context.Context, digest string, pin int64, resource, scope string, now time.Time) (ConnectorGrant, error) {
 	var g ConnectorGrant
 	var created, expiry string
-	err := db.sql.QueryRowContext(ctx, `SELECT g.id,g.client_id,g.resource,g.scope,g.owner_id,g.generation,g.created_at,g.expires_at FROM connector_access a JOIN connector_grants g ON g.id=a.grant_id JOIN connector_owner o ON o.singleton=1 AND o.owner_id=g.owner_id AND o.generation=g.generation JOIN identities i ON i.forge='github' AND i.role='owner' AND i.user_id=o.owner_id WHERE a.digest=? AND a.revoked_at IS NULL AND a.expires_at>? AND g.revoked_at IS NULL AND g.expires_at>? AND g.owner_id=? AND g.resource=?`, digest, FormatTime(now), FormatTime(now), pin, resource).Scan(&g.ID, &g.ClientID, &g.Resource, &g.Scope, &g.OwnerID, &g.OwnerGeneration, &created, &expiry)
+	var all bool
+	err := db.sql.QueryRowContext(ctx, `SELECT g.id,g.client_id,g.resource,g.scope,g.owner_id,g.generation,g.created_at,g.expires_at,g.all_repositories FROM connector_access a JOIN connector_grants g ON g.id=a.grant_id JOIN connector_owner o ON o.singleton=1 AND o.owner_id=g.owner_id AND o.generation=g.generation JOIN identities i ON i.forge='github' AND i.role='owner' AND i.user_id=o.owner_id WHERE a.digest=? AND a.revoked_at IS NULL AND a.expires_at>? AND g.revoked_at IS NULL AND g.expires_at>? AND g.owner_id=? AND g.resource=?`, digest, FormatTime(now), FormatTime(now), pin, resource).Scan(&g.ID, &g.ClientID, &g.Resource, &g.Scope, &g.OwnerID, &g.OwnerGeneration, &created, &expiry, &all)
 	if errors.Is(err, sql.ErrNoRows) {
 		return g, ErrConnectorInvalid
 	}
@@ -377,10 +388,18 @@ func (db *DB) CheckConnectorAccess(ctx context.Context, digest string, pin int64
 		return g, err
 	}
 	g.ExpiresAt, err = ParseTime(expiry)
-	if err == nil && !ConnectorScopeHas(g.Scope, scope) {
-		return ConnectorGrant{}, ErrConnectorScope
+	if err != nil {
+		return ConnectorGrant{}, err
 	}
-	return g, err
+	if scope != "" && !ConnectorScopeHas(g.Scope, scope) {
+		return ConnectorGrant{}, connectorRefused(ErrConnectorScope, "this grant does not include %s", scope)
+	}
+	if ConnectorRepositoryScoped(g.Scope) {
+		if g.Coverage, err = loadConnectorCoverage(ctx, db.sql, g.ID, all); err != nil {
+			return ConnectorGrant{}, err
+		}
+	}
+	return g, nil
 }
 
 // RevokeConnectorToken compares client ownership and mutates only the stored

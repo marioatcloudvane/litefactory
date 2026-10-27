@@ -172,7 +172,30 @@ func writeConnectorGrantSummaries(env *Env, home string, snapshot time.Time, gra
 	}
 	for _, grant := range grants {
 		fmt.Fprintf(&out, "\nGrant: %q\nClient: %q (%q)\nScope: %q\nResource: %q\n", grant.ID, grant.ClientID, grant.ClientName, grant.Scope, grant.Resource)
-		fmt.Fprintf(&out, "Repository coverage: all registered repositories=%t; private repositories=%t; future registrations=%t\n", grant.Coverage.AllRegisteredRepositories, grant.Coverage.PrivateRepositories, grant.Coverage.FutureRepositories)
+		if c := grant.Coverage.Repositories; c != nil {
+			fmt.Fprintf(&out, "Task and repository access (%s): ", strings.Join(c.Scopes, ", "))
+			switch {
+			case c.All:
+				out.WriteString("all registered repositories, including ones registered later")
+			case len(c.Repositories) == 0:
+				out.WriteString("no repositories")
+			default:
+				for i, ref := range c.Repositories {
+					if i > 0 {
+						out.WriteString(", ")
+					}
+					fmt.Fprintf(&out, "%q", ref)
+				}
+			}
+			out.WriteString("; the client names the task or repository on each call\n")
+		}
+		if grant.Coverage.FactoryUsage {
+			out.WriteString("Usage coverage: all recorded factory work, including work without a repository\n")
+		}
+		if grant.Coverage.UsageTaskFamily {
+			out.WriteString("Task usage: includes each task's linked report family (retired history and later persisted links)\n")
+		}
+		fmt.Fprintf(&out, "Overview repository coverage: all registered repositories=%t; private repositories=%t; future registrations=%t\n", grant.Coverage.AllRegisteredRepositories, grant.Coverage.PrivateRepositories, grant.Coverage.FutureRepositories)
 		fmt.Fprintf(&out, "Created at: %s\nGrant expires at: %s\nRenewable: %t\nEffective status: %s (does not indicate daemon availability)\n", connectorGrantTime(grant.CreatedAt), connectorGrantTime(grant.ExpiresAt), grant.Renewable, grant.Status)
 		if grant.RevokedAt != nil {
 			fmt.Fprintf(&out, "Revoked at: %s\nRevocation reason: %q\n", connectorGrantTime(*grant.RevokedAt), grant.RevocationReason)

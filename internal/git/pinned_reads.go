@@ -26,7 +26,17 @@ func (c *Clone) pinned(commit string, byteLimit int) error {
 }
 
 func pinnedPath(path string) (string, error) {
-	path = strings.Trim(path, "/")
+	if len(path) > 500 {
+		return "", fmt.Errorf("path too long: %w", ErrInvalidArgument)
+	}
+	if strings.HasPrefix(path, "/") || strings.Contains(path, "\\") || strings.HasPrefix(path, ":") {
+		return "", fmt.Errorf("literal relative path required: %w", ErrInvalidArgument)
+	}
+	for _, r := range path {
+		if r < 32 || r == 127 {
+			return "", fmt.Errorf("path control character: %w", ErrInvalidArgument)
+		}
+	}
 	if path == "" {
 		return "", nil
 	}
@@ -42,7 +52,11 @@ func pinnedPath(path string) (string, error) {
 }
 
 func (c *Clone) boundedRead(ctx context.Context, byteLimit int, allowed []int, args ...string) (string, error) {
-	out, err := c.runner.runRawLimit(ctx, readTimeout, byteLimit, args...)
+	if err := pinnedSafety(ctx, c); err != nil {
+		return "", err
+	}
+	args = append([]string{"--no-pager", "--literal-pathspecs", "-c", "submodule.recurse=false", "-c", "core.quotePath=true"}, args...)
+	out, err := pinnedRunner(c).runRawLimit(ctx, readTimeout, byteLimit, args...)
 	if err != nil {
 		var command *CommandError
 		if errors.As(err, &command) {
@@ -74,7 +88,7 @@ func (c *Clone) PinnedLog(ctx context.Context, commit, path, query string, limit
 	if limit < 1 || limit > 100 || strings.ContainsAny(query, "\x00\n\r") || len(query) > 200 {
 		return "", fmt.Errorf("pinned log: %w", ErrInvalidArgument)
 	}
-	args := []string{"--no-optional-locks", "--no-replace-objects", "log", "--no-color", "--no-ext-diff", "--no-mailmap", "-n", strconv.Itoa(limit), "--date=short", "--format=%h %ad %s", "--name-only"}
+	args := []string{"--no-optional-locks", "--no-replace-objects", "log", "--no-color", "--no-show-signature", "--no-notes", "--no-decorate", "--no-ext-diff", "--no-textconv", "--no-mailmap", "-n", strconv.Itoa(limit), "--date=short", "--format=%h %ad %s", "--name-only"}
 	if query != "" {
 		args = append(args, "-i", "--fixed-strings", "--grep="+query)
 	}
@@ -99,7 +113,7 @@ func (c *Clone) PinnedGrep(ctx context.Context, commit, pattern, path string, ig
 	if pattern == "" || len(pattern) > 500 || strings.ContainsAny(pattern, "\x00\n\r") || perFile < 1 || perFile > 100 {
 		return "", fmt.Errorf("pinned grep: %w", ErrInvalidArgument)
 	}
-	args := []string{"--no-optional-locks", "--no-replace-objects", "grep", "--no-color", "-I", "-n", "-E", "--max-count=" + strconv.Itoa(perFile)}
+	args := []string{"--no-optional-locks", "--no-replace-objects", "grep", "--no-color", "--no-textconv", "--no-recurse-submodules", "-I", "-n", "-E", "--max-count=" + strconv.Itoa(perFile)}
 	if ignoreCase {
 		args = append(args, "-i")
 	}
@@ -121,8 +135,14 @@ func (c *Clone) PinnedRead(ctx context.Context, commit, path string, byteLimit i
 	if path, err = pinnedPath(path); err != nil {
 		return "", false, err
 	}
+	if err := pinnedSafety(ctx, c); err != nil {
+		return "", false, err
+	}
+	if err := pinnedEntry(ctx, c, commit, path); err != nil {
+		return "", false, err
+	}
 	object := commit + ":" + path
-	kind, err := c.runner.run(ctx, readTimeout, "--no-replace-objects", "cat-file", "-t", object)
+	kind, err := pinnedRunner(c).run(ctx, readTimeout, "--no-replace-objects", "cat-file", "-t", object)
 	if err != nil {
 		return "", false, fmt.Errorf("%s: %w", path, ErrRevisionNotFound)
 	}
@@ -145,7 +165,7 @@ func (c *Clone) PinnedRead(ctx context.Context, commit, path string, byteLimit i
 		}
 		return strings.Join(names, "\n"), true, nil
 	case "blob":
-		size, err := c.runner.run(ctx, readTimeout, "--no-replace-objects", "cat-file", "-s", object)
+		size, err := pinnedRunner(c).run(ctx, readTimeout, "--no-replace-objects", "cat-file", "-s", object)
 		if err != nil {
 			return "", false, err
 		}
@@ -169,17 +189,23 @@ func OpenPinnedRead(ctx context.Context, c *Clone, commit, path string) (io.Read
 	if err != nil {
 		return nil, false, err
 	}
+	if err := pinnedSafety(ctx, c); err != nil {
+		return nil, false, err
+	}
+	if err := pinnedEntry(ctx, c, commit, path); err != nil {
+		return nil, false, err
+	}
 	object := commit + ":" + path
-	kind, err := c.runner.run(ctx, readTimeout, "--no-replace-objects", "cat-file", "-t", object)
+	kind, err := pinnedRunner(c).run(ctx, readTimeout, "--no-replace-objects", "cat-file", "-t", object)
 	if err != nil {
 		return nil, false, ErrRevisionNotFound
 	}
 	switch kind {
 	case "blob":
-		stream, err := c.runner.openRead(ctx, "--no-replace-objects", "cat-file", "blob", object)
+		stream, err := pinnedRunner(c).openRead(ctx, "--no-replace-objects", "cat-file", "blob", object)
 		return stream, false, err
 	case "tree":
-		stream, err := c.runner.openRead(ctx, "--no-optional-locks", "--no-replace-objects", "ls-tree", "-z", object)
+		stream, err := pinnedRunner(c).openRead(ctx, "--no-optional-locks", "--no-replace-objects", "ls-tree", "-z", object)
 		return stream, true, err
 	default:
 		return nil, false, ErrInvalidArgument

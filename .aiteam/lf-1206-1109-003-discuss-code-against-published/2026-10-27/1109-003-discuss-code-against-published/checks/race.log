@@ -1,0 +1,8 @@
+ok  	github.com/cloudvane/litefactory/internal/connector	54.518s
+ok  	github.com/cloudvane/litefactory/internal/codeevidence	22.463s
+ok  	github.com/cloudvane/litefactory/internal/git	82.316s
+ok  	github.com/cloudvane/litefactory/internal/projectread	86.347s
+ok  	github.com/cloudvane/litefactory/internal/standards	59.465s
+ok  	github.com/cloudvane/litefactory/internal/drift	25.758s
+ok  	github.com/cloudvane/litefactory/internal/loganalysis	24.291s
+ok  	github.com/cloudvane/litefactory/internal/standardsexceptions	13.452s

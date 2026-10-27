@@ -33,14 +33,16 @@ func grantMonths(raw string) (int, bool) {
 }
 
 // consentScope turns the ticked scope checkboxes into the scope string the
-// grant records. Every ticked scope must be known and must have been in the
-// authorization request; at least one is required and none may repeat.
-func consentScope(ticked []string, requested string) (string, bool) {
+// grant records. Every ticked scope must be known; at least one is required
+// and none may repeat. The owner may tick known scopes the client did not
+// request: RFC 6749 §3.3 lets the server issue a different scope on the
+// resource owner's instructions, and the token response then names it.
+func consentScope(ticked []string) (string, bool) {
 	if len(ticked) == 0 {
 		return "", false
 	}
 	for _, scope := range ticked {
-		if scope == "" || strings.Contains(scope, " ") || !store.ConnectorScopeHas(requested, scope) {
+		if scope == "" || strings.Contains(scope, " ") || !knownScope(scope) {
 			return "", false
 		}
 	}
@@ -48,8 +50,8 @@ func consentScope(ticked []string, requested string) (string, bool) {
 }
 
 // readConsentForm parses the consent page's own form. Like readForm it refuses
-// a parameter given more than once, except scope, which carries one value per
-// ticked checkbox.
+// a parameter given more than once, except scope and repository, which carry
+// one value per ticked checkbox.
 func readConsentForm(r *http.Request) (url.Values, error) {
 	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || media != "application/x-www-form-urlencoded" || r.URL.RawQuery != "" {
@@ -59,14 +61,19 @@ func readConsentForm(r *http.Request) (url.Values, error) {
 		return nil, err
 	}
 	for key, entries := range r.PostForm {
-		if key != "scope" && len(entries) != 1 {
+		if key != "scope" && key != "repository" && len(entries) != 1 {
 			return nil, errors.New("connector: duplicate parameter")
 		}
 	}
 	return r.PostForm, nil
 }
 
-type consentScopeOption struct{ Name, Description string }
+// consentScopeOption is one scope checkbox. Every known scope is offered;
+// Requested pre-ticks the ones the client asked for.
+type consentScopeOption struct {
+	Name, Description string
+	Requested         bool
+}
 
 type consentDuration struct {
 	Months  int
@@ -79,14 +86,16 @@ type consentData struct {
 	ClientName, ClientID, RedirectHost, Resource, CSRF string
 	Scopes                                             []consentScopeOption
 	Durations                                          []consentDuration
+	Repositories                                       []string
 }
 
-func newConsentData(client store.ConnectorClient, redirectHost string, b store.ConnectorBrowser, csrf string, now time.Time) consentData {
-	data := consentData{ClientName: client.Name, ClientID: client.ID, RedirectHost: redirectHost, Resource: b.Resource, CSRF: csrf}
+func newConsentData(client store.ConnectorClient, redirectHost string, b store.ConnectorBrowser, csrf string, repositories []store.ConnectorRepository, now time.Time) consentData {
+	data := consentData{ClientName: client.Name, ClientID: client.ID, RedirectHost: redirectHost, Resource: b.Resource, CSRF: csrf, Repositories: []string{}}
+	for _, r := range repositories {
+		data.Repositories = append(data.Repositories, r.RepositoryRef)
+	}
 	for _, known := range KnownScopes {
-		if store.ConnectorScopeHas(b.Scope, known.Name) {
-			data.Scopes = append(data.Scopes, consentScopeOption(known))
-		}
+		data.Scopes = append(data.Scopes, consentScopeOption{Name: known.Name, Description: known.Description, Requested: store.ConnectorScopeHas(b.Scope, known.Name)})
 	}
 	for i, months := range GrantDurations {
 		label := strconv.Itoa(months) + " months"
@@ -98,9 +107,63 @@ func newConsentData(client store.ConnectorClient, redirectHost string, b store.C
 	return data
 }
 
+// allRepositories is the value of the consent page's "all repositories"
+// checkbox (name="repositories").
+const allRepositories = "all"
+
+// consentCoverage reads the repository selection for a grant whose scope
+// needs one. "All repositories" wins over individually ticked repositories.
+// The store checks that each listed repository is registered. A non-empty
+// string is the plain reason the selection is refused.
+func consentCoverage(form url.Values, scope string) (store.ConnectorCoverage, string) {
+	switch form.Get("repositories") {
+	case allRepositories:
+		return store.ConnectorCoverage{All: true}, ""
+	case "":
+	default:
+		return store.ConnectorCoverage{}, "unknown repository choice: " + strconv.Quote(form.Get("repositories"))
+	}
+	var coverage store.ConnectorCoverage
+	for _, ref := range form["repository"] {
+		if ref == "" || len(ref) > 1024 {
+			return store.ConnectorCoverage{}, "repository not registered: " + strconv.Quote(ref)
+		}
+		coverage.Repositories = append(coverage.Repositories, store.ConnectorRepository{RepositoryRef: ref})
+	}
+	if len(coverage.Repositories) == 0 {
+		var needs []string
+		for _, s := range []string{DiscussionScope, CodeReviewScope, RepositoryUsageScope, TaskUsageScope} {
+			if store.ConnectorScopeHas(scope, s) {
+				needs = append(needs, s)
+			}
+		}
+		return store.ConnectorCoverage{}, "choose all repositories or at least one registered repository for " + strings.Join(needs, ", ")
+	}
+	return coverage, ""
+}
+
+// consentRefusal answers a refused Allow with a short page naming what was
+// wrong. Nothing is granted and the pending consent stays usable, so the owner
+// can go back, change the selection and allow again. The audit line keeps the
+// OAuth error code.
+func consentRefusal(w http.ResponseWriter, code, reason string) {
+	if response, ok := w.(*oauthResponse); ok {
+		response.code = code
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusBadRequest)
+	_ = consentRefusalPage.Execute(w, reason)
+}
+
+var consentRefusalPage = template.Must(template.New("refusal").Parse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Access not allowed</title></head>
+<body><main><h1>Access was not allowed</h1><p>{{.}}.</p><p>Nothing was granted. Go back, change the selection and choose Allow again; the request stays open for ten minutes.</p></main></body></html>`))
+
 // consentCSS and consentJS are fixed text: the page's Content-Security-Policy
 // allows exactly these two inline blocks by hash. The script only enables or
-// disables Allow; the server enforces every rule on its own.
+// disables Allow and the individual repositories while "All repositories" is
+// ticked; the server enforces every rule on its own.
 const consentCSS = `:root{--bg:#f3f3f3;--card:#fff;--text:#1b1b1b;--muted:#5f5f5f;--line:#d9d9d9;--strong:#1b1b1b;--on-strong:#fff;--soft:#efefef}
 @media (prefers-color-scheme:dark){:root{--bg:#111;--card:#1c1c1c;--text:#ededed;--muted:#a6a6a6;--line:#343434;--strong:#ededed;--on-strong:#111;--soft:#262626}}
 *{box-sizing:border-box}
@@ -133,7 +196,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .actions .note{margin-top:12px}
 @media (max-width:420px){dl{grid-template-columns:1fr;gap:0}dd{margin-bottom:10px}h1{font-size:22px}}`
 
-const consentJS = `(function(){var f=document.getElementById("consent"),a=document.getElementById("allow"),n=document.getElementById("noscope");function u(){var any=f.querySelectorAll('input[name="scope"]:checked').length>0;a.disabled=!any;n.hidden=any}f.addEventListener("change",u);u()})();`
+const consentJS = `(function(){var f=document.getElementById("consent"),a=document.getElementById("allow"),n=document.getElementById("noscope"),r=document.getElementById("all-repositories");function u(){var any=f.querySelectorAll('input[name="scope"]:checked').length>0;a.disabled=!any;n.hidden=any;f.querySelectorAll('input[name="repository"]').forEach(function(x){x.disabled=r.checked})}f.addEventListener("change",u);u()})();`
 
 func cspHash(source string) string {
 	sum := sha256.Sum256([]byte(source))
@@ -165,10 +228,17 @@ var consentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 </section>
 <section class="card"><h2>What it can access</h2>
 <dl><dt>Resource</dt><dd><code>{{.Resource}}</code></dd></dl>
-<fieldset><legend>Scopes (untick what you do not want to grant)</legend>
-{{range .Scopes}}<label class="option"><input type="checkbox" name="scope" value="{{.Name}}" checked><span><code>{{.Name}}</code><span class="note">{{.Description}}</span></span></label>
+<fieldset><legend>Scopes (the client's request is ticked; tick or untick what you grant)</legend>
+{{range .Scopes}}<label class="option"><input type="checkbox" name="scope" value="{{.Name}}"{{if .Requested}} checked{{end}}><span><code>{{.Name}}</code><span class="note">{{.Description}}</span></span></label>
 {{end}}</fieldset>
-<p class="callout">Access covers <strong>all registered repositories</strong>, including private repositories and repositories registered in the future.</p>
+<p class="callout">If ticked, <code>factory:overview</code> covers <strong>all registered repositories</strong>, including private repositories and repositories registered in the future.</p>
+<p class="callout">If ticked, <code>factory:usage</code> covers all recorded factory work, including work without a repository.</p>
+<fieldset><legend>Repositories for <code>task:discussion</code>, <code>task:code-review</code>, <code>repository:usage</code> and <code>task:usage</code></legend>
+<label class="option"><input type="checkbox" name="repositories" value="all" id="all-repositories" checked><span>All repositories (including ones registered later)<span class="note">Untick to choose individual repositories below.</span></span></label>
+{{range .Repositories}}<label class="option"><input type="checkbox" name="repository" value="{{.}}"><span><code>{{.}}</code></span></label>
+{{else}}<p class="note">No repositories are registered yet.</p>
+{{end}}</fieldset>
+<p class="note">The client names the task or repository on each call. Every call is checked: the task must exist and belong to a covered repository; code review reads the task's own retained code repository. The selection is used only for the scopes above you tick. Task usage includes the task's recorded report family: linked and retired story history and later persisted links.</p>
 </section>
 <section class="card"><h2>How long</h2>
 <fieldset><legend>Grant duration</legend>

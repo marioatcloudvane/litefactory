@@ -1,12 +1,15 @@
 package connector
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -44,8 +47,17 @@ func TestConsentPageOffersScopesAndDurationsAndAllowsOnlyItsOwnInlineAssets(t *t
 	t.Parallel()
 	_, result, _, _ := verifiedConsent(t)
 	page := result.Body.String()
-	if !strings.Contains(page, `type="checkbox" name="scope" value="`+Scope+`" checked`) {
-		t.Error("consent lacks a pre-ticked checkbox for the requested scope")
+	boxes := consentCheckboxes(t, page)
+	if len(boxes) != len(KnownScopes) {
+		t.Fatalf("consent offers %d scopes, want all %d known: %v", len(boxes), len(KnownScopes), boxes)
+	}
+	for i, known := range KnownScopes {
+		if boxes[i].value != known.Name || boxes[i].checked != (known.Name == Scope) {
+			t.Errorf("scope %d: %+v, want %s checked=%v", i, boxes[i], known.Name, known.Name == Scope)
+		}
+	}
+	if !strings.Contains(page, `name="repositories" value="all"`) {
+		t.Error("consent lacks the repository selection for the task-level and repository-level scopes")
 	}
 	for _, months := range GrantDurations {
 		if !strings.Contains(page, `name="duration" value="`+strconv.Itoa(months)+`"`) {
@@ -102,13 +114,154 @@ func TestConsentRefusesAllowWithoutAValidScope(t *testing.T) {
 	}
 }
 
-func TestConsentScopeMustHaveBeenRequested(t *testing.T) {
-	t.Parallel()
-	if _, ok := consentScope([]string{Scope}, "factory:other"); ok {
-		t.Fatal("granted a scope the client did not request")
+type consentCheckbox struct {
+	value   string
+	checked bool
+}
+
+// consentCheckboxes returns the page's scope checkboxes in order.
+func consentCheckboxes(t *testing.T, page string) []consentCheckbox {
+	t.Helper()
+	var boxes []consentCheckbox
+	for _, input := range regexp.MustCompile(`<input [^>]*name="scope"[^>]*>`).FindAllString(page, -1) {
+		value := regexp.MustCompile(`value="([^"]*)"`).FindStringSubmatch(input)
+		if len(value) != 2 || !strings.Contains(input, `type="checkbox"`) {
+			t.Fatalf("malformed scope input %q", input)
+		}
+		boxes = append(boxes, consentCheckbox{value: value[1], checked: regexp.MustCompile(`\schecked[\s>]`).MatchString(input)})
 	}
-	if got, ok := consentScope([]string{Scope}, Scope); !ok || got != Scope {
-		t.Fatalf("requested scope refused: %q %v", got, ok)
+	return boxes
+}
+
+func TestConsentPagePreTicksEveryRequestedScope(t *testing.T) {
+	t.Parallel()
+	requested := DiscussionScope + " " + FactoryUsageScope
+	j := beginBrowserJourneyScopes(t, browserIdentity{owner: 42}, requested)
+	page := j.callback(t, j.state)
+	if page.Code != http.StatusOK {
+		t.Fatalf("callback: %d %s", page.Code, page.Body.String())
+	}
+	boxes := consentCheckboxes(t, page.Body.String())
+	if len(boxes) != len(KnownScopes) {
+		t.Fatalf("consent offers %v, want all known scopes", boxes)
+	}
+	for i, known := range KnownScopes {
+		want := store.ConnectorScopeHas(requested, known.Name)
+		if boxes[i].value != known.Name || boxes[i].checked != want {
+			t.Errorf("scope %d: %+v, want %s checked=%v", i, boxes[i], known.Name, want)
+		}
+	}
+}
+
+func TestConsentScopeAcceptsAnyKnownScope(t *testing.T) {
+	t.Parallel()
+	if _, ok := consentScope([]string{"factory:other"}); ok {
+		t.Fatal("granted an unknown scope")
+	}
+	if _, ok := consentScope(nil); ok {
+		t.Fatal("granted no scope")
+	}
+	if got, ok := consentScope([]string{FactoryUsageScope, Scope}); !ok || got != Scope+" "+FactoryUsageScope {
+		t.Fatalf("known scopes refused or out of catalogue order: %q %v", got, ok)
+	}
+}
+
+// The store must accept exactly the scopes the connector can offer.
+func TestStoreKnowsEveryConnectorScope(t *testing.T) {
+	t.Parallel()
+	if got := store.ConnectorKnownScopes(); !slices.Equal(got, scopeNames()) {
+		t.Fatalf("store scopes %v, connector scopes %v", got, scopeNames())
+	}
+}
+
+// RFC 6749 §3.3: the owner may grant a known scope the client did not
+// request. The grant, the token response and the tools follow the owner's
+// choice, also when the client repeats its narrower request at the token
+// endpoint and on refresh.
+func TestOwnerGrantsKnownScopeTheClientDidNotRequest(t *testing.T) {
+	t.Parallel()
+	f := newConnectorFixture(t, nil)
+	f.options.Usage = &usageTestProvider{call: func(context.Context, UsageRequest) (UsageProjection, error) { return usageTestProjection(1), nil }}
+	j := beginBrowserJourneyFixture(t, f, browserIdentity{owner: 42}, Scope)
+	page := j.callback(t, j.state)
+	if page.Code != http.StatusOK {
+		t.Fatalf("callback: %d %s", page.Code, page.Body.String())
+	}
+	csrf := regexp.MustCompile(`name="csrf_token" value="([^"]+)"`).FindStringSubmatch(page.Body.String())[1]
+	cookie := page.Result().Cookies()[0]
+	values := url.Values{"csrf_token": {csrf}, "decision": {"allow"}, "scope": {Scope, FactoryUsageScope}, "duration": {"1"}}
+	consent := connectorForm(t, j.handler, f.issuer+"/oauth/consent", values, nil, cookie)
+	if consent.Code != http.StatusFound {
+		t.Fatalf("allow: HTTP %d %s", consent.Code, consent.Body.String())
+	}
+	granted := Scope + " " + FactoryUsageScope
+	grants, err := f.db.ListConnectorGrants(t.Context(), 42, f.now)
+	if err != nil || len(grants) != 1 || grants[0].Scope != granted {
+		t.Fatalf("grants %+v %v, want one %q grant", grants, err, granted)
+	}
+	location, err := url.Parse(consent.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientID := grants[0].ClientID
+	exchange := url.Values{"grant_type": {"authorization_code"}, "client_id": {clientID}, "redirect_uri": {"https://client.example/callback"}, "scope": {Scope}, "code": {location.Query().Get("code")}, "code_verifier": {strings.Repeat("v", 43)}}
+	response := connectorForm(t, j.handler, f.issuer+"/oauth/token", exchange, nil)
+	var tokens connectorTestTokens
+	connectorDecode(t, response, &tokens)
+	if response.Code != http.StatusOK || tokens.Scope != granted {
+		t.Fatalf("token: HTTP %d scope %q, want %q", response.Code, tokens.Scope, granted)
+	}
+	call := connectorJSON(t, j.handler, f.options.Config.ResourceURL, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "usage_read", "arguments": map[string]any{"scope": "factory"}}}, connectorBearer(tokens.AccessToken))
+	var result struct {
+		Error  json.RawMessage `json:"error"`
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	connectorDecode(t, call, &result)
+	if call.Code != http.StatusOK || result.Error != nil || result.Result.IsError {
+		t.Fatalf("usage_read under an owner-added scope: HTTP %d %s", call.Code, call.Body.String())
+	}
+	refresh := url.Values{"grant_type": {"refresh_token"}, "client_id": {clientID}, "scope": {Scope}, "refresh_token": {tokens.RefreshToken}}
+	response = connectorForm(t, j.handler, f.issuer+"/oauth/token", refresh, nil)
+	var successor connectorTestTokens
+	connectorDecode(t, response, &successor)
+	if response.Code != http.StatusOK || successor.Scope != granted {
+		t.Fatalf("refresh: HTTP %d scope %q, want %q", response.Code, successor.Scope, granted)
+	}
+}
+
+// Selections belong to their scopes: an unrequested scope the owner ticks
+// still needs its selection, and an unticked one needs none.
+func TestConsentSelectionsRequiredOnlyWhenTicked(t *testing.T) {
+	t.Parallel()
+	j, _, csrf, cookie := verifiedConsent(t)
+	for name, extra := range map[string]url.Values{
+		"repository usage without repository": {"scope": {Scope, RepositoryUsageScope}},
+		"task usage without repository":       {"scope": {TaskUsageScope}},
+		"discussion without repository":       {"scope": {DiscussionScope}},
+		"code review without discussion":      {"scope": {CodeReviewScope}, "repositories": {"all"}},
+	} {
+		extra.Set("duration", "1")
+		if code := postConsent(t, j, csrf, cookie, extra); code != http.StatusBadRequest {
+			t.Errorf("%s: HTTP %d", name, code)
+		}
+	}
+	browserNoGrants(t, j.fixture)
+	// A repository selection does not block Allow for scopes that take none.
+	if code := postConsent(t, j, csrf, cookie, url.Values{"scope": {Scope}, "duration": {"1"}, "repository": {"github:missing/repo"}}); code != http.StatusFound {
+		t.Fatalf("allow with empty unticked selections: HTTP %d", code)
+	}
+}
+
+func TestChallengeNamesEveryKnownScope(t *testing.T) {
+	t.Parallel()
+	f := newConnectorFixture(t, nil)
+	server := f.server(t)
+	response := connectorJSON(t, server, f.options.Config.ResourceURL, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "ping"}, nil)
+	header := response.Header().Get("WWW-Authenticate")
+	if response.Code != http.StatusUnauthorized || !strings.HasPrefix(header, "Bearer ") || !strings.Contains(header, `resource_metadata="`) || !strings.Contains(header, `scope="`+strings.Join(scopeNames(), " ")+`"`) {
+		t.Fatalf("challenge: HTTP %d %q", response.Code, header)
 	}
 }
 
@@ -185,7 +338,7 @@ func TestGrantWithoutOverviewScopeCannotCallOverview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const other = "factory:other"
+	const other = FactoryUsageScope
 	id, access, refresh := "no-overview", "access-credential-no-overview", "refresh-credential-no-overview"
 	client := registerConnectorClient(t, server, "Client", "none")
 	browser := store.ConnectorBrowser{ID: id, ClientID: client.ClientID, RedirectURI: "https://client.example/callback", Resource: f.options.Config.ResourceURL, Scope: other, PKCEChallenge: "challenge", NonceDigest: "nonce", UpstreamStateDigest: "upstream", OwnerGeneration: owner.Generation, ExpiresAt: f.now.Add(10 * time.Minute)}
