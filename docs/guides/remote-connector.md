@@ -136,7 +136,8 @@ SameSite=Lax. Cookies never authorize MCP. Denial and failed sign-in issue no
 connector grant.
 
 The authorization request's `scope` is a space-separated list of known scopes;
-the available scopes are `factory:overview` and `task:discussion`. Allow requires
+the available scopes are `factory:overview`, `task:discussion`, `factory:usage`,
+`repository:usage` and `task:usage`. Allow requires
 at least one ticked scope; the script disables Allow when none is ticked, and the server refuses an
 Allow without a scope, or with a scope that is unknown or was not requested,
 with 400 `invalid_scope` and no grant. The grant records the ticked scopes as a
@@ -149,9 +150,10 @@ does not create a session or fetch the issue. Allow atomically records the grant
 authorization code and immutable task binding. Neither sign-in nor a pending
 consent exposes task evidence.
 
-The scopes are independent: an overview grant gains no task discussion access,
-and a discussion grant grants no overview access. A combined grant contains both
-permissions but still binds discussion to only one task. Changing tasks requires
+The scopes are independent: an overview grant gains no task discussion or usage
+access, and a discussion grant grants no overview or usage access. Usage scopes
+require their own explicit consent. A combined grant contains each selected
+permission but still binds discussion to only one task. Changing tasks requires
 fresh owner consent; refresh cannot change the target. Deleting or rebinding the
 local task or repository denies discussion rather than silently binding a reused
 issue number. Later recorded evidence for the same retained task is readable
@@ -183,7 +185,7 @@ Durable revocation is checked on each protected request admitted after commit;
 it cannot retract bytes already returned. Discussion rechecks authorization
 before each page and before releasing its response. Revoking a discussion-only
 grant leaves separately consented overview grants unchanged; revoking a combined
-grant ends both permissions held by that grant.
+grant ends every permission held by that grant.
 
 ## Protocol, limits and diagnostics
 
@@ -194,19 +196,23 @@ owner. Initialization negotiates `2025-06-18` or `2025-11-25`; subsequent reques
 Responses are request-scoped JSON, notifications receive 202, authenticated GET
 receives 405, and no protocol session is issued. `factory_overview` accepts an
 empty object and requires `factory:overview`. `task_evidence_read` requires
-`task:discussion` and the consented task binding. Discovery lists only installed,
+`task:discussion` and the consented task binding. `usage_read` requires the
+matching `factory:usage`, `repository:usage` or `task:usage` scope and any narrow
+target binding. Discovery lists only installed,
 authorized tools, and direct calls enforce the same permissions. Initialize
 instructions name only those tools and their distinct uses: overview questions
 use `factory_overview`; selected-task questions and supporting evidence use
-`task_evidence_read`. Reinitialize after fresh consent to receive current guidance.
+`task_evidence_read`; recorded usage and supported historical cost questions use
+`usage_read`. Usage-only grants receive guidance for usage only. Reinitialize
+after fresh consent to receive current guidance.
 No grant or initialization cache expands another grant's permissions.
 
 Task discussion supplies a deterministic factual summary of at most 1,000 Unicode
 code points after redaction, including any truncation marker. Its complete
 serialized UTF-8 JSON-RPC response is at most 128 KiB (131,072 bytes), including
 envelope, metadata, escaped text, continuations and both text and structured
-representations. The common discussion serializer supports the same contract for
-future discussion tools; this story installs only task discussion. The existing
+representations. Usage answers have the same summary and complete serialized-response limits,
+including their historical price basis and continuation metadata. The existing
 overview response ceiling remains 256 KiB.
 
 The application enforces 64 KiB bodies, 2 requests/second per source with burst 10, 10/second globally with burst 30,
@@ -273,6 +279,95 @@ evidence already delivered to or retained by the client.
 These instructions describe the supported contract. They do not claim a completed
 Claude or ChatGPT walkthrough; hosted-client verification needs its own configured
 test installation, owner consent and captured client/version results.
+
+## Discussing usage and historical costs
+
+In the existing client, request usage access for the scope you need and allow it
+as the installation owner. The consent page explains each scope separately:
+
+| Scope | Recorded work covered |
+| --- | --- |
+| `factory:usage` | All factory usage, including recorded work without a repository. |
+| `repository:usage` | One selected registered repository, identified as `github:owner/name`. |
+| `task:usage` | One existing canonical task and its persisted report family, including retired stories and links recorded later. |
+
+Repository and task targets are immutable through refresh. Deleting or rebinding
+a target denies access. A task usage read includes the selected issue and its
+saved graph and legacy story links once each; reading a child includes neither
+its parent nor its siblings. Task discussion consent alone never grants this
+broader usage family, repository totals or factory totals. Revocation, expiry
+and installation-owner generation checks apply before acquisition, on each
+continuation and before response release.
+
+Ask, for example, “What did this repository use in the last seven days?” or
+“Why is this task's full cost unknown?” The client calls `usage_read` with
+`scope` equal to `factory`, `repository` or `task`. Repository and task reads
+require `repository` in canonical form; task reads also require a positive
+`issue`. Factory reads take neither target. Optional `mode`, `agent` and `model`
+filters use the existing meter's semantics. Paths and arbitrary URLs are refused.
+
+| Period argument | Server-resolved UTC interval |
+| --- | --- |
+| Omitted, or `rolling_30_days` | From the observed server time minus 720 hours up to that time. |
+| `today` | UTC midnight up to the observed server time. Exactly at midnight this is a valid empty interval. |
+| `rolling_7_days` | From the observed server time minus 168 hours up to that time. |
+| `all_history` | Both bounds explicitly unbounded (`null`). |
+| Explicit `from` and/or `to` | Timezone-aware RFC3339 instants normalized to UTC; an omitted side is unbounded. |
+
+Do not combine a named period with explicit bounds. An explicit lower bound must
+precede the upper bound when both are supplied. Every new read uses one server
+clock observation and reports the exact bounds, UTC zone, inclusive lower bound
+and exclusive upper bound. The interval selects whole attempts by their start
+time; descendants and measurements of a selected attempt are not cut off at the
+upper bound. Omitting the period means rolling 30 days, not all history.
+
+`view` is `summary` (the default), `breakdown` or `details`. Breakdown accepts
+`by` as a list of `mode`, `agent`, `model` and `run`; its default is `run`.
+Run rows keep the canonical repository along with issue and run, so equal issue
+and run numbers in different repositories remain distinct. Amounts are exact
+decimal USD strings from saved valuations. Referenced historical rates and their
+price revision describe the estimate's basis; the current price catalogue never
+reprices a read. The summary previews up to 50 rate entries, with
+`price_basis_count` and `price_basis_has_more` indicating the full basis size.
+Use `details` and its continuations for every measurement's referenced rates. Missing records, unknown models, missing token dimensions,
+unpriced work and collection gaps keep the full total unknown while preserving
+any known subtotal, including zero. No matching records is distinct from
+measured zero. A complete supported local estimate is still not an invoice or a
+claim that every past operation was collected. Daemon helper overhead is excluded.
+
+Supporting responses contain at most 50 ordered items (`limit` may lower that)
+and fit a 64 KiB page budget. Follow `next_cursor` while `has_more` is true,
+keeping the original arguments and grant. Each page repeats the original UTC
+bounds, whole-snapshot totals and content revision. The snapshot is closed before
+the first response; pages use an immutable sanitized projection. Cursors bind
+the grant, target, filters, selected family, view, section, revision, policy and
+expiry. Live cursors replay the same evidence; new ledger data requires a fresh
+read without a cursor.
+
+Complete summaries and other answers needing no continuation retain no view.
+The final page retires its view immediately. New questions replace the oldest
+idle retained view when needed, so three successive ordinary questions do not
+wait for earlier views to expire. A cursor for a completed, expired or replaced
+view requires a fresh read. Busy reads are never evicted; concurrent saturation
+can still produce a safe capacity refusal. Views expire within five minutes,
+with at most two per grant and four globally, at most 16 MiB per view and a
+64 MiB global ceiling including construction reservations.
+
+Acquisition uses lower server-only ceilings of 10,000 source rows and 16 MiB
+encoded source data, within the existing 15-second tool deadline. Clients cannot
+raise these limits. Narrow the scope or period after a limit refusal. Acquisition,
+cancellation, redaction or authorization failures withhold the evidence and
+release temporary resources. Text, structured fields and metadata use the same
+redaction and host-path protection. Summaries stay within 1,000 Unicode code
+points; the complete serialized response stays within 128 KiB, including JSON
+escaping, envelope, metadata and both output representations.
+
+Usage discussion reads existing local records only. It cannot collect or recover
+missing history, fetch or edit prices, forecast spending, reconcile invoices,
+change workflow records, grant approvals or start work. See [usage and costs](../meter.md)
+for accounting details and [local grant inspection](../cli/connector-grants.md)
+for checking or ending access. These are the supported contracts, not a claim of
+completed hosted-client verification.
 
 ## Sibling interfaces
 

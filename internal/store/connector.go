@@ -250,6 +250,9 @@ func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest strin
 		} else if g.Target != nil {
 			return ErrConnectorInvalid
 		}
+		if err = insertConnectorUsageTargets(ctx, tx, g); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO connector_codes(digest,grant_id,client_id,redirect_uri,resource,scope,pkce_challenge,expires_at) VALUES(?,?,?,?,?,?,?,?)`, c.Digest, c.GrantID, c.ClientID, c.RedirectURI, c.Resource, c.Scope, c.PKCEChallenge, FormatTime(c.ExpiresAt))
 		return err
 	})
@@ -278,6 +281,9 @@ func connectorGrant(ctx context.Context, tx interface {
 	g.ExpiresAt, err = ParseTime(expiry)
 	if err == nil && ConnectorScopeHas(g.Scope, connectorDiscussionScope) {
 		g.Target, err = connectorDiscussionTarget(ctx, tx, g.ID)
+	}
+	if err == nil {
+		err = loadConnectorUsageTargets(ctx, tx, &g)
 	}
 	return g, err
 }
@@ -404,6 +410,21 @@ func (db *DB) CheckConnectorAccess(ctx context.Context, digest string, pin int64
 		g.Target, err = connectorDiscussionTarget(ctx, db.sql, g.ID)
 		if scope == "" && errors.Is(err, ErrConnectorInvalid) {
 			err = nil
+		}
+	}
+	if err == nil && scope == "" {
+		for _, permission := range []string{connectorRepositoryUsageScope, connectorTaskUsageScope} {
+			if !ConnectorScopeHas(g.Scope, permission) {
+				continue
+			}
+			target, targetErr := connectorUsageTarget(ctx, db.sql, g.ID, permission)
+			if errors.Is(targetErr, ErrConnectorInvalid) {
+				continue
+			}
+			if targetErr != nil {
+				return ConnectorGrant{}, targetErr
+			}
+			g.UsageTargets = append(g.UsageTargets, target)
 		}
 	}
 	return g, err

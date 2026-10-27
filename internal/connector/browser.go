@@ -234,6 +234,19 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		}
 		grant.Target = &target
 	}
+	if allow {
+		for _, selection := range []struct{ scope, field string }{{RepositoryUsageScope, "usage_repository_ref"}, {TaskUsageScope, "usage_task_ref"}} {
+			if !store.ConnectorScopeHas(grantScope, selection.scope) {
+				continue
+			}
+			target, err := s.db.ResolveConnectorUsageTarget(r.Context(), selection.scope, form.Get(selection.field))
+			if err != nil {
+				storeOAuthError(w, err)
+				return
+			}
+			grant.UsageTargets = append(grant.UsageTargets, target)
+		}
+	}
 	authorizationCode := store.ConnectorCode{Digest: digest(code), GrantID: grantID, ClientID: b.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: grantScope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: now.Add(5 * time.Minute)}
 	if err := s.db.ConsentConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, now, grant, authorizationCode, allow); err != nil {
 		storeOAuthError(w, err)

@@ -28,7 +28,7 @@ func (db *DB) ListLocalConnectorGrants(ctx context.Context, now time.Time) ([]Co
  MIN(expires_at) AS earliest_expiry,MAX(expires_at) AS latest_expiry
  FROM connector_access WHERE expires_at>? GROUP BY grant_id
  )
- SELECT g.id,g.client_id,c.name,g.resource,g.scope,COALESCE((SELECT task_ref FROM connector_grant_targets t WHERE t.grant_id=g.id),''),g.created_at,g.expires_at,g.revoked_at,COALESCE(g.reason,''),
+ SELECT g.id,g.client_id,c.name,g.resource,g.scope,COALESCE((SELECT task_ref FROM connector_grant_targets t WHERE t.grant_id=g.id),''),COALESCE((SELECT repository_ref FROM connector_usage_targets u WHERE u.grant_id=g.id AND u.scope='repository:usage'),''),COALESCE((SELECT task_ref FROM connector_usage_targets u WHERE u.grant_id=g.id AND u.scope='task:usage'),''),g.created_at,g.expires_at,g.revoked_at,COALESCE(g.reason,''),
  CASE WHEN g.revoked_at IS NOT NULL THEN CASE WHEN g.reason='owner_changed' THEN 'invalidated' ELSE 'revoked' END
  WHEN g.expires_at<=? THEN 'expired'
  WHEN NOT EXISTS(SELECT 1 FROM connector_owner o JOIN identities i ON i.forge='github' AND i.role='owner' AND i.user_id=o.owner_id WHERE o.singleton=1 AND o.owner_id=g.owner_id AND o.generation=g.generation) THEN 'invalidated'
@@ -45,7 +45,7 @@ func (db *DB) ListLocalConnectorGrants(ctx context.Context, now time.Time) ([]Co
 		var g ConnectorLocalGrant
 		var created, expiry string
 		var revoked, earliest, latest sql.NullString
-		if err = rows.Scan(&g.ID, &g.ClientID, &g.ClientName, &g.Resource, &g.Scope, &g.TaskRef, &created, &expiry, &revoked, &g.RevocationReason, &g.Status, &g.AccessTokenCount, &g.UsableAccessTokenCount, &earliest, &latest); err != nil {
+		if err = rows.Scan(&g.ID, &g.ClientID, &g.ClientName, &g.Resource, &g.Scope, &g.TaskRef, &g.UsageRepositoryRef, &g.UsageTaskRef, &created, &expiry, &revoked, &g.RevocationReason, &g.Status, &g.AccessTokenCount, &g.UsableAccessTokenCount, &earliest, &latest); err != nil {
 			return nil, err
 		}
 		for _, v := range []struct {

@@ -19,6 +19,10 @@ type GrantCoverage struct {
 	PrivateRepositories       bool   `json:"private_repositories"`
 	FutureRepositories        bool   `json:"future_repositories"`
 	TaskRef                   string `json:"task_ref,omitempty"`
+	FactoryUsage              bool   `json:"factory_usage"`
+	UsageRepositoryRef        string `json:"usage_repository_ref,omitempty"`
+	UsageTaskRef              string `json:"usage_task_ref,omitempty"`
+	UsageTaskFamily           bool   `json:"usage_task_family"`
 }
 
 // GrantAccessTokens separates issued token lifetime from renewable grant lifetime.
@@ -81,7 +85,7 @@ func (s *GrantService) ListGrantSummaries(ctx context.Context, now time.Time) ([
 	}
 	out := make([]GrantSummary, 0, len(rows))
 	for _, g := range rows {
-		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{AllRegisteredRepositories: store.ConnectorScopeHas(g.Scope, Scope), PrivateRepositories: store.ConnectorScopeHas(g.Scope, Scope), FutureRepositories: store.ConnectorScopeHas(g.Scope, Scope), TaskRef: g.TaskRef}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
+		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{AllRegisteredRepositories: store.ConnectorScopeHas(g.Scope, Scope), PrivateRepositories: store.ConnectorScopeHas(g.Scope, Scope), FutureRepositories: store.ConnectorScopeHas(g.Scope, Scope), TaskRef: g.TaskRef, FactoryUsage: store.ConnectorScopeHas(g.Scope, FactoryUsageScope), UsageRepositoryRef: g.UsageRepositoryRef, UsageTaskRef: g.UsageTaskRef, UsageTaskFamily: store.ConnectorScopeHas(g.Scope, TaskUsageScope)}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
 	}
 	return out, nil
 }

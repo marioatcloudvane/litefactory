@@ -175,6 +175,15 @@ func writeConnectorGrantSummaries(env *Env, home string, snapshot time.Time, gra
 		if grant.Coverage.TaskRef != "" {
 			fmt.Fprintf(&out, "Discussion task: %q\n", grant.Coverage.TaskRef)
 		}
+		if grant.Coverage.FactoryUsage {
+			out.WriteString("Usage coverage: all recorded factory work, including work without a repository\n")
+		}
+		if grant.Coverage.UsageRepositoryRef != "" {
+			fmt.Fprintf(&out, "Usage repository: %q\n", grant.Coverage.UsageRepositoryRef)
+		}
+		if grant.Coverage.UsageTaskRef != "" {
+			fmt.Fprintf(&out, "Usage task: %q; linked report family=%t (includes retired history and later persisted links)\n", grant.Coverage.UsageTaskRef, grant.Coverage.UsageTaskFamily)
+		}
 		fmt.Fprintf(&out, "Repository coverage: all registered repositories=%t; private repositories=%t; future registrations=%t\n", grant.Coverage.AllRegisteredRepositories, grant.Coverage.PrivateRepositories, grant.Coverage.FutureRepositories)
 		fmt.Fprintf(&out, "Created at: %s\nGrant expires at: %s\nRenewable: %t\nEffective status: %s (does not indicate daemon availability)\n", connectorGrantTime(grant.CreatedAt), connectorGrantTime(grant.ExpiresAt), grant.Renewable, grant.Status)
 		if grant.RevokedAt != nil {
