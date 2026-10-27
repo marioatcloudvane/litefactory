@@ -1,9 +1,11 @@
 # Task discussion engineering evidence
 
+AI;DR: The retained engineering checks passed. The owner has assigned the real-client walkthrough to their later manual check, so its unexecuted state no longer blocks implementation completion; it establishes neither a walkthrough pass nor acceptance.
+
 Date: 2026-10-27. Story: story-001, approved revision `a29dc121f7f3bffe714c545a480075fd52b96bb05d08426813d70ba447d53af5`.
 Starting commit: `f0d7e5fb062712f988e4c7bd0a3af478ff59142a`.
 
-This records engineering observations, not owner acceptance or publication. The mandatory supported-client walkthrough remains unexecuted; see [client prerequisites](client-walkthrough-prerequisites.md). No production service was tested, no paid model request was made, and no commit or push was performed.
+This records engineering observations, not owner acceptance or publication. The continuation uses the retained implementation at `d42ecca9`. The supported-client walkthrough remains unexecuted and is handed to the owner as a later manual check under their continuation direction; see [client prerequisites](client-walkthrough-prerequisites.md). No production service was tested, no paid model request was made, and the implementation worker performed no commit or push. This documentation continuation adds no code changes or test runs.
 
 ## Delivered behavior
 
@@ -49,8 +51,8 @@ Earlier scoped lint runs also reported four G703 findings at `internal/cli/cmd_l
 
 The pre-existing Go-side behavioral text in `overviewToolDescription` at `internal/connector/mcp.go:314` remains, as explicitly directed by the approved architecture. This story replaces the authorized initialization instructions with Markdown resources and does not silently move that separate existing description violation.
 
-## Remaining required proof
+## Owner manual walkthrough handoff
 
-The frozen story requires an actual supported natural-language client to connect and consent, ask what needs attention, request supporting evidence and confirm denial after revocation, under overview-only, discussion-only and combined grants. It also requires actual client tool-choice captures and comparisons for current/stale/unknown fixtures while waits remain recorded.
+The retained walkthrough covers an actual supported natural-language client connecting and consenting, asking what needs attention, requesting supporting evidence and confirming denial after revocation, under overview-only, discussion-only and combined grants. It also covers actual client tool-choice captures and comparisons for current/stale/unknown fixtures while waits remain recorded. The owner's continuation direction assigns this to their manual step afterwards and explicitly says it must not block implementation. The engineering implementation and executed checks above are retained; this direction does not claim that the walkthrough passed or that acceptance occurred.
 
-Available client versions were inspected, but an isolated reachable `TEST_BASE_URL` and an authenticated installation-owner client session were not available to this worker. A dedicated external test database would also require `TEST_DATABASE_URL`; the automated tests instead used temporary local SQLite. The HTTP scenario and synthetic guidance checks cannot replace this walkthrough. Its client captures, actual tool choice and owner-facing acceptance remain unverified. No waiver is inferred.
+Available client versions were inspected, but an isolated reachable `TEST_BASE_URL` and an authenticated installation-owner client session were not available to this worker. A dedicated external test database would also require `TEST_DATABASE_URL`; the automated tests instead used temporary local SQLite. The HTTP scenario and synthetic guidance checks do not replace this walkthrough. Its client captures, actual tool choice and owner-facing acceptance remain unverified. These missing worker prerequisites describe why the earlier worker did not execute it; they are no longer an implementation blocker under the supplied owner direction. The owner owns the later manual walkthrough, and acceptance and publication remain separate outcomes.
