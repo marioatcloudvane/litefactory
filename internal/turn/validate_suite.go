@@ -15,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/coverage"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -22,7 +23,11 @@ import (
 
 // ValidateSuiteAuthority is factory-only context: the exact commit to test.
 type ValidateSuiteAuthority struct {
-	Commit string
+	Commit            string
+	RequestID         int64
+	Policy            string
+	Lineage           string
+	AssessmentVersion int
 }
 
 // ValidateSuiteBind supplies the commit from factory state, never from agent text.
@@ -59,8 +64,9 @@ type ValidateSuiteBindings struct {
 	// Run overrides the configured check sandbox; nil uses it.
 	Run ValidateSuiteRunner
 	// Stopped overrides the process-stopped probe; nil uses bugchecks.ProcessStopped.
-	Stopped func(ctx context.Context, identity string) (bool, error)
-	Now     func() time.Time
+	Stopped  func(ctx context.Context, identity string) (bool, error)
+	Coverage *ValidateCoverageBindings
+	Now      func() time.Time
 }
 
 // RegisterValidateSuiteActivity registers the suite activity in both registries.
@@ -80,14 +86,17 @@ type ValidateSuiteActivity struct{ b ValidateSuiteBindings }
 
 // validateSuiteOutput is the one stable result later steps read.
 type validateSuiteOutput struct {
-	RunID        int64  `json:"run_id,omitempty"`
-	Key          string `json:"key,omitempty"`
-	Outcome      string `json:"outcome"`
-	Commit       string `json:"commit"`
-	RecipeDigest string `json:"recipe_digest,omitempty"`
-	TreeBefore   string `json:"tree_before,omitempty"`
-	TreeAfter    string `json:"tree_after,omitempty"`
-	Reason       string `json:"reason,omitempty"`
+	Assessment       *coverage.Manifest `json:"assessment,omitempty"`
+	AssessmentID     string             `json:"assessment_id,omitempty"`
+	AssessmentDigest string             `json:"assessment_digest,omitempty"`
+	RunID            int64              `json:"run_id,omitempty"`
+	Key              string             `json:"key,omitempty"`
+	Outcome          string             `json:"outcome"`
+	Commit           string             `json:"commit"`
+	RecipeDigest     string             `json:"recipe_digest,omitempty"`
+	TreeBefore       string             `json:"tree_before,omitempty"`
+	TreeAfter        string             `json:"tree_after,omitempty"`
+	Reason           string             `json:"reason,omitempty"`
 }
 
 func suiteOutput(run store.SuiteRun) validateSuiteOutput {
@@ -141,13 +150,18 @@ func (h ValidateSuiteActivity) execute(ctx context.Context, opts Options, req Ac
 	if !isFullSHA(auth.Commit) {
 		return ActivityResult{}, errors.New("validate suite needs the full commit SHA")
 	}
-	if done, ok, err := h.finished(ctx, req.InstanceID, auth.Commit); err != nil || ok {
-		return done, err
+	if auth.AssessmentVersion == 1 {
+		return h.executeCoverage(ctx, opts, req, auth, locked)
 	}
-	if reused, err := b.DB.ReuseSuiteRun(ctx, req.InstanceID, req.Node, auth.Commit, h.now(opts)); err == nil {
-		return suiteResult(reused.State, suiteOutput(reused))
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return ActivityResult{}, err
+	if auth.Policy != "full" {
+		if done, ok, err := h.finished(ctx, req.InstanceID, auth.Commit); err != nil || ok {
+			return done, err
+		}
+		if reused, err := b.DB.ReuseSuiteRun(ctx, req.InstanceID, req.Node, auth.Commit, h.now(opts)); err == nil {
+			return suiteResult(reused.State, suiteOutput(reused))
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return ActivityResult{}, err
+		}
 	}
 	if !locked {
 		unlock, err := b.DB.LockSuite(ctx, b.LockDir)
@@ -251,7 +265,7 @@ func (h ValidateSuiteActivity) runner(opts Options) (ValidateSuiteRunner, string
 	if err := isolation.Validate(); err != nil {
 		return nil, "the check sandbox is unavailable: " + err.Error()
 	}
-	return isolation.Run, ""
+	return isolation.RunFresh, ""
 }
 
 func (h ValidateSuiteActivity) run(ctx context.Context, opts Options, req ActivityRequest, commit string) (res ActivityResult, err error) {

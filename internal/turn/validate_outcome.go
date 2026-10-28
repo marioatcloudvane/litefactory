@@ -132,7 +132,12 @@ func validateOutcomeResult(o store.ValidateOutcome) (ActivityResult, error) {
 
 // decideValidateEnd derives the end from the retained facts alone.
 func decideValidateEnd(suite validateSuiteOutput, rounds []store.RepairRound) (end, reason, trigger string) {
+	if suiteCoverageSatisfied(suite) {
+		return store.ValidateAssessed, "", ""
+	}
 	switch suite.Outcome {
+	case "covered":
+		return store.ValidateBlocked, "coverage assessment is missing or unbound", ""
 	case store.SuitePassed:
 		return store.ValidateAssessed, "", ""
 	case store.SuiteBlocked:

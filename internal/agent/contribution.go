@@ -118,10 +118,15 @@ type ContributionStory struct {
 	Criteria             []string
 	ExecutionRequired    []string
 	Checks               map[string]RetainedContributionCheck
+	FreshRequired        []string
 }
 
 // RetainedContributionCheck comes from captured execution, never JSON claims.
 type RetainedContributionCheck struct {
+	ProofKind            string
+	OriginID             string
+	AssessmentID         string
+	AssessmentVerified   bool
 	Story                string
 	Revision             string
 	SnapshotID           string
@@ -335,10 +340,21 @@ func validateCheckReferences(ids []string, key string, s ContributionStory, path
 		seen[id] = true
 		if !ok || !check.Retained || check.Story != key || check.Revision != s.Revision || check.SnapshotID != s.SnapshotID || check.ImplementationDigest != s.ImplementationDigest {
 			d.add(p, "attribution", "retained check for frozen revision and snapshot", "unknown or misattributed", "Use an immutable check from the supplied evidence inventory.")
-		} else if proven && (!check.Executed || !check.Passed) {
+		} else if proven && !retainedCheckProves(check) {
 			d.add(p, "unproven", "executed passing check", "failed or unexecuted", "Do not claim proof from missing or failed execution.")
 		}
 	}
+}
+
+// retainedCheckProves accepts inherited execution only through a verified assessment.
+func retainedCheckProves(check RetainedContributionCheck) bool {
+	if !check.Passed {
+		return false
+	}
+	if check.Executed {
+		return check.ProofKind == "" || check.ProofKind == "executed-pass" || (check.ProofKind == "transient" && check.AssessmentVerified && check.AssessmentID != "")
+	}
+	return check.ProofKind == "inherited-pass" && check.AssessmentVerified && check.OriginID != "" && check.AssessmentID != ""
 }
 
 func validateContributionFindings(findings []ContributionFinding, names []string, criteria bool, key string, s ContributionStory, path string, d *ContributionDiagnostics) {
@@ -373,8 +389,15 @@ func validateContributionFindings(findings []ContributionFinding, names []string
 			}
 			validateCheckReferences(e.CheckIDs, key, s, ep+".check_ids", f.Status == "satisfied", d)
 			checkCount += len(e.CheckIDs)
+			if f.Status == "satisfied" && slices.Contains(s.FreshRequired, f.Name) {
+				for _, id := range e.CheckIDs {
+					if check, ok := s.Checks[id]; ok && !check.Executed {
+						d.add(ep+".check_ids", "fresh_execution", "fresh executed passing check", "inherited execution", "This criterion requires execution on the tested snapshot.")
+					}
+				}
+			}
 		}
-		if f.Status == "satisfied" && slices.Contains(s.ExecutionRequired, f.Name) && checkCount == 0 {
+		if f.Status == "satisfied" && (slices.Contains(s.ExecutionRequired, f.Name) || slices.Contains(s.FreshRequired, f.Name)) && checkCount == 0 {
 			d.add(p+".evidence", "missing_execution", "retained executed proof", "no check references", "Required execution cannot be proven by source commentary.")
 		}
 	}
