@@ -72,7 +72,7 @@ func TestBody(t *testing.T){f,e:=os.OpenFile(os.Getenv("BODY_EVENTS"),os.O_CREAT
 	if err = os.WriteFile(observer, []byte("#!/bin/sh\nprintf '%s | %s\\n' \"$GOFLAGS\" \"$*\" >> \"$GO_EVENTS\"\nexec "+shellFixtureQuote(goPath)+" \"$@\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	env := append(os.Environ(), "BODY_EVENTS="+events, "GO_EVENTS="+invocations, "GO="+observer)
+	env := append(os.Environ(), "GOFLAGS=", "BODY_EVENTS="+events, "GO_EVENTS="+invocations, "GO="+observer)
 	warm := func() string {
 		t.Helper()
 		c := exec.CommandContext(t.Context(), "make", "test")
