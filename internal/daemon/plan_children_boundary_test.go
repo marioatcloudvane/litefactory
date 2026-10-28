@@ -434,8 +434,15 @@ func TestPlanChildrenSweep_UnconfirmedExplanationKeepsTheDebt(t *testing.T) {
 	if got := storyWatermark(f, 200); got >= 60 {
 		t.Fatalf("an unconfirmed explanation consumed the story's comment: watermark=%d\n%s", got, f.logs)
 	}
-	if !strings.Contains(f.logs.String(), "Plan child reply awaits confirmed explanation") {
-		t.Fatalf("the story task never reached an unconfirmed explanation\n%s", f.logs)
+	// Each due recovery reposts after a complete empty lookup; while every POST
+	// fails, the explanation stays unconfirmed.
+	explanation, err := f.db.PlanReplyExplanation(t.Context(), f.sessionOf(200).TaskRef, 60)
+	if err != nil {
+		t.Fatalf("the story task never retained an explanation: %v\n%s", err, f.logs)
+	}
+	delivery, err := f.db.GetReportDelivery(t.Context(), explanation.DeliveryKey)
+	if err != nil || delivery.Completed || !delivery.PossiblySent {
+		t.Fatalf("the story task never reached an unconfirmed explanation: %+v %v\n%s", delivery, err, f.logs)
 	}
 }
 

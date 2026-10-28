@@ -190,8 +190,14 @@ func TestCreationRejectionIO_CounterfeitConfirmationStaysPending(t *testing.T) {
 			task.tickAt = f.now
 			publicationMust(t, f.d.handleComment(t.Context(), task, rejectionSource(f, "/mcp-create corrected")))
 			rejectionWatermark(t, f, 0)
-			if f.posts != 1 {
-				t.Fatal("uncertain absence redispatched")
+			// Untrusted evidence never authorizes a repost; a complete lookup
+			// with no marker-bearing comment reposts once (its reply is lost too).
+			want := 1
+			if variant == "missing receipt" {
+				want = 2
+			}
+			if f.posts != want {
+				t.Fatalf("posts=%d, want %d", f.posts, want)
 			}
 		})
 	}

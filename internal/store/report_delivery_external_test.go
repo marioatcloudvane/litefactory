@@ -95,15 +95,15 @@ func TestCreationAcceptanceHTTPAndSQLiteFailureWindows(t *testing.T) {
 func reportDeliveryFailureWindows(t *testing.T, acceptance bool) {
 	for _, tc := range []struct {
 		name, trigger                     string
-		posts                             int
+		posts, recoveryPosts              int
 		uncertain, deleted, lookupFailure bool
 	}{
-		{name: "intent", trigger: `CREATE TRIGGER delivery_fault BEFORE INSERT ON report_deliveries BEGIN SELECT RAISE(ABORT,'intent failure'); END`, posts: 0},
-		{name: "dispatch-boundary", trigger: `CREATE TRIGGER delivery_fault BEFORE UPDATE OF possibly_sent ON report_deliveries WHEN OLD.possibly_sent=0 AND NEW.possibly_sent=1 BEGIN SELECT RAISE(ABORT,'boundary failure'); END`, posts: 0},
-		{name: "receipt", trigger: `CREATE TRIGGER delivery_fault BEFORE UPDATE OF comment_id ON report_deliveries WHEN NEW.comment_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'receipt failure'); END`, posts: 1},
-		{name: "completion-deleted-confirmed", trigger: `CREATE TRIGGER delivery_fault BEFORE UPDATE OF completed ON report_deliveries WHEN NEW.completed=1 BEGIN SELECT RAISE(ABORT,'completion failure'); END`, posts: 1, deleted: true},
-		{name: "lost-response-empty-lookup", posts: 1, uncertain: true},
-		{name: "lost-response-failed-lookup", posts: 1, lookupFailure: true},
+		{name: "intent", trigger: `CREATE TRIGGER delivery_fault BEFORE INSERT ON report_deliveries BEGIN SELECT RAISE(ABORT,'intent failure'); END`, posts: 0, recoveryPosts: 1},
+		{name: "dispatch-boundary", trigger: `CREATE TRIGGER delivery_fault BEFORE UPDATE OF possibly_sent ON report_deliveries WHEN OLD.possibly_sent=0 AND NEW.possibly_sent=1 BEGIN SELECT RAISE(ABORT,'boundary failure'); END`, posts: 0, recoveryPosts: 1},
+		{name: "receipt", trigger: `CREATE TRIGGER delivery_fault BEFORE UPDATE OF comment_id ON report_deliveries WHEN NEW.comment_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'receipt failure'); END`, posts: 1, recoveryPosts: 1},
+		{name: "completion-deleted-confirmed", trigger: `CREATE TRIGGER delivery_fault BEFORE UPDATE OF completed ON report_deliveries WHEN NEW.completed=1 BEGIN SELECT RAISE(ABORT,'completion failure'); END`, posts: 1, recoveryPosts: 1, deleted: true},
+		{name: "lost-response-empty-lookup", posts: 1, recoveryPosts: 2, uncertain: true},
+		{name: "lost-response-failed-lookup", posts: 1, recoveryPosts: 1, lookupFailure: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
@@ -238,12 +238,16 @@ func reportDeliveryFailureWindows(t *testing.T, acceptance bool) {
 			if tc.deleted || tc.uncertain {
 				remote.comments = nil
 			}
+			if tc.uncertain {
+				// A complete empty lookup reposts once with the same body and marker (#1240).
+				remote.postStatus = 0
+			}
 			if tc.deleted || tc.lookupFailure {
 				remote.getStatus = http.StatusBadGateway
 			}
 			getsBefore := remote.gets
 			remote.mu.Unlock()
-			if tc.uncertain || tc.lookupFailure {
+			if tc.lookupFailure {
 				for range 2 {
 					if _, found, err := newReporter().ReportPending(ctx, session.ID, 55); err == nil || !found {
 						t.Fatalf("uncertain response=%v %v", found, err)
@@ -277,7 +281,7 @@ func reportDeliveryFailureWindows(t *testing.T, acceptance bool) {
 			remote.mu.Lock()
 			posts, gets := remote.posts, remote.gets
 			remote.mu.Unlock()
-			if posts != 1 || posted.CommentID != 900 {
+			if posts != tc.recoveryPosts || posted.CommentID != 900 {
 				t.Fatalf("recovery effects posts=%d posted=%+v", posts, posted)
 			}
 			if tc.deleted && gets != getsBefore {

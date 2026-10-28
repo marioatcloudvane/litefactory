@@ -82,19 +82,22 @@ func TestReportDeliveryRecoveryRequiresTrustedExactEvidence(t *testing.T) {
 		comments []github.Comment
 		err      error
 		want     int64
+		// absent marks a lookup with no marker-bearing comment; untrusted marks
+		// marker-bearing evidence that must stay uncertain, never absent.
+		absent, untrusted bool
 	}{
 		{name: "equivalent duplicates choose lowest numeric", comments: []github.Comment{exact(90), exact(12), exact(43)}, want: 12},
 		{name: "single trusted match", comments: []github.Comment{exact(11)}, want: 11},
-		{name: "wrong numeric author", comments: []github.Comment{changed(func(c *github.Comment) { c.Author.ID = 100 })}},
-		{name: "wrong destination", comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "https://github.com/acme/api/issues/43#issuecomment-11" })}},
-		{name: "wrong repository", comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "https://github.com/acme/other/issues/42#issuecomment-11" })}},
-		{name: "wrong host", comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "https://evil.example/acme/api/issues/42#issuecomment-11" })}},
-		{name: "missing destination", comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "" })}},
-		{name: "mismatched receipt URL", comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "https://github.com/acme/api/issues/42#issuecomment-12" })}},
-		{name: "body drift", comments: []github.Comment{changed(func(c *github.Comment) { c.Body = "changed\n" + intent.Marker })}},
-		{name: "conflict alongside exact match", comments: []github.Comment{exact(10), changed(func(c *github.Comment) { c.Body = "changed\n" + intent.Marker })}},
-		{name: "unrelated marker", comments: []github.Comment{changed(func(c *github.Comment) { c.Body = "unrelated result" })}},
-		{name: "empty successful lookup"},
+		{name: "wrong numeric author", untrusted: true, comments: []github.Comment{changed(func(c *github.Comment) { c.Author.ID = 100 })}},
+		{name: "wrong destination", untrusted: true, comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "https://github.com/acme/api/issues/43#issuecomment-11" })}},
+		{name: "wrong repository", untrusted: true, comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "https://github.com/acme/other/issues/42#issuecomment-11" })}},
+		{name: "wrong host", untrusted: true, comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "https://evil.example/acme/api/issues/42#issuecomment-11" })}},
+		{name: "missing destination", untrusted: true, comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "" })}},
+		{name: "mismatched receipt URL", untrusted: true, comments: []github.Comment{changed(func(c *github.Comment) { c.HTMLURL = "https://github.com/acme/api/issues/42#issuecomment-12" })}},
+		{name: "body drift", untrusted: true, comments: []github.Comment{changed(func(c *github.Comment) { c.Body = "changed\n" + intent.Marker })}},
+		{name: "conflict alongside exact match", untrusted: true, comments: []github.Comment{exact(10), changed(func(c *github.Comment) { c.Body = "changed\n" + intent.Marker })}},
+		{name: "unrelated marker", absent: true, comments: []github.Comment{changed(func(c *github.Comment) { c.Body = "unrelated result" })}},
+		{name: "empty successful lookup", absent: true},
 		{name: "failed partial lookup", comments: []github.Comment{exact(11)}, err: errors.New("pagination interrupted")},
 	}
 	for _, tc := range cases {
@@ -107,6 +110,9 @@ func TestReportDeliveryRecoveryRequiresTrustedExactEvidence(t *testing.T) {
 			}
 			if id != tc.want || (err != nil) != (tc.want == 0) {
 				t.Fatalf("receipt=%d err=%v want=%d", id, err, tc.want)
+			}
+			if errors.Is(err, ErrReportReceiptAbsent) != tc.absent || (tc.untrusted && !errors.Is(err, ErrReportReceiptUncertain)) {
+				t.Fatalf("classification err=%v absent=%v untrusted=%v", err, tc.absent, tc.untrusted)
 			}
 		})
 	}

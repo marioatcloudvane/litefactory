@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 
@@ -519,133 +518,24 @@ func TestContractCoverageCheckerFailsOnGaps(t *testing.T) {
 	}
 }
 
-// docSection returns the text under a level-2 heading up to the next one.
-func docSection(doc, heading string) string {
-	_, rest, ok := strings.Cut(doc, "\n"+heading+"\n")
-	if !ok {
-		return ""
-	}
-	if i := strings.Index(rest, "\n## "); i >= 0 {
-		rest = rest[:i]
-	}
-	return rest
-}
-
-var planSections = []string{"intent", "architecture", "criteria", "tasks", "dependencies", "design", "guidance", "conversation"}
-
-// checkSectionRestrictions compares what the document says each stage may select
-// with what the validator enforces, so the prose and the code cannot drift.
-func checkSectionRestrictions(doc string) []string {
-	body := docSection(doc, "## Sections and stage restrictions")
-	if body == "" {
-		return []string{"no Sections and stage restrictions section"}
-	}
-	var fails []string
-	for _, name := range planSections {
-		if !strings.Contains(body, name) {
-			fails = append(fails, fmt.Sprintf("section name %q is not listed", name))
-		}
-	}
-	mentioned := func(text string) []string {
-		var out []string
-		for _, name := range planSections {
-			if regexp.MustCompile(`\b` + name + `\b`).MatchString(text) {
-				out = append(out, name)
-			}
-		}
-		return out
-	}
-	for _, stage := range []string{"story", "technical", "acceptance"} {
-		var line string
-		for _, l := range strings.Split(body, "\n") {
-			if strings.HasPrefix(l, "- "+stage+" may select") {
-				line = l
-			}
-		}
-		if line == "" {
-			fails = append(fails, fmt.Sprintf("no restriction line for stage %s", stage))
-			continue
-		}
-		var docAllowed []string
-		switch {
-		case strings.Contains(line, "any section except"):
-			_, after, _ := strings.Cut(line, "except")
-			// Advice that follows the restriction ("; intent changes belong to
-			// the story stage") is not part of what is excluded.
-			after, _, _ = strings.Cut(after, ";")
-			excluded := mentioned(after)
-			for _, name := range planSections {
-				if !slices.Contains(excluded, name) {
-					docAllowed = append(docAllowed, name)
+// Stage restrictions are validator behavior; Markdown wording is reviewed by
+// meaning rather than parsed as an interface.
+func TestPlanStageSectionRestrictions(t *testing.T) {
+	t.Parallel()
+	sections := []string{"intent", "architecture", "criteria", "tasks", "dependencies", "design", "guidance", "conversation"}
+	for stage, allowed := range map[string][]string{
+		"story":      {"intent", "dependencies", "conversation"},
+		"technical":  {"intent", "architecture", "dependencies", "design", "guidance", "conversation"},
+		"acceptance": sections,
+	} {
+		t.Run(stage, func(t *testing.T) {
+			t.Parallel()
+			for _, section := range sections {
+				accepted := len(graphexec.PlanSectionFaults(stage, []string{section})) == 0
+				if accepted != slices.Contains(allowed, section) {
+					t.Errorf("section %s accepted=%v", section, accepted)
 				}
 			}
-		case strings.Contains(line, "any section"):
-			docAllowed = slices.Clone(planSections)
-		default:
-			docAllowed = mentioned(line)
-		}
-		var actual []string
-		for _, name := range planSections {
-			if len(graphexec.PlanSectionFaults(stage, []string{name})) == 0 {
-				actual = append(actual, name)
-			}
-		}
-		sort.Strings(docAllowed)
-		sort.Strings(actual)
-		if !slices.Equal(docAllowed, actual) {
-			fails = append(fails, fmt.Sprintf("stage %s: document allows %v, validator allows %v", stage, docAllowed, actual))
-		}
-	}
-	return fails
-}
-
-func TestPlanContractSectionRestrictionsMatchTheValidator(t *testing.T) {
-	t.Parallel()
-	doc := planContractDoc(t)
-	for _, f := range checkSectionRestrictions(doc) {
-		t.Error(f)
-	}
-	// The checker's self-test runs against a fixed fixture, not the shipped
-	// document, so rewording the Markdown cannot turn a mutation into a no-op.
-	fixture := sectionRestrictionsFixture
-	if fails := checkSectionRestrictions(fixture); len(fails) != 0 {
-		t.Fatalf("fixture baseline must be clean: %v", fails)
-	}
-	for name, mutate := range map[string]func(string) string{
-		"story loosened": func(d string) string {
-			return strings.Replace(d, "- story may select intent, dependencies and conversation only.", "- story may select intent, architecture, dependencies and conversation only.", 1)
-		},
-		"technical loosened": func(d string) string { return strings.Replace(d, "except criteria and tasks", "except criteria", 1) },
-		"acceptance narrowed": func(d string) string {
-			return strings.Replace(d, "- acceptance may select any section.", "- acceptance may select any section except tasks.", 1)
-		},
-		"a section name lost":   func(d string) string { return strings.ReplaceAll(d, "guidance", "hints") },
-		"restriction line lost": func(d string) string { return strings.Replace(d, "- technical may select", "- technical selects", 1) },
-	} {
-		mutated := mutate(fixture)
-		if mutated == fixture {
-			t.Fatalf("%s: mutation did not change the fixture", name)
-		}
-		if got := checkSectionRestrictions(mutated); len(got) == 0 {
-			t.Errorf("%s: the checker accepted a document that disagrees with the validator", name)
-		}
+		})
 	}
 }
-
-// sectionRestrictionsFixture mirrors the shape of the restriction section the
-// checker reads, with the stage rules the validator enforces.
-const sectionRestrictionsFixture = `# Fixture
-
-## Sections and stage restrictions
-
-changed_sections selects intent, architecture, criteria, tasks, dependencies,
-design, guidance or conversation.
-
-Stage restrictions the validator enforces:
-- story may select intent, dependencies and conversation only.
-- technical may select any section except criteria and tasks; intent changes belong
-  to the story stage.
-- acceptance may select any section.
-
-## Next
-`

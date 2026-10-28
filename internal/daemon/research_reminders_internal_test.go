@@ -146,10 +146,12 @@ func TestResearchReminderLostReceiptRecoversWithoutRepost(t *testing.T) {
 	if !delivery.PossiblySent || delivery.Completed {
 		t.Fatal("lost receipt did not remain uncertain")
 	}
+	// At-least-once: a receipt hidden from the complete lookup is reposted
+	// once under the same marker, and that reply is lost too.
 	forge.hideReceipt = true
 	d.researchReminders(t.Context(), at.Add(time.Minute))
-	if forge.posts != 1 {
-		t.Fatal("missing receipt reposted")
+	if forge.posts != 2 {
+		t.Fatalf("hidden receipt reposts=%d, want one repost", forge.posts-1)
 	}
 	// Simulate restart of SQLite and Reporter, preserving the fixed journal identity.
 	path := f.db.Path()
@@ -168,7 +170,7 @@ func TestResearchReminderLostReceiptRecoversWithoutRepost(t *testing.T) {
 	d.researchReminders(t.Context(), at.Add(2*time.Minute))
 	final, e := f.db.GetReportDelivery(t.Context(), delivery.Key)
 	researchRecoveryCheck(t, e)
-	if !final.Completed || forge.posts != 1 || final.Body != delivery.Body {
+	if !final.Completed || forge.posts != 2 || final.Body != delivery.Body {
 		t.Fatal("receipt recovery changed identity or reposted")
 	}
 	wait, e := f.db.GetGraphOwnerWait(t.Context(), f.instance.ID)
