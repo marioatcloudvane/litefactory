@@ -258,6 +258,22 @@ func latestValidateSuite(ctx context.Context, opts Options, instanceID int64, no
 			if !isFullSHA(out.Commit) || out.Outcome != a.Outcome {
 				return validateSuiteView{}, errors.New("retained suite result has no usable commit or outcome")
 			}
+			if out.RunID > 0 {
+				run, e := opts.DB.GetSuiteRun(ctx, out.RunID)
+				if e != nil {
+					return validateSuiteView{}, e
+				}
+				if run.InstanceID != instanceID || run.Commit != out.Commit {
+					return validateSuiteView{}, errors.New("suite result belongs to another instance or commit")
+				}
+			}
+			if out.AssessmentID != "" || out.Outcome == "covered" {
+				m, e := validateRetainedAssessment(ctx, opts, out)
+				if e != nil {
+					return validateSuiteView{}, e
+				}
+				out.Assessment = &m
+			}
 			return validateSuiteView{Attempt: a, Output: out, Tree: out.TreeAfter}, nil
 		}
 	}

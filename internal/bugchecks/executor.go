@@ -38,6 +38,7 @@ const SandboxProfile = "lf-bug-checks"
 // WritableRoots, and the network is off unless granted. There is deliberately
 // no unisolated fallback.
 type Isolation struct {
+	invocationEnv []string
 	// Binary is the Codex CLI that applies the sandbox.
 	Binary        string
 	WritableRoots []string
@@ -83,6 +84,7 @@ func blockBytes[T int32 | int64 | uint32 | uint64](blocks uint64, size T) uint64
 
 // CommandResult retains process completion, output capture and cleanup observations.
 type CommandResult struct {
+	Structured       string    `json:"structured,omitempty"`
 	ExecutableDigest string    `json:"executable_digest"`
 	Executable       string    `json:"executable"`
 	CWD              string    `json:"cwd"`
@@ -288,6 +290,7 @@ func (p Isolation) resolve(root string, c config.BugCheckCommand) (string, strin
 		}
 		env = append(env, name+"="+value)
 	}
+	env = append(env, p.invocationEnv...)
 	return executable, cwd, env, nil
 }
 

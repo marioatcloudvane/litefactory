@@ -12,5 +12,5 @@ const ValidateSuiteAction = "lf_validate_suite"
 // infrastructure exit, a changed snapshot or an unconfirmed earlier run), and
 // retry when another suite holds the machine-wide lock.
 func ValidateSuiteSpec() ActionSpec {
-	return ActionSpec{Name: ValidateSuiteAction, Mode: agent.ModeValidate, Outcomes: []string{"passed", "failed", "blocked", "retry"}}
+	return ActionSpec{Name: ValidateSuiteAction, Mode: agent.ModeValidate, Outcomes: []string{"passed", "covered", "failed", "blocked", "retry"}, Attributes: map[string]AttributeSpec{"lf_coverage": {Values: []string{"v1"}}}}
 }

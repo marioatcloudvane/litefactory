@@ -258,6 +258,10 @@ var archiveRetained = map[string]ArchiveClass{
 	// Finished suite runs and commands have no-delete triggers; they keep only
 	// the instance id and need no graph_instances row.
 	"suite_runs": ArchiveClassSkeleton, "suite_commands": ArchiveClassSkeleton,
+	// Coverage sources share the immutable suite ledger's lifetime. References
+	// can span validation generations, so task archival must retain requests,
+	// raw artifacts, assessments and the suite rows they cite together.
+	"validation_requests": ArchiveClassSkeleton, "validation_evidence": ArchiveClassSkeleton,
 	// Not keyed by one task family. The doctor journal has delete triggers and
 	// holds; a family with doctor references is kept by the pending check.
 	"repos": ArchiveClassGlobal, "identities": ArchiveClassGlobal, "poll_cursor": ArchiveClassGlobal, "repo_poll_cursors": ArchiveClassGlobal, "repo_webhooks": ArchiveClassGlobal,
