@@ -4,12 +4,13 @@ _Technical detail behind [the brief](RESEARCH_BRIEF.md). Findings carry the sour
 
 ## F-01
 
-Today Plan has set, story, technical and acceptance stages. The shipped source graph routes all three story-stage applied drafts to lf_gate owner review; it does not declare a size selector. The set still uses its existing approval check/review. The docs state each run enters one selected stage, so fewer stops need not mean fewer agent stages or one combined run.
+At shaping recheck on commit 64760c77fea50a1e43463ef63c52f371ff7aefeb, Plan still selects one of set/story/technical/acceptance and sends all three story-stage drafts to owner gates, now with advisory judges before reviews; the previous sequential-stage observation remains valid and no S-story parallel path is declared in this graph.
 
 Evidence:
 
-- `teams/source/base-team/plan/plan.dot:26`
-- `docs/workflow/plan-graph.md:9`
+- `teams/source/base-team/plan/plan.dot:29`
+- `teams/source/base-team/plan/plan.dot:51`
+- `teams/source/base-team/plan/plan.dot:64`
 
 ## F-02
 
@@ -34,11 +35,13 @@ Evidence:
 
 ## F-04
 
-#1217 remains OPEN and explicitly owns per-story S/M/L, reason, visibility in set/final review and planning depth. Current PlanStorySetEntry has only id, name, intent and dependencies. The final sizing contract is therefore an integration dependency, not something this research can claim already exists.
+The earlier finding that per-story size fields were absent is superseded by the current checkout: PlanStorySetEntry now carries size and size_reason, retained sets carry a sizing policy version, and missing or invalid sizing is reported as advisory while legacy sets remain exempt; the feature can consume this existing contract without owning sizing or requiring historical migration.
 
 Evidence:
 
-- `internal/planbrief/plan_set.go:23`
+- `internal/planbrief/plan_set.go:25`
+- `internal/planbrief/plan_set.go:200`
+- `internal/planbrief/plan_set_sizing_test.go:70`
 - `.aiteam/lf-1218-plan-fast-track-for-small-work/2026-10-26/plan-fast-track-for-small-work/dependency-1217.json`
 
 ## F-05
@@ -53,13 +56,14 @@ Evidence:
 
 ## F-06
 
-Impact — touched areas are base Plan graph/roles/skills, Plan control validation, turn scheduling/approval state, size/result integration from #1217, final reporting, workflow docs and their contract tests. Direct consumers include parent set planning, per-story continuation, assembled approval and all four inheriting teams. Existing focused validator and production approval tests provide starting coverage; no tests were executed during this read-only pass.
+Impact, expanded by owner parallelism: base Plan graph, three role prompts and skills, graph validation, turn scheduling, concurrent contribution retention and coherent assembly, per-story routing/fallback state, sizing integration, final reporting, workflow docs and contract tests; parent set review, story continuations, assembled approval and four inheriting teams consume it, while Implement/Validate keep consuming the existing approved plan format.
 
 Evidence:
 
+- `teams/source/base-team/plan/plan.dot:29`
 - `internal/graphexec/plan_control.go:48`
 - `internal/turn/plan_graph.go:31`
-- `internal/turn/plan_approve_test.go:138`
+- `internal/planbrief/plan_set.go:25`
 - `internal/teamsource/plan_contract_test.go`
 - `teams/README.md:25`
 
@@ -83,3 +87,14 @@ Evidence:
 - `.aiteam/lf-1218-plan-fast-track-for-small-work/2026-10-26/plan-fast-track-for-small-work/recent-history.txt`
 - `.aiteam/lf-1218-plan-fast-track-for-small-work/2026-10-26/plan-fast-track-for-small-work/recent-history.txt`
 - `.aiteam/lf-984-graph-topology-still-decided-in-go/2026-10-19/graph-topology-still-decided-in-go/RESEARCH_BRIEF.md:9`
+
+## F-09
+
+Current role contracts are sequential: the story role produces intent, the technical role consumes intent and owns architecture, and acceptance consumes both and owns tasks/criteria; current graph approval also requires current prior-stage approvals and upstream story approvals, so parallel reasoning must be reconciled before preserving ordered guarded approval rather than treating concurrent drafts as independent approvals.
+
+Evidence:
+
+- `teams/source/base-team/plan/plan-story.md:10`
+- `teams/source/base-team/plan/plan-acceptance.md:10`
+- `internal/planbrief/plan_workflow.go:576`
+- `internal/planbrief/plan_workflow.go:602`

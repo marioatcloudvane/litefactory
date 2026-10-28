@@ -2,59 +2,57 @@
 
 ## Request
 
-Establish the facts for #1218: a Plan-only fast track when Research S-01 is small or every story is S, preserving owner set promotion, final approval, Covers/Ruling notes and explicit return to normal planning if size grows.
+Shape a Plan-only fast track per S-sized subissue: three planning agents run in parallel with deliberately smaller outputs, M/L subissues retain every owner stage stop, mixed-size sets are supported, and growth causes a durable story-local fallback while set promotion, assembled approval and outcome coverage remain intact.
 
 ## Decisions
 
-- **S-01** — mode=feature, size=medium — Adds size-dependent Plan routing across graph control, retained approvals, team guidance and dependency-owned sizing; existing gate machinery limits the scope. (agent's call)
-- **O-01** — Small work takes a shorter Plan path with fewer stages or owner stops, using #984's generic gate mechanism; eligibility is Research S-01 small or every story sized S by #1217. (owner said: issue #1218, What I want)
-- **O-02** — If planning discovers work larger than S, return to the normal path and tell the owner. (owner said: issue #1218, What I want)
+- **S-01** — mode=feature, size=large — Parallel per-story reasoning adds concurrent result retention, reconciliation, stale-result handling and mixed-path scheduling beyond the earlier medium routing-only scope. (agent's call)
+- **O-01** — Each S-sized subissue runs the story, technical and acceptance agents in parallel with deliberately smaller scope and output, replacing the earlier whole-request eligibility proposal. (owner said: comment 6474304051, q1 and subissue clarification)
+- **O-02** — A story that grows beyond S returns to normal owner gates for the remainder of its planning cycle without reopening unaffected approvals or changing sibling stories' routes. (owner said: comment 6474304051, q3: a and subissue clarification)
 - **K-01** — Set promotion and final assembled plan approval remain owner decisions. (owner said: issue #1218 and retained #984 agreement)
 - **K-02** — Stories retain Covers: O-… and any narrowing has a Ruling: line. (owner said: issue #1218)
 - **N-01** — Sizing itself belongs to #1217; Implement and Validate are outside this work. (owner said: issue #1218, Not in this story)
-- **O-03** — The owner can see fast-track eligibility and its reason at set review, any return to normal planning when it happens, and path history with graph-approved stages at final review. (agent's call)
-- **O-04** — Fast-track progress survives resumes without an extra owner reply between eligible stages, while questions and guarded approval failures retain the existing review or failure behavior. (agent's call)
+- **O-03** — Set review shows each story's size and route, growth reports identify the affected story and reason, and final review shows per-story route history and graph-approved stages. (agent's call)
+- **O-04** — An eligible S story advances automatically after coherent parallel results are retained, while questions and guarded approval failures retain the existing review or failure behavior across resumes. (agent's call)
 - **K-03** — Existing approval identity, upstream dependencies, holds, retirement review and change invalidation rules remain effective on both planning paths. (agent's call)
 - **K-04** — Existing saved plans and captured team versions retain their behavior through the established release and capture process. (agent's call)
 - **N-02** — New commands, manual fast-track overrides, automatic plan migration and changes to team release authority are outside this scope. (agent's call)
 - **O-05** — The feature consumes the sizing contract supplied by #1217 without creating a competing size calculation or weakening normal planning when size evidence is unavailable. (agent's call)
+- **A-01** — Answers to q1, q2 and q3 with the routing-unit correction — owner: "q1: for S sizing, the 3 agents should run in parallel but deliberately with smaller scope / output. 
+q2: yes, M and L should have the traditional path - waiting at every step
+q3: a
+
+important: this is for the subissues, so not for the overall issue. in an issue it can be that we have different sizes, e.g. two S and one L!" (owner said: comment 6474304051)
+- **O-06** — M and L subissues retain sequential story, technical and acceptance planning with an owner review stop at every step. (owner said: comment 6474304051, q2)
+- **O-07** — One promoted set can contain S, M and L stories whose routing is independent of sibling sizes and the overall Research size. (owner said: comment 6474304051, subissue clarification)
+- **O-08** — Parallel agents work from the same current story scope and shared decisions, and their outputs must agree before automatic stage approval or assembled review includes them. (agent's call)
+- **O-09** — An S story retains concise intent and boundaries, only necessary technical decisions, and the minimum tasks and observable criteria needed to cover its outcomes. (agent's call)
+- **O-10** — Parallel completion order cannot overwrite another role's sections, apply an obsolete result or approve a partly completed story after a question, failure, scope change or growth fallback. (agent's call)
+- **O-11** — Fast-track reasoning runs concurrently rather than executing the three agents one after another, while applying approvals may remain ordered to preserve existing approval guards. (agent's call)
+- **K-05** — The parent set stage and final assembled approval retain their existing owner authority and are never routed through the S-story parallel path. (owner said: issue #1218 and comment 6474304051, subissue clarification)
+- **K-06** — Shorter S outputs preserve required typed content, Covers and Ruling notes, relevant non-goals and invariants, task-to-criterion proof links and review visibility. (agent's call)
+- **K-07** — Existing inter-story dependency approvals remain effective, so independent siblings can progress while genuine dependency waits remain visible. (agent's call)
+- **K-08** — Existing advisory judges remain advisory and retain their review purpose on both paths without becoming owner approvals. (agent's call)
+- **N-03** — Changing M/L planning depth, bypassing inter-story dependencies or building a general parallel-execution feature for other workflow modes is outside this scope. (agent's call)
+- **O-12** — Missing or invalid per-story size evidence uses normal planning rather than inferring S from the parent Research size. (agent's call)
 
 
 ## Assumptions
 
-- **AS-01** — Proposed answer to q1: retain the existing stage responsibilities and outputs, shortening the path through fewer owner stops; combining stages remains an owner alternative until answered. (agent's call)
-- **AS-02** — Proposed answers to q2/q3: explicit M/L overrides Research-small for the whole plan, unknown sizes qualify only via Research-small, a nonempty all-S current set can enable fast track, and a later growth fallback persists for the planning cycle without reopening unaffected approvals; these policies await the owner. (agent's call)
+- **AS-01** — Superseded by O-01 and O-11: keeping sequential agent execution with fewer stops was rejected in favor of three parallel planning agents for each S subissue. (agent's call)
+- **AS-02** — Superseded by O-02 and O-07: eligibility and sticky growth fallback are story-local, not whole-plan policies, and mixed-size sets are supported. (agent's call)
 - **AS-03** — Previously captured teams retain their graph behavior; source changes apply through the established release/capture process. No automatic migration of saved plans or captures is assumed. (agent's call)
-- **AS-04** — Eligibility uses the current proposed set at set review and the active promoted set thereafter, excludes retired stories and never treats an empty set as all-S; normal planning remains available without #1217 size fields, and no independent sizing logic is introduced. (agent's call)
-- **AS-05** — Retained path evidence must identify the sizing basis and any growth fallback so a resumed run makes the same decision; exact storage shape and internal interface names belong to Plan. (agent's call)
-- **AS-06** — Success requires observable automatic continuation through all three eligible story stages, owner-only set/final approval, correct unknown/mixed/growth routing, resume stability and unchanged Covers/Ruling reporting; these are scope acceptance boundaries, not executed checks. (agent's call)
-- **AS-07** — No new permission role or external interface is needed: existing owner commands, stage reviews and assembled review expose the feature, with automatic approvals retaining their existing provenance. (agent's call)
-- **AS-08** — Scope remains mode=feature and size=medium as recorded in S-01; retaining stages bounds the change, while merging stages would require reassessing that size. (agent's call)
-
-
-## Open questions
-
-### q1 — Should the fast track keep all planning stages and remove their routine owner stops?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Recommended: retain story, technical and acceptance work, but advance automatically through guarded graph approval; keep owner set promotion, final approval and any question or safety review.  *(recommended)*
-- **b** — Combine planning stages as well as removing stops; this reduces agent handoffs but expands the work into changing stage responsibilities and outputs.
-
-### q2 — Should explicit M or L sizes override Research-small eligibility for the whole plan?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Recommended: use the fast track when Research is small or a nonempty current set has every story explicitly S, provided no current story is M/L; unknown story sizes qualify only through Research-small, and absent or invalid size evidence otherwise takes the normal path.  *(recommended)*
-- **b** — Use story sizes only after set promotion: every current story must explicitly be S, even when Research says small; unknown sizes always require normal planning.
-
-### q3 — When work grows beyond S, should normal planning stay active without reopening unaffected approvals?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Recommended: return the whole plan to normal owner gates for the rest of that planning cycle, retain unaffected approvals under existing change rules, and show the reason plus earlier graph approvals in final review; changed or uncertain approvals follow existing reopen and hold rules.  *(recommended)*
-- **b** — Return to normal planning and require owner review of all earlier graph-approved stages; this adds retrospective stops before the final plan can be approved.
-- **c** — Return to normal planning while M/L evidence remains, but allow automatic re-entry when all sizes become S again; this needs repeated path changes to remain clear across resumes.
+- **AS-04** — Use the active promoted story's explicit S/M/L and reason from the existing sizing contract; missing or invalid size evidence takes normal planning, and overall Research-small never substitutes for a story size. (agent's call)
+- **AS-05** — Retain each story's routing basis, sizing revision, parallel-result identities and growth fallback so resume preserves its route and rejects obsolete results; storage layout belongs to Plan. (agent's call)
+- **AS-06** — Success means actual overlap of the three S agents, concise complete outputs, independent routing in a two-S/one-L set, coherent-result approval, safe question/failure/change/resume behavior, story-local sticky growth fallback and unchanged owner set/final approval. (agent's call)
+- **AS-07** — Existing owner commands and story/final reviews remain the interface; internal result handling gains distinct concurrent contributions and retains graph approval provenance without granting agents new owner authority. (agent's call)
+- **AS-08** — Superseded by S-01: the owner's requirement for concurrent planning and coherent result assembly expands this feature from medium to large. (agent's call)
+- **AS-09** — Parallel agents refine the same promoted story intent within its settled boundaries rather than independently inventing new scope; material intent changes require the owner. (agent's call)
+- **AS-10** — Reconcile compatible contributions automatically within existing bounded continuation limits and rerun only affected work when necessary; unresolved material contradictions or questions use the existing owner question/review path instead of a new mandatory reconciliation stop. (agent's call)
+- **AS-11** — If any parallel result identifies growth beyond S, hold automatic advancement, retain the growth reason and resume the affected story on its earliest required normal stage under existing approval-invalidation rules. (agent's call)
+- **AS-12** — Failures retain valid contributions for supported resume but do not count missing or failed contributions as complete; after scope or size changes, reuse only contributions demonstrably current with the selected story revision. (agent's call)
+- **AS-13** — Sticky fallback lasts through the affected story's current planning cycle, including ordinary resumes and revisions; a later size reduction does not automatically re-enter fast track. (agent's call)
+- **AS-14** — Smaller output means omitting optional elaboration and unnecessary tasks, not numeric limits or fewer required outcomes; the existing sizing guidance remains authoritative for depth. (agent's call)
 
 ## Research documents
 
