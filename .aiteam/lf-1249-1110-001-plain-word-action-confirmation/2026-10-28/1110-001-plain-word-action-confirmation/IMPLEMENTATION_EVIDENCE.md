@@ -56,7 +56,7 @@ between ten and thirty minutes. Each row below represents its own package run.
 | `internal/standardsexceptions` | race | passed, 12.191s |
 | `internal/archive` | race | passed, 1.871s |
 | `internal/doctor` | race | passed, 51.733s |
-| `internal/daemon` | race | three pre-final-fix complete runs passed, 1233.505s, 1173.135s and 1173.729s |
+| `internal/daemon` | race | final production code passed in continuation, 1116.398s; exit 0 |
 
 `go build ./...` passed. Scoped pinned `make lint` for connector, daemon, messaging,
 Discord, owneraction and store passed with zero findings. `gofmt -l .` and
@@ -77,16 +77,24 @@ Discord availability. Uncertain effects are inspected rather than replayed.
 Three subagents built this story alongside the lead worker. Intermediate failures
 were corrected in the story; no known pre-existing failure is being waived.
 
-## Remaining engineering verification
+## Continuation verification completed
 
-The final repository-selection privacy fix changed store and messaging after the
-latest complete daemon race run had started. The other scoped final-code package
-runs and required selected race checks passed, as did build, lint and formatting.
-A complete daemon race run against the final code is still required. Earlier
-daemon passes and a targeted main-path pass do not replace that complete run.
-The attempt deadline limits verification; no manual owner criterion is the reason.
+The continuation starts from factory-saved commit `97c2b6e4`. The sole remaining
+complete daemon race run passed against the final production code:
+`go test -race -timeout=30m ./internal/daemon` returned exit 0 in 1116.398s.
+This complete run includes `TestPlainWordActionJourney`. No production code changed
+during this continuation. The other scoped test, build, lint and guidance-loading
+results above were executed in the preceding attempt and remain retained evidence,
+not newly executed checks in this continuation. Formatting and whitespace checks
+were repeated here and passed.
 
-The attempt is submitted incomplete solely for that required complete caller run.
-Run `go test -race -timeout=30m ./internal/daemon` in the background, read its result,
-and resolve any failures before claiming completion. No other test processes
-remain active. No known pre-existing failure is waived.
+Two subagents performed read-only follow-up reviews in parallel with that run.
+The privacy review found no concrete gap. The guidance review identified two stale
+statements, which were corrected: standards approval and publication require both
+confirmation steps, and discovery exposes action schemas while proposals expose
+the impact tier. Relative links, balanced code fences and whitespace checks passed.
+No wording-pinning tests were introduced. No test process remains active.
+
+The previous attempt's verification limit is resolved. Engineering is complete;
+acceptance and the owner checks above remain for Validate. No known pre-existing
+failure is waived, and no deployment or live connector approval is claimed.

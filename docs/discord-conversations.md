@@ -181,11 +181,14 @@ a question never approves the resulting proposal. The same saved work is visible
 through the standards CLI.
 
 Ask to see the review of one exact proposal version to read its before and after.
-Approving it is an ordinary proposal: the factory shows the exact proposal id,
-version and digest, and your confirmation (a reply of yes, or the confirmation
-code) approves exactly that version. Publication is a separate request and
-confirmation for the approved proposal. Its result identifies the published book
-revision.
+Approving it starts an action proposal: the factory shows the exact proposal id,
+version and digest. After reviewing it, say yes separately after the minimum
+five-second delay, then tap ✅ on the factory's separate approval request before
+expiry. Both confirmations authorize exactly that reviewed version. Publication
+requires a separate action proposal with the same conversational confirmation and
+Discord ✅ steps for the approved proposal. Its result identifies the published
+book revision. The factory carries the identifiers; no confirmation code is
+needed.
 
 After an interrupted reply, inspect the saved operation or draft before trying
 again. A committed operation can succeed even when delivery fails; recovery uses

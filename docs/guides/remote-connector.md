@@ -542,8 +542,9 @@ Ask the connected client for an existing action in ordinary language, for exampl
 “diagnose this repository.” It calls `action_propose` with the action, fixed
 arguments and a client request key. The client keeps proposal identifiers and
 history cursors internally: you do not copy a hash or identifier. Discovery
-lists enabled commands and their fixed impact tier. Unknown or unclassified
-changing actions are refused; the neighboring job and task-steering suites are
+lists enabled commands, subactions and their argument schemas. Each proposal
+returns its fixed impact tier for review. Unknown or unclassified changing
+actions are refused; the neighboring job and task-steering suites are
 not added by this confirmation foundation.
 
 Review the returned action, arguments, repository or explicit installation scope,
