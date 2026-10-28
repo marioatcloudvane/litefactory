@@ -99,6 +99,17 @@ only fresh source/target/context observation can finalize a pending passing phas
 
 ## Validate coverage and freshness
 
+Automatic selection is currently disabled in the source-team graph. Enabling the
+versioned coverage capability requires passing real test-body freshness evidence
+for VSTest, Microsoft.Testing.Platform and xcodebuild, in addition to Go and pytest.
+Missing native tools or skipped fixtures do not satisfy this prerequisite. Until
+that evidence is available, new captures run the full recipe; the selective
+behavior described below applies only to a compatible enabled capture. Native
+freshness prerequisites are checked with
+`LF_REQUIRE_NATIVE_FRESHNESS=1 go test ./internal/turn -run '^(TestValidateVSTestNativeFullRequestFreshness|TestValidateMTPNativeFullRequestFreshness|TestValidateFreshFullRequestsExecuteWarmXcodeBodies)$' -count=1 -timeout=15m`.
+This mode fails rather than skips when a required native tool, dependency or
+execution capability is unavailable.
+
 Plain `/validate` selects automatically; exact `/validate full` requests new full
 execution rather than reuse, even on an unchanged commit. A repeated delivery of
 the same request replays its own generation. Repository suite configuration does

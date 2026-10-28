@@ -101,7 +101,7 @@ exec "$real_go" test -json -count=1 "$@"
 	case coverage.RunnerVSTest:
 		c.Argv = runnerArgs(c.Argv, []string{"--logger", "trx;LogFileName=results.trx", "--results-directory", dir})
 	case coverage.RunnerMTP:
-		c.Argv = append(c.Argv, "--report-trx", "--report-trx-filename", file)
+		c.Argv = append(c.Argv, "--report-trx", "--report-trx-filename", "results.trx", "--results-directory", dir)
 	case coverage.RunnerXcode:
 		file = filepath.Join(dir, "results.xcresult")
 		if containsArgPrefix(c.Argv, "-resultBundlePath") {

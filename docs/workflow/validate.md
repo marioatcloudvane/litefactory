@@ -8,6 +8,17 @@ The graph is `teams/source/base-team/validate/validate.dot`, and it is the only 
 
 ## The suite
 
+Automatic selection is currently disabled in the source-team graph. Enabling the
+versioned coverage capability requires passing real test-body freshness evidence
+for VSTest, Microsoft.Testing.Platform and xcodebuild, in addition to Go and pytest.
+Missing native tools or skipped fixtures do not satisfy this prerequisite. Until
+that evidence is available, new captures run the full recipe; the selective
+behavior described below applies only to a compatible enabled capture. Native
+freshness prerequisites are checked with
+`LF_REQUIRE_NATIVE_FRESHNESS=1 go test ./internal/turn -run '^(TestValidateVSTestNativeFullRequestFreshness|TestValidateMTPNativeFullRequestFreshness|TestValidateFreshFullRequestsExecuteWarmXcodeBodies)$' -count=1 -timeout=15m`.
+This mode fails rather than skips when a required native tool, dependency or
+execution capability is unavailable.
+
 The suite step starts from every command in the repository recipe's `full`
 phase (`.litefactory/bug-checks.yaml`, read from the tested commit; see
 [Bug checks](../bug-checks.md)). Plain `/validate` chooses checks automatically;

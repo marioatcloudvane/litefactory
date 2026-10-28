@@ -37,15 +37,13 @@ func TestValidateCoverageCaptureAndLegacyReplay(t *testing.T) {
 				t.Fatal(err)
 			}
 			suite, ok := current.Profile.Node("suite")
-			if !ok || suite.Attrs["lf_coverage"] != "v1" {
-				t.Fatalf("coverage not captured: %+v", suite)
+			if !ok || suite.Attrs["lf_coverage"] != "" {
+				t.Fatalf("source enabled selection before native freshness evidence: %+v", suite)
 			}
-			next, ok := graphexec.Decide(current.Profile, "suite", "covered")
-			if !ok || next != "review" {
-				t.Fatalf("covered route %q %v", next, ok)
+			if _, ok := graphexec.Decide(current.Profile, "suite", "covered"); ok {
+				t.Fatal("disabled source routed a covered result")
 			}
-			// Restore from captured bytes alone, then remove only the new optional
-			// capability to model a saved older graph. No released capture is edited.
+			// Restore from captured bytes alone. No released capture is edited.
 			captured := fstest.MapFS{}
 			for name, data := range current.Files {
 				captured[name] = &fstest.MapFile{Data: data}
@@ -58,9 +56,20 @@ func TestValidateCoverageCaptureAndLegacyReplay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			legacy := strings.ReplaceAll(string(raw), ",covered", "")
-			legacy = strings.ReplaceAll(legacy, `, lf_coverage="v1"`, "")
-			legacy = strings.ReplaceAll(legacy, ` suite -> review        [lf_on="covered"];`, "")
+			// A synthetic compatible capture exercises the optional future contract;
+			// it does not enable selection in the shipped source graph.
+			enabled := strings.Replace(string(raw), `lf_outcomes="passed,failed,blocked,retry"`, `lf_outcomes="passed,covered,failed,blocked,retry", lf_coverage="v1"`, 1)
+			enabled = strings.Replace(enabled, ` suite -> review        [lf_on="passed"];`, " suite -> review        [lf_on=\"covered\"];\n suite -> review        [lf_on=\"passed\"];", 1)
+			captured["validate.dot"] = &fstest.MapFile{Data: []byte(enabled)}
+			compatible, err := teamsource.CaptureWorkflowIdentity(t.Context(), captured, "validate.dot", team, agent.WorkflowValidate, registry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			next, ok := graphexec.Decide(compatible.Profile, "suite", "covered")
+			if !ok || next != "review" {
+				t.Fatalf("compatible covered route %q %v", next, ok)
+			}
+			legacy := string(raw)
 			captured["validate.dot"] = &fstest.MapFile{Data: []byte(legacy)}
 			old, err := teamsource.CaptureWorkflowIdentity(t.Context(), captured, "validate.dot", team, agent.WorkflowValidate, registry)
 			if err != nil {
