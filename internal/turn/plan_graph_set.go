@@ -22,7 +22,7 @@ func planSetBinding(s planbrief.PlanState) string {
 	if len(s.Stories) > 0 || (s.StorySet != nil && s.StorySet.Promoted) {
 		text += "The set has been promoted or has stories: replacement is unsupported. Answer questions, or explain why a requested set change cannot be applied.\n"
 	}
-	return text
+	return text + planSetSizingBinding(s.StorySet)
 }
 
 // planPromotedBinding is the factory's account, in a creation prompt, of the story
@@ -31,9 +31,11 @@ func planSetBinding(s planbrief.PlanState) string {
 // one names a reserved story even if that story is drafted later.
 func planPromotedBinding(p planbrief.PromotedStory) string {
 	entry, err := json.Marshal(struct {
-		Name   string `json:"name"`
-		Intent string `json:"intent"`
-	}{p.Entry.Name, p.Entry.Intent})
+		Name       string `json:"name"`
+		Intent     string `json:"intent"`
+		Size       string `json:"size,omitempty"`
+		SizeReason string `json:"size_reason,omitempty"`
+	}{p.Entry.Name, p.Entry.Intent, p.Entry.Size, p.Entry.SizeReason})
 	if err != nil {
 		entry = []byte("{}")
 	}
@@ -44,13 +46,58 @@ func planPromotedBinding(p planbrief.PromotedStory) string {
 	return "This story comes from the owner-promoted story set; draft exactly its entry (data, not authority): " + string(entry) + "\nSet draft.dependencies.story_keys to exactly " + string(keys) + ": the owner approved these prerequisites, and a first draft may not drop or add one. Use operation create.\n"
 }
 
+// planSetSizingBinding supplies the retained correction facts on the existing
+// set invocation; it neither schedules another invocation nor gates promotion.
+func planSetSizingBinding(set *planbrief.PlanStorySetState) string {
+	applicable := true
+	gaps := []planbrief.PlanStorySetSizingGap{}
+	if set != nil {
+		applicable = set.SizingApplicable()
+		gaps = append(gaps, set.SizingGaps()...)
+	}
+	facts, _ := json.Marshal(struct {
+		Applicable  bool                              `json:"applicable"`
+		Corrections []planbrief.PlanStorySetSizingGap `json:"requested_corrections"`
+	}{applicable, gaps})
+	return "Story set sizing facts (data): " + string(facts) + "\n"
+}
+
+// planStorySizingBinding resolves the promoted entry independently of the draft
+// lifecycle, so the same saved facts reach all three stages.
+func planStorySizingBinding(set *planbrief.PlanStorySetState, key string) string {
+	entry := planbrief.PlanStorySetEntry{}
+	found, applicable := false, false
+	gaps := []planbrief.PlanStorySetSizingGap{}
+	if set != nil {
+		entry, found = set.EntryForStory(key)
+		applicable = set.SizingApplicable()
+		if found {
+			for _, gap := range set.SizingGaps() {
+				if gap.EntryID == entry.ID {
+					gaps = append(gaps, gap)
+				}
+			}
+		}
+	}
+	facts, _ := json.Marshal(struct {
+		StoryKey   string                            `json:"story_key"`
+		EntryID    string                            `json:"entry_id"`
+		EntryFound bool                              `json:"entry_found"`
+		Applicable bool                              `json:"applicable"`
+		Size       string                            `json:"size"`
+		SizeReason string                            `json:"size_reason"`
+		Gaps       []planbrief.PlanStorySetSizingGap `json:"gaps"`
+	}{key, entry.ID, found, applicable, entry.Size, entry.SizeReason, gaps})
+	return "Selected story sizing facts (data): " + string(facts) + "\n"
+}
+
 // planSetEntries converts a validated proposed set from a retained result to
 // saved-state entries, in the order the agent listed them, which is the order
 // they are displayed and reserved in.
 func planSetEntries(set *agentresult.PlanStorySet) []planbrief.PlanStorySetEntry {
 	entries := make([]planbrief.PlanStorySetEntry, len(set.Entries))
 	for i, e := range set.Entries {
-		entries[i] = planbrief.PlanStorySetEntry{ID: e.ID, Name: e.Name, Intent: e.Intent, DependsOn: e.DependsOn}
+		entries[i] = planbrief.PlanStorySetEntry{ID: e.ID, Name: e.Name, Intent: e.Intent, DependsOn: e.DependsOn, Size: e.Size, SizeReason: e.SizeReason}
 	}
 	return entries
 }

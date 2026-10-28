@@ -83,7 +83,8 @@ and proposes how its agreed scope splits into stories; the story, technical and
 acceptance stages return a storyrequest for one story and never a storyset.
 
 payload.plan.storyset is `{"entries": [...]}`. Each entry is `id`, `name`, `intent`
-and, only when it has prerequisites, `depends_on`:
+with optional string fields `size` and `size_reason` and, only when it has
+prerequisites, `depends_on`:
 - 1 to 12 entries. An empty set is refused, and so is a set of more than 12: that
   parent is too large for one plan, so split the parent instead of the list.
 - id is a temporary identifier that is nonempty, unique in the set and means nothing
@@ -91,6 +92,16 @@ and, only when it has prerequisites, `depends_on`:
   factory allocates real story keys later.
 - name is a nonblank single line of at most 80 characters, unique in the set.
 - intent is a nonblank single line of at most 280 characters.
+- size is exactly `S`, `M` or `L` when assigned. Missing or invalid size strings
+  are retained as advisory gaps for new sets, not rejected or inferred.
+- size_reason is optional; omitted or blank reasons are accepted. A supplied
+  nonblank reason must be one line of at most 280 Unicode code points after
+  trimming surrounding whitespace for the count. A nonblank reason containing
+  CR or LF anywhere, including surrounding whitespace, is malformed; accepted
+  text is retained as supplied.
+  Malformed nonblank reasons and wrong JSON types receive normal contract errors.
+  Guidance for new sets requires both fields; optional typing preserves old sets.
+  Use plan-evidence's Story sizing applicability, repair and fallback rules.
 - depends_on lists ids of other entries in the same set, each at most once. An entry
   never depends on itself, on an id that is not in the set, or on a cycle.
 The set is shape-checked only. It authorizes no story effect: the owner reviews it
@@ -539,17 +550,23 @@ The set stage answers with a question or a storyset. Replace the content, keep t
             {
               "id": "s1",
               "name": "Export data",
-              "intent": "Owners can export their records as a file they can share."
+              "intent": "Owners can export their records as a file they can share.",
+              "size": "M",
+              "size_reason": "Export creation and download touch related parts; compatibility needs checking, format is known, and no retirement or migration is needed."
             },
             {
               "id": "s2",
               "name": "Import data",
-              "intent": "Owners can bring records in from a file and see what was skipped."
+              "intent": "Owners can bring records in from a file and see what was skipped.",
+              "size": "L",
+              "size_reason": "Parsing, validation and record writes span components; partial imports carry data risk and format unknowns, with existing records to migrate."
             },
             {
               "id": "s3",
               "name": "Usage report",
               "intent": "Owners can see how often exports and imports run.",
+              "size": "S",
+              "size_reason": "One report uses known export and import counts; display risk is low, no unknowns remain, and no retirement or migration is needed.",
               "depends_on": [
                 "s1",
                 "s2"
@@ -576,7 +593,9 @@ The set stage answers with a question or a storyset. Replace the content, keep t
             {
               "id": "s1",
               "name": "Add export",
-              "intent": "Owners can export their records as a file they can share."
+              "intent": "Owners can export their records as a file they can share.",
+              "size": "M",
+              "size_reason": "Export creation and download touch related parts; compatibility needs checking, format is known, and no retirement or migration is needed."
             }
           ]
         }

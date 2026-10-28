@@ -663,6 +663,7 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 	if r.stage != planSetStage {
 		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; the factory binds the stage, candidate, request identity, upstream references and shared-decision revision to your result. Never supply them, and set draft.key to the selected story.\n", r.selected, r.stage)
 		binding += planOwnerRolesBinding(r.scope)
+		binding += planStorySizingBinding(s.StorySet, r.selected)
 		if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), r.selected); e == nil && d.IssueID > 0 && d.Candidate != "" {
 			binding += fmt.Sprintf("Existing issue %d, expected_revision %s; operation update unless proposing retirement.\n", d.IssueNumber, d.Revision)
 		} else if e == nil && d.IssueID > 0 {

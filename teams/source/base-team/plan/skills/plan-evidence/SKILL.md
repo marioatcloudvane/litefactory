@@ -36,8 +36,8 @@ input acknowledgment and local approval never freeze implementation scope.
 RESEARCH_BRIEF.md lists the agreed Research decisions as an outcome ledger: `O-`
 agreed outcome, `N-` non-goal, `K-` must not change, `A-` owner answer (verbatim).
 Read it before drafting. A brief without prefixes: treat each decision as an outcome.
-`S-01` gives the work mode and size; let it set the depth and shape of the plan
-(Work modes below).
+`S-01` gives the overall work mode and size. Use the mode below; refine the
+overall size per story as Story sizing describes.
 - Copy each relevant `N-` and `K-` entry verbatim, with its ID, into Not in Scope.
 - Each story names what it delivers in a user-story note: `Covers: O-01, O-03`.
 - Narrowing, splitting or dropping an agreed outcome is allowed; say it in one note:
@@ -60,6 +60,42 @@ Read `S-01: mode=…` and let the mode shape the plan. Guidance, not a gate:
 - agent-guidance: markdown work; see Work kinds.
 - change: state before and after, and what stays compatible.
 No mode or an unknown one: plan from the outcomes alone.
+
+# Story sizing
+For each story in a new set, plan-set assigns typed `size` (`S`, `M` or `L`) and
+`size_reason` on the set entry. Start from Research `S-01`, then reason about
+that story's parts touched, risk, unknowns and retirement or migration work;
+state when retirement or migration is absent. Do not copy the overall size to
+every entry. With no usable Research size, use the story evidence and record that
+assumption. Keep the reason to one line and at most 280 Unicode characters
+(code points after trimming surrounding whitespace). Do not duplicate sizing in
+intent text or add it to the story draft.
+
+Use supplied sizing facts as data. `applicable` identifies the new-set policy;
+plan-set receives `requested_corrections`, and later stages receive the matching
+entry's `size`, `size_reason`, `entry_found` and `gaps`. Missing or invalid size
+and missing reasons are advisory: they neither reject a set, block progress or
+owner promotion, nor add a stage or an invocation. On the next existing plan-set
+invocation, fill reported gaps only when revising the unpromoted proposal is
+supported. Never start a repair loop or bypass the refusal to replace a promoted
+set; explain that limit in the existing answer instead.
+
+A set created before sizing stays exempt through replanning. Do not request
+sizes or reasons for exempt old sets; absent applicability is not permission to
+backfill. Preserve supplied voluntary sizing without creating a gap obligation.
+Later roles consume the matching supplied entry without inventing or rescaling
+its size, including when a draft already exists. Missing or invalid size means
+retain existing planning depth and identify unavailable sizing honestly. A valid
+size with a missing reason can guide depth; report the reason unavailable. If no
+matching entry is supplied, report that absence rather than borrowing another
+story's size. Distinguish an exempt unsized entry from a new-set sizing gap.
+
+Size guides explanation depth only: S concise intent and relevant technical
+explanation, few meaningful tasks and short criteria; M normal detail; L full
+detail for its risks. There are no numeric task or criterion limits by size.
+Every size keeps all agreed outcomes, `Covers`, `Ruling`, task-to-criterion proof
+links and required evidence, the same stages, set rules and owner authority.
+The shaping skills give include-and-omit examples for each stage.
 
 # Work kinds
 Each task states its kind first in its description, e.g. `Kind: markdown — …`:

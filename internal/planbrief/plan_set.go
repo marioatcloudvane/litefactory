@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 )
 
 // MaxPlanStorySetEntries bounds one proposed story set. A parent that needs more
 // is split, not squeezed into a longer list. The graph checker derives the
 // creation cycle's loop bound from it, so the bound and the limit cannot drift.
 const MaxPlanStorySetEntries = 12
+
+// PlanStorySetSizingPolicyVersion marks sets first created with advisory sizing.
+const PlanStorySetSizingPolicyVersion = 1
 
 // ErrPlanStorySetUnorderable reports a promoted set that still has stories to
 // draft but none whose dependencies are drafted: a cycle or an unknown reference
@@ -20,10 +24,12 @@ var ErrPlanStorySetUnorderable = errors.New("promoted story set cannot be ordere
 // PlanStorySetEntry is one proposed story under a temporary identity that exists
 // only within its set. Real story keys are reserved by the factory at promotion.
 type PlanStorySetEntry struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Intent    string   `json:"intent"`
-	DependsOn []string `json:"depends_on,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Intent     string   `json:"intent"`
+	DependsOn  []string `json:"depends_on,omitempty"`
+	Size       string   `json:"size,omitempty"`
+	SizeReason string   `json:"size_reason,omitempty"`
 }
 
 // PlanStorySetState is the saved story set of one parent Plan. Every member is
@@ -31,6 +37,8 @@ type PlanStorySetEntry struct {
 // and still loads. Entries are kept in displayed order, which is also the order
 // story keys are reserved in.
 type PlanStorySetState struct {
+	// SizingPolicyVersion is factory-owned creation metadata; zero preserves legacy exemption.
+	SizingPolicyVersion int `json:"sizing_policy_version,omitempty"`
 	// Revision identifies the exact proposed set the owner reviews.
 	Revision string `json:"revision"`
 	// Entries are the proposed stories in displayed order.
@@ -187,4 +195,48 @@ func (s *PlanState) PromotedStory(key string) (PromotedStory, bool) {
 		}
 	}
 	return PromotedStory{}, false
+}
+
+// PlanStorySetSizingGap is an advisory correction, never a validation fault.
+type PlanStorySetSizingGap struct {
+	EntryID  string `json:"entry_id"`
+	Field    string `json:"field"`
+	Expected string `json:"expected"`
+}
+
+// SizingApplicable reports whether this set was first created with sizing support.
+func (s *PlanStorySetState) SizingApplicable() bool {
+	return s != nil && s.SizingPolicyVersion != 0
+}
+
+// SizingGaps returns corrections in entry and field order. Legacy sets are exempt
+// even when they voluntarily carry some sizing information.
+func (s *PlanStorySetState) SizingGaps() []PlanStorySetSizingGap {
+	if !s.SizingApplicable() {
+		return nil
+	}
+	var gaps []PlanStorySetSizingGap
+	for _, e := range s.Entries {
+		if e.Size != "S" && e.Size != "M" && e.Size != "L" {
+			gaps = append(gaps, PlanStorySetSizingGap{EntryID: e.ID, Field: "size", Expected: "S, M or L"})
+		}
+		if strings.TrimSpace(e.SizeReason) == "" {
+			gaps = append(gaps, PlanStorySetSizingGap{EntryID: e.ID, Field: "size_reason", Expected: "nonblank single-line reason of at most 280 Unicode characters"})
+		}
+	}
+	return gaps
+}
+
+// EntryForStory resolves set content independently of a story's draft stage.
+func (s *PlanStorySetState) EntryForStory(key string) (PlanStorySetEntry, bool) {
+	if s == nil || key == "" {
+		return PlanStorySetEntry{}, false
+	}
+	for _, e := range s.Entries {
+		if s.Keys[e.ID] == key {
+			e.DependsOn = slices.Clone(e.DependsOn)
+			return e, true
+		}
+	}
+	return PlanStorySetEntry{}, false
 }
