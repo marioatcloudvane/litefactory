@@ -57,6 +57,8 @@ type StandardsRequest struct {
 
 // StandardsResult contains factual domain output and factory-issued targets.
 type StandardsResult struct {
+	Status string
+
 	Text        string
 	References  map[string]string
 	Interrupted bool
@@ -74,7 +76,7 @@ func (s *Service) EnableStandards(operations StandardsOperations) {
 		case "standards":
 			def.Description = "Look up the book of standards. action: discover, book.current, book.history, book.categories, book.standards (rendered, with standards per role and category), book.show (revision), author.list, author.inspect (id, version), proposal.list, proposal.inspect or proposal.review (id, version; review shows before and after), exception.list, exception.show (id), analysis.list (recent log analyses with status), analysis.show (id), operation.show (id)."
 		case "standards-author":
-			def.Description = "Work out one standard with the standards author, from draft to the book. action start takes the owner's idea as intent, optionally project (the author then reads its code and recent incidents) and target_id to sharpen an existing standard; it is confirmed (it costs money), then the author drafts in the background and the draft is posted here. answer takes the owner's reply as text: answers to the open questions (question_id optional: without it the reply answers all of them) or, with no open question, any change the owner wants (\"make it shorter\", \"category X\", \"suggest something\"); the author then drafts again by itself. edit sets one field to the owner's literal value: category_id (an existing category or the draft's new one), rule (starts with MUST), description, evidence, scope, check (automated, semi_automated or manual) or applies_to (comma-separated roles). continue asks the author for its next draft. publish takes the draft into the book in one step once it has no open questions and nothing blocking: it completes it into a proposal, approves and publishes it; give the owner's words that say so (\"publish it\", \"yes, good\") from the current message as text; it refuses with the reason while something is open. revise takes the owner's change request as text for a completed proposal that is not yet published (stage proposal); the author drafts a new version. validate, complete and rebase are kept for repairs. Every action runs on this conversation's author session and its newest version unless id and version are given; never ask the owner for ids or versions. All but start and complete run without a confirmation."
+			def.Description = "Work out one standard with the standards author, from draft to the book. action start takes the owner's idea as intent, optionally project (the author then reads its code and recent incidents) and target_id to sharpen an existing standard; it requires conversational confirmation (it costs money), then the author produces its recorded draft. answer takes the owner's reply as text: answers to the open questions (question_id optional: without it the reply answers all of them) or, with no open question, any change the owner wants (\"make it shorter\", \"category X\", \"suggest something\"); the author then drafts again by itself. edit sets one field to the owner's literal value: category_id (an existing category or the draft's new one), rule (starts with MUST), description, evidence, scope, check (automated, semi_automated or manual) or applies_to (comma-separated roles). continue asks the author for its next draft. publish takes the draft into the book in one step once it has no open questions and nothing blocking: it completes it into a proposal, approves and publishes it; give the owner's words that say so (\"publish it\", \"yes, good\") from the current message as text; it refuses with the reason while something is open. revise takes the owner's change request as text for a completed proposal that is not yet published (stage proposal); the author drafts a new version. validate, complete and rebase are kept for repairs. Every action freezes the selected author session, version and book revision while proposing. All author changes require separate conversational confirmation; publication also requires the configured owner's Discord reaction."
 		case "standards-proposal":
 			def.Description = "Propose action edit, approve or publish for an exact proposal id and version, for proposals that did not come from this conversation's author (a draft goes into the book with standards-author publish). Approve and publish need its digest; publish needs an approved version. Edit selects target_id and owner category_id/rule/description/evidence/scope/check/applies_to or exact owner JSON operations."
 		case "standards-exception":
@@ -123,7 +125,7 @@ func (s *Service) standardsRequest(inv Invocation, channel, message string, at t
 }
 
 func standardsDiscovery() string {
-	return "Standards operations: inspect categories, the published book and history, proposals, authoring sessions, scoped exceptions and log analyses. Authoring: start (confirmed), then answer, edit or continue the draft; once it has no open questions and nothing blocking, publish takes it into the book in one step: it completes it into a proposal, approves and publishes it. revise sends the owner's change request for a completed, unpublished proposal back to the author. Approval and publication of a proposal from elsewhere are separate confirmed actions. A log analysis of one project is started as a confirmed action and posts its result here when it finishes. Inspect saved operation outcomes before repeating interrupted work."
+	return "Standards reads: categories, published book and history, proposals, authoring sessions, exceptions, analyses and operation receipts. Every change is a fixed proposal. Conversational tier: analysis start; author start, answer, revise, edit, continue, validate, complete and rebase; proposal edit; exception propose. Binding tier: author publish, proposal approve/publish and exception approve/revoke; conversational confirmation plus the configured owner's Discord tap. Feature preview, diagnosis and Research answers are conversational; feature issue creation is binding. Reads, inspect/history and direct confirm/cancel controls require no nested proposal. The minimum delay is five seconds after availability; expiry is fifteen minutes after creation. Uncertain effects retain their recovery receipts."
 }
 
 func standardsMissingTerms(op string, args map[string]string) string {
@@ -194,18 +196,6 @@ func standardsProposeGap(envelope ConversationEnvelope, inv Invocation, current 
 
 func standardsError(err error) string {
 	return fmt.Sprintf("That didn't go through: %s. Nothing else was changed.", strings.TrimPrefix(err.Error(), "standards: "))
-}
-
-// standardsDisplay is the saved outcome of a standards operation, with the
-// exact operation and references kept for storage and details; the owner
-// reads result.Text.
-func standardsDisplay(result StandardsResult, key string) string {
-	refs, _ := json.Marshal(result.References)
-	text, cut := boundedConversationText(result.Text, 16384)
-	if cut {
-		text += "\nAdditional result content remains in the durable operation receipt."
-	}
-	return "Saved standards operation: " + key + "\nExact retained references: " + string(refs) + "\n" + text
 }
 
 func expandStandardsReferences(refs []ConversationReference) []ConversationReference {

@@ -33,6 +33,19 @@ type ConversationStandards struct {
 }
 
 func (a *ConversationStandards) authorize(ctx context.Context, r messaging.StandardsRequest) error {
+	if fixed, ok := standardsFrozen(ctx); ok {
+		if err := a.frozenAuthority(ctx, fixed.Principal); err != nil {
+			return err
+		}
+		valid, err := a.DB.OwnerActionProvenanceValid(ctx, fixed.Actor, fixed.OperationKey)
+		if err != nil {
+			return err
+		}
+		if !valid {
+			return errors.New("standards: admitted owner action required")
+		}
+		return nil
+	}
 	if a.OwnerID == "" || r.OwnerID != a.OwnerID || r.Transport != "discord" || r.ChannelID == "" || r.MessageID == "" || a.Authorized == nil {
 		return errors.New("standards: authorized owner conversation required")
 	}
@@ -278,7 +291,15 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 	case "author.complete":
 		v, e = a.Authoring.Complete(ctx, args["id"], version)
 	case "author.rebase":
-		v, e = a.Authoring.Rebase(ctx, args["id"], version)
+		if _, fixed := standardsFrozen(ctx); fixed {
+			base, parse := strconv.ParseInt(args["base"], 10, 64)
+			if parse != nil || base < 0 {
+				return messaging.StandardsResult{}, errors.New("standards: exact rebase revision required")
+			}
+			v, e = a.Authoring.Rebase(ctx, args["id"], version, base)
+		} else {
+			v, e = a.Authoring.Rebase(ctx, args["id"], version)
+		}
 	case "proposal.edit":
 		var proposal store.StandardsProposalVersion
 		proposal, e = a.Book.Proposal(ctx, args["id"], version)
@@ -753,6 +774,9 @@ func plainStandardsReason(err error) string {
 // run executes one admitted operation and records its outcome.
 func (a *ConversationStandards) run(ctx context.Context, r messaging.StandardsRequest, d string) (messaging.StandardsResult, error) {
 	provenance := "discord-owner:" + r.OwnerID + ":" + r.ChannelID + ":" + r.MessageID
+	if fixed, ok := standardsFrozen(ctx); ok {
+		provenance = fixed.Actor
+	}
 	ctx = store.WithStandardsProvenance(ctx, provenance)
 	ctx = store.WithStandardsConversationOperation(ctx, r.OperationKey, d)
 	local := *a
@@ -787,7 +811,9 @@ func (a *ConversationStandards) run(ctx context.Context, r messaging.StandardsRe
 		}
 	}
 	encoded, _ := json.Marshal(result)
-	_, save := a.DB.FinishStandardsConversationOperation(context.WithoutCancel(ctx), r.OperationKey, d, status, encoded, diagnostic)
+	saved, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	_, save := a.DB.FinishStandardsConversationOperation(saved, r.OperationKey, d, status, encoded, diagnostic)
 	return result, errors.Join(e, save)
 }
 

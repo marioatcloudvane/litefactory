@@ -219,7 +219,7 @@ func TestGatewayIdentifiesHeartbeatsAndReportsOwnerMessages(t *testing.T) {
 			Properties map[string]string `json:"properties"`
 		}
 		_ = json.Unmarshal(identify.D, &d)
-		if identify.Op != 2 || d.Token != "gateway-token" || d.Intents != 1<<9|1<<15 || d.Compress {
+		if identify.Op != 2 || d.Token != "gateway-token" || d.Intents != 1<<9|1<<10|1<<15 || d.Compress {
 			t.Errorf("identify %+v", d)
 		}
 		ready(c, 1, "")

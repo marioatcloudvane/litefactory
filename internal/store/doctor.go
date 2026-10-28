@@ -68,6 +68,9 @@ func (db *DB) BeginDoctorAttempt(ctx context.Context, ref string, a DoctorAttemp
 	var c DoctorConversation
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		now := FormatTime(nowUTC())
+		if err := ownerActionEffectContextTx(ctx, tx); err != nil {
+			return err
+		}
 		if err := validateDoctorSourceTx(ctx, tx, a.SourceID, ref); err != nil {
 			return err
 		}

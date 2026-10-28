@@ -61,7 +61,7 @@ func readConsentForm(r *http.Request) (url.Values, error) {
 		return nil, err
 	}
 	for key, entries := range r.PostForm {
-		if key != "scope" && key != "repository" && len(entries) != 1 {
+		if key != "scope" && key != "repository" && key != "action_repository" && len(entries) != 1 {
 			return nil, errors.New("connector: duplicate parameter")
 		}
 	}
@@ -138,6 +138,21 @@ func consentCoverage(form url.Values, scope string) (store.ConnectorCoverage, st
 			}
 		}
 		return store.ConnectorCoverage{}, "choose all repositories or at least one registered repository for " + strings.Join(needs, ", ")
+	}
+	return coverage, ""
+}
+
+// consentActionCoverage never accepts the all-read checkbox as action consent.
+func consentActionCoverage(form url.Values) (store.ConnectorCoverage, string) {
+	var coverage store.ConnectorCoverage
+	if len(form["action_repository"]) == 0 || len(form["action_repository"]) > 1000 {
+		return coverage, "choose at least one registered repository for repository:actions"
+	}
+	for _, ref := range form["action_repository"] {
+		if ref == "" || len(ref) > 1024 {
+			return store.ConnectorCoverage{}, "invalid action repository selection"
+		}
+		coverage.Repositories = append(coverage.Repositories, store.ConnectorRepository{RepositoryRef: ref})
 	}
 	return coverage, ""
 }
@@ -238,6 +253,10 @@ var consentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 {{range .Repositories}}<label class="option"><input type="checkbox" name="repository" value="{{.}}"><span><code>{{.}}</code></span></label>
 {{else}}<p class="note">No repositories are registered yet.</p>
 {{end}}</fieldset>
+<fieldset><legend>Repositories for <code>repository:actions</code> (explicit selection required)</legend>
+{{range .Repositories}}<label class="option"><input type="checkbox" name="action_repository" value="{{.}}"><span><code>{{.}}</code></span></label>
+{{else}}<p class="note">No repositories are registered yet.</p>{{end}}</fieldset>
+<p class="note">Action access never includes all or future repositories automatically. Standards management changes the shared installation-wide book and requires its separate scope.</p>
 <p class="note">The client names the task or repository on each call. Every call is checked: the task must exist and belong to a covered repository; code review reads the task's own retained code repository. The selection is used only for the scopes above you tick. Task usage includes the task's recorded report family: linked and retired story history and later persisted links.</p>
 </section>
 <section class="card"><h2>How long</h2>

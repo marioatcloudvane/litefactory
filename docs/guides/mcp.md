@@ -50,3 +50,7 @@ Keep the request ID and the exact text that was sent, then read the matching rec
 Likely causes are a disabled setting, the wrong mode, an expired run, or a conflicting MCP entry in the agent's own configuration. Look at the run logs (`litefactory logs <issue> --only tool`; see the [CLI reference](../cli/command-reference.md)) and the [permissions](../configuration/permissions.md). Story creation and other owner commands are listed in [owner commands](owner-commands.md).
 
 See also [recovery](../operations/recovery.md).
+
+## Owner actions from a connected client
+
+The separate [remote connector](remote-connector.md#plain-word-owner-actions) supports plain-word proposal, confirmation, cancellation, inspection and history for enabled owner actions. It requires fresh explicit action consent; binding actions also require the configured owner’s Discord ✅. These controls do not change a coding worker’s submission authority or the local tools described above.

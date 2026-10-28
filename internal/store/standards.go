@@ -122,9 +122,55 @@ type StandardsRevision struct {
 	Publication    *StandardsPublication `json:"publication"`
 }
 
+type standardsExpectedHeadKey struct{}
+type standardsOwnerActionTimeKey struct{}
+type standardsOwnerActionClockKey struct{}
+
+// WithStandardsOwnerActionClock carries the daemon clock to late domain writes.
+func WithStandardsOwnerActionClock(ctx context.Context, clock func() time.Time) context.Context {
+	return context.WithValue(ctx, standardsOwnerActionClockKey{}, clock)
+}
+
+// WithStandardsOwnerActionTime supplies the factory clock for authority checks.
+func WithStandardsOwnerActionTime(ctx context.Context, at time.Time) context.Context {
+	return context.WithValue(ctx, standardsOwnerActionTimeKey{}, at)
+}
+
+// WithStandardsExpectedHead binds domain writes to the reviewed book revision.
+// The fence runs in the write transaction, including for an empty book (zero).
+func WithStandardsExpectedHead(ctx context.Context, revision int64) context.Context {
+	return context.WithValue(ctx, standardsExpectedHeadKey{}, revision)
+}
+
 // standardsWrite reports contention after rollback; callers decide when to retry.
 func (db *DB) standardsWrite(ctx context.Context, fn func(*sql.Tx) error) error {
-	err := db.withTx(ctx, func(tx *sql.Tx) error { return standardsConversationWrite(ctx, tx, fn) })
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		return standardsConversationWrite(ctx, tx, func(tx *sql.Tx) error {
+			if actor := standardsProvenance(ctx); strings.HasPrefix(actor, "owner-action:") {
+				at, ok := ctx.Value(standardsOwnerActionTimeKey{}).(time.Time)
+				if clock, current := ctx.Value(standardsOwnerActionClockKey{}).(func() time.Time); current && clock != nil {
+					at = clock()
+					ok = true
+				}
+				if !ok || at.IsZero() {
+					return errors.New("standards: owner action factory time required")
+				}
+				if err := ownerActionEffectAuthority(ctx, tx, actor, at); err != nil {
+					return err
+				}
+			}
+			if expected, fixed := ctx.Value(standardsExpectedHeadKey{}).(int64); fixed {
+				head, err := standardsHead(ctx, tx)
+				if err != nil {
+					return err
+				}
+				if head != expected {
+					return ErrStandardsConflict
+				}
+			}
+			return fn(tx)
+		})
+	})
 	if err != nil && (strings.Contains(err.Error(), "SQLITE_BUSY") || strings.Contains(err.Error(), "database is locked")) {
 		return fmt.Errorf("%w: %w", ErrStandardsConflict, err)
 	}

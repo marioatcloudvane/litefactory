@@ -95,6 +95,11 @@ func (db *DB) claimGraphOwnerReply(ctx context.Context, in GraphOwnerReply, chat
 		return out, graphInvariant("forge reply cannot use a private identity")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
+		if chat {
+			if err := ownerActionEffectContextTx(ctx, tx); err != nil {
+				return err
+			}
+		}
 		wait, e := scanGraphOwnerWait(tx.QueryRowContext(ctx, `SELECT `+graphWaitColumns+` FROM graph_owner_waits WHERE delivery_key=? AND instance_id=?`, in.DeliveryKey, in.InstanceID))
 		if e != nil {
 			return e

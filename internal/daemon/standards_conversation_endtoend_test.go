@@ -15,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -168,12 +169,23 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 	root := t.TempDir()
 	var service *messaging.Service
 	var author *standards.Authoring
+	var actions *owneraction.Service
+	var principal owneraction.Principal
 	setup := func() {
 		book = &standards.Service{Store: db, OwnerID: 71}
 		author = &standards.Authoring{Store: db, Book: book, Runner: authorFixture}
 		service = messaging.New(db, "discord", "7", []string{"3"}, sender, messaging.FactoryStatus{DB: db})
 		service.Protect = func(_ context.Context, s string) (string, error) { return s, nil }
 		service.EnableStandards(&ConversationStandards{DB: db, Book: book, Authoring: author, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }})
+		current, e := db.ConnectorOwner(ctx, 71)
+		if e != nil {
+			t.Fatal(e)
+		}
+		principal = owneraction.Principal{OwnerID: "71", OwnerGeneration: current.Generation, Transport: "discord", DiscordOwnerID: "7", ChannelID: "3"}
+		actions = owneraction.New(db, messaging.OwnerActionDomain{Service: service}, func() time.Time { return at })
+		actions.SetDiscord("7", []string{"3"})
+		actions.SetDelivery(actionApprovalDelivery{sender.adapter})
+		service.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })
 		if e := service.EnableConversations(ctx, messaging.ConversationOptions{Factory: true, Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner-standards", Provider: "claude", Model: "fixture"}}, StateRoot: root, Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }}, at); e != nil {
 			t.Fatal(e)
 		}
@@ -183,17 +195,15 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	next := 100
-	say := func(text string) string {
+	drain := func() {
 		t.Helper()
-		next++
-		at = at.Add(time.Second)
-		reader := &standardsJourneyReader{message: store.NaturalMessage{ChannelRef: "3", SourceID: fmt.Sprint(next), OwnerID: "7", Text: text, ReplyTo: fmt.Sprint(500 + len(sender.texts)), CreatedAt: at}}
-		intake := messaging.Intake{DB: db, Reader: reader, Owner: "7", Transport: "discord", Channels: []string{"3"}, Protect: service.Protect}
-		if e := intake.Poll(ctx, at); e != nil {
-			t.Fatal(e)
-		}
-		first := len(sender.texts)
 		for range 100 {
+			if e := actions.Tick(ctx); e != nil {
+				t.Fatal(e)
+			}
+			if e := service.OwnerActionNotifications(ctx, at); e != nil {
+				t.Fatal(e)
+			}
 			work, e := service.ConversationStep(ctx, at)
 			if e != nil {
 				t.Fatal(e)
@@ -206,6 +216,18 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 				break
 			}
 		}
+	}
+	say := func(text string) string {
+		t.Helper()
+		next++
+		at = at.Add(time.Second)
+		reader := &standardsJourneyReader{message: store.NaturalMessage{ChannelRef: "3", SourceID: fmt.Sprint(next), OwnerID: "7", Text: text, ReplyTo: fmt.Sprint(remoteID), CreatedAt: at}}
+		intake := messaging.Intake{DB: db, Reader: reader, Owner: "7", Transport: "discord", Channels: []string{"3"}, Protect: service.Protect}
+		if e := intake.Poll(ctx, at); e != nil {
+			t.Fatal(e)
+		}
+		first := len(sender.texts)
+		drain()
 		return strings.Join(sender.texts[first:], "\n")
 	}
 	read := func(action, text string, args map[string]string) string {
@@ -224,7 +246,36 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 		if preview == "" {
 			t.Fatal("mutation preview absent")
 		}
+		page, e := actions.History(ctx, principal, "", 1)
+		if e != nil || len(page.Proposals) != 1 {
+			t.Fatalf("exact action missing: %+v %v", page, e)
+		}
+		proposed := page.Proposals[0]
+		if proposed.Facts.Invocation.Command != command || proposed.Facts.Invocation.Arguments["action"] != action || proposed.State != "awaiting_confirmation" {
+			t.Fatalf("new reviewed action missing: %+v preview=%s", proposed, preview)
+		}
+		if proposed.AvailableAt.IsZero() {
+			t.Fatal("proposal delivery did not establish availability")
+		}
+		at = proposed.ConfirmNotBefore
 		say("yes")
+		saved, e := actions.Inspect(ctx, principal, proposed.ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if proposed.Tier == owneraction.Binding {
+			if saved.State != "awaiting_discord" || saved.ApprovalMessage == "" {
+				t.Fatalf("binding consent bypassed separate Discord approval: %+v", saved)
+			}
+			if _, e = actions.Reaction(ctx, owneraction.Reaction{ChannelID: "3", MessageID: saved.ApprovalMessage, UserID: "7", Emoji: "✅"}); e != nil {
+				t.Fatal(e)
+			}
+			drain()
+		}
+		saved, e = actions.Inspect(ctx, principal, proposed.ID)
+		if e != nil || saved.State != "succeeded" {
+			t.Fatalf("reviewed standards action did not finish: %+v %v", saved, e)
+		}
 	}
 	discovery := read("discover", "What standards operations can I use?", nil)
 	if !strings.Contains(strings.ToLower(discovery), "standard") {
@@ -232,11 +283,6 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 	}
 	change("standards-author", "start", "Start a create draft named conversation-author about Make checks explicit in quality.", map[string]string{"id": "conversation-author", "mode": "create", "intent": "Make checks explicit", "category_ids": "quality"})
 	draft, err := author.Show(ctx, "conversation-author", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	change("standards-author", "continue", fmt.Sprintf("Continue conversation-author version %d.", draft.Version), map[string]string{"id": draft.ID, "version": fmt.Sprint(draft.Version)})
-	draft, err = author.Show(ctx, draft.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,11 +307,6 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 		t.Fatal("restart changed saved question")
 	}
 	change("standards-author", "answer", fmt.Sprintf("For conversation-author version %d answer %s with Relevant package checks.", draft.Version, question.ID), map[string]string{"id": draft.ID, "version": fmt.Sprint(draft.Version), "question_id": question.ID, "text": "Relevant package checks"})
-	draft, err = author.Show(ctx, draft.ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	change("standards-author", "continue", fmt.Sprintf("Continue conversation-author version %d.", draft.Version), map[string]string{"id": draft.ID, "version": fmt.Sprint(draft.Version)})
 	draft, err = author.Show(ctx, draft.ID, 0)
 	if err != nil {
 		t.Fatal(err)

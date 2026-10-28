@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/owneraction"
 )
 
 // authorGate is the standards domain with one open author session in the
@@ -33,50 +35,70 @@ func answerAuthor(p factoryConversationPrompt) string {
 	return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"answer"},{"name":"id","reference":%q},{"name":"text","source_id":%q,"start":%d,"end":%d}]}`, p.AuthorSession.Reference, id, start, end)
 }
 
-func TestOwnerAnswersReachTheAuthorWithoutAProposal(t *testing.T) {
+func (f *judgedConversation) confirmAction(t *testing.T, binding bool) {
+	t.Helper()
+	p := f.dialogue(t)
+	if len(f.ops.executed) != 0 {
+		t.Fatal("action ran before separate confirmation")
+	}
+	f.say(t, "yes", p.ProposalMessage, answer("unused"))
+	if binding {
+		current, err := f.s.ownerActions.Inspect(t.Context(), mustGatePrincipal(t, f.s), p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(f.ops.executed) != 0 || current.State != "awaiting_discord" {
+			t.Fatalf("binding effect before tap: %+v", current)
+		}
+		if _, err = f.s.ownerActions.Reaction(t.Context(), owneraction.Reaction{ChannelID: "3", MessageID: current.ApprovalMessage, UserID: "7", Emoji: "✅"}); err != nil {
+			t.Fatal(err)
+		}
+		if err = f.s.ownerActions.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestOwnerAnswersReachTheAuthorAfterConversationalConfirmation(t *testing.T) {
 	f := newJudgedConversation(t)
 	withAuthorSession(f, false)
 	f.say(t, "1a, 2b", "", answerAuthor)
+	f.confirmAction(t, false)
 	if len(f.ops.executed) != 1 {
 		t.Fatalf("answer not passed on: %+v", f.ops.executed)
 	}
 	got := f.ops.executed[0]
-	if got.Operation != "author.answer" || got.Arguments["id"] != "conversation-discord:3:nl-exec:abc" || got.Arguments["text"] != "1a, 2b" || got.MessageID == "" || !strings.Contains(got.OperationKey, ":nl-direct:") {
+	if got.Operation != "author.answer" || got.Arguments["id"] != "conversation-discord:3:nl-exec:abc" || got.Arguments["text"] != "1a, 2b" || got.MessageID == "" || !strings.HasPrefix(got.OperationKey, "owner-action:") {
 		t.Fatalf("answer request: %+v", got)
 	}
 	if _, err := f.s.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
-		t.Fatal("answering created a proposal")
+		t.Fatal("answering used the retired proposal table")
 	}
 	// The agent saw the session's questions and that nothing is running.
 	p := f.provider.prompts[0]
 	if p.AuthorSession == nil || p.AuthorSession.Running || len(p.AuthorSession.Questions) != 2 {
 		t.Fatalf("author session not in the prompt: %+v", p.AuthorSession)
 	}
-	// The turn carries the step's identity, so the draft posted later waits
-	// for this reply.
-	turn := strings.TrimPrefix(got.OperationKey, "discord:3:nl-direct:")
-	link, err := f.s.db.GetConversationActionLink(t.Context(), turn)
-	if err != nil || link.ExecutionID != "nl-direct:"+turn {
-		t.Fatalf("direct step has no execution identity: %+v %v", link, err)
-	}
+
 }
 
-func TestOwnerChangesToAnAuthorProposalReachTheAuthorWithoutAProposal(t *testing.T) {
+func TestOwnerChangesToAnAuthorProposalNeedConversationalConfirmation(t *testing.T) {
 	f := newJudgedConversation(t)
 	withAuthorSession(f, false)
 	f.say(t, "make it shorter and crisper", "", func(p factoryConversationPrompt) string {
 		id, start, end := span(p, p.OwnerInput)
 		return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"revise"},{"name":"id","reference":%q},{"name":"text","source_id":%q,"start":%d,"end":%d}]}`, p.AuthorSession.Reference, id, start, end)
 	})
+	f.confirmAction(t, false)
 	if len(f.ops.executed) != 1 {
 		t.Fatalf("change not passed on: %+v", f.ops.executed)
 	}
 	got := f.ops.executed[0]
-	if got.Operation != "author.revise" || got.Arguments["id"] != "conversation-discord:3:nl-exec:abc" || got.Arguments["text"] != "make it shorter and crisper" || !strings.Contains(got.OperationKey, ":nl-direct:") {
+	if got.Operation != "author.revise" || got.Arguments["id"] != "conversation-discord:3:nl-exec:abc" || got.Arguments["text"] != "make it shorter and crisper" || !strings.HasPrefix(got.OperationKey, "owner-action:") {
 		t.Fatalf("revise request: %+v", got)
 	}
 	if _, err := f.s.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
-		t.Fatal("revising created a proposal")
+		t.Fatal("revising used the retired proposal table")
 	}
 }
 
@@ -121,8 +143,9 @@ func TestStartCompleteApproveAndPublishStayConfirmed(t *testing.T) {
 	}
 	for _, action := range []string{"approve", "publish"} {
 		inv := Invocation{Command: "standards-proposal", Arguments: map[string]string{"action": action}}
-		if standardsDirect(inv) {
-			t.Fatalf("proposal %s runs without confirmation", action)
+		tier, _, err := owneraction.Classify(owneraction.Invocation{Command: inv.Command, Arguments: inv.Arguments})
+		if err != nil || tier != owneraction.Binding {
+			t.Fatalf("proposal %s lost its binding tier: %s %v", action, tier, err)
 		}
 	}
 }
@@ -134,11 +157,12 @@ func TestOwnersWordsPublishTheDraftInOneStep(t *testing.T) {
 		id, start, end := span(p, "yes, good, publish it")
 		return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"publish"},{"name":"id","reference":%q},{"name":"text","source_id":%q,"start":%d,"end":%d}]}`, p.AuthorSession.Reference, id, start, end)
 	})
-	if len(f.ops.executed) != 1 || f.ops.executed[0].Operation != "author.publish" || f.ops.executed[0].Arguments["id"] != "conversation-discord:3:nl-exec:abc" || !strings.Contains(f.ops.executed[0].OperationKey, ":nl-direct:") {
+	f.confirmAction(t, true)
+	if len(f.ops.executed) != 1 || f.ops.executed[0].Operation != "author.publish" || f.ops.executed[0].Arguments["id"] != "conversation-discord:3:nl-exec:abc" || !strings.HasPrefix(f.ops.executed[0].OperationKey, "owner-action:") {
 		t.Fatalf("publish not run once on the owner's words: %+v", f.ops.executed)
 	}
 	if _, err := f.s.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
-		t.Fatal("publishing asked for a second confirmation")
+		t.Fatal("publication used the retired proposal table")
 	}
 }
 
@@ -155,6 +179,7 @@ func TestPublishWithoutTheOwnersWordsGoesBackToTheAgentOnce(t *testing.T) {
 	if len(f.provider.prompts) < 2 || f.provider.prompts[0].CorrectionReason != "" || !strings.Contains(f.provider.prompts[1].CorrectionReason, "text") {
 		t.Fatalf("missing term not sent to the correction: %d prompts", len(f.provider.prompts))
 	}
+	f.confirmAction(t, true)
 	if len(f.ops.executed) != 1 || f.ops.executed[0].Operation != "author.publish" || f.ops.executed[0].Arguments["text"] != "ship it" {
 		t.Fatalf("corrected publish not run: %+v", f.ops.executed)
 	}
@@ -166,6 +191,7 @@ func TestStandardsEnumFieldsTakePlainValuesButProseNeedsTheOwnersWords(t *testin
 	f.say(t, "put it in delivery", "", func(p factoryConversationPrompt) string {
 		return fmt.Sprintf(`{"version":1,"kind":"propose","command":"standards-author","arguments":[{"name":"action","value":"edit"},{"name":"id","reference":%q},{"name":"category_id","value":"delivery"},{"name":"check","value":"manual"}]}`, p.AuthorSession.Reference)
 	})
+	f.confirmAction(t, false)
 	if len(f.ops.executed) != 1 || f.ops.executed[0].Arguments["category_id"] != "delivery" || f.ops.executed[0].Arguments["check"] != "manual" {
 		t.Fatalf("plain enum values refused: %+v", f.ops.executed)
 	}

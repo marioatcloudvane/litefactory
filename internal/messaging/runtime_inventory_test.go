@@ -44,21 +44,7 @@ func TestRuntimeConversationStopWrappersAssembled(t *testing.T) {
 			if strings.HasPrefix(name, "draft ") {
 				payload.Invocation = Invocation{Command: "draft", Arguments: map[string]string{"project": "acme/app", "note": "Exact feature idea"}}
 			}
-			raw, digest, err := naturalDigest(payload)
-			if err != nil {
-				t.Fatal(err)
-			}
-			dialogue := store.NaturalDialogue{Transport: "discord", OwnerID: "1", ChannelRef: "2", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: raw, Digest: digest, Code: code, ExpiresAt: at.Add(time.Minute), UpdatedAt: at}
-			if err = run.s.db.SaveNaturalDialogue(t.Context(), dialogue, 0); err != nil {
-				t.Fatal(err)
-			}
-			if err = run.s.db.BindNaturalPrompt(t.Context(), dialogue, "delivered"); err != nil {
-				t.Fatal(err)
-			}
-			if err = run.s.db.SaveConversationSession(t.Context(), run.t, "unit-session"); err != nil {
-				t.Fatal(err)
-			}
-			run.c.SessionHandle = "unit-session"
+
 			if name == "outcome protection unavailable" {
 				run.s.Protect = func(_ context.Context, text string) (string, error) {
 					if text == "Issue creation outcome is uncertain." {
@@ -67,33 +53,25 @@ func TestRuntimeConversationStopWrappersAssembled(t *testing.T) {
 					return text, nil
 				}
 			}
-			handled, err := run.confirm(t.Context())
-			if err != nil || !handled {
-				t.Fatalf("confirmation handled=%v err=%v", handled, err)
-			}
-			execution, err := run.s.db.ReadNaturalExecution(t.Context(), "nl-exec:"+code)
+			proposal := executeFactoryAction(t, run, payload, &at)
+			execution, err := run.s.db.ReadNaturalExecution(t.Context(), proposal.ExecutionID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
-			if err != nil {
-				t.Fatal(err)
-			}
-			text := reply.ReplyText
+			// The inspect view renders the same durable result owners read after
+			// the shared executor has completed; admission alone is not success.
+			text := OwnerActionText(proposal)
 			switch name {
 			case "draft unavailable", "draft failure", "confirmation unavailable":
-				if !strings.Contains(strings.ToLower(text), "no issue") || strings.Count(text, "litefactory logs --all") != 1 || confirmer.calls != 0 {
-					t.Fatalf("unavailable action lost disposition: %s", text)
+				if proposal.State != "failed" || !strings.Contains(strings.ToLower(text), "no issue") || confirmer.calls != 0 {
+					t.Fatalf("pre-effect refusal lost disposition: %+v %s", proposal, text)
 				}
-			case "creation uncertain":
-				if !strings.Contains(text, "outcome is uncertain") || !strings.Contains(text, "before another confirmation") || strings.Count(text, "litefactory logs --all") != 1 || execution.State != "uncertain" || confirmer.calls != 1 {
-					t.Fatalf("uncertain creation lost safe inspection: %+v %s", execution, text)
-				}
-			case "outcome protection unavailable":
-				if !strings.Contains(text, "could not be protected") || strings.Count(text, "show factory status") != 1 || execution.State != "uncertain" || confirmer.calls != 1 {
-					t.Fatalf("unprotected outcome lost inspection: %+v %s", execution, text)
+			case "creation uncertain", "outcome protection unavailable":
+				if proposal.State != "uncertain" || !strings.Contains(text, "uncertain") || execution.State != "uncertain" || confirmer.calls != 1 {
+					t.Fatalf("uncertainty lost safe inspection: %+v %s", execution, text)
 				}
 			}
+
 			if text == "" || strings.Contains(text, "creation acknowledgement lost") || provider.calls > 1 {
 				t.Fatalf("raw cause or replay leaked: %s calls=%d", text, provider.calls)
 			}

@@ -139,6 +139,9 @@ func validateInvocation(def CommandDefinition, in Invocation) (Invocation, Comma
 }
 
 func argumentLimit(command, name string) int {
+	if command == "actions" && name == "cursor" {
+		return 4096
+	}
 	if standardsCommand(command) && conversationProtectedArgument(command, name) {
 		return 32768
 	}

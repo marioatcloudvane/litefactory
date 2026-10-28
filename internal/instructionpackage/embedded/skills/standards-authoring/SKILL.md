@@ -6,13 +6,13 @@ description: How the conversation agent takes one standard from the owner's idea
 
 ## The flow
 
-1. **Start.** The owner has an idea for a standard. Propose `standards-author` with action `start`, the owner's idea spanned as `intent` and, when the owner names one, the `project`. Starting costs money, so the factory asks the owner to confirm it. After the start the author drafts in the background and its draft is posted here.
-2. **Draft and answers.** The posted draft shows the rule, its open questions and what still blocks it. The owner answers, asks for changes or sets a field; each of these runs without a confirmation and the author drafts again by itself.
-3. **Publish.** When `author_session.ready_to_publish` is true (no open questions, nothing in `blocking`, the author not running) and the owner says it is good, propose `standards-author` with action `publish`. That one step completes the draft into a proposal, approves it and publishes it to the book. There is no separate complete, approve or publish turn for the owner, and no code, version or digest to give.
+1. **Start.** The owner has an idea for a standard. Propose `standards-author` with action `start`, the owner's idea spanned as `intent` and, when the owner names one, the `project`. Starting costs money. The factory freezes the exact input and book revision, asks for a separate conversational yes at least five seconds after delivery, and then runs the existing author. Report its recorded state; admission alone does not establish completion.
+2. **Draft and answers.** The posted draft shows the rule, its open questions and what still blocks it. The owner answers, asks for changes or sets a field; propose the corresponding action for a separate conversational confirmation. None of answer, revise, edit, continue, validate, complete or rebase may execute directly. Start, answer and revise can include the existing next-draft generation under the same fixed action and receipt.
+3. **Publish.** When `author_session.ready_to_publish` is true (no open questions, nothing in `blocking`, the author not running) and the owner says it is good, propose `standards-author` with action `publish`. That one step completes the draft into a proposal, approves it and publishes it to the book. The factory presents one fixed compound proposal; the owner must give a separate conversational yes after the minimum delay and then tap normal Unicode ✅ on the factory's specific Discord approval request before expiry. Never treat the words that requested publication as confirmation of the proposal created by that same request. The owner supplies no code, version or digest.
 
 ## Where ids come from
 
-- `author_session.reference` carries the session's id and version. Cite it as `reference` for `id` (and `version` when you give one), or leave both out: the factory then uses this conversation's session at its newest version.
+- `author_session.reference` carries the session's id and version. Cite it as `reference` for `id` (and `version` when you give one), or leave both out: the factory resolves this conversation's current session and version while proposing and freezes that selection. A newer draft at confirmation or execution is refused; never silently select it.
 - Never type ids, versions or digests yourself, never take them from your own earlier replies, and never ask the owner for them.
 - `category_id`, `check`, `applies_to`, `version` and `mode` may be plain `value`s; the factory checks them against the book. Prose (`rule`, `description`, `evidence`, `scope`, `text`, `intent`) is always an exact span of the owner's words.
 
@@ -23,7 +23,7 @@ description: How the conversation agent takes one standard from the owner's idea
 - The owner gives a literal value for one field ("set the check to manual", or pastes the rule): action `edit` with that field. Span pasted prose exactly; a check, category or role list can be a plain value.
 - "yes", "good", "publish it", "ship it", "passt" after a draft that is ready: action `publish`, with the owner's words from the current message that say so spanned as `text`.
 - "again" after a failed or interrupted draft: action `continue`.
-- `stage` "proposal" means the draft was already turned into a proposal that is not in the book yet: "publish it" is action `publish` and picks up where it stopped; a change request is action `revise` with the owner's words as `text`.
+- `stage` "proposal" means the draft was already turned into a proposal that is not in the book yet: "publish it" is action `publish` and requires a fresh exact proposal after inspecting retained substep receipts; a change request is action `revise` with the owner's words as `text`.
 - For the full draft, look up `author.inspect` with the session reference.
 
 ## When the draft is not ready
@@ -37,4 +37,25 @@ description: How the conversation agent takes one standard from the owner's idea
 - After an error, read the session again (`author_session`, or `author.inspect`) before you say anything about the draft.
 - Never claim the draft changed, moved on or was published unless the version changed or the factory said so.
 - "The author has a newer draft than the one you saw" means show that draft to the owner; nothing was changed.
-- If publishing stopped part way ("proposal created, not yet published"), say exactly that; the owner's next "publish it" finishes it, once.
+- If publishing stopped part way ("proposal created, not yet published"), report the completed substeps and uncertainty. Inspect the retained receipts before a fresh proposal; never blindly resume publication or claim that approval means publication succeeded.
+
+## Shared confirmation policy
+
+The factory enforces one registry across MCP and Discord. Analysis start, standard
+drafting and author revisions use conversational confirmation. Author publication,
+proposal approval/publication and exception approval/revocation also require the
+independent Discord tap. Exception proposal uses conversational confirmation.
+Unknown changing actions are refused. Reads, inspection and history need no action
+confirmation. Confirm and cancel are direct controls, never nested proposals.
+
+Proposals expire fifteen minutes after creation. The five-second minimum starts
+only after confirmed proposal availability. An early yes is refused with its
+earliest time; never schedule or automatically retry it. For pending cancellation,
+report the recorded state; admitted work cannot be undone. Use the supplied exact
+history references in protocol fields without asking the owner to copy them.
+
+MCP identity and original client/grant are authenticated factory facts. Cheap MCP
+confirmation accepts the client's relay of owner agreement; it is not independent
+proof of owner speech. That relay never substitutes for the binding Discord tap.
+Changing entry points cannot adopt a revoked or replacement grant. Inspect status
+and history before repeating expired, stale, cancelled, failed or uncertain work.

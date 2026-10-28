@@ -159,7 +159,7 @@ func (db *DB) PurgeChatIssuePreviews(ctx context.Context, at time.Time) error {
 		if err := expireChatPreviews(ctx, tx, at); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `DELETE FROM chat_issue_previews WHERE state IN ('created','superseded','expired') AND finished_at<=?`, FormatTime(at.Add(-24*time.Hour)))
+		_, err := tx.ExecContext(ctx, `DELETE FROM chat_issue_previews WHERE state IN ('created','superseded','expired') AND finished_at<=? AND NOT EXISTS(SELECT 1 FROM owner_action_proposals p WHERE json_extract(p.facts,'$.target_id')=chat_issue_previews.id AND p.state IN ('admitted','executing','uncertain'))`, FormatTime(at.Add(-24*time.Hour)))
 		return err
 	})
 }
@@ -177,6 +177,6 @@ func (db *DB) LatestChatIssuePreview(ctx context.Context, transport, channel str
 }
 
 func expireChatPreviews(ctx context.Context, tx *sql.Tx, at time.Time) error {
-	_, err := tx.ExecContext(ctx, `UPDATE chat_issue_previews SET state='expired',title='',body='',finished_at=expires_at WHERE expires_at<=? AND (state IN ('previewed','uncertain') OR (state='creating' AND lease_until<=?))`, FormatTime(at), FormatTime(at))
+	_, err := tx.ExecContext(ctx, `UPDATE chat_issue_previews SET state='expired',title='',body='',finished_at=expires_at WHERE expires_at<=? AND (state IN ('previewed','uncertain') OR (state='creating' AND lease_until<=?)) AND NOT EXISTS(SELECT 1 FROM owner_action_proposals p WHERE json_extract(p.facts,'$.target_id')=chat_issue_previews.id AND p.state IN ('admitted','executing','uncertain'))`, FormatTime(at), FormatTime(at))
 	return err
 }
