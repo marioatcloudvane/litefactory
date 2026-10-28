@@ -697,6 +697,9 @@ func boundedConversationText(text string, limit int) (string, bool) {
 }
 
 func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (conversationReadResult, *ConversationReference, error) {
+	if inv.Command == "actions" {
+		return r.lookupOwnerActions(ctx, inv)
+	}
 	if standardsCommand(inv.Command) {
 		return r.lookupStandards(ctx, inv)
 	}

@@ -98,12 +98,12 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		var params struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name)) {
+		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name)) {
 			tool = params.Name
 		}
 	}
 	refuseRPC := func(code int, msg, reason string) {
-		if tool == "usage_read" || isCodeTool(tool) {
+		if tool == "usage_read" || isCodeTool(tool) || isActionTool(tool) {
 			s.writeDiscussionValue(w, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": code, "message": msg}})
 		} else {
 			s.rpcError(w, req.ID, code, msg)
@@ -166,6 +166,12 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		for _, name := range actionToolNames {
+			if slices.Contains(s.availableTools(grant), name) {
+				tools = append(tools, map[string]any{"name": name, "description": actionDescription(name), "inputSchema": s.actionSchema(name), "annotations": map[string]bool{"readOnlyHint": name == "action_inspect" || name == "action_history", "destructiveHint": name == "action_confirm", "idempotentHint": true, "openWorldHint": true}})
+			}
+		}
+
 		s.rpcResult(w, req.ID, map[string]any{"tools": tools})
 		s.audit(r, event, "success", "listed", tool, start)
 	case "tools/call":
@@ -177,7 +183,40 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			refuseRPC(-32602, "Invalid params", "params")
 			return
 		}
+		if isActionTool(params.Name) {
+			d := json.NewDecoder(bytes.NewReader(body))
+			if err := uniqueJSONObject(d); err != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+			var envelopeFields, callFields map[string]json.RawMessage
+			if json.Unmarshal(body, &envelopeFields) != nil || json.Unmarshal(req.Params, &callFields) != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+			for key := range envelopeFields {
+				if !slices.Contains([]string{"jsonrpc", "id", "method", "params"}, key) {
+					refuseRPC(-32602, "Invalid params", "params")
+					return
+				}
+			}
+			for key := range callFields {
+				if key != "name" && key != "arguments" {
+					refuseRPC(-32602, "Invalid params", "params")
+					return
+				}
+			}
+			d = json.NewDecoder(bytes.NewReader(req.Params))
+			d.DisallowUnknownFields()
+			if err := d.Decode(&params); err != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+		}
 		requiredScope := ""
+		if isActionTool(params.Name) && !actionGrant(grant) {
+			requiredScope = RepositoryActionsScope + " " + StandardsManagementScope
+		}
 		if params.Name == "factory_overview" && !store.ConnectorScopeHas(grant.Scope, Scope) {
 			requiredScope = Scope
 		}
@@ -231,6 +270,15 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		var actionArgs actionArguments
+		if isActionTool(params.Name) {
+			actionArgs, err = parseActionArguments(params.Name, params.Arguments)
+			if err != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+		}
+
 		select {
 		case s.transport.tools <- struct{}{}:
 			defer func() { <-s.transport.tools }()
@@ -250,9 +298,12 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		case "task_evidence_read":
 			result, callErr = s.readEvidence(ctx, credential, evidenceArgs)
 		default:
-			if isCodeTool(params.Name) {
+			switch {
+			case isActionTool(params.Name):
+				result, callErr = s.callAction(ctx, credential, params.Name, actionArgs)
+			case isCodeTool(params.Name):
 				result, callErr = s.readCode(ctx, credential, params.Name, codeArgs)
-			} else {
+			default:
 				result, callErr = s.overview.Overview(ctx, params.Arguments)
 			}
 		}
@@ -279,6 +330,9 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			if isCodeTool(params.Name) {
 				result = codeFailureResult(refused)
 			}
+			if isActionTool(params.Name) {
+				result = actionFailure(callErr)
+			}
 			reason = "provider"
 			outcome = "error"
 		} else if result.IsError {
@@ -303,7 +357,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var written bool
-		if params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) {
+		if params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) {
 			written = s.writeDiscussionRPC(w, req.ID, result)
 		} else {
 			written = s.rpcResult(w, req.ID, result)

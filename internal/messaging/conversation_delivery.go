@@ -71,6 +71,11 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 	d := s.sender.Deliver(deliveryCtx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Protected: true}, r.ReplyText)
 	switch {
 	case d.Confirmed:
+		if s.ownerActions != nil && d.PromptID != "" {
+			if e := s.bindSharedProposal(ctx, r, d.PromptID); e != nil {
+				return true, e
+			}
+		}
 		if runtime.factory && d.PromptID != "" {
 			proposal, e := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.ChannelRef)
 			if e != nil && !errors.Is(e, store.ErrNotFound) {

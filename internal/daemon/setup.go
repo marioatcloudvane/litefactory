@@ -399,13 +399,18 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if chatErr != nil {
 		return nil, Startup{}, errors.Join(chatErr, lock.Close())
 	}
-	if chatOpts != nil {
+	actionOpts := chatOpts
+	if actionOpts == nil && remoteConnector != nil {
+		actionOpts = &ChatOptions{Now: s.Now}
+	}
+	if actionOpts != nil {
+		actionOpts.Now = s.Now
 		instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
 		if instructionErr != nil {
 			return nil, Startup{}, errors.Join(instructionErr, lock.Close())
 		}
-		chatOpts.Instructions = instructions
-		chatOpts.InstructionDiagnostics = func(ctx context.Context, diagnostic prompts.Diagnostic) {
+		actionOpts.Instructions = instructions
+		actionOpts.InstructionDiagnostics = func(ctx context.Context, diagnostic prompts.Diagnostic) {
 			s.Logger.WarnContext(ctx, "chat instruction fallback", "role", diagnostic.Role, "source", diagnostic.Source, "digest", diagnostic.Digest, "category", diagnostic.Category)
 		}
 		providers := make(map[string]ask.ChatRunner)
@@ -414,7 +419,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 				providers[string(kind)] = native
 			}
 		}
-		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
+		actionOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
 		{
 			instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
 			if instructionErr != nil {
@@ -438,10 +443,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 					options.Reasoners[string(kind)] = reasoner
 				}
 			}
-			for _, binding := range chatOpts.Settings.Conversations {
+			for _, binding := range actionOpts.Settings.Conversations {
 				options.Bindings = append(options.Bindings, messaging.ConversationBinding{Channel: binding.ChannelID, Name: binding.Name, Provider: binding.Provider, Model: options.Models[binding.Provider]})
 			}
-			chatOpts.Conversations = options
+			actionOpts.Conversations = options
 		}
 	}
 
@@ -638,7 +643,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
-	if chatOpts != nil && chatOpts.Conversations != nil {
+	if actionOpts != nil && actionOpts.Conversations != nil {
 		instructions, captureErr := instructionpackage.New(ctx, s.Paths)
 		if captureErr != nil {
 			return nil, Startup{}, errors.Join(captureErr, lock.Close())
@@ -660,7 +665,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			reads = projectread.Session{Reader: reader, RunsRoot: s.Paths.RunsDir(), Executable: executable, Prepare: projectSecrets(s.DB, connections)}
 		}
 		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Reads: reads}}
-		chatOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Analyses: analyses}
+		actionOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Analyses: analyses}
 	}
 	daemon, err := New(Options{
 		Paths:      s.Paths,
@@ -736,6 +741,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
 	daemon.remoteConnector = remoteConnector
+	if remoteConnector != nil {
+		daemon.prepareIndependentOwnerActions(actionOpts, sharedRedactor)
+	}
 	handedOver = true
 	validateSlots.bind(daemon.pool)
 	if daemon.webhook != nil {

@@ -1,8 +1,8 @@
 # Owner-only remote connector
 
-The remote connector is a separate read-only boundary. It is disabled by default,
+The remote connector is a separate owner-authorized boundary. Reads stay read-only; changing actions use explicit consent and shared confirmation. It is disabled by default,
 binds only to a numeric loopback address, and requires a dedicated HTTPS reverse
-proxy. It never exposes attempt tools or factory mutation commands.
+proxy. It never exposes attempt tools or worker submission authority. Only enabled existing owner actions are available through proposals.
 
 This foundation supplies OAuth, durable grants and the MCP transport. Remote
 serving stays closed until **Local control of connector grants (#1187)** registers
@@ -136,7 +136,8 @@ connector grant.
 
 The authorization request's `scope` is a space-separated list of known scopes;
 the available scopes are `factory:overview`, `task:discussion`, `factory:usage`,
-`repository:usage`, `task:usage` and `task:code-review`. The consent page
+`repository:usage`, `task:usage`, `task:code-review`, `repository:actions` and
+`standards:management`. The consent page
 offers every known scope: the scopes the client requested are pre-ticked, the
 others are shown unticked and the owner may tick them. This matters when a
 client reuses an old registration and requests fewer scopes than the connector
@@ -164,6 +165,15 @@ Code review reads the task's own retained code repository, derived from the
 task; it is never chosen by the client. Consent does not create a session or
 fetch an issue. Allow atomically records the grant, authorization code and
 repository coverage. Neither sign-in nor a pending consent exposes evidence.
+
+`repository:actions` uses a **separate, explicit finite selection** of registered
+repositories. Its boxes start unticked. “All repositories” applies only to the
+read scopes above; it never grants action access or includes future repositories.
+`standards:management` separately authorizes changes to the shared installation-wide
+standards book. Reading a repository as standards-authoring context also requires
+the corresponding read permission and coverage. Existing grants gain neither
+scope automatically. Reconnect and allow fresh consent to use actions; refreshing
+a token preserves its existing grant and does not expand authority.
 
 A refused Allow answers with a short page that names what was wrong, for
 example "choose all repositories or at least one registered repository for
@@ -525,3 +535,74 @@ The overview story supplies only `OverviewProvider`, returning bounded text and
 structured read results and respecting cancellation. It must enforce its own
 combined output shaping within the transport ceiling. Neither sibling creates
 new authorization middleware or exposes factory mutation capabilities.
+
+## Plain-word owner actions
+
+Ask the connected client for an existing action in ordinary language, for example
+“diagnose this repository.” It calls `action_propose` with the action, fixed
+arguments and a client request key. The client keeps proposal identifiers and
+history cursors internally: you do not copy a hash or identifier. Discovery
+lists enabled commands and their fixed impact tier. Unknown or unclassified
+changing actions are refused; the neighboring job and task-steering suites are
+not added by this confirmation foundation.
+
+Review the returned action, arguments, repository or explicit installation scope,
+exact target and revision, impact, owner, originating client and grant, creation
+and expiry times, and estimate (or explicit unknown). Say yes only after reviewing
+those facts. The client makes a **separate** `action_confirm` call no earlier than
+`confirm_not_before`: at least five seconds after the proposal became available.
+Proposals expire fifteen minutes after creation. An early refusal leaves it
+pending; the client must not queue consent or automatically retry that refusal.
+Changed facts require a fresh proposal, rather than editing a reviewed one.
+
+The fixed tiers for currently enabled operations are:
+
+| Tier | Existing actions |
+| --- | --- |
+| Conversational confirmation | Draft preview, diagnose, research answer; standards analysis start; standards author start, answer, revise, edit, continue, validate, complete and rebase; proposal edit; exception propose. |
+| Conversational confirmation and Discord ✅ | Feature creation from its fixed preview (the existing action named `confirm`); standards author publish; proposal approve and publish; exception approve and revoke. |
+
+Reads require no action confirmation. Future enabled ship, merge or Bug-fix
+approval actions must retain the binding tier; this feature does not create
+missing handlers or grant worker authority.
+
+For a binding action, configure the factory's Discord owner and authorized channel
+first (see [Discord setup](../discord.md)). After conversational confirmation,
+the factory sends a specific approval request showing the action, exact target,
+impact, estimate and expiry. Tap its normal Unicode ✅ as the configured non-bot
+owner. Another user, bot, custom emoji, message or channel cannot authorize it.
+When multiple approval channels are configured, the client must select an allowed
+destination. A failed or uncertain send leaves the proposal unexecuted with a
+visible reason; there is no alternate confirmation bypass. Only reaction evidence
+received before expiry counts. A missed reaction needs fresh observed input within
+the remaining lifetime, or a new proposal after expiry.
+
+Use ordinary requests such as “cancel that proposal,” “what happened to it?” or
+“show my proposal history.” The client calls `action_cancel`, `action_inspect` or
+paginated `action_history` directly; these controls do not create more proposals.
+A proposal is admitted at most once. Repeating a control returns recorded status;
+cancellation wins only before admission and cannot undo admitted work. The
+original client and grant must confirm an MCP proposal; token refresh within that
+grant works, but a replacement grant cannot adopt it. Appropriately authorized
+current-owner clients can inspect history across clients.
+
+Status distinguishes waiting for conversation, waiting for Discord, admitted,
+executing, succeeded, failed, uncertain, cancelled, expired and invalidated.
+Admission, message delivery and queued background work are not proof of external
+success. Inspect a pending background result using its recorded reference.
+For stale, expired, cancelled or invalidated work, resolve the reason and ask for
+a fresh proposal. For an uncertain effect, inspect operation receipts and actual
+external state before proposing anything else; never blindly replay it.
+
+History retains authorized proposal summaries, exact targets, provenance, timed
+confirmation attempts and decisions, reaction evidence and results for ninety
+days after terminal completion. Active and unresolved recovery records remain as
+needed. Discord acknowledgments include a history reference. Revoked permissions
+or owner changes still prevent inspection even when a client remembers an ID.
+
+At rollout, pending proposals from the old confirmation policy are invalidated
+with a request to propose again. Already admitted, executing and uncertain work
+keeps its recorded invocation and recovery identity. Existing read access remains
+read-only. Run one policy-aware daemon against the migrated store; rolling back
+to an older policy must not revive invalidated pending work. This guide describes
+the implementation contract, not evidence of live client approval or deployment.

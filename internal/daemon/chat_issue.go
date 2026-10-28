@@ -130,6 +130,10 @@ func (c *ChatIssueCreator) Confirm(ctx context.Context, transport, channel, mess
 		presentation.Assess(ctx, presentation.ReportableError)
 		return "Nothing was created; preview storage is unavailable.", err
 	}
+	if err := c.DB.CheckOwnerActionEffect(ctx); err != nil {
+		presentation.Assess(ctx, presentation.Refusal)
+		return finish("previewed", github.Issue{}, "Current action authority was revoked before issue creation; no issue was created.")
+	}
 	created, err := c.Forge.CreateIssue(ctx, target, titleProtected, bodyProtected)
 	if err != nil {
 		if knownCreateFailure(err) {

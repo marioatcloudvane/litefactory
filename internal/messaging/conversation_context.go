@@ -115,6 +115,8 @@ func (r *factoryConversationRun) referenceCurrent(ctx context.Context, reference
 		return err == nil && r.s.db.InboxSourcesAuthorized(ctx, r.s.inboxScope(r.c.ChannelRef), id, nil, r.at) == nil, nil
 	case "listed":
 		return r.listedCurrent(ctx, reference, args)
+	case "owner-action", "owner-action-page":
+		return r.ownerActionReferenceCurrent(ctx, reference, args)
 	case "standards":
 		// Exact saved identities remain references even when stale. The domain
 		// adapter checks their versions; never silently advance them to latest.

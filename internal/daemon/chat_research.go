@@ -161,6 +161,13 @@ func (a chatResearch) Current(ctx context.Context, ref string) (messaging.Questi
 }
 
 func (a chatResearch) Answer(ctx context.Context, ref, token, text string, at time.Time) (messaging.Question, error) {
+	if a.daemon.chat == nil || a.daemon.chat.redactor == nil {
+		return messaging.Question{}, errors.New("answer protection unavailable")
+	}
+	return a.answerProtected(ctx, ref, token, text, at, a.daemon.chat.redactor)
+}
+
+func (a chatResearch) answerProtected(ctx context.Context, ref, token, text string, at time.Time, sanitizer *redact.Redactor) (messaging.Question, error) {
 	out, err := a.current(ctx, ref)
 	if err != nil {
 		return messaging.Question{}, err
@@ -214,7 +221,7 @@ func (a chatResearch) Answer(ctx context.Context, ref, token, text string, at ti
 	if issue.State != "open" {
 		return refuse("the issue is closed; nothing was applied")
 	}
-	safe, err := d.chat.redactor.Apply(ctx, text, 65536)
+	safe, err := sanitizer.Apply(ctx, text, 65536)
 	if err != nil || safe.Truncated() {
 		return messaging.Question{}, errors.New("answer redaction failed")
 	}
@@ -247,6 +254,10 @@ func sourceForDiagnosis(source string, attempt int) string {
 }
 
 func (d *Daemon) diagnosisSummary(ctx context.Context, c doctor.Conversation) (string, error) {
+	return renderOwnerActionDiagnosis(ctx, c, d.chat.redactor, d.chat.service.ReplyLimit())
+}
+
+func renderOwnerActionDiagnosis(ctx context.Context, c doctor.Conversation, sanitizer *redact.Redactor, replyLimit int) (string, error) {
 	if c.Diagnosis == nil {
 		return "diagnosis failed", nil
 	}
@@ -263,13 +274,13 @@ func (d *Daemon) diagnosisSummary(ctx context.Context, c doctor.Conversation) (s
 		raw    []string
 		target *[]string
 	}{{findings, &summary.Findings}, {c.Diagnosis.CoverageGaps, &summary.CoverageGaps}, {c.Diagnosis.Questions, &summary.OpenQuestions}} {
-		safe, err := d.chat.redactor.Apply(ctx, strings.Join(section.raw, "\n"), 65536)
+		safe, err := sanitizer.Apply(ctx, strings.Join(section.raw, "\n"), 65536)
 		if err != nil {
 			return "", err
 		}
 		*section.target = []string{safe.String()}
 	}
-	return messaging.RenderDiagnosis(summary, max(0, d.chat.service.ReplyLimit()-128)), nil
+	return messaging.RenderDiagnosis(summary, max(0, replyLimit-128)), nil
 }
 
 func (d *Daemon) dispatchChatDiagnosis(ctx context.Context, at time.Time) {

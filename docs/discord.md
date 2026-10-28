@@ -4,7 +4,7 @@
 
 Discord chat is optional. In a channel bound to a conversation, the owner writes
 ordinary messages to ask about factory state, preview and create feature issues,
-diagnose a stuck issue, answer Research questions and read usage. A notice
+diagnose a stuck issue, answer Research questions, manage shared standards and read usage. A notice
 channel can receive task notices. Chat cannot start, approve, stop or repair
 work, and nothing typed in Discord reaches the GitHub comment parser.
 
@@ -20,7 +20,8 @@ For Linear tickets, also complete [Linear setup](project-connections.md#linear-t
 2. Add a bot to the application and copy the **bot token**.
 3. Under the bot settings, turn on **Message Content Intent**. It is needed for
    ordinary conversation messages. Owner messages arrive over the Discord
-   Gateway, an outbound WebSocket, as they are sent; without this intent
+   Gateway, an outbound WebSocket, as they are sent. The factory also subscribes
+   to guild message reactions for binding action approval; without Message Content
    Discord closes it (4014) and the `chat` line of `litefactory daemon status`
    says so. The factory also checks the application flags and a channel
    history read; if either fails, ordinary messages are switched off and chat
@@ -147,6 +148,32 @@ Only the owner can use chat, and only in allowed channels.
 Existing review and approval gates still apply to everything chat starts.
 Usage and costs are described in [usage and costs](meter.md).
 
+## Confirming an action
+
+Discord and the [remote owner connector](guides/remote-connector.md) use the same
+proposal policy. Ask in ordinary words, review the exact factory block, then say
+`yes` separately at least five seconds after confirmed proposal delivery. A
+proposal expires fifteen minutes after creation. An early yes does nothing; no
+confirmation retry is queued. You can say `cancel`, `show that` or `show history`
+without copying the history reference. Reply directly to the proposal when other
+messages have intervened; an ambiguous yes never selects an action.
+
+Feature preview creation (`confirm`), standard publication, proposal approval and
+exception approval or revocation also need your normal Unicode ✅ reaction on the
+factory's separate approval request. The original conversational yes comes first.
+Only your configured Discord account, the exact returned factory message and an
+observed reaction before expiry count. Custom emoji, bots, another message or
+another person cannot approve it. With several configured destinations, an MCP
+client must select one of them.
+
+A missing or failed Discord send leaves the proposal unexecuted. A known rate
+limit can retry within the original expiry; a send with an uncertain outcome is
+stopped, without blind replay. After a missed Gateway session, tap again before
+expiry or request a fresh proposal. Never assume an unobserved reaction happened.
+
+The full tier catalogue, fresh action consent and recovery rules are in the
+[owner connector guide](guides/remote-connector.md#plain-word-owner-actions).
+
 ## Task notices
 
 Set `notice_channel_id` to one of your allowed channels to get one message when a
@@ -164,7 +191,10 @@ and events already over 24 hours old are skipped and logged.
   restart or delayed retry a reply can appear twice. Exactly-once is not
   promised.
 - **Little is stored.** Interaction tokens stay in memory. Finished reply text is
-  dropped and records are purged after 24 hours. Chat history is not stored.
+  dropped and ordinary replay records are purged after 24 hours. Action review
+  facts, timed decisions, reaction evidence and recorded outcomes have separate
+  owner-only history for ninety days after terminal completion. Active actions
+  and unresolved uncertain effects retain their recovery identities longer.
 - **Message size.** Replies are limited to 2000 characters per message; long
   content is shortened (token and codes are kept) and the full text is attached
   or on the issue.
