@@ -37,11 +37,12 @@ func TestValidateCoverageCaptureAndLegacyReplay(t *testing.T) {
 				t.Fatal(err)
 			}
 			suite, ok := current.Profile.Node("suite")
-			if !ok || suite.Attrs["lf_coverage"] != "" {
-				t.Fatalf("source enabled selection before native freshness evidence: %+v", suite)
+			if !ok || suite.Attrs["lf_coverage"] != "v1" {
+				t.Fatalf("source lacks the versioned coverage contract: %+v", suite)
 			}
-			if _, ok := graphexec.Decide(current.Profile, "suite", "covered"); ok {
-				t.Fatal("disabled source routed a covered result")
+			next, ok := graphexec.Decide(current.Profile, "suite", "covered")
+			if !ok || next != "review" {
+				t.Fatalf("source covered route %q %v", next, ok)
 			}
 			// Restore from captured bytes alone. No released capture is edited.
 			captured := fstest.MapFS{}
@@ -56,20 +57,10 @@ func TestValidateCoverageCaptureAndLegacyReplay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// A synthetic compatible capture exercises the optional future contract;
-			// it does not enable selection in the shipped source graph.
-			enabled := strings.Replace(string(raw), `lf_outcomes="passed,failed,blocked,retry"`, `lf_outcomes="passed,covered,failed,blocked,retry", lf_coverage="v1"`, 1)
-			enabled = strings.Replace(enabled, ` suite -> review        [lf_on="passed"];`, " suite -> review        [lf_on=\"covered\"];\n suite -> review        [lf_on=\"passed\"];", 1)
-			captured["validate.dot"] = &fstest.MapFile{Data: []byte(enabled)}
-			compatible, err := teamsource.CaptureWorkflowIdentity(t.Context(), captured, "validate.dot", team, agent.WorkflowValidate, registry)
-			if err != nil {
-				t.Fatal(err)
-			}
-			next, ok := graphexec.Decide(compatible.Profile, "suite", "covered")
-			if !ok || next != "review" {
-				t.Fatalf("compatible covered route %q %v", next, ok)
-			}
-			legacy := string(raw)
+			// A legacy capture has no coverage capability or covered outcome.
+			// Reading it must not manufacture authority from the current source.
+			legacy := strings.Replace(string(raw), `lf_outcomes="passed,covered,failed,blocked,retry", lf_coverage="v1"`, `lf_outcomes="passed,failed,blocked,retry"`, 1)
+			legacy = strings.Replace(legacy, " suite -> review        [lf_on=\"covered\"];\n", "", 1)
 			captured["validate.dot"] = &fstest.MapFile{Data: []byte(legacy)}
 			old, err := teamsource.CaptureWorkflowIdentity(t.Context(), captured, "validate.dot", team, agent.WorkflowValidate, registry)
 			if err != nil {
@@ -79,6 +70,10 @@ func TestValidateCoverageCaptureAndLegacyReplay(t *testing.T) {
 			if node.Attrs["lf_coverage"] != "" {
 				t.Fatal("legacy graph acquired selection authority")
 			}
+			if _, ok := graphexec.Decide(old.Profile, "suite", "covered"); ok {
+				t.Fatal("legacy graph acquired a covered route")
+			}
+
 		})
 	}
 }

@@ -52,9 +52,9 @@ digraph validate {
  graph [team="{{team}}", mode="validate", profile_version="1", start="suite"];
 
  // ---- Test the commit ---------------------------------------------------------
- // Selection remains disabled until the native VSTest, MTP and xcodebuild
- // test-body freshness prerequisites have passed. Full requests execute afresh.
- suite [lf_action="lf_validate_suite", lf_outcomes="passed,failed,blocked,retry", lf_limit="16"];
+ // The captured coverage contract permits verified runner selection. Runtime
+ // freshness gates retain full execution for runners awaiting native evidence.
+ suite [lf_action="lf_validate_suite", lf_outcomes="passed,covered,failed,blocked,retry", lf_coverage="v1", lf_limit="16"];
 
  // ---- Repair loop (at most two rounds) ---------------------------------------
  repair_budget [lf_action="lf_validate_repair_budget", lf_outcomes="run,spent", lf_rounds="2", lf_suite="suite", lf_limit="6"];
@@ -95,6 +95,7 @@ digraph validate {
  // A passed suite needs no repair; a blocked one is not a code failure, so it is
  // not repaired either. A failed suite starts a repair round.
  suite -> review        [lf_on="passed"];
+ suite -> review        [lf_on="covered"];
  suite -> repair_budget [lf_on="failed"];
  suite -> review        [lf_on="blocked"];
  suite -> suite         [lf_on="retry"];

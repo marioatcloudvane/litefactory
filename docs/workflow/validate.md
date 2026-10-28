@@ -8,16 +8,22 @@ The graph is `teams/source/base-team/validate/validate.dot`, and it is the only 
 
 ## The suite
 
-Automatic selection is currently disabled in the source-team graph. Enabling the
-versioned coverage capability requires passing real test-body freshness evidence
-for VSTest, Microsoft.Testing.Platform and xcodebuild, in addition to Go and pytest.
-Missing native tools or skipped fixtures do not satisfy this prerequisite. Until
-that evidence is available, new captures run the full recipe; the selective
-behavior described below applies only to a compatible enabled capture. Native
-freshness prerequisites are checked with
+New source-team captures enable the versioned coverage contract. Runtime admission
+applies the freshness readiness policy separately for each runner: Go and pytest are verified
+for automatic selection; .NET VSTest, Microsoft.Testing.Platform and xcodebuild
+remain on unchanged full execution while their native test-body freshness evidence
+is pending. Their reports show this pending state and the full-run reason. Pending
+native evidence does not block Go or pytest selection or release. Other coverage,
+compatibility and safety checks still apply before any work can be omitted.
+
+Enabling selection for a pending runner requires successful native freshness
+fixtures for that runner on a suitable host. Missing native tools and skipped
+fixtures are pending evidence, not successful checks. The retained prerequisite
+mode is
 `LF_REQUIRE_NATIVE_FRESHNESS=1 go test ./internal/turn -run '^(TestValidateVSTestNativeFullRequestFreshness|TestValidateMTPNativeFullRequestFreshness|TestValidateFreshFullRequestsExecuteWarmXcodeBodies)$' -count=1 -timeout=15m`.
-This mode fails rather than skips when a required native tool, dependency or
-execution capability is unavailable.
+It fails rather than skips when a required native tool, dependency or execution
+capability is unavailable. This mode gates future enablement of those runners;
+it is not a prerequisite for the verified Go and pytest paths.
 
 The suite step starts from every command in the repository recipe's `full`
 phase (`.litefactory/bug-checks.yaml`, read from the tested commit; see

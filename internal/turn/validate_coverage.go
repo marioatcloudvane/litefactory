@@ -20,6 +20,9 @@ type ValidateCoverageBindings struct {
 	Changes    func(context.Context, string, string) (coverage.Changes, error)
 	PinBase    func(context.Context) (string, error)
 	Conditions string
+	// FreshnessVerified is a factory-owned rollout policy, never agent evidence.
+	// Nil enables Go and pytest; native runners await executable evidence.
+	FreshnessVerified func(string) bool
 }
 
 func (h ValidateSuiteActivity) executeCoverage(ctx context.Context, opts Options, req ActivityRequest, auth ValidateSuiteAuthority, locked bool) (res ActivityResult, err error) {
@@ -120,6 +123,7 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 			return ActivityResult{}, e
 		}
 	}
+	_, pendingFreshness := coverageFreshnessReadiness(commands, coverage.Inventory{}, nil, b.Coverage)
 	run, e := b.DB.BeginSuiteRun(ctx, store.SuiteRun{InstanceID: req.InstanceID, Node: req.Node, Commit: auth.Commit, RecipeDigest: config.BugRecipeDigest(raw), TreeBefore: before, StartedAt: h.now(opts)})
 	if e != nil {
 		return ActivityResult{}, e
@@ -219,7 +223,7 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 		if preserveScratch {
 			out := suiteOutput(run)
 			out.Outcome = "blocked"
-			out.Reason = reason
+			out.Reason = appendFreshnessReason(reason, pendingFreshness)
 			return suiteResult("blocked", out)
 		}
 		after, observeErr := scratch.Observe(context.WithoutCancel(ctx))
@@ -287,6 +291,7 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 		if err := b.DB.FinishSuiteRun(context.WithoutCancel(ctx), run.ID, rawState, after, firstNonBlank(reason, rawReason), h.now(opts)); err != nil {
 			return ActivityResult{}, err
 		}
+		m.FullReason = appendFreshnessReason(m.FullReason, pendingFreshness)
 		data, e := json.Marshal(m)
 		if e != nil {
 			return ActivityResult{}, e
@@ -296,7 +301,7 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 			// unresolved summary rather than duplicating their complete bodies.
 			m.Complete = false
 			m.Outcome = "blocked"
-			m.FullReason = "coverage assessment exceeded retained evidence bound"
+			m.FullReason = appendFreshnessReason("coverage assessment exceeded retained evidence bound", pendingFreshness)
 			m.Attempts = nil
 			m.Results = nil
 			m.Comparisons = nil
@@ -383,6 +388,7 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 		return finish(e.Error())
 	}
 	inv.Commit = auth.Commit
+	freshnessPolicy, pendingFreshness := coverageFreshnessReadiness(commands, inv, facts, b.Coverage)
 	conditions := ""
 	if b.Coverage != nil {
 		conditions = b.Coverage.Conditions
@@ -390,7 +396,8 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 	inv.Conditions = coverage.Digest(struct {
 		Recipe, Isolation string
 		Facts             map[int]coverage.Facts
-	}{run.RecipeDigest, conditions, facts})
+		FreshnessPolicy   map[string]bool
+	}{run.RecipeDigest, conditions, facts, freshnessPolicy})
 	// Fingerprint actual executable bytes and privately hashed configured
 	// inputs before admitting inheritance. Fixture runners supply their own
 	// trusted conditions and keep their existing deterministic contract.
@@ -464,6 +471,10 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 			break
 		}
 	}
+	if pendingFreshness != "" {
+		inv.Complete = false
+		inv.Reason = pendingFreshness
+	}
 	m.Inventory = inv
 	var previous *coverage.Manifest
 	previousID := ""
@@ -497,7 +508,7 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 	}
 	plan := coverage.Build(coverage.PlanInput{Current: inv, Previous: previous, Commands: commands, Changes: changes, Full: auth.Policy == "full", Recipe: m.Recipe})
 	fullExecution = plan.Full
-	m.FullReason = plan.Reason
+	m.FullReason = appendFreshnessReason(plan.Reason, pendingFreshness)
 	m.Results = append(m.Results, plan.Inherited...)
 	m.Results = append(m.Results, plan.Unresolved...)
 	if len(plan.Inherited) > 0 && previousID != "" {
@@ -647,7 +658,7 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 			m.Complete = false
 			if len(m.RequiredFailures) > 0 || len(plan.Unresolved) > 0 {
 				m.Outcome = "blocked"
-				m.FullReason = "opaque full execution cannot reconcile prior failing identities"
+				m.FullReason = appendFreshnessReason("opaque full execution cannot reconcile prior failing identities", pendingFreshness)
 			}
 			return finish("")
 		}
