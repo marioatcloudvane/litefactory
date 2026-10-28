@@ -36,6 +36,12 @@ Establish current foundations, reuse, collisions and evidence limits for #1110: 
 - **N-02** — Do not retire legacy CLI or GitHub hash commands or change worker submission authority in this issue. (agent's call)
 - **N-03** — Do not add new job orchestration or stage-steering workflows from #1111 or #1112, a new approval website, configurable tier rules, or cost billing. (agent's call)
 - **N-04** — Do not claim deployment, live connector approval or newly passed implementation checks from the retained historical tests. (agent's call)
+- **A-02** — q02 "What proof of your approval must cheap actions require?" — owner: "q02: a
+q03: a" (owner said: comment 6474525370)
+- **A-03** — q03 "Which action tools should this issue make available through MCP?" — owner: "q02: a
+q03: a" (owner said: comment 6474525370)
+- **O-22** — Cheap MCP actions accept the authenticated client's relay of the owner's conversational yes, without independent proof of owner speech, while binding actions retain the independent Discord tap. (owner said: q02 option a, comment 6474525370)
+- **O-23** — Expose MCP proposals for actions already supported by Discord together with confirm, cancel, status and history, leaving new jobs and stage-steering workflows to #1111 and #1112. (owner said: q03 option a, comment 6474525370)
 
 
 ## Assumptions
@@ -43,29 +49,12 @@ Establish current foundations, reuse, collisions and evidence limits for #1110: 
 - **AS-01** — Use the remote owner connector as the MCP surface; attempt-scoped worker submission tools are a different authority boundary. This follows #1106 and current connector package separation. (agent's call)
 - **AS-02** — Keep internal hashes/digests for integrity; 'without hashes' means the owner is not required to speak or copy them. Existing Discord proposals already retain digests internally. (agent's call)
 - **AS-03** — Superseded for timing, lifetime, audit retention and unlisted actions by O-06, O-11, O-12 and O-15; Discord failure is settled by O-09. (agent's call)
-- **AS-04** — Factory enforcement can prove identity, authority, timing, exact target and single use, but an MCP confirm call cannot independently prove that an owner spoke; q02 asks the owner to choose the required assurance. (agent's call)
+- **AS-04** — Superseded by A-02 and O-22: the owner accepts client-relayed conversational confirmation for cheap actions and its lack of independent proof of owner speech. (owner said: q02 option a, comment 6474525370)
 - **AS-05** — Superseded by O-17 and O-18: renew action consent, invalidate old pending proposals and preserve admitted work. (agent's call)
-- **AS-06** — Proposed scope for q03 is MCP proposal creation for already supported Discord actions plus confirm, cancel, status and audit reads, with new jobs and steering workflows left to #1111/#1112. (agent's call)
+- **AS-06** — Superseded by A-03 and O-23: MCP proposals for existing Discord actions are in scope alongside confirm, cancel, status and audit reads. (owner said: q03 option a, comment 6474525370)
 - **AS-07** — A Discord plain yes selects only the one current delivered proposal in that owner conversation; ambiguous confirmation does nothing and asks the owner to select a proposal in ordinary language. (agent's call)
 - **AS-08** — Bind MCP confirmation and cancellation to the originating client and owner, requiring still-valid action authority; Discord owner cancellation can stop any still-pending proposal visible to that owner. (agent's call)
 - **AS-09** — Ninety-day audit retention is a product default rather than a compliance requirement, and audit summaries exclude tokens and secret action content. (agent's call)
-
-
-## Open questions
-
-### q02 — What proof of your approval must cheap actions require?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Accept conversational confirmation relayed by the authenticated MCP client (recommended): the factory enforces timing, target, permission and single use, while trusting the client to relay your yes; binding actions still require your Discord tap.  *(recommended)*
-- **b** — Require your independent Discord tap for every changing action: stronger proof that you approved, but even cheap actions need Discord and this changes the requested conversational tier.
-
-### q03 — Which action tools should this issue make available through MCP?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Expose proposals for actions already supported by Discord, together with confirm, cancel, status and history (recommended): delivers usable MCP actions now while leaving new jobs and stage-steering workflows to #1111 and #1112.  *(recommended)*
-- **b** — Build the shared lifecycle, confirm/cancel/status/history surfaces and Discord migration only: new MCP proposal-producing action tools arrive in #1111/#1112, so this issue alone cannot start an MCP action.
 
 ## Research documents
 
