@@ -35,6 +35,8 @@ important: this is for the subissues, so not for the overall issue. in an issue 
 - **K-08** — Existing advisory judges remain advisory and retain their review purpose on both paths without becoming owner approvals. (agent's call)
 - **N-03** — Changing M/L planning depth, bypassing inter-story dependencies or building a general parallel-execution feature for other workflow modes is outside this scope. (agent's call)
 - **O-12** — Missing or invalid per-story size evidence uses normal planning rather than inferring S from the parent Research size. (agent's call)
+- **A-02** — Implementation-surface question — owner: "this would only change the graph files, right? no code changes needed, or?
+" (owner said: comment 6474699964)
 
 
 ## Assumptions
@@ -53,6 +55,7 @@ important: this is for the subissues, so not for the overall issue. in an issue 
 - **AS-12** — Failures retain valid contributions for supported resume but do not count missing or failed contributions as complete; after scope or size changes, reuse only contributions demonstrably current with the selected story revision. (agent's call)
 - **AS-13** — Sticky fallback lasts through the affected story's current planning cycle, including ordinary resumes and revisions; a later size reduction does not automatically re-enter fast track. (agent's call)
 - **AS-14** — Smaller output means omitting optional elaboration and unnecessary tasks, not numeric limits or fewer required outcomes; the existing sizing guidance remains authoritative for depth. (agent's call)
+- **AS-15** — The owner's implementation-surface question requests an explanation rather than imposing a graph-only constraint or retracting parallelism; retain the behavioral scope and disclose that Go runtime changes, graphs, guidance and appropriate verification are required, with exact design left to Plan. (agent's call)
 
 ## Research documents
 

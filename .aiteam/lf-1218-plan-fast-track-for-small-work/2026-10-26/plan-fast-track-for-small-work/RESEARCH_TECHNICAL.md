@@ -98,3 +98,15 @@ Evidence:
 - `teams/source/base-team/plan/plan-acceptance.md:10`
 - `internal/planbrief/plan_workflow.go:576`
 - `internal/planbrief/plan_workflow.go:602`
+
+## F-10
+
+At commit 1e2183b36a1ba7403416dff6351118adcd1a7b36, graph-only delivery cannot satisfy the retained scope: PlanControlPolicy has no size condition; Decide accepts exactly one destination per node outcome; Plan validation admits no parallel fork/join action; production prepare refuses an agent node other than the factory-selected stage_agent; and control only resolves existing stage/create/ask/answer/approval responses. Existing guarded graph approval can be reused, but size routing and concurrent stage contributions require runtime changes rather than additional DOT edges alone.
+
+Evidence:
+
+- `internal/graphexec/plan_control.go:40`
+- `internal/graphexec/plan_control.go:140`
+- `internal/graphexec/decide.go:7`
+- `internal/turn/plan_graph.go:634`
+- `internal/turn/plan_graph.go:714`
