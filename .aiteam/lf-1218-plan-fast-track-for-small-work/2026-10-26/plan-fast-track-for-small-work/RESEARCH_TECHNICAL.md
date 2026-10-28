@@ -110,3 +110,14 @@ Evidence:
 - `internal/graphexec/decide.go:7`
 - `internal/turn/plan_graph.go:634`
 - `internal/turn/plan_graph.go:714`
+
+## F-11
+
+At commit 10d133324b991e4ef69c1cdc66efe345893289fb, ControlSpec permits lf_field=response only and DecodeCondition rejects another field or a comparison value outside the mode's closed vocabulary; production Plan control derives that response from the selected stage, create selection, agent ask/answer or review_ready, never from story size. Thus the owner's graph-owned size comparison is a viable desired capability, but is not already expressible through this lf_if implementation; the source of sizing remains the existing story entry.
+
+Evidence:
+
+- `internal/graphexec/research_control.go:47`
+- `internal/graphexec/research_control.go:81`
+- `internal/turn/plan_graph.go:717`
+- `internal/planbrief/plan_set.go:25`

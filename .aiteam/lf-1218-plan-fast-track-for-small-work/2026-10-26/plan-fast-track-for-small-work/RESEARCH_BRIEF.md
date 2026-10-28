@@ -37,6 +37,9 @@ important: this is for the subissues, so not for the overall issue. in an issue 
 - **O-12** — Missing or invalid per-story size evidence uses normal planning rather than inferring S from the parent Research size. (agent's call)
 - **A-02** — Implementation-surface question — owner: "this would only change the graph files, right? no code changes needed, or?
 " (owner said: comment 6474699964)
+- **A-03** — Graph comparison proposal — owner: "the size is in the user story, not somewhere in code. in the graph we would \"only\" compare with an if activity and then go on a different path! i think this could work, right?" (owner said: comment 6474822940)
+- **O-13** — The graph declares the comparison against the selected story's size and the resulting fast or normal paths, using the existing story size as its source of truth. (owner said: comment 6474822940)
+- **K-09** — Runtime support must preserve graph ownership of the size comparison and route selection without adding another sizing source or embedding a separate fast-track routing policy in Go. (agent's call)
 
 
 ## Assumptions
@@ -55,7 +58,9 @@ important: this is for the subissues, so not for the overall issue. in an issue 
 - **AS-12** — Failures retain valid contributions for supported resume but do not count missing or failed contributions as complete; after scope or size changes, reuse only contributions demonstrably current with the selected story revision. (agent's call)
 - **AS-13** — Sticky fallback lasts through the affected story's current planning cycle, including ordinary resumes and revisions; a later size reduction does not automatically re-enter fast track. (agent's call)
 - **AS-14** — Smaller output means omitting optional elaboration and unnecessary tasks, not numeric limits or fewer required outcomes; the existing sizing guidance remains authoritative for depth. (agent's call)
-- **AS-15** — The owner's implementation-surface question requests an explanation rather than imposing a graph-only constraint or retracting parallelism; retain the behavioral scope and disclose that Go runtime changes, graphs, guidance and appropriate verification are required, with exact design left to Plan. (agent's call)
+- **AS-15** — The owner's questions preserve parallel planning while clarifying graph-owned routing from the story's size; runtime changes should supply only the missing supported capabilities, with no second sizing system or independent Go routing policy. (agent's call)
+- **AS-16** — Graph-owned branching and runtime field access are separate concerns: expose the existing story size to supported graph comparison rather than hard-coding the workflow branch in Go; exact comparison syntax and execution mechanisms remain technical planning decisions. (agent's call)
+- **AS-17** — S-01's large estimate applies to the complete concurrent-planning scope and does not imply that exposing size to an if activity is itself a large change; technical planning must establish the smallest necessary runtime extension and reuse existing approval mechanisms. (agent's call)
 
 ## Research documents
 
