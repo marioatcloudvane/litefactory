@@ -110,6 +110,8 @@ func TestRenderPlanStorySet_ShowsRevisionOrderDependenciesAndTheCommand(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This fixture checks the historical unsized table. New sets show advisory sizing cells.
+	s.StorySet.SizingPolicyVersion = 0
 	text, err := RenderPlanStorySet(s.StorySet)
 	if err != nil {
 		t.Fatal(err)

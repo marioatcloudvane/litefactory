@@ -160,7 +160,7 @@ func setFlowReviewSet(t *testing.T, f *fixture, remote *graphPlanHTTP, base Requ
 		t.Fatalf("the displayed first entry does not depend on the later one: %+v", first)
 	}
 	posts := setFlowParentPosts(f, forge, "Proposed story set, revision")
-	if len(posts) != 1 || !strings.Contains(posts[0], "`"+older+"`") || !strings.Contains(posts[0], promoteCommand(older)) || !strings.Contains(posts[0], "| `a` | Alpha |") || !strings.Contains(posts[0], "| `c` |\n") {
+	if len(posts) != 1 || !strings.Contains(posts[0], "`"+older+"`") || !strings.Contains(posts[0], promoteCommand(older)) || !strings.Contains(posts[0], "| `a` | Alpha |") || !strings.Contains(posts[0], "| `a` | Alpha | Deliver Alpha | `c` |") {
 		t.Fatalf("the set is not shown on the parent with its revision and exact command: %q", posts)
 	}
 	if run.setCalls != 1 || run.storyCalls != 0 || remote.creates != 0 || len(reservedOrdinals(t, f)) != 0 {
