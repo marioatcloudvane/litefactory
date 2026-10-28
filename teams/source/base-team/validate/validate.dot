@@ -52,8 +52,8 @@ digraph validate {
  graph [team="{{team}}", mode="validate", profile_version="1", start="suite"];
 
  // ---- Test the commit ---------------------------------------------------------
- // Each source request replays its own generation. Compatible automatic runs
- // inherit unaffected coverage; an explicit full request executes afresh.
+ // The captured coverage contract permits verified runner selection. Runtime
+ // freshness gates retain full execution for runners awaiting native evidence.
  suite [lf_action="lf_validate_suite", lf_outcomes="passed,covered,failed,blocked,retry", lf_coverage="v1", lf_limit="16"];
 
  // ---- Repair loop (at most two rounds) ---------------------------------------

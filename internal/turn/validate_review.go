@@ -470,7 +470,7 @@ func (h ValidateReviewActivity) evidence(ctx context.Context, opts Options, suit
 		if err != nil {
 			return nil, err
 		}
-		if m.Complete || m.Outcome != store.SuitePassed {
+		if m.Complete || m.Outcome != store.SuitePassed && m.Outcome != store.SuiteFailed {
 			out := make([]ValidateEvidence, 0, len(m.Results))
 			for _, r := range m.Results {
 				e := ValidateEvidence{ID: suite.Output.AssessmentID + "/" + r.Unit, ProofKind: r.Kind, OriginID: r.Origin.Evidence, AssessmentID: suite.Output.AssessmentID, AssessmentVerified: true, State: store.SuiteFailed, Reason: r.Reason}
@@ -582,12 +582,12 @@ func validateRetainedAssessment(ctx context.Context, opts Options, out validateS
 		return m, errors.New("coverage assessment is incomplete or incompatible")
 	}
 	if !m.Complete && out.Outcome != store.SuiteBlocked {
-		if out.Outcome != store.SuitePassed || m.FullReason == "" {
+		if out.Outcome != store.SuitePassed && out.Outcome != store.SuiteFailed || m.FullReason == "" {
 			return m, errors.New("incomplete coverage cannot settle this outcome")
 		}
 		run, err := opts.DB.GetSuiteRun(ctx, out.RunID)
-		if err != nil || run.State != store.SuitePassed || run.Commit != out.Commit {
-			return m, errors.New("incomplete assessment lacks a factual full pass")
+		if err != nil || run.State != out.Outcome || run.Commit != out.Commit {
+			return m, errors.New("incomplete assessment lacks a matching factual full result")
 		}
 		for _, r := range m.Results {
 			if r.Kind == coverage.Inherited || r.Kind == coverage.PreExisting || r.Kind == coverage.Transient {

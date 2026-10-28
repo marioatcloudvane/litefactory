@@ -80,32 +80,62 @@ func TestValidateRetainedAssessmentRejectsDetachedProof(t *testing.T) {
 }
 
 func TestValidateOpaqueFullEvidenceRetainsExecutedChecks(t *testing.T) {
-	f := newSuiteFixture(t)
-	_, out, err := f.exec(912)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := f.db.EnsureValidationRequest(t.Context(), store.ValidationRequest{Lineage: "opaque", SourceKey: "request", Policy: "full", Commit: suiteCommit})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := coverage.Manifest{Version: coverage.Version, Commit: suiteCommit, Complete: false, Outcome: store.SuitePassed, FullReason: "unsupported runner retains unchanged full execution"}
-	retained, err := f.db.FinalizeValidationAssessment(t.Context(), store.ValidationEvidence{RequestID: request.ID, RunID: out.RunID, Version: 1, Complete: false, Payload: mustMatrixJSON(t, m)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	out.AssessmentID = retained.ID
-	out.AssessmentDigest = coverage.Digest(m)
-	evidence, err := (ValidateReviewActivity{}).evidence(t.Context(), Options{DB: f.db}, validateSuiteView{Output: out})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(evidence) != 3 {
-		t.Fatalf("factual full commands lost: %+v", evidence)
-	}
-	for _, e := range evidence {
-		if e.ProofKind != coverage.Executed || e.State != store.SuitePassed || e.AssessmentVerified {
-			t.Fatalf("opaque full invented inherited evidence: %+v", e)
-		}
+	for _, state := range []string{store.SuitePassed, store.SuiteFailed} {
+		t.Run(state, func(t *testing.T) {
+			f := newSuiteFixture(t)
+			if state == store.SuiteFailed {
+				f.exits["full-one"] = 1
+			}
+			_, out, err := f.exec(912)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := f.db.EnsureValidationRequest(t.Context(), store.ValidationRequest{Lineage: "opaque", SourceKey: "request", Policy: "full", Commit: suiteCommit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := coverage.Manifest{Version: coverage.Version, Commit: suiteCommit, Complete: false, Outcome: state, FullReason: "unsupported runner retains unchanged full execution"}
+			retained, err := f.db.FinalizeValidationAssessment(t.Context(), store.ValidationEvidence{RequestID: request.ID, RunID: out.RunID, Version: 1, Complete: false, Payload: mustMatrixJSON(t, m)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out.AssessmentID = retained.ID
+			out.AssessmentDigest = coverage.Digest(m)
+			evidence, err := (ValidateReviewActivity{}).evidence(t.Context(), Options{DB: f.db}, validateSuiteView{Output: out})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := 3
+			if state == store.SuiteFailed {
+				want = 1
+			}
+			if len(evidence) != want {
+				t.Fatalf("factual full commands lost: %+v", evidence)
+			}
+			for _, e := range evidence {
+				if e.State != state || e.AssessmentVerified {
+					t.Fatalf("opaque full invented assessment proof: %+v", e)
+				}
+				if state == store.SuitePassed && e.ProofKind != coverage.Executed {
+					t.Fatalf("executed pass lost: %+v", e)
+				}
+				if state == store.SuiteFailed && (e.ProofKind != "" || e.OutputTail == "") {
+					t.Fatalf("raw failure evidence lost or reclassified: %+v", e)
+				}
+			}
+			// An incomplete record must match the durable failed or passed result.
+			m.Outcome = store.SuitePassed
+			if state == store.SuitePassed {
+				m.Outcome = store.SuiteFailed
+			}
+			detached, err := f.db.FinalizeValidationAssessment(t.Context(), store.ValidationEvidence{RequestID: request.ID, RunID: out.RunID, Version: 1, Complete: false, Payload: mustMatrixJSON(t, m)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out.Outcome, out.AssessmentID, out.AssessmentDigest = m.Outcome, detached.ID, coverage.Digest(m)
+			if _, err := validateRetainedAssessment(t.Context(), Options{DB: f.db}, out); err == nil {
+				t.Fatal("incomplete assessment rewrote the factual result")
+			}
+		})
 	}
 }

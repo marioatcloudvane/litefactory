@@ -99,6 +99,23 @@ only fresh source/target/context observation can finalize a pending passing phas
 
 ## Validate coverage and freshness
 
+New source-team captures enable the versioned coverage contract. Runtime admission
+applies the freshness readiness policy separately for each runner: Go and pytest are verified
+for automatic selection; .NET VSTest, Microsoft.Testing.Platform and xcodebuild
+remain on unchanged full execution while their native test-body freshness evidence
+is pending. Their reports show this pending state and the full-run reason. Pending
+native evidence does not block Go or pytest selection or release. Other coverage,
+compatibility and safety checks still apply before any work can be omitted.
+
+Enabling selection for a pending runner requires successful native freshness
+fixtures for that runner on a suitable host. Missing native tools and skipped
+fixtures are pending evidence, not successful checks. The retained prerequisite
+mode is
+`LF_REQUIRE_NATIVE_FRESHNESS=1 go test ./internal/turn -run '^(TestValidateVSTestNativeFullRequestFreshness|TestValidateMTPNativeFullRequestFreshness|TestValidateFreshFullRequestsExecuteWarmXcodeBodies)$' -count=1 -timeout=15m`.
+It fails rather than skips when a required native tool, dependency or execution
+capability is unavailable. This mode gates future enablement of those runners;
+it is not a prerequisite for the verified Go and pytest paths.
+
 Plain `/validate` selects automatically; exact `/validate full` requests new full
 execution rather than reuse, even on an unchanged commit. A repeated delivery of
 the same request replays its own generation. Repository suite configuration does

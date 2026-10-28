@@ -33,7 +33,14 @@ func (s coverageMatrixScratch) Close(context.Context) error { return nil }
 // TestValidateCoverageMainPath exercises the admitted suite/store/adapter/
 // assessment/review/delivery path for every supported runner family.
 func TestValidateCoverageMainPath(t *testing.T) {
-	for _, runner := range []string{coverage.RunnerGo, coverage.RunnerPytest, coverage.RunnerVSTest, coverage.RunnerMTP, coverage.RunnerXcode} {
+	// Native adapters remain future-contract fixtures until their native
+	// freshness evidence is available; this override grants no runtime readiness.
+	validateCoverageMainPath(t, []string{coverage.RunnerGo, coverage.RunnerPytest, coverage.RunnerVSTest, coverage.RunnerMTP, coverage.RunnerXcode}, func(string) bool { return true })
+}
+
+func validateCoverageMainPath(t *testing.T, runners []string, freshnessVerified func(string) bool) {
+	t.Helper()
+	for _, runner := range runners {
 		for _, scenario := range []string{"matching-base", "feature-failure", "transient-retry", "missing-parameter", "two-test-repair", "repeated-anchor", "interrupted-restart"} {
 			t.Run(runner+"/"+scenario, func(t *testing.T) {
 				baseMatches := scenario != "feature-failure"
@@ -52,7 +59,8 @@ func TestValidateCoverageMainPath(t *testing.T) {
 				conditions := coverage.Digest(struct {
 					Recipe, Isolation string
 					Facts             map[int]coverage.Facts
-				}{config.BugRecipeDigest(recipe), "isolated-fixture", facts})
+					FreshnessPolicy   map[string]bool
+				}{config.BugRecipeDigest(recipe), "isolated-fixture", facts, coverageFixtureReadinessPolicy(freshnessVerified)})
 				selectors := map[string]string{}
 				units := []coverage.Unit{}
 				for _, key := range []string{"failure", "affected", "unfinished", "unaffected"} {
@@ -102,7 +110,7 @@ func TestValidateCoverageMainPath(t *testing.T) {
 				f.b.Bind = func(context.Context, Options, ActivityRequest) (ValidateSuiteAuthority, error) {
 					return ValidateSuiteAuthority{Commit: testedCommit, RequestID: request.ID, Lineage: "matrix", Policy: "auto", AssessmentVersion: coverage.Version}, nil
 				}
-				f.b.Coverage = &ValidateCoverageBindings{Conditions: "isolated-fixture", Discover: func(context.Context, ValidateSuiteScratch, []config.BugCheckCommand, coverage.DiscoveryRunner) (coverage.Inventory, map[int]coverage.Facts, error) {
+				f.b.Coverage = &ValidateCoverageBindings{FreshnessVerified: freshnessVerified, Conditions: "isolated-fixture", Discover: func(context.Context, ValidateSuiteScratch, []config.BugCheckCommand, coverage.DiscoveryRunner) (coverage.Inventory, map[int]coverage.Facts, error) {
 					return coverage.Inventory{Commit: suiteCommit, Complete: true, Units: units}, facts, nil
 				}, Changes: func(_ context.Context, anchor, current string) (coverage.Changes, error) {
 					return coverage.Changes{Anchor: anchor, Proven: current == testedCommit, Paths: []string{"affected/code", "unfinished/code"}}, nil
@@ -325,7 +333,8 @@ func TestValidateCoverageFallbacks(t *testing.T) {
 			conditions := coverage.Digest(struct {
 				Recipe, Isolation string
 				Facts             map[int]coverage.Facts
-			}{config.BugRecipeDigest(recipe), "fallback-fixture", facts})
+				FreshnessPolicy   map[string]bool
+			}{config.BugRecipeDigest(recipe), "fallback-fixture", facts, coverageFixtureReadinessPolicy(nil)})
 			unit := coverage.Unit{Key: "unit", Command: 0, Runner: coverage.RunnerGo, Selector: "example.test/unit", Files: []string{"unit/source.go"}}
 			oldCommit := strings.Repeat("1", 40)
 			oldRequest, err := f.db.EnsureValidationRequest(t.Context(), store.ValidationRequest{Lineage: "fallback", SourceKey: "old", Policy: "full", Commit: oldCommit})
@@ -416,7 +425,8 @@ func TestValidateCoverageMixedCommands(t *testing.T) {
 	conditions := coverage.Digest(struct {
 		Recipe, Isolation string
 		Facts             map[int]coverage.Facts
-	}{config.BugRecipeDigest(recipe), "mixed-fixture", facts})
+		FreshnessPolicy   map[string]bool
+	}{config.BugRecipeDigest(recipe), "mixed-fixture", facts, coverageFixtureReadinessPolicy(nil)})
 	units := []coverage.Unit{{Key: "go-failure", Command: 0, Runner: coverage.RunnerGo, Selector: "example.test/failure", Files: []string{"go/failure.go"}}, {Key: "pytest-affected", Command: 1, Runner: coverage.RunnerPytest, Selector: "tests/test_affected.py", Files: []string{"python/changed.py"}}, {Key: "go-unaffected", Command: 0, Runner: coverage.RunnerGo, Selector: "example.test/unaffected", Files: []string{"go/unaffected.go"}}, {Key: "pytest-unaffected", Command: 1, Runner: coverage.RunnerPytest, Selector: "tests/test_unaffected.py", Files: []string{"python/unaffected.py"}}}
 	oldCommit := strings.Repeat("1", 40)
 	baseCommit := strings.Repeat("2", 40)
