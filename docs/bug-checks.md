@@ -4,7 +4,7 @@
 
 A repository can tell the factory how to test it with a recipe in `.litefactory/bug-checks.yaml`. The factory reads the recipe from the exact commit being tested, never from a working branch the agent could change. Today it is used by:
 
-- **[Validate](workflow/validate.md):** the suite step runs the `full` phase.
+- **[Validate](workflow/validate.md):** the suite step uses the `full` phase as its complete obligation inventory, with conservative automatic selection when its captured workflow supports it.
 - **[Spike](workflow/spike.md):** the check after a small fix runs the `focused` and then the `full` phase.
 
 (The Bug workflow lets its fixer run the project's own commands and runs no recipe of its own; see [Bug](workflow/bug-runtime.md).)
@@ -28,15 +28,17 @@ phases:
         env: [PROJECT_TEST_ENDPOINT]
 ```
 
-Each `argv` is passed literally. There is no implicit shell, interpolation,
-command selection, or agent-added argument. Explicit interpreters receive the
-same containment. `cwd` defaults to the repository root and must remain inside
+Each configured `argv` is literal data. There is no implicit shell, interpolation
+or agent-added argument. Capability-checked Validate adapters may derive bounded
+selectors and invocation-only freshness controls while preserving the configured
+conditions; unsupported commands retain their unchanged full invocation. Explicit
+interpreters receive the same containment. `cwd` defaults to the repository root and must remain inside
 the worktree, including after symlink resolution. Bare executable names use only
 the operator's absolute PATH directories; relative executable paths resolve from
 `cwd`. Environment names refer to operator-authorized values; inline values,
 protected process settings, credentials and capability variables are refused.
 
-Optionally a command can have a `rerun` block, so a failure in `go test` output can be attributed to named tests by rerunning only those tests: `failures: go-test`, an `argv` containing the whole elements `{tests}` and `{packages}` once each, and an optional `timeout_seconds`. Without it, a failure counts as it always did.
+Optionally a command can have a `rerun` block, so a failure in `go test` output can be attributed to named tests by rerunning only those tests: `failures: go-test`, an `argv` containing the whole elements `{tests}` and `{packages}` once each, and an optional `timeout_seconds`. The declaration remains valid. Targeted execution additionally requires proven adapter equivalence and observed requested identities; missing observations never count as passing tests.
 
 Version 1 limits: recipe 1 MiB; 64 commands per phase; 128 argv entries and 64 KiB
 combined argv bytes per command; 64 distinct environment names; integer timeout
@@ -94,3 +96,55 @@ Unreadable observations, legacy launch records without kernel identity, and
 claimed launches without a recorded process remain unresolved. No stored PID is
 signalled during recovery. Completed command evidence is reused without reruns;
 only fresh source/target/context observation can finalize a pending passing phase.
+
+## Validate coverage and freshness
+
+New source-team captures enable the versioned coverage contract. Runtime admission
+applies the freshness readiness policy separately for each runner: Go and pytest are verified
+for automatic selection; .NET VSTest, Microsoft.Testing.Platform and xcodebuild
+remain on unchanged full execution while their native test-body freshness evidence
+is pending. Their reports show this pending state and the full-run reason. Pending
+native evidence does not block Go or pytest selection or release. Other coverage,
+compatibility and safety checks still apply before any work can be omitted.
+
+Enabling selection for a pending runner requires successful native freshness
+fixtures for that runner on a suitable host. Missing native tools and skipped
+fixtures are pending evidence, not successful checks. The retained prerequisite
+mode is
+`LF_REQUIRE_NATIVE_FRESHNESS=1 go test ./internal/turn -run '^(TestValidateVSTestNativeFullRequestFreshness|TestValidateMTPNativeFullRequestFreshness|TestValidateFreshFullRequestsExecuteWarmXcodeBodies)$' -count=1 -timeout=15m`.
+It fails rather than skips when a required native tool, dependency or execution
+capability is unavailable. This mode gates future enablement of those runners;
+it is not a prerequisite for the verified Go and pytest paths.
+
+Plain `/validate` selects automatically; exact `/validate full` requests new full
+execution rather than reuse, even on an unchanged commit. A repeated delivery of
+the same request replays its own generation. Repository suite configuration does
+not change, and `make test` remains this repository's full-suite entry point.
+Invocation-only cache controls bypass test-result reuse, preserving build caches
+and original plain/race groups.
+
+Capability-checked adapters cover Go, pytest, distinct .NET VSTest and
+Microsoft.Testing.Platform invocations, and xcodebuild tests. Selection depends on
+bounded discovery and complete result evidence, not the executable name alone.
+An unsupported wrapper, unknown dependency or dynamic fixture consumer, changed
+shared input, generated asset, toolchain or cross-language dependency requires
+complete project checks or the original full recipe. Opaque commands run fully
+when their relevance or earlier completion cannot be established. Legacy captures
+without the assessment contract retain full execution.
+
+Every inherited unit retains its original complete execution source and anchor.
+Re-checks compare all changes since that anchor, including merged-base changes,
+and require compatible conditions and proven ancestry. Incomplete or incompatible
+records stay readable but cannot establish inherited coverage. The retained
+assessment distinguishes newly executed and inherited passes, transient retries,
+matching pre-existing failures and unresolved obligations. Raw failed executions
+remain failed. Test deletion, skipping, capture truncation or a zero-match selector
+cannot prove a repair.
+
+Persistent test failures receive one uncached retry before equivalent comparison
+at a pinned configured delivery target commit. Only complete matching case and
+diagnostic evidence removes the suite failure's delivery effect; it proves no
+unrelated criterion and grants no delivery approval. Sandbox permissions, process
+claims, locks, cleanup, unchanged-tree guards and owner-controlled delivery apply
+to discovery, targeted work and target-branch comparisons alike. No automatic
+merge or target-branch repair is performed.

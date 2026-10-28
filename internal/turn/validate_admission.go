@@ -228,7 +228,7 @@ func admitValidateExecution(ctx context.Context, opts Options, req Request, resu
 	}
 	// Only the /validate instruction command starts Validate. Owner replies
 	// inside a running Validate belong to its own owner steps.
-	if req.Command.Kind != KindSpike || req.Command.Name != "/validate" {
+	if (req.Command.Kind != KindSpike && req.Command.Kind != KindSpikeEmpty) || req.Command.Name != "/validate" {
 		return result, false, nil
 	}
 	out, err := rt.admit(ctx)
@@ -290,6 +290,23 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		rt.entry = entry
 		return rt.launch(ctx, spikeNow(opts))
 	}
+	// A replay remains bound to its original graph even after a later full
+	// request replaced the entry's current instance. It cannot cancel that run.
+	if instance, found, err := opts.DB.WorkflowLaunchInstance(ctx, rt.session.ID, req.Trigger.CommentID); err != nil {
+		return rt.result, err
+	} else if found {
+		old, err := opts.DB.GetGraphInstance(ctx, instance)
+		if err != nil {
+			return rt.result, err
+		}
+		definition, err := opts.DB.GetGraphDefinition(ctx, old.DefinitionID)
+		if err != nil {
+			return rt.result, err
+		}
+		if definition.Mode == string(agent.ModeValidate) && old.Status != store.GraphRunning {
+			return rt.refuse(ctx, "This Validate request already belongs to an ended run. Its result remains retained; nothing new was started.")
+		}
+	}
 	if err := opts.DB.CheckRepairWorktree(ctx, rt.session.ID, 0); err != nil {
 		return rt.refuse(ctx, err.Error())
 	}
@@ -348,6 +365,13 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		rt.entry, _, err = opts.DB.EnsureValidateEntry(ctx, in, now)
 	}
 	if err != nil {
+		return rt.result, err
+	}
+	policy := "auto"
+	if rt.entry.Note == "full" {
+		policy = "full"
+	}
+	if _, err := opts.DB.EnsureValidationRequest(ctx, store.ValidationRequest{Lineage: fmt.Sprintf("%s/session/%d", rt.session.TaskRef, rt.session.ID), SourceKey: fmt.Sprintf("entry/%d/comment/%d/commit/%s", rt.entry.ID, rt.entry.CommentID, rt.entry.Commit), Policy: policy, Commit: rt.entry.Commit}); err != nil {
 		return rt.result, err
 	}
 	if !gate.Open {
@@ -415,7 +439,7 @@ func (rt *validateRuntimeState) endWaitingSameCommit(ctx context.Context, entry 
 	if err != nil {
 		return false, err
 	}
-	if outcome.Outcome != store.ValidateAssessed {
+	if outcome.Outcome != store.ValidateAssessed && rt.req.Command.Text != "full" {
 		return false, nil
 	}
 	gate, err := ValidateEntryGate(ctx, db, rt.session)

@@ -25,7 +25,12 @@ role:
 
 Criteria are always `blocking`. A review is `blocking` or `advisory`. Each
 finding has at least one entry of evidence. `check_ids` may hold only check IDs
-from your evidence list, and only passed commands prove a finding.
+from your evidence list. Executed passes and authenticated inherited passes can
+prove reusable execution requirements; fresh-execution requirements need a pass
+executed on this tested commit. Cite the supplied assessment check ID, never an
+invented origin ID. Explain inherited coverage as inherited, with its retained
+source. Proven base failures and unresolved evidence cannot prove a passing
+criterion. Raw failed attempts remain failed.
 
 # completed
 

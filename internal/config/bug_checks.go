@@ -18,6 +18,10 @@ const BugRecipeLimit = 1 << 20
 
 // BugCheckCommand declares one bounded argv invocation and environment-name references.
 type BugCheckCommand struct {
+	// Observe is a factory-only result-capture protocol. Recipe decoding cannot
+	// select observers or supply artifact paths.
+	Observe string `yaml:"-" json:"-"`
+
 	Argv           []string `yaml:"argv" json:"argv"`
 	CWD            string   `yaml:"cwd,omitempty" json:"cwd"`
 	Env            []string `yaml:"env,omitempty" json:"env"`

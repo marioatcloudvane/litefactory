@@ -8,18 +8,68 @@ The graph is `teams/source/base-team/validate/validate.dot`, and it is the only 
 
 ## The suite
 
-The suite step runs the `full` phase of the repository's check recipe (`.litefactory/bug-checks.yaml`, read from the tested commit; see [Bug checks](../bug-checks.md)) on one exact commit, in the check sandbox. It is:
+New source-team captures enable the versioned coverage contract. Runtime admission
+applies the freshness readiness policy separately for each runner: Go and pytest are verified
+for automatic selection; .NET VSTest, Microsoft.Testing.Platform and xcodebuild
+remain on unchanged full execution while their native test-body freshness evidence
+is pending. Their reports show this pending state and the full-run reason. Pending
+native evidence does not block Go or pytest selection or release. Other coverage,
+compatibility and safety checks still apply before any work can be omitted.
 
-- **passed** when every command exits 0 on an unchanged snapshot,
-- **failed** when a command exits 1 (later commands do not run),
-- **blocked** when there is no recipe, the full phase is empty, a command exits with another code, the snapshot changed, or an earlier run could not be confirmed stopped.
+Enabling selection for a pending runner requires successful native freshness
+fixtures for that runner on a suitable host. Missing native tools and skipped
+fixtures are pending evidence, not successful checks. The retained prerequisite
+mode is
+`LF_REQUIRE_NATIVE_FRESHNESS=1 go test ./internal/turn -run '^(TestValidateVSTestNativeFullRequestFreshness|TestValidateMTPNativeFullRequestFreshness|TestValidateFreshFullRequestsExecuteWarmXcodeBodies)$' -count=1 -timeout=15m`.
+It fails rather than skips when a required native tool, dependency or execution
+capability is unavailable. This mode gates future enablement of those runners;
+it is not a prerequisite for the verified Go and pytest paths.
 
-A finished result for the commit is reused as it is. Validate does not use the stack profile's own `checks` for this.
+The suite step starts from every command in the repository recipe's `full`
+phase (`.litefactory/bug-checks.yaml`, read from the tested commit; see
+[Bug checks](../bug-checks.md)). Plain `/validate` chooses checks automatically;
+`/validate <text>` retains owner guidance. Exact `/validate full` requests a fresh
+full suite even on an unchanged commit. Two distinct full requests create distinct
+generations; replay of the same source request resumes or returns its own result.
+Fresh execution bypasses test-result caches without clearing shared build caches.
+
+Compatible captured workflows can first re-check prior failures, then run all
+affected and unfinished obligations. They omit an unaffected unit only with
+complete retained evidence, matching execution conditions and proven ancestry
+from its original execution commit. Impact considers old and current dependencies,
+including deleted sources, renames and merged target-branch changes. Unknown
+runner capabilities, opaque wrappers, shared inputs, changed recipes or toolchains,
+incomplete history and missing compatibility proof cause complete project checks
+or the unchanged full recipe. Other runners keep full execution. The recipe,
+working directory, environment, race checks, fixtures and build prerequisites
+remain authoritative.
+
+The immutable command ledger keeps factual `passed`, `failed`, `blocked` and
+interrupted results. A separate assessment distinguishes executed passes,
+inherited passes, transient retries, proven pre-existing failures and unresolved
+coverage. `covered` means every obligation is accounted for by verified evidence;
+it can include failed history. An inherited pass was not executed on the current
+commit. A failed identity receives one uncached retry before attribution. A retry
+pass is transient with both attempts retained. A persistent failure is exempted
+only by equivalent complete evidence matching both identity and diagnostics on the
+configured delivery target commit pinned at comparison start. A missing, skipped,
+deleted or unmatched identity stays unresolved. No target branch is merged or
+updated automatically. A picked-up base fix requires containment and passing
+relevant coverage on the tested branch.
+
+The suite returns `passed` for a passing fresh execution, `covered` for satisfied
+coverage using retained or comparison evidence, `failed` for attributable feature
+failures, and `blocked` when required evidence or execution safety cannot be
+established. A proven matching base failure removes only its suite blocker;
+unmatched failures and unrelated review, approval and delivery gates remain.
+Opaque full commands can pass factually without establishing inheritable metadata.
+Older captures keep their existing full-suite behavior and cannot grant the new
+coverage exemptions. A fresh full request still bypasses result reuse.
 
 ## Flow
 
 ```
-suite -> passed:  review
+suite -> passed | covered: review
          failed:  repair budget -> repair agent -> repair check
          blocked: review
 repair check -> kept:       suite (on the new commit)
@@ -32,9 +82,10 @@ owner resolve -> repair: repair budget (owner-chosen findings)
                  apply_repair: exact retained adoption -> suite | blocked: report
 ```
 
-A finished suite result for the commit is reused as it is. The suite runs again
-only on a new commit from a kept repair or verified owner adoption. A blocked suite is not a code failure, so it
-is not repaired; it still gets reviews and ends blocked with the suite's reason.
+A replay returns its retained request generation. A distinct fresh-full request
+runs again, including on an unchanged commit. A kept repair or verified owner
+adoption tests its new commit with automatic coverage selection. A blocked suite
+is not a code failure, so it is not repaired; it still gets reviews and ends blocked with the suite's reason.
 
 ## Repair
 
@@ -83,7 +134,8 @@ flagged rounds, two-round budgets and shipping gates stay unchanged.
 
 ### Repairs the owner chooses
 
-When the suite passed and the reviewers raised findings, the owner can answer
+When the suite coverage is satisfied and the reviewers raised findings, the owner
+can answer
 `/validate-finding <rev> <finding id> repair`. The choice is recorded; once every
 blocking finding of the tested commit has a choice, that reply makes the resolve
 step return `repair`, and one round starts for all findings chosen for repair.
@@ -110,9 +162,11 @@ retained result before anything is started again.
 Findings use the existing Validate assessment shape, tied to the commit's
 snapshot. Acceptance covers every criterion and the plan review, code covers the
 code review, architecture covers the architecture review. A criterion is
-satisfied only by citing a passed suite command of the same commit; anything that
-cannot be proven is unverified. A missing, failed or malformed reviewer result
-stays unresolved, never satisfied.
+satisfied only by the proof its requirement needs: an executed passing check or
+a verified inherited pass for a reusable execution requirement. A requirement for
+fresh execution needs a pass on the tested commit. Proven base failures are not
+passing criterion evidence; anything that cannot be proven is unverified. A
+missing, failed or malformed reviewer result stays unresolved, never satisfied.
 
 ## Ends
 
@@ -160,6 +214,14 @@ ids (`story-key:criterion-or-review`), evidence, the handback text, what is open
 the exact next commands. Its revision is a short digest of the tested commit, the
 findings, verdicts, choices and effect states.
 
+The coverage report names the tested and preceding suite commits, original
+execution anchors, pinned comparison commit, selected work and omitted work with
+its retained sources. It keeps unresolved reasons, exceptions and full-run
+fallback causes visible. Duration measures validation work; any savings are
+labelled estimates against a comparable measured full run. Without that baseline,
+no numeric savings are claimed. Assessment evidence and its digest are bound to
+the report revision; changed evidence needs the usual fresh owner decision.
+
 ### Owner commands
 
 One-line commands accept the explicit report revision or the displayed short reference. Omit the target only while every unresolved display for that action has the same target and no newer target exists. Replacement requires its short reference; stale explicit references are refused.
@@ -191,8 +253,8 @@ or issue choice never clears a blocking finding. An unverified item can be clear
 by an evidenced owner pass; an unmet defect requires a new tested snapshot, such
 as the commit a kept repair makes.
 Reviewer status and evidence remain unchanged by owner verdicts. Missing reviews and unmet defects cannot be manually passed.
-Push is offered only when the suite passed, every criterion is satisfied or
-owner-passed, no blocking finding is open, every optional finding has a choice and
+Push is offered only when the suite passed or its verified coverage is satisfied,
+every criterion is satisfied or owner-passed, no blocking finding is open, every optional finding has a choice and
 no issue creation is pending, failed or uncertain.
 
 ### Remote effects
