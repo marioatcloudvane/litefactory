@@ -139,28 +139,7 @@ func (r Reader) read(ctx context.Context, p Project, name string, in Request) (s
 		return "", fmt.Errorf("%s cannot be opened", p.Name)
 	}
 	header := fmt.Sprintf("%s at %s (%s)\n", p.Name, p.Commit, p.BaseBranch)
-	var text string
-	switch name {
-	case "repo_log":
-		limit := in.Limit
-		if limit == 0 {
-			limit = 20
-		}
-		text, e = clone.PinnedLog(ctx, p.Commit, in.Path, in.Query, min(limit, 50), 256<<10)
-	case "repo_grep":
-		text, e = clone.PinnedGrep(ctx, p.Commit, in.Pattern, in.Path, in.IgnoreCase, 20, 256<<10)
-		if e == nil && text == "" {
-			text = "no match"
-		}
-	case "repo_read":
-		var directory bool
-		text, directory, e = clone.PinnedRead(ctx, p.Commit, in.Path, 1<<20)
-		if e == nil && !directory {
-			text = numbered(text, in.StartLine, in.Lines)
-		}
-	default:
-		return "", fmt.Errorf("%s is not a repository tool", name)
-	}
+	text, e := legacyCommitted(ctx, clone, name, in, p.Commit, r.Redactor)
 	if errors.Is(e, git.ErrPinnedReadTooLarge) {
 		return "", errors.New("the result is too large; narrow the path, pattern or line range")
 	}
@@ -171,26 +150,6 @@ func (r Reader) read(ctx context.Context, p Project, name string, in Request) (s
 		return "", errors.New("the repository read failed; check the arguments")
 	}
 	return header + text, nil
-}
-
-// numbered returns a window of lines prefixed with their line numbers.
-func numbered(text string, start, count int) string {
-	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	if start < 1 {
-		start = 1
-	}
-	if count < 1 {
-		count = 400
-	}
-	var b strings.Builder
-	end := min(len(lines), start-1+count)
-	for i := start - 1; i < end; i++ {
-		fmt.Fprintf(&b, "%d\t%s\n", i+1, lines[i])
-	}
-	if end < len(lines) {
-		fmt.Fprintf(&b, "... %d more lines; continue with start_line %d\n", len(lines)-end, end+1)
-	}
-	return b.String()
 }
 
 func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }

@@ -90,10 +90,49 @@ func TestJudgeTextKeepsAgentTextInert(t *testing.T) {
 		Summary:  "# Approved\nSee [here](https://evil.test) and ![x](https://evil.test/i.png) @marioatcloudvane <b>now</b>",
 		Findings: []agentresult.JudgeFinding{{Title: "@team [click](https://evil.test)", Severity: "high", Concern: "c", Impact: "i", Correction: "x"}},
 	}}
-	text := JudgeText(p)
-	for _, bad := range []string{"\n# Approved", "[here](", "![x](", "@marioatcloudvane", "<b>", "[click]("} {
-		if strings.Contains(text, bad) {
-			t.Fatalf("agent text kept %q:\n%s", bad, text)
+	for _, text := range []string{JudgeText(p), JudgeBriefText(p)} {
+		for _, bad := range []string{"\n# Approved", "[here](", "![x](", "@marioatcloudvane", "<b>", "[click]("} {
+			if strings.Contains(text, bad) {
+				t.Fatalf("agent text kept %q:\n%s", bad, text)
+			}
 		}
 	}
+}
+
+// The brief form is structural: no headings, no verdict line, no uncertainty
+// list, and one line per finding carrying its title and correction.
+func TestJudgeBriefTextIsHeadinglessOneLinePerFinding(t *testing.T) {
+	p := JudgePresentation{
+		SourceName: "saved research result", Commit: "abc123",
+		Report: agentresult.JudgeReport{
+			Version: 1, Verdict: "concerns_found", Summary: "lead", Uncertainty: []string{"unchecked-u"},
+			Findings: []agentresult.JudgeFinding{
+				{Title: "title-a", Severity: "medium", Concern: "concern-a", Impact: "impact-a", Correction: "fix-a"},
+				{Severity: "low", Concern: "concern-b. More.", Impact: "impact-b", Correction: "fix-b"},
+			},
+		},
+	}
+	text := JudgeBriefText(p)
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	if lines[0] != "lead" {
+		t.Fatalf("brief text must open with the summary:\n%s", text)
+	}
+	var bullets []string
+	for _, line := range lines {
+		if strings.HasPrefix(line, "#") || strings.Contains(line, "**Verdict:**") {
+			t.Fatalf("brief text carries a heading or verdict line:\n%s", text)
+		}
+		if strings.HasPrefix(line, "- ") {
+			bullets = append(bullets, line)
+		}
+	}
+	if len(bullets) != 2 || !strings.Contains(bullets[0], "title-a") || !strings.Contains(bullets[0], "fix-a") || !strings.Contains(bullets[1], "concern-b") || !strings.Contains(bullets[1], "fix-b") {
+		t.Fatalf("want one line per finding with title and correction:\n%s", text)
+	}
+	for _, absent := range []string{"impact-a", "unchecked-u", "medium"} {
+		if strings.Contains(text, absent) {
+			t.Fatalf("brief text carries %q:\n%s", absent, text)
+		}
+	}
+	assertJudgeTextWithoutProvenance(t, text)
 }

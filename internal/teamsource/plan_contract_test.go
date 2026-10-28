@@ -26,7 +26,9 @@ func planPackageRegistry(t *testing.T) graphexec.Registry {
 		{Name: "lf_agent", Mode: agent.ModePlan, Outcomes: []string{"success", "failed"}},
 		graphexec.ControlSpec("lf_if", policy), graphexec.ControlSpec("lf_loop", policy),
 		{Name: "lf_ask", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}}},
-		{Name: "lf_comment", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"failure", "final"}}}}, graphexec.PlanStorySpec(), graphexec.PlanGateSpec(),
+		{Name: "lf_comment", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"failure", "final", "advisory"}}}}, graphexec.PlanStorySpec(), graphexec.PlanGateSpec(),
+		// The shipped Plan graph carries judge nodes, as production registers.
+		graphexec.JudgeSpec(agent.ModePlan),
 	}
 	for _, s := range specs {
 		if err := r.Register(s); err != nil {
@@ -93,6 +95,10 @@ func TestPlanPackageClosureAndDigest(t *testing.T) {
 	var keys []string
 	for name, raw := range definition.Files {
 		keys = append(keys, name)
+		// Factory judge resources are captured, never shipped in team content.
+		if _, shipped := fixture[name]; !shipped && strings.HasPrefix(name, "judge/") {
+			continue
+		}
 		if !bytes.Equal(raw, fixture[name].Data) {
 			t.Fatalf("captured bytes differ for %s", name)
 		}
@@ -172,11 +178,12 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 			if stage == "story" {
 				afterReview = "story_pick"
 			}
-			draftTarget := stage + "_review"
+			// The owner is asked after the advisory judge: check, then advice.
+			draftTarget := stage + "_check"
 			if stage == "set" {
 				draftTarget = "set_gate"
 			}
-			cases := []struct{ node, outcome, want string }{{stage + "_loop", "false", "stopped"}, {stage + "_question", "true", stage + "_ask"}, {stage + "_draft", "applied", draftTarget}, {stage + "_draft", "uncertain", "failed"}, {stage + "_draft", "conflict", "failed"}, {stage + "_draft", "failed", "failed"}, {stage + "_agent", "failed", "failed"}, {stage + "_review", "published", afterReview}, {stage + "_ask", "published", "waiting"}}
+			cases := []struct{ node, outcome, want string }{{stage + "_check", "success", stage + "_advice"}, {stage + "_check", "failed", stage + "_advice"}, {stage + "_advice", "published", stage + "_review"}, {stage + "_loop", "false", "stopped"}, {stage + "_question", "true", stage + "_ask"}, {stage + "_draft", "applied", draftTarget}, {stage + "_draft", "uncertain", "failed"}, {stage + "_draft", "conflict", "failed"}, {stage + "_draft", "failed", "failed"}, {stage + "_agent", "failed", "failed"}, {stage + "_review", "published", afterReview}, {stage + "_ask", "published", "waiting"}}
 			for _, tt := range cases {
 				got, ok := graphexec.Decide(d.Profile, tt.node, tt.outcome)
 				if !ok || got != tt.want {
@@ -184,7 +191,7 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 				}
 			}
 			if stage == "set" {
-				for _, c := range []struct{ outcome, want string }{{"false", "set_review"}, {"true", "promoted"}} {
+				for _, c := range []struct{ outcome, want string }{{"false", "set_check"}, {"true", "promoted"}} {
 					if got, ok := graphexec.Decide(d.Profile, "set_gate", c.outcome); !ok || got != c.want {
 						t.Errorf("set_gate/%s=%q,%v want %s", c.outcome, got, ok, c.want)
 					}

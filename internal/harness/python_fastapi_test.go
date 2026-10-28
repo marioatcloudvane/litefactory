@@ -3,6 +3,7 @@ package harness
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -30,8 +31,10 @@ func TestClaudeRecordsReleasedPythonFastAPIProfile(t *testing.T) {
 	if err := profile.ValidateRetained(); err != nil {
 		t.Fatal("provider changed captured profile", err)
 	}
-	if profile.Effective.Guidance[0].ID != "python-fastapi" {
-		t.Fatal("wrong selected guidance")
+	// The profile may list shared guidance (owner-report) first; the resolver
+	// keeps the declared order, so look the stack guidance up by ID.
+	if !slices.ContainsFunc(profile.Effective.Guidance, func(g config.StackGuidance) bool { return g.ID == "python-fastapi" }) {
+		t.Fatal("python-fastapi guidance not selected")
 	}
 }
 

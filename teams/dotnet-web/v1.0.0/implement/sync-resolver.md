@@ -37,6 +37,7 @@ You are done when no conflict is left, the tests in scope pass apart from pre-ex
 # Must Do
 
  - Read the conflicted files, the base's change and the stories' change before you edit; follow the conventions you find.
+ - Keep the merged stories' `K-` invariants and `Covers:` outcomes. A resolution that weakens one is a `Ruling:` line in `deviations`, never silent (implement-result, The outcome ledger). For conflicts in markdown files, resolve for consistent text and run only structural checks (implement-result, Work kinds).
  - Run the tests the Goal names and the linter on the changed packages, and fix every failure and finding the resolution causes before you submit a completed result. If a failing test or lint finding in that final run also fails the same way at either merge parent (`HEAD`, the feature branch, or `MERGE_HEAD`, the base), it is pre-existing: name it in your comment, do not repair it, and it does not block a completed result. To check, re-run only the failing tests at that commit in a scratch directory outside your worktree (for example `git archive <commit> | tar -x -C <new temp dir>`), and delete the directory afterwards. Never add a worktree or switch branches for this.
  - Give a plain-language reason that names the files whenever the outcome is not completed.
 

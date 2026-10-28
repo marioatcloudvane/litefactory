@@ -489,6 +489,17 @@ func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
 		return false, err
 	}
 	w := item.Wait
+	// With no review waiting, an active story takes ordinary input, such as the
+	// `/plan …` retry a failure notice offers, as feedback: the reply is consumed,
+	// nothing is approved, and the story's next stage runs again. This is the
+	// rule PlanReplyReason applies; approval and retirement commands still need
+	// their wait (#1229).
+	if w == nil && r.WaitID == "" && item.Active() {
+		if parts := strings.Fields(commandtext.Normalize(r.Body)); len(parts) == 0 || (parts[0] != "/approve-plan" && parts[0] != "/retire-plan") {
+			s.ConsumedReplies = append(s.ConsumedReplies, r.ID)
+			return false, nil
+		}
+	}
 	if w == nil || w.ID != r.WaitID || w.IssueID != r.IssueID || w.Stage != r.Stage || w.Candidate != r.Candidate || item.Candidate != r.Candidate {
 		return false, errors.New("stale or wrong-story Plan reply")
 	}

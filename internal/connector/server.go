@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"slices"
 	"strings"
@@ -19,18 +20,37 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Scope is the read authority behind the factory_overview tool. Every MCP
-// request requires a grant whose scope contains it.
+// Scope is the read authority behind the factory_overview tool.
 const Scope = "factory:overview"
+
+// DiscussionScope authorizes task evidence for tasks in covered repositories.
+const DiscussionScope = "task:discussion"
+
+// CodeReviewScope independently authorizes committed code and published rules.
+const CodeReviewScope = "task:code-review"
+
+// Usage scopes grant independent recorded-usage access.
+const (
+	FactoryUsageScope    = "factory:usage"
+	RepositoryUsageScope = "repository:usage"
+	TaskUsageScope       = "task:usage"
+)
 
 // ScopeInfo names one scope the connector can issue and says in one plain line
 // what it allows. The consent page shows the description next to the scope.
 type ScopeInfo struct{ Name, Description string }
 
 // KnownScopes lists every scope the connector can issue, in display order. A
-// client may request any non-empty subset; the owner ticks which to grant.
+// client may request any non-empty subset. The consent page offers all of
+// them, pre-ticks the requested ones, and the owner ticks which to grant.
+// store.ConnectorKnownScopes must list the same names.
 var KnownScopes = []ScopeInfo{
+	{Name: DiscussionScope, Description: "Read recorded status, results, questions, research, Plan and approval evidence for any task in the repositories selected below; the client names the task on each call. Read-only; it cannot change work or grant workflow approval."},
+	{Name: CodeReviewScope, Description: "Read committed task/base code, reachable history and changes, and published standards and role counts for any task in the selected repositories, from that task's own retained code repository. Requires task:discussion; read-only."},
 	{Name: Scope, Description: "Read the factory overview: health, current activity, open owner questions and reviews, and last week's publications. Read-only; it cannot change factory work."},
+	{Name: FactoryUsageScope, Description: "Read all recorded factory usage and historical estimates, including work without a repository. Read-only."},
+	{Name: RepositoryUsageScope, Description: "Read recorded usage and historical estimates for the repositories selected below, one repository per call. Read-only."},
+	{Name: TaskUsageScope, Description: "Read recorded usage and historical estimates for any task in the selected repositories and its linked report family, including retired history and later persisted links. Read-only."},
 }
 
 func knownScope(name string) bool {
@@ -74,6 +94,9 @@ type Options struct {
 	Now          func() time.Time
 	LocalControl *LocalControl
 	Overview     OverviewProvider
+	TaskEvidence TaskEvidenceProvider
+	Usage        UsageProvider
+	CodeEvidence CodeEvidenceProvider
 	GitHub       GitHubIdentityProvider
 	CookieKey    []byte
 	GitHubSecret string
@@ -87,6 +110,11 @@ type Server struct {
 	now          func() time.Time
 	localControl *LocalControl
 	overview     OverviewProvider
+	taskEvidence TaskEvidenceProvider
+	usage        UsageProvider
+	codeEvidence CodeEvidenceProvider
+	usageViews   usageCache
+	guidance     fs.FS
 	github       GitHubIdentityProvider
 	cookie       cipher.AEAD
 	transport    *transportState
@@ -132,7 +160,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		github = &GitHubProvider{ClientID: opts.Config.GitHubClientID, ClientSecret: opts.GitHubSecret}
 	}
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
-	return &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, github: github, cookie: aead, transport: newTransportState()}, nil
+	return &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}, nil
 }
 
 func randomCredential() (string, error) {

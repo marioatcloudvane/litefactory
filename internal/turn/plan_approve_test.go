@@ -37,15 +37,17 @@ func ungatedTechnicalPlan(t *testing.T) fstest.MapFS {
 		}
 	}
 	dot := string(out["plan.dot"].Data)
-	const applied = `technical_draft -> technical_review [lf_on="applied"];`
+	// The applied draft reaches the gate through the advisory judge, which the
+	// fixture keeps on the review outcome only.
+	const applied = `technical_draft -> technical_check [lf_on="applied"];`
 	if !strings.Contains(dot, applied) {
-		t.Fatal("shipped technical stage no longer routes its applied draft straight to the gate")
+		t.Fatal("shipped technical stage no longer routes its applied draft to the judge before the gate")
 	}
 	node := ` ` + ungatedTechnicalNode + ` [lf_action="lf_plan_approve", lf_source="technical_agent", lf_outcomes="approved,review,superseded,blocked,failed", lf_limit="8"];
 `
 	edges := `technical_draft -> ` + ungatedTechnicalNode + ` [lf_on="applied"];
  ` + ungatedTechnicalNode + ` -> waiting [lf_on="approved"];
- ` + ungatedTechnicalNode + ` -> technical_review [lf_on="review"];
+ ` + ungatedTechnicalNode + ` -> technical_check [lf_on="review"];
  ` + ungatedTechnicalNode + ` -> stopped [lf_on="superseded"];
  ` + ungatedTechnicalNode + ` -> failed [lf_on="blocked"];
  ` + ungatedTechnicalNode + ` -> failed [lf_on="failed"];`
@@ -86,14 +88,6 @@ func ungatedTechnicalFixture(t *testing.T) (f *fixture, base Request, forge *fak
 	}
 	arm = func(fn func(*planbrief.PlanState)) { change.Store(&fn) }
 	return f, base, forge, arm
-}
-
-// runToTechnical drafts the story stage, approves it as the owner, and so runs
-// the technical stage, which ends at the ungated approval.
-func runToTechnical(t *testing.T, f *fixture, base Request) {
-	t.Helper()
-	executeGraphPlan(t, f, base)
-	executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
 }
 
 func postsContaining(forge *fakeForge, text string) int {
@@ -195,7 +189,7 @@ func TestPlanApprove_UpstreamApprovalWithdrawnAsksTheOwner(t *testing.T) {
 	})
 	executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
 
-	if !strings.HasSuffix(executedUngated(t, f), ungatedTechnicalNode+" technical_review") {
+	if !strings.HasSuffix(executedUngated(t, f), ungatedTechnicalNode+" technical_check technical_advice technical_review") {
 		t.Fatalf("review outcome did not reach the stage gate: %s", executedUngated(t, f))
 	}
 	item := graphPlanState(t, f).Stories[0]

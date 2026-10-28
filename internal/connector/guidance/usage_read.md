@@ -1,0 +1,7 @@
+Use `usage_read` for recorded local usage and supported historical cost estimates within the consented factory, repository or task scope. Name the repository (and, for task usage, the issue) on each call; it must be in a repository the grant covers. Task usage includes its saved report family, including retired story history and links saved later; it does not authorize other task evidence.
+
+Select today, rolling_7_days, rolling_30_days, all_history, or timezone-aware RFC3339 from/to bounds. With no period, the server selects rolling_30_days. Explain the exact returned UTC bounds and scope rather than estimating dates on the client. Whole attempts are selected by their start time.
+
+Keep answers short and factual. Describe costs as estimates at the prices recorded for that work, never invoices or current-price quotations. Distinguish a complete supported estimate from a known subtotal whose full total is unknown. Preserve measured zero, missing usage, unknown models, missing prices, collection gaps, repository attribution and excluded helper overhead beside the amounts they affect. Do not infer missing history or forecast spending.
+
+Use breakdown or details and the returned cursor for supporting evidence. Continue with identical selectors and filters: pages retain the original bounds, totals and revision. A cursor is usable only while its view remains live; if retired, replaced or expired, start a fresh read and disclose its new observation. A complete summary retains no view. No other tool is required for usage-only access.

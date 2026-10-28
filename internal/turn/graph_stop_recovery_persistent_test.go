@@ -116,17 +116,18 @@ func TestGraphStopPersistentReporterRefusalRetainsDebt(t *testing.T) {
 	mustProgress(t, f.db.Close())
 	reopenPersistentStopFixture(t, f)
 	forge.recover()
-	_, err = newReporter(t, f, forge, nil).RecoverGraphStopQuestion(t.Context(), key)
-	if err == nil {
-		t.Fatal("unknown publication nonexecution blindly retried")
+	// A complete lookup with no marker-bearing comment reposts the retained
+	// question exactly once.
+	if _, err = newReporter(t, f, forge, nil).RecoverGraphStopQuestion(t.Context(), key); err != nil {
+		t.Fatalf("empty lookup did not repost: %v", err)
 	}
-	if forge.attemptCount() != 1 {
-		t.Fatalf("uncertain refusal repeated mutation: %d", forge.attemptCount())
+	if forge.attemptCount() != 2 || forge.only(t).body != before.Body {
+		t.Fatalf("repost count or bytes wrong: attempts=%d", forge.attemptCount())
 	}
 	after, err := f.db.GetReportDelivery(t.Context(), key)
 	mustProgress(t, err)
-	if after.Completed || after.Body != before.Body {
-		t.Fatalf("uncertainty erased: %+v", after)
+	if !after.Completed || after.Body != before.Body {
+		t.Fatalf("repost not recorded: %+v", after)
 	}
 }
 

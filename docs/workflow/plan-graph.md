@@ -21,6 +21,47 @@ A graph may leave a story, technical or acceptance stage without a gate. After t
 
 Questions and reviews wait for your reply with no time limit. If a stage runs out of its passes, it stops in a state you can resume with a reply. A failed agent or a failed issue update posts the cause and stops; nothing retries on its own.
 
+### Story sizing
+
+Story-set entries accept optional string fields `size` and `size_reason`. Sizes
+are exactly `S`, `M` or `L`. A supplied nonblank reason must be a single line of
+at most 280 Unicode code points, counted after trimming surrounding whitespace
+as with the intent. Accepted sizing text is retained as supplied. Omitted or
+blank reasons are allowed; a malformed nonblank reason or a wrong JSON type
+receives the normal result-contract error.
+
+For a newly created set, the factory adds size and reason columns to its owner
+table. A missing or invalid size and a blank reason appear as requested
+corrections beside the affected story. Invalid size strings remain visible;
+the factory does not infer a replacement. Matching structured correction facts
+reach the plan-set agent on its next existing invocation. These gaps do not
+reject the set, add an agent run, block planning or prevent owner promotion.
+
+The factory records `sizing_policy_version: 1` when it first creates a set.
+This is saved metadata, outside agent input and the entry revision hash.
+An existing set without that marker stays exempt through loading, cloning,
+proposal changes, promotion and replanning. Its unsized table keeps its previous
+columns. Voluntarily supplied sizing is shown without creating an obligation
+to fill gaps. No old set is backfilled; an older Plan with no set receives the
+new policy only if a set is actually created for the first time.
+
+Size and reason belong to the saved set. After promotion, the factory resolves
+each selected story through the saved entry-to-story key mapping and supplies
+its exact size and reason, sizing applicability and gaps to the story, technical
+and acceptance stages, including when a draft already exists. The first draft's
+promoted-entry facts also include sizing. Assigning sizes, choosing depth and
+presenting sizing in the final assembled review belong to the Plan role guidance;
+the factory does not impose task counts or criteria lengths by size. Outcome
+coverage and proof-link rules apply at every size.
+
+Changing only a supplied size or reason changes an unpromoted set's revision and
+requires a new review of that exact revision. Identical replay changes nothing.
+Omitted sizing preserves historical unsized revision bytes. A promoted set
+cannot be replaced, and only the existing owner approval path promotes a set.
+The existing limits of one to twelve entries, unique identities and names, and
+acyclic dependencies remain in force. Existing save and publication failures
+keep their failed or uncertain outcomes.
+
 ### Changes and retiring stories
 
 If you change the intent of a story, its stages are reopened. If you change the technical design, the technical stage is reopened. Approvals that clearly do not depend on the change are kept; when the factory cannot tell, it holds them for you to settle. A story can be retired with `/retire-plan` (the review shows the exact text): it is closed as not planned with its history kept, never deleted. The remaining stories must still have valid dependencies. `/plan-new-story` asks for one more story.

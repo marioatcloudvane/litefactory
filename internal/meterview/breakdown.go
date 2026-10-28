@@ -59,6 +59,7 @@ func ParseBreakdown(raw string) ([]string, error) {
 // BreakdownRow is one group of the selected dimensions. Fields outside the
 // selection stay empty.
 type BreakdownRow struct {
+	Project     string
 	Mode, Agent string
 	Model       *string
 	Issue       int64
@@ -101,13 +102,31 @@ func BuildBreakdown(ctx context.Context, db Reader, f store.MeterFilter, by []st
 		return b, classify(err)
 	}
 	defer func() { err = errors.Join(err, snapshot.Close(context.WithoutCancel(ctx))) }()
-	b = Breakdown{By: by, Total: report.MeterSummary{CollectionStatus: "unknown", PricingStatus: "unknown", HelperOverhead: "excluded"}}
+	b, err = breakdownFromPages(func() ([]store.MeterRow, error) { return snapshot.Next(ctx, 256) }, by)
+	return b, errors.Join(err, ctx.Err())
+}
+
+// BreakdownFromRows groups one previously acquired snapshot without a second read.
+func BreakdownFromRows(source []store.MeterRow, by []string) (b Breakdown, err error) {
+	return breakdownFromPages(rowsOnce(source), by)
+}
+
+func breakdownFromPages(next func() ([]store.MeterRow, error), by []string) (b Breakdown, err error) {
+	if len(by) == 0 {
+		return b, invalid("breakdown needs at least one dimension")
+	}
+	for _, d := range by {
+		if !slices.Contains(BreakdownDimensions, d) {
+			return b, invalid("unknown breakdown dimension")
+		}
+	}
+	b = Breakdown{By: slices.Clone(by), Total: report.MeterSummary{CollectionStatus: "unknown", PricingStatus: "unknown", HelperOverhead: "excluded"}}
 	groups := map[string]*BreakdownRow{}
 	refusals := map[string]bool{}
 	for {
-		page, e := snapshot.Next(ctx, 256)
-		if e != nil {
-			return b, classify(e)
+		page, err := next()
+		if err != nil {
+			return b, classify(err)
 		}
 		if len(page) == 0 {
 			break
@@ -137,7 +156,7 @@ func BuildBreakdown(ctx context.Context, db Reader, f store.MeterFilter, by []st
 					key.Model = row.ActualModel
 					parts = append(parts, fmt.Sprintf("o:%t:%s", row.ActualModel != nil, Amount(row.ActualModel)))
 				case "run":
-					key.Issue, key.Run = row.Issue, row.Run
+					key.Project, key.Issue, key.Run = row.Project, row.Issue, row.Run
 					parts = append(parts, fmt.Sprintf("r:%s#%d/%d", row.Project, row.Issue, row.Run))
 				}
 			}
@@ -158,10 +177,10 @@ func BuildBreakdown(ctx context.Context, db Reader, f store.MeterFilter, by []st
 		b.Rows = append(b.Rows, *g)
 	}
 	slices.SortFunc(b.Rows, func(x, y BreakdownRow) int {
-		return cmp.Or(cmp.Compare(x.Issue, y.Issue), cmp.Compare(x.Run, y.Run), cmp.Compare(x.Mode, y.Mode), cmp.Compare(x.Agent, y.Agent), cmp.Compare(Amount(x.Model), Amount(y.Model)))
+		return cmp.Or(cmp.Compare(x.Project, y.Project), cmp.Compare(x.Issue, y.Issue), cmp.Compare(x.Run, y.Run), cmp.Compare(x.Mode, y.Mode), cmp.Compare(x.Agent, y.Agent), cmp.Compare(boolOrder(x.Model != nil), boolOrder(y.Model != nil)), cmp.Compare(Amount(x.Model), Amount(y.Model)))
 	})
 	b.Refusals = len(refusals)
-	return b, ctx.Err()
+	return b, nil
 }
 
 // Label names the row by its selected dimensions in plain words.
@@ -188,7 +207,7 @@ func (r BreakdownRow) Label(by []string) string {
 			}
 			parts = append(parts, "model "+model)
 		case "run":
-			parts = append(parts, fmt.Sprintf("run %d of issue %d", r.Run, r.Issue))
+			parts = append(parts, fmt.Sprintf("run %d of %s#%d", r.Run, r.Project, r.Issue))
 		}
 	}
 	return strings.Join(parts, ", ")
@@ -239,4 +258,11 @@ func (b Breakdown) Lines() []string {
 		lines = append(lines, fmt.Sprintf("%d attempts were provider-reported zero-cost refusals.", b.Refusals))
 	}
 	return lines
+}
+
+func boolOrder(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

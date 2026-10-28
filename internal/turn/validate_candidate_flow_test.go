@@ -307,15 +307,8 @@ func TestValidateRetainedReviewDeliveryFailureAndLostReplyRecoverWithoutDuplicat
 			remote.unavailable = false
 			o.say(fmt.Sprintf("/validate-repair %s %s %s inspect", o.state().Revision, c.ID, c.ReviewDigest))
 			candidates, err = o.db.ListRepairCandidates(t.Context(), o.instance.ID)
-			if !lost {
-				if err != nil || candidates[0].ReviewComplete {
-					t.Fatalf("absent remote receipt must remain uncertain: error=%v", err)
-				}
-				if len(o.forge.bodies("Retained Validate repair candidate "+c.ID)) != 0 {
-					t.Fatal("uncertain delivery was blindly resent")
-				}
-				return
-			}
+			// A failed POST whose complete lookup finds no marker-bearing
+			// comment is reposted once; a lost reply recovers from its receipt.
 			if err != nil || !candidates[0].ReviewComplete {
 				t.Fatalf("review did not recover: error=%v notice=%s", err, o.notice())
 			}

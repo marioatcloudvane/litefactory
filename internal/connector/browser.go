@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"time"
@@ -164,8 +165,13 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
+	repositories, err := s.db.ListConnectorRepositories(r.Context())
+	if err != nil {
+		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
+		return
+	}
 	var page bytes.Buffer
-	if err := consentPage.Execute(&page, newConsentData(client, redirect.Host, b, csrf, s.now())); err != nil {
+	if err := consentPage.Execute(&page, newConsentData(client, redirect.Host, b, csrf, repositories, s.now())); err != nil {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
@@ -197,23 +203,38 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 	}
 	allow := form.Get("decision") == "allow"
 	now := s.now()
-	// Deny never depends on the scope or duration fields. Allow needs at least
-	// one ticked scope that the client requested and the connector knows, and
-	// one of the offered durations; anything else is refused without a grant
-	// and leaves the pending consent usable.
+	// Deny never depends on the scope, repository or duration fields. Allow
+	// needs at least one ticked scope the connector knows (requested by the
+	// client or not; RFC 6749 §3.3), one of the offered durations and, for
+	// task-level and repository-level scopes, a repository selection;
+	// anything else is refused with a page naming what was wrong, without a
+	// grant, and leaves the pending consent usable.
 	grantScope, grantExpires := b.Scope, now
+	var coverage *store.ConnectorCoverage
 	if allow {
 		var ok bool
-		if grantScope, ok = consentScope(form["scope"], b.Scope); !ok {
-			oauthError(w, http.StatusBadRequest, "invalid_scope")
+		if grantScope, ok = consentScope(form["scope"]); !ok {
+			consentRefusal(w, "invalid_scope", "tick at least one of the offered scopes")
 			return
 		}
 		months, ok := grantMonths(form.Get("duration"))
 		if !ok {
-			oauthError(w, http.StatusBadRequest, "invalid_request")
+			consentRefusal(w, "invalid_request", "choose one of the offered grant durations")
 			return
 		}
 		grantExpires = store.ConnectorGrantExpiry(now, months)
+		if store.ConnectorScopeHas(grantScope, CodeReviewScope) && !store.ConnectorScopeHas(grantScope, DiscussionScope) {
+			consentRefusal(w, "invalid_scope", CodeReviewScope+" also needs "+DiscussionScope+"; tick both")
+			return
+		}
+		if store.ConnectorRepositoryScoped(grantScope) {
+			selected, reason := consentCoverage(form, grantScope)
+			if reason != "" {
+				consentRefusal(w, "invalid_request", reason)
+				return
+			}
+			coverage = &selected
+		}
 	}
 	grantID, err := randomCredential()
 	if err != nil {
@@ -225,9 +246,17 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
-	grant := store.ConnectorGrant{ID: grantID, ClientID: b.ClientID, Resource: b.Resource, Scope: grantScope, OwnerID: s.cfg.OwnerID, OwnerGeneration: b.OwnerGeneration, CreatedAt: now, ExpiresAt: grantExpires}
+	grant := store.ConnectorGrant{ID: grantID, ClientID: b.ClientID, Resource: b.Resource, Scope: grantScope, OwnerID: s.cfg.OwnerID, OwnerGeneration: b.OwnerGeneration, CreatedAt: now, ExpiresAt: grantExpires, Coverage: coverage}
 	authorizationCode := store.ConnectorCode{Digest: digest(code), GrantID: grantID, ClientID: b.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: grantScope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: now.Add(5 * time.Minute)}
 	if err := s.db.ConsentConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, now, grant, authorizationCode, allow); err != nil {
+		if reason := store.ConnectorRefusalReason(err); reason != "" {
+			code := "invalid_request"
+			if errors.Is(err, store.ErrConnectorScope) {
+				code = "invalid_scope"
+			}
+			consentRefusal(w, code, reason)
+			return
+		}
 		storeOAuthError(w, err)
 		return
 	}

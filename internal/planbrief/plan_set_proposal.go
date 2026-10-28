@@ -30,9 +30,9 @@ func PlanSetPromotionCommand(revision string) string {
 }
 
 // PlanStorySetRevision derives the revision of a proposed set from its content
-// alone: the ordered entries with their temporary identities, names, intents and
-// dependencies. The same content always has the same revision and any change to
-// order, text or dependencies has another, so a review of one revision can never
+// alone: the ordered entries with their temporary identities, names, intents,
+// dependencies and optional sizing. The same content always has the same revision
+// and any change to it has another, so a review of one revision can never
 // stand for a different set. The order in which one entry lists its dependencies
 // carries no meaning and does not change the revision.
 func PlanStorySetRevision(entries []PlanStorySetEntry) string {
@@ -75,7 +75,11 @@ func (s *PlanState) ProposeStorySet(entries []PlanStorySetEntry) (revision strin
 	if len(s.Stories) > 0 {
 		return "", false, ErrPlanStorySetHasStories
 	}
-	set := &PlanStorySetState{Revision: revision, Entries: make([]PlanStorySetEntry, len(entries))}
+	policy := PlanStorySetSizingPolicyVersion
+	if s.StorySet != nil {
+		policy = s.StorySet.SizingPolicyVersion
+	}
+	set := &PlanStorySetState{Revision: revision, Entries: make([]PlanStorySetEntry, len(entries)), SizingPolicyVersion: policy}
 	for i, e := range entries {
 		e.ID, e.Name, e.Intent = strings.TrimSpace(e.ID), strings.TrimSpace(e.Name), strings.TrimSpace(e.Intent)
 		e.DependsOn = slices.Clone(e.DependsOn)
@@ -99,7 +103,13 @@ func RenderPlanStorySet(s *PlanStorySetState) (string, error) {
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "Proposed story set, revision `%s`\n\n", s.Revision)
-	out.WriteString("| ID | Name | Description | Dependencies |\n|---|---|---|---|\n")
+	showSizing := s.SizingApplicable() || slices.ContainsFunc(s.Entries, func(e PlanStorySetEntry) bool { return e.Size != "" || e.SizeReason != "" })
+	if showSizing {
+		out.WriteString("| ID | Name | Description | Dependencies | Size | Size reason |\n|---|---|---|---|---|---|\n")
+	} else {
+		out.WriteString("| ID | Name | Description | Dependencies |\n|---|---|---|---|\n")
+	}
+	gaps := s.SizingGaps()
 	for _, e := range s.Entries {
 		deps := make([]string, 0, len(e.DependsOn))
 		for _, id := range e.DependsOn {
@@ -112,7 +122,27 @@ func RenderPlanStorySet(s *PlanStorySetState) (string, error) {
 		if len(deps) > 0 {
 			dependsOn = strings.Join(deps, ", ")
 		}
-		fmt.Fprintf(&out, "| `%s` | %s | %s | %s |\n", e.ID, tableCell(e.Name), tableCell(e.Intent), dependsOn)
+		fmt.Fprintf(&out, "| `%s` | %s | %s | %s |", e.ID, tableCell(e.Name), tableCell(e.Intent), dependsOn)
+		if showSizing {
+			size, reason := tableCell(e.Size), tableCell(e.SizeReason)
+			for _, gap := range gaps {
+				if gap.EntryID != e.ID {
+					continue
+				}
+				if gap.Field == "size" {
+					if e.Size == "" {
+						size = "missing"
+					} else {
+						size += " (invalid)"
+					}
+					size += "; correction requested: " + gap.Expected
+				} else {
+					reason = "missing; correction requested: " + gap.Expected
+				}
+			}
+			fmt.Fprintf(&out, " %s | %s |", size, reason)
+		}
+		out.WriteString("\n")
 	}
 	out.WriteString("\nThis is a proposal only: no story exists until you promote it.\n")
 	fmt.Fprintf(&out, "To promote exactly this set, reply `%s`.\n", PlanSetPromotionCommand(s.Revision))

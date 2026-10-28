@@ -123,19 +123,7 @@ func (r *Runtime) Bind(ctx context.Context, allowInitial bool) (RuntimeStatus, e
 	switch {
 	case errors.Is(err, store.ErrNotFound) && allowInitial:
 		b := store.StandardsRunBinding{RootRunID: r.RootRunID, Source: "local-published-book", Outcome: "unavailable"}
-		rev, e := r.Store.GetStandardsRevision(ctx, 0)
-		if e == nil {
-			if rev.Publication == nil {
-				e = store.ErrStandardsCorrupt
-			} else {
-				p, pe := r.Store.GetStandardsProposal(ctx, rev.Publication.ProposalID, rev.Publication.Version)
-				if pe != nil {
-					e = pe
-				} else if p.SchemaVersion != 1 || changeDigest(p.BaseRevision, p.Operations) != p.ChangeDigest {
-					e = store.ErrStandardsCorrupt
-				}
-			}
-		}
+		rev, e := ReadPublishedRevision(ctx, r.Store, 0)
 
 		b.RevisionID = rev.ID
 		b.SchemaVersion = rev.SchemaVersion
@@ -769,12 +757,9 @@ func (r *Runtime) ForRole(ctx context.Context, role string, categories []string,
 	if cursor != "" && c.Digest != s.Binding.Digest {
 		return out, ErrInvalid
 	}
-	items := []Standard{}
-	for _, item := range snap.Standards {
-		if slices.Contains(item.AppliesTo, role) && (len(chosen) == 0 || slices.Contains(chosen, item.CategoryID)) {
-			items = append(items, item)
-			out.StandardIDs = append(out.StandardIDs, item.ID)
-		}
+	items := filterStandards(snap, role, chosen)
+	for _, item := range items {
+		out.StandardIDs = append(out.StandardIDs, item.ID)
 	}
 	text := Render(snap.Categories, items)
 	if c.Offset > len(text) || !utf8.ValidString(text[:c.Offset]) {
