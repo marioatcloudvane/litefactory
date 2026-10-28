@@ -132,3 +132,16 @@ Evidence:
 - `.aiteam/lf-1108-mcp-1-remote-mcp-endpoint-with-owner/2026-10-25/mcp-1-remote-mcp-endpoint-with-owner/RESEARCH_BRIEF.md:1`
 - `.aiteam/lf-984-graph-topology-still-decided-in-go/2026-10-19/graph-topology-still-decided-in-go/RESEARCH_BRIEF.md:1`
 - `internal/daemon/chat_gateway_internal_test.go:1`
+
+## F-13
+
+At shaping inspection commit 436cb605fa217839e7bab176a3861dc5946dcaf0, daemon documentation separates scheduling from turn execution, including restart reconciliation and delivery recovery; turn documentation specifies task locking, worktree isolation and post-before-record delivery; MCP composition binds durable result/receipt services and an attempt-scoped broker; graphexec documents navigation without execution or persistence. These support the proposed six-responsibility core view, but do not establish that these are isolated modules today; no runtime tests were run.
+
+Evidence:
+
+- `internal/daemon/doc.go:1`
+- `internal/turn/doc.go:1`
+- `internal/turn/mcp_runtime.go:329`
+- `internal/turn/mcp_runtime.go:425`
+- `internal/graphexec/doc.go:1`
+- `internal/submission/doc.go:1`

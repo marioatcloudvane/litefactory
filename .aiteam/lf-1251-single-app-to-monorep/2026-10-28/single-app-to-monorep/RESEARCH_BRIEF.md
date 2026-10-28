@@ -19,6 +19,9 @@ Brainstorm independent applications in a monorepo, identify Litefactory's larger
 - **K-02** — Preserve existing operator CLI commands, configuration compatibility, Discord behavior and remote MCP tools and scopes through any selected extraction milestone. (agent's call)
 - **K-03** — Keep factory approval and publication decisions in core, remote owner grants separate from attempt credentials, and authorization failures closed across every new boundary. (agent's call)
 - **K-04** — Preserve scheduling fairness, task locking, delivery retry semantics and interrupted-run handling rather than introducing stronger delivery promises during extraction. (agent's call)
+- **A-01** — Core visualization request — owner: "give me a visualization of factory core also, i want to dig in deeper!" (owner said)
+- **O-06** — Explain factory-core responsibilities and task flow with diagrams that distinguish observed behavior from proposed boundaries. (owner said: "give me a visualization of factory core also, i want to dig in deeper!")
+- **O-07** — Proposed core comprises intake/admission, scheduling/recovery, workflow/owner gates, Git workspaces, attempt/result authority and publication/recovery within one application, with read views for external adapters. (agent's call)
 
 
 ## Assumptions
@@ -29,6 +32,7 @@ Brainstorm independent applications in a monorepo, identify Litefactory's larger
 - **AS-04** — Default to one host and the existing operational environment; independent application startup, if selected, means an optional adapter can stop or restart without stopping core workflow execution, while core-dependent requests report unavailability rather than silently succeed. Based on existing optional connector and daemon lifecycle. (agent's call)
 - **AS-05** — Proposed ownership keeps workflow records, results and approval evidence with core; Discord owns transport credentials and conversation/delivery state, and remote MCP owns authentication, grants and tokens; logical ownership precedes any physical storage migration, which is required only for the full process split. Based on F-05 through F-08. (agent's call)
 - **AS-06** — Do not broaden factory behavior to match overlapping MCP steering or shared-confirmation proposals; preserve the baseline at implementation time and reconcile overlapping contracts without absorbing those features. Based on F-12. (agent's call)
+- **AS-07** — The deeper-visualization request adds explanatory detail without choosing q1–q3 or authorizing implementation; retain all three open questions unchanged. (agent's call)
 
 
 ## Open questions
