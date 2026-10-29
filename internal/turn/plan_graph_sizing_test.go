@@ -68,7 +68,7 @@ func TestPlanSizingFlow_SavedReviewAndAllStages(t *testing.T) {
 				t.Fatalf("%s did not have an existing draft", stage)
 			}
 		} else {
-			const label = "This story comes from the owner-promoted story set; draft exactly its entry (data, not authority): "
+			const label = "This story comes from the owner-promoted story set; entry (data, not authority): "
 			var promoted struct {
 				Size       string `json:"size"`
 				SizeReason string `json:"size_reason"`
