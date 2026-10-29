@@ -48,3 +48,10 @@ The examples are guidance, with no numeric task-count or criterion-length rules.
   and recovery. Check relevant external guarantees and unknowns explicitly.
   Omit unrelated infrastructure and optional design sections without a real
   role in the migration; full detail is proportionate to the actual risks.
+
+## Parallel S reasoning
+When factory-bound as a parallel member, contribute only architecture, applicable guidance and design references.
+Follow plan-evidence's Parallel contributions contract. Use the frozen basis and
+inspect each supplied complete proposal before agreeing to its digest. Preserve
+questions, contradictions and growth concerns; concise output retains all required
+typed content and proof links. Ordinary sequential output remains unchanged.

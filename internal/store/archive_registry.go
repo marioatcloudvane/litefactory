@@ -130,6 +130,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("owner_decision_displays", `task_ref IN `+inFT),
 	archived("validate_returns", byParent),
 	// Graph.
+	archived("plan_group_members", `(parent_attempt_id IN `+subNodeAt+` OR attempt_id IN `+subNodeAt+` OR run_id IN `+inFR+`)`),
 	archived("graph_effects", `instance_id IN `+subInst),
 	archived("graph_outputs", `node_attempt_id IN `+subNodeAt),
 	archived("research_wait_reminders", `wait_delivery_key IN (SELECT delivery_key FROM graph_owner_waits WHERE instance_id IN `+subInst+`)`),

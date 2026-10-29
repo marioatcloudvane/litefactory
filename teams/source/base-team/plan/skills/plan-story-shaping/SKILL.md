@@ -36,3 +36,10 @@ The examples are guidance, with no numeric task-count or criterion-length rules.
   compatibility outcomes explicit, along with affected users, dependencies,
   unknowns and the needed recovery outcome. Omit unrelated system history and
   solution design; larger size does not move architecture into this stage.
+
+## Parallel S reasoning
+When factory-bound as a parallel member, contribute only intent and proposed dependencies.
+Follow plan-evidence's Parallel contributions contract. Use the frozen basis and
+inspect each supplied complete proposal before agreeing to its digest. Preserve
+questions, contradictions and growth concerns; concise output retains all required
+typed content and proof links. Ordinary sequential output remains unchanged.

@@ -78,10 +78,18 @@ type PlanStorySetEntry struct {
 	SizeReason string   `json:"size_reason,omitempty"`
 }
 
-// PlanGraphBinding holds the values the factory owns for one graph Plan node. It
-// is trusted input, resolved afresh for every validation, so preflight and submit
-// see the same values for the same state and a changed state refuses old bytes.
+// PlanMemberBinding is the immutable factory authority of one group member.
+type PlanMemberBinding struct {
+	Group          string
+	Role           string
+	AttemptID      int64
+	Basis          string
+	ProposalDigest string
+}
+
+// PlanGraphBinding holds factory values resolved afresh at preflight and submit.
 type PlanGraphBinding struct {
+	Member *PlanMemberBinding
 	// Discussion permits a completed answer without a draft effect.
 	Discussion bool
 	// Story is the factory-selected story key the draft must carry.
@@ -113,6 +121,10 @@ func (b *PlanGraphBinding) Clone() *PlanGraphBinding {
 		return nil
 	}
 	c := *b
+	if b.Member != nil {
+		m := *b.Member
+		c.Member = &m
+	}
 	c.Upstream = slices.Clone(b.Upstream)
 	c.PromotedDependencies = slices.Clone(b.PromotedDependencies)
 	return &c
@@ -124,7 +136,7 @@ func (b *PlanGraphBinding) Clone() *PlanGraphBinding {
 // Each is edited whole; the set's entries have no target of their own because a
 // grant that names an absent nested collection cannot be read back as a baseline.
 func PlanGraphEditTargets() []Target {
-	return []Target{{Field: "payload.plan.storyrequest"}, {Field: "payload.plan.storyset"}}
+	return []Target{{Field: "payload.plan.storyrequest"}, {Field: "payload.plan.storyset"}, {Field: "payload.plan.contribution"}}
 }
 
 // maximumTargets is every field an edit could ever name for a mode.
@@ -161,6 +173,13 @@ func unbindPlanGraph(r *Result) {
 // validatePlanMode judges a Plan payload under the contract the trusted context
 // selects. Both preflight and submit reach it through ValidateResult.
 func validatePlanMode(p *Plan, outcome string, questions int, ctx Context, d *Diagnostics) {
+	if ctx.PlanGraph != nil && ctx.PlanGraph.Member != nil {
+		validatePlanMember(p, outcome, ctx, d)
+		return
+	}
+	if p.Contribution != nil {
+		add(d, "$.result.payload.plan.contribution", "scope", "factory-bound parallel member", "contribution", "Parallel contribution requires a member binding.")
+	}
 	if ctx.PlanGraph == nil {
 		base := "$.result.payload.plan"
 		if p.StoryRequest != nil {
@@ -451,4 +470,31 @@ func comparisonBytes(r Result) []byte {
 		return nil
 	}
 	return data
+}
+
+func validatePlanMember(p *Plan, outcome string, ctx Context, d *Diagnostics) {
+	base := "$.result.payload.plan.contribution"
+	b := ctx.PlanGraph.Member
+	if b.Group == "" || b.Basis == "" || b.AttemptID <= 0 {
+		add(d, base, "binding", "current group member", "invalid binding", "Invalid parallel member binding.")
+	}
+	if p.StoryRequest != nil || p.StorySet != nil || p.Summary != "" || p.Context != nil || len(p.Stories) > 0 {
+		add(d, base, "branch", "contribution only", "other plan fields", "Parallel members retain contributions only.")
+	}
+	if p.Contribution == nil {
+		if outcome == "completed" {
+			add(d, base, "required", "contribution", "absent", "Completed member requires contribution.")
+		}
+		return
+	}
+	c := *p.Contribution
+	if err := planbrief.ValidateParallelContribution(b.Role, c); err != nil {
+		add(d, base, "ownership", "role-owned sections", "invalid", err.Error())
+	}
+	if c.Draft.Key != "" && c.Draft.Key != ctx.PlanGraph.Story {
+		add(d, base+".draft.key", "binding", "selected story", "other story", "Contribution cannot change selected story.")
+	}
+	if c.Agreement != "" && (b.ProposalDigest == "" || c.Agreement != b.ProposalDigest) {
+		add(d, base+".agreement", "stale_binding", "current proposal digest", "different proposal", "Agreement must reference the current complete proposal.")
+	}
 }
