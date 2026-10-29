@@ -2894,6 +2894,11 @@ func (d *Daemon) run(
 	// never apply it, and a refused start must leave the wait open.
 	validateStart := mode == agent.ModeValidate && command.Name == "/validate"
 	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeImplement || mode == agent.ModeValidate || workflow == agent.WorkflowBug) && t.continuation == nil && !validateStart {
+		// A confirmed uncertain publication resumes its graph first, so the
+		// reply that triggered recovery can answer the question it confirmed.
+		if handled, err := d.recoverGraphPublications(ctx, t, trigger, workflow); handled || err != nil {
+			return d.leave(ctx, t, log, "graph publication recovery deferred", err)
+		}
 		if err := d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
 			// A comment written before the open question was published can
 			// never answer it. Refuse it once, visibly; the reply path consumes
@@ -3509,4 +3514,33 @@ func (d *Daemon) observeCandidateHold(ctx context.Context, c *candidate, at time
 		d.log.InfoContext(ctx, "session admission held", slog.Int64("session_id", c.session.ID), slog.String("task", c.ref.String()), slog.String("hold_kind", hold.kind), slog.String("recovery", hold.key), slog.String("state", hold.state), slog.String("reason", hold.reason), slog.Time("next_eligible", hold.nextAt))
 	}
 	return true
+}
+
+// graphPublicationRecovery is the optional executor seam that settles retained
+// graph comments and resumes a graph a confirmed delivery left stopped.
+type graphPublicationRecovery interface {
+	RecoverGraphPublications(ctx context.Context, sessionID int64, at time.Time) error
+}
+
+// recoverGraphPublications runs publication recovery under the session lock
+// before an owner reply is claimed. Bug runs keep their own recovery. A busy
+// lock defers the comment, as stopped-graph reply recovery does.
+func (d *Daemon) recoverGraphPublications(ctx context.Context, t *task, trigger turn.Trigger, workflow agent.Workflow) (handled bool, err error) {
+	recovery, ok := d.turn.(graphPublicationRecovery)
+	if !ok || workflow == agent.WorkflowBug {
+		return false, nil
+	}
+	acquired, err := d.db.AcquireSessionLock(ctx, t.session.ID, d.instanceID)
+	if err != nil {
+		return true, err
+	}
+	if !acquired {
+		d.commentFate(ctx, t, trigger.CommentID, fateDeferred, "deferred, graph publication recovery is waiting for the session lock")
+		t.recordWorkerStatus(workerDeferred)
+		return true, nil
+	}
+	defer func() {
+		err = errors.Join(err, d.db.ReleaseSessionLock(context.WithoutCancel(ctx), t.session.ID, d.instanceID))
+	}()
+	return false, recovery.RecoverGraphPublications(ctx, t.session.ID, t.tickAt.UTC())
 }
