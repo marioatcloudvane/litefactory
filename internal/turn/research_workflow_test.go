@@ -3,8 +3,11 @@ package turn
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -659,5 +662,275 @@ func TestResearchWorkflowIncompletePublicationStaysPending(t *testing.T) {
 	out, err := Execute(ctx, f.opts, next)
 	if !errors.Is(err, store.ErrWorkflowEffectsPending) || out.Reason == planAnswerNotApplied || out.Disposition == DispositionPrepareFailed || calls != 0 || forge.attemptCount() != 0 {
 		t.Fatalf("incomplete publication did not keep the comment pending: %+v calls=%d posts=%d err=%v", out, calls, forge.attemptCount(), err)
+	}
+}
+
+type failedReportRun struct {
+	f        *fixture
+	forge    *fakeForge
+	instance store.GraphInstance
+	attempt  store.GraphNodeAttempt
+	intent   store.GraphCommentIntent
+}
+
+// failedReportExecution runs Research to its report, whose POST gets a 500
+// that still created the comment, hidden from lookup. With confirm the forge
+// recovers and shows the comment, so report recovery can confirm it.
+func failedReportExecution(t *testing.T, confirm bool) failedReportRun {
+	t.Helper()
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		submitLiveResult(t, req, researchDoneJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: researchDoneJSON, FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledResearchFixture(t, runner)
+	forge.failCreatingWith(http.StatusInternalServerError, true)
+	if _, err := Execute(t.Context(), f.opts, req); err == nil {
+		t.Fatal("an uncertain report POST did not fail the run")
+	}
+	instance, err := f.db.LatestResearchInstance(t.Context(), f.session.ID)
+	mustProgress(t, err)
+	if instance.Status != store.GraphFailed || instance.CurrentNode != "report" {
+		t.Fatalf("instance did not fail at report: %+v", instance)
+	}
+	attempt, err := f.db.LatestGraphNodeAttempt(t.Context(), instance.ID, "report")
+	mustProgress(t, err)
+	intents, err := f.db.ListGraphComments(t.Context(), instance.ID, "", 100)
+	mustProgress(t, err)
+	if len(intents) != 1 || intents[0].Kind != "final" {
+		t.Fatalf("report intent: %+v", intents)
+	}
+	if confirm {
+		forge.recover()
+		forge.unhide()
+	}
+	return failedReportRun{f: f, forge: forge, instance: instance, attempt: attempt, intent: intents[0]}
+}
+
+func (r failedReportRun) probe(t *testing.T, query string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", store.DSN(r.f.db.Path()))
+	mustProgress(t, err)
+	defer func() { mustProgress(t, db.Close()) }()
+	_, err = db.ExecContext(t.Context(), query, args...)
+	mustProgress(t, err)
+}
+
+func researchDispatches(t *testing.T, db *store.DB, instanceID int64) []store.GraphDispatch {
+	t.Helper()
+	due, err := db.ListDueGraphDispatches(t.Context(), time.Now().Add(1000*time.Hour), 100)
+	mustProgress(t, err)
+	var out []store.GraphDispatch
+	for _, d := range due {
+		if d.InstanceID == instanceID {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func researchTransitionsFrom(t *testing.T, db *store.DB, instanceID int64, node string) int {
+	t.Helper()
+	transitions, err := db.ListGraphTransitions(t.Context(), instanceID)
+	mustProgress(t, err)
+	n := 0
+	for _, tr := range transitions {
+		if tr.FromNode == node {
+			n++
+		}
+	}
+	return n
+}
+
+// #1246: the failed report attempt names its exact publication, and once
+// recovery confirms that delivery the instance follows the published edge,
+// exactly once, without reposting.
+func TestResearchConfirmedReportResumesAtPublishedEdge(t *testing.T) {
+	r := failedReportExecution(t, true)
+	outputs, err := r.f.db.ListGraphOutputs(t.Context(), r.attempt.ID)
+	mustProgress(t, err)
+	named := false
+	for _, output := range outputs {
+		var identity struct {
+			DeliveryKey     string `json:"delivery_key"`
+			SourceAttemptID int64  `json:"source_attempt_id"`
+		}
+		if output.Kind == store.GraphOutputJSON && json.Unmarshal(output.Payload, &identity) == nil {
+			named = identity.DeliveryKey == r.intent.Key && identity.SourceAttemptID == r.intent.SourceAttemptID
+		}
+	}
+	if !named {
+		t.Fatalf("failed report attempt does not name its publication: %+v", outputs)
+	}
+	posts := r.forge.attemptCount()
+	for range 2 {
+		mustProgress(t, RecoverGraphPublications(t.Context(), r.f.opts, r.f.session.ID, time.Now()))
+	}
+	if r.forge.attemptCount() != posts {
+		t.Fatalf("recovery reposted: %d posts, want %d", r.forge.attemptCount(), posts)
+	}
+	delivery, err := r.f.db.GetReportDelivery(t.Context(), r.intent.Key)
+	mustProgress(t, err)
+	if !delivery.Completed {
+		t.Fatalf("delivery not confirmed: %+v", delivery)
+	}
+	instance, err := r.f.db.GetGraphInstance(t.Context(), r.instance.ID)
+	mustProgress(t, err)
+	if instance.Status != store.GraphRunning || instance.CurrentNode != "shapeloop" {
+		t.Fatalf("instance did not resume at shapeloop: %+v", instance)
+	}
+	if due := researchDispatches(t, r.f.db, r.instance.ID); len(due) != 1 || due[0].Node != "shapeloop" {
+		t.Fatalf("want one pending dispatch at shapeloop: %+v", due)
+	}
+	if n := researchTransitionsFrom(t, r.f.db, r.instance.ID, "report"); n != 1 {
+		t.Fatalf("report transitions = %d, want 1", n)
+	}
+}
+
+// #1246 C3, C4, C6: resume requires the failed attempt's own confirmed
+// publication on the session's newest instance; anything else stays put.
+func TestResearchConfirmedPublicationResumeGuards(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		confirm bool
+		mutate  func(t *testing.T, r failedReportRun) store.GraphInstance
+		resumes bool
+	}{
+		{name: "uncompleted delivery"},
+		{name: "failure kind", confirm: true, mutate: func(t *testing.T, r failedReportRun) store.GraphInstance {
+			r.probe(t, `UPDATE graph_comment_intents SET kind='failure' WHERE delivery_key=?`, r.intent.Key)
+			return store.GraphInstance{}
+		}},
+		{name: "unrestorable capture", confirm: true, mutate: func(t *testing.T, r failedReportRun) store.GraphInstance {
+			r.probe(t, `UPDATE research_launch_definitions SET content_digest=? WHERE instance_id=?`, strings.Repeat("e", 64), r.instance.ID)
+			return store.GraphInstance{}
+		}},
+		{name: "running instance", confirm: true, mutate: func(t *testing.T, r failedReportRun) store.GraphInstance {
+			r.probe(t, `UPDATE graph_instances SET status='running',finished_at=NULL WHERE id=?`, r.instance.ID)
+			return store.GraphInstance{}
+		}},
+		{name: "other source attempt", confirm: true, mutate: func(t *testing.T, r failedReportRun) store.GraphInstance {
+			payload := fmt.Sprintf(`{"delivery_key":%q,"comment_id":0,"source_attempt_id":%d}`, r.intent.Key, r.intent.SourceAttemptID+1000)
+			r.probe(t, `UPDATE graph_outputs SET payload=? WHERE node_attempt_id=? AND kind='json'`, []byte(payload), r.attempt.ID)
+			return store.GraphInstance{}
+		}},
+		{name: "legacy diagnostic naming another key", confirm: true, mutate: func(t *testing.T, r failedReportRun) store.GraphInstance {
+			r.probe(t, `DELETE FROM graph_outputs WHERE node_attempt_id=? AND kind='json'`, r.attempt.ID)
+			r.probe(t, `UPDATE graph_outputs SET payload=? WHERE node_attempt_id=? AND kind='diagnostic'`, []byte("report delivery other-key remains uncertain: server error"), r.attempt.ID)
+			return store.GraphInstance{}
+		}},
+		{name: "legacy diagnostic naming this key", confirm: true, resumes: true, mutate: func(t *testing.T, r failedReportRun) store.GraphInstance {
+			r.probe(t, `DELETE FROM graph_outputs WHERE node_attempt_id=? AND kind='json'`, r.attempt.ID)
+			return store.GraphInstance{}
+		}},
+		{name: "newer research instance", confirm: true, mutate: func(t *testing.T, r failedReportRun) store.GraphInstance {
+			newer, err := r.f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: r.f.session.ID, DefinitionID: r.instance.DefinitionID, CurrentNode: "investigate", StartedAt: time.Now()})
+			mustProgress(t, err)
+			return newer
+		}},
+		{name: "newer instance of another workflow", confirm: true, mutate: func(t *testing.T, r failedReportRun) store.GraphInstance {
+			pin, err := r.f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "plan", ProfileVersion: 1, Path: "plan/plan.dot", Digest: strings.Repeat("d", 64), CreatedAt: time.Now()})
+			mustProgress(t, err)
+			newer, err := r.f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: r.f.session.ID, DefinitionID: pin.ID, CurrentNode: "plan", StartedAt: time.Now()})
+			mustProgress(t, err)
+			return newer
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := failedReportExecution(t, c.confirm)
+			var newer store.GraphInstance
+			if c.mutate != nil {
+				newer = c.mutate(t, r)
+			}
+			before, err := r.f.db.GetGraphInstance(t.Context(), r.instance.ID)
+			mustProgress(t, err)
+			_ = RecoverGraphPublications(t.Context(), r.f.opts, r.f.session.ID, time.Now())
+			after, err := r.f.db.GetGraphInstance(t.Context(), r.instance.ID)
+			mustProgress(t, err)
+			due := researchDispatches(t, r.f.db, r.instance.ID)
+			moved := researchTransitionsFrom(t, r.f.db, r.instance.ID, "report")
+			if c.resumes {
+				if after.Status != store.GraphRunning || after.CurrentNode != "shapeloop" || len(due) != 1 || moved != 1 {
+					t.Fatalf("exact legacy match did not resume: %+v due=%+v transitions=%d", after, due, moved)
+				}
+				return
+			}
+			if after.Status != before.Status || after.CurrentNode != before.CurrentNode || len(due) != 0 || moved != 0 {
+				t.Fatalf("guard did not hold: before=%+v after=%+v due=%+v transitions=%d", before, after, due, moved)
+			}
+			if newer.ID != 0 {
+				got, err := r.f.db.GetGraphInstance(t.Context(), newer.ID)
+				mustProgress(t, err)
+				if got.Status != newer.Status || got.CurrentNode != newer.CurrentNode {
+					t.Fatalf("newer instance changed: %+v -> %+v", newer, got)
+				}
+			}
+		})
+	}
+}
+
+// #1246 C3: at a repeated ask node, an earlier completed question cannot settle
+// a later failed one; only confirming the later question's own delivery resumes.
+func TestResearchRepeatedAskResumesOnlyItsOwnPublication(t *testing.T) {
+	calls := 0
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		if calls == 1 {
+			submitLiveResult(t, req, researchAskJSON)
+			return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: researchAskJSON, FinishedAt: time.Now()}, nil
+		}
+		client := submission.Client{DescriptorPath: req.MCPLaunch.DescriptorPath()}
+		update := []byte(`{"expected_revision":1,"operations":[{"op":"set","target":{"field":"questions"},"value":[{"id":"Q-2","audience":"business","text":"Which endpoint?"}]}]}`)
+		submitted := mcpDecodeSubmission(t, mcpToolCall(t, client, "communication_submit", update))
+		if !submitted.Validation.Valid {
+			t.Fatalf("second question: %+v", submitted)
+		}
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: researchAskJSON, FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledResearchFixture(t, runner)
+	_, err := Execute(t.Context(), f.opts, req)
+	mustProgress(t, err)
+	instance, err := f.db.LatestResearchInstance(t.Context(), f.session.ID)
+	mustProgress(t, err)
+	first, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	mustProgress(t, err)
+	delivery, err := f.db.GetReportDelivery(t.Context(), first.DeliveryKey)
+	mustProgress(t, err)
+	reply := store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: 7, AuthorID: 7, CommentID: testComment + 1, QuestionCommentID: delivery.CommentID, TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Mode: "research", DeliveryKey: first.DeliveryKey, Body: "Inspect the HTTP boundary", At: time.Now()}
+	_, err = f.db.ClaimGraphOwnerReply(t.Context(), reply)
+	mustProgress(t, err)
+	forge.failCreatingWith(http.StatusInternalServerError, true)
+	req.Trigger.CommentID++
+	req.Trigger.Body = reply.Body
+	req.Command = ParseCommand(reply.Body)
+	if _, err = Execute(t.Context(), f.opts, req); err == nil {
+		t.Fatal("an uncertain question POST did not fail the run")
+	}
+	failed, err := f.db.GetGraphInstance(t.Context(), instance.ID)
+	mustProgress(t, err)
+	second, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	mustProgress(t, err)
+	if calls != 2 || failed.Status != store.GraphFailed || failed.CurrentNode != "ask" || second.DeliveryKey == first.DeliveryKey {
+		t.Fatalf("fixture: calls=%d instance=%+v first=%s second=%+v", calls, failed, first.DeliveryKey, second)
+	}
+	asked := researchTransitionsFrom(t, f.db, instance.ID, "ask")
+	// The second question is still uncertain; the first, completed one must not count.
+	_ = RecoverGraphPublications(t.Context(), f.opts, f.session.ID, time.Now())
+	got, err := f.db.GetGraphInstance(t.Context(), instance.ID)
+	mustProgress(t, err)
+	if got.Status != store.GraphFailed || got.CurrentNode != "ask" || researchTransitionsFrom(t, f.db, instance.ID, "ask") != asked {
+		t.Fatalf("an older completed question resumed a later failed one: %+v", got)
+	}
+	forge.recover()
+	forge.unhide()
+	mustProgress(t, RecoverGraphPublications(t.Context(), f.opts, f.session.ID, time.Now()))
+	got, err = f.db.GetGraphInstance(t.Context(), instance.ID)
+	mustProgress(t, err)
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	mustProgress(t, err)
+	if got.Status != store.GraphRunning || got.CurrentNode != "waiting" || researchTransitionsFrom(t, f.db, instance.ID, "ask") != asked+1 {
+		t.Fatalf("confirmed second question did not resume: %+v", got)
+	}
+	if wait.DeliveryKey != second.DeliveryKey || wait.State != "waiting" || len(researchDispatches(t, f.db, instance.ID)) != 0 {
+		t.Fatalf("resumed question must wait for its owner without a dispatch: %+v", wait)
 	}
 }

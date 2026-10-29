@@ -133,17 +133,27 @@ func (h CommentActivity) Execute(ctx context.Context, opts Options, req Activity
 	}
 	posted, key, err := h.Reporter.ReportWorkflowCandidate(ctx, source, req.Node, kind, candidate, scope, h.Policy.NextStep(h.Profile, req.Node, kind), h.Policy)
 	if err != nil {
-		return ActivityResult{Diagnostic: err.Error()}, err
+		// A retained publication's identity stays on the failed attempt, so
+		// recovery that confirms exactly this delivery can resume the graph.
+		failed := ActivityResult{Diagnostic: err.Error()}
+		if key != "" {
+			failed.Kind, failed.Output = store.GraphOutputJSON, publicationIdentity(key, 0, source.ID)
+		}
+		return failed, err
 	}
-	payload, err := json.Marshal(struct {
+	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: publicationIdentity(key, posted.CommentID, source.ID)}, nil
+}
+
+// publicationIdentity is a comment attempt's JSON output: the delivery it made
+// or attempted, its comment once known, and the source attempt it published.
+func publicationIdentity(key string, commentID, sourceAttemptID int64) []byte {
+	// This fixed scalar shape cannot fail JSON encoding.
+	raw, _ := json.Marshal(struct {
 		DeliveryKey     string `json:"delivery_key"`
 		CommentID       int64  `json:"comment_id"`
 		SourceAttemptID int64  `json:"source_attempt_id"`
-	}{key, posted.CommentID, source.ID})
-	if err != nil {
-		return ActivityResult{}, err
-	}
-	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: payload}, nil
+	}{key, commentID, sourceAttemptID})
+	return raw
 }
 
 func validateResearchComment(source store.GraphNodeAttempt, kind string, candidate agentresult.Result, scope agentresult.Context) error {

@@ -89,6 +89,12 @@ func (e turnExecutor) RecoverWorkflowJudges(ctx context.Context, at time.Time) e
 	return turn.RecoverWorkflowJudges(ctx, e.opts, at)
 }
 
+// RecoverGraphPublications settles retained graph comments and resumes a graph
+// whose comment step failed only on an uncertain, now confirmed, delivery.
+func (e turnExecutor) RecoverGraphPublications(ctx context.Context, sessionID int64, at time.Time) error {
+	return turn.RecoverGraphPublications(sessionContext(ctx, sessionID), e.opts, sessionID, at)
+}
+
 // RecoverImplementTimeout delivers and settles only factory-owned timeout
 // bookkeeping after a stopped worker. No provider or worktree step runs here.
 func (e turnExecutor) RecoverImplementTimeout(ctx context.Context, row store.ImplementStory) error {

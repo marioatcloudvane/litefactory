@@ -15,9 +15,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-const validateNodeInstructions = "\nFactory invocation: private Validate graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id (the shared result helper's preflight, submit and receipt methods are the same route). The accepted submission is this step's result, and the factory derives the step's response from it. Do not print a JSON result: terminal text is never read as a result, so end with a short plain-language note. The result is limited to 1 MiB.\n"
+const validateNodeInstructions = "\nFactory invocation: private Validate graph node. The accepted shared submission is this step's result; the factory derives the response from it. Terminal text is not a result. The result is limited to 1 MiB.\n"
 
-const validateNodeHardRules = "\nResult shapes: a repair step submits payload.validate.repair with response repaired, handback or blocked; a review step submits payload.validate.stories with one finding for each thing its role must cover. Never write that anything is accepted or approved, and never include a status of your own. You cannot ask the owner. Read the validate-repair-report or validate-review skill's node-result resource for the worked result of each shape before you submit.\n"
+const validateNodeHardRules = "\nResult shapes: a repair step uses payload.validate.repair with response repaired, handback or blocked; a review step uses payload.validate.stories with one finding for each thing its role covers. Result guidance: validate-repair-report or validate-review skill, node-result resource.\n"
 
 // ValidateWorkflowPolicy supplies Validate's response words, result decoder and
 // failure handling to the shared graph mechanisms. It carries no flow: order,
