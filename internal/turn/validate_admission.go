@@ -331,6 +331,13 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		// A run that ended without finishing is started anew only by an explicit
 		// owner command; the factory's own start never invents that authority.
 		ended := inst.Status == store.GraphFailed || inst.Status == store.GraphCancelled
+		// A run that handed this commit back to Implement is ended for the
+		// owner once that Implement round finished without a new commit.
+		if !auto && !ended {
+			if ended, err = rt.handbackRoundFinished(ctx, inst, existing.Commit); err != nil {
+				return rt.result, err
+			}
+		}
 		if !auto && !ended {
 			// A run that only waits for the owner after a passed suite is ended
 			// by the owner's /validate, so the reviews run again on the same commit.
@@ -412,6 +419,33 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		return rt.result, err
 	}
 	return rt.launch(ctx, now)
+}
+
+// handbackRoundFinished reports whether an ended Validate run handed its
+// commit back to Implement and that Implement round has finished: the handback
+// schedule succeeded, and a newer Implement coordinator run succeeded with
+// every approved story merged.
+func (rt *validateRuntimeState) handbackRoundFinished(ctx context.Context, inst store.GraphInstance, commit string) (bool, error) {
+	db := rt.opts.DB
+	if inst.Status != store.GraphSucceeded {
+		return false, nil
+	}
+	if handed, err := validateImplementStarted(ctx, rt.opts, inst.ID, commit); err != nil || !handed {
+		return false, err
+	}
+	status, _, err := db.ScheduleStatusBySource(ctx, inst.SessionID, validateImplementWorkID(inst.ID, commit))
+	if err != nil || status != store.ScheduleSucceeded {
+		return false, err
+	}
+	implement, err := db.LatestWorkflowInstance(ctx, inst.SessionID, string(agent.ModeImplement))
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil || implement.ID <= inst.ID {
+		return false, err
+	}
+	gate, err := ValidateEntryGate(ctx, db, rt.session)
+	return err == nil && gate.Open, err
 }
 
 // endWaitingSameCommit cancels a run on this commit that only waits for the
@@ -649,17 +683,43 @@ func (rt *validateRuntimeState) continueOwner(ctx context.Context) (Result, erro
 // reply to another instance or manufacturing a new owner wait.
 func (rt *validateRuntimeState) refuseNoValidateWait(ctx context.Context, instance *store.GraphInstance) (Result, error) {
 	text := validateNoWaitText
+	// After a finished handback round, name the command that brings main in;
+	// delivered work gets no restart advice.
+	handback, delivered := "", false
+	if instance != nil && instance.Status == store.GraphSucceeded {
+		// A run without a saved entry keeps the plain advice below.
+		if entry, err := rt.entryOf(ctx, instance.ID); err == nil {
+			handed, err := validateImplementStarted(ctx, rt.opts, instance.ID, entry.Commit)
+			if err != nil {
+				return rt.result, err
+			}
+			delivered = !handed
+			finished, err := rt.handbackRoundFinished(ctx, *instance, entry.Commit)
+			if err != nil {
+				return rt.result, err
+			}
+			if finished {
+				handback = fmt.Sprintf(" If main has moved since commit %s, comment `/implement <text>` on this issue: Implement brings main into the feature branch, and Validate then runs on the new head. To revalidate commit %s as it is, comment `%s`.", shortSHA(entry.Commit), shortSHA(entry.Commit), ValidateStartCommand)
+			}
+		}
+	}
 	if rt.opts.ResearchReporter != nil {
 		link, err := rt.opts.ResearchReporter.workflowDecisionURL(ctx, rt.result.Ref, rt.session.ID, report.ReplyValidateCommentNotApplied)
 		if err != nil {
 			return rt.result, err
 		}
 		if link != "" {
-			return rt.refuse(ctx, text+" Use the current choices and result in [this issue's Validate report]("+link+"). A fresh decision must use its displayed target and permitted owner; this refused reply gives no delivery permission.")
+			return rt.refuse(ctx, text+" Use the current choices and result in [this issue's Validate report]("+link+"). A fresh decision must use its displayed target and permitted owner; this refused reply gives no delivery permission."+handback)
 		}
 	}
 	if instance != nil && instance.Status == store.GraphRunning {
 		return rt.refuse(ctx, text+" Validate is still active, but no current decision destination is confirmed for this reply. Wait for its report to update automatically before choosing; do not repeat this old command to start another run.")
+	}
+	if handback != "" {
+		return rt.refuse(ctx, text+" No current decision destination is confirmed."+handback+" The new run does not approve delivery or replay this refused choice.")
+	}
+	if delivered {
+		return rt.refuse(ctx, text+" No current decision destination is confirmed. This Validate run already ended with its result delivered; nothing was started.")
 	}
 	return rt.refuse(ctx, text+" No current decision destination is confirmed. To request a new validation, the configured owner (the ticket approver when separate project approvers are enabled) can comment `"+ValidateStartCommand+"` on this issue after Implement finishes. The new run tests and reviews the current integration head; it does not approve delivery or replay this refused choice.")
 }
