@@ -147,14 +147,9 @@ func executeAdvisoryComment(ctx context.Context, opts Options, req ActivityReque
 
 func advisoryActivityResult(posted Posted, key string, sourceID int64, err error) (ActivityResult, error) {
 	if err != nil {
-		return ActivityResult{}, err
+		return ActivityResult{Diagnostic: err.Error(), Kind: store.GraphOutputJSON, Output: publicationIdentity(key, 0, sourceID)}, err
 	}
-	raw, err := json.Marshal(struct {
-		DeliveryKey     string `json:"delivery_key"`
-		CommentID       int64  `json:"comment_id"`
-		SourceAttemptID int64  `json:"source_attempt_id"`
-	}{key, posted.CommentID, sourceID})
-	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: raw}, err
+	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: publicationIdentity(key, posted.CommentID, sourceID)}, nil
 }
 
 // RecoverAdvisoryComment uses the exact retained bytes through the delivery
