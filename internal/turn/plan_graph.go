@@ -661,7 +661,7 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 	}
 	binding := planSetBinding(s)
 	if r.stage != planSetStage {
-		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; the factory binds the stage, candidate, request identity, upstream references and shared-decision revision to your result. Never supply them, and set draft.key to the selected story.\n", r.selected, r.stage)
+		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; the factory binds the stage, candidate, request identity, upstream references and shared-decision revision to your result. These fields are factory-owned; draft.key must equal the selected story. Guidance: plan-evidence node-result resource.\n", r.selected, r.stage)
 		binding += planOwnerRolesBinding(r.scope)
 		binding += planStorySizingBinding(s.StorySet, r.selected)
 		if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), r.selected); e == nil && d.IssueID > 0 && d.Candidate != "" {
