@@ -900,3 +900,180 @@ func TestValidateSameCommitRestartEndsOnlyAnIdleInstance(t *testing.T) {
 		})
 	}
 }
+
+// validateGraphInstances counts the session's Validate graph instances.
+func (v *validateAdmissionFixture) validateGraphInstances(t *testing.T) int {
+	t.Helper()
+	ctx := t.Context()
+	latest, err := v.f.db.LatestWorkflowInstance(ctx, v.f.session.ID, "validate")
+	if errors.Is(err, store.ErrNotFound) {
+		return 0
+	}
+	mustProgress(t, err)
+	n := 0
+	for id := int64(1); id <= latest.ID; id++ {
+		inst, err := v.f.db.GetGraphInstance(ctx, id)
+		if err != nil || inst.SessionID != v.f.session.ID {
+			continue
+		}
+		def, err := v.f.db.GetGraphDefinition(ctx, inst.DefinitionID)
+		mustProgress(t, err)
+		if def.Mode == "validate" {
+			n++
+		}
+	}
+	return n
+}
+
+// #1258: a Validate run handed its commit back to Implement (with
+// /validate-implement or /return; both record the same schedule) and ended.
+// Once that Implement round has finished with the head unchanged, the owner's
+// /validate starts exactly one fresh run on the same entry. Before the round
+// has finished, for delivered work, and for the factory's own start, nothing
+// starts and the entry keeps its instance.
+func TestValidateSameCommitAfterAFinishedHandbackStartsOneFreshRun(t *testing.T) {
+	for _, tc := range []string{"round finished", "schedule pending", "schedule succeeded without a newer round", "newer round running", "delivered", "auto start after a finished round"} {
+		t.Run(tc, func(t *testing.T) {
+			v := newValidateAdmissionFixture(t)
+			v.allMerged(t)
+			ctx := t.Context()
+			if _, handled, err := v.admit(t, v.request(5001, validateOwnerID, "/validate first")); !handled || !errors.Is(err, errValidateStop) {
+				t.Fatalf("handled=%v err=%v", handled, err)
+			}
+			first := v.entries(t)[0]
+			if tc != "delivered" {
+				scheduled, _, err := v.f.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: v.f.session.ID, SourceCommentID: validateImplementWorkID(first.InstanceID, v.head), OwnerHandle: "owner", Payload: ValidateImplementPayload, DueAt: implementClock})
+				mustProgress(t, err)
+				if tc != "schedule pending" {
+					if _, ok, err := v.f.db.ReserveSchedule(ctx, scheduled.ID, implementClock); err != nil || !ok {
+						t.Fatalf("reserve: %v %v", ok, err)
+					}
+					_, err = v.f.db.FinishSchedule(ctx, scheduled.ID, store.ScheduleSucceeded, 0, implementClock)
+					mustProgress(t, err)
+				}
+			}
+			mustProgress(t, v.f.db.SetGraphInstanceStatus(ctx, first.InstanceID, store.GraphSucceeded, time.Time{}, implementClock))
+			old, err := v.f.db.GetGraphInstance(ctx, first.InstanceID)
+			mustProgress(t, err)
+			switch tc {
+			case "round finished", "delivered", "auto start after a finished round":
+				v.implementRan(t, store.GraphSucceeded, nil)
+			case "newer round running":
+				v.implementRan(t, store.GraphRunning, nil)
+			}
+			req := v.request(5002, validateOwnerID, "/validate again")
+			if tc == "auto start after a finished round" {
+				stored, _, err := v.f.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: v.f.session.ID, SourceCommentID: 1 << 56, OwnerHandle: "owner", Payload: ValidateAutoPayload, DueAt: implementClock})
+				mustProgress(t, err)
+				req = v.request(stored.TriggerID(), 0, ValidateAutoPayload)
+			}
+			before := v.validateGraphInstances(t)
+			_, handled, err := v.admit(t, req)
+			if !handled {
+				t.Fatal("the start must be handled")
+			}
+			still, ierr := v.f.db.GetGraphInstance(ctx, first.InstanceID)
+			mustProgress(t, ierr)
+			if !reflect.DeepEqual(still, old) {
+				t.Fatalf("the handed-back run changed: %+v -> %+v", old, still)
+			}
+			entries := v.entries(t)
+			if tc != "round finished" {
+				if err != nil || v.validateGraphInstances(t) != before || len(entries) != 1 || !reflect.DeepEqual(entries[0], first) {
+					t.Fatalf("nothing may start: err=%v instances %d->%d entries=%+v first=%+v", err, before, v.validateGraphInstances(t), entries, first)
+				}
+				return
+			}
+			if !errors.Is(err, errValidateStop) || v.validateGraphInstances(t) != before+1 {
+				t.Fatalf("exactly one fresh run: err=%v instances %d->%d", err, before, v.validateGraphInstances(t))
+			}
+			fresh, err := v.f.db.LatestWorkflowInstance(ctx, v.f.session.ID, "validate")
+			mustProgress(t, err)
+			if len(entries) != 1 || entries[0].ID != first.ID || entries[0].State != store.ValidateEntryAdmitted || entries[0].Commit != v.head || entries[0].InstanceID != fresh.ID || fresh.ID <= first.InstanceID || fresh.Status != store.GraphRunning {
+				t.Fatalf("the same entry names the fresh run: %+v fresh=%+v first=%+v", entries, fresh, first)
+			}
+			// The same comment replayed goes on with the same fresh run.
+			if _, handled, err := v.admit(t, req); !handled || !errors.Is(err, errValidateStop) {
+				t.Fatalf("replay: handled=%v err=%v", handled, err)
+			}
+			if v.validateGraphInstances(t) != before+1 || v.entries(t)[0].InstanceID != fresh.ID {
+				t.Fatalf("the replay starts nothing new: %+v", v.entries(t))
+			}
+		})
+	}
+}
+
+// #1258 recovery: after a finished handback on commit X, main moves. The
+// owner's /implement admits a new coordinator that merges main into the
+// feature branch, and the owner's /validate then starts one run on that new
+// head under a new entry.
+func TestValidateAfterAHandbackAndAMainMoveRunsOnTheSyncedHead(t *testing.T) {
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("no agent runs: the coordinator syncs cleanly and Validate stops at its bindings")
+		return nil, nil
+	}))
+	ctx := t.Context()
+	parent := seedImplementParent(t, f,
+		store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
+		store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002})
+	mergeImplementStories(t, f, parent, map[string]string{}, "story-001", "story-002")
+	if out, err := Execute(ctx, f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	head := func() string {
+		f.repo.Git("fetch", "--quiet", "origin")
+		return f.repo.Git("rev-parse", "origin/lf/123-feature")
+	}
+	ref, err := naming.ParseRef(f.session.TaskRef)
+	mustProgress(t, err)
+	v := &validateAdmissionFixture{f: f, parent: parent, result: Result{Ref: ref, SessionID: f.session.ID}}
+	f.opts.Validate = &ValidateRuntime{
+		OwnerID: func(context.Context, Options) (int64, error) { return validateOwnerID, nil },
+		Head:    func(context.Context, Options, store.Session) (string, error) { return head(), nil },
+		Bind: func(context.Context, Options, Request, store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
+			return ValidateSuiteBindings{}, ValidateFlowBindings{}, errValidateStop
+		},
+	}
+	x := head()
+	if _, handled, err := v.admit(t, v.request(6001, validateOwnerID, ValidateStartCommand)); !handled || !errors.Is(err, errValidateStop) {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	first := v.entries(t)[0]
+	// The run handed X back to Implement and ended; that round finished.
+	scheduled, _, err := f.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: f.session.ID, SourceCommentID: validateImplementWorkID(first.InstanceID, x), OwnerHandle: "owner", Payload: ValidateImplementPayload, DueAt: implementClock})
+	mustProgress(t, err)
+	if _, ok, err := f.db.ReserveSchedule(ctx, scheduled.ID, implementClock); err != nil || !ok {
+		t.Fatalf("reserve: %v %v", ok, err)
+	}
+	_, err = f.db.FinishSchedule(ctx, scheduled.ID, store.ScheduleSucceeded, 0, implementClock)
+	mustProgress(t, err)
+	mustProgress(t, f.db.SetGraphInstanceStatus(ctx, first.InstanceID, store.GraphSucceeded, time.Time{}, implementClock))
+
+	fix := advanceRemote(t, f, gittest.DefaultBranch, "fix.txt", "fixed on main\n")
+	sync := req
+	sync.Trigger.CommentID, sync.Trigger.Body = 6002, "/implement Bring main into the feature branch."
+	sync.Command = ParseCommand(sync.Trigger.Body)
+	if out, err := Execute(ctx, f.opts, sync); err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	coordinator, err := f.db.LatestWorkflowInstance(ctx, f.session.ID, "implement")
+	mustProgress(t, err)
+	trail := implementTrail(t, f)
+	h2 := head()
+	if coordinator.ID <= first.InstanceID || coordinator.Status != store.GraphSucceeded || (trailIndex(trail, "sync_start:synced") < 0 && trailIndex(trail, "sync_done:synced") < 0) {
+		t.Fatalf("a new coordinator merges main and finishes: %+v %v", coordinator, trail)
+	}
+	if h2 == x || !remoteHolds(t, f, "lf/123-feature", fix) || !remoteHolds(t, f, "lf/123-feature", x) {
+		t.Fatalf("the synced head %s must contain main and X %s", h2, x)
+	}
+	if _, handled, err := v.admit(t, v.request(6003, validateOwnerID, ValidateStartCommand)); !handled || !errors.Is(err, errValidateStop) {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	fresh, err := f.db.GetValidateEntry(ctx, f.session.ID, h2)
+	mustProgress(t, err)
+	latest, err := f.db.LatestWorkflowInstance(ctx, f.session.ID, "validate")
+	mustProgress(t, err)
+	if fresh.ID == first.ID || fresh.State != store.ValidateEntryAdmitted || fresh.InstanceID != latest.ID || latest.ID == first.InstanceID || latest.Status != store.GraphRunning || v.validateGraphInstances(t) != 2 {
+		t.Fatalf("one new run on the synced head: entry=%+v latest=%+v first=%+v", fresh, latest, first)
+	}
+}
