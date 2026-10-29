@@ -434,7 +434,11 @@ func planStopText(profile *graphexec.Profile, from, outcome string) (string, boo
 		return "", false
 	}
 	stage := strings.TrimSuffix(from, "_loop")
+	source, _ := profile.Node(node.Attrs["lf_source"])
+	parallel := node.Action == graphexec.PlanParallelAction || (node.Action == graphexec.PlanApproveAction && source.Action == graphexec.PlanParallelAction)
 	switch {
+	case parallel && outcome == "superseded":
+		return "**Plan paused because this story's planning inputs changed.**\n\nEarlier work and approvals remain retained. Reply on this issue to continue from the current story and dependency basis.", true
 	case node.Action == graphexec.ResearchLoopAction && outcome == "false" && stage != from:
 		return fmt.Sprintf("**Plan stopped: the %s stage ran out of passes in this run.**\n\nNo work was lost; everything drafted and approved so far is saved. To continue, reply on this issue. Your reply starts a fresh pass from the saved plan.", stage), true
 	case node.Action == graphexec.ResearchIfAction && outcome == "false":

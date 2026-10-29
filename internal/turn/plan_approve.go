@@ -51,6 +51,10 @@ func (r *planGraphRuntime) approve(ctx context.Context, a ActivityRequest) (Acti
 	}
 	var result planbrief.GraphApproval
 	err = r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(s *planbrief.PlanState) (bool, error) {
+		if parallelStageApproved(s, a, node.Request) {
+			result = planbrief.GraphApproval{Outcome: "approved"}
+			return false, nil
+		}
 		before := slices.Clone(s.GraphApprovedStages())
 		var e error
 		if result, e = s.ApproveByGraph(r.selected, r.stage, node.Request.Candidate, node.Request.RequestID); e != nil {

@@ -26,7 +26,7 @@ func (r *MCPRuntime) trackActivity(ctx context.Context, p *preparedMCP, now time
 		return err
 	}
 	for old := range r.activities {
-		if old.guard.Binding().Task == p.guard.Binding().Task {
+		if old.guard.Binding().Task == p.guard.Binding().Task && old.guard.Check(ctx) != nil {
 			if err := old.clearActivity(ctx, now); err != nil {
 				return err
 			}

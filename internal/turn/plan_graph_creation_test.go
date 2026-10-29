@@ -510,7 +510,7 @@ func TestPlanCreation_SessionWithStoriesSkipsTheSetStage(t *testing.T) {
 	mustProgress(t, err)
 	transitions, err := f.db.ListGraphTransitions(t.Context(), instance.ID)
 	mustProgress(t, err)
-	if len(transitions) < 2 || transitions[0].FromNode != "select_set" || transitions[0].ToNode != "select_story" {
+	if len(transitions) < 2 || transitions[0].FromNode != "select_set" || transitions[0].OnOutcome != "false" || slices.ContainsFunc(transitions, func(tr store.GraphTransition) bool { return tr.ToNode == "set_agent" }) {
 		t.Fatalf("the set stage was not skipped: %+v", transitions)
 	}
 	executeGraphPlan(t, f, nextTrigger(base, 960, "/plan-new-story"))

@@ -225,7 +225,7 @@ func (s *AgentResultService) prepare(ctx context.Context, data []byte) (candidat
 	if err != nil {
 		return agentresult.PreparedUpdate{}, agentresult.UpdateDiagnostics{}, err
 	}
-	graphDiscussion = c.PlanGraph != nil && c.PlanGraph.Discussion
+	graphDiscussion = c.PlanGraph != nil && (c.PlanGraph.Discussion || c.PlanGraph.Member != nil)
 	retained, err := s.db.GetResultRevision(ctx, s.binding, 0)
 	if errors.Is(err, store.ErrNotFound) {
 		r, d := agentresult.Create(data, c)
