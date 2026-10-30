@@ -283,11 +283,16 @@ func (s ValidateState) mergeConflicted() bool {
 	return strings.Contains(reason, "405") && strings.Contains(reason, "merge conflict")
 }
 
-// mergeConflictStep is the way out of a conflicted merge: resolve on the
-// feature branch and validate the new head, or /validate-implement when this
-// run would accept it.
+// ValidateSyncCommand is the exact parent comment that sends the work to
+// Implement, whose coordinator merges the target branch into the feature branch
+// and hands a conflict to its sync-resolver.
+const ValidateSyncCommand = "/implement Bring the target branch into the feature branch and resolve the merge conflict."
+
+// mergeConflictStep is the way out of a conflicted merge: the factory's own
+// Implement sync-resolver path, then Validate on the new head, or
+// /validate-implement when this run would accept it.
 func (s ValidateState) mergeConflictStep() string {
-	step := fmt.Sprintf("Pull request #%d has merge conflicts with its target branch, so repeating the ship cannot merge it. Merge the target branch into the feature branch, resolve the conflict, push, and comment `%s` to validate the new head.", decodeEffectResult(s.Effects.PR).Number, ValidateStartCommand)
+	step := fmt.Sprintf("Pull request #%d has merge conflicts with its target branch, so repeating the ship cannot merge it. Comment `%s`: Implement merges the target branch into the feature branch and its sync-resolver resolves the conflict. When Implement reports finished, comment `%s` to validate the new head, unless that reply says Validate starts automatically.", decodeEffectResult(s.Effects.PR).Number, ValidateSyncCommand, ValidateStartCommand)
 	if s.implementLine() != "" {
 		step += fmt.Sprintf(" Or comment `%s %s` to send the work back to Implement on the same feature branch; Validate runs again on the new head.", ValidateImplementCommand, s.Revision)
 	}
