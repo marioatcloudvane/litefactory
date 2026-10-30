@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -62,15 +63,20 @@ func (a *AttemptAuthority) Bind(ctx context.Context, b store.ResultBinding, perm
 	if err := a.db.BindMCPLease(ctx, lease); err != nil {
 		return nil, err
 	}
-	if old := a.guards[b.Task]; old != nil {
-		old.cancel()
+	for key, old := range a.guards {
+		if old.Binding().Task == b.Task {
+			if err := a.db.CheckMCPLease(ctx, old.lease); err != nil {
+				old.cancel()
+				delete(a.guards, key)
+			}
+		}
 	}
 	// Expiry is immutable store authorization checked at every admission, not
 	// an ambient turn deadline. Transport/runtime owners bound their own work;
 	// explicit revocation or the supplied parent context cancels active calls.
 	live, cancel := context.WithCancel(ctx)
 	g := &AttemptGuard{owner: a, lease: lease, ctx: live, cancel: cancel}
-	a.guards[b.Task] = g
+	a.guards[attemptGuardKey(b)] = g
 	return g, nil
 }
 
@@ -121,8 +127,8 @@ func (g *AttemptGuard) Revoke(ctx context.Context, reason string) error {
 	}
 	g.cancel()
 	g.owner.mu.Lock()
-	if g.owner.guards[g.Binding().Task] == g {
-		delete(g.owner.guards, g.Binding().Task)
+	if g.owner.guards[attemptGuardKey(g.Binding())] == g {
+		delete(g.owner.guards, attemptGuardKey(g.Binding()))
 	}
 	g.owner.mu.Unlock()
 	return g.owner.db.RevokeMCPLease(ctx, g.lease, reason)
@@ -141,4 +147,8 @@ func (a *AttemptAuthority) Close(ctx context.Context) error {
 		errs = append(errs, g.Revoke(ctx, "closed"))
 	}
 	return errors.Join(errs...)
+}
+
+func attemptGuardKey(b store.ResultBinding) string {
+	return fmt.Sprintf("%s:%d:%s", b.Task, b.RunID, b.Attempt)
 }

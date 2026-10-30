@@ -56,7 +56,7 @@ func IsAutomaticTrigger(id int64) bool { return id > automaticTriggerBase && id 
 // owner says afterwards. Ask this rather than naming one band: a caller that
 // checks only the band it had in mind is how that happened once already.
 func IsPrivateTrigger(id int64) bool {
-	return IsChatTrigger(id) || IsGraphTrigger(id) || IsAutomaticTrigger(id) || IsScheduleTrigger(id)
+	return IsPlanMemberTrigger(id) || IsChatTrigger(id) || IsGraphTrigger(id) || IsAutomaticTrigger(id) || IsScheduleTrigger(id)
 }
 
 // FinishInterruptedRun commits evidence and its optional continuation together.

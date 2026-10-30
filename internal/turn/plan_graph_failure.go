@@ -464,6 +464,9 @@ func (r *planGraphRuntime) stepCause(ctx context.Context, source store.GraphNode
 		return "", err
 	}
 	for _, output := range outputs {
+		if output.Kind == store.GraphOutputDiagnostic && len(output.Payload) > 0 {
+			return string(output.Payload), nil
+		}
 		if output.Kind != store.GraphOutputJSON {
 			continue
 		}

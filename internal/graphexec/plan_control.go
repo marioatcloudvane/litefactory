@@ -38,7 +38,7 @@ const planReviewReady = "review_ready"
 // PlanControlPolicy includes factory-only scheduling/promotion responses. The
 // dedicated Plan node decoder admits neither stage selectors nor approved.
 func PlanControlPolicy() ControlPolicy {
-	return ControlPolicy{Mode: agent.ModePlan, Responses: []string{PlanSetCondition, "story", "technical", "acceptance", PlanCreateCondition, "ask", "answer", planReviewReady, "approved"}, Defaults: []string{PlanSetCondition, "story", "technical", "acceptance"}, Ask: "ask", Approved: "approved"}
+	return ControlPolicy{Mode: agent.ModePlan, Responses: []string{PlanSetCondition, "story", "technical", "acceptance", PlanCreateCondition, "ask", "answer", "discussion", planReviewReady, "approved"}, Defaults: []string{PlanSetCondition, "story", "technical", "acceptance"}, Ask: "ask", Approved: "approved"}
 }
 
 // planFailureOutcomes are the outcomes that mean a step did not finish. Whatever
@@ -116,7 +116,7 @@ func (c *planCheck) next(n Node, outcome string) (Node, bool) {
 
 func (c *planCheck) agentSource(n Node) (Node, bool) {
 	source, ok := c.p.Node(n.Attrs["lf_source"])
-	if !ok || source.Action != "lf_agent" {
+	if !ok || (source.Action != "lf_agent" && source.Action != PlanParallelAction) {
 		c.fail("plan node %s lf_source %q must name an agent node", n.Name, n.Attrs["lf_source"])
 		return Node{}, false
 	}
@@ -142,6 +142,8 @@ func (c *planCheck) node(n Node) {
 		c.control(n)
 	case "lf_agent":
 		c.agent(n)
+	case PlanParallelAction:
+		c.parallel(n)
 	case PlanStoryAction:
 		c.effect(n)
 	case "lf_ask":
@@ -182,6 +184,12 @@ func (c *planCheck) control(n Node) {
 		c.fail("plan node %s requires exactly true and false outcomes", n.Name)
 		return
 	}
+	if condition.Field != "response" {
+		if n.Attrs["lf_source"] != "" {
+			c.fail("plan fact %s may not name an agent source", n.Name)
+		}
+		return
+	}
 	switch condition.Condition {
 	case planReviewReady:
 		c.fail("plan node %s compares review_ready, which is never a declared condition", n.Name)
@@ -200,7 +208,14 @@ func (c *planCheck) control(n Node) {
 		return
 	}
 	if target, ok := c.next(n, "true"); ok && target.Action != "lf_agent" {
-		c.fail("plan loop %s must continue at an agent, not %s", n.Name, target.Name)
+		factEntry := false
+		if condition.Condition == PlanCreateCondition && target.Action == ResearchIfAction && target.Attrs["lf_field"] != "response" {
+			_, err := DecodeCondition(target.Action, target.Attrs, PlanControlPolicy())
+			factEntry = err == nil
+		}
+		if !factEntry {
+			c.fail("plan loop %s must continue at an agent or creation fact comparison, not %s", n.Name, target.Name)
+		}
 	}
 	if target, ok := c.next(n, "false"); ok && !target.Terminal {
 		c.fail("plan loop %s must leave at a terminal when it ends or is exhausted", n.Name)
@@ -256,9 +271,15 @@ func (c *planCheck) effect(n Node) {
 	if !ok {
 		return
 	}
+	if source.Action == PlanParallelAction && !slices.Contains([]string{"story", "technical", "acceptance"}, n.Attrs["lf_stage"]) {
+		c.fail("parallel effect %s requires a story stage", n.Name)
+	}
 	gate, ok := c.next(n, "applied")
 	if !ok {
 		return
+	}
+	if source.Action == PlanParallelAction && gate.Attrs["lf_stage"] != n.Attrs["lf_stage"] {
+		c.fail("parallel effect %s must retain its stage at approval", n.Name)
 	}
 	if gate.Action == PlanGateAction {
 		if gate.Attrs["lf_source"] != source.Name {
@@ -336,10 +357,28 @@ func (c *planCheck) approve(n Node) {
 	if !ok {
 		return
 	}
+	if source.Action == PlanParallelAction {
+		stage := n.Attrs["lf_stage"]
+		if !slices.Contains([]string{"story", "technical", "acceptance"}, stage) {
+			c.fail("parallel approval %s requires a story stage", n.Name)
+		}
+		if target, found := c.next(n, "approved"); found {
+			next := map[string]string{"story": "technical", "technical": "acceptance"}[stage]
+			if next != "" && (target.Action != PlanStoryAction || target.Attrs["lf_source"] != source.Name || target.Attrs["lf_stage"] != next) {
+				c.fail("parallel approval %s must apply the next ordered stage", n.Name)
+			}
+			if next == "" && !target.Terminal && target.Action != ResearchLoopAction {
+				c.fail("parallel acceptance approval %s must finish at a scheduling boundary", n.Name)
+			}
+		}
+		if target, found := c.next(n, "review"); found && target.Attrs["lf_stage"] != stage {
+			c.fail("parallel approval %s must retain its stage at owner review", n.Name)
+		}
+	}
 	if source.Name == "set_agent" || source.Attrs["lf_agent_markdown"] == "plan-set" {
 		c.fail("plan approval %s may not follow the set stage, which keeps its owner gate and review", n.Name)
 	}
-	if target, found := c.next(n, "approved"); found && !target.Terminal && target.Action != ResearchLoopAction {
+	if target, found := c.next(n, "approved"); found && !target.Terminal && target.Action != ResearchLoopAction && (source.Action != PlanParallelAction || target.Action != PlanStoryAction) {
 		c.fail("plan approval %s must end approved at a terminal or a bounded loop", n.Name)
 	}
 	if target, found := c.next(n, "review"); found {
@@ -465,4 +504,31 @@ func (c *planCheck) advisoryContinuation(n Node, seen map[string]bool) (Node, bo
 		continuation = next
 	}
 	return continuation, continuation.Name != ""
+}
+
+func (c *planCheck) parallel(n Node) {
+	if _, err := DecodePlanParallel(c.p, n); err != nil {
+		c.fail("plan parallel %s: %v", n.Name, err)
+		return
+	}
+	for _, outcome := range []string{"ready", "ask", "fallback", "stopped", "superseded", "failed"} {
+		if !slices.Contains(n.Outcomes, outcome) {
+			c.fail("plan parallel %s requires %s outcome", n.Name, outcome)
+		}
+	}
+	if target, ok := c.next(n, "ready"); ok && (target.Action != PlanStoryAction || target.Attrs["lf_source"] != n.Name || target.Attrs["lf_stage"] != "story") {
+		c.fail("plan parallel %s must begin ordered story application", n.Name)
+	}
+	if target, ok := c.next(n, "ask"); ok && (target.Action != "lf_ask" || target.Attrs["lf_kind"] != "question" || target.Attrs["lf_source"] != n.Name) {
+		c.fail("plan parallel %s must retain its question at an owner wait", n.Name)
+	}
+	if target, ok := c.next(n, "stopped"); ok && !target.Terminal && (target.Name != PlanFailureNode || target.Action != "lf_comment" || target.Attrs["lf_kind"] != "failure") {
+		c.fail("plan parallel %s stopped must reach a terminal or failure comment", n.Name)
+	}
+	if target, ok := c.next(n, "superseded"); ok && !target.Terminal {
+		c.fail("plan parallel %s superseded must end at a terminal", n.Name)
+	}
+	if target, ok := c.next(n, "fallback"); ok && (target.Action != ResearchIfAction || target.Attrs["lf_field"] != "response") {
+		c.fail("plan parallel %s fallback must return to normal stage selection", n.Name)
+	}
 }

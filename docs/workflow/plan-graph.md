@@ -2,7 +2,7 @@
 
 [Documentation](../README.md) · [Workflow guide](../guides/workflow.md)
 
-Plan turns a Research brief (or a plain request) into small stories you approve, one stage at a time. Implement then builds the approved stories. Plan uses the graph in `teams/source/base-team/plan/plan.dot` and Implement uses `teams/source/base-team/implement/implement.dot`. Start Plan with `/plan <text>` and Implement with `/implement <text>`. The exact approval commands are in [owner commands](../guides/owner-commands.md).
+Plan turns a Research brief (or a plain request) into small stories, with owner reviews or guarded graph approvals according to the captured workflow. Implement then builds the approved stories. Plan uses the graph in `teams/source/base-team/plan/plan.dot` and Implement uses `teams/source/base-team/implement/implement.dot`. Start Plan with `/plan <text>` and Implement with `/implement <text>`. The exact approval commands are in [owner commands](../guides/owner-commands.md).
 
 ## How Plan works
 
@@ -11,11 +11,11 @@ Plan runs in four stages. The factory, not the agent, decides which stage a run 
 | Stage | What it produces | You approve |
 | --- | --- | --- |
 | Story set | A list of stories (at most twelve) posted on the parent issue. | The set, which creates the story issues. |
-| Story | For each story: who needs what, and why, in plain words, with what is in and out of scope. | Each story. |
-| Technical | How it will be built and which role owns each task. | Each story. |
-| Acceptance | Acceptance criteria written as checks a person can make, and the final review of the whole plan. | Each story, then the assembled plan. |
+| Story | For each story: who needs what, and why, in plain words, with what is in and out of scope. | Each story on the normal route; guarded graph approval on the eligible S route. |
+| Technical | How it will be built and which role owns each task. | Each story on the normal route; guarded graph approval on the eligible S route. |
+| Acceptance | Acceptance criteria written as checks a person can make, and the final review of the whole plan. | Each story on the normal route; guarded graph approval on the eligible S route. The assembled plan always needs your approval. |
 
-In every stage the agent either asks you a question, answers a discussion comment without changing anything, or drafts and then shows you a review. A review is not an approval: a stage moves on only when you send the exact approve command the review shows. Replies that mix a change request with an approval, or that point at an out-of-date review, do not approve. You can reply `/approve-plan` when only one unchanged target is unresolved for that action, or use the displayed short `d-…` reference. A replacement requires its displayed short reference. Explicit references take priority and never select a newer target. The assembled review supports the same shorthand with `/approve-plan-set`.
+In every stage the agent either asks you a question, answers a discussion comment without changing anything, or drafts and then shows you a review. A review is not an approval: an owner-gated stage moves on only when you send the exact approve command the review shows. Eligible S stories may instead use the captured graph’s parallel route and existing guarded graph approvals, described below. Replies that mix a change request with an approval, or that point at an out-of-date review, do not approve. You can reply `/approve-plan` when only one unchanged target is unresolved for that action, or use the displayed short `d-…` reference. A replacement requires its displayed short reference. Explicit references take priority and never select a newer target. The assembled review supports the same shorthand with `/approve-plan-set`.
 
 A graph may leave a story, technical or acceptance stage without a gate. After the draft is applied, the stage's edge then goes to `lf_plan_approve` (Plan only; it is refused on the set stage, which keeps its owner gate). It approves the stage for the graph only when the draft still is the one that was applied, nothing is held, no question or wait is open, every earlier stage and every upstream story is still approved, and the draft is not a retirement. Its `review` outcome must reach an `lf_gate` or an `lf_ask` review of the same agent, so the owner is asked whenever there is doubt. `superseded` ends quietly at a terminal, `blocked` and `failed` reach the failure comment, and no outcome may reach a promotion terminal. A graph approval posts no comment; the final plan review lists which stages the graph approved.
 
@@ -61,6 +61,46 @@ cannot be replaced, and only the existing owner approval path promotes a set.
 The existing limits of one to twelve entries, unique identities and names, and
 acyclic dependencies remain in force. Existing save and publication failures
 keep their failed or uncertain outcomes.
+
+### Parallel planning for S stories
+
+New captures of the canonical Plan graph compare the selected story's saved size,
+valid sizing evidence and retained fallback facts. Only eligible S stories enter
+the parallel route. M, L, missing or invalid sizing use the normal sequential
+story, technical and acceptance reviews. Each story in a mixed set keeps its own
+route; genuine upstream dependency waits still apply. Set promotion and final
+assembled approval always remain owner decisions.
+
+The parallel group runs story, technical and acceptance reasoning concurrently
+from the same saved scope and shared decisions. Every member has a separate result
+and owns only its sections. The factory combines those sections, then asks all
+three members to inspect the complete proposal. Only current agreement by all
+three on the same proposal permits sealing it. Concise S plans retain required
+sections, outcome coverage, invariants and task-to-criterion proof links.
+
+The factory applies sealed projections in story, technical and acceptance order,
+using existing effect receipts and approval guards. Questions, contradictions,
+failures, missing or stale results, holds and uncertain effects prevent automatic
+progress. Resumes retain valid contributions and blockers. Reconciliation is
+bounded; exhaustion is a resumable stop. Required weighted member capacity is
+admitted together or released, leaving a visible capacity wait.
+
+A member can report that work has grown beyond S with a reason. The factory
+retains that story's reason and returns it to the earliest affected normal owner
+review. The fallback lasts through the current planning cycle, including resumes;
+it does not rewrite the promoted size. Unaffected approvals and independent sibling
+routes remain intact. Advisory judges stay advisory, and retirement still requires
+owner confirmation.
+
+Set review shows each story's saved size, reason and graph-derived route basis.
+Final review also shows route history, growth reasons and graph-approved stages,
+alongside outcomes and task proofs. A retained result or receipt is neither
+publication nor approval.
+
+Older captured graphs and saved plans retain their original sequential behavior.
+Canonical source changes do not migrate captures. Team release and capture follow
+the existing owner-led process; no generated release is edited or replaced by this
+feature, and there is no manual fast-track override.
 
 ### Changes and retiring stories
 

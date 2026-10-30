@@ -112,6 +112,12 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			if err != nil {
 				return input, err
 			}
+			if policy.Handlers != nil && policy.Handlers.JudgeContext != nil {
+				input, err = policy.Handlers.JudgeContext(ctx, a, input)
+				if err != nil {
+					return input, err
+				}
+			}
 			input.Instructions, err = teamsource.WorkflowJudgeCapture(definition)
 			if errors.Is(err, teamsource.ErrHistoricalJudgeCapture) {
 				err = nil
@@ -144,6 +150,16 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		}
 		runtime := &BugRuntime{opts: opts, definition: definition}
 		if err = RegisterSyncBase(&specs, &activities, policy.Mode, runtime.graphSyncBaseBinding(req.SessionID), workflow); err != nil {
+			return result, err
+		}
+	}
+	if policy.Mode == agent.ModePlan && policy.Handlers != nil && policy.Handlers.Parallel != nil {
+		if err := specs.Register(graphexec.PlanParallelSpec()); err != nil {
+			return result, err
+		}
+		if err := activities.Register(graphexec.PlanParallelAction, planGraphHandler(func(c context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
+			return policy.Handlers.Parallel(c, w, a)
+		})); err != nil {
 			return result, err
 		}
 	}
@@ -191,7 +207,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				return w.finish(ctx, nil)
 			}
 		}
-		if node.Action == ResearchAgentAction {
+		if node.Action == ResearchAgentAction || node.Action == graphexec.PlanParallelAction {
 			if w.prep != nil {
 				// One run advances one agent stage, because one comment causes
 				// at most one run and this run's is already spent. Park the
@@ -219,6 +235,14 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			}
 			nodeReq := req
 			nodeReq.researchDefinition, nodeReq.researchNode = definition, node.Name
+			if node.Action == graphexec.PlanParallelAction {
+				group, groupErr := graphexec.DecodePlanParallel(definition.Profile, node)
+				if groupErr != nil {
+					return w.finish(ctx, groupErr)
+				}
+				nodeReq.researchNode = group.Members["story"]
+				w.factoryOnly = true
+			}
 			nodeReq.researchInstance = instance.ID
 			nodeReq.workflowPolicy = &policy
 			if policy.ResultPerNode {
@@ -315,6 +339,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 }
 
 type researchWorkflow struct {
+	factoryOnly     bool
 	artifactSession string
 	policy          WorkflowPolicy
 	opts            Options
@@ -661,6 +686,10 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 		}
 	}
 	outcome := store.RunOutcome{Status: store.RunFailed, Error: out.Reason, FinishedAt: w.opts.MCP.Now()}
+	if w.factoryOnly && cause == nil {
+		outcome.Status = store.RunSucceeded
+		out.Outcome = agent.OutcomeSucceeded
+	}
 	if w.process != nil {
 		outcome = runOutcome(w.process)
 	}
