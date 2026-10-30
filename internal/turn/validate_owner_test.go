@@ -647,7 +647,7 @@ func TestOwnerShipResumesAtTheFailedStep(t *testing.T) {
 
 // #948: a merge GitHub refuses with 405 "Pull Request has merge conflicts"
 // never tells the owner to repeat /validate-ship; it names the pull request and
-// the resolve, push and /validate way out.
+// the /implement sync-resolver and /validate way out.
 func TestOwnerShipMergeConflictOffersTheWayOut(t *testing.T) {
 	o := newOwnerFixture(t)
 	o.mixed()
@@ -672,6 +672,21 @@ func TestOwnerShipMergeConflictOffersTheWayOut(t *testing.T) {
 	report := reports[len(reports)-1].Body
 	if !strings.Contains(report, st.mergeConflictStep()) || strings.Contains(report, st.shipLine()) || strings.Contains(report, "repeat your command to retry") {
 		t.Fatalf("report %s", report)
+	}
+	// #1262: the way out is the factory's own sync-resolver path through
+	// Implement, then a fresh Validate; never a manual merge and push.
+	for name, body := range map[string]string{"notice": notice, "report": report} {
+		if !strings.Contains(body, ValidateSyncCommand) || !strings.Contains(body, ValidateStartCommand) {
+			t.Fatalf("%s does not offer %q and %q: %s", name, ValidateSyncCommand, ValidateStartCommand, body)
+		}
+		for _, manual := range []string{"Merge the target branch into the feature branch", ", push,", "resolve the conflict and validate again"} {
+			if strings.Contains(body, manual) {
+				t.Fatalf("%s still tells the owner to %q: %s", name, manual, body)
+			}
+		}
+	}
+	if row := effectText("merge", st.Effects.Merge); !strings.Contains(row, ValidateSyncCommand) {
+		t.Fatalf("merge row %q", row)
 	}
 }
 
