@@ -114,7 +114,7 @@ func (db *DB) authorizeNaturalDialogue(ctx context.Context, t *ConversationTurn,
 		if err = chatAffected(result, err); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO chat_natural_executions(identity,transport,owner_id,channel_ref,revision,payload,created_at) VALUES(?,?,?,?,?,?,?)`, r.MessageID, d.Transport, d.OwnerID, d.ChannelRef, d.Revision, d.Payload, FormatTime(at))
+		err = insertNaturalExecution(ctx, tx, NaturalExecution{Identity: r.MessageID, Transport: d.Transport, OwnerID: d.OwnerID, ChannelRef: d.ChannelRef, Revision: d.Revision, Payload: d.Payload, CreatedAt: at})
 		if err != nil {
 			return err
 		}
@@ -208,11 +208,18 @@ func (db *DB) PurgeNaturalChat(ctx context.Context, at time.Time) error {
 		if e != nil {
 			return e
 		}
-		for _, q := range []string{`DELETE FROM chat_natural_messages WHERE state='finished' AND finished_at<=?`, `DELETE FROM chat_natural_executions WHERE state IN ('finished','uncertain') AND finished_at<=? AND NOT EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_conversation_turns t ON t.id=a.turn_id WHERE a.execution_id=chat_natural_executions.identity AND (t.delivered_at IS NULL OR EXISTS(SELECT 1 FROM chat_inbox i WHERE i.message_id=a.execution_id AND i.conversation_turn_id=t.id AND i.state IN ('working','pending','sent','answering'))))`, `DELETE FROM chat_natural_dialogues WHERE state IN ('cancelled','expired','finished','uncertain') AND updated_at<=?`} {
+		for _, q := range []string{`DELETE FROM chat_natural_messages WHERE state='finished' AND finished_at<=?`, `DELETE FROM chat_natural_executions WHERE state IN ('finished','uncertain') AND finished_at<=? AND NOT EXISTS(SELECT 1 FROM owner_action_proposals p WHERE p.execution_id=chat_natural_executions.identity) AND NOT EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_conversation_turns t ON t.id=a.turn_id WHERE a.execution_id=chat_natural_executions.identity AND (t.delivered_at IS NULL OR EXISTS(SELECT 1 FROM chat_inbox i WHERE i.message_id=a.execution_id AND i.conversation_turn_id=t.id AND i.state IN ('working','pending','sent','answering'))))`, `DELETE FROM chat_natural_dialogues WHERE state IN ('cancelled','expired','finished','uncertain') AND updated_at<=?`} {
 			if _, e = tx.ExecContext(ctx, q, FormatTime(at.Add(-24*time.Hour))); e != nil {
 				return e
 			}
 		}
 		return nil
 	})
+}
+
+// insertNaturalExecution is the common admission journal for owner actions.
+// Transport adapters supply real provenance; admission does not require an inbox.
+func insertNaturalExecution(ctx context.Context, tx *sql.Tx, e NaturalExecution) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO chat_natural_executions(identity,transport,owner_id,channel_ref,revision,payload,created_at) VALUES(?,?,?,?,?,?,?)`, e.Identity, e.Transport, e.OwnerID, e.ChannelRef, e.Revision, e.Payload, FormatTime(e.CreatedAt))
+	return err
 }

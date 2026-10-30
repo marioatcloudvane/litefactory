@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -75,7 +76,9 @@ func newJudgedConversation(t *testing.T) *judgedConversation {
 	f := &judgedConversation{ops: &standardsGateOperations{}, provider: &judgedProvider{}, sender: &standardsDeliverySender{result: Delivery{Confirmed: true}}, next: 100, at: time.Now().UTC().Truncate(time.Second)}
 	f.s = New(db, "discord", "7", []string{"3"}, f.sender, FactoryStatus{DB: db})
 	f.s.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
+	f.ops.db = db
 	f.s.EnableStandards(f.ops)
+	installGateActions(t, f.s, func() time.Time { return f.at })
 	binding := ConversationBinding{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}
 	if err = f.s.EnableConversations(ctx, ConversationOptions{Bindings: []ConversationBinding{binding}, StateRoot: filepath.Join(t.TempDir(), "sessions"), Providers: map[string]ConversationProvider{"claude": f.provider}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, f.at); err != nil {
 		t.Fatal(err)
@@ -92,7 +95,7 @@ func (f *judgedConversation) say(t *testing.T, text, replyTo string, answer func
 	t.Helper()
 	ctx := t.Context()
 	f.next++
-	f.at = f.at.Add(time.Second)
+	f.at = f.at.Add(6 * time.Second)
 	id := fmt.Sprint(f.next)
 	f.provider.mu.Lock()
 	f.provider.answer = answer
@@ -116,16 +119,19 @@ func (f *judgedConversation) say(t *testing.T, text, replyTo string, answer func
 		}
 	}
 	deliverAll(t, f.s, f.sender, "reply-"+id, f.at)
+	if err := f.s.ownerActions.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
 	return id
 }
 
-func (f *judgedConversation) dialogue(t *testing.T) store.NaturalDialogue {
+func (f *judgedConversation) dialogue(t *testing.T) owneraction.Proposal {
 	t.Helper()
-	d, err := f.s.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3")
-	if err != nil {
-		t.Fatal(err)
+	page, err := f.s.ownerActions.History(t.Context(), mustGatePrincipal(t, f.s), "", 100)
+	if err != nil || len(page.Proposals) == 0 {
+		t.Fatalf("proposal missing: %+v %v", page, err)
 	}
-	return d
+	return page.Proposals[0]
 }
 
 func (f *judgedConversation) last() string { return f.sender.texts[len(f.sender.texts)-1] }
@@ -172,19 +178,15 @@ func TestAgentJudgedConfirmationRunsTheOpenProposal(t *testing.T) {
 			f := newJudgedConversation(t)
 			f.say(t, "analyze litefactory for the last 7 days", "", agentProposesAnalysis("last 7 days"))
 			d := f.dialogue(t)
-			if d.State != "awaiting_confirmation" || d.PromptID == "" {
+			if d.State != "awaiting_confirmation" || d.ProposalMessage == "" {
 				t.Fatalf("no open proposal: %+v", d)
 			}
 			f.say(t, yes, "", confirmWith(openReference, yes))
-			if len(f.ops.executed) != 1 || !strings.HasSuffix(f.ops.executed[0].OperationKey, "nl-exec:"+d.Code) {
+			if len(f.ops.executed) != 1 || !strings.HasSuffix(f.ops.executed[0].OperationKey, "owner-action:"+d.ID) {
 				t.Fatalf("agent-judged yes did not run the stored proposal once: %+v", f.ops.executed)
 			}
-			var stored naturalPayload
-			if err := json.Unmarshal([]byte(d.Payload), &stored); err != nil {
-				t.Fatal(err)
-			}
-			if !maps.Equal(f.ops.executed[0].Arguments, stored.Invocation.Arguments) {
-				t.Fatalf("executed %+v, stored %+v", f.ops.executed[0].Arguments, stored.Invocation.Arguments)
+			if !maps.Equal(f.ops.executed[0].Arguments, d.Facts.Invocation.Arguments) {
+				t.Fatalf("executed different arguments: %+v", f.ops.executed[0].Arguments)
 			}
 			// Single use: the same yes again runs nothing.
 			f.say(t, yes, "", confirmWith(openReference, yes))
@@ -230,21 +232,25 @@ func TestAgentJudgedConfirmationNeedsTheOneOpenProposal(t *testing.T) {
 	// A changed request is a new proposal that replaces the first.
 	f.say(t, "no wait, analyze litefactory for yesterday", "", agentProposesAnalysis("yesterday"))
 	second := f.dialogue(t)
-	if second.Code == first.Code || second.State != "awaiting_confirmation" {
+	if second.ID == first.ID || second.State != "awaiting_confirmation" {
 		t.Fatalf("second proposal did not replace the first: %+v", second)
 	}
-	f.say(t, "yeah do it", "", confirmWith(func(factoryConversationPrompt) string { return first.Code }, "yeah do it"))
+	f.say(t, "yeah do it", "", confirmWith(func(factoryConversationPrompt) string { return first.ID }, "yeah do it"))
 	if len(f.ops.executed) != 0 {
 		t.Fatalf("the replaced proposal ran: %+v", f.ops.executed)
 	}
 	f.say(t, "yeah do it", "", confirmWith(openReference, "yeah do it"))
-	var stored naturalPayload
-	if err := json.Unmarshal([]byte(second.Payload), &stored); err != nil {
+	if len(f.ops.executed) != 0 {
+		t.Fatal("ambiguous pending selection executed")
+	}
+	if _, err := f.s.ownerActions.Cancel(t.Context(), mustGatePrincipal(t, f.s), first.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.ops.executed) != 1 || !maps.Equal(f.ops.executed[0].Arguments, stored.Invocation.Arguments) {
-		t.Fatalf("did not run exactly the open proposal: %+v", f.ops.executed)
+	f.say(t, "yeah do it", "", confirmWith(openReference, "yeah do it"))
+	if len(f.ops.executed) != 1 || !maps.Equal(f.ops.executed[0].Arguments, second.Facts.Invocation.Arguments) {
+		t.Fatalf("wrong exact proposal: %+v", f.ops.executed)
 	}
+
 	// With nothing open, a confirmation has nothing to cite.
 	f.say(t, "yeah do it", "", confirmWith(openReference, "yeah do it"))
 	if len(f.ops.executed) != 1 {
@@ -267,11 +273,11 @@ func TestOtherMessagesKeepTheProposalOpen(t *testing.T) {
 	if d := f.dialogue(t); d.State != "awaiting_confirmation" {
 		t.Fatalf("a question cancelled the proposal: %+v", d)
 	}
-	// After another message, a bare yes is judged by the agent too.
-	calls := len(f.provider.prompts)
-	f.say(t, "yes", "", confirmWith(openReference, "yes"))
-	if len(f.provider.prompts) == calls || len(f.ops.executed) != 1 {
-		t.Fatalf("yes after a question not judged by the agent: prompts %d→%d, executed %+v", calls, len(f.provider.prompts), f.ops.executed)
+	// A reply to the exact proposal selects it after an intervening question.
+	proposal := f.dialogue(t)
+	f.say(t, "yes", proposal.ProposalMessage, answer("unused"))
+	if len(f.ops.executed) != 1 {
+		t.Fatalf("exact reply did not confirm: %+v", f.ops.executed)
 	}
 }
 

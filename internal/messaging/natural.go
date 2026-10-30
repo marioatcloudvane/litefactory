@@ -21,11 +21,12 @@ type naturalPayload struct {
 	Prompt                                     string         `json:"prompt,omitempty"`
 	PreviewID, PreviewHash, Question, Revision string
 	RepoID                                     int64
-	Project, Channel                           string
+	Project, Channel, Transport                string
 	ProjectPending                             bool `json:"project_pending,omitempty"`
 	// focus is the conversation's last discussed project. It only breaks ties
 	// and fills a missing project for reads; it is never part of the digest.
-	focus string
+	focus         string
+	freezeTargets bool
 	// window is the owner's own window phrase, echoed in the proposal text; the
 	// digest binds the exact bounds it resolved to.
 	window string
@@ -113,6 +114,21 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 			args["project"] = p.Project
 			args["repository_id"] = strconv.FormatInt(p.RepoID, 10)
 		}
+		if raw := args["repository_id"]; raw != "" {
+			id, e := strconv.ParseInt(raw, 10, 64)
+			if e != nil || id < 1 {
+				return "", ErrInvalidInvocation
+			}
+			repo, e := s.db.GetRepo(ctx, id)
+			if e != nil {
+				return "", e
+			}
+			if e = s.db.CheckOwnerActionResolution(ctx, repo.ID, repo.Forge+":"+repo.Slug()); e != nil {
+				return "", e
+			}
+			p.RepoID = repo.ID
+			p.Project = repo.Slug()
+		}
 		if op == "analysis.start" && args["window"] != "" {
 			after, before, ok := analysisWindow(args["window"], at)
 			if !ok {
@@ -123,6 +139,9 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 			delete(args, "window")
 		}
 		if p.Invocation.Command != "standards" {
+			if p.freezeTargets {
+				return "", nil
+			}
 			return standardsMissingTerms(op, p.Invocation.Arguments), nil
 		}
 		return "", nil
@@ -152,6 +171,9 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 		args["project"] = resolution.Repository.Slug()
 		p.Project = args["project"]
 		p.RepoID = resolution.Repository.ID
+		if err = s.db.CheckOwnerActionResolution(ctx, resolution.Repository.ID, resolution.Repository.Forge+":"+resolution.Repository.Slug()); err != nil {
+			return "", err
+		}
 	}
 	for _, field := range []string{"note", "text", "question"} {
 		if args[field] != "" && s.Protect != nil {
@@ -180,7 +202,7 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 		}
 		p.Question, p.Revision = q.Text, q.Token
 	case "confirm":
-		preview, err := s.db.ChatIssuePreviewByCode(ctx, s.transport, p.Channel, args["code"])
+		preview, err := s.db.ChatIssuePreviewByCode(ctx, naturalTransport(*p, s.transport), p.Channel, args["code"])
 		if errors.Is(err, store.ErrNotFound) {
 			return "Please provide the current preview code from /draft.", nil
 		}
@@ -196,6 +218,9 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 		}
 		for _, repo := range repos {
 			if repo.ID == preview.RepoID {
+				if err = s.db.CheckOwnerActionResolution(ctx, repo.ID, repo.Forge+":"+repo.Slug()); err != nil {
+					return "", err
+				}
 				p.Project = repo.Slug()
 			}
 		}
@@ -334,7 +359,7 @@ func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.
 		}
 	}
 	if p.Invocation.Command == "confirm" {
-		preview, e := s.db.ChatIssuePreviewByCode(ctx, s.transport, p.Channel, p.Invocation.Arguments["code"])
+		preview, e := s.db.ChatIssuePreviewByCode(ctx, naturalTransport(p, s.transport), p.Channel, p.Invocation.Arguments["code"])
 		if errors.Is(e, store.ErrNotFound) {
 			return "The preview changed; request a fresh proposal.", nil
 		}
@@ -367,12 +392,20 @@ func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]str
 	return s.resolveNaturalProjectFocus(ctx, args, "")
 }
 
+// resolutionRepositories keeps project choices within the current action grant;
+// contexts outside owner-action resolution retain the legacy catalog.
+type resolutionRepositories struct{ db *store.DB }
+
+func (r resolutionRepositories) ListRepos(ctx context.Context) ([]store.Repo, error) {
+	return r.db.ListOwnerActionResolutionRepositories(ctx)
+}
+
 // resolveNaturalProjectFocus also takes the conversation's last discussed
 // project: it picks among several projects holding the same task number, and
 // stands in when the number is unknown everywhere or no project is named.
 func (s *Service) resolveNaturalProjectFocus(ctx context.Context, args map[string]string, focus string) (ask.Resolution, error) {
 	option := strings.TrimRight(strings.TrimSpace(args["project"]), "!?.,;: ")
-	resolution, err := ask.ResolveProject(ctx, s.db, option, nil)
+	resolution, err := ask.ResolveProject(ctx, resolutionRepositories{s.db}, option, nil)
 	if err != nil || option != "" {
 		return resolution, err
 	}
@@ -386,7 +419,7 @@ func (s *Service) resolveNaturalProjectFocus(ctx context.Context, args map[strin
 			issue = targets[0]
 		}
 	}
-	repos, err := s.db.ListRepos(ctx)
+	repos, err := s.db.ListOwnerActionResolutionRepositories(ctx)
 	if err != nil {
 		return resolution, err
 	}
@@ -480,4 +513,11 @@ func (s *Service) knownNumericTask(ctx context.Context, repo store.Repo, number 
 		return store.Session{}, store.ErrNotFound
 	}
 	return session, nil
+}
+
+func naturalTransport(p naturalPayload, fallback string) string {
+	if p.Transport != "" {
+		return p.Transport
+	}
+	return fallback
 }

@@ -234,7 +234,7 @@ func conversationCommand(def CommandDefinition) bool {
 		return true
 	}
 	switch def.Name {
-	case "help", "health", "status", "meter", "prices", "ask", "question", "inbox":
+	case "help", "health", "status", "meter", "prices", "ask", "question", "inbox", "actions":
 		return def.Effect == ReadEffect
 	case "draft", "confirm", "diagnose", "answer":
 		return def.Effect == ChangeEffect
@@ -337,11 +337,18 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	case "confirm", "cancel":
 		required = append(required, "proposal")
 		reason = "there is no open proposal to confirm or cancel"
-		if request.Proposal == "" {
-			return bad()
+		selected := envelope.Proposal != "" && envelope.Proposal == request.Proposal
+		if !selected {
+			for _, ref := range request.References {
+				if ref.ID == envelope.Proposal && ref.OwnerID == request.OwnerID && ref.ChannelID == request.ChannelID && request.Now.Before(ref.ExpiresAt) && ref.Arguments["proposal_id"] != "" {
+					envelope.Proposal = ref.Arguments["proposal_id"]
+					selected = true
+					break
+				}
+			}
 		}
-		reason = "the proposal must be the reference of the open proposal"
-		if envelope.Proposal != request.Proposal {
+		reason = "the proposal must be the open proposal or an authorized action history reference"
+		if !selected {
 			return bad()
 		}
 		if envelope.Kind == "confirm" {

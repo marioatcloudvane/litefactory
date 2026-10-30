@@ -81,6 +81,7 @@ func (c *ConnectorCoverage) Covers(repoID int64, repositoryRef string) bool {
 // scope (ConnectorRepositoryScoped).
 type ConnectorGrant struct {
 	Coverage                      *ConnectorCoverage
+	ActionCoverage                *ConnectorCoverage
 	ID, ClientID, Resource, Scope string
 	OwnerID, OwnerGeneration      int64
 	CreatedAt, ExpiresAt          time.Time
@@ -203,7 +204,7 @@ func ConnectorScopeSubset(sub, super string) bool {
 // connectorKnownScopes is every scope a grant may carry. It mirrors
 // connector.KnownScopes (a connector test keeps the two in step); the store
 // refuses a grant naming anything else.
-var connectorKnownScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, "factory:overview", connectorFactoryUsageScope, connectorRepositoryUsageScope, connectorTaskUsageScope}
+var connectorKnownScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, "factory:overview", connectorFactoryUsageScope, connectorRepositoryUsageScope, connectorTaskUsageScope, "repository:actions", "standards:management"}
 
 // ConnectorKnownScopes returns the scopes the store accepts on a grant.
 func ConnectorKnownScopes() []string { return slices.Clone(connectorKnownScopes) }
@@ -247,6 +248,7 @@ type ConnectorExchange struct {
 // not cover all repositories; it is filled only by local inspection.
 type ConnectorGrantSummary struct {
 	Repositories                              []string
+	ActionRepositories                        []string
 	AllRepositories                           bool
 	ID, ClientID, ClientName, Resource, Scope string
 	CreatedAt, ExpiresAt, RevokedAt           time.Time

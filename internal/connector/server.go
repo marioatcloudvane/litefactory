@@ -1,4 +1,4 @@
-// Package connector provides a separate, owner-authorized read-only MCP boundary.
+// Package connector provides a separate, owner-authorized MCP boundary.
 // It never exposes the factory's agent or submission backends.
 package connector
 
@@ -14,9 +14,11 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -36,6 +38,12 @@ const (
 	TaskUsageScope       = "task:usage"
 )
 
+// RepositoryActionsScope authorizes existing changes in explicitly selected repositories.
+const RepositoryActionsScope = "repository:actions"
+
+// StandardsManagementScope authorizes changes to the shared standards book.
+const StandardsManagementScope = "standards:management"
+
 // ScopeInfo names one scope the connector can issue and says in one plain line
 // what it allows. The consent page shows the description next to the scope.
 type ScopeInfo struct{ Name, Description string }
@@ -51,6 +59,8 @@ var KnownScopes = []ScopeInfo{
 	{Name: FactoryUsageScope, Description: "Read all recorded factory usage and historical estimates, including work without a repository. Read-only."},
 	{Name: RepositoryUsageScope, Description: "Read recorded usage and historical estimates for the repositories selected below, one repository per call. Read-only."},
 	{Name: TaskUsageScope, Description: "Read recorded usage and historical estimates for any task in the selected repositories and its linked report family, including retired history and later persisted links. Read-only."},
+	{Name: RepositoryActionsScope, Description: "Propose, confirm and inspect existing actions only for explicitly selected repositories. Binding actions also require the configured owner’s Discord approval."},
+	{Name: StandardsManagementScope, Description: "Manage the installation-wide standards book, including drafting and publication. Repository context also requires separate read coverage. Publication requires Discord approval."},
 }
 
 func knownScope(name string) bool {
@@ -88,6 +98,7 @@ func normalizeScope(raw string) (string, bool) {
 
 // Options supplies dependencies resolved by trusted daemon composition.
 type Options struct {
+	Actions      *owneraction.Service
 	Config       config.RemoteConnector
 	DB           *store.DB
 	Logger       *slog.Logger
@@ -104,6 +115,7 @@ type Options struct {
 
 // Server owns remote authentication independently of local factory authority.
 type Server struct {
+	actions      atomic.Pointer[owneraction.Service]
 	cfg          config.RemoteConnector
 	db           *store.DB
 	logger       *slog.Logger
@@ -160,7 +172,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		github = &GitHubProvider{ClientID: opts.Config.GitHubClientID, ClientSecret: opts.GitHubSecret}
 	}
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
-	return &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}, nil
+	server := &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}
+	server.actions.Store(opts.Actions)
+	return server, nil
 }
 
 func randomCredential() (string, error) {
@@ -175,3 +189,6 @@ func digest(value string) string {
 	b := sha256.Sum256([]byte(value))
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
+
+// SetActions safely publishes trusted composition when lazy setup finishes.
+func (s *Server) SetActions(actions *owneraction.Service) { s.actions.Store(actions) }

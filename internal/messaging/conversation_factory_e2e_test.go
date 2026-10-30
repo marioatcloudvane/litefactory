@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging"
+	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -116,6 +117,34 @@ func (a *factoryJourneyAnswers) Answer(_ context.Context, target, revision, text
 	return messaging.Question{Reason: "answer recorded"}, nil
 }
 
+// factoryJourneyDomain isolates provider decoding from domain effects while the
+// real shared service supplies timing, authority, admission and saved outcomes.
+type factoryJourneyDomain struct {
+	repo    store.Repo
+	answers *factoryJourneyAnswers
+}
+
+func (d factoryJourneyDomain) Resolve(_ context.Context, _ owneraction.Principal, inv owneraction.Invocation, _ time.Time) (owneraction.Facts, error) {
+	return owneraction.Facts{Invocation: inv, RepositoryID: d.repo.ID, RepositoryRef: "github:" + inv.Arguments["project"], TargetKind: "research-question", TargetID: "github:" + inv.Arguments["project"] + "#" + inv.Arguments["issue"], TargetRevision: inv.Arguments["revision"], Summary: "Record the reviewed research answer", Estimate: "unknown", Payload: `{}`}, nil
+}
+func (d factoryJourneyDomain) Recheck(ctx context.Context, _ owneraction.Principal, f owneraction.Facts, _ time.Time) error {
+	question, err := d.answers.Current(ctx, f.TargetID)
+	if err != nil {
+		return err
+	}
+	if question.Token != f.TargetRevision {
+		return fmt.Errorf("question revision changed")
+	}
+	return nil
+}
+func (d factoryJourneyDomain) Execute(ctx context.Context, _ owneraction.Principal, f owneraction.Facts, _ string, at time.Time) (owneraction.Result, error) {
+	result, err := d.answers.Answer(ctx, f.TargetID, f.TargetRevision, f.Invocation.Arguments["text"], at)
+	return owneraction.Result{State: "succeeded", Summary: result.Reason}, err
+}
+func (factoryJourneyDomain) Recover(context.Context, owneraction.Principal, owneraction.Facts, string, time.Time) (owneraction.Result, bool, error) {
+	return owneraction.Result{}, false, nil
+}
+
 func assertFactoryJourneySessions(t *testing.T, state, session string, count int) {
 	t.Helper()
 	log, err := os.ReadFile(filepath.Join(state, "fixture-launches"))
@@ -137,8 +166,8 @@ func assertFactoryJourneySessions(t *testing.T, state, session string, count int
 	}
 }
 
-// One main path covers both native adapters, the production intake, coordinator,
-// store, proposal delivery, deterministic authorization and existing action handler.
+// This retained provider fixture checks native-session continuity, decoded source
+// provenance and saved shared-action outcomes; the story journey tests domain wiring.
 func TestConversationFactoryOwnerJourney(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
@@ -163,7 +192,6 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 				`{"version":1,"kind":"answer","text":"No tasks are running or waiting on the owner. We are discussing acme/app issue 42."}`,
 				`{"version":1,"kind":"lookup","command":"question","arguments":[{"name":"project","value":"acme/app"},{"name":"issue","value":"42"}]}`,
 				fmt.Sprintf(`{"version":1,"kind":"propose","command":"answer","arguments":[{"name":"project","reference":"@REFERENCE@"},{"name":"issue","reference":"@REFERENCE@"},{"name":"revision","reference":"@REFERENCE@"},{"name":"text","source_id":"102","start":%d,"end":%d}]}`, start, start+len("CSV output")),
-				`{"version":1,"kind":"answer","text":"Your CSV output answer was recorded for acme/app issue 42."}`,
 			}
 			executable := factoryConversationExecutable(t, provider, responses)
 			effects := &factoryJourneyAnswers{}
@@ -171,6 +199,17 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 			service := messaging.New(db, "discord", "7", []string{"3"}, sent, messaging.FactoryStatus{DB: db})
 			service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 			service.EnableResearch(nil, effects)
+			if _, err = db.UpsertIdentity(ctx, store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
+				t.Fatal(err)
+			}
+			current, err := db.ConnectorOwner(ctx, 42)
+			if err != nil {
+				t.Fatal(err)
+			}
+			principal := owneraction.Principal{OwnerID: "42", OwnerGeneration: current.Generation, Transport: "discord", DiscordOwnerID: "7", ChannelID: "3"}
+			actions := owneraction.New(db, factoryJourneyDomain{repo: repo, answers: effects}, func() time.Time { return at })
+			actions.SetDiscord("7", []string{"3"})
+			service.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })
 			if err = service.EnableConversations(ctx, messaging.ConversationOptions{
 				Bindings:    []messaging.ConversationBinding{{Channel: "3", Name: "factory-work", Provider: provider, Model: "fixture"}},
 				StateRoot:   filepath.Join(root, "conversations"),
@@ -235,26 +274,40 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 				t.Fatalf("answer lost current lookup evidence: %+v", exchanges)
 			}
 			admit("102", followup, "")
-			proposal, err := db.ReadNaturalDialogue(ctx, "discord", "7", "3")
+			proposalTurn, err := db.LatestConversationTurn(ctx, conversation.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if proposal.State != "awaiting_confirmation" || proposal.PromptID == "" || effects.calls != 0 {
-				t.Fatalf("proposal was not delivered before authorization: %+v effects=%d replies=%v", proposal, effects.calls, sent.texts)
+			link, err := db.GetConversationActionLink(ctx, proposalTurn.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proposal, err := actions.Inspect(ctx, principal, link.DialogueID)
+			if err != nil || proposal.State != "awaiting_confirmation" || proposal.ProposalMessage == "" || effects.calls != 0 {
+				t.Fatalf("proposal unavailable before consent: %+v effects=%d err=%v", proposal, effects.calls, err)
 			}
 			shown := sent.texts[len(sent.texts)-1]
-			for _, content := range []string{"app", "42", "CSV output", proposal.Code[:4]} {
+			for _, content := range []string{"app", "42", "CSV output", "123456789abc", proposal.ID} {
 				if !strings.Contains(shown, content) {
-					t.Fatalf("proposal omitted %q: %v", content, sent.texts)
+					t.Fatalf("exact proposal omitted %q: %v", content, sent.texts)
 				}
 			}
-			for _, internal := range []string{"{", "123456789abc", proposal.Code} {
-				if strings.Contains(shown, internal) {
-					t.Fatalf("proposal shows %q: %v", internal, sent.texts)
-				}
-			}
+			at = proposal.ConfirmNotBefore
 			// A plain yes, not a reply, confirms the one open proposal.
 			admit("103", "yes", "")
+			admitted, err := actions.Inspect(ctx, principal, proposal.ID)
+			if err != nil || admitted.State != "admitted" || effects.calls != 0 {
+				t.Fatalf("confirmation did not save admission separately: %+v effects=%d err=%v", admitted, effects.calls, err)
+			}
+			completed, err := actions.Step(ctx, proposal.ID)
+			if err != nil || completed.State != "succeeded" {
+				t.Fatalf("shared action: %+v %v", completed, err)
+			}
+			if err = service.OwnerActionNotifications(ctx, at); err != nil {
+				t.Fatal(err)
+			}
+			drain()
+			admit("104", "show the result", "")
 			if effects.calls != 1 || effects.target != "github:acme/app#42" || effects.revision != "123456789abc" || effects.text != "CSV output" {
 				t.Fatalf("confirmed a different effect: %+v", effects)
 			}
@@ -262,29 +315,20 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 			if err != nil || after.SessionHandle != conversation.SessionHandle {
 				t.Fatalf("confirmation changed session: %+v %v", after, err)
 			}
-			turn, err := db.LatestConversationTurn(ctx, conversation.ID)
-			if err != nil {
-				t.Fatal(err)
+			saved, err := db.ReadOwnerAction(ctx, proposal.ID)
+			if err != nil || saved.State != "succeeded" || saved.ExecutionID == "" || !strings.Contains(saved.Result, "answer recorded") {
+				t.Fatalf("saved shared outcome missing: %+v %v", saved, err)
 			}
-			link, err := db.GetConversationActionLink(ctx, turn.ID)
-			if err != nil || link.ExecutionID == "" || !strings.Contains(link.Outcome, "answer recorded") {
-				t.Fatalf("saved action outcome missing: %+v %v", link, err)
+			inspected, err := actions.Inspect(ctx, principal, proposal.ID)
+			if err != nil || inspected.Result.Summary != "answer recorded" || inspected.Facts.Invocation.Arguments["text"] != "CSV output" {
+				t.Fatalf("inspection lost source or result: %+v %v", inspected, err)
 			}
-			execution, err := db.ReadNaturalExecution(ctx, link.ExecutionID)
-			if err != nil || execution.State != "finished" || execution.Outcome != link.Outcome {
-				t.Fatalf("saved execution differs from narration link: %+v %v", execution, err)
+			shown = sent.texts[len(sent.texts)-1]
+			if !strings.Contains(shown, "answer recorded") || !strings.Contains(shown, proposal.ID) {
+				t.Fatalf("saved outcome inspection absent: %v", sent.texts)
 			}
-			if len(sent.texts) != 3 || !strings.Contains(sent.texts[2], "Your CSV output answer was recorded for acme/app issue 42.") {
-				t.Fatalf("saved outcome narration missing: %v", sent.texts)
-			}
-			assertFactoryJourneySessions(t, after.StateDir, after.SessionHandle, 5)
-			prompt, err := os.ReadFile(filepath.Join(after.StateDir, "fixture-prompt-5"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(string(prompt), "answer recorded") {
-				t.Fatalf("narration did not receive saved outcome: %s", prompt)
-			}
+			assertFactoryJourneySessions(t, after.StateDir, after.SessionHandle, 4)
+
 		})
 	}
 }

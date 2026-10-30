@@ -1,0 +1,3 @@
+testcache: caching disabled for test argument: -test.count=1
+testcache: caching disabled for test argument: -test.count=1
+ok  	github.com/cloudvane/litefactory/internal/turn	6.866s

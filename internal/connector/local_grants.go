@@ -17,6 +17,8 @@ var ErrGrantNotFound = store.ErrConnectorGrantNotFound
 // first three fields describe factory:overview. Repositories describes the
 // task-level and repository-level scopes.
 type GrantCoverage struct {
+	ActionRepositories        []string                 `json:"action_repositories,omitempty"`
+	StandardsManagement       bool                     `json:"standards_management"`
 	AllRegisteredRepositories bool                     `json:"all_registered_repositories"`
 	PrivateRepositories       bool                     `json:"private_repositories"`
 	FutureRepositories        bool                     `json:"future_repositories"`
@@ -112,7 +114,11 @@ func (s *GrantService) ListGrantSummaries(ctx context.Context, now time.Time) ([
 	}
 	out := make([]GrantSummary, 0, len(rows))
 	for _, g := range rows {
-		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{AllRegisteredRepositories: store.ConnectorScopeHas(g.Scope, Scope), PrivateRepositories: store.ConnectorScopeHas(g.Scope, Scope), FutureRepositories: store.ConnectorScopeHas(g.Scope, Scope), Repositories: grantRepositoryCoverage(g), CodeReview: store.ConnectorScopeHas(g.Scope, CodeReviewScope), FactoryUsage: store.ConnectorScopeHas(g.Scope, FactoryUsageScope), UsageTaskFamily: store.ConnectorScopeHas(g.Scope, TaskUsageScope)}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
+		actionRepositories := make([]string, len(g.ActionRepositories))
+		for i, ref := range g.ActionRepositories {
+			actionRepositories[i] = safeGrantLabel(ref)
+		}
+		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{ActionRepositories: actionRepositories, StandardsManagement: store.ConnectorScopeHas(g.Scope, StandardsManagementScope), AllRegisteredRepositories: store.ConnectorScopeHas(g.Scope, Scope), PrivateRepositories: store.ConnectorScopeHas(g.Scope, Scope), FutureRepositories: store.ConnectorScopeHas(g.Scope, Scope), Repositories: grantRepositoryCoverage(g), CodeReview: store.ConnectorScopeHas(g.Scope, CodeReviewScope), FactoryUsage: store.ConnectorScopeHas(g.Scope, FactoryUsageScope), UsageTaskFamily: store.ConnectorScopeHas(g.Scope, TaskUsageScope)}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
 	}
 	return out, nil
 }
@@ -163,7 +169,7 @@ func (s *GrantService) List(ctx context.Context) ([]store.ConnectorGrantSummary,
 	}
 	out := make([]store.ConnectorGrantSummary, 0, len(rows))
 	for _, g := range rows {
-		r := store.ConnectorGrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: g.ClientName, Resource: g.Resource, Scope: g.Scope, CreatedAt: g.CreatedAt, ExpiresAt: g.ExpiresAt}
+		r := store.ConnectorGrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: g.ClientName, ActionRepositories: g.Coverage.ActionRepositories, Resource: g.Resource, Scope: g.Scope, CreatedAt: g.CreatedAt, ExpiresAt: g.ExpiresAt}
 		if g.RevokedAt != nil {
 			r.RevokedAt = *g.RevokedAt
 		}

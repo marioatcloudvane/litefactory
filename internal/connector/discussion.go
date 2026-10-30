@@ -303,6 +303,9 @@ func (s *Server) availableTools(grant store.ConnectorGrant) []string {
 	if s.codeEvidence != nil && store.ConnectorScopeHas(grant.Scope, DiscussionScope) && store.ConnectorScopeHas(grant.Scope, CodeReviewScope) {
 		names = append(names, codeToolNames...)
 	}
+	if s.actions.Load() != nil && actionGrant(grant) {
+		names = append(names, actionToolNames...)
+	}
 	return names
 }
 

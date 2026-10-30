@@ -164,6 +164,24 @@ func (db *DB) GetLogAnalysis(ctx context.Context, id string) (LogAnalysis, error
 	return a, err
 }
 
+// LogAnalysisByStartKey recovers an admitted analysis without launching work.
+func (db *DB) LogAnalysisByStartKey(ctx context.Context, key string) (LogAnalysis, error) {
+	var analysis LogAnalysis
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		var id string
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM log_analyses WHERE start_key=?`, key).Scan(&id); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		var err error
+		analysis, err = readLogAnalysis(ctx, tx, id)
+		return err
+	})
+	return analysis, err
+}
+
 // ListLogAnalyses pages in stable ID order; limit is capped at 100.
 func (db *DB) ListLogAnalyses(ctx context.Context, after string, limit int) ([]LogAnalysis, error) {
 	if limit <= 0 {

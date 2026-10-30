@@ -20,13 +20,14 @@ const safetyPoll = 5 * time.Minute
 // catches up from the stored cursor at start, after every (re)connect and,
 // while the Gateway is down, every safetyPoll.
 type naturalIntake struct {
-	intake *messaging.Intake
-	run    func(context.Context, discord.GatewayOptions) error
-	notify func()
-	status func(string)
-	reads  *discordReadLog
-	log    *slog.Logger
-	safety time.Duration
+	intake   *messaging.Intake
+	run      func(context.Context, discord.GatewayOptions) error
+	notify   func()
+	status   func(string)
+	reaction func(discord.OwnerReaction)
+	reads    *discordReadLog
+	log      *slog.Logger
+	safety   time.Duration
 	// backoff bounds Gateway reconnects; zero keeps the adapter's defaults.
 	backoff [2]time.Duration
 
@@ -44,6 +45,7 @@ func (d *Daemon) startNaturalIntake(ctx context.Context, wg *sync.WaitGroup, int
 		return
 	}
 	n := &naturalIntake{intake: intake, run: d.chat.adapter.RunGateway, notify: d.chat.service.Notify, status: d.setChatStatus, reads: d.chat.reads, log: d.log, safety: safetyPoll}
+	n.reaction = func(r discord.OwnerReaction) { d.ownerReaction(ctx, r) }
 	n.start(ctx, wg)
 }
 
@@ -55,7 +57,7 @@ func (n *naturalIntake) start(ctx context.Context, wg *sync.WaitGroup) {
 	// A permanent failure is logged and shown by gatewayState; reads go on
 	// every safety period.
 	wg.Go(func() {
-		_ = n.run(ctx, discord.GatewayOptions{Owner: n.intake.Owner, Channels: n.intake.Channels, OnMessage: n.mark, OnReady: n.markAll, OnState: n.gatewayState, MinBackoff: n.backoff[0], MaxBackoff: n.backoff[1]})
+		_ = n.run(ctx, discord.GatewayOptions{Owner: n.intake.Owner, Channels: n.intake.Channels, OnMessage: n.mark, OnReaction: n.reaction, OnReady: n.markAll, OnState: n.gatewayState, MinBackoff: n.backoff[0], MaxBackoff: n.backoff[1]})
 	})
 	wg.Go(func() { n.serve(ctx) })
 }
