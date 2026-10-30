@@ -191,7 +191,8 @@ func (db *DB) ValidateLaunchedBy(ctx context.Context, sessionID, triggerID, inst
 }
 
 // ReopenValidateEntry lets an explicit owner start run again on an entry whose
-// Validate instance ended without finishing (failed or cancelled). The entry is
+// Validate instance is no longer running. The caller decides which ended runs
+// may be started again (a succeeded run only after its handback). The entry is
 // requested again with the new start's source; the next admission links a
 // successor to the ended instance. An entry in any other state is unchanged.
 func (db *DB) ReopenValidateEntry(ctx context.Context, in ValidateEntry, at time.Time) (ValidateEntry, error) {
@@ -200,7 +201,7 @@ func (db *DB) ReopenValidateEntry(ctx context.Context, in ValidateEntry, at time
 	}
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		_, e := tx.ExecContext(ctx, `UPDATE validate_entries SET state='requested',reason='',instance_id=0,source=?,comment_id=?,author_id=?,note=?,updated_at=?
-WHERE id=? AND state='admitted' AND instance_id IN (SELECT id FROM graph_instances WHERE status IN ('failed','cancelled'))`,
+WHERE id=? AND state='admitted' AND instance_id IN (SELECT id FROM graph_instances WHERE status<>'running')`,
 			in.Source, in.CommentID, in.AuthorID, in.Note, FormatTime(at), in.ID)
 		return e
 	})

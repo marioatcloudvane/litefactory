@@ -112,7 +112,19 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 		if err := tx.QueryRowContext(ctx, `SELECT id FROM application_results WHERE task=? AND mode=? AND context_hash=? AND workflow=?`, a.Task, a.Mode, hash, a.Workflow).Scan(&id); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE result_id IN (SELECT id FROM application_results WHERE task=? AND workflow NOT IN ('doctor','judge'))`, a.Task); err != nil {
+		parentID, err := planMemberParentTx(ctx, tx, a.RunID)
+		if err != nil {
+			return err
+		}
+		if parentID != 0 {
+			if err := checkPlanMemberWriterTx(ctx, tx, a.RunID, parentID); err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE run_id IN (SELECT older.run_id FROM plan_group_members older JOIN plan_group_members current ON current.run_id=? WHERE older.parent_attempt_id=current.parent_attempt_id AND older.role=current.role AND (older.sequence<current.sequence OR older.run_id=current.run_id))`, a.RunID)
+		} else {
+			_, err = tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE result_id IN (SELECT id FROM application_results WHERE task=? AND workflow NOT IN ('doctor','judge'))`, a.Task)
+		}
+		if err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_attempts(run_id,attempt,result_id,active) VALUES(?,?,?,1)`, a.RunID, a.Attempt, id); err != nil {
@@ -162,6 +174,15 @@ func checkResultAccess(ctx context.Context, tx *sql.Tx, b ResultBinding, write b
 		return checkDoctorResultWriter(ctx, tx, b)
 	}
 	if write {
+		parentID, err := planMemberParentTx(ctx, tx, b.RunID)
+		if err != nil {
+			return err
+		}
+		if parentID != 0 {
+			if err := checkPlanMemberWriterTx(ctx, tx, b.RunID, parentID); err != nil {
+				return err
+			}
+		}
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runs r JOIN sessions s ON s.id=r.session_id WHERE r.id=? AND r.mode=? AND r.workflow=? AND r.status='running' AND s.task_ref=?`, b.RunID, b.Mode, b.Workflow, b.Task).Scan(&n); err != nil {
 			return err

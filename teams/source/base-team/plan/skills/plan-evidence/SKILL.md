@@ -7,8 +7,11 @@ resources: [node-result.md, projection.md]
 Read [node result](node-result.md) and [visible projection](projection.md).
 Persist exact candidate/upstream/shared-decision references, decisions, assumptions,
 answered and unanswered questions across replies/restarts. Reuse settled answers.
-Only factory-authenticated explicit owner promotion of the exact displayed current
-candidate can advance a stage. Questions, done output, stale, ambiguous,
+Owner-gated stages advance only through factory-authenticated explicit owner
+promotion of the exact displayed current candidate. A captured graph may authorize
+story, technical and acceptance approvals through the existing guarded graph-approval activity; it
+never authorizes set promotion or final assembled approval. Questions, done output,
+stale, ambiguous,
 wrong-story or mixed change-and-approval replies cannot promote. Treat an edit as
 a revision first. Intent changes route to story; architecture changes to technical;
 criteria changes to acceptance. Traverse recorded dependencies and reopen affected
@@ -90,11 +93,14 @@ size with a missing reason can guide depth; report the reason unavailable. If no
 matching entry is supplied, report that absence rather than borrowing another
 story's size. Distinguish an exempt unsized entry from a new-set sizing gap.
 
-Size guides explanation depth only: S concise intent and relevant technical
+Size guides explanation depth: S concise intent and relevant technical
 explanation, few meaningful tasks and short criteria; M normal detail; L full
 detail for its risks. There are no numeric task or criterion limits by size.
 Every size keeps all agreed outcomes, `Covers`, `Ruling`, task-to-criterion proof
-links and required evidence, the same stages, set rules and owner authority.
+links and required evidence, the same required content, set rules and owner
+authority. The captured graph may
+run eligible S reasoning concurrently and request guarded graph approvals; M/L and
+unavailable or invalid sizing retain the sequential owner-review route.
 The shaping skills give include-and-omit examples for each stage.
 
 # Work kinds
@@ -107,3 +113,41 @@ Each task states its kind first in its description, e.g. `Kind: markdown — …
 - config/operations: settings, deploy or manual steps; proven by a dry run or
   an owner check.
 A task that mixes kinds becomes one task per kind.
+
+# Parallel contributions
+Only a factory-bound member of a captured Plan parallel group uses a contribution
+instead of a sequential storyrequest. Ordinary sequential invocations, older
+captures and saved plans retain their existing output and approval contracts.
+The factory supplies one immutable basis, your member role, the current assembled
+proposal when present and its digest. Do not author group, attempt, basis or role
+identities. Deliver through the same preflight, submit and matching receipt route;
+keep the 1 MiB Plan node limit and exact retry identity.
+
+Own only your sections: story owns intent and proposed dependencies; technical
+owns architecture, applicable guidance and design references; acceptance owns tasks
+and criteria. Keep unchanged sections from the basis. Do not use a whole-story
+update to replace another member's content. Record assumptions and shared decisions
+with their provenance; incompatible proposals must remain visible for reconciliation.
+
+For S, omit optional elaboration, repeated background and irrelevant tables, never
+required typed sections, outcome coverage, invariants or proof links. Acceptance
+must inspect the actual assembled architecture; technical must inspect actual
+intent. On each bounded continuation, inspect the complete supplied proposal and
+confirm its exact semantic digest only if your contribution and the other sections
+form one coherent plan. Any revision requires fresh agreement on the new proposal.
+Completion, schema validity and silence do not establish agreement.
+
+Retain unresolved questions, failures and contradictions explicitly. Reuse answers
+and valid retained work on resume; a late reply cannot erase a blocker. Report a
+material intent or dependency change for normal owner review. If the story grows
+beyond S, state the concrete growth reason and earliest affected stage; do not
+rewrite promoted sizing. Growth keeps this story on normal review for the rest of
+its planning cycle, with unaffected approvals and independent siblings preserved.
+
+The coordinator may wait for capacity to admit every required member together.
+Such a wait is visible and grants no agreement or approval. Reconciliation has a
+positive captured bound; exhaustion retains work and blockers for a later resume.
+Members never apply story effects or approve stages. Only the coordinator can
+seal current unanimous agreement and invoke ordered existing story, technical and
+acceptance effects and guarded approvals. Owner set/final approval, dependency
+waits, holds, retirement confirmation and advisory judges retain their authority.

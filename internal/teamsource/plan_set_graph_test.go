@@ -170,7 +170,7 @@ func TestShippedCreationCycleBoundIsTheConstant(t *testing.T) {
 }
 
 // AC-029: the definition alone says a session that already has stories skips the
-// set stage: the set decision's false outcome reaches the story decision, and the
+// set stage: the set decision's false outcome selects story reasoning, and the
 // stage that follows the set is only reachable through the owner's promotion, not
 // through a failure or exhausted loop.
 func TestShippedPlanGraphSkipsTheSetStageWhenTheDecisionIsFalse(t *testing.T) {
@@ -179,8 +179,16 @@ func TestShippedPlanGraphSkipsTheSetStageWhenTheDecisionIsFalse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next, ok := graphexec.Decide(d.Profile, "select_set", "false"); !ok || next != "select_story" {
-		t.Fatalf("a scope with stories reaches %q, %v", next, ok)
+	next, ok := graphexec.Decide(d.Profile, "select_set", "false")
+	if !ok {
+		t.Fatal("story scope lacks set bypass")
+	}
+	for _, facts := range []map[string]string{
+		{"story.size": "S", "story.sizing_valid": "true", "story.fallback": "false"},
+		{"story.size": "L", "story.sizing_valid": "true", "story.fallback": "false"},
+		{"story.sizing_valid": "false", "story.fallback": "false"},
+	} {
+		firstStoryPlanningActivity(t, d.Profile, next, facts)
 	}
 	sel, _ := d.Profile.Node("select_set")
 	if sel.Attrs["lf_condition"] != graphexec.PlanSetCondition || sel.Attrs["lf_source"] != "" {

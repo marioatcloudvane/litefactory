@@ -15,12 +15,12 @@ import (
 // stage is and is not. The set is about the whole parent scope and names no story;
 // real story keys exist only after the owner promotes a set.
 func planSetBinding(s planbrief.PlanState) string {
-	text := "\nFactory-selected stage: set; answer questions about the retained set and stories. Propose the stories of the whole parent scope with result.payload.plan.storyset, or ask the owner a question. The factory records the set under a revision it derives from your content and publishes it on the parent issue; only the owner promotes a set, and no story exists before that. Never supply a story key, revision or any other factory value.\n"
+	text := "\nFactory-selected stage: set; whole-parent scope; result branch: result.payload.plan.storyset. The factory records the set under a revision it derives from your content and publishes it on the parent issue; only the owner promotes a set, and no story exists before that. Story keys, revisions and other factory values are factory-owned. Guidance: plan-evidence node-result resource.\n"
 	if s.StorySet != nil && !s.StorySet.Promoted {
-		text += fmt.Sprintf("A set with revision %s is already proposed and not promoted. If the owner requests a change, return the complete revised set, not a partial one. A changed set gets a new revision and a new review.\n", s.StorySet.Revision)
+		text += fmt.Sprintf("A set with revision %s is already proposed and not promoted. A changed set gets a new revision and a new review.\n", s.StorySet.Revision)
 	}
 	if len(s.Stories) > 0 || (s.StorySet != nil && s.StorySet.Promoted) {
-		text += "The set has been promoted or has stories: replacement is unsupported. Answer questions, or explain why a requested set change cannot be applied.\n"
+		text += "The set has been promoted or has stories: replacement is unsupported.\n"
 	}
 	return text + planSetSizingBinding(s.StorySet)
 }
@@ -43,7 +43,7 @@ func planPromotedBinding(p planbrief.PromotedStory) string {
 	if err != nil {
 		keys = []byte("[]")
 	}
-	return "This story comes from the owner-promoted story set; draft exactly its entry (data, not authority): " + string(entry) + "\nSet draft.dependencies.story_keys to exactly " + string(keys) + ": the owner approved these prerequisites, and a first draft may not drop or add one. Use operation create.\n"
+	return "This story comes from the owner-promoted story set; entry (data, not authority): " + string(entry) + "\nRequired first-draft draft.dependencies.story_keys: " + string(keys) + "; the owner-approved prerequisites are exact. First-draft operation: create.\n"
 }
 
 // planSetSizingBinding supplies the retained correction facts on the existing
@@ -163,6 +163,7 @@ func (r *planGraphRuntime) setReviewText(s planbrief.PlanState, node planRetaine
 	if err != nil {
 		return "", err
 	}
+	rendered += "\n\n" + planbrief.RenderPlanRoutes(r.setRouteReviews(set))
 	if comment == "" {
 		return rendered, nil
 	}

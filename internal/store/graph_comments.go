@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // GraphCommentIntent retains authored content independently of rendering and
@@ -173,3 +174,75 @@ func GraphCommentKind(kind string) bool {
 // GraphCommentWaits reports whether publishing this kind leaves the instance
 // waiting on the owner rather than carrying on.
 func GraphCommentWaits(kind string) bool { return kind == "question" || kind == "review" }
+
+// GraphPublicationResume names a failed comment attempt, the exact retained
+// publication it was making, and the declared target of its published edge.
+type GraphPublicationResume struct {
+	InstanceID, AttemptID, SourceAttemptID int64
+	DeliveryKey, Target                    string
+	At                                     time.Time
+}
+
+// ResumeConfirmedGraphPublication continues an instance that failed only
+// because its comment delivery was uncertain, once that exact delivery is
+// confirmed: it records the published transition and leaves the state a
+// successful publish leaves. Every guard is rechecked here; it refuses, without
+// error, an instance that is no longer the failed owner of that publication or
+// that newer work in the session has replaced. A second call changes nothing.
+func (db *DB) ResumeConfirmedGraphPublication(ctx context.Context, in GraphPublicationResume) (bool, error) {
+	if in.InstanceID <= 0 || in.AttemptID <= 0 || in.SourceAttemptID <= 0 || in.DeliveryKey == "" || in.Target == "" || in.At.IsZero() {
+		return false, graphInvariant("invalid graph publication resume")
+	}
+	resumed := false
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		instance, err := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, in.InstanceID))
+		if err != nil || instance.Status != GraphFailed {
+			return err
+		}
+		var latest int64
+		var node, status string
+		if err = tx.QueryRowContext(ctx, `SELECT id,node,status FROM graph_node_attempts WHERE instance_id=? AND node=? ORDER BY id DESC LIMIT 1`, instance.ID, instance.CurrentNode).Scan(&latest, &node, &status); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		if latest != in.AttemptID || status != GraphFailed {
+			return nil
+		}
+		var exact, newer, stepping, open, waiting bool
+		if err = tx.QueryRowContext(ctx, `SELECT
+EXISTS(SELECT 1 FROM graph_comment_intents c JOIN report_deliveries d ON d.delivery_key=c.delivery_key WHERE c.delivery_key=? AND c.instance_id=? AND c.node=? AND c.source_attempt_id=? AND c.kind<>'failure' AND d.completed=1 AND d.comment_id IS NOT NULL),
+EXISTS(SELECT 1 FROM graph_instances WHERE session_id=? AND id>?),
+EXISTS(SELECT 1 FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running')),
+EXISTS(SELECT 1 FROM graph_dispatches WHERE instance_id=? AND status IN ('pending','reserved','running')),
+EXISTS(SELECT 1 FROM graph_owner_waits WHERE instance_id=? AND state='waiting')`,
+			in.DeliveryKey, instance.ID, node, in.SourceAttemptID, instance.SessionID, instance.ID, instance.ID, instance.ID, instance.ID).Scan(&exact, &newer, &stepping, &open, &waiting); err != nil {
+			return err
+		}
+		if !exact || newer || stepping || open {
+			return nil
+		}
+		if _, err = recordGraphTransitionTx(ctx, tx, GraphTransition{InstanceID: instance.ID, FromNode: node, ToNode: in.Target, OnOutcome: "published", At: in.At}); err != nil {
+			return err
+		}
+		resumed = true
+		if waiting {
+			return setGraphInstanceTx(ctx, tx, instance.ID, in.Target, GraphRunning, time.Time{}, time.Time{})
+		}
+		var launch sql.NullInt64
+		if err = tx.QueryRowContext(ctx, `SELECT id FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1`, instance.ID).Scan(&launch); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err = setGraphInstanceTx(ctx, tx, instance.ID, in.Target, GraphRunning, in.At, time.Time{}); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id) VALUES(?,?,?,?,'pending',?,?)`,
+			instance.ID, instance.SessionID, in.Target, FormatTime(in.At), FormatTime(in.At), launch)
+		return err
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: resume confirmed graph publication: %w", err)
+	}
+	return resumed, nil
+}

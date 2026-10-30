@@ -28,7 +28,7 @@ import (
 // shared result route, judged by the Plan decoder and retained as a reference to the
 // accepted shared result; the policy carries no result format of its own.
 func PlanWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{AcceptAfterProcessFailure: true, Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec(), graphexec.PlanGateSpec(), graphexec.PlanApproveSpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
+	return WorkflowPolicy{AcceptAfterProcessFailure: true, Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec(), graphexec.PlanGateSpec(), graphexec.PlanApproveSpec(), graphexec.PlanParallelSpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
 }
 
 // PlanSpecs validates the packaged Plan under Plan's own control and result policy.
@@ -216,11 +216,15 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		out.Reason = planUpstreamWait
 		return out, true, nil
 	}
-	if err == nil && out.Err == nil && r.story == "" && !r.discussion {
+	if err == nil && out.Err == nil && !r.discussion {
 		// Where the run stopped, the owner hears why and what to do next.
-		_, noticeErr := r.storiesCreated(ctx)
-		r.logNotice(noticeErr, "plan-stories-created")
-		r.logNotice(r.reportStop(ctx, admission.Instance.ID), "plan-stopped")
+		if r.story == "" {
+			_, noticeErr := r.storiesCreated(ctx)
+			r.logNotice(noticeErr, "plan-stories-created")
+		}
+		if r.story == "" || parallelGraphEnabled(definition.Profile) {
+			r.logNotice(r.reportStop(ctx, admission.Instance.ID), "plan-stopped")
+		}
 	}
 	return out, true, err
 }
@@ -602,7 +606,7 @@ func (r *planGraphRuntime) applyParentStoryCommand(ctx context.Context, s planbr
 
 func (r *planGraphRuntime) policy() WorkflowPolicy {
 	p := PlanWorkflowPolicy()
-	p.Handlers = &WorkflowHandlers{Prepare: r.prepare, Control: planGraphHandler(r.control), Comment: planGraphHandler(r.comment)}
+	p.Handlers = &WorkflowHandlers{Prepare: r.prepare, Parallel: r.parallel, JudgeContext: r.parallelJudgeContext, Control: planGraphHandler(r.control), Comment: planGraphHandler(r.comment)}
 	p.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, _ *graphexec.Profile, _ func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error), _ WorkflowEnv) error {
 		if err := specs.Register(graphexec.PlanStorySpec()); err != nil {
 			return err
@@ -638,6 +642,9 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 	if err != nil {
 		return ResearchInvocation{}, err
 	}
+	if err = r.recordNormalRoute(ctx, a); err != nil {
+		return ResearchInvocation{}, err
+	}
 	upstream := []string{}
 	if r.stage != planSetStage {
 		if upstream, err = s.UpstreamReferences(r.selected, r.stage); err != nil {
@@ -661,7 +668,7 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 	}
 	binding := planSetBinding(s)
 	if r.stage != planSetStage {
-		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; the factory binds the stage, candidate, request identity, upstream references and shared-decision revision to your result. Never supply them, and set draft.key to the selected story.\n", r.selected, r.stage)
+		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; the factory binds the stage, candidate, request identity, upstream references and shared-decision revision to your result. These fields are factory-owned; draft.key must equal the selected story. Guidance: plan-evidence node-result resource.\n", r.selected, r.stage)
 		binding += planOwnerRolesBinding(r.scope)
 		binding += planStorySizingBinding(s.StorySet, r.selected)
 		if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), r.selected); e == nil && d.IssueID > 0 && d.Candidate != "" {
@@ -700,6 +707,12 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 // load reads the retained accepted shared result of the agent attempt a control,
 // effect or comment node names as its source.
 func (r *planGraphRuntime) load(ctx context.Context, a ActivityRequest) (planRetained, store.GraphNodeAttempt, error) {
+	if stage := a.Attrs["lf_stage"]; stage != "" {
+		r.stage = stage
+	}
+	if source, ok := r.definition.Profile.Node(a.Attrs["lf_source"]); ok && source.Action == graphexec.PlanParallelAction {
+		return r.parallelProjection(ctx, a)
+	}
 	source, err := latestResearchAgentAttempt(ctx, r.opts, r.definition.Profile, a.InstanceID, a.Attrs["lf_source"])
 	if err != nil {
 		return planRetained{}, source, err
@@ -712,8 +725,14 @@ func (r *planGraphRuntime) load(ctx context.Context, a ActivityRequest) (planRet
 }
 
 func (r *planGraphRuntime) control(ctx context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
+	if field := a.Attrs["lf_field"]; field != "" && field != "response" {
+		return r.parallelFact(ctx, a)
+	}
 	condition := a.Attrs["lf_condition"]
 	response := r.stage
+	if condition == "discussion" && r.discussion {
+		response = "discussion"
+	}
 	if condition == graphexec.PlanCreateCondition {
 		if r.discussion {
 			return ActivityResult{Outcome: "false"}, nil
@@ -794,6 +813,9 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 	h := PlanStoryActivity{DB: r.opts.DB, Forge: forge, Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
 	receipt, err := h.apply(ctx, authority, request, locked)
 	if err != nil {
+		return ActivityResult{}, err
+	}
+	if err = r.parallelApplied(ctx, a, receipt); err != nil {
 		return ActivityResult{}, err
 	}
 	raw, err := json.Marshal(receipt)

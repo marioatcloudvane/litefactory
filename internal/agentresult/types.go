@@ -261,11 +261,12 @@ type SpikeProposedFix struct {
 // is decided by the trusted Context (PlanGraph), never by the payload, so a
 // legacy Plan can never be turned into a graph Plan by what it sends.
 type Plan struct {
-	Summary      string                    `json:"summary,omitempty"`
-	Context      *agent.PlanningDiscussion `json:"context,omitempty"`
-	Stories      []PlanStory               `json:"stories,omitempty"`
-	StoryRequest *PlanStoryRequest         `json:"storyrequest,omitempty"`
-	StorySet     *PlanStorySet             `json:"storyset,omitempty"`
+	Contribution *planbrief.PlanParallelContribution `json:"contribution,omitempty"`
+	Summary      string                              `json:"summary,omitempty"`
+	Context      *agent.PlanningDiscussion           `json:"context,omitempty"`
+	Stories      []PlanStory                         `json:"stories,omitempty"`
+	StoryRequest *PlanStoryRequest                   `json:"storyrequest,omitempty"`
+	StorySet     *PlanStorySet                       `json:"storyset,omitempty"`
 }
 
 // PlanStory retains stable identity while draft detail is enriched.

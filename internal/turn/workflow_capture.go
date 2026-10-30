@@ -288,7 +288,7 @@ func GraphDispatchRunsAgent(ctx context.Context, db *store.DB, dispatch store.Gr
 	if !found {
 		return true, fmt.Errorf("node %q is absent from the retained graph", dispatch.Node)
 	}
-	return node.Action == ResearchAgentAction, nil
+	return node.Action == ResearchAgentAction || node.Action == graphexec.PlanParallelAction, nil
 }
 
 // workflowRequestError keeps admission and persistence refusals actionable even

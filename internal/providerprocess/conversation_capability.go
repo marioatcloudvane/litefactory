@@ -16,19 +16,19 @@ import (
 // ConversationProbe performs only local capability checks, never a model call.
 // Output and runtime are bounded and ambient secrets/settings are removed.
 func ConversationProbe(ctx context.Context, binary string, args, env []string, directory string) (string, error) {
-	return conversationProbe(ctx, binary, args, env, directory, 10*time.Second, waitForRetry)
+	return conversationProbe(ctx, binary, args, env, directory, func(int) time.Duration { return 10 * time.Second }, waitForRetry)
 }
 
 // ErrProbeTransient preserves a local availability failure separately from an
 // affirmative isolation refusal. No model process has been authorized yet.
 var ErrProbeTransient = errors.New("conversation capability probe temporarily unavailable")
 
-func conversationProbe(ctx context.Context, binary string, args, env []string, directory string, timeout time.Duration, wait func(context.Context, time.Duration) error) (string, error) {
+func conversationProbe(ctx context.Context, binary string, args, env []string, directory string, timeout func(attempt int) time.Duration, wait func(context.Context, time.Duration) error) (string, error) {
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		probeCtx, cancel := context.WithTimeout(ctx, timeout)
+		probeCtx, cancel := context.WithTimeout(ctx, timeout(attempt))
 		//nolint:gosec // Adapter-owned executable and local capability arguments.
 		cmd := exec.CommandContext(probeCtx, binary, args...)
 		cmd.Env, cmd.Dir, cmd.Stderr = env, directory, io.Discard

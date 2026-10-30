@@ -27,11 +27,19 @@ func TestProbeTransientRecoveryAndBounds(t *testing.T) {
 				wait := func(_ context.Context, d time.Duration) error {
 					waits = append(waits, d)
 					if recoverProbe {
-						return os.WriteFile(binary, []byte("#!/bin/sh\necho capabilities\n"), 0700)
+						return os.WriteFile(binary, []byte("#!/bin/sh\n/bin/sleep 1\necho capabilities\n"), 0700)
 					}
 					return nil
 				}
-				output, err := conversationProbe(t.Context(), binary, nil, []string{}, dir, 2*time.Second, wait)
+				// Only hang attempts that must time out get a short bound; attempts
+				// expected to finish get a bound far beyond any realistic load.
+				timeout := func(attempt int) time.Duration {
+					if failure == "exec /bin/sleep 30" && (attempt == 0 || !recoverProbe) {
+						return 500 * time.Millisecond
+					}
+					return time.Minute
+				}
+				output, err := conversationProbe(t.Context(), binary, nil, []string{}, dir, timeout, wait)
 				switch {
 				case failure == "exit 7":
 					if err == nil || errors.Is(err, ErrProbeTransient) || len(waits) != 0 {
@@ -63,7 +71,7 @@ func boolInt(v bool) int {
 func TestProbeCancellationAndMissingBinary(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	waits := 0
-	_, err := conversationProbe(ctx, filepath.Join(t.TempDir(), "missing"), nil, nil, "", time.Second, func(ctx context.Context, _ time.Duration) error {
+	_, err := conversationProbe(ctx, filepath.Join(t.TempDir(), "missing"), nil, nil, "", func(int) time.Duration { return time.Second }, func(ctx context.Context, _ time.Duration) error {
 		waits++
 		cancel()
 		return ctx.Err()

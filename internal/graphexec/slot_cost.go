@@ -3,6 +3,7 @@ package graphexec
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -30,10 +31,27 @@ func SlotCost(p *Profile, nodeName string) (int, error) {
 	if node.Terminal {
 		return 0, nil
 	}
+	cost := graphCost
 	if _, supplied := node.Attrs[slotBudgetAttribute]; supplied {
-		return nodeCost, nil
+		cost = nodeCost
 	}
-	return graphCost, nil
+	if node.Action == PlanParallelAction {
+		group, err := DecodePlanParallel(p, node)
+		if err != nil {
+			return 0, err
+		}
+		for _, member := range group.Members {
+			memberCost, err := SlotCost(p, member)
+			if err != nil {
+				return 0, err
+			}
+			if cost > math.MaxInt-memberCost {
+				return 0, errors.New("parallel group slot cost overflows int")
+			}
+			cost += memberCost
+		}
+	}
+	return cost, nil
 }
 
 func slotCostAttribute(attrs map[string]string) (int, error) {

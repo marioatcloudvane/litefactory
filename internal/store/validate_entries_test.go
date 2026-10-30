@@ -150,3 +150,38 @@ func mustRepo(t *testing.T, db *DB) Repo {
 	}
 	return repo
 }
+
+// #1258: a succeeded instance (a handback to Implement) no longer blocks the
+// reopen at the store; turn decides which succeeded runs may reopen.
+func TestValidateEntryReopenAfterTheInstanceSucceeded(t *testing.T) {
+	db := newTestDB(t)
+	sha := strings.Repeat("a2", 20)
+	e, _, err := db.EnsureValidateEntry(t.Context(), validateEntryInput(1, sha), validateEntryT0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Mode: "validate", ProfileVersion: 1, Path: "validate.dot", Digest: strings.Repeat("ab", 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := db.GetOrCreateSession(t.Context(), mustRepo(t, db), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := db.CreateGraphInstance(t.Context(), GraphInstance{SessionID: sess.ID, DefinitionID: def.ID, CurrentNode: "reimplementing", StartedAt: validateEntryT0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AdmitValidateEntry(t.Context(), e.ID, inst.ID, validateEntryT0); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetGraphInstanceStatus(t.Context(), inst.ID, GraphSucceeded, time.Time{}, validateEntryT0); err != nil {
+		t.Fatal(err)
+	}
+	owner := validateEntryInput(1, sha)
+	owner.ID, owner.CommentID = e.ID, 701
+	got, err := db.ReopenValidateEntry(t.Context(), owner, validateEntryT0)
+	if err != nil || got.ID != e.ID || got.State != ValidateEntryRequested || got.InstanceID != 0 || got.CommentID != 701 {
+		t.Fatalf("a succeeded instance frees the entry for an explicit owner start: %+v %v", got, err)
+	}
+}

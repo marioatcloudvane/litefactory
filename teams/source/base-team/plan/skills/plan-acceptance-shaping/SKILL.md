@@ -99,3 +99,10 @@ an entry exempt or requiring backfill. Report supplied valid reasons faithfully.
 Sizing gaps remain advisory, with repair only on the next supported plan-set
 invocation; they add no review gate, stage or repair loop and grant no authority
 to replace a promoted set.
+
+## Parallel S reasoning
+When factory-bound as a parallel member, contribute only tasks and criteria.
+Follow plan-evidence's Parallel contributions contract. Use the frozen basis and
+inspect each supplied complete proposal before agreeing to its digest. Preserve
+questions, contradictions and growth concerns; concise output retains all required
+typed content and proof links. Ordinary sequential output remains unchanged.

@@ -100,7 +100,7 @@ func (h JudgeActivity) Execute(ctx context.Context, opts Options, req ActivityRe
 	if saved.ID != 0 {
 		input.PinnedSource, input.SourceNodeAttemptID = &saved.Source, saved.SourceNodeAttemptID
 		input.TicketKey, input.RemoteCommentID = saved.TicketKey, saved.CommentID
-	} else {
+	} else if input.PinnedSource == nil {
 		sourceNode, ok := h.Profile.Node(input.SourceNode)
 		if !ok || sourceNode.Action != ResearchAgentAction {
 			return fail(errors.New("explicit judge source must name an agent node"))

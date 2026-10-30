@@ -216,11 +216,13 @@ func (p WorkflowPolicy) load(ctx context.Context, db *store.DB, id int64, scope 
 // from the shared graph lifecycle, native invocation, metering and saving
 // machinery. Preparation must bind the shared result service and final route.
 type WorkflowHandlers struct {
-	Prepare    func(context.Context, *researchWorkflow, ActivityRequest) (ResearchInvocation, error)
-	Control    ActivityHandler
-	Comment    ActivityHandler
-	BeforeSave func(context.Context, *researchWorkflow) error
-	AfterSave  func(context.Context, *researchWorkflow, *Result) error
+	JudgeContext func(context.Context, ActivityRequest, JudgeRequest) (JudgeRequest, error)
+	Parallel     func(context.Context, *researchWorkflow, ActivityRequest) (ActivityResult, error)
+	Prepare      func(context.Context, *researchWorkflow, ActivityRequest) (ResearchInvocation, error)
+	Control      ActivityHandler
+	Comment      ActivityHandler
+	BeforeSave   func(context.Context, *researchWorkflow) error
+	AfterSave    func(context.Context, *researchWorkflow, *Result) error
 }
 
 func researchRetainedRoute(r agentresult.Result) (string, error) {

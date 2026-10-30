@@ -33,11 +33,13 @@ type PlanState struct {
 
 // PlanStoryState retains one story's current stage, candidate and owner gates.
 type PlanStoryState struct {
-	Key       string            `json:"key"`
-	Stage     string            `json:"stage"`
-	Candidate string            `json:"candidate"`
-	Draft     PlanDraft         `json:"draft"`
-	Approvals map[string]string `json:"approvals"`
+	Route     *PlanRouteState    `json:"route,omitempty"`
+	Parallel  *PlanParallelGroup `json:"parallel,omitempty"`
+	Key       string             `json:"key"`
+	Stage     string             `json:"stage"`
+	Candidate string             `json:"candidate"`
+	Draft     PlanDraft          `json:"draft"`
+	Approvals map[string]string  `json:"approvals"`
 	// ApprovedBy records who gave the current approval of a stage: owner or graph.
 	// A missing entry reads as owner, which holds for every earlier saved state.
 	ApprovedBy    map[string]string `json:"approved_by,omitempty"`
@@ -697,10 +699,18 @@ func (s *PlanState) PlanSetRevision() string {
 			refs[item.Key] = item.Draft.Revision()
 		}
 	}
+	routes := map[string]*PlanRouteState{}
+	for i := range s.Stories {
+		item := &s.Stories[i]
+		if item.Active() && item.Route != nil {
+			routes[item.Key] = item.Route
+		}
+	}
 	return planHash(struct {
 		Shared  string
 		Stories map[string]string
-	}{s.SharedRevision, refs})
+		Routes  map[string]*PlanRouteState `json:",omitempty"`
+	}{s.SharedRevision, refs, routes})
 }
 
 // ValidateComplete checks complete progressive content and all active dependencies.

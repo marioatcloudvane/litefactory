@@ -1,0 +1,5 @@
+6a54c1df Merge pull request #1216 from marioatcloudvane/teams/refresh-1.0.0
+5ad20f02 Teams: refresh 1.0.0 from source (lf_gate plan.dot, shaping keeps stage 1)
+968d352c Merge pull request #1215 from marioatcloudvane/lf/984-graph-topology-still-decided-in-go
+86e8791b Merge pull request #1214 from marioatcloudvane/fix/shaping-keeps-stage1-md
+22027bdb Shaping keeps the stage-1 findings it starts from
