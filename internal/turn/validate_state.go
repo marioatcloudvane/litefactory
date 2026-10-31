@@ -43,8 +43,11 @@ type ValidateFinding struct {
 	Status  string
 	Class   string
 	Summary string
-	Checks  []string
-	State   string
+	// Defect is the first evidence entry alone: the reviewer's plain defect
+	// statement a follow-up issue is titled and described by.
+	Defect string
+	Checks []string
+	State  string
 	// Blocking findings require a new tested snapshot or an eligible owner
 	// verdict. A repair or an issue choice never clears one.
 	Blocking bool
@@ -223,6 +226,7 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 		for _, c := range story.Criteria {
 			f := ValidateFinding{ID: story.Story + ":" + c.Name, Story: story.Story, Name: c.Name, Criterion: true, Role: agent.ReviewRoleAcceptance, Status: c.Status, Class: c.Classification, Blocking: true}
 			f.Summary, f.Checks = findingEvidence(c.Evidence)
+			f.Defect = findingDefect(c.Evidence)
 			f.Verdict, f.Choice = verdictOf[f.ID], choiceOf[f.ID]
 			switch {
 			case slices.Contains(story.Unresolved, f.Role):
@@ -243,6 +247,7 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 		for _, r := range story.Reviews {
 			f := ValidateFinding{ID: story.Story + ":" + r.Name, Story: story.Story, Name: r.Name, Role: reviewOwner(r.Name), Status: r.Status, Class: r.Classification}
 			f.Summary, f.Checks = findingEvidence(r.Evidence)
+			f.Defect = findingDefect(r.Evidence)
 			f.Verdict, f.Choice = verdictOf[f.ID], choiceOf[f.ID]
 			f.Blocking = r.Classification == "blocking"
 			f.Optional = !f.Blocking
@@ -330,6 +335,17 @@ func findingEvidence(ev []agent.EvidenceExplanation) (string, []string) {
 		checks = append(checks, e.CheckIDs...)
 	}
 	return shortenFindingText(strings.Join(parts, " "), validateFindingTextLimit), checks
+}
+
+// findingDefect returns the first non-empty evidence summary, bounded like
+// the joined text.
+func findingDefect(ev []agent.EvidenceExplanation) string {
+	for _, e := range ev {
+		if s := strings.TrimSpace(e.Summary); s != "" {
+			return shortenFindingText(s, validateFindingTextLimit)
+		}
+	}
+	return ""
 }
 
 // validateFindingTextLimit bounds one finding's text as it is kept and shown;

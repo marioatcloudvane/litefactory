@@ -334,14 +334,24 @@ func (s *PlanState) RecordPlanGrowth(key, stage, reason, source string) error {
 	return nil
 }
 
+// Route reason kinds explain a route in owner text without exposing graph evidence.
+const (
+	PlanRouteReasonFastTrack = "fast_track"
+	PlanRouteReasonSize      = "size"
+	PlanRouteReasonSizing    = "sizing"
+	PlanRouteReasonGrowth    = "growth"
+)
+
 // PlanRouteReview is a rendering projection supplied by the captured graph.
 // Sizing remains a reference to the original set entry, never a second source.
+// Reason and FastTrackSize explain Route; FastTrackSize is the graph's comparison.
 type PlanRouteReview struct {
 	Story         string           `json:"story"`
 	Size          string           `json:"size,omitempty"`
 	SizeReason    string           `json:"size_reason,omitempty"`
 	Route         string           `json:"route"`
-	Basis         string           `json:"basis,omitempty"`
+	Reason        string           `json:"reason,omitempty"`
+	FastTrackSize string           `json:"fast_track_size,omitempty"`
 	Growth        string           `json:"growth,omitempty"`
 	History       []PlanRouteEvent `json:"history,omitempty"`
 	GraphApproved []string         `json:"graph_approved,omitempty"`
@@ -363,8 +373,10 @@ func (s *PlanState) RouteReviews() []PlanRouteReview {
 		}
 		if item.Route != nil {
 			r.Route = item.Route.Current
-			r.Basis = item.Route.Capture + ":" + item.Route.SourceRevision
 			r.Growth = item.Route.Fallback
+			if r.Growth != "" {
+				r.Reason = PlanRouteReasonGrowth
+			}
 			r.History = slices.Clone(item.Route.Events)
 		}
 		for _, stage := range planStages {
@@ -377,17 +389,50 @@ func (s *PlanState) RouteReviews() []PlanRouteReview {
 	return out
 }
 
-// RenderPlanRoutes includes retained route evidence and approval provenance.
+// planRouteLine states a route and its reason in one plain sentence.
+func planRouteLine(r PlanRouteReview) string {
+	if r.Route == "parallel" {
+		if r.Size != "" {
+			return "Fast track (size " + r.Size + ")"
+		}
+		return "Fast track"
+	}
+	if r.Route != "" && r.Route != "normal" {
+		return r.Route
+	}
+	switch r.Reason {
+	case PlanRouteReasonSize:
+		if r.FastTrackSize != "" {
+			return "Normal path: size " + r.Size + "; the fast track is only for size " + r.FastTrackSize + " stories"
+		}
+		return "Normal path: size " + r.Size
+	case PlanRouteReasonSizing:
+		return "Normal path: the size or its reason is missing or invalid"
+	case PlanRouteReasonGrowth:
+		if r.Growth != "" {
+			return "Normal path: the story grew beyond the fast track: " + r.Growth
+		}
+		return "Normal path: the story moved off the fast track"
+	}
+	return "Normal path"
+}
+
+// RenderPlanRoutes shows each story's route with one plain reason and approval
+// provenance. Graph evidence stays in the retained route state.
 func RenderPlanRoutes(reviews []PlanRouteReview) string {
+	approved := slices.ContainsFunc(reviews, func(r PlanRouteReview) bool { return len(r.GraphApproved) > 0 })
 	var b strings.Builder
-	b.WriteString("| Story | Size | Size reason | Route | Route basis | Growth reason | Graph-approved stages |\n|---|---|---|---|---|---|---|\n")
-	for _, r := range reviews {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s |\n", tableCell(r.Story), tableCell(r.Size), tableCell(r.SizeReason), tableCell(r.Route), tableCell(r.Basis), tableCell(r.Growth), tableCell(strings.Join(r.GraphApproved, ", ")))
+	if approved {
+		b.WriteString("| Story | Size | Size reason | Route | Graph-approved stages |\n|---|---|---|---|---|\n")
+	} else {
+		b.WriteString("| Story | Size | Size reason | Route |\n|---|---|---|---|\n")
 	}
 	for _, r := range reviews {
-		for _, event := range r.History {
-			fmt.Fprintf(&b, "\n%s route event: %s; node %s; %s=%s; %s\n", tableCell(r.Story), tableCell(event.Route), tableCell(event.Node), tableCell(event.Fact), tableCell(event.Value), tableCell(event.Reason))
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |", tableCell(r.Story), tableCell(r.Size), tableCell(r.SizeReason), tableCell(planRouteLine(r)))
+		if approved {
+			fmt.Fprintf(&b, " %s |", tableCell(strings.Join(r.GraphApproved, ", ")))
 		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }
