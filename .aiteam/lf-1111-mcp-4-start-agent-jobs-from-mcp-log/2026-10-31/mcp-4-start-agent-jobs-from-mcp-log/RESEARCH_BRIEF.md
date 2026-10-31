@@ -36,24 +36,29 @@ Establish current foundations and sketch an extensible remote MCP interface for 
 - **K-06** — Job records reference existing admission and domain identities rather than create a competing author session, and execution, result and notification state remain distinct. (agent's call)
 - **K-07** — Unknown workflow versions, invalid inputs and unavailable adapters fail without admitting work, and changed exact targets require a fresh proposal. (agent's call)
 - **O-17** — The workflow catalogue supports definitions independent of projects and definitions bound to a particular project without requiring a project argument for discovery. (owner said: comment 6542433357)
-- **O-18** — A definition's project binding and a job's execution target are separate facts, and each adapter declares whether its execution target is absent, optional or required. (agent's call)
-- **O-19** — Standards authoring supports book-only execution or explicit project context while log analysis requires explicit repository targets and never interprets omitted project as all projects. (agent's call)
+- **O-18** — A definition's ownership and a job's target are separate facts, with project selection declared as fixed by the definition, required caller input, optional caller input or no project. (agent's call)
+- **O-19** — Standards authoring supports book-only or explicit project context, generic log analysis requires repository inputs, and a registered fixed-project workflow resolves its target without requiring the caller to repeat it. (agent's call)
 - **O-20** — An unfiltered catalogue lists all authorized definitions, while an optional project filter includes independent definitions usable with that project and definitions bound to that project. (agent's call)
-- **O-21** — Project-bound definitions have unambiguous stable references, cannot override independent definitions by name and reject execution against a different project. (agent's call)
+- **O-21** — Project-bound definitions retain distinct stable references and versions even when they share a purpose or label, and a fixed binding cannot be overridden by caller input. (agent's call)
 - **O-22** — List returns paginated summaries for selecting a workflow and describe returns one selected version's full schemas, examples, permissions and result contract without starting work. (agent's call)
-- **O-23** — A saved proposal and job freeze the workflow reference and version, optional definition binding, explicit execution target, confirmation and domain references so continuation cannot switch scope. (agent's call)
-- **K-08** — Missing project context never grants global access or selects an arbitrary project, and independent jobs are unavailable when existing grants cannot authorize factory-level work. (agent's call)
+- **O-23** — Proposals and jobs freeze the selected definition and version, its ownership, the target resolved from configuration or inputs, confirmation and domain references so continuation cannot switch scope. (agent's call)
+- **K-08** — An omitted project resolves only from an explicit fixed workflow binding or a declared no-project mode, never from arbitrary defaults or broadened grants. (agent's call)
 - **A-01** — Scope correction and discovery explanation — owner: "i see an error here - workflows might be independent of the project but might be part of a project. also tell me an example response from the workflows_list. and why do we have list and describe?" (owner said: comment 6542433357)
+- **O-24** — Different repositories can supply different registered workflow definitions with different steps, inputs and result contracts rather than share one parameterized definition. (owner said: comment 6542484555)
+- **O-25** — A fixed project's identity need not appear in workflow names, descriptions or reference strings, but discovery exposes the authorized project association and confirmation always states the resolved target. (agent's call)
+- **O-26** — Describe omits a caller-selectable project input for a fixed-project definition and proposal admission rejects any attempt to override its configured target. (agent's call)
+- **O-27** — Extension-contract acceptance covers two distinct fixed-project test definitions, target inference without repeated project input, different input contracts and rejection of cross-project overrides without adding production research workflows. (agent's call)
+- **A-02** — Fixed versus supplied projects — owner: "the project it binds to can or can not be as text in there; e.g. we might have the log analysis to name a project, but we might have research workflow for project a and a different one for project b (they might have different workflows since they are on different repos!)" (owner said: comment 6542484555)
 
 
 ## Assumptions
 
 - **AS-01** — Remote owner MCP is the intended client surface, rather than the run-scoped worker MCP, based on parent #1106. (agent's call)
 - **AS-02** — Future custom research means an explicitly registered, permission-classified workflow adapter; it does not imply arbitrary model-supplied commands or unrestricted graph execution. (agent's call)
-- **AS-03** — The original sketch's mandatory project arguments and project-only permissions are superseded by O-17 through O-23 and K-08; shared versus convenience-tool exposure remains q01, and no existing action compatibility is removed. (agent's call)
+- **AS-03** — The original advisory sketch is superseded where it requires universal project arguments: O-17 through O-27 distinguish independent, caller-parameterized and fixed-project definitions; existing actions remain compatible and q01 remains unanswered. (agent's call)
 - **AS-04** — Single-attempt capacity is sufficient for the first release because no throughput target was supplied and the present worker is sequential; a 30-minute log-analysis ceiling must not be silently reduced by the admission worker's ten-minute context. (agent's call)
 - **AS-05** — Workflow versions are server-controlled contracts: proposals retain the selected version, incompatible unavailable versions require reproposal, and pagination bounds catalogue and result reads without losing retained evidence. (agent's call)
-- **AS-06** — No builder-check advisory was supplied in either shaping invocation; owner comment 6542433357 corrects project scope and requests examples but does not answer q01 or q02 or approve the scope. (agent's call)
+- **AS-06** — No builder-check advisory was supplied; owner comments 6542433357 and 6542484555 settle project flexibility but do not answer q01 or q02 or approve the scope. (agent's call)
 
 
 ## Open questions
