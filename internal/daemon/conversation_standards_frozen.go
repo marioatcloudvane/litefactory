@@ -311,13 +311,15 @@ func (a *ConversationStandards) ExecuteFrozen(ctx context.Context, p owneraction
 	r = a.frozenRequest(p, r, facts)
 	ctx, err := a.frozenExecutionContext(ctx, p, r, facts)
 	if err != nil {
-		return messaging.StandardsResult{}, err
+		// Refused before any effect.
+		return messaging.StandardsResult{Status: "failed"}, err
 	}
 	if saved, found, e := a.RecoverFrozen(ctx, p, r, facts); found || e != nil {
 		return saved, e
 	}
 	if err = a.RecheckFrozen(ctx, p, r, facts); err != nil {
-		return messaging.StandardsResult{}, err
+		// Refused before any effect: nothing was recovered and nothing has started.
+		return messaging.StandardsResult{Status: "failed"}, err
 	}
 	if r.Operation == "author.publish" {
 		return a.publishFrozen(ctx, r)
