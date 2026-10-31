@@ -105,3 +105,13 @@ Focused tests passed: go test ./internal/rights ./internal/graphexec -run Test(C
 Evidence:
 
 - `internal/rights/rights_test.go:219`
+
+## F-14
+
+Shaping impact assessment: current owner-only connector access would become subject-aware for the chosen collaborator provider(s), while ticket project authority already resolves provider-qualified appointed owners; identity must not be inferred from a numeric ID shared across providers. Local administration remains the scope proposal, so no new administration UI or worker role/skill authority is required; selected team interaction declarations and human guidance need updates, with saved releases preserved. Existing owner-only collaborator rejection is superseded only for expressly granted interactions; no other retirement is proposed.
+
+Evidence:
+
+- `internal/connector/mcp.go:49`
+- `internal/daemon/ticket_ingress.go:124`
+- `internal/rights/catalogue.go:50`
