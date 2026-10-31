@@ -370,8 +370,9 @@ func valueEvidence(e *conversationReadResult) []conversationReadResult {
 	return []conversationReadResult{*e}
 }
 
-// scopeOwnerSources keeps the current request while excluding historical owner
-// sources whose target is unknown or belongs to another selected issue.
+// scopeOwnerSources keeps the current request and historical owner sources that
+// were never tied to a target, while excluding those whose target belongs to
+// another project or selected issue or whose capture is no longer available.
 func (r *factoryConversationRun) scopeOwnerSources(ctx context.Context, sources []store.ConversationTurn) ([]store.ConversationTurn, error) {
 	repository, issue, err := r.recoveryTarget(ctx)
 	if err != nil {
@@ -380,18 +381,25 @@ func (r *factoryConversationRun) scopeOwnerSources(ctx context.Context, sources 
 	if repository == "" {
 		return sources, nil
 	}
-	entries, err := r.s.db.ListConversationEvidence(ctx, r.c.ID, r.at, 64)
-	if err != nil {
-		return nil, err
-	}
 	out := make([]store.ConversationTurn, 0, len(sources))
 	for _, source := range sources {
 		if source.ID == r.t.ID {
 			out = append(out, source)
 			continue
 		}
+		// Per-turn evidence keeps an older scoped turn from looking unscoped
+		// when the conversation holds more captures than one listing returns.
+		entries, err := r.s.db.ListConversationTurnEvidence(ctx, source.ID, r.at)
+		if err != nil {
+			return nil, err
+		}
+		scoped := false
 		for _, e := range entries {
-			if e.Entry.Kind == "owner" && e.SourceTurnID == source.ID && e.Repository == repository && e.Issue == issue && e.Entry.Availability == retainedevidence.Available {
+			if e.Entry.Kind != "owner" || e.SourceTurnID != source.ID {
+				continue
+			}
+			scoped = true
+			if e.Repository == repository && e.Issue == issue && e.Entry.Availability == retainedevidence.Available {
 				allowed, err := r.evidenceAuthorized(ctx, e)
 				if err != nil {
 					return nil, err
@@ -401,6 +409,9 @@ func (r *factoryConversationRun) scopeOwnerSources(ctx context.Context, sources 
 				}
 				break
 			}
+		}
+		if !scoped {
+			out = append(out, source)
 		}
 	}
 	return out, nil
