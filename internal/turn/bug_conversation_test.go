@@ -82,6 +82,11 @@ func completeConversationAnalyst(t *testing.T, f *fixture, inst store.GraphInsta
 
 func completeConversationAnalystRevision(t *testing.T, f *fixture, inst store.GraphInstance, response string, base int64, requirement string) store.GraphNodeAttempt {
 	t.Helper()
+	return completeConversationAnalystWith(t, f, inst, response, base, requirement, nil)
+}
+
+func completeConversationAnalystWith(t *testing.T, f *fixture, inst store.GraphInstance, response string, base int64, requirement string, edit func(*buganalysis.BugAnalysis)) store.GraphNodeAttempt {
+	t.Helper()
 	ctx := t.Context()
 	at := f.opts.MCP.Now()
 	segment, e := f.db.GetOrCreateSegment(ctx, f.session.ID, 1, "conversation-analyst", store.AgentClaude)
@@ -91,6 +96,9 @@ func completeConversationAnalystRevision(t *testing.T, f *fixture, inst store.Gr
 	attempt, e := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: inst.ID, Node: "analyst", RunID: run.ID, Limit: 8, StartedAt: at})
 	mustProgress(t, e)
 	analysis := buganalysis.BugAnalysis{Expected: "Safe empty input", Actual: "Panic on empty input", Reproduction: buganalysis.BugReproduction{Environment: "Go fixture", Observation: "not_observed"}, Cause: "Unchecked index", Evidence: []string{"search.go:12 indexes empty bytes"}, Remedy: "Guard input length", Exclusions: []string{"Nonempty behavior"}, Criteria: []buganalysis.BugCriterion{{ID: "C1", Requirement: requirement, Measurement: "Call empty input"}}}
+	if edit != nil {
+		edit(&analysis)
+	}
 	result := agentresult.Result{Outcome: "completed", Comment: "Complete candidate", Payload: agentresult.Payload{Bug: &agentresult.Bug{Response: response, Invocation: fmt.Sprintf("analysis:%d:%d", inst.ID, attempt.ID), BaseRevision: base, Analysis: &analysis}}}
 	if response == "ask" {
 		result.Outcome = "incomplete"
@@ -348,5 +356,35 @@ func TestGraphBugConversationNewestAnalystResultWins(t *testing.T) {
 	mustProgress(t, e)
 	if candidate.Revision != 2 || candidate.Analysis.Criteria[0].Requirement != "Return an empty result" {
 		t.Fatalf("stale review won: revision=%d %+v posts=%d", candidate.Revision, candidate.Analysis.Criteria, forge.attemptCount())
+	}
+}
+
+// Agent text that mentions the pre or code tag without closing it is ordinary
+// text: the analysis is posted, redacted, and its delivery recorded.
+func TestGraphBugConversationPostsAnalysisMentioningLiteralTags(t *testing.T) {
+	f, forge, p, inst := conversationFixture(t)
+	activities := ActivityRegistry{}
+	mustProgress(t, activities.Register(graphexec.ResearchLoopAction, GraphBugConversation{Profile: p, Reporter: f.opts.ResearchReporter}))
+	_, e := ExecuteNodeAction(t.Context(), f.opts, GraphNodeRequest{Profile: p, Activities: activities, InstanceID: inst.ID, At: f.opts.MCP.Now()})
+	mustProgress(t, e)
+	inline := "`" + "<" + "pre>` opens a span"
+	prose := "the " + "<" + "code> tag in prose"
+	completeConversationAnalystWith(t, f, inst, "done", 0, "No panic", func(a *buganalysis.BugAnalysis) {
+		a.Cause = "The redactor treats " + inline + " as a factory span, leaking " + testBotToken
+		a.Remedy = "Treat " + prose + " as ordinary text"
+	})
+	parked, e := ExecuteNodeAction(t.Context(), f.opts, GraphNodeRequest{Profile: p, Activities: activities, InstanceID: inst.ID, At: f.opts.MCP.Now()})
+	mustProgress(t, e)
+	if parked.Status != "waiting_owner" {
+		t.Fatalf("review did not park: %+v", parked)
+	}
+	post := forge.only(t)
+	if !strings.Contains(post.body, inline) || !strings.Contains(post.body, prose) || strings.Contains(post.body, testBotToken) {
+		t.Fatalf("posted analysis lost a tag mention or leaked the secret: %q", post.body)
+	}
+	wait, e := f.db.GetGraphOwnerWait(t.Context(), inst.ID)
+	mustProgress(t, e)
+	if _, e = f.db.GetReportDelivery(t.Context(), wait.DeliveryKey); e != nil {
+		t.Fatalf("delivery not recorded: %v", e)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html"
 	"strings"
 	"testing"
@@ -88,12 +89,99 @@ func TestReviewRedactionFailsClosed(t *testing.T) {
 	if _, err := r.ApplyReviewSource(t.Context(), strings.Repeat("x", 100), 32); err == nil {
 		t.Fatal("oversize source accepted")
 	}
-	if _, err := r.ApplyReviewDisplay(t.Context(), "<pre>unfinished", 8192); err == nil {
-		t.Fatal("unfinished display accepted")
+	// An unclosed tag mention is ordinary text, but one that exposes an
+	// HTML-escaped secret is still refused.
+	secret := "private<&\"credential-value-123"
+	withSecret := New(Options{Environ: []string{"REVIEW_SECRET=" + secret}})
+	if _, err := withSecret.ApplyReviewDisplay(t.Context(), preOpen+"unfinished "+html.EscapeString(secret), 8192); err == nil {
+		t.Fatal("unfinished display exposing an escaped secret accepted")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := r.ApplyReviewSource(ctx, "{}", 8192); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation lost: %v", err)
+	}
+}
+
+var (
+	preOpen   = "<" + "pre>"
+	preClose  = "</" + "pre>"
+	codeOpen  = "<" + "code>"
+	codeClose = "</" + "code>"
+)
+
+// unicodeJSON encodes every character of s as a JSON Unicode escape.
+func unicodeJSON(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, c := range s {
+		fmt.Fprintf(&b, "\\u%04x", c)
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+func TestReviewDisplayTreatsTagMentionsAsText(t *testing.T) {
+	r := New(Options{Environ: []string{}})
+	for _, source := range []string{
+		"The `" + preOpen + "` tag starts a span; prose mentions the " + codeOpen + " tag too.",
+		"Ambiguous " + preOpen + "a " + codeOpen + "b" + codeClose + " c" + preClose + " end",
+	} {
+		for name, apply := range map[string]func(context.Context, string, int) (Body, error){"display": r.ApplyReviewDisplay, "json": r.ApplyReviewJSONDisplay} {
+			got, err := apply(t.Context(), source, 8192)
+			if err != nil || got.String() != source {
+				t.Fatalf("%s: tag mention not kept as text: %q %v", name, got.String(), err)
+			}
+		}
+	}
+}
+
+func TestReviewDisplayFakeSpansNeverLeakEncodedSecrets(t *testing.T) {
+	secret := "private<&\"credential-value-123"
+	r := New(Options{Environ: []string{"REVIEW_SECRET=" + secret}})
+	encoded := unicodeJSON(secret)
+	value := html.EscapeString("{\"value\":" + encoded + "}")
+	heading := "### Submitted content\n\n"
+	ambiguous := codeOpen + "x" + codeClose + preClose
+	for name, source := range map[string]string{
+		"unclosed under heading":  heading + preOpen + value,
+		"unclosed JSON-looking":   "intro " + preOpen + value,
+		"ambiguous under heading": heading + preOpen + value + ambiguous,
+		"ambiguous JSON-looking":  "intro " + preOpen + value + ambiguous,
+	} {
+		for mode, apply := range map[string]func(context.Context, string, int) (Body, error){"display": r.ApplyReviewDisplay, "json": r.ApplyReviewJSONDisplay} {
+			got, err := apply(t.Context(), source, 8192)
+			if err != nil {
+				continue
+			}
+			out := got.String()
+			decoded := html.UnescapeString(out)
+			for _, text := range []string{out, decoded} {
+				if strings.Contains(text, secret) || strings.Contains(text, encoded) || strings.Contains(text, html.EscapeString(secret)) {
+					t.Fatalf("%s/%s: secret leaked: %q", name, mode, out)
+				}
+			}
+			for i := strings.IndexByte(decoded, '"'); i >= 0; i = strings.IndexByte(decoded, '"') {
+				decoded = decoded[i:]
+				var s string
+				if json.NewDecoder(strings.NewReader(decoded)).Decode(&s) == nil && strings.Contains(s, secret) {
+					t.Fatalf("%s/%s: decoded JSON value leaked secret: %q", name, mode, out)
+				}
+				decoded = decoded[1:]
+			}
+		}
+	}
+}
+
+func TestReviewDisplayTagMentionBeforeFactorySpanRedactsSpan(t *testing.T) {
+	secret := "private<&\"credential-value-123"
+	r := New(Options{Environ: []string{"REVIEW_SECRET=" + secret}})
+	source := "Mentions the `" + preOpen + "` tag.\n\n" + preOpen + html.EscapeString("value "+secret) + preClose
+	got, err := r.ApplyReviewDisplay(t.Context(), source, 8192)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(html.UnescapeString(got.String()), secret) || !strings.Contains(got.String(), "Mentions the `"+preOpen+"` tag.") || !strings.Contains(got.String(), Replacement) {
+		t.Fatalf("span after tag mention not redacted: %q", got.String())
 	}
 }

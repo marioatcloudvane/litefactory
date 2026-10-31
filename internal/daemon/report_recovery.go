@@ -440,7 +440,8 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 		}
 		runlessRefusal := strings.HasPrefix(delivery.Purpose, "reply:missing_team:") ||
 			strings.HasPrefix(delivery.Purpose, "reply:unsupported_workflow:") ||
-			strings.HasPrefix(delivery.Purpose, "reply:bug_comment_not_applied:")
+			strings.HasPrefix(delivery.Purpose, "reply:bug_comment_not_applied:") ||
+			delivery.Purpose == "owner-input"
 		if !found || delivery.RunID != 0 || (!runlessRefusal && !judgeDelivery) {
 			return false, nil
 		}
