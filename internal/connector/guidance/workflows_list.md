@@ -1,0 +1,3 @@
+Use workflow discovery to find authorized installed definitions before proposing background work. A project is optional: never invent a default project. Follow next_cursor to reach later entries. An optional project filter includes usable independent definitions and definitions bound to that project. Similar display names are not identities; preserve the returned workflow_ref and exact version. Availability and permissions are separate from execution authority. Discovery starts no agent and does not authorize work.
+
+Inspect the selected exact version with workflow_describe. Keep references and cursors internally so the owner can speak in ordinary language. Missing current permission can hide a definition; do not infer hidden project names or counts from pagination.

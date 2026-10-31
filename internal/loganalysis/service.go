@@ -253,7 +253,11 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	if e == nil && saved.State != "running" {
 		if saved.State == "completed" {
 			// The accepted report decided what to file; the host only executes it.
-			filing, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			filingParent := context.WithoutCancel(ctx)
+			if boundedWorkflowFiling(ctx) {
+				filingParent = ctx
+			}
+			filing, stop := context.WithTimeout(filingParent, 2*time.Minute)
 			defer stop()
 			provenanceErr = errors.Join(provenanceErr, s.FileFindings(filing, saved.ID))
 		}
@@ -751,3 +755,16 @@ func (s *Service) Reread(ctx context.Context, id string, c logevidence.Citation)
 
 // NormalizeRequest validates and fills lower-only limits without launching work.
 func NormalizeRequest(q Request) (Request, error) { return normalized(q) }
+
+// WithWorkflowDeadline keeps workflow filing within its advertised attempt lifetime.
+// Legacy callers retain their independent filing cleanup deadline.
+func WithWorkflowDeadline(ctx context.Context) context.Context {
+	return context.WithValue(ctx, workflowDeadlineKey{}, true)
+}
+
+type workflowDeadlineKey struct{}
+
+func boundedWorkflowFiling(ctx context.Context) bool {
+	v, _ := ctx.Value(workflowDeadlineKey{}).(bool)
+	return v
+}

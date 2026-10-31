@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -98,6 +99,7 @@ func normalizeScope(raw string) (string, bool) {
 
 // Options supplies dependencies resolved by trusted daemon composition.
 type Options struct {
+	Workflows    *durableworkflow.Service
 	Actions      *owneraction.Service
 	Config       config.RemoteConnector
 	DB           *store.DB
@@ -116,6 +118,7 @@ type Options struct {
 // Server owns remote authentication independently of local factory authority.
 type Server struct {
 	actions      atomic.Pointer[owneraction.Service]
+	workflows    atomic.Pointer[durableworkflow.Service]
 	cfg          config.RemoteConnector
 	db           *store.DB
 	logger       *slog.Logger
@@ -174,6 +177,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
 	server := &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}
 	server.actions.Store(opts.Actions)
+	server.workflows.Store(opts.Workflows)
 	return server, nil
 }
 
@@ -192,3 +196,6 @@ func digest(value string) string {
 
 // SetActions safely publishes trusted composition when lazy setup finishes.
 func (s *Server) SetActions(actions *owneraction.Service) { s.actions.Store(actions) }
+
+// SetWorkflows publishes the installed coordinator before serving.
+func (s *Server) SetWorkflows(v *durableworkflow.Service) { s.workflows.Store(v) }

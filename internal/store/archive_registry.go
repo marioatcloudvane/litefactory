@@ -301,9 +301,16 @@ var archiveRetained = map[string]ArchiveClass{
 	"owner_action_attempts":             ArchiveClassGlobal,
 	"owner_action_notice_receipts":      ArchiveClassGlobal,
 	"owner_action_policy_invalidations": ArchiveClassGlobal,
-	"chat_natural_messages":             ArchiveClassGlobal,
-	"chat_natural_scans":                ArchiveClassGlobal,
-	"chat_presentation_owners":          ArchiveClassGlobal,
+	// Durable owner workflows span task families. Retain their request identity,
+	// confirmation links, job results and delivery receipts independently of task archives.
+	"durable_workflow_requests": ArchiveClassGlobal,
+	"durable_workflow_jobs":     ArchiveClassGlobal,
+	"durable_workflow_attempts": ArchiveClassGlobal,
+	"durable_workflow_notices":  ArchiveClassGlobal,
+	"durable_workflow_worker":   ArchiveClassGlobal,
+	"chat_natural_messages":     ArchiveClassGlobal,
+	"chat_natural_scans":        ArchiveClassGlobal,
+	"chat_presentation_owners":  ArchiveClassGlobal,
 	// Chat delivery state follows its own short retention; source positions
 	// must survive task archival so enabling notices never replays history.
 	"chat_notices":           ArchiveClassGlobal,
