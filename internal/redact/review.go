@@ -101,11 +101,7 @@ func (r *Redactor) applyReviewDisplay(ctx context.Context, source string, limit 
 		if err := ctx.Err(); err != nil {
 			return Body{}, err
 		}
-		pre, code := strings.Index(source, "<pre>"), strings.Index(source, "<code>")
-		start, tag := pre, "pre"
-		if start < 0 || code >= 0 && code < start {
-			start, tag = code, "code"
-		}
+		start, tag := nextLiteralOpening(source)
 		if start < 0 {
 			out.WriteString(source)
 			break
@@ -117,13 +113,38 @@ func (r *Redactor) applyReviewDisplay(ctx context.Context, source string, limit 
 		out.WriteString(source[:start+len(opening)])
 		source = source[start+len(opening):]
 		end := strings.Index(source, closing)
-		if end < 0 {
-			return Body{}, fmt.Errorf("review display has an incomplete literal-text span")
+		if end < 0 || strings.Contains(source[:end], "<") {
+			// Not a factory span: agent text may mention the tag. Its tail, up to
+			// the next opening tag, keeps the redaction a span would have had.
+			tail := source
+			if next, _ := nextLiteralOpening(source); next >= 0 {
+				tail = source[:next]
+			}
+			decoded := html.UnescapeString(tail)
+			if factorySource || tag == "pre" && reviewJSONText(decoded) {
+				safe, err := r.ApplyReviewSource(ctx, decoded, limit)
+				if err != nil {
+					return Body{}, fmt.Errorf("review display has an unsafe literal-text span: %w", err)
+				}
+				if safe.Truncated() || safe.String() != decoded {
+					return Body{}, fmt.Errorf("review display has an unsafe literal-text span")
+				}
+				out.WriteString(tail)
+				source = source[len(tail):]
+				continue
+			}
+			if decoded != tail {
+				safe, err := r.Apply(ctx, decoded, limit)
+				if err != nil {
+					return Body{}, err
+				}
+				if safe.Truncated() || safe.String() != decoded {
+					return Body{}, fmt.Errorf("review display has an unsafe literal-text span")
+				}
+			}
+			continue
 		}
 		inner := source[:end]
-		if strings.Contains(inner, "<") {
-			return Body{}, fmt.Errorf("review display has an ambiguous literal-text span")
-		}
 		decoded := html.UnescapeString(inner)
 		var safe Body
 		var err error
@@ -157,6 +178,16 @@ func (r *Redactor) applyReviewDisplay(ctx context.Context, source string, limit 
 		return Body{}, fmt.Errorf("review display redaction exceeded budget")
 	}
 	return safe, nil
+}
+
+// nextLiteralOpening returns the index and name of the next opening pre or
+// code tag, or -1.
+func nextLiteralOpening(source string) (int, string) {
+	pre, code := strings.Index(source, "<"+"pre>"), strings.Index(source, "<"+"code>")
+	if pre < 0 || code >= 0 && code < pre {
+		return code, "code"
+	}
+	return pre, "pre"
 }
 
 func reviewJSONText(text string) bool {

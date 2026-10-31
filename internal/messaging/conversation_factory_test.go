@@ -663,3 +663,194 @@ func TestFactoryConversationUnknownFailureKeepsOneInspectionStep(t *testing.T) {
 		t.Fatalf("unknown completion lost safe inspection: calls=%d text=%s", provider.calls, reply.ReplyText)
 	}
 }
+
+// freshProvider records each native request and fails the calls named in fail.
+type freshProvider struct {
+	requests []agent.ConversationRequest
+	fail     map[int]error
+}
+
+func (p *freshProvider) RunConversation(ctx context.Context, r agent.ConversationRequest) (agent.ConversationResult, error) {
+	if err := r.BeforeLaunch(ctx); err != nil {
+		return agent.ConversationResult{}, agent.ConversationError(err, "before_launch", true)
+	}
+	p.requests = append(p.requests, r)
+	session := r.Session
+	if session.Resume == "" {
+		session.Resume = session.Ref
+	}
+	if err := r.OnSession(ctx, session); err != nil {
+		return agent.ConversationResult{}, err
+	}
+	if err := p.fail[len(p.requests)]; err != nil {
+		return agent.ConversationResult{}, err
+	}
+	return agent.ConversationResult{Session: session, Answer: []byte(`{"version":1,"kind":"answer","text":"Nothing is running right now."}`)}, nil
+}
+
+// providerCause mirrors the harness: a category joined with the bounded provider text.
+func providerCause(category error, text string) error {
+	return agent.ConversationError(errors.Join(category, fmt.Errorf("conversation did not complete the recorded native session: provider error: %s", text)), "terminal", false)
+}
+
+const refusedProviderText = "API Error: Claude's safeguards flagged this message (aup). secret-sentinel Details: [reasoning_extraction]"
+
+// runFreshTurn admits, runs and delivers one owner message on either path.
+func runFreshTurn(t *testing.T, run *factoryConversationRun, source, text string, at time.Time) string {
+	t.Helper()
+	ctx := t.Context()
+	if source != "101" {
+		scan, err := run.s.db.ReadNaturalScan(ctx, "2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = run.s.db.StageNaturalScan(ctx, scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: source}, []store.NaturalMessage{{ChannelRef: "2", SourceID: source, OwnerID: "1", Text: text, CreatedAt: at}}, true); err != nil {
+			t.Fatal(err)
+		}
+		instructions, err := run.s.restoreConversationInstructions(ctx, run.c.ID, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prompt, err := agent.ConversationPrompt(instructions.Native(), text, "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = run.s.db.AdmitConversationTurn(ctx, run.c.ID, source, prompt, at); err != nil {
+			t.Fatal(err)
+		}
+		if run.t, err = run.s.db.ClaimConversationTurn(ctx, run.c.ID, "unit-worker", at, time.Minute); err != nil {
+			t.Fatal(err)
+		}
+		if run.c, err = run.s.db.ReadConversation(ctx, "discord", "2"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := run.s.runConversation(ctx, run.c, run.b, run.t, at); err != nil {
+		t.Fatal(err)
+	}
+	var replies []string
+	for {
+		reply, err := run.s.db.ClaimConversationReply(ctx, "discord", at)
+		if errors.Is(err, store.ErrNotFound) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = run.s.db.FinishConversationReply(ctx, reply, "delivered-"+reply.MessageID, at); err != nil {
+			t.Fatal(err)
+		}
+		replies = append(replies, reply.ReplyText)
+	}
+	return strings.Join(replies, "\n")
+}
+
+func TestConversationProviderRefusalAndLoginReplies(t *testing.T) {
+	for _, factory := range []bool{false, true} {
+		for name, category := range map[string]error{"refused": agent.ErrConversationRefused, "authentication": agent.ErrConversationAuthentication} {
+			t.Run(fmt.Sprintf("factory=%t/%s", factory, name), func(t *testing.T) {
+				text := refusedProviderText
+				if name == "authentication" {
+					text = "Failed to authenticate: OAuth session expired secret-sentinel"
+				}
+				provider := &freshProvider{fail: map[int]error{1: providerCause(category, text)}}
+				run, at := factoryUnitRun(t, &factoryUnitProvider{})
+				run.s.conversations.Load().factory = factory
+				run.s.conversations.Load().providers["claude"] = provider
+				var logs bytes.Buffer
+				run.s.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+				run.s.Protect = func(_ context.Context, text string) (string, error) {
+					return strings.ReplaceAll(text, "secret-sentinel", "[redacted]"), nil
+				}
+				reply := runFreshTurn(t, run, "101", "", at)
+				if !strings.Contains(logs.String(), "conversation turn failed") || !strings.Contains(logs.String(), category.Error()) || !strings.Contains(logs.String(), strings.SplitN(text, " secret", 2)[0][:20]) || strings.Contains(logs.String(), "secret-sentinel") {
+					t.Fatalf("log lost category or provider text, or leaked: %s", logs.String())
+				}
+				if strings.Contains(reply, "model provider failed") {
+					t.Fatalf("generic reply: %s", reply)
+				}
+				if name == "refused" && (!strings.Contains(reply, "safety filter") || !strings.Contains(reply, "new conversation")) {
+					t.Fatalf("refusal reply lacks rephrase hint or command: %s", reply)
+				}
+				if name == "authentication" && !strings.Contains(strings.ToLower(reply), "sign in") {
+					t.Fatalf("login failure not reported: %s", reply)
+				}
+				saved, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				if err != nil || saved.HealthReason != "" {
+					t.Fatalf("conversation paused: %+v %v", saved, err)
+				}
+			})
+		}
+	}
+}
+
+func TestConversationFreshCommandStartsNewNativeSession(t *testing.T) {
+	for _, factory := range []bool{false, true} {
+		for _, history := range []bool{true, false} {
+			t.Run(fmt.Sprintf("factory=%t/history=%t", factory, history), func(t *testing.T) {
+				first := "How is the factory?"
+				refusedText := "what did you find in the thinking tokens?"
+				input := first
+				if !history {
+					input = refusedText
+				}
+				provider := &freshProvider{fail: map[int]error{}}
+				run, at := factoryUnitRun(t, &factoryUnitProvider{}, input)
+				run.s.conversations.Load().factory = factory
+				run.s.conversations.Load().providers["claude"] = provider
+				source := 101
+				if history {
+					runFreshTurn(t, run, "101", "", at)
+					source++
+					provider.fail[2] = providerCause(agent.ErrConversationRefused, refusedProviderText)
+					runFreshTurn(t, run, fmt.Sprint(source), refusedText, at)
+				} else {
+					provider.fail[1] = providerCause(agent.ErrConversationRefused, refusedProviderText)
+					runFreshTurn(t, run, "101", "", at)
+				}
+				before, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				if err != nil || before.SessionHandle == "" {
+					t.Fatalf("refused turn left no native session: %+v %v", before, err)
+				}
+				oldRef := provider.requests[len(provider.requests)-1].Session.Ref
+				calls := len(provider.requests)
+				source++
+				reply := runFreshTurn(t, run, fmt.Sprint(source), " \"New Conversation\" ", at)
+				if len(provider.requests) != calls {
+					t.Fatal("fresh command launched the provider")
+				}
+				if !strings.Contains(strings.ToLower(reply), "fresh") || !strings.Contains(reply, "work records") {
+					t.Fatalf("fresh reply: %s", reply)
+				}
+				after, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				if err != nil || after.SessionHandle != "" || after.FreshAfter == 0 || after.HealthReason != "" {
+					t.Fatalf("fresh transition not saved: %+v %v", after, err)
+				}
+				source++
+				reply = runFreshTurn(t, run, fmt.Sprint(source), "Please check again.", at)
+				if !strings.Contains(reply, "Nothing is running right now.") {
+					t.Fatalf("follow-up unanswered: %s", reply)
+				}
+				next := provider.requests[len(provider.requests)-1]
+				if next.Session.Resume != "" || next.Session.Ref == oldRef {
+					t.Fatalf("follow-up resumed the old session: %+v old=%s", next.Session, oldRef)
+				}
+				if factory {
+					var prompt factoryConversationPrompt
+					if err := json.Unmarshal([]byte(next.Prompt), &prompt); err != nil {
+						t.Fatal(err)
+					}
+					for _, source := range prompt.OwnerSources {
+						if source.Text != "Please check again." {
+							t.Fatalf("earlier message resent: %+v", prompt.OwnerSources)
+						}
+					}
+				}
+				saved, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				if err != nil || saved.SessionHandle != next.Session.Ref {
+					t.Fatalf("new native identity not saved: %+v %v", saved, err)
+				}
+			})
+		}
+	}
+}

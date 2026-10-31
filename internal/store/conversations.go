@@ -16,14 +16,16 @@ var ErrConversationDrain = errors.New("conversation provider change requires dra
 type Conversation struct {
 	ID, Transport, ChannelRef, OwnerID, Name, Provider, SessionHandle, StateDir, HealthReason string
 	Revision, NextSequence                                                                    int64
-	Active, DeliveryPaused                                                                    bool
+	// FreshAfter is the sequence of the owner's last fresh-conversation turn; 0 means never.
+	FreshAfter             int64
+	Active, DeliveryPaused bool
 }
 
-const conversationColumns = `id,transport,channel_ref,owner_id,name,provider,session_handle,state_dir,health_reason,revision,next_sequence,active,delivery_paused`
+const conversationColumns = `id,transport,channel_ref,owner_id,name,provider,session_handle,state_dir,health_reason,revision,next_sequence,active,delivery_paused,fresh_after`
 
 func scanConversation(row scanner) (Conversation, error) {
 	var c Conversation
-	err := row.Scan(&c.ID, &c.Transport, &c.ChannelRef, &c.OwnerID, &c.Name, &c.Provider, &c.SessionHandle, &c.StateDir, &c.HealthReason, &c.Revision, &c.NextSequence, &c.Active, &c.DeliveryPaused)
+	err := row.Scan(&c.ID, &c.Transport, &c.ChannelRef, &c.OwnerID, &c.Name, &c.Provider, &c.SessionHandle, &c.StateDir, &c.HealthReason, &c.Revision, &c.NextSequence, &c.Active, &c.DeliveryPaused, &c.FreshAfter)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
