@@ -112,3 +112,23 @@ Evidence:
 - `.aiteam/lf-1110-mcp-3-proposals-and-confirmation-without/2026-10-27/mcp-3-proposals-and-confirmation-without/RESEARCH_BRIEF.md:1`
 - `.aiteam/lf-1109-mcp-2-read-tools-to-discuss-tasks-task/2026-10-26/mcp-2-read-tools-to-discuss-tasks-task/RESEARCH_BRIEF.md:1`
 - `docs/guides/remote-connector.md:535`
+
+## F-12
+
+Shaping inspection confirms judge source selection already covers saved Research results, Plans and Bug analyses, excludes Bug repair results, and refuses unavailable sources; this supports including Bug judging without inventing a new judge. No tests were executed in this shaping pass.
+
+Evidence:
+
+- `internal/store/judge_sources.go:263`
+- `internal/store/judge_bug_sources_test.go:44`
+- `internal/store/judge_bug_sources_test.go:97`
+
+## F-13
+
+Shaping impact: F-10 remains applicable; durable job/conversation/proposal/delivery records and connector documentation are in scope, with additive compatibility for old installations; no existing public tool or GitHub workflow is retired, and no team-role or skill replacement was identified in the connector, owner-action and judge surfaces inspected. Exact storage migration design belongs to Plan, while preservation requirements are K-02 and K-04.
+
+Evidence:
+
+- `internal/owneraction/registry.go:17`
+- `internal/turn/judge_context.go:28`
+- `docs/guides/remote-connector.md:285`
