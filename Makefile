@@ -38,6 +38,13 @@ empty :=
 space := $(empty) $(empty)
 MIXED_PACKAGES := ./internal/turn ./internal/store ./internal/cli
 RACE_TESTS_store := \
+	TestOwnerActionAdmissionCancellationRace \
+	TestOwnerActionReactionCancellationRace \
+	TestPlanGroupMemberIsolationAndCompletion \
+	TestPlanGroupMemberSharedResultWritersAndStaleParent \
+	TestPlanGroupMemberAllocationRollbackAndPlanOnly \
+	TestPlanGroupMemberRecoveryRetainsAcceptedResultsAndExpiresOrphans \
+	TestPlanGroupMemberSessionReferenceUsesReservedOrdinal \
 	TestOtherWorkerTimeoutDoesNotHoldImplementStory \
 	TestWorkerTimingSnapshotSurvivesReplay \
 	TestImplementTimeoutPendingReplyResumesExactlyOnce \
@@ -157,6 +164,21 @@ RACE_TESTS_store := \
 	TestWorkflowBoundaryAmbiguousPriorEvidenceStops \
 	TestWorkflowBoundaryWorktreeCleanupRetainsAdmission
 RACE_TESTS_turn := \
+	TestPlanParallelGrowthReselectsInvalidatedStage \
+	TestPlanParallelCachedProjectionRechecksGuards \
+	TestPlanParallelEndToEnd_CancellationJoinsAllMembers \
+	TestPlanParallelEndToEnd_UncertainEffectRecovery \
+	TestPlanParallelEndToEnd_ConcurrentAgreementAndOwnerFinalStop \
+	TestPlanParallelEndToEnd_MixedTwoSmallOneLarge \
+	TestPlanParallelEndToEnd_DependencyWaitPreservesIndependentSibling \
+	TestPlanParallelEndToEnd_DurableSignalsAndRestart \
+	TestPlanParallelEndToEnd_NormalSizingKeepsEveryOwnerReview \
+	TestPlanParallelRawFacts \
+	TestPlanParallelBasisInvalidation \
+	TestPlanParallelBasisIndependentSibling \
+	TestPlanParallelBasisPreservesAppliedProjection \
+	TestPlanParallelContributionWireRoundTrip \
+	TestPlanParallelCapacityAtomicBundle \
 	TestGraphTimeoutSettlementRestoresMissingStopBeforeRetry \
 	TestImplementTimeoutRedactsBeforeLedgerClipping \
 	TestNonGraphFinalizationBoundsBlockedTransportJoin \

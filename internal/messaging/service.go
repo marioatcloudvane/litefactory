@@ -18,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
+	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -162,6 +163,8 @@ type Service struct {
 	confirmer        FeatureConfirmer
 	conversations    atomic.Pointer[conversationRuntime]
 	standards        StandardsOperations
+	ownerActions     *owneraction.Service
+	ownerPrincipal   func(context.Context, string) (owneraction.Principal, error)
 }
 
 // New copies admission rules and registers help, health, status and details.

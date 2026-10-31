@@ -38,9 +38,25 @@ func TestConversationDiagnosisPushedOnceAndKeptAsContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	run.c.SessionHandle = "unit-session"
-	if handled, err := run.confirm(ctx); err != nil || !handled {
-		t.Fatalf("confirmation handled=%v err=%v", handled, err)
+	// This is retained work admitted under the previous policy, not a new
+	// pending proposal. Seed its durable admission and existing worker queue.
+	reply := store.ChatReply{Transport: "discord", ChannelRef: "2", MessageID: "nl-exec:" + code, Command: "diagnose", Arguments: payload.Invocation.Arguments, CreatedAt: at}
+	if err = run.s.db.AuthorizeConversationDialogue(ctx, run.t, dialogue, run.t.SourceID, reply, at); err != nil {
+		t.Fatal(err)
 	}
+	if _, err = run.s.db.StartConversationActionReply(ctx, run.t, reply, at); err != nil {
+		t.Fatal(err)
+	}
+	if err = run.s.db.StartNaturalExecution(ctx, reply.MessageID, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = run.s.diagnose(ctx, Message{Transport: "discord", Channel: "2", ID: reply.MessageID, Sender: "1", Command: "diagnose", Arguments: payload.Invocation.Arguments}, at); !errors.Is(err, errDeferredDiagnosis) {
+		t.Fatalf("retained diagnosis queue: %v", err)
+	}
+	if err = run.complete(ctx, "I've queued the retained diagnosis; its result will be posted as soon as it's ready."); err != nil {
+		t.Fatal(err)
+	}
+
 	queued, err := run.s.db.ClaimConversationReply(ctx, "discord", at)
 	if err != nil {
 		t.Fatal(err)

@@ -236,6 +236,9 @@ func (db *DB) ConsentConnectorBrowser(ctx context.Context, id, nonceDigest strin
 		if err != nil {
 			return err
 		}
+		if err = insertConnectorActionCoverage(ctx, tx, g); err != nil {
+			return err
+		}
 		if err = insertConnectorCoverage(ctx, tx, g); err != nil {
 			return err
 		}
@@ -266,6 +269,9 @@ func connectorGrant(ctx context.Context, tx *sql.Conn, id string, pin int64, now
 	g.ExpiresAt, err = ParseTime(expiry)
 	if err == nil && ConnectorRepositoryScoped(g.Scope) {
 		g.Coverage, err = loadConnectorCoverage(ctx, tx, g.ID, all)
+	}
+	if err == nil && ConnectorScopeHas(g.Scope, "repository:actions") {
+		g.ActionCoverage, err = loadConnectorActionCoverage(ctx, tx, g.ID)
 	}
 	return g, err
 }
@@ -396,6 +402,11 @@ func (db *DB) CheckConnectorAccess(ctx context.Context, digest string, pin int64
 	}
 	if ConnectorRepositoryScoped(g.Scope) {
 		if g.Coverage, err = loadConnectorCoverage(ctx, db.sql, g.ID, all); err != nil {
+			return ConnectorGrant{}, err
+		}
+	}
+	if ConnectorScopeHas(g.Scope, "repository:actions") {
+		if g.ActionCoverage, err = loadConnectorActionCoverage(ctx, db.sql, g.ID); err != nil {
 			return ConnectorGrant{}, err
 		}
 	}

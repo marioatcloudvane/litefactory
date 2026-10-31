@@ -21,24 +21,27 @@ func TestLogAnalysisStartIsAConfirmedActionWithResolvedScope(t *testing.T) {
 	if refusal, err := s.resolveNatural(ctx, &p, now); err != nil || refusal != "" {
 		t.Fatalf("analysis proposal refused: %q %v", refusal, err)
 	}
-	payload, digest, err := naturalDigest(p)
-	if err != nil {
+	s.conversations.Load().factory = true
+	proposal := start("analyze app for the last 7 days", now)
+	if err = proposal.propose(ctx, p.Invocation, ConversationEnvelope{}, nil); err != nil {
 		t.Fatal(err)
 	}
-	dialogue := store.NaturalDialogue{Transport: "discord", OwnerID: "7", ChannelRef: "3", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: payload, Digest: digest, Code: "analysis-code", ExpiresAt: now.Add(time.Minute), UpdatedAt: now}
-	if err = s.db.SaveNaturalDialogue(ctx, dialogue, 0); err != nil {
-		t.Fatal(err)
+	sender, ok := s.sender.(*standardsDeliverySender)
+	if !ok {
+		t.Fatal("fixture sender missing")
 	}
-	if err = s.db.BindNaturalPrompt(ctx, dialogue, "analysis-prompt"); err != nil {
-		t.Fatal(err)
-	}
+	deliverAll(t, s, sender, "analysis-prompt", now)
+
 	if len(ops.executed) != 0 {
 		t.Fatal("a proposal started an analysis before confirmation")
 	}
-	run := start("yes", now.Add(time.Second))
+	run := start("yes", now.Add(5*time.Second))
 	run.t.ReplyTo = "analysis-prompt"
 	if handled, err := run.confirm(ctx); !handled || err != nil {
 		t.Fatalf("confirmation not handled: %v %v", handled, err)
+	}
+	if err = s.ownerActions.Tick(ctx); err != nil {
+		t.Fatal(err)
 	}
 	if len(ops.executed) != 1 {
 		t.Fatalf("confirmation ran %d operations", len(ops.executed))

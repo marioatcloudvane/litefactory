@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -111,6 +112,12 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			if err != nil {
 				return input, err
 			}
+			if policy.Handlers != nil && policy.Handlers.JudgeContext != nil {
+				input, err = policy.Handlers.JudgeContext(ctx, a, input)
+				if err != nil {
+					return input, err
+				}
+			}
 			input.Instructions, err = teamsource.WorkflowJudgeCapture(definition)
 			if errors.Is(err, teamsource.ErrHistoricalJudgeCapture) {
 				err = nil
@@ -143,6 +150,16 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		}
 		runtime := &BugRuntime{opts: opts, definition: definition}
 		if err = RegisterSyncBase(&specs, &activities, policy.Mode, runtime.graphSyncBaseBinding(req.SessionID), workflow); err != nil {
+			return result, err
+		}
+	}
+	if policy.Mode == agent.ModePlan && policy.Handlers != nil && policy.Handlers.Parallel != nil {
+		if err := specs.Register(graphexec.PlanParallelSpec()); err != nil {
+			return result, err
+		}
+		if err := activities.Register(graphexec.PlanParallelAction, planGraphHandler(func(c context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
+			return policy.Handlers.Parallel(c, w, a)
+		})); err != nil {
 			return result, err
 		}
 	}
@@ -190,7 +207,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				return w.finish(ctx, nil)
 			}
 		}
-		if node.Action == ResearchAgentAction {
+		if node.Action == ResearchAgentAction || node.Action == graphexec.PlanParallelAction {
 			if w.prep != nil {
 				// One run advances one agent stage, because one comment causes
 				// at most one run and this run's is already spent. Park the
@@ -218,6 +235,14 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			}
 			nodeReq := req
 			nodeReq.researchDefinition, nodeReq.researchNode = definition, node.Name
+			if node.Action == graphexec.PlanParallelAction {
+				group, groupErr := graphexec.DecodePlanParallel(definition.Profile, node)
+				if groupErr != nil {
+					return w.finish(ctx, groupErr)
+				}
+				nodeReq.researchNode = group.Members["story"]
+				w.factoryOnly = true
+			}
 			nodeReq.researchInstance = instance.ID
 			nodeReq.workflowPolicy = &policy
 			if policy.ResultPerNode {
@@ -314,6 +339,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 }
 
 type researchWorkflow struct {
+	factoryOnly     bool
 	artifactSession string
 	policy          WorkflowPolicy
 	opts            Options
@@ -660,6 +686,10 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 		}
 	}
 	outcome := store.RunOutcome{Status: store.RunFailed, Error: out.Reason, FinishedAt: w.opts.MCP.Now()}
+	if w.factoryOnly && cause == nil {
+		outcome.Status = store.RunSucceeded
+		out.Outcome = agent.OutcomeSucceeded
+	}
 	if w.process != nil {
 		outcome = runOutcome(w.process)
 	}
@@ -764,6 +794,136 @@ func RecoverWorkflowPublications(ctx context.Context, opts Options, sessionID in
 		instance.ID = prior
 	}
 	return nil
+}
+
+// RecoverGraphPublications reconciles retained Research, Spike and Implement
+// publications, then resumes an instance whose comment or question step failed
+// only because its delivery was uncertain, once that exact delivery is
+// confirmed. The instance continues as if the step had returned published. It
+// runs under the session lock before owner input is matched to the graph; it
+// never invokes an agent or publishes anything new.
+func RecoverGraphPublications(ctx context.Context, opts Options, sessionID int64, at time.Time) error {
+	for _, policy := range []WorkflowPolicy{ResearchWorkflowPolicy(), SpikeWorkflowPolicy(), ImplementWorkflowPolicy()} {
+		if err := RecoverWorkflowPublications(ctx, opts, sessionID, policy); err != nil {
+			return err
+		}
+		if err := resumeConfirmedPublication(ctx, opts, sessionID, policy, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resumeConfirmedPublication follows the failed step's declared published edge
+// when the attempt's own recorded publication is completed. Anything it cannot
+// prove — another publication, an unrestorable capture, newer work — stays put.
+func resumeConfirmedPublication(ctx context.Context, opts Options, sessionID int64, policy WorkflowPolicy, at time.Time) error {
+	instance, err := opts.DB.LatestWorkflowInstance(ctx, sessionID, string(policy.Mode))
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil || instance.Status != store.GraphFailed {
+		return err
+	}
+	attempt, err := opts.DB.LatestGraphNodeAttempt(ctx, instance.ID, instance.CurrentNode)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil || attempt.Status != store.GraphFailed || attempt.LaunchID == 0 {
+		return err
+	}
+	key, source, err := failedPublication(ctx, opts.DB, attempt.ID)
+	if err != nil || key == "" {
+		return err
+	}
+	intent, err := opts.DB.GetGraphComment(ctx, key)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if intent.InstanceID != instance.ID || intent.Node != attempt.Node || intent.Kind == "failure" || (source != 0 && intent.SourceAttemptID != source) {
+		return nil
+	}
+	delivery, err := opts.DB.GetReportDelivery(ctx, key)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil || !delivery.Completed || delivery.CommentID == 0 {
+		return err
+	}
+	workflow, err := agent.ResolveWorkflow(policy.Workflow, policy.Mode)
+	if err != nil {
+		return err
+	}
+	specs, err := standaloneStackSpecs(workflow)
+	if err != nil {
+		return err
+	}
+	capture, err := opts.DB.GetWorkflowCapture(ctx, attempt.LaunchID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	definition, err := restoreWorkflow(ctx, opts.DB, capture, workflow, specs)
+	if err != nil {
+		if opts.Logger != nil {
+			opts.Logger.WarnContext(ctx, "confirmed publication left its graph stopped; its capture cannot be restored", slog.Int64("instance_id", instance.ID), slog.Any("error", err))
+		}
+		return nil
+	}
+	node, ok := definition.Profile.Node(attempt.Node)
+	if !ok || (node.Action != ResearchCommentAction && node.Action != AskAction) {
+		return nil
+	}
+	target, ok := graphexec.Decide(definition.Profile, node.Name, "published")
+	if _, exists := definition.Profile.Node(target); !ok || !exists {
+		return nil
+	}
+	resumed, err := opts.DB.ResumeConfirmedGraphPublication(ctx, store.GraphPublicationResume{InstanceID: instance.ID, AttemptID: attempt.ID, SourceAttemptID: intent.SourceAttemptID, DeliveryKey: key, Target: target, At: at})
+	if err == nil && resumed && opts.Logger != nil {
+		opts.Logger.InfoContext(ctx, "confirmed publication resumed its graph", slog.Int64("instance_id", instance.ID), slog.String("node", node.Name), slog.String("next", target))
+	}
+	return err
+}
+
+// failedPublication reads the publication a failed comment attempt recorded.
+// An attempt from before that record qualifies only through the exact
+// delivery-error diagnostic, which names the key but not the source attempt.
+func failedPublication(ctx context.Context, db *store.DB, attemptID int64) (key string, source int64, err error) {
+	outputs, err := db.ListGraphOutputs(ctx, attemptID)
+	if err != nil {
+		return "", 0, err
+	}
+	for _, output := range outputs {
+		if output.Kind != store.GraphOutputJSON {
+			continue
+		}
+		var identity struct {
+			DeliveryKey     string `json:"delivery_key"`
+			SourceAttemptID int64  `json:"source_attempt_id"`
+		}
+		// A malformed identity names no publication; it never falls back to the diagnostic.
+		decoded := json.Unmarshal(output.Payload, &identity) == nil
+		if !decoded || identity.DeliveryKey == "" || identity.SourceAttemptID <= 0 {
+			return "", 0, nil
+		}
+		return identity.DeliveryKey, identity.SourceAttemptID, nil
+	}
+	for _, output := range outputs {
+		rest, ok := strings.CutPrefix(string(output.Payload), "report delivery ")
+		if output.Kind != store.GraphOutputDiagnostic || !ok {
+			continue
+		}
+		candidate, _, found := strings.Cut(rest, " ")
+		if found && candidate != "" && strings.HasPrefix(rest, candidate+" remains ") {
+			return candidate, 0, nil
+		}
+	}
+	return "", 0, nil
 }
 
 // settleReview follows the shipped approval branch using the retained displayed

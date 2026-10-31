@@ -74,7 +74,7 @@ func (db *DB) GetStandardsConversationOperation(ctx context.Context, key string)
 
 // AdmitStandardsConversationOperation deduplicates the complete immutable request before execution.
 func (db *DB) AdmitStandardsConversationOperation(ctx context.Context, o StandardsConversationOperation) (StandardsConversationOperation, error) {
-	if o.Key == "" || o.RequestDigest == "" || o.Kind == "" || o.Transport == "" || o.OwnerID == "" || o.ChannelID == "" || o.SourceID == "" || !json.Valid(o.RequestJSON) {
+	if o.Key == "" || o.RequestDigest == "" || o.Kind == "" || o.Transport == "" || o.OwnerID == "" || (o.ChannelID == "" && o.Transport != "mcp") || o.SourceID == "" || !json.Valid(o.RequestJSON) {
 		return o, fmt.Errorf("invalid standards conversation operation")
 	}
 	o.Status = "saved"
@@ -179,9 +179,23 @@ func standardsConversationWrite(ctx context.Context, tx *sql.Tx, fn func(*sql.Tx
 	return writeStandardsConversationOperation(ctx, tx, o)
 }
 
-// StandardsProvenanceValid accepts local CLI or trusted numeric Discord source attribution.
+// StandardsProvenanceValid checks local CLI, Discord or owner-action attribution formats.
 // Adapter authentication remains mandatory; this validates the retained format only.
 func StandardsProvenanceValid(provenance string) bool {
+	if strings.HasPrefix(provenance, "owner-action:") {
+		id := strings.TrimPrefix(provenance, "owner-action:")
+		if id == "" || len(id) > 128 {
+			return false
+		}
+		for _, r := range id {
+			letter := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
+			digit := r >= '0' && r <= '9'
+			if !letter && !digit && r != '-' && r != '_' {
+				return false
+			}
+		}
+		return true
+	}
 	if provenance == "local-cli" {
 		return true
 	}

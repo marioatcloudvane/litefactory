@@ -16,6 +16,7 @@ import (
 type remoteConnectorRuntime struct {
 	server   *connector.Server
 	listener net.Listener
+	actions  *ownerActionRuntime
 }
 
 func prepareRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRuntime, error) {
@@ -66,6 +67,9 @@ func prepareRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRunti
 func (d *Daemon) serveRemoteConnector(ctx context.Context, serving *sync.WaitGroup) {
 	if d.remoteConnector == nil {
 		return
+	}
+	if d.remoteConnector.actions != nil {
+		d.remoteConnector.actions.start(ctx, serving, d.log)
 	}
 	serving.Add(1)
 	// One serve goroutine is joined by Run; its listener and bounded handlers are

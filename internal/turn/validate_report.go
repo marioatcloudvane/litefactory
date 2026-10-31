@@ -416,7 +416,7 @@ func effectText(name string, e *store.ValidateEffect) string {
 	if e.State == store.EffectFailed || e.State == store.EffectUncertain {
 		retry := "repeat your command to retry"
 		if name == "merge" && (ValidateState{Effects: ValidateDeliveryRows{Merge: e}}).mergeConflicted() {
-			retry = "resolve the conflict and validate again"
+			retry = "comment `" + ValidateSyncCommand + "` to resolve it, then validate again"
 		}
 		text += " (" + clipText(e.Error, 160) + "; " + retry + ")"
 	}

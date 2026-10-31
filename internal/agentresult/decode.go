@@ -121,6 +121,9 @@ func scan(dec *json.Decoder, t reflect.Type, path string, depth int, d *Diagnost
 		if t != nil && t.Kind() == reflect.Struct {
 			for i := 0; i < t.NumField(); i++ {
 				f := t.Field(i)
+				if f.PkgPath != "" || f.Tag.Get("json") == "-" {
+					continue
+				}
 				fields[strings.Split(f.Tag.Get("json"), ",")[0]] = f
 			}
 		}
@@ -156,7 +159,7 @@ func scan(dec *json.Decoder, t reflect.Type, path string, depth int, d *Diagnost
 			}
 		}
 		for name, f := range fields {
-			if !seen[name] && !strings.Contains(f.Tag.Get("json"), "omitempty") {
+			if !seen[name] && !strings.Contains(f.Tag.Get("json"), "omitempty") && !strings.HasSuffix(path, ".contribution.draft") {
 				add(d, path+"."+name, "required", "present field", "absent", "Supply the required field.")
 			}
 		}

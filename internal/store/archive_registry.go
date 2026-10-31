@@ -130,6 +130,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("owner_decision_displays", `task_ref IN `+inFT),
 	archived("validate_returns", byParent),
 	// Graph.
+	archived("plan_group_members", `(parent_attempt_id IN `+subNodeAt+` OR attempt_id IN `+subNodeAt+` OR run_id IN `+inFR+`)`),
 	archived("graph_effects", `instance_id IN `+subInst),
 	archived("graph_outputs", `node_attempt_id IN `+subNodeAt),
 	archived("research_wait_reminders", `wait_delivery_key IN (SELECT delivery_key FROM graph_owner_waits WHERE instance_id IN `+subInst+`)`),
@@ -223,7 +224,8 @@ var archiveRetained = map[string]ArchiveClass{
 	// retains refresh lineage through grant expiry rather than task archival.
 	"connector_owner": ArchiveClassGlobal, "connector_clients": ArchiveClassGlobal,
 	"connector_browsers": ArchiveClassGlobal, "connector_codes": ArchiveClassGlobal,
-	"connector_grants": ArchiveClassGlobal, "connector_access": ArchiveClassGlobal,
+	"connector_grant_action_repositories": ArchiveClassGlobal,
+	"connector_grants":                    ArchiveClassGlobal, "connector_access": ArchiveClassGlobal,
 	"connector_refresh": ArchiveClassGlobal, "connector_grant_repositories": ArchiveClassGlobal,
 	// Standalone bounded analyses are not members of an issue-task archive.
 	"drift_analyses": ArchiveClassGlobal, "drift_analyst_runs": ArchiveClassGlobal,
@@ -292,11 +294,16 @@ var archiveRetained = map[string]ArchiveClass{
 	// Owner/channel dialogue and replay positions span task families. Their
 	// short text and terminal retention belongs to PurgeNaturalChat; cursors
 	// survive archival to prevent old channel requests from being replayed.
-	"chat_natural_dialogues":   ArchiveClassGlobal,
-	"chat_natural_executions":  ArchiveClassGlobal,
-	"chat_natural_messages":    ArchiveClassGlobal,
-	"chat_natural_scans":       ArchiveClassGlobal,
-	"chat_presentation_owners": ArchiveClassGlobal,
+	"chat_natural_dialogues":  ArchiveClassGlobal,
+	"chat_natural_executions": ArchiveClassGlobal,
+	// Owner confirmation history has its own ninety-day completion/recovery clock.
+	"owner_action_proposals":            ArchiveClassGlobal,
+	"owner_action_attempts":             ArchiveClassGlobal,
+	"owner_action_notice_receipts":      ArchiveClassGlobal,
+	"owner_action_policy_invalidations": ArchiveClassGlobal,
+	"chat_natural_messages":             ArchiveClassGlobal,
+	"chat_natural_scans":                ArchiveClassGlobal,
+	"chat_presentation_owners":          ArchiveClassGlobal,
 	// Chat delivery state follows its own short retention; source positions
 	// must survive task archival so enabling notices never replays history.
 	"chat_notices":           ArchiveClassGlobal,

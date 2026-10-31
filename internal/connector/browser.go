@@ -210,7 +210,7 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 	// anything else is refused with a page naming what was wrong, without a
 	// grant, and leaves the pending consent usable.
 	grantScope, grantExpires := b.Scope, now
-	var coverage *store.ConnectorCoverage
+	var coverage, actionCoverage *store.ConnectorCoverage
 	if allow {
 		var ok bool
 		if grantScope, ok = consentScope(form["scope"]); !ok {
@@ -226,6 +226,14 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		if store.ConnectorScopeHas(grantScope, CodeReviewScope) && !store.ConnectorScopeHas(grantScope, DiscussionScope) {
 			consentRefusal(w, "invalid_scope", CodeReviewScope+" also needs "+DiscussionScope+"; tick both")
 			return
+		}
+		if store.ConnectorScopeHas(grantScope, RepositoryActionsScope) {
+			selected, reason := consentActionCoverage(form)
+			if reason != "" {
+				consentRefusal(w, "invalid_request", reason)
+				return
+			}
+			actionCoverage = &selected
 		}
 		if store.ConnectorRepositoryScoped(grantScope) {
 			selected, reason := consentCoverage(form, grantScope)
@@ -246,7 +254,7 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
-	grant := store.ConnectorGrant{ID: grantID, ClientID: b.ClientID, Resource: b.Resource, Scope: grantScope, OwnerID: s.cfg.OwnerID, OwnerGeneration: b.OwnerGeneration, CreatedAt: now, ExpiresAt: grantExpires, Coverage: coverage}
+	grant := store.ConnectorGrant{ID: grantID, ClientID: b.ClientID, Resource: b.Resource, Scope: grantScope, OwnerID: s.cfg.OwnerID, OwnerGeneration: b.OwnerGeneration, CreatedAt: now, ExpiresAt: grantExpires, Coverage: coverage, ActionCoverage: actionCoverage}
 	authorizationCode := store.ConnectorCode{Digest: digest(code), GrantID: grantID, ClientID: b.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: grantScope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: now.Add(5 * time.Minute)}
 	if err := s.db.ConsentConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, now, grant, authorizationCode, allow); err != nil {
 		if reason := store.ConnectorRefusalReason(err); reason != "" {

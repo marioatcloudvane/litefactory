@@ -33,16 +33,35 @@ no repository, database, credentials or native tools. Factory facts and coverage
 gaps are retained privately with the answer; remembered facts are not fresh
 lookup evidence.
 
-Supported changes remain draft, feature confirmation, diagnosis and research
-answers. The factory renders the exact action, target and protected owner content
-with a 15-minute proposal code. Only a later owner reply to the delivered proposal
-or its exact code can authorize it. Cancellation, replacement, expiry and repeat
-confirmation cannot run it again. A draft only prepares a feature preview, which
-still requires separate confirmation. Missing exact owner content or unclear
-targets require clarification. Exact owner-supplied quoted arguments, including a
-quoted follow-up, are accepted as data: the selected source byte span preserves
-whitespace and literal escapes inside delimiter quotes. Quoted data does not
-confirm a proposal; forwarded and fenced content remains untrusted.
+Supported changes include feature preview and creation, diagnosis, Research answers,
+standards authoring and publication, exceptions and log analysis. Every change
+uses the same fixed impact policy as the remote owner connector. Reads require
+no confirmation. The factory freezes the normalized arguments, registered scope,
+exact target revision, owner and client provenance, timestamps and estimate (or
+explicit unknown) before review. The agent cannot change those facts at confirmation.
+
+Say yes separately at least five seconds after the exact proposal has been
+successfully delivered. Expiry is fifteen minutes from creation, including
+preparation and delivery time. No early yes is queued or automatically retried.
+Binding actions then require the configured owner's normal Unicode ✅ on the
+specific factory approval message before expiry. Details and the complete tier
+catalogue are in [shared action confirmation](discord.md#confirming-an-action).
+
+Use plain words to inspect, cancel or select a proposal; the client and factory
+carry its identifiers. A bare yes selects only one current delivered proposal.
+A changed request creates a fresh fixed proposal; stale targets and changed
+permissions require a fresh review. Cancellation wins only before admission and
+cannot undo admitted work. Request `show that` for the recorded status and result,
+or `show history` for owner-only history references. History is retained for
+ninety days from terminal completion, independently of normal chat cleanup;
+active and unresolved recovery identities remain available longer.
+
+Missing exact owner content or unclear targets require clarification. Exact
+owner-supplied quoted arguments are data: byte spans preserve whitespace and
+literal escapes inside delimiter quotes. Quoted, forwarded and fenced content
+cannot confirm a proposal. Admission, executing, succeeded, failed and uncertain
+are separate facts; an uncertain effect is inspected through retained domain
+receipts and never blindly repeated.
 
 Each ordinary turn allows at most three lookups and four provider invocations,
 including up to two response corrections across the whole owner turn. A consult
@@ -162,11 +181,14 @@ a question never approves the resulting proposal. The same saved work is visible
 through the standards CLI.
 
 Ask to see the review of one exact proposal version to read its before and after.
-Approving it is an ordinary proposal: the factory shows the exact proposal id,
-version and digest, and your confirmation (a reply of yes, or the confirmation
-code) approves exactly that version. Publication is a separate request and
-confirmation for the approved proposal. Its result identifies the published book
-revision.
+Approving it starts an action proposal: the factory shows the exact proposal id,
+version and digest. After reviewing it, say yes separately after the minimum
+five-second delay, then tap ✅ on the factory's separate approval request before
+expiry. Both confirmations authorize exactly that reviewed version. Publication
+requires a separate action proposal with the same conversational confirmation and
+Discord ✅ steps for the approved proposal. Its result identifies the published
+book revision. The factory carries the identifiers; no confirmation code is
+needed.
 
 After an interrupted reply, inspect the saved operation or draft before trying
 again. A committed operation can succeed even when delivery fails; recovery uses
@@ -185,3 +207,18 @@ A failure posts its reason.
 Proposed standards stay unapproved until you review them. Ask to list recent
 analyses or show one by ID. An analysis interrupted by a restart is recorded as
 incomplete and is not resumed. Analyses never start by themselves.
+
+## Policy rollout and rollback
+
+The policy migration invalidates old pending confirmations with a request to
+propose them again. Existing admitted, executing and uncertain executions retain
+their original invocation and recovery journal; they are not relabelled as newly
+consented work. Existing read grants stay read-only. Request fresh explicit
+selected-repository action consent or separate installation-wide standards
+management consent before using MCP changes. Token refresh cannot add authority.
+
+Run one policy-aware daemon version against the migrated database. Rolling back
+must not reactivate invalidated proposals or run an old daemon alongside the new
+one. Preserve the database and receipt records when investigating uncertain work.
+Old captured conversation instructions cannot bypass runtime policy; quiescent
+conversations obtain updated guidance through the existing capture refresh.

@@ -52,10 +52,19 @@ func (db *DB) BindMCPLease(ctx context.Context, l MCPLease) error {
 		if instance != l.Instance {
 			return ErrResultAuthority
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE mcp_attempt_leases SET state='replaced' WHERE state='active' AND (run_id,attempt) IN (SELECT a.run_id,a.attempt FROM application_result_attempts a JOIN application_results r ON r.id=a.result_id WHERE r.task=?)`, l.Binding.Task); err != nil {
+		parentID, err := planMemberParentTx(ctx, tx, l.Binding.RunID)
+		if err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO mcp_attempt_leases(run_id,attempt,instance,permission_digest,expires_ns,state,bound_ns) VALUES(?,?,?,?,?,'active',?)`, l.Binding.RunID, l.Binding.Attempt, l.Instance, l.PermissionDigest, l.ExpiresAt.UnixNano(), nowUTC().UnixNano())
+		if parentID != 0 {
+			_, err = tx.ExecContext(ctx, `UPDATE mcp_attempt_leases SET state='replaced' WHERE state='active' AND run_id IN (SELECT older.run_id FROM plan_group_members older JOIN plan_group_members current ON current.run_id=? WHERE older.parent_attempt_id=current.parent_attempt_id AND older.role=current.role AND (older.sequence<current.sequence OR older.run_id=current.run_id))`, l.Binding.RunID)
+		} else {
+			_, err = tx.ExecContext(ctx, `UPDATE mcp_attempt_leases SET state='replaced' WHERE state='active' AND (run_id,attempt) IN (SELECT a.run_id,a.attempt FROM application_result_attempts a JOIN application_results r ON r.id=a.result_id WHERE r.task=?)`, l.Binding.Task)
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO mcp_attempt_leases(run_id,attempt,instance,permission_digest,expires_ns,state,bound_ns) VALUES(?,?,?,?,?,'active',?)`, l.Binding.RunID, l.Binding.Attempt, l.Instance, l.PermissionDigest, l.ExpiresAt.UnixNano(), nowUTC().UnixNano())
 		return err
 	})
 }

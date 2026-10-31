@@ -1,0 +1,9 @@
+testcache: caching disabled for test argument: -test.count=1
+testcache: caching disabled for test argument: -test.count=1
+=== RUN   TestValidateFreshFullRequestsExecuteWarmGoBodies
+=== RUN   TestValidateFreshFullRequestsExecuteWarmGoBodies/isolated-executor
+    validate_coverage_freshness_test.go:188: host refuses process identity observation required by isolated executor
+--- PASS: TestValidateFreshFullRequestsExecuteWarmGoBodies (6.58s)
+    --- SKIP: TestValidateFreshFullRequestsExecuteWarmGoBodies/isolated-executor (0.01s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	7.199s

@@ -192,7 +192,7 @@ func TestAllRepositoriesGrantCoversTasksChosenPerCall(t *testing.T) {
 	t.Parallel()
 	f, tasks, code, usage := coverageFixture(t)
 	codeTarget := seedCodeProtocolTarget(t, f.db)
-	scope := strings.Join(scopeNames(), " ")
+	scope := strings.Join([]string{DiscussionScope, CodeReviewScope, Scope, FactoryUsageScope, RepositoryUsageScope, TaskUsageScope}, " ")
 	j, _, csrf, cookie := consentPageFor(t, f, scope)
 	tokens := exchangeConsent(t, j, postConsentResponse(t, j, csrf, cookie, url.Values{"scope": strings.Fields(scope), "duration": {"1"}, "repositories": {"all"}}))
 	later := registerTestTask(t, f.db, registerTestRepo(t, f.db, "acme", "web"), 3)

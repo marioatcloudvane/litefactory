@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -91,6 +92,93 @@ func factoryUnitRun(t *testing.T, p *factoryUnitProvider, input ...string) (*fac
 	return &factoryConversationRun{s: service, c: c, b: binding, t: turn, at: at}, at
 }
 
+// factoryFixedAction supplies the already reviewed domain facts for unit tests
+// of execution outcomes. Execution still uses the production shared backend.
+type factoryFixedAction struct {
+	service *Service
+	payload naturalPayload
+}
+
+func (d factoryFixedAction) Resolve(ctx context.Context, _ owneraction.Principal, in owneraction.Invocation, _ time.Time) (owneraction.Facts, error) {
+	repo, err := d.service.db.GetRepo(ctx, d.payload.RepoID)
+	if err != nil {
+		return owneraction.Facts{}, err
+	}
+	raw, err := json.Marshal(ownerActionPayload{Natural: d.payload})
+	if err != nil {
+		return owneraction.Facts{}, err
+	}
+	target := d.payload.PreviewID
+	if target == "" {
+		target = "github:" + d.payload.Project + "#" + in.Arguments["issue"]
+	}
+	revision := d.payload.PreviewHash
+	if revision == "" {
+		revision = fmt.Sprint(repo.ID)
+	}
+	if in.Command == "diagnose" {
+		session, err := d.service.db.GetOrCreateSession(ctx, repo, mustNumber(in.Arguments["issue"]))
+		if err != nil {
+			return owneraction.Facts{}, err
+		}
+		target, revision = session.TaskRef, store.OwnerActionSessionRevision(session)
+	}
+	return owneraction.Facts{Invocation: in, RepositoryID: repo.ID, RepositoryRef: repo.Forge + ":" + repo.Slug(), TargetKind: in.Command, TargetID: target, TargetRevision: revision, Summary: in.Command, Estimate: "unknown", Payload: string(raw)}, nil
+}
+func (d factoryFixedAction) Recheck(ctx context.Context, p owneraction.Principal, f owneraction.Facts, at time.Time) error {
+	return (OwnerActionDomain{Service: d.service}).Recheck(ctx, p, f, at)
+}
+func (d factoryFixedAction) Execute(ctx context.Context, p owneraction.Principal, f owneraction.Facts, key string, at time.Time) (owneraction.Result, error) {
+	return (OwnerActionDomain{Service: d.service}).Execute(ctx, p, f, key, at)
+}
+func (d factoryFixedAction) Recover(ctx context.Context, p owneraction.Principal, f owneraction.Facts, key string, at time.Time) (owneraction.Result, bool, error) {
+	return (OwnerActionDomain{Service: d.service}).Recover(ctx, p, f, key, at)
+}
+
+func executeFactoryAction(t *testing.T, run *factoryConversationRun, payload naturalPayload, at *time.Time) owneraction.Proposal {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := run.s.db.UpsertIdentity(ctx, store.Identity{Forge: "github", Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := run.s.db.ConnectorOwner(ctx, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal := owneraction.Principal{OwnerID: "42", OwnerGeneration: owner.Generation, Transport: "discord", ChannelID: "2", DiscordOwnerID: "1"}
+	actions := owneraction.New(run.s.db, factoryFixedAction{run.s, payload}, func() time.Time { return *at })
+	actions.SetDiscord("1", []string{"2"})
+	actions.SetDelivery(gateApproval{})
+	run.s.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })
+	proposal, err := actions.Propose(ctx, principal, owneraction.Invocation{Command: payload.Invocation.Command, Arguments: payload.Invocation.Arguments}, "fixed-unit-action")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = actions.Available(ctx, proposal.ID, "delivered"); err != nil {
+		t.Fatal(err)
+	}
+	*at = at.Add(5 * time.Second)
+	run.at = *at
+	run.t.Source = "yes"
+	run.t.ReplyTo = "delivered"
+	if handled, err := run.confirm(ctx); !handled || err != nil {
+		t.Fatalf("shared confirmation: %v %v", handled, err)
+	}
+	if proposal.Tier == owneraction.Binding {
+		if _, err = actions.Step(ctx, proposal.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = actions.Reaction(ctx, owneraction.Reaction{ChannelID: "2", MessageID: "approval:" + proposal.ID, UserID: "1", Emoji: "✅"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proposal, err = actions.Step(ctx, proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return proposal
+}
+
 func TestFactoryConversationLookupAndCorrectionShareBudget(t *testing.T) {
 	provider := &factoryUnitProvider{outputs: []string{`{"version":1,"kind":"lookup","command":"health","arguments":[]}`, `{"version":1,"kind":"lookup","command":"health","arguments":[]}`, `{"version":1,"kind":"execute"}`, `{"version":1,"kind":"lookup","command":"health","arguments":[]}`}}
 	run, at := factoryUnitRun(t, provider)
@@ -152,6 +240,13 @@ func (d *factoryUnitDiagnosis) Queue(_ context.Context, request DiagnosisRequest
 	return nil
 }
 
+func (d *factoryUnitDiagnosis) OwnerActionDiagnosis(ctx context.Context, target, note, key string) (string, error) {
+	presentation.Assess(ctx, presentation.Success)
+	d.calls++
+	d.request = DiagnosisRequest{Target: target, Note: note, SourceID: key}
+	return "Findings: the current task is waiting on the owner.", nil
+}
+
 func TestFactoryConversationFirstCancellationSkipsProvider(t *testing.T) {
 	provider := &factoryUnitProvider{fail: true}
 	run, at := factoryUnitRun(t, provider, "cancel")
@@ -177,10 +272,9 @@ func TestFactoryConversationFirstCancellationSkipsProvider(t *testing.T) {
 	}
 }
 
-func TestFactoryConversationAsyncDiagnosisSavedOutcome(t *testing.T) {
-	const code = "1234567890abcdef"
-	provider := &factoryUnitProvider{outputs: []string{`{"version":1,"kind":"answer","text":"The saved diagnosis is ready."}`}}
-	run, at := factoryUnitRun(t, provider, code)
+func TestFactoryConversationDiagnosisSavedOutcome(t *testing.T) {
+	provider := &factoryUnitProvider{fail: true}
+	run, at := factoryUnitRun(t, provider, "yes")
 	diagnosis := &factoryUnitDiagnosis{}
 	run.s.EnableResearch(diagnosis, nil)
 	repo, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
@@ -188,104 +282,30 @@ func TestFactoryConversationAsyncDiagnosisSavedOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := naturalPayload{Invocation: Invocation{Command: "diagnose", Arguments: map[string]string{"project": "acme/app", "issue": "42", "note": "check current state"}}, Channel: "2", Project: "acme/app", RepoID: repo.ID}
-	encoded, digest, err := naturalDigest(payload)
-	if err != nil {
+	proposal := executeFactoryAction(t, run, payload, &at)
+	if proposal.State != "succeeded" || proposal.Result.Summary != "Findings: the current task is waiting on the owner." || diagnosis.calls != 1 || diagnosis.request.Target != "github:acme/app#42" || diagnosis.request.Note != "check current state" || provider.calls != 0 {
+		t.Fatalf("saved diagnosis: %+v calls=%d request=%+v", proposal, diagnosis.calls, diagnosis.request)
+	}
+	if _, err = run.s.ownerActions.Step(t.Context(), proposal.ID); err != nil {
 		t.Fatal(err)
 	}
-	dialogue := store.NaturalDialogue{Transport: "discord", OwnerID: "1", ChannelRef: "2", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: encoded, Digest: digest, Code: code, ExpiresAt: at.Add(time.Minute), UpdatedAt: at}
-	if err = run.s.db.SaveNaturalDialogue(t.Context(), dialogue, 0); err != nil {
-		t.Fatal(err)
+	inspected, err := run.s.ownerActions.Inspect(t.Context(), mustFactoryPrincipal(t, run.s), proposal.ID)
+	if err != nil || inspected.Result != proposal.Result || diagnosis.calls != 1 {
+		t.Fatalf("diagnosis replayed or changed: %+v %v", inspected, err)
 	}
-	if err = run.s.db.BindNaturalPrompt(t.Context(), dialogue, "delivered-proposal"); err != nil {
-		t.Fatal(err)
+	history, err := run.s.ownerActions.History(t.Context(), mustFactoryPrincipal(t, run.s), "", 10)
+	if err != nil || len(history.Proposals) != 1 || history.Proposals[0].Result.Summary != proposal.Result.Summary {
+		t.Fatalf("history lost diagnosis: %+v %v", history, err)
 	}
-	// The proposed action was generated in this already established native session.
-	if err = run.s.db.SaveConversationSession(t.Context(), run.t, "unit-session"); err != nil {
-		t.Fatal(err)
-	}
-	run.c.SessionHandle = "unit-session"
-	handled, err := run.confirm(t.Context())
-	if err != nil || !handled {
-		t.Fatalf("confirmation handled=%v err=%v", handled, err)
-	}
-	if diagnosis.calls != 1 || diagnosis.request.Target != "github:acme/app#42" {
-		t.Fatalf("queue calls=%d request=%+v", diagnosis.calls, diagnosis.request)
-	}
-	if provider.calls != 0 {
-		t.Fatal("queued action made an unnecessary model call")
-	}
-	action, err := run.s.db.ClaimChatDiagnosis(t.Context(), "discord", at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if action.State != "working" || action.ConversationTurnID != run.t.ID {
-		t.Fatalf("async row %+v", action)
-	}
-	note, err := run.s.ConversationDiagnosisInput(t.Context(), action, at)
-	if err != nil || note != "check current state" {
-		t.Fatalf("saved exact diagnosis input %q %v", note, err)
-	}
+}
 
-	queued, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+func mustFactoryPrincipal(t *testing.T, s *Service) owneraction.Principal {
+	t.Helper()
+	p, err := s.ownerPrincipal(t.Context(), "2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = run.s.db.FinishConversationReply(t.Context(), queued, "queue-notice", at); err != nil {
-		t.Fatal(err)
-	}
-	const saved = "Findings: the current task is waiting on the owner."
-	if err = run.s.db.CompleteChatDiagnosisResult(t.Context(), "discord", action.MessageID, action.AnswerAttempts, saved, at, "success"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = run.s.db.ClaimChatReply(t.Context(), "discord", at); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("ordinary delivery claimed diagnosis: %v", err)
-	}
-	scan, err := run.s.db.ReadNaturalScan(t.Context(), "2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = run.s.db.StageNaturalScan(t.Context(), scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: "102"}, []store.NaturalMessage{{ChannelRef: "2", SourceID: "102", OwnerID: "1", Text: "What did it find?", CreatedAt: at}}, true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = run.s.db.AdmitConversationTurn(t.Context(), run.c.ID, "102", "protected followup", at); err != nil {
-		t.Fatal(err)
-	}
-	next, err := run.s.db.ClaimConversationTurn(t.Context(), run.c.ID, "unit-worker", at, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = run.s.runFactoryConversation(t.Context(), run.c, run.b, next, at); err != nil {
-		t.Fatal(err)
-	}
-	if provider.calls != 1 || !strings.Contains(provider.prompts[0], saved) || diagnosis.calls != 1 {
-		t.Fatalf("same-session handoff calls=%d queued=%d", provider.calls, diagnosis.calls)
-	}
-	execution, err := run.s.db.ReadNaturalExecution(t.Context(), action.MessageID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if execution.State != "finished" || execution.Outcome != saved {
-		t.Fatalf("execution %+v", execution)
-	}
-	link, err := run.s.db.GetConversationActionLink(t.Context(), run.t.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if link.Outcome != saved {
-		t.Fatalf("saved link %+v", link)
-	}
-	pending, err := run.s.db.ListPendingConversationActionOutcomes(t.Context(), run.c.ID)
-	if err != nil || len(pending) != 0 {
-		t.Fatalf("outcome eligible again: %+v %v", pending, err)
-	}
-	result, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The saved outcome reaches the owner in the conversation's own words.
-	if result.ReplyText != "The saved diagnosis is ready." {
-		t.Fatalf("saved outcome not narrated in one message: %q", result.ReplyText)
-	}
+	return p
 }
 
 func TestFactoryConversationJournalProtectsDecodedOutput(t *testing.T) {
@@ -330,8 +350,7 @@ func (f *uncertainFactoryConfirmer) Confirm(ctx context.Context, _ string, _ str
 	return "Issue creation outcome is uncertain.", nil
 }
 func TestFactoryConversationPreservesUncertainDomainOutcome(t *testing.T) {
-	const code = "1234567890abcdef"
-	run, at := factoryUnitRun(t, &factoryUnitProvider{fail: true}, code)
+	run, at := factoryUnitRun(t, &factoryUnitProvider{fail: true}, "yes")
 	confirmer := &uncertainFactoryConfirmer{}
 	run.s.EnableFeatures(nil, confirmer)
 	repo, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
@@ -343,38 +362,19 @@ func TestFactoryConversationPreservesUncertainDomainOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := naturalPayload{Invocation: Invocation{Command: "confirm", Arguments: map[string]string{"code": preview.Code}}, Channel: "2", Project: "acme/app", RepoID: repo.ID, PreviewID: preview.ID, PreviewHash: preview.ContentHash, Question: preview.Title + "\n" + preview.Body}
-	raw, digest, err := naturalDigest(payload)
-	if err != nil {
+	proposal := executeFactoryAction(t, run, payload, &at)
+	if confirmer.calls != 1 || proposal.State != "uncertain" || proposal.Result.Summary != "Issue creation outcome is uncertain." {
+		t.Fatalf("uncertainty lost: %+v calls=%d", proposal, confirmer.calls)
+	}
+	execution, err := run.s.db.ReadNaturalExecution(t.Context(), proposal.ExecutionID)
+	if err != nil || execution.State != "uncertain" {
+		t.Fatalf("journal uncertainty lost: %+v %v", execution, err)
+	}
+	if _, err = run.s.ownerActions.Step(t.Context(), proposal.ID); err != nil {
 		t.Fatal(err)
 	}
-	d := store.NaturalDialogue{Transport: "discord", OwnerID: "1", ChannelRef: "2", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: raw, Digest: digest, Code: code, ExpiresAt: at.Add(time.Minute), UpdatedAt: at}
-	if err = run.s.db.SaveNaturalDialogue(t.Context(), d, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err = run.s.db.BindNaturalPrompt(t.Context(), d, "delivered"); err != nil {
-		t.Fatal(err)
-	}
-	if err = run.s.db.SaveConversationSession(t.Context(), run.t, "unit-session"); err != nil {
-		t.Fatal(err)
-	}
-	run.c.SessionHandle = "unit-session"
-	handled, err := run.confirm(t.Context())
-	if err != nil || !handled {
-		t.Fatalf("confirm %v %v", handled, err)
-	}
-	execution, err := run.s.db.ReadNaturalExecution(t.Context(), "nl-exec:"+code)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if confirmer.calls != 1 || execution.State != "uncertain" || execution.Outcome != "Issue creation outcome is uncertain." {
-		t.Fatalf("uncertainty lost: %+v calls=%d", execution, confirmer.calls)
-	}
-	reply, err := run.s.db.ReadChatReply(t.Context(), "discord", execution.Identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reply.OutcomeStatus != string(presentation.Uncertain) {
-		t.Fatalf("saved status %q", reply.OutcomeStatus)
+	if confirmer.calls != 1 {
+		t.Fatal("uncertain effect was replayed")
 	}
 }
 

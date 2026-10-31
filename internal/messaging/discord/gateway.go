@@ -21,8 +21,9 @@ import (
 // Configured channels are guild channels, so direct messages stay off.
 const (
 	intentGuildMessages  = 1 << 9
+	intentGuildReactions = 1 << 10
 	intentMessageContent = 1 << 15
-	gatewayIntents       = intentGuildMessages | intentMessageContent
+	gatewayIntents       = intentGuildMessages | intentGuildReactions | intentMessageContent
 )
 
 // Gateway opcodes used by a receive-only client.
@@ -67,6 +68,8 @@ type GatewayOptions struct {
 	Channels []string
 	// OnMessage receives the channel of an owner message as it is sent.
 	OnMessage func(channel string)
+	// OnReaction receives authenticated owner reaction metadata at factory receipt time.
+	OnReaction func(OwnerReaction)
 	// OnReady runs after every READY or RESUMED, when events may have been missed.
 	OnReady func()
 	OnState func(GatewayState)
@@ -368,6 +371,10 @@ func (a *Adapter) gatewayConnect(ctx context.Context, session *gatewaySession, o
 					if o.OnReady != nil {
 						o.OnReady()
 					}
+				case "MESSAGE_REACTION_ADD":
+					if reaction, ok := ownerReaction(f.D, o.Owner, channels, a.options.Now()); ok && o.OnReaction != nil {
+						o.OnReaction(reaction)
+					}
 				case "MESSAGE_CREATE":
 					if channel, id, ok := ownerMessage(f.D, o.Owner, channels); ok && id > last[channel] {
 						last[channel] = id
@@ -419,4 +426,32 @@ func closeError(err error) error {
 		return &gatewayError{reason: fmt.Sprintf("session ended (%d)", code), reidentify: true}
 	}
 	return &gatewayError{reason: fmt.Sprintf("closed by Discord (%d)", code)}
+}
+
+// OwnerReaction contains only the configured owner's normal Unicode checkmark.
+type OwnerReaction struct {
+	UserID, ChannelID, MessageID string
+	ReceivedAt                   time.Time
+}
+
+func ownerReaction(raw json.RawMessage, owner string, channels []string, at time.Time) (OwnerReaction, bool) {
+	var event struct {
+		UserID    string `json:"user_id"`
+		ChannelID string `json:"channel_id"`
+		MessageID string `json:"message_id"`
+		Emoji     struct {
+			ID   *string `json:"id"`
+			Name string  `json:"name"`
+		} `json:"emoji"`
+		Member struct {
+			User struct {
+				ID  string `json:"id"`
+				Bot bool   `json:"bot"`
+			} `json:"user"`
+		} `json:"member"`
+	}
+	if json.Unmarshal(raw, &event) != nil || owner == "" || event.UserID != owner || !slices.Contains(channels, event.ChannelID) || event.Emoji.ID != nil || event.Emoji.Name != "✅" || event.Member.User.Bot || event.Member.User.ID != "" && event.Member.User.ID != owner || !numeric(event.MessageID) {
+		return OwnerReaction{}, false
+	}
+	return OwnerReaction{UserID: owner, ChannelID: event.ChannelID, MessageID: event.MessageID, ReceivedAt: at}, true
 }

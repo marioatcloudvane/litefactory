@@ -49,6 +49,10 @@ func ControlSpec(action string, policy ControlPolicy) ActionSpec {
 		"lf_field":     {Required: true, Values: []string{"response"}},
 		"lf_condition": {Required: true, Values: policy.Responses},
 	}
+	if policy.Mode == agent.ModePlan && action == ResearchIfAction {
+		attrs["lf_field"] = AttributeSpec{Required: true, Values: []string{"response", "story.size", "story.sizing_valid", "story.fallback"}}
+		attrs["lf_condition"] = AttributeSpec{Required: true, Values: append(slices.Clone(policy.Responses), "S", "M", "L", "true", "false")}
+	}
 	if action == ResearchLoopAction {
 		attrs["lf_default"] = AttributeSpec{Values: policy.Defaults}
 	}
@@ -80,6 +84,9 @@ func DecodeResearchCondition(action string, attrs map[string]string) (ResearchCo
 // DecodeCondition validates comparison attributes against the admitted response vocabulary.
 func DecodeCondition(action string, attrs map[string]string, policy ControlPolicy) (ResearchCondition, error) {
 	c := ResearchCondition{Responses: policy.Responses, Field: attrs["lf_field"], Condition: attrs["lf_condition"], Default: attrs["lf_default"]}
+	if policy.Mode == agent.ModePlan && c.Field != "response" {
+		return decodePlanFact(action, attrs)
+	}
 	var faults []error
 	if action != ResearchLoopAction && action != ResearchIfAction {
 		faults = append(faults, errors.New("unknown workflow control action"))

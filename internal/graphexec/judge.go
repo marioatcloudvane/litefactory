@@ -55,7 +55,7 @@ func ValidateJudgeGraph(p *Profile) error {
 			if len(n.Outcomes) != 2 || !slices.Contains(n.Outcomes, "success") || !slices.Contains(n.Outcomes, "failed") {
 				faults = append(faults, fmt.Errorf("judge %q requires exactly success and failed outcomes", n.Name))
 			}
-			allowed := []string{"lf_action", "lf_outcomes", "lf_source", "lf_limit", "lf_agent", "lf_model", "lf_thinking", "lf_focus", BudgetAttribute, slotBudgetAttribute}
+			allowed := []string{"lf_action", "lf_outcomes", "lf_source", "lf_limit", "lf_agent", "lf_model", "lf_thinking", "lf_focus", "lf_stage", BudgetAttribute, slotBudgetAttribute}
 			for _, key := range slices.Sorted(maps.Keys(n.Attrs)) {
 				value := n.Attrs[key]
 				if strings.HasPrefix(key, "lf_") && !slices.Contains(allowed, key) {
@@ -69,7 +69,10 @@ func ValidateJudgeGraph(p *Profile) error {
 				faults = append(faults, fmt.Errorf("judge %q: %w", n.Name, err))
 			}
 		}
-		if !ok || source.Action != required {
+		if _, stagePresent := n.Attrs["lf_stage"]; stagePresent && n.Action == JudgeAction && (p.Mode != agent.ModePlan || source.Action != PlanParallelAction) {
+			faults = append(faults, fmt.Errorf("judge %q stage applies only to a parallel Plan source", n.Name))
+		}
+		if !ok || (source.Action != required && (p.Mode != agent.ModePlan || n.Action != JudgeAction || source.Action != PlanParallelAction || !slices.Contains([]string{"story", "technical", "acceptance"}, n.Attrs["lf_stage"]))) {
 			faults = append(faults, fmt.Errorf("node %q requires explicit lf_source naming a %s node", n.Name, required))
 		}
 	}

@@ -26,6 +26,8 @@ import (
 // ChatOptions supplies immutable resolved chat settings. Only daemon wiring
 // imports the adapter; the service and store know no Discord types.
 type ChatOptions struct {
+	// Now supplies the transport lifecycle clock independently of the discovery tick snapshot.
+	Now func() time.Time
 	// Instructions supplies the shared read-only chat instruction package.
 	Instructions           prompts.Resolver
 	InstructionDiagnostics prompts.Sink
@@ -218,6 +220,11 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		}
 	}
 	s.EnableResearch(chatResearch{d}, chatResearch{d})
+	clock := o.Now
+	if clock == nil {
+		clock = time.Now
+	}
+	d.configureOwnerActions(s, o.Settings.OwnerID, o.Settings.ChannelIDs, a, clock)
 	if o.Settings.NoticeChannelID != "" {
 		if o.Conversations != nil {
 			for _, binding := range o.Conversations.Bindings {
@@ -281,6 +288,7 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 		d.startConversations(ctx, wg, time.Now())
+		d.startOwnerActions(ctx, wg)
 		if d.chat.analyses != nil {
 			service := d.chat.service
 			d.chat.analyses.serve(ctx, wg, func(ctx context.Context, channel, key, operation, text string) error {
