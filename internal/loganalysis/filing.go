@@ -92,9 +92,18 @@ func (s *Service) FileFindings(ctx context.Context, id string) error {
 	if e != nil {
 		return e
 	}
+	workflowOwned := boundedWorkflowFiling(ctx)
+	if !workflowOwned && a.StartKey != "" {
+		_, lookupErr := s.DB.WorkflowAttemptByExecution(ctx, a.StartKey)
+		if lookupErr == nil {
+			workflowOwned = true
+		} else if !errors.Is(lookupErr, store.ErrNotFound) {
+			return lookupErr
+		}
+	}
 	settled := map[string]bool{}
 	for _, f := range prior {
-		settled[f.FindingKey] = f.State == store.FilingFiled || f.State == store.FilingWouldFile
+		settled[f.FindingKey] = f.State == store.FilingFiled || f.State == store.FilingWouldFile || workflowOwned && (f.State == store.FilingStarted || f.State == store.FilingFailed)
 	}
 	tasks, e := s.incidentTasks(ctx, id)
 	if e != nil {
@@ -144,6 +153,14 @@ func (s *Service) fileFinding(ctx context.Context, a store.LogAnalysis, scope Sc
 	}
 	if e = save(store.FilingStarted, "", "", ""); e != nil {
 		return e
+	}
+	if boundedWorkflowFiling(ctx) {
+		if e = s.DB.CheckOwnerActionEffect(ctx); e != nil {
+			return e
+		}
+		if e = ctx.Err(); e != nil {
+			return e
+		}
 	}
 	hit, e := tracker.FileBug(ctx, title, body, Marker(a.ID, f.Key), a.CreatedAt)
 	var refused NotFiled
@@ -257,4 +274,69 @@ func FindingStatus(id string, scope Scope, f Finding, filing store.LogAnalysisFi
 		return "marked to file; not filed yet" + retry
 	}
 	return "not filed: the analyst did not ask to file it"
+}
+
+// ReconcileWorkflowFilings reads positive provider receipts only. Unresolved
+// creates and label outcomes retain their uncertainty and any confirmed link.
+func (s *Service) ReconcileWorkflowFilings(ctx context.Context, id string) error {
+	a, err := s.DB.GetLogAnalysis(ctx, id)
+	if err != nil {
+		return err
+	}
+	var scope Scope
+	if err = json.Unmarshal(a.Scope, &scope); err != nil {
+		return err
+	}
+	raw, err := s.DB.GetLogAnalysisReport(ctx, id)
+	if err != nil {
+		return err
+	}
+	var report Report
+	if err = json.Unmarshal(raw, &report); err != nil {
+		return err
+	}
+	filings, err := s.DB.ListLogAnalysisFilings(ctx, id)
+	if err != nil {
+		return err
+	}
+	findings := map[string]Finding{}
+	for _, f := range report.Findings {
+		findings[f.Key] = f
+	}
+	for _, filing := range filings {
+		if filing.State != store.FilingStarted && filing.State != store.FilingFailed {
+			continue
+		}
+		finding, ok := findings[filing.FindingKey]
+		if !ok {
+			continue
+		}
+		destination, tracker, _ := s.destination(scope, finding)
+		if tracker == nil || destination != filing.Destination || tracker.Name() != filing.Destination {
+			continue
+		}
+		reader, ok := tracker.(ReceiptTracker)
+		if !ok {
+			continue
+		}
+		hit, found, readErr := reader.FindFiled(ctx, Marker(id, filing.FindingKey), a.CreatedAt)
+		if readErr != nil {
+			return readErr
+		}
+		if !found || hit.Reference == "" {
+			continue
+		}
+		filing.Reference, filing.URL = hit.Reference, hit.URL
+		if containsLabel(hit.Labels, "bug") {
+			filing.State = store.FilingFiled
+			filing.Reason = ""
+		} else {
+			filing.State = store.FilingFailed
+			filing.Reason = "issue creation is confirmed; bug label is unconfirmed"
+		}
+		if _, err = s.DB.SaveLogAnalysisFiling(ctx, filing); err != nil {
+			return err
+		}
+	}
+	return nil
 }

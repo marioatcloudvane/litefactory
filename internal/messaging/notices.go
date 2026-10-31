@@ -486,6 +486,32 @@ func (s *Service) NoticeStep(ctx context.Context, at time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if strings.HasPrefix(r.MessageID, "workflow-notice:") {
+		s.mu.RLock()
+		authorize := s.workflowNoticeAuthorizer
+		s.mu.RUnlock()
+		if authorize == nil || authorize(ctx, r.MessageID, r.ChannelRef) != nil {
+			return true, s.db.FinishWorkflowChatNotice(ctx, r, "failed", "", "delivery_authority_unavailable", time.Time{}, at)
+		}
+		if !at.Before(r.CreatedAt.Add(24 * time.Hour)) {
+			return true, s.db.FinishWorkflowChatNotice(ctx, r, "failed", "", "delivery_window_expired", time.Time{}, at)
+		}
+		d := s.sender.Deliver(ctx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Notice: true}, r.ReplyText)
+		state, reason := "failed", "delivery_unconfirmed"
+		next := time.Time{}
+		switch {
+		case d.Confirmed && d.PromptID != "":
+			state = "delivered"
+			reason = ""
+		case d.RetryAfter > 0 && !d.Permanent:
+			state = "pending"
+			reason = "rate_limited"
+			next = retryAt(r, at, d.RetryAfter)
+		case d.Permanent:
+			reason = "delivery_refused"
+		}
+		return true, s.db.FinishWorkflowChatNotice(ctx, r, state, d.PromptID, reason, next, at)
+	}
 	failed := !at.Before(r.CreatedAt.Add(24 * time.Hour))
 	if !failed {
 		d := s.sender.Deliver(ctx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Notice: true}, r.ReplyText)

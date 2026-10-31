@@ -391,7 +391,7 @@ func (db *DB) ClaimChatNotice(ctx context.Context, transport string, at time.Tim
 	var r ChatReply
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+noticeColumns+` FROM chat_notices WHERE transport=? AND state IN ('pending','sent') AND next_attempt_at<=? AND NOT (created_at>? AND EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_conversation_turns t ON t.id=a.turn_id WHERE a.execution_id<>'' AND a.execution_id=json_extract(chat_notices.arguments,'$.after') AND t.delivered_at IS NULL)) ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at), FormatTime(at.Add(-noticeHold))))
+		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+noticeColumns+` FROM chat_notices WHERE transport=? AND state IN ('pending','sent') AND next_attempt_at<=? AND (NOT EXISTS(SELECT 1 FROM durable_workflow_notices w WHERE 'workflow-notice:'||w.id=chat_notices.message_id) OR (state='pending' AND EXISTS(SELECT 1 FROM durable_workflow_notices w WHERE 'workflow-notice:'||w.id=chat_notices.message_id AND w.state='pending'))) AND NOT (created_at>? AND EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_conversation_turns t ON t.id=a.turn_id WHERE a.execution_id<>'' AND a.execution_id=json_extract(chat_notices.arguments,'$.after') AND t.delivered_at IS NULL)) ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at), FormatTime(at.Add(-noticeHold))))
 		if err != nil {
 			return err
 		}
@@ -399,6 +399,10 @@ func (db *DB) ClaimChatNotice(ctx context.Context, transport string, at time.Tim
 		r.State = "sent"
 		r.NextAttemptAt = at.Add(time.Minute)
 		_, err = tx.ExecContext(ctx, `UPDATE chat_notices SET state='sent',attempts=?,next_attempt_at=? WHERE transport=? AND message_id=?`, r.Attempts, FormatTime(r.NextAttemptAt), r.Transport, r.MessageID)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE durable_workflow_notices SET state='sending' WHERE 'workflow-notice:'||id=? AND state='pending'`, r.MessageID)
 		return err
 	})
 	return r, err
@@ -429,6 +433,6 @@ func (db *DB) RetryChatNotice(ctx context.Context, r ChatReply, next, at time.Ti
 
 // PurgeChatNotices leaves only source positions after terminal retention.
 func (db *DB) PurgeChatNotices(ctx context.Context, at time.Time) error {
-	_, err := db.sql.ExecContext(ctx, `DELETE FROM chat_notices WHERE state IN ('confirmed','failed') AND finished_at<=?`, FormatTime(at.Add(-24*time.Hour)))
+	_, err := db.sql.ExecContext(ctx, `DELETE FROM chat_notices WHERE state IN ('confirmed','failed') AND finished_at<=? AND NOT EXISTS(SELECT 1 FROM durable_workflow_notices w WHERE 'workflow-notice:'||w.id=chat_notices.message_id)`, FormatTime(at.Add(-24*time.Hour)))
 	return err
 }
