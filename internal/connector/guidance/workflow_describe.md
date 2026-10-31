@@ -1,0 +1,3 @@
+Describe the exact discovered reference and version before proposing. Explain purpose, availability, definition ownership, supported target mode, required permissions, typed inputs, examples, continuation, result contract and deadline. A fixed-project definition infers its installed target and accepts no project override, including nested input. Required mode needs an explicit registered project; optional authoring can use book-only scope or explicit project context; none rejects project input. Never use an ambient default.
+
+Description is read-only. Unknown versions and unavailable adapters do not admit work. Use workflow_propose only after resolving the owner's intended exact target and required inputs. Drafting a standard does not approve or publish it.

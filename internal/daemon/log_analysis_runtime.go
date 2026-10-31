@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -62,22 +63,21 @@ func newConversationAnalyses(s Setup, connections *projectconnection.Factory, sh
 			logs.Upstream = loganalysis.GitHubTracker{Client: client, Repo: github.Repo{Owner: owner, Name: name}}
 		}
 	}
-	start := func(ctx context.Context, q loganalysis.Request, dryRun bool) (store.LogAnalysis, error) {
+	configure := func(ctx context.Context, ids []int64) (*loganalysis.Service, error) {
 		// Log bodies can contain any project credential; loading each connection
 		// registers its secrets with the shared redactor. Each project's ticket
 		// source is where its Bugs are searched and filed.
-		q.DryRun = dryRun
 		svc := *logs
 		svc.Projects = map[int64]loganalysis.Tracker{}
-		for _, id := range q.RepositoryIDs {
+		for _, id := range ids {
 			versions, e := s.DB.ListConnections(ctx, id)
 			if e != nil {
-				return store.LogAnalysis{}, errors.New("project credential registry unavailable")
+				return nil, errors.New("project credential registry unavailable")
 			}
 			for _, version := range versions {
 				clients, e := connections.Clients(ctx, version, 0)
 				if e != nil {
-					return store.LogAnalysis{}, errors.New("project credential redaction could not be initialized")
+					return nil, errors.New("project credential redaction could not be initialized")
 				}
 				if version.Role != store.TicketConnection {
 					continue
@@ -91,7 +91,44 @@ func newConversationAnalyses(s Setup, connections *projectconnection.Factory, sh
 				}
 			}
 		}
+		return &svc, nil
+	}
+	start := func(ctx context.Context, q loganalysis.Request, dryRun bool) (store.LogAnalysis, error) {
+		q.DryRun = dryRun
+		svc, e := configure(ctx, q.RepositoryIDs)
+		if e != nil {
+			return store.LogAnalysis{}, e
+		}
 		return svc.Start(ctx, q)
+	}
+	recoverFilings := func(ctx context.Context, id string) error {
+		analysis, e := s.DB.GetLogAnalysis(ctx, id)
+		if e != nil {
+			return e
+		}
+		var scope loganalysis.Scope
+		if e = json.Unmarshal(analysis.Scope, &scope); e != nil {
+			return e
+		}
+		svc, e := configure(ctx, scope.Request.RepositoryIDs)
+		if e != nil {
+			return e
+		}
+		return svc.ReconcileWorkflowFilings(ctx, id)
+	}
+	targets := func(ctx context.Context, id int64) (string, error) {
+		versions, e := s.DB.ListConnections(ctx, id)
+		if e != nil {
+			return "", e
+		}
+		destinations := []map[string]any{}
+		for _, v := range versions {
+			if v.Role == store.TicketConnection {
+				destinations = append(destinations, map[string]any{"connection_id": v.ID, "revision": v.Revision, "provider": v.Provider, "origin": v.Origin, "destination": v.Destination, "enabled": v.Enabled})
+			}
+		}
+		raw, e := json.Marshal(map[string]any{"project": destinations, "upstream": logs.UpstreamName})
+		return string(raw), e
 	}
 	report := func(ctx context.Context, id string) (string, error) {
 		view, e := logs.Inspect(ctx, id, 0, 1)
@@ -100,5 +137,5 @@ func newConversationAnalyses(s Setup, connections *projectconnection.Factory, sh
 		}
 		return renderConversationAnalysis(view), nil
 	}
-	return &ConversationAnalyses{DB: s.DB, Start: start, Report: report, Log: s.Logger}, nil
+	return &ConversationAnalyses{DB: s.DB, Start: start, Report: report, Log: s.Logger, RecoverFilings: recoverFilings, Targets: targets}, nil
 }

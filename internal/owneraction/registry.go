@@ -16,6 +16,10 @@ const (
 // actions remain unavailable until deliberately classified here.
 func Classify(inv Invocation) (tier, scope string, err error) {
 	switch inv.Command {
+	case "workflow-analysis":
+		return Conversational, "repository:actions", nil
+	case "workflow-author":
+		return Conversational, "standards:management", nil
 	case "draft", "diagnose", "answer":
 		return Conversational, "repository:actions", nil
 	case "confirm":

@@ -24,10 +24,11 @@ import (
 // frozenStandards retains the state used to select a target, separately from
 // executable arguments. An action cannot silently adopt a newer session or book.
 type frozenStandards struct {
-	Operation        string `json:"operation"`
-	BookHead         int64  `json:"book_head"`
-	TargetDigest     string `json:"target_digest"`
-	RepositoryDigest string `json:"repository_digest,omitempty"`
+	Operation            string `json:"operation"`
+	AnalysisDestinations string `json:"analysis_destinations,omitempty"`
+	BookHead             int64  `json:"book_head"`
+	TargetDigest         string `json:"target_digest"`
+	RepositoryDigest     string `json:"repository_digest,omitempty"`
 }
 
 type frozenStandardsContextKey struct{}
@@ -208,6 +209,12 @@ func (a *ConversationStandards) ResolveFrozen(ctx context.Context, p owneraction
 		if _, e = loganalysis.NormalizeRequest(loganalysis.Request{RepositoryIDs: []int64{repository}, After: after.UTC(), Before: before.UTC()}); e != nil {
 			return facts, e
 		}
+		if a.Analyses.Targets != nil {
+			fixed.AnalysisDestinations, err = a.Analyses.Targets(ctx, repository)
+			if err != nil {
+				return facts, err
+			}
+		}
 		facts.TargetID = args["repository_id"]
 		facts.TargetRevision = args["after"] + " / " + args["before"]
 		fixed.TargetDigest = frozenDigest(args)
@@ -233,6 +240,9 @@ func (a *ConversationStandards) ResolveFrozen(ctx context.Context, p owneraction
 		}{repo.ID, repo.Forge, repo.Owner, repo.Name})
 	}
 	facts.Summary = r.Operation + " " + facts.TargetID
+	if fixed.AnalysisDestinations != "" {
+		facts.Summary += "; filing destinations " + fixed.AnalysisDestinations
+	}
 	raw, err := json.Marshal(fixed)
 	facts.Payload = string(raw)
 	return facts, err

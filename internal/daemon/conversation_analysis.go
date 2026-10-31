@@ -22,6 +22,10 @@ import (
 // an analysis by itself, and an analysis cut short by a restart is not resumed.
 type ConversationAnalyses struct {
 	DB *store.DB
+	// RecoverFilings reconciles positive receipts without creating external effects.
+	RecoverFilings func(context.Context, string) error
+	// Targets freezes configured filing destinations before confirmation.
+	Targets func(context.Context, int64) (string, error)
 	// Start runs one analysis to its end through the shared log analysis service.
 	Start func(ctx context.Context, q loganalysis.Request, dryRun bool) (store.LogAnalysis, error)
 	// Report renders one saved analysis for the owner.

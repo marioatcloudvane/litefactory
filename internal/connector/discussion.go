@@ -305,6 +305,9 @@ func (s *Server) availableTools(grant store.ConnectorGrant) []string {
 	}
 	if s.actions.Load() != nil && actionGrant(grant) {
 		names = append(names, actionToolNames...)
+		if s.workflows.Load() != nil {
+			names = append(names, workflowToolNames...)
+		}
 	}
 	return names
 }
