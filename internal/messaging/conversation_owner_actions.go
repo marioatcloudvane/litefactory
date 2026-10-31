@@ -2,9 +2,7 @@ package messaging
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -25,33 +23,16 @@ func (s *Service) EnableOwnerActions(actions *owneraction.Service, principal fun
 // OwnerActions returns the shared service for trusted daemon composition.
 func (s *Service) OwnerActions() *owneraction.Service { return s.ownerActions }
 
-// OwnerActionText renders exact factory facts; narration cannot alter this block.
+// OwnerActionText renders the plain factory review of p for Discord; narration
+// cannot alter this block. The full record stays in inspect and history.
 func OwnerActionText(p owneraction.Proposal) string {
-	args, _ := json.Marshal(p.Facts.Invocation.Arguments)
-	scope := p.Facts.RepositoryRef
-	if scope == "" {
-		scope = "installation-wide"
-	}
-	origin := p.Principal.Transport
-	if p.Principal.ClientID != "" {
-		origin += " client " + p.Principal.ClientID + "; grant " + p.Principal.GrantID
-	} else {
-		origin += " owner " + p.Principal.ActorID() + "; channel " + p.Principal.ChannelID
-	}
-	text := fmt.Sprintf("Action: %s\nArguments: %s\nScope: %s\nExact target: %s %s — %s\nImpact: %s\nOwner: %s\nOrigin: %s\nCreated: %s\nExpires: %s\nEstimate: %s\nState: %s", p.Facts.Invocation.Command, args, scope, p.Facts.TargetKind, p.Facts.TargetID, p.Facts.TargetRevision, p.Tier, p.Principal.OwnerID, origin, p.CreatedAt.UTC().Format(time.RFC3339), p.ExpiresAt.UTC().Format(time.RFC3339), p.Facts.Estimate, p.State)
-	if p.Reason != "" {
-		text += "\nReason: " + p.Reason
-	}
-	if p.Result.Summary != "" {
-		text += "\nResult: " + p.Result.Summary
-	}
-	if p.State == "awaiting_confirmation" {
-		text += "\nConfirm separately at least five seconds after this proposal is delivered."
-		if p.Tier == owneraction.Binding {
-			text += " Then tap ✅ on the factory's separate Discord approval request before expiry."
-		}
-	}
-	return text + "\nHistory reference: " + p.ID
+	return owneraction.Render(p, owneraction.Options{Transport: "discord"}).Text()
+}
+
+// ownerActionDetails is the Discord "details" view: full readable terms, the
+// reviewed revision and the estimate, without principal identities or hashes.
+func ownerActionDetails(p owneraction.Proposal) string {
+	return owneraction.Render(p, owneraction.Options{Transport: "discord", Mode: owneraction.Details}).Text()
 }
 
 func (r *factoryConversationRun) sharedPrincipal(ctx context.Context) (owneraction.Principal, error) {
@@ -182,7 +163,7 @@ func (r *factoryConversationRun) sharedControl(ctx context.Context) (bool, error
 		if e != nil {
 			return true, e
 		}
-		return true, r.complete(ctx, OwnerActionText(saved))
+		return true, r.complete(ctx, ownerActionDetails(saved))
 	}
 	if yes && (p.Principal.Transport != "discord" || r.t.ReplyTo != "" && r.t.ReplyTo != p.ProposalMessage) {
 		return true, r.complete(ctx, "That yes does not select this proposal. Confirm it in its originating client or reply to its exact factory proposal.")
@@ -223,23 +204,7 @@ func (r *factoryConversationRun) sharedControl(ctx context.Context) (bool, error
 }
 
 func sharedAcknowledgment(p owneraction.Proposal) string {
-	text := "Recorded state: " + p.State + "."
-	switch p.State {
-	case "awaiting_confirmation":
-		text += " Earliest confirmation: " + p.ConfirmNotBefore.UTC().Format(time.RFC3339) + ". Send a separate confirmation after that time; no retry was scheduled."
-	case "awaiting_discord":
-		text += " Tap ✅ on the factory's separate approval request before expiry; no work is admitted yet."
-	case "admitted", "executing":
-		text += " Cancellation cannot undo admitted work. Inspect the recorded result before requesting it again."
-	case "cancelled":
-		text += " It was cancelled before admission."
-	case "uncertain":
-		text += " Inspect the retained result before proposing again."
-	}
-	if p.Reason != "" {
-		text += " Reason: " + p.Reason + "."
-	}
-	return text + "\nHistory reference: " + p.ID
+	return OwnerActionText(p)
 }
 
 func (s *Service) bindSharedProposal(ctx context.Context, r store.ChatReply, message string) error {
@@ -295,7 +260,7 @@ func (r *factoryConversationRun) judgedShared(ctx context.Context, envelope Conv
 	return r.complete(ctx, sharedAcknowledgment(changed))
 }
 
-// OwnerActionNotifications queues factual outcomes with their history references.
+// OwnerActionNotifications queues plain factual outcomes; history keeps the references.
 func (s *Service) OwnerActionNotifications(ctx context.Context, at time.Time) error {
 	if s.ownerActions == nil || s.ownerPrincipal == nil {
 		return nil
@@ -319,7 +284,7 @@ func (s *Service) OwnerActionNotifications(ctx context.Context, at time.Time) er
 		if e != nil {
 			continue
 		}
-		text := p.Facts.Summary + ": " + p.State + ".\n" + p.Result.Summary + "\nHistory reference: " + p.ID
+		text := OwnerActionText(p)
 		notices, e := s.announcement(ctx, record.ApprovalChannel, "owner-outcome:"+p.ID+":"+p.State, "", text, "", at)
 		if e != nil {
 			return e

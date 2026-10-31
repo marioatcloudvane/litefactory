@@ -149,7 +149,7 @@ func TestPlainWordActionJourney(t *testing.T) {
 		t.Fatal(err)
 	}
 	remoteID := 500
-	approvalMessage := ""
+	approvalMessage, approvalText := "", ""
 	var sent []string
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/channels/3/typing" {
@@ -173,6 +173,7 @@ func TestPlainWordActionJourney(t *testing.T) {
 		remoteID++
 		if strings.Contains(body.Content, "Approval request") {
 			approvalMessage = fmt.Sprint(remoteID)
+			approvalText = body.Content
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"id":"%d"}`, remoteID)
@@ -346,7 +347,7 @@ func TestPlainWordActionJourney(t *testing.T) {
 		t.Fatal("Discord proposal missing")
 		return owneraction.Proposal{}
 	}
-	if preview := say("Start a standard about bounded checks in quality."); !strings.Contains(preview, "Exact target:") {
+	if preview := say("Start a standard about bounded checks in quality."); !strings.Contains(preview, "bounded checks") || !strings.Contains(preview, "Reply yes") || strings.Contains(preview, "Arguments") {
 		t.Fatalf("Discord review missing: %s", preview)
 	}
 	discordCheap := latestDiscord()
@@ -362,17 +363,38 @@ func TestPlainWordActionJourney(t *testing.T) {
 	if _, err = actions.Step(ctx, discordCheap.ID); err != nil {
 		t.Fatal(err)
 	}
-	if result := say("show that"); !strings.Contains(result, "succeeded") {
+	if result := say("show that"); !strings.Contains(result, "Done") {
 		t.Fatalf("Discord conversational result: %s", result)
 	}
 	replyTo = ""
-	say("Publish that standard.")
+	// The binding journey reads in order: yes first, then the announced tap,
+	// then the tap on the approval request, each with its deadline and cancel.
+	proposed := say("Publish that standard.")
 	discordBinding := latestDiscord()
+	until := discordBinding.ExpiresAt.UTC().Format("15:04") + " UTC"
+	if yes, tap := strings.Index(proposed, "yes"), strings.Index(proposed, "✅"); yes < 0 || tap < yes || !strings.Contains(proposed, until) {
+		t.Fatalf("binding proposal steps: %s", proposed)
+	}
 	replyTo = discordBinding.ProposalMessage
 	at = at.Add(5 * time.Second)
-	say("yes")
+	acknowledged := say("yes")
+	for _, token := range []string{"✅", "Reply no", until} {
+		if !strings.Contains(acknowledged, token) {
+			t.Fatalf("binding acknowledgment lost %q: %s", token, acknowledged)
+		}
+	}
 	if _, err = actions.Step(ctx, discordBinding.ID); err != nil {
 		t.Fatal(err)
+	}
+	for _, token := range []string{"Approval request", "Publication of standards draft", "✅", "this message", until} {
+		if !strings.Contains(approvalText, token) {
+			t.Fatalf("approval request lost %q: %s", token, approvalText)
+		}
+	}
+	for _, token := range []string{discordBinding.ID, "Owner:", "History reference"} {
+		if strings.Contains(approvalText, token) {
+			t.Fatalf("approval request shows %q: %s", token, approvalText)
+		}
 	}
 	waiting, err := actions.Inspect(ctx, discordPrincipal, discordBinding.ID)
 	if err != nil || waiting.State != "awaiting_discord" {
@@ -382,7 +404,7 @@ func TestPlainWordActionJourney(t *testing.T) {
 	if _, err = actions.Step(ctx, discordBinding.ID); err != nil {
 		t.Fatal(err)
 	}
-	if result := say("show that"); !strings.Contains(result, "succeeded") {
+	if result := say("show that"); !strings.Contains(result, "Done") || !strings.Contains(result, "Publication of standards draft") {
 		t.Fatalf("Discord binding result: %s", result)
 	}
 	if history := say("show my action history"); !strings.Contains(history, discordBinding.ID) || !strings.Contains(history, binding.ID) {
