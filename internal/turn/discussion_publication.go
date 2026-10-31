@@ -3,10 +3,12 @@ package turn
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/stagedecision"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
@@ -23,7 +25,11 @@ func (p DiscussionPublisher) intent(ctx context.Context, c store.DiscussionConcl
 		return store.ReportDelivery{}, err
 	}
 	marker := "<!-- lf:discussion-summary v=1 key=" + c.ID + " -->"
-	return store.ReportDelivery{Key: "discussion-summary:" + c.ID, Version: 1, SessionID: session.ID, Task: c.TaskRef, Destination: c.TaskRef, TriggerNamespace: "discussion-summary", Purpose: "discussion-summary", BotUserID: p.Reporter.botUserID, Marker: marker}, nil
+	purpose := "discussion-summary"
+	if strings.HasPrefix(c.ID, "decision-") {
+		purpose = "decision-summary"
+	}
+	return store.ReportDelivery{Key: "discussion-summary:" + c.ID, Version: 1, SessionID: session.ID, Task: c.TaskRef, Destination: c.TaskRef, TriggerNamespace: "discussion-summary", Purpose: purpose, BotUserID: p.Reporter.botUserID, Marker: marker}, nil
 }
 
 // Publish dispatches frozen summary bytes through the report journal.
@@ -32,7 +38,13 @@ func (p DiscussionPublisher) Publish(ctx context.Context, c store.DiscussionConc
 	if err != nil {
 		return "", err
 	}
-	_, err = p.Reporter.deliver(ctx, intent, func() (redact.Body, error) { return p.Reporter.renderer.RenderReportDelivery(ctx, c.Rendered, "") })
+	_, err = p.Reporter.deliver(ctx, intent, func() (redact.Body, error) {
+		body, e := p.Reporter.renderer.RenderReportDelivery(ctx, c.Rendered, "")
+		if strings.HasPrefix(c.ID, "decision-") && (e != nil || body.String() != c.Rendered) {
+			return body, &stagedecision.PublicationRejected{Reason: "Reviewed decision summary no longer passes unchanged publication protection; no comment was sent."}
+		}
+		return body, e
+	})
 	if err != nil {
 		var rate *github.RateLimitError
 		if errors.As(err, &rate) {
@@ -81,4 +93,10 @@ func (p DiscussionPublisher) Recover(ctx context.Context, c store.DiscussionConc
 	}
 	_, err = p.Reporter.finishDelivery(ctx, d)
 	return d.ConfirmedURL, err == nil, err
+}
+
+// ProtectDecisionSummary freezes the exact outbound rendering before confirmation.
+func (r *Reporter) ProtectDecisionSummary(ctx context.Context, text string) (string, error) {
+	body, err := r.renderer.RenderReportDelivery(ctx, text, "")
+	return body.String(), err
 }

@@ -291,6 +291,9 @@ func DiscussionResult(summary string, evidence any) (ToolResult, error) {
 
 func (s *Server) availableTools(grant store.ConnectorGrant) []string {
 	names := []string{}
+	if decisions := s.stageDecisions.Load(); decisions != nil && decisions.Ready() && s.actions.Load() != nil && decisionGrant(grant) {
+		names = append(names, decisionToolNames...)
+	}
 	if discussion := s.taskDiscussion.Load(); discussion != nil {
 		for _, name := range advisoryToolNames {
 			if (name == "discussion_summary_publish" || name == "discussion_summary_get") && !discussion.PublicationAvailable() {

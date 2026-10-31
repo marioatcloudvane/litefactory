@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -113,6 +114,9 @@ func (db *DB) FinishOwnerAction(ctx context.Context, id, state, result, reason s
 			payload = "{}"
 			journalState = "finished"
 		}
+		if stageDecisionAction(p) {
+			payload = p.Payload
+		}
 		if state == "uncertain" {
 			journalState = "uncertain"
 			payload = p.Payload
@@ -217,7 +221,7 @@ func (db *DB) ReadyOwnerActions(ctx context.Context, limit int, at time.Time) ([
 func (db *DB) PurgeOwnerActionHistory(ctx context.Context, at time.Time) error {
 	cutoff := ownerActionTime(at.Add(-90 * 24 * time.Hour))
 	return db.withTx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM owner_action_proposals WHERE state IN ('succeeded','failed','cancelled','expired','invalidated') AND completed_at<>'' AND completed_at<=? AND NOT EXISTS(SELECT 1 FROM durable_workflow_requests w WHERE w.proposal_id=owner_action_proposals.id)`, cutoff); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM owner_action_proposals WHERE state IN ('succeeded','failed','cancelled','expired','invalidated') AND completed_at<>'' AND completed_at<=? AND NOT EXISTS(SELECT 1 FROM durable_workflow_requests w WHERE w.proposal_id=owner_action_proposals.id) AND COALESCE(json_extract(facts,'$.invocation.command'),'') NOT IN ('revise_task','approve_stage')`, cutoff); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM owner_action_policy_invalidations WHERE julianday(invalidated_at)<=julianday(?)`, cutoff)
@@ -227,7 +231,7 @@ func (db *DB) PurgeOwnerActionHistory(ctx context.Context, at time.Time) error {
 
 // ExpireOwnerAction is a clock-driven pending transition, never an execution cancellation.
 func (db *DB) ExpireOwnerAction(ctx context.Context, id string, at time.Time) error {
-	_, err := db.sql.ExecContext(ctx, `UPDATE owner_action_proposals SET state='expired',reason='expired_repropose',completed_at=?,payload='{}' WHERE id=? AND state IN ('awaiting_confirmation','awaiting_discord') AND expires_at<=?`, ownerActionTime(at), id, ownerActionTime(at))
+	_, err := db.sql.ExecContext(ctx, `UPDATE owner_action_proposals SET state='expired',reason='expired_repropose',completed_at=?,payload=CASE WHEN json_extract(facts,'$.invocation.command') IN ('revise_task','approve_stage') THEN payload ELSE '{}' END WHERE id=? AND state IN ('awaiting_confirmation','awaiting_discord') AND expires_at<=?`, ownerActionTime(at), id, ownerActionTime(at))
 	return err
 }
 
@@ -317,4 +321,16 @@ func (db *DB) DeferOwnerActionDelivery(ctx context.Context, id string, retryAt, 
 		_, err = tx.ExecContext(ctx, `UPDATE owner_action_proposals SET delivery_state=?,delivery_retry_at=?,reason=? WHERE id=?`, state, ownerActionTime(retryAt), reason, id)
 		return err
 	})
+}
+
+func stageDecisionAction(p OwnerAction) bool {
+	var f struct {
+		Invocation struct {
+			Command string `json:"command"`
+		} `json:"invocation"`
+	}
+	if json.Unmarshal([]byte(p.Facts), &f) != nil {
+		return false
+	}
+	return f.Invocation.Command == "revise_task" || f.Invocation.Command == "approve_stage"
 }

@@ -15,12 +15,14 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/stagedecision"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
 
 // ownerActionRuntime owns one executor independently of Discord availability.
 // Discord can join later without replacing the execution claims or worker.
 type ownerActionRuntime struct {
+	decisions   *stagedecision.Service
 	discussions *taskdiscussion.Service
 	actions     *owneraction.Service
 	workflows   *durableworkflow.Service
@@ -86,6 +88,11 @@ func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logg
 			for {
 				if ctx.Err() != nil {
 					return
+				}
+				if r.decisions != nil {
+					if err := r.decisions.PublishPending(ctx); err != nil {
+						logger.WarnContext(ctx, "decision summary requires reconciliation")
+					}
 				}
 				if err := r.actions.Tick(ctx); err != nil {
 					logger.WarnContext(ctx, "owner action progression needs inspection")
