@@ -76,7 +76,7 @@ Evidence:
 
 ## F-10
 
-Impact—superseded: no existing workflow needs retirement for a catalogue/job extension. The issue's dedicated tool names overlap the already shipped generic action path. A generic interface versus convenience wrappers remains a shaping choice, not an observed necessity.
+Impact—superseded: no existing workflow needs retirement for the catalogue/job extension; the issue's dedicated tool names overlap the shipped generic action path, and O-05 plus N-06 now settle the shaping choice in favor of shared workflow tools while preserving existing actions.
 
 Evidence:
 
@@ -92,7 +92,7 @@ Evidence:
 
 ## F-12
 
-Evidence limits and handoff: repository code and GitHub issue/PR metadata were inspected; no authenticated live remote client, agent job or Discord delivery was exercised. Scheduler concurrency, restart handling, job/session identity, discovery filtering granularity and notifications need shaping decisions. No owner-only missing fact blocks this bounded pass. Advisory schemas and examples are retained as a data artifact.
+Evidence limits: repository code and GitHub issue/PR metadata were inspected in the initial pass; no authenticated live remote client, agent job or Discord delivery was exercised; the initial scheduler, recovery, identity, filtering and notification shaping points are now settled in the outcome ledger, and the original advisory sketch remains historical reference where superseded.
 
 Evidence:
 
