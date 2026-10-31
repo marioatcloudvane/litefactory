@@ -82,7 +82,7 @@ func (s *Service) EnableStandards(operations StandardsOperations) {
 		case "standards-exception":
 			def.Description = "Propose action propose, approve or revoke. Propose requires book_revision, standard_id, repository_id (or project), task_ref, departure, reason, expires_at; approve needs id and digest; revoke needs id and reason."
 		case "standards-analysis":
-			def.Description = "Propose action start: a log analysis of one project's runs. Give project and window (for example last 7 days, yesterday or last week) or exact after and before times. dry_run true previews what would be filed. It runs in the background and posts its result here."
+			def.Description = "Propose action start: a log analysis of one project's runs. Give project and window in the factory's local time (today, today since 2 pm, since 14:00, since 2 pm yesterday, yesterday, last N days, last N hours, this week, last week) or exact after and before times. dry_run true previews what would be filed. It runs in the background and posts its result here."
 		}
 		if name == "standards" {
 			def.Effect = ReadEffect
