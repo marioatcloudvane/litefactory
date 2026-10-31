@@ -277,6 +277,9 @@ func (db *DB) MutateOwnerAction(ctx context.Context, actor OwnerActionPrincipal,
 			if err = insertNaturalExecution(ctx, tx, NaturalExecution{Identity: p.ExecutionID, Transport: p.Principal.Transport, OwnerID: p.Principal.OwnerID, ChannelRef: p.Principal.ChannelID, Revision: revision, Payload: p.Payload, CreatedAt: at}); err != nil {
 				return err
 			}
+			if err = admitDurableWorkflowTx(ctx, tx, p, at); err != nil {
+				return err
+			}
 		}
 		p.Reason = decision
 		if p.State == "cancelled" || p.State == "expired" || p.State == "invalidated" {
@@ -314,6 +317,9 @@ func ownerActionEffectAuthority(ctx context.Context, tx *sql.Tx, actor string, a
 		return err
 	}
 	if err = ownerActionAuthority(ctx, tx, p.Principal, p, at); err != nil {
+		return err
+	}
+	if err = workflowEffectAuthority(ctx, tx, p, at); err != nil {
 		return err
 	}
 	var facts struct {

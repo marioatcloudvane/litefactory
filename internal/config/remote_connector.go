@@ -18,15 +18,17 @@ type ConnectorSecretRef struct {
 // RemoteConnector configures the separate owner-only HTTPS proxy backend.
 // Enablement does not supply the trusted local revocation capability.
 type RemoteConnector struct {
-	Enabled         bool               `yaml:"enabled"`
-	ListenAddr      string             `yaml:"listen"`
-	ResourceURL     string             `yaml:"resource_url"`
-	IssuerURL       string             `yaml:"issuer_url"`
-	OwnerID         int64              `yaml:"owner_id"`
-	GitHubClientID  string             `yaml:"github_client_id"`
-	GitHubSecretRef ConnectorSecretRef `yaml:"github_secret"`
-	CookieSecretRef ConnectorSecretRef `yaml:"cookie_secret"`
-	AllowedOrigins  []string           `yaml:"allowed_origins"`
+	Workflows       []WorkflowRegistration      `yaml:"workflows"`
+	WorkflowNotices []WorkflowNoticeDestination `yaml:"workflow_notices"`
+	Enabled         bool                        `yaml:"enabled"`
+	ListenAddr      string                      `yaml:"listen"`
+	ResourceURL     string                      `yaml:"resource_url"`
+	IssuerURL       string                      `yaml:"issuer_url"`
+	OwnerID         int64                       `yaml:"owner_id"`
+	GitHubClientID  string                      `yaml:"github_client_id"`
+	GitHubSecretRef ConnectorSecretRef          `yaml:"github_secret"`
+	CookieSecretRef ConnectorSecretRef          `yaml:"cookie_secret"`
+	AllowedOrigins  []string                    `yaml:"allowed_origins"`
 }
 
 // DefaultRemoteConnector is disabled until explicitly configured.
@@ -37,6 +39,7 @@ func DefaultRemoteConnector() RemoteConnector {
 // Validate rejects ambiguous public URLs and non-loopback listeners.
 func (c RemoteConnector) Validate() error {
 	var errs []error
+	errs = append(errs, validateWorkflowRegistrations(c.Workflows, c.WorkflowNotices))
 	host, port, err := net.SplitHostPort(c.ListenAddr)
 	ip := net.ParseIP(host)
 	p, portErr := strconv.Atoi(port)

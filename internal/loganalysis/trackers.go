@@ -32,6 +32,12 @@ type Tracker interface {
 	FileBug(ctx context.Context, title, body redact.Body, marker string, since time.Time) (IssueHit, error)
 }
 
+// ReceiptTracker finds positive external filing evidence without creating or changing an issue.
+// An absent result never proves that an earlier request had no effect.
+type ReceiptTracker interface {
+	FindFiled(context.Context, string, time.Time) (IssueHit, bool, error)
+}
+
 // NotFiled is a destination's plain reason for not filing at all.
 type NotFiled string
 
@@ -63,9 +69,23 @@ func (t GitHubTracker) Search(ctx context.Context, text string, limit int) ([]Is
 	return out, nil
 }
 
-// FileBug implements Tracker. The listing it checks first is the strongly
-// consistent issue listing, not search, so an issue created moments ago by an
-// interrupted attempt is found.
+// FindFiled reads exact marker matches. A missing match does not establish absence.
+func (t GitHubTracker) FindFiled(ctx context.Context, marker string, since time.Time) (IssueHit, bool, error) {
+	recent, err := t.Client.ListIssues(ctx, t.Repo, since.Add(-time.Minute))
+	if err != nil {
+		return IssueHit{}, false, err
+	}
+	for _, i := range recent {
+		if hasMarkerLine(i.Body, marker) {
+			return gitHubHit(t.Repo, i), true, nil
+		}
+	}
+	return IssueHit{}, false, nil
+}
+
+// FileBug implements the existing explicit filing path. Its initial listing
+// can recover a positive marker match but cannot prove a prior create was absent.
+// Durable workflow recovery uses FindFiled and never calls this create-capable method.
 func (t GitHubTracker) FileBug(ctx context.Context, title, body redact.Body, marker string, since time.Time) (IssueHit, error) {
 	recent, err := t.Client.ListIssues(ctx, t.Repo, since.Add(-time.Minute))
 	if err != nil {
@@ -75,7 +95,7 @@ func (t GitHubTracker) FileBug(ctx context.Context, title, body redact.Body, mar
 		if hasMarkerLine(i.Body, marker) {
 			if !containsLabel(i.Labels, "bug") {
 				if err = t.Client.AddIssueLabel(ctx, t.Repo, i.Number, "bug"); err != nil {
-					return IssueHit{}, err
+					return gitHubHit(t.Repo, i), err
 				}
 			}
 			return gitHubHit(t.Repo, i), nil

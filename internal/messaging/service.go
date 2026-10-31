@@ -146,25 +146,34 @@ type Service struct {
 	// Protect sanitizes generated text before persistence and delivery.
 	Protect func(context.Context, string) (string, error)
 	// Logger records terminal failures without remote response bodies.
-	Logger           *slog.Logger
-	db               *store.DB
-	transport, owner string
-	channels         map[string]bool
-	sender           Transport
-	status           StatusReader
-	wake             chan struct{}
-	mu               sync.RWMutex
-	commands         map[string]Handler
-	definitions      map[string]CommandDefinition
-	ask              *ask.Service
-	diagnosis        Diagnosis
-	research         ResearchAnswers
-	drafter          *feature.Drafter
-	confirmer        FeatureConfirmer
-	conversations    atomic.Pointer[conversationRuntime]
-	standards        StandardsOperations
-	ownerActions     *owneraction.Service
-	ownerPrincipal   func(context.Context, string) (owneraction.Principal, error)
+	Logger                   *slog.Logger
+	db                       *store.DB
+	transport, owner         string
+	channels                 map[string]bool
+	sender                   Transport
+	status                   StatusReader
+	wake                     chan struct{}
+	mu                       sync.RWMutex
+	commands                 map[string]Handler
+	definitions              map[string]CommandDefinition
+	ask                      *ask.Service
+	diagnosis                Diagnosis
+	research                 ResearchAnswers
+	drafter                  *feature.Drafter
+	confirmer                FeatureConfirmer
+	conversations            atomic.Pointer[conversationRuntime]
+	standards                StandardsOperations
+	ownerActions             *owneraction.Service
+	ownerPrincipal           func(context.Context, string) (owneraction.Principal, error)
+	workflowNoticeAuthorizer func(context.Context, string, string) error
+}
+
+// SetWorkflowNoticeAuthorizer installs the current authority and destination check.
+// Workflow notices fail closed until daemon composition provides this callback.
+func (s *Service) SetWorkflowNoticeAuthorizer(authorize func(context.Context, string, string) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.workflowNoticeAuthorizer = authorize
 }
 
 // New copies admission rules and registers help, health, status and details.

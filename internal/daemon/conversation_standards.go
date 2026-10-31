@@ -250,7 +250,16 @@ func (a *ConversationStandards) execute(ctx context.Context, r messaging.Standar
 		v, e = a.Authoring.Start(ctx, standards.AuthoringStart{ID: id, Mode: mode, TargetID: args["target_id"], Intent: args["intent"], CategoryIDs: standardsCategories(args["category_ids"]), ProjectID: project})
 	case "author.answer":
 		answers := []standards.AuthoringAnswer{{QuestionID: args["question_id"], Text: args["text"], Replace: args["replace"] == "true"}}
-		if args["question_id"] == "" {
+		if raw := args["workflow_answers"]; raw != "" {
+			var supplied map[string]string
+			if e = json.Unmarshal([]byte(raw), &supplied); e != nil {
+				return messaging.StandardsResult{}, e
+			}
+			answers = answers[:0]
+			for id, text := range supplied {
+				answers = append(answers, standards.AuthoringAnswer{QuestionID: id, Text: text})
+			}
+		} else if args["question_id"] == "" {
 			// One reply such as "1a, 2b" answers all open questions; the
 			// author reads which part answers which.
 			var session standards.AuthoringSession
