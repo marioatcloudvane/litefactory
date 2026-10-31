@@ -15,7 +15,7 @@ var guidanceFiles embed.FS
 func loadGuidance(files fs.FS, names []string) (string, error) {
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
-		if name != "factory_overview" && name != "task_evidence_read" && name != "usage_read" && !isCodeTool(name) && !isActionTool(name) && !isWorkflowTool(name) && !isAdvisoryTool(name) {
+		if name != "factory_overview" && name != "task_evidence_read" && name != "usage_read" && !isCodeTool(name) && !isActionTool(name) && !isWorkflowTool(name) && !isAdvisoryTool(name) && !isDecisionTool(name) {
 			return "", fmt.Errorf("unsupported guidance capability")
 		}
 		b, err := fs.ReadFile(files, "guidance/"+name+".md")

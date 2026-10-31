@@ -20,9 +20,9 @@ func Classify(inv Invocation) (tier, scope string, err error) {
 		return Conversational, "repository:actions", nil
 	case "workflow-author":
 		return Conversational, "standards:management", nil
-	case "draft", "diagnose", "answer":
+	case "draft", "diagnose", "answer", "revise_task":
 		return Conversational, "repository:actions", nil
-	case "confirm":
+	case "confirm", "approve_stage":
 		return Binding, "repository:actions", nil
 	}
 	if !strings.HasPrefix(inv.Command, "standards-") {

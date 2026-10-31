@@ -22,6 +22,12 @@ type ApprovedStoryRevision struct {
 // that excludes pending admitted discussions. No partial approval is observable.
 func (db *DB) ApproveManagedStories(ctx context.Context, parent string, generation int, revisions []ApprovedStoryRevision) error {
 	return db.withTx(ctx, func(tx *sql.Tx) error {
+		if err := stageDecisionPlanRevisionPendingTx(ctx, tx, parent, ""); err != nil {
+			if errors.Is(err, ErrStageDecisionTarget) {
+				return ErrPlanNotReady
+			}
+			return err
+		}
 		res, err := tx.ExecContext(ctx, `UPDATE managed_features SET state='freezing',ready=0,workflow_version=CASE WHEN workflow_version=0 THEN 2 ELSE workflow_version END WHERE parent_task=? AND generation=? AND state='planning' AND ready=1 AND NOT EXISTS (SELECT 1 FROM story_refinements r JOIN sessions s ON s.id=r.session_id WHERE s.task_ref=? AND r.consumed=0)`, parent, generation, parent)
 		if err != nil {
 			return fmt.Errorf("store: approve scope: %w", err)

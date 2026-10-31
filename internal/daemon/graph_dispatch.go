@@ -313,6 +313,23 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		}
 	}
 	trigger, command := graphStepRequest(dispatch, d.ticketIdentities(ctx).OwnerHandle)
+	continuation, found, continuationErr := d.db.StageDecisionForDispatch(ctx, dispatch.ID)
+	if continuationErr != nil {
+		if errors.Is(continuationErr, store.ErrStageDecisionTarget) {
+			if cancelErr := d.db.CancelGraphDispatch(ctx, dispatch.ID, "confirmed revision target was superseded before continuation", t.tickAt.UTC()); cancelErr != nil {
+				t.recordWorkerError(cancelErr)
+				return
+			}
+		}
+		t.recordWorkerError(continuationErr)
+		return
+	}
+	if found && continuation.Operation == "revise_task" {
+		trigger.StageDecisionRef = continuation.ExecutionID
+		trigger.Body = continuation.Change
+		trigger.AuthorID = continuation.OwnerID
+		command.Text = continuation.Change
+	}
 	previousTrigger := t.commentUnderWay
 	t.commentUnderWay = trigger.CommentID
 	err := d.run(ctx, t, trigger, command, t.log)

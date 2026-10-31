@@ -20,6 +20,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/owneraction"
+	"github.com/cloudvane/litefactory/internal/stagedecision"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
@@ -109,6 +110,7 @@ func normalizeScope(raw string) (string, bool) {
 // Options supplies dependencies resolved by trusted daemon composition.
 type Options struct {
 	TaskDiscussion *taskdiscussion.Service
+	StageDecisions *stagedecision.Service
 	Workflows      *durableworkflow.Service
 	Actions        *owneraction.Service
 	Config         config.RemoteConnector
@@ -128,6 +130,7 @@ type Options struct {
 // Server owns remote authentication independently of local factory authority.
 type Server struct {
 	taskDiscussion atomic.Pointer[taskdiscussion.Service]
+	stageDecisions atomic.Pointer[stagedecision.Service]
 	actions        atomic.Pointer[owneraction.Service]
 	workflows      atomic.Pointer[durableworkflow.Service]
 	cfg            config.RemoteConnector
@@ -188,6 +191,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
 	server := &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}
 	server.taskDiscussion.Store(opts.TaskDiscussion)
+	server.stageDecisions.Store(opts.StageDecisions)
 	server.actions.Store(opts.Actions)
 	server.workflows.Store(opts.Workflows)
 	return server, nil
@@ -214,3 +218,6 @@ func (s *Server) SetWorkflows(v *durableworkflow.Service) { s.workflows.Store(v)
 
 // SetTaskDiscussion publishes the ready isolated discussion service.
 func (s *Server) SetTaskDiscussion(v *taskdiscussion.Service) { s.taskDiscussion.Store(v) }
+
+// SetStageDecisions publishes the ready stage decision service.
+func (s *Server) SetStageDecisions(v *stagedecision.Service) { s.stageDecisions.Store(v) }

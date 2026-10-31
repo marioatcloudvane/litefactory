@@ -38,6 +38,8 @@ empty :=
 space := $(empty) $(empty)
 MIXED_PACKAGES := ./internal/turn ./internal/store ./internal/cli
 RACE_TESTS_store := \
+	TestStageDecisionRecoveryRacesAtomicCommit \
+	TestStageDecisionRecoveryFenceAcrossIndependentConnections \
 	TestDiscussionQueuedCancelAndFencedRunningCompletion \
 	TestDiscussionAdmissionAndPublicationCheckConsentAtAtomicBoundary \
 	TestTaskAdvisoryResultReplayAndLateWorkerFence \

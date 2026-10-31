@@ -41,6 +41,10 @@ type TaskAdvisorySnapshot struct {
 // ReadTaskAdvisorySnapshot reads current local target facts in one transaction.
 // It never selects another task, chooses an old workflow or clears a wait.
 func (db *DB) ReadTaskAdvisorySnapshot(ctx context.Context, task string) (TaskAdvisorySnapshot, error) {
+	return db.readTaskAdvisorySnapshot(ctx, task, false)
+}
+
+func (db *DB) readTaskAdvisorySnapshot(ctx context.Context, task string, savedPlan bool) (TaskAdvisorySnapshot, error) {
 	var s TaskAdvisorySnapshot
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		var err error
@@ -80,7 +84,7 @@ func (db *DB) ReadTaskAdvisorySnapshot(ctx context.Context, task string) (TaskAd
 		if err != nil {
 			return err
 		}
-		if s.Instance.Status != GraphRunning {
+		if s.Instance.Status != GraphRunning && (!savedPlan || s.Definition.Mode != "plan" || s.Instance.Status != GraphSucceeded) {
 			return ErrJudgeSourceUnavailable
 		}
 		err = tx.QueryRowContext(ctx, `SELECT files FROM research_launch_definitions WHERE instance_id=? AND length(files)<=16777216 ORDER BY id DESC LIMIT 1`, s.Instance.ID).Scan(&s.Files)
@@ -100,7 +104,7 @@ func (db *DB) ReadTaskAdvisorySnapshot(ctx context.Context, task string) (TaskAd
 			if s.PlanParent == "" {
 				s.PlanParent = task
 			}
-			err = tx.QueryRowContext(ctx, `SELECT revision,state_json FROM plan_workflow_states WHERE parent=?`, s.PlanParent).Scan(&s.PlanRevision, &s.PlanState)
+			err = tx.QueryRowContext(ctx, `SELECT revision,CAST(state_json AS BLOB) FROM plan_workflow_states WHERE parent=?`, s.PlanParent).Scan(&s.PlanRevision, &s.PlanState)
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound
 			}
@@ -110,7 +114,7 @@ func (db *DB) ReadTaskAdvisorySnapshot(ctx context.Context, task string) (TaskAd
 		} else if s.PlanParent != "" {
 			return ErrJudgeSourceUnavailable
 		}
-		rows, err = tx.QueryContext(ctx, `SELECT a.id,a.node,a.status,COALESCE(o.id,0),COALESCE(o.payload,'null'),COALESCE(a.run_id,0),(SELECT COUNT(*) FROM graph_outputs p WHERE p.node_attempt_id=a.id AND p.kind='json' AND json_valid(CAST(p.payload AS TEXT)) AND json_extract(CAST(p.payload AS TEXT),'$.record') IS NULL) FROM graph_node_attempts a LEFT JOIN graph_outputs o ON o.id=(SELECT MAX(p.id) FROM graph_outputs p WHERE p.node_attempt_id=a.id AND p.kind='json' AND length(p.payload)<=4194304 AND json_valid(CAST(p.payload AS TEXT)) AND json_extract(CAST(p.payload AS TEXT),'$.record') IS NULL) WHERE a.instance_id=? AND a.id=(SELECT MAX(n.id) FROM graph_node_attempts n WHERE n.instance_id=a.instance_id AND n.node=a.node) ORDER BY a.id LIMIT 101`, s.Instance.ID)
+		rows, err = tx.QueryContext(ctx, `SELECT a.id,a.node,a.status,COALESCE(o.id,0),CAST(COALESCE(o.payload,'null') AS BLOB),COALESCE(a.run_id,0),(SELECT COUNT(*) FROM graph_outputs p WHERE p.node_attempt_id=a.id AND p.kind='json' AND json_valid(CAST(p.payload AS TEXT)) AND json_extract(CAST(p.payload AS TEXT),'$.record') IS NULL) FROM graph_node_attempts a LEFT JOIN graph_outputs o ON o.id=(SELECT MAX(p.id) FROM graph_outputs p WHERE p.node_attempt_id=a.id AND p.kind='json' AND length(p.payload)<=4194304 AND json_valid(CAST(p.payload AS TEXT)) AND json_extract(CAST(p.payload AS TEXT),'$.record') IS NULL) WHERE a.instance_id=? AND a.id=(SELECT MAX(n.id) FROM graph_node_attempts n WHERE n.instance_id=a.instance_id AND n.node=a.node) ORDER BY a.id LIMIT 101`, s.Instance.ID)
 		if err != nil {
 			return err
 		}

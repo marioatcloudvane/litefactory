@@ -217,84 +217,89 @@ func (db *DB) ApproveGraphDiagnosis(ctx context.Context, in GraphOwnerReply, rev
 		return out, graphInvariant("exact authenticated current diagnosis approval required")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		inst, e := graphBugInstanceTx(ctx, tx, in.InstanceID)
-		if e != nil {
-			return e
-		}
-		var candidate GraphDiagnosis
-		if e = graphRecordTx(ctx, tx, inst.ID, "diagnosis", &candidate); e != nil {
-			return e
-		}
-		if candidate.Revision != revision || !candidate.ReviewReady {
-			return graphInvariant("approval candidate is stale or incomplete")
-		}
-		var boundTask string
-		if e = tx.QueryRowContext(ctx, `SELECT task_ref FROM sessions WHERE id=?`, inst.SessionID).Scan(&boundTask); e != nil {
-			return e
-		}
-		if boundTask != in.TaskRef {
-			return graphInvariant("approval task mismatch")
-		}
-		var prior GraphDiagnosisApproval
-		e = graphRecordTx(ctx, tx, inst.ID, "diagnosis_approval", &prior)
-		if e == nil && prior.ReplyID == in.CommentID && prior.Review == in.DeliveryKey && prior.Revision == revision && prior.OwnerID == in.OwnerID {
-			out = prior
-			return nil
-		}
-		if e != nil && !errors.Is(e, ErrNotFound) {
-			return e
-		}
-		wait, e := scanGraphOwnerWait(tx.QueryRowContext(ctx, `SELECT `+graphWaitColumns+` FROM graph_owner_waits WHERE delivery_key=? AND instance_id=?`, in.DeliveryKey, inst.ID))
-		if e != nil {
-			return e
-		}
-		var task, cause string
-		var question int64
-		var published bool
-		e = tx.QueryRowContext(ctx, `SELECT s.task_ref,c.stop_cause,d.comment_id,d.completed FROM graph_comment_intents c JOIN report_deliveries d ON d.delivery_key=c.delivery_key JOIN sessions s ON s.id=? WHERE c.delivery_key=? AND c.instance_id=?`, inst.SessionID, in.DeliveryKey, inst.ID).Scan(&task, &cause, &question, &published)
-		if e != nil {
-			return e
-		}
-		if task != in.TaskRef || cause != "diagnosis_review" || !published || question != in.QuestionCommentID || in.CommentID <= question || wait.State != "waiting" || wait.OriginNode != inst.CurrentNode {
-			return graphInvariant("approval does not match confirmed current review")
-		}
-		var reviewed struct {
-			Diagnosis *GraphDiagnosis `json:"diagnosis"`
-		}
-		var bytes []byte
-		if e = tx.QueryRowContext(ctx, `SELECT candidate FROM graph_comment_intents WHERE delivery_key=?`, in.DeliveryKey).Scan(&bytes); e != nil {
-			return e
-		}
-		if e = json.Unmarshal(bytes, &reviewed); e != nil {
-			return e
-		}
-		if reviewed.Diagnosis == nil || reviewed.Diagnosis.Revision != revision || reviewed.Diagnosis.Digest != candidate.Digest {
-			return graphInvariant("review binding is superseded")
-		}
-		var running int
-		if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_node_attempts WHERE instance_id=? AND status='running'`, inst.ID).Scan(&running); e != nil {
-			return e
-		}
-		if running != 0 {
-			return ErrGraphAttemptRunning
-		}
-		out = GraphDiagnosisApproval{Record: "diagnosis_approval", Revision: revision, Digest: candidate.Digest, Review: in.DeliveryKey, QuestionID: question, OwnerID: in.OwnerID, ReplyID: in.CommentID, At: in.At}
-		raw, e := json.Marshal(out)
-		if e != nil {
-			return e
-		}
-		if _, e = recordGraphOutputTx(ctx, tx, GraphOutput{NodeAttemptID: wait.SourceAttemptID, Kind: GraphOutputJSON, Payload: raw, OwnerCommentID: in.CommentID, CreatedAt: in.At}); e != nil {
-			return e
-		}
-		if _, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=? WHERE delivery_key=? AND state='waiting'`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), in.DeliveryKey); e != nil {
-			return e
-		}
-		return setGraphInstanceTx(ctx, tx, inst.ID, wait.OriginNode, GraphRunning, in.At, time.Time{})
+		out, err = approveGraphDiagnosisTx(ctx, tx, in, revision, false)
+		return err
 	})
 	if err != nil {
 		return GraphDiagnosisApproval{}, fmt.Errorf("store: approve graph diagnosis: %w", err)
 	}
 	return out, nil
+}
+
+func approveGraphDiagnosisTx(ctx context.Context, tx *sql.Tx, in GraphOwnerReply, revision int64, chat bool) (out GraphDiagnosisApproval, err error) {
+	inst, e := graphBugInstanceTx(ctx, tx, in.InstanceID)
+	if e != nil {
+		return out, e
+	}
+	var candidate GraphDiagnosis
+	if e = graphRecordTx(ctx, tx, inst.ID, "diagnosis", &candidate); e != nil {
+		return out, e
+	}
+	if candidate.Revision != revision || !candidate.ReviewReady {
+		return out, graphInvariant("approval candidate is stale or incomplete")
+	}
+	var boundTask string
+	if e = tx.QueryRowContext(ctx, `SELECT task_ref FROM sessions WHERE id=?`, inst.SessionID).Scan(&boundTask); e != nil {
+		return out, e
+	}
+	if boundTask != in.TaskRef {
+		return out, graphInvariant("approval task mismatch")
+	}
+	var prior GraphDiagnosisApproval
+	e = graphRecordTx(ctx, tx, inst.ID, "diagnosis_approval", &prior)
+	if e == nil && prior.ReplyID == in.CommentID && prior.Review == in.DeliveryKey && prior.Revision == revision && prior.OwnerID == in.OwnerID {
+		out = prior
+		return out, nil
+	}
+	if e != nil && !errors.Is(e, ErrNotFound) {
+		return out, e
+	}
+	wait, e := scanGraphOwnerWait(tx.QueryRowContext(ctx, `SELECT `+graphWaitColumns+` FROM graph_owner_waits WHERE delivery_key=? AND instance_id=?`, in.DeliveryKey, inst.ID))
+	if e != nil {
+		return out, e
+	}
+	var task, cause string
+	var question int64
+	var published bool
+	e = tx.QueryRowContext(ctx, `SELECT s.task_ref,c.stop_cause,d.comment_id,d.completed FROM graph_comment_intents c JOIN report_deliveries d ON d.delivery_key=c.delivery_key JOIN sessions s ON s.id=? WHERE c.delivery_key=? AND c.instance_id=?`, inst.SessionID, in.DeliveryKey, inst.ID).Scan(&task, &cause, &question, &published)
+	if e != nil {
+		return out, e
+	}
+	if task != in.TaskRef || cause != "diagnosis_review" || !published || question != in.QuestionCommentID || (!chat && in.CommentID <= question) || wait.State != "waiting" || wait.OriginNode != inst.CurrentNode {
+		return out, graphInvariant("approval does not match confirmed current review")
+	}
+	var reviewed struct {
+		Diagnosis *GraphDiagnosis `json:"diagnosis"`
+	}
+	var bytes []byte
+	if e = tx.QueryRowContext(ctx, `SELECT candidate FROM graph_comment_intents WHERE delivery_key=?`, in.DeliveryKey).Scan(&bytes); e != nil {
+		return out, e
+	}
+	if e = json.Unmarshal(bytes, &reviewed); e != nil {
+		return out, e
+	}
+	if reviewed.Diagnosis == nil || reviewed.Diagnosis.Revision != revision || reviewed.Diagnosis.Digest != candidate.Digest {
+		return out, graphInvariant("review binding is superseded")
+	}
+	var running int
+	if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_node_attempts WHERE instance_id=? AND status='running'`, inst.ID).Scan(&running); e != nil {
+		return out, e
+	}
+	if running != 0 {
+		return out, ErrGraphAttemptRunning
+	}
+	out = GraphDiagnosisApproval{Record: "diagnosis_approval", Revision: revision, Digest: candidate.Digest, Review: in.DeliveryKey, QuestionID: question, OwnerID: in.OwnerID, ReplyID: in.CommentID, At: in.At}
+	raw, e := json.Marshal(out)
+	if e != nil {
+		return out, e
+	}
+	if _, e = recordGraphOutputTx(ctx, tx, GraphOutput{NodeAttemptID: wait.SourceAttemptID, Kind: GraphOutputJSON, Payload: raw, OwnerCommentID: in.CommentID, CreatedAt: in.At}); e != nil {
+		return out, e
+	}
+	if _, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=? WHERE delivery_key=? AND state='waiting'`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), in.DeliveryKey); e != nil {
+		return out, e
+	}
+	return out, setGraphInstanceTx(ctx, tx, inst.ID, wait.OriginNode, GraphRunning, in.At, time.Time{})
 }
 
 // GraphDiagnosisGuidance returns all consumed, authenticated replies in durable

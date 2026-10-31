@@ -550,8 +550,8 @@ arguments and a client request key. The client keeps proposal identifiers and
 history cursors internally: you do not copy a hash or identifier. Discovery
 lists enabled commands, subactions and their argument schemas. Each proposal
 returns its fixed impact tier for review. Unknown or unclassified changing
-actions are refused; the neighboring job and task-steering suites are
-not added by this confirmation foundation.
+actions are refused. Durable jobs and current-stage decisions use the same
+confirmation foundation through the specialized tools described below.
 
 Review the returned action, arguments, repository or explicit installation scope,
 exact target and revision, impact, owner, originating client and grant, creation
@@ -566,8 +566,8 @@ The fixed tiers for currently enabled operations are:
 
 | Tier | Existing actions |
 | --- | --- |
-| Conversational confirmation | Draft preview, diagnose, research answer; standards analysis start; standards author start, answer, revise, edit, continue, validate, complete and rebase; proposal edit; exception propose. |
-| Conversational confirmation and Discord ✅ | Feature creation from its fixed preview (the existing action named `confirm`); standards author publish; proposal approve and publish; exception approve and revoke. |
+| Conversational confirmation | Current-stage revision (`revise_task`); draft preview, diagnose, research answer; standards analysis start; standards author start, answer, revise, edit, continue, validate, complete and rebase; proposal edit; exception propose. |
+| Conversational confirmation and Discord ✅ | Current-stage approval (`approve_stage`); feature creation from its fixed preview (the existing action named `confirm`); standards author publish; proposal approve and publish; exception approve and revoke. |
 
 Reads require no action confirmation. Future enabled ship, merge or Bug-fix
 approval actions must retain the binding tier; this feature does not create
@@ -822,3 +822,72 @@ publication pacing and rate limits. For uncertain publication, investigate trust
 comment author, marker and exact body receipt evidence; absence in an incomplete
 or inconclusive lookup does not establish that no POST succeeded. Preserve the
 uncertain state rather than force delivery with a new identity.
+
+## Revise and approve current stages from chat
+
+With explicitly selected **`repository:actions`** coverage, ask in ordinary
+language to revise or approve a task's current supported analysis. The assistant
+uses `revise_task` or `approve_stage` to propose only; questions, private advice
+and discussion publication change no candidate, approval or wait. Read, advisory
+and standing discussion-publication grants cannot confirm a stage decision.
+A request combining changes and approval produces revision first, leaving the
+replacement for later review.
+
+Before saying yes, review the task, stage, current candidate, dependencies,
+requested change or approval effect, downstream work and exact public decision
+summary. Its fields cover the question, conclusion, alternatives or uncertainty,
+evidence basis and owner-decision versus agent-recommendation attribution. An
+already published same-task conclusion is referenced rather than reposted.
+The assistant carries internal references; owners need not copy commands or
+revision hashes. Confirmation is a separate `action_confirm` call from the
+original client and grant, at least five seconds after presentation and before
+the fifteen-minute expiry. Approval additionally requires the configured owner's
+Unicode ✅ on the specific factory Discord request.
+
+Supported current targets follow the existing GitHub owner routes:
+
+- Research permits revision of eligible published investigation or shaping waits.
+  Approval requires a retained-source review branch; the shipped graph exposes
+  shaping approval, not approval of an investigation question.
+- Plan permits current unpromoted-set approval, each story's story, technical and
+  acceptance review, and assembled final review. Revisions select an existing
+  editable story or supported parent route. A promoted set cannot be replaced.
+- Bug permits current analysis guidance and exact diagnosis approval. Approval
+  can start the existing repair workflow; no repair control is added here.
+
+Running, unavailable, ambiguous, stale or unsupported targets are refused. A
+changed candidate or dependency requires a fresh reviewed proposal; confirmation
+never substitutes another target or queues future approval. GitHub and chat share
+the same admission rules. Revision records workflow admission, not completion or
+approval of replacement work.
+
+After reconnect, use `decision_get` through an ordinary status request. It shows
+confirmation, recorded transition, revision progress and summary delivery
+separately. Repeating the same request key and input recovers the same decision;
+changed input conflicts. A transition with an unknown outcome must be reconciled
+from its receipt before another proposal. Missing receipts never authorize replay;
+a fenced proof that no effect committed can close the original as not applied.
+
+`decision_cancel` selects `proposal` or `summary`. A pending proposal can be
+cancelled before admission; an unsent summary can be cancelled before possible
+send. Cancellation cannot undo a recorded transition or stop its workflow, and
+reports when it is too late. Summary status remains pending, delivered with a
+comment link, failed or uncertain independently of transition success. After a
+lost reply, recover trusted author, destination, marker and exact-body receipts;
+never blindly repost or invent a new identity. Revocation blocks confirmation,
+execution, private reads and unsent summary dispatch without recalling comments.
+
+On a configured test installation, request one eligible revision in each hosted
+chat client, review the full preview, separately confirm it, reconnect and retrieve
+the same decision and its summary status. Repeat with an eligible approval,
+including the Discord step, and retrieve the recorded effect and delivered link
+or explicit delivery uncertainty. These owner checks require installation
+evidence; controlled tests alone do not establish client usability.
+
+Operators may disable new stage proposals when schema, domain or delivery
+readiness is unavailable while retaining existing decision, receipt and delivery
+records for recovery. Additive records preserve historical candidates, pending
+proposal identities, existing approval bindings and GitHub workflows. Installing
+these action names does not bump confirmation policy or invalidate old pending
+proposals. Keep uncertain outcomes visible until reconciled, and never run an
+older daemon against a schema it cannot validate.
