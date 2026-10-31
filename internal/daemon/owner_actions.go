@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -44,10 +43,7 @@ func (d *Daemon) configureOwnerActions(s *messaging.Service, discordOwner string
 type actionApprovalDelivery struct{ adapter *discord.Adapter }
 
 func (a actionApprovalDelivery) Send(ctx context.Context, p owneraction.Proposal) (string, error) {
-	text := fmt.Sprintf("Approval request\nAction: %s %s\nScope: %s\nExact target: %s %s — %s\nImpact: %s\nEstimate: %s\nOwner: %s\nExpires: %s\nTap ✅ on this message to authorize the exact reviewed action.\nHistory reference: %s", p.Facts.Invocation.Command, p.Facts.Invocation.Arguments["action"], p.Facts.RepositoryRef, p.Facts.TargetKind, p.Facts.TargetID, p.Facts.TargetRevision, p.Tier, p.Facts.Estimate, p.Principal.OwnerID, p.ExpiresAt.UTC().Format(time.RFC3339), p.ID)
-	if p.Facts.RepositoryRef == "" {
-		text = fmt.Sprintf("Installation-wide %s", text)
-	}
+	text := owneraction.Render(p, owneraction.Options{Transport: owneraction.TransportDiscord, Mode: owneraction.Approval}).Text()
 	delivery := a.adapter.Deliver(ctx, messaging.Target{Transport: "discord", Channel: p.ApprovalChannel, MessageID: "owner-approval:" + p.ID, Protected: true}, text)
 	if delivery.Confirmed && delivery.PromptID != "" {
 		return delivery.PromptID, nil

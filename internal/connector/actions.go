@@ -240,6 +240,10 @@ func actionResult(value any) (ToolResult, error) {
 		return ToolResult{}, errors.New("action response unavailable")
 	}
 	result := ToolResult{Content: []TextContent{{Type: "text", Text: string(b)}}, StructuredContent: b}
+	if p, ok := value.(owneraction.Proposal); ok {
+		// A readable factory rendering sits next to the unchanged JSON facts.
+		result.Content = append(result.Content, TextContent{Type: "text", Text: owneraction.Render(p, owneraction.Options{Transport: owneraction.TransportMCP}).Text()})
+	}
 	encoded, err := json.Marshal(result)
 	if err != nil || len(encoded) > DiscussionMaxResponseBytes-4096 {
 		return ToolResult{}, errors.New("action response unavailable")
