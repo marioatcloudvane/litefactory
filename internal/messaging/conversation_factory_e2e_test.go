@@ -287,10 +287,15 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 				t.Fatalf("proposal unavailable before consent: %+v effects=%d err=%v", proposal, effects.calls, err)
 			}
 			shown := sent.texts[len(sent.texts)-1]
-			for _, content := range []string{"app", "42", "CSV output", "123456789abc", proposal.ID} {
+			// The plain proposal names the exact target and answer; the reviewed
+			// revision is in the details view and the record, not in chat.
+			for _, content := range []string{"acme/app#42", "CSV output", "Reply yes", "details"} {
 				if !strings.Contains(shown, content) {
 					t.Fatalf("exact proposal omitted %q: %v", content, sent.texts)
 				}
+			}
+			if strings.Contains(shown, proposal.ID) {
+				t.Fatalf("proposal shows its history reference: %v", sent.texts)
 			}
 			at = proposal.ConfirmNotBefore
 			// A plain yes, not a reply, confirms the one open proposal.
@@ -324,7 +329,7 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 				t.Fatalf("inspection lost source or result: %+v %v", inspected, err)
 			}
 			shown = sent.texts[len(sent.texts)-1]
-			if !strings.Contains(shown, "answer recorded") || !strings.Contains(shown, proposal.ID) {
+			if !strings.Contains(shown, "answer recorded") || !strings.Contains(shown, "123456789abc") || strings.Contains(shown, proposal.ID) {
 				t.Fatalf("saved outcome inspection absent: %v", sent.texts)
 			}
 			assertFactoryJourneySessions(t, after.StateDir, after.SessionHandle, 4)

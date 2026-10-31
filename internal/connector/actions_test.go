@@ -121,15 +121,14 @@ func TestActionMCPUsesTrustedGrantAndFrozenFacts(t *testing.T) {
 		return connectorJSON(t, handler, f.options.Config.ResourceURL, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}}, connectorBearer(tokens.AccessToken))
 	}
 	response := call("action_propose", map[string]any{"action": "diagnose", "arguments": map[string]string{"repo": "github:owner/action"}, "client_request_key": "one"})
-	var out struct {
-		Result struct {
-			IsError  bool                 `json:"isError"`
-			Proposal owneraction.Proposal `json:"structuredContent"`
-		} `json:"result"`
-	}
+	var out actionContractResponse
 	connectorDecode(t, response, &out)
 	if response.Code != http.StatusOK || out.Result.IsError || out.Result.Proposal.ID == "" {
 		t.Fatalf("proposal: %d %s", response.Code, response.Body.String())
+	}
+	assertActionText(t, out, "action_confirm", "action_cancel", "owner/action")
+	if strings.Contains(out.Result.Content[1].Text, "✅") {
+		t.Fatalf("conversational MCP text asks for a tap: %s", out.Result.Content[1].Text)
 	}
 	proposal := out.Result.Proposal
 	grants, err := f.db.ListConnectorGrants(t.Context(), 42, f.now)
@@ -227,7 +226,31 @@ type actionContractResponse struct {
 	Result struct {
 		IsError  bool                 `json:"isError"`
 		Proposal owneraction.Proposal `json:"structuredContent"`
+		Content  []TextContent        `json:"content"`
 	} `json:"result"`
+}
+
+// assertActionText checks the readable MCP block next to unchanged JSON facts.
+func assertActionText(t *testing.T, out actionContractResponse, tokens ...string) {
+	t.Helper()
+	if len(out.Result.Content) != 2 {
+		t.Fatalf("want JSON and readable text blocks: %+v", out.Result.Content)
+	}
+	var fromJSON owneraction.Proposal
+	if err := json.Unmarshal([]byte(out.Result.Content[0].Text), &fromJSON); err != nil || fromJSON.ID != out.Result.Proposal.ID || fromJSON.State != out.Result.Proposal.State {
+		t.Fatalf("JSON text block changed: %v %s", err, out.Result.Content[0].Text)
+	}
+	text := out.Result.Content[1].Text
+	for _, token := range append(tokens, out.Result.Proposal.ID, out.Result.Proposal.ExpiresAt.UTC().Format("15:04")+" UTC", "action_inspect") {
+		if !strings.Contains(text, token) {
+			t.Fatalf("readable text lost %q: %s", token, text)
+		}
+	}
+	for _, token := range []string{"{", "History reference", out.Result.Proposal.Principal.GrantID} {
+		if strings.Contains(text, token) {
+			t.Fatalf("readable text shows %q: %s", token, text)
+		}
+	}
 }
 
 func actionContractCall(t *testing.T, f *connectorFixture, handler http.Handler, token, name string, args map[string]any) actionContractResponse {
@@ -276,12 +299,14 @@ func TestActionMCPBindingRefusesUntrustedReactionsAndRevokedOrigin(t *testing.T)
 	if proposed.Error != nil || proposed.Result.IsError || proposed.Result.Proposal.Tier != owneraction.Binding {
 		t.Fatalf("binding proposal: %+v", proposed)
 	}
+	assertActionText(t, proposed, "action_confirm", "action_cancel", "✅")
 	id := proposed.Result.Proposal.ID
 	f.now = f.now.Add(5 * time.Second)
 	confirmed := actionContractCall(t, f, handler, tokens.AccessToken, "action_confirm", map[string]any{"proposal_id": id})
 	if confirmed.Error != nil || confirmed.Result.IsError || confirmed.Result.Proposal.State != "awaiting_discord" || effects.Load() != 0 || sends.Load() != 0 {
 		t.Fatalf("confirmation admitted or delivered synchronously: %+v", confirmed)
 	}
+	assertActionText(t, confirmed, "✅", "action_cancel")
 	delivered, err := actions.Step(t.Context(), id)
 	if err != nil || delivered.State != "awaiting_discord" || delivered.ApprovalMessage != "approval-message" || sends.Load() != 1 {
 		t.Fatalf("durable delivery: %+v %v", delivered, err)
@@ -310,6 +335,22 @@ func TestActionMCPBindingRefusesUntrustedReactionsAndRevokedOrigin(t *testing.T)
 	inspected := actionContractCall(t, f, handler, tokens.AccessToken, "action_inspect", map[string]any{"proposal_id": id})
 	if inspected.Result.IsError || inspected.Result.Proposal.State != "awaiting_discord" || effects.Load() != 0 {
 		t.Fatalf("invalid reaction changed proposal: %+v", inspected)
+	}
+	// Inspect and history keep every stored fact the readable text leaves out.
+	history := connectorJSON(t, handler, f.options.Config.ResourceURL, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "action_history", "arguments": map[string]any{"limit": 10}}}, connectorBearer(tokens.AccessToken))
+	var page struct {
+		Result struct {
+			Page owneraction.Page `json:"structuredContent"`
+		} `json:"result"`
+	}
+	connectorDecode(t, history, &page)
+	if len(page.Result.Page.Proposals) != 1 {
+		t.Fatalf("history: %s", history.Body.String())
+	}
+	for _, stored := range []owneraction.Proposal{inspected.Result.Proposal, page.Result.Page.Proposals[0]} {
+		if stored.ID != id || stored.Principal.GrantID != grantID || stored.Principal.OwnerID != "42" || stored.Facts.TargetRevision != "reviewed-revision" || stored.State != "awaiting_discord" || stored.Facts.Invocation.Command != "confirm" || stored.Facts.Invocation.Arguments == nil {
+			t.Fatalf("stored facts lost: %+v", stored)
+		}
 	}
 	if err = f.db.RevokeConnectorGrant(t.Context(), 42, grantID, f.now); err != nil {
 		t.Fatal(err)
