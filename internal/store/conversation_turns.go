@@ -130,15 +130,32 @@ func (db *DB) SaveConversationSession(ctx context.Context, t ConversationTurn, h
 // CompleteConversationTurn saves exact reply bytes and outbox identity in one
 // fenced transaction. Only a completed answer requires a known native session.
 func (db *DB) CompleteConversationTurn(ctx context.Context, t ConversationTurn, state, reply string, at time.Time) error {
-	return db.completeConversationTurn(ctx, t, state, reply, at, false, false)
+	return db.completeConversationTurn(ctx, t, state, reply, at, false, false, false)
 }
 
 // CompleteConversationHandledTurn saves a deterministic factory response before
 // a native session exists. It refuses turns with any provider launch journal.
 func (db *DB) CompleteConversationHandledTurn(ctx context.Context, t ConversationTurn, reply string, at time.Time) error {
-	return db.completeConversationTurn(ctx, t, "completed", reply, at, true, false)
+	return db.completeConversationTurn(ctx, t, "completed", reply, at, true, false, false)
 }
-func (db *DB) completeConversationTurn(ctx context.Context, t ConversationTurn, state, reply string, at time.Time, handled, preStart bool) error {
+
+// CompleteConversationFreshTurn saves the factory reply to the owner's
+// fresh-conversation command and, in the same fenced transaction, starts a
+// fresh native conversation (see startFreshConversation).
+func (db *DB) CompleteConversationFreshTurn(ctx context.Context, t ConversationTurn, reply string, at time.Time) error {
+	return db.completeConversationTurn(ctx, t, "completed", reply, at, true, false, true)
+}
+
+// startFreshConversation clears the native session handle and records this
+// turn's sequence, so the next turn launches a new native session and earlier
+// owner messages are no longer resent. It applies only to the caller's own
+// running turn and refuses a turn that journaled a provider exchange.
+func startFreshConversation(ctx context.Context, tx *sql.Tx, t ConversationTurn, at time.Time) error {
+	r, e := tx.ExecContext(ctx, `UPDATE chat_conversations SET session_handle='',fresh_after=(SELECT sequence FROM chat_conversation_turns WHERE id=?),updated_at=? WHERE id=? AND EXISTS(SELECT 1 FROM chat_conversation_turns WHERE id=? AND conversation_id=? AND state='running' AND generation=? AND worker=?) AND NOT EXISTS(SELECT 1 FROM chat_conversation_exchanges WHERE turn_id=? AND kind='provider')`, t.ID, FormatTime(at), t.ConversationID, t.ID, t.ConversationID, t.Generation, t.Worker, t.ID)
+	return chatAffected(r, e)
+}
+
+func (db *DB) completeConversationTurn(ctx context.Context, t ConversationTurn, state, reply string, at time.Time, handled, preStart, fresh bool) error {
 	if (state != "completed" && state != "interrupted" && state != "unavailable") || reply == "" || len(reply) > 65536 {
 		return errors.New("invalid conversation outcome")
 	}
@@ -158,6 +175,11 @@ func (db *DB) completeConversationTurn(ctx context.Context, t ConversationTurn, 
 		}
 		if state == "completed" && c.SessionHandle == "" && !handled {
 			return errors.New("conversation completed without session identity")
+		}
+		if fresh {
+			if e = startFreshConversation(ctx, tx, t, at); e != nil {
+				return e
+			}
 		}
 		replyID := "conversation:" + t.ID
 		r, e := tx.ExecContext(ctx, `UPDATE chat_conversation_turns SET state=?,reply_id=?,finished_at=?,lease_until=NULL WHERE id=? AND conversation_id=? AND state='running' AND generation=? AND worker=?`, state, replyID, FormatTime(at), t.ID, t.ConversationID, t.Generation, t.Worker)
@@ -222,5 +244,5 @@ func (db *DB) DeferConversationTurn(ctx context.Context, turn ConversationTurn) 
 // CompleteConversationPreStartTurn persists a failed input without pausing native
 // continuity. The caller must have affirmative proof no process started.
 func (db *DB) CompleteConversationPreStartTurn(ctx context.Context, t ConversationTurn, reply string, at time.Time) error {
-	return db.completeConversationTurn(ctx, t, "interrupted", reply, at, false, true)
+	return db.completeConversationTurn(ctx, t, "interrupted", reply, at, false, true, false)
 }

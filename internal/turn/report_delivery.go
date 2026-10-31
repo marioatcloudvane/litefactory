@@ -191,7 +191,7 @@ func (r *Reporter) dispatchDeliveryBody(ctx context.Context, delivery store.Repo
 		// reposts the retained bytes and marker once. A comment hidden from the
 		// lookup can leave a detectable duplicate. Legacy deliveries and doctor
 		// consume replies keep the uncertain outcome.
-		if errors.Is(err, ErrReportReceiptAbsent) && !delivery.Legacy && !strings.HasPrefix(delivery.Key, "doctor-consume:") {
+		if errors.Is(err, ErrReportReceiptAbsent) && !delivery.Legacy && !strings.HasPrefix(delivery.Key, "doctor-consume:") && delivery.TriggerNamespace != "discussion-summary" {
 			if unmarkErr := r.db.UnmarkReportDeliverySent(context.WithoutCancel(ctx), delivery.Key); unmarkErr != nil {
 				return Posted{}, errors.Join(err, unmarkErr)
 			}
@@ -220,7 +220,7 @@ func (r *Reporter) dispatchDeliveryBody(ctx context.Context, delivery store.Repo
 	// recovery matches it by marker in the PossiblySent branch above. Every
 	// creation intake outcome likewise has a source-specific delivery identity.
 	// Other runless purposes still take the probe.
-	if delivery.RunID == 0 && !isCreationPresentation(delivery.Purpose) && delivery.Purpose != "creation-rejection" && delivery.Purpose != "creation-preparation" && delivery.Purpose != "creation-acceptance" && delivery.TriggerNamespace != "plan-observation" && delivery.TriggerNamespace != "plan-reply" && delivery.TriggerNamespace != store.PlanNoticeNamespace && delivery.TriggerNamespace != store.ResearchReminderNamespace {
+	if delivery.RunID == 0 && !isCreationPresentation(delivery.Purpose) && delivery.Purpose != "creation-rejection" && delivery.Purpose != "creation-preparation" && delivery.Purpose != "creation-acceptance" && delivery.TriggerNamespace != "plan-observation" && delivery.TriggerNamespace != "plan-reply" && delivery.TriggerNamespace != store.PlanNoticeNamespace && delivery.TriggerNamespace != store.ResearchReminderNamespace && delivery.TriggerNamespace != "discussion-summary" {
 		ambiguous, err := r.legacyRunlessConflict(ctx, delivery, destination)
 		if err != nil {
 			return Posted{}, err

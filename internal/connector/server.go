@@ -21,6 +21,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
 
 // Scope is the read authority behind the factory_overview tool.
@@ -28,6 +29,12 @@ const Scope = "factory:overview"
 
 // DiscussionScope authorizes task evidence for tasks in covered repositories.
 const DiscussionScope = "task:discussion"
+
+// AdvisoryScope grants private paid consultation and independent review.
+const AdvisoryScope = "task:advisory"
+
+// DiscussionPublishScope grants separately consented conclusion publication.
+const DiscussionPublishScope = "task:discussion-publish"
 
 // CodeReviewScope independently authorizes committed code and published rules.
 const CodeReviewScope = "task:code-review"
@@ -62,6 +69,8 @@ var KnownScopes = []ScopeInfo{
 	{Name: TaskUsageScope, Description: "Read recorded usage and historical estimates for any task in the selected repositories and its linked report family, including retired history and later persisted links. Read-only."},
 	{Name: RepositoryActionsScope, Description: "Propose, confirm and inspect existing actions only for explicitly selected repositories. Binding actions also require the configured owner’s Discord approval."},
 	{Name: StandardsManagementScope, Description: "Manage the installation-wide standards book, including drafting and publication. Repository context also requires separate read coverage. Publication requires Discord approval."},
+	{Name: AdvisoryScope, Description: "Run private task consultations and independent assessments in explicitly selected repositories. Provider usage may cost money; each explicit request starts one job without another confirmation. This cannot change task stages or approvals."},
+	{Name: DiscussionPublishScope, Description: "Publish useful discussion conclusions as factory-authored ticket summaries in explicitly selected repositories. Separate from advisory execution; no full transcript or additional per-summary confirmation is required. This cannot change task stages or approvals."},
 }
 
 func knownScope(name string) bool {
@@ -99,40 +108,42 @@ func normalizeScope(raw string) (string, bool) {
 
 // Options supplies dependencies resolved by trusted daemon composition.
 type Options struct {
-	Workflows    *durableworkflow.Service
-	Actions      *owneraction.Service
-	Config       config.RemoteConnector
-	DB           *store.DB
-	Logger       *slog.Logger
-	Now          func() time.Time
-	LocalControl *LocalControl
-	Overview     OverviewProvider
-	TaskEvidence TaskEvidenceProvider
-	Usage        UsageProvider
-	CodeEvidence CodeEvidenceProvider
-	GitHub       GitHubIdentityProvider
-	CookieKey    []byte
-	GitHubSecret string
+	TaskDiscussion *taskdiscussion.Service
+	Workflows      *durableworkflow.Service
+	Actions        *owneraction.Service
+	Config         config.RemoteConnector
+	DB             *store.DB
+	Logger         *slog.Logger
+	Now            func() time.Time
+	LocalControl   *LocalControl
+	Overview       OverviewProvider
+	TaskEvidence   TaskEvidenceProvider
+	Usage          UsageProvider
+	CodeEvidence   CodeEvidenceProvider
+	GitHub         GitHubIdentityProvider
+	CookieKey      []byte
+	GitHubSecret   string
 }
 
 // Server owns remote authentication independently of local factory authority.
 type Server struct {
-	actions      atomic.Pointer[owneraction.Service]
-	workflows    atomic.Pointer[durableworkflow.Service]
-	cfg          config.RemoteConnector
-	db           *store.DB
-	logger       *slog.Logger
-	now          func() time.Time
-	localControl *LocalControl
-	overview     OverviewProvider
-	taskEvidence TaskEvidenceProvider
-	usage        UsageProvider
-	codeEvidence CodeEvidenceProvider
-	usageViews   usageCache
-	guidance     fs.FS
-	github       GitHubIdentityProvider
-	cookie       cipher.AEAD
-	transport    *transportState
+	taskDiscussion atomic.Pointer[taskdiscussion.Service]
+	actions        atomic.Pointer[owneraction.Service]
+	workflows      atomic.Pointer[durableworkflow.Service]
+	cfg            config.RemoteConnector
+	db             *store.DB
+	logger         *slog.Logger
+	now            func() time.Time
+	localControl   *LocalControl
+	overview       OverviewProvider
+	taskEvidence   TaskEvidenceProvider
+	usage          UsageProvider
+	codeEvidence   CodeEvidenceProvider
+	usageViews     usageCache
+	guidance       fs.FS
+	github         GitHubIdentityProvider
+	cookie         cipher.AEAD
+	transport      *transportState
 }
 
 // New refuses construction until security prerequisites and owner binding work.
@@ -176,6 +187,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
 	server := &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}
+	server.taskDiscussion.Store(opts.TaskDiscussion)
 	server.actions.Store(opts.Actions)
 	server.workflows.Store(opts.Workflows)
 	return server, nil
@@ -199,3 +211,6 @@ func (s *Server) SetActions(actions *owneraction.Service) { s.actions.Store(acti
 
 // SetWorkflows publishes the installed coordinator before serving.
 func (s *Server) SetWorkflows(v *durableworkflow.Service) { s.workflows.Store(v) }
+
+// SetTaskDiscussion publishes the ready isolated discussion service.
+func (s *Server) SetTaskDiscussion(v *taskdiscussion.Service) { s.taskDiscussion.Store(v) }

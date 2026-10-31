@@ -4,16 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/buganalysis"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
+	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -301,5 +308,225 @@ func TestRecoveredReportResumeSurvivesRestartOnce(t *testing.T) {
 	}
 	if left := pendingDispatches(t, reopened, p.instance.ID); len(left) != 0 {
 		t.Fatalf("further recovery added a dispatch: %+v", left)
+	}
+}
+
+// toggleRenderer fails report rendering while fail is set, as the display
+// redaction did for an analysis that mentioned a literal-text tag (#1283).
+type toggleRenderer struct {
+	turn.Renderer
+	fail *atomic.Bool
+}
+
+func (r toggleRenderer) RenderReportDelivery(ctx context.Context, body, marker string) (redact.Body, error) {
+	if r.fail.Load() {
+		return redact.Body{}, errors.New("review display has an incomplete literal-text span")
+	}
+	return r.Renderer.RenderReportDelivery(ctx, body, marker)
+}
+
+// parkedBugWithoutDelivery parks a Bug conversation review whose report could
+// not be rendered: the owner wait exists, but no report delivery was stored.
+// Rendering keeps failing until the returned flag is cleared.
+func parkedBugWithoutDelivery(t *testing.T) (*fixture, store.GraphInstance, *atomic.Bool) {
+	t.Helper()
+	ctx := t.Context()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := newFixture(t)
+	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Logger: f.logger, Token: secrets.NewToken(testToken), Environ: []string{}}), Limit: github.CommentSizeLimit, Logger: f.logger})
+	must(err)
+	fail := new(atomic.Bool)
+	reporter, err := turn.NewReporter(turn.ReporterOptions{BotUserID: botID, DB: f.db, Forge: f.client, Renderer: toggleRenderer{Renderer: renderer, fail: fail}, Logger: f.logger})
+	must(err)
+	binary, err := git.Resolve(ctx)
+	must(err)
+	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "undeliverable-review", Logger: f.logger, CloneGate: unusedRecoveryCloneGate{}, Runners: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, ResearchReporter: reporter, MCP: &turn.MCPRuntime{Redactor: redact.New(redact.Options{Logger: f.logger}), BotID: botID, Now: f.clock.Now}}
+	runtime, err := turn.NewGraphBugRuntime(ctx, opts, turn.BugRuntimeConfig{Forge: f.client, OwnerID: ownerID, Permissions: func(agent.Kind, string) (turn.BugRolePermissions, error) {
+		return turn.BugRolePermissions{}, errors.New("test must not allocate a role")
+	}})
+	must(err)
+	executorOpts := opts
+	executorOpts.Bug = runtime
+	f.daemon = f.newDaemon(daemon.Options{Bug: runtime, Turn: daemon.NewExecutor(executorOpts)})
+	f.plantCursor()
+	f.forge.addIssue(fakeIssue{ID: 1283, Number: testIssue, Title: "Undeliverable review", User: stranger(), Labels: toFakeLabels("bug")})
+	f.settle()
+	s := f.sessionOf(testIssue)
+	_, err = f.db.AdmitWorkflowPath(ctx, s.ID, "graph")
+	must(err)
+	_, err = f.db.AdmitWorkflow(ctx, store.TaskWorkflowAdmission{SessionID: s.ID, Version: 1, Family: "standalone", Workflow: "bug", SourceTrigger: 22})
+	must(err)
+	specs, err := turn.SimplifiedBugSpecs()
+	must(err)
+	capture, err := teamsourcetest.CaptureBug(ctx, specs)
+	must(err)
+	profile := capture.Profile
+	pin, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: profile.Team, Workflow: "bug", ProfileVersion: 2, Path: "bug/bug.dot", Digest: profile.Digest})
+	must(err)
+	topology, err := graphexec.SemanticDigest(profile)
+	must(err)
+	files, err := json.Marshal(capture.Files)
+	must(err)
+	admitted, err := f.db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Workflow: "bug", SessionID: s.ID, TriggerID: 22, DefinitionID: pin.ID, Start: profile.Start, ContentDigest: capture.Digest, TopologyDigest: topology, Files: files})
+	must(err)
+	inst := admitted.Instance
+	activities := turn.ActivityRegistry{}
+	must(activities.Register(graphexec.ResearchLoopAction, turn.GraphBugConversation{Profile: profile, Reporter: reporter}))
+	step := func() (turn.GraphNodeResult, error) {
+		return turn.ExecuteNodeAction(ctx, opts, turn.GraphNodeRequest{Profile: profile, Activities: activities, InstanceID: inst.ID, At: f.clock.Now()})
+	}
+	first, err := step()
+	must(err)
+	if first.NextNode != "analyst" {
+		t.Fatalf("initial entry=%+v", first)
+	}
+	// The analyst's accepted result, retained as production retains it.
+	at := f.clock.Now()
+	segment, err := f.db.GetOrCreateSegment(ctx, s.ID, 1, "conversation-analyst", store.AgentClaude)
+	must(err)
+	run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: s.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: 22, StartedAt: at, LogPath: func(int) string { return "analyst.log" }})
+	must(err)
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: inst.ID, Node: "analyst", RunID: run.ID, Limit: 8, StartedAt: at})
+	must(err)
+	analysis := buganalysis.BugAnalysis{Expected: "Safe empty input", Actual: "Panic on empty input", Reproduction: buganalysis.BugReproduction{Environment: "Go fixture", Observation: "not_observed"}, Cause: "Unchecked index", Evidence: []string{"search.go:12 indexes empty bytes"}, Remedy: "Guard input length", Exclusions: []string{"Nonempty behavior"}, Criteria: []buganalysis.BugCriterion{{ID: "C1", Requirement: "No panic", Measurement: "Call empty input"}}}
+	result := agentresult.Result{Outcome: "completed", Comment: "Complete candidate", Payload: agentresult.Payload{Bug: &agentresult.Bug{Response: "done", Invocation: fmt.Sprintf("analysis:%d:%d", inst.ID, attempt.ID), Analysis: &analysis}}}
+	binding, err := f.db.BindResultAttempt(ctx, store.ResultAttempt{Workflow: "bug", Task: s.TaskRef, RunID: run.ID, WorkContext: fmt.Sprintf("undeliverable-%d", attempt.ID), Attempt: fmt.Sprintf("analyst-%d", attempt.ID), SchemaVersion: 1, WorkflowVersion: 2, SubmissionVersion: 2})
+	must(err)
+	snapshot, err := json.Marshal(agentresult.Snapshot{Result: result})
+	must(err)
+	_, err = f.db.RecordResult(ctx, store.ResultRecord{Binding: binding, RequestID: "analyst-result", Payload: snapshot, Snapshot: snapshot, Diagnostics: []byte(`{"valid":true,"complete":true}`), Retired: []byte(`[]`), Accepted: true})
+	must(err)
+	retained, err := turn.RetainBugNode(binding, 1, agentresult.ResearchNode{Version: 1, Response: "done", Result: result})
+	must(err)
+	_, err = f.db.RecordGraphOutput(ctx, store.GraphOutput{NodeAttemptID: attempt.ID, Kind: store.GraphOutputJSON, Payload: []byte(`{"record":"source_preparation","sync_outcome":"up_to_date"}`), CreatedAt: at})
+	must(err)
+	_, err = f.db.FinishRun(ctx, run.ID, store.RunOutcome{Status: store.RunSucceeded})
+	must(err)
+	must(f.db.CompleteGraphNodeAttempt(ctx, attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "done", FinishedAt: at, InstanceStatus: store.GraphRunning, NextDueAt: at, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: retained}}, Transition: &store.GraphTransition{InstanceID: inst.ID, FromNode: "analyst", ToNode: "conversation", OnOutcome: "done", At: at}}))
+	// The review parks, then its report cannot be rendered.
+	fail.Store(true)
+	if _, err = step(); err == nil {
+		t.Fatal("review publication did not fail")
+	}
+	wait, err := f.db.GetGraphOwnerWait(ctx, inst.ID)
+	must(err)
+	if wait.State != "waiting" {
+		t.Fatalf("review not parked: %+v", wait)
+	}
+	if _, err = f.db.GetReportDelivery(ctx, wait.DeliveryKey); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("delivery exists after render failure: %v", err)
+	}
+	if posted, _, _ := f.forge.snapshot(); len(posted) != 0 {
+		t.Fatalf("undeliverable review posted: %v", posted)
+	}
+	return f, inst, fail
+}
+
+func countPosts(f *fixture, text string) int {
+	posted, _, _ := f.forge.snapshot()
+	n := 0
+	for _, body := range posted {
+		if strings.Contains(body, text) {
+			n++
+		}
+	}
+	return n
+}
+
+const (
+	analysisHeading      = "Bug analysis, revision 1"
+	betweenQuestionsText = "Your instruction is retained and undelivered"
+	notAppliedText       = "could not be applied to the bug work at its current step"
+	missingDeliveryError = "read report delivery"
+)
+
+// #1283 C3, C6(a), C6(c): the next owner comment posts the parked review once,
+// is answered with the between-questions notice only after that notice is
+// delivered, and a later reply claims the wait normally.
+func TestBugReplyRecoversUndeliveredReview(t *testing.T) {
+	f, inst, fail := parkedBugWithoutDelivery(t)
+	fail.Store(false)
+	// The notice POST (the second post: after the recovered review) fails once.
+	f.forge.mu.Lock()
+	base, failed := len(f.forge.postedBodies), false
+	f.forge.onPostComment = func(w http.ResponseWriter, call int) bool {
+		if failed || call != base+2 {
+			return false
+		}
+		failed = true
+		http.Error(w, `{"message":"validation failed"}`, http.StatusUnprocessableEntity)
+		return true
+	}
+	f.forge.mu.Unlock()
+	f.forge.addComment(testIssue, 42, owner(), "Any progress?")
+	f.settle()
+	if got := countPosts(f, analysisHeading); got != 1 {
+		t.Fatalf("recovered review posted %d times\n%s", got, f.logs)
+	}
+	if f.watermark() >= 42 && countPosts(f, betweenQuestionsText) == 0 {
+		t.Fatalf("comment consumed before its notice was delivered\n%s", f.logs)
+	}
+	if !settleUntilHandled(f, 42, 30) {
+		t.Fatalf("triggering comment never consumed\n%s", f.logs)
+	}
+	// Replays after consumption post neither the review nor the notice again.
+	for range 2 {
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	if review, notice := countPosts(f, analysisHeading), countPosts(f, betweenQuestionsText); review != 1 || notice != 1 || countPosts(f, notAppliedText) != 0 {
+		t.Fatalf("review=%d notice=%d, want one each\n%s", review, notice, f.logs)
+	}
+	if strings.Contains(f.logs.String(), missingDeliveryError) {
+		t.Fatalf("missing delivery still reported\n%s", f.logs)
+	}
+	// A reply newer than the recovered review.
+	f.forge.mu.Lock()
+	later := f.forge.nextCommentID + 100
+	f.forge.mu.Unlock()
+	f.forge.addComment(testIssue, later, owner(), "Please make the guard explicit.")
+	f.settle()
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), inst.ID)
+	if err != nil || wait.ReplyID != later {
+		t.Fatalf("later reply not claimed: %+v %v\n%s", wait, err, f.logs)
+	}
+}
+
+// #1283 C3, C6(b): while rendering still fails, the owner comment gets one
+// visible not-applied notice and is consumed; once rendering works, the next
+// comment posts the review.
+func TestBugReplyAnswersPersistentRenderFailure(t *testing.T) {
+	f, inst, fail := parkedBugWithoutDelivery(t)
+	f.forge.addComment(testIssue, 42, owner(), "Any progress?")
+	if !settleUntilHandled(f, 42, 4) {
+		t.Fatalf("comment never consumed\n%s", f.logs)
+	}
+	if row, err := f.db.GetReportRecovery(t.Context(), fmt.Sprintf("source:%d:42", inst.SessionID)); err == nil && row.State != "resolved" {
+		t.Fatalf("retry left for a consumed comment: %+v", row)
+	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	for range 2 {
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	if review, notice := countPosts(f, analysisHeading), countPosts(f, notAppliedText); review != 0 || notice != 1 {
+		t.Fatalf("review=%d not-applied=%d, want 0 and 1\n%s", review, notice, f.logs)
+	}
+	if strings.Contains(f.logs.String(), missingDeliveryError) {
+		t.Fatalf("missing delivery still reported\n%s", f.logs)
+	}
+	fail.Store(false)
+	f.forge.addComment(testIssue, 43, owner(), "Try again.")
+	if !settleUntilHandled(f, 43, 4) {
+		t.Fatalf("second comment never consumed\n%s", f.logs)
+	}
+	if review := countPosts(f, analysisHeading); review != 1 {
+		t.Fatalf("review posted %d times after rendering recovered\n%s", review, f.logs)
 	}
 }

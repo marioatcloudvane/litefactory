@@ -38,6 +38,11 @@ empty :=
 space := $(empty) $(empty)
 MIXED_PACKAGES := ./internal/turn ./internal/store ./internal/cli
 RACE_TESTS_store := \
+	TestDiscussionQueuedCancelAndFencedRunningCompletion \
+	TestDiscussionAdmissionAndPublicationCheckConsentAtAtomicBoundary \
+	TestTaskAdvisoryResultReplayAndLateWorkerFence \
+	TestTaskAdvisoryInvocationCannotLaunchTwice \
+	TestTaskAdvisoryStopBeforeLaunchPreventsPaidInvocation \
 	TestDurableWorkflowConcurrentContinuationAdmission \
 	TestOwnerActionAdmissionCancellationRace \
 	TestOwnerActionReactionCancellationRace \
@@ -165,6 +170,7 @@ RACE_TESTS_store := \
 	TestWorkflowBoundaryAmbiguousPriorEvidenceStops \
 	TestWorkflowBoundaryWorktreeCleanupRetainsAdmission
 RACE_TESTS_turn := \
+	TestTaskAdvisoryRunnerBoundBrokerAndLostReplyRecovery \
 	TestPlanParallelGrowthReselectsInvalidatedStage \
 	TestPlanParallelCachedProjectionRechecksGuards \
 	TestPlanParallelEndToEnd_CancellationJoinsAllMembers \

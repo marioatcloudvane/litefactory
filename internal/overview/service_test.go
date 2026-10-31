@@ -279,7 +279,7 @@ func TestBuildProtectsHostPathsLinksAndLargeIdentities(t *testing.T) {
 }
 
 func TestBuildMalformedDisplayKeepsOtherFacts(t *testing.T) {
-	f := &fakeReader{activity: []store.OverviewActivity{{ID: "working"}}, waits: store.OverviewWaits{Entries: []store.OverviewWait{{WaitID: "malformed", Summary: "<pre>unfinished"}}}, pubs: []store.OverviewPublication{{Key: "confirmed", Summary: "Confirmed result", ConfirmedAt: testNow()}}}
+	f := &fakeReader{activity: []store.OverviewActivity{{ID: "working"}}, waits: store.OverviewWaits{Entries: []store.OverviewWait{{WaitID: "malformed", Summary: "<" + "pre>unfinished hidden&#45;overview-secret"}}}, pubs: []store.OverviewPublication{{Key: "confirmed", Summary: "Confirmed result", ConfirmedAt: testNow()}}}
 	r, err := fixedService(f, testNow()).Build(t.Context())
 	if err != nil {
 		t.Fatal(err)

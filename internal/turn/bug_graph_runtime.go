@@ -114,7 +114,14 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 				intent, readErr := r.opts.DB.GetGraphComment(ctx, wait.DeliveryKey)
 				var question GraphStopQuestion
 				if readErr != nil || json.Unmarshal(intent.Candidate, &question) != nil || question.OwnerStop == nil {
-					return store.WorkflowAdmission{}, e
+					// The question was parked but its report never stored: post it
+					// now, or answer this reply visibly instead of failing raw.
+					if _, e = r.opts.ResearchReporter.RecoverGraphStopQuestion(ctx, wait.DeliveryKey); e != nil {
+						return store.WorkflowAdmission{}, bugReplyNotApplied(e)
+					}
+					if delivery, e = r.opts.DB.GetReportDelivery(ctx, wait.DeliveryKey); e != nil {
+						return store.WorkflowAdmission{}, bugReplyNotApplied(e)
+					}
 				}
 			} else if e != nil {
 				return store.WorkflowAdmission{}, e

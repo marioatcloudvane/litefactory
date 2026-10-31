@@ -308,9 +308,19 @@ var archiveRetained = map[string]ArchiveClass{
 	"durable_workflow_attempts": ArchiveClassGlobal,
 	"durable_workflow_notices":  ArchiveClassGlobal,
 	"durable_workflow_worker":   ArchiveClassGlobal,
-	"chat_natural_messages":     ArchiveClassGlobal,
-	"chat_natural_scans":        ArchiveClassGlobal,
-	"chat_presentation_owners":  ArchiveClassGlobal,
+	// Private discussion recovery follows the retained durable job ledger, not
+	// task archival. Keep admission identity, bounded context, provider receipts
+	// and possibly-sent conclusions together: deleting them could lose a paid
+	// result or remove the evidence that prevents duplicate publication.
+	"task_discussions":              ArchiveClassGlobal,
+	"advisory_admissions":           ArchiveClassGlobal,
+	"discussion_conclusions":        ArchiveClassGlobal,
+	"task_advisory_invocations":     ArchiveClassGlobal,
+	"task_advisory_result_receipts": ArchiveClassGlobal,
+	"task_advisory_usage_events":    ArchiveClassGlobal,
+	"chat_natural_messages":         ArchiveClassGlobal,
+	"chat_natural_scans":            ArchiveClassGlobal,
+	"chat_presentation_owners":      ArchiveClassGlobal,
 	// Chat delivery state follows its own short retention; source positions
 	// must survive task archival so enabling notices never replays history.
 	"chat_notices":           ArchiveClassGlobal,

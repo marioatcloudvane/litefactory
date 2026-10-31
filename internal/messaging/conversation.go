@@ -391,6 +391,11 @@ func (s *Service) runConversation(ctx context.Context, c store.Conversation, b C
 			s.logConversationFailure(ctx, c, t, agent.ConversationError(failure, "accounting", false))
 		}
 	}()
+	// The fresh-conversation command never reaches a provider, so it still
+	// works while the model refuses every turn.
+	if naturalFreshConversation(t.Source) {
+		return s.conversationFresh(ctx, c, t, at)
+	}
 	if s.conversations.Load().factory {
 		return s.runFactoryConversation(ctx, c, b, t, at)
 	}
@@ -418,7 +423,7 @@ func (s *Service) runConversation(ctx context.Context, c store.Conversation, b C
 		s.logConversationFailure(ctx, c, t, agent.ConversationError(err, "capacity", true))
 		return s.conversationUnavailable(ctx, c, t, "conversation disk backpressure; provider launch refused", at)
 	}
-	sessionRef, identityErr := naming.ConversationSessionRef(c.ID)
+	sessionRef, identityErr := naming.ConversationFreshSessionRef(c.ID, c.FreshAfter)
 	if identityErr != nil {
 		s.logConversationFailure(ctx, c, t, agent.ConversationError(identityErr, "validation", true))
 		return s.conversationUnavailable(ctx, c, t, "invalid stored conversation identity; provider launch refused", at)
@@ -466,6 +471,8 @@ func (s *Service) runConversation(ctx context.Context, c store.Conversation, b C
 		return s.conversationUnavailable(cleanup, c, t, "conversation isolation unavailable or unverified; provider launch refused", at)
 	case errors.Is(runErr, agent.ErrConversationSessionMissing):
 		return s.conversationUnavailable(cleanup, c, t, "saved native session missing; no replacement session created", at)
+	case conversationProviderReply(runErr) != "" && identityRecorded.Load():
+		return s.conversationOutcome(cleanup, t, "interrupted", conversationProviderReply(runErr), at)
 	case runErr != nil:
 		saved, err := s.db.ReadConversation(cleanup, c.Transport, c.ChannelRef)
 		if err != nil {
@@ -547,9 +554,27 @@ func (s *Service) conversationHandled(ctx context.Context, t store.ConversationT
 		return err
 	}
 	if runtime := s.conversations.Load(); runtime != nil && runtime.factory {
-		return s.saveConversationAnswer(ctx, t, "completed", []presentation.AnswerBlock{{Text: protected}}, "", at, true)
+		return s.saveConversationAnswer(ctx, t, "completed", []presentation.AnswerBlock{{Text: protected}}, "", at, conversationAnswerHandled)
 	}
 	return s.db.CompleteConversationHandledTurn(ctx, t, protected, at)
+}
+
+// conversationFresh answers the owner's fresh-conversation command and, in the
+// same fenced store transaction, makes the next turn start a new native
+// session without the earlier owner messages.
+func (s *Service) conversationFresh(ctx context.Context, c store.Conversation, t store.ConversationTurn, at time.Time) error {
+	provider := "Claude"
+	if c.Provider == "codex" {
+		provider = "Codex"
+	}
+	protected, err := s.Protect(ctx, "Starting a fresh conversation. "+provider+"'s own conversation context starts over, and earlier messages are not sent again. The factory's work records (tasks, proposals and saved outcomes) stay. Send your next message.")
+	if err != nil {
+		return err
+	}
+	if runtime := s.conversations.Load(); runtime != nil && runtime.factory {
+		return s.saveConversationAnswer(ctx, t, "completed", []presentation.AnswerBlock{{Text: protected}}, "", at, conversationAnswerFresh)
+	}
+	return s.db.CompleteConversationFreshTurn(ctx, t, protected, at)
 }
 
 func conversationPreStartRetry(err error) bool {

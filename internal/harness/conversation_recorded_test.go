@@ -55,6 +55,11 @@ case "$mode" in
  *) printf '{"type":"system","subtype":"init","session_id":"%s","tools":[],"mcp_servers":[],"claude_code_version":"2.1.299"}\n' "$sid";;
 esac
 [ "$mode" != interrupt ] || /bin/sleep 30
+case "$mode" in
+ refused) printf '{"type":"result","session_id":"%s","result":"API Error: Claude'"'"'s safeguards flagged this message (aup). Try rephrasing. Details: [reasoning_extraction]","is_error":true}\n' "$sid"; exit 1;;
+ authentication) printf '{"type":"result","session_id":"%s","result":"Failed to authenticate: OAuth session expired","is_error":true}\n' "$sid"; exit 1;;
+ provider_error) printf '{"type":"result","session_id":"%s","result":"API Error: overloaded","is_error":true}\n' "$sid"; exit 1;;
+esac
 printf '{"type":"result","session_id":"%s","result":"recorded answer","is_error":false}\n' "$sid"
 `
 	osHome := t.TempDir()
@@ -300,5 +305,32 @@ func TestRecordedClaudeAdoptsLegacyConversationSession(t *testing.T) {
 	}
 	if adopted, err = os.ReadFile(filepath.Join(runner.claudeConfigDir, project, "native-session.jsonl")); err != nil || string(adopted) != "legacy transcript\n" {
 		t.Fatalf("persistent session overwritten: %q %v", adopted, err)
+	}
+}
+
+// A provider error result keeps its category and bounded provider message.
+func TestRecordedClaudeErrorResultCarriesProviderCause(t *testing.T) {
+	for mode, want := range map[string]error{"refused": agent.ErrConversationRefused, "authentication": agent.ErrConversationAuthentication, "provider_error": nil} {
+		t.Run(mode, func(t *testing.T) {
+			runner, request := recordedClaudeConversation(t, mode)
+			request.Session.Resume = "native-session"
+			result, err := runner.RunConversation(t.Context(), request)
+			if err == nil || len(result.Answer) != 0 {
+				t.Fatalf("error result accepted: %+v %v", result, err)
+			}
+			var failure *agent.ConversationFailure
+			if !errors.As(err, &failure) || failure.Phase != "terminal" || failure.NoProcessStarted {
+				t.Fatalf("failure boundary lost: %v %#v", err, failure)
+			}
+			for _, category := range []error{agent.ErrConversationRefused, agent.ErrConversationAuthentication} {
+				if errors.Is(err, category) != errors.Is(want, category) {
+					t.Fatalf("category %v: %v", category, err)
+				}
+			}
+			text := map[string]string{"refused": "safeguards flagged this message", "authentication": "OAuth session expired", "provider_error": "overloaded"}[mode]
+			if !strings.Contains(err.Error(), text) {
+				t.Fatalf("provider message dropped: %v", err)
+			}
+		})
 	}
 }

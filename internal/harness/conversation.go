@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
@@ -148,7 +149,11 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 		}
 		if event.Type == "result" {
 			if !identity || event.IsError || event.Session != result.Session.Resume {
-				fail(errors.New("conversation did not complete the recorded native session"))
+				e := errors.New("conversation did not complete the recorded native session")
+				if event.IsError {
+					e = conversationProviderError(e, event.Result)
+				}
+				fail(e)
 				return
 			}
 			terminal = true
@@ -174,6 +179,30 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 		return result, errors.New("conversation provider did not complete a turn")
 	}
 	return result, nil
+}
+
+// conversationProviderError keeps the category and a bounded copy of the
+// provider's error result; the caller's log redacts it.
+func conversationProviderError(base error, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return base
+	}
+	if len(text) > 512 {
+		text = text[:512]
+		for !utf8.ValidString(text) {
+			text = text[:len(text)-1]
+		}
+	}
+	lower := strings.ToLower(text)
+	detail := fmt.Errorf("%w: provider error: %s", base, text)
+	switch {
+	case strings.Contains(lower, "safeguards"):
+		return errors.Join(agent.ErrConversationRefused, detail)
+	case strings.Contains(lower, "authenticate") || strings.Contains(lower, "oauth"):
+		return errors.Join(agent.ErrConversationAuthentication, detail)
+	}
+	return detail
 }
 
 func conversationArguments(request agent.ConversationRequest, mcp string) []string {

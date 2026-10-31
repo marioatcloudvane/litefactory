@@ -191,7 +191,13 @@ func (s *Service) RunOnce(ctx context.Context) (bool, error) {
 			s.workerMu.Unlock()
 		}
 	}()
+	if s.advisory != nil && !s.advisory.Idle() {
+		return false, nil
+	}
 	limit := time.Second
+	if s.advisory != nil {
+		limit = s.advisory.Deadline()
+	}
 	for _, d := range s.registry.Definitions() {
 		if candidate := time.Duration(d.DeadlineSeconds) * time.Second; candidate > limit {
 			limit = candidate
@@ -203,6 +209,12 @@ func (s *Service) RunOnce(ctx context.Context) (bool, error) {
 	}
 	if err != nil {
 		return false, err
+	}
+	if a.AdmissionKind == "advisory" {
+		if s.advisory == nil {
+			return true, errors.New("advisory coordinator unavailable")
+		}
+		return true, s.advisory.ExecuteClaim(ctx, a, j)
 	}
 	p, f, v, err := s.attemptFacts(ctx, a)
 	if err != nil {
@@ -289,6 +301,12 @@ func (s *Service) RecoverRunning(ctx context.Context) error {
 	}
 	if err != nil {
 		return err
+	}
+	if a.AdmissionKind == "advisory" {
+		if s.advisory == nil {
+			return errors.New("advisory coordinator unavailable")
+		}
+		return s.advisory.RecoverClaim(ctx, a)
 	}
 	j, err := s.db.ReadWorkflowJob(ctx, a.JobID)
 	if err != nil {
@@ -591,6 +609,9 @@ func (s *Service) finish(ctx context.Context, a store.WorkflowAttempt, j store.W
 
 // RecoverExpired reconciles abandoned expired claims without replaying effects.
 func (s *Service) RecoverExpired(ctx context.Context) error {
+	if s.advisory != nil && !s.advisory.Idle() {
+		return nil
+	}
 	if !s.workerMu.TryLock() {
 		return nil
 	}
