@@ -202,7 +202,7 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 		meterErr := r.s.db.FinishMeterAttempt(cleanup, attempt.ID, outcome, "unknown", "", "", []string{"conversation_provider_usage_not_observed"})
 		err = errors.Join(err, meterErr)
 	}()
-	ref, err := naming.ConversationSessionRef(r.c.ID)
+	ref, err := naming.ConversationFreshSessionRef(r.c.ID, r.c.FreshAfter)
 	if err != nil {
 		return nil, err
 	}
@@ -632,6 +632,9 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 	}
 	if r.c.SessionHandle == "" {
 		return r.s.conversationUnavailable(cleanup, r.c, r.t, "turn unfinished with no saved native identity; no replacement session created", r.at)
+	}
+	if reply := conversationProviderReply(cause); reply != "" {
+		return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply, r.at)
 	}
 	// Even a correction or continuation can have uncertain provider completion.
 	if reply := conversationCauseReply(cause, r.at); reply != "" {
