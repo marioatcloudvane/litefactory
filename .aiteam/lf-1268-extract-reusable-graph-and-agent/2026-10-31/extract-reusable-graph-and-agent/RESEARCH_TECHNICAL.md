@@ -92,3 +92,17 @@ Context checked: current issue #1268 and parent #1251 via gh; related all-state 
 Evidence:
 
 - `internal/harness/conversation_recorded_test.go:312`
+
+## F-10
+
+Shaping inventory at 4dc8a8063e172df61bb7619fcfdecbe3dcba3448 confirms auxiliary provider surfaces include schedule/conflict proposals, chat, doctor/repair, judge, drift and log analysis as well as classification/conversation; Permissions documents omitted-versus-empty grant semantics, and providerprocess.Start requires authorization rechecks on fresh retry attempts. These constrain extraction beyond Runner.Run. No code changed or tests rerun in shaping; F-08 remains the earlier baseline only.
+
+Evidence:
+
+- `internal/agent/permissions.go:1`
+- `internal/providerprocess/start.go:11`
+- `internal/harness/runner.go:29`
+- `internal/codex/runner.go:118`
+- `internal/harness/drift.go:35`
+- `internal/harness/log_analyst.go:45`
+- `internal/codex/chat.go:11`
