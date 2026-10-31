@@ -106,3 +106,25 @@ Evidence:
 - `internal/harness/drift.go:35`
 - `internal/harness/log_analyst.go:45`
 - `internal/codex/chat.go:11`
+
+## F-11
+
+Read issue #1269 via gh issue view: Establish factory core contracts and include the operator CLI; it owns intake, scheduling, gates, workspaces, attempts, durable results and publication/recovery, defines commands/read views and CLI ownership, includes qualified GitHub/Linear ticket identity cleanup and logical state ownership, and explicitly consumes the execution-library boundary. This establishes complementary scope, not a second execution library.
+
+Evidence:
+
+- `.aiteam/lf-1268-extract-reusable-graph-and-agent/2026-10-31/extract-reusable-graph-and-agent/ISSUE_1269.json:1`
+
+## F-12
+
+Counted top-level production .go files (excluding *_test.go, including comments) in existing internal packages: graphexec 25 files/3783 lines, agent 37/4047, harness 28/6723, codex 16/3212, providerprocess 7/977, totaling 18742 candidate source lines; turn 217/58572, daemon 115/29680, store 241/49528, instructionpackage 11/1540 and teampackage 6/1625 total 140945 factory-owned source lines. These describe current source pools and do not estimate moved lines, effort, or total repository proportions.
+
+Evidence:
+
+- `internal/graphexec/graphexec.go:1`
+- `internal/agent/request.go:1`
+- `internal/harness/runner.go:1`
+- `internal/codex/runner.go:1`
+- `internal/providerprocess/start.go:1`
+- `internal/turn/graph_node.go:1`
+- `internal/daemon/runners.go:1`

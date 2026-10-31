@@ -29,6 +29,12 @@ Analyze #1268 and visualize the candidate reusable graph/agent library with a cl
 - **N-02** — Exclude behavior fixes discovered during extraction, new workflow scheduling or persistence machinery, new providers and a stable external API/version guarantee. (agent's call)
 - **N-03** — Exclude database migrations and team/capture rewrites; any newly necessary migration requires separate scope review with compatibility and recovery evidence. (agent's call)
 - **O-11** — Acceptance requires passing relocated graph/provider fake-process tests, shipped and legacy graph policy/navigation/digest comparisons, factory capture/permissions/receipt/recovery integration suites and repository-required checks, with uncovered invariant behavior characterized before extraction and no credential-dependent CI requirement. (agent's call)
+- **A-02** — Diagram, repository layout, extraction size and sibling scope — owner: "is this the full class diagram?
+
+and you did not answer the question about the repository structure.
+
+given this little class diagram, how much will be extracted vs. how much will stay in the core library? and what is the purpose of #1269 in comparision with this?" (owner said: comment 6548808180)
+- **N-04** — Factory application commands/read views, operator CLI restructuring, ticket identity cleanup and logical state ownership contracts belong to #1269; #1268 only extracts and integrates its execution dependency. (agent's call)
 
 
 ## Assumptions
@@ -36,7 +42,7 @@ Analyze #1268 and visualize the candidate reusable graph/agent library with a cl
 - **AS-01** — Use one repository and Go module with coordinated release, as the issue's drafting assumption states; no separate processes or independently supported versions. (agent's call)
 - **AS-02** — The candidate pkg/execution package family and examples/execution layout are adopted as the target boundary; individual exported type names remain design choices within O-03 through O-07. (agent's call)
 - **AS-03** — No persistence migration is permitted in this scope; retain existing stored digests, IDs and formats, with any discovered need for migration returned for scope review under N-03. (agent's call)
-- **AS-04** — No builder-check advisory was supplied for this invocation; all prior settled entries remain and new boundary decisions are agent's calls for owner review. (agent's call)
+- **AS-04** — No builder-check advisory was supplied for either shaping invocation; the owner's diagram, layout and sibling-scope questions are answered explicitly in the revised review, without treating them as approval. (agent's call)
 
 ## Research documents
 
