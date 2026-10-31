@@ -43,7 +43,7 @@ func grantRepositoryCoverage(g store.ConnectorLocalGrant) *GrantRepositoryCovera
 		return nil
 	}
 	c := &GrantRepositoryCoverage{Scopes: []string{}, All: g.AllRepositories, Future: g.AllRepositories, Repositories: []string{}}
-	for _, s := range []string{DiscussionScope, CodeReviewScope, RepositoryUsageScope, TaskUsageScope} {
+	for _, s := range []string{DiscussionScope, CodeReviewScope, RepositoryUsageScope, TaskUsageScope, AdvisoryScope, DiscussionPublishScope} {
 		if store.ConnectorScopeHas(g.Scope, s) {
 			c.Scopes = append(c.Scopes, s)
 		}

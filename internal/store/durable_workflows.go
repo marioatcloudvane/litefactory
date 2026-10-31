@@ -40,13 +40,14 @@ type WorkflowJob struct {
 type WorkflowAttempt struct {
 	ID                                        int64
 	JobID, ProposalID, ExecutionID, State     string
+	AdmissionKind, AdvisoryID                 string
 	Fence                                     int64
 	QueuedAt, StartedAt, Deadline, FinishedAt time.Time
 }
 
 const workflowRequestColumns = `owner_id,owner_generation,request_key,digest,proposal_id,job_id,snapshot,inputs,kind,expected_revision,created_at`
 const workflowJobColumns = `id,owner_id,owner_generation,snapshot,state,revision,result,questions,domain_ref,summary,created_at,updated_at`
-const workflowAttemptColumns = `id,job_id,proposal_id,execution_id,state,fence,queued_at,started_at,deadline,finished_at`
+const workflowAttemptColumns = `id,job_id,COALESCE(proposal_id,''),execution_id,state,fence,queued_at,started_at,deadline,finished_at,admission_kind,COALESCE(advisory_id,'')`
 
 func scanWorkflowRequest(row scanner) (WorkflowRequest, error) {
 	var r WorkflowRequest
@@ -80,7 +81,7 @@ func scanWorkflowJob(row scanner) (WorkflowJob, error) {
 func scanWorkflowAttempt(row scanner) (WorkflowAttempt, error) {
 	var a WorkflowAttempt
 	var queued, started, deadline, finished string
-	err := row.Scan(&a.ID, &a.JobID, &a.ProposalID, &a.ExecutionID, &a.State, &a.Fence, &queued, &started, &deadline, &finished)
+	err := row.Scan(&a.ID, &a.JobID, &a.ProposalID, &a.ExecutionID, &a.State, &a.Fence, &queued, &started, &deadline, &finished, &a.AdmissionKind, &a.AdvisoryID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return a, ErrNotFound
 	}
@@ -239,7 +240,7 @@ func (db *DB) ClaimWorkflowAttempt(ctx context.Context, at time.Time, limit time
 			return ErrNotFound
 		}
 		var err error
-		a, err = scanWorkflowAttempt(tx.QueryRowContext(ctx, `SELECT `+workflowAttemptColumns+` FROM durable_workflow_attempts WHERE id=(SELECT MIN(id) FROM durable_workflow_attempts WHERE state='queued') AND EXISTS(SELECT 1 FROM owner_action_proposals p JOIN chat_natural_executions e ON e.identity=p.execution_id WHERE p.id=durable_workflow_attempts.proposal_id AND p.state='executing' AND e.state='executing') ORDER BY id LIMIT 1`))
+		a, err = scanWorkflowAttempt(tx.QueryRowContext(ctx, `SELECT `+workflowAttemptColumns+` FROM durable_workflow_attempts WHERE id=(SELECT MIN(id) FROM durable_workflow_attempts WHERE state='queued') AND (admission_kind='advisory' OR EXISTS(SELECT 1 FROM owner_action_proposals p JOIN chat_natural_executions e ON e.identity=p.execution_id WHERE p.id=durable_workflow_attempts.proposal_id AND p.state='executing' AND e.state='executing')) ORDER BY id LIMIT 1`))
 		if err != nil {
 			return err
 		}
@@ -271,7 +272,7 @@ type WorkflowFinish struct {
 
 // FinishWorkflowAttempt fences output and settles the existing action in one transaction.
 func (db *DB) FinishWorkflowAttempt(ctx context.Context, a WorkflowAttempt, f WorkflowFinish, at time.Time) error {
-	if (f.State != "succeeded" && f.State != "failed" && f.State != "uncertain" && f.State != "waiting_for_input") || !json.Valid([]byte(f.Result)) || !json.Valid([]byte(f.Questions)) {
+	if (f.State != "succeeded" && f.State != "failed" && f.State != "uncertain" && f.State != "waiting_for_input" && (a.AdmissionKind != "advisory" || f.State != "cancelled")) || !json.Valid([]byte(f.Result)) || !json.Valid([]byte(f.Questions)) {
 		return errors.New("invalid workflow result")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error { return finishWorkflowTx(ctx, tx, a, f, at, false) })
@@ -289,8 +290,11 @@ func finishWorkflowTx(ctx context.Context, tx *sql.Tx, a WorkflowAttempt, f Work
 	if err != nil {
 		return err
 	}
-	if current.State != "running" || current.Fence != a.Fence || (!recovery && !at.Before(current.Deadline)) {
+	if (current.State != "running" && (current.AdmissionKind != "advisory" || current.State != "stop_requested")) || current.Fence != a.Fence || (!recovery && !at.Before(current.Deadline)) {
 		return ErrWorkflowFenced
+	}
+	if current.AdmissionKind == "advisory" {
+		return finishAdvisoryTx(ctx, tx, current, f, at)
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE durable_workflow_attempts SET state=?,finished_at=? WHERE id=?`, f.State, ownerActionTime(at), a.ID); err != nil {
 		return err
@@ -348,7 +352,7 @@ func (db *DB) RunningWorkflowAttempt(ctx context.Context) (WorkflowAttempt, erro
 
 // ReconcileWorkflowAttempt invalidates the old fence and preserves recovered evidence.
 func (db *DB) ReconcileWorkflowAttempt(ctx context.Context, a WorkflowAttempt, f WorkflowFinish, at time.Time) error {
-	if (f.State != "succeeded" && f.State != "failed" && f.State != "uncertain" && f.State != "waiting_for_input") || !json.Valid([]byte(f.Result)) || !json.Valid([]byte(f.Questions)) {
+	if (f.State != "succeeded" && f.State != "failed" && f.State != "uncertain" && f.State != "waiting_for_input" && (a.AdmissionKind != "advisory" || f.State != "cancelled")) || !json.Valid([]byte(f.Result)) || !json.Valid([]byte(f.Questions)) {
 		return errors.New("invalid workflow recovery")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error { return finishWorkflowTx(ctx, tx, a, f, at, true) })
@@ -501,7 +505,7 @@ func settleQueuedWorkflowActionTx(ctx context.Context, tx *sql.Tx, p OwnerAction
 
 // HeartbeatWorkflowAttempt records liveness without extending execution authority.
 func (db *DB) HeartbeatWorkflowAttempt(ctx context.Context, a WorkflowAttempt, at time.Time) error {
-	r, err := db.sql.ExecContext(ctx, `UPDATE durable_workflow_worker SET heartbeat_at=? WHERE singleton=1 AND attempt_id=? AND generation=? AND EXISTS(SELECT 1 FROM durable_workflow_attempts a WHERE a.id=attempt_id AND a.fence=generation AND a.state='running' AND a.started_at<=? AND a.deadline>?)`, ownerActionTime(at), a.ID, a.Fence, ownerActionTime(at), ownerActionTime(at))
+	r, err := db.sql.ExecContext(ctx, `UPDATE durable_workflow_worker SET heartbeat_at=? WHERE singleton=1 AND attempt_id=? AND generation=? AND EXISTS(SELECT 1 FROM durable_workflow_attempts a WHERE a.id=attempt_id AND a.fence=generation AND a.state IN ('running','stop_requested') AND a.started_at<=? AND a.deadline>?)`, ownerActionTime(at), a.ID, a.Fence, ownerActionTime(at), ownerActionTime(at))
 	if err != nil {
 		return err
 	}

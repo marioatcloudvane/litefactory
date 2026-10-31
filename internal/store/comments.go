@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"strconv"
 	"time"
 )
@@ -75,6 +76,9 @@ type Comment struct {
 func (db *DB) RecordComment(ctx context.Context, c Comment) (Comment, error) {
 	if c.SessionID == 0 || c.ForgeCommentID == 0 || c.ReplyToCommentID < 0 {
 		return Comment{}, errors.New("store: record comment: session id and forge comment id are required")
+	}
+	if commandtext.DiscussionSummary(c.Body) {
+		c.Classification = ClassificationSelf
 	}
 	if !c.Classification.valid() {
 		return Comment{}, fmt.Errorf("store: record comment: unknown classification %q", c.Classification)

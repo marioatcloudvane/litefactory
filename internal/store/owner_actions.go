@@ -141,7 +141,7 @@ func ownerActionAuthority(ctx context.Context, tx *sql.Tx, actor OwnerActionPrin
 		}
 		if p.RepositoryID > 0 {
 			table := "connector_grant_action_repositories"
-			if p.Scope == "standards:management" {
+			if p.Scope == "standards:management" || p.Scope == "task:advisory" || p.Scope == "task:discussion-publish" {
 				table = "connector_grant_repositories"
 			}
 			var count int
