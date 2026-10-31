@@ -28,12 +28,16 @@ Brainstorm independent applications in a monorepo, identify Litefactory's larger
 - **O-09** — Use the existing provider-adapter ticket boundary in the proposed core separation, removing compatibility coupling only as required by the selected milestone. (agent's call)
 - **A-03** — Work-split request — owner: "ok, i think we should divide that into different independent stories. how would we split the work here?" (owner said)
 - **O-10** — Shape separately reviewable outcome boundaries for later independent stories, with dependencies made explicit. (owner said: A-03)
-- **O-11** — Proposed ticket slice makes GitHub and Linear share provider-neutral workflow operations while confining legacy representations to compatibility edges and preserving qualified identities and retained sessions. (agent's call)
+- **O-11** — Proposed A is bounded ticket-adapter cleanup within C, preserving both providers and retaining compatibility bridges where they satisfy the core boundary rather than requiring a complete ticket rewrite or separate application. (agent's call)
 - **O-12** — Proposed execution-library slice separates graph mechanics and agent/provider execution from factory policy and persistence, with a small non-factory consumer demonstrating reuse. (agent's call)
-- **O-13** — Proposed core slice owns factory state and exposes bounded adapter commands/read views, with core workflows demonstrated while Discord and remote MCP are disabled. (agent's call)
+- **O-13** — Proposed C includes factory core, its operator CLI and the necessary parts of A, exposing bounded commands/read views and preserving core operation with optional adapters disabled. (agent's call)
 - **O-14** — Proposed Discord slice owns gateway/conversation/presentation/delivery responsibilities and uses core contracts while preserving owner checks, confirmations and saved conversation/delivery state. (agent's call)
 - **O-15** — Proposed remote-MCP slice owns login/consent/grant/token/revocation responsibilities and uses core read views without direct factory-state access or additional tool authority. (agent's call)
 - **K-06** — Each delivered extraction slice must leave the current deployment usable and include its own compatibility evidence, replaced-path retirement and documented recovery route for any state migration. (agent's call)
+- **A-04** — CLI and ticket-slice clarification — owner: "ok, where does the cli go? and what is A about? is it a separate application or mandatory refactoring?" (owner said)
+- **O-16** — Proposed operator CLI is a core-owned frontend that uses core contracts for runtime work and retains local setup/configuration/service lifecycle capabilities when the core is stopped. (agent's call)
+- **N-04** — Exclude a standalone ticket service, a mandatory comprehensive ticket rewrite and independently versioning the operator CLI from the recommended initial scope. (agent's call)
+- **K-07** — Preserve existing CLI command behavior and command availability with the daemon stopped, including local lifecycle controls and the attempt-descriptor authority required by agent MCP/submission commands. (agent's call)
 
 
 ## Assumptions
@@ -46,8 +50,9 @@ Brainstorm independent applications in a monorepo, identify Litefactory's larger
 - **AS-06** — Do not broaden factory behavior to match overlapping MCP steering or shared-confirmation proposals; preserve the baseline at implementation time and reconcile overlapping contracts without absorbing those features. Based on F-12. (agent's call)
 - **AS-07** — The deeper-visualization request adds explanatory detail without choosing q1–q3 or authorizing implementation; retain all three open questions unchanged. (agent's call)
 - **AS-08** — Independent stories means separately reviewable outcomes with explicit prerequisites, not zero dependencies or independently versioned services; the owner has not selected q1–q3. (agent's call)
-- **AS-09** — The proposed ticket and execution-library boundaries feed the core boundary, after which Discord and remote MCP can be delivered independently; this is a scope dependency proposal, not an implementation plan. (agent's call)
-- **AS-10** — For q1=a the five slices establish logical boundaries in the current deployment; for q1=b the core slice also supplies a process contract and each adapter slice includes private storage, standalone lifecycle and migration/restart proof. (agent's call)
+- **AS-09** — Revised dependency proposal: A is supporting work inside C rather than a separate prerequisite, B supplies reusable execution mechanics, and D/E independently consume C's contract. (agent's call)
+- **AS-10** — The revised proposal has four slices B/C/D/E with A inside C; q1=a establishes logical boundaries in today's deployment, while q1=b additionally requires the core process contract and adapter lifecycle/storage/migration proof. (agent's call)
+- **AS-11** — CLI placement and folding A into C revise agent recommendations only; the owner's clarification question does not choose q1–q3 or approve these new recommendations. (agent's call)
 
 
 ## Open questions

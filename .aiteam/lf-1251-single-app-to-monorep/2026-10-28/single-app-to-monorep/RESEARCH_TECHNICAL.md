@@ -218,3 +218,16 @@ Evidence:
 - `internal/daemon/linear_workflow_test.go:265`
 - `internal/daemon/graph_dispatch_linear_test.go:15`
 - `internal/daemon/linear_plan_story_test.go:21`
+
+## F-20
+
+At 539e9d35748d7a38f1d6001b8b11c2998adefe6c the main executable dispatches cli.Commands, which combines operator, local setup/team/configuration, daemon and attempt-result/MCP surfaces; cmd_daemon.go composes daemon.Open and opens the store, while cmd_mcp.go requires a live authorized descriptor and uses submission.Client for the stdio adapter. The CLI is therefore not currently a uniform thin service client; splitting it requires explicit ownership of local/offline commands versus runtime operations, not moving every command onto a mandatory live-core connection. Static inspection only; no tests run this pass.
+
+Evidence:
+
+- `cmd/litefactory/main.go:102`
+- `internal/cli/commands.go:8`
+- `internal/cli/cmd_daemon.go:164`
+- `internal/cli/cmd_daemon.go:217`
+- `internal/cli/cmd_daemon.go:246`
+- `internal/cli/cmd_mcp.go:13`
