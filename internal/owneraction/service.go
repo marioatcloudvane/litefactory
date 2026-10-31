@@ -633,3 +633,6 @@ func (s *Service) HistoryFiltered(ctx context.Context, p Principal, filters Filt
 	}
 	return page, nil
 }
+
+// DecorateDomain installs a trusted coordinator before the service starts serving.
+func (s *Service) DecorateDomain(wrap func(Domain) Domain) { s.domain = wrap(s.domain) }

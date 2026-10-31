@@ -122,7 +122,10 @@ func (db *DB) FinishOwnerAction(ctx context.Context, id, state, result, reason s
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE chat_natural_executions SET state=?,outcome=?,finished_at=?,payload=? WHERE identity=?`, journalState, result, nullableOwnerActionTime(completed), payload, p.ExecutionID)
-		return err
+		if err != nil {
+			return err
+		}
+		return settleQueuedWorkflowActionTx(ctx, tx, p, state, result, at)
 	})
 }
 func nullableOwnerActionTime(s string) any {
@@ -214,7 +217,7 @@ func (db *DB) ReadyOwnerActions(ctx context.Context, limit int, at time.Time) ([
 func (db *DB) PurgeOwnerActionHistory(ctx context.Context, at time.Time) error {
 	cutoff := ownerActionTime(at.Add(-90 * 24 * time.Hour))
 	return db.withTx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM owner_action_proposals WHERE state IN ('succeeded','failed','cancelled','expired','invalidated') AND completed_at<>'' AND completed_at<=?`, cutoff); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM owner_action_proposals WHERE state IN ('succeeded','failed','cancelled','expired','invalidated') AND completed_at<>'' AND completed_at<=? AND NOT EXISTS(SELECT 1 FROM durable_workflow_requests w WHERE w.proposal_id=owner_action_proposals.id)`, cutoff); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM owner_action_policy_invalidations WHERE julianday(invalidated_at)<=julianday(?)`, cutoff)

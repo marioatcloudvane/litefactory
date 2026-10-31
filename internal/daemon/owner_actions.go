@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/owneraction"
@@ -18,6 +19,9 @@ func (d *Daemon) configureOwnerActions(s *messaging.Service, discordOwner string
 	var actions *owneraction.Service
 	if d.remoteConnector != nil && d.remoteConnector.actions != nil {
 		actions = d.remoteConnector.actions.actions
+		if workflows := d.remoteConnector.actions.workflows; workflows != nil {
+			bindWorkflowNoticeAuthorizer(s, adapter, workflows)
+		}
 		d.remoteConnector.actions.notices.Store(s)
 	} else {
 		actions = owneraction.New(d.db, messaging.OwnerActionDomain{Service: s}, clock)
@@ -79,4 +83,13 @@ func (d *Daemon) ownerReaction(ctx context.Context, r discord.OwnerReaction) {
 	if err != nil {
 		d.log.InfoContext(ctx, "owner reaction did not authorize an action")
 	}
+}
+
+func bindWorkflowNoticeAuthorizer(s *messaging.Service, adapter *discord.Adapter, workflows *durableworkflow.Service) {
+	s.SetWorkflowNoticeAuthorizer(func(ctx context.Context, eventKey, channel string) error {
+		if err := workflows.AuthorizeNotice(ctx, eventKey, channel); err != nil {
+			return err
+		}
+		return adapter.CheckIntakeCapability(ctx, channel)
+	})
 }

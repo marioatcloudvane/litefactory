@@ -607,3 +607,81 @@ keeps its recorded invocation and recovery identity. Existing read access remain
 read-only. Run one policy-aware daemon against the migrated store; rolling back
 to an older policy must not revive invalidated pending work. This guide describes
 the implementation contract, not evidence of live client approval or deployment.
+
+## Durable workflow jobs
+
+Use the shared workflow tools for background log analysis and standards authoring.
+`workflows_list` needs no project argument. Follow its cursor for later authorized
+entries; an optional project filter includes usable independent definitions and
+those bound to that project. Similar labels can identify different workflows, so
+keep the returned stable reference and exact version. `workflow_describe` shows
+inputs, target rules, permissions, examples, continuation and result contracts
+without starting work. An unavailable adapter cannot admit work.
+
+For log analysis, explicitly choose the registered repository, absolute UTC
+`after` and `before` instants and `dry_run`. Ask the client to resolve a relative
+period before proposing, and review the frozen interval and filing destination.
+Dry-run saves the analysis without filing issues. For standards authoring, choose
+book-only scope or an explicit registered project as reading context; drafting
+never approves or publishes standards. A fixed-project definition infers its
+configured target, shows that association and accepts no project override,
+including nested input. No omitted project uses an ambient default.
+
+Ask the client to call `workflow_propose` with the discovered reference/version,
+validated inputs and a fresh client request key. Review the frozen definition,
+version, binding, target, permissions, impact, deadline and destination. Then use
+a separate `action_confirm`, under the same five-second minimum, fifteen-minute
+expiry and original-client/grant rules as existing actions. Proposal creation
+launches no agent. Confirmation returns queued admission and a durable job
+reference promptly; admission does not mean the analysis has finished.
+
+Return later through `workflow_job_get`. The same reference survives connection
+loss and daemon restart. Jobs show queued, running, waiting-for-input, succeeded,
+failed or uncertain state, timestamps, domain references, retained results and
+the next allowed action. Results include confirmed filed-issue links or proposed
+standards when available. Follow result cursors with the same job and revision;
+raw logs and captured private prompts are not remote results. Current grants
+still govern reads. Revocation can make a remembered reference inaccessible.
+
+For author questions, the client keeps the exact job, question identifiers and
+author-session revision. Ask it to call `workflow_continue_propose` with those
+facts and your answers, review the new proposal and confirm separately. The next
+attempt belongs to the same job and author session. Stale or overlapping answers
+are refused; continuation cannot switch project, binding or workflow version.
+Partial answers may leave the job waiting for more input.
+
+Keep the same request key and inputs when recovering a lost proposal response.
+The owner-scoped ledger returns the original operation, including across clients;
+changed inputs with that key conflict. A second client cannot adopt the original
+client's confirmation authority. An uncertain effect requires receipt inspection,
+not a fresh key to repeat work. Saved partial findings and confirmed issue links
+remain useful even when filing is uncertain.
+
+Discord delivery is separate: pending, delivered, failed or unavailable. Jobs work
+without Discord. Notices use an explicitly configured authorized project or
+owner/factory destination; no arbitrary channel is inferred. An outage or an
+ambiguous send must not erase results or cause blind repeat delivery. Read job
+status directly while delivery is unavailable. One background attempt runs at a
+time, leaving controls responsive. Each description advertises its bounded domain
+deadline; running-job cancellation and automatic uncertain-effect retries are
+outside this release.
+
+Existing generic actions, CLI analysis/authoring and Discord entry points remain
+supported. Installed adapter authors should follow the [adapter contract and
+examples](workflow-adapters.md). Server installation and configuration, rather
+than remote client text, select registered adapters and optional notice targets.
+Leave notice destinations absent for a safe no-Discord configuration.
+
+For a deployment check, use a test installation and its test repositories. In
+both configured Claude and ChatGPT clients, obtain explicit consent, list and
+describe workflows, review and confirm one dry-run analysis, reconnect and read
+its result, then start book-only authoring and answer a returned question through
+a separately confirmed continuation. Repeat authoring with explicit project
+context and inspect two installed fixed-project examples with different inputs;
+an attempted project override must fail. Revoke a grant and observe denied reads.
+For live notices, the owner configures an authorized test destination, confirms a
+job, compares its saved result with the notice and observes delivery independently.
+These short owner checks supplement deterministic engineering fault tests; they
+are not instructions to inject crashes, race answers or test production services.
+Record the client/version and actual observation without claiming hosted
+compatibility from local fixtures.

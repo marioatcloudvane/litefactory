@@ -7,7 +7,7 @@ import (
 
 // OwnerActionNoticesDue returns owner outcomes not yet queued for Discord.
 func (db *DB) OwnerActionNoticesDue(ctx context.Context) ([]OwnerAction, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+ownerActionColumns+` FROM owner_action_proposals p WHERE approval_channel<>'' AND state IN ('succeeded','failed','uncertain') AND NOT EXISTS(SELECT 1 FROM owner_action_notice_receipts n WHERE n.proposal_id=p.id AND n.state=p.state) ORDER BY created_at,id LIMIT 100`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+ownerActionColumns+` FROM owner_action_proposals p WHERE approval_channel<>'' AND state IN ('succeeded','failed','uncertain') AND NOT EXISTS(SELECT 1 FROM owner_action_notice_receipts n WHERE n.proposal_id=p.id AND n.state=p.state) AND NOT EXISTS(SELECT 1 FROM durable_workflow_requests w WHERE w.proposal_id=p.id) ORDER BY created_at,id LIMIT 100`)
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 )
 
 type remoteConnectorRuntime struct {
+	config   config.RemoteConnector
 	server   *connector.Server
 	listener net.Listener
 	actions  *ownerActionRuntime
@@ -61,7 +62,7 @@ func prepareRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRunti
 	if err != nil {
 		return nil, err
 	}
-	return &remoteConnectorRuntime{server: server, listener: listener}, nil
+	return &remoteConnectorRuntime{config: cfg, server: server, listener: listener}, nil
 }
 
 func (d *Daemon) serveRemoteConnector(ctx context.Context, serving *sync.WaitGroup) {

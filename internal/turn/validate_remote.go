@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -175,7 +176,45 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 	if found.Number < 1 {
 		return fail(store.EffectFailed, errors.New("the created issue has no number"))
 	}
+	if r.labelsBug(f) && !slices.Contains(found.Labels, "bug") {
+		if err := r.labelBug(ctx, found); err != nil {
+			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("created %s but could not label it bug: %v", displayIssue(r.target.Task, found).Reference(), err))
+		}
+	}
 	return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Issue: found.Number, IssueReference: displayIssue(r.target.Task, found).Reference()}, "")
+}
+
+// labelsBug says whether the follow-up gets the bug label: a bug on GitHub.
+// Linear accepts only mapped mode labels, so a Linear follow-up keeps none.
+func (r *validateRemote) labelsBug(f ValidateFinding) bool {
+	return issueKind(f) == "bug" && r.target.Task.Forge != "linear"
+}
+
+// labelBug adds the bug label. After an error it reads the issue again and
+// succeeds only when the label landed anyway.
+func (r *validateRemote) labelBug(ctx context.Context, issue github.Issue) error {
+	tickets := r.b.Delivery.tickets()
+	err := tickets.AddIssueLabel(ctx, r.target.ticketRepo(), issue.Number, "bug")
+	if err == nil {
+		return nil
+	}
+	again, listErr := tickets.ListFollowupIssues(ctx, r.target.ticketRepo())
+	if listErr != nil {
+		return errors.Join(err, listErr)
+	}
+	for _, i := range again {
+		if i.Number == issue.Number && slices.Contains(i.Labels, "bug") {
+			return nil
+		}
+	}
+	return err
+}
+
+func issueKind(f ValidateFinding) string {
+	if f.Choice != nil && f.Choice.IssueKind != "" {
+		return f.Choice.IssueKind
+	}
+	return "bug"
 }
 
 func bodyHasMarkerLine(body, marker string) bool {
@@ -188,24 +227,23 @@ func bodyHasMarkerLine(body, marker string) bool {
 }
 
 func (r *validateRemote) issueContent(ctx context.Context, f ValidateFinding, marker string) (redact.Body, redact.Body, error) {
-	kind := "bug"
-	if f.Choice != nil && f.Choice.IssueKind != "" {
-		kind = f.Choice.IssueKind
+	kind := issueKind(f)
+	titleText := fmt.Sprintf("Validate follow-up (%s): %s %s", kind, f.Story, f.Name)
+	if f.Defect != "" {
+		titleText = firstSentence(f.Defect)
 	}
-	titleText := graphDeliveryTitle(fmt.Sprintf("Validate follow-up (%s): %s %s", kind, f.Story, f.Name))
-	title, err := r.b.Delivery.Redactor.Apply(ctx, titleText, 256)
+	title, err := r.b.Delivery.Redactor.Apply(ctx, graphDeliveryTitle(titleText), 256)
 	if err != nil {
 		return redact.Body{}, redact.Body{}, err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Follow-up %s from Validate of issue %s, tested commit `%s`.\n\nFinding `%s` is %s (%s).\n\n", kind, r.target.Parent.display().Reference(), r.st.Commit, f.ID, f.Status, f.Class)
-	if f.Summary != "" {
-		b.WriteString(f.Summary + "\n\n")
+	if f.Defect != "" {
+		b.WriteString("## What happens\n\n" + f.Defect + "\n\n")
 	}
-	if len(f.Checks) > 0 {
-		b.WriteString("Evidence: " + strings.Join(f.Checks, ", ") + "\n\n")
-	}
-	b.WriteString("The owner chose to track this as its own issue. Creating it does not clear a blocking finding.\n\n" + marker)
+	b.WriteString("## Source\n\n")
+	fmt.Fprintf(&b, "- Follow-up %s from Validate of issue %s, tested commit `%s`.\n", kind, r.target.Parent.display().Reference(), r.st.Commit)
+	fmt.Fprintf(&b, "- Finding `%s` is %s (%s).\n", f.ID, f.Status, f.Class)
+	b.WriteString("- The owner chose to track this as its own issue. Creating it does not clear a blocking finding.\n\n" + marker)
 	body, err := r.b.Delivery.Redactor.Apply(ctx, b.String(), 65536)
 	return title, body, err
 }

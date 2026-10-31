@@ -1,0 +1,7 @@
+Read the retained job to report actual progress, questions, results and the next permitted action. Keep its stable reference across disconnects and daemon restart. Distinguish queued, running, waiting_for_input, succeeded, failed and uncertain. Admission and an active background attempt are not evidence of completion. Confirmed filed-issue links and saved proposed standards are result evidence; proposals remain unapproved and unpublished.
+
+Follow next_cursor with the same job and revision for later bounded redacted result items. Raw logs, captured private prompts, credentials and host paths do not belong in remote answers. Current permissions govern every read, even if the client remembers an identifier. Revocation does not recall answers already delivered.
+
+Describe notification delivery separately as pending, delivered, failed or unavailable. A missing Discord destination or outage does not change the job outcome or erase its saved result. An ambiguous external effect remains uncertain and an ambiguous Discord send remains delivery-unconfirmed; never blindly retry either. Preserve partial findings and confirmed links and explain the recorded next action. Author answers require workflow_continue_propose and separate confirmation for the exact question revision.
+
+For `format: json_fragment` items, collect every `part` for the same `item_index`, concatenate their `content` in order, then decode that JSON. Follow result cursors until absent; fragments preserve full sanitized details across bounded pages.

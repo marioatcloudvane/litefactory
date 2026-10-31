@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/doctor"
+	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
@@ -19,14 +20,43 @@ import (
 // ownerActionRuntime owns one executor independently of Discord availability.
 // Discord can join later without replacing the execution claims or worker.
 type ownerActionRuntime struct {
-	actions *owneraction.Service
-	notices atomic.Pointer[messaging.Service]
-	once    sync.Once
+	actions   *owneraction.Service
+	workflows *durableworkflow.Service
+	notices   atomic.Pointer[messaging.Service]
+	once      sync.Once
 }
 
 func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logger *slog.Logger) {
 	r.once.Do(func() {
 		r.actions.SetLifetime(ctx)
+		if r.workflows != nil {
+			wg.Go(func() {
+				if err := r.workflows.ReconcileNotices(ctx); err != nil {
+					logger.WarnContext(ctx, "workflow notice recovery requires inspection")
+				}
+				if err := r.workflows.RecoverRunning(ctx); err != nil {
+					logger.WarnContext(ctx, "workflow recovery requires inspection")
+				}
+				timer := time.NewTicker(time.Second)
+				defer timer.Stop()
+				for {
+					if ctx.Err() != nil {
+						return
+					}
+					if err := r.workflows.RecoverExpired(ctx); err != nil {
+						logger.WarnContext(ctx, "expired workflow reconciliation requires inspection")
+					}
+					if _, err := r.workflows.RunOnce(ctx); err != nil {
+						logger.WarnContext(ctx, "workflow attempt requires inspection")
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case <-timer.C:
+					}
+				}
+			})
+		}
 		wg.Go(func() {
 			timer := time.NewTicker(time.Second)
 			defer timer.Stop()
@@ -134,6 +164,70 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		}
 		domain := independentOwnerActionDomain{OwnerActionDomain: messaging.OwnerActionDomain{Service: backend}, allowed: allowed, standards: standards}
 		runtime.actions = owneraction.New(d.db, domain, clock)
+	}
+	if options == nil {
+		options = &ChatOptions{}
+	}
+	clock := options.Now
+	if clock == nil {
+		clock = time.Now
+	}
+	if sanitizer == nil {
+		sanitizer = redact.New(redact.Options{Logger: d.log})
+	}
+	registry, err := installedWorkflows(d.remoteConnector.config.Workflows)
+	if err != nil {
+		d.log.Error("workflow registration unavailable")
+	} else {
+		adapters := map[string]durableworkflow.Adapter{}
+		if options.Standards != nil {
+			a := standardsWorkflowAdapter{standards: options.Standards, db: d.db}
+			if options.Standards.Authoring != nil && options.Standards.Authoring.Runner != nil {
+				adapters["standards-authoring"] = a
+			}
+			if options.Standards.Analyses != nil && options.Standards.Analyses.Start != nil {
+				adapters["log-analysis"] = a
+			}
+		}
+		protect := func(ctx context.Context, text string) (string, error) {
+			body, e := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
+			return body.String(), e
+		}
+		destination := func(ctx context.Context, p owneraction.Principal, definition durableworkflow.Definition, resolved durableworkflow.Resolved) (string, error) {
+			if runtime.notices.Load() == nil {
+				return "", nil
+			}
+			channel := ""
+			for _, association := range d.remoteConnector.config.WorkflowNotices {
+				if association.Project == resolved.Project {
+					channel = association.ChannelID
+					break
+				}
+			}
+			if channel == "" {
+				return "", nil
+			}
+			allowed := false
+			for _, id := range options.Settings.ChannelIDs {
+				allowed = allowed || id == channel
+			}
+			if !allowed {
+				return "", nil
+			}
+			return channel, nil
+		}
+		workflows, e := durableworkflow.New(durableworkflow.Options{DB: d.db, Registry: registry, Adapters: adapters, Now: clock, Protect: protect, NoticeDestination: destination})
+		if e == nil {
+			runtime.actions.DecorateDomain(workflows.WrapDomain)
+			workflows.BindActions(runtime.actions)
+			runtime.workflows = workflows
+			if d.chat != nil {
+				bindWorkflowNoticeAuthorizer(d.chat.service, d.chat.adapter, workflows)
+			}
+			d.remoteConnector.server.SetWorkflows(workflows)
+		} else {
+			d.log.Error("workflow coordinator unavailable")
+		}
 	}
 	d.remoteConnector.actions = runtime
 	d.remoteConnector.server.SetActions(runtime.actions)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -246,6 +247,121 @@ func TestOwnerIssueFailureKeepsValidateOpenAndRepeatingRetries(t *testing.T) {
 	o2.say(o2.command(ValidateFindingCommand, "story-002:code", "issue", "bug"))
 	if e := o2.effect(store.EffectIssue, "story-002:code"); e.State != store.EffectUncertain || len(o2.forge.issueCreates) != 0 || o2.state().Ready {
 		t.Fatalf("%+v", e)
+	}
+}
+
+// The defect sentence and the coverage note of the code finding in
+// followupReview: the follow-up issue keeps only the first.
+const (
+	followupDefect   = "Owner-action log analysis is reported as succeeded when execution was refused. internal/turn/log.go:40 settles it succeeded; it should fail."
+	followupCoverage = "No separate formatting, vet or lint pass was supplied."
+)
+
+// followupReview is mixedReview with a code finding of two evidence entries:
+// the defect first, then an unrelated coverage note with its own check.
+func followupReview(req ValidateReviewRequest) (*agentresult.Result, error) {
+	res, err := mixedReview(req)
+	for si := range res.Payload.Validate.Stories {
+		s := &res.Payload.Validate.Stories[si]
+		for i := range s.Reviews {
+			if s.Reviews[i].Name == "code" {
+				s.Reviews[i].Evidence = []agent.EvidenceExplanation{{Summary: followupDefect, CheckIDs: []string{}}, {Summary: followupCoverage, CheckIDs: []string{"suite-1-0"}}}
+			}
+		}
+	}
+	return res, err
+}
+
+func (o *ownerFixture) followup() {
+	o.reviewers.run = followupReview
+	o.toOwner()
+	o.say(o.command(ValidateCheckCommand, "story-002:AC-002", "pass", "-- ok"))
+}
+
+// #1278 C1, C2: a bug follow-up is titled by the defect, carries the bug
+// label and a short body with the facts; a replay of an unlabelled issue
+// only labels it.
+func TestOwnerIssueBugIsTitledByTheDefectLabelledAndShort(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.followup()
+	o.say(o.command(ValidateFindingCommand, "story-002:code", "issue", "bug"))
+	if len(o.forge.issues) != 1 || len(o.forge.issueCreates) != 1 {
+		t.Fatalf("created %d: %s", len(o.forge.issueCreates), o.notice())
+	}
+	issue := o.forge.issues[0]
+	if want := "Owner-action log analysis is reported as succeeded when execution was refused."; issue.Title != want || strings.HasPrefix(issue.Title, "Validate follow-up") {
+		t.Fatalf("title %q", issue.Title)
+	}
+	if !slices.Equal(o.forge.labelCalls, []string{"900:bug"}) || !slices.Contains(issue.Labels, "bug") {
+		t.Fatalf("labels %v %v", o.forge.labelCalls, issue.Labels)
+	}
+	e := o.effect(store.EffectIssue, "story-002:code")
+	if e.State != store.EffectSucceeded {
+		t.Fatalf("%+v", e)
+	}
+	for _, want := range []string{o.target.Parent.display().Reference(), o.state().Commit, "story-002:code", followupDefect, ValidateIssueMarker(o.instance.ID, "story-002:code")} {
+		if !strings.Contains(issue.Body, want) {
+			t.Fatalf("body lacks %q:\n%s", want, issue.Body)
+		}
+	}
+	for _, unwanted := range []string{followupCoverage, "suite-1-0", "Evidence:"} {
+		if strings.Contains(issue.Body, unwanted) {
+			t.Fatalf("body keeps %q:\n%s", unwanted, issue.Body)
+		}
+	}
+	// A replay finds the issue without its label: it labels it, creates nothing.
+	o.forge.issues[0].Labels = nil
+	st := o.state()
+	f, _ := st.finding("story-002:code")
+	r := &validateRemote{b: o.b, opts: o.opts, req: ActivityRequest{InstanceID: o.instance.ID}, st: st, target: o.target}
+	if err := r.createIssue(t.Context(), e, f); err != nil || len(o.forge.issueCreates) != 1 || len(o.forge.labelCalls) != 2 || !slices.Contains(o.forge.issues[0].Labels, "bug") {
+		t.Fatalf("replay: %v %d %v", err, len(o.forge.issueCreates), o.forge.labelCalls)
+	}
+}
+
+// #1278 C4: a label failure after creation fails the effect visibly and a
+// retry labels the same issue.
+func TestOwnerIssueLabelFailureFailsAndRetryLabelsTheSameIssue(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.followup()
+	o.forge.labelErr = errors.New("labels are down")
+	o.say(o.command(ValidateFindingCommand, "story-002:code", "issue", "bug"))
+	e := o.effect(store.EffectIssue, "story-002:code")
+	if e.State != store.EffectFailed || !strings.Contains(e.Error, "created #900 but could not label it bug") {
+		t.Fatalf("%+v", e)
+	}
+	st := o.state()
+	if st.Ready || !strings.Contains(o.forge.bodies("**Validate report**")[0].Body, "issue for story-002:code: failed") {
+		t.Fatalf("%v", st.Open)
+	}
+	o.forge.labelErr = nil
+	o.say(o.command(ValidateFindingCommand, "story-002:code", "issue", "bug"))
+	if e := o.effect(store.EffectIssue, "story-002:code"); e.State != store.EffectSucceeded {
+		t.Fatalf("%+v", e)
+	}
+	if len(o.forge.issueCreates) != 1 || len(o.forge.issues) != 1 || !slices.Contains(o.forge.issues[0].Labels, "bug") {
+		t.Fatalf("created %d labels %v", len(o.forge.issueCreates), o.forge.issues[0].Labels)
+	}
+}
+
+// #1278 C5: a label that landed despite an error reply settles as labelled.
+func TestOwnerIssueLabelLandedDespiteErrorSettlesLabelled(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.followup()
+	o.forge.labelErr, o.forge.labelLandsDespiteErr = errors.New("the reply was lost"), true
+	o.say(o.command(ValidateFindingCommand, "story-002:code", "issue", "bug"))
+	e := o.effect(store.EffectIssue, "story-002:code")
+	if e.State != store.EffectSucceeded {
+		t.Fatalf("%+v", e)
+	}
+	if len(o.forge.issueCreates) != 1 || len(o.forge.labelCalls) != 1 || !slices.Equal(o.forge.issues[0].Labels, []string{"bug"}) {
+		t.Fatalf("created %d labels %v %v", len(o.forge.issueCreates), o.forge.labelCalls, o.forge.issues[0].Labels)
+	}
+	st := o.state()
+	f, _ := st.finding("story-002:code")
+	r := &validateRemote{b: o.b, opts: o.opts, req: ActivityRequest{InstanceID: o.instance.ID}, st: st, target: o.target}
+	if err := r.createIssue(t.Context(), e, f); err != nil || len(o.forge.issueCreates) != 1 || len(o.forge.labelCalls) != 1 {
+		t.Fatalf("replay: %v %d %v", err, len(o.forge.issueCreates), o.forge.labelCalls)
 	}
 }
 

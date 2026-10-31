@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -48,6 +49,12 @@ type ownerForge struct {
 	createIssueLostReply                           bool
 	createIssueErr                                 error
 	mergeNoEffect                                  bool
+
+	// labelCalls records every AddIssueLabel call as "<number>:<label>".
+	// labelErr fails the call; labelLandsDespiteErr still applies the label.
+	labelCalls           []string
+	labelErr             error
+	labelLandsDespiteErr bool
 
 	// storyIssues holds the story sub-issues by number; commentIssue records
 	// the issue each comment was posted on.
@@ -273,6 +280,21 @@ func (f *ownerForge) CreateIssue(_ context.Context, _ github.Repo, title, body r
 		return github.Issue{}, errors.New("the reply was lost")
 	}
 	return issue, nil
+}
+
+func (f *ownerForge) AddIssueLabel(_ context.Context, _ github.Repo, n int, label string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.labelCalls = append(f.labelCalls, fmt.Sprintf("%d:%s", n, label))
+	if f.labelErr != nil && !f.labelLandsDespiteErr {
+		return f.labelErr
+	}
+	for i := range f.issues {
+		if f.issues[i].Number == n && !slices.Contains(f.issues[i].Labels, label) {
+			f.issues[i].Labels = append(f.issues[i].Labels, label)
+		}
+	}
+	return f.labelErr
 }
 
 // ownerFixture drives the owner side of the real Validate graph on top of the

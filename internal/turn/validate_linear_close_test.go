@@ -134,6 +134,17 @@ func TestValidateFollowupIssueOfLinearTaskUsesTheTicketContainer(t *testing.T) {
 	}
 	onlyContainer(t, tickets, "ListFollowupIssues", "team/project")
 	onlyContainer(t, tickets, "CreateIssue", "team/project")
+	if len(o.forge.labelCalls) != 0 {
+		t.Fatalf("a Linear follow-up is not labelled: %v", o.forge.labelCalls)
+	}
+	// #1278 C6: a Linear bug follow-up is created as today, with no label call.
+	b, _ := linearTickets(newOwnerFixture(t))
+	b.mixed()
+	b.say(b.command(ValidateCheckCommand, "story-002:AC-002", "pass", "-- ok"))
+	b.say(b.command(ValidateFindingCommand, "story-002:code", "issue", "bug"))
+	if e := b.effect(store.EffectIssue, "story-002:code"); e.State != store.EffectSucceeded || len(b.forge.issueCreates) != 1 || len(b.forge.labelCalls) != 0 {
+		t.Fatalf("issue effect %+v created %d labels %v", e, len(b.forge.issueCreates), b.forge.labelCalls)
+	}
 }
 
 // #932: a target without a task ref keeps the code repository.
