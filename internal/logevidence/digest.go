@@ -19,10 +19,6 @@ const messageBytes = 1500
 const commandBytes = 300
 const errorTailBytes = 300
 
-// reasoningBytes bounds one thinking summary; reasoning is context for the
-// steps around it, never the bulk of a page.
-const reasoningBytes = 400
-
 // DigestRequest pages through the condensed view of one run.
 type DigestRequest struct {
 	RunID  int64  `json:"run_id"`
@@ -54,6 +50,13 @@ type DigestCounts struct {
 	// Reasoning counts provider thinking summaries (settings.thinking_logs).
 	Reasoning int `json:"reasoning,omitempty"`
 	Withheld  int `json:"withheld_records,omitempty"`
+	// Subagents counts helpers the agent started for its own work: Codex
+	// collab spawn_agent receivers and Claude Task/Agent tool calls.
+	Subagents int `json:"subagents,omitempty"`
+	// ParallelBatches counts assistant turns that issued two or more tool
+	// calls at once. Only Claude streams show this (tool_use blocks sharing
+	// one message id); Codex items do not mark a shared turn.
+	ParallelBatches int `json:"parallel_tool_batches,omitempty"`
 }
 
 func positionAt(n int) logreader.Position { return logreader.Position{Offset: int64(n)} }
@@ -86,7 +89,7 @@ func (s *Service) digest(ctx context.Context, r DigestRequest) Result {
 		}
 		start = int(c.Position.Offset)
 	}
-	d := digestBuilder{calls: map[string]int{}}
+	d := digestBuilder{calls: map[string]int{}, turnCalls: map[string]int{}}
 	pos := logreader.Position{}
 	scanned, eof := 0, false
 	for !eof && scanned < digestScanMaximum {
@@ -145,8 +148,11 @@ func (s *Service) redactEntry(ctx context.Context, e DigestEntry) (DigestEntry, 
 	if e.Kind == "message" || e.Kind == "error" {
 		limit = messageBytes
 	}
+	// Reasoning is the analyst's primary evidence for why an agent acted, so
+	// it keeps the whole redacted thinking, bounded only like the record. The
+	// analysis budget and page size bound the cost.
 	if e.Kind == "reasoning" {
-		limit = reasoningBytes
+		limit = digestRecordMaximum
 	}
 	text, err := s.redactor.Apply(ctx, e.Text, digestRecordMaximum)
 	if err != nil {
@@ -181,6 +187,9 @@ type digestBuilder struct {
 	entries []DigestEntry
 	counts  DigestCounts
 	calls   map[string]int // Claude tool_use id -> entry index
+	// turnCalls counts tool_use blocks per Claude message id; the stream can
+	// split one assistant turn over several records.
+	turnCalls map[string]int
 }
 
 func (d *digestBuilder) push(e DigestEntry) int {
@@ -261,7 +270,9 @@ type codexItem struct {
 	Error   json.RawMessage `json:"error"`
 	Query   string          `json:"query"`
 	Summary json.RawMessage `json:"summary"`
-	Changes []struct {
+	// Receivers names the threads a Codex collab_tool_call addressed.
+	Receivers []string `json:"receiver_thread_ids"`
+	Changes   []struct {
 		Path string `json:"path"`
 		Kind string `json:"kind"`
 	} `json:"changes"`
@@ -272,7 +283,7 @@ func (d *digestBuilder) codex(offset int64, it codexItem) {
 	case "agent_message":
 		d.push(DigestEntry{Offset: offset, Kind: "message", Text: it.Text})
 	case "reasoning":
-		d.reasoning(offset, it.Text, messageText(it.Summary))
+		d.reasoning(offset, append([]string{it.Text}, summaryParts(it.Summary)...)...)
 	case "command_execution":
 		e := DigestEntry{Offset: offset, Kind: "command", Text: it.Command, Exit: it.Exit}
 		if it.Status == "failed" || it.Exit != nil && *it.Exit != 0 {
@@ -292,6 +303,13 @@ func (d *digestBuilder) codex(offset int64, it codexItem) {
 			e.Failed, e.Error = true, tail(messageText(it.Error, nil), errorTailBytes*4)
 		}
 		d.push(e)
+	case "collab_tool_call":
+		e := DigestEntry{Offset: offset, Kind: "tool", Text: "collab/" + it.Tool, Failed: it.Status == "failed"}
+		if it.Tool == "spawn_agent" {
+			d.counts.Subagents += max(1, len(it.Receivers))
+			e.Text = fmt.Sprintf("collab/spawn_agent %d agents", max(1, len(it.Receivers)))
+		}
+		d.push(e)
 	case "web_search":
 		d.push(DigestEntry{Offset: offset, Kind: "tool", Text: "web_search: " + it.Query})
 	case "error":
@@ -301,6 +319,7 @@ func (d *digestBuilder) codex(offset int64, it codexItem) {
 
 func (d *digestBuilder) claude(offset int64, role string, message json.RawMessage) {
 	var m struct {
+		ID      string          `json:"id"`
 		Content json.RawMessage `json:"content"`
 	}
 	var blocks []struct {
@@ -325,6 +344,16 @@ func (d *digestBuilder) claude(offset int64, role string, message json.RawMessag
 			d.reasoning(offset, b.Thinking)
 		case role == "assistant" && b.Type == "tool_use":
 			d.calls[b.ID] = d.push(claudeCall(offset, b.Name, b.Input))
+			if b.Name == "Task" || b.Name == "Agent" {
+				d.counts.Subagents++
+			}
+			turn := m.ID
+			if turn == "" {
+				turn = fmt.Sprintf("@%d", offset)
+			}
+			if d.turnCalls[turn]++; d.turnCalls[turn] == 2 {
+				d.counts.ParallelBatches++
+			}
 		case role == "user" && b.Type == "tool_result" && b.IsError:
 			if i, ok := d.calls[b.ToolUseID]; ok {
 				d.fail(i, tail(messageText(b.Content, nil), errorTailBytes*4))
@@ -333,15 +362,35 @@ func (d *digestBuilder) claude(offset int64, role string, message json.RawMessag
 	}
 }
 
-// reasoning keeps the first non-empty thinking summary; a provider that
-// withholds its thinking leaves empty blocks, which are skipped.
+// reasoning joins every non-empty thinking part of one item, in order, into
+// one entry at the item's offset. A provider that withholds its thinking
+// leaves empty parts, which are skipped; an item with none adds no entry.
 func (d *digestBuilder) reasoning(offset int64, texts ...string) {
+	parts := []string{}
 	for _, text := range texts {
 		if text = strings.TrimSpace(text); text != "" {
-			d.push(DigestEntry{Offset: offset, Kind: "reasoning", Text: text})
-			return
+			parts = append(parts, text)
 		}
 	}
+	if len(parts) > 0 {
+		d.push(DigestEntry{Offset: offset, Kind: "reasoning", Text: strings.Join(parts, "\n\n")})
+	}
+}
+
+// summaryParts reads every text of a Codex reasoning summary: an array of
+// summary parts, or a plain string or {"message": ...} object.
+func summaryParts(raw json.RawMessage) []string {
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil {
+		parts := make([]string, 0, len(blocks))
+		for _, b := range blocks {
+			parts = append(parts, b.Text)
+		}
+		return parts
+	}
+	return []string{messageText(raw)}
 }
 
 func claudeCall(offset int64, name string, raw json.RawMessage) DigestEntry {
