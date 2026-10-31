@@ -50,15 +50,22 @@ func scanConversationAnswer(row scanner) (ConversationAnswer, error) {
 
 // CompleteConversationAnswer persists every immutable part before any network send.
 func (db *DB) CompleteConversationAnswer(ctx context.Context, t ConversationTurn, state string, a ConversationAnswer, parts []ConversationAnswerPart, at time.Time) error {
-	return db.completeConversationAnswer(ctx, t, state, a, parts, at, false)
+	return db.completeConversationAnswer(ctx, t, state, a, parts, at, false, false)
 }
 
 // CompleteConversationHandledAnswer saves a factory response without launching a provider.
 func (db *DB) CompleteConversationHandledAnswer(ctx context.Context, t ConversationTurn, a ConversationAnswer, parts []ConversationAnswerPart, at time.Time) error {
-	return db.completeConversationAnswer(ctx, t, "completed", a, parts, at, true)
+	return db.completeConversationAnswer(ctx, t, "completed", a, parts, at, true, false)
 }
 
-func (db *DB) completeConversationAnswer(ctx context.Context, t ConversationTurn, state string, a ConversationAnswer, parts []ConversationAnswerPart, at time.Time, handled bool) error {
+// CompleteConversationFreshAnswer saves the factory answer to the owner's
+// fresh-conversation command and starts a fresh native conversation in the
+// same fenced transaction.
+func (db *DB) CompleteConversationFreshAnswer(ctx context.Context, t ConversationTurn, a ConversationAnswer, parts []ConversationAnswerPart, at time.Time) error {
+	return db.completeConversationAnswer(ctx, t, "completed", a, parts, at, true, true)
+}
+
+func (db *DB) completeConversationAnswer(ctx context.Context, t ConversationTurn, state string, a ConversationAnswer, parts []ConversationAnswerPart, at time.Time, handled, fresh bool) error {
 	if a.ID == "" || len(a.ID) > 128 || a.Version < 1 || len(parts) < 1 || len(parts) > 1024 || a.ProposalPart < 0 || a.ProposalPart > len(parts) || at.IsZero() || (state != "completed" && state != "interrupted" && state != "unavailable") {
 		return errors.New("invalid conversation answer")
 	}
@@ -83,6 +90,11 @@ func (db *DB) completeConversationAnswer(ctx context.Context, t ConversationTurn
 		}
 		if state == "completed" && c.SessionHandle == "" && !handled {
 			return errors.New("conversation completed without session identity")
+		}
+		if fresh {
+			if err = startFreshConversation(ctx, tx, t, at); err != nil {
+				return err
+			}
 		}
 		first := fmt.Sprintf("answer:%s:1", a.ID)
 		r, err := tx.ExecContext(ctx, `UPDATE chat_conversation_turns SET state=?,reply_id=?,finished_at=?,lease_until=NULL WHERE id=? AND conversation_id=? AND state='running' AND generation=? AND worker=?`, state, first, FormatTime(at), t.ID, t.ConversationID, t.Generation, t.Worker)

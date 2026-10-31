@@ -21,3 +21,10 @@ For captures without the coverage contract, use only the existing full-suite
 passing evidence. Judge reading-only requirements from the tested code as your
 role permits. Never write that anything is accepted or approved; findings are
 recorded, not decided.
+
+For an unmet or unverified finding, start the first evidence entry with one plain
+sentence naming the defect: what goes wrong, and where. Then say what was expected
+and where in the code. The owner may file that finding as its own issue, which is
+titled by this sentence and described by this entry. Put separate points, such as
+coverage notes, in separate evidence entries, and keep check IDs in `check_ids`,
+not in the prose.

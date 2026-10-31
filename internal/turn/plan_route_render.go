@@ -1,20 +1,17 @@
 package turn
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
 // predictedPlanRoute follows the captured control declarations with initial
-// story-stage facts. It reports the selected activity; it does not choose a route.
-func predictedPlanRoute(p *graphexec.Profile, facts map[string]string) (string, string) {
+// story-stage facts. It reports the selected activity and why, as a reason kind
+// and the graph's fast-track size; it does not choose a route.
+func predictedPlanRoute(p *graphexec.Profile, facts map[string]string) (route, reason, fastTrack string) {
 	if p == nil {
-		return "normal", "legacy graph"
+		return "normal", "", ""
 	}
-	evidence := []string{p.Digest}
 	current := p.Start
 	seen := map[string]bool{}
 	for len(seen) <= len(p.Nodes) {
@@ -27,7 +24,7 @@ func predictedPlanRoute(p *graphexec.Profile, facts map[string]string) (string, 
 			break
 		}
 		if n.Action == graphexec.PlanParallelAction {
-			return "parallel", strings.Join(evidence, "; ")
+			return "parallel", planbrief.PlanRouteReasonFastTrack, ""
 		}
 		if n.Action != graphexec.ResearchIfAction && n.Action != graphexec.ResearchLoopAction {
 			break
@@ -41,7 +38,15 @@ func predictedPlanRoute(p *graphexec.Profile, facts map[string]string) (string, 
 			outcome, err = condition.Evaluate("story", true)
 		} else {
 			outcome, err = condition.EvaluatePlanFacts(facts)
-			evidence = append(evidence, fmt.Sprintf("%s %s=%s [%s]", n.Name, condition.Field, facts[condition.Field], outcome))
+			reason, fastTrack = "", ""
+			switch condition.Field {
+			case "story.size":
+				reason, fastTrack = planbrief.PlanRouteReasonSize, condition.Condition
+			case "story.sizing_valid":
+				reason = planbrief.PlanRouteReasonSizing
+			case "story.fallback":
+				reason = planbrief.PlanRouteReasonGrowth
+			}
 		}
 		if err != nil {
 			break
@@ -52,7 +57,7 @@ func predictedPlanRoute(p *graphexec.Profile, facts map[string]string) (string, 
 		}
 		current = next
 	}
-	return "normal", strings.Join(evidence, "; ")
+	return "normal", reason, fastTrack
 }
 
 func (r *planGraphRuntime) setRouteReviews(set *planbrief.PlanStorySetState) []planbrief.PlanRouteReview {
@@ -71,8 +76,29 @@ func (r *planGraphRuntime) setRouteReviews(set *planbrief.PlanStorySetState) []p
 	}
 	reviews := make([]planbrief.PlanRouteReview, 0, len(set.Entries))
 	for _, entry := range set.Entries {
-		route, basis := predictedPlanRoute(profile, planStoryFacts(state, entry.ID))
-		reviews = append(reviews, planbrief.PlanRouteReview{Story: entry.ID, Size: entry.Size, SizeReason: entry.SizeReason, Route: route, Basis: basis})
+		route, reason, fastTrack := predictedPlanRoute(profile, planStoryFacts(state, entry.ID))
+		reviews = append(reviews, planbrief.PlanRouteReview{Story: entry.ID, Size: entry.Size, SizeReason: entry.SizeReason, Route: route, Reason: reason, FastTrackSize: fastTrack})
+	}
+	return reviews
+}
+
+// finalRouteReviews explains each stored route from the captured graph and the
+// original sizing. The stored current route stays authoritative: the graph's
+// reason is shown only when its prediction agrees with it.
+func (r *planGraphRuntime) finalRouteReviews(s planbrief.PlanState) []planbrief.PlanRouteReview {
+	var profile *graphexec.Profile
+	if r.definition != nil {
+		profile = r.definition.Profile
+	}
+	reviews := s.RouteReviews()
+	for i := range reviews {
+		if reviews[i].Growth != "" {
+			continue
+		}
+		route, reason, fastTrack := predictedPlanRoute(profile, planStoryFacts(s, reviews[i].Story))
+		if route == reviews[i].Route {
+			reviews[i].Reason, reviews[i].FastTrackSize = reason, fastTrack
+		}
 	}
 	return reviews
 }

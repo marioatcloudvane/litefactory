@@ -135,12 +135,13 @@ func (db *DB) GetConversationActionLink(ctx context.Context, turnID string) (Con
 	return a, err
 }
 
-// ListConversationSources returns retained exact owner bytes, never reconstructed provider history.
+// ListConversationSources returns retained exact owner bytes, never reconstructed
+// provider history, and nothing from before the last fresh conversation start.
 func (db *DB) ListConversationSources(ctx context.Context, conversationID string, at time.Time, limit int) ([]ConversationTurn, error) {
 	if limit < 1 || limit > 32 {
 		return nil, errors.New("invalid conversation source limit")
 	}
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+conversationTurnColumns+` FROM chat_conversation_turns WHERE conversation_id=? AND source<>'' AND (created_at>? OR EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_natural_dialogues d ON d.code=a.dialogue_id AND d.revision=a.dialogue_revision WHERE a.turn_id=chat_conversation_turns.id AND EXISTS(SELECT 1 FROM chat_conversations c WHERE c.id=chat_conversation_turns.conversation_id AND c.transport=d.transport AND c.owner_id=d.owner_id AND c.channel_ref=d.channel_ref) AND d.state IN ('awaiting_confirmation','authorized','executing'))) ORDER BY sequence DESC LIMIT ?`, conversationID, FormatTime(at.Add(-24*time.Hour)), limit)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+conversationTurnColumns+` FROM chat_conversation_turns WHERE conversation_id=? AND source<>'' AND sequence>(SELECT fresh_after FROM chat_conversations fresh WHERE fresh.id=chat_conversation_turns.conversation_id) AND (created_at>? OR EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_natural_dialogues d ON d.code=a.dialogue_id AND d.revision=a.dialogue_revision WHERE a.turn_id=chat_conversation_turns.id AND EXISTS(SELECT 1 FROM chat_conversations c WHERE c.id=chat_conversation_turns.conversation_id AND c.transport=d.transport AND c.owner_id=d.owner_id AND c.channel_ref=d.channel_ref) AND d.state IN ('awaiting_confirmation','authorized','executing'))) ORDER BY sequence DESC LIMIT ?`, conversationID, FormatTime(at.Add(-24*time.Hour)), limit)
 	if err != nil {
 		return nil, err
 	}

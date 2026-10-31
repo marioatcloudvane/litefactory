@@ -91,6 +91,12 @@ func naturalCancel(text string) bool {
 	return false
 }
 
+// naturalFreshConversation is the owner's whole-message command to start a
+// fresh native conversation.
+func naturalFreshConversation(text string) bool {
+	return strings.Trim(strings.ToLower(strings.TrimSpace(text)), "`\"!. ") == "new conversation"
+}
+
 func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time.Time) (string, error) {
 	if standardsCommand(p.Invocation.Command) {
 		op, err := standardsOperation(p.Invocation)

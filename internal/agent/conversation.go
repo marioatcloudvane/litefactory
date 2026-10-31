@@ -17,6 +17,12 @@ var ErrConversationSessionMissing = errors.New("saved conversation session is mi
 // ErrConversationBusy prevents overlap with a previously owned process.
 var ErrConversationBusy = errors.New("conversation provider is still running")
 
+// ErrConversationRefused marks a turn the provider's safety filter refused.
+var ErrConversationRefused = errors.New("conversation provider refused the message")
+
+// ErrConversationAuthentication marks a turn the provider could not sign in for.
+var ErrConversationAuthentication = errors.New("conversation provider authentication failed")
+
 // ConversationRequest contains only prompt data and one private native session identity.
 type ConversationRequest struct {
 	ConversationID, TurnID, Model, StateDirectory, Prompt string
