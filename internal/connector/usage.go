@@ -502,7 +502,7 @@ func usageInputSchema() map[string]any {
 		"repository": map[string]any{"type": "string", "maxLength": 512}, "issue": map[string]any{"type": "integer", "minimum": 1},
 		"period": map[string]any{"type": "string", "enum": []string{"today", "rolling_7_days", "rolling_30_days", "all_history"}},
 		"from":   map[string]any{"type": "string", "format": "date-time"}, "to": map[string]any{"type": "string", "format": "date-time"},
-		"mode": map[string]any{"type": "string", "enum": []string{"research", "plan", "implement", "spike"}}, "agent": map[string]any{"type": "string", "enum": []string{"claude", "codex"}}, "model": map[string]any{"type": "string", "maxLength": 256},
+		"mode": map[string]any{"type": "string", "enum": []string{"research", "plan", "implement", "spike", "advisory"}}, "agent": map[string]any{"type": "string", "enum": []string{"claude", "codex"}}, "model": map[string]any{"type": "string", "maxLength": 256},
 		"view": map[string]any{"type": "string", "enum": []string{"summary", "breakdown", "details"}}, "by": map[string]any{"type": "array", "maxItems": 4, "uniqueItems": true, "items": map[string]any{"type": "string", "enum": meterview.BreakdownDimensions}}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 50}, "cursor": map[string]any{"type": "string", "maxLength": 4096},
 	}
 	return map[string]any{"type": "object", "required": []string{"scope"}, "additionalProperties": false, "properties": properties}

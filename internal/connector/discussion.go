@@ -291,6 +291,16 @@ func DiscussionResult(summary string, evidence any) (ToolResult, error) {
 
 func (s *Server) availableTools(grant store.ConnectorGrant) []string {
 	names := []string{}
+	if discussion := s.taskDiscussion.Load(); discussion != nil {
+		for _, name := range advisoryToolNames {
+			if (name == "discussion_summary_publish" || name == "discussion_summary_get") && !discussion.PublicationAvailable() {
+				continue
+			}
+			if advisoryToolAllowed(grant, name) {
+				names = append(names, name)
+			}
+		}
+	}
 	if s.overview != nil && store.ConnectorScopeHas(grant.Scope, Scope) {
 		names = append(names, "factory_overview")
 	}

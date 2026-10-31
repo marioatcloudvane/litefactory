@@ -225,6 +225,9 @@ func (c Command) NeedsReply() bool {
 // comment the daemon reads has to be disposed of one way or another — and the
 // tag parser cannot fail either, precisely so that contract still holds.
 func ParseCommand(body string) Command {
+	if commandtext.DiscussionSummary(body) {
+		return Command{Kind: KindNone}
+	}
 	body = commandtext.Normalize(body)
 	if _, ok := doctor.ParseCommand(body); ok {
 		return Command{Kind: KindNone, Name: "/doctor"}

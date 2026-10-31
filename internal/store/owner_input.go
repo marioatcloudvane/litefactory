@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"regexp"
 	"strconv"
 	"strings"
@@ -73,7 +74,7 @@ type OwnerInstruction struct {
 // ingestion cursor advances. Replays cannot change bytes, identity or target.
 func (db *DB) RetainOwnerInstruction(ctx context.Context, sessionID, commentID, ownerID int64, body string, target OwnerInputTarget) (OwnerInstruction, error) {
 	var out OwnerInstruction
-	if ownerID < 1 || commentID < 1 || strings.TrimSpace(body) == "" || len(body) > 65536 || target.InstanceID < 0 || target.LaunchID < 0 || (target.InstanceID == 0 && (target.Node != "" || target.LaunchID != 0)) || (target.InstanceID > 0 && !ownerInputNodePattern.MatchString(target.Node)) {
+	if commandtext.DiscussionSummary(body) || ownerID < 1 || commentID < 1 || strings.TrimSpace(body) == "" || len(body) > 65536 || target.InstanceID < 0 || target.LaunchID < 0 || (target.InstanceID == 0 && (target.Node != "" || target.LaunchID != 0)) || (target.InstanceID > 0 && !ownerInputNodePattern.MatchString(target.Node)) {
 		return out, graphInvariant("invalid ordinary owner instruction")
 	}
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
@@ -180,7 +181,7 @@ type OwnerGuidance struct {
 // SetOwnerGuidance retains an immutable authenticated set/clear revision.
 func (db *DB) SetOwnerGuidance(ctx context.Context, sessionID, commentID, ownerID int64, body string) (OwnerGuidance, error) {
 	var out OwnerGuidance
-	if ownerID < 1 || len(body) > 65536 {
+	if commandtext.DiscussionSummary(body) || ownerID < 1 || len(body) > 65536 {
 		return out, graphInvariant("invalid owner guidance")
 	}
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
