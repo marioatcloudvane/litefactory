@@ -12,7 +12,7 @@ Establish current foundations and sketch an extensible remote MCP interface for 
 - **K-01** — Preserve shared proposal/confirmation authority, scope checks, exact targets, impact tiers and uncertain-effect recovery; discovery does not authorize execution. (agent's call)
 - **N-01** — Superseded by N-02: the initial evidence-only boundary ended when shaping began; this stage defines scope but does not implement it. (agent's call)
 - **O-03** — Owners using Claude or ChatGPT can discover enabled log-analysis and standards-author workflows, inspect their inputs and propose exact background work without memorizing domain action names. (agent's call)
-- **O-04** — Workflow discovery identifies a stable workflow ID and version, purpose, input and continuation schemas, examples, required permissions, availability reason, supported capabilities and result shape. (agent's call)
+- **O-04** — Workflow discovery identifies a stable workflow reference, version, definition binding, supported execution targets, purpose, availability and required permissions, with full input, continuation and result contracts available on description. (agent's call)
 - **O-05** — The proposed first release uses shared workflow discovery, description, proposal, continuation-proposal and job-status tools with the existing separate confirmation call, subject to q01. (agent's call)
 - **O-06** — A confirmed start returns promptly with a durable job reference that remains readable after disconnects and daemon restarts. (agent's call)
 - **O-07** — One author conversation retains a stable job ID with separate recorded execution attempts and confirmation references for each accepted continuation. (agent's call)
@@ -22,29 +22,38 @@ Establish current foundations and sketch an extensible remote MCP interface for 
 - **O-11** — Durable recovery reconciles existing domain receipts before retrying work, preserves partial results and marks unresolved external effects uncertain without replaying them blindly. (agent's call)
 - **O-12** — The initial capacity is one background workflow attempt at a time while discovery, proposal, confirmation and status calls remain responsive and every run uses its advertised domain deadline. (agent's call)
 - **O-13** — A notification view separates job outcome from pending, delivered, failed or unavailable Discord delivery, with durable deduplication and notices for terminal outcomes and requests for input. (agent's call)
-- **O-14** — The recommended notification policy allows jobs without Discord and sends notices to an explicitly configured authorized project destination when available, subject to q02. (agent's call)
+- **O-14** — The recommended notification policy uses an explicitly configured authorized project destination for project jobs or owner/factory destination for independent jobs and allows starts without either destination, subject to q02. (agent's call)
 - **O-15** — An extension contract lets a future installed and policy-classified adapter join discovery and the common start, continuation and result lifecycle without adding a new MCP tool. (agent's call)
-- **O-16** — Acceptance demonstrates both workflows through discovery, proposal, confirmation and saved results, including author answers, a dry-run without filings, duplicate requests, revoked permissions, restart recovery and Discord outage behavior. (agent's call)
+- **O-16** — Acceptance demonstrates both workflows, independent and project-context authoring, discovery filtering, confirmed starts and answers, saved results, dry-run without filings, duplicate requests, revoked permissions, restart recovery and Discord outage behavior. (agent's call)
 - **N-02** — Implementation, code changes, story creation, live job execution and deployment are outside this shaping stage. (agent's call)
 - **N-03** — A custom research workflow, arbitrary commands or graph execution, dynamic plugin installation and a general workflow designer are outside this feature. (agent's call)
 - **N-04** — Running-job cancellation, priority queues, parallel scheduling, automatic retries of uncertain effects, chat push streaming and new notification channels are outside the first release. (agent's call)
 - **N-05** — Automatic publication of standards and factory stage steering are outside this feature. (agent's call)
 - **K-02** — Existing MCP action tools, CLI analysis and authoring, Discord flows and retained records remain usable with additive compatible changes. (agent's call)
-- **K-03** — Discovery and all job reads are restricted to the authenticated owner's authorized projects, and proposals, confirmations and execution recheck current authority without leaking unauthorized entries. (agent's call)
+- **K-03** — Discovery and job reads require the authenticated owner's grants for the workflow binding and execution target, including explicit factory-level authority for independent jobs, with authority rechecked at proposal, confirmation and execution. (agent's call)
 - **K-04** — Proposal creation launches no agent, every start and continuation requires separate existing confirmation, and drafting a standard never approves or publishes it. (agent's call)
 - **K-05** — The same owner-scoped request key and canonical inputs return the existing operation while reuse with changed inputs conflicts. (agent's call)
 - **K-06** — Job records reference existing admission and domain identities rather than create a competing author session, and execution, result and notification state remain distinct. (agent's call)
 - **K-07** — Unknown workflow versions, invalid inputs and unavailable adapters fail without admitting work, and changed exact targets require a fresh proposal. (agent's call)
+- **O-17** — The workflow catalogue supports definitions independent of projects and definitions bound to a particular project without requiring a project argument for discovery. (owner said: comment 6542433357)
+- **O-18** — A definition's project binding and a job's execution target are separate facts, and each adapter declares whether its execution target is absent, optional or required. (agent's call)
+- **O-19** — Standards authoring supports book-only execution or explicit project context while log analysis requires explicit repository targets and never interprets omitted project as all projects. (agent's call)
+- **O-20** — An unfiltered catalogue lists all authorized definitions, while an optional project filter includes independent definitions usable with that project and definitions bound to that project. (agent's call)
+- **O-21** — Project-bound definitions have unambiguous stable references, cannot override independent definitions by name and reject execution against a different project. (agent's call)
+- **O-22** — List returns paginated summaries for selecting a workflow and describe returns one selected version's full schemas, examples, permissions and result contract without starting work. (agent's call)
+- **O-23** — A saved proposal and job freeze the workflow reference and version, optional definition binding, explicit execution target, confirmation and domain references so continuation cannot switch scope. (agent's call)
+- **K-08** — Missing project context never grants global access or selects an arbitrary project, and independent jobs are unavailable when existing grants cannot authorize factory-level work. (agent's call)
+- **A-01** — Scope correction and discovery explanation — owner: "i see an error here - workflows might be independent of the project but might be part of a project. also tell me an example response from the workflows_list. and why do we have list and describe?" (owner said: comment 6542433357)
 
 
 ## Assumptions
 
 - **AS-01** — Remote owner MCP is the intended client surface, rather than the run-scoped worker MCP, based on parent #1106. (agent's call)
 - **AS-02** — Future custom research means an explicitly registered, permission-classified workflow adapter; it does not imply arbitrary model-supplied commands or unrestricted graph execution. (agent's call)
-- **AS-03** — The initial sketch is superseded as a scope proposal by O-03 through O-16; exact generic versus convenience-tool exposure remains q01, and existing generic action compatibility is retained by K-02. (agent's call)
+- **AS-03** — The original sketch's mandatory project arguments and project-only permissions are superseded by O-17 through O-23 and K-08; shared versus convenience-tool exposure remains q01, and no existing action compatibility is removed. (agent's call)
 - **AS-04** — Single-attempt capacity is sufficient for the first release because no throughput target was supplied and the present worker is sequential; a 30-minute log-analysis ceiling must not be silently reduced by the admission worker's ten-minute context. (agent's call)
 - **AS-05** — Workflow versions are server-controlled contracts: proposals retain the selected version, incompatible unavailable versions require reproposal, and pagination bounds catalogue and result reads without losing retained evidence. (agent's call)
-- **AS-06** — No builder-check advisory was supplied with this invocation; no prior shaping answer or approval is inferred from the instruction to continue. (agent's call)
+- **AS-06** — No builder-check advisory was supplied in either shaping invocation; owner comment 6542433357 corrects project scope and requests examples but does not answer q01 or q02 or approve the scope. (agent's call)
 
 
 ## Open questions
@@ -53,15 +62,15 @@ Establish current foundations and sketch an extensible remote MCP interface for 
 
 _Asked of: Product Owner Questions_
 
-- **a** — Shared workflow tools only (recommended): ship discovery, description, proposal, continuation proposal and job status, retaining existing action confirmation and action tools; this lets future workflows join without adding client-facing tools.  *(recommended)*
-- **b** — Shared tools plus dedicated log-analysis and standards-author wrappers: keep one underlying lifecycle but add the issue's shortcut tools and maintain both interfaces; this expands the first release.
+- **a** — Shared workflow tools only (recommended): keep list for concise discovery, describe for the selected contract, shared start and continuation proposals, existing confirmation and job status; future workflows need no additional tool names.  *(recommended)*
+- **b** — Shared tools plus dedicated log-analysis and standards-author wrappers: offer shortcuts alongside the common lifecycle, increasing the interface and compatibility work.
 
 ### q02 — May an MCP job start when no authorized Discord destination is configured?
 
 _Asked of: Product Owner Questions_
 
-- **a** — Yes, with explicit notification status (recommended): use a configured authorized project destination when present; otherwise start the job, report Discord unavailable and keep results accessible through job status; a Discord outage never changes the job outcome.  *(recommended)*
-- **b** — Require a configured authorized destination before confirming a start: refuse admission if missing, then queue durable notices through outages; this makes Discord setup a prerequisite for MCP jobs.
+- **a** — Yes (recommended): use an authorized project destination for project jobs or owner/factory destination for independent jobs when configured; otherwise show notifications unavailable and keep results in job status.  *(recommended)*
+- **b** — Require an authorized destination before confirmation: use a project or owner/factory destination according to the job's scope, refuse starts when missing and queue notices during outages.
 
 ## Research documents
 

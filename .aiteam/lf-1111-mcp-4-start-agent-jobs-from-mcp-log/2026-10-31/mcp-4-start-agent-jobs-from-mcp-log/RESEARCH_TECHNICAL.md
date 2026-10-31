@@ -97,3 +97,21 @@ Evidence limits and handoff: repository code and GitHub issue/PR metadata were i
 Evidence:
 
 - `internal/daemon/owner_action_backend.go:27`
+
+## F-13
+
+Standards-author CLI already permits an omitted project and uses the published book alone; an explicit project adds pinned code and incidents, so project context is optional domain behavior rather than a hypothetical workflow requirement.
+
+Evidence:
+
+- `internal/cli/cmd_standards_author.go:23`
+
+## F-14
+
+Impact of owner correction: catalogue schemas and guidance must distinguish definition binding from execution target; author adapter, admission facts, grants and notification routing must support independent work without inventing a repository, while current log-analysis start still requests explicit repository targets; existing action facts contain repository identity and require careful additive compatibility.
+
+Evidence:
+
+- `internal/cli/cmd_log_analysis.go:34`
+- `internal/owneraction/types.go:27`
+- `internal/cli/cmd_standards_author.go:136`
