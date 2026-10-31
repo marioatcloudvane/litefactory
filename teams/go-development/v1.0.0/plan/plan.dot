@@ -1,14 +1,15 @@
-// Plan shapes a scope into stories in four owner-authorized stages, each with
-// one reasoning role: set, story, technical and acceptance.
+// Plan retains owner set/final authority and normal sequential story stages.
+// Eligible S stories use bounded concurrent role contributions before guarded
+// ordered application; captured older graphs retain their declared route.
 //
 // The factory, not an agent, decides which stage a run is in. It answers the
 // select_* decisions from retained authenticated state, so a run enters exactly
 // one stage. Parent discussion selects set; automatic work with stories skips set.
 //
-// Every stage can answer discussion through an explicit comment and stop without
+// Normal stages can answer discussion through an explicit comment and stop without
 // changing drafts or approvals. Otherwise its agent drafts, asks the owner when it
 // needs an answer, and otherwise applies its draft to the story and asks for
-// review. A stage advances only through its gate, which reads "approved" from
+// review. A normal stage advances through its gate, which reads "approved" from
 // an owner reply; review-ready is never approval. Every wait is durable, and
 // running out of passes stops the run in a resumable state.
 //
@@ -44,9 +45,9 @@ digraph plan {
  set_advice [lf_action="lf_comment", lf_outcomes="published", lf_kind="advisory", lf_format="brief", lf_limit="8", lf_source="set_check"];
 
  // ---- Stage 2: stories (bounded creation cycle) ----------------------------
- story_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="story", lf_limit="8"];
+ story_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="story", lf_limit="13"];
  story_pick     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="create", lf_limit="13"];
- story_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-story", lf_skills="plan-story-shaping", lf_limit="13"];
+ story_agent    [lf_action="lf_agent", lf_plan_role="story", lf_outcomes="success,failed", lf_agent_markdown="plan-story", lf_skills="plan-story-shaping", lf_limit="13"];
  story_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="story_agent", lf_limit="13"];
  story_draft    [lf_action="lf_plan_story", lf_source="story_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="13"];
  story_ask      [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_source="story_agent", lf_limit="8"];
@@ -56,7 +57,7 @@ digraph plan {
 
  // ---- Stage 3: technical ---------------------------------------------------
  technical_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="technical", lf_limit="8"];
- technical_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-technical", lf_standards="plan-technical", lf_skills="plan-technical-shaping", lf_limit="8"];
+ technical_agent    [lf_action="lf_agent", lf_plan_role="technical", lf_outcomes="success,failed", lf_agent_markdown="plan-technical", lf_standards="plan-technical", lf_skills="plan-technical-shaping", lf_limit="8"];
  technical_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="technical_agent", lf_limit="8"];
  technical_draft    [lf_action="lf_plan_story", lf_source="technical_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="8"];
  technical_ask      [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_source="technical_agent", lf_limit="8"];
@@ -66,7 +67,7 @@ digraph plan {
 
  // ---- Stage 4: acceptance --------------------------------------------------
  acceptance_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="acceptance", lf_limit="8"];
- acceptance_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-acceptance", lf_skills="plan-acceptance-shaping", lf_limit="8"];
+ acceptance_agent    [lf_action="lf_agent", lf_plan_role="acceptance", lf_outcomes="success,failed", lf_agent_markdown="plan-acceptance", lf_skills="plan-acceptance-shaping", lf_limit="8"];
  acceptance_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="acceptance_agent", lf_limit="8"];
  acceptance_draft    [lf_action="lf_plan_story", lf_source="acceptance_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="8"];
  acceptance_ask      [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_source="acceptance_agent", lf_limit="8"];
@@ -106,7 +107,7 @@ digraph plan {
 
  // Stage selection: the first true decision picks the stage; none stops.
  select_set        -> set_loop          [lf_on="true"];
- select_set        -> select_story      [lf_on="false"];   // stories exist; skip the set
+ select_set        -> select_discussion [lf_on="false"];   // stories exist; skip the set
  select_story      -> story_loop        [lf_on="true"];
  select_story      -> select_technical  [lf_on="false"];
  select_technical  -> technical_loop    [lf_on="true"];
@@ -141,7 +142,7 @@ digraph plan {
  story_advice -> story_review [lf_on="published"]; // then the owner review
  story_ask      -> waiting        [lf_on="published"];
  story_review   -> story_pick     [lf_on="published"];
- story_pick     -> story_agent    [lf_on="true"];     // another story has no draft
+ story_pick     -> sizing_valid   [lf_on="true"];     // another story has no draft
  story_pick     -> waiting        [lf_on="false"];    // all drafted; owner reviews
 
  // Stage 3: technical shaping, same shape as the set stage.
@@ -189,4 +190,90 @@ digraph plan {
  acceptance_draft -> failed [lf_on="failed"];
  acceptance_draft -> failed [lf_on="uncertain"];
  failed           -> stopped [lf_on="published"];
+
+ // Owner discussion retains its current normal stage and creates no parallel group.
+ select_discussion [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="discussion", lf_limit="24"];
+ select_discussion -> select_story [lf_on="true"];
+ select_discussion -> sizing_valid [lf_on="false"];
+
+ // Graph-owned story routing: missing/invalid sizing always uses normal stages.
+ sizing_valid [lf_action="lf_if", lf_outcomes="true,false", lf_field="story.sizing_valid", lf_condition="true", lf_limit="24"];
+ sizing_fallback [lf_action="lf_if", lf_outcomes="true,false", lf_field="story.fallback", lf_condition="false", lf_limit="24"];
+ sizing_small [lf_action="lf_if", lf_outcomes="true,false", lf_field="story.size", lf_condition="S", lf_limit="24"];
+ sizing_valid -> sizing_fallback [lf_on="true"];
+ sizing_valid -> select_story [lf_on="false"];
+ sizing_fallback -> sizing_small [lf_on="true"];
+ sizing_fallback -> select_story [lf_on="false"];
+ sizing_small -> parallel_group [lf_on="true"];
+ sizing_small -> select_story [lf_on="false"];
+
+ parallel_group [lf_action="lf_plan_parallel", lf_outcomes="ready,ask,fallback,stopped,superseded,failed", lf_members="story_agent,technical_agent,acceptance_agent", lf_rounds="3", lf_limit="24"];
+ parallel_ask [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_source="parallel_group", lf_limit="24"];
+ parallel_group -> parallel_story_draft [lf_on="ready"];
+ parallel_group -> parallel_ask [lf_on="ask"];
+ parallel_group -> select_story [lf_on="fallback"];
+ parallel_group -> failed [lf_on="stopped"];
+ parallel_group -> stopped [lf_on="superseded"];
+ parallel_group -> failed [lf_on="failed"];
+ parallel_ask -> waiting [lf_on="published"];
+
+ // Sealed story projection: effect, advisory, guarded approval and owner fallback.
+ parallel_story_draft [lf_action="lf_plan_story", lf_source="parallel_group", lf_stage="story", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="24"];
+ parallel_story_check [lf_action="lf_judge", lf_outcomes="success,failed", lf_source="parallel_group", lf_stage="story", lf_agent="codex", lf_limit="24", lf_focus="Plan stage check. Judge this story draft against the golden rule: it must simplify working with the factory and make things easier. Check against RESEARCH_BRIEF.md's outcome ledger: does the story say which O- outcomes it covers (Covers:), are relevant N-/K- entries copied verbatim, is every narrowing or drop of an agreed outcome a Ruling: line, and is anything agreed silently missing? Are the actor, intent and value clear, and is the story the right size (fewer stories, more tasks)? List only material concerns, each with what to change. AI;DR first. Advisory only."];
+ parallel_story_advice [lf_action="lf_comment", lf_outcomes="published", lf_kind="advisory", lf_format="brief", lf_source="parallel_story_check", lf_stage="story", lf_limit="24"];
+ parallel_story_approve [lf_action="lf_plan_approve", lf_source="parallel_group", lf_stage="story", lf_outcomes="approved,review,superseded,blocked,failed", lf_limit="24"];
+ parallel_story_review [lf_action="lf_gate", lf_outcomes="published", lf_command="/approve-plan", lf_args="story,stage,candidate", lf_source="parallel_group", lf_stage="story", lf_limit="24"];
+ parallel_story_draft -> failed [lf_on="conflict"];
+ parallel_story_draft -> failed [lf_on="failed"];
+ parallel_story_draft -> failed [lf_on="uncertain"];
+ parallel_story_draft -> parallel_story_check [lf_on="applied"];
+ parallel_story_check -> parallel_story_advice [lf_on="success"];
+ parallel_story_check -> parallel_story_advice [lf_on="failed"];
+ parallel_story_advice -> parallel_story_approve [lf_on="published"];
+ parallel_story_approve -> parallel_technical_draft [lf_on="approved"];
+ parallel_story_approve -> parallel_story_review [lf_on="review"];
+ parallel_story_approve -> stopped [lf_on="superseded"];
+ parallel_story_approve -> failed [lf_on="blocked"];
+ parallel_story_approve -> failed [lf_on="failed"];
+ parallel_story_review -> waiting [lf_on="published"];
+
+ // Sealed technical projection: effect, advisory, guarded approval and owner fallback.
+ parallel_technical_draft [lf_action="lf_plan_story", lf_source="parallel_group", lf_stage="technical", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="24"];
+ parallel_technical_check [lf_action="lf_judge", lf_outcomes="success,failed", lf_source="parallel_group", lf_stage="technical", lf_agent="codex", lf_limit="24", lf_focus="Plan technical check. Judge this architecture draft against the golden rule: it must simplify working with the factory and make things easier. Does the architecture keep every O- outcome the story covers (Covers:), with any narrowing recorded as a Ruling: line and nothing agreed silently lost? Does it respect every K- invariant and stay out of N- non-goals? Does it reuse what already exists instead of building parallel mechanisms, and avoid overreach beyond the story? Does S-01 shape it (safety net before a refactor, retirement path, compatibility)? Is the work kind of each task sensible, and does each task build on the last? List only material concerns, each with what to change. AI;DR first. Advisory only."];
+ parallel_technical_advice [lf_action="lf_comment", lf_outcomes="published", lf_kind="advisory", lf_format="brief", lf_source="parallel_technical_check", lf_stage="technical", lf_limit="24"];
+ parallel_technical_approve [lf_action="lf_plan_approve", lf_source="parallel_group", lf_stage="technical", lf_outcomes="approved,review,superseded,blocked,failed", lf_limit="24"];
+ parallel_technical_review [lf_action="lf_gate", lf_outcomes="published", lf_command="/approve-plan", lf_args="story,stage,candidate", lf_source="parallel_group", lf_stage="technical", lf_limit="24"];
+ parallel_technical_draft -> failed [lf_on="conflict"];
+ parallel_technical_draft -> failed [lf_on="failed"];
+ parallel_technical_draft -> failed [lf_on="uncertain"];
+ parallel_technical_draft -> parallel_technical_check [lf_on="applied"];
+ parallel_technical_check -> parallel_technical_advice [lf_on="success"];
+ parallel_technical_check -> parallel_technical_advice [lf_on="failed"];
+ parallel_technical_advice -> parallel_technical_approve [lf_on="published"];
+ parallel_technical_approve -> parallel_acceptance_draft [lf_on="approved"];
+ parallel_technical_approve -> parallel_technical_review [lf_on="review"];
+ parallel_technical_approve -> stopped [lf_on="superseded"];
+ parallel_technical_approve -> failed [lf_on="blocked"];
+ parallel_technical_approve -> failed [lf_on="failed"];
+ parallel_technical_review -> waiting [lf_on="published"];
+
+ // Sealed acceptance projection: effect, advisory, guarded approval and owner fallback.
+ parallel_acceptance_draft [lf_action="lf_plan_story", lf_source="parallel_group", lf_stage="acceptance", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="24"];
+ parallel_acceptance_check [lf_action="lf_judge", lf_outcomes="success,failed", lf_source="parallel_group", lf_stage="acceptance", lf_agent="codex", lf_limit="24", lf_focus="Plan acceptance check. Judge these acceptance criteria and the assembled plan against the golden rule: it must simplify working with the factory and make things easier. Is each criterion one plain sentence from the user's point of view, marked (Auto) or (Manual) with how it is proven, with Covers: O-...? Are there about 5 to 7 per story, at most one (Auto) for the main path, and are owner checks marked Owner check: with what the owner does? Is every (Manual) criterion a simple owner action with a visible result (or a reading check for the Validate reviewer), with nothing manual left for the worker to deliver? Is every O- outcome the story covers proven by at least one criterion, and does the assembled review open with uncovered O- IDs, every Ruling: and the O-ID to story table? Do the tasks deliver the criteria without gaps or extra work? List only material concerns, each with what to change. AI;DR first. Advisory only."];
+ parallel_acceptance_advice [lf_action="lf_comment", lf_outcomes="published", lf_kind="advisory", lf_format="brief", lf_source="parallel_acceptance_check", lf_stage="acceptance", lf_limit="24"];
+ parallel_acceptance_approve [lf_action="lf_plan_approve", lf_source="parallel_group", lf_stage="acceptance", lf_outcomes="approved,review,superseded,blocked,failed", lf_limit="24"];
+ parallel_acceptance_review [lf_action="lf_gate", lf_outcomes="published", lf_command="/approve-plan", lf_args="story,stage,candidate", lf_source="parallel_group", lf_stage="acceptance", lf_limit="24"];
+ parallel_acceptance_draft -> failed [lf_on="conflict"];
+ parallel_acceptance_draft -> failed [lf_on="failed"];
+ parallel_acceptance_draft -> failed [lf_on="uncertain"];
+ parallel_acceptance_draft -> parallel_acceptance_check [lf_on="applied"];
+ parallel_acceptance_check -> parallel_acceptance_advice [lf_on="success"];
+ parallel_acceptance_check -> parallel_acceptance_advice [lf_on="failed"];
+ parallel_acceptance_advice -> parallel_acceptance_approve [lf_on="published"];
+ parallel_acceptance_approve -> waiting [lf_on="approved"];
+ parallel_acceptance_approve -> parallel_acceptance_review [lf_on="review"];
+ parallel_acceptance_approve -> stopped [lf_on="superseded"];
+ parallel_acceptance_approve -> failed [lf_on="blocked"];
+ parallel_acceptance_approve -> failed [lf_on="failed"];
+ parallel_acceptance_review -> waiting [lf_on="published"];
 }

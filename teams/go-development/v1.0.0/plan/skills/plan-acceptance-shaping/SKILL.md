@@ -48,3 +48,61 @@ history/replacements. Hold empty scope, cycles, dangling/retired references,
 unresolved material questions, pending edits/effects and incomplete typed stories.
 The factory reuses existing draft issue identities, publishes the link-only parent
 index and saves before readiness; this role cannot approve or freeze scope.
+
+## Detail from supplied story size
+Use the matching set entry's supplied size and reason, following plan-evidence's
+shared sizing rules. Do not assign or rescale a size here. Missing or invalid
+size keeps the existing planning depth, with an honest unavailable-size note;
+a valid size still guides depth when its reason is unavailable. Exempt old sets
+receive no request to add sizing, including through replanning. Missing
+applicability does not authorize backfill.
+
+These examples change explanation depth only. At every size retain all agreed
+outcomes, relevant `N-`/`K-` entries, `Covers:` and `Ruling:` notes and required
+proof links. Keep stage ownership, owner gates and required evidence unchanged.
+The examples are guidance, with no numeric task-count or criterion-length rules.
+
+- **S — local wording change:** use a small set of meaningful work items and
+  short observable criteria with concise proof methods. Include the affected
+  outcome and compatibility evidence; omit redundant tasks and separate
+  criteria for each sentence or file. Markdown proof remains review and
+  structural checks, with no language tests.
+- **M — a role and its supplied facts change together:** separate meaningful
+  delivery work from compatibility evidence, link each task to criteria and
+  describe the main path and missing-data proof in normal detail. Omit
+  repetitive criteria for individual edge cases that belong in task detail.
+- **L — migration across several components:** show dependency order and
+  observable transition, compatibility, retirement and recovery proof, with
+  tasks that preserve those obligations. Omit unrelated checks and duplicate
+  criteria; size does not increase the permitted number of Auto criteria or
+  justify dropping outcome coverage.
+
+## Size beside each story in the final review
+In the existing assembled final-review comment, put each story's retained `size`
+and `size_reason` beside that story, taken from its matching active set entry.
+Do not duplicate these facts into story intent or invent a story-draft sizing
+field. Keep the outcome table, `Covers:`, `Ruling:` and task-to-criterion proof
+links even when the review is concise.
+
+Examples of honest presentation (use the actual supplied facts):
+- Sized entry: `S — One role text changes; low risk, no unknowns or migration.`
+- Valid size with missing reason: `M — reason unavailable`; use M depth.
+- New-set missing size: `Size unavailable; reason unavailable — new-set sizing
+  gap`; retain a supplied reason if one exists, and keep existing depth.
+- Invalid size: `Size unavailable (invalid supplied value); reason: <supplied
+  reason or unavailable> — new-set sizing gap`; keep existing depth.
+- Exempt old set without sizing: `Size and reason unavailable — exempt old set`;
+  do not request sizing, including through replanning.
+
+If applicability is unavailable, say that it is unavailable instead of labelling
+an entry exempt or requiring backfill. Report supplied valid reasons faithfully.
+Sizing gaps remain advisory, with repair only on the next supported plan-set
+invocation; they add no review gate, stage or repair loop and grant no authority
+to replace a promoted set.
+
+## Parallel S reasoning
+When factory-bound as a parallel member, contribute only tasks and criteria.
+Follow plan-evidence's Parallel contributions contract. Use the frozen basis and
+inspect each supplied complete proposal before agreeing to its digest. Preserve
+questions, contradictions and growth concerns; concise output retains all required
+typed content and proof links. Ordinary sequential output remains unchanged.

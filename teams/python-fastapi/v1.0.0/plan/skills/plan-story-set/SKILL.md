@@ -36,8 +36,27 @@ a schema or migration sequence, a config file, one documentation page). If they
 would, the entry that creates the shared place comes first and the others depend
 on it, or the entries become one.
 
-Size: a set has 1 to 12 entries. More than 12 means the parent is too large for
+Set length: a set has 1 to 12 entries. More than 12 means the parent is too large for
 one plan; ask the owner to split the parent instead of squeezing the list.
+
+Per-story sizing: follow plan-evidence's Story sizing rules. Refine Research
+`S-01` separately for every new-set entry using its touched parts, risk, unknowns
+and retirement or migration work, explicitly including when none is needed.
+Supply `size` as `S`, `M` or `L` and a one-line `size_reason` of at most 280
+Unicode characters, separate from `intent`. With no usable Research size, use
+story evidence and state that assumption in the comment. For example:
+
+- S: a local wording correction with a known text owner, low risk, no unknowns
+  and no retirement or migration.
+- M: a role and its supplied facts change together, with compatibility risk and
+  a bounded fallback question, but no retirement or migration.
+- L: a migration across components with dependencies, transition unknowns and
+  old code to retire.
+
+These are qualitative examples, not scores or task-count thresholds. Fill
+reported new-set sizing gaps on the next supported proposal invocation as the
+shared rules say; never request sizing for exempt old sets or replace a promoted
+set to repair a gap.
 
 Deliver the set as a storyset in your shared result; the factory shows it to the
 owner and creates the sub-issues only after the owner promotes it. Offer revisions
