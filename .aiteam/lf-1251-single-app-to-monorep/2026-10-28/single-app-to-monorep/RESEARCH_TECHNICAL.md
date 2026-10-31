@@ -231,3 +231,9 @@ Evidence:
 - `internal/cli/cmd_daemon.go:217`
 - `internal/cli/cmd_daemon.go:246`
 - `internal/cli/cmd_mcp.go:13`
+
+## F-21
+
+MCP issues_create_prepare confirmed retention of four drafts with relationship attach (source sub-issues), proposal hash dbaa0698011bd08f86f5269723d9839986e7d6036a295c3a365658f296c5a002, request_id 6b6989c74facf51e4440adedf088a40d. Titles: Extract reusable graph and agent execution library; Establish factory core contracts and include the operator CLI; Separate Discord conversations and delivery from factory internals; Separate remote owner MCP access from factory internals. The tool states nothing was published and only the owner decides whether the factory creates the issues. This is a retained creation proposal, not remote issue creation, implementation approval or scope approval.
+
+_No source reference was recorded for this finding._

@@ -6,7 +6,7 @@ Brainstorm independent applications in a monorepo, identify Litefactory's larger
 
 ## Decisions
 
-- **S-01** — mode=refactor, size=large — shape a behavior-preserving engine/core/Discord/remote-MCP separation; delivery milestone and release obligations await q1–q3. (agent's call)
+- **S-01** — mode=refactor, size=large — shape four behavior-preserving component-boundary drafts in the current deployment, using internal reuse and coordinated releases as explicit defaults after the instruction to proceed. (agent's call)
 - **O-01** — Explain the current architecture and larger components, with a diagram and advisory split options. (owner said: "Help me brainstorm" and "give me a diagram of the current solution architecture of litefactory!")
 - **N-01** — No implementation, module migration, process deployment, commits or publication in this Research pass. (agent's call)
 - **K-01** — Any later behavior-preserving extraction must retain owner approvals, attempt authority, result receipts, delivery recovery, worktree isolation and immutable team captures. (agent's call)
@@ -38,46 +38,25 @@ Brainstorm independent applications in a monorepo, identify Litefactory's larger
 - **O-16** — Proposed operator CLI is a core-owned frontend that uses core contracts for runtime work and retains local setup/configuration/service lifecycle capabilities when the core is stopped. (agent's call)
 - **N-04** — Exclude a standalone ticket service, a mandatory comprehensive ticket rewrite and independently versioning the operator CLI from the recommended initial scope. (agent's call)
 - **K-07** — Preserve existing CLI command behavior and command availability with the daemon stopped, including local lifecycle controls and the attempt-descriptor authority required by agent MCP/submission commands. (agent's call)
+- **A-05** — Story creation direction — owner: "ok create the 4 stories with the mcp!" (owner said)
+- **O-17** — Prepare four MCP story drafts covering execution library, factory core plus CLI and limited ticket cleanup, Discord boundary, and remote owner MCP boundary. (owner said: A-05)
+- **N-05** — Exclude standalone adapter processes, external library support/version promises and independently released applications from these initial component-boundary drafts. (agent's call)
 
 
 ## Assumptions
 
 - **AS-01** — Monorepo means one repository containing components with explicit boundaries; independently deployed applications are an option to shape, not a requirement to introduce distributed services everywhere. Based on the issue title and brainstorming request. (agent's call)
 - **AS-02** — Prefer library extraction first, core state ownership next, transport process separation later. This is an advisory sequence based on existing seams and shared SQLite coupling, not an approved migration plan. (agent's call)
-- **AS-03** — No live deployment inventory, runtime resource measurements or release cadence requirements were established. Component sizes are static source counts; operational independence and generic reuse requirements remain open for shaping. (agent's call)
+- **AS-03** — Live deployment inventory and runtime resource measurements remain unavailable; q1–q3 drafting defaults are now settled by AS-12 under the instruction to proceed, rather than represented as owner-selected answers. (agent's call)
 - **AS-04** — Default to one host and the existing operational environment; independent application startup, if selected, means an optional adapter can stop or restart without stopping core workflow execution, while core-dependent requests report unavailability rather than silently succeed. Based on existing optional connector and daemon lifecycle. (agent's call)
 - **AS-05** — Proposed ownership keeps workflow records, results and approval evidence with core; Discord owns transport credentials and conversation/delivery state, and remote MCP owns authentication, grants and tokens; logical ownership precedes any physical storage migration, which is required only for the full process split. Based on F-05 through F-08. (agent's call)
 - **AS-06** — Do not broaden factory behavior to match overlapping MCP steering or shared-confirmation proposals; preserve the baseline at implementation time and reconcile overlapping contracts without absorbing those features. Based on F-12. (agent's call)
-- **AS-07** — The deeper-visualization request adds explanatory detail without choosing q1–q3 or authorizing implementation; retain all three open questions unchanged. (agent's call)
-- **AS-08** — Independent stories means separately reviewable outcomes with explicit prerequisites, not zero dependencies or independently versioned services; the owner has not selected q1–q3. (agent's call)
+- **AS-07** — The deeper-visualization request did not select q1–q3; retaining those questions is superseded by AS-12 following the later direction to create four stories. (agent's call)
+- **AS-08** — Independent stories means separately reviewable outcomes with explicit prerequisites; q1–q3 are settled as drafting defaults by AS-12, not as an owner promise of independent services or versions. (agent's call)
 - **AS-09** — Revised dependency proposal: A is supporting work inside C rather than a separate prerequisite, B supplies reusable execution mechanics, and D/E independently consume C's contract. (agent's call)
-- **AS-10** — The revised proposal has four slices B/C/D/E with A inside C; q1=a establishes logical boundaries in today's deployment, while q1=b additionally requires the core process contract and adapter lifecycle/storage/migration proof. (agent's call)
-- **AS-11** — CLI placement and folding A into C revise agent recommendations only; the owner's clarification question does not choose q1–q3 or approve these new recommendations. (agent's call)
-
-
-## Open questions
-
-### q1 — What should this ticket deliver?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Component boundaries first (recommended): extract the shared engine and separate factory, Discord and remote MCP responsibilities behind explicit interfaces, retaining the current working deployment; separate processes are later work. This gives a bounded first milestone.  *(recommended)*
-- **b** — Complete application split: deliver independently startable factory, Discord and remote MCP applications, including private state ownership, upgrade and restart handling; this is a substantially larger migration.
-- **c** — Architecture proposal only: finish the target architecture and migration constraints here, with all code changes left to future work.
-
-### q2 — Who must be able to reuse the execution framework?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Applications in this repository first (recommended): keep graph mechanics and agent/provider contracts free of factory policy, and prove reuse with a small non-factory consumer; no externally supported package or version promise yet.  *(recommended)*
-- **b** — Other repositories immediately: deliver an importable Go library with a documented supported API and independent versioning; this expands packaging, compatibility and release obligations.
-
-### q3 — Must the applications be released independently?
-
-_Asked of: Technical Questions_
-
-- **a** — One coordinated release initially (recommended): keep one Go module and one compatible release set, while making component dependencies explicit; independent startup, if selected above, does not imply mixed-version support.  *(recommended)*
-- **b** — Independent application releases now: define supported mixed-version contracts, compatibility checks and upgrade behavior; split modules only where the chosen release contracts require them.
+- **AS-10** — The four B/C/D/E drafts use q1=a logical boundaries, with A inside C; separate-process lifecycle, storage migration and mixed-version operation remain outside the selected drafting default. (agent's call)
+- **AS-11** — The earlier CLI clarification did not approve new recommendations; the later creation instruction authorizes preparing the four drafts, while publication, implementation and the retained scope review still require their factory gates. (agent's call)
+- **AS-12** — To honor the direct instruction to create the four stories without re-asking, use the previously recommended q1=a component boundaries/current deployment, q2=a internal reuse with a small non-factory consumer, and q3=a one Go module/coordinated releases; these are explicit agent drafting assumptions, not quoted owner selections. (agent's call)
 
 ## Research documents
 
