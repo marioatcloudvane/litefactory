@@ -34,6 +34,8 @@ type ValidateTickets interface {
 	SetStoryState(ctx context.Context, repo github.Repo, parentNumber int, parentID int64, number int, issueID int64, completed bool) error
 	// UpdateIssue writes the ticked criteria into a story body.
 	UpdateIssue(context.Context, github.Repo, int, redact.Body, redact.Body) (github.Issue, error)
+	// AddIssueLabel labels a GitHub follow-up bug so the Bug workflow admits it.
+	AddIssueLabel(ctx context.Context, repo github.Repo, number int, label string) error
 }
 
 // ValidateIssueRef names one issue by number and numeric id. A story issue
