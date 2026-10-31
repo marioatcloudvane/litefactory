@@ -166,8 +166,11 @@ func TestPlanParallelGrowthAndRouteReview(t *testing.T) {
 		t.Fatalf("missing review facts: %+v", reviews[0])
 	}
 	rendered := planbrief.RenderPlanRoutes(reviews)
-	if !strings.Contains(rendered, "Needs broader architecture") || !strings.Contains(rendered, "story.size=S") {
-		t.Fatal("route evidence missing from rendering")
+	if !strings.Contains(rendered, "Needs broader architecture") || strings.Contains(rendered, "story.size=S") || strings.Contains(rendered, "route event") {
+		t.Fatalf("route rendering lost its reason or shows raw evidence: %s", rendered)
+	}
+	if reviews[0].Reason != planbrief.PlanRouteReasonGrowth || !strings.Contains(rendered, "| Graph-approved stages |") || len(s.Stories[0].Route.Events) != 2 {
+		t.Fatalf("growth review or retained events changed: %+v %s", reviews[0], rendered)
 	}
 	var legacy planbrief.PlanState
 	if err := json.Unmarshal([]byte(`{"shared_revision":"old","stories":[{"key":"a","stage":"story"}]}`), &legacy); err != nil || legacy.Stories[0].Route != nil || legacy.Stories[0].Parallel != nil {
