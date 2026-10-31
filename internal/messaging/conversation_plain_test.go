@@ -73,8 +73,17 @@ func TestPlainYesConfirmsTheOneOpenProposal(t *testing.T) {
 				t.Fatalf("wrong stored action: %+v", ops.executed)
 			}
 			deliverAll(t, s, sender, "confirmation", now.Add(5*time.Second))
-			if !strings.Contains(sender.texts[len(sender.texts)-1], p.ID) {
-				t.Fatal("acknowledgment lost history reference")
+			// The started reply names the exact action and window in words.
+			ack := sender.texts[len(sender.texts)-1]
+			for _, token := range []string{"acme/litefactory", windowToken(t, p, "after"), windowToken(t, p, "before"), "Started"} {
+				if !strings.Contains(ack, token) {
+					t.Fatalf("acknowledgment lost %q: %q", token, ack)
+				}
+			}
+			for _, token := range []string{"admitted", "ancel", p.ID, "History reference"} {
+				if strings.Contains(ack, token) {
+					t.Fatalf("acknowledgment shows %q: %q", token, ack)
+				}
 			}
 		})
 	}
@@ -140,8 +149,20 @@ func TestProposalIsPlainWhileTheStoredProposalStaysExact(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	p := proposeAnalysis(t, s, start, sender, "litefactory", "last week", "proposal-1", now)
 	shown := sender.texts[len(sender.texts)-1]
-	if !strings.Contains(shown, "Exact target:") || !strings.Contains(shown, "Arguments:") || !strings.Contains(shown, "Impact: conversational") || !strings.Contains(shown, p.ID) {
-		t.Fatalf("review facts missing: %q", shown)
+	// The delivered proposal states the action, window, next steps and their
+	// deadline in words; the raw record stays in the store.
+	for _, token := range []string{"acme/litefactory", windowToken(t, p, "after"), windowToken(t, p, "before"), p.ExpiresAt.UTC().Format("15:04") + " UTC", "yes", "no", "details"} {
+		if !strings.Contains(shown, token) {
+			t.Fatalf("proposal lost %q: %q", token, shown)
+		}
+	}
+	if strings.Index(shown, "yes") > strings.Index(shown, "Reply no") {
+		t.Fatalf("cancel step precedes confirmation: %q", shown)
+	}
+	for _, token := range []string{"{", p.ID, "awaiting_confirmation", "Arguments", "Owner:", "Origin:", "channel " + p.Principal.ChannelID, "owner " + p.Principal.DiscordOwnerID, "History reference"} {
+		if strings.Contains(shown, token) {
+			t.Fatalf("proposal shows raw %q: %q", token, shown)
+		}
 	}
 	if p.Facts.Invocation.Arguments["after"] == "" || p.Facts.Invocation.Arguments["before"] == "" || p.Facts.Invocation.Arguments["window"] != "" {
 		t.Fatalf("window not frozen: %+v", p.Facts)
@@ -154,6 +175,63 @@ func TestProposalIsPlainWhileTheStoredProposalStaysExact(t *testing.T) {
 	if err != nil || current.State != "awaiting_confirmation" || !maps.Equal(current.Facts.Invocation.Arguments, p.Facts.Invocation.Arguments) {
 		t.Fatalf("inspection changed action: %+v %v", current, err)
 	}
+}
+
+// The outcome notice names the exact action and its result in words, never
+// the history reference; failed and uncertain outcomes say what to do next.
+func TestOwnerActionOutcomeNoticeIsPlain(t *testing.T) {
+	s, _, start, sender := plainFixture(t)
+	if _, err := s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	p := proposeAnalysis(t, s, start, sender, "litefactory", "last 7 days", "proposal-1", now)
+	if handled, err := start("yes", now.Add(5*time.Second)).confirm(t.Context()); !handled || err != nil {
+		t.Fatalf("confirmation: %v %v", handled, err)
+	}
+	deliverAll(t, s, sender, "confirmation", now.Add(5*time.Second))
+	if err := s.ownerActions.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	posted := len(sender.texts)
+	if err := s.OwnerActionNotifications(t.Context(), now.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	for range 10 {
+		if more, err := s.NoticeStep(t.Context(), now.Add(7*time.Second)); err != nil || !more {
+			break
+		}
+	}
+	if len(sender.texts) == posted {
+		t.Fatal("outcome notice not delivered")
+	}
+	notice := sender.texts[len(sender.texts)-1]
+	for _, token := range []string{"acme/litefactory", windowToken(t, p, "after"), "Done"} {
+		if !strings.Contains(notice, token) {
+			t.Fatalf("notice lost %q: %q", token, notice)
+		}
+	}
+	if strings.Contains(notice, p.ID) || strings.Contains(notice, "succeeded") {
+		t.Fatalf("notice shows raw record: %q", notice)
+	}
+	for state, next := range map[string]string{"failed": "Failed", "uncertain": "details"} {
+		ended := p
+		ended.State, ended.Reason, ended.Result = state, "interrupted_effect", owneraction.Result{State: state, Summary: "Execution was interrupted."}
+		text := OwnerActionText(ended)
+		if !strings.Contains(text, "acme/litefactory") || !strings.Contains(text, next) || !strings.Contains(text, "interrupted") || strings.Contains(text, p.ID) || strings.Contains(text, "interrupted_effect") {
+			t.Fatalf("%s notice: %q", state, text)
+		}
+	}
+}
+
+// windowToken is the readable form of a frozen analysis window bound.
+func windowToken(t *testing.T, p owneraction.Proposal, name string) string {
+	t.Helper()
+	at, err := time.Parse(time.RFC3339, p.Facts.Invocation.Arguments[name])
+	if err != nil {
+		t.Fatalf("window %s not frozen: %v", name, err)
+	}
+	return at.UTC().Format("02 Jan 15:04")
 }
 
 // The delivery ordering fence also protects admitted actions retained from the
