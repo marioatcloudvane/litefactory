@@ -17,7 +17,7 @@ Analyze #1268 and visualize the candidate reusable graph/agent library with a cl
 - **O-04** — The reusable agent surface accepts prepared prompt, working directory, native model options, session identity, execution bounds and explicit provider permissions, and returns native results, usage and failure information without factory request identities or result receipts. (agent's call)
 - **O-05** — Both existing providers share the extracted execution boundary for ordinary runs and existing classification, scheduling, conflict advice, conversation/chat, doctor/repair, judge, drift and log-analysis operations where supported, while factory prompts, schemas, decisions and unsupported-operation behavior stay in factory adapters. (agent's call)
 - **O-06** — Use importable pkg/execution graph, agent and provider packages with private process support, retain factory policy and integration under internal, and keep one Go module and coordinated release. (agent's call)
-- **O-07** — Provide an examples/execution consumer using non-factory action names and a deterministic fake runner to exercise graph selection and invocation, with credential-free construction checks for both real providers. (agent's call)
+- **O-07** — Provide an examples/execution consumer using non-factory action descriptions and consumer-owned executable functions with a deterministic fake runner to demonstrate handler invocation, outcome-based graph selection and agent invocation, plus credential-free construction checks for both real providers. (agent's call)
 - **O-08** — Completion requires transitive dependency checks proving library and demo cannot reach factory internal packages, plus characterization of uncovered translations before replacement and compatibility checks across shipped and retained legacy graphs. (agent's call)
 - **O-09** — Keep neutral graph, process and provider tests with the library and retain factory policy, capture, permission, receipt, worktree and durable recovery integration checks at their existing ownership boundaries. (agent's call)
 - **O-10** — Remove superseded generic parsing, navigation and native provider execution paths after integration, allowing internal wrappers only for remaining factory responsibilities. (agent's call)
@@ -35,6 +35,9 @@ and you did not answer the question about the repository structure.
 
 given this little class diagram, how much will be extracted vs. how much will stay in the core library? and what is the purpose of #1269 in comparision with this?" (owner said: comment 6548808180)
 - **N-04** — Factory application commands/read views, operator CLI restructuring, ticket identity cleanup and logical state ownership contracts belong to #1269; #1268 only extracts and integrates its execution dependency. (agent's call)
+- **A-03** — Node action ownership — owner: "Ok and where are the actions? the ones that are executed as a node in the graph?" (owner said: comment 6549253002)
+- **O-12** — Keep existing factory action catalogues, executable activity registry, handlers and durable node coordinator in factory core, with the library supplying only neutral action descriptions, graph mechanics and provider execution. (agent's call)
+- **K-08** — Preserve existing action-name-to-handler bindings, declared outcome validation and non-agent dispatch behavior alongside authorization, attempt reservation and atomic result/transition recording. (agent's call)
 
 
 ## Assumptions

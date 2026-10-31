@@ -128,3 +128,19 @@ Evidence:
 - `internal/providerprocess/start.go:1`
 - `internal/turn/graph_node.go:1`
 - `internal/daemon/runners.go:1`
+
+## F-13
+
+ActionSpec in graphexec is declarative membership/outcome/attribute data; turn.ActivityRegistry separately maps names to ActivityHandler.Execute implementations using factory Options and identity-bearing ActivityRequest. ExecuteNodeAction resolves node.Action, invokes the handler after admission/reservation and selects the next edge using ActivityResult.Outcome. RegisterAgent, RegisterControl, RegisterComment and Plan effect registration pair declarations with factory handlers. These existing handlers and durable dispatch remain factory-owned; no reusable executable action framework is implied by extraction.
+
+Evidence:
+
+- `internal/graphexec/registry.go:25`
+- `internal/turn/graph_activity.go:43`
+- `internal/turn/graph_node.go:155`
+- `internal/turn/graph_node.go:259`
+- `internal/turn/graph_node.go:329`
+- `internal/turn/research_agent.go:69`
+- `internal/turn/research_control.go:25`
+- `internal/turn/research_comments.go:56`
+- `internal/turn/plan_graph.go:610`
