@@ -98,12 +98,12 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		var params struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name)) {
+		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) || isWorkflowTool(params.Name)) {
 			tool = params.Name
 		}
 	}
 	refuseRPC := func(code int, msg, reason string) {
-		if tool == "usage_read" || isCodeTool(tool) || isActionTool(tool) {
+		if tool == "usage_read" || isCodeTool(tool) || isActionTool(tool) || isWorkflowTool(tool) {
 			s.writeDiscussionValue(w, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": code, "message": msg}})
 		} else {
 			s.rpcError(w, req.ID, code, msg)
@@ -172,6 +172,11 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		for _, name := range workflowToolNames {
+			if slices.Contains(s.availableTools(grant), name) {
+				tools = append(tools, map[string]any{"name": name, "description": workflowDescription(name), "inputSchema": workflowInputSchema(name), "annotations": map[string]bool{"readOnlyHint": name == "workflows_list" || name == "workflow_describe" || name == "workflow_job_get", "idempotentHint": true, "openWorldHint": true}})
+			}
+		}
 		s.rpcResult(w, req.ID, map[string]any{"tools": tools})
 		s.audit(r, event, "success", "listed", tool, start)
 	case "tools/call":
@@ -183,7 +188,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			refuseRPC(-32602, "Invalid params", "params")
 			return
 		}
-		if isActionTool(params.Name) {
+		if isActionTool(params.Name) || isWorkflowTool(params.Name) {
 			d := json.NewDecoder(bytes.NewReader(body))
 			if err := uniqueJSONObject(d); err != nil {
 				refuseRPC(-32602, "Invalid params", "params")
@@ -214,7 +219,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		requiredScope := ""
-		if isActionTool(params.Name) && !actionGrant(grant) {
+		if (isActionTool(params.Name) || isWorkflowTool(params.Name)) && !actionGrant(grant) {
 			requiredScope = RepositoryActionsScope + " " + StandardsManagementScope
 		}
 		if params.Name == "factory_overview" && !store.ConnectorScopeHas(grant.Scope, Scope) {
@@ -270,6 +275,14 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		var workflowArgs workflowArguments
+		if isWorkflowTool(params.Name) {
+			workflowArgs, err = parseWorkflowArguments(params.Name, params.Arguments)
+			if err != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+		}
 		var actionArgs actionArguments
 		if isActionTool(params.Name) {
 			actionArgs, err = parseActionArguments(params.Name, params.Arguments)
@@ -299,6 +312,8 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			result, callErr = s.readEvidence(ctx, credential, evidenceArgs)
 		default:
 			switch {
+			case isWorkflowTool(params.Name):
+				result, callErr = s.callWorkflow(ctx, credential, params.Name, workflowArgs)
 			case isActionTool(params.Name):
 				result, callErr = s.callAction(ctx, credential, params.Name, actionArgs)
 			case isCodeTool(params.Name):
@@ -330,7 +345,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			if isCodeTool(params.Name) {
 				result = codeFailureResult(refused)
 			}
-			if isActionTool(params.Name) {
+			if isActionTool(params.Name) || isWorkflowTool(params.Name) {
 				result = actionFailure(callErr)
 			}
 			reason = "provider"
@@ -357,7 +372,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var written bool
-		if params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) {
+		if params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) || isWorkflowTool(params.Name) {
 			written = s.writeDiscussionRPC(w, req.ID, result)
 		} else {
 			written = s.rpcResult(w, req.ID, result)
