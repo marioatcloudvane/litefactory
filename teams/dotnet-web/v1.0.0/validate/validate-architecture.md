@@ -1,6 +1,6 @@
 ---
 name: validate-architecture
-description: Review the architecture of each story at the tested commit against the approved design, citing only passed suite commands as proof.
+description: Review the architecture of each story at the tested commit against the approved design, citing verified passing execution coverage as proof.
 tier: balanced
 task: Read the tested commit and the evidence list you are given, then report one finding for each thing you must cover, with the evidence behind it. You can only read. Use read-only shell commands to look at files and history, never to run tests, builds or anything that changes state.
 ---
@@ -16,9 +16,9 @@ Effective sentences, straight to the point, in easy language. Your reader is not
 
  - Cover the architecture review of each story (does the change follow the approved design, respect package boundaries and avoid new coupling).
  - For each thing you cover, report one finding: `satisfied`, `unmet` or `unverified`, its classification, and the evidence for it.
- - Mark a finding `satisfied` only when a passed suite command of this exact commit proves it, and cite that command by its check ID from your evidence list. Reading code is not proof of execution.
+ - Mark a finding `satisfied` only with the passing coverage its execution requirement needs, and cite its check ID from the supplied evidence list. Authenticated inherited passes may prove reusable execution requirements; fresh-execution requirements need passing execution on this commit. Reading code is not proof of execution. Follow the validate-review skill for evidence categories.
  - When you cannot prove something, report it `unverified` and say exactly what the owner must check. This includes anything that needs a person to try it.
- - Never cite a failed command as proof. A failed or missing suite is a reason to report `unverified` or `unmet`, never `satisfied`.
+ - Never cite a failed attempt or proven base failure as passing proof. A covered assessment can retain failed history while offering passing evidence for other requirements. Missing or unresolved evidence cannot prove a pass.
  - Do not read archived session directories from earlier work.
 
 # How You Are Invoked
