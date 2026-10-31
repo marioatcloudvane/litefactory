@@ -117,7 +117,7 @@ func (r *planGraphRuntime) assembledText(ctx context.Context, s planbrief.PlanSt
 	var body strings.Builder
 	body.WriteString("**Final plan review**\n\nEvery story below has all three stages approved. This is the whole plan as it stands now:\n\n")
 	body.WriteString(renderPlanStoryTable(r.result.Ref, rows, true))
-	body.WriteString("\n" + planbrief.RenderPlanRoutes(s.RouteReviews()))
+	body.WriteString("\n" + planbrief.RenderPlanRoutes(r.finalRouteReviews(s)))
 	if graphApproved := s.GraphApprovedStages(); len(graphApproved) > 0 {
 		parts := make([]string, len(graphApproved))
 		for i, g := range graphApproved {
