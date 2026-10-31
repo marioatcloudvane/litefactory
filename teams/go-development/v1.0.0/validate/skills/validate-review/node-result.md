@@ -10,10 +10,16 @@ confirmed receipt. Shared contributions remain bounded at 4 MiB; Plan node resul
 remain bounded at 1 MiB and the legacy Plan proposal at 8 MiB. Retention and remote
 delivery can fail separately; do not claim missing content was retained or delivered.
 
-Deliver your result only through the shared result route: communication
-preflight, submit and receipt. Do not print a JSON result; terminal text is never
-read as a result. The worked result below is exactly what you pass to preflight
-and submit. Replace the illustrative content, keep the shape.
+Deliver your complete result only through the shared result route: communication
+preflight, correct every diagnostic, submit, then read the receipt for the same
+request_id. The shared result helper's preflight, submit and receipt methods use
+the same route. The accepted submission is this step's result; the factory derives
+the response from it. Do not print a JSON result: terminal text is never read as a
+result, so end with a short plain-language note. Read the worked results below
+before submitting; replace illustrative content and keep the shape.
+
+Never claim anything is accepted or approved, add a status of your own, or ask
+the owner a question. Review findings retain their required finding statuses.
 
 Report one entry under `stories` for every story you were given. Use the story
 key and the snapshot ID exactly as given. The names you must cover depend on your
@@ -25,7 +31,12 @@ role:
 
 Criteria are always `blocking`. A review is `blocking` or `advisory`. Each
 finding has at least one entry of evidence. `check_ids` may hold only check IDs
-from your evidence list, and only passed commands prove a finding.
+from your evidence list. Executed passes and authenticated inherited passes can
+prove reusable execution requirements; fresh-execution requirements need a pass
+executed on this tested commit. Cite the supplied assessment check ID, never an
+invented origin ID. Explain inherited coverage as inherited, with its retained
+source. Proven base failures and unresolved evidence cannot prove a passing
+criterion. Raw failed attempts remain failed.
 
 # completed
 
