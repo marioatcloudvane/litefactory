@@ -26,6 +26,14 @@ Brainstorm independent applications in a monorepo, identify Litefactory's larger
 - **O-08** — Evaluate and visualize current GitHub/Linear ticket routing, shared contracts, compatibility coupling and separation from code delivery. (owner said: A-02)
 - **K-05** — Preserve GitHub and Linear ticket workflows, provider-qualified identities, retained session connection versions and the separation of ticket approval from GitHub code-delivery authority during any extraction. (agent's call)
 - **O-09** — Use the existing provider-adapter ticket boundary in the proposed core separation, removing compatibility coupling only as required by the selected milestone. (agent's call)
+- **A-03** — Work-split request — owner: "ok, i think we should divide that into different independent stories. how would we split the work here?" (owner said)
+- **O-10** — Shape separately reviewable outcome boundaries for later independent stories, with dependencies made explicit. (owner said: A-03)
+- **O-11** — Proposed ticket slice makes GitHub and Linear share provider-neutral workflow operations while confining legacy representations to compatibility edges and preserving qualified identities and retained sessions. (agent's call)
+- **O-12** — Proposed execution-library slice separates graph mechanics and agent/provider execution from factory policy and persistence, with a small non-factory consumer demonstrating reuse. (agent's call)
+- **O-13** — Proposed core slice owns factory state and exposes bounded adapter commands/read views, with core workflows demonstrated while Discord and remote MCP are disabled. (agent's call)
+- **O-14** — Proposed Discord slice owns gateway/conversation/presentation/delivery responsibilities and uses core contracts while preserving owner checks, confirmations and saved conversation/delivery state. (agent's call)
+- **O-15** — Proposed remote-MCP slice owns login/consent/grant/token/revocation responsibilities and uses core read views without direct factory-state access or additional tool authority. (agent's call)
+- **K-06** — Each delivered extraction slice must leave the current deployment usable and include its own compatibility evidence, replaced-path retirement and documented recovery route for any state migration. (agent's call)
 
 
 ## Assumptions
@@ -37,6 +45,9 @@ Brainstorm independent applications in a monorepo, identify Litefactory's larger
 - **AS-05** — Proposed ownership keeps workflow records, results and approval evidence with core; Discord owns transport credentials and conversation/delivery state, and remote MCP owns authentication, grants and tokens; logical ownership precedes any physical storage migration, which is required only for the full process split. Based on F-05 through F-08. (agent's call)
 - **AS-06** — Do not broaden factory behavior to match overlapping MCP steering or shared-confirmation proposals; preserve the baseline at implementation time and reconcile overlapping contracts without absorbing those features. Based on F-12. (agent's call)
 - **AS-07** — The deeper-visualization request adds explanatory detail without choosing q1–q3 or authorizing implementation; retain all three open questions unchanged. (agent's call)
+- **AS-08** — Independent stories means separately reviewable outcomes with explicit prerequisites, not zero dependencies or independently versioned services; the owner has not selected q1–q3. (agent's call)
+- **AS-09** — The proposed ticket and execution-library boundaries feed the core boundary, after which Discord and remote MCP can be delivered independently; this is a scope dependency proposal, not an implementation plan. (agent's call)
+- **AS-10** — For q1=a the five slices establish logical boundaries in the current deployment; for q1=b the core slice also supplies a process contract and each adapter slice includes private storage, standalone lifecycle and migration/restart proof. (agent's call)
 
 
 ## Open questions
