@@ -84,10 +84,21 @@ func (s *Service) currentConversationFacts(ctx context.Context, turnID string) (
 }
 
 func (s *Service) saveConversationPresentation(ctx context.Context, t store.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, intent ...string) error {
-	return s.saveConversationAnswer(ctx, t, state, blocks, protected, at, false, intent...)
+	return s.saveConversationAnswer(ctx, t, state, blocks, protected, at, conversationAnswerProvider, intent...)
 }
 
-func (s *Service) saveConversationAnswer(ctx context.Context, t store.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, handled bool, intent ...string) error {
+// conversationAnswerKind selects how an answer completes its turn.
+type conversationAnswerKind int
+
+const (
+	conversationAnswerProvider conversationAnswerKind = iota
+	// conversationAnswerHandled is a factory reply without a provider launch.
+	conversationAnswerHandled
+	// conversationAnswerFresh is a handled reply that also starts a fresh native conversation.
+	conversationAnswerFresh
+)
+
+func (s *Service) saveConversationAnswer(ctx context.Context, t store.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, kind conversationAnswerKind, intent ...string) error {
 	var identity [16]byte
 	if _, err := rand.Read(identity[:]); err != nil {
 		return err
@@ -146,8 +157,11 @@ func (s *Service) saveConversationAnswer(ctx context.Context, t store.Conversati
 			answer.ProposalPart = i + 1
 		}
 	}
-	if handled {
+	switch kind {
+	case conversationAnswerHandled:
 		return s.db.CompleteConversationHandledAnswer(ctx, t, answer, parts, at)
+	case conversationAnswerFresh:
+		return s.db.CompleteConversationFreshAnswer(ctx, t, answer, parts, at)
 	}
 	return s.db.CompleteConversationAnswer(ctx, t, state, answer, parts, at)
 }

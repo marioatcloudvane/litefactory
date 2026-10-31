@@ -28,6 +28,18 @@ func conversationCauseReply(err error, at time.Time) string {
 	return ""
 }
 
+// conversationProviderReply answers a provider safety refusal or login failure
+// in plain words; "" for every other cause.
+func conversationProviderReply(err error) string {
+	switch {
+	case errors.Is(err, agent.ErrConversationRefused):
+		return "Claude's safety filter blocked this message, probably a false alarm. Please rephrase it. If it keeps happening, send \"new conversation\" to start a fresh conversation."
+	case errors.Is(err, agent.ErrConversationAuthentication):
+		return "Claude could not sign in to its account, so I didn't answer. Ask the factory operator to sign Claude in again on the factory host, then send your message again."
+	}
+	return ""
+}
+
 // conversationSpecificCause names only causes more specific than a generic
 // provider failure: Discord access, GitHub budget, format rejection, timeout.
 func conversationSpecificCause(err error, at time.Time) string {
