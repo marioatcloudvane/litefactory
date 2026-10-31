@@ -22,6 +22,10 @@ Brainstorm independent applications in a monorepo, identify Litefactory's larger
 - **A-01** — Core visualization request — owner: "give me a visualization of factory core also, i want to dig in deeper!" (owner said)
 - **O-06** — Explain factory-core responsibilities and task flow with diagrams that distinguish observed behavior from proposed boundaries. (owner said: "give me a visualization of factory core also, i want to dig in deeper!")
 - **O-07** — Proposed core comprises intake/admission, scheduling/recovery, workflow/owner gates, Git workspaces, attempt/result authority and publication/recovery within one application, with read views for external adapters. (agent's call)
+- **A-02** — Ticketing evaluation request — owner: "a key question here, checking the implementation: is github issues a fully wired stuff? because we also have the channel via linear, so is it based on inheritance? evaluate the current setup of it and then tell me and show me a visualization how the ticketing system is currently implemented!" (owner said)
+- **O-08** — Evaluate and visualize current GitHub/Linear ticket routing, shared contracts, compatibility coupling and separation from code delivery. (owner said: A-02)
+- **K-05** — Preserve GitHub and Linear ticket workflows, provider-qualified identities, retained session connection versions and the separation of ticket approval from GitHub code-delivery authority during any extraction. (agent's call)
+- **O-09** — Use the existing provider-adapter ticket boundary in the proposed core separation, removing compatibility coupling only as required by the selected milestone. (agent's call)
 
 
 ## Assumptions

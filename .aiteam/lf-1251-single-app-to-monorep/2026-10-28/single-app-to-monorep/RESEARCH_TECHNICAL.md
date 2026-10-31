@@ -145,3 +145,76 @@ Evidence:
 - `internal/turn/mcp_runtime.go:425`
 - `internal/graphexec/doc.go:1`
 - `internal/submission/doc.go:1`
+
+## F-14
+
+Ticketing inspected at 41cfc1222a7f2644a59e6d8c4f2ccf0eb0ce4cd1: provider-neutral ticket values qualify identities by provider, canonical API origin and immutable remote ID; projectconnection.TicketClient exposes common ticket operations implemented by GitHub Tickets and a wrapper embedding Linear Client. This is Go interfaces/composition, not Linear inheriting from GitHub; provider dispatch remains explicit in the client factory.
+
+Evidence:
+
+- `internal/ticket/doc.go:1`
+- `internal/ticket/identity.go:68`
+- `internal/projectconnection/tickets.go:17`
+- `internal/projectconnection/factory.go:123`
+- `internal/projectconnection/linear.go:60`
+- `internal/github/tickets.go:19`
+
+## F-15
+
+Projects retain distinct ticket and code connection roles; ticket providers may be GitHub or Linear, while store validation restricts code connections to GitHub. Admission verifies both destinations and saves an execution snapshot; routing reuses its ticket connection version and actor, rejecting ambiguous context. Linear credentials do not substitute for code-host credentials. This extends the earlier impact analysis to projectconnection, ticket, linear, connection versions and project approver authority.
+
+Evidence:
+
+- `internal/store/project_connections.go:106`
+- `internal/daemon/project_connections.go:20`
+- `internal/daemon/project_connections.go:169`
+- `internal/projectconnection/factory.go:47`
+- `internal/projectconnection/linear.go:75`
+
+## F-16
+
+Ticket support is integrated beyond notifications: shared contracts cover discovery, reads, comments, creation/content edits, parent/child links, lifecycle state, labels, subscriptions and recovery pages; Linear implements native GraphQL operations, content normalization and configured mode/state mapping. Recovery and verified webhook hints feed shared daemon admission; no claim of complete provider feature parity or live deployment health is established.
+
+Evidence:
+
+- `internal/projectconnection/tickets.go:17`
+- `internal/linear/tickets.go:93`
+- `internal/linear/recovery.go:91`
+- `internal/daemon/ticket_recovery.go:77`
+- `internal/daemon/webhook_linear.go:23`
+- `internal/webhook/linear.go:35`
+
+## F-17
+
+The abstraction remains partial: daemon and turn compatibility paths use github.Issue, github.Comment and github.Repo values, translating Linear remote IDs to database-backed local numeric slots while retaining qualified snapshots/replies; WorkflowTickets and routed bridges keep code delivery separate. Daemon setup still loads global GitHub identities/client and a GitHub default bridge before per-project routing, so application startup is not GitHub-independent. Earlier GitHub-only intake diagrams were incomplete and are superseded by this provider-aware view, without superseding their scheduling/recovery findings.
+
+Evidence:
+
+- `internal/turn/ticket_compatibility.go:14`
+- `internal/turn/ticket_compatibility.go:104`
+- `internal/daemon/linear_compat.go:32`
+- `internal/turn/ticket_workflow_bridge.go:17`
+- `internal/daemon/setup.go:260`
+- `internal/daemon/setup.go:286`
+
+## F-18
+
+Linear-backed code delivery preserves separate retained GitHub code authority: CLI requests verify the retained human code owner and the daemon polls only bound GitHub delivery PR controls, while ticket replies do not enter that control path; do not equate ticket approval with code-delivery approval during extraction.
+
+Evidence:
+
+- `internal/daemon/linear_delivery.go:31`
+- `internal/daemon/linear_delivery.go:94`
+- `internal/turn/linear_delivery.go:58`
+
+## F-19
+
+Executed successfully during this shaping pass: go test ./internal/ticket ./internal/projectconnection ./internal/github ./internal/linear; go test ./internal/daemon -run '^(TestLinearTicketWorkflow|TestGraphDispatchObservesLinearSessionAtItsTicketContainer|TestLinearPlanShellDiscoveryAndManagedReview)$' -count=1. These package and controlled-server integration checks support adapter behavior, Linear workflow wiring, retained code/ticket separation, managed-story discovery and graph dispatch; they do not verify live service credentials/configuration, every workflow or the full suite, and do not establish extraction safety.
+
+Evidence:
+
+- `internal/github/tickets_test.go:37`
+- `internal/projectconnection/factory_test.go:29`
+- `internal/daemon/linear_workflow_test.go:265`
+- `internal/daemon/graph_dispatch_linear_test.go:15`
+- `internal/daemon/linear_plan_story_test.go:21`
