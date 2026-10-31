@@ -245,7 +245,8 @@ wait:
 		case result := <-completed:
 			out = result.out
 			if result.err != nil {
-				if out.State == "" {
+				// An error never confirms success; only an explicit failed or uncertain state is kept.
+				if out.State != "failed" {
 					out.State = "uncertain"
 				}
 				if out.Summary == "" {

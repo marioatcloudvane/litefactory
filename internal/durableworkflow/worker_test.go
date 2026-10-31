@@ -352,3 +352,58 @@ func TestWorkerRetainedItemCeilingPreservesCompleteGroups(t *testing.T) {
 		t.Fatalf("item ceiling not explicit: %d %v", len(retained), err)
 	}
 }
+
+func TestWorkerAdapterErrorNeverSettlesAsSuccess(t *testing.T) {
+	question := []Question{{ID: "q1", Text: "Which category?"}}
+	failure := errors.New("projection read failed")
+	for _, row := range []struct {
+		name   string
+		out    Output
+		err    error
+		state  string
+		event  string
+		action string
+	}{
+		{"succeeded with error", Output{State: "succeeded", Summary: "Saved log analysis"}, failure, "uncertain", "terminal", "uncertain"},
+		{"waiting with error", Output{State: "waiting_for_input", DomainRef: "session-1", SessionRevision: 1, Questions: question}, failure, "uncertain", "terminal", "uncertain"},
+		{"empty with error", Output{}, failure, "uncertain", "terminal", "uncertain"},
+		{"failed with error", Output{State: "failed", Summary: "Refused before any effect"}, failure, "failed", "terminal", "failed"},
+		{"uncertain with error", Output{State: "uncertain", Summary: "Unresolved"}, failure, "uncertain", "terminal", "uncertain"},
+		{"succeeded", Output{State: "succeeded", Summary: "Saved log analysis"}, nil, "succeeded", "terminal", "succeeded"},
+		{"waiting", Output{State: "waiting_for_input", DomainRef: "session-1", SessionRevision: 1, Questions: question}, nil, "waiting_for_input", "input", "succeeded"},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			a := &workerAdapter{execute: func(context.Context) (Output, error) {
+				out := row.out
+				out.Questions = append([]Question(nil), row.out.Questions...)
+				return out, row.err
+			}}
+			s, p, queue := workerFixture(t, a)
+			proposal := queue("adapter-error")
+			if worked, err := s.RunOnce(t.Context()); err != nil || !worked {
+				t.Fatalf("run %v %v", worked, err)
+			}
+			j, err := s.db.ReadWorkflowJob(t.Context(), proposal.Job)
+			if err != nil || j.State != row.state {
+				t.Fatalf("saved job state %q, want %q: %v", j.State, row.state, err)
+			}
+			view, err := s.Get(t.Context(), p, proposal.Job, "", 1)
+			if err != nil || view.State != row.state {
+				t.Fatalf("job view state %q, want %q: %v", view.State, row.state, err)
+			}
+			settled, err := s.actions.Step(t.Context(), proposal.Proposal.ID)
+			if err != nil || settled.State != row.action {
+				t.Fatalf("owner action %q, want %q: %v", settled.State, row.action, err)
+			}
+			notices, err := s.db.WorkflowNotices(t.Context(), proposal.Job)
+			if err != nil || len(notices) != 1 {
+				t.Fatalf("notices %+v %v", notices, err)
+			}
+			prefix := "Workflow " + proposal.Job + ": "
+			token, _, _ := strings.Cut(strings.TrimPrefix(notices[0].Body, prefix), ".")
+			if notices[0].Event != row.event || !strings.HasPrefix(notices[0].Body, prefix) || token != row.state {
+				t.Fatalf("notice meaning %q %q, want %q %q", notices[0].Event, token, row.event, row.state)
+			}
+		})
+	}
+}

@@ -42,6 +42,7 @@ type durableDaemonFixture struct {
 	at      time.Time
 	runner  *durableDaemonAuthor
 	repo    store.Repo
+	wrap    func(durableworkflow.Adapter) durableworkflow.Adapter
 }
 
 func newDurableDaemonFixture(t *testing.T) *durableDaemonFixture {
@@ -80,7 +81,11 @@ func (f *durableDaemonFixture) compose(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := standardsWorkflowAdapter{standards: f.adapter, db: f.db}
-	f.service, err = durableworkflow.New(durableworkflow.Options{DB: f.db, Registry: registry, Adapters: map[string]durableworkflow.Adapter{"standards-authoring": adapter, "log-analysis": adapter}, Now: func() time.Time { return f.at }, Protect: func(_ context.Context, s string) (string, error) { return s, nil }})
+	var logAdapter durableworkflow.Adapter = adapter
+	if f.wrap != nil {
+		logAdapter = f.wrap(adapter)
+	}
+	f.service, err = durableworkflow.New(durableworkflow.Options{DB: f.db, Registry: registry, Adapters: map[string]durableworkflow.Adapter{"standards-authoring": adapter, "log-analysis": logAdapter}, Now: func() time.Time { return f.at }, Protect: func(_ context.Context, s string) (string, error) { return s, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,4 +480,110 @@ func TestDurableWorkflowLogProjectionRetainsCompleteSummary(t *testing.T) {
 	if e != nil || len(out.Items) != 1 || out.Items[0]["analysis_summary"] != summary || out.Items[0]["no_change_reason"] != "No new standard warranted" {
 		t.Fatalf("long report lost: %+v %v", out, e)
 	}
+}
+
+// durableRecheckHook runs a change after the worker's own Recheck and before
+// the production adapter executes, as a concurrent permission or target change would.
+type durableRecheckHook struct {
+	durableworkflow.Adapter
+	armed *atomic.Bool
+	after func()
+}
+
+func (h durableRecheckHook) Recheck(ctx context.Context, p owneraction.Principal, f owneraction.Facts, at time.Time) error {
+	err := h.Adapter.Recheck(ctx, p, f, at)
+	if err == nil && h.armed.Load() {
+		h.after()
+	}
+	return err
+}
+
+// runDurableLogAnalysis admits a log-analysis workflow through the production
+// adapter, applies change after the worker's Recheck and runs the attempt once.
+func runDurableLogAnalysis(t *testing.T, change func(*durableDaemonFixture), start func(context.Context, loganalysis.Request, bool) (store.LogAnalysis, error)) (*durableDaemonFixture, durableworkflow.Proposal) {
+	t.Helper()
+	f := newDurableDaemonFixture(t)
+	armed := &atomic.Bool{}
+	f.wrap = func(a durableworkflow.Adapter) durableworkflow.Adapter {
+		return durableRecheckHook{Adapter: a, armed: armed, after: func() { change(f) }}
+	}
+	f.compose(t)
+	f.adapter.Analyses = &ConversationAnalyses{DB: f.db, Start: start, Targets: func(context.Context, int64) (string, error) { return "github:acme/app", nil }}
+	inputs := map[string]any{"after": f.at.Add(-time.Hour).Format(time.RFC3339), "before": f.at.Format(time.RFC3339), "dry_run": false}
+	proposal, err := f.service.Propose(t.Context(), f.p, "log-analysis", "1", "github:acme/app", inputs, "analysis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.actions.Available(t.Context(), proposal.Proposal.ID, "proposal-message"); err != nil {
+		t.Fatal(err)
+	}
+	f.at = f.at.Add(5 * time.Second)
+	if _, err = f.actions.Confirm(t.Context(), f.p, proposal.Proposal.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.actions.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	armed.Store(true)
+	if worked, err := f.service.RunOnce(t.Context()); err != nil || !worked {
+		t.Fatalf("run %v %v", worked, err)
+	}
+	if err = f.actions.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return f, proposal
+}
+
+// assertDurableOutcome checks the saved job, the owner-action outcome and the
+// state named by the terminal notice, without comparing whole sentences.
+func assertDurableOutcome(t *testing.T, f *durableDaemonFixture, proposal durableworkflow.Proposal, state string) {
+	t.Helper()
+	job, err := f.db.ReadWorkflowJob(t.Context(), proposal.Job)
+	if err != nil || job.State != state {
+		t.Fatalf("job state %q, want %q: %v", job.State, state, err)
+	}
+	action, err := f.db.ReadOwnerAction(t.Context(), proposal.Proposal.ID)
+	if err != nil || action.State != state {
+		t.Fatalf("owner action %q, want %q: %v", action.State, state, err)
+	}
+	notices, err := f.db.WorkflowNotices(t.Context(), proposal.Job)
+	if err != nil || len(notices) != 1 {
+		t.Fatalf("notices %+v %v", notices, err)
+	}
+	prefix := "Workflow " + proposal.Job + ": "
+	token, _, _ := strings.Cut(strings.TrimPrefix(notices[0].Body, prefix), ".")
+	if notices[0].Event != "terminal" || !strings.HasPrefix(notices[0].Body, prefix) || token != state {
+		t.Fatalf("notice %q %q, want terminal %q", notices[0].Event, token, state)
+	}
+}
+
+func TestDurableWorkflowLogRefusalAfterDequeueFails(t *testing.T) {
+	for name, change := range map[string]func(*durableDaemonFixture){
+		"authority revoked": func(f *durableDaemonFixture) {
+			f.adapter.Authorized = func(context.Context, messaging.StandardsRequest) error { return fmt.Errorf("owner authority revoked") }
+		},
+		"target drift": func(f *durableDaemonFixture) {
+			f.adapter.Analyses.Targets = func(context.Context, int64) (string, error) { return "github:acme/other", nil }
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var starts atomic.Int64
+			f, proposal := runDurableLogAnalysis(t, change, func(context.Context, loganalysis.Request, bool) (store.LogAnalysis, error) {
+				starts.Add(1)
+				return store.LogAnalysis{}, fmt.Errorf("analysis must not start")
+			})
+			assertDurableOutcome(t, f, proposal, "failed")
+			if starts.Load() != 0 {
+				t.Fatalf("refused analysis started %d times", starts.Load())
+			}
+		})
+	}
+}
+
+func TestDurableWorkflowLogProjectionErrorIsUncertain(t *testing.T) {
+	f, proposal := runDurableLogAnalysis(t, func(*durableDaemonFixture) {}, func(context.Context, loganalysis.Request, bool) (store.LogAnalysis, error) {
+		// A completed receipt whose saved analysis cannot be read back.
+		return store.LogAnalysis{ID: "unsaved-analysis", State: "completed"}, nil
+	})
+	assertDurableOutcome(t, f, proposal, "uncertain")
 }
