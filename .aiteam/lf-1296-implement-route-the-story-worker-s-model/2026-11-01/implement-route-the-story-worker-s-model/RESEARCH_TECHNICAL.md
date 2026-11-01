@@ -123,3 +123,41 @@ Evidence:
 
 - `teams/source/base-team/implement/implement.dot:59`
 - `internal/turn/implement_policy.go:26`
+
+## f13
+
+Rechecked at 527f975df19eddae480acce7e9fdfe6acdc628b2: base story-worker remains balanced and the current graph still has one worker with role/standards/skills and a dedicated result source; this confirms f1's current-tier conclusion at the newer checkout.
+
+Evidence:
+
+- `teams/source/base-team/implement/story-worker.md:4`
+- `teams/source/base-team/implement/implement.dot:59`
+
+## f14
+
+PlanState contains story-set sizing and revision markers but no generation field; Implement handoff identifies the worker by session and reads approved revisions by parent/generation/key. Therefore simply reading the latest parent PlanState is not sufficient evidence of an approved generation match. The scope requires trustworthy binding and stable retained routing facts; the storage representation is a Plan design choice.
+
+Evidence:
+
+- `internal/planbrief/plan_workflow.go:18`
+- `internal/turn/implement_steps.go:628`
+- `internal/store/managed_stories.go:18`
+
+## f15
+
+Captured Implement admission pins definition and content/topology digests; resume verifies the running instance's retained definition. Compatibility scope therefore preserves existing captures while applying routing to newly captured updated definitions. No capture migration is included.
+
+Evidence:
+
+- `internal/turn/implement_graph.go:190`
+
+## f16
+
+Shaping impact extends f9: optional durable sizing metadata and its generation/revision binding are in scope if needed for stable routing; affected interfaces are factory graph conditions, validation and internal persisted facts, with no new user command, external API or permission grant. Existing worker contracts and other role behavior remain unchanged. The source graph is the shared behavior definition; no new prose guidance is needed. Good behavior: a valid M inherits its captured role tier while an unsized story selects flagship; bad behavior: all missing sizes silently use balanced or a repair switches sizing basis. No live transcript or model run was added; existing saved research and code supply the evidence.
+
+Evidence:
+
+- `teams/source/base-team/implement/implement.dot:59`
+- `internal/turn/plan_parallel.go:33`
+- `internal/turn/implement_steps.go:628`
+- `internal/store/managed_stories.go:29`
