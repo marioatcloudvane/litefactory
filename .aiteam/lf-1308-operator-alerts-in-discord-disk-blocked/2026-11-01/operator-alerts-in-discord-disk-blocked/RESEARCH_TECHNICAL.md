@@ -29,13 +29,12 @@ Evidence:
 
 ## f4
 
-Discord output exists: Service.Announce queues a keyed message to a channel; the same key queued twice changes nothing, which gives free per-incident dedup. Notices go to the configured notice channel, with a text-protection step.
+Service.Announce deduplicates queued notices by key, but that proves only local enqueue deduplication; Discord adapter documentation explicitly warns nonce deduplication is short-lived and uncertain sends after delay or restart can duplicate remotely.
 
 Evidence:
 
 - `internal/messaging/notices.go:538`
-- `internal/config/chat.go:26`
-- `internal/daemon/chat.go:237`
+- `internal/messaging/discord/adapter.go:266`
 
 ## f5
 
@@ -94,20 +93,25 @@ Evidence:
 
 ## f11
 
-Impact. Touched: daemon tick, pool/capacity, provider result handling, messaging notices and inbound chat, config (new alerts block plus template and docs), store (table plus migration), overview and connector, GitHub client or webhook handler (CI results). Depends on it: owner via Discord, MCP clients via factory_overview, doctor. Superseded: nothing; the disk WARN log stays. Compatibility: new config block must be optional and default safely for existing installs; existing webhook subscriptions keep their events. Tests: daemon, messaging, store, config, overview.
+Impact: daemon signal observations, capacity and provider handling, messaging notices/commands and Discord payloads, alerts config/template/docs, SQLite incident state and migration, overview/MCP, doctor and GitHub client polling are affected; owners, MCP clients and existing installations depend on these surfaces, while scheduling, recovery, workflow check reporting and webhooks remain unchanged; no team/skill change is required by this scope and no existing feature is superseded.
 
 Evidence:
 
 - `internal/config/template.go:30`
+- `internal/messaging/discord/adapter.go:250`
+- `.github/workflows/check.yml:1`
+- `internal/github/client.go:83`
 
 ## f12
 
-Discord already knows the owner (chat.discord.owner_id, numeric, validated), so 'mention the owner' and 'only the owner may mute' need no new identity setting. The notice channel is optional and must be one of the allowed channels.
+Discord config already supplies a validated numeric owner ID and allowed-channel constraints, but its outgoing payload exposes only an empty mention parse list and no user allowlist, so owner identity alone cannot deliver a ping.
 
 Evidence:
 
 - `internal/config/chat.go:24`
 - `internal/config/chat.go:67`
+- `internal/messaging/discord/adapter.go:250`
+- `internal/messaging/discord/adapter.go:315`
 
 ## f13
 
@@ -128,10 +132,36 @@ Evidence:
 
 ## f15
 
-Dead dispatches are already queryable in the store (graph_dispatches dead query) and the daemon iterates them, so the dead-dispatch part of 'task stuck' has a readable source. Report delivery 'uncertain' states also exist in the store (e.g. chat presentation, graph attempts); which one maps to #1240 was not traced.
+Dead dispatches are queryable; report recovery loads durable task-associated records through ListReportRecoveries, and doctor classifies report_deliveries as uncertain when possibly_sent is set without confirmed completion, providing a concrete delivery-stuck source without relying on conversation presentation state.
 
 Evidence:
 
 - `internal/store/graph_dispatches.go:383`
-- `internal/daemon/graph_dispatch.go:609`
-- `internal/store/chat_presentation.go`
+- `internal/daemon/report_recovery.go:41`
+- `internal/store/doctor_evidence.go:75`
+
+## f16
+
+The repository's single check workflow runs on main pushes or manual dispatch, cancels superseded in-progress runs and reports failures to GitHub issues; it is the concrete first-version main-red target.
+
+Evidence:
+
+- `.github/workflows/check.yml:1`
+
+## f17
+
+GitHub documents GET repository Actions workflow runs, branch filtering, pagination up to 100 per page and Actions read for fine-grained credentials (classic private-repository tokens require repo); installed credential access was not exercised. Source: https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository
+
+Evidence:
+
+- `internal/github/client.go:83`
+- `internal/github/client_test.go:44`
+
+## f18
+
+Discord documents explicit allowed_mentions user allowlists; repository output currently suppresses parsing entirely, so narrow critical-owner mentions require an intentional transport capability and cannot be achieved by text alone. Source: https://docs.discord.com/developers/resources/message#allowed-mentions-object
+
+Evidence:
+
+- `internal/messaging/discord/adapter.go:250`
+- `internal/messaging/discord/adapter.go:315`

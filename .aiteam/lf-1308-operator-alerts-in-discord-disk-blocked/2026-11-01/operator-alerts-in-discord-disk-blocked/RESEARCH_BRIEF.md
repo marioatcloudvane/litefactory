@@ -2,7 +2,7 @@
 
 ## Request
 
-Add configurable plain-language operator alerts in Discord (disk low, factory blocked, provider failure, task stuck, main red, deploy failed). One message per incident with cooldown, an all-clear on resolution, and owner mute and list controls.
+Add configurable plain-language Discord operator alerts for disk low, factory blocked, provider failure, task stuck and factory-main CI failure, with durable incident deduplication, all-clear, owner mute/list commands and monitoring readiness; defer production deploy alerts until their source is established.
 
 ## Decisions
 
@@ -13,86 +13,75 @@ Add configurable plain-language operator alerts in Discord (disk low, factory bl
 - **O-04** — Factory blocked is a critical alert raised when the pool is full longer than its 'after' (default 30m) while work waits, or a task shows no progress longer than its 'after' (default 2h). (owner said: issue #1308 table and config draft)
 - **O-05** — Provider failure is a critical alert for sign-in expired, quota, repeated safety refusal or repeated 5xx from an agent or conversation provider. (owner said: issue #1308 table)
 - **O-06** — Task stuck is a warning raised when a task's queue stops, a report delivery stays uncertain longer than 'after' (default 15m), or a dispatch is dead. (owner said: issue #1308 table)
-- **O-07** — Main red is a warning raised when CI on the factory's own main branch fails, cleared when it passes again. (owner said: issue #1308 table; in this issue pending q1)
-- **O-08** — Deploy failed is a warning raised when a watched project's production deploy fails or refuses. (owner said: issue #1308 table; what counts as a deploy pending q2)
+- **O-07** — Main-red remains in this issue and warns when the factory's main CI fails, clearing only on a confirmed later successful result for the same workflow. (owner said: q1=c; recovery detail agent's call)
+- **O-08** — Superseded by N-06: production deploy failure alerts are deferred until the production deploy source is known. (owner said: q1=c and q2 deferred)
 - **O-09** — Every alert says in plain words what happens, what is affected and what the owner can do, like the #1273 style. (owner said: issue #1308 Rules)
-- **O-10** — Critical alerts are sent at once and mention the owner per mention_owner_on (default critical) using the existing Discord owner ID. (owner said: issue #1308 Rules; owner ID reuse agent's call)
+- **O-10** — Critical alerts are sent immediately unless muted or disabled and support an explicit mention of only the configured Discord owner, with critical or none as the first-version mention settings. (owner said: issue Rules and assigned reply; narrowing the draft all setting is agent's call)
 - **O-11** — During quiet hours warnings are held and sent as one digest when quiet hours end; critical alerts still go at once. (owner said: issue #1308 config draft; digest timing agent's call)
-- **O-12** — The owner can mute one rule for a time, turn all alerts off until a time, and list active alerts from Discord. (owner said: issue #1308 Rules; command form pending q4)
+- **O-12** — The configured owner controls alerts with fixed commands 'alerts', 'mute disk 2h', 'mute disk for 2h', 'unmute disk', 'alerts off until 07:00', 'alerts off until tomorrow' and 'alerts on', without a conversation provider. (owner said: q4=a; aliases and resume agent's call)
 - **O-13** — Incident state (open, muted, resolved, last sent) survives a daemon restart, so a restart neither repeats nor loses an alert. (agent's call)
 - **O-14** — factory_overview lists active alerts read-only, so ChatGPT and Claude see them too. (agent's call)
-- **O-15** — Alerts are configured in a new optional 'alerts' block as drafted in the issue, plus an overall enabled switch. (owner said: issue #1308 config draft; switch agent's call)
+- **O-15** — Alerts and all in-scope rules default enabled through an optional alerts configuration block, using the allowed override channel or existing notice-channel fallback. (owner said: q5=a with channel fallback)
 - **O-16** — A simulated disk-low and a simulated stuck-task incident each reach the owner's Discord as one readable message, then an all-clear. (owner said: issue #1308 acceptance, manual)
 - **N-01** — No e-mail, push, other channels, per-repository routing or dashboard in the first version. (owner said: issue #1308 'Not included')
 - **N-02** — Alerts never fix anything themselves; a suggested fix like 'go clean -cache' is text only. (agent's call)
 - **N-03** — No alert history view, no posting alerts to GitHub or Linear issues, and no different channels per rule. (agent's call)
 - **N-04** — No CI alerts for project repositories; only the factory's own main is watched for red CI. (agent's call, from issue #1308 'CI on the factory's main')
-- **N-05** — No natural-language alert control through the conversation model in this version. (agent's call; depends on q4)
+- **N-05** — Natural-language alert control through the conversation model is out of scope. (owner said: q4=a)
 - **K-01** — Chat must keep not starting, approving, stopping or repairing work; mute commands only change alert state. (agent's call)
 - **K-02** — The disk hold, its WARN log line and pool scheduling behave exactly as today; alerts only observe. (agent's call)
 - **K-03** — Existing notices, conversations and the 'new conversation' phrase keep working unchanged. (agent's call)
 - **K-04** — An existing config without an 'alerts' block still loads and validates. (agent's call)
 - **K-05** — Existing GitHub and Linear webhook subscriptions keep working with their current events. (agent's call)
+- **A-01** — q1–q5 and judge findings — owner: "Following the judge: q1=c (keep main-red, defer deploy alerts until the production deploy source is known; q2 deferred with them), q3=a (polling, no webhook migration), q4=a, q5=a with the channel fallback. Add the judge findings to the scope: document and check the Actions read access that polling needs and report unavailable monitoring instead of treating failed reads as healthy; add narrow owner-only mention support for critical alerts with a payload-level test, keeping mention suppression for all other text." (owner said: assigned comment 6564475943)
+- **N-06** — Production deploy monitoring, deploy reporting interfaces and selection of production workflows are deferred until the production source and meaning of success are established. (owner said: q1=c and q2 deferred)
+- **N-07** — Webhook migration and new CI webhook subscriptions are out of scope because GitHub polling is the sole first-version CI input. (owner said: q3=a)
+- **O-17** — Poll the factory repository's check workflow on main every five minutes using existing GitHub credentials and API configuration, with GitHub Actions results as the source of truth. (owner said: q3=a; workflow selection agent's call from repository evidence)
+- **O-18** — Document and check repository access and Actions read permission at startup and through doctor, and expose failed, incomplete or missing CI reads as unavailable monitoring rather than healthy CI. (owner said: assigned reply)
+- **O-19** — Payload-level regression tests must prove that a critical alert permits only the configured owner mention while warnings, all-clears, ordinary messages and injected user, role or everyone mentions remain suppressed. (owner said: assigned reply)
+- **O-20** — The owner can see rule readiness, last successful observation, unavailable reason, active incidents, mute expiry and notification delivery state through alerts, factory_overview and doctor where relevant. (agent's call)
+- **O-21** — Persist incident identity, subject, severity, first/last observation, progress timers, recovery evidence, notification identity/status, cooldown and mute expiry so restart preserves the distinction between detected, queued, confirmed and uncertain delivery. (agent's call)
+- **O-22** — Deterministic acceptance tests cover each rule's opening and recovery, thresholds, cooldown, quiet hours, mute expiry, disablement, restart, authorization, CI read failures and stale results without making external calls. (agent's call)
+- **O-23** — Live acceptance separately verifies installed GitHub Actions read access and a real Discord critical owner mention plus disk/stuck-task opening and all-clear, because fixtures cannot prove installed permissions or delivery. (agent's call)
+- **K-06** — Existing mention suppression stays in force for every ordinary message and all untrusted content, with the only exception being the explicitly constructed owner mention on critical alerts. (owner said: assigned reply)
+- **K-07** — Alerts must not consume queue entries, replay uncertain reports, retry provider work, alter CI, or change existing recovery and main-red issue reporting. (agent's call)
+- **O-24** — Incident grouping, escalation, cooldown, recovery and provider thresholds follow a6–a11, with muted or quiet-hour notifications reconciled against current state before sending. (agent's call)
+- **O-25** — A rule disabled in configuration suppresses its openings, queued messages and all-clears until reenabled, while runtime mutes preserve active incidents and expire without changing work execution. (agent's call)
+- **O-26** — A single warning-level readiness incident reports loss of CI monitoring through Discord when the channel works, while missing channel readiness remains visible through doctor and overview. (agent's call)
+- **O-27** — Notification timing, mute commands, channel fallback, readiness behavior and integration boundaries follow the explicitly recorded assumptions a1 and a12–a29. (agent's call)
 
 
 ## Assumptions
 
-- **a1** — Alerts go through the existing Announce path and notice channel, with alerts.channel_id as an override that must be an allowed channel. If neither resolves, alerts stay off and doctor says so. (agent's call)
+- **a1** — The configured allowed alerts.channel_id overrides the notice channel, but a missing or unusable destination marks Discord notification delivery unavailable in doctor and overview while incident observation continues. (agent's call; clarifies owner-approved fallback)
 - **a2** — Incident state is stored in SQLite with a new migration. Promoted to O-13. (agent's call)
-- **a3** — Main-red and deploy-failed results come from GitHub Actions run results; webhook versus polling is open in q3. (agent's call)
+- **a3** — Superseded by O-17 and N-06: only main-red uses five-minute GitHub Actions polling; production deploy inputs remain deferred. (owner said: q1=c and q3=a)
 - **a4** — Alerts appear in factory_overview as a read-only list. Promoted to O-14. (agent's call)
-- **a5** — Built in slices: alert engine plus disk first, then pool and stuck tasks, then provider, then CI and deploy. (agent's call)
-- **a6** — An incident is one rule plus one subject (disk; pool; a task; a provider account; a repo workflow). Two stuck tasks are two incidents. (agent's call)
+- **a5** — Superseded by N-06: no build order is prescribed by this scope and deploy work is excluded. (agent's call)
+- **a6** — An incident key is rule plus subject: disk path, shared pool, task, provider plus credential/account reference plus failure class, or repository plus CI workflow; task/conversation refusal counts remain local to that source. (agent's call)
 - **a7** — 'Gets worse' means the severity rises; then one new message goes out. No reminders while an incident stays open at the same severity. (agent's call)
-- **a8** — Cooldown (default 1h) stops the same incident from alerting again within an hour after its all-clear, so a flapping condition does not spam. (agent's call)
-- **a9** — An all-clear is sent once the condition has been clear on two checks in a row. A muted incident also sends no all-clear while muted. (agent's call)
+- **a8** — A recurrence during the default one-hour post-clear cooldown is visible immediately but its notification waits until cooldown ends if still active, while a severity increase bypasses cooldown. (agent's call)
+- **a9** — Two successful clean observations confirm recovery, while read errors and lack of new evidence never count as clean; all-clear is owed only for an incident whose opening was confirmed delivered. (agent's call)
 - **a10** — 'No progress' ignores tasks waiting for the owner or on a planned wait; progress means a stage change, run start or end, or a new result. (agent's call)
 - **a11** — Provider thresholds: sign-in expired and quota alert at once; safety refusal after 2 in a row on the same conversation or task; 5xx after 3 in a row within 15 minutes. (agent's call)
 - **a12** — Only the configured Discord owner can use alert commands; anyone else is ignored. (agent's call)
 - **a13** — Outside quiet hours warnings go one by one as they open; the digest is only for quiet hours. (agent's call)
-- **a14** — Mute takes minutes, hours or days up to 7 days; 'until tomorrow' means until 07:00 or the end of quiet hours. Times use the factory host's local time zone. (agent's call)
-- **a15** — Delivery-uncertain and dead-dispatch signals are read from existing store records; Plan traces which record maps to #1240. (agent's call)
-
-
-## Open questions
-
-### q1 — Should main-red and deploy-failed alerts be part of this issue?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Yes, all six alerts here, built last (recommended). You named both as real pain (#1179 red for a week, MAR-64 not live); they only need the GitHub CI input from q3.  *(recommended)*
-- **b** — Split them into a follow-up issue. This ships the four internal alerts sooner, but main can go red unnoticed again meanwhile.
-- **c** — Main-red here, deploy-failed later. Main-red is simple; deploy needs q2 settled first.
-
-### q2 — What counts as a project's production deploy for the deploy-failed alert?
-
-_Asked of: Product Owner Questions_
-
-- **a** — A GitHub Actions workflow you name per project in config, e.g. repo plus workflow 'deploy-prod' (recommended). Clear and explicit; works if the cockpit deploy runs in GitHub Actions.  *(recommended)*
-- **b** — Any workflow with 'deploy' in its name in the factory's repos. No config, but may catch the wrong workflows.
-- **c** — The project reports its own deploy result to the factory (a small command or MCP call). Needed if the cockpit deploy is a script on a server, not GitHub Actions; tell us which it is.
-
-### q4 — How should you control alerts from Discord?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Short fixed commands: 'alerts', 'mute disk 2h', 'alerts off until 07:00', 'unmute disk' (recommended). Predictable, cannot be misread, works like 'new conversation' today.  *(recommended)*
-- **b** — Plain sentences understood by the chat assistant, e.g. 'please mute disk for two hours'. Friendlier, but may misread and depends on the provider being up, which is exactly when provider alerts fire.
-
-### q5 — Should alerts be on by default once this ships?
-
-_Asked of: Product Owner Questions_
-
-- **a** — On by default, posting to the notice channel, all rules enabled (recommended). You stop being blind without editing config; turn off with alerts.enabled: false.  *(recommended)*
-- **b** — Off until you add an 'alerts' block. Safer for other installs, but nothing changes until you configure it.
-
-### q3 — How should the factory learn CI and deploy results from GitHub?
-
-_Asked of: Technical Questions_
-
-- **a** — Poll the latest GitHub Actions runs every 5 minutes (recommended). Works on existing installs, no webhook re-registration, survives restarts; costs a few API calls and up to 5 minutes delay.  *(recommended)*
-- **b** — Add the workflow_run webhook event. Instant, but every existing repo subscription must be updated and the GitHub app may need more permissions.
-- **c** — Both: webhook for speed, poll as safety net. Most robust, most work.
+- **a14** — Mute durations accept positive minutes/hours/days up to seven days, clock times mean the next occurrence, tomorrow means next-day quiet-hours end or 07:00, and replies show the exact expiry and host time zone. (agent's call)
+- **a15** — Delivery-stuck observes report delivery/recovery records tied to a task and original delivery key, starting the 15-minute timer at first uncertainty and resolving only on confirmed delivery or explicit terminal settlement. (agent's call; current recovery and delivery-journal evidence replaces deferral to Plan)
+- **a16** — On mute expiry send one current opening for a still-active unsent incident, or one owed all-clear for an opening previously delivered; an incident that opened and resolved entirely under mute sends neither. (agent's call)
+- **a17** — Quiet hours default to 23:00–07:00 host local time and can be disabled; the end-of-quiet digest includes held warnings and resolutions, marks already-resolved incidents clearly, and never emits a lone all-clear for an unseen opening. (agent's call)
+- **a18** — CI watches github:marioatcloudvane/litefactory, main, .github/workflows/check.yml, configurable as one repository/branch/workflow target with this default; no name heuristics or project discovery are included. (agent's call)
+- **a19** — CI failure, timed_out or action_required opens main-red; only a newer successful run or successful rerun clears it, while cancelled/skipped/neutral/in-progress results and older out-of-order results cannot clear a known failure. (agent's call)
+- **a20** — CI keeps run ID, attempt, head SHA, workflow, conclusion and URL, selects by run chronology rather than completion arrival, and requires complete pagination to establish the latest relevant result. (agent's call)
+- **a21** — CI reads use GET Actions workflow runs, explicit branch/workflow filters, pages up to 100, the existing GitHub API version and credentials, bounded request deadlines and rate-limit backoff honoring Retry-After/reset; incomplete pagination or exhausted read budget yields unavailable, never green. (agent's call)
+- **a22** — CI startup or permission failures immediately show unavailable status and one deduplicated readiness warning, retry on the normal cadence or server backoff, preserve the last known CI incident, and clear readiness only after successful observation. (agent's call)
+- **a23** — Provider recovery requires a later successful operation using the affected provider/account, and refusal recovery requires success on the affected task/conversation; repeated observation of that success may satisfy two clean checks, but silence, elapsed quota reset or restart alone cannot. (agent's call)
+- **a24** — Pool recovery requires waiting work to proceed or the saturated wait to disappear; no-progress recovery requires real progress or a deliberate owner/planned wait; queue recovery requires the blocked item to be consumed or explicitly settled, and dead dispatch recovery requires successful replacement or terminal settlement. (agent's call)
+- **a25** — Short rule aliases cover disk, pool, progress, provider, delivery and main, and canonical rule names are accepted; queue-stop and dead-dispatch share a task_stuck switch while delivery_stuck retains its separate delay and switch. (agent's call)
+- **a26** — Invalid duration, rule, channel or clock settings produce an actionable error without changing state; command replies acknowledge the resulting mute or enabled state and only authenticated owner messages from allowed channels may change it. (agent's call)
+- **a27** — Discord alerts use bounded plain text and links with the existing message-size protection and rate-limit handling; digests may use ordered bounded parts without repeating an incident, and persisted notification identities distinguish confirmed sends from uncertain sends. (agent's call)
+- **a28** — One logical notification per transition is required across ticks and restarts, but uncertain Discord transport outcomes remain explicit and require reconciliation rather than claims of guaranteed exactly-once external delivery. (agent's call)
+- **a29** — No raw provider output, credentials or arbitrary owner mention text enters an alert; only a safe cause summary, affected subject and supported next action are included. (agent's call)
 
 ## Research documents
 
