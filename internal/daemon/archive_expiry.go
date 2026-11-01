@@ -60,6 +60,8 @@ type archiveExpirer struct {
 	pass *ArchivePass
 	arch *os.Root
 	runs *os.Root
+	// dirs are the archive folders the walk entered, parents before children.
+	dirs []string
 
 	expired, logs, failures int
 	bytes                   int64
@@ -104,7 +106,17 @@ func (e *archiveExpirer) run(ctx context.Context) (err error) {
 		}
 		e.expire(ctx, c)
 	}
+	e.pruneArchiveDirs()
 	return nil
+}
+
+// pruneArchiveDirs removes the archive folders left empty, children before
+// parents. Remove refuses a folder that still holds anything; the root "." is
+// never in the list.
+func (e *archiveExpirer) pruneArchiveDirs() {
+	for i := len(e.dirs) - 1; i >= 0; i-- {
+		_ = e.arch.Remove(e.dirs[i]) // a folder that is not empty stays, by design
+	}
 }
 
 func (e *archiveExpirer) record() {
@@ -140,6 +152,7 @@ func (e *archiveExpirer) candidates(ctx context.Context) ([]archiveCandidate, er
 			if len(parts) > 4 {
 				return fs.SkipDir
 			}
+			e.dirs = append(e.dirs, p)
 			return nil
 		}
 		if len(parts) != 5 || !d.Type().IsRegular() {
