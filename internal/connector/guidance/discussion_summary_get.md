@@ -1,0 +1,3 @@
+Recover publication status using the client-held publication reference. Report pending, delivered with the confirmed comment link, failed with the reason, or uncertain. A lost reply or inconclusive receipt search does not prove no comment was posted. Never create a fresh conclusion identity or resend to bypass uncertainty; preserve the record for receipt reconciliation or operator investigation.
+
+Use the typed cancel_pending control only to cancel a summary before dispatch. Explain when it is already delivered or possibly sent and can no longer be confirmed cancelled. Current publication permission is required for access. Revocation suppresses unsent publication; it does not recall a delivered comment. Summary status and cancellation never change task workflow state.

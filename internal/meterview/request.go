@@ -56,7 +56,7 @@ type Request struct {
 // Validate returns the corresponding meter view or wording.
 func Validate(r Request, plainDates bool) (store.MeterFilter, error) {
 	f := store.MeterFilter{Issue: r.Task, Mode: r.Mode, CodingAgent: r.Agent, Model: r.Model}
-	if r.Mode != "" && r.Mode != "research" && r.Mode != "plan" && r.Mode != "implement" && r.Mode != "spike" {
+	if r.Mode != "" && r.Mode != "research" && r.Mode != "plan" && r.Mode != "implement" && r.Mode != "spike" && r.Mode != "advisory" {
 		return f, invalid("invalid mode")
 	}
 	if r.Agent != "" && r.Agent != "claude" && r.Agent != "codex" {

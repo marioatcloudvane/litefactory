@@ -57,6 +57,9 @@ func insertConnectorCoverage(ctx context.Context, tx *sql.Conn, g ConnectorGrant
 		return nil
 	}
 	c := g.Coverage
+	if (ConnectorScopeHas(g.Scope, "task:advisory") || ConnectorScopeHas(g.Scope, "task:discussion-publish")) && (c == nil || c.All) {
+		return connectorRefused(ErrConnectorScope, "advisory execution and discussion publication require explicit repository selection")
+	}
 	if c == nil || !c.All && len(c.Repositories) == 0 {
 		return connectorRefused(ErrConnectorInvalid, "choose all repositories or at least one registered repository for %s", strings.Join(connectorGrantRepositoryScopes(g.Scope), ", "))
 	}

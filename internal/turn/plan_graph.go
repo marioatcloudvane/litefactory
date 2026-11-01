@@ -124,6 +124,16 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		return result, true, err
 	}
 	r.discussion = req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.ownerID && ParseCommand(req.Trigger.Body).Kind == KindFreeText
+	continuation, retainedRevision, continuationErr := retainedStageRevision(ctx, o.DB, req.Trigger, result.Ref.String())
+	if continuationErr != nil {
+		return result, true, continuationErr
+	}
+	if retainedRevision {
+		if continuation.OwnerID != r.ownerID || continuation.StoryKey != r.story {
+			return result, true, store.ErrStageDecisionTarget
+		}
+		r.discussion = true
+	}
 	feature, featureErr := o.DB.GetManagedFeature(ctx, r.parentRef.String())
 	if featureErr != nil && !errors.Is(featureErr, store.ErrNotFound) {
 		return result, true, featureErr
@@ -459,6 +469,10 @@ func (r *planGraphRuntime) selectStory(ctx context.Context) error {
 }
 
 func (r *planGraphRuntime) admitReply(ctx context.Context) error {
+	if _, retained, err := retainedStageRevision(ctx, r.opts.DB, r.req.Trigger, r.result.Ref.String()); err != nil || retained {
+		return err
+	}
+
 	s, rev, err := r.state(ctx)
 	if err != nil || s.SharedRevision == "" {
 		return err
@@ -515,7 +529,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 			}
 			return err
 		}
-		if err = r.persist(ctx, s, rev); err != nil {
+		if err = r.persist(store.WithPlanOwnerAdmission(ctx, r.parentRef.String(), ""), s, rev); err != nil {
 			return err
 		}
 		return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan-set", strings.TrimSpace(commandtext.Normalize(r.req.Trigger.Body)))
@@ -539,6 +553,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 // read fresh and saved with the revision check, so a sibling story saving at the
 // same moment keeps its change and this one is retried, never lost.
 func (r *planGraphRuntime) applyReply(ctx context.Context, reply planbrief.PlanOwnerReply) error {
+	ctx = store.WithPlanOwnerAdmission(ctx, r.parentRef.String(), reply.Key)
 	approved := false
 	err := r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(s *planbrief.PlanState) (bool, error) {
 		var e error

@@ -94,6 +94,23 @@ func (db *DB) CreateOwnerAction(ctx context.Context, p OwnerAction) error {
 		if err := ownerActionAuthority(ctx, tx, p.Principal, p, p.CreatedAt); err != nil {
 			return err
 		}
+		var frozen struct {
+			TargetID   string `json:"target_id"`
+			Invocation struct {
+				Command string `json:"command"`
+			} `json:"invocation"`
+		}
+		if err := json.Unmarshal([]byte(p.Facts), &frozen); err != nil {
+			return err
+		}
+		if frozen.Invocation.Command == "revise_task" || frozen.Invocation.Command == "approve_stage" {
+			if frozen.TargetID == "" {
+				return ErrConnectorInvalid
+			}
+			if err := stageDecisionUnresolvedTx(ctx, tx, frozen.TargetID, p.ExecutionID); err != nil {
+				return err
+			}
+		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO owner_action_proposals(`+ownerActionColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, p.ID, p.PolicyVersion, p.Principal.OwnerID, p.Principal.OwnerGeneration, p.Principal.Transport, p.Principal.ClientID, p.Principal.GrantID, p.Principal.ChannelID, p.Principal.DiscordOwnerID, p.RequestKey, p.RequestDigest, p.Facts, p.Payload, p.Digest, p.RepositoryID, p.RepositoryRef, p.Scope, p.Tier, p.State, p.Reason, ownerActionTime(p.CreatedAt), ownerActionTime(p.AvailableAt), ownerActionTime(p.ConfirmNotBefore), ownerActionTime(p.ExpiresAt), "", p.ExecutionID, "", "", p.ApprovalChannel, "", "", "", 0)
 		return err
 	})
@@ -141,7 +158,7 @@ func ownerActionAuthority(ctx context.Context, tx *sql.Tx, actor OwnerActionPrin
 		}
 		if p.RepositoryID > 0 {
 			table := "connector_grant_action_repositories"
-			if p.Scope == "standards:management" {
+			if p.Scope == "standards:management" || p.Scope == "task:advisory" || p.Scope == "task:discussion-publish" {
 				table = "connector_grant_repositories"
 			}
 			var count int
@@ -282,7 +299,7 @@ func (db *DB) MutateOwnerAction(ctx context.Context, actor OwnerActionPrincipal,
 			}
 		}
 		p.Reason = decision
-		if p.State == "cancelled" || p.State == "expired" || p.State == "invalidated" {
+		if (p.State == "cancelled" || p.State == "expired" || p.State == "invalidated") && !stageDecisionAction(p) {
 			p.Payload = "{}"
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE owner_action_proposals SET state=?,reason=?,completed_at=?,delivery_state=?,payload=? WHERE id=?`, p.State, p.Reason, ownerActionTime(p.CompletedAt), p.DeliveryState, p.Payload, p.ID)

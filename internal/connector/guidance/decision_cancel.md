@@ -1,0 +1,3 @@
+Use decision_cancel for an explicit cancellation request and select proposal or summary from conversation context; clarify if unclear. Proposal cancellation applies only before owner-transition admission. Summary cancellation applies only before possible send. Neither reverses a recorded approval, stops an admitted revision or controls Bug repair.
+
+Read the returned decision state and explain when cancellation was too late. If sending may already have happened, retain uncertainty and reconcile the original delivery receipt. Do not claim that cancelling a comment cancelled the owner's confirmed decision, and do not repeat the transition to obtain a comment.
