@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -526,5 +527,147 @@ func TestBrokerWorkerBound(t *testing.T) {
 	}
 	if maximum.Load() != 2 {
 		t.Fatalf("expected two bounded concurrent handlers, got %d", maximum.Load())
+	}
+}
+
+func assertAttemptFolderRemoved(t *testing.T, b *submission.Broker) {
+	t.Helper()
+	attempt := filepath.Dir(b.DescriptorPath())
+	if _, err := os.Stat(attempt); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("attempt folder remains after Close: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(attempt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("base directory keeps %d entries after Close", len(entries))
+	}
+}
+
+func TestBrokerCloseRemovesAttemptFolderWithJournals(t *testing.T) {
+	t.Parallel()
+	b := startSubmissionBroker(t, successfulSubmissionHandler)
+	response, err := submission.Call(t.Context(), b.DescriptorPath(), "submit", json.RawMessage(`{"story":"US-1","outcome":"engineering_complete"}`))
+	if err != nil || response.Error != "" {
+		t.Fatalf("submit %+v %v", response, err)
+	}
+	journals, err := filepath.Glob(filepath.Join(filepath.Dir(b.DescriptorPath()), "request-*.json"))
+	if err != nil || len(journals) == 0 {
+		t.Fatalf("missing request journal: %v %v", journals, err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertAttemptFolderRemoved(t, b)
+}
+
+func TestBrokerCancellationRemovesAttemptFolder(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	b, err := submission.Start(ctx, submission.Options{Directory: privateSubmissionDir(t), AuthorizedStories: []string{"US-1"}, Handler: successfulSubmissionHandler, MaxWorkers: 2, RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertAttemptFolderRemoved(t, b)
+}
+
+func TestBrokerCloseDuringHandlerRemovesAttemptFolder(t *testing.T) {
+	t.Parallel()
+	entered := make(chan struct{})
+	b := startSubmissionBroker(t, func(ctx context.Context, _ submission.Request) (json.RawMessage, error) {
+		close(entered)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	callDone := make(chan struct{})
+	go func() {
+		defer close(callDone)
+		_, _ = submission.Call(t.Context(), b.DescriptorPath(), "submit", json.RawMessage(`{"story":"US-1"}`))
+	}()
+	select {
+	case <-entered:
+	case <-time.After(testutil.Wait):
+		t.Fatal("handler not entered")
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-callDone
+	assertAttemptFolderRemoved(t, b)
+}
+
+func TestRemoveStaleKeepsLiveBrokersAndRemovesLeftovers(t *testing.T) {
+	t.Parallel()
+	dir := privateSubmissionDir(t)
+	old := time.Now().Add(-time.Hour)
+	journalOnly := filepath.Join(dir, "journalonly00000")
+	if err := os.Mkdir(journalOnly, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(journalOnly, "request-abc.json"), []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	deadSocket := filepath.Join(dir, "deadsocket000000")
+	if err := os.Mkdir(deadSocket, 0700); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(deadSocket, "s"), Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.SetUnlinkOnClose(false)
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{journalOnly, deadSocket} {
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live, err := submission.Start(t.Context(), submission.Options{Directory: dir, AuthorizedStories: []string{"US-1"}, Handler: successfulSubmissionHandler, MaxWorkers: 2, RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = live.Close() })
+	liveDir := filepath.Dir(live.DescriptorPath())
+	if err := os.Chtimes(liveDir, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := submission.RemoveStale(t.Context(), dir, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{journalOnly, deadSocket} {
+		if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s survived sweep: %v", filepath.Base(path), err)
+		}
+	}
+	if _, err := os.Stat(liveDir); err != nil {
+		t.Fatalf("live broker folder removed: %v", err)
+	}
+	if response, err := submission.Call(t.Context(), live.DescriptorPath(), "preflight", json.RawMessage(`{"story":"US-1"}`)); err != nil || response.Error != "" {
+		t.Fatalf("live broker unusable after sweep: %+v %v", response, err)
+	}
+}
+
+func TestRemoveStaleKeepsRecentFolders(t *testing.T) {
+	t.Parallel()
+	dir := privateSubmissionDir(t)
+	recent := filepath.Join(dir, "recent0000000000")
+	if err := os.Mkdir(recent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := submission.RemoveStale(t.Context(), dir, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Fatalf("recent folder removed: %v", err)
+	}
+	if err := submission.RemoveStale(t.Context(), filepath.Join(dir, "missing"), time.Now()); err != nil {
+		t.Fatalf("missing directory: %v", err)
 	}
 }
