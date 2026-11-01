@@ -86,7 +86,7 @@
         },
         {
           "path": "implement/sync-resolver.md",
-          "sha256": "11faf03667b7323b6e4bce395f5bd02befd457bf9f38499d6136240643464588"
+          "sha256": "544a75602a9c8e6f1ca04a69005f239ee2b8728397e4d85cee0c1b20ce54c227"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -190,7 +190,7 @@
         },
         {
           "path": "research/shaping.md",
-          "sha256": "8a9857936b1a9ea3ec5a98a1d7903046cecf6630f103d848add291e6e57e8af9"
+          "sha256": "bb48d735f5f1d05cc0c14863f2816b9bf0864800226cb278c2fd0b269b6e9981"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -282,7 +282,7 @@
         },
         {
           "path": "validate/skills/validate-review/SKILL.md",
-          "sha256": "ee998d2eb2e9a3a44f513f39d7da39e72d206b52e1c46565ac4a7d0fc8ee1d13"
+          "sha256": "df0c492e2e27129220fc6314a7236169fd81f7ae7fed98a74fe0bf5e99a88ec5"
         },
         {
           "path": "validate/skills/validate-review/node-result.md",
@@ -294,22 +294,22 @@
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "4f78507238cdefc26e60082ddc380d952efea48b6ea4178517e1b24acae266b3"
+          "sha256": "9e236db1195b239470669b1698675f89f654a9e42e8406f17eda7262c09773b3"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "d24658185066f42075dc24a4177649b9084adc436b82e5498d74adf434ceca17"
+          "sha256": "7fcc180ed570b0efe86f1b7dbe4549b1048a25f6ae518d9149854ecf62c2bdaa"
         },
         {
           "path": "validate/validate-repair.md",
-          "sha256": "8c4785e0da2b9d311146bc292b94c81a0be92e4c59fc2a92d6fdd9a0294d4568"
+          "sha256": "c29bd031d61253331c245636f74c0867854758cd23e6118a7a2cded81c3547c2"
         },
         {
           "path": "validate/validate.dot",
           "sha256": "7035c4341c6638d856883f2d91c5a41cb3d15cce1a5f69aed44729649637c0da"
         }
       ],
-      "checksum": "da3fb5874b854544ad8a3931f5d4fa56292debc6d5a22d76ed885eab6db018ff"
+      "checksum": "4a9ce117cf7673563a83369c58c59cc4cdf31ede5e58149eb750ba654716c50b"
     },
     {
       "name": "Go development",
@@ -395,7 +395,7 @@
         },
         {
           "path": "implement/sync-resolver.md",
-          "sha256": "11faf03667b7323b6e4bce395f5bd02befd457bf9f38499d6136240643464588"
+          "sha256": "544a75602a9c8e6f1ca04a69005f239ee2b8728397e4d85cee0c1b20ce54c227"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -487,7 +487,7 @@
         },
         {
           "path": "research/shaping.md",
-          "sha256": "8a9857936b1a9ea3ec5a98a1d7903046cecf6630f103d848add291e6e57e8af9"
+          "sha256": "bb48d735f5f1d05cc0c14863f2816b9bf0864800226cb278c2fd0b269b6e9981"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -579,7 +579,7 @@
         },
         {
           "path": "validate/skills/validate-review/SKILL.md",
-          "sha256": "ee998d2eb2e9a3a44f513f39d7da39e72d206b52e1c46565ac4a7d0fc8ee1d13"
+          "sha256": "df0c492e2e27129220fc6314a7236169fd81f7ae7fed98a74fe0bf5e99a88ec5"
         },
         {
           "path": "validate/skills/validate-review/node-result.md",
@@ -591,22 +591,22 @@
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "4f78507238cdefc26e60082ddc380d952efea48b6ea4178517e1b24acae266b3"
+          "sha256": "9e236db1195b239470669b1698675f89f654a9e42e8406f17eda7262c09773b3"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "d24658185066f42075dc24a4177649b9084adc436b82e5498d74adf434ceca17"
+          "sha256": "7fcc180ed570b0efe86f1b7dbe4549b1048a25f6ae518d9149854ecf62c2bdaa"
         },
         {
           "path": "validate/validate-repair.md",
-          "sha256": "8c4785e0da2b9d311146bc292b94c81a0be92e4c59fc2a92d6fdd9a0294d4568"
+          "sha256": "c29bd031d61253331c245636f74c0867854758cd23e6118a7a2cded81c3547c2"
         },
         {
           "path": "validate/validate.dot",
           "sha256": "f628805d37c9e88cb85fe715ecf714cd5b6dd16ee0f423085316d4ae4812db07"
         }
       ],
-      "checksum": "91071120a52464ce8f1976e767be120fb446c004546210bf31e35e0276310939"
+      "checksum": "a035d20585731d5688ed96fecdce073727ae5716687a8c503e5d013c26657b3a"
     },
     {
       "name": "Python FastAPI with React",
@@ -704,7 +704,7 @@
         },
         {
           "path": "implement/sync-resolver.md",
-          "sha256": "11faf03667b7323b6e4bce395f5bd02befd457bf9f38499d6136240643464588"
+          "sha256": "544a75602a9c8e6f1ca04a69005f239ee2b8728397e4d85cee0c1b20ce54c227"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -808,7 +808,7 @@
         },
         {
           "path": "research/shaping.md",
-          "sha256": "8a9857936b1a9ea3ec5a98a1d7903046cecf6630f103d848add291e6e57e8af9"
+          "sha256": "bb48d735f5f1d05cc0c14863f2816b9bf0864800226cb278c2fd0b269b6e9981"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -904,7 +904,7 @@
         },
         {
           "path": "validate/skills/validate-review/SKILL.md",
-          "sha256": "ee998d2eb2e9a3a44f513f39d7da39e72d206b52e1c46565ac4a7d0fc8ee1d13"
+          "sha256": "df0c492e2e27129220fc6314a7236169fd81f7ae7fed98a74fe0bf5e99a88ec5"
         },
         {
           "path": "validate/skills/validate-review/node-result.md",
@@ -916,22 +916,22 @@
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "4f78507238cdefc26e60082ddc380d952efea48b6ea4178517e1b24acae266b3"
+          "sha256": "9e236db1195b239470669b1698675f89f654a9e42e8406f17eda7262c09773b3"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "d24658185066f42075dc24a4177649b9084adc436b82e5498d74adf434ceca17"
+          "sha256": "7fcc180ed570b0efe86f1b7dbe4549b1048a25f6ae518d9149854ecf62c2bdaa"
         },
         {
           "path": "validate/validate-repair.md",
-          "sha256": "8c4785e0da2b9d311146bc292b94c81a0be92e4c59fc2a92d6fdd9a0294d4568"
+          "sha256": "c29bd031d61253331c245636f74c0867854758cd23e6118a7a2cded81c3547c2"
         },
         {
           "path": "validate/validate.dot",
           "sha256": "de03a4bd69dc66fdd8321bcd21156975361c779537a92d9903650112845bd46d"
         }
       ],
-      "checksum": "511d157a6fdffc1c55eb5911fb430124b2119d734ca84963350b65ef769895ae"
+      "checksum": "5034004b8e5bb26ca759be0a8bd71d176245c2b6f6a5970b442825cd5f1cb75b"
     },
     {
       "name": "Swift iOS",
@@ -1010,7 +1010,7 @@
         },
         {
           "path": "implement/sync-resolver.md",
-          "sha256": "11faf03667b7323b6e4bce395f5bd02befd457bf9f38499d6136240643464588"
+          "sha256": "544a75602a9c8e6f1ca04a69005f239ee2b8728397e4d85cee0c1b20ce54c227"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -1106,7 +1106,7 @@
         },
         {
           "path": "research/shaping.md",
-          "sha256": "8a9857936b1a9ea3ec5a98a1d7903046cecf6630f103d848add291e6e57e8af9"
+          "sha256": "bb48d735f5f1d05cc0c14863f2816b9bf0864800226cb278c2fd0b269b6e9981"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -1194,7 +1194,7 @@
         },
         {
           "path": "validate/skills/validate-review/SKILL.md",
-          "sha256": "ee998d2eb2e9a3a44f513f39d7da39e72d206b52e1c46565ac4a7d0fc8ee1d13"
+          "sha256": "df0c492e2e27129220fc6314a7236169fd81f7ae7fed98a74fe0bf5e99a88ec5"
         },
         {
           "path": "validate/skills/validate-review/node-result.md",
@@ -1206,22 +1206,22 @@
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "4f78507238cdefc26e60082ddc380d952efea48b6ea4178517e1b24acae266b3"
+          "sha256": "9e236db1195b239470669b1698675f89f654a9e42e8406f17eda7262c09773b3"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "d24658185066f42075dc24a4177649b9084adc436b82e5498d74adf434ceca17"
+          "sha256": "7fcc180ed570b0efe86f1b7dbe4549b1048a25f6ae518d9149854ecf62c2bdaa"
         },
         {
           "path": "validate/validate-repair.md",
-          "sha256": "8c4785e0da2b9d311146bc292b94c81a0be92e4c59fc2a92d6fdd9a0294d4568"
+          "sha256": "c29bd031d61253331c245636f74c0867854758cd23e6118a7a2cded81c3547c2"
         },
         {
           "path": "validate/validate.dot",
           "sha256": "4eab03e42352502c6619f2c1447acf82128b40358fa3af8da96647b49390e8b7"
         }
       ],
-      "checksum": "b545e75ff3cf26f59e4c026e936d7073c8011199318a939eec4a5aff1ab183e2"
+      "checksum": "f2ba6914f53f457c8571e992d6980250390f698e8220323dfa406b6c3635487f"
     }
   ]
 }

@@ -1,7 +1,7 @@
 ---
 name: sync-resolver
 description: Bring the base branch into the feature branch when the two conflict, resolve every conflict so both sides keep working, and say honestly whether it is done.
-tier: balanced
+tier: flagship
 task: Finish the merge of the base branch into the feature branch that the factory started in this worktree, resolve every conflict so that both the base and the stories already merged keep working, run the tests of every package the resolution touched with a finite timeout, fix the failures the resolution causes, and submit completed or blocked with a plain reason.
 ---
 # Role
