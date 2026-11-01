@@ -118,7 +118,7 @@ Evidence:
 
 ## F-15
 
-Impact extension: the dedicated-cache proposal touches provider/check environment assembly and cache-only sandbox grants; status reporting can extend the existing health snapshot, with no new public command or external API required; existing host cache removal is not an automatic migration, and alert delivery remains Q-03.
+Impact extension: the selected dedicated-cache scope touches provider/check environment assembly and cache-only sandbox grants; status reporting can extend existing health snapshots without a new command or external API; the host cache is left untouched and owner answer A-01 excludes alert integration.
 
 Evidence:
 
