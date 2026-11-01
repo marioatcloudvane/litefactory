@@ -56,19 +56,23 @@ Evidence:
 
 ## f7
 
-Deploy failed: found no project deploy pipeline concept in the factory code. 'deploy' appears only in config text. A deploy failure is therefore a new probe, probably fed by the project's own GitHub workflow result, not something the factory observes.
+Deploy failed: the factory has no project deploy concept. 'deploy' in the code means only the factory's own pre-deploy database backups. A project deploy failure is therefore a new input the factory must be told how to watch. Shaping pass confirmed this by a search of internal/ and cmd/.
 
 Evidence:
 
-- `internal/config/config.go`
+- `internal/config/config.go:120`
+- `internal/daemon/housekeeping.go:93`
 
 ## f8
 
-Provider failure: provider and refusal handling exists in providerprocess and agent/codex runners, and conversation capability code. Whether it records a durable, typed 'safety refusal' or 'sign-in expired' event was not traced in this pass.
+Provider failure: typed signals exist at the provider boundary. Conversation safety refusal (ErrConversationRefused) and sign-in failure (ErrConversationAuthentication) are distinct errors with plain-word replies; agent runs carry quota Interruption and Transient capacity-refusal evidence; Codex captures the quota message. None is recorded as a durable incident or counted over time.
 
 Evidence:
 
-- `internal/providerprocess/conversation_capability.go`
+- `internal/agent/conversation.go:21`
+- `internal/messaging/conversation_cause.go:35`
+- `internal/agent/result.go:90`
+- `internal/codex/runner.go:665`
 
 ## f9
 
@@ -90,8 +94,44 @@ Evidence:
 
 ## f11
 
-Impact. Touched: daemon tick, pool/capacity, messaging notices, config (new alerts block plus template and docs), store (table plus migration), overview and connector (optional), webhook handler (CI events). Superseded: nothing; disk WARN log stays. Compatibility: new config block must default safely for existing installs. Tests: daemon, messaging, store, config.
+Impact. Touched: daemon tick, pool/capacity, provider result handling, messaging notices and inbound chat, config (new alerts block plus template and docs), store (table plus migration), overview and connector, GitHub client or webhook handler (CI results). Depends on it: owner via Discord, MCP clients via factory_overview, doctor. Superseded: nothing; the disk WARN log stays. Compatibility: new config block must be optional and default safely for existing installs; existing webhook subscriptions keep their events. Tests: daemon, messaging, store, config, overview.
 
 Evidence:
 
 - `internal/config/template.go:30`
+
+## f12
+
+Discord already knows the owner (chat.discord.owner_id, numeric, validated), so 'mention the owner' and 'only the owner may mute' need no new identity setting. The notice channel is optional and must be one of the allowed channels.
+
+Evidence:
+
+- `internal/config/chat.go:24`
+- `internal/config/chat.go:67`
+
+## f13
+
+A fixed Discord phrase is already recognised before the conversation model: 'new conversation' is matched exactly (trimmed, lower-case). This is a working precedent for short alert commands.
+
+Evidence:
+
+- `internal/messaging/natural.go:97`
+
+## f14
+
+GitHub webhook subscriptions register only issues, issue_comment and sub_issues. Receiving CI results by webhook would mean adding an event to every existing subscription; polling needs no subscription change.
+
+Evidence:
+
+- `internal/webhookreg/webhookreg.go:26`
+- `internal/webhookreg/subscriptions.go:111`
+
+## f15
+
+Dead dispatches are already queryable in the store (graph_dispatches dead query) and the daemon iterates them, so the dead-dispatch part of 'task stuck' has a readable source. Report delivery 'uncertain' states also exist in the store (e.g. chat presentation, graph attempts); which one maps to #1240 was not traced.
+
+Evidence:
+
+- `internal/store/graph_dispatches.go:383`
+- `internal/daemon/graph_dispatch.go:609`
+- `internal/store/chat_presentation.go`
