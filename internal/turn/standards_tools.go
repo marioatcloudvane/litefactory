@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 
@@ -33,7 +34,10 @@ type StandardsToolService struct {
 	runtime standards.Runtime
 	binding store.ResultBinding
 	role    string
-	bind    sync.Once
+	// mu guards bound: the book is pinned on a call that retains a binding,
+	// and every later call reads that same binding.
+	mu    sync.Mutex
+	bound bool
 }
 
 // NewStandardsToolService copies immutable scope; arguments never select a run,
@@ -46,11 +50,33 @@ func NewStandardsToolService(runtime *standards.Runtime, binding store.ResultBin
 }
 
 // pin retains the current published book for this invocation on first use. An
-// existing retained binding is kept, so later calls read the same book.
-func (s *StandardsToolService) pin(ctx context.Context) {
-	s.bind.Do(func() {
-		_, _ = s.runtime.Bind(ctx, true)
-	})
+// existing retained binding is kept, so later calls read the same book. A call
+// that could not retain a binding is not latched: the next call tries again,
+// and the returned reason names why this one failed ("" once a binding is
+// retained).
+func (s *StandardsToolService) pin(ctx context.Context) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.bound {
+		return ""
+	}
+	status, err := s.runtime.Bind(ctx, true)
+	if _, getErr := s.runtime.Store.GetStandardsRunBinding(ctx, s.runtime.RootRunID); getErr == nil {
+		s.bound = true
+		return ""
+	} else if err == nil && !errors.Is(getErr, store.ErrNotFound) {
+		err = getErr
+	}
+	reason := "standards binding could not be retained"
+	switch {
+	case err != nil:
+		reason += ": " + err.Error()
+	case status.StatusPersistenceFailure != "":
+		reason += ": " + status.StatusPersistenceFailure
+	}
+	reason = clipText(reason, 512)
+	slog.Warn("standards binding could not be retained", slog.String("root_run", s.runtime.RootRunID), slog.String("attempt", s.binding.Attempt), slog.String("role", s.role), slog.String("reason", reason))
+	return reason
 }
 
 // Binding returns the immutable factory attempt scope.
@@ -88,10 +114,14 @@ func (s *StandardsToolService) categories(ctx context.Context, id string, raw []
 	if err := decodeMCPArguments(raw, &a); err != nil {
 		return nil, err
 	}
-	s.pin(ctx)
+	pinFailure := s.pin(ctx)
 	out, err := s.runtime.CategoriesForRole(ctx, s.role)
 	if err != nil {
-		return s.failure(ctx, id, err)
+		return s.failure(ctx, id, withPinFailure(err, pinFailure))
+	}
+	if pinFailure != "" {
+		out.Note = clipText(strings.TrimSpace(out.Note+" "+pinFailure+"."), 1024)
+		out.Status.StatusPersistenceFailure = pinFailure
 	}
 	out.Status = s.observeStatus(ctx, out.Status)
 	return standardsReply(id, out)
@@ -105,16 +135,25 @@ func (s *StandardsToolService) read(ctx context.Context, id string, raw []byte) 
 	if err := decodeMCPArguments(raw, &a); err != nil {
 		return nil, err
 	}
-	s.pin(ctx)
+	pinFailure := s.pin(ctx)
 	if len(a.Cursor) > 4096 || len(a.Categories) > 100 {
 		return nil, standards.ErrInvalid
 	}
 	out, err := s.runtime.ForRole(ctx, s.role, a.Categories, a.Cursor)
 	if err != nil {
-		return s.failure(ctx, id, err)
+		return s.failure(ctx, id, withPinFailure(err, pinFailure))
 	}
 	out.Status = s.observeStatus(ctx, out.Status)
 	return standardsReply(id, out)
+}
+
+// withPinFailure adds why the binding could not be retained to a tool failure,
+// so the reply names the cause and not only the missing binding.
+func withPinFailure(err error, pinFailure string) error {
+	if pinFailure == "" {
+		return err
+	}
+	return fmt.Errorf("%s: %w", pinFailure, err)
 }
 
 func (s *StandardsToolService) failure(ctx context.Context, id string, cause error) (json.RawMessage, error) {
