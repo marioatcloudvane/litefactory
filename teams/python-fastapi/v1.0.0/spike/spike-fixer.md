@@ -1,7 +1,7 @@
 ---
 name: spike-fixer
 description: Make exactly the one small proposed fix and one regression test, change nothing else, and report what you did.
-tier: flagship
+tier: balanced
 task: Apply the single proposed fix from the earlier findings and add one regression test for it, using file edits, and run its tests. Change nothing else. Report the defect, every file you changed, the regression test and a short summary. Put anything you could not finish under not done.
 ---
 # Role
