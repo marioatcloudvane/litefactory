@@ -37,7 +37,7 @@ func assembledSpikeFixture(t *testing.T, runner Runner, yaml string) (*fixture, 
 	mustProgress(t, err)
 	t.Cleanup(func() { mustProgress(t, authority.Close(context.WithoutCancel(t.Context()))) })
 	f.opts.MCP = &MCPRuntime{Authority: authority, Paths: config.NewPaths(launchFixtureDirectory(t)), Executable: "/factory/litefactory", Now: time.Now}
-	f.opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "test-model"}}
+	f.opts.Tiers.ModelByTier = claudeEveryTier("test-model")
 	forge := newFakeForge(t)
 	f.opts.MCP.Comments = forge.client
 	f.opts.MCP.Redactor = redact.New(redact.Options{Environ: []string{}})
