@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/linear/linearmd"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -40,6 +41,20 @@ func planTableCell(text string) string {
 		return "—"
 	}
 	return strings.ReplaceAll(text, "|", `\|`)
+}
+
+// planTableCellFor keeps untrusted text inside one table cell for its
+// destination: Linear text is written inert with backslash escapes and code
+// spans; GitHub keeps planTableCell.
+func planTableCellFor(onLinear bool, text string) string {
+	if !onLinear {
+		return planTableCell(text)
+	}
+	text = linearmd.InlineText(text)
+	if text == "" {
+		return "—"
+	}
+	return text
 }
 
 // planStoryRows lists the active stories in saved order with their sub-issues.
@@ -292,8 +307,9 @@ func renderPlanStoryTable(ref naming.Ref, rows []planStoryRow, stages bool) stri
 	} else {
 		out.WriteString("| ID | Name | Description | Dependencies | Sub-issue |\n|---|---|---|---|---|\n")
 	}
+	onLinear := ref.Forge == "linear"
 	for _, row := range rows {
-		fmt.Fprintf(&out, "| `%s` | %s | %s | %s | %s |", row.Key, planTableCell(row.Name), planTableCell(row.Description), dependencyCell(row.Dependencies), issueLink(ref, row.Issue, row.Reference))
+		fmt.Fprintf(&out, "| `%s` | %s | %s | %s | %s |", row.Key, planTableCellFor(onLinear, row.Name), planTableCellFor(onLinear, row.Description), dependencyCell(row.Dependencies), issueLink(ref, row.Issue, row.Reference))
 		if stages {
 			approved := "none"
 			if len(row.Approved) > 0 {
@@ -343,7 +359,7 @@ func planWaitingText(ref naming.Ref, rows []planStoryRow) string {
 		if row.Command != "" {
 			command = "`" + row.Command + "`"
 		}
-		fmt.Fprintf(&out, "| `%s` | %s | %s | %s | %s |\n", row.Key, planTableCell(row.Name), issueLink(ref, row.Issue, row.Reference), command, planTableCell(row.Guidance))
+		fmt.Fprintf(&out, "| `%s` | %s | %s | %s | %s |\n", row.Key, planTableCellFor(ref.Forge == "linear", row.Name), issueLink(ref, row.Issue, row.Reference), command, planTableCellFor(ref.Forge == "linear", row.Guidance))
 	}
 	out.WriteString("\nReply on each sub-issue with its command to approve it, or in plain words to change it. Resolve the listed prerequisites first. Independent stories can continue through normal admission; a reply does not itself start dependent work.\n")
 	return out.String()

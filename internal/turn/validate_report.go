@@ -27,6 +27,7 @@ const (
 // records only.
 func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, notice string) string {
 	var b strings.Builder
+	onLinear := target != nil && target.Task.Forge == "linear"
 	rows := validateStoryRows(st, target)
 	fmt.Fprintf(&b, "%s **Validate report** · commit `%s` · suite %s · revision `%s`\n\n", validateOverallLight(st, rows), short(st.Commit), st.Suite.Outcome, st.Revision)
 	b.WriteString("Delivery: " + deliveryText(st, target) + "\n\n")
@@ -35,14 +36,14 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		if m := st.Suite.Assessment; m != nil && m.Commit == st.Commit && coverage.Digest(m) == st.Suite.AssessmentDigest {
 			fmt.Fprintf(&b, "Earlier suite commit: `%s`; pinned comparison commit: `%s`. Measured validation duration: %s.\n\n", m.PreviousCommit, m.BaseCommit, m.Duration.Round(time.Millisecond))
 			if m.FullReason != "" {
-				fmt.Fprintf(&b, "Full execution reason: %s\n\n", planTableCell(m.FullReason))
+				fmt.Fprintf(&b, "Full execution reason: %s\n\n", planTableCellFor(onLinear, m.FullReason))
 			}
 			if m.FullDuration > 0 && m.Duration > 0 && m.Duration < m.FullDuration {
 				fmt.Fprintf(&b, "Estimated savings against comparable full execution (%s): %s.\n\n", m.FullDuration.Round(time.Millisecond), (m.FullDuration - m.Duration).Round(time.Millisecond))
 			}
 			b.WriteString("| Unit | Evidence | Original commit | Source | Reason |\n|---|---|---|---|---|\n")
 			for _, r := range m.Results {
-				fmt.Fprintf(&b, "| %s | %s | `%s` | `%s` | %s |\n", planTableCell(r.Unit), planTableCell(r.Kind), r.Origin.Commit, r.Origin.Evidence, planTableCell(r.Reason))
+				fmt.Fprintf(&b, "| %s | %s | `%s` | `%s` | %s |\n", planTableCellFor(onLinear, r.Unit), planTableCellFor(onLinear, r.Kind), r.Origin.Commit, r.Origin.Evidence, planTableCellFor(onLinear, r.Reason))
 			}
 			b.WriteString("\n")
 		}
@@ -76,9 +77,9 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	}
 	switch {
 	case strings.TrimSpace(notice) != "" && st.Reimplementing:
-		b.WriteString("> **Sent back to Implement:** " + planTableCell(notice) + "\n\n")
+		b.WriteString("> **Sent back to Implement:** " + planTableCellFor(onLinear, notice) + "\n\n")
 	case strings.TrimSpace(notice) != "":
-		b.WriteString("> **Your last command changed nothing:** " + planTableCell(notice) + "\n\n")
+		b.WriteString("> **Your last command changed nothing:** " + planTableCellFor(onLinear, notice) + "\n\n")
 	}
 	if validateOverallLight(st, rows) == lightRed {
 		b.WriteString("> [!CAUTION]\n> Something blocks delivery: see the red rows below.\n\n")
@@ -92,21 +93,27 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		if st.Suite.Reason != "" {
 			suite += ": " + clipText(st.Suite.Reason, 300)
 		}
-		b.WriteString(suite + "\n\nRepair rounds: " + repairRoundsText(st.Rounds) + "\n")
+		b.WriteString(suite + "\n\nRepair rounds: " + repairRoundsText(onLinear, st.Rounds) + "\n")
 	case !st.Assessed:
 		b.WriteString("The assessment of this commit is not recorded yet.\n")
 	default:
 		b.WriteString("| Story | Criteria | Code | Architecture | Your part |\n|---|---|---|---|---|\n")
 		for _, r := range rows {
-			fmt.Fprintf(&b, "| %s %s | %s | %s | %s | %s |\n", r.light, planTableCell(r.story), planTableCell(r.criteria), planTableCell(r.code), planTableCell(r.architecture), planTableCell(r.part))
+			story, part := planTableCell(r.story), planTableCell(r.part)
+			if onLinear {
+				// Linear rows escape only their untrusted parts, so the
+				// appended ticket reference links stay intact.
+				story, part = r.story, r.part
+			}
+			fmt.Fprintf(&b, "| %s %s | %s | %s | %s | %s |\n", r.light, story, planTableCellFor(onLinear, r.criteria), planTableCellFor(onLinear, r.code), planTableCellFor(onLinear, r.architecture), part)
 		}
 		if len(st.Rounds) > 0 {
 			// Owner-chosen repairs: a rejected or spent round shows why.
-			b.WriteString("\nRepair rounds: " + repairRoundsText(st.Rounds) + "\n")
+			b.WriteString("\nRepair rounds: " + repairRoundsText(onLinear, st.Rounds) + "\n")
 		}
 	}
 	if st.Handback != nil {
-		b.WriteString("\n**What still needs fixing:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 2000)) + "\n")
+		b.WriteString("\n**What still needs fixing:** " + planTableCellFor(onLinear, clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 2000)) + "\n")
 	}
 	for _, c := range st.Candidates {
 		fmt.Fprintf(&b, "\n**Retained repair `%s`** · %s · review `%s`\n", c.ID, c.Resolution, c.ReviewDigest)
@@ -128,13 +135,13 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	if len(st.Open) > 0 {
 		b.WriteString("\n**Displayed blockers:**\n")
 		for _, blocker := range st.Open {
-			b.WriteString("- " + planTableCell(blocker) + "\n")
+			b.WriteString("- " + planTableCellFor(onLinear, blocker) + "\n")
 		}
 	}
 	if w := st.Waiver; w != nil {
-		fmt.Fprintf(&b, "\n**Owner shipping waiver:** task %s · Validate %d · tested `%s` · displayed delivery `%s` · report `%s` · evidence revision `%s` · authenticated owner %d · source comment %d · time %s.\n\nReason: %s\n", planTableCell(w.Task), w.InstanceID, w.TestedCommit, w.DeliveryCommit, w.ReportRevision, w.EvidenceRevision, w.ActorID, w.CommentID, w.CreatedAt.UTC().Format(time.RFC3339Nano), planTableCell(w.Reason))
+		fmt.Fprintf(&b, "\n**Owner shipping waiver:** task %s · Validate %d · tested `%s` · displayed delivery `%s` · report `%s` · evidence revision `%s` · authenticated owner %d · source comment %d · time %s.\n\nReason: %s\n", planTableCellFor(onLinear, w.Task), w.InstanceID, w.TestedCommit, w.DeliveryCommit, w.ReportRevision, w.EvidenceRevision, w.ActorID, w.CommentID, w.CreatedAt.UTC().Format(time.RFC3339Nano), planTableCellFor(onLinear, w.Reason))
 		for _, blocker := range w.Blockers {
-			b.WriteString("- Waived blocker: " + planTableCell(blocker) + "\n")
+			b.WriteString("- Waived blocker: " + planTableCellFor(onLinear, blocker) + "\n")
 		}
 		if st.DeliveryCommit != "" && st.DeliveryCommit != w.DeliveryCommit {
 			b.WriteString("\nThe current displayed head differs from the retained waiver; a fresh shipping decision is required.\n")
@@ -155,6 +162,7 @@ type validateStoryRow struct {
 
 // validateStoryRows builds one row per assessed story, in assessment order.
 func validateStoryRows(st ValidateState, target *ValidateDeliveryTarget) []validateStoryRow {
+	onLinear := target != nil && target.Task.Forge == "linear"
 	var rows []validateStoryRow
 	for _, story := range st.Stories {
 		var findings []ValidateFinding
@@ -167,6 +175,9 @@ func validateStoryRows(st ValidateState, target *ValidateDeliveryTarget) []valid
 		ref, ok := target.story(story.Story)
 		if ok && ref.Title != "" {
 			r.story += " " + ref.Title
+		}
+		if onLinear {
+			r.story = planTableCellFor(true, r.story)
 		}
 		if ok && ref.Number > 0 {
 			r.story += fmt.Sprintf(" (%s)", ref.display().Reference())
@@ -185,6 +196,9 @@ func validateStoryRows(st ValidateState, target *ValidateDeliveryTarget) []valid
 		}
 		if len(parts) > 0 {
 			r.part = strings.Join(parts, ", ")
+			if onLinear {
+				r.part = planTableCellFor(true, r.part)
+			}
 			if ok && ref.Number > 0 {
 				r.part += fmt.Sprintf(" on %s", ref.display().Reference())
 			}
@@ -393,7 +407,7 @@ func validateRetryStep(commit string) string {
 	return fmt.Sprintf("Run Validate again on commit `%s` by commenting `%s`: the passed suite is reused and only the reviews run again.", short(commit), ValidateStartCommand)
 }
 
-func repairRoundsText(rounds []store.RepairRound) string {
+func repairRoundsText(onLinear bool, rounds []store.RepairRound) string {
 	if len(rounds) == 0 {
 		return "none needed"
 	}
@@ -401,7 +415,7 @@ func repairRoundsText(rounds []store.RepairRound) string {
 	for _, r := range rounds {
 		part := fmt.Sprintf("round %d: %s", r.Round, r.State)
 		if reason := strings.TrimSpace(r.Reason); reason != "" {
-			part += " (" + planTableCell(clipText(reason, 200)) + ")"
+			part += " (" + planTableCellFor(onLinear, clipText(reason, 200)) + ")"
 		}
 		parts = append(parts, part)
 	}

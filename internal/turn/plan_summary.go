@@ -61,11 +61,16 @@ func planStoryProgress(s planbrief.PlanState, item planbrief.PlanStoryState, las
 // planSummaryText is the parent's progress summary: one row per live story with
 // its issue, stage and state.
 func planSummaryText(rows [][4]string) string {
+	return planSummaryTextFor(false, rows)
+}
+
+// planSummaryTextFor renders the summary for its destination's cell contract.
+func planSummaryTextFor(onLinear bool, rows [][4]string) string {
 	var out strings.Builder
 	out.WriteString("**Plan progress**\n\nEach story runs on its own issue. Reply there to approve or change it.\n\n")
 	out.WriteString("| Story | Issue | Stage | State |\n|---|---|---|---|\n")
 	for _, row := range rows {
-		fmt.Fprintf(&out, "| %s | %s | %s | %s |\n", planTableCell(row[0]), row[1], planTableCell(row[2]), planTableCell(row[3]))
+		fmt.Fprintf(&out, "| %s | %s | %s | %s |\n", planTableCellFor(onLinear, row[0]), row[1], planTableCellFor(onLinear, row[2]), planTableCellFor(onLinear, row[3]))
 	}
 	return out.String()
 }
@@ -146,7 +151,7 @@ func (r *Reporter) ReportPlanSummary(ctx context.Context, parent naming.Ref, ses
 	if len(rows) == 0 {
 		return nil
 	}
-	text := planSummaryText(rows)
+	text := planSummaryTextFor(parent.Forge == "linear", rows)
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
 	if state.SummaryDigest == digest {
 		return nil
