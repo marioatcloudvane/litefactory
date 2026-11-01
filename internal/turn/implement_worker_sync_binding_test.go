@@ -20,7 +20,7 @@ func workerSyncBindingFixture(t *testing.T) (*fixture, *implementRuntime, Activi
 	t.Helper()
 	f, _, req := assembledImplementFixture(t, nil)
 	seedImplementStory(t, f)
-	goFiles, err := teamsourcetest.Files(teamsourcetest.Go)
+	goFiles, err := teamsourcetest.Files(t.Context(), teamsourcetest.Go)
 	mustProgress(t, err)
 	raw := goFiles["implement/implement.dot"]
 	profile, err := graphexec.ParseProfile(raw)
