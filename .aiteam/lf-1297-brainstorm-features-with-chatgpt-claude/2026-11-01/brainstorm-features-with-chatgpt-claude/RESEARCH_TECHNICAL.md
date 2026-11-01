@@ -46,7 +46,7 @@ Evidence:
 
 ## f6
 
-Read-only code tools (repo_grep, repo_read, repo_log, repo_diff, standards_read) and ask_task_agent exist. Issue list/get tooling for the connector was not found by grep as a connector tool, so related and duplicate issue search looks new on the connector side.
+Read-only code tools (repo_grep, repo_read, repo_log, repo_diff, standards_read) and ask_task_agent exist. No connector tool lists or searches issues; the GitHub client already has SearchIssues and ListIssuesPage (see f10), so related and duplicate search is a new connector tool over an existing client call.
 
 Evidence:
 
@@ -60,17 +60,72 @@ _No source reference was recorded for this finding._
 
 ## f8
 
-Impact: touched are internal/connector (mcp.go, guidance.go, guidance/*.md, a new prompts handler), internal/owneraction (registry, catalog), internal/store (new brainstorm tables and a migration), and docs. Depends on it: ChatGPT/Claude connector clients, which see new instructions and prompts after reconnect. Superseded: nothing found. Compatibility: new tables need a migration; existing grants do not cover a new scope until the owner consents.
+Impact: touched are internal/connector (mcp.go, guidance.go, guidance/*.md, a new prompts handler, consent scopes), internal/owneraction (registry, catalog), internal/store (new brainstorm tables and a migration), the workflow launch path, and docs (remote-connector guide). Depends on it: ChatGPT/Claude connector clients, which see new instructions and prompts after reconnect. Superseded: nothing found. Compatibility: new tables need a migration; existing grants do not cover a new scope until the owner consents.
 
 Evidence:
 
 - `internal/connector/mcp.go:141`
 - `internal/owneraction/registry.go:16`
+- `internal/connector/server.go:64`
 
 ## f9
 
-Discord docs describe one configured owner for binding approvals. Nothing in the docs mentions a second user (Nico) sharing a connector brainstorm.
+Discord docs describe one configured owner for binding approvals. Nothing in the docs mentions a second user sharing a connector brainstorm.
 
 Evidence:
 
 - `docs/discord.md:162`
+
+## f10
+
+The GitHub client already offers SearchIssues(repo, text, limit), ListIssuesPage and CreateIssue.
+
+Evidence:
+
+- `internal/github/search.go:15`
+- `internal/github/issue_page.go:20`
+- `internal/github/issues.go:378`
+
+## f11
+
+An idempotent issue publisher exists: PublishApprovedCreation publishes an owner-approved creation proposal, skips confirmed artifacts on resume and stops as uncertain rather than creating a duplicate. It is bound to a source task and agent-drafted proposals today.
+
+Evidence:
+
+- `internal/turn/creation_owner_publication.go:17`
+
+## f12
+
+The factory drops its own comments before reading them as instructions (bot author or a line starting with the lf marker), and only runs an initial issue body written by the verified project approver. So a factory-posted /research comment or a factory-authored issue body cannot start a task; the start must be a direct workflow launch under the owner's confirmed action.
+
+Evidence:
+
+- `internal/turn/classify.go:236`
+- `internal/github/issues.go:62`
+- `internal/store/research_admission.go:72`
+
+## f13
+
+Long-running advisory work already uses an async job pattern: ask_task_agent and judge_task return a job, read later with advisory_job_get and stopped with advisory_job_cancel, under the task:advisory scope with explicit repository selection and a cost note on the consent page.
+
+Evidence:
+
+- `internal/connector/task_advisory.go:19`
+- `internal/connector/consent.go:262`
+
+## f14
+
+Nico is the name of the Discord conversation assistant (inferred from a test comment; no doc defines it). Discord proposals use the same five-second and fifteen-minute confirmation rules.
+
+Evidence:
+
+- `internal/messaging/conversation_standards_analysis_test.go:127`
+- `docs/discord-conversations.md:44`
+
+## f15
+
+Connector answers are already bounded: summaries at most 1,000 Unicode code points and complete responses at most 128 KiB, with redaction and host-path protection.
+
+Evidence:
+
+- `docs/guides/remote-connector.md:257`
