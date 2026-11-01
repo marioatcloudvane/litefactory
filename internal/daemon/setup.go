@@ -618,7 +618,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// from the daemon's own pool, which exists only once the daemon is built
 	// below, so the slots are bound to it then.
 	validateSlots := &runSlots{}
-	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(toolProfiles, toolCeiling)})
+	factoryBugs, err := newValidateFactoryBugs(s, sharedRedactor)
+	if err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
+	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(toolProfiles, toolCeiling), FactoryBugs: factoryBugs})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
