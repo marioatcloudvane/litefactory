@@ -150,3 +150,65 @@ func TestGraphCapacityTerminalRecoveryClosesPendingDispatch(t *testing.T) {
 		t.Fatalf("terminal dispatch=%+v", old)
 	}
 }
+
+// #1323: one dispatch can run several factory nodes back to back. When the
+// node it advanced to defers for capacity, the spent dispatch is closed and
+// the owed work is requeued under the node that actually waits.
+func TestGraphCapacityDeferralAfterAdvanceRequeuesCurrentNode(t *testing.T) {
+	t.Parallel()
+	db, instance := graphDispatchFixture(t)
+	at := graphTestTime().Add(time.Second)
+	spent, err := db.ParkGraphInstance(t.Context(), instance.ID, instance.CurrentNode, at, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := db.ReserveGraphDispatch(t.Context(), spent.ID, at); err != nil || !ok {
+		t.Fatalf("reserve %v %v", ok, err)
+	}
+	first := graphTestAttempt(t, db, instance, 1)
+	transition := GraphTransition{InstanceID: instance.ID, FromNode: instance.CurrentNode, ToNode: "review", OnOutcome: "done", At: at}
+	if err := db.CompleteGraphNodeAttempt(t.Context(), first.ID, GraphCompletion{Status: GraphSucceeded, Outcome: "done", FinishedAt: at, Transition: &transition}); err != nil {
+		t.Fatal(err)
+	}
+	review, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "review", StartedAt: at, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeferGraphDispatchForCapacity(t.Context(), spent.ID, at); err == nil {
+		t.Fatal("deferral while activity still running")
+	}
+	if err := db.DeferGraphNodeAttempt(t.Context(), review.ID, at); err != nil {
+		t.Fatal(err)
+	}
+	due := at.Add(time.Minute)
+	if err := db.DeferGraphDispatchForCapacity(t.Context(), spent.ID, due); err != nil {
+		t.Fatal(err)
+	}
+	if old := readLaunchDispatch(t, db, spent.ID); old.Status != "finished" {
+		t.Fatalf("spent dispatch=%+v", old)
+	}
+	next, err := db.LatestGraphDispatch(t.Context(), instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ID == spent.ID || next.Node != "review" || next.Status != "pending" || next.Attempts != 0 || !next.DueAt.Equal(due) {
+		t.Fatalf("next dispatch=%+v", next)
+	}
+	var open int
+	if err := db.sql.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM graph_dispatches WHERE instance_id=? AND status IN ('pending','reserved','running')`, instance.ID).Scan(&open); err != nil || open != 1 {
+		t.Fatalf("open dispatches=%d err=%v", open, err)
+	}
+	if _, ok, err := db.ReserveGraphDispatch(t.Context(), next.ID, due); err != nil || !ok {
+		t.Fatalf("reserve next %v %v", ok, err)
+	}
+	resumed, err := db.ResumeDeferredGraphNodeAttempt(t.Context(), instance.ID, "review", due)
+	if err != nil || resumed.ID != review.ID {
+		t.Fatalf("resumed=%+v err=%v", resumed, err)
+	}
+	if _, err := db.sql.ExecContext(t.Context(), `UPDATE graph_instances SET status='failed',finished_at=?,next_due_at=NULL WHERE id=?`, FormatTime(due), instance.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeferGraphDispatchForCapacity(t.Context(), next.ID, due); !errors.Is(err, ErrGraphInvariant) {
+		t.Fatalf("non-running instance deferral=%v", err)
+	}
+}
