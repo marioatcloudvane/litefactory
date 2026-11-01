@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/linear/linearmd"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -102,7 +103,7 @@ func (rt *implementRuntime) publishParkAnswer(ctx context.Context, opts Options,
 			}
 			node = agentresult.ResearchNode{Result: agentresult.Result{Reason: reason}}
 		}
-		return renderImplementParkAnswer(ctx, r, node)
+		return renderImplementParkAnswerFor(ctx, r, node, destination.Forge == "linear")
 	})
 	if err != nil || row.TimeoutAttemptID == 0 {
 		return err
@@ -118,6 +119,12 @@ func (rt *implementRuntime) publishParkAnswer(ctx context.Context, opts Options,
 }
 
 func renderImplementParkAnswer(ctx context.Context, r *Reporter, node agentresult.ResearchNode) (redact.Body, error) {
+	return renderImplementParkAnswerFor(ctx, r, node, false)
+}
+
+// renderImplementParkAnswerFor renders the park note for its destination; a
+// Linear note writes the answer as inert paragraphs instead of entities.
+func renderImplementParkAnswerFor(ctx context.Context, r *Reporter, node agentresult.ResearchNode, onLinear bool) (redact.Body, error) {
 	// Decode the owner-facing result to render every field, including nested
 	// questions and contributions, without JSON escaping hiding raw secrets.
 	content, err := json.Marshal(node.Result)
@@ -140,7 +147,7 @@ func renderImplementParkAnswer(ctx context.Context, r *Reporter, node agentresul
 	if node.Response == agentresult.ImplementResponseIncomplete {
 		response = "incomplete"
 	}
-	text = "**Story parked**\n\nWorker response: " + response + "\n\n" + escapeImplementText(safe.String())
+	text = "**Story parked**\n\nWorker response: " + response + "\n\n" + implementBlock(onLinear, safe.String())
 	return r.renderer.RenderReportDelivery(ctx, text, "")
 }
 
@@ -170,6 +177,23 @@ func implementParkNotes(ctx context.Context, db *store.DB, a ImplementAuthority,
 		}
 	}
 	return notes, nil
+}
+
+// implementInline escapes one untrusted field for the destination: GitHub
+// keeps its numeric entities, Linear uses backslash escapes and code spans.
+func implementInline(onLinear bool, text string) string {
+	if onLinear {
+		return linearmd.InlineText(text)
+	}
+	return escapeImplementText(text)
+}
+
+// implementBlock escapes multiline untrusted text for the destination.
+func implementBlock(onLinear bool, text string) string {
+	if onLinear {
+		return linearmd.BlockText(text)
+	}
+	return escapeImplementText(text)
 }
 
 // escapeImplementText preserves all text while preventing Markdown, mentions,

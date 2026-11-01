@@ -214,12 +214,18 @@ func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Op
 			return false, headErr
 		}
 	}
-	text := renderValidateReport(st, target, report.Notice)
 	taskRef, err := naming.ParseRef(session.TaskRef)
 	if err != nil {
 		return false, err
 	}
-	text, parts, err := opts.ResearchReporter.prepareValidateGuidance(ctx, session.ID, taskRef, st, b.Profile, text, report.Notice, b.now(opts))
+	// Finding text is redacted before any clip, so a shortened summary
+	// cannot hide the end of a secret from redaction.
+	shown, err := opts.ResearchReporter.redactValidateFindingSummaries(ctx, st)
+	if err != nil {
+		return false, err
+	}
+	layout := renderValidateReportLayout(shown, target, report.Notice)
+	text, parts, err := opts.ResearchReporter.prepareValidateGuidance(ctx, session.ID, taskRef, st, b.Profile, layout, report.Notice, b.now(opts))
 	if err != nil {
 		return false, err
 	}
@@ -410,16 +416,33 @@ func (h ValidateAskActivity) Execute(ctx context.Context, opts Options, req Acti
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
 	var closeSet []int
+	onLinear := false
 	if h.b.Delivery.Target != nil {
 		if t, e := h.b.Delivery.Target(ctx, opts, req); e == nil {
 			closeSet = t.CloseSet()
+			onLinear = t.Task.Forge == "linear"
+			st.DecisionTask = t.Task.String()
+		}
+	}
+	if instance, e := opts.DB.GetGraphInstance(ctx, req.InstanceID); e == nil {
+		if session, e := opts.DB.GetSession(ctx, instance.SessionID); e == nil {
+			st.DecisionTask = session.TaskRef
 		}
 	}
 	report, err := opts.DB.GetValidateReport(ctx, req.InstanceID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return ActivityResult{}, err
 	}
-	candidate := validateQuestionCandidate(st, closeSet, report.Notice)
+	answer, err := latestValidateAnswer(ctx, opts, h.b.Profile, req.InstanceID, st)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	if h.b.Delivery.Head != nil {
+		if head, e := h.b.Delivery.Head(ctx); e == nil {
+			st.DeliveryCommit = head
+		}
+	}
+	candidate := validateQuestionCandidateFor(onLinear, st, closeSet, report.Notice, answer)
 	destination := "The current report destination is not confirmed yet; its existing refresh must finish before omitted choices can be followed."
 	if report.CommentID > 0 && report.Revision == st.Revision && h.b.Delivery.Head != nil {
 		instance, e := opts.DB.GetGraphInstance(ctx, req.InstanceID)
@@ -507,12 +530,25 @@ func (h ValidateAskActivity) Execute(ctx context.Context, opts Options, req Acti
 // validateQuestionCandidate is the owner wait: what the run needs from the
 // owner, with the refusal of the last command and the exact commands to give.
 func validateQuestionCandidate(st ValidateState, closeSet []int, notice string) agentresult.Result {
+	return validateQuestionCandidateFor(false, st, closeSet, notice, nil)
+}
+
+// validateQuestionCandidateFor is the owner wait for its destination. A
+// follow-up answer of the reporter, when this wait follows one, comes first.
+// The authority wording lives once in the report's command reference.
+func validateQuestionCandidateFor(onLinear bool, st ValidateState, _ []int, notice string, answer *store.ValidateReporterResult) agentresult.Result {
 	var comment strings.Builder
+	if answer != nil {
+		comment.WriteString(validateAnswerText(onLinear, *answer) + "\n\n")
+	}
 	fmt.Fprintf(&comment, "Validate is waiting for you on commit `%s`. The report comment shows the full state; its revision is `%s`.", short(st.Commit), st.Revision)
 	if strings.TrimSpace(notice) != "" {
 		comment.WriteString("\n\n**Your last command changed nothing:** " + strings.TrimSpace(notice))
 	}
-	reason := "Next: " + st.NextStep(closeSet) + "\n\nNothing is pushed, merged or closed without owner authority. Individual push, merge and close commands authorize only their named step; the explicit reasoned shipping command authorizes the whole existing ordered sequence and stops if a step fails or remains uncertain."
+	if st.Discussion && !st.closed() && st.followUpsUsed() < st.DiscussionRounds {
+		comment.WriteString("\n\nAsk a question in a plain comment and the reporter answers it here.")
+	}
+	reason := "Next: " + summaryLineText(onLinear, buildValidateSummary(st).Next, false)
 	c := agentresult.Result{Outcome: "incomplete", Comment: comment.String(), Reason: reason, Payload: agentresult.Payload{Validate: &agentresult.Validate{}}}
 	for i, o := range st.Open {
 		if i >= 12 {
@@ -522,6 +558,49 @@ func validateQuestionCandidate(st ValidateState, closeSet []int, notice string) 
 		c.Questions = append(c.Questions, agentresult.Question{ID: fmt.Sprintf("q%d", i+1), Audience: "business", Text: o})
 	}
 	return c
+}
+
+// validateAnswerText shows the owner's comment and the reporter's answer. A
+// reporter that could not answer is said plainly; nothing was recorded.
+func validateAnswerText(onLinear bool, row store.ValidateReporterResult) string {
+	quote := clipRunes(oneLine(row.Question), 200)
+	text := "**Your comment:** " + implementInline(onLinear, quote) + "\n\n"
+	if row.State == store.ReporterAccepted {
+		var r agentresult.ValidateReport
+		if json.Unmarshal([]byte(row.Result), &r) == nil && strings.TrimSpace(r.Answer) != "" {
+			text += "**Answer:** " + implementBlock(onLinear, r.Answer)
+			if r.Next != nil {
+				text += "\n\nThe report shows the revised recommendation."
+			}
+			return text + "\n\nThis answer is advice; it decides nothing and permits nothing."
+		}
+	}
+	return text + "**Answer:** The reporter could not answer this comment (" + planTableCellFor(onLinear, firstNonBlank(row.Reason, "no answer")) + "). Nothing was recorded; the report's commands are unchanged."
+}
+
+// latestValidateAnswer is the reporter's follow-up row when the step right
+// before this wait's report was the reporter answering a comment.
+func latestValidateAnswer(ctx context.Context, opts Options, profile *graphexec.Profile, instanceID int64, st ValidateState) (*store.ValidateReporterResult, error) {
+	attempts, err := opts.DB.ListGraphNodeAttempts(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	for i := len(attempts) - 1; i >= 0; i-- {
+		a := attempts[i]
+		if a.Status != store.GraphSucceeded {
+			continue
+		}
+		node, ok := profile.Node(a.Node)
+		if !ok || node.Action == graphexec.ValidateReportAction || node.Action == graphexec.ValidateAskAction {
+			continue
+		}
+		if node.Action != graphexec.ValidateReporterAction || a.Outcome != "answered" || len(st.Answers) == 0 {
+			return nil, nil
+		}
+		answer := st.Answers[len(st.Answers)-1]
+		return &answer, nil
+	}
+	return nil, nil
 }
 
 func (d ValidateDelivery) code() BugCodeForge {

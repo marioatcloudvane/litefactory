@@ -105,8 +105,9 @@ func TestValidateGraphStepWaitsUntilDue(t *testing.T) {
 
 // validateStrayDispatchFixture parks a Validate instance at its factory-only
 // suite stage on a managed parent past planning, with the stage's dispatch
-// due at dueIn from now. turnFn handles every turn.
-func validateStrayDispatchFixture(t *testing.T, dueIn time.Duration, turnFn func(*fixture, context.Context, turn.Request) (turn.Result, error)) (*fixture, store.GraphInstance, store.GraphDispatch) {
+// due at dueIn from now. turnFn handles every turn. An optional files entry
+// replaces the captured workflow file.
+func validateStrayDispatchFixture(t *testing.T, dueIn time.Duration, turnFn func(*fixture, context.Context, turn.Request) (turn.Result, error), files ...[]byte) (*fixture, store.GraphInstance, store.GraphDispatch) {
 	t.Helper()
 	f := newFixture(t)
 	f.turns.fn = func(ctx context.Context, req turn.Request) (turn.Result, error) { return turnFn(f, ctx, req) }
@@ -128,7 +129,7 @@ func validateStrayDispatchFixture(t *testing.T, dueIn time.Duration, turnFn func
 	def, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "validate", ProfileVersion: 1, Path: "validate/validate.dot", Digest: strings.Repeat("a", 64)})
 	check(err)
 	at := f.clock.peek()
-	instance, err := capturedGraphInstance(t, f.db, store.GraphInstance{SessionID: session.ID, DefinitionID: def.ID, CurrentNode: "suite", StartedAt: at})
+	instance, err := capturedGraphInstance(t, f.db, store.GraphInstance{SessionID: session.ID, DefinitionID: def.ID, CurrentNode: "suite", StartedAt: at}, files...)
 	check(err)
 	dispatch, err := f.db.ParkGraphInstance(ctx, instance.ID, "suite", at.Add(dueIn), at)
 	check(err)
@@ -262,6 +263,90 @@ func TestStaleValidateDispatchIsDroppedQuietly(t *testing.T) {
 	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
 	if err != nil || wait.State != "claimed" || wait.ReplyID != ship {
 		t.Fatalf("the ship command was not claimed: %+v %v", wait, err)
+	}
+	assertNoFalseStop(t, f)
+}
+
+// #1323 c1, c2: a suite dispatch whose suite passes and whose review defers
+// for capacity in the same turn leaves one pending dispatch for review, and
+// the next tick resumes the same review attempt.
+func TestValidateReviewDeferredAfterSuiteKeepsItsDispatch(t *testing.T) {
+	var steps int
+	var instance store.GraphInstance
+	var deferred, resumed store.GraphNodeAttempt
+	f, instance, dispatch := validateStrayDispatchFixture(t, 0, func(f *fixture, ctx context.Context, req turn.Request) (turn.Result, error) {
+		spent, ok := store.GraphTriggerDispatch(req.Trigger.CommentID)
+		if !ok {
+			return f.ranSuccessfully(ctx, req)
+		}
+		steps++
+		at := f.clock.peek()
+		session, err := f.db.GetSession(ctx, req.SessionID)
+		if err != nil {
+			return turn.Result{}, err
+		}
+		if steps == 1 {
+			suite, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", Limit: 3, StartedAt: at})
+			if err != nil {
+				return turn.Result{}, err
+			}
+			if err = f.db.CompleteGraphNodeAttempt(ctx, suite.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "passed", FinishedAt: at,
+				Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "suite", ToNode: "review", OnOutcome: "passed", At: at}}); err != nil {
+				return turn.Result{}, err
+			}
+			if deferred, err = f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "review", Limit: 3, StartedAt: at}); err != nil {
+				return turn.Result{}, err
+			}
+			if err = f.db.DeferGraphNodeAttempt(ctx, deferred.ID, at); err != nil {
+				return turn.Result{}, err
+			}
+			// What parkCapacityDeferred does for a dispatch that allocated no run.
+			if err = f.db.DeferGraphDispatchForCapacity(context.WithoutCancel(ctx), spent, at.Add(time.Minute)); err != nil {
+				return turn.Result{}, err
+			}
+			return turn.Result{Disposition: turn.DispositionRan, SessionID: session.ID, Session: session, TriggerCommentID: req.Trigger.CommentID, ResearchGraph: true, GraphDeferred: true}, nil
+		}
+		if resumed, err = f.db.ResumeDeferredGraphNodeAttempt(ctx, instance.ID, "review", at); err != nil {
+			return turn.Result{}, err
+		}
+		if err = f.db.CompleteGraphNodeAttempt(ctx, resumed.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "published", FinishedAt: at,
+			Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "review", ToNode: "waiting", OnOutcome: "published", At: at}}); err != nil {
+			return turn.Result{}, err
+		}
+		return turn.Result{Disposition: turn.DispositionRan, SessionID: session.ID, Session: session, TriggerCommentID: req.Trigger.CommentID, ResearchGraph: true}, nil
+	}, []byte("digraph { team=test; mode=validate; profile_version=1; start=suite; suite [lf_action=lf_agent,lf_outcomes=success]; review [lf_action=lf_agent,lf_outcomes=success]; waiting [lf_action=lf_agent,lf_outcomes=success]; }"))
+
+	f.settle()
+
+	if steps != 1 {
+		t.Fatalf("steps=%d, want 1\n%s", steps, f.logs)
+	}
+	for _, text := range []string{"capacity dispatch differs", "queue stops here", "dropped a stale graph dispatch"} {
+		if strings.Contains(f.logs.String(), text) {
+			t.Fatalf("logs contain %q:\n%s", text, f.logs)
+		}
+	}
+	pending, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
+	if err != nil || pending.ID == dispatch.ID || pending.Node != "review" || pending.Status != "pending" {
+		t.Fatalf("review dispatch: %+v %v\n%s", pending, err, f.logs)
+	}
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	if err != nil || len(attempts) != 2 || attempts[1].ID != deferred.ID || attempts[1].Status != store.GraphPending {
+		t.Fatalf("attempts: %+v %v", attempts, err)
+	}
+
+	f.clock.advance(time.Hour)
+	f.settle()
+
+	if steps != 2 || resumed.ID != deferred.ID || resumed.Attempt != deferred.Attempt {
+		t.Fatalf("steps=%d resumed=%+v deferred=%+v\n%s", steps, resumed, deferred, f.logs)
+	}
+	attempts, err = f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	if err != nil || len(attempts) != 2 || attempts[1].Status == store.GraphPending {
+		t.Fatalf("attempts after resume: %+v %v", attempts, err)
+	}
+	if latest, err := f.db.LatestGraphDispatch(t.Context(), instance.ID); err != nil || latest.ID != pending.ID || latest.Status != "finished" || latest.Attempts != 1 {
+		t.Fatalf("review dispatch after resume: %+v %v\n%s", latest, err, f.logs)
 	}
 	assertNoFalseStop(t, f)
 }

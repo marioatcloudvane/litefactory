@@ -91,7 +91,7 @@ func TestImplementTimeoutStoryReplyResumesWhileSiblingRuns(t *testing.T) {
 	// node budgets, so the runtime default applies and expiry exercises the real
 	// deadline path.
 	files := fstest.MapFS{}
-	source, srcErr := teamsourcetest.Workflow(teamsourcetest.Go, "implement")
+	source, srcErr := teamsourcetest.Workflow(ctx, teamsourcetest.Go, "implement")
 	check(srcErr)
 	check(fs.WalkDir(source, ".", func(name string, d fs.DirEntry, e error) error {
 		if e != nil || d.IsDir() {

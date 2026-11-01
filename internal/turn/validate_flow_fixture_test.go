@@ -140,9 +140,12 @@ type flowFixture struct {
 
 	slots     *flowSlots
 	reviewers *flowReviewers
-	stories   []ValidateStory
-	delivery  ValidateDelivery
-	b         ValidateFlowBindings
+	// reporterRun answers the reporter step; nil gives no summary.
+	reporterRun  func(ValidateReporterRequest) (*agentresult.Result, error)
+	reporterReqs []ValidateReporterRequest
+	stories      []ValidateStory
+	delivery     ValidateDelivery
+	b            ValidateFlowBindings
 }
 
 func newFlowFixture(t *testing.T) *flowFixture {
@@ -269,6 +272,7 @@ func (f *flowFixture) register() {
 		Stories:   func(context.Context, Options, ActivityRequest) ([]ValidateStory, error) { return f.stories, nil },
 		Repo:      f.suiteRepo,
 		Reviewers: f.reviewers,
+		Reporter:  flowReporter{f},
 		Slots:     f.slots,
 		Delivery:  f.delivery,
 		Now:       func() time.Time { return f.clock },

@@ -208,7 +208,7 @@ func applyDoctorSync(ctx context.Context, o DoctorSyncOptions, preview git.Merge
 			err = fmt.Errorf("%w: %w", doctor.ErrRepairMergeFailed, err)
 		}
 	} else {
-		if err = w.WriteResolvedFiles(ctx, o.BaseHead, files); err == nil {
+		if err = w.WriteResolvedFiles(ctx, o.BaseHead, files, o.Author); err == nil {
 			err = w.StageResolvedFiles(ctx, files)
 		}
 		if err == nil {

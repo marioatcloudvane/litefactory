@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
+	native "github.com/cloudvane/litefactory/pkg/execution/providers/claude"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,9 +19,9 @@ import (
 
 // ConversationIsolation checks this path's controls independently of diagnosis.
 func (r *Runner) ConversationIsolation(ctx context.Context) (string, error) {
-	help, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"--help"}, providerprocess.DoctorEnvironment(r.environ, os.TempDir()), os.TempDir())
+	help, err := native.Probe(ctx, r.binary.Path, []string{"--help"}, execution.IsolatedEnvironment(r.environ, os.TempDir()), os.TempDir())
 	if err != nil {
-		if errors.Is(err, providerprocess.ErrProbeTransient) || ctx.Err() != nil {
+		if errors.Is(err, execution.ErrProbeTransient) || ctx.Err() != nil {
 			return "", err
 		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
@@ -29,9 +31,9 @@ func (r *Runner) ConversationIsolation(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("%w: missing required flag %s", agent.ErrConversationIsolation, flag)
 		}
 	}
-	version, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"--version"}, providerprocess.DoctorEnvironment(r.environ, os.TempDir()), os.TempDir())
+	version, err := native.Probe(ctx, r.binary.Path, []string{"--version"}, execution.IsolatedEnvironment(r.environ, os.TempDir()), os.TempDir())
 	if err != nil {
-		if errors.Is(err, providerprocess.ErrProbeTransient) || ctx.Err() != nil {
+		if errors.Is(err, execution.ErrProbeTransient) || ctx.Err() != nil {
 			return "", err
 		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
@@ -206,14 +208,7 @@ func conversationProviderError(base error, text string) error {
 }
 
 func conversationArguments(request agent.ConversationRequest, mcp string) []string {
-	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcp, "--agents", "{}", "--settings", `{"disableAllHooks":true}`, "--system-prompt", request.NativeInstructions, "--model", request.Model}
-	if request.Effort != "" {
-		args = append(args, "--effort", request.Effort)
-	}
-	if request.Session.Resume != "" {
-		return append(args, "--resume", request.Session.Resume)
-	}
-	return append(args, "--session-id", request.Session.Ref)
+	return native.ConversationArguments(native.ConversationOptions{Model: request.Model, Effort: request.Effort, Instructions: request.NativeInstructions, Session: request.Session.Ref, Resume: request.Session.Resume, MCPConfig: mcp})
 }
 
 // Only the numeric version prefix is logged; arbitrary provider output is not.

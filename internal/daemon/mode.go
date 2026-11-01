@@ -165,6 +165,15 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 		return "", featureErr
 	}
 	commandMode, commanded := command.Mode()
+	// A plain owner comment while the Validate report waits is a question for
+	// its reporter, not an Implement instruction: it continues that wait.
+	discussion := false
+	if !commanded && command.Kind == turn.KindFreeText && command.Name == "" && featureErr == nil && feature.State != "planning" &&
+		!t.implementing && !t.refining && !t.validating && !turn.ManagedReplan(command) {
+		if discussion, err = turn.ValidateDiscussionOpen(ctx, d.db, t.session.ID); err != nil {
+			return "", err
+		}
+	}
 	switch {
 	case t.implementing:
 		mode = agent.ModeImplement
@@ -182,6 +191,8 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 	// mode while approved stories are locked.
 	case commanded:
 		mode = commandMode
+	case discussion:
+		mode = agent.ModeValidate
 	case featureErr == nil && feature.State != "planning":
 		mode = agent.ModeImplement
 		// Bare `replan` reaches here as free text; `/plan` was already taken

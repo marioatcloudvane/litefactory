@@ -228,7 +228,7 @@ func prepare(
 	// leaves the conflict in the worktree; every other run only observes.
 	syncResolver := req.mode() == "implement" && req.Workflow != agent.WorkflowBug && !storyWorker && !req.preparationAssessment &&
 		req.researchDefinition != nil && graphexec.ImplementSyncResolver(req.researchDefinition.Profile, req.researchNode)
-	storyMerge, err := startStoryMerge(ctx, storyWorker || syncResolver, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync)
+	storyMerge, err := startStoryMerge(ctx, storyWorker || syncResolver, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync, author)
 	if err != nil {
 		return nil, err
 	}
@@ -854,7 +854,7 @@ func prepareClone(
 	if inputs.TargetPhase == "base" {
 		mergeInput = inputs.TargetRef
 	}
-	if err := worktree.WriteResolvedFiles(ctx, mergeInput, files); err != nil {
+	if err := worktree.WriteResolvedFiles(ctx, mergeInput, files, author); err != nil {
 		return session, branch, worktree, syncResult{}, nil, failuref(err, "the confirmed resolution for proposal %d could not be written", stored.ID)
 	}
 	if err := worktree.StageResolvedFiles(ctx, files); err != nil {
@@ -1759,7 +1759,7 @@ func parentSessionArtifacts(ctx context.Context, opts Options, worktreeDir strin
 // reconciliation is unresolved never starts a merge, and any other deferred
 // observation is exposed without touching the checkout. It returns nil for a
 // run that resolves no conflict.
-func startStoryMerge(ctx context.Context, resolvesConflict bool, worktree *git.Worktree, baseRef, featureBranch string, sync syncResult) (*harness.DeferredSyncContext, error) {
+func startStoryMerge(ctx context.Context, resolvesConflict bool, worktree *git.Worktree, baseRef, featureBranch string, sync syncResult, author git.Author) (*harness.DeferredSyncContext, error) {
 	if !resolvesConflict || !preparationSyncDeferred(sync) {
 		return nil, nil
 	}
@@ -1773,7 +1773,7 @@ func startStoryMerge(ctx context.Context, resolvesConflict bool, worktree *git.W
 			start = err == nil
 		}
 		if start {
-			conflicts, err := worktree.StartMerge(ctx, baseRef)
+			conflicts, err := worktree.StartMerge(ctx, baseRef, author)
 			if err != nil {
 				return nil, failuref(err, "merging %s into %s to resolve its conflicts could not be started", baseRef, worktree.Branch())
 			}
