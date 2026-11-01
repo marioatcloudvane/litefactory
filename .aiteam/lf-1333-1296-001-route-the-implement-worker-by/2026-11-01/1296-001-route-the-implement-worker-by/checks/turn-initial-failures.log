@@ -1,0 +1,5 @@
+--- FAIL: TestImplementReleasedGraphStillParksStoppedAtOnce (0.01s)
+--- FAIL: TestPreparationCaveatsContinueOriginalRequest (2.69s)
+    --- FAIL: TestPreparationCaveatsContinueOriginalRequest/canonical_managed_worker_reaches_approved_work_through_deferred_sync (1.79s)
+--- FAIL: TestStandardsGrantDeclaredOnlyForThreeRoles (0.00s)
+FAIL	github.com/cloudvane/litefactory/internal/turn	957.527s

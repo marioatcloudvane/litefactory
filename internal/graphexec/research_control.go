@@ -53,6 +53,10 @@ func ControlSpec(action string, policy ControlPolicy) ActionSpec {
 		attrs["lf_field"] = AttributeSpec{Required: true, Values: []string{"response", "story.size", "story.sizing_valid", "story.fallback"}}
 		attrs["lf_condition"] = AttributeSpec{Required: true, Values: append(slices.Clone(policy.Responses), "S", "M", "L", "true", "false")}
 	}
+	if policy.Mode == agent.ModeImplement && action == ResearchIfAction {
+		attrs["lf_field"] = AttributeSpec{Required: true, Values: []string{"story.size", "story.sizing_valid"}}
+		attrs["lf_condition"] = AttributeSpec{Required: true, Values: []string{"S", "M", "L", "true", "false"}}
+	}
 	if action == ResearchLoopAction {
 		attrs["lf_default"] = AttributeSpec{Values: policy.Defaults}
 	}
@@ -84,6 +88,9 @@ func DecodeResearchCondition(action string, attrs map[string]string) (ResearchCo
 // DecodeCondition validates comparison attributes against the admitted response vocabulary.
 func DecodeCondition(action string, attrs map[string]string, policy ControlPolicy) (ResearchCondition, error) {
 	c := ResearchCondition{Responses: policy.Responses, Field: attrs["lf_field"], Condition: attrs["lf_condition"], Default: attrs["lf_default"]}
+	if policy.Mode == agent.ModeImplement {
+		return decodeImplementFact(action, attrs)
+	}
 	if policy.Mode == agent.ModePlan && c.Field != "response" {
 		return decodePlanFact(action, attrs)
 	}
@@ -183,6 +190,10 @@ func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 				faults = append(faults, fmt.Errorf("node %q requires finite positive lf_limit", node.Name))
 			}
 		case "lf_agent":
+			if policy.Mode == agent.ModeImplement {
+				// The dedicated Implement checker owns worker and resolver answers.
+				continue
+			}
 			// Catalog-only agent graphs remain valid. Runtime control graphs must end
 			// every ask path at a question publication and durable wait boundary.
 			hasControl := false

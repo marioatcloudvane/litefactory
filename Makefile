@@ -68,6 +68,7 @@ RACE_TESTS_store := \
 	TestStandardsCompetingPublications \
 	TestConversationCaptureConcurrentWinnerAndReplacement \
 	TestApprovalIsAtomicAndExcludesPendingRefinements \
+	TestPublishedStorySizingConcurrentPlanRevisionGuard \
 	TestReplanPreservesCompletedAndOldApprovedScope \
 	TestCommentReservationCrossConnectionAndReopen \
 	TestFamilyLedgerConcurrentReopenAndIsolation \
