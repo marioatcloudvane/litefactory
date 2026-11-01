@@ -97,3 +97,31 @@ Context checked: related open/closed issues and PRs include #1308, #664/#668 and
 Evidence:
 
 - `.litefactory/bug-checks.yaml:1`
+
+## F-13
+
+Shaping confirms that general Codex cache writable roots are intentionally operator configured, while the reviewer runner creates its own Go cache and supplies GOCACHE; therefore dedicated factory caching changes launch environments and explicit cache permissions, not just maintenance configuration.
+
+Evidence:
+
+- `internal/config/config.go:216`
+- `internal/harness/readonly_shell.go:46`
+
+## F-14
+
+The daemon disk probe fails open, but isolated check launches fail on disk-probe errors; preserving each existing admission behavior requires treating cleanup authorization separately from dispatch authorization.
+
+Evidence:
+
+- `internal/daemon/tick.go:3472`
+- `internal/bugchecks/executor.go:376`
+
+## F-15
+
+Impact extension: the dedicated-cache proposal touches provider/check environment assembly and cache-only sandbox grants; status reporting can extend the existing health snapshot, with no new public command or external API required; existing host cache removal is not an automatic migration, and alert delivery remains Q-03.
+
+Evidence:
+
+- `internal/harness/readonly_shell.go:84`
+- `internal/daemon/setup.go:606`
+- `internal/store/daemon_health.go:51`
