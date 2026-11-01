@@ -87,8 +87,9 @@ linters:
       - std-error-handling
     rules:
       # main is the one place allowed to create the root context and to write
-      # directly to the process stderr before the logger exists.
-      - path: ^cmd/(litefactory|teamrelease)/
+      # directly to the process stderr before the logger exists. The independent
+      # example is also an executable with its own root context.
+      - path: ^(cmd/(litefactory|teamrelease)/|examples/execution/main\.go$)
         linters:
           - forbidigo
       # Tests fabricate their own contexts and shell out to fixtures.

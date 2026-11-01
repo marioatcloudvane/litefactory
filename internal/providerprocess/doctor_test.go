@@ -12,34 +12,8 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
 )
-
-func TestDoctorOutputBoundsAndFragments(t *testing.T) {
-	var lines []string
-	output := doctorLines{observe: func(line []byte) { lines = append(lines, string(line)) }}
-	for _, part := range []string{"{\"type\":", "\"done\"}\n{}\n"} {
-		if _, err := output.Write([]byte(part)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := output.finish(); err != nil || len(lines) != 2 || lines[0] != "{\"type\":\"done\"}" {
-		t.Fatalf("fragments: %v %v", lines, err)
-	}
-	if _, err := output.Write([]byte(strings.Repeat("x", 1024*1024+1))); err == nil {
-		t.Fatal("unbounded record accepted")
-	}
-	partial := doctorLines{observe: func([]byte) {}}
-	if _, err := partial.Write([]byte("{\"incomplete\":")); err != nil {
-		t.Fatal(err)
-	}
-	if partial.finish() == nil {
-		t.Fatal("partial terminal record accepted")
-	}
-	total := doctorLines{total: 8 * 1024 * 1024, observe: func([]byte) {}}
-	if _, err := total.Write([]byte("\n")); err == nil {
-		t.Fatal("total output bound ignored")
-	}
-}
 
 func TestDoctorProcessCancellationAndNativeFailure(t *testing.T) {
 	for _, test := range []struct {
@@ -57,7 +31,7 @@ func TestDoctorProcessCancellationAndNativeFailure(t *testing.T) {
 				t.Fatal(err)
 			}
 			request := agent.DoctorRequest{Attempt: "attempt", Model: "configured", Prompt: "context", WorkingDirectory: dir, MCPLaunch: spec, Sandbox: &agent.DoctorSandbox{Version: agent.DoctorSandboxVersion, ScratchDirectory: dir, ReadableRoots: []string{"/"}, DeniedReadPaths: []string{"/credential-fixture"}}}
-			err = RunDoctorProcess(t.Context(), binary, nil, DoctorEnvironment(nil, dir), request, 50*time.Millisecond, func([]byte) {})
+			err = RunDoctorProcess(t.Context(), binary, nil, execution.IsolatedEnvironment(nil, dir), request, 50*time.Millisecond, func([]byte) {})
 			if err == nil {
 				t.Fatal("expected failure")
 			}
@@ -83,7 +57,7 @@ func TestDoctorProcessUsesAdapterOwnedCancellation(t *testing.T) {
 	}
 	request := agent.DoctorRequest{Attempt: "attempt", Model: "flagship", Prompt: "inspect", WorkingDirectory: dir, MCPLaunch: spec, Sandbox: &agent.DoctorSandbox{Version: agent.DoctorSandboxVersion, ScratchDirectory: dir, ReadableRoots: []string{"/"}, DeniedReadPaths: []string{"/credentials"}}}
 	cancelled := make(chan int, 1)
-	err = RunDoctorProcess(t.Context(), fixture, nil, DoctorEnvironment(nil, dir), request, 50*time.Millisecond, func([]byte) {}, func(pid int) error {
+	err = RunDoctorProcess(t.Context(), fixture, nil, execution.IsolatedEnvironment(nil, dir), request, 50*time.Millisecond, func([]byte) {}, func(pid int) error {
 		cancelled <- pid
 		return syscall.Kill(-pid, syscall.SIGKILL)
 	})
@@ -102,34 +76,6 @@ func TestDoctorProcessUsesAdapterOwnedCancellation(t *testing.T) {
 
 // Claude files its keychain login under USER; an isolated run without it uses
 // a separate "unknown" login that nothing else refreshes.
-func TestDoctorEnvironmentKeepsUserButNoSecrets(t *testing.T) {
-	env := DoctorEnvironment([]string{"PATH=/bin", "USER=owner", "LOGNAME=owner", "GITHUB_TOKEN=secret", "HOME=/Users/owner"}, "/scratch")
-	joined := strings.Join(env, "\n")
-	for _, want := range []string{"USER=owner", "LOGNAME=owner", "PATH=/bin", "HOME=/scratch"} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("missing %s in %v", want, env)
-		}
-	}
-	if strings.Contains(joined, "GITHUB_TOKEN") || strings.Contains(joined, "HOME=/Users/owner") {
-		t.Fatalf("ambient value kept: %v", env)
-	}
-}
-
-func writeOutputFixture(t *testing.T, body string) (string, string) {
-	t.Helper()
-	dir := t.TempDir()
-	binary := filepath.Join(dir, "fixture")
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\ncat >/dev/null\n"+body+"\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	return dir, binary
-}
-
-// xLine prints one line of n bytes of 'x' from the fixture shell.
-func xLine(n int) string {
-	return "head -c " + strconv.Itoa(n) + " /dev/zero | tr '\\0' x; printf '\\n'\n"
-}
-
 func TestJudgeProcessSkipsOversizedOutput(t *testing.T) {
 	const huge = 1024*1024 + 4096
 	const normal = 1000000
@@ -156,7 +102,7 @@ func TestJudgeProcessSkipsOversizedOutput(t *testing.T) {
 				largest, total int
 			}
 			var reports []report
-			err = RunJudgeProcess(t.Context(), binary, nil, DoctorEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 20*time.Second, func(line []byte) {
+			err = RunJudgeProcess(t.Context(), binary, nil, execution.IsolatedEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 20*time.Second, func(line []byte) {
 				if len(line) > 1024*1024 {
 					t.Errorf("oversized line observed: %d bytes", len(line))
 				}
@@ -183,7 +129,7 @@ func TestJudgeProcessNormalOutputReportsNothing(t *testing.T) {
 	}
 	request := agent.JudgeRequest{Invocation: agent.DoctorRequest{Attempt: "attempt", Model: "configured", Prompt: "judge", WorkingDirectory: dir, MCPLaunch: spec}}
 	calls := 0
-	if err := RunJudgeProcess(t.Context(), binary, nil, DoctorEnvironment(nil, dir), request, 10*time.Second, func([]byte) {}, func(string, int, int) { calls++ }); err != nil || calls != 0 {
+	if err := RunJudgeProcess(t.Context(), binary, nil, execution.IsolatedEnvironment(nil, dir), request, 10*time.Second, func([]byte) {}, func(string, int, int) { calls++ }); err != nil || calls != 0 {
 		t.Fatalf("normal judge output: %v, %d reports", err, calls)
 	}
 }
@@ -200,7 +146,7 @@ func TestNonJudgeOutputGuardReportsItself(t *testing.T) {
 				t.Fatal(err)
 			}
 			request := agent.DoctorRequest{Attempt: "attempt", Model: "configured", Prompt: "context", WorkingDirectory: dir, MCPLaunch: spec, Sandbox: &agent.DoctorSandbox{Version: agent.DoctorSandboxVersion, ScratchDirectory: dir, ReadableRoots: []string{"/"}, DeniedReadPaths: []string{"/credential-fixture"}}}
-			return RunDoctorProcess(t.Context(), binary, nil, DoctorEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 10*time.Second, func([]byte) {})
+			return RunDoctorProcess(t.Context(), binary, nil, execution.IsolatedEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 10*time.Second, func([]byte) {})
 		}},
 		{"repair", func(t *testing.T, dir, binary string) error {
 			spec, err := agent.NewMCPLaunchSpec(binary, filepath.Join(dir, "descriptor.json"), "attempt", agent.RepairToolNames()...)
@@ -208,11 +154,11 @@ func TestNonJudgeOutputGuardReportsItself(t *testing.T) {
 				t.Fatal(err)
 			}
 			request := agent.RepairRequest{Operation: "operation", Invocation: agent.DoctorRequest{Attempt: "attempt", Model: "configured", Prompt: "context", WorkingDirectory: dir, MCPLaunch: spec}}
-			return RunRepairProcess(t.Context(), binary, nil, DoctorEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 10*time.Second, func([]byte) {})
+			return RunRepairProcess(t.Context(), binary, nil, execution.IsolatedEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 10*time.Second, func([]byte) {})
 		}},
 		{"chat", func(t *testing.T, dir, binary string) error {
 			request := agent.ChatRequest{Model: "configured", Prompt: "context", WorkingDirectory: dir}
-			return RunChatProcess(t.Context(), binary, nil, DoctorEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 10*time.Second, func([]byte) {})
+			return RunChatProcess(t.Context(), binary, nil, execution.IsolatedEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 10*time.Second, func([]byte) {})
 		}},
 		{"drift", func(t *testing.T, dir, binary string) error {
 			spec, err := agent.NewMCPLaunchSpec(binary, filepath.Join(dir, "descriptor.json"), "attempt", agent.DriftToolNames()...)
@@ -220,7 +166,7 @@ func TestNonJudgeOutputGuardReportsItself(t *testing.T) {
 				t.Fatal(err)
 			}
 			request := agent.DriftRequest{Invocation: agent.DoctorRequest{Attempt: "attempt", Model: "configured", Prompt: "context", WorkingDirectory: dir, MCPLaunch: spec}}
-			return RunDriftProcess(t.Context(), binary, nil, DoctorEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 10*time.Second, func([]byte) {})
+			return RunDriftProcess(t.Context(), binary, nil, execution.IsolatedEnvironment([]string{"PATH=/usr/bin:/bin"}, dir), request, 10*time.Second, func([]byte) {})
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -231,4 +177,19 @@ func TestNonJudgeOutputGuardReportsItself(t *testing.T) {
 			}
 		})
 	}
+}
+
+func writeOutputFixture(t *testing.T, body string) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "fixture")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\ncat >/dev/null\n"+body+"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir, binary
+}
+
+// xLine prints one line of n bytes of 'x' from the fixture shell.
+func xLine(n int) string {
+	return "head -c " + strconv.Itoa(n) + " /dev/zero | tr '\\0' x; printf '\\n'\n"
 }

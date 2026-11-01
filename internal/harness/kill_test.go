@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// The subtree walk itself (SD-1) is tested in internal/providerprocess;
+// The subtree walk itself (SD-1) is tested in pkg/execution/internal/process;
 // TestRunTimeoutKillsTheWholeSubtree exercises it end to end through the
 // harness.
 
@@ -35,13 +35,5 @@ func requireProcessListAccess(t *testing.T) {
 	var exitErr *exec.ExitError
 	if err != nil && (!errors.As(err, &exitErr) || exitErr.ExitCode() != 1) {
 		t.Logf("process-list preflight returned %v without an explicit sandbox denial", err)
-	}
-}
-
-func TestKillSubtreeIgnoresImpossiblePIDs(t *testing.T) {
-	for _, pid := range []int{0, 1, -1} {
-		if err := killSubtree(t.Context(), pid, discardLogger()); err != nil {
-			t.Errorf("killSubtree(%d) = %v, want nil", pid, err)
-		}
 	}
 }

@@ -1,0 +1,99 @@
+{
+  "race": {
+    "command": [
+      "go",
+      "test",
+      "-race",
+      "-count=1",
+      "-p=4",
+      "-timeout=30m",
+      "github.com/cloudvane/litefactory/internal/agent",
+      "github.com/cloudvane/litefactory/internal/agentresult",
+      "github.com/cloudvane/litefactory/internal/codex",
+      "github.com/cloudvane/litefactory/internal/doctor",
+      "github.com/cloudvane/litefactory/internal/drift",
+      "github.com/cloudvane/litefactory/internal/graphexec",
+      "github.com/cloudvane/litefactory/internal/harness",
+      "github.com/cloudvane/litefactory/internal/loganalysis",
+      "github.com/cloudvane/litefactory/internal/logevidence",
+      "github.com/cloudvane/litefactory/internal/messaging",
+      "github.com/cloudvane/litefactory/internal/messaging/response",
+      "github.com/cloudvane/litefactory/internal/meter",
+      "github.com/cloudvane/litefactory/internal/meterview",
+      "github.com/cloudvane/litefactory/internal/projectread",
+      "github.com/cloudvane/litefactory/internal/providerprocess",
+      "github.com/cloudvane/litefactory/internal/report",
+      "github.com/cloudvane/litefactory/internal/rights",
+      "github.com/cloudvane/litefactory/internal/submission",
+      "github.com/cloudvane/litefactory/internal/taskdiscussion",
+      "github.com/cloudvane/litefactory/internal/teamrelease",
+      "github.com/cloudvane/litefactory/internal/teamsource",
+      "github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest",
+      "github.com/cloudvane/litefactory/pkg/execution/agent",
+      "github.com/cloudvane/litefactory/pkg/execution/graph",
+      "github.com/cloudvane/litefactory/pkg/execution/internal/process",
+      "github.com/cloudvane/litefactory/pkg/execution/providers/claude",
+      "github.com/cloudvane/litefactory/pkg/execution/providers/codex",
+      "github.com/cloudvane/litefactory/examples/execution"
+    ],
+    "pid": 77381,
+    "started": 1793530134.511183,
+    "log": ".aiteam/lf-1295-1268-001-reusable-graph-and-agent/2026-11-01/1268-001-reusable-graph-and-agent/final-race.log",
+    "exit_code": 0,
+    "finished": 1793530554.2649548
+  },
+  "heavy": {
+    "command": [
+      "go",
+      "test",
+      "-count=1",
+      "-p=4",
+      "-timeout=35m",
+      "github.com/cloudvane/litefactory/internal/cli",
+      "github.com/cloudvane/litefactory/internal/daemon",
+      "github.com/cloudvane/litefactory/internal/store",
+      "github.com/cloudvane/litefactory/internal/turn"
+    ],
+    "pid": 77382,
+    "started": 1793530134.512167,
+    "log": ".aiteam/lf-1295-1268-001-reusable-graph-and-agent/2026-11-01/1268-001-reusable-graph-and-agent/final-heavy.log",
+    "exit_code": 1,
+    "finished": 1793530988.6654441
+  },
+  "build": {
+    "command": [
+      "go",
+      "build",
+      "./..."
+    ],
+    "pid": 77383,
+    "started": 1793530134.5132532,
+    "log": ".aiteam/lf-1295-1268-001-reusable-graph-and-agent/2026-11-01/1268-001-reusable-graph-and-agent/final-build.log",
+    "exit_code": 0,
+    "finished": 1793530988.666317
+  },
+  "lint": {
+    "command": [
+      "make",
+      "lint",
+      "PKGS=./internal/agent ./internal/meter ./internal/providerprocess ./internal/graphexec ./internal/codex ./internal/harness ./internal/turn ./pkg/execution/... ./examples/execution"
+    ],
+    "pid": 77384,
+    "started": 1793530134.514688,
+    "log": ".aiteam/lf-1295-1268-001-reusable-graph-and-agent/2026-11-01/1268-001-reusable-graph-and-agent/final-lint.log",
+    "exit_code": 0,
+    "finished": 1793530988.666501
+  },
+  "format": {
+    "command": [
+      "gofmt",
+      "-l",
+      "."
+    ],
+    "pid": 77385,
+    "started": 1793530134.516595,
+    "log": ".aiteam/lf-1295-1268-001-reusable-graph-and-agent/2026-11-01/1268-001-reusable-graph-and-agent/final-format.log",
+    "exit_code": 0,
+    "finished": 1793530988.6666172
+  }
+}
