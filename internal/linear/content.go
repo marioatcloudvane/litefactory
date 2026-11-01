@@ -340,8 +340,10 @@ func comparableContent(body string) string {
 		// The story renderer encodes punctuation as character references and
 		// Linear stores the decoded characters in every line shape, so a story
 		// line is compared decoded in full.
+		// Linear also escapes those literal inline markers on prose and list
+		// lines, as it does in table cells.
 		if story {
-			line = decodeEntities(line)
+			line = storyMarkerEscapes.Replace(decodeEntities(line))
 		}
 		line = comparableEmphasisLine(line)
 		if depth, ok := contentListItem(line); ok {
@@ -572,6 +574,10 @@ func decodeEntities(s string) string {
 	})
 }
 
+// storyMarkerEscapes drops Linear's backslash before a literal inline marker
+// the story renderer wrote (\_, \*, \[, \]); it applies to story lines only.
+var storyMarkerEscapes = strings.NewReplacer(`\_`, "_", `\*`, "*", `\[`, "[", `\]`, "]")
+
 // storyTableRowText compares a factory story table row by its text. Linear
 // stores an escaped cell pipe (\| or &#124;) as a bare "|", which changes the
 // cell count, so rows are reduced to their cell texts in order, with rule cells
@@ -579,7 +585,7 @@ func decodeEntities(s string) string {
 // escapes literal inline markers in cells (\_, \*, \`, \[, \]), so those
 // escapes compare equal to the bare marker the factory wrote.
 func storyTableRowText(line string) string {
-	line = strings.NewReplacer(`\|`, "|", `\_`, "_", `\*`, "*", "\\`", "`", `\[`, "[", `\]`, "]").Replace(decodeEntities(line))
+	line = strings.NewReplacer(`\|`, "|", "\\`", "`").Replace(storyMarkerEscapes.Replace(decodeEntities(line)))
 	var cells []string
 	for _, cell := range strings.Split(line, "|") {
 		cell = strings.Join(strings.Fields(cell), " ")
