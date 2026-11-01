@@ -254,7 +254,9 @@ func latestValidateSuite(ctx context.Context, opts Options, instanceID int64, no
 		if a.Node != node || a.Status != store.GraphSucceeded || a.Outcome == "retry" {
 			continue
 		}
-		outputs, err := opts.DB.ListGraphOutputsBounded(ctx, a.ID, 1<<20, 16)
+		// The embedded manifest is reloaded from its validation evidence below,
+		// so it is projected out before the bound applies (#1268).
+		outputs, err := opts.DB.ListGraphOutputsBoundedByReference(ctx, a.ID, validateSuiteOutputMaxBytes, 16, "assessment", "assessment_id")
 		if err != nil {
 			return validateSuiteView{}, err
 		}

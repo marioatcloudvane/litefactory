@@ -678,6 +678,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
 			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,
+		}), NewArchiveBundlesStep(ArchiveBundlesOptions{
+			Root: s.Paths.BundlesDir(), Tasks: s.DB, Logger: s.Logger,
 		})}},
 		Housekeeping: HousekeepingOptions{
 			DBPath:           s.Paths.DBPath(),
