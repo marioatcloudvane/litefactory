@@ -696,6 +696,18 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 		if promoted, ok := s.PromotedStory(r.selected); ok {
 			binding += planPromotedBinding(promoted)
 		}
+		// A story task runs on its own branch, started from its parent's, so
+		// the parent's Research and Plan files are in its checkout; it is told
+		// where they are, as an Implement story worker is, when any are there.
+		if w.prep.parentSessionDir != "" && len(w.prep.parentSessionFiles) > 0 {
+			own := w.prep.promptInput.SessionArtifactDir
+			if own == "" {
+				if own, err = naming.AITeamSessionDir(w.prep.session.Branch, w.prep.run.StartedAt, w.prep.session.FeatureSlug); err != nil {
+					return ResearchInvocation{}, err
+				}
+			}
+			binding += sessionDirectoryContext(own, w.prep.parentSessionDir, w.prep.parentSessionFiles)
+		}
 	}
 	if w.admission.PredecessorID > 0 {
 		previous, err := latestResearchAgentAttempt(ctx, r.opts, r.definition.Profile, w.admission.PredecessorID, "")
