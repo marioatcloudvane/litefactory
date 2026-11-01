@@ -144,3 +144,26 @@ Evidence:
 - `internal/turn/research_control.go:25`
 - `internal/turn/research_comments.go:56`
 - `internal/turn/plan_graph.go:610`
+
+## F-14
+
+At 6d86064d7b30fae45f6a5a1e12093882e5eeb876, source inventory across production internal Go files found 40 Execute receiver types taking ActivityRequest: 6 shared/Research, 4 Plan, 4 Spike, 6 Bug, 5 Implement and 15 Validate including wrappers/adapters. All are listed in activity-inventory and the owner-facing class panels. Non-activity Execute services and test handlers are excluded; terminals bypass handlers. Prior package line counts in F-12 describe its earlier inspected baseline, not a refreshed count.
+
+Evidence:
+
+- `.aiteam/lf-1268-extract-reusable-graph-and-agent/2026-10-31/extract-reusable-graph-and-agent/ACTIVITY_INVENTORY.json:1`
+- `internal/turn/graph_activity.go:43`
+- `internal/turn/graph_node.go:130`
+
+## F-15
+
+Production registration confirms many-to-many action/handler binding: shared Agent/Control/Comment/Judge/Sync/Brief; Plan runtime uses planGraphHandler and story/approval effects; Bug role dispatcher selects analyst/fixer; Implement's implementStepFunc binds selectPath, await, anyParked, ask, reportDone, resolved, budget, workerResult, storyDone and parkStory; Validate has 14 activity types plus admitted-suite wrapper. These handlers consume factory Options and identity-bearing requests, so importability later requires capability boundaries rather than directory relocation alone.
+
+Evidence:
+
+- `internal/turn/research_workflow.go:70`
+- `internal/turn/plan_graph.go:622`
+- `internal/turn/bug_conversation.go:44`
+- `internal/turn/implement_steps.go:56`
+- `internal/turn/validate_flow.go:157`
+- `internal/turn/validate_suite.go:479`

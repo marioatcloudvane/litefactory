@@ -38,6 +38,8 @@ given this little class diagram, how much will be extracted vs. how much will st
 - **A-03** — Node action ownership — owner: "Ok and where are the actions? the ones that are executed as a node in the graph?" (owner said: comment 6549253002)
 - **O-12** — Keep existing factory action catalogues, executable activity registry, handlers and durable node coordinator in factory core, with the library supplying only neutral action descriptions, graph mechanics and provider execution. (agent's call)
 - **K-08** — Preserve existing action-name-to-handler bindings, declared outcome validation and non-agent dispatch behavior alongside authorization, attempt reservation and atomic result/transition recording. (agent's call)
+- **A-04** — Activity details and future importability — owner: "give me details about the workflow activities; i take it as they stay in factory core, right? I do think that in a later stage we might have them as importable items like in a dynamic library. give me a class diagram of all activities!" (owner said: comment 6554903778)
+- **N-05** — Importable factory activity packages and runtime dynamic loading remain future work, with no plugin API, compatibility promise or loader introduced by #1268. (agent's call)
 
 
 ## Assumptions
@@ -46,8 +48,10 @@ given this little class diagram, how much will be extracted vs. how much will st
 - **AS-02** — The candidate pkg/execution package family and examples/execution layout are adopted as the target boundary; individual exported type names remain design choices within O-03 through O-07. (agent's call)
 - **AS-03** — No persistence migration is permitted in this scope; retain existing stored digests, IDs and formats, with any discovered need for migration returned for scope review under N-03. (agent's call)
 - **AS-04** — No builder-check advisory was supplied for either shaping invocation; the owner's diagram, layout and sibling-scope questions are answered explicitly in the revised review, without treating them as approval. (agent's call)
+- **AS-05** — The owner's reference to later importable or dynamically loaded activities is retained as future direction, not authorization to expand this extraction; ordinary importable capability-based packages are an advisory starting point for that later decision. (agent's call)
 
 ## Research documents
 
 - Technical findings: [RESEARCH&#95;TECHNICAL&#46;md](RESEARCH_TECHNICAL.md)
 - Reference data: [LIBRARY&#95;BOUNDARY&#46;md](LIBRARY_BOUNDARY.md)
+- Reference data: [ACTIVITY&#95;INVENTORY&#46;json](ACTIVITY_INVENTORY.json)
