@@ -41,29 +41,20 @@ type validateIndexEdit struct {
 // prepareValidateGuidance freezes every final redacted part before dispatch.
 // The first part's retained purpose carries the immutable set manifest; it is
 // application metadata, never a publication or an invented provider receipt.
-func (r *Reporter) prepareValidateGuidance(ctx context.Context, sessionID int64, task naming.Ref, st ValidateState, profile *graphexec.Profile, base, notice string, at time.Time) (string, []store.ReportDelivery, error) {
+func (r *Reporter) prepareValidateGuidance(ctx context.Context, sessionID int64, task naming.Ref, st ValidateState, profile *graphexec.Profile, report validateReportLayout, notice string, at time.Time) (string, []store.ReportDelivery, error) {
 	var err error
-	st, err = r.redactValidateFindingSummaries(ctx, st)
-	if err != nil {
-		return "", nil, err
-	}
-	items := validateDecisionItemsFor(task.Forge == "linear", st)
-	if len(items) == 0 {
-		return base, nil, nil
-	}
-	header := validateGuidanceHeader(st)
-	full := base + header + strings.Join(items, "\n\n") + "\n"
-	if len(full) <= github.CommentSizeLimit-validateStoryCommentReserve {
+	full := report.full()
+	items := slices.Clone(report.Commands)
+	if len(items) == 0 || len(full) <= github.CommentSizeLimit-validateStoryCommentReserve {
 		return full, nil, nil
 	}
+	// The summary stays whole in the overview: it holds the one command of
+	// every shown item. The command reference moves into numbered parts, and
+	// an oversized overview drops its facts, which the parts restate per item.
+	header := report.Header
+	base := report.overview(false)
 	if len(base) > github.CommentSizeLimit/2 {
-		var lines []string
-		for _, line := range strings.Split(base, "\n") {
-			if strings.HasPrefix(line, "Ship this displayed") || strings.HasPrefix(line, "Return reviewed") || strings.HasPrefix(line, "Legacy repair option:") || strings.HasPrefix(line, "Next:") || strings.HasPrefix(line, "To rerun the missing reviews:") {
-				lines = append(lines, line)
-			}
-		}
-		base = fmt.Sprintf("**Validate report** · tested `%s` · suite %s · revision `%s`\n\nThe detailed story overview exceeds this comment's capacity. Every item's state, current choices and consequences are in the numbered guidance below. Checks and finding choices do not authorize delivery.\n\n%s\n", st.Commit, st.Suite.Outcome, st.Revision, strings.Join(lines, "\n\n"))
+		base = report.overview(true)
 	}
 	baseBodyForSet, err := r.renderer.RenderReportDelivery(ctx, base, "")
 	if err != nil {
@@ -110,7 +101,7 @@ func (r *Reporter) prepareValidateGuidance(ctx context.Context, sessionID int64,
 		purpose := fmt.Sprintf("%s%d:%s:%d", validatePartPurpose, st.InstanceID, set, i+1)
 		intent := r.deliveryIntent(task, task, sessionID, 0, 0, purpose)
 		intent.TriggerNamespace = store.PlanNoticeNamespace
-		text := fmt.Sprintf("**Validate decision guidance · part %d/%d** · revision `%s` · tested `%s` · displayed delivery `%s`\n\nReply on the parent issue. This part belongs only to this displayed revision; old decisions remain refused.\n\n%s\n", i+1, len(parts), st.Revision, st.Commit, st.DeliveryCommit, part)
+		text := fmt.Sprintf("**Validate decision guidance · part %d/%d** · revision `%s` · tested `%s` · displayed delivery `%s`\n\nReply on the parent issue. This part belongs only to this displayed revision; old decisions remain refused. %s\n\n%s\n", i+1, len(parts), st.Revision, st.Commit, st.DeliveryCommit, validatePartConsequences, part)
 		body, e := r.renderer.RenderReportDelivery(ctx, text, intent.Marker)
 		if e != nil {
 			return "", nil, e

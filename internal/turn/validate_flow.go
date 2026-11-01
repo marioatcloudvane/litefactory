@@ -17,7 +17,7 @@ import (
 
 const validateNodeInstructions = "\nFactory invocation: private Validate graph node. The accepted shared submission is this step's result; the factory derives the response from it. Terminal text is not a result. The result is limited to 1 MiB.\n"
 
-const validateNodeHardRules = "\nResult shapes: a repair step uses payload.validate.repair with response repaired, handback or blocked; a review step uses payload.validate.stories with one finding for each thing its role covers. Result guidance: validate-repair-report or validate-review skill, node-result resource.\n"
+const validateNodeHardRules = "\nResult shapes: a repair step uses payload.validate.repair with response repaired, handback or blocked; a review step uses payload.validate.stories with one finding for each thing its role covers; the reporter step uses payload.validate.report. Result guidance: validate-repair-report, validate-review or validate-report skill, node-result resource.\n"
 
 // ValidateWorkflowPolicy supplies Validate's response words, result decoder and
 // failure handling to the shared graph mechanisms. It carries no flow: order,
@@ -136,6 +136,14 @@ type ValidateFlowBindings struct {
 	// Reviewers starts one reviewer; Slots meters the run-slot pool.
 	Reviewers ValidateReviewRunner
 	Slots     ValidateSlots
+	// Reporter starts the read-only reporter; nil makes every summary the
+	// factory's own fallback. ReporterBase reads the current delivery target
+	// commit for a base re-run.
+	Reporter     ValidateReporterRunner
+	ReporterBase func(ctx context.Context) (string, error)
+	// FactoryBugs files owner-confirmed upstream factory Bugs; nil records
+	// each confirmation as failed with the reason.
+	FactoryBugs ValidateFactoryBugFiler
 	// Delivery supplies the trusted context of the owner steps: the forge, the
 	// delivery target, the branch head, the guarded push and the owner identity.
 	Delivery ValidateDelivery
@@ -172,13 +180,16 @@ func RegisterValidateFlow(specs *graphexec.Registry, activities *ActivityRegistr
 		graphexec.ValidateMergeAction:        ValidateMergeActivity{b},
 		graphexec.ValidateCloseAction:        ValidateCloseActivity{b},
 		graphexec.ValidateImplementAction:    ValidateImplementActivity{b},
+		graphexec.ValidateReporterAction:     ValidateReporterActivity{b},
+		graphexec.ValidateFactoryBugAction:   ValidateFactoryBugActivity{b},
 	} {
 		if err := activities.Register(name, handler); err != nil {
 			return err
 		}
 	}
 	for _, spec := range []graphexec.ActionSpec{graphexec.ValidateRepairBudgetSpec(), graphexec.ValidateRepairCheckSpec(), graphexec.ValidateReviewSpec(), graphexec.ValidateOutcomeSpec(),
-		graphexec.ValidateResolveSpec(), graphexec.ValidateReportSpec(), graphexec.ValidateAskSpec(), graphexec.ValidateIssueSpec(), graphexec.ValidatePushSpec(), graphexec.ValidateMergeSpec(), graphexec.ValidateCloseSpec(), graphexec.ValidateImplementSpec()} {
+		graphexec.ValidateResolveSpec(), graphexec.ValidateReportSpec(), graphexec.ValidateAskSpec(), graphexec.ValidateIssueSpec(), graphexec.ValidatePushSpec(), graphexec.ValidateMergeSpec(), graphexec.ValidateCloseSpec(), graphexec.ValidateImplementSpec(),
+		graphexec.ValidateReporterSpec(), graphexec.ValidateFactoryBugSpec()} {
 		if _, ok := specs.Resolve(spec.Name); ok {
 			continue
 		}
