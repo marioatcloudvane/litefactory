@@ -320,6 +320,16 @@ func (db *DB) RequeueGraphDispatchWithStop(ctx context.Context, id int64, retryA
 		if d.Status != "reserved" || d.AllocatedRunID != 0 {
 			return nil
 		}
+		// A terminal or superseded instance owes nothing more. Requeueing would
+		// write a due time onto a finished instance, which its CHECK forbids;
+		// the stale dispatch is cancelled instead and no stop is reported (#1299).
+		var live bool
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_instances i WHERE i.id=? AND i.status='running' AND NOT EXISTS(SELECT 1 FROM graph_instances newer WHERE newer.session_id=i.session_id AND newer.id>i.id))`, d.InstanceID).Scan(&live); err != nil {
+			return err
+		}
+		if !live {
+			return cancelStaleGraphDispatchTx(ctx, tx, d, retryAt)
+		}
 		if d.Attempts >= MaxGraphDispatchAttempts {
 			reason := fmt.Sprintf("graph stage %q could not start in %d attempts", d.Node, d.Attempts)
 			if cause != "" {
@@ -337,10 +347,71 @@ func (db *DB) RequeueGraphDispatchWithStop(ctx context.Context, id int64, retryA
 		if _, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='pending', reserved_at=NULL, due_at=? WHERE id=?`, FormatTime(retryAt), id); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=? WHERE id=?`, FormatTime(retryAt), d.InstanceID)
+		_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=? WHERE id=? AND status='running'`, FormatTime(retryAt), d.InstanceID)
 		return err
 	})
 	return requeued, stopped, err
+}
+
+// staleGraphDispatchReason names why a dispatch was dropped without running.
+const staleGraphDispatchReason = "stale: the graph instance is no longer running at this node"
+
+// cancelStaleGraphDispatchTx cancels unallocated work whose instance can no
+// longer take it. It only clears a due time on an instance with no other open
+// dispatch, which is always CHECK-safe.
+func cancelStaleGraphDispatchTx(ctx context.Context, tx *sql.Tx, d GraphDispatch, at time.Time) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='cancelled', cancellation_reason=?, finished_at=MAX(?,created_at) WHERE id=? AND status IN ('pending','reserved') AND allocated_run_id IS NULL`, staleGraphDispatchReason, FormatTime(at), d.ID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=NULL WHERE id=? AND NOT EXISTS(SELECT 1 FROM graph_dispatches WHERE instance_id=? AND status IN ('pending','reserved','running'))`, d.InstanceID, d.InstanceID)
+	return err
+}
+
+// deadGraphDispatches selects unallocated work left open on an instance that
+// finished or was superseded. Nothing can run it any more: the execution
+// fence refuses it, and recovery only revisits running instances. Bug and
+// doctor-held sessions are left to their own owners.
+const deadGraphDispatches = `FROM graph_dispatches d JOIN graph_instances i ON i.id=d.instance_id
+WHERE d.status IN ('pending','reserved') AND d.allocated_run_id IS NULL
+AND (i.status<>'running' OR EXISTS(SELECT 1 FROM graph_instances newer WHERE newer.session_id=i.session_id AND newer.id>i.id))
+AND NOT EXISTS(SELECT 1 FROM workflow_admissions a WHERE a.session_id=d.session_id AND a.workflow='bug')
+AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=d.session_id)`
+
+// ListDeadGraphDispatches lists dispatches that can never run (#1299). It
+// changes nothing; each is cancelled under its own session lock.
+func (db *DB) ListDeadGraphDispatches(ctx context.Context) ([]GraphDispatch, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE id IN (SELECT d.id `+deadGraphDispatches+`) ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GraphDispatch
+	for rows.Next() {
+		d, err := scanGraphDispatch(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// CancelDeadGraphDispatch rechecks that the dispatch is still dead and cancels
+// it as stale. It reports whether it cancelled anything.
+func (db *DB) CancelDeadGraphDispatch(ctx context.Context, id int64, at time.Time) (bool, error) {
+	var cancelled bool
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		d, err := scanGraphDispatch(tx.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE id=? AND id IN (SELECT d.id `+deadGraphDispatches+`)`, id))
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		cancelled = true
+		return cancelStaleGraphDispatchTx(ctx, tx, d, at)
+	})
+	return cancelled, err
 }
 
 // GraphDispatchRetryDelay spaces a failed start out instead of hammering the

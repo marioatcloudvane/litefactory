@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -636,5 +637,57 @@ func TestStartReportsExpiredNonGraphWorkerTiming(t *testing.T) {
 	f.settle()
 	if calls := f.turns.calls(); len(calls) != 0 {
 		t.Fatalf("recovered worker re-executed: %+v", calls)
+	}
+}
+
+// TestStartRemovesLeftoverSubmissionFolders is issue #1311: an attempt folder
+// left by a broker that died without Close is removed when the daemon starts.
+func TestStartRemovesLeftoverSubmissionFolders(t *testing.T) {
+	f := newFixture(t)
+	home, err := os.MkdirTemp("/tmp", "lf1311-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if home, err = filepath.EvalSymlinks(home); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	paths := config.NewPaths(home)
+	leftover := filepath.Join(paths.SubmissionDir(), "deadbeef00000000")
+	if err := os.MkdirAll(leftover, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(leftover, "request-abc.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(leftover, old, old); err != nil {
+		t.Fatal(err)
+	}
+	d, err := daemon.New(daemon.Options{
+		DefaultAgent:  agent.Kind(store.AgentClaude),
+		ToolProfiles:  config.DefaultToolProfiles().Permissions,
+		Agents:        turn.RunnerSet{agent.Kind(store.AgentClaude): nil},
+		Classifiers:   map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}},
+		DB:            f.db,
+		Forge:         f.client,
+		Filter:        f.filter,
+		Turn:          f.turns,
+		Reporter:      f.reporter,
+		InstanceID:    "daemon-instance-test",
+		Interval:      testInterval,
+		Logger:        f.logger,
+		Now:           f.clock.Now,
+		ShutdownGrace: 500 * time.Millisecond,
+		Paths:         paths,
+	})
+	if err != nil {
+		t.Fatalf("build the daemon: %v", err)
+	}
+	if _, err := d.Start(t.Context()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := os.Stat(leftover); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("leftover submission folder survived Start: %v", err)
 	}
 }

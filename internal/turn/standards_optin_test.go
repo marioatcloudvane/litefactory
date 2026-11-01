@@ -252,7 +252,7 @@ func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 func TestStandardsGrantFollowsPinnedNode(t *testing.T) {
 	profileOf := func(mode string) *graphexec.Profile {
 		t.Helper()
-		files, err := teamsourcetest.Files(teamsourcetest.Go)
+		files, err := teamsourcetest.Files(t.Context(), teamsourcetest.Go)
 		if err != nil {
 			t.Fatal(err)
 		}

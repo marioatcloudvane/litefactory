@@ -131,6 +131,9 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		}
 		return validateResolveResult(outcome, "replayed", st)
 	}
+	if isValidateDiscussion(wait.ReplyBody) {
+		return h.discuss(ctx, opts, req, step, st, wait, refuse)
+	}
 	cmd, binding, err := ResolveValidateDecision(ctx, opts, req, st, wait)
 	if err != nil {
 		return refuse("wait", err.Error())
@@ -260,6 +263,21 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 			return ActivityResult{Diagnostic: err.Error()}, err
 		}
 		return h.accept(ctx, opts, req, st, now, "close", "close confirmed")
+	case ValidateFactoryBugCommand:
+		item, ok := st.reportItem(cmd.Item)
+		switch {
+		case !slices.Contains(step.node.Outcomes, "factory_bug"):
+			return refuse("wait", "This Validate run has no step that files a factory Bug.")
+		case !ok || !slices.Contains(item.Actions, "factory-bug"):
+			return refuse("wait", fmt.Sprintf("`%s` is not an open item of this report.", cmd.Item))
+		}
+		if b, filed := st.FactoryBugs[item.Ref]; filed && b.State == store.FactoryBugFiled {
+			return refuse("wait", fmt.Sprintf("The factory Bug for `%s` is already filed: %s.", item.Ref, b.Reference))
+		}
+		if _, err := opts.DB.PutValidateFactoryBugIntent(ctx, store.ValidateFactoryBug{InstanceID: req.InstanceID, Commit: st.Commit, Item: item.Ref, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, Marker: validateFactoryBugMarker(req.InstanceID, st.Commit, item.Ref), CreatedAt: now}); err != nil {
+			return ActivityResult{Diagnostic: err.Error()}, err
+		}
+		return h.accept(ctx, opts, req, st, now, "factory_bug", "factory Bug confirmed")
 	case ValidateReturnCommand:
 		switch {
 		case !implements:
@@ -508,6 +526,11 @@ func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, 
 			}
 		}
 	}
+	for _, b := range st.FactoryBugs {
+		if b.CommentID == commentID {
+			return "factory_bug", true
+		}
+	}
 	for _, f := range st.Findings {
 		if f.Choice != nil && f.Choice.CommentID == commentID && f.Choice.Choice == store.ChoiceRepair && repairs && st.ownerRepairReady() {
 			return "repair", true
@@ -517,6 +540,33 @@ func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, 
 		}
 	}
 	return "", false
+}
+
+// isValidateDiscussion says an owner reply is a plain comment, not a command.
+func isValidateDiscussion(body string) bool {
+	c := ParseCommand(body)
+	return c.Kind == KindFreeText && c.Name == "" && strings.TrimSpace(body) != "" && !strings.HasPrefix(strings.TrimSpace(body), "/")
+}
+
+// discuss hands one plain owner comment to the reporter's follow-up, within the
+// declared bound. It records nothing the owner decides: an answer is advice,
+// never a verdict, a choice or a delivery permission.
+func (h ValidateResolveActivity) discuss(_ context.Context, _ Options, _ ActivityRequest, step validateStep, st ValidateState, wait store.GraphOwnerWait, refuse func(outcome, why string) (ActivityResult, error)) (ActivityResult, error) {
+	for _, a := range st.Answers {
+		if a.CommentID == wait.ReplyID {
+			// A replayed pass: the reporter already holds this comment.
+			return validateResolveResult("discuss", "replayed owner comment", st)
+		}
+	}
+	switch {
+	case !slices.Contains(step.node.Outcomes, "discuss"):
+		return refuse("wait", "Plain comments are not answered in this Validate run; only the commands in the report change it. Nothing was recorded.")
+	case st.closed():
+		return refuse("wait", "This Validate run has no open decision left to discuss. Nothing was recorded.")
+	case st.followUpsUsed() >= st.DiscussionRounds:
+		return refuse("wait", fmt.Sprintf("The reporter has already answered %d comments in this Validate run, its limit. Use the commands in the report; nothing was recorded.", st.DiscussionRounds))
+	}
+	return validateResolveResult("discuss", "owner comment", st)
 }
 
 func validateShipSettlesTicketDecisions(st ValidateState) bool {

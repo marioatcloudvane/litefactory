@@ -27,7 +27,7 @@ func teamFiles(t *testing.T, modes ...string) map[string][]byte {
 	files := map[string][]byte{}
 	var mapping strings.Builder
 	for _, mode := range modes {
-		resolved, err := teamsourcetest.Files(teamsourcetest.Go)
+		resolved, err := teamsourcetest.Files(t.Context(), teamsourcetest.Go)
 		if err != nil {
 			t.Fatal(err)
 		}

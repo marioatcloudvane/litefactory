@@ -148,10 +148,11 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 // falls back to the run pool; an agent stage, a step that cannot be classified,
 // and every other dispatch use the run pool only.
 func (d *Daemon) graphStepSlot(ctx context.Context, dispatch store.GraphDispatch) (*stepReservation, string, error) {
-	cost, err := turn.GraphDispatchSlotCost(ctx, d.db, dispatch)
+	need, err := turn.GraphDispatchSlotNeed(ctx, d.db, dispatch)
 	if err != nil {
 		return nil, "", err
 	}
+	cost := need.Admission
 	if d.coordinator != nil {
 		coordinator, err := d.implementCoordinatorDispatch(ctx, dispatch)
 		if err != nil {
@@ -165,11 +166,7 @@ func (d *Daemon) graphStepSlot(ctx context.Context, dispatch store.GraphDispatch
 		return &stepReservation{pool: d.pool, cost: cost}, "", nil
 	}
 	used, total := d.pool.capacity()
-	reason := "temporary capacity deferral"
-	if cost > total {
-		reason = "impossible capacity fit"
-	}
-	return nil, fmt.Sprintf("%s: pool=shared workflow_instance=%d node=%s requested=%d used=%d available=%d total=%d", reason, dispatch.InstanceID, dispatch.Node, cost, used, total-used, total), nil
+	return nil, fmt.Sprintf("%s: pool=shared workflow_instance=%d node=%s requested=%d used=%d available=%d total=%d", need.Deferral(total), dispatch.InstanceID, dispatch.Node, cost, used, total-used, total), nil
 }
 
 // graphStepRunsAgent classifies a dispatch by its node in the retained graph. A
@@ -312,6 +309,19 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 			return
 		}
 	}
+	// A dispatch whose instance finished or was replaced can never run: the
+	// execution fence refuses it, and failing the turn on it stops the task's
+	// queue. Drop it quietly so the session moves on (#1299).
+	if !validating {
+		stale, staleErr := d.dropStaleGraphDispatch(ctx, t, dispatch)
+		if staleErr != nil {
+			t.recordWorkerError(staleErr)
+			return
+		}
+		if stale {
+			return
+		}
+	}
 	trigger, command := graphStepRequest(dispatch, d.ticketIdentities(ctx).OwnerHandle)
 	continuation, found, continuationErr := d.db.StageDecisionForDispatch(ctx, dispatch.ID)
 	if continuationErr != nil {
@@ -422,6 +432,14 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 			}
 			return
 		}
+		// The step did not start because its target is gone: the instance
+		// finished, moved on or was replaced. That is not worth a retry.
+		if stale, staleErr := d.dropStaleGraphDispatch(ctx, t, dispatch); staleErr != nil || stale {
+			if staleErr != nil {
+				t.recordWorkerError(staleErr)
+			}
+			return
+		}
 		t.recordWorkerStatus(workerDeferred)
 		retryAt := t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts))
 		requeued, requeueErr := d.requeueGraphStep(ctx, dispatch, retryAt, cause)
@@ -476,6 +494,21 @@ func graphStepRequest(dispatch store.GraphDispatch, owner string) (turn.Trigger,
 
 // The store distinguishes an actual stop from an ineligible requeue. Closure
 // cancellation never calls this path and therefore never announces recovery.
+// dropStaleGraphDispatch cancels a dispatch whose target is no longer the
+// instance's current saved node, whose instance is terminal, or which a newer
+// instance replaced. It reports whether the dispatch was stale.
+func (d *Daemon) dropStaleGraphDispatch(ctx context.Context, t *task, dispatch store.GraphDispatch) (bool, error) {
+	staleErr := d.db.ValidateGraphDispatchTarget(ctx, dispatch.SessionID, dispatch.TriggerID())
+	if staleErr == nil {
+		return false, nil
+	}
+	if !errors.Is(staleErr, store.ErrGraphInvariant) {
+		return false, staleErr
+	}
+	t.log.InfoContext(ctx, "dropped a stale graph dispatch", slog.Int64("graph_dispatch_id", dispatch.ID), slog.String("graph_node", dispatch.Node), slog.String("cause", staleErr.Error()))
+	return true, d.db.CancelGraphDispatch(ctx, dispatch.ID, "stale: "+staleErr.Error(), t.tickAt.UTC())
+}
+
 func (d *Daemon) requeueGraphStep(ctx context.Context, dispatch store.GraphDispatch, retryAt time.Time, cause string) (bool, error) {
 	requeued, stopped, err := d.db.RequeueGraphDispatchWithStop(ctx, dispatch.ID, retryAt, cause)
 	if err != nil || stopped == nil {
@@ -563,6 +596,21 @@ func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) err
 		d.inflight.leave(dispatch.SessionID)
 		faults = errors.Join(faults, err)
 	}
+	// Unallocated work left open on a finished or replaced instance can never
+	// run and nothing else revisits it; cancel it so it stops counting as open
+	// work (#1299).
+	dead, err := d.db.ListDeadGraphDispatches(ctx)
+	if err != nil {
+		return errors.Join(faults, err)
+	}
+	for _, dispatch := range dead {
+		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
+			continue
+		}
+		err := d.cancelDeadGraphDispatch(ctx, dispatch, at)
+		d.inflight.leave(dispatch.SessionID)
+		faults = errors.Join(faults, err)
+	}
 	stranded, err := d.db.ListStrandedGraphDispatches(ctx)
 	if err != nil {
 		return errors.Join(faults, err)
@@ -589,6 +637,21 @@ func (d *Daemon) settleOrphanedGraphPrelaunch(ctx context.Context, sessionID int
 	settled, err := d.db.SettleOrphanedGraphPrelaunchRuns(ctx, sessionID, at)
 	if err == nil && settled > 0 {
 		d.log.InfoContext(ctx, "failed prelaunch runs whose graph dispatch is no longer live", slog.Int64("session_id", sessionID), slog.Int("runs", settled))
+	}
+	return err
+}
+
+func (d *Daemon) cancelDeadGraphDispatch(ctx context.Context, dispatch store.GraphDispatch, at time.Time) (err error) {
+	locked, err := d.db.AcquireSessionLock(ctx, dispatch.SessionID, d.instanceID)
+	if err != nil || !locked {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, d.db.ReleaseSessionLock(context.WithoutCancel(ctx), dispatch.SessionID, d.instanceID))
+	}()
+	cancelled, err := d.db.CancelDeadGraphDispatch(ctx, dispatch.ID, at)
+	if err == nil && cancelled {
+		d.log.InfoContext(ctx, "cancelled a graph dispatch whose instance is finished or replaced", slog.Int64("session_id", dispatch.SessionID), slog.Int64("graph_dispatch_id", dispatch.ID), slog.String("graph_node", dispatch.Node))
 	}
 	return err
 }

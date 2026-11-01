@@ -54,7 +54,7 @@ func runOwedStory(t *testing.T, f *fixture, base Request) (Result, bool, error) 
 		instruction := "Continue the story " + key + "."
 		req.Trigger = Trigger{CommentID: (store.Schedule{ID: nextStoryTrigger()}).TriggerID(), Body: instruction, Author: "owner", AuthorID: 7}
 		req.Command = Command{Kind: KindFreeText, Text: instruction}
-		out, err := Execute(t.Context(), f.opts, req)
+		out, err := Execute(f.turnContext(t), f.opts, req)
 		return out, true, err
 	}
 	return Result{}, false, nil

@@ -73,6 +73,9 @@ type PlanParallelGroup struct {
 	Sealed                bool                          `json:"sealed,omitempty"`
 	Blockers              []string                      `json:"blockers,omitempty"`
 	Applied               map[string]string             `json:"applied"`
+	// Trigger is the owner comment that started this group, so one owner
+	// retry replaces a stopped group at most once, also across restarts.
+	Trigger int64 `json:"trigger,omitempty"`
 }
 
 // NewPlanParallelGroup starts collection without granting publication or approval authority.
@@ -420,6 +423,11 @@ func planRouteLine(r PlanRouteReview) string {
 // RenderPlanRoutes shows each story's route with one plain reason and approval
 // provenance. Graph evidence stays in the retained route state.
 func RenderPlanRoutes(reviews []PlanRouteReview) string {
+	return RenderPlanRoutesFor(reviews, false)
+}
+
+// RenderPlanRoutesFor renders the routes with the destination's cell contract.
+func RenderPlanRoutesFor(reviews []PlanRouteReview, onLinear bool) string {
 	approved := slices.ContainsFunc(reviews, func(r PlanRouteReview) bool { return len(r.GraphApproved) > 0 })
 	var b strings.Builder
 	if approved {
@@ -428,9 +436,9 @@ func RenderPlanRoutes(reviews []PlanRouteReview) string {
 		b.WriteString("| Story | Size | Size reason | Route |\n|---|---|---|---|\n")
 	}
 	for _, r := range reviews {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s |", tableCell(r.Story), tableCell(r.Size), tableCell(r.SizeReason), tableCell(planRouteLine(r)))
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |", tableCellFor(onLinear, r.Story), tableCellFor(onLinear, r.Size), tableCellFor(onLinear, r.SizeReason), tableCellFor(onLinear, planRouteLine(r)))
 		if approved {
-			fmt.Fprintf(&b, " %s |", tableCell(strings.Join(r.GraphApproved, ", ")))
+			fmt.Fprintf(&b, " %s |", tableCellFor(onLinear, strings.Join(r.GraphApproved, ", ")))
 		}
 		b.WriteString("\n")
 	}

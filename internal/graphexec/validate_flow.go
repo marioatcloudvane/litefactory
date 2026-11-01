@@ -35,12 +35,31 @@ const (
 	ValidateImplementAction = "lf_validate_implement"
 	// ValidateRepairApplyAction adopts only an exactly authorized retained tree.
 	ValidateRepairApplyAction = "lf_validate_repair_apply"
+	// ValidateReporterAction runs the read-only reporter agent that writes the
+	// owner summary, and answers owner comments on the waiting report.
+	ValidateReporterAction = "lf_validate_reporter"
+	// ValidateFactoryBugAction files one owner-confirmed upstream factory Bug.
+	ValidateFactoryBugAction = "lf_validate_factory_bug"
 )
+
+// ValidateReporterOutcomes are the outcomes of the reporter step: done when
+// its summary is stored, fallback when the factory's own report stands in, and
+// answered after a follow-up answer to an owner comment.
+var ValidateReporterOutcomes = []string{"done", "fallback", "answered"}
+
+// ValidateMaxReporterBudget is the largest time budget the reporter may declare.
+const ValidateMaxReporterBudget = 30
+
+// ValidateMaxReporterReruns bounds the reporter's focused diagnostic re-runs.
+const ValidateMaxReporterReruns = 3
+
+// ValidateMaxReporterRounds bounds the follow-up answers of one Validate run.
+const ValidateMaxReporterRounds = 5
 
 // ValidateResolveOutcomes are the outcomes of resolving the owner's reply.
 // The repair and implement outcomes are optional in a graph: profiles released
 // before them keep validating without them.
-var ValidateResolveOutcomes = []string{"wait", "create_issue", "push", "merge", "close", "stale", "repair", "implement", "apply_repair"}
+var ValidateResolveOutcomes = []string{"wait", "create_issue", "push", "merge", "close", "stale", "repair", "implement", "apply_repair", "discuss", "factory_bug"}
 
 // ValidateMaxRepairRounds is the most repair rounds any Validate graph may
 // declare. The graph declares the bound it uses, at or below this.
@@ -151,10 +170,32 @@ func ValidateRepairApplySpec() ActionSpec {
 	return ActionSpec{Name: ValidateRepairApplyAction, Mode: agent.ModeValidate, Outcomes: []string{"applied", "blocked"}}
 }
 
+// ValidateReporterSpec declares the reporter step. lf_budget bounds one run in
+// minutes, lf_reruns the focused re-runs the reporter may make and lf_rounds
+// the follow-up answers per run.
+func ValidateReporterSpec() ActionSpec {
+	budgets := make([]string, 0, ValidateMaxReporterBudget)
+	for minutes := 1; minutes <= ValidateMaxReporterBudget; minutes++ {
+		budgets = append(budgets, fmt.Sprint(minutes))
+	}
+	return ActionSpec{Name: ValidateReporterAction, Mode: agent.ModeValidate, Outcomes: slices.Clone(ValidateReporterOutcomes), Attributes: map[string]AttributeSpec{
+		BudgetAttribute: {Required: true, Values: budgets},
+		"lf_reruns":     {Required: true, Values: []string{"0", "1", "2", "3"}},
+		"lf_rounds":     {Required: true, Values: []string{"0", "1", "2", "3", "4", "5"}},
+	}}
+}
+
+// ValidateFactoryBugSpec declares the step that files one owner-confirmed
+// upstream factory Bug.
+func ValidateFactoryBugSpec() ActionSpec {
+	return ActionSpec{Name: ValidateFactoryBugAction, Mode: agent.ModeValidate, Outcomes: []string{"done"}}
+}
+
 // ValidateSpecs lists every action of the Validate graph, the agent aside.
 func ValidateSpecs() []ActionSpec {
 	return []ActionSpec{ValidateSuiteSpec(), ValidateRepairBudgetSpec(), ValidateRepairCheckSpec(), ValidateReviewSpec(), ValidateOutcomeSpec(),
-		ValidateResolveSpec(), ValidateReportSpec(), ValidateAskSpec(), ValidateIssueSpec(), ValidatePushSpec(), ValidateMergeSpec(), ValidateCloseSpec(), ValidateImplementSpec(), ValidateRepairApplySpec()}
+		ValidateResolveSpec(), ValidateReportSpec(), ValidateAskSpec(), ValidateIssueSpec(), ValidatePushSpec(), ValidateMergeSpec(), ValidateCloseSpec(), ValidateImplementSpec(), ValidateRepairApplySpec(),
+		ValidateReporterSpec(), ValidateFactoryBugSpec()}
 }
 
 // ValidateFlowGraph checks the structure a Validate graph declares. It pins few
@@ -232,6 +273,19 @@ func ValidateFlowGraph(p *Profile) error {
 		case ValidateImplementAction:
 			c.named(n, "lf_suite", ValidateSuiteAction)
 			c.edge(n, "started", func(t Node) bool { return t.Terminal }, "must end at a terminal")
+		case ValidateReporterAction:
+			c.reporter(n)
+		case ValidateFactoryBugAction:
+			c.edge(n, "done", action(ValidateReportAction), "must report")
+			for _, e := range p.Edges {
+				if e.To != n.Name {
+					continue
+				}
+				source, ok := p.Node(e.From)
+				if !ok || source.Action != ValidateResolveAction || e.On != "factory_bug" {
+					c.fail("validate factory Bug node %s may only be reached by owner resolution factory_bug", n.Name)
+				}
+			}
 		}
 	}
 	for _, action := range []string{"lf_agent", ValidateSuiteAction, ValidateRepairBudgetAction, ValidateRepairCheckAction, ValidateReviewAction, ValidateOutcomeAction,
@@ -243,8 +297,10 @@ func ValidateFlowGraph(p *Profile) error {
 	if counts[ValidateRepairApplyAction] > 1 {
 		c.fail("validate graph allows at most one %s node, has %d", ValidateRepairApplyAction, counts[ValidateRepairApplyAction])
 	}
-	if counts[ValidateImplementAction] > 1 {
-		c.fail("validate graph allows at most one %s node, has %d", ValidateImplementAction, counts[ValidateImplementAction])
+	for _, single := range []string{ValidateImplementAction, ValidateReporterAction, ValidateFactoryBugAction} {
+		if counts[single] > 1 {
+			c.fail("validate graph allows at most one %s node, has %d", single, counts[single])
+		}
 	}
 	return errors.Join(c.faults...)
 }
@@ -346,7 +402,35 @@ func (c *flowCheck) review(n Node) {
 func (c *flowCheck) outcome(n Node) {
 	c.named(n, "lf_suite", ValidateSuiteAction)
 	for _, end := range ValidateEnds {
-		c.edge(n, end, action(ValidateResolveAction), "must reach the owner resolution")
+		c.edge(n, end, func(t Node) bool { return t.Action == ValidateResolveAction || t.Action == ValidateReporterAction },
+			"must reach the reporter or the owner resolution")
+	}
+}
+
+// reporter checks that the summary step is the one read-only reporter role,
+// that it always goes on to the owner (its fallback included) and that a
+// follow-up answer reports.
+func (c *flowCheck) reporter(n Node) {
+	c.named(n, "lf_suite", ValidateSuiteAction)
+	if n.Attrs["lf_roles"] != "validate-reporter" {
+		c.fail("validate node %s lf_roles must name the validate-reporter role only", n.Name)
+	}
+	if access := n.Attrs[AccessAttribute]; access != "" && access != "read" {
+		c.fail("validate reporter %s must stay read-only", n.Name)
+	}
+	c.edge(n, "done", action(ValidateResolveAction), "must reach the owner resolution")
+	c.edge(n, "fallback", action(ValidateResolveAction), "must reach the owner resolution")
+	if slices.Contains(n.Outcomes, "answered") {
+		c.edge(n, "answered", action(ValidateReportAction), "must report the answer")
+	}
+	for _, e := range c.p.Edges {
+		if e.To != n.Name {
+			continue
+		}
+		source, ok := c.p.Node(e.From)
+		if !ok || (source.Action != ValidateOutcomeAction && (source.Action != ValidateResolveAction || e.On != "discuss")) {
+			c.fail("validate reporter %s may only be reached from the outcome or by owner resolution discuss", n.Name)
+		}
 	}
 }
 
@@ -371,6 +455,12 @@ func (c *flowCheck) resolve(n Node) {
 	}
 	if slices.Contains(n.Outcomes, "implement") {
 		c.edge(n, "implement", action(ValidateImplementAction), "must hand the findings back to Implement")
+	}
+	if slices.Contains(n.Outcomes, "discuss") {
+		c.edge(n, "discuss", action(ValidateReporterAction), "must wake the reporter")
+	}
+	if slices.Contains(n.Outcomes, "factory_bug") {
+		c.edge(n, "factory_bug", action(ValidateFactoryBugAction), "must file the factory Bug")
 	}
 }
 

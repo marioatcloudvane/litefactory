@@ -365,6 +365,12 @@ func TestTurnImposesNoAmbientDeadline(t *testing.T) {
 			if name == "JudgeService.Execute" && forbidden == "WithTimeout" {
 				continue
 			}
+			// The Validate reporter's lf_budget bounds its read-only agent run
+			// only; its scratch checkouts are opened under the step's own
+			// context before the budget starts.
+			if name == "ValidateReporterActivity.Execute" && forbidden == "WithTimeout" {
+				continue
+			}
 			if countCalls(fn.decl, forbidden) > 0 {
 				t.Errorf("%s calls context.%s; internal/turn imposes no deadline of its own, "+
 					"because git commands start theirs at exec time (AC-PAR-3.6)", name, forbidden)

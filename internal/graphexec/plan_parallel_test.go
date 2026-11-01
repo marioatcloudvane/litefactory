@@ -76,6 +76,13 @@ func TestCanonicalParallelPlanGraph(t *testing.T) {
 	if got, err := SlotCost(p, "parallel_group"); err != nil || got != 4 {
 		t.Fatalf("capacity=%d err=%v", got, err)
 	}
+	// The group starts on one member lane, not its full bundle.
+	if got, err := AdmissionSlotCost(p, "parallel_group"); err != nil || got != 1 {
+		t.Fatalf("admission=%d err=%v", got, err)
+	}
+	if got, err := AdmissionSlotCost(p, "technical_agent"); err != nil || got != 1 {
+		t.Fatalf("ordinary node admission=%d err=%v", got, err)
+	}
 	for i := range p.Nodes {
 		if p.Nodes[i].Name == "technical_agent" {
 			p.Nodes[i].Attrs[slotBudgetAttribute] = "3"
@@ -83,6 +90,10 @@ func TestCanonicalParallelPlanGraph(t *testing.T) {
 	}
 	if got, err := SlotCost(p, "parallel_group"); err != nil || got != 6 {
 		t.Fatalf("weighted capacity=%d err=%v", got, err)
+	}
+	// The minimum must fit the largest member, so every member can run on it.
+	if got, err := AdmissionSlotCost(p, "parallel_group"); err != nil || got != 3 {
+		t.Fatalf("weighted admission=%d err=%v", got, err)
 	}
 }
 

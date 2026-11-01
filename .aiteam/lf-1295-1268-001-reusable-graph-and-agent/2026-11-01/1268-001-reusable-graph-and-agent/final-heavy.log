@@ -1,0 +1,29 @@
+ok  	github.com/cloudvane/litefactory/internal/cli	45.155s
+ok  	github.com/cloudvane/litefactory/internal/daemon	204.084s
+ok  	github.com/cloudvane/litefactory/internal/store	147.640s
+--- FAIL: TestImplementReplyResumesAParkedStoryAfterAnAnsweredResolverQuestion (1.20s)
+    implement_graph_run_test.go:2180: the resolver question is open: {DeliveryKey: InstanceID:0 SourceAttemptID:0 State: ReplySource: OriginNode: AllowRunless:false ReplyID:0 ReplyToCommentID:0 ReplyBody: ReplyAuthorID:0 ClaimedAt:0001-01-01 00:00:00 +0000 UTC ContinuationAttemptID:0 AllowanceAttemptID:0} store: not found [select_path:coordinator sync_start:conflict]
+--- FAIL: TestResearchShapingWorkerCannotCreateOwnerApproval (2.98s)
+    --- FAIL: TestResearchShapingWorkerCannotCreateOwnerApproval/done (0.69s)
+        research_approval_workflow_test.go:74: store: not found
+    --- FAIL: TestResearchShapingWorkerCannotCreateOwnerApproval/approved (0.74s)
+        research_approval_workflow_test.go:74: store: not found
+    --- FAIL: TestResearchShapingWorkerCannotCreateOwnerApproval/changed-approved (0.78s)
+        research_approval_workflow_test.go:74: store: not found
+    --- FAIL: TestResearchShapingWorkerCannotCreateOwnerApproval/unapproved-reply (0.77s)
+        research_approval_workflow_test.go:74: store: not found
+--- FAIL: TestResearchContinuationRechecksGeneratedDocuments (1.59s)
+    --- FAIL: TestResearchContinuationRechecksGeneratedDocuments/handoff (0.79s)
+        research_approval_workflow_test.go:211: changed documents reached next provider: calls=1 err=<nil>
+--- FAIL: TestResearchSilentContinuationAndExhaustion (3.78s)
+    --- FAIL: TestResearchSilentContinuationAndExhaustion/shape (0.83s)
+        research_continuation_test.go:59: next stage: []
+--- FAIL: TestResearchOwnerRoundsDoNotUseUpNodeLimits (0.85s)
+    research_owner_rounds_test.go:65: store: not found
+--- FAIL: TestValidateImplementReplyAfterAgentWithMixedHistory (0.38s)
+    validate_admission_test.go:752: the run rests at the owner wait: {Node:repair_agent Status:running Wait: Entries:1 Instances:1 FullCommands:1 Reviewers:0 Outcome: Commit:52002ea0bb1571cc4088d8623f57520b0541471a}
+--- FAIL: TestValidateDispatchResumesIntoTheRepairAgent (0.44s)
+    validate_repair_route_test.go:217: the repair agent did not start: runs=[] errs=[] out={GraphDeferred:false ResearchGraph:false Repair:<nil> Disposition:prepare_failed SessionID:1 TriggerCommentID:1152921504606846977 Ref:github:acme/acme-api#123 Session:{ID:1 RepoID:1 IssueNumber:123 TaskRef:github:acme/acme-api#123 FeatureSlug:feature Branch:lf/123-feature WorktreePath: State:idle LockOwner: LockAcquiredAt:0001-01-01 00:00:00 +0000 UTC NeedsPoll:false CreatedAt:2026-11-01 11:01:36.134 +0000 UTC UpdatedAt:2026-11-01 11:01:36.324 +0000 UTC} Run:{Workflow: SemanticOutcome: RecoveryReason: ID:0 SessionID:0 SegmentID:0 Ordinal:0 Mode: Agent: TriggerCommentID:0 Status: ExitCode:<nil> Error: StartedAt:0001-01-01 00:00:00 +0000 UTC FinishedAt:0001-01-01 00:00:00 +0000 UTC DurationMS:<nil> CostUSD:<nil> LogPath: CommitSHA: ResultCommentID:0 Published:false Publication: PreparationCaveats:[] SyncObservations:[] SyncOutcome: SyncBehind:0 SyncAhead:0 SyncCommitSHA:} Harness:<nil> Outcome:failed Reason:built-in instructions could not be prepared: instruction delivery refused: workflow validate node repair_agent: missing local claude model for captured tier flagship; use the supported installed-workflow path: install and link the workflow team, then start a new supported workflow; preserve this saved bundle for diagnosis Branch:lf/123-feature WorktreePath: SHABefore: SHAAfter: CommitSHA: Changed:false Committed:false Pushed:false Publication: Remote:origin Changes:[] MetaPath: LogPath: ToolsRequested:[Read Glob Grep Edit Write Bash Task] ToolProfile:implement Err:built-in instructions could not be prepared: instruction delivery refused: workflow validate node repair_agent: missing local claude model for captured tier flagship; use the supported installed-workflow path: install and link the workflow team, then start a new supported workflow; preserve this saved bundle for diagnosis AgentOwning: AgentRequested: Sync:<nil> TaskSync:<nil> SyncDetail: SyncPhase: SyncTooFarBehind:false SyncBehind:0 SyncMaxBehind:0 SyncBase: SyncConflicts:[] ConflictProposal:<nil> ConflictSuggestionFailed:false ConflictSuggestionReason:} err=<nil>
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	811.054s
+FAIL

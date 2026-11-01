@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/linear/linearmd"
 )
 
 // PlanSetPromotionPrefix is the exact owner command text that promotes a proposed
@@ -94,6 +96,12 @@ func (s *PlanState) ProposeStorySet(entries []PlanStorySetEntry) (revision strin
 // intents and the ids of the stories each depends on, and the exact command
 // that promotes it. The text only asks; it promotes nothing.
 func RenderPlanStorySet(s *PlanStorySetState) (string, error) {
+	return RenderPlanStorySetFor(s, false)
+}
+
+// RenderPlanStorySetFor renders the set for its destination; on Linear the
+// agent-written cells are inert text instead of GitHub's pipe-only escaping.
+func RenderPlanStorySetFor(s *PlanStorySetState, onLinear bool) (string, error) {
 	if s == nil || s.Revision == "" || len(s.Entries) == 0 {
 		return "", errors.New("there is no proposed story set to render")
 	}
@@ -122,9 +130,9 @@ func RenderPlanStorySet(s *PlanStorySetState) (string, error) {
 		if len(deps) > 0 {
 			dependsOn = strings.Join(deps, ", ")
 		}
-		fmt.Fprintf(&out, "| `%s` | %s | %s | %s |", e.ID, tableCell(e.Name), tableCell(e.Intent), dependsOn)
+		fmt.Fprintf(&out, "| `%s` | %s | %s | %s |", e.ID, tableCellFor(onLinear, e.Name), tableCellFor(onLinear, e.Intent), dependsOn)
 		if showSizing {
-			size, reason := tableCell(e.Size), tableCell(e.SizeReason)
+			size, reason := tableCellFor(onLinear, e.Size), tableCellFor(onLinear, e.SizeReason)
 			for _, gap := range gaps {
 				if gap.EntryID != e.ID {
 					continue
@@ -152,6 +160,14 @@ func RenderPlanStorySet(s *PlanStorySetState) (string, error) {
 
 // tableCell keeps agent text inside one Markdown table cell: a pipe would end
 // the cell and a line break would end the row.
+// tableCellFor applies the destination's cell contract.
+func tableCellFor(onLinear bool, text string) string {
+	if onLinear {
+		return linearmd.InlineText(text)
+	}
+	return tableCell(text)
+}
+
 func tableCell(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
 	return strings.ReplaceAll(text, "|", `\|`)

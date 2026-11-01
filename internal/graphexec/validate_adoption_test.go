@@ -11,7 +11,7 @@ import (
 
 func TestValidateAdoptionGraphBoundary(t *testing.T) {
 	t.Parallel()
-	files, err := teamsourcetest.Files("go-development")
+	files, err := teamsourcetest.Files(t.Context(), "go-development")
 	if err != nil {
 		t.Fatal(err)
 	}

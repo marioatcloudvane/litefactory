@@ -320,7 +320,8 @@ func TestRunnerRecoveryRechecksDelivery(t *testing.T) {
 // so a kill(-pgid) aimed at codex left go test and compile processes running
 // under launchd after the daemon restarted. The fake codex starts a sleeper in
 // its own process group (set -m) and the test asserts it is gone once the run
-// context is cancelled.
+// context is cancelled. It names bash: dash, Linux's /bin/sh, turns job control
+// off without a tty, so the sleeper would stay in codex's group.
 func TestRunCancelKillsDescendantsOutsideCodexProcessGroup(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		out, _ := exec.CommandContext(t.Context(), "/usr/bin/pgrep", "-P", strconv.Itoa(os.Getpid())).CombinedOutput()
@@ -337,7 +338,7 @@ func TestRunCancelKillsDescendantsOutsideCodexProcessGroup(t *testing.T) {
 printf '%s\n' '{"type":"thread.started","thread_id":"thread-968"}'
 printf '%s\n' '{"type":"turn.started"}'
 /bin/ps -o pgid= -p $$ | /usr/bin/tr -d ' ' > `+codexPGID+`
-/bin/sh -c 'set -m
+/bin/bash -c 'set -m
 /bin/sleep 120 </dev/null >/dev/null 2>&1 &
 sleeper=$!
 printf "%s" "$sleeper" > `+sleeperPID+`
