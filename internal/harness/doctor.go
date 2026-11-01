@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
+	native "github.com/cloudvane/litefactory/pkg/execution/providers/claude"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/providerprocess"
 	"github.com/cloudvane/litefactory/internal/redact"
 )
 
@@ -173,7 +174,7 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	var stderrTail []byte
 	exited := false
 	failure := func(code int, tail []byte) { exited, exitCode, stderrTail = true, code, tail }
-	var oversized providerprocess.OversizedObserver
+	var oversized execution.OversizedObserver
 	if operation == "judge" && r.logger != nil {
 		oversized = func(kind string, largestDroppedBytes, totalBytes int) {
 			r.logger.Warn("judge provider output oversized", "attempt", request.Attempt, "provider", "claude", "largest_dropped_line_bytes", largestDroppedBytes, "total_bytes", totalBytes, "kind", kind)
@@ -183,7 +184,7 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	if exited {
 		r.logDoctorFailure(ctx, request, operation, exitCode, stderrTail, terminalErrors)
 	}
-	if operation == "judge" && terminal && failed && ctx.Err() == nil && (err == nil || errors.Is(err, providerprocess.ErrProviderExit)) && judgeCapacity(terminalErrors) {
+	if operation == "judge" && terminal && failed && ctx.Err() == nil && (err == nil || errors.Is(err, execution.ErrProviderExit)) && judgeCapacity(terminalErrors) {
 		err = agent.ErrJudgeUnavailable
 	}
 	if err == nil && (!terminal || failed) {
@@ -243,7 +244,7 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, configDir, oper
 	if request.Thinking != "" {
 		args = append(args, "--effort", string(request.Thinking))
 	}
-	return append(args, "-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", tools, "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--allowedTools", strings.Join(allowed, ","), "--model", request.Model), nil
+	return native.ScopedArguments(args, tools, mcpPath, request.Model, allowed), nil
 }
 
 func doctorSandboxSettings(request agent.DoctorRequest, private ...string) (string, error) {
@@ -370,7 +371,7 @@ func (r *Runner) persistentClaudeHome() (string, error) {
 // finds the login keychain, and so the config dir's credentials, only through
 // the real HOME), and CLAUDE_CONFIG_DIR the persistent home.
 func (r *Runner) persistentClaudeEnv(scratch, configDir string) []string {
-	env := providerprocess.DoctorEnvironment(r.environ, scratch)
+	env := execution.IsolatedEnvironment(r.environ, scratch)
 	if r.osHome != "" {
 		env = overrideEnv(env, []string{"HOME=" + r.osHome})
 	}
