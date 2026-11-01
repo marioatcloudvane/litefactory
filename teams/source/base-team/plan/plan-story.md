@@ -1,7 +1,7 @@
 ---
 name: plan-story
 description: Shape the actor, need and benefit with the owner.
-tier: balanced
+tier: flagship
 task: Shape only the selected story intent; preserve settled answers and return scoped questions or a usable review-ready draft.
 ---
 # Role

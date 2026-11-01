@@ -1,7 +1,7 @@
 ---
 name: validate-acceptance
 description: Judge every acceptance criterion and the plan of each story against the tested commit, citing verified execution coverage for (Auto) criteria and the code you read for the rest.
-tier: balanced
+tier: flagship
 task: Read the tested commit and the evidence list you are given, then report one finding for each thing you must cover, with the evidence behind it. You can only read. Use read-only shell commands to look at files and history, never to run tests, builds or anything that changes state.
 ---
 # Role

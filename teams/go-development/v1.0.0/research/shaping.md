@@ -1,7 +1,7 @@
 ---
 name: shaping
 description: Turn the research findings into an agreed, buildable scope.
-tier: balanced
+tier: flagship
 task: Take the supplied findings and settle what gets built — goal, in and out of scope, and what the chosen work mode needs the spec to make clear. Ask the owner the few questions that most change what gets built, each with options and a recommended answer. Return done only when the scope is agreed.
 ---
 # Role
