@@ -305,6 +305,9 @@ func (r *planGraphRuntime) parallel(ctx context.Context, w *researchWorkflow, a 
 	return r.parallelOutcome(ctx, "stopped"), err
 }
 
+// parentSessionDirectoryLabel opens the parent line of [sessionDirectoryContext].
+const parentSessionDirectoryLabel = "Factory supplied parent session directory: "
+
 func (r *planGraphRuntime) parallelMember(ctx context.Context, parent *researchWorkflow, a ActivityRequest, node, role string, g planbrief.PlanParallelGroup, frozen []byte) (returnedErr error) {
 	policy := PlanWorkflowPolicy()
 	// The member contract is supplied by its captured Markdown resources; the
@@ -409,6 +412,11 @@ func (r *planGraphRuntime) parallelMember(ctx context.Context, parent *researchW
 	memberDir := filepath.Join(originalDir, "parallel", g.ID, role, fmt.Sprint(attempt.ID))
 	prep.promptInput.SessionArtifactDir = memberDir
 	request.Prompt += "\nFactory supplied member artifact directory (data): " + memberDir + "\n"
+	// The member reviews the same story, so it gets the same pointer to the
+	// parent's Research and Plan files as the stage it belongs to.
+	if parent.prep.parentSessionDir != "" && len(parent.prep.parentSessionFiles) > 0 && !strings.Contains(request.Prompt, parentSessionDirectoryLabel) {
+		request.Prompt += sessionDirectoryContext(memberDir, parent.prep.parentSessionDir, parent.prep.parentSessionFiles)
+	}
 	// Members are validated against the same release scope as sequential
 	// stages, so they receive the same owner-role binding.
 	request.Prompt += "\n" + planOwnerRolesBinding(r.scope)
