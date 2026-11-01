@@ -314,6 +314,11 @@ func linearTicketWorkflow(t *testing.T, setApproval, implement bool) {
 		linearWorkflowCheck(t, os.WriteFile(ssh, []byte(script), 0700))
 		t.Setenv("PATH", filepath.Dir(ssh)+string(os.PathListSeparator)+os.Getenv("PATH"))
 		gitRepo.Git("config", "ssh.variant", "ssh")
+		// The turn takes its commit identity from the clone when none is
+		// configured. Without this the test read the developer's
+		// ~/.gitconfig and failed on a CI runner, which has none.
+		gitRepo.Git("config", "user.name", "Linear Fixture")
+		gitRepo.Git("config", "user.email", "linear-fixture@example.invalid")
 	}
 	repo, err := db.UpsertRepo(ctx, store.Repo{Path: clonePath, Forge: "github", Owner: "code-owner", Name: "code", RemoteURL: remoteURL, BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
 	linearWorkflowCheck(t, err)
