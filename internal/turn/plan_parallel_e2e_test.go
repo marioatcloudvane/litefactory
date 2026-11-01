@@ -44,8 +44,57 @@ func TestPlanParallelEndToEnd_DurableSignalsAndRestart(t *testing.T) {
 	}
 }
 
+// A starved shared pool (total 4) must still start the group on its minimum
+// and reach the same sealed, guarded result, running at most as many members
+// at once as it holds slots, and returning every borrowed slot.
+func TestPlanParallelEndToEnd_MeteredPoolRunsMembersWithinFreeSlots(t *testing.T) {
+	for _, free := range []int{1, 2} {
+		t.Run(fmt.Sprintf("free_%d", free), func(t *testing.T) {
+			pool := &slotStoryPool{total: 4}
+			competitor, ok, err := pool.acquire(pool.total - free)
+			if err != nil || !ok {
+				t.Fatal(err)
+			}
+			defer competitor()
+			parent := &slotStoryParent{pool: pool}
+			peak := runParallelMain(t, false, "", parent)
+			if peak < 1 || peak > free {
+				t.Fatalf("members ran %d at once with %d free slot(s)", peak, free)
+			}
+			pool.mu.Lock()
+			observed := slicesMax(pool.observed)
+			pool.mu.Unlock()
+			if observed > pool.total {
+				t.Fatalf("pool overbooked: %d > %d", observed, pool.total)
+			}
+			parent.Release()
+			if used, _ := pool.Capacity(); used != pool.total-free {
+				t.Fatalf("slots leaked: used=%d want=%d", used, pool.total-free)
+			}
+		})
+	}
+}
+
+func slicesMax(values []int) int {
+	peak := 0
+	for _, v := range values {
+		peak = max(peak, v)
+	}
+	return peak
+}
+
 func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 	t.Helper()
+	runParallelMain(t, mixed, signal, nil)
+}
+
+// runParallelMain drives the main path; with capacity set every turn runs
+// under that step reservation and the barrier gives way to a concurrency
+// count, whose peak it returns.
+func runParallelMain(t *testing.T, mixed bool, signal string, capacity *slotStoryParent) int {
+	t.Helper()
+	metered := capacity != nil
+	active, peak := 0, 0
 	dependency := signal == "dependency"
 	recovery := signal == "uncertain"
 	if dependency || recovery {
@@ -107,6 +156,19 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 		}
 		key := facts.Proposal.Key + ":" + facts.Role
 		mu.Lock()
+		active++
+		peak = max(peak, active)
+		mu.Unlock()
+		defer func() {
+			mu.Lock()
+			active--
+			mu.Unlock()
+		}()
+		if metered {
+			// Give a concurrent sibling, if one was wrongly admitted, time to overlap.
+			time.Sleep(20 * time.Millisecond)
+		}
+		mu.Lock()
 		if allStarted[facts.Proposal.Key] == nil {
 			allStarted[facts.Proposal.Key] = make(chan struct{})
 		}
@@ -142,7 +204,7 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 			}
 		}
 		mu.Unlock()
-		if facts.ProposalDigest == "" {
+		if facts.ProposalDigest == "" && !metered {
 			select {
 			case <-barrier:
 			case <-ctx.Done():
@@ -255,6 +317,9 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 	var remote *graphPlanHTTP
 	var forge *fakeForge
 	f, remote, base, forge = setupGraphPlanFixture(t, runner, false)
+	if metered {
+		f.capacity = capacity
+	}
 
 	executeGraphPlan(t, f, base)
 	revision := graphPlanState(t, f).StorySet.Revision
@@ -320,7 +385,7 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 			state := graphPlanState(t, f)
 			if len(state.Stories) > 0 && state.Stories[0].Parallel != nil {
 				assertParallelSignalRestart(t, f, base, remote, forge, signal)
-				return
+				return peak
 			}
 			if !ran {
 				break
@@ -426,6 +491,9 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 	if state.AssembledWait == "" || state.AssembledApproval != "" {
 		t.Fatalf("final owner approval was bypassed: %+v", state)
 	}
+	mu.Lock()
+	defer mu.Unlock()
+	return peak
 }
 
 // Missing and invalid sizing must exercise the same real owner waits as M/L,
