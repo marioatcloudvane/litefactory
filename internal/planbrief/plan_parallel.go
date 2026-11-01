@@ -73,6 +73,9 @@ type PlanParallelGroup struct {
 	Sealed                bool                          `json:"sealed,omitempty"`
 	Blockers              []string                      `json:"blockers,omitempty"`
 	Applied               map[string]string             `json:"applied"`
+	// Trigger is the owner comment that started this group, so one owner
+	// retry replaces a stopped group at most once, also across restarts.
+	Trigger int64 `json:"trigger,omitempty"`
 }
 
 // NewPlanParallelGroup starts collection without granting publication or approval authority.
