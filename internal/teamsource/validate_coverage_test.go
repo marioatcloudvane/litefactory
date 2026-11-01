@@ -20,7 +20,7 @@ func TestValidateCoverageCaptureAndLegacyReplay(t *testing.T) {
 	}
 	for _, team := range []string{"go-development", "python-fastapi", "dotnet-web", "swift-ios"} {
 		t.Run(team, func(t *testing.T) {
-			files, e := teamsourcetest.Files(team)
+			files, e := teamsourcetest.Files(t.Context(), team)
 			if e != nil {
 				t.Fatal(e)
 			}
