@@ -191,27 +191,35 @@ func (db *DB) SavePlanWorkflowState(ctx context.Context, parent string, expected
 	}
 	revision := expected + 1
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		var result sql.Result
-		var e error
-		if expected == 0 {
-			result, e = tx.ExecContext(ctx, `INSERT INTO plan_workflow_states(parent,revision,state_json) VALUES(?,?,?) ON CONFLICT(parent) DO NOTHING`, parent, revision, string(raw))
-		} else {
-			result, e = tx.ExecContext(ctx, `UPDATE plan_workflow_states SET revision=?,state_json=? WHERE parent=? AND revision=?`, revision, string(raw), parent, expected)
-		}
-		if e != nil {
-			return e
-		}
-		n, e := result.RowsAffected()
-		if e != nil {
-			return e
-		}
-		if n != 1 {
-			return ErrPlanStateConflict
-		}
-		return retainPlanNoticesTx(ctx, tx, parent, state)
+		return savePlanWorkflowStateTx(ctx, tx, parent, expected, state, raw)
 	})
 	if err != nil {
 		return 0, err
 	}
 	return revision, nil
+}
+
+func savePlanWorkflowStateTx(ctx context.Context, tx *sql.Tx, parent string, expected int64, state planbrief.PlanState, raw []byte) error {
+	if err := planOwnerAdmissionTx(ctx, tx); err != nil {
+		return err
+	}
+	revision := expected + 1
+	var result sql.Result
+	var e error
+	if expected == 0 {
+		result, e = tx.ExecContext(ctx, `INSERT INTO plan_workflow_states(parent,revision,state_json) VALUES(?,?,?) ON CONFLICT(parent) DO NOTHING`, parent, revision, string(raw))
+	} else {
+		result, e = tx.ExecContext(ctx, `UPDATE plan_workflow_states SET revision=?,state_json=? WHERE parent=? AND revision=?`, revision, string(raw), parent, expected)
+	}
+	if e != nil {
+		return e
+	}
+	n, e := result.RowsAffected()
+	if e != nil {
+		return e
+	}
+	if n != 1 {
+		return ErrPlanStateConflict
+	}
+	return retainPlanNoticesTx(ctx, tx, parent, state)
 }

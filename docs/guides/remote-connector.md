@@ -136,7 +136,8 @@ connector grant.
 
 The authorization request's `scope` is a space-separated list of known scopes;
 the available scopes are `factory:overview`, `task:discussion`, `factory:usage`,
-`repository:usage`, `task:usage`, `task:code-review`, `repository:actions` and
+`repository:usage`, `task:usage`, `task:code-review`, `task:advisory`,
+`task:discussion-publish`, `repository:actions` and
 `standards:management`. The consent page
 offers every known scope: the scopes the client requested are pre-ticked, the
 others are shown unticked and the owner may tick them. This matters when a
@@ -350,7 +351,12 @@ Ask, for example, “What did this repository use in the last seven days?” or
 `scope` equal to `factory`, `repository` or `task`. Repository and task reads
 require `repository` in canonical form; task reads also require a positive
 `issue`. Factory reads take neither target. Optional `mode`, `agent` and `model`
-filters use the existing meter's semantics. Paths and arbitrary URLs are refused.
+filters use the existing meter's semantics. Paid private advice is included in
+existing task, repository and factory usage totals under mode `advisory`; detail
+rows distinguish consultation (`advisory_ask`) and independent assessment
+(`advisory_judge`). Missing or partial provider evidence keeps the all-in cost
+unknown rather than treating unreported usage as zero. Paths and arbitrary URLs
+are refused.
 
 | Period argument | Server-resolved UTC interval |
 | --- | --- |
@@ -544,8 +550,8 @@ arguments and a client request key. The client keeps proposal identifiers and
 history cursors internally: you do not copy a hash or identifier. Discovery
 lists enabled commands, subactions and their argument schemas. Each proposal
 returns its fixed impact tier for review. Unknown or unclassified changing
-actions are refused; the neighboring job and task-steering suites are
-not added by this confirmation foundation.
+actions are refused. Durable jobs and current-stage decisions use the same
+confirmation foundation through the specialized tools described below.
 
 Review the returned action, arguments, repository or explicit installation scope,
 exact target and revision, impact, owner, originating client and grant, creation
@@ -560,8 +566,8 @@ The fixed tiers for currently enabled operations are:
 
 | Tier | Existing actions |
 | --- | --- |
-| Conversational confirmation | Draft preview, diagnose, research answer; standards analysis start; standards author start, answer, revise, edit, continue, validate, complete and rebase; proposal edit; exception propose. |
-| Conversational confirmation and Discord ✅ | Feature creation from its fixed preview (the existing action named `confirm`); standards author publish; proposal approve and publish; exception approve and revoke. |
+| Conversational confirmation | Current-stage revision (`revise_task`); draft preview, diagnose, research answer; standards analysis start; standards author start, answer, revise, edit, continue, validate, complete and rebase; proposal edit; exception propose. |
+| Conversational confirmation and Discord ✅ | Current-stage approval (`approve_stage`); feature creation from its fixed preview (the existing action named `confirm`); standards author publish; proposal approve and publish; exception approve and revoke. |
 
 Reads require no action confirmation. Future enabled ship, merge or Bug-fix
 approval actions must retain the binding tier; this feature does not create
@@ -685,3 +691,203 @@ These short owner checks supplement deterministic engineering fault tests; they
 are not instructions to inject crashes, race answers or test production services.
 Record the client/version and actual observation without claiming hosted
 compatibility from local fixtures.
+
+
+## Private task discussion and conclusion summaries
+
+When installed and authorized, the connector advertises seven operations:
+
+| Operation | Purpose |
+|---|---|
+| `ask_task_agent` | Consult the current task analysis or rationale. |
+| `judge_task` | Obtain an independent assessment of eligible saved work. |
+| `advisory_job_get` | Retrieve private status, captured basis and result pages. |
+| `advisory_job_cancel` | Cancel queued work or request a running stop. |
+| `discussion_open` | Register a conversation without a paid job or transcript. |
+| `discussion_summary_publish` | Publish a structured completed conclusion. |
+| `discussion_summary_get` | Recover delivery status or cancel before dispatch. |
+
+Discovery and initialization guidance tell the chat assistant how to select help.
+Ordinary factual questions use relevant saved evidence. “Ask whoever worked on
+this why they chose it” requests consultation. “Get a second opinion on this
+architecture” requests independent assessment. When that distinction is unclear,
+the assistant asks about the desired help in ordinary words before starting one
+job. Owners need no internal role names. Asking about architecture does not move
+a task to technical review. Missing or ambiguous current targets are refused.
+Supported current contexts are Research investigation and shaping, Plan set and
+assembled review, story/technical/acceptance review, and Bug analysis. Arbitrary
+past stages and Bug repair control are excluded.
+
+Advisory execution requires **`task:advisory`**, with a separate explicit finite
+repository selection. Read-only or existing action grants do not confer it.
+A clear request for consultation or independent review starts one potentially
+paid job under that standing consent, without another per-job confirmation.
+The response supplies its cost estimate or states that cost is unknown; a status
+lookup does not authorize another execution. The assistant keeps conversation,
+request and job references and revisions internally, including across reconnects.
+Lost replies reuse the same request key and unchanged input; changing a key is
+not a recovery method. Repeated requests recover the original job even if the
+task has since advanced. Changed input under the same identity conflicts.
+
+Each job retains its exact task/stage, saved revision, repository basis and
+bounded input. Result pages carry UTF-8-safe answer fragments with byte offsets and whole source
+and gap items. The client joins them until `result_complete`; opaque cursors
+expire after fifteen minutes. After expiry or daemon restart, restart retrieval
+from the first page without admitting another job. Public basis metadata omits
+full private evidence and role resources, with explicit omission notices.
+A fresh isolated read-only invocation uses saved evidence;
+original-session continuation and hidden reasoning are not promised. Answers
+state sources, missing context and captured-basis freshness. Follow-ups use the
+conversation reference and revision, at most ten completed exchanges within
+32 KiB with room for the new question. Oldest whole exchanges are omitted when
+needed and omissions are disclosed. This is bounded discussion memory, not a
+general chat archive. One outstanding job per conversation prevents ambiguous
+ordering. Results and status require current authority; revocation is enforced
+at admission, execution and access. A replacement grant does not silently revive
+work stopped under revoked consent.
+
+Queued cancellation prevents launch. A running stop is best effort until
+termination is confirmed; `stop_requested` is not `cancelled`. If completion wins,
+the result remains available with the truthful completion outcome. Lost provider
+receipts can leave execution uncertain. Reconnecting, stopping or reading advice
+changes no stage, candidate, approval or workflow wait and publishes no private
+exchange.
+
+### Retaining a useful conclusion
+
+At a settled answer, completed comparison or useful concrete recommendation,
+the discussing assistant suggests a concise ticket summary. A summary contains
+its question, conclusion, alternatives or remaining uncertainty, evidence basis
+and which decisions came from the owner versus agent recommendations. Silence
+is not agreement. Missing history and stale or unverifiable evidence are stated.
+An ordinary-chat summary needs an opened conversation but no advisory job or
+full transcript.
+
+Publication requires **`task:discussion-publish`**, with its own explicit finite
+repository selection. Advisory consent does not imply publication consent.
+Under standing publication consent the assistant may suggest and publish the
+completed conclusion without another owner confirmation. Without that consent,
+the summary stays in chat. The factory posts a discussion record; its text cannot
+be admitted as an owner command, approval, answer to a wait or request to start
+work. No stage change follows publication.
+
+The assistant keeps conclusion and publication references internally. Equal
+content under the same conclusion identity returns the same record; substantively
+changed conclusions require a new identity. Publication status is `pending`,
+`delivered` with a confirmed comment link, `failed`, or `uncertain`. Acknowledgment
+alone is not delivery. Exact sanitized bytes are retained before sending. After
+a possibly successful send, trusted receipt reconciliation can confirm delivery;
+an inconclusive lookup leaves uncertainty and never permits blind reposting.
+Do not create a fresh conclusion merely to bypass an uncertain outcome. A pending
+summary can be cancelled with `cancel_pending` through
+`discussion_summary_get`; a delivered or possibly sent summary cannot be recalled.
+Revocation suppresses unsent publication without recalling existing comments.
+
+### Owner walkthroughs still requiring installation evidence
+
+These are manual checks for a configured test installation. They have not been
+established by unit tests or a successful connector receipt.
+
+1. In each hosted chat client, ask a factual question about a current task and
+   observe an evidence-based answer without an advisory job. Ask why its current
+   analysis chose an approach, then ask for an independent second opinion. The
+   assistant explains the selected help without requiring internal role names or
+   copied references. For ambiguous wording it clarifies the desired help first.
+2. With advisory consent, request advice, disconnect and reconnect, retrieve the
+   same job and make a follow-up. Read its sources, captured basis and any omitted
+   history notice. Check that the task's stage, candidate, approvals and waits
+   stayed unchanged. Request a stop and read its actual status; no particular
+   timing race is required for this walkthrough.
+3. Revoke advisory access and observe refusal of new work and saved-result access.
+   Existing read access and separately granted publication remain independent.
+4. Under standing publication consent, finish a useful ordinary discussion.
+   Observe the assistant suggest and publish a structured summary without another
+   owner confirmation or full transcript. Recover its status and delivered link
+   after reconnect. Without publication consent, observe the suggestion remain
+   private. Check that the summary did not answer a workflow wait or change stage.
+5. Verify existing GitHub owner replies, pending decisions, exact approval bindings
+   and read-only connector access remain usable. Controlled engineering evidence
+   covers completion/stop races and uncertain-send recovery; owners need not try
+   to produce those races by hand.
+
+### Operator recovery
+
+Disable new advisory admission when isolated runner, resource closure, finite
+provider budget or durable storage readiness cannot be established. Preserve all
+existing conversation, execution, consent and delivery records for recovery.
+Do not run an older daemon against a schema it cannot validate. No historical
+candidate or approval binding needs rewriting. Receipt-only recovery must not
+start a second paid invocation after a lost provider reply. Respect queued
+publication pacing and rate limits. For uncertain publication, investigate trusted
+comment author, marker and exact body receipt evidence; absence in an incomplete
+or inconclusive lookup does not establish that no POST succeeded. Preserve the
+uncertain state rather than force delivery with a new identity.
+
+## Revise and approve current stages from chat
+
+With explicitly selected **`repository:actions`** coverage, ask in ordinary
+language to revise or approve a task's current supported analysis. The assistant
+uses `revise_task` or `approve_stage` to propose only; questions, private advice
+and discussion publication change no candidate, approval or wait. Read, advisory
+and standing discussion-publication grants cannot confirm a stage decision.
+A request combining changes and approval produces revision first, leaving the
+replacement for later review.
+
+Before saying yes, review the task, stage, current candidate, dependencies,
+requested change or approval effect, downstream work and exact public decision
+summary. Its fields cover the question, conclusion, alternatives or uncertainty,
+evidence basis and owner-decision versus agent-recommendation attribution. An
+already published same-task conclusion is referenced rather than reposted.
+The assistant carries internal references; owners need not copy commands or
+revision hashes. Confirmation is a separate `action_confirm` call from the
+original client and grant, at least five seconds after presentation and before
+the fifteen-minute expiry. Approval additionally requires the configured owner's
+Unicode ✅ on the specific factory Discord request.
+
+Supported current targets follow the existing GitHub owner routes:
+
+- Research permits revision of eligible published investigation or shaping waits.
+  Approval requires a retained-source review branch; the shipped graph exposes
+  shaping approval, not approval of an investigation question.
+- Plan permits current unpromoted-set approval, each story's story, technical and
+  acceptance review, and assembled final review. Revisions select an existing
+  editable story or supported parent route. A promoted set cannot be replaced.
+- Bug permits current analysis guidance and exact diagnosis approval. Approval
+  can start the existing repair workflow; no repair control is added here.
+
+Running, unavailable, ambiguous, stale or unsupported targets are refused. A
+changed candidate or dependency requires a fresh reviewed proposal; confirmation
+never substitutes another target or queues future approval. GitHub and chat share
+the same admission rules. Revision records workflow admission, not completion or
+approval of replacement work.
+
+After reconnect, use `decision_get` through an ordinary status request. It shows
+confirmation, recorded transition, revision progress and summary delivery
+separately. Repeating the same request key and input recovers the same decision;
+changed input conflicts. A transition with an unknown outcome must be reconciled
+from its receipt before another proposal. Missing receipts never authorize replay;
+a fenced proof that no effect committed can close the original as not applied.
+
+`decision_cancel` selects `proposal` or `summary`. A pending proposal can be
+cancelled before admission; an unsent summary can be cancelled before possible
+send. Cancellation cannot undo a recorded transition or stop its workflow, and
+reports when it is too late. Summary status remains pending, delivered with a
+comment link, failed or uncertain independently of transition success. After a
+lost reply, recover trusted author, destination, marker and exact-body receipts;
+never blindly repost or invent a new identity. Revocation blocks confirmation,
+execution, private reads and unsent summary dispatch without recalling comments.
+
+On a configured test installation, request one eligible revision in each hosted
+chat client, review the full preview, separately confirm it, reconnect and retrieve
+the same decision and its summary status. Repeat with an eligible approval,
+including the Discord step, and retrieve the recorded effect and delivered link
+or explicit delivery uncertainty. These owner checks require installation
+evidence; controlled tests alone do not establish client usability.
+
+Operators may disable new stage proposals when schema, domain or delivery
+readiness is unavailable while retaining existing decision, receipt and delivery
+records for recovery. Additive records preserve historical candidates, pending
+proposal identities, existing approval bindings and GitHub workflows. Installing
+these action names does not bump confirmation policy or invalidate old pending
+proposals. Keep uncertain outcomes visible until reconciled, and never run an
+older daemon against a schema it cannot validate.

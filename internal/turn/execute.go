@@ -329,6 +329,8 @@ type Issue struct {
 
 // Trigger is what started this turn: a comment, or the issue body itself.
 type Trigger struct {
+	// StageDecisionRef identifies an authenticated durable stage continuation.
+	StageDecisionRef string
 	// Actor, Source and CreatedAt come from the bound provider response.
 	Actor, Source ticket.Identity
 	CreatedAt     time.Time

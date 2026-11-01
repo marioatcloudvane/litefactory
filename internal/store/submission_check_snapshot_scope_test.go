@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -64,8 +65,8 @@ func TestMigration0047PreservesPopulatedEvidenceAndIsIdempotent(t *testing.T) {
 
 	// Every table submission_checks depends on (managed features/stories,
 	// approvals, submission attempts/snapshots) already exists one migration
-	// earlier, so their fixtures use the real store API; the run uses the historical
-	// column set because AllocateRun now requires newer additive columns.
+	// earlier, so their fixtures use the real store API. The approval and run use historical
+	// column sets because their current APIs require newer additive tables or columns.
 	session := testSession(t, db, 741)
 	if err := db.PutManagedFeature(t.Context(), ManagedFeature{ParentTask: session.TaskRef, Generation: 1, State: "planning"}); err != nil {
 		t.Fatal(err)
@@ -83,7 +84,21 @@ func TestMigration0047PreservesPopulatedEvidenceAndIsIdempotent(t *testing.T) {
 	if err := db.BindFeatureContract(t.Context(), FeatureContract{Parent: session.TaskRef, Generation: 1, ContentVersion: 2, SubmissionVersion: 2}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.ApproveManagedStories(t.Context(), session.TaskRef, 1, []ApprovedStoryRevision{revision}); err != nil {
+	// Seed the approval using its historical columns. The current admission API
+	// also checks stage-decision journals, which do not exist in this old schema.
+	if err := db.withTx(t.Context(), func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(t.Context(), `UPDATE managed_features SET state='freezing',ready=0,workflow_version=CASE WHEN workflow_version=0 THEN 2 ELSE workflow_version END WHERE parent_task=? AND generation=1`, session.TaskRef); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(t.Context(), `UPDATE managed_stories SET state='frozen',body_hash=? WHERE parent_task=? AND generation=1 AND story_key=?`, revision.Hash, session.TaskRef, key); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(t.Context(), `INSERT INTO approved_story_revisions(parent_task,generation,story_key,parent_id,title,body,digest,fetched_at) VALUES(?,1,?,?,?,?,?,?)`, session.TaskRef, key, revision.ParentID, revision.Title, revision.Body, revision.Hash, revision.FetchedAt.UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(t.Context(), `INSERT INTO story_scope_notices(parent_task,generation,story_key,kind) VALUES(?,1,?,'freeze')`, session.TaskRef, key)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	run := historicalRun(t, db, session.ID, 1, "implement")

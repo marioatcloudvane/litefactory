@@ -15,19 +15,44 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/stagedecision"
+	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
 
 // ownerActionRuntime owns one executor independently of Discord availability.
 // Discord can join later without replacing the execution claims or worker.
 type ownerActionRuntime struct {
-	actions   *owneraction.Service
-	workflows *durableworkflow.Service
-	notices   atomic.Pointer[messaging.Service]
-	once      sync.Once
+	decisions   *stagedecision.Service
+	discussions *taskdiscussion.Service
+	actions     *owneraction.Service
+	workflows   *durableworkflow.Service
+	notices     atomic.Pointer[messaging.Service]
+	once        sync.Once
 }
 
 func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logger *slog.Logger) {
 	r.once.Do(func() {
+		if r.discussions != nil {
+			// One publication loop per runtime ends with the serving context and is
+			// joined by its wait group; provider calls retain their own finite bounds.
+			wg.Go(func() {
+				timer := time.NewTicker(time.Second)
+				defer timer.Stop()
+				for {
+					if ctx.Err() != nil {
+						return
+					}
+					if err := r.discussions.PublishPending(ctx); err != nil {
+						logger.WarnContext(ctx, "discussion publication requires reconciliation")
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case <-timer.C:
+					}
+				}
+			})
+		}
 		r.actions.SetLifetime(ctx)
 		if r.workflows != nil {
 			wg.Go(func() {
@@ -63,6 +88,11 @@ func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logg
 			for {
 				if ctx.Err() != nil {
 					return
+				}
+				if r.decisions != nil {
+					if err := r.decisions.PublishPending(ctx); err != nil {
+						logger.WarnContext(ctx, "decision summary requires reconciliation")
+					}
 				}
 				if err := r.actions.Tick(ctx); err != nil {
 					logger.WarnContext(ctx, "owner action progression needs inspection")

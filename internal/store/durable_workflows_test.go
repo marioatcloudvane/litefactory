@@ -324,7 +324,7 @@ func TestDurableWorkflowMigrationPreservesExistingOwnerActions(t *testing.T) {
 	for _, m := range migrations {
 		if m.name == "durable_workflows" {
 			addition = m
-		} else {
+		} else if m.version < 20261031122639000 {
 			prior = append(prior, m)
 		}
 	}
@@ -341,6 +341,10 @@ func TestDurableWorkflowMigrationPreservesExistingOwnerActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = db.applyMigration(t.Context(), addition); err != nil {
+		t.Fatal(err)
+	}
+	// Current accessors require the complete current schema after the legacy migration.
+	if err = db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	got, err := db.ReadOwnerAction(t.Context(), p.ID)

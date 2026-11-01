@@ -65,8 +65,18 @@ type Options struct {
 	NoticeDestination func(context.Context, owneraction.Principal, Definition, Resolved) (string, error)
 }
 
-// Service coordinates discovery, frozen proposals and retained job access.
+// AdvisoryCoordinator consumes only server-admitted private advisory claims.
+type AdvisoryCoordinator interface {
+	Deadline() time.Duration
+	Idle() bool
+	ExecuteClaim(context.Context, store.WorkflowAttempt, store.WorkflowJob) error
+	RecoverClaim(context.Context, store.WorkflowAttempt) error
+}
+
+// Service owns the shared durable worker.
 type Service struct {
+	advisory AdvisoryCoordinator
+
 	db                *store.DB
 	registry          *Registry
 	adapters          map[string]Adapter
@@ -734,3 +744,6 @@ func (s *Service) AuthorizeNotice(ctx context.Context, key, channel string) erro
 func catalogueEntry(d Definition, available bool, reason string) CatalogueEntry {
 	return CatalogueEntry{Ref: d.Ref, Version: d.Version, Digest: d.Digest, Name: d.Name, Purpose: d.Purpose, BindingProject: d.BindingProject, ProjectMode: d.ProjectMode, FixedProject: d.FixedProject, RequiredPermissions: d.RequiredPermissions, DeadlineSeconds: d.DeadlineSeconds, Impact: d.Impact, Available: available, UnavailableReason: reason}
 }
+
+// BindAdvisory installs the fixed private advisory coordinator before worker start.
+func (s *Service) BindAdvisory(a AdvisoryCoordinator) { s.advisory = a }
