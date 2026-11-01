@@ -57,15 +57,16 @@ Evidence:
 
 ## F-07
 
-Log analysis builds its own Claude runner only when the default agent is Claude. Its filed Bugs' labels were not found in the code read; the creation path (and whether it can set labels) is unsettled.
+Log analysis files Bugs through the tracker's FileBug, which creates the issue and adds only the 'bug' label; no Coding Agent label is set, so these Bugs always fall to the first agent. Linear filing is not supported at all.
 
 Evidence:
 
-- `internal/daemon/log_analysis_runtime.go:49`
+- `internal/loganalysis/trackers.go:89`
+- `internal/loganalysis/trackers.go:135`
 
 ## F-08
 
-Run reports carry an Agent field that falls back to 'claude' when empty. Whether the Bug report renders agent and model was not verified in this pass.
+Run reports carry an Agent field that falls back to 'claude' when empty. The report Run type has no model field in the code read, so showing the model needs a new field and the model value to be carried to it.
 
 Evidence:
 
@@ -73,7 +74,7 @@ Evidence:
 
 ## F-09
 
-Impact: touched are daemon agent selection (tick, continuation dispatch, inheritance), config schema and template, and tests in daemon/turn. Depends on it: story agent inheritance, judge provider, Bug runtime, Linear (label writes limited to mapped mode labels). Existing installs: a new config key must be optional so current configs keep the first-listed-agent behaviour. No migrations found in the code read.
+Impact: touched are daemon agent selection (tick, continuation dispatch, inheritance), config schema and template, report run type, and tests in daemon/turn/report. Depends on it: story agent inheritance, judge provider, Bug runtime, Linear (label writes limited to mapped mode labels). Existing installs: a new config key must be optional so current configs keep the first-listed-agent behaviour. No migrations found in the code read.
 
 Evidence:
 
