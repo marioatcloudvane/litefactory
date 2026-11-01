@@ -47,7 +47,7 @@ func (r *Reporter) prepareValidateGuidance(ctx context.Context, sessionID int64,
 	if err != nil {
 		return "", nil, err
 	}
-	items := validateDecisionItems(st)
+	items := validateDecisionItemsFor(task.Forge == "linear", st)
 	if len(items) == 0 {
 		return base, nil, nil
 	}

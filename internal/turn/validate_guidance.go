@@ -10,12 +10,18 @@ import (
 // validateDecisionItems keeps each command and its consequence together. Item
 // boundaries, rather than arbitrary Markdown lines, are the overflow boundary.
 func validateDecisionItems(st ValidateState) []string {
+	return validateDecisionItemsFor(false, st)
+}
+
+// validateDecisionItemsFor escapes the untrusted story key and summary with
+// the destination's inline contract; Linear writes no numeric entities.
+func validateDecisionItemsFor(onLinear bool, st ValidateState) []string {
 	var items []string
 	for _, f := range st.Findings {
 		var b strings.Builder
-		fmt.Fprintf(&b, "**%s · `%s`**", planTableCell(f.Story), f.ID)
+		fmt.Fprintf(&b, "**%s · `%s`**", planTableCellFor(onLinear, f.Story), f.ID)
 		if f.Summary != "" {
-			b.WriteString(": " + escapeImplementText(shortenFindingText(f.Summary, validateStoryTextFloor)))
+			b.WriteString(": " + implementInline(onLinear, shortenFindingText(f.Summary, validateStoryTextFloor)))
 		}
 		b.WriteString("\n")
 		switch {

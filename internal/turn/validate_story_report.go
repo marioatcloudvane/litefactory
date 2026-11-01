@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear/linearmd"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -58,7 +59,7 @@ func (b ValidateFlowBindings) refreshValidateStories(ctx context.Context, opts O
 				continue
 			}
 		}
-		text := renderValidateStoryComment(st, s, target.Parent.Number, reference)
+		text := renderValidateStoryCommentFor(task.Forge == "linear", st, s, target.Parent.Number, reference)
 		if err := opts.ResearchReporter.reportValidateStory(ctx, session.ID, task, s.Number, fmt.Sprintf("validate-story:%d:%s", req.InstanceID, s.Key), text); err != nil {
 			faults = append(faults, fmt.Errorf("story %s (%s) comment: %w", s.Key, s.display().Reference(), err))
 		}
@@ -137,6 +138,12 @@ func tickValidateStory(ctx context.Context, opts Options, forge ValidateTickets,
 // later findings are listed without their text, and if even that does not fit,
 // the rest are counted in a closing line (#1123).
 func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int, parentReference ...string) string {
+	return renderValidateStoryCommentFor(false, st, s, parent, parentReference...)
+}
+
+// renderValidateStoryCommentFor renders the story comment with the
+// destination's inline contract for its untrusted reasons and summaries.
+func renderValidateStoryCommentFor(onLinear bool, st ValidateState, s ValidateIssueRef, parent int, parentReference ...string) string {
 	reference := fmt.Sprintf("#%d", parent)
 	if len(parentReference) > 0 {
 		reference = parentReference[0]
@@ -144,12 +151,12 @@ func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int
 	budget := github.CommentSizeLimit - validateStoryCommentReserve
 	bound := validateFindingTextLimit
 	for {
-		body := renderValidateStoryCommentBound(st, s, reference, bound, 0)
+		body := renderValidateStoryCommentBoundFor(onLinear, st, s, reference, bound, 0)
 		if len(body) <= budget {
 			return body
 		}
 		if bound <= validateStoryTextFloor {
-			return renderValidateStoryCommentBound(st, s, reference, bound, budget)
+			return renderValidateStoryCommentBoundFor(onLinear, st, s, reference, bound, budget)
 		}
 		bound = max(bound/2, validateStoryTextFloor)
 	}
@@ -174,6 +181,10 @@ type validateStoryLine struct {
 // fits, every later finding is listed without text, and once even that does
 // not fit the remainder is counted in a closing line.
 func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, reference string, bound, fit int) string {
+	return renderValidateStoryCommentBoundFor(false, st, s, reference, bound, fit)
+}
+
+func renderValidateStoryCommentBoundFor(onLinear bool, st ValidateState, s ValidateIssueRef, reference string, bound, fit int) string {
 	var findings []ValidateFinding
 	for _, f := range st.Findings {
 		if f.Story == s.Key {
@@ -182,14 +193,18 @@ func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, refer
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s **Validate · story %s** · commit `%s` · revision `%s`\n\n", validateStoryLight(st, findings), s.Key, short(st.Commit), st.Revision)
-	fmt.Fprintf(&b, "Criteria: %s. Satisfied criteria are ticked in the story body.\n\n", criteriaCell(st, findings))
-	fmt.Fprintf(&b, "Code: %s · Architecture: %s\n", reviewCell(st, findings, agent.ReviewRoleCode), reviewCell(st, findings, agent.ReviewRoleArchitecture))
+	criteria, code, architecture := criteriaCell(st, findings), reviewCell(st, findings, agent.ReviewRoleCode), reviewCell(st, findings, agent.ReviewRoleArchitecture)
+	if onLinear {
+		criteria, code, architecture = linearmd.InlineText(criteria), linearmd.InlineText(code), linearmd.InlineText(architecture)
+	}
+	fmt.Fprintf(&b, "Criteria: %s. Satisfied criteria are ticked in the story body.\n\n", criteria)
+	fmt.Fprintf(&b, "Code: %s · Architecture: %s\n", code, architecture)
 
 	var notReviewed []string
 	for _, role := range ValidateReviewRoles {
 		for _, f := range findings {
 			if f.Role == role && f.State == findingNotReviewed {
-				notReviewed = append(notReviewed, fmt.Sprintf("- The %s reviewer has no usable result: %s. The next step on the parent %s runs the reviews again.", role, planTableCell(reviewerReason(st.Reviews, role)), reference))
+				notReviewed = append(notReviewed, fmt.Sprintf("- The %s reviewer has no usable result: %s. The next step on the parent %s runs the reviews again.", role, planTableCellFor(onLinear, reviewerReason(st.Reviews, role)), reference))
 				break
 			}
 		}
@@ -214,7 +229,7 @@ func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, refer
 		line := fmt.Sprintf("- %s `%s` failed", kind, f.Name)
 		full := line
 		if strings.TrimSpace(reason) != "" {
-			full += ": " + planTableCell(shortenFindingText(reason, bound))
+			full += ": " + planTableCellFor(onLinear, shortenFindingText(reason, bound))
 		}
 		recovery := " It clears only on a new tested snapshot."
 		if f.acceptable() {
@@ -243,13 +258,13 @@ func renderValidateStoryCommentBound(st ValidateState, s ValidateIssueRef, refer
 		}
 		look := ""
 		if sum := strings.TrimSpace(f.Summary); sum != "" {
-			look = ": " + escapeImplementText(shortenFindingText(sum, bound))
+			look = ": " + implementInline(onLinear, shortenFindingText(sum, bound))
 		}
 		one := st
 		bareFinding := f
 		bareFinding.Summary = ""
 		one.Findings = []ValidateFinding{bareFinding}
-		actions := validateDecisionItems(one)
+		actions := validateDecisionItemsFor(onLinear, one)
 		if len(actions) == 0 {
 			continue
 		}
