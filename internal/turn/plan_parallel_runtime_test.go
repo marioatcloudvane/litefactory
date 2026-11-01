@@ -130,12 +130,14 @@ func TestPlanParallelContributionWireRoundTrip(t *testing.T) {
 	}
 }
 
-func TestPlanParallelCapacityAtomicBundle(t *testing.T) {
+// The group is admitted on its minimum lane, never its full bundle, so it
+// starts as soon as one member fits instead of waiting for an idle pool.
+func TestPlanParallelCapacityAdmitsOnMinimum(t *testing.T) {
 	for _, tc := range []struct {
 		name                string
 		weight, total, cost int
 	}{
-		{"default", 1, 4, 4}, {"weighted", 3, 6, 6}, {"impossible", 3, 4, 6},
+		{"default", 1, 4, 1}, {"weighted", 3, 6, 3}, {"impossible", 3, 2, 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, session, _ := agentResultFixture(t, "plan")
@@ -168,7 +170,12 @@ func TestPlanParallelCapacityAtomicBundle(t *testing.T) {
 			pool := &slotStoryPool{total: tc.total}
 			parent := &slotStoryParent{pool: pool}
 			defer parent.Release()
-			competitor, ok, err := pool.acquire(1)
+			// Leave one slot fewer than the minimum free.
+			held := 1
+			if tc.cost <= tc.total {
+				held = tc.total - tc.cost + 1
+			}
+			competitor, ok, err := pool.acquire(held)
 			if err != nil || !ok {
 				t.Fatal(err)
 			}
@@ -180,10 +187,18 @@ func TestPlanParallelCapacityAtomicBundle(t *testing.T) {
 			if admitted || !strings.Contains(diagnostic, fmt.Sprintf("requested=%d", tc.cost)) {
 				t.Fatalf("admitted=%v diagnostic=%s", admitted, diagnostic)
 			}
-			if used, _ := pool.Capacity(); used != 1 {
-				t.Fatalf("partial bundle leaked %d reservations", used-1)
+			if used, _ := pool.Capacity(); used != held {
+				t.Fatalf("refused admission leaked %d reservations", used-held)
 			}
 			competitor()
+			if tc.cost < tc.total {
+				// With only the minimum free the group starts.
+				rest, ok, err := pool.acquire(tc.total - tc.cost)
+				if err != nil || !ok {
+					t.Fatal(err)
+				}
+				defer rest()
+			}
 			admitted, diagnostic, err = admitGraphCapacity(ctx, Options{DB: db}, admission.Instance.ID, admission.LaunchID, "parallel_group", "plan")
 			if err != nil {
 				t.Fatal(err)
@@ -200,21 +215,21 @@ func TestPlanParallelCapacityAtomicBundle(t *testing.T) {
 			if !admitted {
 				t.Fatalf("bundle refused: %s", diagnostic)
 			}
-			if used, _ := pool.Capacity(); used != tc.cost {
-				t.Fatalf("used=%d want=%d", used, tc.cost)
+			if used, _ := pool.Capacity(); used != tc.total {
+				t.Fatalf("used=%d want=%d", used, tc.total)
 			}
 			competing := &slotStoryParent{pool: pool}
 			defer competing.Release()
 			if ok, _, err := admitGraphCapacity(WithStepCapacity(t.Context(), competing), Options{DB: db}, admission.Instance.ID, admission.LaunchID, "parallel_group", "plan"); err != nil || ok {
 				t.Fatalf("competing group over-admitted: %v %v", ok, err)
 			}
-			if used, _ := pool.Capacity(); used != tc.cost {
-				t.Fatalf("competing group leaked %d", used)
+			if used, _ := pool.Capacity(); used != tc.total {
+				t.Fatalf("competing group leaked %d", used-tc.total)
 			}
 			parent.Release()
 			parent.Release()
-			if used, _ := pool.Capacity(); used != 0 {
-				t.Fatalf("bundle release leaked %d", used)
+			if used, _ := pool.Capacity(); used != tc.total-tc.cost {
+				t.Fatalf("group release leaked %d", used-(tc.total-tc.cost))
 			}
 		})
 	}

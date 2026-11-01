@@ -122,6 +122,29 @@ type ValidateState struct {
 	// Reimplementing says this run already handed the findings of its tested
 	// commit back to Implement.
 	Reimplementing bool
+	// Failures are the failing suite commands of the tested commit, from the
+	// handback when there is one, otherwise from the retained suite run. They
+	// are the facts of "what failed"; failure-1 is the first.
+	Failures []HandbackFailure
+	// Summary is the reporter's current stored summary of the tested commit,
+	// nil when the factory's own report stands in.
+	Summary *agentresult.ValidateReport
+	// Advice counts the stored summaries of the tested commit: 1 for the
+	// first report, more after a follow-up revised it.
+	Advice int
+	// ReporterFallback is why the factory's own report stands in for the
+	// reporter, empty when the reporter has not run.
+	ReporterFallback string
+	// Answers are the reporter's follow-up rows of this run, oldest first.
+	Answers []store.ValidateReporterResult
+	// Discussion says the graph wakes the reporter on plain owner comments;
+	// DiscussionRounds is its declared bound.
+	Discussion       bool
+	DiscussionRounds int
+	// FactoryBugFiling says the graph declares the factory Bug step;
+	// FactoryBugs are its rows on the tested commit by item.
+	FactoryBugFiling bool
+	FactoryBugs      map[string]store.ValidateFactoryBug
 }
 
 // finding looks a finding up by its stable id.
@@ -274,6 +297,17 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 	for _, n := range profile.Nodes {
 		st.Reimplement = st.Reimplement || n.Action == graphexec.ValidateImplementAction
 		st.RepairAdoption = st.RepairAdoption || n.Action == graphexec.ValidateRepairApplyAction
+		st.FactoryBugFiling = st.FactoryBugFiling || n.Action == graphexec.ValidateFactoryBugAction
+		if n.Action == graphexec.ValidateReporterAction && slices.Contains(n.Outcomes, "answered") {
+			st.Discussion = true
+			st.DiscussionRounds, _ = strconv.Atoi(n.Attrs["lf_rounds"])
+		}
+	}
+	if err := st.loadFailures(ctx, opts); err != nil {
+		return st, err
+	}
+	if err := st.loadReporter(ctx, opts); err != nil {
+		return st, err
 	}
 	if st.Reimplement {
 		if st.Reimplementing, err = validateImplementStarted(ctx, opts, instanceID, st.Commit); err != nil {

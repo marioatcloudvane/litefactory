@@ -1,0 +1,15 @@
+=== RUN   TestDescendantsWalksMoreThanOneLevel
+    kill_test.go:22: macOS sandbox denies process-list access required by process-tree test
+--- SKIP: TestDescendantsWalksMoreThanOneLevel (0.01s)
+PASS
+ok  	github.com/cloudvane/litefactory/pkg/execution/internal/process	1.852s
+=== RUN   TestRunTimeoutKillsTheWholeSubtree
+    runner_test.go:660: macOS sandbox denies process-list access required by process-tree test
+--- SKIP: TestRunTimeoutKillsTheWholeSubtree (0.00s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/harness	1.367s
+=== RUN   TestRunCancelKillsDescendantsOutsideCodexProcessGroup
+    runner_test.go:328: macOS sandbox denies process-list access required by process-tree test
+--- SKIP: TestRunCancelKillsDescendantsOutsideCodexProcessGroup (0.00s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/codex	1.424s

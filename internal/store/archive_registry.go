@@ -141,6 +141,8 @@ var archiveRegistry = []ArchiveTable{
 	archived("spike_records", `instance_id IN `+subInst),
 	archived("validate_outcomes", `instance_id IN `+subInst),
 	archived("validate_reports", `instance_id IN `+subInst),
+	archived("validate_reporter_results", `instance_id IN `+subInst),
+	archived("validate_factory_bugs", `instance_id IN `+subInst),
 	archived("validate_verdicts", `instance_id IN `+subInst),
 	archived("validate_choices", `instance_id IN `+subInst),
 	archived("validate_effects", `instance_id IN `+subInst),

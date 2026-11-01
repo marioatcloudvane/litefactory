@@ -69,6 +69,9 @@ type Context struct {
 	// RepairRole is set only for the Validate repair node and enables the
 	// repair report; reviewers and every other node must not send one.
 	RepairRole bool
+	// Report is set only for the Validate reporter node: the items of the
+	// current state and the actions each admits. It enables the report payload.
+	Report *ReportScope
 	// CoordinatorRole is set only for an Implement agent that runs on the
 	// parent's (coordinator's) session, such as the sync resolver. It works on
 	// the feature branch, not on a story, so its result names no story and a
@@ -327,6 +330,9 @@ type Validate struct {
 	// Repair is the report of the one write-access repair agent. It is valid
 	// only under the repair role binding and never together with stories.
 	Repair *ValidateRepair `json:"repair,omitempty"`
+	// Report is the reporter's owner summary. It is valid only under the
+	// reporter scope and never together with stories or a repair report.
+	Report *ValidateReport `json:"report,omitempty"`
 }
 
 // Repair responses. The factory measures the real change; the agent explains it.

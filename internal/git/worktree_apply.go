@@ -80,7 +80,10 @@ var ErrPathNotContained = errors.New("path is not contained in the worktree or t
 // point the merge actually started, the in-progress merge is aborted and the
 // branch tip is confirmed back at the value it held before this call (S-5); a
 // mismatch there is its own reported failure, never silently accepted.
-func (w *Worktree) WriteResolvedFiles(ctx context.Context, base string, files []ResolvedFile) error {
+//
+// author is passed to the merge with the identity prelude of
+// [Worktree.MergeBase], so the call never depends on a global git identity.
+func (w *Worktree) WriteResolvedFiles(ctx context.Context, base string, files []ResolvedFile, author Author) error {
 	if err := w.check(); err != nil {
 		return err
 	}
@@ -128,7 +131,7 @@ func (w *Worktree) WriteResolvedFiles(ctx context.Context, base string, files []
 		return err
 	}
 	_, exitCode, err := w.runner.runAllowingExit(ctx, mergeTimeout, []int{0, 1},
-		"merge", "--no-commit", "--no-ff", "--end-of-options", base)
+		identityArgs(author, "merge", "--no-commit", "--no-ff", "--end-of-options", base)...)
 	if err != nil {
 		if _, headErr := revParse(ctx, w.runner, "MERGE_HEAD", RevParseOptions{}); headErr == nil {
 			return w.abortResolvedMerge(ctx, before, files, err)

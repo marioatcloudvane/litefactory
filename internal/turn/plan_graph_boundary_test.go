@@ -309,7 +309,7 @@ func graphPlanApprove(t *testing.T, f *fixture, base Request, id int64) Request 
 }
 func executeGraphPlan(t *testing.T, f *fixture, req Request) Result {
 	t.Helper()
-	out, err := Execute(t.Context(), f.opts, req)
+	out, err := Execute(f.turnContext(t), f.opts, req)
 	if err != nil || out.Err != nil {
 		t.Fatalf("Plan execute err=%v result=%+v logs=%s", err, out, f.logs.String())
 	}

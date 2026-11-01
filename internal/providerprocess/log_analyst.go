@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
 )
 
 // RunLogAnalystProcess validates the dedicated contract, then shares only bounded
@@ -13,5 +14,5 @@ func RunLogAnalystProcess(ctx context.Context, binary string, args, env []string
 	if err := request.Validate(); err != nil {
 		return err
 	}
-	return runScopedProcess(ctx, binary, args, env, request.Prompt, request.WorkingDirectory, timeout, observe)
+	return execution.RunProcess(ctx, binary, args, env, request.Prompt, request.WorkingDirectory, timeout, observe, nil, nil, false, nil)
 }

@@ -40,6 +40,7 @@ const RepairToolTimeout = 10 * time.Minute
 // Broker owns every connection and joins every handler during Close.
 type Broker struct {
 	dir, descriptorPath, capability string
+	baseDir, name                   string
 	root                            *os.Root
 	pinned, socket                  fs.FileInfo
 	listener                        *net.UnixListener
@@ -154,7 +155,7 @@ func Start(ctx context.Context, o Options) (_ *Broker, err error) {
 		return nil, errors.New("submission: descriptor unavailable")
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	b := &Broker{descriptorInfo: descriptorInfo, dir: dir, descriptorPath: filepath.Join(dir, "descriptor.json"), capability: capability, root: root, pinned: pinned, socket: socket, listener: listener, handler: o.Handler, stories: slices.Clone(o.AuthorizedStories), allowPlan: o.AllowPlan, allowResult: o.AllowResult, allowTools: o.AllowTools, attemptReference: o.AttemptReference, timeout: o.RequestTimeout, cancel: cancel, done: make(chan struct{}), connections: map[net.Conn]bool{}}
+	b := &Broker{descriptorInfo: descriptorInfo, dir: dir, baseDir: o.Directory, name: name, descriptorPath: filepath.Join(dir, "descriptor.json"), capability: capability, root: root, pinned: pinned, socket: socket, listener: listener, handler: o.Handler, stories: slices.Clone(o.AuthorizedStories), allowPlan: o.AllowPlan, allowResult: o.AllowResult, allowTools: o.AllowTools, attemptReference: o.AttemptReference, timeout: o.RequestTimeout, cancel: cancel, done: make(chan struct{}), connections: map[net.Conn]bool{}}
 	started = true
 	go b.serve(runCtx, o.MaxWorkers)
 	return b, nil
@@ -163,7 +164,8 @@ func Start(ctx context.Context, o Options) (_ *Broker, err error) {
 // DescriptorPath is the sole agent-visible discovery path for this attempt.
 func (b *Broker) DescriptorPath() string { return b.descriptorPath }
 
-// Close cancels and joins all workers. Durable receipts/journals remain retained.
+// Close cancels and joins all workers, then removes the attempt folder with
+// its client request journals. Durable receipts live in the result service.
 func (b *Broker) Close() error { b.cancel(); <-b.done; return b.cleanupErr }
 func (b *Broker) closeConnections() {
 	_ = b.listener.Close()
@@ -194,6 +196,7 @@ func (b *Broker) serve(ctx context.Context, workers int) {
 			b.cleanupErr = errors.Join(b.cleanupErr, b.root.Remove("descriptor.json"))
 		}
 		b.cleanupErr = errors.Join(b.cleanupErr, b.root.Close())
+		b.cleanupErr = errors.Join(b.cleanupErr, b.removeAttemptFolder())
 	}()
 	for {
 		select {
@@ -217,6 +220,72 @@ func (b *Broker) serve(ctx context.Context, workers int) {
 		}()
 	}
 }
+
+// removeAttemptFolder deletes the folder Start created, but only while it is
+// still the pinned directory, so a replaced path is never followed.
+func (b *Broker) removeAttemptFolder() error {
+	base, _, err := openPrivateRoot(b.baseDir)
+	if err != nil {
+		return err
+	}
+	defer base.Close()
+	current, err := base.Lstat(b.name)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if !current.IsDir() || !os.SameFile(current, b.pinned) {
+		return nil
+	}
+	return base.RemoveAll(b.name)
+}
+
+// staleGrace keeps folders a broker in another process may still be
+// creating, between Mkdir and Listen.
+const staleGrace = time.Minute
+
+// RemoveStale removes attempt folders under dir left by brokers that ended
+// without Close. A folder is kept when its socket still accepts a connection
+// or when it changed within the last minute. A missing dir is not an error.
+func RemoveStale(ctx context.Context, dir string, now time.Time) error {
+	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	base, _, err := openPrivateRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer base.Close()
+	file, err := base.Open(".")
+	if err != nil {
+		return err
+	}
+	names, err := file.Readdirnames(-1)
+	_ = file.Close()
+	if err != nil {
+		return err
+	}
+	var errs error
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(errs, err)
+		}
+		info, err := base.Lstat(name)
+		if err != nil || !info.IsDir() || now.Sub(info.ModTime()) < staleGrace {
+			continue
+		}
+		dialer := net.Dialer{Timeout: time.Second}
+		if conn, err := dialer.DialContext(ctx, "unix", filepath.Join(dir, name, "s")); err == nil {
+			_ = conn.Close()
+			continue
+		}
+		errs = errors.Join(errs, base.RemoveAll(name))
+	}
+	return errs
+}
+
 func (b *Broker) handle(ctx context.Context, c *net.UnixConn) {
 	requestCtx, cancel := context.WithTimeout(ctx, b.timeout)
 	defer cancel()

@@ -484,7 +484,7 @@ func typedPartMarker(ref naming.Ref, key string, n, total int) string {
 // that fits has no parts and posts nothing; a repeat finds each part by its
 // hidden marker and never posts one twice.
 func publishTypedParts(ctx context.Context, o PublicationOptions, issue github.Issue, typed planbrief.TypedStory) error {
-	_, parts, err := report.RenderTypedStoryParts(typed, o.TypedScope)
+	_, parts, err := report.RenderTypedStoryPartsFor(typed, o.TypedScope, o.Parent.Forge == "linear")
 	if err != nil || len(parts) == 0 {
 		return err
 	}

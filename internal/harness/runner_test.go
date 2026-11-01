@@ -655,7 +655,8 @@ func TestRunFailsOnIsErrorDespiteSuccessSubtype(t *testing.T) {
 // setsids its shell into a new process group and the grandchild survives,
 // reparented to PID 1, still holding the worktree open. The fixture reproduces
 // that with `set -m`, which puts the background job in its own process group,
-// and then asserts the sleeper is gone.
+// and then asserts the sleeper is gone. The child runs under bash: dash, Linux's
+// /bin/sh, turns job control off without a tty.
 func TestRunTimeoutKillsTheWholeSubtree(t *testing.T) {
 	requireProcessListAccess(t)
 
@@ -675,7 +676,7 @@ func TestRunTimeoutKillsTheWholeSubtree(t *testing.T) {
 		"printf ready > "+ready+"\n"+
 		"wait\n")
 
-	script := emit(t, initLine) + "/bin/sh " + child + " &\n/bin/sleep 120\n"
+	script := emit(t, initLine) + "/bin/bash " + child + " &\n/bin/sleep 120\n"
 	f := newFixture(t, script, func(c *config.Claude) { c.TimeoutSeconds = 10 })
 
 	started := time.Now()

@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/pkg/execution/graph"
 )
 
 // PlanFailureNode names the shipped failure comment node every failing Plan
@@ -442,10 +443,10 @@ func (c *planCheck) cycles() {
 		acyclic[e.From] = append(acyclic[e.From], e.To)
 	}
 	for _, n := range c.p.Nodes {
-		if walk(acyclic[n.Name], acyclic)[n.Name] {
+		if graph.Walk(acyclic[n.Name], acyclic)[n.Name] {
 			c.fail("plan node %s is on a cycle that bypasses a bounded loop", n.Name)
 		}
-		if !n.Terminal && n.Limit < PlanCreationBound && walk(forward[n.Name], forward)[n.Name] {
+		if !n.Terminal && n.Limit < PlanCreationBound && graph.Walk(forward[n.Name], forward)[n.Name] {
 			c.fail("plan node %s is on a cycle and requires a bound of at least %d", n.Name, PlanCreationBound)
 		}
 	}

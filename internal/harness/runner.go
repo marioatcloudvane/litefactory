@@ -13,14 +13,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/providerprocess"
+	native "github.com/cloudvane/litefactory/pkg/execution/providers/claude"
 )
 
 // Classify performs a stateless, tool-free routing invocation. The prompt is
@@ -41,22 +40,10 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	}
 	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
+	args := native.StatelessArguments(r.settingsPath, r.model)
 	args = append(args, "--setting-sources", "", "--disable-slash-commands", "--agents", "{}")
-	//nolint:gosec // binary/args are configuration/constants; untrusted text is stdin.
-	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	cmd.Dir, cmd.Env, cmd.Stdin = req.WorkingDirectory, buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), strings.NewReader(req.Prompt)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.WaitDelay = waitDelay
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		return killSubtree(context.WithoutCancel(ctx), cmd.Process.Pid, r.logger)
-	}
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	if err := native.Buffered(runCtx, native.Prepared{Binary: r.binary.Path, Arguments: args, Directory: req.WorkingDirectory, Environment: buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), Prompt: req.Prompt, Logger: r.logger}, &stdout, &stderr); err != nil {
 		return "", fmt.Errorf("mode classifier failed: %w: %s", err, excerpt(stderr.String()))
 	}
 	stream := eventStream{logger: r.logger}
@@ -96,21 +83,9 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	}
 	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
-	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
-	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	cmd.Dir, cmd.Env, cmd.Stdin = r.home, buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), strings.NewReader(prompt)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.WaitDelay = waitDelay
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		return killSubtree(context.WithoutCancel(ctx), cmd.Process.Pid, r.logger)
-	}
+	args := native.StatelessArguments(r.settingsPath, r.model)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	if err := native.Buffered(runCtx, native.Prepared{Binary: r.binary.Path, Arguments: args, Directory: r.home, Environment: buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), Prompt: prompt, Logger: r.logger}, &stdout, &stderr); err != nil {
 		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor failed: %w: %s", err, excerpt(stderr.String()))
 	}
 	stream := eventStream{logger: r.logger}
@@ -154,21 +129,9 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 	}
 	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
-	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
-	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	cmd.Dir, cmd.Env, cmd.Stdin = r.home, buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), strings.NewReader(prompt)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.WaitDelay = waitDelay
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		return killSubtree(context.WithoutCancel(ctx), cmd.Process.Pid, r.logger)
-	}
+	args := native.StatelessArguments(r.settingsPath, r.model)
 	stdout, stderr := agent.ConflictOutputBuffers()
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	if err := cmd.Run(); err != nil {
+	if err := native.Buffered(runCtx, native.Prepared{Binary: r.binary.Path, Arguments: args, Directory: r.home, Environment: buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), Prompt: prompt, Logger: r.logger}, stdout, stderr); err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor failed: %w: %s", err, excerpt(stderr.String()))
 	}
 	if stdout.Exceeded || stderr.Exceeded {
@@ -187,23 +150,6 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 	}
 	return resolution, nil
 }
-
-// waitDelay bounds how long cmd.Wait may block after the claude process itself
-// has exited. claude hands its stdout and stderr to children — node, git, and
-// whatever the Bash tool was asked for — and a survivor holding a pipe open
-// would otherwise keep Wait blocked indefinitely.
-const waitDelay = 10 * time.Second
-
-// ioGrace bounds how long the two reader goroutines are given after the process
-// has been reaped. Past it their pipes are closed from this side, which turns a
-// grandchild that outlived the kill sweep into a logged warning instead of a
-// permanently stuck turn.
-const ioGrace = 10 * time.Second
-
-// stderrTailBytes is how much of the child's standard error is retained. S-9
-// quotes the last 40 lines in the failure comment; 64 KB holds far more than
-// that and bounds what a run that panics in a loop can cost in memory.
-const stderrTailBytes = 64 << 10
 
 // PermissionMode is the value of claude's --permission-mode on every run
 // litefactory starts.
@@ -718,10 +664,6 @@ func (r *Runner) args(req agent.Request) []string {
 	// after it — and the tool boundary in particular — is identical, because a
 	// resumed session takes its surface from this argv and does not inherit a
 	// wider one from the transcript it is continuing.
-	sessionFlag := "--session-id"
-	if req.Path.Resuming() {
-		sessionFlag = "--resume"
-	}
 	tools, allowedTools := r.surface(req)
 	// Delivered skills are loadable only through claude's Skill tool; the
 	// bundle itself stays unreadable under the $LF_HOME deny. Skill loads the
@@ -753,42 +695,11 @@ func (r *Runner) args(req agent.Request) []string {
 	if req.Model != "" {
 		model = req.Model
 	}
-	args := []string{
-		"-p",
-		"--output-format", "stream-json",
-		"--verbose",
-		sessionFlag, req.Session.Ref,
-		// Unconditional, in both cases. An omitted --tools is allow-all, which
-		// is the exact opposite of what an empty list looks like it asks for.
-		"--tools", strings.Join(tools, ","),
-		"--settings", r.settingsPath,
-		// Unconditional, and next to --settings because the two are read
-		// together: the settings document supplies the deny rules and this
-		// says how everything they do not name is decided. See PermissionMode
-		// for why the value is a constant rather than configuration.
-		"--permission-mode", permissionMode,
-		// Unconditional, so that the model a run used is a property of this
-		// argv and readable in the recorded command line, rather than of
-		// whatever the CLI defaults to. It sets the top-level session only:
-		// a sub-agent definition carrying its own `model:` frontmatter still
-		// runs on that, which is what lets a cheap router dispatch to
-		// expensive orchestrators.
-		"--model", model,
-		"--autocompact", r.autoCompact,
-	}
 	thinking := req.Thinking
 	if thinking == "" && req.Delivery != nil {
 		thinking = req.Delivery.MainThinking
 	}
-	if thinking != "" {
-		args = append(args, "--effort", string(thinking))
-	}
-	if len(allowedTools) > 0 {
-		// Comma-joined into a single argument rather than passed variadically:
-		// --allowedTools takes <tools...>, and a following flag would otherwise
-		// be swallowed as another tool rule.
-		args = append(args, "--allowedTools", strings.Join(allowedTools, ","))
-	}
+	args := native.Arguments(native.Options{Tools: append([]string{}, tools...), AllowedTools: allowedTools, SettingsPath: r.settingsPath, PermissionMode: permissionMode, Model: model, AutoCompact: r.autoCompact, Effort: string(thinking), Resume: req.Path.Resuming()}, req.Session.Ref)
 	if req.Delivery != nil {
 		args = append(args, "--setting-sources", "", "--plugin-dir", filepath.Join(req.Delivery.Root, "plugin"), "--append-system-prompt-file", filepath.Join(req.Delivery.Root, "bootstrap.md"))
 	}
@@ -841,140 +752,32 @@ func (r *Runner) exec(
 	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
 
-	// killSubtree runs when runCtx is already done, so it cannot use runCtx for
-	// its own pgrep calls — it would be cancelled before it enumerated
-	// anything. WithoutCancel keeps the values and drops the cancellation; it is
-	// not context.Background(), which the M0 invariants forbid.
-	killCtx := context.WithoutCancel(ctx)
-
-	// #nosec G204 -- This exec is the product's security boundary and every part
-	// of it is chosen, not inherited. r.binary.Path is an absolute path resolved
-	// and stat'ed at New time from the operator's own config, never from an
-	// issue or a comment. args comes from r.args above: fixed flags, the
-	// segment's session id — which validate has already established is a
-	// canonical UUID and so cannot smuggle in a flag — and one of two tool
-	// surfaces.
-	//
-	// The tool lists now arrive on the request rather than only from the runner,
-	// and that is the part worth being precise about. They are copies of
-	// operator-authored strings out of config.yaml, selected by the resolved
-	// run mode, and validate
-	// has just checked every one of them against r.ceiling — so nothing here can
-	// exceed a bound set outside GitHub. The mode-profile name stays off argv
-	// entirely: it is a lookup key, never a value.
-	//
-	// So no string originating from GitHub is ever joined into this argv. The
-	// untrusted input — the prompt built from the issue — goes on stdin below,
-	// never on argv, so there is no shell and nothing here for it to influence.
-	// cmd.Env is the explicit allowlist buildEnv assembles, not the daemon's
-	// environment.
-	var cmd *exec.Cmd
-	var stdoutR, stdoutW, stderrR, stderrW *os.File
 	stackEnv, err := req.StackEnvironment(buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir))
 	if err != nil {
 		return nil, err
 	}
-	// The read-only shell's caches and temporary files live outside the
-	// worktree its sandbox keeps unwritable; these win over the stack's own.
 	stackEnv = overrideEnv(stackEnv, extraEnv)
 	usage := newUsageCollector(runCtx, req)
 	if usage != nil {
 		usage.prepareTranscripts(r.claudeConfigDir, req.WorktreePath)
 	}
-	startedAt := time.Now()
-	err = providerprocess.Start(runCtx, r.binary.Path, req.WorktreePath, func() error {
-		//nolint:gosec // Configured executable and validated arguments; prompt stays on stdin.
-		cmd = exec.CommandContext(runCtx, r.binary.Path, args...)
-		cmd.Dir = req.WorktreePath
-		cmd.Env = stackEnv
-		// The prompt goes on stdin (AC-3.12): out of ps, and past the ~1 MB macOS
-		// ARG_MAX ceiling that a large issue body would otherwise hit as E2BIG.
-		cmd.Stdin = strings.NewReader(req.Prompt)
-		// Setpgid, Cancel and WaitDelay are the outer safety net. They are not the
-		// kill mechanism: claude's Bash tool setsids out of this process group, so
-		// the mechanism is killSubtree's pgid sweep (SD-1).
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.WaitDelay = waitDelay
-		cmd.Cancel = func() error {
-			if cmd.Process == nil {
-				return os.ErrProcessDone
-			}
-			return killSubtree(killCtx, cmd.Process.Pid, logger)
-		}
-
-		stdoutR, stdoutW, err = os.Pipe()
-		if err != nil {
-			return fmt.Errorf("%w: stdout pipe: %w", ErrStartFailed, err)
-		}
-		stderrR, stderrW, err = os.Pipe()
-		if err != nil {
-			closeAll(stdoutR, stdoutW)
-			return fmt.Errorf("%w: stderr pipe: %w", ErrStartFailed, err)
-		}
-		// Assigning *os.File values means os/exec passes the descriptors straight
-		// to the child and starts no copier goroutines of its own for them — and,
-		// equally important, never closes the read ends behind this package's back.
-		cmd.Stdout = stdoutW
-		cmd.Stderr = stderrW
-
-		if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
-			closeAll(stdoutR, stdoutW, stderrR, stderrW)
-			return err
-		}
-		if err := cmd.Start(); err != nil {
-			closeAll(stdoutR, stdoutW, stderrR, stderrW)
-			return fmt.Errorf("%w: %s: %w", ErrStartFailed, r.binary.Path, err)
-		}
-		return nil
+	stream := &eventStream{sink: sink, logger: logger, usage: usage}
+	capture, err := native.Execute(runCtx, native.Prepared{
+		Binary: r.binary.Path, Arguments: args, Environment: stackEnv, Directory: req.WorktreePath, Prompt: req.Prompt, Logger: logger,
+		BeforeLaunch: func(ctx context.Context) error { return agent.VerifyRequestDelivery(ctx, req) }, Consume: stream.consume,
+		OnStarted: func(cmd *exec.Cmd) {
+			tools, allowedTools := r.surface(req)
+			logger.Info("coding agent started", slog.String("agent", "claude"), slog.String("binary", r.binary.Path), slog.Int("pid", cmd.Process.Pid), slog.String("worktree", req.WorktreePath), slog.String("tools", strings.Join(tools, ",")), slog.String("allowed_tools", strings.Join(allowedTools, ",")), slog.String("tool_profile", req.Permissions.Profile), slog.String("settings", r.settingsPath), slog.Int("env_vars", len(cmd.Env)), slog.String("timeout", r.timeout.String()))
+		},
 	})
 	if err != nil {
-		return nil, err
+		if errors.Is(err, agent.ErrDeliveryRefused) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %s: %w", ErrStartFailed, r.binary.Path, err)
 	}
-	// The child holds its own copies now. Without this the read ends never see
-	// EOF, because this process would still hold a writer open.
-	closeAll(stdoutW, stderrW)
-	defer closeAll(stdoutR, stderrR)
-
-	// The three tool attributes report the native surface this run was actually
-	// invoked with, not the runner's configured defaults: with a mode profile in
-	// play the two differ, and the log line is the only place the difference is
-	// visible after the fact. tool_profile is empty when no mode profile was supplied.
-	tools, allowedTools := r.surface(req)
-	logger.Info("coding agent started",
-		slog.String("agent", "claude"),
-		slog.String("binary", r.binary.Path),
-		slog.Int("pid", cmd.Process.Pid),
-		slog.String("worktree", req.WorktreePath),
-		slog.String("tools", strings.Join(tools, ",")),
-		slog.String("allowed_tools", strings.Join(allowedTools, ",")),
-		slog.String("tool_profile", req.Permissions.Profile),
-		slog.String("settings", r.settingsPath),
-		slog.Int("env_vars", len(cmd.Env)),
-		slog.String("timeout", r.timeout.String()))
-
-	// The package's entire goroutine budget: one stdout reader, one stderr
-	// reader. Both are joined below before anything they wrote is read, and
-	// neither can outlive this call — if a survivor holds a pipe open past
-	// ioGrace the read ends are closed from here and both return at once.
-	stream := &eventStream{sink: sink, logger: logger, usage: usage}
-	stderrTail := &tailWriter{limit: stderrTailBytes}
-	stdoutDone := make(chan error, 1)
-	stderrDone := make(chan error, 1)
-	go func() { stdoutDone <- stream.consume(stdoutR) }()
-	go func() {
-		_, err := io.Copy(stderrTail, stderrR)
-		stderrDone <- err
-	}()
-
-	waitErr := cmd.Wait()
-	finishedAt := time.Now()
-
-	stdoutErr, stderrErr := r.join(stdoutDone, stderrDone, stdoutR, stderrR, logger)
-
-	exitCode := SignalExitCode
-	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
-	}
+	startedAt, finishedAt := capture.StartedAt, capture.FinishedAt
+	exitCode, waitErr := capture.ExitCode, capture.WaitError
 	abandoned := ctx.Err() != nil
 	timedOut := !abandoned && errors.Is(runCtx.Err(), context.DeadlineExceeded)
 
@@ -999,8 +802,8 @@ func (r *Runner) exec(
 		Events:      stream.events,
 		Malformed:   stream.malformed,
 		LongestLine: stream.longest,
-		Stderr:      stderrTail.String(),
-		StreamError: firstError(stream.err(), stdoutErr, stderrErr),
+		Stderr:      capture.Stderr,
+		StreamError: firstError(stream.err(), capture.StreamError),
 		Usage:       stream.usage.finish(),
 		StartedAt:   startedAt,
 		FinishedAt:  finishedAt,
@@ -1126,40 +929,6 @@ func resumeUnusable(resuming bool, result *RunResult) bool {
 		result.HasCost && result.CostUSD == 0
 }
 
-// join waits for both readers, closing their pipes if they outstay ioGrace.
-//
-// The grace exists for exactly one situation: claude exited but a descendant it
-// setsid'd away inherited the descriptor and is still holding it. cmd.Wait has
-// already returned by then, so nothing else will ever close it.
-func (r *Runner) join(
-	stdoutDone, stderrDone <-chan error,
-	stdoutR, stderrR *os.File,
-	logger *slog.Logger,
-) (stdoutErr, stderrErr error) {
-	timer := time.NewTimer(ioGrace)
-	defer timer.Stop()
-
-	grace := timer.C
-	for remaining := 2; remaining > 0; {
-		select {
-		case err := <-stdoutDone:
-			stdoutErr = err
-			remaining--
-		case err := <-stderrDone:
-			stderrErr = err
-			remaining--
-		case <-grace:
-			// Fire once. Closing the read ends makes both goroutines return
-			// with a "file already closed" error on their next read.
-			grace = nil
-			logger.Warn("claude output pipes still open after the process exited; closing them",
-				slog.String("grace", ioGrace.String()))
-			closeAll(stdoutR, stderrR)
-		}
-	}
-	return stdoutErr, stderrErr
-}
-
 // logCompletion emits the one line that says what happened, at the level the
 // outcome deserves.
 func (r *Runner) logCompletion(logger *slog.Logger, result *RunResult) {
@@ -1273,15 +1042,4 @@ func firstError(errs ...error) error {
 		}
 	}
 	return nil
-}
-
-// closeAll closes every file, ignoring the errors. Every call site is either
-// releasing a descriptor the child now owns or forcing a stuck reader to
-// return; in neither case is there anything a caller could do with a failure.
-func closeAll(files ...*os.File) {
-	for _, f := range files {
-		if f != nil {
-			_ = f.Close()
-		}
-	}
 }
