@@ -343,6 +343,7 @@ func comparableContent(body string) string {
 		if story {
 			line = decodeEntities(line)
 		}
+		line = comparableEmphasisLine(line)
 		if depth, ok := contentListItem(line); ok {
 			line = line[:depth] + "-" + line[depth+1:]
 			// Linear stores a checked item as [X]; our tick writes [x].
@@ -363,6 +364,22 @@ func comparableContent(body string) string {
 		}
 	}
 	return strings.Join(withoutProseBlankLines(lines), "\n")
+}
+
+// contentEmphasisLine is a paragraph that is one plain emphasized span,
+// written _text_ or *text*, with no further emphasis, escapes or code inside.
+var contentEmphasisLine = regexp.MustCompile(`^([_*])([^\s_*\\]|[^\s_*\\][^_*\\]*[^\s_*\\])([_*])$`)
+
+// comparableEmphasisLine writes a whole-line emphasis span in one form. Linear
+// stores _text_ as *text* (the "First draft in progress" line of every Plan
+// story shell, #1298); both delimiters render the same italic. Only a line that
+// is a single plain span is touched, so mixed or nested emphasis stays exact.
+func comparableEmphasisLine(line string) string {
+	m := contentEmphasisLine.FindStringSubmatch(line)
+	if m == nil || m[1] != m[3] {
+		return line
+	}
+	return "*" + m[2] + "*"
 }
 
 func contentTableCells(line string) ([]string, bool) {
