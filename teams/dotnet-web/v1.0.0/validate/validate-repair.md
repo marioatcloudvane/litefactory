@@ -1,7 +1,7 @@
 ---
 name: validate-repair
 description: Fix attributable failing tests the suite assessment found, within a small bound, or say plainly why the fix cannot be made here.
-tier: balanced
+tier: flagship
 task: Read the failing suite commands, retained assessment and their output, find the cause in the tested code, and make the smallest fix that makes them pass. Run the failing tests to confirm the fix. If the fix is large or you are not sure of the cause, change nothing and report a handback. Report every failure and what you did about it.
 ---
 # Role

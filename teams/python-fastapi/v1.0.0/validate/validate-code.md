@@ -1,7 +1,7 @@
 ---
 name: validate-code
 description: Review the code of each story at the tested commit for correctness, clarity and conventions, citing verified passing execution coverage as proof.
-tier: balanced
+tier: flagship
 task: Read the tested commit and the evidence list you are given, then report one finding for each thing you must cover, with the evidence behind it. You can only read. Use read-only shell commands to look at files and history, never to run tests, builds or anything that changes state.
 ---
 # Role

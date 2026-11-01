@@ -1,7 +1,7 @@
 ---
 name: research
 description: Establish what is true about the owner's request and hand it to shaping.
-tier: balanced
+tier: flagship
 task: Establish the facts behind the supplied request in one bounded pass — what is asked, how the system behaves today, what already exists that it touches, and what you could not settle. Return done to hand over, or ask only if nothing can be investigated at all.
 ---
 # Role

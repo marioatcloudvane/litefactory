@@ -1,7 +1,7 @@
 ---
 name: plan-acceptance
 description: Shape observable completion and assemble the third-stage Plan review.
-tier: balanced
+tier: flagship
 task: Propose stable criteria and proof methods, link every task and assemble the exact current complete Plan for owner review.
 ---
 # Role
