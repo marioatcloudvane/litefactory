@@ -141,6 +141,21 @@ func (db *DB) GetSessionByTaskRef(ctx context.Context, taskRef string) (Session,
 	return session, nil
 }
 
+// TaskRefInUse reports whether a session uses alias as its task ref, either
+// exactly or with a qualification suffix ("alias~..."). Qualified tasks share
+// the alias's instruction bundle folder, so both keep it in use.
+func (db *DB) TaskRefInUse(ctx context.Context, alias string) (bool, error) {
+	// '~' is 0x7E, so "alias~" <= ref < "alias\x7f" selects exactly the
+	// qualified refs while keeping the task_ref index usable.
+	var n int
+	if err := db.sql.QueryRowContext(ctx,
+		`SELECT count(*) FROM sessions WHERE task_ref = ? OR (task_ref >= ? AND task_ref < ?)`,
+		alias, alias+"~", alias+"\x7f").Scan(&n); err != nil {
+		return false, fmt.Errorf("store: look up task ref %s: %w", alias, err)
+	}
+	return n > 0, nil
+}
+
 // FindSessionByIssue resolves a bare issue number, the way `litefactory logs
 // 123` is invoked.
 //

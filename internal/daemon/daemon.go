@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -701,6 +703,13 @@ type Reconciled struct {
 // listed. Refusing to start because GitHub is having a bad minute would be the
 // worse failure.
 func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
+	// Attempt folders of brokers that died without Close are removed once per
+	// start; live brokers keep theirs. A failed sweep never stops startup.
+	if dir := d.instructionPaths.SubmissionDir(); filepath.IsAbs(dir) {
+		if err := submission.RemoveStale(ctx, dir, time.Now()); err != nil {
+			d.log.WarnContext(ctx, "could not remove leftover submission folders", slog.Any("error", err))
+		}
+	}
 	if err := d.recoverDoctor(ctx); err != nil {
 		return Reconciled{}, err
 	}
