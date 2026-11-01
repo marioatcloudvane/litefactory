@@ -1,7 +1,7 @@
 ---
 name: story-worker
 description: Build one story on its own branch, with one end-to-end test for its main path, and say honestly whether it is finished.
-tier: flagship
+tier: balanced
 task: Implement the one story you are given, write the one end-to-end test its (Auto) criterion asks for, plus unit tests only where the logic needs them, run the tests of every package you changed with a finite timeout, fix the failures your change causes, and submit completed, incomplete or blocked with a plain reason. Never run the whole test suite.
 ---
 # Role
