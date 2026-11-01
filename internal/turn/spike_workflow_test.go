@@ -251,7 +251,7 @@ func TestSpikeGraphSwappedGraphRunsWithoutGoChange(t *testing.T) {
 // captureSpikeVariant captures the shipped Spike package with an edited graph file.
 func captureSpikeVariant(ctx context.Context, t *testing.T, policy WorkflowPolicy, edit func(string) string) (*teamsource.WorkflowDefinition, error) {
 	t.Helper()
-	root, err := teamsourcetest.Workflow(teamsourcetest.Go, "spike")
+	root, err := teamsourcetest.Workflow(ctx, teamsourcetest.Go, "spike")
 	mustProgress(t, err)
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {
