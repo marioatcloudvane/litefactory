@@ -3,27 +3,23 @@
 package codex
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/providerprocess"
+	native "github.com/cloudvane/litefactory/pkg/execution/providers/codex"
 )
 
 const (
@@ -121,32 +117,13 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	}
 	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
-	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
 	skills, err := r.skillOverrides(ctx, req.WorkingDirectory, nil)
 	if err != nil {
 		return "", err
 	}
-	args = append(args, "-c", skills)
-	if r.model != "" {
-		args = append(args, "--model", r.model)
-	}
-	args = append(args, "-")
-	//nolint:gosec // binary and args are configuration/constants; untrusted text is stdin.
-	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	cmd.Dir, cmd.Env, cmd.Stdin = req.WorkingDirectory, codexEnv(r.environ), strings.NewReader(req.Prompt)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-			return err
-		}
-		return nil
-	}
+	args := native.AdvisoryArguments(r.model, []string{"-c", skills})
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	if err := native.Buffered(runCtx, r.binary.Path, args, native.Environment(r.environ), req.WorkingDirectory, req.Prompt, &stdout, &stderr); err != nil {
 		return "", fmt.Errorf("mode classifier failed: %w", err)
 	}
 	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
@@ -170,29 +147,9 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	}
 	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
-	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
-	if r.model != "" {
-		args = append(args, "--model", r.model)
-	}
-	args = append(args, "-")
-	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
-	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	// A proposal has no worktree. The resolved binary directory is guaranteed
-	// to exist at construction and is not a repository the advisor can mutate.
-	cmd.Dir, cmd.Env, cmd.Stdin = filepath.Dir(r.binary.Path), codexEnv(r.environ), strings.NewReader(prompt)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-			return err
-		}
-		return nil
-	}
+	args := native.AdvisoryArguments(r.model, nil)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	if err := native.Buffered(runCtx, r.binary.Path, args, native.Environment(r.environ), filepath.Dir(r.binary.Path), prompt, &stdout, &stderr); err != nil {
 		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor failed: %w", err)
 	}
 	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
@@ -224,29 +181,9 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 	}
 	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
-	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
-	if r.model != "" {
-		args = append(args, "--model", r.model)
-	}
-	args = append(args, "-")
-	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
-	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	// A proposal has no worktree. The resolved binary directory is guaranteed
-	// to exist at construction and is not a repository the advisor can mutate.
-	cmd.Dir, cmd.Env, cmd.Stdin = filepath.Dir(r.binary.Path), codexEnv(r.environ), strings.NewReader(prompt)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-			return err
-		}
-		return nil
-	}
+	args := native.AdvisoryArguments(r.model, nil)
 	stdout, stderr := agent.ConflictOutputBuffers()
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	if err := cmd.Run(); err != nil {
+	if err := native.Buffered(runCtx, r.binary.Path, args, native.Environment(r.environ), filepath.Dir(r.binary.Path), prompt, stdout, stderr); err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor failed: %w", err)
 	}
 	if stdout.Exceeded || stderr.Exceeded {
@@ -337,69 +274,31 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	}
 	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
 	defer cancel()
-	killCtx := context.WithoutCancel(ctx)
-	stackEnv, err := req.StackEnvironment(codexEnv(r.environ))
+	stackEnv, err := req.StackEnvironment(native.Environment(r.environ))
 	if err != nil {
 		return nil, err
 	}
-	var cmd *exec.Cmd
-	var stdout io.ReadCloser
-	stderr := agent.NewTailBuffer(agent.StderrTailBytes)
 	startLocation := machineLocation()
-	started := time.Now()
 	collector := newUsageCollector(runCtx, req)
 	collector.prepareRollouts(stackEnv)
-	err = providerprocess.Start(runCtx, r.binary.Path, req.WorktreePath, func() error {
-		//nolint:gosec // binary/args are configuration; issue text is delivered on stdin.
-		cmd = exec.CommandContext(runCtx, r.binary.Path, args...)
-		cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, stackEnv, strings.NewReader(req.Prompt)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		// Codex's shell tool detaches each command into its own process group
-		// or session, so a kill(-pgid) aimed at codex's group leaves them
-		// running under launchd (#968). Sweep the whole tree instead; the
-		// sweep runs after runCtx is done, so it gets an uncancelled context.
-		cmd.Cancel = func() error {
-			if cmd.Process == nil {
-				return os.ErrProcessDone
-			}
-			return providerprocess.KillSubtree(killCtx, cmd.Process.Pid, r.logger)
-		}
-		stdout, err = cmd.StdoutPipe()
-		if err != nil {
-			return err
-		}
-		cmd.Stderr = stderr
-		if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
-			_ = stdout.Close()
-			if pipe, ok := cmd.Stdout.(io.Closer); ok {
-				_ = pipe.Close()
-			}
-			return err
-		}
-		if err := cmd.Start(); err != nil {
-			_ = stdout.Close()
-			return fmt.Errorf("codex did not start: %w", err)
-		}
-		return nil
-	})
+	var stream streamState
+	capture, err := native.Execute(runCtx, native.Prepared{Binary: r.binary.Path, Arguments: args, Environment: stackEnv, Directory: req.WorktreePath, Prompt: req.Prompt, Logger: r.logger,
+		BeforeLaunch: func(ctx context.Context) error { return agent.VerifyRequestDelivery(ctx, req) },
+		Consume:      func(stdout io.Reader) { stream = consumeUsage(stdout, logFile, collector) },
+		OnStarted: func() {
+			r.logger.Info("coding agent started", "agent", "codex", "task", req.Ref.String(), "run", req.RunOrdinal,
+				"binary", r.binary.Path, "sandbox", sandbox, "tool_profile", req.Permissions.Profile)
+		}})
 	if err != nil {
 		collector.finish()
 		return nil, err
 	}
-	r.logger.Info("coding agent started", "agent", "codex", "task", req.Ref.String(), "run", req.RunOrdinal,
-		"binary", r.binary.Path, "sandbox", sandbox, "tool_profile", req.Permissions.Profile)
-	stream := consumeUsage(stdout, logFile, collector)
-	waitErr := cmd.Wait()
-	finished := time.Now()
-	exitCode := agent.SignalExitCode
-	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
-	}
+	started, finished, exitCode := capture.StartedAt, capture.FinishedAt, capture.ExitCode
 	result := &agent.RunResult{ExitCode: exitCode, SessionID: req.Session.Ref, ResumeToken: stream.threadID,
 		LogPath: logPath, Command: append([]string{r.binary.Path}, args...), Model: r.model,
 		ResultText: stream.text, IsError: stream.failed, HasResult: stream.completed,
 		Events: stream.events, Malformed: stream.malformed, LongestLine: stream.longest,
-		Stderr: stderr.String(), StreamError: stream.err, StartedAt: started, FinishedAt: finished,
+		Stderr: capture.Stderr, StreamError: stream.err, StartedAt: started, FinishedAt: finished,
 		Duration: finished.Sub(started), Usage: collector.finish()}
 	classifyOutcome(result, stream, ctx.Err(), runCtx.Err(), r.timeout)
 	if ctx.Err() == nil && runCtx.Err() == nil && stream.failed && !stream.completed {
@@ -419,7 +318,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	if result.Transient == nil && req.Path.Resuming() && result.Outcome == agent.OutcomeFailed && !stream.turnStarted && exitCode > 0 {
 		return result, fmt.Errorf("%w: codex thread %s", agent.ErrSessionNotResumable, req.Session.Resume)
 	}
-	_ = waitErr // ProcessState and stream provide the stable classification.
+	_ = capture.WaitError // ProcessState and stream provide the stable classification.
 	return result, nil
 }
 
@@ -488,15 +387,11 @@ func startupPermissionFailure(stderr string) bool {
 }
 
 func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
-	args := []string{"exec", "--json"}
+	var args []string
 	// Dropping this is what lets the repository's .codex/skills reach the
 	// model, at the cost of Codex also reading the operator's own
 	// config.toml — one flag, both effects. See config.Codex.AllowUserConfig.
 	ignoreUserConfig := !r.userConfig || req.Delivery != nil
-	if ignoreUserConfig {
-		args = append(args, "--ignore-user-config")
-	}
-	args = append(args, "--ignore-rules", "--sandbox", sandbox)
 	if req.Mode == "validate" {
 		// Validate keeps the shell, like the Bug analyst: the prompt withholds
 		// retained snapshot bodies and lists their paths, and the shell is
@@ -531,28 +426,9 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 			}
 		}
 	}
-	// Before --model and before the subcommand, so the resume form below
-	// still ends with the prompt argument. A read-only run gets them too:
-	// --add-dir names a directory, and it is the sandbox mode that decides
-	// whether anything may be written to it.
-	for _, root := range r.writable {
-		args = append(args, "--add-dir", root)
-	}
-	// The broker directory is litefactory's, not the operator's, and a
-	// workspace-write run cannot reach it without being told to: the helper
-	// this run is instructed to invoke writes its correlation journal and
-	// opens its socket there. Without this the run drafts its contribution and
-	// then fails at the hand-off with "writing outside of the project", ten
-	// minutes in and with nothing recorded.
+	roots := append([]string(nil), r.writable...)
 	if req.SubmissionRoot != "" {
-		args = append(args, "--add-dir", req.SubmissionRoot)
-	}
-	// -c rather than a flag of its own, because Codex exposes this only as a
-	// config override. It is emitted regardless of sandbox mode: the key is
-	// namespaced to workspace-write and is inert under read-only, so keeping
-	// argv independent of the mode is one less interaction to reason about.
-	if r.network {
-		args = append(args, "-c", "sandbox_workspace_write.network_access=true")
+		roots = append(roots, req.SubmissionRoot)
 	}
 	model := r.model
 	if req.Delivery != nil && req.Delivery.MainRole != "" {
@@ -561,9 +437,6 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	if req.Model != "" {
 		model = req.Model
 	}
-	if model != "" {
-		args = append(args, "--model", model)
-	}
 	thinking := req.Thinking
 	if thinking == "" && req.Delivery != nil {
 		thinking = req.Delivery.MainThinking
@@ -571,27 +444,29 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	if err := config.ValidateThinking(config.KindCodex, model, thinking); err != nil {
 		return nil, err
 	}
-	if thinking != "" {
-		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(string(thinking)))
-	}
-	args = append(args, r.reasoningSummaryArgs()...)
-	if req.Path.Resuming() {
-		return append(args, "resume", req.Session.Resume, "-"), nil
-	}
-	return append(args, "-"), nil
-}
-
-// reasoningSummaryArgs maps settings.thinking_logs onto Codex's reasoning
-// summaries, which `exec --json` emits as `reasoning` items: summarized asks
-// for concise summaries, full for detailed ones. none adds nothing.
-func (r *Runner) reasoningSummaryArgs() []string {
+	summary := ""
 	switch r.thinkingLogs {
 	case config.ThinkingLogsSummarized:
-		return []string{"-c", `model_reasoning_summary="concise"`}
+		summary = "concise"
 	case config.ThinkingLogsFull:
-		return []string{"-c", `model_reasoning_summary="detailed"`}
+		summary = "detailed"
 	}
-	return nil
+	session := ""
+	if req.Path.Resuming() {
+		session = req.Session.Resume
+	}
+	return native.Arguments(native.Options{AllowUserConfig: !ignoreUserConfig, Permission: &native.Sandbox{Mode: sandbox}, ExtraArgs: args, WritableRoots: roots, NetworkAccess: r.network, Model: model, Effort: string(thinking), ReasoningSummary: summary}, session), nil
+}
+
+// reasoningSummary maps the factory setting to the native summary selection.
+func (r *Runner) reasoningSummary() string {
+	switch r.thinkingLogs {
+	case config.ThinkingLogsSummarized:
+		return "concise"
+	case config.ThinkingLogsFull:
+		return "detailed"
+	}
+	return ""
 }
 
 // InstructionIdentity is part of the retained effective bundle identity.
@@ -605,108 +480,22 @@ type streamState struct {
 	err                            error
 }
 
+func fromNative(s native.Stream) streamState {
+	return streamState{threadID: s.ThreadID, text: s.Text, failureDetail: s.FailureDetail, quotaMessage: s.QuotaMessage, events: s.Events, malformed: s.Malformed, longest: s.Longest, turnStarted: s.TurnStarted, completed: s.Completed, failed: s.Failed, err: s.Err}
+}
+func (s streamState) native() native.Stream {
+	return native.Stream{ThreadID: s.threadID, Text: s.text, FailureDetail: s.failureDetail, QuotaMessage: s.quotaMessage, Events: s.events, Malformed: s.malformed, Longest: s.longest, TurnStarted: s.turnStarted, Completed: s.completed, Failed: s.failed, Err: s.err}
+}
 func consume(src io.Reader, sink io.Writer) streamState { return consumeUsage(src, sink, nil) }
-
 func consumeUsage(src io.Reader, sink io.Writer, collector *usageCollector) streamState {
-	var s streamState
-	reader := bufio.NewReader(src)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			s.events++
-			if len(line) > s.longest {
-				s.longest = len(line)
-			}
-			if _, werr := sink.Write(line); werr != nil && s.err == nil {
-				s.err = werr
-			}
-			collector.observe(line)
-			s.consumeLine(line)
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				s.err = err
-			}
-			break
-		}
-	}
-	return s
+	return fromNative(native.Consume(src, sink, collector.observe))
 }
-
-// consumeLine recognizes explicit failure independently of optional provider
-// detail. Other events retain their existing typed-decoding behavior.
 func (s *streamState) consumeLine(line []byte) {
-	var terminal struct {
-		Type    string          `json:"type"`
-		Message json.RawMessage `json:"message"`
-		Error   json.RawMessage `json:"error"`
-	}
-	if json.Unmarshal(bytes.TrimSpace(line), &terminal) == nil && terminal.Type == "turn.failed" {
-		s.failed = true
-		var detail struct {
-			Message    string `json:"message"`
-			Code       string `json:"code"`
-			StatusCode int    `json:"status_code"`
-		}
-		if json.Unmarshal(terminal.Error, &detail) == nil && (strings.TrimSpace(detail.Message) != "" || detail.Code != "" || detail.StatusCode != 0) {
-			s.failureDetail = detail.Message
-			if detail.Code != "" {
-				s.failureDetail += " " + detail.Code
-			}
-			if detail.StatusCode != 0 {
-				s.failureDetail += fmt.Sprintf(" HTTP %d", detail.StatusCode)
-			}
-		} else {
-			var message string
-			if json.Unmarshal(terminal.Message, &message) == nil && strings.TrimSpace(message) != "" {
-				s.failureDetail = message
-			}
-		}
-		// A quota refusal emits this alongside a generic error notice carrying
-		// the same text; taking it here keeps recoverable notices inert.
-		s.quotaMessage = s.failureDetail
-		return
-	}
-	var e struct {
-		Type     string `json:"type"`
-		ThreadID string `json:"thread_id"`
-		Message  string `json:"message"`
-		Item     struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"item"`
-	}
-	if json.Unmarshal(bytes.TrimSpace(line), &e) != nil {
-		s.malformed++
-	} else {
-		switch e.Type {
-		case "thread.started":
-			s.threadID = e.ThreadID
-		case "turn.started":
-			s.turnStarted = true
-		case "item.completed":
-			if e.Item.Type == "agent_message" {
-				s.text = e.Item.Text
-			}
-		case "turn.completed":
-			s.completed = true
-			s.quotaMessage = ""
-		case "error":
-			// Generic notices can recover; the raw log retains diagnostics.
-		}
-	}
+	n := s.native()
+	n.ConsumeLine(line)
+	*s = fromNative(n)
 }
 
-func codexEnv(parent []string) []string {
-	allowed := []string{"PATH", "HOME", "USER", "SHELL", "LANG", "LC_ALL", "TERM", "TMPDIR"}
-	var out []string
-	for _, name := range allowed {
-		if value := envValue(parent, name); value != "" {
-			out = append(out, name+"="+value)
-		}
-	}
-	return out
-}
 func envValue(env []string, name string) string {
 	for _, entry := range env {
 		if k, v, ok := strings.Cut(entry, "="); ok && k == name {
