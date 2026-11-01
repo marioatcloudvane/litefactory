@@ -543,7 +543,7 @@ func TestReconcileGraphDispatchGuardsAndRollback(t *testing.T) {
 }
 
 func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
-	for _, guard := range []string{"idle", "pending dispatch", "reserved dispatch", "running dispatch", "cancelled", "pending attempt", "running attempt", "prelaunch run", "running run", "waiting", "claimed", "allocated", "scheduled", "running schedule", "due", "doctor", "effect", "terminal", "superseded", "node changed", "capture changed"} {
+	for _, guard := range []string{"idle", "pending dispatch", "reserved dispatch", "running dispatch", "cancelled", "pending attempt", "running attempt", "prelaunch run", "running run", "waiting", "claimed", "allocated", "scheduled", "running schedule", "due", "doctor", "effect", "terminal", "superseded", "node changed", "capture changed", "capacity deferred attempt", "deferred capture changed"} {
 		t.Run(guard, func(t *testing.T) {
 			db, launch := captureFixture(t)
 			ctx, at := t.Context(), graphTestTime()
@@ -556,6 +556,7 @@ func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
 				t.Fatalf("candidates=%+v err=%v", candidates, err)
 			}
 			d := candidates[0]
+			var deferredAttempt GraphNodeAttempt
 			exec := func(query string, args ...any) {
 				t.Helper()
 				if _, err := db.sql.ExecContext(ctx, query, args...); err != nil {
@@ -629,6 +630,13 @@ func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
 				exec(`UPDATE graph_instances SET current_node='other' WHERE id=?`, d.InstanceID)
 			case "capture changed":
 				d.LaunchID++
+			case "capacity deferred attempt", "deferred capture changed":
+				// The #1268 shape: the deferral's own dispatch was later
+				// finished, leaving the paused attempt with nothing to resume it.
+				deferredAttempt = strandDeferredAttempt(t, db, d, at)
+				if guard == "deferred capture changed" {
+					d.LaunchID++
+				}
 			}
 			selected, err := db.ListStrandedGraphDispatches(ctx)
 			if err != nil {
@@ -640,7 +648,7 @@ func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
 					found = true
 				}
 			}
-			wantSelected := guard == "idle" || guard == "allocated" || guard == "node changed" || guard == "capture changed"
+			wantSelected := guard == "idle" || guard == "allocated" || guard == "node changed" || guard == "capture changed" || guard == "capacity deferred attempt" || guard == "deferred capture changed"
 			if found != wantSelected {
 				t.Fatalf("discovery selected=%v want %v", found, wantSelected)
 			}
@@ -651,17 +659,30 @@ func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
 				}
 			}
 			var count int
-			if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_dispatches WHERE instance_id=?`, d.InstanceID).Scan(&count); err != nil {
+			if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_dispatches WHERE instance_id=? AND status<>'finished'`, d.InstanceID).Scan(&count); err != nil {
 				t.Fatal(err)
 			}
 			want := 0
-			if guard == "idle" || guard == "allocated" || guard == "pending dispatch" || guard == "reserved dispatch" || guard == "running dispatch" || guard == "cancelled" {
+			if guard == "idle" || guard == "allocated" || guard == "pending dispatch" || guard == "reserved dispatch" || guard == "running dispatch" || guard == "cancelled" || guard == "capacity deferred attempt" {
 				want = 1
 			}
 			if count != want {
 				t.Fatalf("dispatch count=%d want %d", count, want)
 			}
-			if guard == "idle" || guard == "allocated" {
+			if guard == "capacity deferred attempt" || guard == "deferred capture changed" {
+				got, err := db.GetGraphNodeAttempt(ctx, deferredAttempt.ID)
+				if err != nil || got.Status != "pending" || got.LaunchID != deferredAttempt.LaunchID || got.Node != deferredAttempt.Node {
+					t.Fatalf("deferred attempt changed: %+v %v", got, err)
+				}
+				instance, err := db.GetGraphInstance(ctx, d.InstanceID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if wantDue := guard == "capacity deferred attempt"; !instance.NextDueAt.IsZero() != wantDue {
+					t.Fatalf("next_due_at=%v want set=%v", instance.NextDueAt, wantDue)
+				}
+			}
+			if guard == "idle" || guard == "allocated" || guard == "capacity deferred attempt" {
 				got, err := db.LatestGraphDispatch(ctx, d.InstanceID)
 				if err != nil || got.Node != d.Node || got.LaunchID != d.LaunchID || got.Status != "pending" || !got.DueAt.Equal(at) {
 					t.Fatalf("dispatch=%+v err=%v", got, err)
@@ -674,6 +695,56 @@ func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// strandDeferredAttempt pauses a fresh attempt through capacity deferral and
+// then finishes the dispatch the deferral created, leaving the instance with a
+// pending, marked attempt, no open dispatch and next_due_at NULL.
+func strandDeferredAttempt(t *testing.T, db *DB, d GraphDispatch, at time.Time) GraphNodeAttempt {
+	t.Helper()
+	ctx := t.Context()
+	a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, Limit: 3, StartedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeferGraphNodeAttempt(ctx, a.ID, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.ExecContext(ctx, `UPDATE graph_dispatches SET status='finished',finished_at=? WHERE instance_id=?`, FormatTime(at), d.InstanceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=NULL WHERE id=?`, d.InstanceID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetGraphNodeAttempt(ctx, a.ID)
+	if err != nil || got.Status != "pending" {
+		t.Fatalf("deferred attempt=%+v err=%v", got, err)
+	}
+	return got
+}
+
+// A paused (capacity-deferred) attempt makes an instance recoverable, never
+// idle: the owner's same-commit restart must not cancel it out from under it.
+func TestCancelIdleValidateInstanceKeepsCapacityDeferredAttempt(t *testing.T) {
+	db, launch := captureFixture(t)
+	ctx, at := t.Context(), graphTestTime()
+	admitted, err := db.AdmitWorkflowLaunch(ctx, launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := admitted.Instance
+	if _, err := db.sql.ExecContext(ctx, `UPDATE graph_definitions SET mode='validate' WHERE id=?`, instance.DefinitionID); err != nil {
+		t.Fatal(err)
+	}
+	strandDeferredAttempt(t, db, GraphDispatch{InstanceID: instance.ID, SessionID: instance.SessionID, Node: instance.CurrentNode, LaunchID: admitted.LaunchID}, at)
+	cancelled, err := db.CancelIdleValidateInstance(ctx, instance.ID, "the owner started Validate again on the same commit", at.Add(time.Minute))
+	if err != nil || cancelled {
+		t.Fatalf("cancelled=%v err=%v", cancelled, err)
+	}
+	got, err := db.GetGraphInstance(ctx, instance.ID)
+	if err != nil || got.Status != GraphRunning {
+		t.Fatalf("instance=%+v err=%v", got, err)
 	}
 }
 
