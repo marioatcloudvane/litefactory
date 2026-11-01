@@ -679,12 +679,15 @@ EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','d
 }
 
 // strandedGraphInstancePredicate is shared by discovery and the transactional
-// recheck. Historical allocated waits and completed attempts are not work.
-const strandedGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInstanceCancelledLatest + "\n" + graphInstanceIdleTail
+// recheck. Historical allocated waits and completed attempts are not work. A
+// capacity-deferred pending attempt is paused, not in flight: it waits for a
+// dispatch to resume it, so a missing dispatch is exactly what recovery owes.
+const strandedGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInstanceCancelledLatest + "\n" + graphInstanceStrandedAttempts + "\n" + graphInstanceIdleRest
 
 // idleGraphInstancePredicate is the stranded rule without the
 // cancelled-latest-dispatch clause: nothing is owed, attempted, running,
-// waiting, held, scheduled or in flight for the instance.
+// waiting, held, scheduled or in flight for the instance. A paused attempt
+// still counts here, so cancellation never orphans it.
 const idleGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInstanceIdleTail
 
 const graphInstanceIdleHead = `g.status='running' AND g.next_due_at IS NULL
@@ -695,8 +698,15 @@ AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=g.id AND d.s
 // stopped without a run (retry cap or closure) out of automatic recovery.
 const graphInstanceCancelledLatest = `AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.id=(SELECT MAX(id) FROM graph_dispatches WHERE instance_id=g.id) AND d.status='cancelled' AND d.allocated_run_id IS NULL)`
 
-const graphInstanceIdleTail = `AND NOT EXISTS(SELECT 1 FROM graph_node_attempts a WHERE a.instance_id=g.id AND a.status IN ('pending','running'))
-AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.session_id=g.session_id AND r.status IN ('prelaunch','running'))
+const graphInstanceIdleTail = graphInstanceIdleAttempts + "\n" + graphInstanceIdleRest
+
+const graphInstanceIdleAttempts = `AND NOT EXISTS(SELECT 1 FROM graph_node_attempts a WHERE a.instance_id=g.id AND a.status IN ('pending','running'))`
+
+// graphInstanceStrandedAttempts matches the capacity marker as a BLOB, the
+// type DeferGraphNodeAttempt stores; a TEXT literal would never compare equal.
+const graphInstanceStrandedAttempts = `AND NOT EXISTS(SELECT 1 FROM graph_node_attempts a WHERE a.instance_id=g.id AND (a.status='running' OR (a.status='pending' AND NOT EXISTS(SELECT 1 FROM graph_outputs o WHERE o.node_attempt_id=a.id AND o.kind='json' AND o.payload=CAST('` + graphCapacityDeferral + `' AS BLOB)))))`
+
+const graphInstanceIdleRest = `AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.session_id=g.session_id AND r.status IN ('prelaunch','running'))
 AND NOT EXISTS(SELECT 1 FROM graph_owner_waits w WHERE w.instance_id=g.id AND w.state IN ('waiting','claimed'))
 AND NOT EXISTS(SELECT 1 FROM schedules s WHERE s.session_id=g.session_id AND s.status IN ('pending','running'))
 AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=g.session_id)
