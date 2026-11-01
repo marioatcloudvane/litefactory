@@ -3,6 +3,8 @@ package turn
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/linear"
@@ -10,6 +12,24 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
+
+// creationDifference names the first field in which a created issue differs
+// from the prepared creation, or returns "" when it correlates.
+func creationDifference(s ticket.Snapshot, uuid, title, body, representation string, publisher ticket.Identity) string {
+	switch {
+	case s.Ref.Identity.RemoteID != uuid:
+		return "uuid"
+	case s.Title != title:
+		return "title"
+	case !linear.ContentEquivalent(body, s.Body):
+		return "body"
+	case s.Representation != representation:
+		return "representation"
+	case !s.Author.Identity.Equal(publisher):
+		return "author"
+	}
+	return ""
+}
 
 type correlatedTicketCreation interface {
 	CreateWithID(context.Context, string, string, redact.Body, redact.Body) (ticket.Snapshot, error)
@@ -209,8 +229,11 @@ func (b *TicketPlanBridge) CreateIssueEffect(ctx context.Context, key string, re
 	if err != nil {
 		return github.Issue{}, err
 	}
-	if snapshot.Ref.Identity.RemoteID != p.CreationUUID || snapshot.Title != title.String() || !linear.ContentEquivalent(body.String(), snapshot.Body) || snapshot.Representation != p.Representation || !snapshot.Author.Identity.Equal(b.Bot) {
-		return github.Issue{}, &ticket.Failure{Kind: ticket.Uncertain, Operation: "creation correlation", Cause: errors.New("created issue UUID, content or publisher differs")}
+	if field := creationDifference(snapshot, p.CreationUUID, title.String(), body.String(), p.Representation, b.Bot); field != "" {
+		// Only the field name is logged here; the Linear client logs the
+		// bounded, redacted content difference itself.
+		slog.WarnContext(ctx, "linear creation correlation differs", "effect", key, "field", field)
+		return github.Issue{}, &ticket.Failure{Kind: ticket.Uncertain, Operation: "creation correlation", Cause: fmt.Errorf("created issue UUID, content or publisher differs (%s)", field)}
 	}
 	if err = b.DB.ConfirmTicketEffectRepresentation(ctx, key, snapshot.Title+"\n"+snapshot.ProviderBody); err != nil {
 		return github.Issue{}, &ticket.Failure{Kind: ticket.Uncertain, Operation: "retain creation representation", Cause: err}
@@ -274,8 +297,12 @@ func (b *TicketPlanBridge) recoverIssueEffect(ctx context.Context, key string, r
 	if err != nil {
 		return github.Issue{}, err
 	}
-	if snapshot.Ref.Locator != locator || snapshot.Ref.Identity.RemoteID != prepared.CreationUUID || snapshot.Title != title || !linear.ContentEquivalent(body, snapshot.Body) || snapshot.Representation != prepared.Representation || !snapshot.Author.Identity.Equal(bound.Actor) {
-		return github.Issue{}, errors.New("exact issue creation correlation did not confirm publication")
+	if snapshot.Ref.Locator != locator {
+		return github.Issue{}, errors.New("exact issue creation correlation did not confirm publication (locator)")
+	}
+	if field := creationDifference(snapshot, prepared.CreationUUID, title, body, prepared.Representation, bound.Actor); field != "" {
+		slog.WarnContext(ctx, "linear creation correlation differs", "effect", key, "field", field)
+		return github.Issue{}, fmt.Errorf("exact issue creation correlation did not confirm publication (%s)", field)
 	}
 	if parentRef != nil {
 		observedParent, parentErr := b.Tickets.Parent(ctx, snapshot.Ref)
