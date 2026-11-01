@@ -653,9 +653,11 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 	// A live graph Plan story that is a task of its own answers its own
 	// comments. Its observation goes straight to the child's session; the
 	// parent only keeps the story owed for its next lifecycle sweep, as the
-	// listing path does, and is neither woken nor made a candidate. Linear
-	// story routing is unchanged.
-	if graphPlanChild && observation.Provider == ticket.GitHub {
+	// listing path does, and is neither woken nor made a candidate. This holds
+	// for Linear too: once the parent has handed polling to the child, its own
+	// sweep never wakes the child again, so a parent-routed Linear comment on
+	// the child was swept and lost.
+	if graphPlanChild {
 		story, live, err := d.db.GraphPlanStoryAt(ctx, q.repo.ID, number)
 		if err != nil {
 			return nil, err
