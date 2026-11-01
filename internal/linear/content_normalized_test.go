@@ -155,6 +155,27 @@ func TestContentEquivalentStoryTableRowWithCellPipe(t *testing.T) {
 	}
 }
 
+// storyEscapedProsePair is a story body whose list and paragraph lines carry
+// literal brackets, underscores and asterisks, with Linear's escaped readback
+// (MAR-63, #1325).
+func storyEscapedProsePair() (string, string) {
+	head := "<!-- lf:plan-story parent=1 key=story-001 -->\n<!-- lf:plan-request digest=" + strings.Repeat("a", 64) + " -->\n"
+	expected := head + "## Scope\n\n- Existing Invoices tab filter bar (&#91;data&#45;inv&#45;filters&#93;: All, Incoming&#46;\n\nKeep inv&#95;filter and the &#42; marker&#46;"
+	observed := head + "## Scope\n\n- Existing Invoices tab filter bar (\\[data-inv-filters\\]: All, Incoming.\n\nKeep inv\\_filter and the \\* marker."
+	return expected, observed
+}
+
+func TestContentEquivalentStoryProseWithEscapedInlineMarker(t *testing.T) {
+	expected, observed := storyEscapedProsePair()
+	if !ContentEquivalent(expected, observed) {
+		t.Fatalf("Linear's escaped story prose must stay equivalent:\n%s\n---\n%s", comparableContent(expected), comparableContent(observed))
+	}
+	changed := strings.Replace(observed, "Incoming", "Outgoing", 1)
+	if ContentEquivalent(expected, changed) {
+		t.Fatal("a changed word next to escaped brackets must not be equivalent")
+	}
+}
+
 func TestContentEquivalentStoryTableRowWithEscapedInlineMarker(t *testing.T) {
 	head := "<!-- lf:plan-story parent=1 key=story-001 -->\n<!-- lf:plan-request digest=" + strings.Repeat("a", 64) + " -->\n"
 	row := "| Element | Contract |\n| -- | -- |\n| Shared styles | Generic names like %s, checkbox-label and btn-success showed no other users. |"
