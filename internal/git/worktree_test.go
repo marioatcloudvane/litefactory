@@ -1069,14 +1069,11 @@ func newTaskWorktree(t *testing.T, repo *gittest.Repo, issue int, title string) 
 func newTaskWorktreeIn(t *testing.T, repo *gittest.Repo, clone *git.Clone, issue int, title string) (*git.Worktree, string) {
 	t.Helper()
 
-	// A merge started without committing (StartMerge, WriteResolvedFiles)
-	// still needs a committer identity, and internal/git passes only HOME
-	// through, so git falls back to the developer's ~/.gitconfig or the
-	// passwd name. A CI runner has neither. Production clones carry an
-	// identity (the turn refuses one without), so the fixture clone does too.
-	repo.Git("config", "user.name", testAuthor.Name)
-	repo.Git("config", "user.email", testAuthor.Email)
-
+	// The fixture clone deliberately carries no user.name or user.email:
+	// every merging or committing call (StartMerge, WriteResolvedFiles,
+	// MergeBase, Commit, CompleteMerge) must pass the turn author itself, so
+	// these tests fail on a host without a global git identity (the CI runner)
+	// if one ever stops doing so.
 	branch, dir := task(t, worktreeRoot(repo), issue, title)
 	result, err := git.EnsureWorktree(t.Context(), clone, git.EnsureWorktreeOptions{
 		Dir:        dir,
