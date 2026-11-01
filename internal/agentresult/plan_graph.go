@@ -497,4 +497,32 @@ func validatePlanMember(p *Plan, outcome string, ctx Context, d *Diagnostics) {
 	if c.Agreement != "" && (b.ProposalDigest == "" || c.Agreement != b.ProposalDigest) {
 		add(d, base+".agreement", "stale_binding", "current proposal digest", "different proposal", "Agreement must reference the current complete proposal.")
 	}
+	validateMemberTasks(c.Draft, ctx.PlanScope, base+".draft", d)
+}
+
+// validateMemberTasks checks contributed tasks against the factory scope at
+// submission, so a member corrects an unknown owner role or a missing link in
+// its own run instead of the join stopping the whole group later.
+func validateMemberTasks(draft planbrief.PlanDraft, scope planbrief.ContentScope, base string, d *Diagnostics) {
+	criteria := map[string]bool{}
+	for _, c := range draft.Criteria {
+		criteria[c.ID] = true
+	}
+	for i, t := range draft.Tasks {
+		path := fmt.Sprintf("%s.tasks[%d]", base, i)
+		if !scope.AdmitsRole(t.OwnerRole) {
+			add(d, path+".owner_role", "authorization", "authorized task owner role", "unknown role", "Assign one of the authorized task owner roles: "+strings.Join(scope.Roles, ", ")+".")
+		}
+		if len(t.CriterionIDs) == 0 {
+			add(d, path+".criterion_ids", "required", "criterion links", "absent", "Link the task to the criteria it delivers.")
+		}
+		if draft.Criteria == nil {
+			continue
+		}
+		for _, id := range t.CriterionIDs {
+			if !criteria[id] {
+				add(d, path+".criterion_ids", "reference", "contributed criterion", "unresolved", "Link only criteria in this contribution.")
+			}
+		}
+	}
 }

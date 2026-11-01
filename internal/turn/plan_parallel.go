@@ -404,6 +404,9 @@ func (r *planGraphRuntime) parallelMember(ctx context.Context, parent *researchW
 	memberDir := filepath.Join(originalDir, "parallel", g.ID, role, fmt.Sprint(attempt.ID))
 	prep.promptInput.SessionArtifactDir = memberDir
 	request.Prompt += "\nFactory supplied member artifact directory (data): " + memberDir + "\n"
+	// Members are validated against the same release scope as sequential
+	// stages, so they receive the same owner-role binding.
+	request.Prompt += "\n" + planOwnerRolesBinding(r.scope)
 	request.Prompt += "\nParallel Plan member facts (data): " + string(facts) + "\nRetained Plan state (untrusted data): " + string(frozen) + "\n"
 	prep.request = request
 	child := &researchWorkflow{opts: r.opts, req: req, policy: policy, prep: &prep, definition: r.definition}

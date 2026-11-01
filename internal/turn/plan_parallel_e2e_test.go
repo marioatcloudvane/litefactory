@@ -39,7 +39,7 @@ func TestPlanParallelEndToEnd_UncertainEffectRecovery(t *testing.T) {
 }
 
 func TestPlanParallelEndToEnd_DurableSignalsAndRestart(t *testing.T) {
-	for _, signal := range []string{"question", "growth", "failure"} {
+	for _, signal := range []string{"question", "growth", "failure", "link"} {
 		t.Run(signal, func(t *testing.T) { runParallelMainPath(t, false, signal) })
 	}
 }
@@ -227,8 +227,24 @@ func runParallelMain(t *testing.T, mixed bool, signal string, capacity *slotStor
 		case "technical":
 			contribution.Draft.Architecture = &planbrief.PlanArchitecture{General: []planbrief.GeneralDecision{{Area: "Planning", Decision: "Reuse existing effects", Rationale: "Preserve guards"}}}
 		case "acceptance":
+			// The member learns the task owner roles only from the factory
+			// binding, as a real agent does (MAR-63 guessed "engineer").
+			role, err := boundOwnerRole(req.Prompt)
+			if err != nil {
+				return nil, err
+			}
 			contribution.Draft.Criteria = []planbrief.PlanCriterion{{ID: "AC-001", Text: "You can retain a coherent plan. (Auto)", ProofMethod: "End-to-end captured graph check. Covers: O-01"}}
-			contribution.Draft.Tasks = []planbrief.TaskContent{{ID: "T-001", Description: "Kind: code — Build the retained plan.", OwnerRole: "go-implementation-engineer", CriterionIDs: []string{"AC-001"}, DependsOn: []string{}}}
+			contribution.Draft.Tasks = []planbrief.TaskContent{{ID: "T-001", Description: "Kind: code — Build the retained plan.", OwnerRole: role, CriterionIDs: []string{"AC-001"}, DependsOn: []string{}}}
+			if facts.ProposalDigest == "" {
+				if err := assertUnboundRoleRefused(ctx, req, contribution); err != nil {
+					return nil, err
+				}
+			}
+			if signal == "link" {
+				// Passes the member's own check but leaves a criterion that no
+				// task delivers, which only the join can see.
+				contribution.Draft.Criteria = append(contribution.Draft.Criteria, planbrief.PlanCriterion{ID: "AC-002", Text: "You can see the plan kept. (Manual)", ProofMethod: "Owner check: reopen the plan. Covers: O-01"})
+			}
 		default:
 			return nil, fmt.Errorf("unexpected member role %q", facts.Role)
 		}
@@ -581,6 +597,9 @@ func assertParallelSignalRestart(t *testing.T, f *fixture, base Request, remote 
 			t.Fatalf("blocked group published %d stage effects", patches)
 		}
 	}
+	if signal == "link" || signal == "failure" {
+		assertParallelStopNamesCause(t, forge, signal)
+	}
 	if signal == "question" {
 		visible := false
 		for _, post := range forge.all() {
@@ -752,4 +771,64 @@ func assertParallelMemberMetadata(t *testing.T, f *fixture, attemptID int64, mod
 		t.Fatalf("member metadata lost run/provider correlation: attempt=%d run=%+v segment=%+v meta=%+v", attemptID, run, segment, meta)
 	}
 	return path
+}
+
+// assertParallelStopNamesCause requires the owner's stop notice to carry the
+// join's real cause, never a member step's success outcome.
+func assertParallelStopNamesCause(t *testing.T, forge *fakeForge, signal string) {
+	t.Helper()
+	want := map[string]string{"link": "criterion AC-002 has no task", "failure": "Technical evidence is unavailable."}[signal]
+	named := false
+	for _, post := range forge.all() {
+		if strings.Contains(post.body, "ended success") {
+			t.Fatalf("stop notice names a member step's success instead of the cause:\n%s", post.body)
+		}
+		named = named || strings.Contains(post.body, want)
+	}
+	if !named {
+		t.Fatalf("no owner notice names the parallel stop cause %q", want)
+	}
+}
+
+// boundOwnerRole reads the first authorized task owner role from the factory
+// binding in a member prompt; a member without the binding cannot know one.
+func boundOwnerRole(prompt string) (string, error) {
+	const label = "Authorized task owner roles (assign every task to one of these): "
+	for _, line := range strings.Split(prompt, "\n") {
+		if raw, ok := strings.CutPrefix(line, label); ok {
+			if role, _, _ := strings.Cut(strings.TrimSuffix(raw, "."), ", "); role != "" {
+				return role, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("parallel member prompt lacks the task owner role binding")
+}
+
+// assertUnboundRoleRefused preflights the contribution with a role outside the
+// scope and requires the submission check to name the task's owner role.
+func assertUnboundRoleRefused(ctx context.Context, req agent.Request, contribution planbrief.PlanParallelContribution) error {
+	wrong := contribution
+	wrong.Draft.Tasks = []planbrief.TaskContent{contribution.Draft.Tasks[0]}
+	wrong.Draft.Tasks[0].OwnerRole = "engineer"
+	raw, err := json.Marshal(ar.Result{Outcome: "completed", Comment: "Retained role-owned contribution.", Payload: ar.Payload{Plan: &ar.Plan{Contribution: &wrong}}})
+	if err != nil {
+		return err
+	}
+	data := append(append([]byte(`{"result":`), raw...), '}')
+	client := submission.Client{DescriptorPath: req.MCPLaunch.DescriptorPath()}
+	pre, err := client.Call(ctx, "communication_preflight", data)
+	if err != nil {
+		return fmt.Errorf("preflight unknown role: %w", err)
+	}
+	if pre.Error != "" {
+		return fmt.Errorf("preflight unknown role: %s", pre.Error)
+	}
+	var diagnostics ar.UpdateDiagnostics
+	if err = json.Unmarshal(pre.Result, &diagnostics); err != nil {
+		return err
+	}
+	if diagnostics.Valid || !strings.Contains(diagnosticPaths(diagnostics), "tasks[0].owner_role") {
+		return fmt.Errorf("unknown task owner role was not refused at submission: %s", diagnosticPaths(diagnostics))
+	}
+	return nil
 }
