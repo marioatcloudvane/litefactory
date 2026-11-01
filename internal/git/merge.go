@@ -296,6 +296,18 @@ type MergeResult struct {
 	Merged bool
 }
 
+// identityArgs prefixes a git command with the identity prelude every
+// committing or merging git call carries: author as user.name and user.email,
+// and commit.gpgsign=false so a caller's signing config cannot hang the call
+// against GIT_TERMINAL_PROMPT=0.
+func identityArgs(author Author, args ...string) []string {
+	return append([]string{
+		"-c", "user.name=" + author.Name,
+		"-c", "user.email=" + author.Email,
+		"-c", "commit.gpgsign=false",
+	}, args...)
+}
+
 // MergeBase merges base into w's branch with "git merge --no-ff --no-edit",
 // carrying the same identity prelude as [Worktree.Commit]
 // ("-c user.name=... -c user.email=... -c commit.gpgsign=false"): omitting
@@ -389,12 +401,7 @@ func (w *Worktree) MergeBase(ctx context.Context, base string, opts MergeOptions
 	if opts.FastForwardOnly {
 		strategy = "--ff-only"
 	}
-	args := []string{
-		"-c", "user.name=" + opts.Author.Name,
-		"-c", "user.email=" + opts.Author.Email,
-		"-c", "commit.gpgsign=false",
-		"merge", strategy, "--no-edit", "--end-of-options", base,
-	}
+	args := identityArgs(opts.Author, "merge", strategy, "--no-edit", "--end-of-options", base)
 	if _, err := w.runner.run(ctx, mergeTimeout, args...); err != nil {
 		return w.recoverFromFailedMerge(ctx, base, before, err)
 	}
@@ -459,8 +466,11 @@ func (w *Worktree) recoverFromFailedMerge(ctx context.Context, base, before stri
 // paths git left unmerged, sorted. A merge already in progress (MERGE_HEAD
 // resolves) is not restarted: its still-unmerged paths are returned as they
 // are. Otherwise the worktree must be clean. It never aborts; concluding the
-// merge is left to a later [Worktree.Commit].
-func (w *Worktree) StartMerge(ctx context.Context, ref string) ([]string, error) {
+// merge is left to a later [Worktree.Commit]. author is passed to git with the
+// same identity prelude as [Worktree.MergeBase]: git refuses even a
+// --no-commit merge without a committer identity, and the factory must never
+// depend on the host's global git configuration for one.
+func (w *Worktree) StartMerge(ctx context.Context, ref string, author Author) ([]string, error) {
 	if err := w.check(); err != nil {
 		return nil, err
 	}
@@ -482,7 +492,7 @@ func (w *Worktree) StartMerge(ctx context.Context, ref string) ([]string, error)
 		return nil, fmt.Errorf("merge %s into %s: %w", ref, w.branch, ErrWorktreeUncommittedChanges)
 	}
 	if _, _, err := w.runner.runAllowingExit(ctx, mergeTimeout, []int{0, 1},
-		"merge", "--no-commit", "--no-ff", "--end-of-options", ref); err != nil {
+		identityArgs(author, "merge", "--no-commit", "--no-ff", "--end-of-options", ref)...); err != nil {
 		return nil, classify(err, ErrRevisionNotFound, 128)
 	}
 	if _, err := revParse(ctx, w.runner, "MERGE_HEAD", RevParseOptions{}); err != nil {
