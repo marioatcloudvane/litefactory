@@ -251,6 +251,10 @@ func validateImplement(p *Implement, outcome string, ctx Context, d *Diagnostics
 	}
 }
 func validateAssessments(p *Validate, outcome string, ctx Context, d *Diagnostics) {
+	if p.Report != nil || ctx.Report != nil {
+		validateReportPayload(p, outcome, ctx, d)
+		return
+	}
 	if p.Repair != nil || ctx.RepairRole {
 		validateRepairReport(p, outcome, ctx, d)
 		return

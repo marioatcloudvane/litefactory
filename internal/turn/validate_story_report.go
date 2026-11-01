@@ -264,7 +264,7 @@ func renderValidateStoryCommentBoundFor(onLinear bool, st ValidateState, s Valid
 		bareFinding := f
 		bareFinding.Summary = ""
 		one.Findings = []ValidateFinding{bareFinding}
-		actions := validateDecisionItemsFor(onLinear, one)
+		actions := validateStoryDecisionItems(onLinear, one)
 		if len(actions) == 0 {
 			continue
 		}
@@ -372,4 +372,64 @@ func (r *Reporter) reportValidateStory(ctx context.Context, sessionID int64, tas
 	intent := r.deliveryIntent(task, destination, sessionID, 0, 0, purpose)
 	_, err := r.upsertValidateComment(ctx, intent, destination, text)
 	return err
+}
+
+// validateStoryDecisionItems is the per-finding guidance of a story sub-issue
+// comment. A story comment stands alone, so each item keeps its commands and
+// their consequences. Untrusted story keys and summaries are escaped with the
+// destination's inline contract; Linear writes no numeric entities.
+func validateStoryDecisionItems(onLinear bool, st ValidateState) []string {
+	var items []string
+	for _, f := range st.Findings {
+		var b strings.Builder
+		fmt.Fprintf(&b, "**%s · `%s`**", planTableCellFor(onLinear, f.Story), f.ID)
+		if f.Summary != "" {
+			b.WriteString(": " + implementInline(onLinear, shortenFindingText(f.Summary, validateStoryTextFloor)))
+		}
+		b.WriteString("\n")
+		switch {
+		case f.State == findingNotReviewed:
+			b.WriteString("This item has no usable review and takes no owner check or finding choice. Use the parent report's shared missing-review rerun: it reuses the passed suite and repeats the missing reviews.")
+		case f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable():
+			fmt.Fprintf(&b, "`%s %s %s pass -- <what you checked>` or `%s %s %s fail -- <what you saw>`\n", ValidateCheckCommand, st.Revision, f.ID, ValidateCheckCommand, st.Revision, f.ID)
+			b.WriteString("The owner supplies evidence. Pass settles this check on the tested commit; fail keeps it blocking and exposes its finding choices. Neither verdict permits push, merge or close.")
+			if f.needsChoice() {
+				b.WriteString("\n" + validateStoryChoiceGuidance(st, f))
+			}
+		case f.needsChoice() && f.Choice == nil:
+			b.WriteString(validateStoryChoiceGuidance(st, f))
+		case f.Choice != nil:
+			fmt.Fprintf(&b, "Current choice: %s. ", choiceWords(f))
+			if f.Choice.Choice == store.ChoiceIssue {
+				if e, ok := st.Effects.Issues[f.ID]; ok && e.State == store.EffectFailed {
+					fmt.Fprintf(&b, "Issue creation failed; `%s %s %s issue %s` retries this choice. ", ValidateFindingCommand, st.Revision, f.ID, f.Choice.IssueKind)
+				} else if ok && e.State == store.EffectUncertain {
+					fmt.Fprintf(&b, "Issue creation is uncertain; `%s %s %s issue %s` retries the retained choice. The retry reconciles the existing intent and marker before creating anything; it does not blindly duplicate the issue, and uncertainty may remain. ", ValidateFindingCommand, st.Revision, f.ID, f.Choice.IssueKind)
+				}
+			}
+			if validateItemBlocks(f) {
+				b.WriteString("The choice does not clear this blocker; a new tested snapshot or eligible owner verdict remains necessary.")
+			}
+		default:
+			continue
+		}
+		items = append(items, b.String())
+	}
+	return items
+}
+
+func validateStoryChoiceGuidance(st ValidateState, f ValidateFinding) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "`%s %s %s repair` starts a repair only after every blocking finding has a choice. `%s %s %s issue bug` or `%s %s %s issue story` creates a follow-up issue. ", ValidateFindingCommand, st.Revision, f.ID, ValidateFindingCommand, st.Revision, f.ID, ValidateFindingCommand, st.Revision, f.ID)
+	if f.Optional {
+		fmt.Fprintf(&b, "`%s %s %s defer` leaves this optional suggestion deferred. ", ValidateFindingCommand, st.Revision, f.ID)
+	}
+	if f.acceptable() {
+		fmt.Fprintf(&b, "`%s %s %s accept -- <reason>` records the owner's reason for accepting this deliberate deviation. ", ValidateFindingCommand, st.Revision, f.ID)
+	}
+	if validateItemBlocks(f) {
+		b.WriteString("Repair and issue creation do not clear this blocker: a new tested snapshot or an eligible owner verdict is still required. ")
+	}
+	b.WriteString("These choices grant no delivery permission.")
+	return b.String()
 }

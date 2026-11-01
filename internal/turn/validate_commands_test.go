@@ -112,8 +112,8 @@ func TestParseValidateCommandMalformed(t *testing.T) {
 }
 
 func TestParseCommandClassifiesValidateControls(t *testing.T) {
-	if len(ValidateControlCommands) != 9 {
-		t.Fatalf("want nine commands, got %v", ValidateControlCommands)
+	if len(ValidateControlCommands) != 10 {
+		t.Fatalf("want ten commands, got %v", ValidateControlCommands)
 	}
 	for _, name := range ValidateControlCommands {
 		switch name {
