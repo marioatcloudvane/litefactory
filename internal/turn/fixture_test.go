@@ -66,6 +66,17 @@ type fixture struct {
 	session   store.Session
 	logs      *bytes.Buffer
 	opts      Options
+	// capacity, when set, is the step reservation every turn a graph helper
+	// executes runs under, as a daemon worker's does.
+	capacity StepCapacity
+}
+
+// turnContext is the context a graph helper executes a turn in.
+func (f *fixture) turnContext(t *testing.T) context.Context {
+	if f.capacity == nil {
+		return t.Context()
+	}
+	return WithStepCapacity(t.Context(), f.capacity)
 }
 
 func newFixture(t *testing.T, runner Runner) *fixture {

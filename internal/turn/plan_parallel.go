@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -140,8 +139,8 @@ func (r *planGraphRuntime) parallel(ctx context.Context, w *researchWorkflow, a 
 	if w.prep == nil {
 		return ActivityResult{}, errors.New("parallel coordinator preparation missing")
 	}
-	// Admission is one atomic weighted replacement for coordinator and all members.
-	// The grant remains owned by the outer driver until every invocation joins.
+	// Admission holds the group's minimum, one member lane; the grant remains
+	// owned by the outer driver until every invocation joins.
 	if err = r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(s *planbrief.PlanState) (bool, error) {
 		if s.StorySet == nil || !s.StorySet.Promoted {
 			return false, errors.New("parallel Plan requires a promoted story set")
@@ -176,6 +175,24 @@ func (r *planGraphRuntime) parallel(ctx context.Context, w *researchWorkflow, a 
 	if err = r.recoverParallelMembers(ctx, a); err != nil {
 		return ActivityResult{}, err
 	}
+	// The group was admitted on its minimum; members borrow further slots as
+	// the pool frees them, never more than the group's full declared cost.
+	admission, err := graphexec.AdmissionSlotCost(r.definition.Profile, a.Node)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	full, err := graphexec.SlotCost(r.definition.Profile, a.Node)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	memberCosts := map[string]int{}
+	for role, member := range declaration.Members {
+		if memberCosts[role], err = graphexec.SlotCost(r.definition.Profile, member); err != nil {
+			return ActivityResult{}, err
+		}
+	}
+	memberCost := func(role string) int { return memberCosts[role] }
+	lanes := newParallelLanes(ctx, admission, full)
 	for round := 0; round < declaration.Rounds; round++ {
 		s, _, e := r.state(ctx)
 		if e != nil {
@@ -217,21 +234,10 @@ func (r *planGraphRuntime) parallel(ctx context.Context, w *researchWorkflow, a 
 			}
 		}
 		frozen, _ := json.Marshal(s)
-		var wg sync.WaitGroup
-		errs := make(chan error, len(roles))
-		for _, role := range roles {
-			wg.Add(1)
-			go func(role string) {
-				defer wg.Done()
-				errs <- r.parallelMember(ctx, w, a, declaration.Members[role], role, *g, frozen)
-			}(role)
-		}
-		wg.Wait()
-		close(errs)
-		var combined error
-		for e := range errs {
-			combined = errors.Join(combined, e)
-		}
+		snapshot := *g
+		combined := runParallelMembers(ctx, lanes, roles, memberCost, func(ctx context.Context, role string) error {
+			return r.parallelMember(ctx, w, a, declaration.Members[role], role, snapshot, frozen)
+		})
 		outcome := ""
 		e = r.opts.DB.UpdatePlanWorkflowState(context.WithoutCancel(ctx), r.parentRef.String(), func(s *planbrief.PlanState) (bool, error) {
 			item := parallelStory(s, r.selected)

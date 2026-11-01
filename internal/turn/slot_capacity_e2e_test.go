@@ -71,6 +71,12 @@ func (p *slotStoryParent) Release() {
 }
 func (p *slotStoryParent) Capacity() (int, int) { return p.pool.Capacity() }
 
+// TryGrow borrows extra pool slots for nested members, as the daemon's
+// reservation does.
+func (p *slotStoryParent) TryGrow(_ context.Context, cost int) (func(), bool, error) {
+	return p.pool.acquire(cost)
+}
+
 // AC-003 drives the real persisted Validate graph, suite and nested review
 // activities through contention, a partial yield and startup reconciliation.
 func TestSlotCapacityWorkflowWaitsAndResumesWithoutReplay(t *testing.T) {
