@@ -4,7 +4,7 @@ _Technical detail behind [the brief](RESEARCH_BRIEF.md). Findings carry the sour
 
 ## f1
 
-The story-worker role is already tier flagship in source and in all four 1.0.0 teams, after commit 79bafcc9 (owner decision 2026-11-01, PR #1293 merged 09:30Z). Issue #1296 was opened at 09:41Z but still states balanced. As written, the request is a no-op.
+At 5ecc55e64fea7b26aea94134ce1de7b1890c91f8, story-worker is balanced in base source and all four 1.0.0 teams. PR #1294 merged as 9aa6922d19ff340df3f660bd65813e2e64577b69 partially reverted #1293. Today's unmodified Implement worker therefore uses balanced for every size. This replaces the previous all-flagship/no-op finding.
 
 Evidence:
 
@@ -13,36 +13,38 @@ Evidence:
 
 ## f2
 
-Validate roles (acceptance, architecture, code, repair) are all flagship already, so 'flagship reviewers only for L' would also mean routing down, not up.
+Validate acceptance is now balanced; code, architecture, repair and reporter are flagship. Reviewer routing is explicitly excluded by the owner.
 
 Evidence:
 
+- `teams/source/base-team/validate/validate-acceptance.md:4`
 - `teams/source/base-team/validate/validate-code.md:4`
 
 ## f3
 
-A node-level lf_model_tier overrides the role tier when the node is captured, and delivery resolves the model from that captured tier. Allowed values are flagship, balanced and fast. Bug's analyst node already uses this override.
+Captured node lf_model_tier overrides the role tier. Delivery resolves that tier through local provider model configuration and populates both MainModel and specialist tier/model evidence. Allowed tiers remain flagship, balanced and fast. End-to-end persisted provenance was not exercised.
 
 Evidence:
 
 - `internal/teamsource/research.go:241`
-- `internal/turn/research_delivery.go:42`
+- `internal/turn/research_delivery.go:39`
+- `internal/turn/research_delivery.go:66`
+- `internal/turn/delivery.go:88`
 - `internal/graphexec/invoke_agent.go:34`
-- `teams/source/base-team/bug/bug.dot:7`
 
 ## f4
 
-Fact comparisons (story.size, story.sizing_valid, story.fallback) are only accepted when the mode is Plan. In every other mode, lf_field must be response.
+Control schema and decoding admit story.size, story.sizing_valid and story.fallback only in Plan; other modes allow response only. Plan's fact evaluator is existing reusable behavior, but its current mode boundary excludes Implement.
 
 Evidence:
 
 - `internal/graphexec/research_control.go:52`
 - `internal/graphexec/research_control.go:87`
-- `internal/graphexec/plan_parallel.go:55`
+- `internal/turn/plan_parallel.go:33`
 
 ## f5
 
-The Implement control vocabulary is only completed/incomplete/blocked, and the Implement graph check rejects any action outside its known list (lf_if is not on it).
+Implement graph validation still rejects lf_if through its action whitelist. Its control response vocabulary is completed/incomplete/blocked.
 
 Evidence:
 
@@ -51,38 +53,73 @@ Evidence:
 
 ## f6
 
-The Implement graph check requires exactly one non-resolver lf_agent, and requires the worker sync to send synced and current to the same worker agent.
+Implement validation requires exactly one non-resolver worker. Worker success must reach its own lf_source result node; worker sync success paths must reach the same worker and incoming paths must pass sync. Any branch design must preserve these safety properties while relaxing the single-worker shape.
 
 Evidence:
 
 - `internal/graphexec/implement.go:247`
+- `internal/graphexec/implement.go:300`
 - `internal/graphexec/implement.go:467`
+- `internal/graphexec/implement.go:485`
 
 ## f7
 
-Story size is computed only from Plan state (PlanStorySetState entry), and only inside the Plan runtime. Implement's records (ImplementStory, ManagedStory, ApprovedStoryRevision) carry no size, and implementWorkerHandoff does not read Plan state. Plan state stays readable by parent ref (GetPlanWorkflowState is also used by the daemon and ask), so Implement could read it. Inference: no code does this today.
+Sizing lives in Plan's story-set entry. Implement runtime and handoff use the worker ledger and approved story revisions, without loading Plan sizing facts. The worker runtime already knows parent, generation and story key, which can identify authoritative saved sizing; generation/revision compatibility needs design attention. No size field exists in the inspected Implement/managed/approved story records.
 
 Evidence:
 
 - `internal/turn/plan_parallel.go:33`
+- `internal/turn/implement_graph.go:37`
+- `internal/turn/implement_steps.go:628`
 - `internal/store/implement_stories.go:38`
 - `internal/store/managed_stories.go:29`
-- `internal/turn/implement_steps.go:628`
-- `internal/daemon/story_refinements.go:136`
 
 ## f8
 
-'Growth' is a Plan-only event: RecordPlanGrowth moves a story from the fast track back to the normal Plan path and does not change its size. Nothing in Implement re-sizes a story, so an M story cannot become L mid-Implement.
+Plan growth records fallback and returns to the normal Plan route without changing the size. No Implement resizing path was found in the inspected Implement runtime. The owner excludes introducing mid-run resizing.
 
 Evidence:
 
-- `internal/planbrief/plan_parallel.go:318`
+- `internal/planbrief/plan_parallel.go:321`
+- `internal/turn/implement_graph.go:37`
 
 ## f9
 
-Impact: touched would be implement.dot (source and four 1.0.0 releases), graphexec Implement checks and control policy, and the Implement runtime's fact source. Depends on it: every team release's Implement graph and its validation tests. Superseded: none found. Data: no migration found; the size is already persisted in Plan state. Not verified: whether slot budget and lf_source resolution assume one worker node.
+Impact: likely touched are base Implement DOT and generated four 1.0.0 team graphs/manifest, factory graph condition/check policy, Implement fact activities and their tests. Dependents include team capture/delivery, daemon dispatch capacity and saved graph replay; shared control changes can affect Plan. Existing unbranched worker routing is superseded for newly captured updated graphs; no role retirement is needed. Plan already persists size, so no new data migration is established by this pass. Old plans intentionally lack sizing; retained graph/capture compatibility and the authoritative generation lookup remain shaping checks. Recent #1268 extracted generic execution, leaving factory mode policies under internal; keep this policy out of the neutral library.
 
 Evidence:
 
 - `teams/source/base-team/implement/implement.dot:59`
 - `teams/teams.json:1`
+- `internal/turn/step_capacity.go:98`
+- `internal/turn/implement_graph.go:37`
+- `internal/graphexec/research_control.go:52`
+
+## f10
+
+The inspected result and capacity paths do not hard-code one worker name: retainedAnswer passes lf_source to latestResearchAgentAttempt, which filters the named agent; GraphDispatchSlotNeed computes costs for dispatch.Node from the retained profile. Handoff uses session/story identity, not node name. This supports multiple mutually exclusive workers in principle, but does not prove a branched graph works end to end.
+
+Evidence:
+
+- `internal/turn/implement_steps.go:203`
+- `internal/turn/research_comments.go:291`
+- `internal/turn/step_capacity.go:83`
+- `internal/turn/implement_steps.go:628`
+
+## f11
+
+Plan's sizing_valid requires S/M/L plus a nonblank, valid UTF-8, single-line reason of at most 280 characters; a mismatched parallel route version also invalidates it. Size alone is therefore not the existing validity rule. Old Plan sizing requirements intentionally allow unsized records.
+
+Evidence:
+
+- `internal/turn/plan_parallel.go:33`
+- `.aiteam/lf-1226-plan-size-every-story-s-m-l-in-the-plan/2026-10-26/plan-size-every-story-s-m-l-in-the-plan/RESEARCH_BRIEF.md:1`
+
+## f12
+
+The current worker node binds story-worker role/standards, implement-result and stack skill, slot budget 3 and three node attempts. The story ledger owns repair counting. Routing must not accidentally add repair attempts or bypass synchronization. This pass used code, saved briefs, git history and GitHub issue/PR reads; no tests, live model invocation, cost measurement or manual L-story acceptance ran.
+
+Evidence:
+
+- `teams/source/base-team/implement/implement.dot:59`
+- `internal/turn/implement_policy.go:26`

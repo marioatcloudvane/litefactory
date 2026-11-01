@@ -2,29 +2,22 @@
 
 ## Request
 
-Route the Implement story worker's model tier by story size in implement.dot: L on flagship, S/M/missing/invalid on the role's own tier (stated as balanced), with no size-to-tier policy in Go; provenance shows the tier used.
+Route the Implement story worker in DOT: valid S/M inherit the role tier (currently balanced); L and missing/invalid sizing use flagship. Keep size-to-tier policy out of Go, preserve provenance evidence, and exclude reviewer routing and mid-run resizing.
 
 ## Decisions
 
-- **S-01** — mode=change+agent-guidance, size=medium — changes Implement graph wiring plus the factory checks and facts that allow it (agent's call).
-- **K-01** — No size-to-tier policy in Go; the routing itself lives in implement.dot (owner said: "The routing belongs in the Implement graph (DOT), like Plan's fast track. No size-to-tier policy in Go.").
+- **S-01** — mode=change+agent-guidance, size=medium — changes Implement graph routing, supporting factory fact/check boundaries and generated team definitions (agent's call).
+- **K-01** — Routing lives in implement.dot; no size-to-tier policy in Go (owner said: "The routing belongs in the Implement graph (DOT), like Plan’s fast track. No size-to-tier policy in Go.").
+- **A-01** — q1 “Which size routing should the story worker get, now that every role is on flagship?” — owner: "Following the judge: q1=a. Write out the full routing table: valid S and M stay on the role tier, L runs the worker on flagship, and a missing or invalid size also runs on flagship. Reviewers and mid-run resizing stay out of this version. Note: PR #1294 put story-worker back on balanced, so re-check the current role tier before shaping." (owner said: comment 6564476496).
+- **O-01** — Full routing: valid S → role tier (currently balanced); valid M → role tier (currently balanced); L → flagship; missing size → flagship; invalid sizing → flagship. The explicit owner table governs over the older option-a wording (owner said: comment 6564476496).
+- **N-01** — Reviewer routing and mid-run resizing are excluded (owner said: "Reviewers and mid-run resizing stay out of this version.").
+- **O-02** — The shipped Implement graph validates; automated evidence shows selected worker tier/model in run provenance; manual acceptance follows an L story end to end (owner said: issue #1296 draft acceptance).
 
 
 ## Assumptions
 
-- **a1** — Missing or invalid size takes the default (role) tier, as the issue states (agent's call).
-- **a2** — Provenance already records the resolved main model per delivery (agent.Delivery.MainModel), so the acceptance check can read it (agent's call; not traced end to end).
-
-
-## Open questions
-
-### q1 — Which size routing should the story worker get, now that every role is on flagship?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Route down: keep the role on flagship and run S/M stories on balanced through the graph. This saves cost on the bulk of the work and keeps today's quality for L.  *(recommended)*
-- **b** — Route up, as the issue says: put the role back to balanced and run only L stories on flagship. Same end result as (a), but it reverts part of this morning's team decision.
-- **c** — No routing: all sizes stay on flagship. The issue is then covered by #1293 and can close.
+- **a3** — Interpret valid S/M using existing Plan sizing validity rather than the size letter alone; malformed or absent reason therefore falls back to flagship. The exact reuse boundary and route-version treatment remain for shaping (agent's call; rests on planStoryFacts).
+- **a4** — Keep old unsized plans operable without backfill, routing them to flagship when they use the updated graph. Preserve retained capture/replay semantics; rollout behavior for already captured graphs remains a shaping point (agent's call).
 
 ## Research documents
 
