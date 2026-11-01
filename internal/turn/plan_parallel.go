@@ -157,12 +157,17 @@ func (r *planGraphRuntime) parallel(ctx context.Context, w *researchWorkflow, a 
 			return false, nil
 		}
 		basis := r.parallelBasis(*s, item.Parallel)
-		if item.Parallel == nil || item.Parallel.Basis != basis {
+		retry := r.ownerRetryTrigger()
+		if item.Parallel == nil || item.Parallel.Basis != basis || retryStoppedParallel(item.Parallel, retry) {
+			// An owner retry of a stopped group starts a fresh attempt, as the
+			// stop notice promises: no member result or blocker is reused.
+			// Approvals live on the story, so they keep their own guards.
 			g, e := planbrief.NewPlanParallelGroup(fmt.Sprintf("group-%d-%d", a.InstanceID, a.NodeAttemptID), basis, declaration.Rounds, item.Draft)
 			if e != nil {
 				return false, e
 			}
 			g.ParentAttemptID = a.NodeAttemptID
+			g.Trigger = retry
 			g.Blockers = append(g.Blockers, item.Draft.Questions...)
 			item.Parallel = g
 		}
@@ -404,6 +409,9 @@ func (r *planGraphRuntime) parallelMember(ctx context.Context, parent *researchW
 	memberDir := filepath.Join(originalDir, "parallel", g.ID, role, fmt.Sprint(attempt.ID))
 	prep.promptInput.SessionArtifactDir = memberDir
 	request.Prompt += "\nFactory supplied member artifact directory (data): " + memberDir + "\n"
+	// Members are validated against the same release scope as sequential
+	// stages, so they receive the same owner-role binding.
+	request.Prompt += "\n" + planOwnerRolesBinding(r.scope)
 	request.Prompt += "\nParallel Plan member facts (data): " + string(facts) + "\nRetained Plan state (untrusted data): " + string(frozen) + "\n"
 	prep.request = request
 	child := &researchWorkflow{opts: r.opts, req: req, policy: policy, prep: &prep, definition: r.definition}
@@ -671,6 +679,28 @@ func (r *planGraphRuntime) parallelJudgeContext(ctx context.Context, a ActivityR
 	input.SourceNodeAttemptID = attempt.ID
 	input.PinnedSource = &store.JudgeSource{Task: r.result.Ref.String(), Kind: "graph", Provider: string(r.req.Agent), ID: attempt.ID, Revision: 1, Reference: item.Parallel.ID + ":" + a.Attrs["lf_stage"], Snapshot: raw, PlanContext: manifest, Digest: hashBytes(raw)}
 	return input, nil
+}
+
+// ownerRetryTrigger returns the owner comment of a `/plan <text>` request, the
+// retry the stop notice asks for, and 0 for anything else: discussion, factory
+// dispatch, other authors and other commands never discard retained results.
+func (r *planGraphRuntime) ownerRetryTrigger() int64 {
+	t := r.req.Trigger
+	if r.discussion || t.CommentID <= 0 || store.IsPrivateTrigger(t.CommentID) || t.AuthorID != r.ownerID {
+		return 0
+	}
+	if c := ParseCommand(t.Body); c.Kind != KindSpike || c.Name != "/plan" {
+		return 0
+	}
+	return t.CommentID
+}
+
+// retryStoppedParallel reports whether an owner retry replaces the group. Only
+// a stopped group qualifies: questions, review and growth keep their own paths,
+// a running or sealed group has no blocker, and a group this same trigger
+// started is never replaced again.
+func retryStoppedParallel(g *planbrief.PlanParallelGroup, trigger int64) bool {
+	return g != nil && trigger > 0 && g.Trigger != trigger && !g.Sealed && len(g.Blockers) > 0 && parallelBlockerOutcome(g) == "stopped"
 }
 
 func parallelBlockerOutcome(g *planbrief.PlanParallelGroup) string {
