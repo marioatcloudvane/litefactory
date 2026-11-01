@@ -6,42 +6,34 @@ Let Bug work run on Codex as well as Claude: an explicit Coding Agent label wins
 
 ## Decisions
 
-- **S-01** — mode=change+feature, size=medium — existing agent selection changes for Bugs and a new Bug-agent setting is added. (agent's call)
-- **O-01** — A Bug with an explicit Coding Agent label runs analyst, fixer, judge and delivery on that agent with that agent's Bug grants. (owner said: 'an explicit Coding Agent label on the Bug wins')
-- **O-02** — An unlabelled or factory-filed Bug uses the owner-configured Bug agent, or inherits from its parent task, not the first listed agent. (owner said: 'Factory-filed Bugs get the agent the owner configures for Bug work (or inherit it from the parent task)')
-- **O-03** — The Bug report shows which agent and model ran it. (owner said: 'The Bug report shows which agent and model ran it.')
-- **O-04** — Automated tests prove a Codex-labelled Bug runs analyst, fixer, judge and delivery on Codex with Codex grants, and that unlabelled and log-analysis Bugs get the configured Bug agent. (owner said: 'Verify end to end ... (Auto) A factory-filed Bug ... gets the configured Bug agent.')
-- **O-05** — Order of precedence for a Bug's agent: explicit label, then parent task's agent, then Bug setting, then first listed agent. (agent's call)
-- **N-01** — No change to how stories choose agents. (agent's call)
-- **N-02** — No Linear label writing or Linear Bug filing. (agent's call)
-- **N-03** — The manual real-Bug Codex delivery is the owner's check; the agent does not run it. (agent's call)
-- **K-01** — With no new setting and no label, behaviour stays as today (first configured agent), so existing installs are unaffected. (agent's call)
-- **K-02** — Ambiguous or unknown Coding Agent labels keep being refused as today. (agent's call)
+- **S-01** — mode=change+feature, size=medium — Bug selection changes and an optional Bug-agent setting is added. (agent's call)
+- **O-01** — A Bug's explicit Coding Agent label selects the agent for analyst, fixer, judge and delivery using the existing grants for each role and agent. (owner said: "an explicit Coding Agent label on the Bug wins")
+- **O-02** — Unlabelled Bugs, including factory-filed Bugs, resolve their agent at dispatch without writing agent labels to issues. (owner said: "q02=a")
+- **O-03** — The Bug report shows the agent and reported model used by the run. (owner said: "The Bug report shows which agent and model ran it.")
+- **O-04** — Automated coverage proves Codex-labelled Bugs use Codex through analyst, fixer, judge and delivery with the applicable grants, and covers configured-agent selection for unlabelled, log-analysis, Validate-follow-up and babysitter Bugs. (owner said: issue acceptance criteria; agent's call: coverage includes every named filing source)
+- **O-05** — Bug agent precedence is explicit Bug label, parent agent, optional bug_agent setting, then first configured agent. (owner said: "the new Bug-agent setting controls only Bugs without an explicit or inherited agent")
+- **N-01** — Story agent selection does not change. (agent's call)
+- **N-02** — Linear label writing and Linear Bug filing remain outside this work. (agent's call)
+- **N-03** — A real Bug delivered on Codex remains an owner-run manual acceptance check outside this shaping run. (agent's call)
+- **K-01** — First-agent fallback remains only when the Bug has no explicit label, inherited agent or Bug setting, so parent inheritance can change existing installations without a config edit. (owner said: "document the parent-inheritance exception")
+- **K-02** — Ambiguous and unknown Coding Agent labels remain rejected. (agent's call)
+- **O-06** — Add an optional bug_agent configuration value naming an existing configured agent, with omission preserving the fallback in K-01. (owner said: "q01=a")
+- **O-07** — Automated tests prove parent precedence with bug_agent present and absent, including a Claude parent overriding a Codex Bug setting and an explicit Bug label overriding the parent. (owner said: "test parent precedence with the setting present and absent"; agent's call: explicit conflict cases)
+- **O-08** — Configuration guidance explains precedence, the inheritance exception and that setting Codex for Bugs does not override a Claude parent. (owner said: "document the parent-inheritance exception")
+- **K-03** — Existing Bug permission boundaries and workflow approval and delivery gates remain unchanged. (agent's call)
+- **N-04** — Automatic provider failover, workflow-wide agent maps and provider installation or sign-in management are outside this change. (agent's call)
+- **O-09** — Fresh dispatch and continuation use the same Bug-selection rules while an already running segment retains its recorded agent. (agent's call)
+- **A-04** — q01, q02 and compatibility correction — owner: "Following the judge: q01=a and q02=a. Correct the compatibility promise as the judge says: the new Bug-agent setting controls only Bugs without an explicit or inherited agent; document the parent-inheritance exception and test parent precedence with the setting present and absent." (owner said)
 
 
 ## Assumptions
 
-- **A-01** — Labelled Bugs on Codex probably already work through the shared path; the automated end-to-end check is still needed to prove it. (agent's call, rests on F-04 and F-06)
-- **A-02** — Inheritance order is label, parent, Bug setting, first agent (O-05); the setting's home and the filing approach await q01 and q02, recommended a and a. (agent's call)
-- **A-03** — The model shown is the one the run reported; if a run reports none, the report says 'not reported'. Added to the shared run report so all workflows show it. (agent's call)
-
-
-## Open questions
-
-### q01 — Where do you set the agent for Bug work?
-
-_Asked of: Product Owner Questions_
-
-- **a** — New optional config key `bug_agent` (e.g. codex). Unset means first listed agent, so existing installs do not change.  *(recommended)*
-- **b** — No setting. Bugs only use a label or the parent's agent; otherwise first listed agent. Smallest change, but your Claude-outage case stays open for log-analysis Bugs.
-- **c** — Per-workflow agent map in config (bug, story, and so on). Most flexible, biggest change.
-
-### q02 — How do factory-filed Bugs get their agent?
-
-_Asked of: Technical Questions_
-
-- **a** — Resolve at dispatch: no label, no parent agent, so use `bug_agent`. One rule covers log analysis, Validate follow-ups, babysitter and hand-filed Bugs. Nothing is written to the issue.  *(recommended)*
-- **b** — Write a `Coding Agent: X` label when the factory files the Bug. Visible on the issue, but needs changes at each filing site and Linear cannot take it.
+- **A-01** — A Codex label reaches the existing runtime path in source, but automated full-path proof and a real delivery remain outstanding. (agent's call, rests on F-04 and F-06)
+- **A-02** — Superseded pending choices by O-02, O-05 and O-06: the owner selected optional bug_agent and dispatch-time resolution. (owner said: "q01=a and q02=a")
+- **A-03** — Show the model reported by each run segment when models differ, use 'not reported' for missing historical metadata, and extend the shared report surface without altering other workflows' agent selection. (agent's call)
+- **A-05** — Use the immediate parent's recorded selected agent when available, otherwise its single valid explicit agent label; if neither is available, use the Bug setting, without traversing further ancestors. (agent's call, rests on O-05 and the existing parent-label pattern in F-05)
+- **A-06** — Reject an unknown or unconfigured bug_agent with a clear configuration error rather than silently choosing another provider; parent lookup failures follow existing retry/error handling rather than silently bypassing known inheritance. (agent's call)
+- **A-07** — No stored-issue migration is needed: existing unstarted Bugs are resolved at dispatch, and historical reports may lack model metadata. (agent's call, rests on F-02 and F-08)
 
 ## Research documents
 

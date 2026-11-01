@@ -74,9 +74,11 @@ Evidence:
 
 ## F-09
 
-Impact: touched are daemon agent selection (tick, continuation dispatch, inheritance), config schema and template, report run type, and tests in daemon/turn/report. Depends on it: story agent inheritance, judge provider, Bug runtime, Linear (label writes limited to mapped mode labels). Existing installs: a new config key must be optional so current configs keep the first-listed-agent behaviour. No migrations found in the code read.
+Impact (source inspection retained): touched surfaces are daemon selection and continuation, parent resolution, optional config schema/template, shared run-report metadata and daemon/turn/report tests; dependents include story inheritance, judge provider and Bug delivery. Bug first-agent fallback is superseded only when a parent agent or Bug setting applies; stories and role grants remain unchanged. No data migration was found in the inspected selection/config/report surfaces; historical model data may be unavailable. The earlier blanket unchanged-install promise is superseded by K-01. No team-role or skill changes are required by this scope.
 
 Evidence:
 
 - `internal/daemon/tick.go:2819`
 - `internal/daemon/agent_inherit.go:45`
+- `internal/config/config.go:83`
+- `internal/report/run.go:19`
