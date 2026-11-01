@@ -12,6 +12,8 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
+	native "github.com/cloudvane/litefactory/pkg/execution/providers/codex"
 )
 
 // conversationPermissions denies all files except minimal runtime and this
@@ -27,10 +29,10 @@ func (r *Runner) ConversationIsolation(ctx context.Context, state string) (strin
 	if err != nil {
 		return "", err
 	}
-	env := append(providerprocess.DoctorEnvironment(r.environ, home), "CODEX_HOME="+home)
-	help, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"exec", "--help"}, env, scratch)
+	env := append(execution.IsolatedEnvironment(r.environ, home), "CODEX_HOME="+home)
+	help, err := execution.Probe(ctx, r.binary.Path, []string{"exec", "--help"}, env, scratch)
 	if err != nil {
-		if errors.Is(err, providerprocess.ErrProbeTransient) || ctx.Err() != nil {
+		if errors.Is(err, execution.ErrProbeTransient) || ctx.Err() != nil {
 			return "", err
 		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
@@ -47,9 +49,9 @@ func (r *Runner) ConversationIsolation(ctx context.Context, state string) (strin
 	defer func() { _ = os.Remove(sentinel) }()
 	script := `/bin/cat "$1" >/dev/null 2>&1 && exit 1; ( : > "$2" ) 2>/dev/null && exit 1; : > "$3" || exit 1; /bin/rm "$3" || exit 1; /bin/echo conversation-isolation-verified`
 	args := []string{"sandbox", "-c", conversationPermissions(scratch), "-P", "conversation", "--", "/bin/sh", "-c", script, "conversation-probe", sentinel, filepath.Join(home, "isolation-write"), filepath.Join(scratch, "isolation-write")}
-	output, err := providerprocess.ConversationProbe(ctx, r.binary.Path, args, env, scratch)
+	output, err := execution.Probe(ctx, r.binary.Path, args, env, scratch)
 	if err != nil {
-		if errors.Is(err, providerprocess.ErrProbeTransient) || ctx.Err() != nil {
+		if errors.Is(err, execution.ErrProbeTransient) || ctx.Err() != nil {
 			return "", err
 		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
@@ -90,7 +92,7 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 	if err = r.linkDoctorAuth(home); err != nil {
 		return agent.ConversationResult{}, err
 	}
-	env := append(providerprocess.DoctorEnvironment(r.environ, home), "CODEX_HOME="+home)
+	env := append(execution.IsolatedEnvironment(r.environ, home), "CODEX_HOME="+home)
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	result := agent.ConversationResult{Session: request.Session}
@@ -165,19 +167,5 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 }
 
 func conversationArguments(request agent.ConversationRequest, scratch string) []string {
-	args := []string{"exec"}
-	if request.Session.Resume != "" {
-		args = append(args, "resume")
-	}
-	args = append(args, "--json", "--strict-config", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--model", request.Model, "-c", conversationPermissions(scratch), "-c", `default_permissions="conversation"`, "-c", `approval_policy="never"`, "-c", `web_search="disabled"`, "-c", `mcp_servers={}`, "-c", `project_doc_max_bytes=0`, "-c", `developer_instructions=`+strconv.Quote(request.NativeInstructions))
-	if request.Effort != "" {
-		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(request.Effort))
-	}
-	for _, feature := range []string{"shell_tool", "unified_exec", "view_image", "image_generation", "multi_agent", "apps", "plugins", "browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use", "code_mode", "code_mode_host", "in_app_browser", "enable_mcp_apps", "auth_elicitation"} {
-		args = append(args, "-c", "features."+feature+"=false")
-	}
-	if request.Session.Resume != "" {
-		args = append(args, request.Session.Resume)
-	}
-	return append(args, "-")
+	return native.ConversationArguments(native.ConversationOptions{Session: request.Session.Resume, Model: request.Model, Effort: request.Effort, Configurations: []string{conversationPermissions(scratch), `default_permissions="conversation"`, `approval_policy="never"`, `web_search="disabled"`, `mcp_servers={}`, `project_doc_max_bytes=0`, `developer_instructions=` + strconv.Quote(request.NativeInstructions)}, DisabledFeatures: []string{"shell_tool", "unified_exec", "view_image", "image_generation", "multi_agent", "apps", "plugins", "browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use", "code_mode", "code_mode_host", "in_app_browser", "enable_mcp_apps", "auth_elicitation"}})
 }

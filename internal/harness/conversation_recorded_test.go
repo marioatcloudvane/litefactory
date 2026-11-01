@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
 // These recordings exercise the adapter protocol; they do not verify an installed CLI.
@@ -245,7 +245,7 @@ func TestRecordedClaudeProbeExhaustion(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := runner.RunConversation(t.Context(), request)
-	if !errors.Is(err, providerprocess.ErrProbeTransient) || errors.Is(err, agent.ErrConversationIsolation) {
+	if !errors.Is(err, execution.ErrProbeTransient) || errors.Is(err, agent.ErrConversationIsolation) {
 		t.Fatalf("transient cause lost: %v", err)
 	}
 	if _, err = os.Stat(filepath.Join(runner.claudeConfigDir, "launch.count")); !errors.Is(err, os.ErrNotExist) {

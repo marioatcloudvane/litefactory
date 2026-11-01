@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
+	native "github.com/cloudvane/litefactory/pkg/execution/providers/claude"
 	"os"
 	"regexp"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
 // RunJudge uses the scoped broker transport with only the read-only native
@@ -29,7 +30,7 @@ func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (agen
 	if request.Thinking != "" {
 		// This bounded local help request cannot invoke a model or inherit model
 		// alias environment overrides, user settings or authentication credentials.
-		help, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"--help"}, providerprocess.DoctorEnvironment(r.environ, request.Invocation.WorkingDirectory), request.Invocation.WorkingDirectory)
+		help, err := native.Probe(ctx, r.binary.Path, []string{"--help"}, execution.IsolatedEnvironment(r.environ, request.Invocation.WorkingDirectory), request.Invocation.WorkingDirectory)
 		if err != nil {
 			var pathErr *os.PathError
 			if errors.As(err, &pathErr) && pathErr.Path == r.binary.Path && errors.Is(err, os.ErrNotExist) {

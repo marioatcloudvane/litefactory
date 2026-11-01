@@ -36,7 +36,7 @@ func TestGraphPackagePurity(t *testing.T) {
 			if path == "github.com/cloudvane/litefactory/internal/agent" || path == "github.com/cloudvane/litefactory/internal/config" || path == "github.com/cloudvane/litefactory/internal/planbrief" {
 				continue
 			}
-			if name == "dot.go" && strings.HasPrefix(path, "gonum.org/v1/gonum/") {
+			if path == "github.com/cloudvane/litefactory/pkg/execution/graph" {
 				continue
 			}
 			first, _, _ := strings.Cut(path, "/")
