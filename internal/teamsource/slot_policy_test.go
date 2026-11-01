@@ -2,6 +2,8 @@ package teamsource
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -12,6 +14,7 @@ func TestImplementSlotPolicyCaptureAndRetainedReplay(t *testing.T) {
 	t.Parallel()
 	var registry graphexec.Registry
 	specs := append(graphexec.ImplementSpecs(), graphexec.ActionSpec{Name: "lf_agent", Mode: agent.ModeImplement, Outcomes: []string{"success", "failed"}, Attributes: graphexec.AgentAttributes()})
+	specs = append(specs, graphexec.ControlSpec(graphexec.ResearchIfAction, graphexec.ImplementControlPolicy()))
 	for _, spec := range specs {
 		if err := registry.Register(spec); err != nil {
 			t.Fatal(err)
@@ -26,7 +29,7 @@ func TestImplementSlotPolicyCaptureAndRetainedReplay(t *testing.T) {
 		want := 1
 		if node.Terminal {
 			want = 0
-		} else if node.Name == "worker_agent" {
+		} else if node.Name == "worker_agent" || node.Name == "worker_flagship" {
 			want = 3
 		}
 		cost, err := graphexec.SlotCost(fresh.Profile, node.Name)
@@ -35,8 +38,12 @@ func TestImplementSlotPolicyCaptureAndRetainedReplay(t *testing.T) {
 		}
 	}
 	// Retained bytes from the former policy remain independent of current source.
+	prior, err := CaptureWorkflow(t.Context(), os.DirFS(filepath.Join(repoRoot(), "teams/go-development/v1.0.0/implement")), "implement.dot", "go-development", agent.ModeImplement, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
 	historical := RetainedFiles{}
-	for name, data := range fresh.Files {
+	for name, data := range prior.Files {
 		historical[name] = bytes.Clone(data)
 	}
 	historical["implement.dot"] = bytes.Replace(historical["implement.dot"], []byte(`lf_slot_budget="3", `), nil, 1)

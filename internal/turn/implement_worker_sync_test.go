@@ -103,7 +103,7 @@ func TestImplementWorkerSyncInitialAndRepairCheckoutHandoff(t *testing.T) {
 	// Another Execute restores that graph and verifies its durable handoff.
 	instance, err := f.db.LatestWorkflowInstance(ctx, f.session.ID, "implement")
 	mustProgress(t, err)
-	if instance.CurrentNode != "worker_agent" {
+	if instance.CurrentNode != "worker_flagship" {
 		t.Fatalf("repair did not pause after its gate: %+v", instance)
 	}
 	repair, err := f.db.LatestGraphNodeAttempt(ctx, instance.ID, "sync_before_worker")
@@ -155,7 +155,7 @@ func TestImplementWorkerDelayedDirtyHandoffCannotLaunch(t *testing.T) {
 	}
 	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
 	mustProgress(t, err)
-	if instance.CurrentNode != "worker_agent" {
+	if instance.CurrentNode != "worker_flagship" {
 		t.Fatalf("no delayed handoff: %+v", instance)
 	}
 	const content = "retained work changed after sync\n"

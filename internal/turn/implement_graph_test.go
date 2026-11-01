@@ -108,8 +108,8 @@ func TestImplementGraphCapturesAndEveryNodeIsBounded(t *testing.T) {
 			}
 		}
 	}
-	if roles["story-worker"] != 1 || roles["sync-resolver"] != 2 || len(roles) != 2 {
-		t.Fatalf("one story worker and a resolver per base sync: %v", roles)
+	if roles["story-worker"] != 2 || roles["sync-resolver"] != 2 || len(roles) != 2 {
+		t.Fatalf("two exclusive story workers and a resolver per base sync: %v", roles)
 	}
 	for _, role := range []string{"story-worker.md", "sync-resolver.md"} {
 		if _, ok := definition.Files[role]; !ok {

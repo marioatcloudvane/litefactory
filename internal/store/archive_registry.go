@@ -245,7 +245,10 @@ var archiveRetained = map[string]ArchiveClass{
 	"delivery_code_authorities":   ArchiveClassSkeleton, "delivery_control_sources": ArchiveClassSkeleton,
 	"managed_features": ArchiveClassSkeleton, "managed_stories": ArchiveClassSkeleton,
 	"managed_parent_closures": ArchiveClassSkeleton, "approved_story_revisions": ArchiveClassSkeleton,
-	"story_publications": ArchiveClassSkeleton, "story_revision_operations": ArchiveClassSkeleton,
+	// Publication provenance shares the frozen approval lifetime, including
+	// after editable Plan state and its issue projections are archived.
+	"published_story_sizing": ArchiveClassSkeleton,
+	"story_publications":     ArchiveClassSkeleton, "story_revision_operations": ArchiveClassSkeleton,
 	"story_scope_notices": ArchiveClassSkeleton, "story_contract_upgrades": ArchiveClassSkeleton,
 	"story_contract_upgrade_items": ArchiveClassSkeleton, "workflow_admissions": ArchiveClassSkeleton,
 	"mode_selections": ArchiveClassSkeleton, "story_refinements": ArchiveClassSkeleton,

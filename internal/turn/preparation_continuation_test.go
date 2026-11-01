@@ -183,7 +183,7 @@ func TestPreparationCaveatsContinueOriginalRequest(t *testing.T) {
 		runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
 			calls++
 			t.Logf("approved managed invocation ref=%s graph=%+v profile=%s permissions=%+v", req.Ref, req.Graph, req.Permissions.Profile, req.Permissions.Payload)
-			if req.Graph == nil || req.Graph.Node != "worker_agent" || req.Permissions.Profile != "implement" || !strings.Contains(req.Prompt, "As an operator I want a health endpoint") {
+			if req.Graph == nil || req.Graph.Node != "worker_flagship" || req.Permissions.Profile != "implement" || !strings.Contains(req.Prompt, "As an operator I want a health endpoint") {
 				t.Fatalf("approved worker authority or scope changed: %+v", req)
 			}
 			mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "health.go"), []byte("package api // approved unaffected work\n"), 0600))
