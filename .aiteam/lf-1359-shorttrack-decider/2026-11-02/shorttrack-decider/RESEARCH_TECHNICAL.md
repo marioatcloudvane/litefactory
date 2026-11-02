@@ -112,3 +112,38 @@ Evidence:
 - `internal/store/spike_admission.go:10`
 - `internal/turn/spike_gate.go:147`
 - `internal/agentresult/validate.go:385`
+
+## F-11
+
+Shared machinery already exposes one retained result per graph instance, ask/done routing, question support and default access inherited from the run; Spike opts into per-node results, read-only default access, specialized effects, annotation and handoff. Inference: a single conversational role can reuse shared mechanisms, but the current Spike policy is not already that design.
+
+Evidence:
+
+- `internal/turn/workflow_policy.go:25`
+- `internal/turn/workflow_policy.go:76`
+- `internal/turn/workflow_policy.go:185`
+- `internal/turn/spike_workflow.go:41`
+
+## F-12
+
+Replacement impact supersedes the extension impact recommendation in F-08: remove Spike-exclusive gate/check/note/issue actions, their statuses/proposal/fix report/check fields, stage handoffs and graph branches; replace investigator/fixer guidance with one role and a minimal result contract. Update result validation, policy/renderer, admission retirement handling, team captures, routing examples, owner docs and affected tests. Shared turn handling currently references a Spike-named time helper, so deleting Spike files requires preserving genuinely shared utilities rather than removing callers. Other modes and inherited teams depend on the shared runtime and must retain their behavior.
+
+Evidence:
+
+- `internal/turn/spike_workflow.go:19`
+- `internal/turn/spike_note.go:21`
+- `internal/turn/spike_handoff.go:68`
+- `internal/agentresult/types.go:188`
+- `internal/agentresult/validate.go:157`
+- `internal/turn/research_agent.go:165`
+- `teams/source/python-fastapi/inherit.json:1`
+
+## F-13
+
+The observed provenance/profile-binding behavior in F-10 still holds, but its proposed compatibility guarantee is superseded by O-13: old executable paths are retired, while history is preserved. Spike admission currently loads and checks captured definitions before resuming, providing an existing boundary at which unsupported old workflows can be refused. Old installations/captures need the normal updated team adoption; pending old work cannot transparently continue on a replacement graph. No migration of business data was found in the inspected Spike admission and result surfaces; the change concerns workflow state and results.
+
+Evidence:
+
+- `internal/turn/spike_admission.go:106`
+- `internal/store/spike_admission.go:15`
+- `internal/agentresult/types.go:188`
