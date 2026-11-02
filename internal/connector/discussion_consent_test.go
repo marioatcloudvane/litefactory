@@ -160,19 +160,29 @@ func TestConsentNamesWhatIsWrongAndStaysUsable(t *testing.T) {
 	registerTestRepo(t, f.db, "acme", "api")
 	j, _, csrf, cookie := consentPageFor(t, f, DiscussionScope)
 	for name, tc := range map[string]struct {
-		form url.Values
-		want string
+		form           url.Values
+		want           string
+		reason, detail string
 	}{
-		"no repository":             {url.Values{"scope": {DiscussionScope, TaskUsageScope}}, "choose all repositories or at least one registered repository for task:discussion, task:usage"},
-		"unknown repository":        {url.Values{"scope": {DiscussionScope}, "repository": {"github:missing/repo"}}, `repository not registered: "github:missing/repo"`},
-		"code without discussion":   {url.Values{"scope": {CodeReviewScope}, "repositories": {"all"}}, "task:code-review also needs task:discussion; tick both"},
-		"unknown repository choice": {url.Values{"scope": {DiscussionScope}, "repositories": {"some"}}, `unknown repository choice: "some"`},
+		"no repository":             {url.Values{"scope": {DiscussionScope, TaskUsageScope}}, "choose all repositories or at least one registered repository for task:discussion, task:usage", "consent:invalid_request", "repositories_missing"},
+		"unknown repository":        {url.Values{"scope": {DiscussionScope}, "repository": {"github:missing/repo"}}, `repository not registered: "github:missing/repo"`, "consent:invalid_request", "repository_not_registered"},
+		"repository selected twice": {url.Values{"scope": {DiscussionScope}, "repository": {"github:acme/api", "github:acme/api"}}, `repository selected twice: "github:acme/api"`, "consent:invalid_request", "repository_selected_twice"},
+		"code without discussion":   {url.Values{"scope": {CodeReviewScope}, "repositories": {"all"}}, "task:code-review also needs task:discussion; tick both", "consent:invalid_scope", "code_review_needs_discussion"},
+		"unknown repository choice": {url.Values{"scope": {DiscussionScope}, "repositories": {"some"}}, `unknown repository choice: "some"`, "consent:invalid_request", "repository_choice_unknown"},
+		"advisory on all":           {url.Values{"scope": {DiscussionScope, AdvisoryScope}, "repositories": {"all"}}, "untick all repositories and explicitly choose repositories for advisory execution or discussion publication", "consent:invalid_request", "all_repositories_not_allowed"},
 	} {
 		tc.form.Set("duration", "1")
 		response := postConsentResponse(t, j, csrf, cookie, tc.form)
 		body := html.UnescapeString(response.Body.String())
 		if response.Code != http.StatusBadRequest || !strings.Contains(body, tc.want) || strings.Contains(body, "invalid_grant") {
 			t.Errorf("%s: HTTP %d %s", name, response.Code, body)
+		}
+		reason, detail := lastConsentAudit(t, f)
+		if reason != tc.reason || detail != tc.detail {
+			t.Errorf("%s: audit reason %q detail %q, want %q %q", name, reason, detail, tc.reason, tc.detail)
+		}
+		if strings.Contains(detail, "github:") {
+			t.Errorf("%s: audit detail quotes input: %q", name, detail)
 		}
 	}
 	browserNoGrants(t, f)

@@ -114,22 +114,23 @@ const allRepositories = "all"
 // consentCoverage reads the repository selection for a grant whose scope
 // needs one. "All repositories" wins over individually ticked repositories.
 // The store checks that each listed repository is registered. A non-empty
-// string is the plain reason the selection is refused.
-func consentCoverage(form url.Values, scope string) (store.ConnectorCoverage, string) {
+// string is the plain reason the selection is refused, with its fixed short
+// audit code.
+func consentCoverage(form url.Values, scope string) (store.ConnectorCoverage, string, string) {
 	switch form.Get("repositories") {
 	case allRepositories:
 		if store.ConnectorScopeHas(scope, AdvisoryScope) || store.ConnectorScopeHas(scope, DiscussionPublishScope) {
-			return store.ConnectorCoverage{}, "untick all repositories and explicitly choose repositories for advisory execution or discussion publication"
+			return store.ConnectorCoverage{}, "untick all repositories and explicitly choose repositories for advisory execution or discussion publication", "all_repositories_not_allowed"
 		}
-		return store.ConnectorCoverage{All: true}, ""
+		return store.ConnectorCoverage{All: true}, "", ""
 	case "":
 	default:
-		return store.ConnectorCoverage{}, "unknown repository choice: " + strconv.Quote(form.Get("repositories"))
+		return store.ConnectorCoverage{}, "unknown repository choice: " + strconv.Quote(form.Get("repositories")), "repository_choice_unknown"
 	}
 	var coverage store.ConnectorCoverage
 	for _, ref := range form["repository"] {
 		if ref == "" || len(ref) > 1024 {
-			return store.ConnectorCoverage{}, "repository not registered: " + strconv.Quote(ref)
+			return store.ConnectorCoverage{}, "repository not registered: " + strconv.Quote(ref), "repository_not_registered"
 		}
 		coverage.Repositories = append(coverage.Repositories, store.ConnectorRepository{RepositoryRef: ref})
 	}
@@ -140,33 +141,37 @@ func consentCoverage(form url.Values, scope string) (store.ConnectorCoverage, st
 				needs = append(needs, s)
 			}
 		}
-		return store.ConnectorCoverage{}, "choose all repositories or at least one registered repository for " + strings.Join(needs, ", ")
+		return store.ConnectorCoverage{}, "choose all repositories or at least one registered repository for " + strings.Join(needs, ", "), "repositories_missing"
 	}
-	return coverage, ""
+	return coverage, "", ""
 }
 
 // consentActionCoverage never accepts the all-read checkbox as action consent.
-func consentActionCoverage(form url.Values) (store.ConnectorCoverage, string) {
+// Like consentCoverage it returns the plain reason and the audit code.
+func consentActionCoverage(form url.Values) (store.ConnectorCoverage, string, string) {
 	var coverage store.ConnectorCoverage
 	if len(form["action_repository"]) == 0 || len(form["action_repository"]) > 1000 {
-		return coverage, "choose at least one registered repository for repository:actions"
+		return coverage, "choose at least one registered repository for repository:actions", "action_repositories_missing"
 	}
 	for _, ref := range form["action_repository"] {
 		if ref == "" || len(ref) > 1024 {
-			return store.ConnectorCoverage{}, "invalid action repository selection"
+			return store.ConnectorCoverage{}, "invalid action repository selection", "action_repository_invalid"
 		}
 		coverage.Repositories = append(coverage.Repositories, store.ConnectorRepository{RepositoryRef: ref})
 	}
-	return coverage, ""
+	return coverage, "", ""
 }
 
 // consentRefusal answers a refused Allow with a short page naming what was
 // wrong. Nothing is granted and the pending consent stays usable, so the owner
 // can go back, change the selection and allow again. The audit line keeps the
-// OAuth error code.
-func consentRefusal(w http.ResponseWriter, code, reason string) {
+// OAuth error code as its reason and adds detail, a fixed short code naming
+// which check refused; the plain reason (which may quote form input) is only
+// shown on the page.
+func consentRefusal(w http.ResponseWriter, code, detail, reason string) {
 	if response, ok := w.(*oauthResponse); ok {
 		response.code = code
+		response.detail = detail
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
