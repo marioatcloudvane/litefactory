@@ -91,3 +91,24 @@ Evidence:
 - `docs/guides/workflow.md:74`
 - `internal/store/spike_admission.go:1`
 - `internal/turn/spike_fix_units_test.go:1`
+
+## F-09
+
+Further contract inspection: proposal fields are defect-based, and finished write results require a defect plus a regression-test path listed among changed files; therefore changing investigator prose alone cannot admit truthful documentation-only edits. The gate already parses file ceilings from one to five, but the captured graph currently chooses three. The proposed scope changes admission/report semantics, not just guidance.
+
+Evidence:
+
+- `internal/agentresult/types.go:259`
+- `internal/agentresult/validate.go:420`
+- `internal/turn/spike_gate.go:63`
+- `teams/source/base-team/spike/spike.dot:32`
+
+## F-10
+
+Compatibility inspection: graph Spike admission preserves recorded provenance and refuses legacy or ambiguous sessions; runtime steps bind the profile digest and load retained source results through the Spike policy. New result semantics must not invalidate replay of old graph results. Before/after: defect-only editing becomes one bounded change with appropriate evidence; text routing remains advisory and repository-backed eligibility remains authoritative; old captures retain old behavior, new captures adopt the extension. No public command rename or application-data migration is proposed.
+
+Evidence:
+
+- `internal/store/spike_admission.go:10`
+- `internal/turn/spike_gate.go:147`
+- `internal/agentresult/validate.go:385`
