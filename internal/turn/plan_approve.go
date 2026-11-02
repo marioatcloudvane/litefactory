@@ -56,11 +56,13 @@ func (r *planGraphRuntime) approve(ctx context.Context, a ActivityRequest) (Acti
 			return false, nil
 		}
 		before := slices.Clone(s.GraphApprovedStages())
+		stageBefore := storyStage(s, r.selected)
 		var e error
 		if result, e = s.ApproveByGraph(r.selected, r.stage, node.Request.Candidate, node.Request.RequestID); e != nil {
 			return false, e
 		}
-		return result.Outcome == "approved" && !slices.Equal(before, s.GraphApprovedStages()), nil
+		changed := !slices.Equal(before, s.GraphApprovedStages()) || stageBefore != storyStage(s, r.selected)
+		return result.Outcome == "approved" && changed, nil
 	})
 	if err != nil {
 		return ActivityResult{}, err
@@ -74,4 +76,12 @@ func (r *planGraphRuntime) approve(ctx context.Context, a ActivityRequest) (Acti
 		out.Kind, out.Output = store.GraphOutputJSON, raw
 	}
 	return out, nil
+}
+
+// storyStage is the saved stage of one story, or empty when it is unknown.
+func storyStage(s *planbrief.PlanState, key string) string {
+	if item := parallelStory(s, key); item != nil {
+		return item.Stage
+	}
+	return ""
 }

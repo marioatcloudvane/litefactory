@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -33,8 +32,7 @@ func planStoryFacts(s planbrief.PlanState, key string) map[string]string {
 	facts := map[string]string{"story.sizing_valid": "false", "story.fallback": "false"}
 	if entry, ok := s.StorySet.EntryForStory(key); ok {
 		facts["story.size"] = entry.Size
-		reason := strings.TrimSpace(entry.SizeReason)
-		if slices.Contains([]string{"S", "M", "L"}, entry.Size) && reason != "" && utf8.ValidString(entry.SizeReason) && utf8.RuneCountInString(reason) <= 280 && !strings.ContainsAny(entry.SizeReason, "\r\n") {
+		if valid, _ := planbrief.ValidateStorySizing(entry.Size, entry.SizeReason, nil); valid {
 			facts["story.sizing_valid"] = "true"
 		}
 	}
@@ -305,6 +303,9 @@ func (r *planGraphRuntime) parallel(ctx context.Context, w *researchWorkflow, a 
 	return r.parallelOutcome(ctx, "stopped"), err
 }
 
+// parentSessionDirectoryLabel opens the parent line of [sessionDirectoryContext].
+const parentSessionDirectoryLabel = "Factory supplied parent session directory: "
+
 func (r *planGraphRuntime) parallelMember(ctx context.Context, parent *researchWorkflow, a ActivityRequest, node, role string, g planbrief.PlanParallelGroup, frozen []byte) (returnedErr error) {
 	policy := PlanWorkflowPolicy()
 	// The member contract is supplied by its captured Markdown resources; the
@@ -409,6 +410,11 @@ func (r *planGraphRuntime) parallelMember(ctx context.Context, parent *researchW
 	memberDir := filepath.Join(originalDir, "parallel", g.ID, role, fmt.Sprint(attempt.ID))
 	prep.promptInput.SessionArtifactDir = memberDir
 	request.Prompt += "\nFactory supplied member artifact directory (data): " + memberDir + "\n"
+	// The member reviews the same story, so it gets the same pointer to the
+	// parent's Research and Plan files as the stage it belongs to.
+	if parent.prep.parentSessionDir != "" && len(parent.prep.parentSessionFiles) > 0 && !strings.Contains(request.Prompt, parentSessionDirectoryLabel) {
+		request.Prompt += sessionDirectoryContext(memberDir, parent.prep.parentSessionDir, parent.prep.parentSessionFiles)
+	}
 	// Members are validated against the same release scope as sequential
 	// stages, so they receive the same owner-role binding.
 	request.Prompt += "\n" + planOwnerRolesBinding(r.scope)
@@ -909,6 +915,11 @@ func parallelStageApproved(s *planbrief.PlanState, a ActivityRequest, request *g
 		return false
 	}
 	stage := a.Attrs["lf_stage"]
+	// A story that a re-run moved back to this stage falls through to
+	// ApproveByGraph, which moves it on again.
+	if slices.Index(planReviewStages, item.Stage) <= slices.Index(planReviewStages, stage) {
+		return false
+	}
 	if item.Parallel.Applied[stage] == "" || request.Draft.StageRevision(stage) != item.Draft.StageRevision(stage) {
 		return false
 	}

@@ -31,12 +31,14 @@ type ResultDiagnostics struct {
 // ResultService binds communication preflight/submit/receipt to one doctor attempt.
 // It reuses the application result ledger and its immutable replay semantics.
 type ResultService struct {
-	comments CommentReader
-	repairID string
-	db       *store.DB
-	binding  store.ResultBinding
-	evidence store.DoctorEvidence
-	redactor *redact.Redactor
+	ciProbe      CIProber
+	ciRepository string
+	comments     CommentReader
+	repairID     string
+	db           *store.DB
+	binding      store.ResultBinding
+	evidence     store.DoctorEvidence
+	redactor     *redact.Redactor
 }
 
 // BindResults installs only doctor result authority; no workflow runner is used.

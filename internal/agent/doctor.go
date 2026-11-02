@@ -38,12 +38,23 @@ func (r DoctorRequest) Validate() error {
 	if err := r.Sandbox.Validate(r.WorkingDirectory); err != nil {
 		return err
 	}
-	return validateDoctorTools(r.MCPLaunch, DoctorToolNames())
+	if err := validateDoctorTools(r.MCPLaunch, DoctorToolNames()); err == nil {
+		return nil
+	}
+	return validateDoctorTools(r.MCPLaunch, DoctorCIToolNames())
 }
 
 // DoctorToolNames is the exact diagnosis-only broker catalog.
 func DoctorToolNames() []string {
 	return []string{"communication_preflight", "communication_receipt", "communication_submit", "database_query", "issue_comments"}
+}
+
+// DoctorCIToolNames adds only the configured-target access diagnostic. The
+// broker still admits it solely in the authorized factory diagnosis context.
+func DoctorCIToolNames() []string {
+	names := append(DoctorToolNames(), "ci_access")
+	slices.Sort(names)
+	return names
 }
 
 func (r DoctorRequest) validateContext() error {

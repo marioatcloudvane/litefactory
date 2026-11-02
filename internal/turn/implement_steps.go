@@ -64,6 +64,9 @@ func (rt *implementRuntime) registerEffects(specs *graphexec.Registry, activitie
 		handler implementStepFunc
 	}
 	steps := []step{{graphexec.ImplementSelectSpec(), rt.selectPath}}
+	// Shared control registration owns the action; Implement supplies only its
+	// frozen fact adapter, without reading an agent response.
+	activities.handlers[graphexec.ResearchIfAction] = implementStepFunc(rt.sizingFact)
 	if rt.worker == nil {
 		if err := RegisterImplementActivities(specs, activities, b); err != nil {
 			return err

@@ -214,31 +214,35 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 	if allow {
 		var ok bool
 		if grantScope, ok = consentScope(form["scope"]); !ok {
-			consentRefusal(w, "invalid_scope", "tick at least one of the offered scopes")
+			consentRefusal(w, "invalid_scope", "no_scope", "tick at least one of the offered scopes")
 			return
 		}
 		months, ok := grantMonths(form.Get("duration"))
 		if !ok {
-			consentRefusal(w, "invalid_request", "choose one of the offered grant durations")
+			detail := "duration_invalid"
+			if form.Get("duration") == "" {
+				detail = "duration_missing"
+			}
+			consentRefusal(w, "invalid_request", detail, "choose one of the offered grant durations")
 			return
 		}
 		grantExpires = store.ConnectorGrantExpiry(now, months)
 		if store.ConnectorScopeHas(grantScope, CodeReviewScope) && !store.ConnectorScopeHas(grantScope, DiscussionScope) {
-			consentRefusal(w, "invalid_scope", CodeReviewScope+" also needs "+DiscussionScope+"; tick both")
+			consentRefusal(w, "invalid_scope", "code_review_needs_discussion", CodeReviewScope+" also needs "+DiscussionScope+"; tick both")
 			return
 		}
 		if store.ConnectorScopeHas(grantScope, RepositoryActionsScope) {
-			selected, reason := consentActionCoverage(form)
+			selected, reason, detail := consentActionCoverage(form)
 			if reason != "" {
-				consentRefusal(w, "invalid_request", reason)
+				consentRefusal(w, "invalid_request", detail, reason)
 				return
 			}
 			actionCoverage = &selected
 		}
 		if store.ConnectorRepositoryScoped(grantScope) {
-			selected, reason := consentCoverage(form, grantScope)
+			selected, reason, detail := consentCoverage(form, grantScope)
 			if reason != "" {
-				consentRefusal(w, "invalid_request", reason)
+				consentRefusal(w, "invalid_request", detail, reason)
 				return
 			}
 			coverage = &selected
@@ -262,7 +266,7 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, store.ErrConnectorScope) {
 				code = "invalid_scope"
 			}
-			consentRefusal(w, code, reason)
+			consentRefusal(w, code, store.ConnectorRefusalCode(err), reason)
 			return
 		}
 		storeOAuthError(w, err)

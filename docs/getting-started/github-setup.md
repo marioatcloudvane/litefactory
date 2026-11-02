@@ -42,6 +42,7 @@ repository is the safest choice. It needs, as far as the code shows:
 | Identify the bot | Read the authenticated user. |
 | Issue work | Read issues and comments; create comments and reactions; create and update issues, labels and sub-issues. |
 | Delivery | Read and create pull requests; merge an approved pull request when repository rules allow it. |
+| Factory-main CI monitoring | Read the selected factory repository and its Actions workflows and runs; Actions: read for fine-grained credentials. No CI write permission is needed. |
 | Webhooks (optional, step 6) | Webhooks: read and write (classic token: `admin:repo_hook`). The account also needs admin access to the repository. |
 
 These requirements come from reading the code, not from a tested list of token
@@ -166,6 +167,46 @@ litefactory daemon status
 finished. Without webhooks the daemon checks each repository by polling once an
 hour. See [running the daemon](../operations/running-the-daemon.md) if it does
 not start.
+
+## Factory-main CI read access
+
+The daemon checks one factory CI target at startup and every five minutes,
+independently of issue polling and work slots. Existing configurations without
+an `alerts` block receive these defaults:
+
+```yaml
+alerts:
+  ci:
+    repository: marioatcloudvane/litefactory
+    branch: main
+    workflow: .github/workflows/check.yml
+  rules:
+    main_red: true
+    ci_monitoring_unavailable: true
+```
+
+Select the factory repository explicitly when running a fork. The workflow is
+its exact file path, not its display title. This watches one factory target;
+it does not discover project workflows or monitor production deployments.
+It uses the existing `providers.github` credentials and API origin. Existing
+issue webhooks and CI issue reporting remain separate and unchanged.
+
+For a fine-grained token, select the factory repository and grant **Actions:
+read** as well as repository access. For a GitHub App, include that repository
+in the installation and grant Actions read. Obtain any required organization
+approval or SSO authorization. A classic token reading a private repository
+needs `repo`; public access alone does not prove private-repository grants.
+A concealed-access **404** can mean missing repository selection, an unaccepted
+invitation, installation access or organization authorization. Check those
+before concluding the repository or workflow was deleted.
+
+Use the explicit [doctor CI access check](../operations/doctor.md#ci-access-check)
+to verify installed repository and active-workflow access. A disabled workflow,
+wrong path, missing credentials, incomplete run history or denied request makes
+monitoring unavailable. A retained red result stays visible separately; a read
+failure never proves recovery. Follow the saved reason and next retry, correct
+the grant or configured target, and let scheduled observation resume. Do not
+rerun CI or change issue/report state merely to repair monitoring.
 
 ## Step 6. Webhooks (optional, recommended)
 

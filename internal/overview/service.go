@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/connector"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -76,14 +77,15 @@ type Window struct {
 
 // Result is the versioned transient owner overview.
 type Result struct {
-	Version            int            `json:"version"`
-	GeneratedAt        time.Time      `json:"generated_at"`
-	Window             Window         `json:"window"`
-	Health             map[string]any `json:"health"`
-	Activity           List           `json:"activity"`
-	OwnerWaits         List           `json:"owner_waits"`
-	RecentPublications List           `json:"recent_publications"`
-	Coverage           Coverage       `json:"coverage"`
+	Version            int               `json:"version"`
+	Alerts             alerts.Projection `json:"alerts"`
+	GeneratedAt        time.Time         `json:"generated_at"`
+	Window             Window            `json:"window"`
+	Health             map[string]any    `json:"health"`
+	Activity           List              `json:"activity"`
+	OwnerWaits         List              `json:"owner_waits"`
+	RecentPublications List              `json:"recent_publications"`
+	Coverage           Coverage          `json:"coverage"`
 }
 
 func emptyList() List { return List{Items: []map[string]any{}, Warnings: []string{}} }
@@ -154,6 +156,7 @@ func (s *Service) Build(ctx context.Context) (Result, error) {
 			r.Coverage.Repositories = append(r.Coverage.Repositories, map[string]any{"repository_id": repo.ID, "repository": repo.Name, "connection_status": repo.ConnectionStatus, "observed_at": optional(repo.ObservedAt), "read_at": r.Coverage.Sources["registry"].ReadAt, "status": repoStatus, "reasons": repoReasons})
 		}
 	}
+	s.projectAlerts(ctx, &r, repos, now)
 	health, err := s.reader.OverviewHealth(ctx)
 	status := "unknown"
 	var observed *time.Time

@@ -832,3 +832,56 @@ func TestPlanWorkflow_EarlierStageRefusalNamesTheWorkingCommand(t *testing.T) {
 		t.Fatalf("repaired reply explanation = %q", got)
 	}
 }
+
+// An unchanged story re-run lowers the stage but keeps the current story
+// approval. The graph's story approval must move the story on again, so the
+// technical approval that follows is recorded and the story reaches acceptance.
+func TestPlanWorkflow_GraphApprovalAfterUnchangedStoryRerunReachesAcceptance(t *testing.T) {
+	t.Parallel()
+	s := workflowFixture(t, "a")
+	st := s.Stories[0]
+	if got, err := s.ApproveByGraph("a", "story", st.Candidate, st.EffectRequest); err != nil || got.Outcome != "approved" {
+		t.Fatalf("first story approval: %+v %v", got, err)
+	}
+	storyRef := s.Stories[0].Approvals["story"]
+	if s.Stories[0].Stage != "technical" || storyRef == "" {
+		t.Fatalf("story not approved: %+v", s.Stories[0])
+	}
+	if err := s.PutCandidate(s.Stories[0].Draft, "story", "a-rerun"); err != nil {
+		t.Fatal(err)
+	}
+	st = s.Stories[0]
+	if st.Stage != "story" || st.Approvals["story"] != storyRef {
+		t.Fatalf("rerun did not lower the stage while keeping the approval: %+v", st)
+	}
+	if got, err := s.ApproveByGraph("a", "story", st.Candidate, st.EffectRequest); err != nil || got.Outcome != "approved" {
+		t.Fatalf("story approval after rerun: %+v %v", got, err)
+	}
+	st = s.Stories[0]
+	if st.Stage != "technical" || st.Approvals["story"] != storyRef || st.ApprovedBy["story"] != planbrief.ApprovalByGraph {
+		t.Fatalf("story approval after rerun did not move the stage or rewrote the approval: %+v", st)
+	}
+	before := cloneWorkflow(t, s)
+	if got, err := s.ApproveByGraph("a", "story", st.Candidate, st.EffectRequest); err != nil || got.Outcome != "approved" {
+		t.Fatalf("story replay: %+v %v", got, err)
+	}
+	if !reflect.DeepEqual(before, cloneWorkflow(t, s)) {
+		t.Fatal("story replay past its stage changed the state")
+	}
+	if err := s.PutCandidate(s.Stories[0].Draft, "technical", "a-technical"); err != nil {
+		t.Fatal(err)
+	}
+	st = s.Stories[0]
+	got, err := s.ApproveByGraph("a", "technical", st.Candidate, st.EffectRequest)
+	if err != nil || got.Outcome != "approved" {
+		t.Fatalf("technical approval: %+v %v", got, err)
+	}
+	want, err := s.ReviewRevision("a", "technical")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st = s.Stories[0]
+	if st.Stage != "acceptance" || st.Approvals["technical"] != want || st.Approvals["story"] != storyRef {
+		t.Fatalf("technical approval not recorded or stage not acceptance: %+v", st)
+	}
+}

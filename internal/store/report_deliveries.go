@@ -160,6 +160,9 @@ func (db *DB) MarkReportDeliverySent(ctx context.Context, key string) (bool, err
 				return e
 			}
 		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO alert_report_uncertainty(delivery_key,first_at,approximate) VALUES(?,?,0) ON CONFLICT DO NOTHING`, key, FormatTime(nowUTC())); err != nil {
+			return err
+		}
 		res, err := tx.ExecContext(ctx, `UPDATE report_deliveries SET possibly_sent=1 WHERE delivery_key=? AND possibly_sent=0 AND completed=0`, key)
 		if err != nil {
 			return err

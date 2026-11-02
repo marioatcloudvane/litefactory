@@ -61,7 +61,11 @@ func (db *DB) ApproveManagedStories(ctx context.Context, parent string, generati
 			if n != 1 {
 				return fmt.Errorf("store: story changed during approval")
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO approved_story_revisions(parent_task,generation,story_key,parent_id,title,body,digest,fetched_at) VALUES(?,?,?,?,?,?,?,?)`, parent, generation, r.Key, r.ParentID, r.Title, r.Body, r.Hash, r.FetchedAt.UTC().Format(time.RFC3339Nano)); err != nil {
+			sizing, err := approvedStorySizingTx(ctx, tx, r)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO approved_story_revisions(parent_task,generation,story_key,parent_id,title,body,digest,fetched_at,sizing_json) VALUES(?,?,?,?,?,?,?,?,?)`, parent, generation, r.Key, r.ParentID, r.Title, r.Body, r.Hash, r.FetchedAt.UTC().Format(time.RFC3339Nano), sizing); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO story_scope_notices(parent_task,generation,story_key,kind) VALUES(?,?,?,'freeze')`, parent, generation, r.Key); err != nil {

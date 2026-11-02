@@ -218,7 +218,7 @@ func (a *Adapter) limitRead(path string, res *http.Response, raw []byte) (time.D
 		Global bool    `json:"global"`
 	}
 	if json.Unmarshal(raw, &rate) == nil && rate.Retry > 0 {
-		wait = max(wait, time.Duration(min(rate.Retry, 3600)*float64(time.Second)))
+		wait = max(wait, retrySeconds(rate.Retry))
 	}
 	wait = max(wait, time.Second)
 	global := rate.Global || strings.EqualFold(res.Header.Get("X-RateLimit-Global"), "true")

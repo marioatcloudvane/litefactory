@@ -87,6 +87,9 @@ type RunResult struct {
 	// Outcome is how the run ended.
 	Outcome Outcome
 
+	// ProviderFailure is structured terminal provider evidence for observation only.
+	ProviderFailure ProviderClass
+
 	// Interruption carries verified quota evidence, including report-only resets.
 	Interruption *Interruption
 

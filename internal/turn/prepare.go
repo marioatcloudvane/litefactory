@@ -527,7 +527,7 @@ func prepare(
 	promptInput.SessionArtifactTechnical = existingSessionTechnical(worktree.Path(), promptInput.SessionArtifactDir, req.mode())
 	var parentSessionDir string
 	var parentSessionFiles []string
-	if storyWorker {
+	if storyWorker || req.mode() == string(agent.ModePlan) {
 		parentSessionDir, parentSessionFiles = parentSessionArtifacts(ctx, opts, worktree.Path(), session, run.StartedAt, logger)
 	}
 	prompt, err := harness.BuildPrompt(promptInput)
@@ -1725,16 +1725,21 @@ func storyBaseBranch(ctx context.Context, opts Options, clone *git.Clone, sessio
 	return parent.Branch
 }
 
-// parentSessionArtifacts locates an Implement story worker's parent session
-// directory in the worker's checkout, found the way [storyBaseBranch] finds the
-// parent, and names the parentSessionContext files present there. A worker
-// whose parent has no session, branch or directory gets nothing.
+// parentSessionArtifacts locates the parent session directory of an Implement
+// story worker or a graph Plan story task in the story's checkout, found the
+// way [storyBaseBranch] finds the parent, and names the parentSessionContext
+// files present there. A task that is neither, or whose parent has no session,
+// branch or directory, gets nothing.
 func parentSessionArtifacts(ctx context.Context, opts Options, worktreeDir string, session store.Session, day time.Time, logger *slog.Logger) (string, []string) {
-	row, err := opts.DB.ImplementStoryByWorkerSession(ctx, session.ID)
-	if err != nil {
+	var parentRef string
+	if row, err := opts.DB.ImplementStoryByWorkerSession(ctx, session.ID); err == nil {
+		parentRef = row.Parent
+	} else if story, ok, storyErr := opts.DB.GraphPlanStoryAt(ctx, session.RepoID, session.IssueNumber); storyErr == nil && ok {
+		parentRef = story.Parent
+	} else {
 		return "", nil
 	}
-	parent, err := opts.DB.GetSessionByTaskRef(ctx, row.Parent)
+	parent, err := opts.DB.GetSessionByTaskRef(ctx, parentRef)
 	if err != nil || parent.Branch == "" {
 		return "", nil
 	}

@@ -1916,6 +1916,7 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 	}
 	d.rateLimited(ctx, t.log, t.tickAt, err)
 	if d.prepareFailed(ctx, t, err) {
+		d.alertQueueStopped(ctx, t)
 		t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
 			slog.Any("error", err))
 	}
@@ -2816,22 +2817,24 @@ func (d *Daemon) run(
 		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable, "")
 	}
 	// A story issue without its own agent label takes its parent's.
-	if err := d.inheritParentAgent(ctx, t); err != nil {
-		return d.leave(ctx, t, log, "could not give the story its parent's agent", err)
+	if workflow != agent.WorkflowBug {
+		if err := d.inheritParentAgent(ctx, t); err != nil {
+			return d.leave(ctx, t, log, "could not give the story its parent's agent", err)
+		}
 	}
 	// Resolve the agent-selection label before checking for an obsolete
 	// permission label and before anything is locked, fetched, or written.
-	agentChoice := d.resolveAgent(t.issue.Labels)
+	agentChoice, selectionSource, err := d.effectiveAgent(ctx, t, workflow)
+	if err != nil {
+		return d.leave(ctx, t, log, "could not resolve the Bug agent", err)
+	}
 	if agentChoice.refused() {
 		return d.refuseAgent(ctx, t, trigger, agentChoice, log)
 	}
 	if agentChoice.Agent != "" {
-		log = log.With(slog.String("agent_label", agentChoice.Agent))
+		log = log.With(slog.String("selected_agent", agentChoice.Agent), slog.String("agent_source", selectionSource))
 	}
 	selectedAgent := agentChoice.Agent
-	if selectedAgent == "" {
-		selectedAgent = string(d.defaultAgent)
-	}
 
 	// Permission labels are obsolete and always refuse. Detection folds case,
 	// and no label value crosses this boundary into logs or replies.
@@ -3361,6 +3364,7 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	d.commentFate(ctx, t, t.commentUnderWay, fateDeferred, "deferred, "+what+"; it is retried on a later heartbeat")
 	d.rateLimited(ctx, log, t.tickAt, err)
 	if d.prepareFailed(ctx, t, err) {
+		d.alertQueueStopped(ctx, t)
 		log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 			slog.Any("error", err))
 	}

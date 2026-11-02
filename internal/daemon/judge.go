@@ -63,13 +63,9 @@ func (d *Daemon) handleJudge(ctx context.Context, t *task, c github.Comment, qua
 		if root == "" {
 			root = t.repo.Path
 		}
-		provider := config.Kind(d.defaultAgent)
-		segments, segmentErr := d.db.ListSegments(ctx, t.session.ID)
-		if segmentErr != nil {
-			return segmentErr
-		}
-		if len(segments) > 0 {
-			provider = config.Kind(segments[len(segments)-1].Agent)
+		provider, err := d.recordedJudgeProvider(ctx, t.session.ID)
+		if err != nil {
+			return err
 		}
 		text, err = d.judge.Execute(ctx, turn.JudgeRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, TicketKey: string(key), RemoteCommentID: remoteCommentID, Root: root, TaskProvider: provider, Options: options, Comments: captured, Cutoff: c.CreatedAt})
 		if err != nil {
@@ -84,4 +80,30 @@ func (d *Daemon) handleJudge(ctx context.Context, t *task, c github.Comment, qua
 		return fmt.Errorf("judge advisory delivery pending: %w", err)
 	}
 	return nil
+}
+
+// recordedJudgeProvider uses immutable Bug runs while retaining other workflows'
+// conversation-based default. Explicit and shared judge overrides apply later.
+func (d *Daemon) recordedJudgeProvider(ctx context.Context, sessionID int64) (config.Kind, error) {
+	admission, err := d.db.GetTaskWorkflowAdmission(ctx, sessionID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	if err == nil && admission.Workflow == "bug" {
+		runs, err := d.db.ListRuns(ctx, sessionID)
+		if err != nil {
+			return "", err
+		}
+		if len(runs) > 0 && runs[len(runs)-1].Agent != "" {
+			return config.Kind(runs[len(runs)-1].Agent), nil
+		}
+	}
+	segments, err := d.db.ListSegments(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if len(segments) > 0 {
+		return config.Kind(segments[len(segments)-1].Agent), nil
+	}
+	return config.Kind(d.defaultAgent), nil
 }
