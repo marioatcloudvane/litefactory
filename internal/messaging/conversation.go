@@ -448,6 +448,7 @@ func (s *Service) runConversation(ctx context.Context, c store.Conversation, b C
 		identityRecorded.Store(true)
 		return nil
 	}})
+	s.observeConversationProvider(turnCtx, b.Provider, c.ID, t.ID, result, runErr)
 	cleanup, done := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer done()
 	if runErr != nil {

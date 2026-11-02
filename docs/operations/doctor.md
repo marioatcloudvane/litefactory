@@ -57,6 +57,22 @@ A failed run in the history is not proof that the daemon is stuck now. Ask docto
 
 Diagnosis currently runs on Claude. Codex diagnosis is switched off in the code until its sandbox is verified, so a Codex-only setup gets a clear refusal instead of a diagnosis. Your input is still kept. Repairs, once approved, can run on either configured agent.
 
+## Factory alert evidence
+
+Doctor can read the retained factory-alert projection alongside task evidence.
+Inspect active incidents, each rule's enabled/readiness state, last successful
+observation and unavailable or stale reason. Check mute expiry and whether an
+opening is detected, queued, confirmed or uncertain. A recent empty incident
+list with unavailable observation is not proof of health. A working observer
+with unavailable Discord delivery can detect trouble without notifying you.
+
+These are recorded local facts: reading them does not probe a provider, send an
+alert, replay a report or repair work. An uncertain send can remain unresolved
+when Discord history cannot establish a matching receipt; do not infer delivery
+from elapsed time. Alert state survives restart, which supplies no clean
+recovery observation. See [factory alerts](../discord.md#factory-alerts) for
+thresholds, notification controls and the separate installed owner check.
+
 ## Repairs
 
 A proposal is a numbered list of steps. Each step names one repair from a closed repair catalog, the exact thing it touches, what it expects to find first, what it will change, why, and how to undo it:

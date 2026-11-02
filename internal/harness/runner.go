@@ -233,12 +233,13 @@ type Options struct {
 // invariants: internal/turn declares whatever narrow interface it needs at its
 // own point of consumption.
 type Runner struct {
-	instructions instructionpackage.CaptureSource
-	paths        config.Paths
-	binary       config.Executable
-	home         string
-	tools        []string
-	allowedTools []string
+	providerObserver agent.ProviderObserver
+	instructions     instructionpackage.CaptureSource
+	paths            config.Paths
+	binary           config.Executable
+	home             string
+	tools            []string
+	allowedTools     []string
 	// ceiling is the hard upper bound on any tool surface a request may carry.
 	// It bounds the profile-supplied lists only: r.tools is the operator's own
 	// configured surface and config validation has already established the
@@ -531,6 +532,7 @@ func (r *Runner) validateRequest(req agent.Request) error {
 //     then hang emitting nothing at all (SD-3).
 func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult, runErr error) {
 	req = retainedValidationRequest(req)
+	defer func() { r.providerObserver.Observe(ctx, req, result, runErr) }()
 	if err := r.validateRequest(req); err != nil {
 		return nil, err
 	}
@@ -844,6 +846,9 @@ func (r *Runner) exec(
 				result.Transient.Model = req.Delivery.MainModel
 			}
 		}
+	}
+	if result.Outcome == agent.OutcomeFailed && !abandoned && !timedOut {
+		result.ProviderFailure = stream.providerFailure
 	}
 	r.logCompletion(logger, result)
 

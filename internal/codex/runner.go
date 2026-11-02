@@ -5,6 +5,7 @@ package codex
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -42,11 +43,12 @@ type Options struct {
 
 // Runner executes the Codex CLI for work and classification requests.
 type Runner struct {
-	instructions instructionpackage.CaptureSource
-	paths        config.Paths
-	binary       config.Executable
-	home         string
-	model        string
+	providerObserver agent.ProviderObserver
+	instructions     instructionpackage.CaptureSource
+	paths            config.Paths
+	binary           config.Executable
+	home             string
+	model            string
 	// writable are the operator-configured directories added to the
 	// sandbox alongside the worktree, one --add-dir each. Copied at
 	// construction so a later mutation of the config cannot change what an
@@ -201,7 +203,8 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 }
 
 // Run executes one ordinary coding-agent request.
-func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
+func (r *Runner) Run(ctx context.Context, req agent.Request) (result *agent.RunResult, runErr error) {
+	defer func() { r.providerObserver.Observe(ctx, req, result, runErr) }()
 	if err := agent.VerifyRequestDelivery(ctx, req); err != nil {
 		return nil, err
 	}
@@ -294,7 +297,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		return nil, err
 	}
 	started, finished, exitCode := capture.StartedAt, capture.FinishedAt, capture.ExitCode
-	result := &agent.RunResult{ExitCode: exitCode, SessionID: req.Session.Ref, ResumeToken: stream.threadID,
+	result = &agent.RunResult{ExitCode: exitCode, SessionID: req.Session.Ref, ResumeToken: stream.threadID,
 		LogPath: logPath, Command: append([]string{r.binary.Path}, args...), Model: r.model,
 		ResultText: stream.text, IsError: stream.failed, HasResult: stream.completed,
 		Events: stream.events, Malformed: stream.malformed, LongestLine: stream.longest,
@@ -307,6 +310,9 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 			result.Transient = nil
 			result.Outcome, result.Reason, result.HasResult = agent.OutcomeInterrupted, "session quota limit reached", true
 		}
+	}
+	if result.Outcome == agent.OutcomeFailed && ctx.Err() == nil && runCtx.Err() == nil {
+		result.ProviderFailure = stream.providerFailure
 	}
 	if result.Transient != nil {
 		result.Transient.Model = r.model
@@ -475,6 +481,7 @@ func (r *Runner) InstructionIdentity() string { return r.model }
 type streamState struct {
 	threadID, text, failureDetail  string
 	quotaMessage                   string
+	providerFailure                agent.ProviderClass
 	events, malformed, longest     int
 	turnStarted, completed, failed bool
 	err                            error
@@ -488,12 +495,30 @@ func (s streamState) native() native.Stream {
 }
 func consume(src io.Reader, sink io.Writer) streamState { return consumeUsage(src, sink, nil) }
 func consumeUsage(src io.Reader, sink io.Writer, collector *usageCollector) streamState {
-	return fromNative(native.Consume(src, sink, collector.observe))
+	class := agent.ProviderUnknown
+	out := fromNative(native.Consume(src, sink, func(line []byte) {
+		collector.observe(line)
+		class = providerLineClass(class, line)
+	}))
+	out.providerFailure = class
+	return out
+}
+func providerLineClass(previous agent.ProviderClass, line []byte) agent.ProviderClass {
+	var event struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(line, &event) == nil && (event.Type == "turn.failed" || event.Type == "error" || event.Type == "turn.completed") {
+		return agent.ProviderEventClass(line)
+	}
+	return previous
 }
 func (s *streamState) consumeLine(line []byte) {
 	n := s.native()
 	n.ConsumeLine(line)
+	class := s.providerFailure
+	class = providerLineClass(class, line)
 	*s = fromNative(n)
+	s.providerFailure = class
 }
 
 func envValue(env []string, name string) string {

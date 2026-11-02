@@ -65,6 +65,27 @@ failures retain readable sections with warnings; a failure to read any source
 is a tool error. The overview reads local recorded facts, without polling remote
 comments or guaranteeing that a previously confirmed link remains accessible.
 
+## Factory alerts
+
+The overview also shows a bounded, read-only local alert projection: active
+incidents, enabled rules, readiness, last successful observation, unavailable or
+stale coverage, mute expiry and notification delivery state. Subjects follow the
+same repository-access filtering as the rest of the overview; inaccessible task
+identities and provider details are not exposed.
+
+Check observation and delivery separately. An observer may remain ready while
+Discord is unavailable, and no incidents with stale or failed coverage does not
+mean healthy monitoring. Detected and queued notifications have no confirmed
+remote receipt. Uncertain sends might have reached Discord and remain visible
+until an exact reconciliation establishes confirmation. Overview reads do not
+poll providers, send notifications or repair work.
+
+Owner-only fixed Discord messages control notification mutes without changing
+work. See [factory alerts](../discord.md#factory-alerts) for configuration,
+recovery evidence, quiet-hour digests and installed owner verification. Main CI
+monitoring is a separate story; these factory rules do not establish main CI
+health.
+
 ## Hosted verification record
 
 **2026-10-26: owner check handed to Validate after deployment; neither hosted

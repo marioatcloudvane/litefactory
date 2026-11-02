@@ -184,6 +184,152 @@ shortened version; answer on the issue or in the conversation. Final notices inc
 available usage and estimated cost. On first enable, existing history is skipped,
 and events already over 24 hours old are skipped and logged.
 
+## Factory alerts
+
+Factory alerts observe problems without starting, stopping or repairing work.
+They are enabled by default, including on installations whose configuration has
+no `alerts` block. Observation continues if Discord is unavailable. Choose an
+allowed alert channel, or leave `channel_id` empty to use `notice_channel_id`:
+
+```yaml
+alerts:
+  enabled: true
+  channel_id: ""              # falls back to chat.discord.notice_channel_id
+  mention_owner: critical     # critical or none
+  cooldown_minutes: 60
+  pool_wait_minutes: 30
+  no_progress_minutes: 120
+  delivery_wait_minutes: 15
+  quiet_hours:
+    enabled: true
+    start: "23:00"
+    end: "07:00"
+  rules:
+    disk_low: true
+    pool_blocked: true
+    no_progress: true
+    provider_failure: true
+    task_stuck: true
+    delivery_stuck: true
+```
+
+Times use the factory host's local time zone. Set `quiet_hours.enabled: false`
+to send warnings without a quiet-hour hold. An explicit channel must belong to
+`chat.discord.channel_ids`; an invalid override is a configuration error.
+Without enabled Discord and a usable destination, delivery is unavailable;
+this does not establish that the factory is healthy.
+
+### Owner commands
+
+Write these as whole ordinary messages in an allowed channel. They need no
+conversation binding or conversation provider. Only the configured owner can
+use them; they change notification controls, never factory work.
+
+| Message | Effect |
+| --- | --- |
+| `alerts` | Read active incidents, monitoring and delivery status, and controls. |
+| `mute disk 2h` or `mute disk for 2h` | Mute that rule for two hours. |
+| `unmute disk` | Clear only that rule's runtime mute. |
+| `alerts off until 07:00` | Suppress notifications until the next occurrence of that host-local time. |
+| `alerts off until tomorrow` | Suppress until the next calendar day's quiet-hours end, or 07:00 when quiet hours are disabled. |
+| `alerts on` | Clear only the global timed suppression. |
+
+Rule aliases are `disk` (`disk_low`), `pool` (`pool_blocked`), `progress`
+(`no_progress`), `provider` (`provider_failure`) and `delivery`
+(`delivery_stuck`). `task_stuck` is the canonical name for queue stops and dead
+dispatches. Canonical names work too. Durations are positive whole numbers with
+`m`, `h` or `d`, at most seven days; a day means 24 elapsed hours. Replies state
+the exact expiry, date, UTC offset and host time zone. Invalid commands return
+usage without changing controls. Replaying the same source message reuses its
+original expiry rather than extending a mute.
+
+Global suppression and rule mutes compose. `alerts on` does not clear a rule
+mute, and `unmute` does not clear global suppression. Neither overrides a rule
+or alerts disabled in configuration. Disabling alerts is the operational
+fallback: set `alerts.enabled: false` and reload through your normal daemon
+restart procedure. Keep the database; disabling does not delete incident state.
+
+### What to expect
+
+Disk alerts are critical below `settings.min_free_disk_gb`; recovery requires
+measurements strictly above it. Equality and probe errors do not clear an
+incident. A saturated shared pool with eligible waiting work alerts after 30
+minutes by default; no task progress alerts after two hours. Owner and planned
+waits are excluded. Progress means a stage change, run start/end or saved result.
+Provider sign-in expiry and quota alert immediately, safety refusal after two
+consecutive failures on the same source, and HTTP 5xx after three consecutive
+failures within 15 minutes. Queue stops and dead dispatches warn immediately;
+original report-delivery uncertainty warns after 15 minutes by default. Alerts
+observe these records without replaying reports or retrying provider work.
+
+Each incident has one opening, with one further message when severity rises.
+Recovery needs two successful observations with affirmative evidence. Read
+errors, elapsed time and daemon restarts never prove recovery. Provider recovery
+needs a later success on the affected source; task recovery needs actual
+progress, an authoritative deliberate wait or settlement as applicable.
+An all-clear is sent only for a confirmed delivered opening. Recurrences are
+visible immediately; unchanged-severity notifications wait through the default
+one-hour cooldown and disappear if the recurrence resolves first.
+
+Critical alerts bypass quiet hours, but respect mutes and disablement. Warnings
+held overnight arrive as a bounded digest after quiet hours, with entries marked
+when already resolved. Incidents opened and resolved entirely under mute stay
+silent. At mute expiry, a still-active unseen incident gets one opening, or a
+previously delivered opening gets its owed all-clear. An unseen opening never
+gets a standalone all-clear.
+
+Critical alerts may explicitly mention only the configured owner when
+`mention_owner: critical`. Warnings, digests, all-clears and ordinary replies
+suppress mentions. Provider output and arbitrary mention text are not trusted.
+Discord acceptance does not guarantee a device notification: personal Discord
+notification settings still apply.
+
+Incident state and delivery evidence survive restart independently of ordinary
+notice retention. **Detected** means recorded locally; **queued** means awaiting
+delivery; **confirmed** means Discord returned a valid receipt or an exact
+reconciliation match; **uncertain** means the request might have reached
+Discord. Uncertain sends are reconciled rather than blindly replayed. Missing
+history permission or incomplete history keeps uncertainty visible. There is
+no exactly-once delivery or push guarantee.
+
+The durable alert journal has a 16 MiB safety limit. If it reaches that limit,
+observation and unjournaled sends stop; existing state is preserved and monitoring
+is reported unavailable. Disabling alerts suppresses notifications without
+deleting this state. Do not delete uncertain delivery evidence to force a retry.
+
+### Installed owner check
+
+Live Discord delivery and owner mentions need a separate installed check;
+automated tests use temporary databases and captured HTTP. Use a disposable test
+factory, a dedicated test repository/task, and an allowed test Discord channel.
+Never fill a disk or stall production work to test alerts. If a running HTTP
+service is involved, establish its test endpoint as `TEST_BASE_URL`; do not use a
+production endpoint. Restart only the test daemon after each configuration
+edit below so that the new threshold, delay or delivery setting takes effect.
+
+1. Save the test configuration and note its host time zone and current alert
+   status. Ensure no real work can be dispatched in this installation. Select
+   `mention_owner: critical` and confirm the test channel's send/history access.
+2. Measure free space on the test factory's disk. Temporarily set
+   `settings.min_free_disk_gb` above that measured amount, within its valid
+   range, and restart only the test daemon. Wait for one disk opening; record
+   its remote message ID and the configured owner's actual mention. Repeated
+   observations and a restart must not add an unchanged opening.
+3. Restore the original threshold below measured free space. After two clean
+   observations, check for one all-clear with no mention. Restore the saved
+   configuration even if delivery failed; record failed or uncertain outcomes.
+4. Use a disposable task with a deliberately slow, bounded test stage. Set
+   `alerts.no_progress_minutes` to a short valid interval. Let the stage remain
+   active past that interval without a stage change, run start/end, new result,
+   or owner/planned wait. Confirm one stuck/no-progress opening. Let the bounded
+   stage finish normally so a run end or saved result provides real recovery
+   evidence; after two observations confirm one all-clear. If that test stage
+   cannot be arranged safely, leave this live check unverified. Do not edit
+   database rows or kill a worker to manufacture recovery.
+5. Restore the original delays, threshold, channel and mention setting. Retain
+   dated, redacted message IDs and outcomes separately from automated evidence.
+   An unavailable simulation or missing permission stays unverified.
+
 ## Limits
 
 - **Best-effort delivery.** Replies and notices are retried for up to 24 hours.
