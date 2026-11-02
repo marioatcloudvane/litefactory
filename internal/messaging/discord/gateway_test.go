@@ -223,7 +223,14 @@ func TestGatewayIdentifiesHeartbeatsAndReportsOwnerMessages(t *testing.T) {
 			t.Errorf("identify %+v", d)
 		}
 		ready(c, 1, "")
+		// The client handles frames in order, so its reply to this request comes
+		// after READY. Timer heartbeats sent before READY carry null; skip them.
+		gwWrite(c, 1, nil, 0, "")
 		beat := gwReadOp(t, c, 1, false)
+		for beat.Op == 1 && string(beat.D) == "null" {
+			gwWrite(c, 11, nil, 0, "")
+			beat = gwReadOp(t, c, 1, false)
+		}
 		beats <- beat.D
 		gwWrite(c, 11, nil, 0, "")
 		gwWrite(c, 0, message("101", "3", "7", false), 2, "MESSAGE_CREATE")
