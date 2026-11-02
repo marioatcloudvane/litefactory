@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -20,6 +22,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/linear"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -604,5 +608,177 @@ func TestValidateCandidateCompletedApplyReplayPreservesDirtyCheckout(t *testing.
 	body, err := os.ReadFile(filepath.Join(o.wt.Path(), "app/app.go"))
 	if err != nil || string(body) != dirty || o.head() != head {
 		t.Fatalf("replay destroyed dirty checkout: error=%v head=%s", err, o.head())
+	}
+}
+
+// linearReviewForge is the candidate review remote for a Linear-admitted task:
+// Linear supplies reply links through the provider instead of a GitHub URL.
+type linearReviewForge struct{ *candidateReviewForge }
+
+func (f *linearReviewForge) SourceLinks(_ context.Context, ref naming.Ref, _ int, reply int64) (string, string, error) {
+	issue := fmt.Sprintf("https://linear.app/acme/issue/%d", ref.Issue)
+	return issue, fmt.Sprintf("%s#comment-%d", issue, reply), nil
+}
+
+func linearCandidateFixture(t *testing.T, notes, report string) (*ownerFixture, *linearReviewForge, store.RepairCandidate) {
+	t.Helper()
+	o := newOwnerFixtureOn(t, "linear")
+	remote := &linearReviewForge{&candidateReviewForge{ownerForge: o.forge}}
+	o.opts.ResearchReporter.forge = remote
+	o.suiteExit = func(string) int { return 1 }
+	o.agent = func(_ int, f *flowFixture) (agentresult.ValidateRepair, ActivityResult) {
+		f.write("repair-notes.txt", notes)
+		return handbackReport(report), ActivityResult{}
+	}
+	candidateRegister(t, o)
+	o.toOwner()
+	candidates, err := o.db.ListRepairCandidates(t.Context(), o.instance.ID)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("candidate count=%d error=%v", len(candidates), err)
+	}
+	if !candidates[0].ReviewComplete {
+		o.say(fmt.Sprintf("/validate-repair %s %s %s inspect", o.state().Revision, candidates[0].ID, candidates[0].ReviewDigest))
+		candidates, err = o.db.ListRepairCandidates(t.Context(), o.instance.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return o, remote, candidates[0]
+}
+
+// reviewParts returns the posted review comments in order, without their
+// delivery markers, starting at the part that names the candidate.
+func reviewParts(t *testing.T, o *ownerFixture, c store.RepairCandidate) []string {
+	t.Helper()
+	o.forge.mu.Lock()
+	defer o.forge.mu.Unlock()
+	var parts []string
+	for _, comment := range o.forge.comments {
+		body := comment.Body
+		if i := strings.LastIndex(body, "\n\n<!-- lf:delivery "); i >= 0 {
+			body = body[:i]
+		}
+		if len(parts) == 0 && !strings.Contains(body, "Retained Validate repair candidate "+c.ID) {
+			continue
+		}
+		if len(parts) > 0 && !strings.HasPrefix(body, "Full retained result — part ") {
+			break
+		}
+		parts = append(parts, body)
+	}
+	if len(parts) == 0 {
+		t.Fatal("no posted repair review")
+	}
+	return parts
+}
+
+var numericEntity = regexp.MustCompile(`&#[0-9]+;`)
+
+// A Linear repair review is plain fenced code: Linear renders neither <pre>
+// nor numeric entities, so the escaped GitHub form showed raw markup there.
+func TestValidateRepairReviewOnLinearIsReadableFencedCode(t *testing.T) {
+	notes := strings.Repeat("it's \"quoted\" & <kept> with ``` inside\n", 2600)
+	o, _, c := linearCandidateFixture(t, notes, `The owner's "review" is needed: {"a":"it's"}`)
+	if !c.ReviewComplete {
+		t.Fatalf("unchanged Linear review did not complete: %s", o.notice())
+	}
+	review := candidateReview(c)
+	if !strings.Contains(string(c.Evidence), `"Finish":`) || !strings.Contains(string(c.Evidence), `it's`) {
+		t.Fatal("fixture evidence lost its quotes")
+	}
+	fence := report.CodeFence(review)
+	parts := reviewParts(t, o, c)
+	if len(parts) < 2 {
+		t.Fatalf("Linear review must exercise multipart delivery, got %d part", len(parts))
+	}
+	var joined strings.Builder
+	for i, part := range parts {
+		if strings.Contains(part, "<pre>") || strings.Contains(part, "</pre>") || numericEntity.MatchString(part) {
+			t.Fatalf("part %d shows HTML on Linear", i+1)
+		}
+		fences := 0
+		for _, line := range strings.Split(part, "\n") {
+			if line == fence {
+				fences++
+			}
+		}
+		if fences != 2 {
+			t.Fatalf("part %d has %d fence lines, want one balanced block", i+1, fences)
+		}
+		decoded, err := linear.DecodeContent(linear.EncodeContent(part))
+		if err != nil || !linear.ContentEquivalent(part, decoded) {
+			t.Fatalf("part %d does not survive Linear readback: %v", i+1, err)
+		}
+		chunk := strings.TrimPrefix(part, fmt.Sprintf("Full retained result — part %d/%d\n\n", i+1, len(parts)))
+		chunk = strings.TrimPrefix(chunk, "<!-- lf:part-context-open -->\n"+fence+"\n")
+		chunk = strings.TrimSuffix(chunk, "\n"+fence+"\n<!-- lf:part-context-close -->")
+		joined.WriteString(chunk)
+	}
+	if joined.String() != fence+"\n"+review+"\n"+fence {
+		t.Fatal("Linear review parts do not rebuild the complete candidate")
+	}
+	if !strings.Contains(joined.String(), string(c.Evidence)) {
+		t.Fatal("evidence JSON is not verbatim")
+	}
+}
+
+// GitHub keeps the escaped preformatted review byte for byte.
+func TestValidateRepairReviewOnGitHubKeepsEscapedPre(t *testing.T) {
+	o, c := candidateRecoveryFixture(t)
+	parts := reviewParts(t, o, c)
+	if len(parts) != 1 || parts[0] != "<pre>"+html.EscapeString(candidateReview(c))+"</pre>" {
+		t.Fatalf("GitHub review body changed: %d parts", len(parts))
+	}
+}
+
+// A candidate holding a literal <pre> keeps the escaped form on Linear, so the
+// review redactor's open-<pre> rule cannot refuse delivery.
+func TestValidateRepairReviewOnLinearWithLiteralPreKeepsEscapedForm(t *testing.T) {
+	o, _, c := linearCandidateFixture(t, "x := \"<pre>\" + x\n", "The owner must review this.")
+	if !c.ReviewComplete {
+		t.Fatalf("review was not delivered: %s", o.notice())
+	}
+	parts := reviewParts(t, o, c)
+	if len(parts) != 1 || parts[0] != "<pre>"+html.EscapeString(candidateReview(c))+"</pre>" {
+		t.Fatalf("literal <pre> candidate did not keep the escaped form: %d parts", len(parts))
+	}
+}
+
+func TestValidateLinearRepairReviewRecoversWithoutDuplicate(t *testing.T) {
+	for _, lost := range []bool{false, true} {
+		t.Run(fmt.Sprintf("lost-reply=%t", lost), func(t *testing.T) {
+			o := newOwnerFixtureOn(t, "linear")
+			remote := &linearReviewForge{&candidateReviewForge{ownerForge: o.forge, unavailable: !lost, lostReply: lost}}
+			o.opts.ResearchReporter.forge = remote
+			o.suiteExit = func(string) int { return 1 }
+			o.agent = func(_ int, f *flowFixture) (agentresult.ValidateRepair, ActivityResult) {
+				f.write("repair-notes.txt", strings.Repeat("it's \"complete\" delivery content\n", 2600))
+				return handbackReport("This retained repair needs owner review."), ActivityResult{}
+			}
+			candidateRegister(t, o)
+			o.toOwner()
+			candidates, err := o.db.ListRepairCandidates(t.Context(), o.instance.ID)
+			if err != nil || len(candidates) != 1 {
+				t.Fatalf("candidate count=%d error=%v", len(candidates), err)
+			}
+			c := candidates[0]
+			if !lost && c.ReviewComplete {
+				t.Fatal("failed delivery enabled acceptance")
+			}
+			remote.unavailable = false
+			o.say(fmt.Sprintf("/validate-repair %s %s %s inspect", o.state().Revision, c.ID, c.ReviewDigest))
+			candidates, err = o.db.ListRepairCandidates(t.Context(), o.instance.ID)
+			if err != nil || !candidates[0].ReviewComplete {
+				t.Fatalf("review did not recover: error=%v notice=%s", err, o.notice())
+			}
+			if firstParts := o.forge.bodies("Retained Validate repair candidate " + c.ID); len(firstParts) != 1 {
+				t.Fatalf("uncertain delivery duplicated first review part: %d", len(firstParts))
+			}
+			for _, part := range reviewParts(t, o, c) {
+				if strings.Contains(part, "<pre>") || numericEntity.MatchString(part) {
+					t.Fatal("recovered Linear review shows HTML")
+				}
+			}
+		})
 	}
 }

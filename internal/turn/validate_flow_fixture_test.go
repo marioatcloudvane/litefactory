@@ -150,6 +150,13 @@ type flowFixture struct {
 
 func newFlowFixture(t *testing.T) *flowFixture {
 	t.Helper()
+	return newFlowFixtureOn(t, store.ForgeGitHub)
+}
+
+// newFlowFixtureOn admits the run's task on the named forge, so a test can
+// observe forge-specific owner rendering on the same graph.
+func newFlowFixtureOn(t *testing.T, forge string) *flowFixture {
+	t.Helper()
 	root := t.TempDir()
 	db, err := store.Open(t.Context(), filepath.Join(root, "litefactory.db"))
 	if err != nil {
@@ -159,7 +166,7 @@ func newFlowFixture(t *testing.T) *flowFixture {
 	if err := db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	repoRow, err := db.UpsertRepo(t.Context(), store.Repo{Path: root, Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: filepath.Join(root, "worktrees")})
+	repoRow, err := db.UpsertRepo(t.Context(), store.Repo{Path: root, Forge: forge, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: filepath.Join(root, "worktrees")})
 	if err != nil {
 		t.Fatal(err)
 	}
