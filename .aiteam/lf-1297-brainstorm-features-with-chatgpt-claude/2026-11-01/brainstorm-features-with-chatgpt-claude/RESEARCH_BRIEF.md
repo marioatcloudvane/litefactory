@@ -2,7 +2,7 @@
 
 ## Request
 
-Let the owner brainstorm a feature with ChatGPT/Claude (voice, documents) against the real factory, keep it as a durable brainstorm, and turn it into task drafts that become GitHub issues which start in Research, Plan or parked. Also teach clients about the factory through server instructions, MCP prompts and a project template.
+Let the owner brainstorm a feature with ChatGPT/Claude (voice, documents) against the real factory as a durable Research discussion with the team's research agents, and turn it into GitHub issues that start directly in Plan from the brainstorm's brief. Also teach clients about the factory through server instructions, MCP prompts and a project template.
 
 ## Decisions
 
@@ -26,9 +26,9 @@ Let the owner brainstorm a feature with ChatGPT/Claude (voice, documents) agains
 - **K-02** — Existing tools, scopes and grants behave exactly as today; the new capabilities need a new scope the owner consents to, and an old grant sees no new tools. (agent's call)
 - **K-03** — The rule that the factory ignores its own comments, and only runs an issue body written by the project approver, stays unchanged. (agent's call)
 - **O-11** — The brainstorm is a Research discussion with the team's two research agents run outside the graph: the Research agent answers facts and scans, the Shaping agent turns the brainstorm into drafts and asks its open questions in the conversation. (owner said: A-02)
-- **O-12** — The two research roles are adapted once: one new shared brainstorm skill in the base team carries the out-of-graph contract, and each role gets a one-line pointer to it; no role copies, no Plan roles in the brainstorm. (agent's call, pending q6)
+- **O-12** — The two research roles are adapted once: one new shared brainstorm skill in the base team carries the out-of-graph contract (live conversation, no loop, short spoken answers, research payload as output), and each role gets a one-line pointer to it; no role copies, no Plan roles in the brainstorm. (owner said: A-06)
 - **O-13** — A brainstorm-born issue runs the normal Plan workflow from its brief, with all Plan owner gates as today. (owner said: A-02)
-- **N-06** — Talking to the Plan agents during a running Plan (ask or judge a Plan stage) is not in this issue; it becomes a follow-up. (agent's call, pending q5)
+- **N-06** — Talking to the Plan agents during a running Plan (ask or judge a Plan stage) is not in this issue; it is a separate follow-up issue. (owner said: A-05)
 - **N-07** — No Research graph run and no builder check for brainstorm-born issues; the brainstorm replaces Research for them. (agent's call)
 - **K-04** — The Research graph, the two research roles' behaviour inside it and their result contract stay unchanged. (agent's call)
 - **K-05** — The spoken yes approves only creating issues and starting Plan; it approves no Plan stage. (agent's call)
@@ -36,6 +36,9 @@ Let the owner brainstorm a feature with ChatGPT/Claude (voice, documents) agains
 - **A-02** — q2 "When may a draft recommend starting directly in Plan instead of Research?" — owner: "i think it should always start in a research discussion with the agents; when this finishes, an issue should be created but directly in plan mode and the planner should sketch it out. from there on, we would again follow the path of the planning workflow but also here we could use the agents of course. also, i would say that the agents somehow re-use the planning agents, but without the graph; sketch out how we would need or if at all we would need to adapt the two agents we have in the research mode!?" (owner said)
 - **A-03** — q3 "Do context scans run on their own when you ask \"do we already have…?\"" — owner: "b" (owner said)
 - **A-04** — q4 "Should Nico (the Discord assistant) also get brainstorms in this issue?" — owner: "no, niko is not in scope here" (owner said)
+- **A-05** — q5 "Should talking to the Plan agents during a running Plan be part of this issue?" — owner: "a" (owner said)
+- **A-06** — q6 "How should the brainstorm reuse the two Research agents?" — owner: "a" (owner said)
+- **O-14** — The issue draft acceptance changes from "a task that starts in Research" to "a task that starts in Plan with the brainstorm brief", following A-02. (owner said: A-02)
 
 
 ## Assumptions
@@ -46,30 +49,12 @@ Let the owner brainstorm a feature with ChatGPT/Claude (voice, documents) agains
 - **a4** — Document-derived notes are capped at 4 KB per note and 64 KB total per brainstorm, each tagged with the document name; the client is told when the cap is hit. Rests on existing connector bounds (f15). (agent's call)
 - **a5** — A brainstorm stays open until the owner closes it or 30 days pass without activity; closed brainstorms stay readable. (agent's call)
 - **a6** — superseded by O-03 — the brainstorm brief is written to the new task's session directory on its task branch as RESEARCH_BRIEF.md, rendered by the existing brief generator from the Shaping agent's ledger. (agent's call)
-- **a7** — How to tell it works: the manual acceptance in the issue (a voice brainstorm ends in a started Research task without typing), plus automated tests that one confirmed proposal makes exactly one issue per draft, a replay makes none, a factory note never triggers a run, and a fresh client sees the overview and prompts. (agent's call)
+- **a7** — How to tell it works: manually, a voice brainstorm ends in a new issue whose Plan has started from the brainstorm brief, without typing; automatically, one confirmed proposal makes exactly one issue per draft, a replay makes none, a factory note never triggers a run, Plan finds the brief on the new task, and a fresh client sees the overview and prompts. (agent's call)
 - **a8** — The first deliverable is the guidance part (overview, prompts, template), because it is useful alone and the rest builds on it. Plan may reorder. (agent's call)
 - **a9** — Only one deep scan runs at a time per brainstorm; further questions queue, and each answer states its cost estimate or that cost is unknown. (agent's call)
 - **a10** — Brainstorm agents read the repository's default branch, read-only; they get no worktree for writing. (agent's call)
 - **a11** — A team version without the brainstorm skill refuses brainstorms with a plain message until the owner releases and installs one that has it. (agent's call)
 - **a12** — The brainstorm agents return the existing research payload (findings, decisions, assumptions), so the brief generator and Plan read it unchanged. (agent's call)
-
-
-## Open questions
-
-### q5 — Should talking to the Plan agents during a running Plan be part of this issue?
-
-_Asked of: Product Owner Questions_
-
-- **a** — No, make it a follow-up issue. Today you can only talk to the Research and Bug agents of a task. Adding the four Plan agents is a separate piece of work. (recommended: this issue is already large, and the brainstorm works without it)  *(recommended)*
-- **b** — Yes, include it: during Plan you can ask or judge the Plan agents from ChatGPT/Claude too.
-
-### q6 — How should the brainstorm reuse the two Research agents?
-
-_Asked of: Technical Questions_
-
-- **a** — Reuse both roles as they are, plus one new shared brainstorm skill and a one-line pointer in each role. One source of truth, and the normal Research workflow stays untouched. (recommended)  *(recommended)*
-- **b** — Write two new brainstorm roles copied from research and shaping. Free to tune them, but they will drift from the originals.
-- **c** — Use the Plan agents in the brainstorm instead. They are built to split and design work, not to find facts, so answers would be weaker.
 
 ## Research documents
 
