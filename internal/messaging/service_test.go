@@ -155,7 +155,7 @@ func TestStatusAndCommands(t *testing.T) {
 		}
 		texts = append(texts, text)
 	}
-	if texts[0] != "Running: true. Heartbeat age: 10s. Discovery paused: true." {
+	if !strings.HasPrefix(texts[0], "Running: true. Heartbeat age: 10s. Discovery paused: true.\n") || !strings.Contains(texts[0], "Disk/cache observations unavailable") {
 		t.Fatal(texts[0])
 	}
 	for _, fragment := range []string{"Running now: 0 (+2 unidentified).", "Pause reason: rate limit", "2026-10-10T12:01:00Z", "Polling: 0 repositories"} {

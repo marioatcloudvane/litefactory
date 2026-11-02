@@ -259,7 +259,7 @@ func TestPrintDaemonHeartbeatDaemonDownIsLabelled(t *testing.T) {
 		t.Errorf("down output:\n%s", &out)
 	}
 	out.Reset()
-	if err := printDaemonHeartbeat(&out, store.HealthSnapshot{}, time.Time{}, true, now); err != nil || out.Len() != 0 {
+	if err := printDaemonHeartbeat(&out, store.HealthSnapshot{}, time.Time{}, true, now); err != nil || !strings.Contains(out.String(), "observations unavailable") || strings.Contains(out.String(), "free=0") {
 		t.Errorf("no snapshot: err=%v out=%q", err, &out)
 	}
 }
