@@ -1,0 +1,3 @@
+Makefile RACE_TESTS_turn selection: 246 tests
+ok  	github.com/cloudvane/litefactory/internal/turn	435.382s
+Exit code: 0
