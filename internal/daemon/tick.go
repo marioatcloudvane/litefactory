@@ -1916,6 +1916,7 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 	}
 	d.rateLimited(ctx, t.log, t.tickAt, err)
 	if d.prepareFailed(ctx, t, err) {
+		d.alertQueueStopped(ctx, t)
 		t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
 			slog.Any("error", err))
 	}
@@ -3361,6 +3362,7 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	d.commentFate(ctx, t, t.commentUnderWay, fateDeferred, "deferred, "+what+"; it is retried on a later heartbeat")
 	d.rateLimited(ctx, log, t.tickAt, err)
 	if d.prepareFailed(ctx, t, err) {
+		d.alertQueueStopped(ctx, t)
 		log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 			slog.Any("error", err))
 	}

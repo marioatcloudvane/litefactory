@@ -33,6 +33,19 @@ func DefaultFileContents() []byte {
 #     # conversations:
 #     #   - {channel_id: "123456789", name: "Owner work", provider: claude}
 #
+# Optional factory alerts (omitting this block keeps these defaults):
+# alerts:
+#   enabled: true
+#   channel_id: "" # Uses notice_channel_id; override must be an allowed channel
+#   mention_owner: critical # critical or none
+#   cooldown_minutes: 60
+#   pool_wait_minutes: 30
+#   no_progress_minutes: 120
+#   delivery_wait_minutes: 15
+#   quiet_hours: {enabled: true, start: "23:00", end: "07:00"}
+#   rules: {disk_low: true, pool_blocked: true, no_progress: true,
+#           provider_failure: true, task_stuck: true, delivery_stuck: true}
+#
 # Unknown keys and literal credentials are startup errors. Credentials are
 # references only: token_keychain names a Keychain item; token_env, shown as
 # the commented alternative below, names an environment variable.

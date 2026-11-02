@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -65,6 +66,7 @@ type DiagnoseRequest struct {
 
 // Conversation is bounded display data; complete history remains in the store.
 type Conversation struct {
+	Alerts          *alerts.Projection       `json:"alerts,omitempty"`
 	Review          *RejectedDiagnosisReview `json:"review,omitempty"`
 	ProposalID      int64                    `json:"proposal_id,omitempty"`
 	Repair          *store.DoctorRepair      `json:"repair,omitempty"`
@@ -257,6 +259,14 @@ func (s *Service) ReadConversation(ctx context.Context, ref naming.Ref) (Convers
 		return out, err
 	}
 	out = Conversation{ProposalID: proposalID, Conversation: c, Attempts: attempts, Diagnosis: diagnosis, CurrentProposal: proposal, HistoryWindow: "Latest 30 attempts in this generation; earlier history remains retained", ApplyAvailable: s.CheckRepairCapability(ctx, ref) == nil}
+	if ledger, alertErr := s.DB.ReadAlerts(ctx); alertErr == nil {
+		p := alerts.Project(ledger, time.Now().UTC(), func(task string) bool { return task == ref.String() })
+		out.Alerts = &p
+	} else {
+		p := alerts.Project(store.AlertLedger{}, time.Now().UTC(), nil)
+		p.DeliveryReason = "store_unavailable"
+		out.Alerts = &p
+	}
 	out.Review, err = s.currentReview(ctx, c.ID)
 	if err != nil {
 		return out, err

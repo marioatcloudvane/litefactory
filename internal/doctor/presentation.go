@@ -15,6 +15,7 @@ import (
 // The caller redacts before retaining publication intent or writing output.
 func RenderConversation(c Conversation) string {
 	var body strings.Builder
+	body.WriteString(RenderAlerts(c.Alerts))
 	if c.Review != nil {
 		body.WriteString(RenderRejectedDiagnosisReview(*c.Review))
 	}
