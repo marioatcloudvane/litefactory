@@ -20,6 +20,7 @@ type MeterFilter struct {
 	RepoID, Issue, RunID     int64
 	IncludeStories           bool
 	CodingAgent, Mode, Model string
+	JudgeAttemptID           string
 	TimeFrom, TimeTo         *time.Time
 }
 
@@ -397,6 +398,9 @@ func meterPredicates(f MeterFilter) (string, []any) {
 	}
 	if f.RunID != 0 {
 		add("r.id=?", f.RunID)
+	}
+	if f.JudgeAttemptID != "" {
+		add("a.judge_attempt_id=?", f.JudgeAttemptID)
 	}
 	if f.CodingAgent != "" {
 		add("a.coding_agent=?", f.CodingAgent)

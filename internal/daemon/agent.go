@@ -30,10 +30,9 @@ var agentKindName = regexp.MustCompile(`^[A-Z][A-Za-z0-9_-]{0,39}$`)
 // tool its next run should use.
 //
 // There are exactly three outcomes and the zero value is the first of them:
-// no label, so nothing is resolved, and the run proceeds under the
-// configured default agent with argv byte-identical to what it was before
-// this feature existed (AC-2.1). Otherwise either Refusal is set and nothing
-// runs, or a Kind resolved and Agent carries its name.
+// no label, so nothing is resolved and the caller applies its workflow
+// inheritance and preferences before the configured default. Otherwise either
+// Refusal is set and nothing runs, or a Kind resolved and Agent carries its name.
 //
 // Agent selection is evaluated before the surviving obsolete-permission-label
 // check. What a resolved decision is used *for* — routing a run to a different

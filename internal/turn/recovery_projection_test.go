@@ -82,7 +82,7 @@ func TestGraphRecoveryFinalReportsUseRetainedWorkDisposition(t *testing.T) {
 			reporter := newReporter(t, f, forge, nil)
 			ref := f.ref()
 			intent := reporter.deliveryIntent(ref, ref, f.session.ID, dispatch.TriggerID(), 0, "graph-guidance-evidence")
-			_, err = reporter.deliverRecoveryProjection(t.Context(), intent, projection, "")
+			_, err = reporter.deliverRecoveryProjection(t.Context(), intent, projection, nil)
 			mustProgress(t, err)
 			body := forge.only(t).body
 			t.Logf("Final graph report (%s):\n%s", state, body)
