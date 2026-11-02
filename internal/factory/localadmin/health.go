@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -33,6 +34,7 @@ type ListenerHealth struct {
 	RunsInFlight           int
 	ChatStatus             string
 	RunsHeld               string
+	Disk                   *diskstatus.Observation
 }
 
 // RepositoryHealth contains the discovery and webhook facts for one project.
@@ -70,7 +72,7 @@ func InspectHealth(ctx context.Context, paths config.Paths) (_ HealthInspection,
 		ListenAddress: listener.ListenAddress, Listening: listener.Listening, WrittenAt: listener.WrittenAt,
 		LastHeartbeatStartedAt: listener.LastHeartbeatStartedAt, DiscoveryPaused: listener.DiscoveryPaused,
 		PauseReason: listener.PauseReason, PausedSince: listener.PausedSince, ExpectedResumeAt: listener.ExpectedResumeAt,
-		RunsInFlight: listener.RunsInFlight, ChatStatus: listener.ChatStatus, RunsHeld: listener.RunsHeld,
+		RunsInFlight: listener.RunsInFlight, ChatStatus: listener.ChatStatus, RunsHeld: listener.RunsHeld, Disk: listener.Disk,
 	}}}
 	for _, project := range snap.Repos {
 		health.Repos = append(health.Repos, RepositoryHealth{Owner: project.Owner, Name: project.Name,

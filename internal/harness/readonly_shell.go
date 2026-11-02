@@ -46,6 +46,12 @@ type readOnlyShellSandbox struct {
 func (r *Runner) prepareReadOnlyShell(worktree, logPath string) (readOnlyShellSandbox, error) {
 	cacheRoot := r.paths.ReviewCacheDir()
 	goCache := filepath.Join(cacheRoot, "go-build")
+	if r.goBuildCaches.Main != "" {
+		if err := r.goBuildCaches.Revalidate(worktree); err != nil {
+			return readOnlyShellSandbox{}, err
+		}
+		goCache = r.goBuildCaches.Reviewer
+	}
 	tmpRoot := filepath.Join(cacheRoot, "tmp")
 	for _, dir := range []string{goCache, tmpRoot} {
 		if err := os.MkdirAll(dir, runArtefactDirMode); err != nil {

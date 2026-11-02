@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/factory/owneractions"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -110,6 +111,16 @@ func (c Collector) collect(ctx context.Context, repo contracts.Project, at time.
 		b.Gaps = append(b.Gaps, "Factory run hold state could not be read.")
 	} else if held != "" {
 		add(fact("runs_held", "discovery", "", "Runs held: "+held))
+	}
+	if reader, ok := c.Factory.(interface {
+		ReadDiskStatus(context.Context) (*diskstatus.Observation, error)
+	}); ok {
+		observation, err := reader.ReadDiskStatus(ctx)
+		if err != nil {
+			b.Gaps = append(b.Gaps, "Factory disk/cache observations could not be read.")
+		} else {
+			add(fact("disk_cache", "disk_cache", "", diskstatus.Text(observation, at)))
+		}
 	}
 	tasks, tasksCut, taskErr := c.Factory.ReadProjectTasks(ctx, repo.ID)
 	if taskErr != nil {

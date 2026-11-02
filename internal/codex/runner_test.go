@@ -247,13 +247,13 @@ func TestSubmissionRootBecomesAddDirAndMustBeAbsolute(t *testing.T) {
 		t.Errorf("argv %q does not end with the stdin prompt argument", got)
 	}
 
-	// A run that submits nothing opens nothing.
+	// A run that submits nothing retains only its dedicated compiler cache grant.
 	runner, argv = fakeRunner(t, `printf '%s\n' '{"type":"turn.completed"}'`)
 	if _, err := runner.Run(context.Background(), request(t, agent.PathCold)); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if got := string(mustRead(t, argv)); strings.Contains(got, "--add-dir") {
-		t.Errorf("argv %q opened a directory for a run with no submission", got)
+	if got := string(mustRead(t, argv)); strings.Count(got, "--add-dir") != 1 || !strings.Contains(got, "--add-dir "+runner.goBuildCaches.Main+" ") {
+		t.Errorf("argv %q does not retain exactly the compiler cache grant", got)
 	}
 
 	// A relative root is a caller bug and must not be resolved against the

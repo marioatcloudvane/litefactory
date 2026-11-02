@@ -1,0 +1,305 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "AI;DR: The complete one-story Plan now has five observable criteria and seven linked tasks. Review this acceptance proposal through the existing third-stage gate; implementation has not started.\n\nUncovered original outcomes: O-01, O-04, O-05, O-07, O-08, O-11, O-12, O-17, O-18, O-19, O-20, O-24 are explicitly removed by the owner. Retained outcomes below cover only the portions allowed by the Rulings.\n\nRuling: O-01, O-04, O-05, O-07, O-08, O-11, O-12, O-17, O-18, O-19, O-20, O-24 — removed from this delivery and recorded in N-06 — owner comment 6571785897 accepted scope reduction after the one-round containment gate failed — cost: no automatic disk-space recovery; operator intervention remains necessary.\n\nRuling: O-02, O-03, O-06, O-09, O-10, O-13, O-14, O-15, O-21, O-22, O-23 — retain cache routing/configuration, path and ownership validation, filesystem diagnostics, existing disk-hold visibility and related verification/documentation only; removed portions are explicit in N-07 — owner comment 6571785897 — cost: diagnostics explain pressure but cannot claim cleanup or safe idleness.\n\nRuling: the ownership portions of the preceding Ruling and N-07, including cross-home exclusion in O-23, and the operator recovery-action portion of O-10 are superseded by A-03 and N-09. Retain path validation, home-specific defaults and local main/reviewer separation; do not assert exclusive ownership. Cost: intentionally conflicting custom configurations are not detected across factory homes. Cache-size reporting is an observation, not reclaimed-space accounting.\n\n| O-ID | Story |\n| --- | --- |\n| O-16 | story-001 |\n| O-02, O-03, O-06, O-09, O-10, O-13, O-14, O-15, O-21, O-22, O-23 | story-001, narrowed by the Rulings above |\n| O-01, O-04, O-05, O-07, O-08, O-11, O-12, O-17, O-18, O-19, O-20, O-24 | None; owner removed automatic deletion and its lifecycle |\n\nParent link-only story index: [story-001 — Isolate factory Go caches and explain disk-pressure holds](https://github.com/marioatcloudvane/litefactory/issues/1331).\n\nActive scope: exactly story-001; no story dependency edges or external delivery dependencies; no retired stories or replacements are supplied. #1308 stays independent. Shared decisions remain unchanged: dedicated main/reviewer routing, existing admission rules, truthful nonblocking observations, no factory deletion, ownership registry or recovery workflow. Settled intent, architecture, guidance and assumptions are retained.\n\nstory-001 — M. Supplied reason: “Cache routing, permissions, admission, cleanup and status change together; user exclusion and restart safety need care. Existing surfaces bound the work; routing moves to cold dedicated caches, with no data migration or host-cache retirement.” This is historical sizing; owner scope cuts remove cleanup and ownership work without replacing the promoted set.\n\nThe story sub-issue holds the complete typed intent, scope, design, criteria and task descriptions. Its delivery order is T-01 → T-02/T-03 → T-04 → T-05 → T-06; T-07 follows T-04. Configuration/routing and the sampler converge in existing persisted health/status views. AC-001 uses the worker-written end-to-end main-path test; AC-002 through AC-005 are judged in Validate, supported by task evidence. Every criterion has a linked delivery task. The required large-cache fixture checks progress beyond 100,000 entries, completion and responsiveness; it cannot prove an atomic live size or interrupt a blocked filesystem call.\n\nNo material owner question remains. All N-01 through N-09 and K-01 through K-04 remain on the story, with the recorded superseding Rulings. Disk pressure still needs operator intervention; custom caches have no cross-home exclusivity guarantee. No implementation, tests, acceptance judgment or remote publication is claimed. Exact acceptance/assembled-plan approval remains with the owner in this third stage. After the factory completes that gate and saves the Plan, the recommended next action is `/implement <instruction>`.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "6407f65b95444d860184d746a152606ce13cc2df939f30a978109df74f357f64",
+          "changed_sections": [
+            "criteria",
+            "tasks"
+          ],
+          "draft": {
+            "key": "story-001",
+            "name": "Isolate factory Go caches and explain disk-pressure holds",
+            "user_story": {
+              "actor": "factory operator",
+              "want": "factory Go builds to use identifiable dedicated caches and status to explain disk-pressure holds",
+              "benefit": "I can diagnose space pressure while active work remains protected",
+              "notes": [
+                "Covers: O-16; retained portions of O-02, O-03, O-06, O-09, O-10, O-13, O-14, O-15, O-21, O-22, O-23 as limited by the Ruling notes.",
+                "Owner answer A-01 retained in part: dedicated factory caches and status only; no alerts. Its bounded-drain and automatic-cleanup portions are superseded by owner comment 6571785897.",
+                "Owner answer A-02: comment 6571785897 — \"Owner decision: yes, cut the scope down as you recommend. This delivery is dedicated factory Go-cache routing plus visible disk-pressure status, with no automatic deletion. Record the removed automatic-deletion outcomes explicitly as out of scope, and continue planning.\"",
+                "Ruling: O-01, O-04, O-05, O-07, O-08, O-11, O-12, O-17, O-18, O-19, O-20, O-24 — removed from this delivery and recorded in N-06 — owner comment 6571785897 accepted scope reduction after the one-round containment gate failed — cost: no automatic disk-space recovery; operator intervention remains necessary.",
+                "Ruling: O-02, O-03, O-06, O-09, O-10, O-13, O-14, O-15, O-21, O-22, O-23 — retain cache routing/configuration, path and ownership validation, filesystem diagnostics, existing disk-hold visibility and related verification/documentation only; removed portions are explicit in N-07 — owner comment 6571785897 — cost: diagnostics explain pressure but cannot claim cleanup or safe idleness.",
+                "Routing starts with a cold dedicated main cache; existing reviewer cache routing is retained. Host-cache contents are neither migrated nor automatically retired.",
+                "S-01 remains feature work. The supplied set size M is retained; its historical reason includes cleanup that the owner has now removed. This update does not rewrite the promoted set or assign a new size.",
+                "Owner answer A-03: comment 6572713561 removes the permanent ownership registry, all claims and recovery paths; retains provider/check routing and reviewer separation; adds dedicated-cache size and free-disk reporting.",
+                "Ruling: the ownership portions of the preceding Ruling and N-07, including cross-home exclusion in O-23, and the operator recovery-action portion of O-10 are superseded by A-03 and N-09. Retain path validation, home-specific defaults and local main/reviewer separation; do not assert exclusive ownership. Cost: intentionally conflicting custom configurations are not detected across factory homes. Cache-size reporting is an observation, not reclaimed-space accounting."
+              ]
+            },
+            "problem": "Factory Go builds can consume enough disk space to prevent new runs. Cache locations, their observed size and the reason work is held must be visible without mixing normal factory builds with the operator's host cache. Automatic deletion could not meet the required containment evidence under the fixed Mac deployment constraints and is excluded by the owner; this delivery improves routing and diagnosis rather than recovering disk space.",
+            "in_scope": [
+              "Route supported factory Go builds and isolated checks to a configurable dedicated main build cache, defaulting to a factory-home-specific sibling directory outside worktrees; retain the separate reviewer Go cache. No cross-home ownership enforcement.",
+              "Support omitted settings and a cold transition for the main cache without migrating or retiring host-cache data. Document the existing stop threshold in GiB and slower cold rebuilds.",
+              "Validate dedicated cache paths and local main/reviewer separation; grant sandbox writes only to the selected cache data directories while preserving reviewer isolation. Reuse existing valid cache directories without ownership claims.",
+              "Preserve the existing configurable stop guard, queued/active work, daemon and check disk-probe error policies, and -trimpath prevention. Introduce no cleanup admission hold.",
+              "Expose observed free space, stop threshold, guarded filesystem, main/reviewer cache locations and observed sizes, same/other/unknown filesystem relation, observation freshness or measurement errors and any actual disk hold through existing status/health views.",
+              "State clearly that automatic cleanup is unavailable in this delivery. Use configuration/probe diagnostics without deletion, reclaimed-space claims, recovery workflows or proactive notifications.",
+              "Verify environment and sandbox routing across supported launcher paths, omitted settings, unsafe and locally overlapping targets, independent check/daemon probe behavior, threshold boundaries, bounded size observation, unknown/stale measurements and status propagation using temporary fixtures."
+            ],
+            "not_in_scope": [
+              "N-01 — Exclude DB backups, logs, archives and anything outside factory-owned caches. (owner said: issue #1324 Out of scope)",
+              "K-01 — Preserve active cache users and the existing configurable disk stop guard. (owner said: issue #1324 Goal and Scope)",
+              "N-02 — Exclude Go module downloads, reviewer temporary directories, unrelated language caches and automatic retirement of the existing host cache. (owner said: Q-01 dedicated cache)",
+              "N-03 — Exclude a generic cleanup plugin system, a new manual cleanup command, and a guarantee against disk growth caused by unrelated applications. (agent's call)",
+              "K-02 — Preserve existing run-stop settings, daemon and check disk-probe error behavior, queued work, active work, and the existing -trimpath prevention. (agent's call)",
+              "K-03 — Preserve sandbox restrictions except for narrowly scoped write grants to the dedicated factory Go build caches. (owner said: Q-01 dedicated cache)",
+              "K-04 — Preserve backup, log and archive maintenance behavior and existing reviewer isolation. (agent's call)",
+              "N-04 — Exclude proactive alerts and recovery notifications from this release, leaving them to #1308 without making it a delivery dependency. (owner said: Q-03 status only, no alerts in this release)",
+              "N-05 — Exclude supporting unrelated Go commands or other factory homes sharing the managed caches. (owner said: Q-01 dedicated cache)",
+              "N-06 — Exclude automatic cache deletion and relief (O-01, O-05), cleanup trigger/margin/enable settings (O-04), idle/deletion exclusion (O-07), post-cleanup admission and remeasurement (O-08), deletion deadlines/backoff (O-11), deletion no-ops/partial results (O-12), cleanup draining and admission holds (O-17, O-18, O-19), lingering-user cleanup proof (O-20), and pressure-recovery drain abort (O-24). (owner said: comment 6571785897, scope reduction)",
+              "N-07 — Exclude the cleanup/reclaimed-space portions of O-02, O-03, O-06, O-09, O-10, O-13, O-14, O-15, O-21, O-22 and O-23: no cleanup events, reclaimed-byte claims, deletion eligibility, cleanup state/next retry, cleanup enablement or restart-idleness proof. Retain only their routing, validation, ownership, filesystem diagnostics, disk-hold visibility and documentation portions. (owner said: comment 6571785897, accepted reduced proposal)",
+              "N-08 — Exclude process containment, further containment feasibility rounds, privileged helpers, entitlements, newer-macOS requirements, other-platform delivery and a generic process-management framework. Keep macOS 26 and the user-level LaunchAgent. (owner said: comments 6564771967, 6564882441 and 6571785897)",
+              "N-09 — Exclude permanent cache-ownership registries, manifests, claims, claim locks, cross-home claim enforcement and ownership/recovery workflows. This supersedes N-07's retained ownership portion and the earlier recovery-action requirement. N-05 remains an unsupported-use boundary, not an enforced ownership guarantee. (owner said: comment 6572713561)"
+            ],
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go"
+            ],
+            "assumptions": [
+              "Research AS-01 retained: use the actual configured stop threshold, not an assumed installation value; live operator configuration and binary version were not inspected.",
+              "Research AS-04 retained: reported manual clears and cache growth are owner evidence, not measured host observations; reproducing that day's growth is unnecessary for this scope.",
+              "Research AS-06 retained only for existing status/health reuse and no cleanup-history database. Cooldown/restart-idleness clauses are superseded by owner comment 6571785897.",
+              "Research AS-07 cleanup backoff/hold clauses are superseded by owner comment 6571785897; existing disk admission behavior remains unchanged.",
+              "Owner scope reduction ends the containment feasibility branch. Its failed gate is retained evidence, not an outstanding implementation prerequisite or permission for another round.",
+              "Home-specific defaults provide separate paths. Operators keep custom paths dedicated; without a registry the factory makes no cross-home exclusivity guarantee. Unrelated commands and hostile filesystem mutation are unsupported; no enforcement over deliberate shell environment overrides is claimed.",
+              "Read-only reviewers retain their existing dedicated cache path and contents; only the newly routed main cache necessarily starts cold.",
+              "Factory-owned process entry points capable of builds/checks consume the shared descriptor; environment-only advisory processes gain no additional tool or filesystem permissions.",
+              "Existing host-cache write roots explicitly configured by the operator are not silently removed; the selected GOCACHE routes normal factory Go traffic to its dedicated target. Go module-cache settings remain untouched.",
+              "Cache size means approximate logical bytes of regular files under each selected go-build directory, not allocated or reclaimable disk space. Concurrent Go activity can change the directory during sampling; no atomic snapshot or idleness is claimed.",
+              "Owner comment 6579223219 selects useful non-blocking large-cache reporting. The design uses bounded resumable slices with visible partial progress. Completion is guaranteed for a finite unchanged readable tree with supported depth and returning filesystem calls; continuously changing or inaccessible trees retain explicit partial/incomplete observations. No instantaneous live-size lower-bound guarantee is claimed."
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Scope and compatibility",
+                  "decision": "Keep dedicated caches and truthful disk-pressure status, with no deletion or new admission policy. Keep macOS 26 and the user LaunchAgent. Remove ownership tracking and recovery paths entirely.",
+                  "rationale": "Owner comments 6571785897 and 6572713561 settle the reduced intent. Path checks still matter for sandbox grants; they do not need a permanent ownership registry."
+                },
+                {
+                  "area": "Configuration and path resolution",
+                  "decision": "Add settings.go_build_cache_path as an optional absolute main GOCACHE path. Omitted/empty resolves to <canonical factory home>-go-cache/go-build through config.Paths. Keep Paths.ReviewCacheDir()/go-build for existing read-only reviewers. Share resolved main/reviewer descriptors with launch and status consumers; use internal kind=go-build, not a plugin/config registry.",
+                  "rationale": "Existing defaults/template/validation and config.Paths own these concerns. Old YAML remains valid. Distinct main/reviewer paths preserve isolation; no cleanup settings are added."
+                },
+                {
+                  "area": "Validated dedicated targets",
+                  "decision": "Canonicalize existing ancestors; reject symlinked target components, root/home/factory-home directories, worktree containment or overlap, the host Go cache, non-directory targets and main/reviewer overlap. Create validated missing directories and reuse valid existing directories, including nonempty ones. Recheck the effective path before granting access. No marker, manifest, ownership test or empty-directory requirement.",
+                  "rationale": "K-03 requires narrow grants and K-04 reviewer separation. Reusing a populated cache must work after restart without claims. No deletion, migration or cross-home discovery is needed."
+                },
+                {
+                  "area": "Launch routing and sandbox integration",
+                  "decision": "Apply selected GOCACHE after generic environment/profile merging. Reuse internal/harness and internal/codex Execute/Buffered assembly, providerprocess/native entry points capable of builds/checks, and bugchecks.Isolation including fresh/stack wrappers. Ordinary builds/checks use main; existing read-only reviewers use reviewer. Add only the selected data directory to sandbox write roots, not factory home or parent directories. Include effective environment/write-root changes in check isolation revision before hashing.",
+                  "rationale": "Research F-06/F-13/F-15 identify distinct environment and permission surfaces. Preserve module-cache, temporary-directory, network and credential restrictions; advisory processes gain no tool access."
+                },
+                {
+                  "area": "Routing limits and errors",
+                  "decision": "No fallback to host cache on path, creation or permission failure. Use existing setup/launch errors. Managed recipe/profile inputs must not replace selected GOCACHE. Refuse incompatible configured external cache programs instead of presenting them as managed on-disk caches. Deliberate arbitrary command overrides remain outside the routing contract.",
+                  "rationale": "This configures normal Go traffic; it does not establish process containment or exclusive ownership. No claim failure or recovery handling remains."
+                },
+                {
+                  "area": "Existing disk guard",
+                  "decision": "Reuse daemon.lowDisk's factory-home observation: below stop holds admission; equality does not; zero disables the guard; probe failure logs and allows daemon dispatch. Keep independent check worktree probes and refusal on probe error. Preserve pending work, cancellation, -trimpath and housekeeping. Size and filesystem diagnostics never become admission rules.",
+                  "rationale": "Research F-01/F-02/F-03/F-14 and existing daemon/check paths establish differing probe-error policies. No new idle or cleanup gate is required."
+                },
+                {
+                  "area": "Status and health",
+                  "decision": "Publish disk/cache facts through the existing health snapshot, separate from RunsHeld: observation time, guarded path, enabled flag, stop bytes, nullable free bytes, probe error/state, actual hold, main/reviewer paths and same/other/unknown volume relation, plus per-cache size observations. Show automatic_cleanup=unavailable. Reuse the admission probe when enabled. With guard disabled, a display-only free-space probe may populate status but cannot enable or influence admission; failures remain visible as unknown. Show current partial bytes and progress independently of the last completed sample; a cache with no complete sample must still display its measured subtotal after a bounded slice.",
+                  "rationale": "Status must show free disk and cache size without confusing diagnostics with hold authority. A disabled guard is explicit even when space is measured. Independent measurement errors must not block work."
+                },
+                {
+                  "area": "Cache-size observation",
+                  "decision": "Use one background sampler for the two go-build directories. Start at daemon setup, with a sampling round at most once per five minutes. Give each cache one slice per round, bounded to five seconds or 100,000 examined entries; retain its traversal cursor, unprocessed batch and accumulated logical bytes across rounds instead of restarting at the root. Stream directory entries in batches of at most 256 using open directory handles and a depth-first cursor; do not eagerly enumerate or sort a whole directory. Close exhausted handles; cap traversal depth at 64 and report unsupported depth as an incomplete scan rather than silently omitting it. Never overlap workers. Walk without following symlinks or crossing filesystem boundaries; exclude reviewer tmp and module caches. Publish progress after each slice, even before any complete reading exists. A finite unchanged readable tree must finish after enough slices regardless of total entry count. Only exhaustion of the entire traversal without read/metadata errors completes a pass; then start a fresh pass on a later round. Bounds yield partial progress, not unknown. Status and admission never wait for scanning.",
+                  "rationale": "Owner comment 6579223219 corrects the repeated-prefix failure: large caches must produce useful observations. Retaining streaming progress bounds work per slice without bounding total cache size. Each cache gets a turn so a large main cache cannot starve reviewer reporting. Filesystem calls may outlast the slice deadline; stop issuing further calls on return and retain single-flight until the worker exits. No user cancellation, registry or generic service is needed."
+                },
+                {
+                  "area": "Partial readings and scan lifetime",
+                  "decision": "Expose the current pass subtotal, entries examined, pass start and last-progress time with an explicit partial/in-progress label, separately from the last complete approximate size and its observation interval. For an unchanged tree, the subtotal is a lower bound until completion; during concurrent changes label it observed partial bytes, not an assured lower bound on current live size. Do not combine pass totals, count buffered entries twice, or present a subtotal as complete. Missing/unreadable entries mark the pass incomplete, preserve its observed subtotal and error, and allow traversal of the remaining reachable entries. Do not restart a whole pass merely because one entry disappeared. On target replacement, configuration change or daemon restart discard the in-memory cursor, close its handles and start a new pass; retain prior displayed observations only with their original timestamps and stale/interrupted state. Shutdown cancels the sampler, not cache users.",
+                  "rationale": "Logical sizes gathered over time are approximate even after a full traversal. Active builds can remove previously measured files. Distinguishing coverage, freshness and errors gives useful progress without claiming current physical or reclaimable bytes. Cursor state is ephemeral and is not an ownership claim or recovery subsystem."
+                },
+                {
+                  "area": "Persistence and consumer coverage",
+                  "decision": "Add an optional versioned disk-status JSON column to existing daemon_listener_status with an additive migration. Extend ReplaceHealthSnapshot, ReadHealthSnapshot and bounded overview reads. Carry disk and per-cache size facts through daemon health signature/publication, CLI health/status, messaging status and ask facts. Old/absent snapshots render unavailable, not zero or fabricated holds. Keep per-size sample timestamps distinct from health publication time. Include partial bytes, entries examined, pass start, last-progress time and partial/in-progress/incomplete state in the same JSON and health signature. Persist observations only, never directory handles or traversal cursors. All existing status consumers must retain the distinction between a partial observation and a completed one.",
+                  "rationale": "The system already persists health in SQL. One additive projection supports current consumers; no ownership or history table is needed. Persisted observations are never admission authority."
+                },
+                {
+                  "area": "Diagnostics",
+                  "decision": "Log effective targets, measured free/stop bytes, size observation state and configuration/probe failures. Display GiB while retaining min_free_disk_gb. Do not claim recovered bytes, prescribe a cache deletion procedure or introduce a recovery path. State automatic cleanup is unavailable.",
+                  "rationale": "Owner A-03 requests visibility only. Measuring regular-file size does not prove physical disk usage, reclaimability or safe deletion."
+                },
+                {
+                  "area": "External guarantee checked",
+                  "decision": "Use absolute GOCACHE for standard Go on-disk caching. Go documents the override and concurrent invocations at https://pkg.go.dev/cmd/go#hdr-Build_and_test_caching . Native Go cache maintenance remains Go's behavior; no automatic deletion here means no factory pressure-cleanup mechanism. Go File.ReadDir(n>0) returns bounded batches and subsequent calls on the same open file continue to later records: https://pkg.go.dev/os#File.ReadDir . Use that streaming contract for slice continuation.",
+                  "rationale": "The retained Research/documentation check supports normal concurrent Go users, not external deletion or atomic size snapshots. No lifecycle, kqueue or Endpoint Security guarantee is relied on. Directory reads do not establish an atomic snapshot under mutation. Ordinary filesystem calls need not support deadlines, so the five-second budget bounds issuing new work rather than forcibly interrupting a blocked syscall."
+                },
+                {
+                  "area": "Shared surfaces and dependencies",
+                  "decision": "Shared edits: internal/config defaults/validation/template/paths; daemon setup/tick/health and size observation; harness/codex/provider/check environment and permissions; store daemon_health/overview and one migration; CLI/messaging status/facts and configuration/check documentation. Keep command lists, routes, roles/skills and housekeeping unchanged. No #1308 dependency; only one supplied story, so no sibling merge conflict is established.",
+                  "rationale": "Reuse existing owners of routing and health. There is no registry coordination directory, claim schema or installation change. Later stories touching these shared surfaces need explicit merge ordering."
+                },
+                {
+                  "area": "Guidance and evidence boundaries",
+                  "decision": "Select go. Supply facts and hard invariants in Go; keep agent behavior in markdown if later needed. Do not pin markdown wording or hashes in tests. Future behavioral verification uses temporary cache fixtures and injectable disk observations. Acceptance shaping owns tasks and criteria.",
+                  "rationale": "Agent-guidance and testing standards were read. No agent-setup or frontend change is present. This review does not claim implementation or passing tests; prior containment probes remain closed negative evidence."
+                },
+                {
+                  "area": "Large-cache verification handoff",
+                  "decision": "Require future behavioral verification with a temporary stable tree exceeding the production 100,000-entry slice limit, including a wide directory, and known regular-file lengths. Observe a labelled nonzero partial reading after the first slice, further progress without prefix recounting, and the correct completed logical total after enough slices. Exercise the same persisted health/status path for partial and complete values and confirm status/admission remain responsive while the reader is paused. Smaller injected budgets and a controlled clock cover time-budget boundaries, errors, concurrent disappearance, cancellation and restart without long waits.",
+                  "rationale": "This directly checks the owner's over-limit case rather than only testing small trees or a mocked final total. No operator cache is used. This is required future evidence for acceptance shaping, not a task list, acceptance criteria or a claim that tests ran."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Disk/cache health observation",
+                  "definition": "Optional versioned JSON on existing daemon_listener_status: disk sample time/path, enabled flag, stop bytes, nullable free bytes, probe state/error, actual hold; main/reviewer descriptors and volume relations; per-cache nullable last-complete logical size and observation interval, current pass partial logical bytes, entries examined, pass start and last-progress time, latest attempt state/error; automatic cleanup unavailable.",
+                  "constraints": "Additive migration only. Unknown differs from zero and partial differs from complete. Partial observations remain visible even without a prior complete reading and cannot overwrite last-complete bytes. Retain original timestamps; after restart mark interrupted observations stale while a new pass starts. Cursor and handles are in memory only. No ownership claims or history database. Admission never trusts persisted status."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Resolved cache descriptor",
+                  "contract": "Setup resolves and validates main/reviewer paths. Existing provider/check adapters apply the role-appropriate final GOCACHE and exact write grant, and reject conflicting launch configuration without fallback.",
+                  "rationale": "Shared paths prevent environment, sandbox and status drift; no ownership coordinator."
+                },
+                {
+                  "element": "Disk and size observation projection",
+                  "contract": "Existing daemon guard supplies admission-related disk facts. One background sampler resumes each cache's streaming cursor across bounded slices and publishes current partial progress plus any last-complete approximate size. Status never runs or waits for a traversal. Disabled-guard free-space measurement is display-only. Existing health publication and consumers preserve partial/complete state, freshness and errors.",
+                  "rationale": "Observation is separate from admission authority; slow or failed scans do not delay work or status requests."
+                }
+              ]
+            },
+            "criteria": [
+              {
+                "id": "AC-001",
+                "text": "You can run supported factory Go builds and isolated checks with the dedicated main cache while read-only reviewers retain their separate cache and status shows the selected paths. (Auto)",
+                "proof_method": "End-to-end temporary-home routing-to-health test runs a supported build/check, verifies effective GOCACHE and exact sandbox roots for main/reviewer launch families, and reads the selected paths through persisted status. Covers: O-16, O-03, O-15, O-22."
+              },
+              {
+                "id": "AC-002",
+                "text": "You can omit the cache setting, reuse a valid populated cache or choose a valid absolute path, while unsafe or locally overlapping paths fail clearly without host-cache fallback. (Manual)",
+                "proof_method": "Validate reviewer reads configuration, path-error and sandbox behavior against the classified Research inventory and delivered behavioral evidence, including cold main-cache transition and preserved reviewer isolation. Covers: O-03, O-13, O-14, O-23."
+              },
+              {
+                "id": "AC-003",
+                "text": "You can see free disk, the configured stop threshold, actual disk holds, both cache paths and their filesystem relation through existing status views, with unavailable or stale readings clearly labelled. (Manual)",
+                "proof_method": "Validate reviewer checks CLI health/status, messaging status and ask-fact projections plus their evidence for enabled/disabled guards, probe errors, absent old snapshots, timestamps and same/other/unknown filesystem relations. Covers: O-02, O-06, O-09, O-10, O-21."
+              },
+              {
+                "id": "AC-004",
+                "text": "You can see labelled partial cache-size progress before a full reading exists and eventual approximate logical totals for finite unchanged readable caches of supported depth, while status and admission remain responsive. (Manual)",
+                "proof_method": "Validate reviewer reads the sampler and persisted-consumer evidence, including a temporary stable tree exceeding 100,000 entries with a wide directory, nonzero first-slice progress, continuation without recounting, correct final total and responsive status/admission with a paused reader; checks incomplete/error and restart freshness semantics within recorded filesystem limits. Covers: O-09, O-10, O-15, O-21."
+              },
+              {
+                "id": "AC-005",
+                "text": "You retain the existing disk-stop and active-work behavior, and the documentation explains GiB, cold rebuilds, approximate cache sizes and unavailable automatic cleanup without ownership or recovered-space claims. (Manual)",
+                "proof_method": "Validate reviewer compares the change and regression evidence with K-01 through K-04 and reviews configuration/check documentation for the retained scope, N-01 through N-09 and superseding Rulings; no live deletion or owner-cache experiment is required. Covers: O-02, O-03, O-10, O-14, O-15, O-22, O-23."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-01",
+                "description": "Kind: code — Deliver optional go_build_cache_path defaults, shared resolved descriptors and path validation through config.Paths. Reuse valid nonempty directories without claims; reject unsafe, host-cache and local main/reviewer overlap, symlink and incompatible external-cache configurations. Cover omitted/empty settings, canonical ancestors and creation/permission failures with temporary fixtures. Delivers AC-002 and the configuration part of AC-001/AC-005.",
+                "owner_role": "implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-005"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-02",
+                "description": "Kind: code — Route final GOCACHE and narrow data-directory write roots through harness/Codex Execute/Buffered, providerprocess/native build/check entry points and isolated fresh/stack checks, using the classified Research inventory as the launcher checklist. Preserve reviewer separation and other permissions; apply environment after profile merging, prevent managed overrides/fallback and update check isolation revision before hashing. Write the AC-001 temporary-home end-to-end routing-to-health main-path test, completing its status assertions after T-04. Delivers AC-001/AC-002/AC-005.",
+                "owner_role": "implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T-01"
+                ]
+              },
+              {
+                "id": "T-03",
+                "description": "Kind: code — Deliver the single background main/reviewer size sampler with retained streaming cursor and subtotal, bounded slices and visible partial progress exactly as the settled architecture specifies. Handle fairness, errors/disappearance, no symlink or volume traversal, supported depth, replacement/configuration changes, cancellation and restart without persisting cursors or affecting cache users/admission. Preserve filesystem-call deadline limits and approximate-size labels. Delivers AC-004 and size facts for AC-003.",
+                "owner_role": "implementation-engineer",
+                "criterion_ids": [
+                  "AC-003",
+                  "AC-004"
+                ],
+                "depends_on": [
+                  "T-01"
+                ]
+              },
+              {
+                "id": "T-04",
+                "description": "Kind: code — Add the optional versioned disk/cache observation projection and additive migration; wire existing daemon guard facts and sampler output through health publication/signature, store snapshot/overview, CLI health/status, messaging status and ask facts. Preserve original sample timestamps, partial versus complete totals, stale/interrupted/error states, null versus zero, disabled-guard display-only probes and actual-hold authority. Log diagnostics and automatic_cleanup=unavailable. Complete T-02's main-path status assertions. Delivers AC-001/AC-003/AC-004/AC-005.",
+                "owner_role": "implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T-02",
+                  "T-03"
+                ]
+              },
+              {
+                "id": "T-05",
+                "description": "Kind: code — Deliver focused behavioral tests for path rejection/reuse and final environment/permission selection; preserve below/equal/above-stop and zero-disabled boundaries, daemon fail-open versus independent check fail-closed probes, pending/active work, cancellation, -trimpath and housekeeping. Exercise sampler slices with injected budgets/clock, partial versus last-complete readings, no recounting, per-cache fairness, depth/volume/symlink boundaries, errors/disappearance, shutdown and restart. Use temporary fixtures and no operator caches. Delivers regression evidence for AC-002 through AC-005.",
+                "owner_role": "unit-test-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T-04"
+                ]
+              },
+              {
+                "id": "T-06",
+                "description": "Kind: code — Deliver integration verification of the Research launcher checklist and persisted status consumers, including additive migration/old snapshots and same/other/unknown volumes. Use a stable temporary tree exceeding the production 100,000-entry limit, including a wide directory and known file lengths: verify nonzero labelled first-slice progress without a prior full sample, continuation without prefix recounting and correct full total. Pause the reader to demonstrate status/admission do not wait; verify both caches receive turns and partial/complete values survive the health/status path. Run the repository-required Go checks with -trimpath. These tests support Validate; they do not perform Manual acceptance. Delivers AC-001/AC-003/AC-004/AC-005 evidence.",
+                "owner_role": "integration-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T-04",
+                  "T-05"
+                ]
+              },
+              {
+                "id": "T-07",
+                "description": "Kind: markdown — Update configuration and check documentation for defaults/custom paths, cold main rebuilds, retained reviewer cache, untouched host data/module cache, GiB stop threshold, partial/complete approximate logical sizes, freshness/errors and existing probe policies. State automatic cleanup, claims/registries and recovery workflows are unavailable; custom paths have no cross-home exclusivity guarantee. Verify consistency and references by text review and structural checks only; Validate owns AC-005's Manual judgment. Delivers AC-002/AC-003/AC-004/AC-005.",
+                "owner_role": "implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T-04"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -12,6 +12,7 @@ import (
 
 // Keep future cutovers from reintroducing a transport policy dependency into
 // the application owner or persistence capabilities into its shared values.
+// Ticket identities and display-only disk observations are neutral shared values.
 func TestFactoryDependencyDirection(t *testing.T) {
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -34,7 +35,7 @@ func TestFactoryDependencyDirection(t *testing.T) {
 					t.Errorf("%s imports transport or host %s", path, name)
 				}
 			}
-			if strings.HasPrefix(path, "contracts"+string(filepath.Separator)) && (name == "database/sql" || strings.Contains(name, "/internal/") && !strings.Contains(name, "/internal/ticket")) {
+			if strings.HasPrefix(path, "contracts"+string(filepath.Separator)) && (name == "database/sql" || strings.Contains(name, "/internal/") && !strings.Contains(name, "/internal/ticket") && name != "github.com/cloudvane/litefactory/internal/diskstatus") {
 				t.Errorf("shared contract %s imports implementation %s", path, name)
 			}
 		}

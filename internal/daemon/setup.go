@@ -219,6 +219,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		environ = os.Environ()
 	}
 
+	caches, err := s.Paths.ResolveGoBuildCaches(s.Config.Settings)
+	if err != nil {
+		return nil, Startup{}, err
+	}
+	s.Logger.InfoContext(ctx, "factory Go cache routing", slog.String("main", caches.Main), slog.String("reviewer", caches.Reviewer), slog.String("automatic_cleanup", "unavailable"))
 	gitBinary, err := git.Resolve(ctx)
 	if err != nil {
 		return nil, Startup{}, fmt.Errorf("the daemon needs git: %w", err)
@@ -361,6 +366,15 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// can fail without leaving a mark, so a machine configured that way refuses
 	// to start rather than starting and colliding.
 	if err := repos.ValidateWorktreeRoots(registered); err != nil {
+		return nil, Startup{}, err
+	}
+	var cacheRootErrors []error
+	for _, repo := range registered {
+		if err := caches.Revalidate(repo.WorktreeRoot); err != nil {
+			cacheRootErrors = append(cacheRootErrors, fmt.Errorf("go cache overlaps registered worktree root for %s/%s: %w", repo.Owner, repo.Name, err))
+		}
+	}
+	if err := errors.Join(cacheRootErrors...); err != nil {
 		return nil, Startup{}, err
 	}
 
@@ -625,6 +639,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		digest := sha256.Sum256(encoded)
 		isolation.Revision = hex.EncodeToString(digest[:])
 	}
+	isolation, err = isolation.WithGoBuildCaches(caches)
+	if err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
 	// Checks wait for disk space rather than fail on a full volume.
 	isolation.MinFreeBytes = s.Config.Settings.MinFreeDiskBytes()
 	// Spike checks retain the configured operator sandbox.
@@ -714,6 +732,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		MinFreeDiskBytes:         s.Config.Settings.MinFreeDiskBytes(),
 		DiskPath:                 s.Paths.Home(),
+		GoBuildCaches:            caches,
 		// An automatic start needs the Validate graph's host bindings; without
 		// them the turn would take the legacy path, which must never be started
 		// by itself.

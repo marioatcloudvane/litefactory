@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -150,12 +149,16 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	hb := &heartbeat{source: wakeSourceFrom(ctx), counts: &discoveryCounts{}}
 	startedAt := d.now()
 	d.runsHeld.Store(nil)
+	d.clearDiskHold()
 	d.quotas.tick(startedAt)
 	hb.startedAt = startedAt
 	// Last, whatever path the tick leaves by: the heartbeat line and the health
 	// snapshot are reporting only and never change the tick's result.
 	defer func() {
 		d.finishHeartbeat(ctx, hb, result, err)
+		if d.minFreeDiskBytes == 0 {
+			d.observeDisk(ctx, time.Now())
+		}
 		d.publishHealth(ctx, startedAt)
 	}()
 	d.discovery.tick(startedAt)
@@ -3470,23 +3473,17 @@ func (d *Daemon) lowDisk(ctx context.Context) bool {
 	if d.minFreeDiskBytes == 0 || d.diskPath == "" {
 		return false
 	}
-	read := d.freeDiskBytes
-	if read == nil {
-		read = bugchecks.FreeDiskBytes
-	}
-	free, err := read(d.diskPath)
-	if err != nil {
-		d.log.WarnContext(ctx, "free disk space unreadable; dispatch continues", slog.String("path", d.diskPath), slog.Any("error", err))
+	if !d.observeDisk(ctx, time.Now()) {
 		return false
 	}
-	if free >= d.minFreeDiskBytes {
-		return false
-	}
+	d.diskObservation.mu.Lock()
+	free := *d.diskObservation.value.FreeBytes
+	d.diskObservation.mu.Unlock()
 	d.log.WarnContext(ctx, "free disk space below threshold; no run starts until space is freed",
 		slog.String("path", d.diskPath),
 		slog.Uint64("free_bytes", free),
 		slog.Uint64("required_bytes", d.minFreeDiskBytes))
-	held := fmt.Sprintf("New runs wait: free disk %.1f GB is below the %d GB minimum.",
+	held := fmt.Sprintf("New runs wait: free disk %.1f GiB is below the %d GiB minimum.",
 		float64(free)/(1<<30), d.minFreeDiskBytes>>30)
 	d.runsHeld.Store(&held)
 	return true

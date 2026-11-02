@@ -26,6 +26,10 @@ import (
 // internal/report do not switch on [agent.Kind] at all, which is the whole
 // point of the registry-driven design (AC-5.6, AC-5.15).
 func buildRunners(paths config.Paths, cfg *config.Config, environ []string, logger *slog.Logger) (turn.RunnerSet, error) {
+	caches, err := paths.ResolveGoBuildCaches(cfg.Settings)
+	if err != nil {
+		return nil, err
+	}
 	runners := make(turn.RunnerSet, 2)
 	if cfg.Agents.Claude != nil {
 		model, ok := cfg.Tiers.ResolveModel(config.KindClaude, cfg.Agents.Claude.ModelTier)
@@ -33,7 +37,7 @@ func buildRunners(paths config.Paths, cfg *config.Config, environ []string, logg
 			return nil, fmt.Errorf("agents.claude.model_tier %q has no configured model", cfg.Agents.Claude.ModelTier)
 		}
 		claudeRunner, err := harness.New(harness.Options{
-			Paths: paths, Claude: *cfg.Agents.Claude, Model: model,
+			GoBuildCaches: caches, Paths: paths, Claude: *cfg.Agents.Claude, Model: model,
 			Environ: environ, Logger: logger, ThinkingLogs: cfg.Settings.ThinkingLogs,
 		})
 		if err != nil {
@@ -46,7 +50,7 @@ func buildRunners(paths config.Paths, cfg *config.Config, environ []string, logg
 		if !ok || model == "" {
 			return nil, fmt.Errorf("agents.codex.model_tier %q has no configured model", cfg.Agents.Codex.ModelTier)
 		}
-		codexRunner, err := codex.New(codex.Options{Paths: paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
+		codexRunner, err := codex.New(codex.Options{GoBuildCaches: caches, Paths: paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if err != nil {
 			return nil, fmt.Errorf("the daemon needs configured agent codex: %w", err)
 		}

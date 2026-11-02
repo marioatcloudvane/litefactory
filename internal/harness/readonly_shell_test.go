@@ -113,7 +113,7 @@ func TestReadOnlyShellRunIsSandboxedOutsideTheWorktree(t *testing.T) {
 	}
 }
 
-// An ordinary run keeps the operator's settings file and its own environment.
+// An ordinary non-shell run keeps the operator settings and uses the main cache.
 func TestOrdinaryRunIsNotSandboxed(t *testing.T) {
 	f := newFixture(t, successScript(t))
 	f.run(t)
@@ -121,8 +121,18 @@ func TestOrdinaryRunIsNotSandboxed(t *testing.T) {
 	if i := slices.Index(argv, "--settings"); i < 0 || argv[i+1] != f.runner.settingsPath {
 		t.Fatalf("--settings changed for an ordinary run: %v", argv)
 	}
-	if strings.Contains(f.dump(t, "env.dump"), "GOCACHE=") {
-		t.Fatal("ordinary run got the read-only shell cache")
+	env := f.dump(t, "env.dump")
+	if !strings.Contains(env, "GOCACHE="+f.runner.goBuildCaches.Main+"\n") {
+		t.Fatal("ordinary run did not receive the dedicated main cache")
+	}
+	if strings.Contains(env, "GOCACHE="+f.runner.goBuildCaches.Reviewer+"\n") || strings.Contains(env, filepath.Join(f.runner.paths.ReviewCacheDir(), "tmp")) {
+		t.Fatal("ordinary run received reviewer cache or private temporary directory")
+	}
+	if slices.Contains(argv, "--permission-mode") {
+		i := slices.Index(argv, "--permission-mode")
+		if i+1 < len(argv) && argv[i+1] == ReadOnlyShellPermissionMode {
+			t.Fatal("ordinary run received read-only shell permissions")
+		}
 	}
 }
 

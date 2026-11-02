@@ -193,7 +193,8 @@ type ScheduleProposalItem struct {
 // a test builds one with its own doubles.
 type Options struct {
 	// Paths locates the owner instruction package.
-	Paths config.Paths
+	Paths         config.Paths
+	GoBuildCaches config.GoBuildCaches
 	// Instructions supplies per-invocation captures; nil uses the shared package.
 	Instructions instructionpackage.CaptureSource
 
@@ -466,6 +467,8 @@ type Daemon struct {
 	minFreeDiskBytes         uint64
 	diskPath                 string
 	freeDiskBytes            func(path string) (uint64, error)
+	diskObservation          diskObservation
+	cacheSampler             *cacheSampler
 	validateAutoStart        bool
 	validateHead             func(ctx context.Context, session store.Session) (string, error)
 	// toolProfiles and toolCeiling are the operator's tool configuration as it
@@ -657,6 +660,9 @@ func New(opts Options) (*Daemon, error) {
 	}
 	if err := d.initChat(opts.Chat); err != nil {
 		return nil, err
+	}
+	if opts.GoBuildCaches.Main != "" {
+		d.cacheSampler = newCacheSampler(opts.GoBuildCaches.Main, opts.GoBuildCaches.Reviewer)
 	}
 	return d, nil
 }
@@ -998,6 +1004,13 @@ func abandonedResult(run store.Run) *harness.RunResult {
 func (d *Daemon) Run(ctx context.Context) error {
 	if _, err := d.Start(ctx); err != nil {
 		return err
+	}
+
+	if d.cacheSampler != nil {
+		d.restoreCacheObservations(ctx)
+		samplerCtx, stopSampler := context.WithCancel(ctx)
+		defer stopSampler()
+		go d.cacheSampler.Run(samplerCtx)
 	}
 
 	ticks, stop := d.tickSource()

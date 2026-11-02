@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 	"github.com/cloudvane/litefactory/internal/factory/localadmin"
 	"github.com/cloudvane/litefactory/internal/launchd"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -160,7 +161,7 @@ func TestDaemonStatusPrintsThePublishedHealth(t *testing.T) {
 	}
 	at := time.Date(2099, 1, 2, 3, 4, 5, 0, time.UTC)
 	if err := db.ReplaceHealthSnapshot(h.t.Context(),
-		store.ListenerStatus{ListenAddress: "127.0.0.1:8787", Listening: true, DaemonStartedAt: at, WrittenAt: at},
+		store.ListenerStatus{ListenAddress: "127.0.0.1:8787", Listening: true, DaemonStartedAt: at, WrittenAt: at, Disk: &diskstatus.Observation{Version: 1, ObservedAt: at, Main: diskstatus.Cache{Path: "/fixture/core-cache", State: "partial", PartialBytes: 37, PassStartedAt: at, ProgressAt: at}}},
 		[]store.RepoDiscoveryStatus{{RepoID: repo.ID, WebhookMode: "webhook, no delivery yet", SecretPresent: true,
 			LastPollFinishedAt: at, NextPollDueAt: at.Add(time.Hour), WrittenAt: at}}); err != nil {
 		t.Fatal(err)
@@ -176,7 +177,7 @@ func TestDaemonStatusPrintsThePublishedHealth(t *testing.T) {
 	for _, want := range []string{
 		"127.0.0.1:8787/litefactory/webhook (bound)",
 		"as of 2099-01-02T03:04:05Z, daemon not running",
-		"acme/api", "webhook, no delivery yet", daemonNoDelivery, "2099-01-02T04:04:05Z (in ",
+		"/fixture/core-cache", "observed partial logical bytes=37", "acme/api", "webhook, no delivery yet", daemonNoDelivery, "2099-01-02T04:04:05Z (in ",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("output lacks %q:\n%s", want, stdout)
@@ -260,7 +261,7 @@ func TestPrintDaemonHeartbeatDaemonDownIsLabelled(t *testing.T) {
 		t.Errorf("down output:\n%s", &out)
 	}
 	out.Reset()
-	if err := printDaemonHeartbeat(&out, localadmin.HealthSnapshot{}, time.Time{}, true, now); err != nil || out.Len() != 0 {
+	if err := printDaemonHeartbeat(&out, localadmin.HealthSnapshot{}, time.Time{}, true, now); err != nil || !strings.Contains(out.String(), "observations unavailable") || strings.Contains(out.String(), "free=0") {
 		t.Errorf("no snapshot: err=%v out=%q", err, &out)
 	}
 }

@@ -4,6 +4,8 @@ package contracts
 import (
 	"context"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 )
 
 // Health contains the current read-only factory view.
@@ -23,6 +25,7 @@ type Health struct {
 	// RunsHeld says why new runs wait, for example on low free disk; empty
 	// while nothing holds them.
 	RunsHeld string
+	Disk     *diskstatus.Observation
 }
 
 // HealthReader supplies existing factory health at reply time.

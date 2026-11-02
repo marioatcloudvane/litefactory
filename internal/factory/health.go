@@ -22,7 +22,7 @@ func (f *Health) Read(ctx context.Context, at time.Time) (contracts.Health, erro
 	if err != nil {
 		return contracts.Health{}, err
 	}
-	v := contracts.Health{Running: snap.Found && !snap.Listener.DaemonStartedAt.IsZero() && at.Sub(snap.Listener.WrittenAt) <= 5*time.Minute, DiscoveryPaused: snap.Listener.DiscoveryPaused, RunsInFlight: snap.Listener.RunsInFlight, InFlightSessions: snap.Listener.InFlightSessions, InFlightLabels: snap.Listener.InFlightLabels, SlotsUsed: snap.Listener.SlotsUsed, SlotsTotal: snap.Listener.SlotsTotal, PauseReason: snap.Listener.PauseReason, ExpectedResumeAt: snap.Listener.ExpectedResumeAt, RunsHeld: snap.Listener.RunsHeld}
+	v := contracts.Health{Running: snap.Found && !snap.Listener.DaemonStartedAt.IsZero() && at.Sub(snap.Listener.WrittenAt) <= 5*time.Minute, DiscoveryPaused: snap.Listener.DiscoveryPaused, RunsInFlight: snap.Listener.RunsInFlight, InFlightSessions: snap.Listener.InFlightSessions, InFlightLabels: snap.Listener.InFlightLabels, SlotsUsed: snap.Listener.SlotsUsed, SlotsTotal: snap.Listener.SlotsTotal, PauseReason: snap.Listener.PauseReason, ExpectedResumeAt: snap.Listener.ExpectedResumeAt, RunsHeld: snap.Listener.RunsHeld, Disk: snap.Listener.Disk}
 	if !snap.Listener.LastHeartbeatStartedAt.IsZero() {
 		v.HeartbeatKnown = true
 		v.HeartbeatAge = max(time.Duration(0), at.Sub(snap.Listener.LastHeartbeatStartedAt)).Round(time.Second)

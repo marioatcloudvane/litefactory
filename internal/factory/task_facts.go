@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -196,4 +197,10 @@ func factExcerpt(text string, limit int) string {
 		text = text[:len(text)-1]
 	}
 	return text
+}
+
+// ReadDiskStatus returns the daemon's observations without refreshing their timestamps.
+func (s *TaskFacts) ReadDiskStatus(ctx context.Context) (*diskstatus.Observation, error) {
+	snapshot, err := s.reader.ReadHealthSnapshot(ctx)
+	return snapshot.Listener.Disk, err
 }

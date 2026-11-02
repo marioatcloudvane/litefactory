@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 	"github.com/cloudvane/litefactory/internal/factory"
 	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
@@ -337,7 +338,7 @@ func (s *Service) health(ctx context.Context, _ Message, at time.Time) (string, 
 	if err != nil {
 		return "", err
 	}
-	return assessed(ctx, healthText(v)+s.conversationHealth(ctx, at), presentation.Success)
+	return assessed(ctx, healthText(v)+"\n"+diskstatus.Text(v.Disk, at)+s.conversationHealth(ctx, at), presentation.Success)
 }
 func healthText(v Status) string {
 	age := "unknown"
@@ -390,6 +391,7 @@ func (s *Service) summary(ctx context.Context, m Message, at time.Time) (string,
 	if v.RunsHeld != "" {
 		text += "Runs held: " + v.RunsHeld + "\n"
 	}
+	text += diskstatus.Text(v.Disk, at)
 	text += v.Polling
 	text += s.taskSummary(ctx, v, at)
 	return assessed(ctx, text, presentation.Success)
