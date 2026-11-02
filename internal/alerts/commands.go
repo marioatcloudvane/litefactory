@@ -10,7 +10,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-var aliases = map[string]string{"disk": "disk_low", "pool": "pool_blocked", "progress": "no_progress", "provider": "provider_failure", "delivery": "delivery_stuck", "disk_low": "disk_low", "pool_blocked": "pool_blocked", "no_progress": "no_progress", "provider_failure": "provider_failure", "task_stuck": "task_stuck", "delivery_stuck": "delivery_stuck"}
+var aliases = map[string]string{"main": "main_red", "main_red": "main_red", "ci_monitoring_unavailable": "ci_monitoring_unavailable", "disk": "disk_low", "pool": "pool_blocked", "progress": "no_progress", "provider": "provider_failure", "delivery": "delivery_stuck", "disk_low": "disk_low", "pool_blocked": "pool_blocked", "no_progress": "no_progress", "provider_failure": "provider_failure", "task_stuck": "task_stuck", "delivery_stuck": "delivery_stuck"}
 
 const usage = "Use alerts; mute disk 2h (or 30m, up to 7d); unmute disk; alerts off until 07:00; alerts off until tomorrow; alerts on."
 
@@ -28,6 +28,17 @@ func (e *Engine) Command(ctx context.Context, source, text string, at time.Time)
 		return "", fmt.Errorf("missing command identity")
 	}
 	var reply string
+	var transport store.CITransportState
+	var transportErr error
+	if strings.EqualFold(strings.TrimSpace(text), "alerts") {
+		snapshot, readErr := e.DB.ReadAlerts(ctx)
+		if readErr != nil {
+			return "", readErr
+		}
+		if snapshot.CI.Origin != "" {
+			transport, transportErr = e.DB.CITransport(ctx, "ci:"+snapshot.CI.Origin)
+		}
+	}
 	err := e.DB.UpdateAlerts(ctx, func(l *store.AlertLedger) error {
 		if r, ok := l.Receipts[source]; ok {
 			reply = r.Reply
@@ -38,7 +49,7 @@ func (e *Engine) Command(ctx context.Context, source, text string, at time.Time)
 		reply = usage
 		switch {
 		case len(fields) == 1 && fields[0] == "alerts":
-			reply = e.status(l, at)
+			reply = e.status(l, at, transport, transportErr)
 		case len(fields) == 2 && fields[0] == "alerts" && fields[1] == "on":
 			l.Controls.OffUntil = time.Time{}
 			reply = "Global alert pause cleared. Rule mutes and configuration still apply."
@@ -155,12 +166,20 @@ func (e *Engine) until(s string, at time.Time) (time.Time, error) {
 	}
 	return time.Time{}, fmt.Errorf("no future clock occurrence available")
 }
-func (e *Engine) status(l *store.AlertLedger, at time.Time) string {
+func (e *Engine) status(l *store.AlertLedger, at time.Time, transport store.CITransportState, transportErr error) string {
 	snapshot := *l
 	snapshot.Configuration = store.AlertConfiguration{Configured: true, Enabled: e.Settings.Enabled, Rules: e.Settings.Rules}
 	p := Project(snapshot, at, func(string) bool { return true })
+	applyCITransport(&p, transport, transportErr, at)
 	var b strings.Builder
 	fmt.Fprintf(&b, "Alerts enabled: %t. Delivery ready: %t (%s).\n", e.Settings.Enabled, p.DeliveryReady, p.DeliveryReason)
+	if p.CI != nil {
+		c := p.CI
+		fmt.Fprintf(&b, "CI %s %s %s: conclusion=%s pending=%t monitoring ready=%t (%s).\n", c.Repository, c.Branch, c.Workflow, c.Conclusion, c.Pending, c.Ready, c.Reason)
+		if c.NextRetry != nil {
+			fmt.Fprintf(&b, "CI next retry: %s.\n", formatExpiry(*c.NextRetry, e.location()))
+		}
+	}
 	if p.GlobalMuteUntil != nil {
 		fmt.Fprintf(&b, "Global pause until %s.\n", formatExpiry(*p.GlobalMuteUntil, e.location()))
 	}

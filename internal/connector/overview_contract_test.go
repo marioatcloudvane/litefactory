@@ -50,6 +50,7 @@ func TestOverviewToolContract(t *testing.T) {
 	}
 	var alertContract struct {
 		Properties struct {
+			CI     map[string]any `json:"ci"`
 			Active struct {
 				MaxItems int `json:"maxItems"`
 			} `json:"active"`
@@ -58,7 +59,7 @@ func TestOverviewToolContract(t *testing.T) {
 			} `json:"rules"`
 		} `json:"properties"`
 	}
-	if err := json.Unmarshal(tool.Output.Properties["alerts"], &alertContract); err != nil || alertContract.Properties.Active.MaxItems != 50 || alertContract.Properties.Rules.MaxItems != 6 {
+	if err := json.Unmarshal(tool.Output.Properties["alerts"], &alertContract); err != nil || alertContract.Properties.CI["properties"] == nil || alertContract.Properties.Active.MaxItems != 50 || alertContract.Properties.Rules.MaxItems != 8 {
 		t.Fatalf("missing bounded alert contract: %s", tool.Output.Properties["alerts"])
 	}
 	for _, name := range []string{"activity", "owner_waits", "recent_publications"} {

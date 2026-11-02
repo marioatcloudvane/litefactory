@@ -38,6 +38,8 @@ var ErrIsolationUnavailable = errors.New("doctor provider isolation is not verif
 // Service shares durable history and control between CLI and future forge intake.
 // No provider is enabled until its tool isolation has authentic evidence.
 type Service struct {
+	CIProbe      CIProber
+	CIRepository string
 	// BuildVersion identifies the running process; FactorySource is set only when known.
 	BuildVersion      string
 	FactorySource     string
@@ -260,7 +262,7 @@ func (s *Service) ReadConversation(ctx context.Context, ref naming.Ref) (Convers
 	}
 	out = Conversation{ProposalID: proposalID, Conversation: c, Attempts: attempts, Diagnosis: diagnosis, CurrentProposal: proposal, HistoryWindow: "Latest 30 attempts in this generation; earlier history remains retained", ApplyAvailable: s.CheckRepairCapability(ctx, ref) == nil}
 	if ledger, alertErr := s.DB.ReadAlerts(ctx); alertErr == nil {
-		p := alerts.Project(ledger, time.Now().UTC(), func(task string) bool { return task == ref.String() })
+		p := alerts.ProjectLocal(ctx, ledger, time.Now().UTC(), func(task string) bool { return task == ref.String() || task == "github:"+ref.Owner+"/"+ref.Repo+"#0" }, s.DB)
 		out.Alerts = &p
 	} else {
 		p := alerts.Project(store.AlertLedger{}, time.Now().UTC(), nil)

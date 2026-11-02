@@ -43,8 +43,11 @@ func (s *Service) pathManifest(ctx context.Context, ref naming.Ref) (PathManifes
 		version = "unknown"
 	}
 	m := PathManifest{DaemonVersion: version, FactorySource: s.FactorySource, Live: true, TaskRef: ref.String(), CapturedAt: time.Now().UTC(), FactoryHome: s.Paths.Home(), DaemonLog: s.Paths.DaemonLogPath(), Database: s.DB.Path(), RunLogs: sources.RunLogs, Worktree: sources.Worktree, Tools: append([]string{"shell"}, agent.DoctorToolNames()...), Gaps: []string{}}
+	if s.CIProbe != nil && ciFactoryContext(ref.String(), s.CIRepository) {
+		m.Tools = append([]string{"shell"}, agent.DoctorCIToolNames()...)
+	}
 	if ledger, readErr := s.DB.ReadAlerts(ctx); readErr == nil {
-		m.Alerts = alerts.Project(ledger, m.CapturedAt, func(task string) bool { return task == ref.String() })
+		m.Alerts = alerts.ProjectLocal(ctx, ledger, m.CapturedAt, func(task string) bool { return task == ref.String() || task == "github:"+ref.Owner+"/"+ref.Repo+"#0" }, s.DB)
 	} else {
 		m.Alerts = alerts.Project(store.AlertLedger{}, m.CapturedAt, nil)
 		m.Gaps = append(m.Gaps, "Alert journal unavailable; monitoring and delivery state cannot be established")

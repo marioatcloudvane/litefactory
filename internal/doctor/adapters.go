@@ -52,7 +52,11 @@ func (a *Adapters) Run(ctx context.Context, invocation Invocation, results *Resu
 		return InvocationOutcome{}, err
 	}
 	defer func() { err = errors.Join(err, broker.Close()) }()
-	spec, err := agent.NewMCPLaunchSpec(a.Executable, broker.DescriptorPath(), invocation.ID, agent.DoctorToolNames()...)
+	toolNames := agent.DoctorToolNames()
+	if results.ciProbe != nil && ciFactoryContext(results.binding.Task, results.ciRepository) {
+		toolNames = agent.DoctorCIToolNames()
+	}
+	spec, err := agent.NewMCPLaunchSpec(a.Executable, broker.DescriptorPath(), invocation.ID, toolNames...)
 	if err != nil {
 		return InvocationOutcome{}, err
 	}

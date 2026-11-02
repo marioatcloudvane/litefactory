@@ -14,6 +14,7 @@ func TestDoctorExactCatalogAndRequiredSandbox(t *testing.T) {
 		valid bool
 	}{
 		{"exact", agent.DoctorToolNames(), true},
+		{"configured CI diagnostic", agent.DoctorCIToolNames(), true},
 		{"missing", agent.DoctorToolNames()[:4], false},
 		{"old communication only", agent.DoctorToolNames()[:3], false},
 		{"extra", append(agent.DoctorToolNames(), "issues_comment"), false},

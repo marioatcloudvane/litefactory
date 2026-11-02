@@ -3,6 +3,7 @@ package doctor
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/alerts"
 )
@@ -18,6 +19,13 @@ func RenderAlerts(p *alerts.Projection) string {
 		fmt.Fprintf(&out, " (%s)", p.DeliveryReason)
 	}
 	out.WriteByte('\n')
+	if p.CI != nil {
+		c := p.CI
+		fmt.Fprintf(&out, "CI %s %s %s: conclusion=%s pending=%t monitoring ready=%t (%s).\n", c.Repository, c.Branch, c.Workflow, c.Conclusion, c.Pending, c.Ready, c.Reason)
+		if c.NextRetry != nil {
+			fmt.Fprintf(&out, "CI next retry: %s.\n", c.NextRetry.Format(time.RFC3339))
+		}
+	}
 	if p.GlobalMuteUntil != nil {
 		fmt.Fprintf(&out, "Alerts paused until %s.\n", p.GlobalMuteUntil.Format("2006-01-02T15:04:05Z07:00"))
 	}

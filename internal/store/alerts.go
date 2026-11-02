@@ -12,6 +12,8 @@ import (
 // AlertLedger is the alert-owned durable journal. It is independent of notice
 // retention and contains no provider output or credential values.
 type AlertLedger struct {
+	CI            CIObservation
+	CITargets     map[string]CIObservation
 	ControlScans  map[string]AlertControlScan
 	Configuration AlertConfiguration
 	Revision      int64
@@ -97,7 +99,7 @@ type AlertObserver struct {
 }
 
 func emptyAlertLedger() AlertLedger {
-	return AlertLedger{ControlScans: map[string]AlertControlScan{}, Subjects: map[string]*AlertSubject{}, Evidence: map[string]AlertEvidence{}, Notifications: map[string]*AlertNotification{}, Controls: AlertControls{RuleMutes: map[string]time.Time{}}, Receipts: map[string]AlertCommandReceipt{}, Observers: map[string]AlertObserver{}}
+	return AlertLedger{CITargets: map[string]CIObservation{}, ControlScans: map[string]AlertControlScan{}, Subjects: map[string]*AlertSubject{}, Evidence: map[string]AlertEvidence{}, Notifications: map[string]*AlertNotification{}, Controls: AlertControls{RuleMutes: map[string]time.Time{}}, Receipts: map[string]AlertCommandReceipt{}, Observers: map[string]AlertObserver{}}
 }
 func decodeAlertLedger(raw []byte, revision int64) (AlertLedger, error) {
 	state := emptyAlertLedger()
