@@ -141,6 +141,8 @@ var archiveRegistry = []ArchiveTable{
 	archived("spike_records", `instance_id IN `+subInst),
 	archived("validate_outcomes", `instance_id IN `+subInst),
 	archived("validate_reports", `instance_id IN `+subInst),
+	archived("validate_reporter_results", `instance_id IN `+subInst),
+	archived("validate_factory_bugs", `instance_id IN `+subInst),
 	archived("validate_verdicts", `instance_id IN `+subInst),
 	archived("validate_choices", `instance_id IN `+subInst),
 	archived("validate_effects", `instance_id IN `+subInst),
@@ -243,7 +245,10 @@ var archiveRetained = map[string]ArchiveClass{
 	"delivery_code_authorities":   ArchiveClassSkeleton, "delivery_control_sources": ArchiveClassSkeleton,
 	"managed_features": ArchiveClassSkeleton, "managed_stories": ArchiveClassSkeleton,
 	"managed_parent_closures": ArchiveClassSkeleton, "approved_story_revisions": ArchiveClassSkeleton,
-	"story_publications": ArchiveClassSkeleton, "story_revision_operations": ArchiveClassSkeleton,
+	// Publication provenance shares the frozen approval lifetime, including
+	// after editable Plan state and its issue projections are archived.
+	"published_story_sizing": ArchiveClassSkeleton,
+	"story_publications":     ArchiveClassSkeleton, "story_revision_operations": ArchiveClassSkeleton,
 	"story_scope_notices": ArchiveClassSkeleton, "story_contract_upgrades": ArchiveClassSkeleton,
 	"story_contract_upgrade_items": ArchiveClassSkeleton, "workflow_admissions": ArchiveClassSkeleton,
 	"mode_selections": ArchiveClassSkeleton, "story_refinements": ArchiveClassSkeleton,
@@ -326,9 +331,12 @@ var archiveRetained = map[string]ArchiveClass{
 	"chat_presentation_owners":      ArchiveClassGlobal,
 	// Chat delivery state follows its own short retention; source positions
 	// must survive task archival so enabling notices never replays history.
-	"chat_notices":           ArchiveClassGlobal,
-	"chat_notice_positions":  ArchiveClassGlobal,
-	"daemon_listener_status": ArchiveClassGlobal, "repo_discovery_status": ArchiveClassGlobal,
+	"ci_transport":             ArchiveClassGlobal,
+	"alert_ledger":             ArchiveClassGlobal,
+	"alert_report_uncertainty": ArchiveClassGlobal,
+	"chat_notices":             ArchiveClassGlobal,
+	"chat_notice_positions":    ArchiveClassGlobal,
+	"daemon_listener_status":   ArchiveClassGlobal, "repo_discovery_status": ArchiveClassGlobal,
 	"repository_team_bindings":    ArchiveClassGlobal,
 	"project_connection_versions": ArchiveClassGlobal, "project_connections": ArchiveClassGlobal,
 	"project_ticket_bindings": ArchiveClassGlobal, "project_connection_observations": ArchiveClassGlobal,

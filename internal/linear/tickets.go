@@ -496,6 +496,11 @@ func (c *Client) CreateChildWithID(ctx context.Context, container, id string, pa
 	if parent != nil && (data.IssueCreate.Issue.Parent == nil || data.IssueCreate.Issue.Parent.ID != parent.Identity.RemoteID) {
 		return ticket.Snapshot{}, failure("create", ticket.Uncertain, "created issue parent differs")
 	}
+	// The effect owner decides correlation; this only shows, bounded and
+	// redacted, where Linear's stored content differs from what was sent.
+	if s.Title != title.String() || !ContentEquivalent(body.String(), s.Body) {
+		c.logContentDifference(ctx, s.Ref, title.String(), body.String(), s)
+	}
 	return s, nil
 }
 

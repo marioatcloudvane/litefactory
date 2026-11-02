@@ -159,11 +159,11 @@ func (r *planGraphRuntime) setReviewText(s planbrief.PlanState, node planRetaine
 	if set == nil || set.Promoted || set.Revision != planbrief.PlanStorySetRevision(planSetEntries(node.Set)) {
 		return "", errors.New("the proposed story set is no longer the current unpromoted set, so it is not published for review")
 	}
-	rendered, err := planbrief.RenderPlanStorySet(set)
+	rendered, err := planbrief.RenderPlanStorySetFor(set, r.result.Ref.Forge == "linear")
 	if err != nil {
 		return "", err
 	}
-	rendered += "\n\n" + planbrief.RenderPlanRoutes(r.setRouteReviews(set))
+	rendered += "\n\n" + planbrief.RenderPlanRoutesFor(r.setRouteReviews(set), r.result.Ref.Forge == "linear")
 	if comment == "" {
 		return rendered, nil
 	}

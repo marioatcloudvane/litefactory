@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging"
@@ -131,6 +132,24 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	a := discord.New(discord.Options{ApplicationID: o.Settings.ApplicationID, PublicKey: key, Token: token, APIURL: o.APIURL, Client: o.Client})
 	s := messaging.New(d.db, "discord", o.Settings.OwnerID, o.Settings.ChannelIDs, a, messaging.FactoryStatus{DB: d.db})
 	s.Logger = d.log
+	if d.alerts != nil {
+		s.SetAlertControls(d.alerts.Command)
+		s.SetProviderObserver(func(c context.Context, provider, conversation, turn, class string) {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(c), 2*time.Second)
+			defer cancel()
+			if err := d.alerts.Provider(cleanup, alerts.ProviderOutcome{ID: "conversation:" + conversation + ":" + turn, Provider: provider, Account: "local-default", Source: "conversation:" + conversation, Class: providerAlertClass(class), At: d.alertClock()}); err != nil {
+				d.log.WarnContext(cleanup, "conversation alert evidence unavailable")
+			}
+		})
+		d.alertMu.Lock()
+		d.alertSender = a
+		d.alertOwner = o.Settings.OwnerID
+		d.alertChannel = d.alerts.Settings.ChannelID
+		if d.alertChannel == "" {
+			d.alertChannel = o.Settings.NoticeChannelID
+		}
+		d.alertMu.Unlock()
+	}
 	s.EnableOwnerInbox(ownerInboxReader{daemon: d})
 	s.Instructions = o.Instructions
 	s.InstructionDiagnostics = o.InstructionDiagnostics
@@ -218,6 +237,20 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		if len(channels) > 0 {
 			d.chat.intake = &messaging.Intake{DB: d.db, Reader: a, Owner: o.Settings.OwnerID, Channels: channels, Transport: "discord", Protect: s.Protect}
 		}
+	}
+	if d.alerts != nil {
+		ordinaryChannels := []string{}
+		if o.Conversations != nil {
+			for _, channel := range o.Settings.ChannelIDs {
+				for _, binding := range o.Conversations.Bindings {
+					if binding.Channel == channel {
+						ordinaryChannels = append(ordinaryChannels, channel)
+						break
+					}
+				}
+			}
+		}
+		d.chat.intake = &messaging.Intake{DB: d.db, Reader: a, Owner: o.Settings.OwnerID, Channels: append([]string(nil), o.Settings.ChannelIDs...), Transport: "discord", Protect: s.Protect, Controls: s.HandleAlertControl, OrdinaryChannels: ordinaryChannels}
 	}
 	s.EnableResearch(chatResearch{d}, chatResearch{d})
 	clock := o.Now

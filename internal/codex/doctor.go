@@ -11,7 +11,8 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/providerprocess"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
+	native "github.com/cloudvane/litefactory/pkg/execution/providers/codex"
 )
 
 // DoctorIsolation stays closed pending the owner's authentic isolation decision.
@@ -58,7 +59,7 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	if err = r.linkDoctorAuth(home); err != nil {
 		return agent.DoctorRunResult{}, err
 	}
-	env := providerprocess.DoctorEnvironment(r.environ, home)
+	env := execution.IsolatedEnvironment(r.environ, home)
 	env = append(env, "CODEX_HOME="+home)
 	if operation == "" {
 		env = append(env, "GIT_OPTIONAL_LOCKS=0")
@@ -126,27 +127,26 @@ func (r *Runner) scopedDoctorArguments(request agent.DoctorRequest, operation st
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"exec", "--json", "--strict-config", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--ephemeral", "-c", "features.multi_agent=false", "--model", request.Model}
+	var settings, nativeArgs []string
 	if operation != "" {
 		// Repair changes state only through the broker tools: the sandbox is
 		// read-only and every native tool Codex can switch off is off. Codex
 		// keeps tools it cannot disable (exec, apply_patch), which the
 		// read-only sandbox confines.
-		args = append(args, "--sandbox", "read-only", "-c", "features.shell_tool=false", "-c", "features.unified_exec=false", "-c", "features.view_image=false", "-c", "features.image_generation=false", "-c", `web_search="disabled"`)
+		nativeArgs = []string{"--sandbox", "read-only"}
+		settings = append(settings, "features.shell_tool=false", "features.unified_exec=false", "features.view_image=false", "features.image_generation=false", `web_search="disabled"`)
 		// A conflicted sync_branch runs the conflict advisor inside one tool
 		// call; Codex must wait just past the broker's repair tool timeout.
-		args = append(args, "-c", "mcp_servers.litefactory.tool_timeout_sec=630")
+		settings = append(settings, "mcp_servers.litefactory.tool_timeout_sec=630")
 	} else {
-		args = append(args, "-c", "features.shell_tool=true", "-c", "approval_policy=\"never\"", "-c", "default_permissions=\"doctor_diagnosis\"", "-c", "permissions.doctor_diagnosis.network.enabled=false")
+		settings = append(settings, "features.shell_tool=true", `approval_policy="never"`, `default_permissions="doctor_diagnosis"`, "permissions.doctor_diagnosis.network.enabled=false")
 		for _, path := range request.Sandbox.ReadableRoots {
-			args = append(args, "-c", "permissions.doctor_diagnosis.filesystem."+strconv.Quote(path)+"=\"read\"")
+			settings = append(settings, "permissions.doctor_diagnosis.filesystem."+strconv.Quote(path)+"=\"read\"")
 		}
-		args = append(args, "-c", "permissions.doctor_diagnosis.filesystem."+strconv.Quote(request.WorkingDirectory)+"=\"write\"")
+		settings = append(settings, "permissions.doctor_diagnosis.filesystem."+strconv.Quote(request.WorkingDirectory)+"=\"write\"")
 		for _, path := range request.Sandbox.DeniedReadPaths {
-			args = append(args, "-c", "permissions.doctor_diagnosis.filesystem."+strconv.Quote(path)+"=\"deny\"")
+			settings = append(settings, "permissions.doctor_diagnosis.filesystem."+strconv.Quote(path)+"=\"deny\"")
 		}
 	}
-	args = append(args, r.reasoningSummaryArgs()...)
-	args = append(args, overrides...)
-	return append(args, "-"), nil
+	return native.ScopedArguments(native.ScopedOptions{Model: request.Model, BeforeModelConfigurations: []string{"features.multi_agent=false"}, NativeArguments: nativeArgs, Configurations: settings, ReasoningSummary: r.reasoningSummary(), ExtraArgs: overrides}), nil
 }

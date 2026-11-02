@@ -140,12 +140,22 @@ type flowFixture struct {
 
 	slots     *flowSlots
 	reviewers *flowReviewers
-	stories   []ValidateStory
-	delivery  ValidateDelivery
-	b         ValidateFlowBindings
+	// reporterRun answers the reporter step; nil gives no summary.
+	reporterRun  func(ValidateReporterRequest) (*agentresult.Result, error)
+	reporterReqs []ValidateReporterRequest
+	stories      []ValidateStory
+	delivery     ValidateDelivery
+	b            ValidateFlowBindings
 }
 
 func newFlowFixture(t *testing.T) *flowFixture {
+	t.Helper()
+	return newFlowFixtureOn(t, store.ForgeGitHub)
+}
+
+// newFlowFixtureOn admits the run's task on the named forge, so a test can
+// observe forge-specific owner rendering on the same graph.
+func newFlowFixtureOn(t *testing.T, forge string) *flowFixture {
 	t.Helper()
 	root := t.TempDir()
 	db, err := store.Open(t.Context(), filepath.Join(root, "litefactory.db"))
@@ -156,7 +166,7 @@ func newFlowFixture(t *testing.T) *flowFixture {
 	if err := db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	repoRow, err := db.UpsertRepo(t.Context(), store.Repo{Path: root, Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: filepath.Join(root, "worktrees")})
+	repoRow, err := db.UpsertRepo(t.Context(), store.Repo{Path: root, Forge: forge, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: filepath.Join(root, "worktrees")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,6 +279,7 @@ func (f *flowFixture) register() {
 		Stories:   func(context.Context, Options, ActivityRequest) ([]ValidateStory, error) { return f.stories, nil },
 		Repo:      f.suiteRepo,
 		Reviewers: f.reviewers,
+		Reporter:  flowReporter{f},
 		Slots:     f.slots,
 		Delivery:  f.delivery,
 		Now:       func() time.Time { return f.clock },

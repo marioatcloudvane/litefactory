@@ -200,10 +200,26 @@ func (h ValidateSuiteActivity) finished(ctx context.Context, instance int64, com
 	return res, true, err
 }
 
+// validateSuiteOutputMaxBytes bounds a saved suite result both when it is
+// written and when a later step reads it, so a saved result is always readable.
+const validateSuiteOutputMaxBytes = store.MaxGraphOutputReadBytes
+
 func suiteResult(outcome string, out validateSuiteOutput) (ActivityResult, error) {
 	data, err := json.Marshal(out)
 	if err != nil {
 		return ActivityResult{}, err
+	}
+	if len(data) > validateSuiteOutputMaxBytes && out.AssessmentID != "" {
+		// The full manifest is retained as validation evidence under
+		// AssessmentID and AssessmentDigest; readers reload and verify it from
+		// there, so the inline copy is dropped rather than any fact.
+		out.Assessment = nil
+		if data, err = json.Marshal(out); err != nil {
+			return ActivityResult{}, err
+		}
+	}
+	if len(data) > validateSuiteOutputMaxBytes {
+		return ActivityResult{}, fmt.Errorf("suite result of %d bytes exceeds the %d-byte saved-output bound", len(data), validateSuiteOutputMaxBytes)
 	}
 	return ActivityResult{Outcome: outcome, Kind: store.GraphOutputJSON, Output: data}, nil
 }

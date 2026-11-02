@@ -138,11 +138,7 @@ exec "$real_go" test -json -count=1 "$@"
 		return out
 	}
 	// Declared environment values must receive the same hygiene as display logs.
-	for _, name := range c.Env {
-		if value := p.Environment[name]; value != "" {
-			raw = strings.ReplaceAll(raw, value, "[REDACTED]")
-		}
-	}
+	raw = redactDeclaredEnv(raw, c.Env, p.Environment)
 	body, re := redact.New(redact.Options{Environ: []string{}}).Apply(context.WithoutCancel(ctx), raw, OutputLimit)
 	if re != nil || body.Truncated() {
 		out.CaptureComplete = false

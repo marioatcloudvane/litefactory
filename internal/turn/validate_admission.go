@@ -226,6 +226,18 @@ func admitValidateExecution(ctx context.Context, opts Options, req Request, resu
 		out, err := rt.continueOwner(ctx)
 		return out, true, err
 	}
+	// A plain owner comment the daemon claimed for the waiting Validate
+	// report continues it too: the resolve step hands it to the reporter.
+	if req.Command.Kind == KindFreeText {
+		held, err := rt.heldPlainComment(ctx)
+		if err != nil {
+			return result, true, err
+		}
+		if held {
+			out, err := rt.continueOwner(ctx)
+			return out, true, err
+		}
+	}
 	// Only the /validate instruction command starts Validate. Owner replies
 	// inside a running Validate belong to its own owner steps.
 	if (req.Command.Kind != KindSpike && req.Command.Kind != KindSpikeEmpty) || req.Command.Name != "/validate" {
@@ -677,6 +689,48 @@ func (rt *validateRuntimeState) continueOwner(ctx context.Context) (Result, erro
 		return rt.result, errors.New("the owner reply must continue the waiting Validate instance, not start another")
 	}
 	return rt.execute(ctx, definition, admitted)
+}
+
+// heldPlainComment says the running Validate instance's owner wait is claimed
+// by this very comment.
+func (rt *validateRuntimeState) heldPlainComment(ctx context.Context) (bool, error) {
+	instance, err := rt.opts.DB.LatestWorkflowInstance(ctx, rt.req.SessionID, string(agent.ModeValidate))
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil || instance.Status != store.GraphRunning {
+		return false, err
+	}
+	wait, err := rt.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return wait.State == "claimed" && wait.ReplyID == rt.req.Trigger.CommentID, nil
+}
+
+// ValidateDiscussionOpen says a plain owner comment on this session belongs to
+// its waiting Validate report: the latest Validate instance runs, rests at its
+// owner wait and has a reporter (so its pinned graph answers comments).
+func ValidateDiscussionOpen(ctx context.Context, db *store.DB, sessionID int64) (bool, error) {
+	instance, err := db.LatestWorkflowInstance(ctx, sessionID, string(agent.ModeValidate))
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil || instance.Status != store.GraphRunning {
+		return false, err
+	}
+	wait, err := db.GetGraphOwnerWait(ctx, instance.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil || wait.State != "waiting" {
+		return false, err
+	}
+	rows, err := db.ListValidateReporter(ctx, instance.ID)
+	return err == nil && len(rows) > 0, err
 }
 
 // refuseNoValidateWait supplies recovery without admitting the refused control

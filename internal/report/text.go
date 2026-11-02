@@ -88,6 +88,10 @@ func fenceFor(content string) string {
 	return strings.Repeat("`", max(3, longest+1))
 }
 
+// CodeFence is [fenceFor] for callers outside this package that quote content
+// verbatim in a fenced code block.
+func CodeFence(content string) string { return fenceFor(content) }
+
 // leadingFence reads a line as a possible CommonMark code fence. It returns the
 // length of the backtick run the line opens with, and whether the line is bare
 // — nothing but backticks and spaces — which is what a closing fence has to be.

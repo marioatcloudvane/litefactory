@@ -56,7 +56,7 @@ func TestWorktreeApplyResolvedConflictHappyPath(t *testing.T) {
 
 	files := []git.ResolvedFile{{Path: "README.md", Resolution: "# fixture\nresolved together\n"}}
 	files = regionFiles(t, worktree, base, files)
-	if err := worktree.WriteResolvedFiles(t.Context(), base, files); err != nil {
+	if err := worktree.WriteResolvedFiles(t.Context(), base, files, testAuthor); err != nil {
 		t.Fatalf("WriteResolvedFiles: %v", err)
 	}
 	if got, err := os.ReadFile(filepath.Join(dir, "README.md")); err != nil || string(got) != files[0].Resolution {
@@ -167,7 +167,7 @@ func TestWorktreeWriteResolvedFilesRefusesConflictSetMismatch(t *testing.T) {
 		{Path: "NOTES.md", Resolution: "not actually conflicted\n"},
 	}
 	files = regionFiles(t, worktree, base, files)
-	if err := worktree.WriteResolvedFiles(t.Context(), base, files); !errors.Is(err, git.ErrConflictMismatch) {
+	if err := worktree.WriteResolvedFiles(t.Context(), base, files, testAuthor); !errors.Is(err, git.ErrConflictMismatch) {
 		t.Errorf("error = %v, want ErrConflictMismatch", err)
 	}
 
@@ -234,7 +234,7 @@ func TestWorktreeApplyRollsBackOnPartialFileList(t *testing.T) {
 	gittest.AssertUnchanged(t, dir, func() {
 		files := []git.ResolvedFile{{Path: "README.md", Resolution: "# fixture\nresolved\n"}}
 		files = regionFiles(t, worktree, base, files)
-		applyErr = worktree.WriteResolvedFiles(t.Context(), base, files)
+		applyErr = worktree.WriteResolvedFiles(t.Context(), base, files, testAuthor)
 	})
 	if applyErr == nil {
 		t.Fatal("WriteResolvedFiles accepted a partial confirmed file list against two real conflicts")
@@ -276,7 +276,7 @@ func TestWorktreeCompleteMergeRefusesRemainingConflicts(t *testing.T) {
 		{Path: "NOTES.md", Resolution: "resolved notes\n"},
 	}
 	files = regionFiles(t, worktree, base, files)
-	if err := worktree.WriteResolvedFiles(t.Context(), base, files); err != nil {
+	if err := worktree.WriteResolvedFiles(t.Context(), base, files, testAuthor); err != nil {
 		t.Fatalf("WriteResolvedFiles: %v", err)
 	}
 	// Only stage one of the two confirmed files, leaving the other conflicted.
@@ -318,7 +318,7 @@ func TestWorktreeApplyRefusesDirtyWorktree(t *testing.T) {
 	}
 
 	files := []git.ResolvedFile{{Path: "README.md", Resolution: "resolved\n"}}
-	if err := worktree.WriteResolvedFiles(t.Context(), base, files); !errors.Is(err, git.ErrWorktreeUncommittedChanges) {
+	if err := worktree.WriteResolvedFiles(t.Context(), base, files, testAuthor); !errors.Is(err, git.ErrWorktreeUncommittedChanges) {
 		t.Errorf("error = %v, want ErrWorktreeUncommittedChanges", err)
 	}
 }
@@ -338,7 +338,7 @@ func TestWorktreeApplyRespectsContextDeadline(t *testing.T) {
 	cancel()
 
 	files := []git.ResolvedFile{{Path: "README.md", Resolution: "resolved\n"}}
-	if err := worktree.WriteResolvedFiles(ctx, base, files); err == nil {
+	if err := worktree.WriteResolvedFiles(ctx, base, files, testAuthor); err == nil {
 		t.Fatal("WriteResolvedFiles accepted an already-cancelled context")
 	}
 	if mergeInProgress(t, dir) {

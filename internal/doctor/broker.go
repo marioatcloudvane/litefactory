@@ -10,7 +10,7 @@ import (
 )
 
 // StartResultsBroker reuses the private authenticated submission transport with
-// exactly five diagnosis tools. Repair retains its separate catalog. Workers are cancelled
+// bounded diagnosis tools. Repair retains its separate catalog. Workers are cancelled
 // and joined by the invocation owner through Broker.Close.
 func StartResultsBroker(ctx context.Context, directory, attempt string, results *ResultService) (*submission.Broker, error) {
 	if results == nil || results.binding.DoctorAttemptID != attempt {
@@ -40,6 +40,9 @@ func (s *ResultService) handle(ctx context.Context, q submission.Request) (json.
 				submission.ToolSpec{Name: "issue_comments", Description: "Read one redacted page of this attempt's target issue comments; target cannot be changed", InputSchema: json.RawMessage(`{"type":"object","properties":{"page":{"type":"integer","minimum":1,"maximum":10000}},"additionalProperties":false}`)},
 			)
 		}
+		if s.repairID == "" && s.ciProbe != nil && ciFactoryContext(s.binding.Task, s.ciRepository) {
+			tools = append(tools, submission.ToolSpec{Name: "ci_access", Description: "Check configured factory repository and active Actions workflow access; may retain CI transport waits only", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)})
+		}
 		return json.Marshal(struct {
 			Tools []submission.ToolSpec `json:"tools"`
 		}{tools})
@@ -51,12 +54,15 @@ func (s *ResultService) handle(ctx context.Context, q submission.Request) (json.
 		}
 		payload = call.Arguments
 		switch call.Name {
-		case "database_query", "issue_comments":
+		case "database_query", "issue_comments", "ci_access":
 			if s.repairID != "" {
 				return nil, errors.New("diagnosis read tools are unavailable to repair")
 			}
 			if err := s.db.CheckResultWriter(ctx, s.binding); err != nil {
 				return nil, err
+			}
+			if call.Name == "ci_access" {
+				return s.readResponse(ctx, s.ciAccess, payload)
 			}
 			if call.Name == "database_query" {
 				return s.readResponse(ctx, s.query, payload)

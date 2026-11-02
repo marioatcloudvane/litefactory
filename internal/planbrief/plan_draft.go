@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -187,9 +188,7 @@ func (d PlanDraft) validateCompletion(scope ContentScope) []error {
 	}
 	graph := map[string][]string{}
 	for _, t := range d.Tasks {
-		if !proposalKey.MatchString(t.ID) || !scopeAdmitsRole(scope, t.OwnerRole) || strings.TrimSpace(t.Description) == "" || len(t.CriterionIDs) == 0 {
-			faults = append(faults, errors.New("task requires ID, description, authorized role and criterion links"))
-		}
+		faults = append(faults, taskFaults(t, scope)...)
 		if _, ok := graph[t.ID]; ok {
 			faults = append(faults, errors.New("duplicate task ID"))
 		}
@@ -210,6 +209,44 @@ func (d PlanDraft) validateCompletion(scope ContentScope) []error {
 	}
 	faults = append(faults, validateContentGraph("tasks", graph)...)
 	return faults
+}
+
+// taskFaults names which required task field is missing or unauthorized, so a
+// stopped Plan reports the task and the field instead of a generic rule.
+func taskFaults(t TaskContent, scope ContentScope) []error {
+	name := "with an invalid ID"
+	if proposalKey.MatchString(t.ID) {
+		name = t.ID
+	}
+	var faults []error
+	if !proposalKey.MatchString(t.ID) {
+		faults = append(faults, errors.New("a task has no valid ID"))
+	}
+	if strings.TrimSpace(t.Description) == "" {
+		faults = append(faults, fmt.Errorf("task %s has no description", name))
+	}
+	if !scopeAdmitsRole(scope, t.OwnerRole) {
+		faults = append(faults, fmt.Errorf("task %s owner role %s is not an authorized role (authorized: %s)", name, quoteBounded(t.OwnerRole), strings.Join(scope.Roles, ", ")))
+	}
+	if len(t.CriterionIDs) == 0 {
+		faults = append(faults, fmt.Errorf("task %s links no criterion", name))
+	}
+	return faults
+}
+
+// quoteBounded quotes agent-authored text for a diagnostic without letting it
+// grow the owner notice.
+func quoteBounded(value string) string {
+	if r := []rune(value); len(r) > 40 {
+		value = string(r[:40]) + "…"
+	}
+	return strconv.Quote(value)
+}
+
+// AdmitsRole reports whether a task owner role belongs to the factory scope,
+// using the same rule as Plan completion validation.
+func (s ContentScope) AdmitsRole(role string) bool {
+	return scopeAdmitsRole(s, role)
 }
 
 // Revision binds exact semantic content. Presentation changes are not revisions.

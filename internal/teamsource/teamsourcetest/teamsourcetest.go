@@ -45,7 +45,7 @@ var (
 
 // Files resolves teams/source/<team> (following its inheritance) into path to
 // bytes. The team name is the folder name. Callers must not change the bytes.
-func Files(team string) (map[string][]byte, error) {
+func Files(ctx context.Context, team string) (map[string][]byte, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	if files, ok := cache[team]; ok {
@@ -56,7 +56,7 @@ func Files(team string) (map[string][]byte, error) {
 		return nil, err
 	}
 	defer root.Close()
-	files, err := teamsource.ResolveSource(context.Background(), root, "teams/source/"+team, team)
+	files, err := teamsource.ResolveSource(ctx, root, "teams/source/"+team, team)
 	if err != nil {
 		return nil, fmt.Errorf("resolve teams/source/%s: %w", team, err)
 	}
@@ -65,8 +65,8 @@ func Files(team string) (map[string][]byte, error) {
 }
 
 // Workflow returns the files of one workflow folder of a team source.
-func Workflow(team, workflow string) (fs.FS, error) {
-	files, err := Files(team)
+func Workflow(ctx context.Context, team, workflow string) (fs.FS, error) {
+	files, err := Files(ctx, team)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func Workflow(team, workflow string) (fs.FS, error) {
 
 // CaptureTeam captures one workflow of a team source under the team's name.
 func CaptureTeam(ctx context.Context, team string, workflow agent.Workflow, registry graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-	source, err := Workflow(team, string(workflow))
+	source, err := Workflow(ctx, team, string(workflow))
 	if err != nil {
 		return nil, err
 	}

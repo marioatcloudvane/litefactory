@@ -555,7 +555,7 @@ func TestOwnerClosePartialFailureKeepsValidateOpen(t *testing.T) {
 func TestOwnerLoopLimitStopsTheRunAndApprovesNothing(t *testing.T) {
 	o := newOwnerFixture(t)
 	o.mixed()
-	for range 30 {
+	for range 45 {
 		inst, _ := o.db.GetGraphInstance(t.Context(), o.instance.ID)
 		if inst.Status != store.GraphRunning {
 			break
@@ -659,8 +659,8 @@ func TestOwnerShipRefusesUndisplayedHeadDrift(t *testing.T) {
 func TestOwnerShipDeliversFromOneReply(t *testing.T) {
 	o := newOwnerFixture(t)
 	o.mixed()
-	if !strings.Contains(o.forge.bodies("**Validate report**")[0].Body, "Next: `"+ValidateShipCommand+" "+o.state().Revision) {
-		t.Fatal("the report names /validate-ship as the next step")
+	if !strings.Contains(o.forge.bodies("**Validate report**")[0].Body, "`"+ValidateShipCommand+" d-") {
+		t.Fatal("the report offers /validate-ship")
 	}
 	commit := o.state().Commit
 	o.reply(o.owner, o.ship())
@@ -895,7 +895,7 @@ func TestOwnerRepairChoiceStartsARepairAndTestsTheKeptCommit(t *testing.T) {
 		return repaired("app/app.go")
 	})
 	nodes := o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
-	if !strings.Contains(joinNodes(nodes), "owner_resolve>repair_budget>repair_agent>repair_check>suite>review>outcome>owner_resolve>owner_report>owner_ask") {
+	if !strings.Contains(joinNodes(nodes), "owner_resolve>repair_budget>repair_agent>repair_check>suite>review>outcome>reporter>owner_resolve>owner_report>owner_ask") {
 		t.Fatalf("path %s", joinNodes(nodes))
 	}
 	if got := o.resolveOutcomes(); len(got) < 2 || got[len(got)-2] != "repair" || got[len(got)-1] != "wait" {
@@ -999,7 +999,7 @@ func TestOwnerRejectedOrSpentRepairReturnsToTheReportWithItsReason(t *testing.T)
 		}
 		return handbackReport("the sum needs a new type"), ActivityResult{}
 	}
-	back := "repair_check>review>outcome>owner_resolve>owner_report>owner_ask"
+	back := "repair_check>review>outcome>reporter>owner_resolve>owner_report>owner_ask"
 	report := func() string { return o.forge.bodies("**Validate report**")[0].Body }
 
 	nodes := o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
@@ -1011,7 +1011,7 @@ func TestOwnerRejectedOrSpentRepairReturnsToTheReportWithItsReason(t *testing.T)
 		t.Fatalf("handback: %s\n%s", joinNodes(nodes), report())
 	}
 	nodes = o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
-	if !strings.Contains(joinNodes(nodes), "owner_resolve>repair_budget>review>outcome>owner_resolve>owner_report>owner_ask") || visits(nodes, "repair_agent") != 0 || len(o.rounds()) != 2 {
+	if !strings.Contains(joinNodes(nodes), "owner_resolve>repair_budget>review>outcome>reporter>owner_resolve>owner_report>owner_ask") || visits(nodes, "repair_agent") != 0 || len(o.rounds()) != 2 {
 		t.Fatalf("spent: %s", joinNodes(nodes))
 	}
 	if inst, _ := o.db.GetGraphInstance(t.Context(), o.instance.ID); inst.Status != store.GraphRunning || o.state().Commit != base {

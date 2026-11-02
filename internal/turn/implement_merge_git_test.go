@@ -175,7 +175,7 @@ func TestImplementMergeGitConflictRestartsTheStoryAndTheNextDoneStoryStillMerges
 	if err != nil {
 		t.Fatal(err)
 	}
-	conflicts, err := worktree.StartMerge(t.Context(), "origin/"+implementFeature)
+	conflicts, err := worktree.StartMerge(t.Context(), "origin/"+implementFeature, git.Author{Name: "Test", Email: "test@example.invalid"})
 	if err != nil || len(conflicts) != 1 || conflicts[0] != "shared.txt" {
 		t.Fatalf("StartMerge = %v, %v", conflicts, err)
 	}

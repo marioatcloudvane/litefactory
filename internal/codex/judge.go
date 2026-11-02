@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
 )
 
 // RunJudge starts a fresh native turn with a factory-owned model catalogue and
@@ -42,8 +43,8 @@ func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (_ ag
 		return agent.JudgeRunResult{}, err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(home)) }()
-	probeEnv := append(providerprocess.DoctorEnvironment(r.environ, home), "CODEX_HOME="+home)
-	versionText, probeErr := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"--version"}, probeEnv, home)
+	probeEnv := append(execution.IsolatedEnvironment(r.environ, home), "CODEX_HOME="+home)
+	versionText, probeErr := execution.Probe(ctx, r.binary.Path, []string{"--version"}, probeEnv, home)
 	if probeErr != nil {
 		if ctx.Err() != nil {
 			return agent.JudgeRunResult{}, ctx.Err()
@@ -70,7 +71,7 @@ func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (_ ag
 	if err = r.linkDoctorAuth(home); err != nil {
 		return agent.JudgeRunResult{}, err
 	}
-	env := append(providerprocess.DoctorEnvironment(r.environ, home), "CODEX_HOME="+home)
+	env := append(execution.IsolatedEnvironment(r.environ, home), "CODEX_HOME="+home)
 	for _, entry := range r.environ {
 		if strings.HasPrefix(entry, "CODEX_API_KEY=") {
 			env = append(env, entry)

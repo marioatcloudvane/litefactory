@@ -60,7 +60,7 @@ const implementTestDOT = `digraph implement {
 func implementTestRegistry(t *testing.T) Registry {
 	t.Helper()
 	var registry Registry
-	for _, spec := range append(ImplementSpecs(), ActionSpec{Name: "lf_agent", Mode: agent.ModeImplement, Outcomes: []string{"success", "failed"}, Attributes: AgentAttributes()}) {
+	for _, spec := range append(ImplementSpecs(), ActionSpec{Name: "lf_agent", Mode: agent.ModeImplement, Outcomes: []string{"success", "failed"}, Attributes: AgentAttributes()}, ControlSpec(ResearchIfAction, ImplementControlPolicy())) {
 		if err := registry.Register(spec); err != nil {
 			t.Fatal(err)
 		}
@@ -213,7 +213,7 @@ func TestImplementGraphCheckerRefusesForeignActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateImplementGraph(profile); err == nil || !strings.Contains(err.Error(), "does not implement") {
+	if err := ValidateImplementGraph(profile); err == nil || !strings.Contains(err.Error(), "invalid Implement fact comparison") {
 		t.Fatalf("%v", err)
 	}
 	if err := ValidateImplementGraph(nil); err == nil {
@@ -288,9 +288,21 @@ func TestImplementResultCheckerAcceptsBothShapesAndRefusesWrongRouting(t *testin
 // instances captured from older releases still use.
 func stoppedImplementShape(t *testing.T, graph string) string {
 	t.Helper()
-	out := strings.Replace(graph, `lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,stopped"`, 1)
-	out = regexp.MustCompile(`(?m)^[ \t]*worker_result[ \t]*->[ \t]*budget[ \t]*\[lf_on="incomplete"\];\n`).ReplaceAllString(out, "")
-	out = regexp.MustCompile(`(worker_result[ \t]*->[ \t]*park_story[ \t]*)\[lf_on="blocked"\]`).ReplaceAllString(out, `${1}[lf_on="stopped"]`)
+	profile, err := ParseProfile([]byte(graph))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := strings.ReplaceAll(graph, `lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,stopped"`)
+	for _, node := range profile.Nodes {
+		if node.Action != ImplementResultAction {
+			continue
+		}
+		budget, _ := Decide(profile, node.Name, "incomplete")
+		park, _ := Decide(profile, node.Name, "blocked")
+		resultName := regexp.QuoteMeta(node.Name)
+		out = regexp.MustCompile(`(?m)^[ \t]*`+resultName+`[ \t]*->[ \t]*`+regexp.QuoteMeta(budget)+`[ \t]*\[lf_on="incomplete"\];\n`).ReplaceAllString(out, "")
+		out = regexp.MustCompile(`(`+resultName+`[ \t]*->[ \t]*`+regexp.QuoteMeta(park)+`[ \t]*)\[lf_on="blocked"\]`).ReplaceAllString(out, `${1}[lf_on="stopped"]`)
+	}
 	if !strings.Contains(out, `lf_outcomes="completed,stopped"`) || !strings.Contains(out, `[lf_on="stopped"]`) || strings.Contains(out, `[lf_on="incomplete"]`) {
 		t.Fatal("the released implement graph has no derivable stopped shape")
 	}

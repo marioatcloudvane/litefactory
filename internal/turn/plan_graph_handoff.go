@@ -117,7 +117,7 @@ func (r *planGraphRuntime) assembledText(ctx context.Context, s planbrief.PlanSt
 	var body strings.Builder
 	body.WriteString("**Final plan review**\n\nEvery story below has all three stages approved. This is the whole plan as it stands now:\n\n")
 	body.WriteString(renderPlanStoryTable(r.result.Ref, rows, true))
-	body.WriteString("\n" + planbrief.RenderPlanRoutes(r.finalRouteReviews(s)))
+	body.WriteString("\n" + planbrief.RenderPlanRoutesFor(r.finalRouteReviews(s), r.result.Ref.Forge == "linear"))
 	if graphApproved := s.GraphApprovedStages(); len(graphApproved) > 0 {
 		parts := make([]string, len(graphApproved))
 		for i, g := range graphApproved {
@@ -231,6 +231,9 @@ func (r *planGraphRuntime) finalize(ctx context.Context, s planbrief.PlanState, 
 			return out, err
 		}
 		if err = r.opts.DB.PutManagedStory(ctx, store.ManagedStory{ParentTask: feature.ParentTask, Generation: feature.Generation, Key: story.Key, IssueNumber: issue.Number, IssueID: issue.ID, BodyHash: binding.Revision, Dependencies: story.Dependencies.StoryKeys, State: "planning"}); err != nil {
+			return out, err
+		}
+		if err = r.opts.DB.RetainPublishedStorySizing(ctx, feature.ParentTask, feature.Generation, story.Key, issue.ID, binding.Revision, revision); err != nil {
 			return out, err
 		}
 		// Only links and stable identifiers appear in the local index.

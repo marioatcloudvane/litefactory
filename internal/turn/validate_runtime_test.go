@@ -42,12 +42,21 @@ phases:
 // runtimeReviewers is the fake agent provider: it answers every reviewer from
 // the factory data in its prompt, through the live result route.
 type runtimeReviewers struct {
-	t     *testing.T
-	mu    sync.Mutex
-	calls []agent.Request
+	t        *testing.T
+	mu       sync.Mutex
+	calls    []agent.Request
+	reporter int
 }
 
 func (r *runtimeReviewers) run(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+	if strings.Contains(req.Prompt, "<validate-reporter>") {
+		// The reporter gives no summary here: the factory's own report
+		// stands in, and Validate does not wait for it.
+		r.mu.Lock()
+		r.reporter++
+		r.mu.Unlock()
+		return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "no summary in this test", FinishedAt: time.Now()}, nil
+	}
 	r.mu.Lock()
 	r.calls = append(r.calls, req)
 	r.mu.Unlock()

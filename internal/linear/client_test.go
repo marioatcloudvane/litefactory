@@ -556,8 +556,11 @@ func TestReplyHistoryCombinedIdentity(t *testing.T) {
 func TestUpdateContentNormalizedReadback(t *testing.T) {
 	marExpected, marObserved := mar12Pair(t)
 	metadata := "\n<!-- lf:plan-content v=1 data={} -->"
+	storyExpected, storyObserved := storyEscapedProsePair()
 	for _, tt := range []struct{ name, written, observed, title, failure string }{
 		{name: "MAR-12", written: marExpected, observed: marObserved},
+		{name: "story escaped prose", written: storyExpected, observed: storyObserved},
+		{name: "story escaped prose changed", written: storyExpected, observed: strings.Replace(storyObserved, "Incoming", "Outgoing", 1), failure: "conflict"},
 		{name: "CRLF", written: "a\r\nb", observed: "a\nb"},
 		{name: "trailing space", written: "a \nb", observed: "a\nb"},
 		{name: "table", written: "| A | B |\n| --- | :---: |\n| one | two |", observed: "|A|B|\n|-----|:-----:|\n|one|two|"},
@@ -639,6 +642,9 @@ func TestUpdateContentNormalizedReadback(t *testing.T) {
 				}
 				if tt.failure == "stale" && mutations != 0 {
 					t.Fatal("stale revision dispatched")
+				}
+				if (tt.failure == "conflict" || tt.failure == "readback") && tt.title == "" && mutations != 1 {
+					t.Fatalf("mutations = %d; want exactly one write", mutations)
 				}
 				return
 			}

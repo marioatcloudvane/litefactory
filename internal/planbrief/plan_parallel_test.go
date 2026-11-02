@@ -22,6 +22,46 @@ func parallelParts() map[string]planbrief.PlanParallelContribution {
 		"acceptance": {Draft: planbrief.PlanDraft{Tasks: d.Tasks, Criteria: d.Criteria}},
 	}
 }
+
+// MAR-63: the acceptance member owns tasks and criteria, so links resolve in
+// one contribution; an owner role outside the release scope stops the join,
+// and the stop names the task and role instead of a generic rule.
+func TestPlanParallelJoinNamesTheFaultyTask(t *testing.T) {
+	scope := planbrief.ReleaseScope([]string{"implementation-engineer", "unit-test-engineer"}, []string{})
+	join := func(role string, extra ...planbrief.PlanCriterion) error {
+		g, err := planbrief.NewPlanParallelGroup("group", "basis", 3, planbrief.PlanDraft{Key: "story-a"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts := parallelParts()
+		acceptance := parts["acceptance"]
+		technical := parts["technical"]
+		technical.Draft.Guidance = []string{}
+		parts["technical"] = technical
+		acceptance.Draft.Tasks[0].OwnerRole = role
+		acceptance.Draft.Criteria = append(acceptance.Draft.Criteria, extra...)
+		parts["acceptance"] = acceptance
+		for i, member := range []string{"story", "technical", "acceptance"} {
+			if err = g.Collect("basis", member, int64(i+1), "r1", parts[member]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, err = g.Reconcile(scope)
+		return err
+	}
+	if err := join("implementation-engineer"); err != nil {
+		t.Fatalf("bound owner role with linked criteria refused: %v", err)
+	}
+	err := join("engineer")
+	if err == nil || !strings.Contains(err.Error(), `owner role "engineer"`) || !strings.Contains(err.Error(), "implementation-engineer") {
+		t.Fatalf("unknown owner role not named: %v", err)
+	}
+	err = join("implementation-engineer", planbrief.PlanCriterion{ID: "AC-099", Text: "Unlinked.", ProofMethod: "Owner check."})
+	if err == nil || !strings.Contains(err.Error(), "criterion AC-099 has no task") {
+		t.Fatalf("unlinked criterion not named: %v", err)
+	}
+}
+
 func TestPlanParallelCompletionOrdersAndSealing(t *testing.T) {
 	orders := [][]string{{"story", "technical", "acceptance"}, {"story", "acceptance", "technical"}, {"technical", "story", "acceptance"}, {"technical", "acceptance", "story"}, {"acceptance", "technical", "story"}, {"acceptance", "story", "technical"}}
 	var expected string

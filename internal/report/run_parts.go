@@ -113,6 +113,9 @@ func SplitReviewParts(text string, size int) ([]string, error) {
 	if size < 128 || !utf8.ValidString(text) {
 		return nil, fmt.Errorf("invalid review part size or UTF-8")
 	}
+	if fence := reviewFence(text, size); fence != "" {
+		return splitFencedReviewParts(text, fence, size), nil
+	}
 	var chunks []string
 	var contexts []bool
 	inPre := false
@@ -137,6 +140,48 @@ func SplitReviewParts(text string, size int) ([]string, error) {
 		chunks[i] = chunk
 	}
 	return chunks, nil
+}
+
+// reviewFence returns the fence of a text that is exactly one fenced code
+// block whose fence never occurs inside it, and that is short enough to repeat
+// in every part. Any other text returns "".
+func reviewFence(text string, size int) string {
+	fence, _, ok := strings.Cut(text, "\n")
+	if !ok || len(fence) < 3 || len(fence) >= size/4 || strings.Trim(fence, "`") != "" || len(text) < 2*len(fence)+2 {
+		return ""
+	}
+	inner := text[len(fence)+1 : len(text)-len(fence)]
+	if !strings.HasSuffix(inner, "\n") || strings.Contains(inner, fence) {
+		return ""
+	}
+	return fence
+}
+
+// splitFencedReviewParts closes the block at the end of each non-final part and
+// reopens it at the start of each later part, each marker on its own line, so
+// every comment renders as code. A cut never falls inside the closing fence.
+func splitFencedReviewParts(text, fence string, size int) []string {
+	var chunks []string
+	for len(text) > 0 {
+		n := min(size, len(text))
+		for n < len(text) && !utf8.RuneStart(text[n]) {
+			n--
+		}
+		if closing := len(text) - len(fence) - 1; n < len(text) && n > closing {
+			n = closing
+		}
+		chunks = append(chunks, text[:n])
+		text = text[n:]
+	}
+	for i := range chunks {
+		if i > 0 {
+			chunks[i] = "<!-- lf:part-context-open -->\n" + fence + "\n" + chunks[i]
+		}
+		if i+1 < len(chunks) {
+			chunks[i] += "\n" + fence + "\n<!-- lf:part-context-close -->"
+		}
+	}
+	return chunks
 }
 
 // RenderTextParts serves explicit workflow comment activities, which carry no

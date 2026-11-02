@@ -199,6 +199,9 @@ type PlanStoryInput struct {
 	Prefix          string // hidden markers placed before the body
 	PartHeader      func(n, total int) string
 	CommentLimit    int // size limit of one part comment
+	// Linear renders the part comments for a Linear parent; the issue body
+	// stays as rendered for every destination.
+	Linear bool
 }
 
 // PlanStoryText is the redacted publication text of one Plan story. Parts is
@@ -276,7 +279,11 @@ func PreparePlanStory(ctx context.Context, red *redact.Redactor, in PlanStoryInp
 	if !shortened {
 		return out, nil
 	}
-	full, err := red.Prepare(ctx, src.full)
+	visible := src.full
+	if in.Linear {
+		visible = planVisibleFor(in.Draft, -1, true)
+	}
+	full, err := red.Prepare(ctx, visible)
 	if err != nil {
 		return PlanStoryText{}, err
 	}
@@ -300,7 +307,12 @@ func shortPlanBody(d planbrief.PlanDraft, cut int) string {
 
 // planVisible renders the visible scaffold; cut < 0 keeps every cell whole.
 func planVisible(d planbrief.PlanDraft, cut int) string {
-	q := func(v string) string { return storyText(cutText(v, cut)) }
+	return planVisibleFor(d, cut, false)
+}
+
+// planVisibleFor renders the scaffold with the destination's text contract.
+func planVisibleFor(d planbrief.PlanDraft, cut int, linear bool) string {
+	q := func(v string) string { return storyTextFor(cutText(v, cut), linear) }
 	var b strings.Builder
 	b.WriteString("# Userstory\n\n")
 	fmt.Fprintf(&b, "As %s, I want %s, so that %s.\n", q(d.UserStory.Actor), q(d.UserStory.Want), q(d.UserStory.Benefit))
@@ -317,7 +329,7 @@ func planVisible(d planbrief.PlanDraft, cut int) string {
 	}
 	b.WriteString("\n# Task\n\n| Task Id | Description | Owner | Dependencies |\n|---|---|---|---|\n")
 	for _, t := range d.Tasks {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", storyText(t.ID), q(t.Description), q(t.OwnerRole), storyList(t.DependsOn))
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", storyTextFor(t.ID, linear), q(t.Description), q(t.OwnerRole), storyListFor(t.DependsOn, linear))
 	}
 	b.WriteString("\n" + planbrief.PlanAcceptanceHeading + "\n\n")
 	for _, c := range d.Criteria {

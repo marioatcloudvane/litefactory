@@ -129,7 +129,7 @@ func runDueGraphStep(t *testing.T, f *fixture, base Request) (out Result, ran bo
 	instruction := fmt.Sprintf("Continue the workflow at its %s stage.", reserved.Node)
 	base.Trigger = Trigger{CommentID: reserved.TriggerID(), Body: instruction, Author: "owner"}
 	base.Command = Command{Kind: KindFreeText, Text: instruction}
-	out, err = Execute(t.Context(), f.opts, base)
+	out, err = Execute(f.turnContext(t), f.opts, base)
 	mustProgress(t, f.db.FinishGraphDispatch(t.Context(), reserved.ID, time.Now()))
 	return out, true, err
 }

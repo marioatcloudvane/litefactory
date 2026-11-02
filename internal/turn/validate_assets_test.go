@@ -42,13 +42,13 @@ func TestValidateShipsFourRolesTwoSkillsAndOneGraph(t *testing.T) {
 	}
 	slices.Sort(roles)
 	slices.Sort(skills)
-	if len(graphs) != 1 || strings.Join(roles, ",") != "validate-acceptance.md,validate-architecture.md,validate-code.md,validate-repair.md" {
+	if len(graphs) != 1 || strings.Join(roles, ",") != "validate-acceptance.md,validate-architecture.md,validate-code.md,validate-repair.md,validate-reporter.md" {
 		t.Fatalf("shipped package: graphs=%v roles=%v", graphs, roles)
 	}
-	if strings.Join(skills, ",") != "skills/go-stack/SKILL.md,skills/litefactory-rules/SKILL.md,skills/validate-repair-report/SKILL.md,skills/validate-review/SKILL.md" {
+	if strings.Join(skills, ",") != "skills/go-stack/SKILL.md,skills/litefactory-rules/SKILL.md,skills/validate-repair-report/SKILL.md,skills/validate-report/SKILL.md,skills/validate-review/SKILL.md" {
 		t.Fatalf("skills %v", skills)
 	}
-	for _, key := range []string{"repair_agent", "review:validate-acceptance", "review:validate-code", "review:validate-architecture"} {
+	for _, key := range []string{"repair_agent", "review:validate-acceptance", "review:validate-code", "review:validate-architecture", "reporter:validate-reporter"} {
 		if _, ok := definition.Nodes[key]; !ok {
 			t.Errorf("node %q is not captured: %v", key, definition.Nodes)
 		}

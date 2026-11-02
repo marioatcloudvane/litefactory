@@ -1,0 +1,46 @@
+{
+  "public-final": {
+    "command": [
+      "go",
+      "test",
+      "-race",
+      "-count=1",
+      "-timeout=5m",
+      "./pkg/execution/providers/claude",
+      "./pkg/execution/providers/codex"
+    ],
+    "started": 1793530612.816941,
+    "exit_code": 0,
+    "finished": 1793530620.933054
+  },
+  "public-lint": {
+    "command": [
+      "make",
+      "lint",
+      "PKGS=./pkg/execution/providers/claude ./pkg/execution/providers/codex"
+    ],
+    "started": 1793530612.81797,
+    "exit_code": 0,
+    "finished": 1793530620.933728
+  },
+  "build-final": {
+    "command": [
+      "go",
+      "build",
+      "./..."
+    ],
+    "started": 1793530612.819031,
+    "exit_code": 0,
+    "finished": 1793530620.933847
+  },
+  "format-final": {
+    "command": [
+      "gofmt",
+      "-l",
+      "."
+    ],
+    "started": 1793530612.820374,
+    "exit_code": 0,
+    "finished": 1793530620.933929
+  }
+}

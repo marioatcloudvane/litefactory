@@ -31,7 +31,7 @@ func validateOverflowFixture(t *testing.T) (*ownerFixture, []store.ReportDeliver
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, parts, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, "Retained overview\n", "", o.clock)
+	text, parts, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, testValidateLayout("Retained overview\n", st), "", o.clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestValidateGuidanceRepeatedPreparationReusesFrozenManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, again, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, "Retained overview\n", "", o.clock.Add(time.Hour))
+	_, again, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, testValidateLayout("Retained overview\n", st), "", o.clock.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestValidateGuidanceRepeatedPreparationReusesFrozenManifest(t *testing.T) {
 	if err = r.RecoverValidatePublications(t.Context(), o.instance.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	text, done, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, "Retained overview\n", "", o.clock.Add(2*time.Hour))
+	text, done, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, testValidateLayout("Retained overview\n", st), "", o.clock.Add(2*time.Hour))
 	if err != nil || len(done) != 0 || !strings.Contains(text, "All numbered parts") {
 		t.Fatalf("settled replay did not reuse current index: %d %v", len(done), err)
 	}
@@ -398,7 +398,7 @@ func TestValidateGuidanceSupersededUncertainEditDoesNotHoldCurrentIndex(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, currentParts, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, "New current overview\n", "", o.clock.Add(time.Hour))
+	text, currentParts, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, testValidateLayout("New current overview\n", st), "", o.clock.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ func TestValidateGuidanceRedactsSummaryBeforeClipping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, _, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, "Overview\n", "", o.clock)
+	text, _, err := r.prepareValidateGuidance(t.Context(), o.instance.SessionID, task, st, o.b.Profile, testValidateLayout("Overview\n", st), "", o.clock)
 	if err != nil {
 		t.Fatal(err)
 	}

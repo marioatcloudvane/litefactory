@@ -96,6 +96,46 @@ type stepReservation struct {
 	pool     *pool
 	fallback *pool
 	cost     int
+	// extra counts slots nested work borrowed through TryGrow from extraPool.
+	// generation advances on Release, so a borrowed slot's late release after
+	// the whole reservation was returned is a no-op rather than a double free.
+	extra      int
+	extraPool  *pool
+	generation uint64
+}
+
+// TryGrow borrows cost extra slots for nested work, such as the members of a
+// Plan parallel group, without disturbing the held grant. It never waits.
+func (r *stepReservation) TryGrow(ctx context.Context, cost int) (func(), bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if cost <= 0 {
+		return nil, false, errors.New("execution slot cost must be positive")
+	}
+	if r.extra > 0 && r.extraPool != r.pool {
+		return nil, false, nil
+	}
+	if !r.pool.acquire(cost) {
+		return nil, false, nil
+	}
+	r.extra += cost
+	r.extraPool = r.pool
+	generation := r.generation
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if r.generation != generation || r.extra < cost {
+				return
+			}
+			r.extraPool.release(cost)
+			r.extra -= cost
+		})
+	}, true, nil
 }
 
 func (r *stepReservation) Replace(ctx context.Context, cost int) (bool, error) {
@@ -127,6 +167,11 @@ func (r *stepReservation) Release() {
 	defer r.mu.Unlock()
 	r.pool.release(r.cost)
 	r.cost = 0
+	if r.extra > 0 {
+		r.extraPool.release(r.extra)
+		r.extra = 0
+	}
+	r.generation++
 }
 func (r *stepReservation) Capacity() (int, int) {
 	r.mu.Lock()

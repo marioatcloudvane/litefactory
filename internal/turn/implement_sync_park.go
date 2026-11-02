@@ -126,7 +126,7 @@ func (rt *implementRuntime) parkSyncStory(ctx context.Context, reason string) (A
 	intent := implementParkIntent(r, parent, destination, row)
 	delivery, err := opts.DB.GetReportDelivery(ctx, intent.Key)
 	if errors.Is(err, store.ErrNotFound) {
-		body, renderErr := renderImplementParkAnswer(ctx, r, agentresult.ResearchNode{Result: agentresult.Result{Reason: reason}})
+		body, renderErr := renderImplementParkAnswerFor(ctx, r, agentresult.ResearchNode{Result: agentresult.Result{Reason: reason}}, destination.Forge == "linear")
 		if renderErr != nil {
 			return ActivityResult{}, renderErr
 		}

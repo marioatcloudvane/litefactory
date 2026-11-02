@@ -90,4 +90,5 @@ explained by the reply that asks for it.
 - [Guides](docs/guides/README.md): working with issues, workflow, validation and delivery
 - [CLI](docs/cli/README.md) and [configuration](docs/configuration/README.md)
 - [Operations](docs/operations/README.md): running the daemon, recovery, cleanup, costs
+- [Reusable graph and agent execution](docs/execution.md): public packages and credential-free example
 - [Discord setup and use](docs/discord.md) and [workflow internals](docs/workflow/)

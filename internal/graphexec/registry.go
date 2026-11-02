@@ -10,17 +10,11 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/pkg/execution/graph"
 )
 
-// AttributeSpec is a closed string vocabulary for an action attribute.
-type AttributeSpec struct {
-	Required bool
-	Values   []string
-	// List makes the attribute a comma-separated set: every element must be one
-	// of Values, and none may repeat or be empty. The vocabulary stays closed;
-	// only the shape of a value changes.
-	List bool
-}
+// AttributeSpec is a closed vocabulary supplied by factory action descriptions.
+type AttributeSpec = graph.AttributeSpec
 
 // ActionSpec defines membership and outcomes, never executable attribute text.
 type ActionSpec struct {

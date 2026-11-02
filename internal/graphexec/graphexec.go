@@ -1,10 +1,8 @@
 package graphexec
 
 import (
-	"maps"
-	"slices"
-
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/pkg/execution/graph"
 )
 
 // Profile is a byte-digested workflow definition, frozen after construction.
@@ -20,45 +18,19 @@ type Profile struct {
 	Attrs          map[string]string
 }
 
-// Node describes a bounded activity or a terminal. Zero Limit means no explicit
-// dispatch bound and is permitted only outside cycles.
-type Node struct {
-	Name     string
-	Action   string
-	Outcomes []string
-	Limit    int
-	Terminal bool
-	Attrs    map[string]string
-}
+// Node retains the factory wire representation using a neutral value.
+type Node = graph.Node
 
-// Edge selects the destination for exactly one declared outcome.
-type Edge struct {
-	From  string
-	To    string
-	On    string
-	Attrs map[string]string
+// Edge retains the factory wire representation using a neutral value.
+type Edge = graph.Edge
+
+func (p *Profile) neutral() *graph.Graph {
+	if p == nil {
+		return nil
+	}
+	return &graph.Graph{Start: p.Start, Nodes: p.Nodes, Edges: p.Edges, Attrs: p.Attrs}
 }
 
 // Node returns an independent copy of the named node. Validated profiles have
 // unique names; ambiguous unvalidated names are refused.
-func (p *Profile) Node(name string) (Node, bool) {
-	if p == nil {
-		return Node{}, false
-	}
-	var found *Node
-	for i := range p.Nodes {
-		if p.Nodes[i].Name == name {
-			if found != nil {
-				return Node{}, false
-			}
-			found = &p.Nodes[i]
-		}
-	}
-	if found == nil {
-		return Node{}, false
-	}
-	n := *found
-	n.Outcomes = slices.Clone(n.Outcomes)
-	n.Attrs = maps.Clone(n.Attrs)
-	return n, true
-}
+func (p *Profile) Node(name string) (Node, bool) { return p.neutral().Node(name) }

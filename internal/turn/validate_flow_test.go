@@ -29,7 +29,7 @@ func handbackReport(cause string) agentresult.ValidateRepair {
 func TestValidatePassedSuiteSkipsRepairAndEndsAssessed(t *testing.T) {
 	f := newFlowFixture(t)
 	nodes := f.runToEnd()
-	if got := joinNodes(nodes); got != "suite>review>outcome>assessed" && got != "suite>review>outcome" {
+	if got := joinNodes(nodes); got != "suite>review>outcome>reporter" {
 		t.Fatalf("path %s", got)
 	}
 	if f.final() != "assessed" || f.agentRuns != 0 {

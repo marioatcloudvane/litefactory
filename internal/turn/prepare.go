@@ -228,7 +228,7 @@ func prepare(
 	// leaves the conflict in the worktree; every other run only observes.
 	syncResolver := req.mode() == "implement" && req.Workflow != agent.WorkflowBug && !storyWorker && !req.preparationAssessment &&
 		req.researchDefinition != nil && graphexec.ImplementSyncResolver(req.researchDefinition.Profile, req.researchNode)
-	storyMerge, err := startStoryMerge(ctx, storyWorker || syncResolver, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync)
+	storyMerge, err := startStoryMerge(ctx, storyWorker || syncResolver, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync, author)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +527,7 @@ func prepare(
 	promptInput.SessionArtifactTechnical = existingSessionTechnical(worktree.Path(), promptInput.SessionArtifactDir, req.mode())
 	var parentSessionDir string
 	var parentSessionFiles []string
-	if storyWorker {
+	if storyWorker || req.mode() == string(agent.ModePlan) {
 		parentSessionDir, parentSessionFiles = parentSessionArtifacts(ctx, opts, worktree.Path(), session, run.StartedAt, logger)
 	}
 	prompt, err := harness.BuildPrompt(promptInput)
@@ -854,7 +854,7 @@ func prepareClone(
 	if inputs.TargetPhase == "base" {
 		mergeInput = inputs.TargetRef
 	}
-	if err := worktree.WriteResolvedFiles(ctx, mergeInput, files); err != nil {
+	if err := worktree.WriteResolvedFiles(ctx, mergeInput, files, author); err != nil {
 		return session, branch, worktree, syncResult{}, nil, failuref(err, "the confirmed resolution for proposal %d could not be written", stored.ID)
 	}
 	if err := worktree.StageResolvedFiles(ctx, files); err != nil {
@@ -1725,16 +1725,21 @@ func storyBaseBranch(ctx context.Context, opts Options, clone *git.Clone, sessio
 	return parent.Branch
 }
 
-// parentSessionArtifacts locates an Implement story worker's parent session
-// directory in the worker's checkout, found the way [storyBaseBranch] finds the
-// parent, and names the parentSessionContext files present there. A worker
-// whose parent has no session, branch or directory gets nothing.
+// parentSessionArtifacts locates the parent session directory of an Implement
+// story worker or a graph Plan story task in the story's checkout, found the
+// way [storyBaseBranch] finds the parent, and names the parentSessionContext
+// files present there. A task that is neither, or whose parent has no session,
+// branch or directory, gets nothing.
 func parentSessionArtifacts(ctx context.Context, opts Options, worktreeDir string, session store.Session, day time.Time, logger *slog.Logger) (string, []string) {
-	row, err := opts.DB.ImplementStoryByWorkerSession(ctx, session.ID)
-	if err != nil {
+	var parentRef string
+	if row, err := opts.DB.ImplementStoryByWorkerSession(ctx, session.ID); err == nil {
+		parentRef = row.Parent
+	} else if story, ok, storyErr := opts.DB.GraphPlanStoryAt(ctx, session.RepoID, session.IssueNumber); storyErr == nil && ok {
+		parentRef = story.Parent
+	} else {
 		return "", nil
 	}
-	parent, err := opts.DB.GetSessionByTaskRef(ctx, row.Parent)
+	parent, err := opts.DB.GetSessionByTaskRef(ctx, parentRef)
 	if err != nil || parent.Branch == "" {
 		return "", nil
 	}
@@ -1759,7 +1764,7 @@ func parentSessionArtifacts(ctx context.Context, opts Options, worktreeDir strin
 // reconciliation is unresolved never starts a merge, and any other deferred
 // observation is exposed without touching the checkout. It returns nil for a
 // run that resolves no conflict.
-func startStoryMerge(ctx context.Context, resolvesConflict bool, worktree *git.Worktree, baseRef, featureBranch string, sync syncResult) (*harness.DeferredSyncContext, error) {
+func startStoryMerge(ctx context.Context, resolvesConflict bool, worktree *git.Worktree, baseRef, featureBranch string, sync syncResult, author git.Author) (*harness.DeferredSyncContext, error) {
 	if !resolvesConflict || !preparationSyncDeferred(sync) {
 		return nil, nil
 	}
@@ -1773,7 +1778,7 @@ func startStoryMerge(ctx context.Context, resolvesConflict bool, worktree *git.W
 			start = err == nil
 		}
 		if start {
-			conflicts, err := worktree.StartMerge(ctx, baseRef)
+			conflicts, err := worktree.StartMerge(ctx, baseRef, author)
 			if err != nil {
 				return nil, failuref(err, "merging %s into %s to resolve its conflicts could not be started", baseRef, worktree.Branch())
 			}

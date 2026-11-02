@@ -185,3 +185,51 @@ func TestReviewDisplayTagMentionBeforeFactorySpanRedactsSpan(t *testing.T) {
 		t.Fatalf("span after tag mention not redacted: %q", got.String())
 	}
 }
+
+// Quote and backslash characters are built from their codes so the test text
+// mirrors analysis prose without relying on literal punctuation.
+var (
+	dq = string(rune(34))
+	bs = string(rune(92))
+)
+
+// Prose that mentions the pre tag and continues with a stray double quote or a
+// non-JSON backslash escape is ordinary text, kept byte for byte.
+func TestReviewDisplayKeepsStrayQuotesAfterTagMention(t *testing.T) {
+	r := New(Options{Environ: []string{}})
+	for name, source := range map[string]string{
+		"unpaired quote":     "The " + preOpen + " " + dq + "unclosed value stops the report.",
+		"pipe escape":        "Cell " + preOpen + " " + dq + "a " + bs + "| b" + dq + " in a table.",
+		"factory heading":    "### Submitted content\n\n" + preOpen + "prose with one " + dq + " quote",
+		"complete JSON span": "intro " + preOpen + html.EscapeString("{"+dq+"note"+dq+":"+dq+"said "+bs+"| "+dq+" and "+dq) + preClose,
+	} {
+		for mode, apply := range map[string]func(context.Context, string, int) (Body, error){"display": r.ApplyReviewDisplay, "json": r.ApplyReviewJSONDisplay} {
+			got, err := apply(t.Context(), source, 8192)
+			if err != nil || got.String() != source {
+				t.Fatalf("%s/%s: prose not kept: %q %v", name, mode, got.String(), err)
+			}
+		}
+	}
+}
+
+// A unicode-escaped secret beside a stray double quote is still refused after a
+// tag mention, whichever side the stray quote is on.
+func TestReviewDisplayStrayQuoteNeverHidesEncodedSecret(t *testing.T) {
+	secret := "private<&\"credential-value-123"
+	r := New(Options{Environ: []string{"REVIEW_SECRET=" + secret}})
+	encoded := unicodeJSON(secret)
+	for name, source := range map[string]string{
+		"stray before": "The " + preOpen + " " + dq + " " + encoded + " tail",
+		"stray after":  "The " + preOpen + " " + encoded + " " + dq + " tail",
+	} {
+		for mode, apply := range map[string]func(context.Context, string, int) (Body, error){"display": r.ApplyReviewDisplay, "json": r.ApplyReviewJSONDisplay} {
+			if got, err := apply(t.Context(), source, 8192); err == nil {
+				t.Fatalf("%s/%s: encoded secret beside a stray quote accepted: %q", name, mode, got.String())
+			}
+		}
+	}
+	// The exported strict source parser keeps refusing stray quotes.
+	if _, err := r.ApplyReviewSource(t.Context(), "prose with one "+dq+" quote", 8192); err == nil {
+		t.Fatal("strict review source accepted a stray quote")
+	}
+}

@@ -113,9 +113,13 @@ func (db *DB) DeferGraphDispatchForCapacity(ctx context.Context, id int64, at ti
 		if err != nil {
 			return err
 		}
-		if instance.Status != GraphRunning || instance.CurrentNode != d.Node {
+		if instance.Status != GraphRunning {
 			return graphInvariant("capacity dispatch differs from current running node")
 		}
+		// One dispatch can run several factory nodes back to back. When the
+		// node that defers is not the dispatch's own, that stage finished and
+		// the owed work belongs to the node the instance now rests on.
+		advanced := instance.CurrentNode != d.Node
 		var live bool
 		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status IN ('prelaunch','running')) OR EXISTS(SELECT 1 FROM graph_node_attempts WHERE instance_id=? AND status='running')`, d.SessionID, d.InstanceID).Scan(&live); err != nil {
 			return err
@@ -123,9 +127,16 @@ func (db *DB) DeferGraphDispatchForCapacity(ctx context.Context, id int64, at ti
 		if live {
 			return graphInvariant("capacity dispatch still has executing work")
 		}
-		if d.AllocatedRunID == 0 {
+		switch {
+		case advanced:
+			if _, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='finished',finished_at=? WHERE id=?`, FormatTime(at), d.ID); err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id)
+SELECT ?,?,?,?,'pending',?,? WHERE NOT EXISTS(SELECT 1 FROM graph_dispatches WHERE instance_id=? AND status IN ('pending','reserved','running'))`, d.InstanceID, d.SessionID, instance.CurrentNode, FormatTime(at), FormatTime(at), nullID(d.LaunchID), d.InstanceID)
+		case d.AllocatedRunID == 0:
 			_, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='pending',reserved_at=NULL,due_at=?,attempts=MAX(0,attempts-1) WHERE id=?`, FormatTime(at), d.ID)
-		} else {
+		default:
 			if _, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='finished',finished_at=? WHERE id=?`, FormatTime(at), d.ID); err != nil {
 				return err
 			}

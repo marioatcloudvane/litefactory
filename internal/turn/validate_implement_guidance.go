@@ -54,7 +54,7 @@ func (rt *validateRuntimeState) implementPrerequisiteGuidance(ctx context.Contex
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&text, "\n\n%s is parked: %s.", row.Key, escapeImplementText(safe.String()))
+		fmt.Fprintf(&text, "\n\n%s is parked: %s.", row.Key, implementInline(a.Parent.Forge == "linear", safe.String()))
 		if link != "" {
 			text.WriteString(" Read the [blocking decision](" + link + ")")
 		} else {

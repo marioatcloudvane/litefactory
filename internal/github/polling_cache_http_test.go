@@ -261,6 +261,13 @@ func TestStalledBodyTimeoutComparison(t *testing.T) {
 							close(cancelled)
 						case <-t.Context().Done():
 						}
+						// A stalled body never ends. Returning normally would
+						// let the server finish the response (an empty chunked
+						// body): when the client's TLS close_notify reaches the
+						// server before the client drops the socket, the client
+						// can read that clean end and decode success. Aborting
+						// keeps the body unfinished, as the test means it.
+						panic(http.ErrAbortHandler)
 					}))
 					server.EnableHTTP2 = h2
 					server.StartTLS()

@@ -205,10 +205,20 @@ func TestPlanApproval_OldStateReadsAsOwner(t *testing.T) {
 	if err = json.Unmarshal(raw, &generic); err != nil {
 		t.Fatal(err)
 	}
-	for _, st := range generic["stories"].([]any) {
-		delete(st.(map[string]any), "approved_by")
+	stories, ok := generic["stories"].([]any)
+	if !ok {
+		t.Fatalf("stories is %T, want a list", generic["stories"])
 	}
-	raw, _ = json.Marshal(generic)
+	for _, st := range stories {
+		story, ok := st.(map[string]any)
+		if !ok {
+			t.Fatalf("story is %T, want an object", st)
+		}
+		delete(story, "approved_by")
+	}
+	if raw, err = json.Marshal(generic); err != nil {
+		t.Fatal(err)
+	}
 	var old planbrief.PlanState
 	if err = json.Unmarshal(raw, &old); err != nil {
 		t.Fatal(err)

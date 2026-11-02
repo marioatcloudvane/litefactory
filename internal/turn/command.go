@@ -263,7 +263,7 @@ func ParseCommand(body string) Command {
 		return Command{Kind: KindConfirm, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case PlanControlCommands[0], PlanControlCommands[1], PlanControlCommands[2]:
 		return Command{Kind: KindPlanControl, Name: name, Text: strings.TrimSpace(body), Tagged: tagged}
-	case ValidateRepairCommand, ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand, ValidateImplementCommand, ValidateReturnCommand:
+	case ValidateRepairCommand, ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand, ValidateImplementCommand, ValidateReturnCommand, ValidateFactoryBugCommand:
 		return Command{Kind: KindValidateControl, Name: name, Text: strings.TrimSpace(body), Tagged: tagged}
 	default:
 		return Command{Kind: KindUnknown, Name: name, Tagged: tagged}

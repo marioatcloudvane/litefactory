@@ -660,7 +660,7 @@ func TestWorktreeStartMergeLeavesConflictForResolution(t *testing.T) {
 		t.Fatalf("RevParse base: %v", err)
 	}
 
-	conflicts, err := worktree.StartMerge(t.Context(), base)
+	conflicts, err := worktree.StartMerge(t.Context(), base, testAuthor)
 	if err != nil {
 		t.Fatalf("StartMerge: %v", err)
 	}
@@ -671,7 +671,7 @@ func TestWorktreeStartMergeLeavesConflictForResolution(t *testing.T) {
 	if err != nil || mergeHead != baseTip {
 		t.Fatalf("MERGE_HEAD = %q, %v; want %s", mergeHead, err, baseTip)
 	}
-	again, err := worktree.StartMerge(t.Context(), base)
+	again, err := worktree.StartMerge(t.Context(), base, testAuthor)
 	if err != nil || !slices.Equal(again, conflicts) {
 		t.Fatalf("second StartMerge = %v, %v; want the same conflicts", again, err)
 	}
@@ -700,7 +700,7 @@ func TestWorktreeStartMergeRefusesDirtyWorktree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "scratch.txt"), []byte("wip\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worktree.StartMerge(t.Context(), "origin/"+gittest.DefaultBranch); !errors.Is(err, git.ErrWorktreeUncommittedChanges) {
+	if _, err := worktree.StartMerge(t.Context(), "origin/"+gittest.DefaultBranch, testAuthor); !errors.Is(err, git.ErrWorktreeUncommittedChanges) {
 		t.Fatalf("StartMerge error = %v, want ErrWorktreeUncommittedChanges", err)
 	}
 }

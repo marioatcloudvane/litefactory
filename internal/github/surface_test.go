@@ -62,15 +62,19 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
-		"AddCommentReaction", // POST …/issues/comments/{id}/reactions
-		"AddIssueLabel",      // POST …/issues/{n}/labels
-		"AddSubIssue",        // POST /repos/{o}/{r}/issues/{n}/sub_issues
-		"UserByLogin",        // GET  /users/{login}, numeric ID for rights grants
-		"UserByID",           // GET  /user/{id}, immutable project approver verification and refresh
-		"AuthenticatedUser",  // GET  /user
-		"InspectRepository",  // GET destination identity and read-only access evidence
-		"CreateIssue",        // POST /repos/{o}/{r}/issues
-		"EditComment",        // PATCH /repos/{o}/{r}/issues/comments/{id}, body of a comment litefactory posted
+		"InspectActionsRepository", // Read-only CI identity with response timing.
+		"InspectActionsWorkflow",   // Exact workflow identity and active state.
+		"ListActionsRuns",          // One workflow/branch history page.
+		"GetActionsRun",            // Refresh retained run and rerun attempt.
+		"AddCommentReaction",       // POST …/issues/comments/{id}/reactions
+		"AddIssueLabel",            // POST …/issues/{n}/labels
+		"AddSubIssue",              // POST /repos/{o}/{r}/issues/{n}/sub_issues
+		"UserByLogin",              // GET  /users/{login}, numeric ID for rights grants
+		"UserByID",                 // GET  /user/{id}, immutable project approver verification and refresh
+		"AuthenticatedUser",        // GET  /user
+		"InspectRepository",        // GET destination identity and read-only access evidence
+		"CreateIssue",              // POST /repos/{o}/{r}/issues
+		"EditComment",              // PATCH /repos/{o}/{r}/issues/comments/{id}, body of a comment litefactory posted
 		// FetchAsset is not a gogithub.Client endpoint call at all — it is a
 		// raw net/http GET against an attachment CDN host (github.com,
 		// *.githubusercontent.com), reusing this client's authenticated
@@ -82,6 +86,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		// can safely happen (US-3).
 		"FetchAsset",                 // GET <allow-listed attachment URL>
 		"GetParentIssue",             // GET …/issues/{n}/parent
+		"ObserveParentIssue",         // POST configured GraphQL endpoint, verified nullable direct parent
 		"RetirePlanStory",            // PATCH verified direct child closed with not_planned reason
 		"SetStoryState",              // PATCH verified managed story state and reason
 		"UpdateIssue",                // PATCH …/issues/{n}, full title and body

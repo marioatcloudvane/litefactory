@@ -469,3 +469,32 @@ func TestArchiveExpiryIntegrationViaArchiveBatchStartSteps(t *testing.T) {
 		t.Errorf("persisted sweep counts = %v", s.Counts)
 	}
 }
+
+func TestArchiveExpiryIntegrationEmptyArchiveFoldersPruned(t *testing.T) {
+	x := newAEFixture(t)
+	api := filepath.Join(x.dir, "github", "acme", "api")
+	x.arc(t, "213", aeName(213, "2026-03-15T00:00:00Z"), "2026-03-15T00:00:00Z")
+	fresh := x.arc(t, "214", aeName(214, "2026-05-30T00:00:00Z"), "2026-05-30T00:00:00Z")
+	x.pass(t)
+	aeAssert(t, false, filepath.Join(api, "213"))
+	aeAssert(t, true, fresh, filepath.Join(api, "214"), api, x.dir)
+
+	// Once the last archive expires, every emptied parent goes but the root stays.
+	x.now = aeTime("2026-07-15T00:00:00Z")
+	x.pass(t)
+	aeAssert(t, false, filepath.Join(x.dir, "github"))
+	aeAssert(t, true, x.dir)
+}
+
+func TestArchiveExpiryIntegrationExistingEmptyArchiveFoldersPruned(t *testing.T) {
+	x := newAEFixture(t)
+	fresh := x.arc(t, "214", aeName(214, "2026-05-30T00:00:00Z"), "2026-05-30T00:00:00Z")
+	for _, d := range []string{filepath.Join(x.dir, "github", "acme", "api", "5"), filepath.Join(x.dir, "github", "other", "repo", "7")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	x.pass(t)
+	aeAssert(t, false, filepath.Join(x.dir, "github", "acme", "api", "5"), filepath.Join(x.dir, "github", "other"))
+	aeAssert(t, true, fresh, filepath.Join(x.dir, "github", "acme", "api", "214"))
+}

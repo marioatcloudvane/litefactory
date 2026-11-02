@@ -59,7 +59,7 @@ func TestRegionApplyPreservesCompleteFiles(t *testing.T) {
 				}
 				files = append(files, git.ResolvedFile{Path: s.Path, Format: 1, BranchSHA: branchSHA, BaseSHA: baseSHA, ContentLimit: 1 << 16, Validated: v})
 			}
-			if err := w.WriteResolvedFiles(t.Context(), base, files); err != nil {
+			if err := w.WriteResolvedFiles(t.Context(), base, files, testAuthor); err != nil {
 				t.Fatal(err)
 			}
 			if err := w.StageResolvedFiles(t.Context(), files); err != nil {
@@ -106,7 +106,7 @@ func TestRegionApplyRefusesTamperedProposalBeforeMutation(t *testing.T) {
 			files := regionFiles(t, w, base, []git.ResolvedFile{{Path: "README.md", Resolution: "# fixture\nresolved together\n"}})
 			tc.mutate(&files[0])
 			gittest.AssertUnchanged(t, dir, func() {
-				if err := w.WriteResolvedFiles(t.Context(), base, files); err == nil {
+				if err := w.WriteResolvedFiles(t.Context(), base, files, testAuthor); err == nil {
 					t.Fatal("tampered proposal accepted")
 				}
 			})
@@ -135,7 +135,7 @@ func TestRegionApplyStagedTransformationRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := w.WriteResolvedFiles(t.Context(), base, files); err != nil {
+	if err := w.WriteResolvedFiles(t.Context(), base, files, testAuthor); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.StageResolvedFiles(t.Context(), files); err == nil {
@@ -168,7 +168,7 @@ func TestRegionFinalBarrierRefusesMissingEvidenceAndIndexMode(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := w.WriteResolvedFiles(t.Context(), base, files); err != nil {
+			if err := w.WriteResolvedFiles(t.Context(), base, files, testAuthor); err != nil {
 				t.Fatal(err)
 			}
 			if err := w.StageResolvedFiles(t.Context(), files); err != nil {
@@ -223,7 +223,7 @@ func TestRegionCleanupFailureReportedHonestly(t *testing.T) {
 	base := "origin/" + gittest.DefaultBranch
 	files := regionFiles(t, w, base, []git.ResolvedFile{{Path: "README.md", Resolution: "# fixture\nresolved together\n"}})
 	before := repo.GitIn(dir, "rev-parse", "HEAD")
-	if err := w.WriteResolvedFiles(t.Context(), base, files); err != nil {
+	if err := w.WriteResolvedFiles(t.Context(), base, files, testAuthor); err != nil {
 		t.Fatal(err)
 	}
 	indexPath := repo.GitIn(dir, "rev-parse", "--git-path", "index.lock")
@@ -254,7 +254,7 @@ func TestRegionCanonicalSameSHATransformationRefuses(t *testing.T) {
 	files := regionFiles(t, w, base, []git.ResolvedFile{{Path: "README.md", Resolution: "# fixture\nresolved together\n"}})
 	repo.GitIn(dir, "config", "merge.conflictStyle", "diff3")
 	gittest.AssertUnchanged(t, dir, func() {
-		if err := w.WriteResolvedFiles(t.Context(), base, files); err == nil {
+		if err := w.WriteResolvedFiles(t.Context(), base, files, testAuthor); err == nil {
 			t.Fatal("same-SHA canonical transformation accepted")
 		}
 	})
@@ -278,7 +278,7 @@ func TestRegionResultMayExceedOriginalReadBound(t *testing.T) {
 	}
 	base := "origin/" + gittest.DefaultBranch
 	files := regionFiles(t, w, base, []git.ResolvedFile{{Path: "large.txt", Resolution: result}})
-	if err := w.WriteResolvedFiles(t.Context(), base, files); err != nil {
+	if err := w.WriteResolvedFiles(t.Context(), base, files, testAuthor); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.StageResolvedFiles(t.Context(), files); err != nil {
@@ -315,7 +315,7 @@ func TestRegionActualMergeByteTransformationRefuses(t *testing.T) {
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	err := w.WriteResolvedFiles(t.Context(), base, files)
+	err := w.WriteResolvedFiles(t.Context(), base, files, testAuthor)
 	if err == nil || !strings.Contains(err.Error(), "actual merge") {
 		t.Fatalf("actual transformation not refused: %v", err)
 	}

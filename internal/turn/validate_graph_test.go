@@ -58,8 +58,8 @@ func TestValidateGraphRefusesAWeakenedFlow(t *testing.T) {
 			return strings.Replace(s, `repair_check  -> review        [lf_on="handback"]`, `repair_check  -> outcome       [lf_on="handback"]`, 1)
 		}, "must go to review"},
 		"an end that is not its terminal": {func(s string) string {
-			return strings.Replace(s, `outcome -> owner_resolve [lf_on="handed_back"]`, `outcome -> owner_report [lf_on="handed_back"]`, 1)
-		}, "must reach the owner resolution"},
+			return strings.Replace(s, `outcome -> reporter [lf_on="handed_back"]`, `outcome -> owner_report [lf_on="handed_back"]`, 1)
+		}, "must reach the reporter or the owner resolution"},
 		"a push that skips its step": {func(s string) string {
 			return strings.Replace(s, `owner_resolve -> owner_push         [lf_on="push"]`, `owner_resolve -> owner_report       [lf_on="push"]`, 1)
 		}, "must push"},
@@ -86,6 +86,30 @@ func TestValidateGraphRefusesAWeakenedFlow(t *testing.T) {
 		"a repair choice that skips the repair budget": {func(s string) string {
 			return strings.Replace(s, `owner_resolve -> repair_budget      [lf_on="repair"]`, `owner_resolve -> owner_report       [lf_on="repair"]`, 1)
 		}, "must start a repair round"},
+		"a reporter fallback that skips the owner": {func(s string) string {
+			return strings.Replace(s, `reporter -> owner_resolve [lf_on="fallback"]`, `reporter -> waiting [lf_on="fallback"]`, 1)
+		}, "must reach the owner resolution"},
+		"an answer that is not reported": {func(s string) string {
+			return strings.Replace(s, `reporter -> owner_report [lf_on="answered"]`, `reporter -> owner_resolve [lf_on="answered"]`, 1)
+		}, "must report the answer"},
+		"a reporter with write access": {func(s string) string {
+			return strings.Replace(s, `lf_roles="validate-reporter",`, `lf_roles="validate-reporter", lf_access="write",`, 1)
+		}, "read-only"},
+		"a reporter of another role": {func(s string) string {
+			return strings.Replace(s, `lf_roles="validate-reporter"`, `lf_roles="validate-code"`, 1)
+		}, "validate-reporter"},
+		"a discussion that skips the reporter": {func(s string) string {
+			return strings.Replace(s, `owner_resolve -> reporter [lf_on="discuss"]`, `owner_resolve -> owner_report [lf_on="discuss"]`, 1)
+		}, "must wake the reporter"},
+		"too many follow-up rounds": {func(s string) string {
+			return strings.Replace(s, `lf_rounds="5"`, `lf_rounds="9"`, 1)
+		}, "lf_rounds"},
+		"too many re-runs": {func(s string) string {
+			return strings.Replace(s, `lf_reruns="3"`, `lf_reruns="4"`, 1)
+		}, "lf_reruns"},
+		"a factory Bug filed without the owner": {func(s string) string {
+			return strings.Replace(s, `reporter -> owner_resolve [lf_on="done"]`, `reporter -> owner_factory_bug [lf_on="done"]`, 1)
+		}, ""},
 		"a wrong reviewer set": {func(s string) string {
 			return strings.Replace(s, `validate-acceptance,validate-code,validate-architecture`, `validate-code,validate-acceptance,validate-architecture`, 1)
 		}, "lf_roles"},

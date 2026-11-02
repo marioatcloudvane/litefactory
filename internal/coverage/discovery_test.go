@@ -186,16 +186,18 @@ func TestDiscoveryXcodeIncludesHostAndResourcesButRejectsScriptPhases(t *testing
 	}
 }
 
+// supportedMakeTestTarget is a factual recipe fixture, independent of the
+// repository Makefile so unrelated recipe changes never update a test pin.
+const supportedMakeTestTarget = "test:\n\t@set -e; \\\n\tselected=\"$$($(GO) list $(PKGS))\"; \\\n\tmixed=\"$$($(GO) list $(MIXED_PACKAGES) | tr '\\n' ' ')\"; \\\n\tfull_race=\"\"; mixed_selected=\"\"; \\\n\tfor pkg in $$selected; do \\\n\t  case \" $$mixed \" in \\\n\t    *\" $$pkg \"*) mixed_selected=\"$$mixed_selected $$pkg\" ;; \\\n\t    *) full_race=\"$$full_race $$pkg\" ;; \\\n\t  esac; \\\n\tdone; \\\n\tif [ -n \"$$full_race\" ]; then $(GO) test -race -timeout=$(TEST_TIMEOUT) $$full_race; fi; \\\n\tif [ -n \"$$mixed_selected\" ]; then $(GO) test -timeout=$(TEST_TIMEOUT) $$mixed_selected; fi; \\\n\tfor pkg in $$mixed_selected; do \\\n\t  case $$pkg in \\\n\t    */turn) tests='$(subst $(space),|,$(strip $(RACE_TESTS_turn)))' ;; \\\n\t    */store) tests='$(subst $(space),|,$(strip $(RACE_TESTS_store)))' ;; \\\n\t    */cli) tests='$(subst $(space),|,$(strip $(RACE_TESTS_cli)))' ;; \\\n\t  esac; \\\n\t  $(GO) test -race -timeout=$(TEST_TIMEOUT) -run \"^($$tests)\"'$$' $$pkg; \\\n\tdone"
+
 func TestDiscoveryMakeBuildsDistinctRaceAndPlainObligations(t *testing.T) {
-	// The supported target is a factual recipe fixture, independent of the
-	// repository Makefile so unrelated recipe changes never update a test pin.
-	target := "test:\n\t@set -e; \\\n\tselected=\"$$($(GO) list $(PKGS))\"; \\\n\tmixed=\"$$($(GO) list $(MIXED_PACKAGES) | tr '\\n' ' ')\"; \\\n\tfull_race=\"\"; mixed_selected=\"\"; \\\n\tfor pkg in $$selected; do \\\n\t  case \" $$mixed \" in \\\n\t    *\" $$pkg \"*) mixed_selected=\"$$mixed_selected $$pkg\" ;; \\\n\t    *) full_race=\"$$full_race $$pkg\" ;; \\\n\t  esac; \\\n\tdone; \\\n\tif [ -n \"$$full_race\" ]; then $(GO) test -race -timeout=$(TEST_TIMEOUT) $$full_race; fi; \\\n\tif [ -n \"$$mixed_selected\" ]; then $(GO) test -timeout=$(TEST_TIMEOUT) $$mixed_selected; fi; \\\n\tfor pkg in $$mixed_selected; do \\\n\t  case $$pkg in \\\n\t    */turn) tests='$(subst $(space),|,$(strip $(RACE_TESTS_turn)))' ;; \\\n\t    */store) tests='$(subst $(space),|,$(strip $(RACE_TESTS_store)))' ;; \\\n\t    */cli) tests='$(subst $(space),|,$(strip $(RACE_TESTS_cli)))' ;; \\\n\t  esac; \\\n\t  $(GO) test -race -timeout=$(TEST_TIMEOUT) -run \"^($$tests)\"'$$' $$pkg; \\\n\tdone"
+	target := supportedMakeTestTarget
 	run := func(_ context.Context, c config.BugCheckCommand) (DiscoveryResult, error) {
 		var output []byte
 		switch {
 		case c.Argv[0] == "/bin/cat":
 			output = []byte(target + "\n")
-		case slices.Contains(c.Argv, "--eval"):
+		case c.Argv[0] == "/bin/sh":
 			output = []byte(strings.Join([]string{"go", "./...", "./internal/turn ./internal/store ./internal/cli", "10m", "-trimpath", "TestSharedState", "TestDBState", "TestCLIState", ""}, "\x00"))
 		case slices.Contains(c.Argv, "version"):
 			output = []byte("go version go1.26 linux/amd64")

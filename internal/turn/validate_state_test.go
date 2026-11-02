@@ -279,15 +279,32 @@ func rowOf(t *testing.T, out, key string) string {
 func nextLines(out string) int {
 	n := 0
 	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "Next: ") {
+		if strings.HasPrefix(line, "**Next:** ") || strings.HasPrefix(line, "Next: ") {
 			n++
 		}
 	}
 	return n
 }
 
-// #571 BC-001, BC-002: one header light, one light per story row, plain cells,
-// no per-item command and exactly one Next line.
+// summaryOf is the report before its collapsed details.
+func summaryOf(out string) string {
+	summary, _, _ := strings.Cut(out, "<details>")
+	return summary
+}
+
+// summaryContentLines counts the non-blank lines of the summary.
+func summaryContentLines(out string) int {
+	n := 0
+	for _, line := range strings.Split(summaryOf(out), "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// #1314: one header light, one light per story row (in the details), one Next
+// line, the item's one command in the summary and each command once.
 func TestRenderValidateReportOverview(t *testing.T) {
 	st := twoStories()
 	out := renderValidateReport(st, twoTargets, "stale revision given")
@@ -312,30 +329,42 @@ func TestRenderValidateReportOverview(t *testing.T) {
 	if strings.Count(out, lightGreen)+strings.Count(out, lightYellow)+strings.Count(out, lightRed) != 3 {
 		t.Errorf("one header light and one per row:\n%s", out)
 	}
-	if strings.Contains(out, ValidateCheckCommand) || strings.Contains(out, ValidateFindingCommand) || nextLines(out) != 1 || !strings.Contains(out, "Next: `"+ValidateShipCommand+" 0123456789ab -- <reason>`") {
-		t.Errorf("no per-item command, one Next line:\n%s", out)
+	pass := "`" + ValidateCheckCommand + " 0123456789ab b:AC-002 pass -- <what you checked>`"
+	fail := "`" + ValidateCheckCommand + " 0123456789ab b:AC-002 fail -- <what you saw>`"
+	if nextLines(out) != 1 || !strings.Contains(summaryOf(out), pass) || strings.Count(out, pass) != 1 || strings.Count(out, fail) != 1 || strings.Contains(summaryOf(out), fail) {
+		t.Errorf("the summary names the check once; its other command is in the details once:\n%s", out)
 	}
-	if !strings.Contains(out, "stale revision given") {
-		t.Error("the notice is shown")
+	if n := summaryContentLines(out); n > validateSummaryLines {
+		t.Errorf("summary has %d lines:\n%s", n, summaryOf(out))
+	}
+	if strings.Contains(summaryOf(out), "authorizes the existing ordered sequence") || strings.Count(out, validateShipConsequence) != 1 {
+		t.Errorf("the authority wording is in the details, once:\n%s", out)
+	}
+	if !strings.Contains(summaryOf(out), "stale revision given") {
+		t.Error("the notice is shown in the summary")
 	}
 	q := validateQuestionCandidate(st, nil, "")
 	wait := renderValidateComment(q, "", naming.Ref{}, "")
-	if strings.Contains(wait, ValidateCheckCommand) || strings.Contains(wait, ValidateFindingCommand) || nextLines(wait) != 1 {
-		t.Errorf("owner wait without per-item commands and with one Next line:\n%s", wait)
+	if nextLines(wait) != 1 || strings.Count(wait, pass) != 1 || strings.Contains(wait, "authorizes the existing ordered sequence") || strings.Contains(wait, "Nothing is pushed, merged or closed without owner authority") {
+		t.Errorf("owner wait with one Next line and no authority boilerplate:\n%s", wait)
 	}
 
 	// A blocking finding turns row b and the header red.
 	st = twoStories(ValidateFinding{ID: "b:code", Story: "b", Name: "code", Role: agent.ReviewRoleCode, Blocking: true, State: findingOpen})
 	out = renderValidateReport(st, twoTargets, "")
-	if !strings.HasPrefix(out, lightRed) || !strings.HasPrefix(rowOf(t, out, "b"), "| "+lightRed+" b") || !strings.HasPrefix(rowOf(t, out, "a"), "| "+lightGreen) || !strings.Contains(out, "[!CAUTION]") {
+	if !strings.HasPrefix(out, lightRed) || !strings.HasPrefix(rowOf(t, out, "b"), "| "+lightRed+" b") || !strings.HasPrefix(rowOf(t, out, "a"), "| "+lightGreen) {
 		t.Errorf("blocking finding is red:\n%s", out)
 	}
 	if !strings.Contains(rowOf(t, out, "b"), "| 1 finding (blocking) |") {
 		t.Errorf("code cell: %s", rowOf(t, out, "b"))
 	}
+	repair := "`" + ValidateFindingCommand + " 0123456789ab b:code repair`"
+	if !strings.Contains(summaryOf(out), "`b:code`") || strings.Count(out, repair) != 1 {
+		t.Errorf("the blocking finding has its own summary line and one command:\n%s", out)
+	}
 }
 
-// #571 BC-003: a reviewer without a usable result.
+// #571 BC-003: a reviewer without a usable result: the rerun is the next step.
 func TestRenderValidateReportNotReviewed(t *testing.T) {
 	st := twoStories(ValidateFinding{ID: "b:code", Story: "b", Name: "code", Role: agent.ReviewRoleCode, State: findingNotReviewed})
 	st.Reviews = []store.ValidateReview{{Role: agent.ReviewRoleCode, State: "failed", Reason: "read denied"}}
@@ -344,13 +373,14 @@ func TestRenderValidateReportNotReviewed(t *testing.T) {
 	if !strings.Contains(rowOf(t, out, "b"), "| not reviewed: failed: read denied |") || !strings.HasPrefix(rowOf(t, out, "b"), "| "+lightRed) || !strings.HasPrefix(out, lightRed) {
 		t.Errorf("not reviewed cell and red row:\n%s", out)
 	}
-	if nextLines(out) != 1 || !strings.Contains(out, "Next: `"+ValidateShipCommand) || !strings.Contains(out, validateRetryStep(st.Commit)) {
+	if nextLines(out) != 1 || !strings.Contains(out, "**Next:** Run the missing reviews again; the passed suite is reused. `"+ValidateStartCommand+"`") || strings.Count(out, "`"+ValidateStartCommand+"`") != 1 {
 		t.Errorf("the retry is the Next line:\n%s", out)
 	}
 }
 
-// #571 BC-004, #573: while delivery is unfinished and nothing blocks, the one
-// next step is /validate-ship, which continues at the first undone step.
+// #573, #1314: while delivery is unfinished and nothing blocks, the one next
+// step is /validate-ship with its decision reference; its consequence is in
+// the details once.
 func TestRenderValidateReportDeliveryNextStep(t *testing.T) {
 	head := strings.Repeat("e", 40)
 	st := twoStories()
@@ -359,7 +389,7 @@ func TestRenderValidateReportDeliveryNextStep(t *testing.T) {
 	if !st.Ready {
 		t.Fatalf("ready: %v", st.Open)
 	}
-	ship := "`" + ValidateShipCommand + " 0123456789ab -- <reason>`"
+	ship := "`" + ValidateShipCommand + " " + st.shipReference() + " -- <reason>`"
 	for i := range 4 {
 		want := ship
 		switch i {
@@ -373,37 +403,41 @@ func TestRenderValidateReportDeliveryNextStep(t *testing.T) {
 			want = "Nothing. Delivery is complete."
 		}
 		out := renderValidateReport(st, twoTargets, "")
-		_, next, _ := strings.Cut(out, "\nNext: ")
+		_, next, _ := strings.Cut(out, "\n**Next:** ")
 		next, _, _ = strings.Cut(next, "\n")
-		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.HasPrefix(next, want) {
+		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.Contains(next, want) {
 			t.Errorf("step %d wants %s:\n%s", i, want, out)
 		}
-		if i < 3 && (!strings.Contains(next, "ordered sequence") || !strings.Contains(next, "no additional confirmation") || !strings.Contains(next, "stops if a step fails or remains uncertain")) {
-			t.Errorf("step %d lost combined authority or failure consequence: %s", i, next)
+		if i < 3 && (strings.Count(out, want) != 1 || strings.Count(out, validateShipConsequence) != 1 || strings.Contains(summaryOf(out), "ordered sequence")) {
+			t.Errorf("step %d: ship once, its consequence once and only in the details:\n%s", i, out)
 		}
-		if i == 3 && next != want {
-			t.Errorf("complete delivery offered a new decision: %s", next)
+		if i == 3 && strings.Contains(out, ValidateShipCommand) {
+			t.Errorf("complete delivery offered a new decision:\n%s", out)
 		}
 	}
 }
 
-// #571 BC-005: a failed suite replaces the table.
+// #1314: a failed suite names what failed in the summary; the details keep
+// the suite reason, the repair rounds and each failure's facts.
 func TestRenderValidateReportFailedSuite(t *testing.T) {
 	st := twoStories()
 	st.Suite.Outcome, st.Suite.Reason = store.SuiteFailed, "go test ./... exited 1"
+	st.Failures = []HandbackFailure{{Command: "go test ./...", Reason: "exited 1", OutputTail: "--- FAIL: TestTotal\n3 failed, 269 passed in 427.3s", SuiteRecord: "suite run 7, command 0"}}
 	st.computeReadiness()
 	out := renderValidateReport(st, twoTargets, "")
 	if !strings.HasPrefix(out, lightRed) || strings.Contains(out, "| Story |") || !strings.Contains(out, "go test ./... exited 1") || nextLines(out) != 1 {
 		t.Errorf("failed suite:\n%s", out)
 	}
-	// #704: the Next line names only steps the factory has.
-	if !strings.Contains(out, "Next: `"+ValidateShipCommand) || strings.Contains(out, "hand it back") {
-		t.Errorf("failed suite Next line:\n%s", out)
+	summary := summaryOf(out)
+	if !strings.Contains(summary, "**What failed:**") || !strings.Contains(summary, "`go test ./...`: TestTotal failed") || !strings.Contains(summary, "**Why:**") {
+		t.Errorf("the summary names the failing command and why:\n%s", summary)
 	}
-	st.Handback = &ValidateHandback{OwnerInstruction: ownerHandbackInstruction(ValidateHandback{Commit: st.Commit})}
-	out = renderValidateReport(st, twoTargets, "")
-	if strings.Contains(out, "Handback to Implement") || !strings.Contains(out, "**What still needs fixing:**") {
-		t.Errorf("handback heading:\n%s", out)
+	if !strings.Contains(out, "**Failures:**") || !strings.Contains(out, "269 passed in 427.3s") || !strings.Contains(out, "suite run 7, command 0") {
+		t.Errorf("the details keep each failure's facts:\n%s", out)
+	}
+	// #704: the Next line names only steps the factory has.
+	if !strings.Contains(out, "**Next:** Push a fix to the feature branch, then run Validate again") || strings.Contains(out, "hand it back") {
+		t.Errorf("failed suite Next line:\n%s", out)
 	}
 }
 
@@ -516,19 +550,19 @@ func TestValidateReportShowsAShortHandbackTail(t *testing.T) {
 		t.Fatalf("state %+v %v", st.Handback, err)
 	}
 	out := renderValidateReport(st, nil, "")
-	_, fixing, ok := strings.Cut(out, "**What still needs fixing:**")
+	_, fixing, ok := strings.Cut(out, "**Failures:**")
 	if !ok {
-		t.Fatalf("no handback section:\n%s", out)
+		t.Fatalf("no failure section:\n%s", out)
 	}
-	fixing, _, _ = strings.Cut(fixing, "\n")
-	if !strings.Contains(fixing, "Cause: the sum is wrong") || !strings.Contains(fixing, "app/app.go:3") {
-		t.Fatalf("the failure line lacks cause or location:\n%s", fixing)
+	fixing, _, _ = strings.Cut(fixing, "\n\n**")
+	if !strings.Contains(fixing, "Cause: the sum is wrong") || !strings.Contains(fixing, "app/app.go:3") || !strings.Contains(fixing, "Change Total so it returns 10.") {
+		t.Fatalf("the failure lacks cause, objective or location:\n%s", fixing)
 	}
-	_, tail, ok := strings.Cut(fixing, "Output tail: ")
+	_, tail, ok := strings.Cut(fixing, "Output tail: `")
 	if !ok {
 		t.Fatalf("no output tail:\n%s", fixing)
 	}
-	tail, _, _ = strings.Cut(tail, " Then comment")
+	tail, _, _ = strings.Cut(tail, "`")
 	if n := len([]rune(tail)); n > handbackInstructionTail || !strings.HasSuffix(stored, tail) || !strings.HasSuffix(tail, "END-OF-TAIL") {
 		t.Fatalf("tail of %d characters %q", n, tail)
 	}

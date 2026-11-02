@@ -12,7 +12,7 @@ import (
 // reserveSession keeps legacy work at one slot and resolves retained graph
 // work from its pinned current node. It never consumes a dispatch or attempt.
 func (d *Daemon) reserveSession(ctx context.Context, sessionID int64) (*stepReservation, string, error) {
-	cost := 1
+	need := turn.SlotNeed{Admission: 1, Full: 1}
 	node := "legacy"
 	workflow := "legacy"
 	if d.db != nil {
@@ -30,19 +30,16 @@ func (d *Daemon) reserveSession(ctx context.Context, sessionID int64) (*stepRese
 			if workflow == "" {
 				workflow = definition.Mode
 			}
-			cost, err = turn.GraphDispatchSlotCost(ctx, d.db, store.GraphDispatch{InstanceID: instance.ID, Node: node, SessionID: sessionID})
+			need, err = turn.GraphDispatchSlotNeed(ctx, d.db, store.GraphDispatch{InstanceID: instance.ID, Node: node, SessionID: sessionID})
 			if err != nil {
 				return nil, "", err
 			}
 		}
 	}
+	cost := need.Admission
 	if !d.pool.acquire(cost) {
 		used, total := d.pool.capacity()
-		kind := "temporary capacity deferral"
-		if cost > total {
-			kind = "impossible capacity fit"
-		}
-		return nil, fmt.Sprintf("%s: pool=shared workflow=%s session=%d node=%s requested=%d used=%d available=%d total=%d", kind, workflow, sessionID, node, cost, used, total-used, total), nil
+		return nil, fmt.Sprintf("%s: pool=shared workflow=%s session=%d node=%s requested=%d used=%d available=%d total=%d", need.Deferral(total), workflow, sessionID, node, cost, used, total-used, total), nil
 	}
 	d.pool.wg.Add(1)
 	return &stepReservation{pool: d.pool, cost: cost}, "", nil

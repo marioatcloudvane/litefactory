@@ -3,57 +3,25 @@ package agent
 import (
 	"context"
 	"fmt"
-	"slices"
+
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
 )
 
-// TokenUsage contains exclusive token dimensions. Nil means unknown, including
-// an unknown counter baseline; zero is a measured zero. Cache duration buckets
-// are subsets of CacheWrite, and Reasoning is a subset of Output.
-type TokenUsage struct {
-	InputUncached *int64 `json:"input_uncached"`
-	CacheRead     *int64 `json:"cache_read"`
-	CacheWrite    *int64 `json:"cache_write"`
-	CacheWrite5m  *int64 `json:"cache_write_5m"`
-	CacheWrite1h  *int64 `json:"cache_write_1h"`
-	Output        *int64 `json:"output"`
-	Reasoning     *int64 `json:"reasoning"`
-}
+// TokenUsage preserves the factory wire shape while sharing neutral counters.
+type TokenUsage = execution.TokenUsage
 
-// Clone transfers ownership of all optional counters.
-func (u TokenUsage) Clone() TokenUsage {
-	return TokenUsage{copyCounter(u.InputUncached), copyCounter(u.CacheRead), copyCounter(u.CacheWrite), copyCounter(u.CacheWrite5m), copyCounter(u.CacheWrite1h), copyCounter(u.Output), copyCounter(u.Reasoning)}
-}
+// CollectionStatus qualifies evidence independently of process success.
+type CollectionStatus = execution.CollectionStatus
 
-func copyCounter(p *int64) *int64 {
-	if p == nil {
-		return nil
-	}
-	v := *p
-	return &v
-}
-
-// CollectionStatus qualifies measured subtotals independently of process success.
-type CollectionStatus string
-
-// Collection states distinguish absent evidence, known subtotals with gaps,
-// and complete collection independently of whether the subprocess succeeded.
+// Collection states preserve unknown, partial and complete evidence.
 const (
-	CollectionUnknown  CollectionStatus = "unknown"
-	CollectionPartial  CollectionStatus = "partial"
-	CollectionComplete CollectionStatus = "complete"
+	CollectionUnknown  = execution.CollectionUnknown
+	CollectionPartial  = execution.CollectionPartial
+	CollectionComplete = execution.CollectionComplete
 )
 
-// UsageCoverage contains controlled diagnostic codes, never provider prose.
-// Version and SourceFormat identify the evidence contract used by an adapter.
-type UsageCoverage struct {
-	Status       CollectionStatus `json:"status"`
-	Diagnostics  []string         `json:"diagnostics"`
-	Version      string           `json:"version"`
-	SourceFormat string           `json:"source_format"`
-}
-
-// Clone prevents concurrent reporting from mutating adapter diagnostics.
-func (c UsageCoverage) Clone() UsageCoverage { c.Diagnostics = slices.Clone(c.Diagnostics); return c }
+// UsageCoverage retains controlled source diagnostics.
+type UsageCoverage = execution.UsageCoverage
 
 // UsageInvocation identifies a root or descendant within a factory attempt.
 // ParentID is empty only for a root; unresolved associations are incomplete.
@@ -66,25 +34,22 @@ type UsageInvocation struct {
 	Coverage           UsageCoverage `json:"coverage"`
 }
 
-// CounterMode describes whether an observation adds tokens or replaces a
-// lifetime snapshot. A cumulative observation needs a source-proven baseline.
-type CounterMode string
+// CounterMode distinguishes incremental and source-proven cumulative counters.
+type CounterMode = execution.CounterMode
 
-// Counter modes select direct increments or subtraction from a verified
-// lifetime baseline; repeated cumulative snapshots are not new consumption.
+// Counter modes preserve native source semantics.
 const (
-	CounterIncremental CounterMode = "incremental"
-	CounterCumulative  CounterMode = "cumulative"
+	CounterIncremental = execution.CounterIncremental
+	CounterCumulative  = execution.CounterCumulative
 )
 
-// UsageScope prevents descendant-inclusive evidence being added to child totals.
-type UsageScope string
+// UsageScope separates exclusive measurements from inclusive summaries.
+type UsageScope = execution.UsageScope
 
-// Usage scopes distinguish additive invocation measurements from inclusive
-// summaries retained only as reconciliation evidence.
+// Usage scopes determine whether evidence is additive.
 const (
-	UsageExclusive UsageScope = "exclusive"
-	UsageInclusive UsageScope = "descendant_inclusive"
+	UsageExclusive = execution.UsageExclusive
+	UsageInclusive = execution.UsageInclusive
 )
 
 // UsageObservation is normalized source evidence, not necessarily additive

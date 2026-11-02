@@ -45,8 +45,22 @@ func TestOverviewToolContract(t *testing.T) {
 	if tool.Name != "factory_overview" || tool.Input.Type != "object" || tool.Input.Additional || !tool.Annotations["readOnlyHint"] || tool.Annotations["destructiveHint"] || !tool.Annotations["idempotentHint"] {
 		t.Fatalf("invalid read contract: %+v", tool)
 	}
-	if tool.Output.Type != "object" || len(tool.Output.Required) != 8 {
+	if tool.Output.Type != "object" || len(tool.Output.Required) != 9 {
 		t.Fatalf("missing output contract: %+v", tool.Output)
+	}
+	var alertContract struct {
+		Properties struct {
+			CI     map[string]any `json:"ci"`
+			Active struct {
+				MaxItems int `json:"maxItems"`
+			} `json:"active"`
+			Rules struct {
+				MaxItems int `json:"maxItems"`
+			} `json:"rules"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(tool.Output.Properties["alerts"], &alertContract); err != nil || alertContract.Properties.CI["properties"] == nil || alertContract.Properties.Active.MaxItems != 50 || alertContract.Properties.Rules.MaxItems != 8 {
+		t.Fatalf("missing bounded alert contract: %s", tool.Output.Properties["alerts"])
 	}
 	for _, name := range []string{"activity", "owner_waits", "recent_publications"} {
 		var list struct {

@@ -33,6 +33,9 @@ type ValidateRuntimeConfig struct {
 	// Permissions resolves the operator's validate-repair grant for the one
 	// Validate node that writes. Nil refuses that node; reviewers never use it.
 	Permissions func(agent.Kind, string) (BugRolePermissions, error)
+	// FactoryBugs files owner-confirmed upstream factory Bugs through the
+	// log-analysis filing path. Nil leaves each confirmation failed with why.
+	FactoryBugs ValidateFactoryBugFiler
 }
 
 // NewValidateRuntime builds the production host bindings of the Validate graph.
@@ -166,6 +169,7 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 		},
 		PinBase: h.pinComparisonBase,
 	}
+	agents := &validateReviewers{host: h, definition: definition}
 	flow := ValidateFlowBindings{
 		Worktree:     func() (*git.Worktree, error) { return h.openWorktree(ctx) },
 		Session:      func() (string, error) { return h.sessionDir(ctx) },
@@ -174,9 +178,12 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 		Stories: func(ctx context.Context, _ Options, _ ActivityRequest) ([]ValidateStory, error) {
 			return h.stories(ctx)
 		},
-		Repo:      repo,
-		Reviewers: &validateReviewers{host: h, definition: definition},
-		Slots:     cfg.Slots,
+		Repo:         repo,
+		Reviewers:    agents,
+		Reporter:     agents,
+		ReporterBase: h.pinComparisonBase,
+		FactoryBugs:  cfg.FactoryBugs,
+		Slots:        cfg.Slots,
 		Delivery: ValidateDelivery{
 			Code:     cfg.Code,
 			Tickets:  cfg.Tickets,
@@ -499,8 +506,6 @@ func validateReviewNode(role string) string {
 func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (out *agentresult.Result, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	h := r.host
-	opts := h.opts
 	if vr.Access != ValidateReviewAccess || vr.Checkout == "" || vr.InstanceID < 1 || vr.NodeAttemptID < 1 || vr.Attempt == "" {
 		return nil, errors.New("a reviewer needs a read-only checkout and its review step")
 	}
@@ -508,6 +513,29 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 	if _, ok := r.definition.Nodes[nodeName]; !ok {
 		return nil, fmt.Errorf("no reviewer role is captured for %q", vr.Role)
 	}
+	prompt, err := validateReviewPrompt(vr)
+	if err != nil {
+		return nil, err
+	}
+	return r.runReadOnlyNode(ctx, validateNodeLaunch{Node: nodeName, Label: vr.Role + " reviewer", InstanceID: vr.InstanceID, NodeAttemptID: vr.NodeAttemptID, Attempt: vr.Attempt, Checkout: vr.Checkout, Prompt: prompt, Scope: vr.Scope, StandardsRole: vr.StandardsRole})
+}
+
+// validateNodeLaunch is one read-only agent node a Validate step starts
+// itself: a reviewer or the reporter.
+type validateNodeLaunch struct {
+	Node, Label               string
+	InstanceID, NodeAttemptID int64
+	Attempt, Checkout, Prompt string
+	Scope                     agentresult.Context
+	StandardsRole             string
+}
+
+// runReadOnlyNode starts one captured read-only node of the task through the
+// shared delivery, result route and metering, and returns its retained result.
+func (r *validateReviewers) runReadOnlyNode(ctx context.Context, l validateNodeLaunch) (out *agentresult.Result, err error) {
+	h := r.host
+	opts := h.opts
+	nodeName := l.Node
 	policy := ValidateWorkflowPolicy()
 	nodeReq := h.req
 	nodeReq.researchDefinition, nodeReq.researchNode, nodeReq.workflowPolicy = r.definition, nodeName, &policy
@@ -525,7 +553,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 	}
 	segment, delivery, err := prepareDeliverySegment(ctx, opts, nodeReq, h.session, h.ref, firstRef, plan)
 	if err != nil {
-		return nil, fmt.Errorf("prepare the %s reviewer's instructions: %w", vr.Role, err)
+		return nil, fmt.Errorf("prepare the %s's instructions: %w", l.Label, err)
 	}
 	runner, ok := opts.Runners.runner(agent.Kind(segment.Agent))
 	if !ok {
@@ -542,7 +570,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		return path
 	}})
 	if err = errors.Join(pathErr, err); err != nil {
-		return nil, fmt.Errorf("allocate the %s reviewer's run: %w", vr.Role, err)
+		return nil, fmt.Errorf("allocate the %s's run: %w", l.Label, err)
 	}
 	var process *agent.RunResult
 	defer func() {
@@ -573,19 +601,16 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		Session:        agent.SessionRef{Ref: segment.SessionRef},
 		Mode:           string(agent.ModeValidate),
 		Path:           agent.PathCold,
-		WorktreePath:   vr.Checkout,
+		WorktreePath:   l.Checkout,
 		Permissions:    requestPermissions(nodeReq),
 		Invocation:     agent.InvocationResearchNode,
-		Graph:          &agent.GraphInvocation{InstanceID: vr.InstanceID, AttemptID: vr.NodeAttemptID, RunID: run.ID, Node: nodeName},
+		Graph:          &agent.GraphInvocation{InstanceID: l.InstanceID, AttemptID: l.NodeAttemptID, RunID: run.ID, Node: nodeName},
 	}
 	ownerGuidance, err := opts.DB.OwnerGuidanceForRun(ctx, run.ID)
 	if err != nil {
 		return nil, err
 	}
-	prompt, err := validateReviewPrompt(vr)
-	if err != nil {
-		return nil, err
-	}
+	prompt := l.Prompt
 	if delivery != nil {
 		prompt = "Instruction bundle: " + delivery.Root + "\n\n" + prompt
 	}
@@ -593,19 +618,19 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		prompt += policy.Guidance
 	}
 	request.Prompt = prompt + harness.OwnerGuidanceSection(ownerGuidance.Revision, ownerGuidance.Body)
-	prep := &preparation{standardsRole: vr.StandardsRole, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
+	prep := &preparation{standardsRole: l.StandardsRole, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
 	w := &researchWorkflow{opts: opts, req: nodeReq, policy: policy, prep: prep}
-	scope := cloneResultContext(vr.Scope)
+	scope := cloneResultContext(l.Scope)
 	route, err := w.openResultRoute(ctx, &request, &resultOverride{
 		Resolve: func(check context.Context) (agentresult.Context, error) {
 			return cloneResultContext(scope), check.Err()
 		},
 		Targets: agentresult.EditTargets(string(agent.ModeValidate)),
-		Pass:    vr.Attempt,
-		Attempt: vr.Attempt,
+		Pass:    l.Attempt,
+		Attempt: l.Attempt,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("open the %s reviewer's result route: %w", vr.Role, err)
+		return nil, fmt.Errorf("open the %s's result route: %w", l.Label, err)
 	}
 	transportsOpen := true
 	defer func() {
@@ -636,7 +661,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 	}
 	snapshot, _, readErr := route.prepared.service.retainedCurrent(ctx)
 	if readErr != nil {
-		reason := "the reviewer ended without submitting a result"
+		reason := "the " + l.Label + " ended without submitting a result"
 		if process != nil && strings.TrimSpace(process.Reason) != "" {
 			reason += ": " + process.Reason
 		}
@@ -646,8 +671,22 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 	return &result, nil
 }
 
-// Recover finds the result a reviewer already submitted under its attempt. It
-// starts nothing.
+// RunReporter starts the reporter on its read-only checkout and returns its
+// retained result. It shares the reviewers' single result writer per task.
+func (r *validateReviewers) RunReporter(ctx context.Context, req ValidateReporterRequest) (*agentresult.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if req.Checkout == "" || req.InstanceID < 1 || req.NodeAttemptID < 1 || req.Attempt == "" || req.Scope.Report == nil {
+		return nil, errors.New("the reporter needs a read-only checkout, its step and its scope")
+	}
+	if _, ok := r.definition.Nodes[req.Node]; !ok {
+		return nil, fmt.Errorf("no reporter role is captured for %q", req.Node)
+	}
+	return r.runReadOnlyNode(ctx, validateNodeLaunch{Node: req.Node, Label: "reporter", InstanceID: req.InstanceID, NodeAttemptID: req.NodeAttemptID, Attempt: req.Attempt, Checkout: req.Checkout, Prompt: req.Prompt, Scope: req.Scope})
+}
+
+// Recover finds the result a reviewer or the reporter already submitted under
+// its attempt. It starts nothing.
 func (r *validateReviewers) Recover(ctx context.Context, attempt string) (*agentresult.Result, bool, error) {
 	db := r.host.opts.DB
 	bindings, err := db.ResultBindingsByAttempt(ctx, attempt)

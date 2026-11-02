@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -497,5 +498,45 @@ func TestGraphResultOutputsExcludeFactoryRecords(t *testing.T) {
 	got, err := db.ListGraphResultOutputsBounded(t.Context(), a.ID, 1<<20, 16)
 	if err != nil || len(got) != 1 || string(got[0].Payload) != `{"result_id":1,"result_revision":1}` {
 		t.Fatalf("result outputs=%+v err=%v", got, err)
+	}
+}
+
+// An output that embeds a copy of a record retained elsewhere stays readable
+// at any embedded size once its reference is present; outputs without the
+// reference keep the ordinary bound (#1268).
+func TestGraphOutputsBoundedByReferenceProjectsEmbeddedCopy(t *testing.T) {
+	saved := func(t *testing.T, payload string) (*DB, GraphNodeAttempt) {
+		t.Helper()
+		db := newTestDB(t)
+		a := graphTestAttempt(t, db, graphTestInstance(t, db), 2)
+		if _, err := db.RecordGraphOutput(t.Context(), GraphOutput{NodeAttemptID: a.ID, Kind: GraphOutputJSON, Payload: []byte(payload), CreatedAt: graphTestTime()}); err != nil {
+			t.Fatal(err)
+		}
+		return db, a
+	}
+	read := func(db *DB, a GraphNodeAttempt) ([]GraphOutput, error) {
+		return db.ListGraphOutputsBoundedByReference(t.Context(), a.ID, MaxGraphOutputReadBytes, 16, "assessment", "assessment_id")
+	}
+	for _, size := range []int{MaxGraphOutputReadBytes - 200, MaxGraphOutputReadBytes, 4 << 20} {
+		db, a := saved(t, `{"assessment":{"units":"`+strings.Repeat("x", size)+`"},"assessment_id":"ev1","outcome":"passed","commit":"c1"}`)
+		got, err := read(db, a)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("size %d: outputs=%d err=%v", size, len(got), err)
+		}
+		var v map[string]any
+		if err := json.Unmarshal(got[0].Payload, &v); err != nil || v["assessment"] != nil || v["assessment_id"] != "ev1" || v["outcome"] != "passed" || v["commit"] != "c1" {
+			t.Fatalf("size %d: projected=%v err=%v", size, v, err)
+		}
+	}
+	db, small := saved(t, `{"assessment":{"units":"u"},"outcome":"passed"}`)
+	if got, err := read(db, small); err != nil || len(got) != 1 || !strings.Contains(string(got[0].Payload), `"units":"u"`) {
+		t.Fatalf("unreferenced output altered: %+v %v", got, err)
+	}
+	if _, err := db.ListGraphOutputsBoundedByReference(t.Context(), small.ID, MaxGraphOutputReadBytes, 16, "a')--", "assessment_id"); !errors.Is(err, ErrGraphInvariant) {
+		t.Fatalf("unsafe projection key accepted: %v", err)
+	}
+	db, over := saved(t, `{"assessment":{"units":"`+strings.Repeat("x", MaxGraphOutputReadBytes)+`"},"assessment_id":""}`)
+	if _, err := read(db, over); !errors.Is(err, ErrGraphInvariant) {
+		t.Fatalf("oversized output without a reference read: %v", err)
 	}
 }

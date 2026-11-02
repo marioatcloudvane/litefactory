@@ -1,6 +1,7 @@
 // Package graphexec parses, validates and navigates workflow profiles without
-// clocks, persistence, filesystem access or execution. Gonum's DOT AST is
-// contained in dot.go; all other code uses the package's own values.
+// clocks, persistence, filesystem access or execution. Neutral DOT mechanics and
+// structural checks live in pkg/execution/graph; factory policy and identities
+// remain here.
 //
 // Profiles and registries are built, validated, then frozen by their owner before
 // sharing. Exported slices and maps are construction values, not concurrency-safe

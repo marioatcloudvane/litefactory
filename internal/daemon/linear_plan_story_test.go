@@ -131,6 +131,9 @@ func TestLinearPlanShellDiscoveryAndManagedReview(t *testing.T) {
 					}
 				}
 				for _, webhook := range []bool{false, true} {
+					if mapped && existing {
+						linearWorkflowCheck(t, db.ClearSessionNeedsPoll(ctx, parent.ID))
+					}
 					if webhook {
 						err = db.HandoffSubscriptionObservation(ctx, sub.ID, sub.Revision, observation)
 					} else {
@@ -139,7 +142,30 @@ func TestLinearPlanShellDiscoveryAndManagedReview(t *testing.T) {
 					linearWorkflowCheck(t, err)
 					seen := map[int64]*candidate{}
 					linearWorkflowCheck(t, f.d.drainTicketObservations(ctx, map[int64]*repoQueue{v.RepoID: q}, seen))
-					if len(seen) != 1 || seen[parent.ID] == nil {
+					if mapped && existing {
+						// A mapped story whose child has its own session answers
+						// its own comments: the observation wakes the child, and
+						// the parent only keeps the story owed for its sweep.
+						if len(seen) != 1 || seen[saved.ID] == nil {
+							t.Fatalf("webhook=%v did not wake only the child session: %+v logs=%s", webhook, seen, f.logs.String())
+						}
+						gotParent, e := db.GetSession(ctx, parent.ID)
+						linearWorkflowCheck(t, e)
+						gotChild, e := db.GetSession(ctx, saved.ID)
+						linearWorkflowCheck(t, e)
+						if gotParent.NeedsPoll || !gotChild.NeedsPoll {
+							t.Fatalf("webhook=%v poll flags parent=%v child=%v", webhook, gotParent.NeedsPoll, gotChild.NeedsPoll)
+						}
+						owed, e := db.StoryDiscoveryOwed(ctx, parent.ID, child.Number)
+						linearWorkflowCheck(t, e)
+						if !owed {
+							t.Fatalf("webhook=%v parent lost its lifecycle debt", webhook)
+						}
+						for _, o := range seen[saved.ID].observations {
+							linearWorkflowCheck(t, db.ClearPendingTicketObservation(ctx, o.ConnectionVersionID, o.TicketID, o.Generation))
+						}
+						linearWorkflowCheck(t, db.ClearSessionNeedsPoll(ctx, saved.ID))
+					} else if len(seen) != 1 || seen[parent.ID] == nil {
 						t.Fatalf("mapped=%v webhook=%v did not wake only parent: %+v logs=%s", mapped, webhook, seen, f.logs.String())
 					}
 					for _, c := range seen {
@@ -155,7 +181,13 @@ func TestLinearPlanShellDiscoveryAndManagedReview(t *testing.T) {
 				}
 				c, e := f.d.sight(ctx, q, child)
 				linearWorkflowCheck(t, e)
-				if c == nil || c.session.ID != parent.ID {
+				if mapped && existing {
+					// As for GitHub, a listed story with its own session is the
+					// child's own candidate.
+					if c == nil || c.session.ID != saved.ID {
+						t.Fatalf("final sight did not take the child's own session: %+v", c)
+					}
+				} else if c == nil || c.session.ID != parent.ID {
 					t.Fatalf("final sight admitted child: %+v", c)
 				}
 			}

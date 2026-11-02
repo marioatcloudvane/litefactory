@@ -30,7 +30,7 @@ const (
 )
 
 // ValidateControlCommands lists the Validate owner commands.
-var ValidateControlCommands = []string{ValidateRepairCommand, ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand, ValidateImplementCommand, ValidateReturnCommand}
+var ValidateControlCommands = []string{ValidateRepairCommand, ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand, ValidateImplementCommand, ValidateReturnCommand, ValidateFactoryBugCommand}
 
 // IsValidateControlCommand reports whether a command token is one of them.
 func IsValidateControlCommand(name string) bool {
@@ -69,6 +69,8 @@ type ValidateCommand struct {
 	Head string
 	// Close
 	Issues []int
+	// Factory Bug: the item the owner confirms an upstream factory Bug for.
+	Item string
 }
 
 var (
@@ -93,6 +95,7 @@ const validateChoiceAccept = "accept"
 //	/validate-close   <revision> <issue number>...
 //	/validate-ship    <revision> -- <evidence>
 //	/validate-implement <revision> [-- <guidance>]
+//	/validate-factory-bug <revision> <finding id or failure-N>
 //
 // The whole comment is the command. Anything else is refused and changes
 // nothing.
@@ -191,6 +194,11 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		if c.Evidence == "" {
 			return c, errors.New("/validate-ship needs a reason after ` -- `")
 		}
+	case ValidateFactoryBugCommand:
+		if len(args) != 1 || !validateFindingPattern.MatchString(args[0]) && !validateFailureRefPattern.MatchString(args[0]) {
+			return c, errors.New("use /validate-factory-bug <revision> <finding id or failure-N>")
+		}
+		c.Item = args[0]
 	case ValidateCloseCommand:
 		if len(args) < 1 || len(args) > 64 {
 			return c, errors.New("use /validate-close <revision> followed by one or more issue numbers")

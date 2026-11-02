@@ -597,14 +597,14 @@ func (s *PlanState) ApproveByGraph(key, stage, candidate, request string) (Graph
 	if !item.Active() || item.Blocked() {
 		return GraphApproval{Outcome: "blocked", Reason: "the story is held or its stage result is not applied"}, nil
 	}
-	if refErr != nil {
-		return GraphApproval{Outcome: "blocked", Reason: "the review revision cannot be computed: " + refErr.Error()}, nil
+	if blocked, ok := blockedApproval("the review revision cannot be computed: ", refErr); ok {
+		return blocked, nil
 	}
 	// (d) An earlier stage's approval no longer matches.
 	for _, up := range planStages[:slices.Index(planStages, stage)] {
 		upRef, e := s.ReviewRevision(key, up)
-		if e != nil {
-			return GraphApproval{Outcome: "blocked", Reason: "the review revision of the " + up + " stage cannot be computed: " + e.Error()}, nil
+		if blocked, ok := blockedApproval("the review revision of the "+up+" stage cannot be computed: ", e); ok {
+			return blocked, nil
 		}
 		if item.Approvals[up] != upRef {
 			return GraphApproval{Outcome: "superseded", Reason: "the " + up + " stage approval is no longer current"}, nil
@@ -619,11 +619,21 @@ func (s *PlanState) ApproveByGraph(key, stage, candidate, request string) (Graph
 	case len(item.Draft.Questions) > 0:
 		return GraphApproval{Outcome: "review", Reason: "the draft has open questions"}, nil
 	}
-	if err := s.approvalChecks(item); err != nil {
-		return GraphApproval{Outcome: "blocked", Reason: err.Error()}, nil
+	if blocked, ok := blockedApproval("", s.approvalChecks(item)); ok {
+		return blocked, nil
 	}
 	approve(item, stage, ref, ApprovalByGraph)
 	return GraphApproval{Outcome: "approved"}, nil
+}
+
+// blockedApproval turns a fault that stops a graph approval into the "blocked"
+// outcome. A blocked approval is a valid result for the graph to route on, not
+// a failure of ApproveByGraph, so the caller returns it with a nil error.
+func blockedApproval(prefix string, fault error) (GraphApproval, bool) {
+	if fault == nil {
+		return GraphApproval{}, false
+	}
+	return GraphApproval{Outcome: "blocked", Reason: prefix + fault.Error()}, true
 }
 
 // GraphApprovedStage names one stage of one story whose current approval came

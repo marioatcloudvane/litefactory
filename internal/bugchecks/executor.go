@@ -475,12 +475,8 @@ func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCo
 	raw := output.String()
 	overflow := output.overflow
 	output.mu.Unlock()
-	// Every declared value is protected literally, irrespective of its name.
-	for _, name := range c.Env {
-		if v := p.Environment[name]; v != "" {
-			raw = strings.ReplaceAll(raw, v, "[REDACTED]")
-		}
-	}
+	// Declared values are protected literally when long or secret-named.
+	raw = redactDeclaredEnv(raw, c.Env, p.Environment)
 	body, redactErr := redact.New(redact.Options{Environ: []string{}}).Apply(context.WithoutCancel(ctx), raw, OutputLimit)
 	if redactErr != nil {
 		return fail(fmt.Errorf("redact check output: %w", redactErr))

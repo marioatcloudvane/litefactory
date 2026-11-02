@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 )
 
 func TestCompleteReviewPartsPreserveDisplayAndRedactEncodedSecrets(t *testing.T) {
@@ -59,5 +60,73 @@ func TestCompleteReviewPartsPreserveDisplayAndRedactEncodedSecrets(t *testing.T)
 	}
 	if run.Result.ResultText != original {
 		t.Fatal("rendering changed source")
+	}
+}
+
+// A retained unaccepted result whose prose holds a stray double quote is still
+// published, and its encoded secret token is still redacted.
+func TestRetainedResultWithStrayQuoteIsPublishedAndRedacted(t *testing.T) {
+	t.Parallel()
+	const secret = "review-secret-<&>-123456"
+	dq, bs := string(rune(34)), string(rune(92))
+	reporter := newReporter(t, func(o *redact.Options) { o.Environ = []string{"API_TOKEN=" + secret} })
+	encoded, _ := json.Marshal(secret)
+	prose := "collector said " + dq + " and stopped"
+	cell := dq + "a " + bs + "| b" + dq
+	content := "{" + dq + "credential" + dq + ":" + string(encoded) + "," + dq + "note" + dq + ":" + cell + ", " + prose + "}"
+	text := "## Retained result — unaccepted, for review only\n\n<pre>" + html.EscapeString(content) + "</pre>"
+	summary, parts, err := reporter.RenderTextParts(context.Background(), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := summary.String()
+	for _, part := range parts {
+		out += part.String()
+	}
+	decoded := html.UnescapeString(out)
+	if !strings.Contains(decoded, prose) || !strings.Contains(decoded, cell) {
+		t.Fatalf("prose lost: %q", out)
+	}
+	for _, view := range []string{out, decoded} {
+		if strings.Contains(view, secret) || strings.Contains(view, string(encoded)) {
+			t.Fatalf("secret exposed: %q", out)
+		}
+	}
+}
+
+// A review that is one fenced block stays code in every part, and removing
+// the labelled context rebuilds it exactly, even when the size would cut
+// into the closing fence.
+func TestSplitReviewPartsKeepsFencedBlockReadable(t *testing.T) {
+	t.Parallel()
+	content := strings.Repeat("it's \"λ\" & <kept> ``` x\n", 40)
+	fence := report.CodeFence(content)
+	text := fence + "\n" + content + fence
+	for _, size := range []int{128, 300, len(text) - 2, len(text) - len(fence)} {
+		chunks, err := report.SplitReviewParts(text, size)
+		if err != nil || len(chunks) < 2 {
+			t.Fatalf("size %d: %d parts, err=%v", size, len(chunks), err)
+		}
+		var joined strings.Builder
+		for i, chunk := range chunks {
+			if !utf8.ValidString(chunk) || strings.Contains(chunk, "<pre>") {
+				t.Fatalf("size %d part %d is not plain code", size, i)
+			}
+			fences := 0
+			for _, line := range strings.Split(chunk, "\n") {
+				if line == fence {
+					fences++
+				}
+			}
+			if fences != 2 {
+				t.Fatalf("size %d part %d has %d fence lines", size, i, fences)
+			}
+			chunk = strings.TrimPrefix(chunk, "<!-- lf:part-context-open -->\n"+fence+"\n")
+			chunk = strings.TrimSuffix(chunk, "\n"+fence+"\n<!-- lf:part-context-close -->")
+			joined.WriteString(chunk)
+		}
+		if joined.String() != text {
+			t.Fatalf("size %d: parts do not rebuild the block", size)
+		}
 	}
 }

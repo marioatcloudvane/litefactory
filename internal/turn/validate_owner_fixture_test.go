@@ -313,7 +313,12 @@ type ownerFixture struct {
 
 func newOwnerFixture(t *testing.T) *ownerFixture {
 	t.Helper()
-	ff := newFlowFixture(t)
+	return newOwnerFixtureOn(t, store.ForgeGitHub)
+}
+
+func newOwnerFixtureOn(t *testing.T, forge string) *ownerFixture {
+	t.Helper()
+	ff := newFlowFixtureOn(t, forge)
 	o := &ownerFixture{flowFixture: ff, forge: newOwnerForge(), owner: ownerTestID, nextReply: 100}
 	bodies, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: github.CommentSizeLimit, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {

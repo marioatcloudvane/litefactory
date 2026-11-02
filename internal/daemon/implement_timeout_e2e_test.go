@@ -91,7 +91,7 @@ func TestImplementTimeoutStoryReplyResumesWhileSiblingRuns(t *testing.T) {
 	// node budgets, so the runtime default applies and expiry exercises the real
 	// deadline path.
 	files := fstest.MapFS{}
-	source, srcErr := teamsourcetest.Workflow(teamsourcetest.Go, "implement")
+	source, srcErr := teamsourcetest.Workflow(ctx, teamsourcetest.Go, "implement")
 	check(srcErr)
 	check(fs.WalkDir(source, ".", func(name string, d fs.DirEntry, e error) error {
 		if e != nil || d.IsDir() {
@@ -160,7 +160,7 @@ func TestImplementTimeoutStoryReplyResumesWhileSiblingRuns(t *testing.T) {
 	check(err)
 	paths := config.NewPaths(home)
 	opts := turn.Options{WorkerTimeoutSeconds: 5, WorkerTimeoutSource: "configuration", DB: f.db, Git: binary, Paths: f.paths, InstanceID: "timeout-e2e", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{"claude": runner}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, SubIssueCreator: f.client, MCP: &turn.MCPRuntime{Authority: authority, Paths: paths, Executable: "/factory/litefactory", Now: time.Now, Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID}}
-	opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "fixture-model"}}
+	opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "fixture-model", "flagship": "fixture-model"}}
 	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 		definition, e := teamsource.CaptureWorkflow(ctx, files, "implement.dot", "go-development", agent.ModeImplement, specs)
 		if e != nil {

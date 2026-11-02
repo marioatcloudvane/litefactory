@@ -122,7 +122,7 @@ func TestInvalidSecondSourceLeavesWholePublicationUnchanged(t *testing.T) {
 func TestCanonicalPlanTaskOwnersSurviveRetainedReplay(t *testing.T) {
 	for _, root := range []string{"teams/source/go-development", "teams/source/python-fastapi", "teams/source/swift-ios", "teams/source/dotnet-web"} {
 		t.Run(root, func(t *testing.T) {
-			resolved, err := teamsourcetest.Files(filepath.Base(root))
+			resolved, err := teamsourcetest.Files(t.Context(), filepath.Base(root))
 			if err != nil {
 				t.Fatal(err)
 			}

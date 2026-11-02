@@ -110,9 +110,12 @@ func TestWorkflowDecisionJourneyOversizedValidateGuidance(t *testing.T) {
 			t.Fatalf("no offered part retains intact item %s", target)
 		}
 		_, item, _ := strings.Cut(itemPart, "**story-002 · `"+target+"`**")
-		item, _, _ = strings.Cut(item, "\n\n**story-002 · `")
-		for _, consequence := range []string{"owner supplies evidence", "Pass settles this check", "fail keeps it blocking", "Neither verdict permits push, merge or close"} {
-			if !strings.Contains(item, consequence) {
+		if item, _, _ = strings.Cut(item, "\n\n**story-002 · `"); !strings.Contains(item, ValidateCheckCommand) {
+			t.Fatalf("item %s lost its check command: %q", target, item)
+		}
+		// #1314: each part states the consequences once, not once per item.
+		for _, consequence := range []string{"owner supplies evidence", "pass settles a check", "fail keeps it blocking", "No check or choice permits push, merge or close"} {
+			if !strings.Contains(itemPart, consequence) || strings.Count(itemPart, consequence) != 1 {
 				t.Fatalf("offered destination lost consequence %q for %s", consequence, target)
 			}
 		}

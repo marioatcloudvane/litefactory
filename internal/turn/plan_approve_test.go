@@ -26,7 +26,7 @@ const ungatedTechnicalNode = "technical_approve"
 // applied edge sent through lf_plan_approve.
 func ungatedTechnicalPlan(t *testing.T) fstest.MapFS {
 	t.Helper()
-	source, err := teamsourcetest.Files(teamsourcetest.Go)
+	source, err := teamsourcetest.Files(t.Context(), teamsourcetest.Go)
 	if err != nil {
 		t.Fatal(err)
 	}

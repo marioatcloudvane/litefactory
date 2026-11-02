@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear/linearmd"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -214,6 +215,7 @@ func renderImplementHandoffNotes(a ImplementAuthority, rows []store.ImplementSto
 	type tableRow struct{ prefix, info, suffix string }
 	var table []tableRow
 	var counts implementHandoffCounts
+	onLinear := a.Parent.Forge == "linear"
 	header := report.ImplementHandoffMarker(a.Parent) + "\n\n**Implementation hand-off**\n\n| Story | State | Information |\n|---|---|---|\n"
 	// Reserve the longer next-step variant before assigning summary space.
 	fixed := len(header) + max(len(implementValidateNextStep(false)), len(implementValidateNextStep(true))) + 1
@@ -222,7 +224,7 @@ func renderImplementHandoffNotes(a ImplementAuthority, rows []store.ImplementSto
 		if !ok {
 			row = store.ImplementStory{Key: story.Key, State: store.ImplementWaiting}
 		}
-		label := escapeImplementText(story.Key) + " " + safeImplementProgress(story.Name)
+		label := implementInline(onLinear, story.Key) + " " + safeImplementProgressFor(onLinear, story.Name)
 		if story.IssueNumber > 0 {
 			reference := fmt.Sprintf("#%d", story.IssueNumber)
 			if a.Parent.Forge == "linear" {
@@ -295,7 +297,7 @@ func renderImplementHandoffNotes(a ImplementAuthority, rows []store.ImplementSto
 	share := max(0, implementHandoffBudget-fixed) / max(1, len(table))
 	for _, row := range table {
 		out.WriteString(row.prefix)
-		out.WriteString(budgetImplementText(row.info, min(1800, share)))
+		out.WriteString(budgetImplementTextFor(onLinear, row.info, min(1800, share)))
 		out.WriteString(row.suffix)
 	}
 	out.WriteString("\n")
@@ -316,6 +318,25 @@ func latestImplementActivity(a ImplementAuthority, row store.ImplementStory, pro
 		}
 	}
 	return latest
+}
+
+// budgetImplementTextFor clips the escaped cell text to budget bytes. Linear
+// clips between whole escape units, so no escape or code span is cut.
+func budgetImplementTextFor(onLinear bool, text string, budget int) string {
+	if !onLinear {
+		return budgetImplementText(text, budget)
+	}
+	var out strings.Builder
+	for _, next := range linearmd.InlineUnits(text) {
+		if out.Len()+len(next) > budget-3 {
+			if budget >= 3 {
+				out.WriteString("...")
+			}
+			break
+		}
+		out.WriteString(next)
+	}
+	return out.String()
 }
 
 func budgetImplementText(text string, budget int) string {
@@ -372,11 +393,12 @@ func waitingSentence(story ImplementStory, row store.ImplementStory, state map[s
 // implementDecisionGuidance keeps actions and their effects outside the clipped
 // worker summary. A long reason must not hide the route to its actual decision.
 func implementDecisionGuidance(a ImplementAuthority, story ImplementStory, row store.ImplementStory, state map[string]store.ImplementStory, displays ...map[string]implementDisplay) string {
+	onLinear := a.Parent.Forge == "linear"
 	decision := func(key string) string {
 		if len(displays) > 0 && displays[0][key].ReplyURL != "" {
-			return "[blocking decision for " + escapeImplementText(key) + "](" + displays[0][key].ReplyURL + ")"
+			return "[blocking decision for " + implementInline(onLinear, key) + "](" + displays[0][key].ReplyURL + ")"
 		}
-		return "blocking decision for " + escapeImplementText(key) + " (confirmed report destination unavailable)"
+		return "blocking decision for " + implementInline(onLinear, key) + " (confirmed report destination unavailable)"
 	}
 	if row.State == store.ImplementParked {
 		var dependents []string
@@ -385,10 +407,10 @@ func implementDecisionGuidance(a ImplementAuthority, story ImplementStory, row s
 				continue
 			}
 			if slices.Contains(candidate.Dependencies, story.Key) {
-				dependents = append(dependents, escapeImplementText(candidate.Key))
+				dependents = append(dependents, implementInline(onLinear, candidate.Key))
 			}
 		}
-		text := " Read the " + decision(story.Key) + "; reply on the parent issue naming " + escapeImplementText(story.Key) + " with the decision or changed guidance it needs. The existing restart rules apply; the reply does not approve or merge the story."
+		text := " Read the " + decision(story.Key) + "; reply on the parent issue naming " + implementInline(onLinear, story.Key) + " with the decision or changed guidance it needs. The existing restart rules apply; the reply does not approve or merge the story."
 		if len(dependents) > 0 {
 			text += " Must merge before " + strings.Join(dependents, ", ") + " can be admitted."
 		}
@@ -408,26 +430,32 @@ func implementDecisionGuidance(a ImplementAuthority, story ImplementStory, row s
 		}
 		switch {
 		case !ok:
-			steps = append(steps, escapeImplementText(dep)+": retained dependency state unavailable; no decision can be inferred")
+			steps = append(steps, implementInline(onLinear, dep)+": retained dependency state unavailable; no decision can be inferred")
 		case d.State == store.ImplementParked:
 			steps = append(steps, "first resolve the "+decision(dep)+" by replying on the parent with that story key and the requested decision or guidance")
 		case d.State == store.ImplementRunning:
-			steps = append(steps, escapeImplementText(dep)+" is running; wait for its result")
+			steps = append(steps, implementInline(onLinear, dep)+" is running; wait for its result")
 		case d.State == store.ImplementDone:
-			steps = append(steps, escapeImplementText(dep)+" is queued for automatic merge")
+			steps = append(steps, implementInline(onLinear, dep)+" is queued for automatic merge")
 		default:
-			steps = append(steps, escapeImplementText(dep)+" is queued and must finish and merge first")
+			steps = append(steps, implementInline(onLinear, dep)+" is queued and must finish and merge first")
 		}
 	}
 	if len(steps) == 0 {
 		return " Existing admission will start it when capacity and prerequisites permit; no owner reply is needed."
 	}
-	return " " + strings.Join(steps, "; ") + ". After every prerequisite merges, existing admission can reconsider " + escapeImplementText(story.Key) + "; a reply alone does not start it."
+	return " " + strings.Join(steps, "; ") + ". After every prerequisite merges, existing admission can reconsider " + implementInline(onLinear, story.Key) + "; a reply alone does not start it."
 }
 
 // safeImplementProgress keeps worker text inert even when it contains Markdown,
 // autolinks, mentions or the hidden hand-off marker.
 func safeImplementProgress(text string) string {
+	return safeImplementProgressFor(false, text)
+}
+
+// safeImplementProgressFor writes Linear text with backslash escapes and code
+// spans, because Linear comments show numeric entities literally.
+func safeImplementProgressFor(onLinear bool, text string) string {
 	text = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) || unicode.IsSpace(r) {
 			return ' '
@@ -438,6 +466,9 @@ func safeImplementProgress(text string) string {
 	runes := []rune(text)
 	if len(runes) > 300 {
 		text = string(runes[:300]) + "..."
+	}
+	if onLinear {
+		return linearmd.InlineText(text)
 	}
 	var out strings.Builder
 	for _, r := range text {

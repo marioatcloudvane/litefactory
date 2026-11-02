@@ -547,7 +547,9 @@ func ValidateReviewerShellRules() []string {
 		"Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git ls-tree:*)",
 		"Bash(git grep:*)", "Bash(git status:*)", "Bash(git rev-parse:*)", "Bash(git blame:*)",
 		"Bash(git merge-base:*)", "Bash(git rev-list:*)",
-		// Read and inspection.
+		// Read and inspection. cd changes nothing; it lets the Validate reporter
+		// run its one base re-run in the factory's read-only base checkout.
+		"Bash(cd:*)",
 		"Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(ls:*)", "Bash(wc:*)", "Bash(rg:*)",
 		"Bash(grep:*)", "Bash(find:*)", "Bash(sed -n:*)", "Bash(diff:*)",
 		// Build, test, vet and lint: the project checks.

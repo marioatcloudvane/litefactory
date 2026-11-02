@@ -1042,6 +1042,18 @@ const makeTestTargetDigest = "a8e8e5320d91f0a58c0528cf30a9361efcac6ee0e663c2c3fd
 const makeFactsTarget = "lf-coverage-facts"
 const makeFactsRecipe = "lf-coverage-facts:\n\t@printf '%s\\0' '$(GO)' '$(PKGS)' '$(MIXED_PACKAGES)' '$(TEST_TIMEOUT)' '$(GOFLAGS)' '$(RACE_TESTS_turn)' '$(RACE_TESTS_store)' '$(RACE_TESTS_cli)'"
 
+// makeFactsScript feeds the facts rule to make on standard input, read after
+// the project Makefile. GNU Make 3.81 (the macOS system make) has no --eval,
+// but every GNU Make reads "-f -" the same way, and nothing is written into
+// the snapshot. The facts target is named explicitly, so the project's first
+// target or .DEFAULT_GOAL is never built; discoverMake has already refused a
+// Makefile that mentions the facts target, so the rule cannot collide.
+const makeFactsScript = `printf '%s\n' "$1" | "$2" -f Makefile -f - --no-print-directory -s "$3"`
+
+func makeFactsArgv(makeBinary string) []string {
+	return []string{"/bin/sh", "-c", makeFactsScript, "lf-coverage-facts-probe", makeFactsRecipe, makeBinary, makeFactsTarget}
+}
+
 func discoverMake(ctx context.Context, command config.BugCheckCommand, index int, commit, root string, run DiscoveryRunner) (Inventory, Facts, error) {
 	out := Inventory{Commit: commit}
 	facts := Facts{Runner: RunnerGo, WrapperDigest: Digest(command.Argv)}
@@ -1075,7 +1087,7 @@ func discoverMake(ctx context.Context, command config.BugCheckCommand, index int
 		out.Reason = "unsupported make test control flow"
 		return out, facts, nil
 	}
-	probe.Argv = []string{command.Argv[0], "--no-print-directory", "-s", "--eval", makeFactsRecipe, makeFactsTarget}
+	probe.Argv = makeFactsArgv(command.Argv[0])
 	evaluated, err := boundedDiscovery(ctx, probe, run)
 	if err != nil {
 		out.Reason = "make variable evaluation incomplete"

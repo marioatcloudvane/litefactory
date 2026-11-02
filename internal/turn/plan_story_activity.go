@@ -307,6 +307,7 @@ func (h PlanStoryActivity) apply(ctx context.Context, a PlanStoryAuthority, r gr
 		Retained: r.Operation != "create", ParentKey: displayIssue(parentRef, parent).TitleKey,
 		Prefix:     planStoryMarker(a, d.Key) + "\n" + planRequestMarker(r) + "\n",
 		PartHeader: partHeader, CommentLimit: github.CommentSizeLimit,
+		Linear: parentRef.Forge == "linear",
 	})
 	var renderErr *report.PlanRenderError
 	if errors.As(err, &renderErr) || errors.Is(err, report.ErrPlanDraftCannotFit) || errors.Is(err, report.ErrPlanPartCannotFit) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -39,13 +40,62 @@ func TestPlanParallelEndToEnd_UncertainEffectRecovery(t *testing.T) {
 }
 
 func TestPlanParallelEndToEnd_DurableSignalsAndRestart(t *testing.T) {
-	for _, signal := range []string{"question", "growth", "failure"} {
+	for _, signal := range []string{"question", "growth", "failure", "link", "retry"} {
 		t.Run(signal, func(t *testing.T) { runParallelMainPath(t, false, signal) })
 	}
 }
 
+// A starved shared pool (total 4) must still start the group on its minimum
+// and reach the same sealed, guarded result, running at most as many members
+// at once as it holds slots, and returning every borrowed slot.
+func TestPlanParallelEndToEnd_MeteredPoolRunsMembersWithinFreeSlots(t *testing.T) {
+	for _, free := range []int{1, 2} {
+		t.Run(fmt.Sprintf("free_%d", free), func(t *testing.T) {
+			pool := &slotStoryPool{total: 4}
+			competitor, ok, err := pool.acquire(pool.total - free)
+			if err != nil || !ok {
+				t.Fatal(err)
+			}
+			defer competitor()
+			parent := &slotStoryParent{pool: pool}
+			peak := runParallelMain(t, false, "", parent)
+			if peak < 1 || peak > free {
+				t.Fatalf("members ran %d at once with %d free slot(s)", peak, free)
+			}
+			pool.mu.Lock()
+			observed := slicesMax(pool.observed)
+			pool.mu.Unlock()
+			if observed > pool.total {
+				t.Fatalf("pool overbooked: %d > %d", observed, pool.total)
+			}
+			parent.Release()
+			if used, _ := pool.Capacity(); used != pool.total-free {
+				t.Fatalf("slots leaked: used=%d want=%d", used, pool.total-free)
+			}
+		})
+	}
+}
+
+func slicesMax(values []int) int {
+	peak := 0
+	for _, v := range values {
+		peak = max(peak, v)
+	}
+	return peak
+}
+
 func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 	t.Helper()
+	runParallelMain(t, mixed, signal, nil)
+}
+
+// runParallelMain drives the main path; with capacity set every turn runs
+// under that step reservation and the barrier gives way to a concurrency
+// count, whose peak it returns.
+func runParallelMain(t *testing.T, mixed bool, signal string, capacity *slotStoryParent) int {
+	t.Helper()
+	metered := capacity != nil
+	active, peak := 0, 0
 	dependency := signal == "dependency"
 	recovery := signal == "uncertain"
 	if dependency || recovery {
@@ -65,6 +115,11 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 	bases := make(map[string]string)
 	initialProposals := make(map[string]string)
 	allStarted := make(map[string]chan struct{})
+	// firstRounds counts first-round member invocations per role; retrying is
+	// set once the owner retries a stopped group (signal "retry").
+	firstRounds := make(map[string]int)
+	retrying := false
+	var concurrentRetry func() error
 	var f *fixture
 	sequential := (&creationAgent{}).behave(t, &f)
 	runner := lifecycleMCPHost(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
@@ -107,6 +162,19 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 		}
 		key := facts.Proposal.Key + ":" + facts.Role
 		mu.Lock()
+		active++
+		peak = max(peak, active)
+		mu.Unlock()
+		defer func() {
+			mu.Lock()
+			active--
+			mu.Unlock()
+		}()
+		if metered {
+			// Give a concurrent sibling, if one was wrongly admitted, time to overlap.
+			time.Sleep(20 * time.Millisecond)
+		}
+		mu.Lock()
 		if allStarted[facts.Proposal.Key] == nil {
 			allStarted[facts.Proposal.Key] = make(chan struct{})
 		}
@@ -129,6 +197,7 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 			initialProposals[facts.Proposal.Key] = revision
 		}
 		if facts.ProposalDigest == "" {
+			firstRounds[facts.Role]++
 			started[key] = true
 			launchPaths[key] = req.MCPLaunch.DescriptorPath()
 			count := 0
@@ -142,7 +211,7 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 			}
 		}
 		mu.Unlock()
-		if facts.ProposalDigest == "" {
+		if facts.ProposalDigest == "" && !metered {
 			select {
 			case <-barrier:
 			case <-ctx.Done():
@@ -165,8 +234,32 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 		case "technical":
 			contribution.Draft.Architecture = &planbrief.PlanArchitecture{General: []planbrief.GeneralDecision{{Area: "Planning", Decision: "Reuse existing effects", Rationale: "Preserve guards"}}}
 		case "acceptance":
+			// The member learns the task owner roles only from the factory
+			// binding, as a real agent does (MAR-63 guessed "engineer").
+			role, err := boundOwnerRole(req.Prompt)
+			if err != nil {
+				return nil, err
+			}
 			contribution.Draft.Criteria = []planbrief.PlanCriterion{{ID: "AC-001", Text: "You can retain a coherent plan. (Auto)", ProofMethod: "End-to-end captured graph check. Covers: O-01"}}
-			contribution.Draft.Tasks = []planbrief.TaskContent{{ID: "T-001", Description: "Kind: code — Build the retained plan.", OwnerRole: "go-implementation-engineer", CriterionIDs: []string{"AC-001"}, DependsOn: []string{}}}
+			contribution.Draft.Tasks = []planbrief.TaskContent{{ID: "T-001", Description: "Kind: code — Build the retained plan.", OwnerRole: role, CriterionIDs: []string{"AC-001"}, DependsOn: []string{}}}
+			if facts.ProposalDigest == "" {
+				if err := assertUnboundRoleRefused(ctx, req, contribution); err != nil {
+					return nil, err
+				}
+			}
+			mu.Lock()
+			retried, check := retrying, concurrentRetry
+			mu.Unlock()
+			if retried && check != nil && facts.ProposalDigest == "" {
+				if err := check(); err != nil {
+					return nil, err
+				}
+			}
+			if signal == "link" || (signal == "retry" && !retried) {
+				// Passes the member's own check but leaves a criterion that no
+				// task delivers, which only the join can see.
+				contribution.Draft.Criteria = append(contribution.Draft.Criteria, planbrief.PlanCriterion{ID: "AC-002", Text: "You can see the plan kept. (Manual)", ProofMethod: "Owner check: reopen the plan. Covers: O-01"})
+			}
 		default:
 			return nil, fmt.Errorf("unexpected member role %q", facts.Role)
 		}
@@ -255,6 +348,9 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 	var remote *graphPlanHTTP
 	var forge *fakeForge
 	f, remote, base, forge = setupGraphPlanFixture(t, runner, false)
+	if metered {
+		f.capacity = capacity
+	}
 
 	executeGraphPlan(t, f, base)
 	revision := graphPlanState(t, f).StorySet.Revision
@@ -320,7 +416,27 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 			state := graphPlanState(t, f)
 			if len(state.Stories) > 0 && state.Stories[0].Parallel != nil {
 				assertParallelSignalRestart(t, f, base, remote, forge, signal)
-				return
+				if signal == "retry" {
+					mu.Lock()
+					delete(allStarted, state.Stories[0].Key)
+					for member := range started {
+						if strings.HasPrefix(member, state.Stories[0].Key+":") {
+							delete(started, member)
+						}
+					}
+					retrying = true
+					mu.Unlock()
+					assertOwnerRetryRerunsStoppedGroup(t, f, base, state.Stories[0].Key, func() map[string]int {
+						mu.Lock()
+						defer mu.Unlock()
+						return maps.Clone(firstRounds)
+					}, func(check func() error) {
+						mu.Lock()
+						concurrentRetry = check
+						mu.Unlock()
+					})
+				}
+				return peak
 			}
 			if !ran {
 				break
@@ -426,6 +542,9 @@ func runParallelMainPath(t *testing.T, mixed bool, signal string) {
 	if state.AssembledWait == "" || state.AssembledApproval != "" {
 		t.Fatalf("final owner approval was bypassed: %+v", state)
 	}
+	mu.Lock()
+	defer mu.Unlock()
+	return peak
 }
 
 // Missing and invalid sizing must exercise the same real owner waits as M/L,
@@ -512,6 +631,9 @@ func assertParallelSignalRestart(t *testing.T, f *fixture, base Request, remote 
 		if patches != 0 {
 			t.Fatalf("blocked group published %d stage effects", patches)
 		}
+	}
+	if signal == "link" || signal == "failure" || signal == "retry" {
+		assertParallelStopNamesCause(t, forge, signal)
 	}
 	if signal == "question" {
 		visible := false
@@ -684,4 +806,124 @@ func assertParallelMemberMetadata(t *testing.T, f *fixture, attemptID int64, mod
 		t.Fatalf("member metadata lost run/provider correlation: attempt=%d run=%+v segment=%+v meta=%+v", attemptID, run, segment, meta)
 	}
 	return path
+}
+
+// assertParallelStopNamesCause requires the owner's stop notice to carry the
+// join's real cause, never a member step's success outcome.
+func assertParallelStopNamesCause(t *testing.T, forge *fakeForge, signal string) {
+	t.Helper()
+	want := map[string]string{"link": "criterion AC-002 has no task", "retry": "criterion AC-002 has no task", "failure": "Technical evidence is unavailable."}[signal]
+	named := false
+	for _, post := range forge.all() {
+		if strings.Contains(post.body, "ended success") {
+			t.Fatalf("stop notice names a member step's success instead of the cause:\n%s", post.body)
+		}
+		named = named || strings.Contains(post.body, want)
+	}
+	if !named {
+		t.Fatalf("no owner notice names the parallel stop cause %q", want)
+	}
+}
+
+// assertOwnerRetryRerunsStoppedGroup reshapes the stopped group into MAR-63's
+// stored state (an "engineer" task owner and the join's refusal as blocker),
+// then sends the owner's `/plan Continue …`: every member runs again, the join
+// seals with an authorized role, and neither a replay of that trigger, a second
+// Continue during the run nor one after it runs the members again.
+func assertOwnerRetryRerunsStoppedGroup(t *testing.T, f *fixture, base Request, key string, rounds func() map[string]int, onRetry func(func() error)) {
+	t.Helper()
+	const continueBody = "/plan Continue the unfinished step from the saved Plan state."
+	mustProgress(t, f.db.UpdatePlanWorkflowState(t.Context(), f.ref().String(), func(s *planbrief.PlanState) (bool, error) {
+		g := parallelStory(s, key).Parallel
+		m := g.Members["acceptance"]
+		m.Contribution.Draft.Criteria = m.Contribution.Draft.Criteria[:1]
+		m.Contribution.Draft.Tasks[0].OwnerRole = "engineer"
+		g.Members["acceptance"] = m
+		g.Blockers = []string{"task requires ID, description, authorized role and criterion links"}
+		return true, nil
+	}))
+	stopped := graphPlanState(t, f).Stories[0].Parallel
+	if !retryStoppedParallel(stopped, 950) || parallelBlockerOutcome(stopped) != "stopped" {
+		t.Fatalf("MAR-63-shaped group is not a retryable stop: %+v", stopped)
+	}
+	before := rounds()
+	onRetry(func() error {
+		current := graphPlanState(t, f).Stories[0].Parallel
+		if current.Trigger != 950 || len(current.Blockers) > 0 {
+			return fmt.Errorf("owner retry reused the stopped group: trigger=%d blockers=%v", current.Trigger, current.Blockers)
+		}
+		if retryStoppedParallel(current, 951) {
+			return fmt.Errorf("a second Continue would replace the running group")
+		}
+		return nil
+	})
+	executeGraphPlan(t, f, asStoryTask(t, f, promoteTrigger(base, 950, 7, continueBody), key))
+	onRetry(nil)
+	after := rounds()
+	for _, role := range planReviewStages {
+		if after[role] != before[role]+1 {
+			t.Fatalf("owner retry ran %s %d times, want once: before=%v after=%v", role, after[role]-before[role], before, after)
+		}
+	}
+	item := graphPlanState(t, f).Stories[0]
+	g := item.Parallel
+	if g.Trigger != 950 || !g.Sealed || len(g.Blockers) > 0 || g.ID == stopped.ID {
+		t.Fatalf("owner retry did not seal a fresh group: %+v", g)
+	}
+	if len(g.Proposal.Tasks) != 1 || g.Proposal.Tasks[0].OwnerRole == "engineer" || !planbrief.TaskOwnerScope().AdmitsRole(g.Proposal.Tasks[0].OwnerRole) {
+		t.Fatalf("retried join kept an unauthorized owner: %+v", g.Proposal.Tasks)
+	}
+	if retryStoppedParallel(g, 950) || retryStoppedParallel(g, 951) {
+		t.Fatal("a sealed group would be replaced again")
+	}
+	executeGraphPlan(t, f, asStoryTask(t, f, promoteTrigger(base, 951, 7, continueBody), key))
+	if again := rounds(); !maps.Equal(again, after) {
+		t.Fatalf("a second Continue ran members again: %v -> %v", after, again)
+	}
+	if graphPlanState(t, f).Stories[0].Parallel.ID != g.ID {
+		t.Fatal("a second Continue replaced the sealed group")
+	}
+}
+
+// boundOwnerRole reads the first authorized task owner role from the factory
+// binding in a member prompt; a member without the binding cannot know one.
+func boundOwnerRole(prompt string) (string, error) {
+	const label = "Authorized task owner roles (assign every task to one of these): "
+	for _, line := range strings.Split(prompt, "\n") {
+		if raw, ok := strings.CutPrefix(line, label); ok {
+			if role, _, _ := strings.Cut(strings.TrimSuffix(raw, "."), ", "); role != "" {
+				return role, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("parallel member prompt lacks the task owner role binding")
+}
+
+// assertUnboundRoleRefused preflights the contribution with a role outside the
+// scope and requires the submission check to name the task's owner role.
+func assertUnboundRoleRefused(ctx context.Context, req agent.Request, contribution planbrief.PlanParallelContribution) error {
+	wrong := contribution
+	wrong.Draft.Tasks = []planbrief.TaskContent{contribution.Draft.Tasks[0]}
+	wrong.Draft.Tasks[0].OwnerRole = "engineer"
+	raw, err := json.Marshal(ar.Result{Outcome: "completed", Comment: "Retained role-owned contribution.", Payload: ar.Payload{Plan: &ar.Plan{Contribution: &wrong}}})
+	if err != nil {
+		return err
+	}
+	data := append(append([]byte(`{"result":`), raw...), '}')
+	client := submission.Client{DescriptorPath: req.MCPLaunch.DescriptorPath()}
+	pre, err := client.Call(ctx, "communication_preflight", data)
+	if err != nil {
+		return fmt.Errorf("preflight unknown role: %w", err)
+	}
+	if pre.Error != "" {
+		return fmt.Errorf("preflight unknown role: %s", pre.Error)
+	}
+	var diagnostics ar.UpdateDiagnostics
+	if err = json.Unmarshal(pre.Result, &diagnostics); err != nil {
+		return err
+	}
+	if diagnostics.Valid || !strings.Contains(diagnosticPaths(diagnostics), "tasks[0].owner_role") {
+		return fmt.Errorf("unknown task owner role was not refused at submission: %s", diagnosticPaths(diagnostics))
+	}
+	return nil
 }

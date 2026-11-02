@@ -114,3 +114,50 @@ func TestCoordinatorReservationReplacementFallsBackToSharedPool(t *testing.T) {
 	reserved.wg.Done()
 	reserved.wait()
 }
+
+// Borrowed member slots leave the held grant alone, return idempotently, and
+// come back with the whole reservation; a late member release after that is
+// not a second free.
+func TestStepReservationGrowBorrowsAndReleasesWithoutLeak(t *testing.T) {
+	p := newPool(4)
+	if !p.acquire(2) {
+		t.Fatal("seed other work")
+	}
+	r := &stepReservation{pool: p}
+	if ok, err := r.Replace(t.Context(), 1); err != nil || !ok {
+		t.Fatalf("minimum: %v %v", ok, err)
+	}
+	extra, ok, err := r.TryGrow(t.Context(), 1)
+	if err != nil || !ok {
+		t.Fatalf("grow into the last free slot: %v %v", ok, err)
+	}
+	if _, ok, err := r.TryGrow(t.Context(), 1); err != nil || ok {
+		t.Fatalf("grow past the pool total: %v %v", ok, err)
+	}
+	if used, _ := p.capacity(); used != 4 {
+		t.Fatalf("used=%d after a refused grow", used)
+	}
+	extra()
+	extra()
+	if used, _ := p.capacity(); used != 3 {
+		t.Fatalf("borrowed release: used=%d", used)
+	}
+	late, ok, err := r.TryGrow(t.Context(), 1)
+	if err != nil || !ok {
+		t.Fatalf("regrow: %v %v", ok, err)
+	}
+	r.Release()
+	if used, _ := p.capacity(); used != 2 {
+		t.Fatalf("whole release kept borrowed slots: used=%d", used)
+	}
+	late()
+	r.Release()
+	if used, _ := p.capacity(); used != 2 {
+		t.Fatalf("late member release freed another worker's slot: used=%d", used)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, ok, err := r.TryGrow(ctx, 1); err == nil || ok {
+		t.Fatalf("cancelled grow: %v %v", ok, err)
+	}
+}

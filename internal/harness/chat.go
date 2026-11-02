@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	native "github.com/cloudvane/litefactory/pkg/execution/providers/claude"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
 // RunChat narrows the existing doctor gate to a response-only invocation: empty
@@ -99,7 +98,7 @@ func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agen
 			}
 		}
 	}
-	err = providerprocess.RunChatProcess(ctx, r.binary.Path, args, env, request, r.timeout, observe)
+	err = native.RunBounded(ctx, r.binary.Path, args, env, request.Prompt, request.WorkingDirectory, r.timeout, observe, nil, nil, false, nil)
 	result.Usage = collector.finish()
 	if err == nil && (!terminal || failed || tools || len(result.Answer) > 32<<10) {
 		err = errors.New("chat provider response failed or its tools differ from the grant")
@@ -108,11 +107,5 @@ func (r *Runner) RunChat(ctx context.Context, request agent.ChatRequest) (_ agen
 }
 
 func chatArguments(model, mcpPath string, permitted []string) []string {
-	// An explicit empty --tools disables native tools; omitting it enables the
-	// defaults. Strict MCP also prevents ambient user tools from loading.
-	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-session-persistence", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--model", model}
-	if len(permitted) > 0 {
-		args = append(args, "--allowedTools", strings.Join(permitted, ","))
-	}
-	return args
+	return native.ChatArguments(model, mcpPath, permitted)
 }

@@ -3,8 +3,8 @@ package turn
 import (
 	"context"
 	"errors"
-	"github.com/cloudvane/litefactory/internal/providerprocess"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -240,7 +240,7 @@ func TestResearchTransientExecutableRecovery(t *testing.T) {
 			restored <- os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700)
 		}()
 		var cmd *exec.Cmd
-		err := providerprocess.Start(ctx, binary, req.WorktreePath, func() error {
+		err := execution.Start(ctx, binary, req.WorktreePath, func() error {
 			starts++
 			cmd = exec.CommandContext(ctx, binary)
 			cmd.Dir = req.WorktreePath

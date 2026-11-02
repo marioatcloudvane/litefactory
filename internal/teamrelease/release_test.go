@@ -71,7 +71,7 @@ func snapshot(t *testing.T, dir string) map[string][]byte {
 func fixture(t *testing.T) string {
 	t.Helper()
 	root := canonicalTemp(t)
-	files, err := teamsourcetest.Files("go-development")
+	files, err := teamsourcetest.Files(t.Context(), "go-development")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func fixture(t *testing.T) string {
 // private folder, so tests read current team content without a published release.
 func resolvedSource(t *testing.T, team string) string {
 	t.Helper()
-	files, err := teamsourcetest.Files(team)
+	files, err := teamsourcetest.Files(t.Context(), team)
 	if err != nil {
 		t.Fatal(err)
 	}

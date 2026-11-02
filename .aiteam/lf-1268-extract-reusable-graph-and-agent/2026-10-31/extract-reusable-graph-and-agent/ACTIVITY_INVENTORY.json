@@ -1,0 +1,207 @@
+{
+  "commit": "6d86064d7b30fae45f6a5a1e12093882e5eeb876",
+  "scope": "Production Execute methods taking ActivityRequest; excludes tests and non-activity Execute methods",
+  "handler_count": 40,
+  "handlers": [
+    {
+      "type": "graphBugRoleActivity",
+      "path": "internal/turn/bug_conversation.go",
+      "line": 82
+    },
+    {
+      "type": "GraphBugAnalystActivity",
+      "path": "internal/turn/bug_conversation.go",
+      "line": 116
+    },
+    {
+      "type": "GraphBugConversation",
+      "path": "internal/turn/bug_conversation.go",
+      "line": 214
+    },
+    {
+      "type": "GraphBugFixerActivity",
+      "path": "internal/turn/bug_graph_fixer.go",
+      "line": 42
+    },
+    {
+      "type": "graphBugSyncActivity",
+      "path": "internal/turn/bug_sync_gate.go",
+      "line": 62
+    },
+    {
+      "type": "GraphBugFinalization",
+      "path": "internal/turn/graph_delivery.go",
+      "line": 67
+    },
+    {
+      "type": "ImplementReadyActivity",
+      "path": "internal/turn/implement_activities.go",
+      "line": 215
+    },
+    {
+      "type": "ImplementHandoffActivity",
+      "path": "internal/turn/implement_handoff.go",
+      "line": 39
+    },
+    {
+      "type": "ImplementMergeActivity",
+      "path": "internal/turn/implement_merge.go",
+      "line": 48
+    },
+    {
+      "type": "implementStepFunc",
+      "path": "internal/turn/implement_steps.go",
+      "line": 28
+    },
+    {
+      "type": "workerSyncActivity",
+      "path": "internal/turn/implement_worker_sync.go",
+      "line": 23
+    },
+    {
+      "type": "planApproveEffect",
+      "path": "internal/turn/plan_approve.go",
+      "line": 21
+    },
+    {
+      "type": "planGraphHandler",
+      "path": "internal/turn/plan_graph.go",
+      "line": 77
+    },
+    {
+      "type": "planStoryEffect",
+      "path": "internal/turn/plan_graph.go",
+      "line": 790
+    },
+    {
+      "type": "PlanStoryActivity",
+      "path": "internal/turn/plan_story_activity.go",
+      "line": 87
+    },
+    {
+      "type": "AgentActivity",
+      "path": "internal/turn/research_agent.go",
+      "line": 92
+    },
+    {
+      "type": "ResearchBriefActivity",
+      "path": "internal/turn/research_brief_activity.go",
+      "line": 58
+    },
+    {
+      "type": "CommentActivity",
+      "path": "internal/turn/research_comments.go",
+      "line": 76
+    },
+    {
+      "type": "ControlActivity",
+      "path": "internal/turn/research_control.go",
+      "line": 52
+    },
+    {
+      "type": "SpikeCheckActivity",
+      "path": "internal/turn/spike_check.go",
+      "line": 169
+    },
+    {
+      "type": "SpikeGateActivity",
+      "path": "internal/turn/spike_gate.go",
+      "line": 79
+    },
+    {
+      "type": "SpikeIssueActivity",
+      "path": "internal/turn/spike_issue.go",
+      "line": 94
+    },
+    {
+      "type": "SpikeNoteActivity",
+      "path": "internal/turn/spike_note.go",
+      "line": 45
+    },
+    {
+      "type": "SyncBaseActivity",
+      "path": "internal/turn/sync_base.go",
+      "line": 92
+    },
+    {
+      "type": "ValidateRepairApplyActivity",
+      "path": "internal/turn/validate_candidate.go",
+      "line": 300
+    },
+    {
+      "type": "ValidateImplementActivity",
+      "path": "internal/turn/validate_implement.go",
+      "line": 264
+    },
+    {
+      "type": "ValidateOutcomeActivity",
+      "path": "internal/turn/validate_outcome.go",
+      "line": 77
+    },
+    {
+      "type": "ValidateReportActivity",
+      "path": "internal/turn/validate_owner.go",
+      "line": 145
+    },
+    {
+      "type": "ValidateAskActivity",
+      "path": "internal/turn/validate_owner.go",
+      "line": 393
+    },
+    {
+      "type": "ValidateIssueActivity",
+      "path": "internal/turn/validate_remote.go",
+      "line": 109
+    },
+    {
+      "type": "ValidatePushActivity",
+      "path": "internal/turn/validate_remote.go",
+      "line": 258
+    },
+    {
+      "type": "ValidateMergeActivity",
+      "path": "internal/turn/validate_remote.go",
+      "line": 423
+    },
+    {
+      "type": "ValidateCloseActivity",
+      "path": "internal/turn/validate_remote.go",
+      "line": 489
+    },
+    {
+      "type": "ValidateRepairBudgetActivity",
+      "path": "internal/turn/validate_repair.go",
+      "line": 29
+    },
+    {
+      "type": "ValidateRepairCheckActivity",
+      "path": "internal/turn/validate_repair.go",
+      "line": 206
+    },
+    {
+      "type": "ValidateResolveActivity",
+      "path": "internal/turn/validate_resolve.go",
+      "line": 44
+    },
+    {
+      "type": "ValidateReviewActivity",
+      "path": "internal/turn/validate_review.go",
+      "line": 195
+    },
+    {
+      "type": "ValidateSuiteActivity",
+      "path": "internal/turn/validate_suite.go",
+      "line": 136
+    },
+    {
+      "type": "admittedValidateSuite",
+      "path": "internal/turn/validate_suite.go",
+      "line": 479
+    },
+    {
+      "type": "JudgeActivity",
+      "path": "internal/turn/workflow_judge.go",
+      "line": 41
+    }
+  ]
+}

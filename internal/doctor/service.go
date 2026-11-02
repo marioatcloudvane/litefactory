@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -37,6 +38,8 @@ var ErrIsolationUnavailable = errors.New("doctor provider isolation is not verif
 // Service shares durable history and control between CLI and future forge intake.
 // No provider is enabled until its tool isolation has authentic evidence.
 type Service struct {
+	CIProbe      CIProber
+	CIRepository string
 	// BuildVersion identifies the running process; FactorySource is set only when known.
 	BuildVersion      string
 	FactorySource     string
@@ -65,6 +68,7 @@ type DiagnoseRequest struct {
 
 // Conversation is bounded display data; complete history remains in the store.
 type Conversation struct {
+	Alerts          *alerts.Projection       `json:"alerts,omitempty"`
 	Review          *RejectedDiagnosisReview `json:"review,omitempty"`
 	ProposalID      int64                    `json:"proposal_id,omitempty"`
 	Repair          *store.DoctorRepair      `json:"repair,omitempty"`
@@ -257,6 +261,14 @@ func (s *Service) ReadConversation(ctx context.Context, ref naming.Ref) (Convers
 		return out, err
 	}
 	out = Conversation{ProposalID: proposalID, Conversation: c, Attempts: attempts, Diagnosis: diagnosis, CurrentProposal: proposal, HistoryWindow: "Latest 30 attempts in this generation; earlier history remains retained", ApplyAvailable: s.CheckRepairCapability(ctx, ref) == nil}
+	if ledger, alertErr := s.DB.ReadAlerts(ctx); alertErr == nil {
+		p := alerts.ProjectLocal(ctx, ledger, time.Now().UTC(), func(task string) bool { return task == ref.String() || task == "github:"+ref.Owner+"/"+ref.Repo+"#0" }, s.DB)
+		out.Alerts = &p
+	} else {
+		p := alerts.Project(store.AlertLedger{}, time.Now().UTC(), nil)
+		p.DeliveryReason = "store_unavailable"
+		out.Alerts = &p
+	}
 	out.Review, err = s.currentReview(ctx, c.ID)
 	if err != nil {
 		return out, err

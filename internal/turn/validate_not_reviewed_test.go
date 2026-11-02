@@ -74,7 +74,7 @@ func TestValidateFailedReviewersAreReportedOnceNotPerItem(t *testing.T) {
 	if !strings.Contains(out, "| "+lightRed+" story-002") || !strings.HasPrefix(out, lightRed) {
 		t.Errorf("the story row and the header are red:\n%s", out)
 	}
-	if n := strings.Count(out, "Run Validate again on commit `"+short(st.Commit)+"`"); n != 1 || !strings.Contains(out, "\nNext: `"+ValidateShipCommand) || !strings.Contains(out, "the passed suite is reused and only the reviews run again") {
+	if n := strings.Count(out, "`"+ValidateStartCommand+"`"); n != 1 || !strings.Contains(out, "**Next:** Run the missing reviews again; the passed suite is reused. `"+ValidateStartCommand+"`") || !strings.Contains(out, "the passed suite is reused and only the reviews run again") {
 		t.Errorf("exactly one retry step as the Next line (%d):\n%s", n, out)
 	}
 	if strings.Contains(out, findingAwaitingCheck) || strings.Contains(out, ValidateCheckCommand) || strings.Contains(out, ValidateFindingCommand) || strings.Contains(out, "review, optional") {
@@ -137,7 +137,8 @@ func TestValidateOneFailedReviewerLeavesTheOthersItems(t *testing.T) {
 		t.Fatalf("the manual check keeps its command, the code review has none: %s", commands)
 	}
 	out := renderValidateReport(st, nil, "")
-	if !strings.Contains(out, "1 of 2 satisfied · 1 awaiting owner check") || strings.Count(out, "not reviewed: ") != 1 || !strings.Contains(out, "\nNext: `"+ValidateShipCommand) || strings.Contains(out, ValidateCheckCommand) {
+	if !strings.Contains(out, "1 of 2 satisfied · 1 awaiting owner check") || strings.Count(out, "not reviewed: ") != 1 || !strings.Contains(out, "**Next:** Run the missing reviews again") ||
+		strings.Count(out, "`"+ValidateCheckCommand+" "+st.Revision+" story-002:AC-002 pass -- <what you checked>`") != 1 || strings.Contains(out, "story-002:code repair") {
 		t.Fatalf("report:\n%s", out)
 	}
 }
@@ -306,7 +307,7 @@ func validateCaptureDigest(t *testing.T, a *adoptFlow, trigger, instanceID int64
 // reviewer guidance, as a newer linked release would carry.
 func captureValidateVariant(ctx context.Context, t *testing.T, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 	t.Helper()
-	root, err := teamsourcetest.Workflow(teamsourcetest.Go, "validate")
+	root, err := teamsourcetest.Workflow(ctx, teamsourcetest.Go, "validate")
 	mustProgress(t, err)
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {

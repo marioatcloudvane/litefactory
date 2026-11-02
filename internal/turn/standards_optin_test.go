@@ -240,6 +240,9 @@ func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 				}
 			}
 		}
+		// Exclusive paths may bind the same role more than once.
+		slices.Sort(granted)
+		granted = slices.Compact(granted)
 		mode := strings.TrimSuffix(filepath.Base(path), ".dot")
 		if !slices.Equal(granted, want[mode]) {
 			t.Fatalf("%s grants standards to %v, want %v", path, granted, want[mode])
@@ -252,7 +255,7 @@ func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 func TestStandardsGrantFollowsPinnedNode(t *testing.T) {
 	profileOf := func(mode string) *graphexec.Profile {
 		t.Helper()
-		files, err := teamsourcetest.Files(teamsourcetest.Go)
+		files, err := teamsourcetest.Files(t.Context(), teamsourcetest.Go)
 		if err != nil {
 			t.Fatal(err)
 		}

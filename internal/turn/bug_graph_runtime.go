@@ -880,7 +880,7 @@ func applyBugDeliveryConflict(ctx context.Context, gated gatedScratch, s *gitScr
 		return "", err
 	}
 	defer release()
-	if err = s.wt.WriteResolvedFiles(ctx, base, options.Files); err != nil {
+	if err = s.wt.WriteResolvedFiles(ctx, base, options.Files, options.Author); err != nil {
 		return "", err
 	}
 	if err = s.wt.StageResolvedFiles(ctx, options.Files); err != nil {

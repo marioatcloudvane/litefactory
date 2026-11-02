@@ -3,18 +3,15 @@ package providerprocess
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
 )
 
 func conversationProcessAlive(state string) error {
@@ -120,85 +117,43 @@ func RunConversationProcess(ctx context.Context, binary string, args, env []stri
 		return err
 	}
 	phase = "launch"
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = reader.Close(); _ = writer.Close() }()
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	command := append([]string{"-c", `read -r ready <&4 || exit 1; exec "$@"`, "conversation-provider", binary}, args...)
-	//nolint:gosec // Fixed shell barrier; executable and arguments are positional, prompt is stdin.
-	cmd := exec.CommandContext(runCtx, "/bin/sh", command...)
-	cmd.Dir = scratch
-	cmd.Env = env
-	cmd.Stdin = strings.NewReader(request.Prompt)
-	cmd.ExtraFiles = []*os.File{lock, reader}
-	output := &doctorLines{observe: observe, cancel: cancel}
-	cmd.Stdout = output
-	cmd.Stderr = io.Discard
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.WaitDelay = 2 * time.Second
-	var cancellationUnverified atomic.Bool
-	cmd.Cancel = func() error {
-		if len(cancelProcess) > 0 && cancelProcess[0] != nil {
-			e := cancelProcess[0](cmd.Process.Pid)
-			if e != nil {
-				cancellationUnverified.Store(true)
+	phase, started, err = execution.RunOwnedProcess(ctx, binary, args, env, execution.OwnedOptions{
+		Prompt: request.Prompt, Directory: scratch, Timeout: timeout, Lock: lock,
+		OnStarted: func(pid int) error {
+			marker := filepath.Join(request.StateDirectory, "provider.pid")
+			//nolint:gosec // Fixed marker filename below the locked, validated private state directory.
+			markerFile, e := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+			if e == nil {
+				_, e = markerFile.WriteString(strconv.Itoa(pid))
+				if e == nil {
+					e = markerFile.Sync()
+				}
+				e = errors.Join(e, markerFile.Close())
+			}
+			if e == nil {
+				dir, openErr := os.Open(request.StateDirectory)
+				if openErr != nil {
+					e = openErr
+				} else {
+					e = errors.Join(dir.Sync(), dir.Close())
+				}
 			}
 			return e
-		}
-		e := CancelConversationTree(context.WithoutCancel(ctx), cmd.Process.Pid)
-		if e != nil {
-			cancellationUnverified.Store(true)
-		}
-		return e
-	}
-	if err = cmd.Start(); err != nil {
-		return fmt.Errorf("conversation provider launch failed: %w", err)
-	}
-	started = true
-	phase = "ownership_persistence"
-	marker := filepath.Join(request.StateDirectory, "provider.pid")
-	//nolint:gosec // Fixed marker filename below the locked, validated private state directory.
-	markerFile, e := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if e == nil {
-		_, e = markerFile.WriteString(strconv.Itoa(cmd.Process.Pid))
-		if e == nil {
-			e = markerFile.Sync()
-		}
-		e = errors.Join(e, markerFile.Close())
-	}
-	if e == nil {
-		dir, openErr := os.Open(request.StateDirectory)
-		if openErr != nil {
-			e = openErr
-		} else {
-			e = errors.Join(dir.Sync(), dir.Close())
-		}
-	}
-	if e == nil {
-		_, e = writer.WriteString("ready\n")
-	}
-	_ = writer.Close()
-	if e != nil {
-		cancel()
-	}
-	err = cmd.Wait()
-	if cancellationUnverified.Load() {
-		_ = os.WriteFile(marker, []byte("unverified-process-exit"), 0600)
-	} else {
-		_ = os.Remove(marker)
-	}
-	if e != nil {
-		return fmt.Errorf("conversation ownership persistence failed: %w", e)
-	}
-	phase = "process_wait"
-	if runCtx.Err() != nil {
-		return runCtx.Err()
-	}
-	if err != nil {
-		return fmt.Errorf("conversation provider process failed: %w", err)
-	}
-	return output.finish()
+		},
+		OnExited: func(unverified bool) {
+			marker := filepath.Join(request.StateDirectory, "provider.pid")
+			if unverified {
+				_ = os.WriteFile(marker, []byte("unverified-process-exit"), 0600)
+			} else {
+				_ = os.Remove(marker)
+			}
+		},
+		CancelProcess: func(pid int) error {
+			if len(cancelProcess) > 0 && cancelProcess[0] != nil {
+				return cancelProcess[0](pid)
+			}
+			return execution.CancelConversationTree(context.WithoutCancel(ctx), pid)
+		},
+	}, observe)
+	return err
 }

@@ -88,7 +88,7 @@
 // SysProcAttr{Setpgid: true} plus kill(-pgid) does not reap claude's
 // grandchildren: measured 2 of 2 survivors reparented to PID 1, because the
 // Bash tool setsids its shell into a new session and process group (SD-1). The
-// mechanism is [killSubtree] — enumerate every pgid in the process subtree,
+// mechanism is the execution library's subtree sweep — enumerate every pgid in the process subtree,
 // signal each, then re-scan once because a tool may spawn between the
 // enumeration and the kill. Setpgid, cmd.Cancel and WaitDelay remain as the
 // outer safety net.

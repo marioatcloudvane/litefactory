@@ -48,6 +48,7 @@ var forgetSteps = []forgetStep{
 	{"standards_run_aliases", `run_id IN (SELECT id FROM runs WHERE session_id IN (%s))`},
 	{"runs", forgetBySessions},
 	{"segments", forgetBySessions},
+	{"published_story_sizing", forgetByTasks},
 	{"approved_story_revisions", forgetByTasks},
 	{"story_scope_notices", forgetByTasks},
 	{"story_publications", forgetByTasks},

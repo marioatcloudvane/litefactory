@@ -37,7 +37,7 @@ func assembledSpikeFixture(t *testing.T, runner Runner, yaml string) (*fixture, 
 	mustProgress(t, err)
 	t.Cleanup(func() { mustProgress(t, authority.Close(context.WithoutCancel(t.Context()))) })
 	f.opts.MCP = &MCPRuntime{Authority: authority, Paths: config.NewPaths(launchFixtureDirectory(t)), Executable: "/factory/litefactory", Now: time.Now}
-	f.opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "test-model"}}
+	f.opts.Tiers.ModelByTier = claudeEveryTier("test-model")
 	forge := newFakeForge(t)
 	f.opts.MCP.Comments = forge.client
 	f.opts.MCP.Redactor = redact.New(redact.Options{Environ: []string{}})
@@ -251,7 +251,7 @@ func TestSpikeGraphSwappedGraphRunsWithoutGoChange(t *testing.T) {
 // captureSpikeVariant captures the shipped Spike package with an edited graph file.
 func captureSpikeVariant(ctx context.Context, t *testing.T, policy WorkflowPolicy, edit func(string) string) (*teamsource.WorkflowDefinition, error) {
 	t.Helper()
-	root, err := teamsourcetest.Workflow(teamsourcetest.Go, "spike")
+	root, err := teamsourcetest.Workflow(ctx, teamsourcetest.Go, "spike")
 	mustProgress(t, err)
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {

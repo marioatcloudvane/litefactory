@@ -56,7 +56,7 @@ func assembledImplementFixture(t *testing.T, runner Runner) (*fixture, *fakeForg
 	mustProgress(t, err)
 	t.Cleanup(func() { mustProgress(t, authority.Close(context.WithoutCancel(t.Context()))) })
 	f.opts.MCP = &MCPRuntime{Authority: authority, Paths: config.NewPaths(launchFixtureDirectory(t)), Executable: "/factory/litefactory", Now: time.Now}
-	f.opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "test-model"}}
+	f.opts.Tiers.ModelByTier = claudeEveryTier("test-model")
 	forge := newFakeForge(t)
 	f.opts.MCP.Comments = forge.client
 	f.opts.MCP.Redactor = redact.New(redact.Options{Environ: []string{}})
@@ -80,7 +80,7 @@ func enableWorkerSyncFixture(f *fixture) {
 // Earlier captured worker gates retain their strict conflict routing.
 func enableStrictWorkerSyncFixture(t *testing.T, f *fixture) {
 	t.Helper()
-	source, err := teamsourcetest.Workflow("go-development", "implement")
+	source, err := teamsourcetest.Workflow(t.Context(), "go-development", "implement")
 	mustProgress(t, err)
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(source, ".", func(name string, d fs.DirEntry, err error) error {
@@ -94,7 +94,7 @@ func enableStrictWorkerSyncFixture(t *testing.T, f *fixture) {
 		if name == "implement.dot" {
 			shape := strings.ReplaceAll(string(raw), ",retry,deferred", ",retry")
 			shape = strings.ReplaceAll(shape, ` sync_start          -> merge               [lf_on="deferred"];`, "")
-			shape = strings.ReplaceAll(shape, ` sync_before_worker -> worker_agent [lf_on="deferred"];`, "")
+			shape = strings.ReplaceAll(shape, ` sync_before_worker -> sizing_valid [lf_on="deferred"];`, "")
 			raw = []byte(shape)
 		}
 		files[name] = &fstest.MapFile{Data: raw, Mode: 0644}
@@ -171,17 +171,25 @@ func TestImplementWorkerCompletedIsCommittedPushedAndOnlyThenDone(t *testing.T) 
 	}
 }
 
-// implementWorkerResultOutcomes lists the outcomes worker_result returned in
-// the story's latest Implement instance, in order.
+// implementWorkerResultOutcomes lists the selected result decisions' outcomes
+// in the story's latest Implement instance, in order.
 func implementWorkerResultOutcomes(t *testing.T, f *fixture) []string {
 	t.Helper()
 	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
 	mustProgress(t, err)
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
 	mustProgress(t, err)
+	raw, err := f.db.ResearchLaunchFiles(t.Context(), instance.ID)
+	mustProgress(t, err)
+	var files map[string][]byte
+	mustProgress(t, json.Unmarshal(raw, &files))
+	graphFile, err := retainedGraphFile(t.Context(), f.db, instance.ID)
+	mustProgress(t, err)
+	profile, err := graphexec.ParseProfile(files[graphFile])
+	mustProgress(t, err)
 	var outcomes []string
 	for _, a := range attempts {
-		if a.Node == "worker_result" {
+		if node, ok := profile.Node(a.Node); ok && node.Action == graphexec.ImplementResultAction {
 			outcomes = append(outcomes, a.Outcome)
 		}
 	}
@@ -311,9 +319,21 @@ func releasedStoppedImplement(t *testing.T) fstest.MapFS {
 	}
 	shape := string(graph.Data)
 	if !strings.Contains(shape, `lf_outcomes="completed,stopped"`) {
-		shape = strings.Replace(shape, `lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,stopped"`, 1)
-		shape = regexp.MustCompile(`(?m)^[ \t]*worker_result[ \t]*->[ \t]*budget[ \t]*\[lf_on="incomplete"\];\n`).ReplaceAllString(shape, "")
-		shape = regexp.MustCompile(`(worker_result[ \t]*->[ \t]*park_story[ \t]*)\[lf_on="blocked"\]`).ReplaceAllString(shape, `${1}[lf_on="stopped"]`)
+		profile, err := graphexec.ParseProfile([]byte(shape))
+		if err != nil {
+			t.Fatal(err)
+		}
+		shape = strings.ReplaceAll(shape, `lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,stopped"`)
+		for _, node := range profile.Nodes {
+			if node.Action != graphexec.ImplementResultAction {
+				continue
+			}
+			budget, _ := graphexec.Decide(profile, node.Name, "incomplete")
+			park, _ := graphexec.Decide(profile, node.Name, "blocked")
+			resultName := regexp.QuoteMeta(node.Name)
+			shape = regexp.MustCompile(`(?m)^[ \t]*`+resultName+`[ \t]*->[ \t]*`+regexp.QuoteMeta(budget)+`[ \t]*\[lf_on="incomplete"\];\n`).ReplaceAllString(shape, "")
+			shape = regexp.MustCompile(`(`+resultName+`[ \t]*->[ \t]*`+regexp.QuoteMeta(park)+`[ \t]*)\[lf_on="blocked"\]`).ReplaceAllString(shape, `${1}[lf_on="stopped"]`)
+		}
 	}
 	if !strings.Contains(shape, `lf_outcomes="completed,stopped"`) || !strings.Contains(shape, `[lf_on="stopped"]`) || strings.Contains(shape, `[lf_on="incomplete"]`) {
 		t.Fatal("the released implement graph has no derivable stopped shape")

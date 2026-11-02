@@ -19,6 +19,7 @@ func cloneResultContext(c agentresult.Context) agentresult.Context {
 		bug := *c.Bug
 		c.Bug = &bug
 	}
+	c.Report = c.Report.Clone()
 	c.PlanScope.Roles = slices.Clone(c.PlanScope.Roles)
 	c.PlanScope.IssueRefs = slices.Clone(c.PlanScope.IssueRefs)
 	c.PlanGraph = c.PlanGraph.Clone()
