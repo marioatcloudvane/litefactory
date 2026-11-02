@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -172,6 +173,18 @@ func candidateReview(c store.RepairCandidate) string {
 	return fmt.Sprintf("Retained Validate repair candidate %s\nReview digest: %s\nBase: %s\nTree: %s\nFrozen scope: %s\nEligible: %t\n\nComplete path/mode manifest:\n%s\n\nFlag reasons, diagnosis, measured facts and uncertainty:\n%s\n\nComplete binary-capable patch:\n%s", c.ID, c.ReviewDigest, c.BaseCommit, c.Tree, c.ScopeRevision, c.Eligible, c.Manifest, c.Evidence, c.Patch)
 }
 
+// repairReviewText quotes the review for its destination. Linear renders
+// neither HTML nor numeric entities, so it gets a plain fenced code block. A
+// review holding a literal <pre> keeps the escaped form, which the review
+// redactor already accepts.
+func repairReviewText(ref naming.Ref, review string) string {
+	if ref.Forge == "linear" && !strings.Contains(review, "<pre>") {
+		fence := report.CodeFence(review)
+		return fence + "\n" + review + "\n" + fence
+	}
+	return "<pre>" + html.EscapeString(review) + "</pre>"
+}
+
 // publishRepairReview reuses durable ordered multipart delivery and its receipt
 // reconciliation. Redaction that changes even one byte disables acceptance.
 func (r *Reporter) publishRepairReview(ctx context.Context, c store.RepairCandidate) (string, error) {
@@ -187,7 +200,7 @@ func (r *Reporter) publishRepairReview(ctx context.Context, c store.RepairCandid
 	if err != nil {
 		return "", err
 	}
-	text := "<pre>" + html.EscapeString(candidateReview(c)) + "</pre>"
+	text := repairReviewText(ref, candidateReview(c))
 	validator, ok := r.renderer.(interface {
 		ValidateUnchangedReview(context.Context, string) error
 	})
