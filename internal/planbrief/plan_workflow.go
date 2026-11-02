@@ -574,7 +574,8 @@ type GraphApproval struct {
 // ApproveByGraph records a stage approval given by an ungated graph stage. It
 // is tied to the identity the run applied (stage, candidate, effect request) and
 // must run inside one saved-state update, so every guard is read at the moment
-// of recording. Only a new approval writes anything.
+// of recording. Only a new approval, or moving on a story that a re-run moved
+// back to an approved stage, writes anything.
 func (s *PlanState) ApproveByGraph(key, stage, candidate, request string) (GraphApproval, error) {
 	if !slices.Contains(planStages, stage) {
 		return GraphApproval{}, errors.New("invalid Plan approval stage")
@@ -586,7 +587,12 @@ func (s *PlanState) ApproveByGraph(key, stage, candidate, request string) (Graph
 	same := item.Candidate == candidate && item.EffectRequest == request
 	ref, refErr := s.ReviewRevision(key, stage)
 	// (a) Replay of an approval that already stands for this exact applied draft.
+	// A re-run that lowered the stage keeps the approval; the story moves on
+	// again, as approve() does, without rewriting the approval or its source.
 	if same && refErr == nil && item.Approvals[stage] == ref {
+		if n := slices.Index(planStages, stage); n < 2 && stage == item.Stage {
+			item.Stage = planStages[n+1]
+		}
 		return GraphApproval{Outcome: "approved"}, nil
 	}
 	// (b) The saved story is no longer the one this run applied.
