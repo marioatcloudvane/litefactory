@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -33,8 +32,7 @@ func planStoryFacts(s planbrief.PlanState, key string) map[string]string {
 	facts := map[string]string{"story.sizing_valid": "false", "story.fallback": "false"}
 	if entry, ok := s.StorySet.EntryForStory(key); ok {
 		facts["story.size"] = entry.Size
-		reason := strings.TrimSpace(entry.SizeReason)
-		if slices.Contains([]string{"S", "M", "L"}, entry.Size) && reason != "" && utf8.ValidString(entry.SizeReason) && utf8.RuneCountInString(reason) <= 280 && !strings.ContainsAny(entry.SizeReason, "\r\n") {
+		if valid, _ := planbrief.ValidateStorySizing(entry.Size, entry.SizeReason, nil); valid {
 			facts["story.sizing_valid"] = "true"
 		}
 	}

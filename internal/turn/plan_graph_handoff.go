@@ -233,6 +233,9 @@ func (r *planGraphRuntime) finalize(ctx context.Context, s planbrief.PlanState, 
 		if err = r.opts.DB.PutManagedStory(ctx, store.ManagedStory{ParentTask: feature.ParentTask, Generation: feature.Generation, Key: story.Key, IssueNumber: issue.Number, IssueID: issue.ID, BodyHash: binding.Revision, Dependencies: story.Dependencies.StoryKeys, State: "planning"}); err != nil {
 			return out, err
 		}
+		if err = r.opts.DB.RetainPublishedStorySizing(ctx, feature.ParentTask, feature.Generation, story.Key, issue.ID, binding.Revision, revision); err != nil {
+			return out, err
+		}
 		// Only links and stable identifiers appear in the local index.
 		fmt.Fprintf(&index, "| %s | %s | %s |\n", story.Key, strings.ReplaceAll(issue.Title, "|", "&#124;"), displayIssue(r.result.Ref, issue).Link())
 	}

@@ -109,7 +109,7 @@ func TestImplementWorkerSyncBlockagesPreserveWorkWithoutLaunching(t *testing.T) 
 						if attempt.Node == "sync_before_worker" {
 							count++
 						}
-						if attempt.Node == "worker_agent" {
+						if attempt.Node == "worker_agent" || attempt.Node == "worker_flagship" {
 							t.Fatal("worker attempt reserved")
 						}
 					}
