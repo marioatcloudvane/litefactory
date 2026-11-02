@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,6 +45,48 @@ func (h *graphTestHandler) Execute(ctx context.Context, opts Options, req Activi
 		h.results[req.Node] = results[1:]
 	}
 	return result, h.errs[req.Node]
+}
+
+// armedDeadline is a parent context whose deadline starts only when arm is
+// called, so graph setup sharing the context cannot spend the tested budget.
+type armedDeadline struct {
+	context.Context
+	mu    sync.Mutex
+	inner context.Context
+}
+
+func (c *armedDeadline) arm(d time.Duration) context.CancelFunc {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	inner, cancel := context.WithTimeout(c.Context, d)
+	c.inner = inner
+	return cancel
+}
+
+func (c *armedDeadline) current() context.Context {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.inner != nil {
+		return c.inner
+	}
+	return c.Context
+}
+
+func (c *armedDeadline) Deadline() (time.Time, bool) { return c.current().Deadline() }
+func (c *armedDeadline) Done() <-chan struct{}       { return c.current().Done() }
+func (c *armedDeadline) Err() error                  { return c.current().Err() }
+
+// armingActivity arms the parent deadline at dispatch, then delegates.
+type armingActivity struct {
+	parent *armedDeadline
+	d      time.Duration
+	next   ActivityHandler
+}
+
+func (a armingActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+	cancel := a.parent.arm(a.d)
+	defer cancel()
+	return a.next.Execute(ctx, opts, req)
 }
 
 // graphRequest extends the established turn fixture, retaining its migrated
@@ -737,11 +780,12 @@ func TestGraphParentDeadlineTimeoutSettlesAndKeepsDiagnostic(t *testing.T) {
 		<-ctx.Done()
 		return ResearchInvocation{}, ctx.Err()
 	}}
-	mustProgress(t, req.Activities.Register("lf_implement_work", handler))
+	ctx := &armedDeadline{Context: t.Context()}
+	mustProgress(t, req.Activities.Register("lf_implement_work", armingActivity{parent: ctx, d: 30 * time.Millisecond, next: handler}))
 	f.opts.WorkerTimeoutSeconds = 1800
 	f.opts.WorkerTimeoutSource = "settings.worker_timeout_seconds"
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
-	defer cancel()
+	// Slow graph setup must not spend the parent deadline, which starts at dispatch.
+	time.Sleep(100 * time.Millisecond)
 	result, err := ExecuteNodeAction(ctx, f.opts, req)
 	if err != nil || result.NextNode != "end" || result.Activity.Outcome != "failed" {
 		t.Fatalf("deadline lost graph completion: %+v %v", result, err)
@@ -780,23 +824,29 @@ func TestGraphParentDeadlineKeepsCleanupFailureWhenHookCannotSettle(t *testing.T
 		return nil, nil
 	}))
 	seedImplementStory(t, f)
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
-	defer cancel()
+	ctx := &armedDeadline{Context: t.Context()}
 	const diagnostic = "Process evidence unavailable. Cleanup collection failed: collector deadline exceeded."
 	handler := &graphTestHandler{
 		results: map[string][]ActivityResult{"work": {{Diagnostic: diagnostic}}},
 		errs:    map[string]error{"work": errors.Join(ErrAgentTimedOut, context.DeadlineExceeded)},
-		hook: func(ctx context.Context, _ Options, request ActivityRequest) {
-			<-ctx.Done()
+		hook: func(hookCtx context.Context, _ Options, request ActivityRequest) {
+			cancel := ctx.arm(30 * time.Millisecond)
+			defer cancel()
+			<-hookCtx.Done()
 			// The stop was durable before bounded collection exhausted its allowance.
 			mustProgress(t, f.db.RecordAttemptTimeout(t.Context(), store.AttemptTimeout{NodeAttemptID: request.NodeAttemptID, Budget: 91 * time.Second, TimedOutAt: time.Now()}))
 		},
 	}
 	req := f.graphRequest(graphTestDOT, handler)
 	req.StopOnFailure = true
+	// Slow graph setup must not spend the parent deadline, which starts in the hook.
+	time.Sleep(100 * time.Millisecond)
 	result, err := ExecuteNodeAction(ctx, f.opts, req)
 	if !errors.Is(err, ErrAgentTimedOut) || strings.Contains(err.Error(), "complete graph activity") {
 		t.Fatalf("timeout failed local settlement: %+v %v", result, err)
+	}
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf("parent deadline did not expire during the hook: %v", ctx.Err())
 	}
 	row := implementWorkerRow(t, f)
 	if strings.Contains(row.LastFailure, diagnostic) {
