@@ -727,6 +727,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// notion of "known agent" kept in step by hand.
 		Agents:            runners,
 		Classifiers:       classifiers,
+		BugAgent:          agent.Kind(s.Config.BugAgent),
 		DefaultAgent:      defaultAgent,
 		ToolCeiling:       toolCeiling,
 		InstanceID:        instanceID,
