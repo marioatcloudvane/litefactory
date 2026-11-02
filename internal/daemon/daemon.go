@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/alerts"
+	"github.com/cloudvane/litefactory/internal/cimonitor"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -422,6 +423,7 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	ciMonitor                *cimonitor.Observer
 	alerts                   *alerts.Engine
 	alertClock               func() time.Time
 	alertMu                  sync.RWMutex
@@ -1021,6 +1023,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.serveRemoteConnector(webCtx, &serving)
 	d.chatServe(webCtx, &serving)
 	d.serveAlerts(webCtx, &serving)
+	d.serveMainCI(webCtx, &serving)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

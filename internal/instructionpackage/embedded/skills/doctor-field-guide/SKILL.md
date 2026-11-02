@@ -126,3 +126,45 @@ A failed run is historical evidence, not proof that the daemon is wedged now. Pr
 Some stalls come from team release bytes, not from factory state. Example: "plan scope: release declares no task owners" means the linked release (repository_team_bindings) has no role declared `task_owner: true`; filenames alone grant nothing. It fails before Plan comment processing, so it can show only as repeated preparation failures in the log.
 
 Compare three things separately: the team's canonical source, the linked release, and the capture a graph retained when it started. A source fix or a rebuilt daemon does not change installed release bytes, and relinking does not replace a capture that is already retained. The remedy is the owner's: cut and link a new release, then a new diagnosis for any instance that keeps the old capture. Never choose a version, edit a published release or propose rewriting a capture.
+
+## Factory CI monitoring
+
+Use retained alert status to distinguish a known `main_red` CI failure from
+`ci_monitoring_unavailable`. Both can be active together. Read the configured
+single target, current conclusion or pending state, last successful observation,
+unavailable cause, next retry and notification state. Missing, incomplete,
+older or disabled-workflow evidence cannot prove green CI. Two separate complete
+scheduled observations of qualifying newer success confirm recovery; doctor
+probes and restarts do not count. Delivery unavailable is separate from CI
+observation unavailable.
+
+When the owner explicitly requests installed access verification and `ci_access`
+is available, invoke it with `{}`. The tool uses only the configured factory
+repository and exact workflow; it is not available for other project contexts
+or repairs and accepts no URL or target selection. It reads repository identity
+and active workflow metadata through the factory's existing credential path.
+The shell still cannot use networking or read configuration or credentials.
+
+The probe may persist only CI-local transport waits. Retry-After, quota reset
+and polling bounds are uncapped, shared with scheduled polling and retained
+across restart; a probe deferred for more than one hour must remain deferred.
+Use saved next-retry evidence instead of repeated probes. It cannot write
+accepted observations, recovery streaks, incidents or notifications. Ordinary
+status reads do not probe GitHub. A successful access check does not establish
+current green CI or Discord delivery.
+
+For unavailable access, recommend checking selected repository and Actions read
+grants, installation/organization approval or SSO, and the configured workflow's
+exact path and active state. A 404 may conceal denied access. Never suggest
+rerunning CI, changing work state or deleting alert evidence to repair
+monitoring. Record unavailable or deferred live access as unverified; fixtures
+do not establish installed grants. Project CI and production deploy monitoring
+are outside this integration.
+
+An interrupted request whose timing was not saved leaves transport timing
+uncertain. Lease expiry cannot establish safety, so further requests stay
+blocked. The same running process can retry its retained timing journal write
+without repeating HTTP; after process loss the wait cannot be reconstructed.
+Preserve evidence and report the limitation for operator investigation. Do not
+recommend deleting transport records, restarting to bypass a wait or making an
+unrelated probe as proof that the missing timing has elapsed.

@@ -204,7 +204,13 @@ alerts:
     enabled: true
     start: "23:00"
     end: "07:00"
+  ci:
+    repository: marioatcloudvane/litefactory
+    branch: main
+    workflow: .github/workflows/check.yml
   rules:
+    main_red: true
+    ci_monitoring_unavailable: true
     disk_low: true
     pool_blocked: true
     no_progress: true
@@ -235,9 +241,11 @@ use them; they change notification controls, never factory work.
 | `alerts on` | Clear only the global timed suppression. |
 
 Rule aliases are `disk` (`disk_low`), `pool` (`pool_blocked`), `progress`
-(`no_progress`), `provider` (`provider_failure`) and `delivery`
-(`delivery_stuck`). `task_stuck` is the canonical name for queue stops and dead
-dispatches. Canonical names work too. Durations are positive whole numbers with
+(`no_progress`), `provider` (`provider_failure`), `delivery`
+(`delivery_stuck`) and `main` (`main_red`). `task_stuck` is the canonical name
+for queue stops and dead dispatches. `mute main 2h` changes only CI-failure notifications; use
+`mute ci_monitoring_unavailable 2h` for monitoring-readiness warnings. Canonical
+names work too. Durations are positive whole numbers with
 `m`, `h` or `d`, at most seven days; a day means 24 elapsed hours. Replies state
 the exact expiry, date, UTC offset and host time zone. Invalid commands return
 usage without changing controls. Replaying the same source message reuses its
@@ -296,6 +304,45 @@ The durable alert journal has a 16 MiB safety limit. If it reaches that limit,
 observation and unjournaled sends stop; existing state is preserved and monitoring
 is reported unavailable. Disabling alerts suppresses notifications without
 deleting this state. Do not delete uncertain delivery evidence to force a retry.
+
+### Main CI and monitoring readiness
+
+`main_red` warns when the configured factory workflow completes with failure,
+timed-out or action-required status. Its warning identifies the workflow and
+result, links to the run and gives a next action. Recovery needs a later success
+or a higher successful attempt of the same run, observed in two separate complete
+scheduled scans. Cancelled, skipped, neutral, pending, older or incomplete
+results do not clear a known failure. Restart resets clean confirmation without
+forgetting the incident or its delivery state.
+
+`ci_monitoring_unavailable` warns separately when fresh complete observation is
+missing: credentials or access fail, the workflow is disabled or changes
+identity, history is empty/incomplete, or a bounded scan cannot finish. Both
+rules default enabled and use the same mutes, quiet-hour digest, cooldown and
+confirmed-opening-only all-clear policy as other warnings. Disabling either
+rule suppresses its opening, queued warning and all-clear; observation continues.
+Warnings, digests and all-clears never mention the owner.
+
+Read `alerts` for the configured target, last successful observation, current CI
+result, unavailable reason, next retry and delivery state. A known failure and
+unavailable monitoring can coexist. Discord delivery can fail while observation
+continues. The observer polls at startup and every five minutes; GitHub-required
+waits may postpone requests longer. Those CI-local waits are durable, uncapped
+and shared with doctor access probes. Restarting cannot shorten them. Ordinary
+status views use saved facts and do not poll GitHub.
+
+If a request is interrupted before its timing can be saved, transport timing
+remains uncertain and further CI requests are blocked even after the request
+lease expires. The same running process can retry the timing journal write
+without repeating its HTTP request. After that process is lost, the unknown wait
+cannot be reconstructed safely. Preserve the transport and incident evidence
+and have the operator investigate the interrupted request; a restart, elapsed
+time or successful unrelated request does not resolve this limitation.
+
+See [GitHub CI access](getting-started/github-setup.md#factory-main-ci-read-access)
+and [doctor's explicit access check](operations/doctor.md#ci-access-check).
+Automated fixtures do not prove that installed credentials have the required
+access; retain the separate live owner check described there.
 
 ### Installed owner check
 

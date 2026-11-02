@@ -44,7 +44,9 @@ func DefaultFileContents() []byte {
 #   delivery_wait_minutes: 15
 #   quiet_hours: {enabled: true, start: "23:00", end: "07:00"}
 #   rules: {disk_low: true, pool_blocked: true, no_progress: true,
-#           provider_failure: true, task_stuck: true, delivery_stuck: true}
+#           provider_failure: true, task_stuck: true, delivery_stuck: true,
+#           main_red: true, ci_monitoring_unavailable: true}
+#   ci: {repository: marioatcloudvane/litefactory, branch: main, workflow: .github/workflows/check.yml}
 #
 # Unknown keys and literal credentials are startup errors. Credentials are
 # references only: token_keychain names a Keychain item; token_env, shown as

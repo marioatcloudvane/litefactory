@@ -32,11 +32,12 @@ func (s *Service) projectAlerts(ctx context.Context, r *Result, repos []store.Ov
 	for _, repo := range repos {
 		allowed[repo.Name] = true
 	}
-	r.Alerts = alerts.Project(ledger, now, func(task string) bool {
+	transport, _ := s.reader.(alerts.CITransportReader)
+	r.Alerts = alerts.ProjectLocal(ctx, ledger, now, func(task string) bool {
 		colon := strings.IndexByte(task, ':')
 		hash := strings.LastIndexByte(task, '#')
 		return colon >= 0 && hash > colon && allowed[task[colon+1:hash]]
-	})
+	}, transport)
 	status := "complete"
 	reasons := []string{}
 	for _, rule := range r.Alerts.Rules {

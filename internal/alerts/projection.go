@@ -10,6 +10,7 @@ import (
 // Projection contains only safe rule names, timestamps and state. Subject keys,
 // provider/account identities, raw output and delivery bodies are never exposed.
 type Projection struct {
+	CI                  *CIStatus        `json:"ci"`
 	Enabled             *bool            `json:"enabled"`
 	Rules               []RuleStatus     `json:"rules"`
 	Active              []IncidentStatus `json:"active"`
@@ -19,6 +20,21 @@ type Projection struct {
 	DeliveryReason      string           `json:"delivery_reason"`
 	DeliveryLastSuccess *time.Time       `json:"delivery_last_success"`
 	DeliveryStates      map[string]int   `json:"delivery_states"`
+}
+
+// CIStatus separates the last known result from observation availability.
+type CIStatus struct {
+	Repository    string     `json:"repository"`
+	Branch        string     `json:"branch"`
+	Workflow      string     `json:"workflow"`
+	WorkflowState string     `json:"workflow_state"`
+	Conclusion    string     `json:"conclusion"`
+	Pending       bool       `json:"pending"`
+	Ready         bool       `json:"ready"`
+	Reason        string     `json:"reason"`
+	LastAttempt   *time.Time `json:"last_attempt"`
+	LastSuccess   *time.Time `json:"last_success"`
+	NextRetry     *time.Time `json:"next_retry"`
 }
 
 // RuleStatus describes rule coverage and effective controls.
@@ -64,23 +80,36 @@ func Project(l store.AlertLedger, now time.Time, allowTask func(string) bool) Pr
 		v := l.Configuration.Enabled
 		p.Enabled = &v
 	}
-	for _, name := range []string{"disk_low", "pool_blocked", "no_progress", "provider_failure", "task_stuck", "delivery_stuck"} {
+	for _, name := range []string{"disk_low", "pool_blocked", "no_progress", "provider_failure", "task_stuck", "delivery_stuck", "main_red", "ci_monitoring_unavailable"} {
 		o := l.Observers[name]
 		r := RuleStatus{Rule: name, Ready: o.Ready, LastSuccess: projectionTime(o.LastSuccess), Reason: projectionReason(o.Reason), MuteUntil: futureTime(l.Controls.RuleMutes[name], now)}
 		if l.Configuration.Configured {
 			v := l.Configuration.Enabled && l.Configuration.Rules[name]
 			r.Enabled = &v
 		}
-		if o.LastSuccess.IsZero() {
+		switch {
+		case o.LastSuccess.IsZero():
 			r.Ready = false
 			if r.Reason == "" {
 				r.Reason = "not_observed"
 			}
-		} else if now.Sub(o.LastSuccess) > 5*time.Minute {
+		case (name == "main_red" || name == "ci_monitoring_unavailable") && !l.CI.NextDue.IsZero() && now.After(l.CI.NextDue.Add(2*time.Minute)):
+			r.Ready = false
+			r.Reason = "observation_stale"
+		case name != "main_red" && name != "ci_monitoring_unavailable" && now.Sub(o.LastSuccess) > 5*time.Minute:
 			r.Ready = false
 			r.Reason = "observation_stale"
 		}
 		p.Rules = append(p.Rules, r)
+	}
+	if l.CI.Repository != "" && allowTask != nil && allowTask("github:"+l.CI.Repository+"#0") {
+		c := l.CI
+		ready, reason := c.Ready, projectionReason(c.Reason)
+		if !c.NextDue.IsZero() && now.After(c.NextDue.Add(2*time.Minute)) {
+			ready = false
+			reason = "observation_stale"
+		}
+		p.CI = &CIStatus{Repository: SafeText(c.Repository), Branch: SafeText(c.Branch), Workflow: SafeText(c.Workflow), WorkflowState: SafeText(c.WorkflowState), Conclusion: SafeText(c.Conclusion), Pending: c.Pending, Ready: ready, Reason: reason, LastAttempt: projectionTime(c.LastAttempt), LastSuccess: projectionTime(c.LastSuccess), NextRetry: projectionTime(c.NextDue)}
 	}
 	keys := make([]string, 0, len(l.Subjects))
 	for k := range l.Subjects {
@@ -167,7 +196,7 @@ func projectionReason(s string) string {
 		return "rendering_unavailable"
 	case "rate_limited", "send_unconfirmed", "delivery_unavailable":
 		return s
-	case "disk_guard_disabled", "observation_unavailable", "destination_unavailable", "observation_stale", "not_observed", "store_unavailable", "permission_denied", "authentication_failed", "history_unavailable", "channel_unavailable":
+	case "credentials_rejected", "actions_access_forbidden", "target_missing_or_inaccessible", "transport_uncertain", "credentials_unavailable", "target_invalid", "repository_identity_changed", "workflow_identity_changed", "workflow_inactive", "request_budget_exhausted", "history_empty", "history_incomplete", "history_inconsistent", "history_capped", "run_identity_changed", "run_changed_during_scan", "source_regressed", "observation_timeout", "github_read_unavailable", "startup_pending", "workflow_unavailable", "workflow_disabled", "identity_changed", "incomplete_history", "empty_history", "transport_deferred", "access_unavailable", "pending_startup", "target_changed", "read_failed", "no_runs", "not_configured", "deadline_exceeded", "budget_exhausted", "disk_guard_disabled", "observation_unavailable", "destination_unavailable", "observation_stale", "not_observed", "store_unavailable", "permission_denied", "authentication_failed", "history_unavailable", "channel_unavailable":
 		return s
 	default:
 		return "unavailable"

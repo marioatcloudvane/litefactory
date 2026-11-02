@@ -51,3 +51,23 @@ func TestAlertConfigurationValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCIAlertTargetDefaultsAndValidation(t *testing.T) {
+	t.Parallel()
+	cfg, err := Decode(strings.NewReader("alerts: {ci: {branch: release}}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Alerts.CI.Repository != "marioatcloudvane/litefactory" || cfg.Alerts.CI.Workflow != ".github/workflows/check.yml" || cfg.Alerts.CI.Branch != "release" || !cfg.Alerts.Rules["main_red"] || !cfg.Alerts.Rules["ci_monitoring_unavailable"] {
+		t.Fatalf("CI defaults not retained: %+v", cfg.Alerts)
+	}
+	for _, body := range []string{
+		"alerts: {ci: {repository: 'https://example.test/a/b'}}",
+		"alerts: {ci: {workflow: '.github/workflows/../other.yml'}}",
+		"alerts: {ci: {branch: ''}}",
+	} {
+		if err := parseChat(body); err == nil {
+			t.Fatalf("invalid target accepted: %s", body)
+		}
+	}
+}
