@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -108,12 +110,35 @@ printf '%s\n' '{"type":"thread.started","thread_id":"cache-thread"}' '{"type":"t
 		t.Fatalf("check cache contract: revision=%q roots=%v", isolation.Revision, isolation.WritableRoots)
 	}
 	t.Run("isolated_check_execution", func(t *testing.T) {
-		result := isolation.Run(t.Context(), tree, config.BugCheckCommand{Argv: []string{goBinary, "test", "-trimpath", "./..."}, CWD: ".", TimeoutSeconds: 120}, nil)
+		observationPath := filepath.Join(root, "check-process.json")
+		result := isolation.Run(t.Context(), tree, config.BugCheckCommand{Argv: []string{goBinary, "test", "-trimpath", "./..."}, CWD: ".", TimeoutSeconds: 120}, func(observation bugchecks.CommandResult) error {
+			data, err := json.Marshal(observation)
+			if err != nil {
+				return err
+			}
+			file, err := os.OpenFile(observationPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+			if err != nil {
+				return err
+			}
+			_, writeErr := file.Write(data)
+			return errors.Join(writeErr, file.Sync(), file.Close())
+		})
 		if result.Outcome == "blocked" && strings.Contains(result.Reason, "retain command identity: operation not permitted") {
 			t.Skip("outer sandbox denies process identity inspection required by isolated checks")
 		}
 		if result.Outcome != "passed" {
 			t.Fatalf("check: %+v", result)
+		}
+		data, err := os.ReadFile(observationPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var observation bugchecks.CommandResult
+		if err := json.Unmarshal(data, &observation); err != nil {
+			t.Fatal(err)
+		}
+		if observation.ProcessID <= 0 || observation.ProcessIdentity == "" || observation.ProcessID != result.ProcessID || observation.ProcessIdentity != result.ProcessIdentity {
+			t.Fatalf("durable process observation does not match the check: %+v", observation)
 		}
 		args, err := os.ReadFile(filepath.Join(tree, "check.args"))
 		if err != nil {
