@@ -53,7 +53,7 @@ type implementRuntime struct {
 	worktree func() (*git.Worktree, error)
 }
 
-func (rt *implementRuntime) now() time.Time { return spikeNow(rt.opts) }
+func (rt *implementRuntime) now() time.Time { return graphNow(rt.opts) }
 
 // admitImplementExecution takes every Implement launch on a managed parent, and
 // every story worker, onto the graph. Anything else, such as an Implement task

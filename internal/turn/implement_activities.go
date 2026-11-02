@@ -156,7 +156,7 @@ func (b ImplementBindings) now(opts Options) time.Time {
 	if b.Now != nil {
 		return b.Now().UTC()
 	}
-	return spikeNow(opts)
+	return graphNow(opts)
 }
 
 // bind refuses a request that is not Implement and returns validated authority.

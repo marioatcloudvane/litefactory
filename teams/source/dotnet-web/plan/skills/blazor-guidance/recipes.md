@@ -37,7 +37,7 @@ Repository overrides replace entire command arrays. They must retain SDK/target,
 required-test, zero-test and lockfile safeguards; profile allowlisting is not an
 approval to remove required checks. Missing tools, inputs, packages or permissions
 must remain failed diagnostics, never a Go fallback, successful skip or automatic
-host installation. Existing captured Bug/Spike recipes retain their authority.
+host installation. Existing captured Bug recipes retain their authority.
 Fresh admission resolves current permitted overrides; resume and provider fallback
 use retained effective bytes and guidance. Validate reviews that retained evidence
 read-only, without rerunning commands.

@@ -299,7 +299,7 @@ func (h *validateHost) sessionDir(ctx context.Context) (string, error) {
 // sessionDirOf is the session artifact directory Plan and Implement used on
 // this branch, or the directory of this day when none exists yet.
 func (h *validateHost) sessionDirOf(_ context.Context, wt *git.Worktree) (string, error) {
-	now := spikeNow(h.opts)
+	now := graphNow(h.opts)
 	if dir, _ := existingSessionArtifacts(wt.Path(), h.session.Branch, h.ref.Issue, now, string(agent.ModeValidate), h.opts.Logger); dir != "" {
 		return dir, nil
 	}
@@ -574,7 +574,7 @@ func (r *validateReviewers) runReadOnlyNode(ctx context.Context, l validateNodeL
 	}
 	var process *agent.RunResult
 	defer func() {
-		outcome := store.RunOutcome{Status: store.RunFailed, FinishedAt: spikeNow(opts)}
+		outcome := store.RunOutcome{Status: store.RunFailed, FinishedAt: graphNow(opts)}
 		if process != nil {
 			outcome = runOutcome(process)
 		}

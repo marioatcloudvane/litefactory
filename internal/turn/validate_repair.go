@@ -454,7 +454,7 @@ func measureValidateChange(changed []string, diff, session string, declared, for
 			continue
 		}
 		files = append(files, name)
-		for _, kind := range spikePathKinds(name) {
+		for _, kind := range pathChangeKinds(name) {
 			found[kind] = true
 		}
 		if isCriteriaFile(name) {
@@ -478,6 +478,32 @@ func measureValidateChange(changed []string, diff, session string, declared, for
 	}
 	slices.Sort(files)
 	return files, kinds, forbidden
+}
+
+// manifestFiles and lockFiles are the base names that mean a change to what the
+// project depends on.
+var (
+	manifestFiles = []string{"go.mod", "package.json", "Cargo.toml", "pyproject.toml", "Pipfile", "Gemfile", "pom.xml", "build.gradle", "build.gradle.kts", "composer.json", "setup.py"}
+	lockFiles     = []string{"go.sum", "go.work.sum", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "npm-shrinkwrap.json", "Cargo.lock", "poetry.lock", "Pipfile.lock", "Gemfile.lock", "composer.lock", "uv.lock", "bun.lockb"}
+)
+
+// pathChangeKinds names the forbidden kinds of change a path shows by itself:
+// manifests and lock files change dependencies, migrations change a schema. A
+// new package or an API change cannot be told from a path; those count only
+// when the repair declares them.
+func pathChangeKinds(name string) []string {
+	base := path.Base(name)
+	var kinds []string
+	if slices.Contains(manifestFiles, base) || slices.Contains(lockFiles, base) || (strings.HasPrefix(base, "requirements") && strings.HasSuffix(base, ".txt")) {
+		kinds = append(kinds, "dependency")
+	}
+	for _, segment := range strings.Split(path.Dir(name), "/") {
+		if segment == "migrations" || segment == "migrate" {
+			kinds = append(kinds, "schema")
+			break
+		}
+	}
+	return kinds
 }
 
 // isCriteriaFile names the files that hold approved acceptance criteria.

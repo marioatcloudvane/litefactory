@@ -143,7 +143,7 @@ versions require a profile and never inherit Go defaults.
 Declared setup runs only for writable Implement engineering work, through the
 existing operator command isolation and retained command evidence. Engineering
 checks remain within the existing check evidence contract; profile defaults
-do not replace the repository's pinned recipe in `.litefactory/bug-checks.yaml` that Validate and Spike run (see [Bug checks](bug-checks.md)). Validate does not execute profile setup. Host requirements are checked before agent
+do not replace the repository's pinned recipe in `.litefactory/bug-checks.yaml` that Validate runs (see [Bug checks](bug-checks.md)). Validate does not execute profile setup. Host requirements are checked before agent
 launch and never install software. Provider fallback and resumed workflow
 attempts use retained profile, override and guidance bytes; fresh admission
 reads the newly selected configuration.

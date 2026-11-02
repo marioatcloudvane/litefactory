@@ -10,7 +10,7 @@ Tell the factory what result you want by choosing a mode. You need a registered 
 | Plan | Splits the work into stories with acceptance criteria and gets your approval stage by stage. | [Plan](../workflow/plan-graph.md) |
 | Implement | Builds the approved stories, each in its own worktree, and merges them into a feature branch. | [Plan](../workflow/plan-graph.md#after-the-plan) |
 | Validate | Runs the full test suite on the result, reviews it, repairs a little if needed, and helps you ship. | [Validate](../workflow/validate.md) |
-| Spike | Answers one narrow question with a small experiment or one small fix. | [Spike](../workflow/spike.md) |
+| Spike | One conversational agent: answers questions about the code, asks when unclear, and makes a change when the owner says so. | [Spike](../workflow/spike.md) |
 | Bug | Diagnoses a bug, waits for your approval, fixes it and delivers the fix. | [Bug](../workflow/bug-runtime.md) |
 
 Start with an owner comment:
@@ -33,7 +33,7 @@ Workflow authors can opt into [private advisory judging](workflow-judging.md) in
 
 ## Questions
 
-Research and Plan ask you questions in the issue thread when they need a decision. Answer in a normal comment; there is no terminal waiting for you, and waiting has no time limit. Writing "no questions" in your instruction turns questions off for that request. Implement, Validate and Spike do not ask, even with `lf: ask`.
+Research, Plan and Spike ask you questions in the issue thread when they need a decision. Answer in a normal comment; there is no terminal waiting for you, and waiting has no time limit. Writing "no questions" in your instruction turns questions off for that request. Implement and Validate do not ask, even with `lf: ask`.
 
 ## Approvals and separate results
 
