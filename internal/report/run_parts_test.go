@@ -61,3 +61,34 @@ func TestCompleteReviewPartsPreserveDisplayAndRedactEncodedSecrets(t *testing.T)
 		t.Fatal("rendering changed source")
 	}
 }
+
+// A retained unaccepted result whose prose holds a stray double quote is still
+// published, and its encoded secret token is still redacted.
+func TestRetainedResultWithStrayQuoteIsPublishedAndRedacted(t *testing.T) {
+	t.Parallel()
+	const secret = "review-secret-<&>-123456"
+	dq, bs := string(rune(34)), string(rune(92))
+	reporter := newReporter(t, func(o *redact.Options) { o.Environ = []string{"API_TOKEN=" + secret} })
+	encoded, _ := json.Marshal(secret)
+	prose := "collector said " + dq + " and stopped"
+	cell := dq + "a " + bs + "| b" + dq
+	content := "{" + dq + "credential" + dq + ":" + string(encoded) + "," + dq + "note" + dq + ":" + cell + ", " + prose + "}"
+	text := "## Retained result — unaccepted, for review only\n\n<pre>" + html.EscapeString(content) + "</pre>"
+	summary, parts, err := reporter.RenderTextParts(context.Background(), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := summary.String()
+	for _, part := range parts {
+		out += part.String()
+	}
+	decoded := html.UnescapeString(out)
+	if !strings.Contains(decoded, prose) || !strings.Contains(decoded, cell) {
+		t.Fatalf("prose lost: %q", out)
+	}
+	for _, view := range []string{out, decoded} {
+		if strings.Contains(view, secret) || strings.Contains(view, string(encoded)) {
+			t.Fatalf("secret exposed: %q", out)
+		}
+	}
+}
