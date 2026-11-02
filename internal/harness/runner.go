@@ -201,7 +201,8 @@ type Options struct {
 	Instructions instructionpackage.CaptureSource
 	// Paths is the resolved $LF_HOME layout. Run artefacts are written beneath
 	// it and the default claude settings file lives in it.
-	Paths config.Paths
+	Paths         config.Paths
+	GoBuildCaches config.GoBuildCaches
 
 	// Claude is the validated claude configuration block. Validation (a
 	// non-empty --tools surface, no bare Bash in allowed_tools, no
@@ -236,6 +237,7 @@ type Runner struct {
 	providerObserver agent.ProviderObserver
 	instructions     instructionpackage.CaptureSource
 	paths            config.Paths
+	goBuildCaches    config.GoBuildCaches
 	binary           config.Executable
 	home             string
 	tools            []string
@@ -345,7 +347,22 @@ func New(opts Options) (*Runner, error) {
 		ceiling = opts.Claude.Tools
 	}
 
-	return &Runner{instructions: opts.Instructions, paths: opts.Paths,
+	caches := opts.GoBuildCaches
+	if caches.Main == "" {
+		var err error
+		caches, err = opts.Paths.ResolveGoBuildCaches(config.Settings{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := caches.Revalidate(""); err != nil {
+		return nil, err
+	}
+	if err := config.ValidateGoCacheEnvironment(opts.Environ); err != nil {
+		return nil, err
+	}
+
+	return &Runner{instructions: opts.Instructions, paths: opts.Paths, goBuildCaches: caches,
 		binary:       binary,
 		home:         home,
 		tools:        append([]string(nil), opts.Claude.Tools...),
@@ -584,6 +601,14 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 
 	args := append(r.args(req), r.thinkingArgs(ctx)...)
 	var extraEnv []string
+	tools, _ := r.surface(req)
+	if r.goBuildCaches.Main != "" && !toolSurface(req).ReadOnlyShell && slices.Contains(tools, "Bash") {
+		settings, err := r.prepareMainCacheSettings(req.WorktreePath, logPath)
+		if err != nil {
+			return nil, err
+		}
+		args = replaceFlagValue(args, "--settings", settings)
+	}
 	if toolSurface(req).ReadOnlyShell {
 		sandbox, err := r.prepareReadOnlyShell(req.WorktreePath, logPath)
 		if err != nil {
@@ -759,6 +784,19 @@ func (r *Runner) exec(
 		return nil, err
 	}
 	stackEnv = overrideEnv(stackEnv, extraEnv)
+	if r.goBuildCaches.Main != "" {
+		if err := r.goBuildCaches.Revalidate(req.WorktreePath); err != nil {
+			return nil, err
+		}
+		cache := r.goBuildCaches.Main
+		if toolSurface(req).ReadOnlyShell {
+			cache = r.goBuildCaches.Reviewer
+		}
+		if err := config.ValidateGoCacheEnvironment(stackEnv); err != nil {
+			return nil, err
+		}
+		stackEnv = overrideEnv(stackEnv, []string{"GOCACHE=" + cache, "GOCACHEPROG="})
+	}
 	usage := newUsageCollector(runCtx, req)
 	if usage != nil {
 		usage.prepareTranscripts(r.claudeConfigDir, req.WorktreePath)

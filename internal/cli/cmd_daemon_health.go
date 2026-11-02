@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -119,7 +120,8 @@ func printDaemonHealth(w io.Writer, snap store.HealthSnapshot, running bool, now
 // last things it recorded, not things it is doing now.
 func printDaemonHeartbeat(w io.Writer, snap store.HealthSnapshot, lastCompleted time.Time, running bool, now time.Time) error {
 	if !snap.Found {
-		return nil
+		_, err := io.WriteString(w, diskstatus.Text(nil, now))
+		return err
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	l := snap.Listener
@@ -145,6 +147,7 @@ func printDaemonHeartbeat(w io.Writer, snap store.HealthSnapshot, lastCompleted 
 		fmt.Fprintf(tw, "runs held\t%s\n", l.RunsHeld)
 	}
 	fmt.Fprintf(tw, "runs in flight\t%d (as of %s)\n", l.RunsInFlight, daemonAge(now.Sub(l.WrittenAt)))
+	fmt.Fprint(tw, diskstatus.Text(l.Disk, now))
 	return tw.Flush()
 }
 

@@ -36,13 +36,17 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 	repairs := make(map[string]agent.DoctorRepairRunner)
 	advisors := make(map[string]turn.ConflictAdvisor)
 	cfg := service.Config
+	caches, err := service.Paths.ResolveGoBuildCaches(cfg.Settings)
+	if err != nil {
+		return fmt.Errorf("configure doctor Go caches: %w", err)
+	}
 	environ := os.Environ()
 	if err := configureDoctorTicketWorkflow(ctx, service, env, environ); err != nil {
 		return err
 	}
 	if cfg.Agents.Claude != nil {
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
-		runner, e := harness.New(harness.Options{Paths: service.Paths, Claude: *cfg.Agents.Claude, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
+		runner, e := harness.New(harness.Options{GoBuildCaches: caches, Paths: service.Paths, Claude: *cfg.Agents.Claude, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if e == nil {
 			providers["claude"] = runner
 			repairs["claude"] = runner
@@ -51,7 +55,7 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 	}
 	if cfg.Agents.Codex != nil {
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("codex"), config.TierFlagship)
-		runner, e := codex.New(codex.Options{Paths: service.Paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
+		runner, e := codex.New(codex.Options{GoBuildCaches: caches, Paths: service.Paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if e == nil {
 			providers["codex"] = runner
 			repairs["codex"] = runner

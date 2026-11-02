@@ -111,7 +111,7 @@ func (s *Service) Build(ctx context.Context) (Result, error) {
 		return Result{}, errors.New("overview unavailable")
 	}
 	now := s.now().UTC()
-	r := Result{Version: 1, GeneratedAt: now, Window: Window{now.Add(-168 * time.Hour), now}, Health: map[string]any{"status": "unknown"}, Activity: emptyList(), OwnerWaits: emptyList(), RecentPublications: emptyList(), Coverage: Coverage{Sources: map[string]Source{}, Repositories: []map[string]any{}, Warnings: []string{"local_observations_not_remote_poll"}}}
+	r := Result{Version: 1, GeneratedAt: now, Window: Window{now.Add(-168 * time.Hour), now}, Health: map[string]any{"status": "unknown", "disk_cache": nil}, Activity: emptyList(), OwnerWaits: emptyList(), RecentPublications: emptyList(), Coverage: Coverage{Sources: map[string]Source{}, Repositories: []map[string]any{}, Warnings: []string{"local_observations_not_remote_poll"}}}
 	readable := 0
 	source := func(name string, err error, observed *time.Time, status string, reasons ...string) {
 		if err != nil {
@@ -177,7 +177,7 @@ func (s *Service) Build(ctx context.Context) (Result, error) {
 			slotsUsed = &h.SlotsUsed
 			slotsTotal = &h.SlotsTotal
 		}
-		r.Health = map[string]any{"status": status, "written_at": observed, "heartbeat_at": optional(h.LastHeartbeatStartedAt), "heartbeat_age_seconds": age(now, h.LastHeartbeatStartedAt), "runs_in_flight": h.RunsInFlight, "slots_used": slotsUsed, "slots_total": slotsTotal, "discovery_paused": h.DiscoveryPaused, "pause_reason": h.PauseReason, "expected_resume_at": optional(h.ExpectedResumeAt), "runs_held": h.RunsHeld}
+		r.Health = map[string]any{"status": status, "written_at": observed, "heartbeat_at": optional(h.LastHeartbeatStartedAt), "heartbeat_age_seconds": age(now, h.LastHeartbeatStartedAt), "runs_in_flight": h.RunsInFlight, "slots_used": slotsUsed, "slots_total": slotsTotal, "discovery_paused": h.DiscoveryPaused, "pause_reason": h.PauseReason, "expected_resume_at": optional(h.ExpectedResumeAt), "runs_held": h.RunsHeld, "disk_cache": h.Disk}
 		if h.LastHeartbeatStartedAt.IsZero() {
 			reasons = append(reasons, "heartbeat_unknown")
 		}
