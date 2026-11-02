@@ -144,3 +144,43 @@ Evidence:
 - `docs/execution.md:1`
 - `docs/guides/remote-connector.md:1`
 - `docs/guides/scheduling.md:1`
+
+## F-14
+
+Shaping inspection confirms that remote consent distinguishes action repositories, read coverage, private advisory execution and discussion publication; binding owner actions still use Discord approval and a failed delivery authorizes nothing, so disabled-transport acceptance cannot mean bypassing that gate.
+
+Evidence:
+
+- `internal/connector/server.go:60`
+- `internal/daemon/owner_actions.go:57`
+- `internal/store/connector_actions.go:8`
+
+## F-15
+
+Conversation state and delivery are not merely transport formatting: provider changes check outstanding owner actions and work, immutable instruction capture is saved atomically, and reply acknowledgment preserves ordering and replay metadata; logical ownership must preserve these cross-component transactions rather than imply a database split.
+
+Evidence:
+
+- `internal/store/conversations.go:65`
+- `internal/store/conversation_delivery.go:10`
+
+## F-16
+
+The preceding execution extraction retained serializers, digests and saved state and documented rollback to previous code; this is a relevant compatibility precedent, not proof that core extraction can safely change storage or that a prior revert occurred.
+
+Evidence:
+
+- `docs/execution.md:117`
+
+## F-17
+
+Additional available acceptance assets include SQLite report-recovery restart/order tests, authenticated ticket-delivery restart tests, scheduled Linear identity tests, CLI connector grant process tests and remote action trusted-grant/revocation tests; shaping ran no new tests and the earlier four-package baseline remains the only executed test evidence in this result.
+
+Evidence:
+
+- `internal/daemon/report_recovery_db_test.go:54`
+- `internal/daemon/report_recovery_tick_db_test.go:34`
+- `internal/daemon/ticket_recovery_e2e_test.go:39`
+- `internal/daemon/schedules_internal_test.go:30`
+- `internal/cli/connector_e2e_test.go:202`
+- `internal/connector/actions_test.go:109`
