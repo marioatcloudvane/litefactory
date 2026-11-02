@@ -1,8 +1,11 @@
 package turn
 
 import (
+	"context"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
+	"hash/fnv"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -405,5 +408,220 @@ func TestPlanNotices_ParentFindsChildSessionReview(t *testing.T) {
 	mustProgress(t, err)
 	if !complete || len(rows) != 1 || rows[0].Command != state.PlanCurrentCommand("story-001") || !strings.Contains(rows[0].Guidance, "#issuecomment-") {
 		t.Fatalf("parent missed child's current review: %+v", rows)
+	}
+}
+
+// storyStop prepares a story run of story-001 that ended at the stop terminal
+// from the edge from/on, with story-001 holding a next step it may run.
+func storyStop(t *testing.T, from, on string) (*fixture, *fakeForge, *planGraphRuntime, int64, int64) {
+	t.Helper()
+	f, _, base, _, forge := graphPlanFixtureWithForge(t, "agent")
+	executeGraphPlan(t, f, base)
+	state, revision, err := f.db.GetPlanWorkflowState(t.Context(), f.ref().String())
+	mustProgress(t, err)
+	for i := range state.Stories {
+		if state.Stories[i].Key == "story-001" {
+			state.Stories[i].Wait = nil
+		}
+	}
+	_, err = f.db.SavePlanWorkflowState(t.Context(), f.ref().String(), revision, state)
+	mustProgress(t, err)
+	state = graphPlanState(t, f)
+	if _, _, ok := state.StoryNextStep("story-001"); !ok {
+		t.Fatal("fixture story has no next step")
+	}
+	child := asStoryTask(t, f, base, "story-001")
+	if child.SessionID == base.SessionID {
+		t.Fatal("fixture has no story task")
+	}
+	specs, err := PlanSpecs()
+	mustProgress(t, err)
+	definition, err := teamsourcetest.CapturePlan(t.Context(), specs)
+	mustProgress(t, err)
+	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: definition.Profile.Team, Mode: "plan", ProfileVersion: definition.Profile.ProfileVersion, Path: "plan/plan.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	mustProgress(t, err)
+	now := time.Now()
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: child.SessionID, DefinitionID: pin.ID, CurrentNode: "stopped", StartedAt: now})
+	mustProgress(t, err)
+	_, err = f.db.RecordGraphTransition(t.Context(), store.GraphTransition{InstanceID: instance.ID, FromNode: from, ToNode: "stopped", OnOutcome: on, At: now})
+	mustProgress(t, err)
+	ref := f.ref()
+	ref.Issue = child.Issue.Number
+	r := &planGraphRuntime{opts: f.opts, req: child, result: Result{Ref: ref}, parentRef: f.ref(), parentNumber: f.ref().Issue, definition: definition, story: "story-001"}
+	id, ok := StoryWorkIDAfter(state, "story-001", false)
+	if !ok {
+		t.Fatal("fixture story has no work identity")
+	}
+	return f, forge, r, instance.ID, id
+}
+
+// storyPostsWith returns the bodies posted on the story issue containing needle.
+func storyPostsWith(forge *fakeForge, r *planGraphRuntime, needle string) []string {
+	var out []string
+	for _, post := range forge.all() {
+		if strings.HasSuffix(post.path, fmt.Sprintf("/issues/%d/comments", r.result.Ref.Issue)) && strings.Contains(post.body, needle) {
+			out = append(out, post.body)
+		}
+	}
+	return out
+}
+
+// attemptStoryWork records the factory-started schedule for id and reserves it,
+// as the daemon does when it starts that work.
+func attemptStoryWork(t *testing.T, f *fixture, r *planGraphRuntime, id int64) {
+	t.Helper()
+	now := time.Now()
+	scheduled, _, err := f.db.CreateOrGetSchedule(t.Context(), store.CreateScheduleParams{SessionID: r.req.SessionID, SourceCommentID: id, OwnerHandle: "owner", Payload: PlanWorkPayload, DueAt: now})
+	mustProgress(t, err)
+	if _, reserved, err := f.db.ReserveSchedule(t.Context(), scheduled.ID, now); err != nil || !reserved {
+		t.Fatalf("reserve schedule: reserved %v, %v", reserved, err)
+	}
+}
+
+const pausedNeedle = "Plan paused because this story's planning inputs changed"
+
+// Bug #1351 C1: a story run triggered by an owner comment stops on a parallel
+// superseded outcome while the story still has work the factory starts by itself.
+// No "paused, reply to continue" notice is posted, and the work is still offered.
+func TestPlanNotices_StorySupersededStopIsSilentWhenWorkContinues(t *testing.T) {
+	for _, from := range []string{"parallel_group", "parallel_story_approve"} {
+		t.Run(from, func(t *testing.T) {
+			f, forge, r, instanceID, id := storyStop(t, from, "superseded")
+			for range 2 {
+				mustProgress(t, r.reportStop(t.Context(), instanceID))
+			}
+			if posts := storyPostsWith(forge, r, pausedNeedle); len(posts) != 0 {
+				t.Fatalf("%d paused notices while the work continues, want 0", len(posts))
+			}
+			if posts := storyPostsWith(forge, r, "Reply on this issue"); len(posts) != 0 {
+				t.Fatalf("reply request posted: %v", posts)
+			}
+			attempted, err := f.db.ScheduleAttempted(t.Context(), r.req.SessionID, id)
+			mustProgress(t, err)
+			if got, ok := StoryWorkID(graphPlanState(t, f), "story-001"); !ok || got != id || attempted {
+				t.Fatalf("story work no longer offered: id %d ok %v attempted %v", got, ok, attempted)
+			}
+		})
+	}
+}
+
+// Bug #1351 C2: when the story's work was already attempted, nothing continues
+// without the owner, so exactly one paused notice is posted.
+func TestPlanNotices_StorySupersededStopIsPostedOnceWhenWorkWasAttempted(t *testing.T) {
+	f, forge, r, instanceID, id := storyStop(t, "parallel_group", "superseded")
+	attemptStoryWork(t, f, r, id)
+	for range 2 {
+		mustProgress(t, r.reportStop(t.Context(), instanceID))
+	}
+	posts := storyPostsWith(forge, r, pausedNeedle)
+	if len(posts) != 1 || !strings.Contains(posts[0], "Reply on this issue to continue") {
+		t.Fatalf("%d paused notices, want 1: %v", len(posts), posts)
+	}
+}
+
+// Bug #1351 C3: the out-of-passes stop follows the same rule.
+func TestPlanNotices_StoryOutOfPassesStopFollowsContinuationRule(t *testing.T) {
+	const needle = "the technical stage ran out of passes"
+	t.Run("continues", func(t *testing.T) {
+		_, forge, r, instanceID, _ := storyStop(t, "technical_loop", "false")
+		mustProgress(t, r.reportStop(t.Context(), instanceID))
+		if posts := storyPostsWith(forge, r, needle); len(posts) != 0 {
+			t.Fatalf("%d out-of-passes notices while the work continues, want 0", len(posts))
+		}
+	})
+	t.Run("attempted", func(t *testing.T) {
+		f, forge, r, instanceID, id := storyStop(t, "technical_loop", "false")
+		attemptStoryWork(t, f, r, id)
+		for range 2 {
+			mustProgress(t, r.reportStop(t.Context(), instanceID))
+		}
+		if posts := storyPostsWith(forge, r, needle); len(posts) != 1 {
+			t.Fatalf("%d out-of-passes notices, want 1", len(posts))
+		}
+	})
+}
+
+// Bug #1351 C5: a failed read returns the error and posts nothing; the run only
+// logs it. A later report for the same instance posts at most one notice.
+func TestPlanNotices_StoryStopReadFailurePostsNothing(t *testing.T) {
+	f, forge, r, instanceID, id := storyStop(t, "parallel_group", "superseded")
+	attemptStoryWork(t, f, r, id)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	err := r.reportStop(ctx, instanceID)
+	if err == nil {
+		t.Fatal("a failed read was not returned")
+	}
+	r.logNotice(err, "plan-stopped")
+	if !strings.Contains(f.logs.String(), "graph Plan owner notice not delivered") {
+		t.Fatalf("no warning logged: %s", f.logs.String())
+	}
+	if posts := storyPostsWith(forge, r, pausedNeedle); len(posts) != 0 {
+		t.Fatalf("%d notices after a failed read, want 0", len(posts))
+	}
+	for range 2 {
+		mustProgress(t, r.reportStop(t.Context(), instanceID))
+	}
+	if posts := storyPostsWith(forge, r, pausedNeedle); len(posts) != 1 {
+		t.Fatalf("%d notices after retry, want 1", len(posts))
+	}
+}
+
+// Bug #1351 C4: the work identities moved into turn are byte-identical to the
+// daemon's earlier rule, so no attempted work is offered again after a deploy.
+func TestPlanWorkID_IdentitiesAreUnchanged(t *testing.T) {
+	t.Parallel()
+	previous := func(kind string, parts ...string) int64 {
+		h := fnv.New64a()
+		_, _ = h.Write([]byte(kind + "\x00" + strings.Join(parts, "\x00")))
+		return int64(h.Sum64()&(1<<56-1)) | 1<<56
+	}
+	for _, tc := range []struct {
+		kind  string
+		parts []string
+	}{
+		{"story", []string{"story-002", "story", "story-002-candidate", "false"}},
+		{"effect", []string{"story-001", "plan-request-692-6680"}},
+		{"assemble", []string{"ref"}},
+		{"validate-auto", []string{"github:acme/api#1", "abc"}},
+	} {
+		if got, want := PlanWorkID(tc.kind, tc.parts...), previous(tc.kind, tc.parts...); got != want {
+			t.Fatalf("%s %v: %d, previous %d", tc.kind, tc.parts, got, want)
+		}
+	}
+	ready := planbrief.PlanState{SharedRevision: "shared-1"}
+	for _, key := range []string{"story-001", "story-002"} {
+		d := planbrief.PlanDraft{Key: key, Name: "Story " + key}
+		if key == "story-002" {
+			d.Dependencies.StoryKeys = []string{"story-001"}
+		}
+		mustProgress(t, ready.PutCandidate(d, "story", key+"-candidate"))
+	}
+	mustProgress(t, ready.OpenPlanWait("story-001", "wait-story", "review", 100))
+	approve := planbrief.PlanOwnerReply{ID: 10, OwnerID: 7, ActorID: 7, IssueID: 100, Key: "story-001", Stage: "story", Candidate: "story-001-candidate", WaitID: "wait-story", Body: "/approve-plan story-001 story story-001-candidate"}
+	if applied, err := ready.ApplyOwnerReply(approve); err != nil || !applied {
+		t.Fatalf("approve story-001: %v %v", applied, err)
+	}
+	up := ready.Stories[0]
+	if up.Key != "story-001" {
+		up = ready.Stories[1]
+	}
+	stage, create, ok := ready.StoryNextStep("story-002")
+	if !ok {
+		t.Fatal("fixture story-002 has no next step")
+	}
+	{
+		plain, _ := StoryWorkID(ready, "story-002")
+		if want := previous("story", "story-002", stage, "story-002-candidate", strconv.FormatBool(create)); plain != want {
+			t.Fatalf("story identity %d, previous %d", plain, want)
+		}
+		flagged, _ := StoryWorkIDAfter(ready, "story-002", true)
+		if want := previous("story", "story-002", stage, "story-002-candidate", strconv.FormatBool(create), "upstream", "story-001", up.Candidate, up.Effect, up.EffectRequest); flagged != want {
+			t.Fatalf("upstream-failed identity %d, previous %d", flagged, want)
+		}
+	}
+	effect := planbrief.PlanState{SharedRevision: "s", Stories: []planbrief.PlanStoryState{{Key: "story-001", Stage: "acceptance", Effect: "pending", EffectRequest: "plan-request-692-6680", Wait: &planbrief.PlanWait{Kind: "review"}, Draft: planbrief.PlanDraft{Key: "story-001"}}}}
+	if got, ok := StoryWorkID(effect, "story-001"); !ok || got != previous("effect", "story-001", "plan-request-692-6680") {
+		t.Fatalf("effect identity %d ok %v", got, ok)
 	}
 }
