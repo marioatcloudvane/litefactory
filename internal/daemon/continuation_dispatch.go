@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -160,11 +161,19 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 	if ready, err := d.observeContinuationLocally(ctx, t, c); err != nil || !ready {
 		return ready, err
 	}
-	choice := d.resolveAgent(issue.Labels)
-	selected := choice.Agent
-	if selected == "" {
-		selected = string(d.defaultAgent)
+	workflow := agent.Workflow("")
+	admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return false, err
 	}
+	if err == nil {
+		workflow = agent.Workflow(admission.Workflow)
+	}
+	choice, _, err := d.effectiveAgent(ctx, t, workflow)
+	if err != nil {
+		return false, err
+	}
+	selected := choice.Agent
 	if choice.refused() || selected != c.Context.Agent {
 		return cancel("coding agent changed")
 	}

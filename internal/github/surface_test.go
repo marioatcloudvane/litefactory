@@ -82,6 +82,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		// can safely happen (US-3).
 		"FetchAsset",                 // GET <allow-listed attachment URL>
 		"GetParentIssue",             // GET …/issues/{n}/parent
+		"ObserveParentIssue",         // POST configured GraphQL endpoint, verified nullable direct parent
 		"RetirePlanStory",            // PATCH verified direct child closed with not_planned reason
 		"SetStoryState",              // PATCH verified managed story state and reason
 		"UpdateIssue",                // PATCH …/issues/{n}, full title and body

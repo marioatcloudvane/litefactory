@@ -152,9 +152,28 @@ Refused old root keys: `max_concurrent_runs`, `default_base_branch`, `feature_pr
 
 Set at most one of `token_keychain` and `token_env`. Setting neither passes the file check, but the daemon will not start without a bot token. See [GitHub setup](../getting-started/github-setup.md).
 
+## bug_agent
+
+`bug_agent` is an optional top-level preference naming a configured agent (`claude` or `codex`). An unknown name or an agent absent from `agents` is a configuration error. It does not install an agent, change its grants or change Story selection.
+
+```yaml
+bug_agent: codex
+agents:
+  claude: {} # retains the general default
+  codex: {}
+```
+
+Bug selection at dispatch and continuation is: explicit `Coding Agent:` label on the Bug → immediate parent's recorded agent, otherwise its single valid agent label → `bug_agent` → first configured agent. Ambiguous and unknown labels are refused. No agent label is written to an unlabelled Bug. Hand-filed Bugs, log-analysis and Validate follow-ups, and babysitter-origin Bugs use this same rule; source links in their text do not establish parentage.
+
+**Inheritance exception:** a Claude parent overrides `bug_agent: codex`. Parent inheritance can therefore change an existing installation's Bug selection even when its configuration has not changed. To override that parent for one Bug, use an explicit Codex label on the Bug.
+
+Only the direct provider relationship is read, within the configured credential's visibility. The latest persisted parent run (including a failed run) wins over its current label. No further ancestors are consulted and no parent session is created. A successful nullable parent read can establish no observable parent; lookup failures remain errors or deferred retries, rather than silently choosing the setting. Reads of parent labels and local run history are separate observations, not an atomic snapshot.
+
+An executing invocation keeps its recorded agent. Later continuations reapply selection, and a provider change uses the existing cold-start/recovery controls rather than resuming another provider's conversation. Missing role grants remain a refusal, without automatic provider failover. [Bug workflow](../workflow/bug-runtime.md) and [judge precedence](../guides/judge.md) describe the unchanged gates and independent advisory selection.
+
 ## agents
 
-`agents` is an ordered mapping. Only `claude` and `codex` are allowed, and at least one must be present. Nothing is configured implicitly. The first entry is the default for unlabelled work; reorder to change it. If you write an agent's mapping, its omitted keys take the defaults below. `agents.<name>.model` is refused; pick a tier and set the model under `tiers`. See [coding agents](coding-agents.md).
+`agents` is an ordered mapping. Only `claude` and `codex` are allowed, and at least one must be present. Nothing is configured implicitly. The first entry is the general default; reorder to change it. Bugs first apply their explicit label, direct parent and optional `bug_agent` preference as described above. If you write an agent's mapping, its omitted keys take the defaults below. `agents.<name>.model` is refused; pick a tier and set the model under `tiers`. See [coding agents](coding-agents.md).
 
 | Key | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |

@@ -200,8 +200,25 @@ func (r *Reporter) RecoverGraphStopQuestion(ctx context.Context, key string) (Po
 	if projection == nil {
 		projection = &report.StopRecovery{Step: question.Origin, Reason: question.Reason, Disposition: "stopped", Route: "inspect", Unresolved: "Completion of this step is not confirmed.", NextStep: "Ask the factory operator to inspect on the factory host: `" + report.TaskInspectionCommand(session.TaskRef) + "`."}
 	}
-	body := fmt.Sprintf("Work stopped at `%s` (%s).\n\n%s", question.Origin, question.Cause, question.Reason)
-	return r.deliverRecoveryProjection(ctx, delivery, projection, body)
+	return r.deliverRecoveryProjection(ctx, delivery, projection, func() (string, error) {
+		body := fmt.Sprintf("Work stopped at `%s` (%s).\n\n%s", question.Origin, question.Cause, question.Reason)
+		if question.Diagnosis != nil && question.Diagnosis.SourceAttemptID > 0 {
+			source, e := r.db.GetGraphNodeAttempt(ctx, question.Diagnosis.SourceAttemptID)
+			if e != nil {
+				return "", e
+			}
+			run, e := r.db.GetRun(ctx, source.RunID)
+			if e != nil {
+				return "", e
+			}
+			evidence, e := r.executionRunEvidence(ctx, run, source.ID)
+			if e != nil {
+				return "", e
+			}
+			body += "\n\n" + report.RenderExecutions(evidence, report.ExecutionReportLimit)
+		}
+		return body, nil
+	})
 }
 
 // RecoverGraphStoppedExecution reconciles an orphan agent allocation against

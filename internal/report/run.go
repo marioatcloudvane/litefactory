@@ -77,6 +77,9 @@ type Run struct {
 	ConflictProposal         *ConflictProposal
 	ConflictSuggestionFailed bool
 
+	// Executions preserves recorded provider and observed-model attribution.
+	Executions []Execution
+
 	// Meter contains prepared frozen metering values, independent of legacy
 	// cost. It is retained as an input even though the run comment no longer
 	// renders it.
@@ -262,9 +265,10 @@ func (c cuts) any() bool {
 // it, so even [redact.Redactor.Apply]'s own last-resort cut from the bottom
 // takes the expendable part first.
 const (
-	secFixed  = iota // marker, heading, status callout, metadata — never cut
-	secSync          // base branch sync disclosure — never cut (US-3)
-	secResult        // the run's final message
+	secFixed     = iota // marker, heading, status callout, metadata — never cut
+	secSync             // base branch sync disclosure — never cut (US-3)
+	secExecution        // bounded agent/model evidence
+	secResult           // the run's final message
 	numSections
 )
 
@@ -290,6 +294,7 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 	var sections [numSections]string
 	sections[secFixed] = fixedSection(run, view)
 	sections[secSync] = r.preparationSection(run, len(sections[secFixed]))
+	sections[secExecution] = RenderExecutions(run.Executions, min(ExecutionReportLimit, r.budget/4))
 	sections[secResult] = resultSection(run, view)
 
 	if body := join(sections[:]); len(body) <= r.budget {

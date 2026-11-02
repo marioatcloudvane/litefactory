@@ -203,6 +203,10 @@ func (c *Config) Validate() error {
 	errs = append(errs, validateGitHub(&c.Providers.GitHub)...)
 	errs = append(errs, validateTiers(c)...)
 	errs = append(errs, validateAgents(&c.Agents)...)
+	bugAgentConfigured := c.BugAgent == "" || (c.BugAgent == KindClaude && c.Agents.Claude != nil) || (c.BugAgent == KindCodex && c.Agents.Codex != nil)
+	if !bugAgentConfigured {
+		errs = append(errs, fmt.Errorf("bug_agent: %q must name an existing configured agent under agents", c.BugAgent))
+	}
 	errs = append(errs, validatePermissionProfiles(c)...)
 	errs = append(errs, validateBugIsolation(c.BugChecks)...)
 	errs = append(errs, scanSecrets(c)...)
