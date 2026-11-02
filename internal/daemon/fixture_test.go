@@ -102,6 +102,7 @@ func toFakeLabels(names ...string) []fakeLabel {
 
 type fakeIssue struct {
 	ID          int64    `json:"id,omitempty"`
+	APIURL      string   `json:"url"`
 	Number      int      `json:"number"`
 	Title       string   `json:"title"`
 	Body        string   `json:"body"`
@@ -121,6 +122,8 @@ type fakeIssue struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	PullRequest map[string]any `json:"pull_request,omitempty"`
+	// Parent is an actual direct relationship, independent of source links.
+	Parent *github.ParentIssueObservation `json:"-"`
 }
 
 type fakeComment struct {
@@ -204,10 +207,11 @@ type forgeServer struct {
 	onListComments func(w http.ResponseWriter, call int) bool
 	// onGetIssue is called for single-issue GETs with the 1-based call number
 	// of that issue's reads.
-	onGetIssue    func(w http.ResponseWriter, number, call int) bool
-	onPostComment func(w http.ResponseWriter, call int) bool
-	onRemoveLabel func(w http.ResponseWriter, r *http.Request) bool
-	onAddLabels   func(w http.ResponseWriter, r *http.Request) bool
+	onGetIssue      func(w http.ResponseWriter, number, call int) bool
+	onObserveParent func(http.ResponseWriter, string, int) bool
+	onPostComment   func(w http.ResponseWriter, call int) bool
+	onRemoveLabel   func(w http.ResponseWriter, r *http.Request) bool
+	onAddLabels     func(w http.ResponseWriter, r *http.Request) bool
 
 	// order records the sequence of externally visible actions, so that "the
 	// reaction happened before the run" is an assertion rather than a hope.
@@ -287,7 +291,9 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 		writeJSON(w, http.StatusOK, map[string]any{"id": remoteID, "full_name": owner + "/" + name})
 	})
 	mux.HandleFunc("GET "+repos+"/issues", f.handleListIssues)
+	mux.HandleFunc("POST "+repos+"/issues", f.handleCreateIssue)
 	mux.HandleFunc("GET "+repos+"/issues/{number}", f.handleGetIssue)
+	mux.HandleFunc("POST /graphql", f.handleObserveParent)
 	mux.HandleFunc("GET "+repos+"/issues/comments", f.handleListRepoComments)
 	mux.HandleFunc("GET "+repos+"/issues/{number}/comments", f.handleListComments)
 	mux.HandleFunc("POST "+repos+"/issues/{number}/comments", f.handlePostComment)
@@ -432,6 +438,31 @@ func (f *forgeServer) handleListIssues(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+func (f *forgeServer) handleCreateIssue(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"message":"bad request"}`, http.StatusBadRequest)
+		return
+	}
+	owner, name := r.PathValue("owner"), r.PathValue("repo")
+	f.mu.Lock()
+	rs := f.state(owner, name)
+	number := 1
+	for _, issue := range rs.issues {
+		if issue.Number >= number {
+			number = issue.Number + 1
+		}
+	}
+	id := rs.remoteID*1_000_000 + int64(number)
+	issue := fakeIssue{ID: id, Number: number, Title: body.Title, Body: body.Body, State: "open", User: bot(), APIURL: f.server.URL + "/repos/" + owner + "/" + name + "/issues/" + strconv.Itoa(number), HTMLURL: f.server.URL + "/" + owner + "/" + name + "/issues/" + strconv.Itoa(number), CreatedAt: f.now(), UpdatedAt: f.now()}
+	rs.issues = append(rs.issues, issue)
+	f.mu.Unlock()
+	writeJSON(w, http.StatusCreated, issue)
+}
+
 func (f *forgeServer) handleListComments(w http.ResponseWriter, r *http.Request) {
 	number, err := strconv.Atoi(r.PathValue("number"))
 	if err != nil {
@@ -482,6 +513,43 @@ func (f *forgeServer) handleGetIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+}
+
+func (f *forgeServer) handleObserveParent(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Authorization") != "Bearer "+testToken {
+		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		Variables struct {
+			Owner  string `json:"owner"`
+			Name   string `json:"name"`
+			Number int    `json:"number"`
+		} `json:"variables"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"message":"bad query"}`, http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	repo := body.Variables.Owner + "/" + body.Variables.Name
+	if f.onObserveParent != nil && f.onObserveParent(w, repo, body.Variables.Number) {
+		return
+	}
+	var observed any
+	for _, issue := range f.state(body.Variables.Owner, body.Variables.Name).issues {
+		if issue.Number != body.Variables.Number {
+			continue
+		}
+		var parent any
+		if issue.Parent != nil {
+			parent = map[string]any{"databaseId": issue.Parent.ID, "number": issue.Parent.Number, "repository": map[string]string{"nameWithOwner": issue.Parent.Repo.String()}}
+		}
+		observed = map[string]any{"databaseId": issue.ID, "number": issue.Number, "repository": map[string]string{"nameWithOwner": repo}, "parent": parent}
+		break
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{"issue": observed}}})
 }
 
 // handleListRepoComments serves every comment in the repository written at or
@@ -598,11 +666,20 @@ func (f *forgeServer) addIssueIn(owner, name string, issue fakeIssue) {
 		issue.CreatedAt = issue.UpdatedAt
 	}
 	rs := f.state(owner, name)
+	if issue.APIURL == "" {
+		issue.APIURL = f.server.URL + "/repos/" + owner + "/" + name + "/issues/" + strconv.Itoa(issue.Number)
+	}
 	for i := range rs.issues {
 		if rs.issues[i].Number == issue.Number {
+			if issue.ID == 0 {
+				issue.ID = rs.issues[i].ID
+			}
 			rs.issues[i] = issue
 			return
 		}
+	}
+	if issue.ID == 0 {
+		issue.ID = rs.remoteID*1_000_000 + int64(issue.Number)
 	}
 	rs.issues = append(rs.issues, issue)
 }
@@ -1189,6 +1266,7 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.DefaultAgent != "" {
 		opts.DefaultAgent = overrides.DefaultAgent
 	}
+	opts.BugAgent = overrides.BugAgent
 	if overrides.ToolCeiling != nil {
 		opts.ToolCeiling = overrides.ToolCeiling
 	}

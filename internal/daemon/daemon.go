@@ -241,6 +241,7 @@ type Options struct {
 	// the automatic start to run.
 	ValidateHead func(ctx context.Context, session store.Session) (string, error)
 
+	BugAgent     agent.Kind
 	DefaultAgent agent.Kind
 	Classifiers  map[agent.Kind]agent.Classifier
 	// DB is the open, migrated database. Required.
@@ -465,6 +466,7 @@ type Daemon struct {
 	// New; see [Options.Agents] and [Daemon.resolveAgent].
 	agents          turn.RunnerSet
 	classifiers     map[agent.Kind]agent.Classifier
+	bugAgent        agent.Kind
 	defaultAgent    agent.Kind
 	interval        time.Duration
 	schedule        *discoverySchedule
@@ -559,6 +561,11 @@ func New(opts Options) (*Daemon, error) {
 	if maxRuns == 0 {
 		maxRuns = DefaultConcurrentRuns
 	}
+	if opts.BugAgent != "" {
+		if _, ok := opts.Agents[opts.BugAgent]; !ok {
+			return nil, invalidOptions("bug agent %q has no registered runner", opts.BugAgent)
+		}
+	}
 	defaultAgent := opts.DefaultAgent
 	if defaultAgent == "" {
 		return nil, invalidOptions("a default agent is required")
@@ -607,6 +614,7 @@ func New(opts Options) (*Daemon, error) {
 		classifiers:      maps.Clone(opts.Classifiers),
 		instructionPaths: opts.Paths,
 		instructions:     opts.Instructions,
+		bugAgent:         opts.BugAgent,
 		defaultAgent:     defaultAgent,
 		interval:         interval,
 		schedule:         newDiscoverySchedule(opts.DiscoveryInterval),
