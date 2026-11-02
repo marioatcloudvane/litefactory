@@ -12,7 +12,7 @@ Frontend work is optional. Discover package.json at root or nested project locat
 
 ## Overrides and hosts
 
-Only setup and checks can be replaced in .litefactory/stack.overrides.json, schema version 1. Replace full nonempty arrays for stricter guards or repository commands. Guidance, host requirements and environment policy remain fixed. Overrides grant no permission. Bug/Spike pinned phase recipes retain authority; Implement executes setup within writable authority; Validate reviews evidence read-only.
+Only setup and checks can be replaced in .litefactory/stack.overrides.json, schema version 1. Replace full nonempty arrays for stricter guards or repository commands. Guidance, host requirements and environment policy remain fixed. Overrides grant no permission. Bug pinned phase recipes retain authority; Implement executes setup within writable authority; Validate reviews evidence read-only.
 
 Supported hosts remain factory-admitted macOS (darwin), arm64 or amd64. Only python3 is universally required. uv is needed for locked Python projects; node and npm are needed only for discovered package.json projects. Do not install host tools or expand permission ceilings.
 

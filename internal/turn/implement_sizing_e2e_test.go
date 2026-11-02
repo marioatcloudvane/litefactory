@@ -138,7 +138,7 @@ func TestImplementSizingRoutingEndToEnd(t *testing.T) {
 
 func useSizingShippedCapture(t *testing.T, f *fixture, team, roleTier string) {
 	t.Helper()
-	root := os.DirFS(filepath.Join(teamsourcetest.RepoRoot(), "teams", team, "v1.0.1", "implement"))
+	root := os.DirFS(filepath.Join(teamsourcetest.RepoRoot(), "teams", team, "v1.0.0", "implement"))
 	files := fstest.MapFS{}
 	mustProgress(t, fs.WalkDir(root, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil {

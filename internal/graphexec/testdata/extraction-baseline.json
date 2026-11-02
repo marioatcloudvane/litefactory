@@ -10,9 +10,9 @@
     "Navigation": "4c1741187583804fafe8790e60da13c9e4ba09937ef56bedb330d3d64793e7ff"
   },
   "teams/dotnet-web/v1.0.0/implement/implement.dot": {
-    "Profile": "d1db618b27312352049b5fe5c087f01871de1425d067c0111f93c68e8eb701ea",
-    "Semantic": "230cc1bfd638c596368510661dd7f4dc9d835892aad7b7a1da35497668980d25",
-    "Navigation": "e417923f026de10c1319e468d2f621cbd4c8ae2469d9a54eab04103ed6241435"
+    "Profile": "fe9c83b4b3c23736c9f41774a468b45c40a4adc2a9ca7e0b33915c6337707e10",
+    "Semantic": "30273d9c96a6c459750b9559ac143be101fb8e13482ff872b6d85bca65086a14",
+    "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
   },
   "teams/dotnet-web/v1.0.0/plan/plan.dot": {
     "Profile": "ced91db36f871f7a7d869275e361967af2e01b5c17223f15497736be8dcd5904",
@@ -25,9 +25,9 @@
     "Navigation": "5ab12deaafdb6db714477d73005835a25bd1bdb8ac17e538ade4ba6446bbc231"
   },
   "teams/dotnet-web/v1.0.0/spike/spike.dot": {
-    "Profile": "8a22700eac745c6eb2f42ff6a49e3a4c4eec940d575dc4adfc34dcb1bc3d7178",
-    "Semantic": "24742561a386dd03a9416ecb98d35fe719ecb8605045ce95d6b11f5ac20e3100",
-    "Navigation": "c380c3239a840fb3e83fe40d8469a5e61d89fc64c83f0cd742f70a2e1caf31f1"
+    "Profile": "2d868b8b023c3a0a0d071586ff121330710e84ae4f27bdc3b06ad0812e1887c5",
+    "Semantic": "49dd26c87447e718a0d5ae570cec938fb06b1d725c105259cf7353dd65fdbec6",
+    "Navigation": "981d0d13ad9782909a5a0008b8b34135f6a165a2041311ac2e158849c5c1c51d"
   },
   "teams/dotnet-web/v1.0.0/validate/validate.dot": {
     "Profile": "5a20eb4cd9937e3b99b950b553058319da8ed36ae493934cbbb77cf9f965c0fb",
@@ -40,9 +40,9 @@
     "Navigation": "4c1741187583804fafe8790e60da13c9e4ba09937ef56bedb330d3d64793e7ff"
   },
   "teams/go-development/v1.0.0/implement/implement.dot": {
-    "Profile": "4416e50a9935dcf90a2abf59a9f9c818d3d5e41eda76743e30fe140228eaf680",
-    "Semantic": "97395bf29f0ae37d8e29c01a3b4941367015d648ee383eada89f11b43feaf92c",
-    "Navigation": "e417923f026de10c1319e468d2f621cbd4c8ae2469d9a54eab04103ed6241435"
+    "Profile": "d64cb10d7f531835ce47ee6169de9f23fe6465b991452f261f66788ca1590805",
+    "Semantic": "2b59fb537190c115cf04193ca11b3d9b06ac7bc1cb7b43c84b017a29b6a7e647",
+    "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
   },
   "teams/go-development/v1.0.0/plan/plan.dot": {
     "Profile": "fcf6afb31eccad292349a62638ba45eea150101a1305cc4fbabc1ec3c9814d0c",
@@ -55,9 +55,9 @@
     "Navigation": "5ab12deaafdb6db714477d73005835a25bd1bdb8ac17e538ade4ba6446bbc231"
   },
   "teams/go-development/v1.0.0/spike/spike.dot": {
-    "Profile": "a6d18c61d50aa05d56f27e46287e7da28e5e6f744fa7607d25e22d2753636299",
-    "Semantic": "1cbac8c21317cf88ca080bc6caf0444e4d1a774dcbe031e82eeda87430cf266a",
-    "Navigation": "c380c3239a840fb3e83fe40d8469a5e61d89fc64c83f0cd742f70a2e1caf31f1"
+    "Profile": "c9a2ab72a00cf7fa9bf62305d76a0a7f9ac4712067bbfa0834d62a9de1e2f47b",
+    "Semantic": "cb428a2814b543c7166505a88b7fd4f8c7ce1d2c69cf7e2ef3dd09e782cfde0e",
+    "Navigation": "981d0d13ad9782909a5a0008b8b34135f6a165a2041311ac2e158849c5c1c51d"
   },
   "teams/go-development/v1.0.0/validate/validate.dot": {
     "Profile": "ade8b273e14e42e4cdf04fe0d710fc358d76ebbaf99a45d904909935aa47e9ef",
@@ -70,9 +70,9 @@
     "Navigation": "4c1741187583804fafe8790e60da13c9e4ba09937ef56bedb330d3d64793e7ff"
   },
   "teams/python-fastapi/v1.0.0/implement/implement.dot": {
-    "Profile": "644c656f3dec5c84ab94718c01d0e19f15f36607fa2035e9764f44ae205df2a3",
-    "Semantic": "0123e80eab812643f12753bf8d165358bd0ef94e6dbbeb3e3aafda220d8639e7",
-    "Navigation": "e417923f026de10c1319e468d2f621cbd4c8ae2469d9a54eab04103ed6241435"
+    "Profile": "cb0b6b6d7327a1f241c824cf65f44f06baa2e9dab503f2e71ff2f32b9c602304",
+    "Semantic": "1c64d44e406625ad50ac9e0009faffc31a4749cf4eaeca854cd56897a5530ed9",
+    "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
   },
   "teams/python-fastapi/v1.0.0/plan/plan.dot": {
     "Profile": "414e34745d83201a57a0a5c015f7a97d83b7ccc38d50eb4dfd5294ad7e4eec99",
@@ -85,9 +85,9 @@
     "Navigation": "5ab12deaafdb6db714477d73005835a25bd1bdb8ac17e538ade4ba6446bbc231"
   },
   "teams/python-fastapi/v1.0.0/spike/spike.dot": {
-    "Profile": "02ed09eb7ecca8faa742866f4aaa31a8208db45ad1a84069a0cf265d2a854769",
-    "Semantic": "745baf476279e0885e1b1bd0fd6955762e0482eb7f19dc676844f05a387390ac",
-    "Navigation": "c380c3239a840fb3e83fe40d8469a5e61d89fc64c83f0cd742f70a2e1caf31f1"
+    "Profile": "5834fea7fbe355c089ea5ac20a3c6453bff621185b365ae111b4713aa27f680e",
+    "Semantic": "f74838e6fc28ce81ac9e062d891c59338528dc248ae970350d0f8c39e90a826e",
+    "Navigation": "981d0d13ad9782909a5a0008b8b34135f6a165a2041311ac2e158849c5c1c51d"
   },
   "teams/python-fastapi/v1.0.0/validate/validate.dot": {
     "Profile": "d011e6550118c423e9e2da56eca85a7b322c405352eefdc5e71db3e8a96c7ff8",
@@ -130,9 +130,9 @@
     "Navigation": "4c1741187583804fafe8790e60da13c9e4ba09937ef56bedb330d3d64793e7ff"
   },
   "teams/swift-ios/v1.0.0/implement/implement.dot": {
-    "Profile": "28b2f850f6c3706354f89047e114155ad73388f833140afcf18ec083ca30f96a",
-    "Semantic": "aa9a587ce5607cdf80ce298d81a39bc39172704c178abb4560fdfd671a9f7037",
-    "Navigation": "e417923f026de10c1319e468d2f621cbd4c8ae2469d9a54eab04103ed6241435"
+    "Profile": "d02c42fb9d529a70ebcb6fbab4103949cf19f18d41e2b66280d0080851b7d35c",
+    "Semantic": "1fe7978669b81720880a64aa74cf09732f931aac3e9b0ac2e4db83ff423ff298",
+    "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
   },
   "teams/swift-ios/v1.0.0/plan/plan.dot": {
     "Profile": "2306a8aa2acf4e0a340a493b5d146193af1e6e3b8a1a8b6215b509335849cc97",
@@ -145,9 +145,9 @@
     "Navigation": "5ab12deaafdb6db714477d73005835a25bd1bdb8ac17e538ade4ba6446bbc231"
   },
   "teams/swift-ios/v1.0.0/spike/spike.dot": {
-    "Profile": "ac46e0736be86934f75926442ba75d1600d3ad5c0acf371691a4c247e89cd260",
-    "Semantic": "d6dfb000ded6d10e25f10ac7874b18ad8c33e01c21fa63e2a63d482aa9ce7914",
-    "Navigation": "c380c3239a840fb3e83fe40d8469a5e61d89fc64c83f0cd742f70a2e1caf31f1"
+    "Profile": "897f7be538d52fba0bc0ee8dd8085c07fa88b39a0238b0d4c64d823eef2e62a6",
+    "Semantic": "1dc6067a7b05f673f5c3e6b5c68ec1c7dbfb9e1248c481bdcc8f5c3df239fe43",
+    "Navigation": "981d0d13ad9782909a5a0008b8b34135f6a165a2041311ac2e158849c5c1c51d"
   },
   "teams/swift-ios/v1.0.0/validate/validate.dot": {
     "Profile": "a3af4f33d856a40329171bb8c8ceaf6409468b2eb25890dd03dc61cae9dac950",

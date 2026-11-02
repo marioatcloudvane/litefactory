@@ -61,17 +61,15 @@ Answer in the current owner question thread; no migration or promotion command i
 
 **Fixer report:** Reload now preserves the saved report that previously appeared empty. The bounded change addresses the reproduced loss rather than changing report formatting. The regression check passes for that reload case; other report types were not established by this check. The repair is ready for the existing review path, with no deployment claim.
 
-## Spike: narrow answer and bounded fix or hand-back
+## Spike: answer, question and change
 
-**Supplied evidence:** investigation measures three rejected loads out of three with one malformed resource declaration. The proposal is one metadata correction and one regression test within the existing small-fix limits. The fixer has made that proposal; the factory has not checked it yet.
+**Supplied evidence:** the owner asked why uploads fail. The Spike read the loader and reproduced the rejection with one malformed resource declaration. On reply the owner said "fix it"; the Spike corrected the declaration, added a test and ran the focused tests and the build.
 
-**Investigator report:** Yes, the malformed resource declaration explains this failure: all three measured loads rejected it before delivery. I propose correcting that declaration and adding one regression test. No change was made during this investigation. The proposal can be measured against the existing small-fix limits; that measurement, not this recommendation, determines whether a fixer runs.
+**Answer report:** The uploads fail because one resource declaration is malformed: the loader rejects it before delivery, and I reproduced that three times out of three. Correcting the declaration would fix it. Nothing was changed. Reply "fix it" if you want me to make that change.
 
-**Fixer report:** I corrected the one resource declaration and added its regression test, preserving the rest of the proposal. The intended effect is to let the loader find the declared resource. The factory's measurement and checks are still pending, so this report does not establish that the fix works or is delivered.
+**Question report:** I can fix this two ways. The question below is the choice I need from you; I recommend the first, because it keeps the existing file format.
 
-**Alternative supplied evidence:** the same investigation instead discovers a dependency cycle requiring changes outside the approved proposal.
-
-**Hand-back report:** The narrow failure comes from a dependency cycle, but correcting it needs a broader design change than this Spike permits. No fix was made. I recommend Plan to settle the dependency boundary before implementation; this recommendation does not start or switch modes. The current evidence does not establish when that follow-up will begin.
+**Change report:** I corrected the declaration and added a test for it. The focused tests and the build pass. Nothing else was changed, and nothing is left open.
 
 ## Validate rerun: unavailable history and a blocked result
 
