@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"html"
 	"net/http"
 	"net/http/httptest"
@@ -230,7 +231,7 @@ func TestAllRepositoriesGrantCoversTasksChosenPerCall(t *testing.T) {
 	if len(*usage) != 2 || (*usage)[0].Filter.RepoID != later.RepoID || (*usage)[1].Filter.RepoID != later.RepoID {
 		t.Fatalf("usage requests %+v", *usage)
 	}
-	grants, err := NewGrantService(f.db).ListGrantSummaries(t.Context(), f.now)
+	grants, err := NewGrantService(connectorstorage.New(f.db)).ListGrantSummaries(t.Context(), f.now)
 	if err != nil || len(grants) != 1 || grants[0].Coverage.Repositories == nil || !grants[0].Coverage.Repositories.All || !grants[0].Coverage.Repositories.Future {
 		t.Fatalf("grant coverage %+v %v", grants, err)
 	}
@@ -272,11 +273,11 @@ func TestOneRepositoryGrantRefusesOtherRepositoriesClearly(t *testing.T) {
 	if len(*usage) != 0 {
 		t.Fatalf("refused usage reached provider: %+v", *usage)
 	}
-	grants, err := NewGrantService(f.db).ListGrantSummaries(t.Context(), f.now)
+	grants, err := NewGrantService(connectorstorage.New(f.db)).ListGrantSummaries(t.Context(), f.now)
 	if err != nil || len(grants) != 1 || grants[0].Coverage.Repositories == nil || grants[0].Coverage.Repositories.All || !slices.Equal(grants[0].Coverage.Repositories.Repositories, []string{"github:acme/api"}) {
 		t.Fatalf("grant coverage %+v %v", grants, err)
 	}
-	if _, err = NewGrantService(f.db).RevokeGrant(t.Context(), grants[0].ID, f.now); err != nil {
+	if _, err = NewGrantService(connectorstorage.New(f.db)).RevokeGrant(t.Context(), grants[0].ID, f.now); err != nil {
 		t.Fatal(err)
 	}
 	f.now = f.now.Add(time.Second)

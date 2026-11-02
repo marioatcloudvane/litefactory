@@ -3,6 +3,7 @@ package discord
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // capabilityTTL is how long a passed capability check stands. Message reads
@@ -147,7 +147,7 @@ func (a *Adapter) ReadIntakePage(ctx context.Context, channel, owner, before str
 		if m.Reference.Channel == channel && numeric(m.Reference.Message) {
 			reply = m.Reference.Message
 		}
-		result.Messages = append(result.Messages, store.NaturalMessage{Transport: "discord", ChannelRef: channel, SourceID: m.ID, OwnerID: owner, ReplyTo: reply, Text: m.Content, CreatedAt: m.Timestamp})
+		result.Messages = append(result.Messages, messagingstate.NaturalMessage{Transport: "discord", ChannelRef: channel, SourceID: m.ID, OwnerID: owner, ReplyTo: reply, Text: m.Content, CreatedAt: m.Timestamp})
 	}
 	return result, nil
 }

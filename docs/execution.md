@@ -113,6 +113,9 @@ adds attempt identity only when forwarding events into existing metering storage
 Applications can also construct the provider's `NewUsageCollector` directly when
 they already own a native stream and its launch lifecycle.
 
+Factory application contracts and retained compatibility bridges are described in
+[factory ownership](factory-core.md).
+
 ## Factory integration and rollback
 
 Factory adapters keep workflow prompts and result schemas, permission ceilings,

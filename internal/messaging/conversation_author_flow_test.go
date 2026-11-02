@@ -50,10 +50,10 @@ func (f *judgedConversation) confirmAction(t *testing.T, binding bool) {
 		if len(f.ops.executed) != 0 || current.State != "awaiting_discord" {
 			t.Fatalf("binding effect before tap: %+v", current)
 		}
-		if _, err = f.s.ownerActions.Reaction(t.Context(), owneraction.Reaction{ChannelID: "3", MessageID: current.ApprovalMessage, UserID: "7", Emoji: "✅"}); err != nil {
+		if _, err = fixtureActions(f.s).Reaction(t.Context(), owneraction.Reaction{ChannelID: "3", MessageID: current.ApprovalMessage, UserID: "7", Emoji: "✅"}); err != nil {
 			t.Fatal(err)
 		}
-		if err = f.s.ownerActions.Tick(t.Context()); err != nil {
+		if err = fixtureActions(f.s).Tick(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -71,7 +71,7 @@ func TestOwnerAnswersReachTheAuthorAfterConversationalConfirmation(t *testing.T)
 	if got.Operation != "author.answer" || got.Arguments["id"] != "conversation-discord:3:nl-exec:abc" || got.Arguments["text"] != "1a, 2b" || got.MessageID == "" || !strings.HasPrefix(got.OperationKey, "owner-action:") {
 		t.Fatalf("answer request: %+v", got)
 	}
-	if _, err := f.s.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
+	if _, err := fixtureDB(f.s).ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
 		t.Fatal("answering used the retired proposal table")
 	}
 	// The agent saw the session's questions and that nothing is running.
@@ -97,7 +97,7 @@ func TestOwnerChangesToAnAuthorProposalNeedConversationalConfirmation(t *testing
 	if got.Operation != "author.revise" || got.Arguments["id"] != "conversation-discord:3:nl-exec:abc" || got.Arguments["text"] != "make it shorter and crisper" || !strings.HasPrefix(got.OperationKey, "owner-action:") {
 		t.Fatalf("revise request: %+v", got)
 	}
-	if _, err := f.s.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
+	if _, err := fixtureDB(f.s).ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
 		t.Fatal("revising used the retired proposal table")
 	}
 }
@@ -161,7 +161,7 @@ func TestOwnersWordsPublishTheDraftInOneStep(t *testing.T) {
 	if len(f.ops.executed) != 1 || f.ops.executed[0].Operation != "author.publish" || f.ops.executed[0].Arguments["id"] != "conversation-discord:3:nl-exec:abc" || !strings.HasPrefix(f.ops.executed[0].OperationKey, "owner-action:") {
 		t.Fatalf("publish not run once on the owner's words: %+v", f.ops.executed)
 	}
-	if _, err := f.s.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
+	if _, err := fixtureDB(f.s).ReadNaturalDialogue(t.Context(), "discord", "7", "3"); err == nil {
 		t.Fatal("publication used the retired proposal table")
 	}
 }

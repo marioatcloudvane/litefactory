@@ -6,11 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 func conversationEvidenceTarget(args map[string]string) string {
@@ -30,7 +30,7 @@ func conversationEvidenceTarget(args map[string]string) string {
 
 // decodeConversationEvidence adds factory presentation metadata to retained
 // prerequisite records. Their result bytes and capture identity remain saved data.
-func decodeConversationEvidence(x store.ConversationExchange) (conversationReadResult, error) {
+func decodeConversationEvidence(x messagingstate.ConversationExchange) (conversationReadResult, error) {
 	var result conversationReadResult
 	if err := json.Unmarshal([]byte(x.Result), &result); err != nil {
 		return result, fmt.Errorf("invalid saved evidence: %w", err)
@@ -83,7 +83,7 @@ func (s *Service) currentConversationFacts(ctx context.Context, turnID string) (
 	return facts, nil
 }
 
-func (s *Service) saveConversationPresentation(ctx context.Context, t store.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, intent ...string) error {
+func (s *Service) saveConversationPresentation(ctx context.Context, t messagingstate.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, intent ...string) error {
 	return s.saveConversationAnswer(ctx, t, state, blocks, protected, at, conversationAnswerProvider, intent...)
 }
 
@@ -98,7 +98,7 @@ const (
 	conversationAnswerFresh
 )
 
-func (s *Service) saveConversationAnswer(ctx context.Context, t store.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, kind conversationAnswerKind, intent ...string) error {
+func (s *Service) saveConversationAnswer(ctx context.Context, t messagingstate.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, kind conversationAnswerKind, intent ...string) error {
 	var identity [16]byte
 	if _, err := rand.Read(identity[:]); err != nil {
 		return err
@@ -149,10 +149,10 @@ func (s *Service) saveConversationAnswer(ctx context.Context, t store.Conversati
 	if err != nil {
 		return err
 	}
-	answer := store.ConversationAnswer{ID: id, TurnID: t.ID, Blocks: string(encoded), Version: 1}
-	parts := make([]store.ConversationAnswerPart, len(rendered))
+	answer := messagingstate.ConversationAnswer{ID: id, TurnID: t.ID, Blocks: string(encoded), Version: 1}
+	parts := make([]messagingstate.ConversationAnswerPart, len(rendered))
 	for i, part := range rendered {
-		parts[i] = store.ConversationAnswerPart{Text: part.Content}
+		parts[i] = messagingstate.ConversationAnswerPart{Text: part.Content}
 		if part.Protected {
 			answer.ProposalPart = i + 1
 		}

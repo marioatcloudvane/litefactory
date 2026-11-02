@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factory/localanalysis"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/loganalysis"
 	"github.com/cloudvane/litefactory/internal/logevidence"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/standards"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 func newLogAnalysisCommand(action string) *Command {
@@ -86,12 +86,13 @@ func newLogAnalysisCommand(action string) *Command {
 				return err
 			}
 			svc := &loganalysis.Service{DB: rt.db, RunsRoot: rt.paths.RunsDir(), Executable: executable, Redactor: redact.New(redact.Options{Logger: env.Logger, Environ: os.Environ()})}
+			owned := localanalysis.New(rt.db, svc)
 			switch action {
 			case "list":
 				if limit < 1 || limit > 100 {
 					return Usagef(nil, "limit must be 1..100")
 				}
-				list, e := rt.db.ListLogAnalyses(ctx, cursor, limit)
+				list, e := owned.List(ctx, cursor, limit)
 				if e != nil {
 					return e
 				}
@@ -108,59 +109,34 @@ func newLogAnalysisCommand(action string) *Command {
 				if limit < 1 || limit > 100 || evidenceAfter < 0 {
 					return Usagef(nil, "invalid evidence page")
 				}
-				view, e := svc.Inspect(ctx, args[0], evidenceAfter, limit)
+				view, e := owned.Inspect(ctx, args[0], evidenceAfter, limit)
 				if e != nil {
 					return e
 				}
 				if asJSON {
 					return writeJSON(env, view)
 				}
-				var categories []standards.Category
-				if binding, be := rt.db.GetAnalystStandardsBinding(ctx, view.Invocation.ID); be == nil && len(binding.SnapshotBytes) > 0 {
-					var snap standards.Snapshot
-					if json.Unmarshal(binding.SnapshotBytes, &snap) == nil {
-						categories = snap.Categories
-					}
-				}
+				categories := owned.Categories(ctx, view.Invocation.ID)
 				_, e = io.WriteString(env.Stdout, renderLogAnalysis(view, categories))
 				return e
 			case "file":
 				// Retries filing for an accepted analysis; settled findings are skipped.
-				a, e := rt.db.GetLogAnalysis(ctx, args[0])
+				scope, e := owned.Scope(ctx, args[0])
 				if e != nil {
 					return e
 				}
-				var scope loganalysis.Scope
-				if e = json.Unmarshal(a.Scope, &scope); e != nil {
-					return e
-				}
 				configureLogFiling(ctx, env, rt, svc, scope.Request.RepositoryIDs)
-				if e = svc.FileFindings(ctx, a.ID); e != nil {
+				if e = owned.FileFindings(ctx, args[0]); e != nil {
 					return e
 				}
-				view, e := svc.Inspect(ctx, a.ID, 0, 1)
+				view, e := owned.Inspect(ctx, args[0], 0, 1)
 				if e != nil {
 					return e
 				}
 				_, e = io.WriteString(env.Stdout, renderLogAnalysis(view, nil))
 				return e
 			case "recover":
-				// Never relaunch a retained invocation. Only an expired retained deadline may be fenced.
-				a, e := rt.db.GetLogAnalysis(ctx, args[0])
-				if e != nil {
-					return e
-				}
-				var limits loganalysis.Limits
-				if e = json.Unmarshal(a.Limits, &limits); e != nil {
-					return e
-				}
-				if a.State == "running" && time.Now().Before(a.CreatedAt.Add(time.Duration(limits.Seconds)*time.Second)) {
-					return errors.New("analysis deadline has not expired; recovery cannot fence an active invocation")
-				}
-				if e = rt.db.InterruptLogAnalysis(ctx, a.ID, a.Generation, "incomplete", "orphaned invocation interrupted; no model relaunch or budget reset"); e != nil {
-					return e
-				}
-				view, e := svc.Inspect(ctx, a.ID, 0, 20)
+				view, e := owned.Recover(ctx, args[0])
 				if e != nil {
 					return e
 				}
@@ -170,18 +146,14 @@ func newLogAnalysisCommand(action string) *Command {
 				if e := json.Unmarshal([]byte(citation), &c); e != nil {
 					return Usagef(nil, "--citation must be exact retained citation JSON")
 				}
-				a, e := rt.db.GetLogAnalysis(ctx, args[0])
+				scope, e := owned.Scope(ctx, args[0])
 				if e != nil {
-					return e
-				}
-				var scope loganalysis.Scope
-				if e = json.Unmarshal(a.Scope, &scope); e != nil {
 					return e
 				}
 				if e = initializeLogCredentials(ctx, env, rt.db, rt.cfg, scope.Request.RepositoryIDs, svc.Redactor); e != nil {
 					return e
 				}
-				out, e := svc.Reread(ctx, args[0], c)
+				out, e := owned.Reread(ctx, args[0], c)
 				if e != nil {
 					return e
 				}
@@ -194,11 +166,11 @@ func newLogAnalysisCommand(action string) *Command {
 					if !ok || !valid || strings.Contains(name, "/") {
 						return Usagef(nil, "--repo requires registered forge:owner/name")
 					}
-					r, e := rt.db.GetRepoBySlug(ctx, forge, owner, name)
+					repositoryID, e := owned.RepositoryID(ctx, forge, owner, name)
 					if e != nil {
 						return e
 					}
-					q.RepositoryIDs = append(q.RepositoryIDs, r.ID)
+					q.RepositoryIDs = append(q.RepositoryIDs, repositoryID)
 				}
 				for _, s := range runs {
 					id, e := strconv.ParseInt(s, 10, 64)
@@ -236,7 +208,7 @@ func newLogAnalysisCommand(action string) *Command {
 					_, e := fmt.Fprintf(env.Stderr, "Saved analysis %s; inspect with standards analyze logs show %s\n", id, id)
 					return e
 				}
-				a, e := svc.Start(ctx, q)
+				a, e := owned.Start(ctx, q)
 				if a.ID != "" {
 					if asJSON {
 						err = writeJSON(env, a)
@@ -263,7 +235,7 @@ Known-secret redaction cannot remove every unknown secret or personal detail. Re
 
 // renderLogAnalysis shows a report for the owner: what was read, the
 // proposed standards as the agents would read them, and the other findings.
-func renderLogAnalysis(view loganalysis.Inspection, categories []standards.Category) string {
+func renderLogAnalysis(view localanalysis.Inspection, categories []standards.Category) string {
 	var b strings.Builder
 	a := view.Invocation
 	fmt.Fprintf(&b, "Analysis %s: %s / %s\nScope: %s\n", a.ID, a.State, a.Disposition, a.Scope)
@@ -327,10 +299,10 @@ func writeCitations(b *strings.Builder, citations []logevidence.Citation) {
 // renderFindings groups findings by who can fix them: Bugs for the project,
 // upstream reports for litefactory's maintainer and suggested changes to the
 // owner's own team, each with what the host did about it.
-func renderFindings(b *strings.Builder, view loganalysis.Inspection, report loganalysis.Report) {
+func renderFindings(b *strings.Builder, view localanalysis.Inspection, report loganalysis.Report) {
 	var scope loganalysis.Scope
 	_ = json.Unmarshal(view.Invocation.Scope, &scope)
-	filings := map[string]store.LogAnalysisFiling{}
+	filings := map[string]localanalysis.Filing{}
 	for _, f := range view.Filings {
 		filings[f.FindingKey] = f
 	}
@@ -349,8 +321,8 @@ func renderFindings(b *strings.Builder, view loganalysis.Inspection, report loga
 				b.WriteString("\n")
 			}
 			filing, recorded := filings[f.Key]
-			fmt.Fprintf(b, "\n- %s [%s, %s]\n  Status: %s\n", f.Title, f.Kind, f.Target, loganalysis.FindingStatus(view.Invocation.ID, scope, f, filing, recorded))
-			if recorded && filing.State != store.FilingFiled || !recorded && group.route == "upstream" && f.Existing == "" {
+			fmt.Fprintf(b, "\n- %s [%s, %s]\n  Status: %s\n", f.Title, f.Kind, f.Target, localanalysis.FindingStatus(view.Invocation.ID, scope, f, filing, recorded))
+			if recorded && filing.State != "filed" || !recorded && group.route == "upstream" && f.Existing == "" {
 				title, body := filing.Title, filing.Body
 				if !recorded {
 					title, body = loganalysis.IssueText(view.Invocation.ID, f, nil, nil)

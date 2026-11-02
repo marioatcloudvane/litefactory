@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/factory/localusage"
 )
 
 func TestMeterRecoveryPreparedApplyAndReplay(t *testing.T) {
@@ -51,43 +51,28 @@ func TestMeterRecoveryPreparedApplyAndReplay(t *testing.T) {
 	if err := f.db.FinishMeterAttempt(t.Context(), attempt.ID, "success", "partial", "0.153.4", "exec-jsonl+rollout-token-usage-record-v1", nil); err != nil {
 		t.Fatal(err)
 	}
-	reader, err := store.OpenMeterReader(t.Context(), config.NewPaths(f.home).DBPath())
+	recovery := localusage.NewRecovery(config.NewPaths(f.home).DBPath())
+	request := localusage.RecoveryRequest{Project: "acme/api", Issue: 73, Attempt: attempt.ID}
+	preview, err := recovery.Recover(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := reader.Close(); err != nil {
-			t.Error(err)
-		}
-	}()
-	prepared, err := prepareMeterRecovery(t.Context(), reader, home, attempt.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(prepared.unresolved) != 0 || len(prepared.batch.Observations) != 1 || len(prepared.batch.Invocations) != 1 {
-		t.Fatalf("prepared %+v", prepared)
-	}
-	preview, err := reader.RecoverMeterUsage(t.Context(), prepared.batch, false, reconcileRecovery)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if preview.Applied || preview.AddedObservations != 1 {
+	if preview.Applied || preview.AddedObservations != 1 || len(preview.Unresolved) != 0 {
 		t.Fatalf("preview %+v", preview)
 	}
-	if err = prepared.evidence.Revalidate(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = f.db.RecoverMeterUsage(t.Context(), prepared.batch, true, reconcileRecovery); err != nil {
-		t.Fatal(err)
-	}
-	fresh, err := prepareMeterRecovery(t.Context(), reader, home, attempt.ID)
+	request.Apply = true
+	applied, err := recovery.Recover(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	replay, err := f.db.RecoverMeterUsage(t.Context(), fresh.batch, true, reconcileRecovery)
+	if !applied.Applied || applied.AddedObservations != 1 {
+		t.Fatalf("apply %+v", applied)
+	}
+	replay, err := recovery.Recover(t.Context(), request)
 	if err != nil || replay.AddedObservations != 0 {
 		t.Fatalf("replay %+v: %v", replay, err)
 	}
+
 	for _, apply := range []bool{false, true} {
 		args := []string{"meter", "recover", "acme/api", "73", "--attempt", attempt.ID}
 		if apply {

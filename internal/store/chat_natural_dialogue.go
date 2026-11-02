@@ -5,23 +5,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"time"
 )
 
 // NaturalDialogue is the single current protected proposal or clarification.
-type NaturalDialogue struct {
-	Transport, OwnerID, ChannelRef, State, SourceID, Payload, Digest, Code, PromptID string
-	Revision                                                                         int64
-	ExpiresAt, UpdatedAt                                                             time.Time
-}
+type NaturalDialogue = messagingstate.NaturalDialogue
 
 // NaturalExecution owns the immutable invocation and recovery identity.
-type NaturalExecution struct {
-	Identity, Transport, OwnerID, ChannelRef, Payload, State, Outcome string
-	Revision                                                          int64
-	CreatedAt, FinishedAt                                             time.Time
-}
+type NaturalExecution = messagingstate.NaturalExecution
 
 func scanNaturalDialogue(row scanner) (NaturalDialogue, error) {
 	var d NaturalDialogue

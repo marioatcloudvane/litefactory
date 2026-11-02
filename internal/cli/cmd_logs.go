@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factory/localadmin"
 	"github.com/cloudvane/litefactory/internal/logreader"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -266,7 +267,7 @@ func runLogs(ctx context.Context, env *Env, cmd *Command, opts logsOptions, issu
 	case opts.follow:
 		// A run that has already finished stops at end of file instead of
 		// waiting for events that will never come (AC-5.6).
-		return tailLog(ctx, sink, path, followInterval, run.Status != store.RunRunning)
+		return tailLog(ctx, sink, path, followInterval, run.Status != "running")
 	case opts.raw && grep == nil:
 		// The unfiltered raw view is a byte-for-byte copy and nothing else
 		// (AC-5.5); filtering it necessarily goes line by line instead.
@@ -282,7 +283,7 @@ func runLogs(ctx context.Context, env *Env, cmd *Command, opts logsOptions, issu
 // This is the answer to "show me the logs". The summary is four lines of
 // context — how it went, how long it took, what it cost — and then the events
 // themselves, rather than a path to a JSON file to go and read elsewhere.
-func writeRun(out io.Writer, target logTarget, run store.Run, path string, sink logSink, opts logsOptions) error {
+func writeRun(out io.Writer, target logTarget, run localadmin.LogRun, path string, sink logSink, opts logsOptions) error {
 	summarise := !opts.raw && !opts.filtering()
 	if summarise {
 		if err := writeRunSummary(out, target, run); err != nil {
@@ -316,8 +317,8 @@ func writeRun(out io.Writer, target logTarget, run store.Run, path string, sink 
 // logTarget is everything `logs` needs from the database: the task, its runs,
 // and the ref its files are stored under.
 type logTarget struct {
-	session store.Session
-	runs    []store.Run
+	session localadmin.LogTask
+	runs    []localadmin.LogRun
 	ref     naming.Ref
 	home    string
 }
@@ -330,52 +331,28 @@ type logTarget struct {
 // connection open across it for no reason would be the one way this read-only
 // command could interfere with the daemon.
 func loadLogTarget(ctx context.Context, paths config.Paths, issue int, owner, name string) (_ logTarget, err error) {
-	db, err := store.Open(ctx, paths.DBPath())
-	if err != nil {
-		return logTarget{}, err
-	}
-	defer func() {
-		if cerr := db.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
-	}()
-
-	session, err := db.FindSessionByIssue(ctx, issue, owner, name)
-	if err != nil {
-		return logTarget{}, err
-	}
-	ref, err := naming.ParseRef(session.TaskRef)
-	if err != nil {
-		return logTarget{}, fmt.Errorf("task %s: %w", session.TaskRef, err)
-	}
-	// ListRuns orders by ordinal, so the slice is oldest first and newest last
-	// — the order the listing prints and the order the newest run is picked
-	// from (AC-5.1).
-	runs, err := db.ListRuns(ctx, session.ID)
-	if err != nil {
-		return logTarget{}, err
-	}
-	return logTarget{session: session, runs: runs, ref: ref, home: paths.Home()}, nil
+	view, err := localadmin.InspectLogs(ctx, paths, issue, owner, name)
+	return logTarget{session: view.Session, runs: view.Runs, ref: view.Ref, home: paths.Home()}, err
 }
 
 // logPath is where a run's event stream lives. The path recorded on the row
 // wins, because that is the file the run actually wrote; deriving it is the
 // fallback for a row that carries none.
-func (t logTarget) logPath(run store.Run) (string, error) {
-	return logreader.ResolvePath(t.home, t.session.TaskRef, run)
+func (t logTarget) logPath(run localadmin.LogRun) (string, error) {
+	return localadmin.ResolveLogPath(t.home, t.session.TaskRef, run)
 }
 
 // metaPath is where a run's NNNN.meta.json lives. It is derived rather than
 // stored: it is the sibling of the event stream under the same ordinal stem.
-func (t logTarget) metaPath(run store.Run) (string, error) {
+func (t logTarget) metaPath(run localadmin.LogRun) (string, error) {
 	return naming.RunMetaPath(t.home, t.ref, run.Ordinal)
 }
 
 // selectRun picks the run to show: the one named by --run, or the newest when
 // the flag was omitted.
-func selectRun(runs []store.Run, ordinal, issue int) (store.Run, error) {
+func selectRun(runs []localadmin.LogRun, ordinal, issue int) (localadmin.LogRun, error) {
 	if len(runs) == 0 {
-		return store.Run{}, fmt.Errorf("issue %d has no runs yet", issue)
+		return localadmin.LogRun{}, fmt.Errorf("issue %d has no runs yet", issue)
 	}
 	if ordinal == 0 {
 		return runs[len(runs)-1], nil
@@ -385,7 +362,7 @@ func selectRun(runs []store.Run, ordinal, issue int) (store.Run, error) {
 			return run, nil
 		}
 	}
-	return store.Run{}, fmt.Errorf("issue %d has no run %d: it has runs %d to %d",
+	return localadmin.LogRun{}, fmt.Errorf("issue %d has no run %d: it has runs %d to %d",
 		issue, ordinal, runs[0].Ordinal, runs[len(runs)-1].Ordinal)
 }
 
@@ -484,7 +461,7 @@ type field struct {
 // speak, because the row is written transactionally and the metadata file is
 // best-effort on abnormal termination (S-3); the file supplies what the row
 // does not carry.
-func writeRunSummary(out io.Writer, target logTarget, run store.Run) error {
+func writeRunSummary(out io.Writer, target logTarget, run localadmin.LogRun) error {
 	stem, err := naming.FormatRunOrdinal(run.Ordinal)
 	if err != nil {
 		return err
@@ -507,7 +484,7 @@ func writeRunSummary(out io.Writer, target logTarget, run store.Run) error {
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, f := range []field{
-		{"status", string(run.Status)},
+		{"status", run.Status},
 		{"exit code", logsExitCode(run)},
 		{"error", firstNonEmpty(run.Error, meta.Error)},
 		{"mode", firstNonEmpty(run.Mode, meta.Mode)},
@@ -904,14 +881,14 @@ func parseRepoFlag(cmd *Command, value string) (owner, name string, err error) {
 // column here, a dash there — not a package-wide convention.
 const noValue = "-"
 
-func logsExitCode(run store.Run) string {
+func logsExitCode(run localadmin.LogRun) string {
 	if run.ExitCode == nil {
 		return noValue
 	}
 	return strconv.FormatInt(*run.ExitCode, 10)
 }
 
-func logsDuration(run store.Run) string {
+func logsDuration(run localadmin.LogRun) string {
 	d, ok := run.Duration()
 	if !ok {
 		return noValue

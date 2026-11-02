@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"io"
 	"strings"
 	"time"
@@ -89,15 +90,15 @@ func Hash(title, body string) string {
 }
 
 // Marker returns the exact hidden line searched before every create attempt.
-func Marker(p store.ChatIssuePreview) string { return MarkerPrefix + p.ID + " -->" }
+func Marker(p messagingstate.ChatIssuePreview) string { return MarkerPrefix + p.ID + " -->" }
 
 // IssueBody appends only the fixed marker and timestamped chat origin footer.
-func IssueBody(p store.ChatIssuePreview) string {
+func IssueBody(p messagingstate.ChatIssuePreview) string {
 	return p.Body + "\n\n" + Marker(p) + "\nCreated from chat at " + p.CreatedAt.UTC().Format(time.RFC3339) + "."
 }
 
 // Render refuses an oversized full preview rather than shortening confirmed text.
-func Render(p store.ChatIssuePreview, project string) (string, error) {
+func Render(p messagingstate.ChatIssuePreview, project string) (string, error) {
 	text := "Project: " + project + "\nTitle: " + p.Title + "\n\n" + p.Body + "\n\nConfirm separately with /confirm code:" + p.Code + " within 24 hours."
 	if len(utf16.Encode([]rune(text))) > 2000 {
 		return "", errors.New("preview does not fit one message")
@@ -107,9 +108,9 @@ func Render(p store.ChatIssuePreview, project string) (string, error) {
 
 // PreviewStore is limited to preview state; the drafter cannot create issues.
 type PreviewStore interface {
-	CurrentChatIssuePreview(context.Context, string, string) (store.ChatIssuePreview, error)
-	ChatIssuePreviewForMessage(context.Context, string, string) (store.ChatIssuePreview, error)
-	SaveChatIssuePreview(context.Context, store.ChatIssuePreview) error
+	CurrentChatIssuePreview(context.Context, string, string) (messagingstate.ChatIssuePreview, error)
+	ChatIssuePreviewForMessage(context.Context, string, string) (messagingstate.ChatIssuePreview, error)
+	SaveChatIssuePreview(context.Context, messagingstate.ChatIssuePreview) error
 }
 
 // Drafter reuses the read-only project catalog, live history and isolated model.
@@ -234,7 +235,7 @@ func (d *Drafter) Reply(ctx context.Context, transport, channel, message, projec
 			presentation.Assess(ctx, presentation.Refusal)
 			return "Please clarify: " + draft.Clarification, repo.ID, nil
 		}
-		var p store.ChatIssuePreview
+		var p messagingstate.ChatIssuePreview
 		if e == nil {
 			p, e = d.preview(ctx, draft, transport, channel, message, repo.ID, at)
 		}
@@ -256,8 +257,8 @@ func (d *Drafter) Reply(ctx context.Context, transport, channel, message, projec
 	return "Could not build a clear draft. Please describe the idea more briefly.", repo.ID, nil
 }
 
-func (d *Drafter) preview(ctx context.Context, draft Draft, transport, channel, message string, repoID int64, at time.Time) (store.ChatIssuePreview, error) {
-	p := store.ChatIssuePreview{Transport: transport, ChannelRef: channel, SourceMessageID: message, RepoID: repoID, CreatedAt: at, ExpiresAt: at.Add(24 * time.Hour)}
+func (d *Drafter) preview(ctx context.Context, draft Draft, transport, channel, message string, repoID int64, at time.Time) (messagingstate.ChatIssuePreview, error) {
+	p := messagingstate.ChatIssuePreview{Transport: transport, ChannelRef: channel, SourceMessageID: message, RepoID: repoID, CreatedAt: at, ExpiresAt: at.Add(24 * time.Hour)}
 	summary, problem, wanted := Sanitize(draft.Summary), Sanitize(draft.Problem), Sanitize(draft.Wanted)
 	if summary == "" || problem == "" || wanted == "" {
 		return p, errors.New("empty protected section")

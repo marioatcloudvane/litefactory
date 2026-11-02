@@ -1,0 +1,260 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "AI;DR: The architecture keeps one in-process factory owner and the existing database, with bounded operations for CLI, Discord and remote access. Review the technical decisions; acceptance planning still follows.\n\nReuse covers the existing workflow, owner-action, advisory, ticket and execution services. The key change moves factory resolution out of messaging and preserves compound database updates behind owned interfaces. Local CLI operations remain usable with the daemon stopped. Live-attempt authority stays separate from remote consent.\n\nProvider limits are explicit: existing delivery recovery is preserved, but indefinite exactly-once delivery is not promised. No state migration is planned. This is a source-backed design, not implementation or compatibility proof. No owner-only question remains. After the complete Plan passes its remaining owner gates, the next mode requires `/implement <instruction>`.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "03e8e000a39cd5faf56bc3c734a8da1a2d9f17a4c194244a08a49dd8c9f87152",
+          "changed_sections": [
+            "architecture",
+            "guidance"
+          ],
+          "draft": {
+            "key": "story-001",
+            "name": "Establish factory core ownership for existing consumers",
+            "user_story": {
+              "actor": "factory operator and repository owner",
+              "want": "the operator CLI, Discord and remote owner access to use one owner for existing factory decisions and saved work",
+              "benefit": "the same commands, permissions and recovery behavior hold whichever supported entry point I use",
+              "notes": [
+                "Covers: O-01, O-02, O-03, O-04, O-05, O-06, O-07, O-08, O-09, O-10, O-11, O-12, O-13, O-14, O-15, O-16, O-17, O-18, O-19.",
+                "Work mode: refactor (S-01). Existing behavior is the compatibility baseline; this story changes ownership rather than adding capabilities.",
+                "Assumption (AS-01): retain one repository, one Go module, coordinated releases and an in-process core. Exact package boundaries and operation signatures remain technical-stage decisions.",
+                "Assumption (AS-02): existing consented remote actions, advisory jobs and discussion publication remain in scope; the older read-only description does not describe current behavior.",
+                "Assumption (AS-03): existing physical storage remains the default. No required state migration has been established; any unavoidable conversion must retain compatibility and a usable recovery route.",
+                "Assumption (AS-04): Research establishes scope and observed source behavior, not completed compatibility or live-upgrade proof. No owner-only intent question remains."
+              ]
+            },
+            "problem": "Factory decisions and saved work are currently handled across several entry points. Moving one path can leave another using different rules or accessing the same saved state directly. Operators need one consistent owner for those decisions without losing familiar commands, ticket routing, approval requirements or the ability to recover pending work after an interruption.",
+            "in_scope": [
+              "Give existing admission, scheduling, workflow and owner gates, repository connections, workspaces, recovery, standards, teams, rights and usage operations one factory owner, using the existing neutral execution capability.",
+              "Make every current CLI command use owned operations for factory decisions and durable changes. Preserve arguments, defaults, output, exit status, side effects and daemon requirements, including installation, configuration and service lifecycle operations while the daemon is stopped.",
+              "Integrate existing Discord and remote owner consumers with bounded operations and purpose-specific views of health, activity, task and code evidence, usage, owner actions, advisory jobs and publication. Consumers must not bypass factory rules or directly access factory persistence.",
+              "Keep factory ownership of workflow state, schedules, locks, attempts, results, publication intent, recovery, retained connections, captures and binding owner decisions. Retain messaging ownership of conversation sessions, channel bindings and delivery acknowledgments, and remote connector ownership of authentication, consent grants and protocol sessions.",
+              "Preserve all-or-nothing updates across ownership boundaries, ordering, retries and protection against duplicate effects. Shared physical storage is allowed without giving consumers unrestricted access to its tables.",
+              "Have core enforce existing operation, repository, workflow and owner permissions using verified identities and current grants, before effects and at existing permission rechecks. Retain the distinct live-attempt authority and receipt-recovery path.",
+              "Use provider-qualified ticket, actor and reply identities for GitHub and Linear discovery, owner replies, managed stories and result publication. Limit ticket cleanup to what the consumer integration needs, retaining owned compatibility bridges where needed.",
+              "Retire each replaced consumer path for factory policy and saved-state access once its replacement is integrated. Keep the deployment usable through the transition and avoid leaving a second owner for the same factory policy.",
+              "Keep ordinary GitHub and Linear ticket work usable from intake through execution, owner response, durable result receipt and publication recovery with both optional transports disabled. Operations that require Discord approval retain that requirement.",
+              "Preserve startup and recovery using pre-change state with pending work and deliveries, retained ticket/code routing, managed-story behavior, grant revocation, attempt limits, scheduling, competing locks and interrupted-run and delivery retry behavior.",
+              "Retain the complete registered CLI behavior inventory and existing compatibility coverage as the refactor baseline, including currently uncovered behavior before it moves. Maintain component ownership, compatibility-bridge, CLI availability and recovery documentation; affected suites and the repository full check remain completion obligations."
+            ],
+            "not_in_scope": [
+              "K-01 — Preserve observable commands, stopped-daemon local operations, approvals, permissions, qualified ticket identity, retained ticket/code routing and separate ticket approval versus GitHub code-delivery authority. (owner said: issue #1269 supplied scope)",
+              "K-02 — Preserve live attempt descriptors/broker authority and receipts, locks, interrupted-run recovery, delivery retries, worktree isolation and immutable team captures; include compatibility and recovery for any state migration. (owner said: issue #1269 supplied scope)",
+              "N-01 — No new providers, user features, remote authority, network API, independent CLI versions, standalone ticket service or comprehensive ticket rewrite; separate processes and multi-host operation are follow-up scope. (owner said: issue #1269 supplied scope)",
+              "K-03 — Preserve existing consented remote reads, actions, advisory jobs and discussion publication, including current grant separation, approval channels, revocation and paid-execution semantics. (agent's call)",
+              "K-04 — Disabling Discord never substitutes another approval channel or authorizes operations that currently require Discord approval, even though ordinary ticket workflows must remain usable. (agent's call)",
+              "K-05 — Keep current schema and serialized identities, connection versions, authorization generations, capture digests and pending-delivery records unchanged unless a required conversion carries compatibility and recovery proof. (agent's call)",
+              "K-06 — Each integrated extraction leaves a usable deployment and preserves existing transaction, ordering, retry and duplicate-effect protections without a second policy owner. (agent's call)",
+              "N-02 — No complete relocation of daemon or turn packages, physical database split, package-layout cleanup unrelated to the contracts, or removal of all internal legacy ticket representations is required. (agent's call)",
+              "N-03 — New behavior discovered during extraction is separate work rather than an incidental change in this refactor. (agent's call)",
+              "N-04 — Full transport extraction, new approval alternatives and new remote capabilities are excluded from this milestone. (agent's call)"
+            ],
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "owner-report",
+              "go"
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Boundary and dependency direction",
+                  "decision": "Add an internal factory application boundary, with a dependency-light contracts package for shared request/view values. Keep existing domain services as core-owned implementations; the application boundary must not call messaging or connector to resolve factory policy. Daemon remains the lifecycle/composition host, while its admission, scheduling and recovery decisions are exposed as owned runtime operations.",
+                  "rationale": "Current policy spans daemon, turn and messaging.OwnerActionDomain. A facade that delegates decisions back to transport handlers would leave two owners. One module and in-process calls meet AS-01 without a new network API."
+                },
+                {
+                  "area": "Reuse and execution independence",
+                  "decision": "Reuse internal/turn, durableworkflow, stagedecision, owneraction, taskdiscussion, projectconnection, standards/team/rights/meter capabilities and pkg/execution. Move only policy or access needed to establish the boundary. Keep factory action registration, graph interpretation, authorization, captures and result validation above pkg/execution.",
+                  "rationale": "Existing packages already own these rules; duplicating them would change recovery and permissions. docs/execution.md and Research F-01/F-02 establish the neutral library boundary."
+                },
+                {
+                  "area": "CLI compatibility and local operation",
+                  "decision": "Keep internal/cli/commands.go as the registration source and handlers responsible for parsing, rendering and exit mapping. Route each factory operation to a focused service, including installation/configuration, lifecycle, repository/webhook/subscription management, standards, teams, rights, cleanup, doctor, usage and recovery. Local service composition must remain available without starting the daemon; retain each command's existing availability rule.",
+                  "rationale": "Commands() is broader than runtime work. cmd_init.go creates state locally and cmd_task.go currently mixes database/Git effects in the handler. Moving everything to a daemon client would violate K-01."
+                },
+                {
+                  "area": "Logical storage ownership",
+                  "decision": "Retain the existing physical database, schema and serializers. Hide *store.DB and store rows behind concrete private adapters with narrow methods and owned value types. A consumer must receive neither an unrestricted database nor an interface that simply reproduces its table API. Connector authorization and messaging storage each receive only their own persistence port.",
+                  "rationale": "Research F-10/F-15 and store/conversations.go show shared storage with cross-owner invariants. Physical separation is unnecessary and would make atomic updates harder."
+                },
+                {
+                  "area": "Atomic cross-owner operations",
+                  "decision": "Keep compound operations in one existing database transaction inside a trusted persistence coordinator: conversation creation plus immutable capture; provider replacement plus checks for pending work/actions; reply acknowledgment plus ordered part/turn completion; owner-action outcome plus queued notices; grant/generation checks plus action/advisory admission; report acknowledgment plus run/watermark update. Expose purpose-specific methods, never caller-controlled transaction callbacks or SQL handles.",
+                  "rationale": "Splitting these into successive service writes would introduce partial commits and revocation races. Preserve existing conditional updates, uniqueness constraints and lock boundaries; network calls remain outside database transactions."
+                },
+                {
+                  "area": "Authority and principal provenance",
+                  "decision": "Transport composition supplies verified actors and grant references separately from request arguments. Core resolves current owner generation, grant scope and repository coverage through a narrow authority reader, and preserves transactional/effect-time rechecks. Preserve distinct local operator, authenticated ticket owner, Discord owner, remote grantee and live-attempt authority paths; none implicitly upgrades another.",
+                  "rationale": "owneraction.Principal is trusted composition input, not tool input; store/owner_actions.go and owner_action_effects.go enforce current authority. Authentication alone is not workflow approval, and stale cached grants cannot authorize an effect."
+                },
+                {
+                  "area": "Existing remote behavior",
+                  "decision": "Reuse the owneraction lifecycle, stagedecision, durableworkflow and taskdiscussion services behind bounded interfaces. Preserve separately consented overview, task/code evidence, usage, repository actions, standards management, advisory execution and discussion publication. Move OwnerActionDomain target resolution/recheck/execute/recover out of messaging into a core-owned adapter, retaining exact protected payload encoding for pending proposals.",
+                  "rationale": "connector/server.go advertises all these surfaces, and messaging/owner_actions.go currently owns domain resolution. Reads alone would narrow K-03; changing proposal encodings could strand saved actions."
+                },
+                {
+                  "area": "Optional transports and startup",
+                  "decision": "Construct ordinary ticket intake, workflow execution, receipt handling and publication recovery independently of Discord and remote connector setup. Disabled transports contribute no listeners or credentials to those paths. Keep Discord-required actions unavailable or pending under their existing rules; no substitute approval channel. Preserve existing enabled-but-invalid connector startup failures and shutdown behavior.",
+                  "rationale": "prepareChat and prepareRemoteConnector already have disabled branches. Moving ownership must not make disabled adapters prerequisites or silently change their configured failure semantics."
+                },
+                {
+                  "area": "Concurrency and failure",
+                  "decision": "Preserve daemon in-flight/worker limits, durable task locks, run uniqueness, clone gates, reservation limits and interrupted-run reconciliation. Keep task locks across the existing unit of work and clone gates around short Git mutations only. Carry context cancellation and explicit errors across service calls; preserve domain refusals versus infrastructure failure. After uncertain external effects, recover existing receipts/state instead of treating cancellation as proof that nothing happened.",
+                  "rationale": "internal/turn/doc.go describes the concurrency and report transaction contracts. In-process services must remain safe across competing processes sharing existing storage, without claiming multi-host support."
+                },
+                {
+                  "area": "Ticket and code identity",
+                  "decision": "Reuse ticket.Ref, Identity, Actor, Reply and Cursor, qualified by provider, trusted API origin and immutable remote ID. Contracts for discovery, owner responses, managed stories and publication use those values; projectconnection retains separate Tickets and Code access. Confine github.Comment conversion, Linear local slots and legacy forge fallback to core-owned compatibility bridges with explicit retained routing.",
+                  "rationale": "projectconnection/tickets.go and daemon/ticket_reads.go expose remaining legacy shapes. Descriptive issue numbers/handles must never become authority or replace saved connection versions; ticket approval remains distinct from code delivery permission."
+                },
+                {
+                  "area": "External guarantees and limits",
+                  "decision": "Preserve provider-specific pagination, authenticated delivery lookup, cursors and backoff; do not infer global event ordering or exactly-once effects. GitHub documents retry/reset handling and reuse of X-GitHub-Delivery on redelivery; Linear documents RATELIMITED and Retry-After. Keep these decisions in existing provider adapters and core recovery rather than generic transport retries.",
+                  "rationale": "Checked 2026-11-02 against [GitHub REST guidance](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api), [GitHub webhook guidance](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks) and [Linear rate limits](https://linear.app/developers/rate-limiting), plus internal/github/errors.go and internal/linear/client_test.go. These sources do not establish indefinite idempotency or uninterrupted delivery. Keep existing retry bounds; provider-policy changes are separate work."
+                },
+                {
+                  "area": "Discord delivery limit",
+                  "decision": "Retain stable enforced nonces, persisted delivery metadata, per-channel ordering and existing retry/pause behavior. Preserve the stricter owner-approval rule: only confirmed delivery supplies approval-message identity; ambiguous sends authorize nothing, and only an explicit retryable refusal permits that approval-send retry. Ordinary messages can still duplicate after a long uncertain outage, as today.",
+                  "rationale": "[Discord Create Message](https://docs.discord.com/developers/resources/message#create-message) limits nonce uniqueness checks to the past few minutes; internal/messaging/discord/adapter.go:269 explicitly records this limitation. K-06 preserves existing protection, not an unavailable indefinite exactly-once guarantee. No outcome is narrowed."
+                },
+                {
+                  "area": "Refactor safety and transition",
+                  "decision": "Following S-01, establish the registered CLI behavior inventory and characterize uncovered K-01–K-06 behavior before moving it. Then introduce contracts and private adapters, route one complete operation family through its core owner, integrate each consumer and retire the replaced policy/direct-storage path in that same extraction. Retained bridges perform translation only, with named ownership and removal conditions.",
+                  "rationale": "The supplied L size reflects authority and recovery risk. A big-bang relocation or indefinite parallel implementation adds risk without serving the intent. Existing CLI, broker, owner-action, ticket and restart tests are reusable safety assets, not completed proof."
+                },
+                {
+                  "area": "Compatibility and recovery",
+                  "decision": "No state migration is planned. Exercise startup against retained pre-change pending attempts, workflows, actions, advisory jobs and deliveries. Retain schema, wire identities, captures, digests, connection versions and authorization generations. Recovery remains stop/drain under existing process ownership, use compatible previous code against unchanged state, then resume existing reconciliation; never delete pending records to recover.",
+                  "rationale": "K-02/K-05 and docs/execution.md support unchanged-state rollback as the design, not demonstrated upgrade proof. If implementation discovers an unavoidable conversion, return its compatibility/recovery design for review before changing state."
+                },
+                {
+                  "area": "Shared edits and ordering",
+                  "decision": "Shared surfaces are CLI Commands()/constructors; daemon Setup and chat/remote/action composition; projectconnection.TicketClient; messaging/connector interfaces; store transaction adapters; configuration wiring; Makefile race selections if concurrency moves; docs/execution.md, docs/cli/command-reference.md, docs/guides/remote-connector.md, docs/guides/mcp.md, docs/guides/scheduling.md, docs/project-connections.md and docs/operations/recovery.md. Schema/migrations and serialized formats are protected surfaces, not planned edits.",
+                  "rationale": "The captured set has one story, so no independent in-set merge collision or set dependency revision exists. Research identifies later transport extractions #1270/#1271: propose that those follow-ups depend on this story's contract changes before editing the same composition/docs surfaces. Their current plans/order are not supplied; this proposal changes neither issue nor dependency authority."
+                },
+                {
+                  "area": "Standards and guidance",
+                  "decision": "Apply owner-report and go. No agent role/skill/graph behavior change is needed, so agent-setup is not selected. Preserve captured workflows, human gates and result schemas. Any necessary agent-behavior instruction belongs in agent/skill markdown, not new Go prose. Do not add markdown wording/hash pins; test loaders, validation and observable behavior instead.",
+                  "rationale": "Both published standards were read. Existing Go-side guidance violations observed in internal/harness/prompt.go:450, 457, 463, 468, 514, 758 and 770 are recorded for the operator; this refactor does not silently relocate them. Existing product capture digest checks remain legitimate."
+                },
+                {
+                  "area": "Evidence and remaining assumptions",
+                  "decision": "This design uses the supplied Research brief/findings and source inspection at commit 761decda48817a1d19c07cbbe4622a7c1141b280. AS-01–AS-04 remain applicable; no owner-only architecture choice remains. Optional data, service and solution sections are included because ownership, cross-store relationships and interface collaboration are the actual scope; there is no frontend design.",
+                  "rationale": "No implementation, migration rehearsal, live-provider check or compatibility suite was run in this technical stage. Acceptance owns tasks and criteria, including affected suites, boundary checks, disabled-transport paths and make check."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Factory task → workflow/session → run/attempt → result/receipt/publication",
+                  "definition": "Existing factory-owned records and relationships, including schedules, task/clone locks, owner waits, retained ticket/code connections and immutable captures.",
+                  "constraints": "Keep existing identities, revisions, uniqueness and serializers. A durable receipt is not external publication; pending publication remains recoverable without another paid run."
+                },
+                {
+                  "entity": "Conversation → binding/capture → ordered turns → answer parts/delivery acknowledgment",
+                  "definition": "Messaging owns conversation/session/channel and delivery metadata; core supplies capture validation and current factory work/action fences through compound persistence operations.",
+                  "constraints": "EnsureConversationWithCapture and provider-switch drain checks remain atomic. Earliest unresolved work blocks only its channel; acknowledgment completes the correct attempt/part and final turn together. Captures cannot change on rename or concurrent creation loss."
+                },
+                {
+                  "entity": "Connector principal/grant → authorized core operation",
+                  "definition": "Connector owns client authentication, grants, protocol sessions and revocation generations. Core owns decisions and durable work admitted under that evidence.",
+                  "constraints": "Keep current owner generation and separate repository/read/action/advisory/publication coverage. Core's authority check uses the same transaction as admission wherever it does today, preserving revocation races and current effect fences."
+                },
+                {
+                  "entity": "Owner action/advisory job → frozen target/capture → effect/notice/publication",
+                  "definition": "Existing owneraction, taskdiscussion and workflow records remain core-owned, including request keys, protected facts, execution IDs, result and recovery state.",
+                  "constraints": "Same identity plus same request returns existing work; changed protected facts conflict. Preserve serialized payload shapes even when code moves out of messaging. Paid advisory execution and discussion publication keep separate authority."
+                },
+                {
+                  "entity": "Ticket and actor/reply reference → retained project connection/code binding",
+                  "definition": "Provider, trusted origin and immutable remote ID are the authority-bearing tuple; locators are descriptive. Existing Linear slots and GitHub-shaped persisted values remain behind compatibility bridges.",
+                  "constraints": "Reject origin/provider/target mismatches; never reinterpret old IDs or choose a newer connection merely because current configuration changed. No new tables or physical database split."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "internal/factory/contracts and focused application services",
+                  "responsibility": "Own bounded operation requests/results and purpose-specific views; coordinate existing domain services and authorization. Separate local administration from runtime scheduling without duplicating policy.",
+                  "access": "Contracts import only neutral values such as ticket identifiers, not daemon, messaging, connector or store. Application implementations can use existing core domain services; consumers receive only required interfaces."
+                },
+                {
+                  "component": "Daemon composition/runtime driver and existing turn engine",
+                  "responsibility": "Compose clocks, providers, storage adapters, worker pools, cancellation and optional transports. Drive core admission/schedule/recovery operations and existing turn execution.",
+                  "access": "May wire implementations in the composition root, but must not expose Daemon or turn options as a consumer API. Existing turn mechanics remain internal; no wholesale package relocation is required."
+                },
+                {
+                  "component": "Owned persistence adapters and compound transaction coordinator",
+                  "responsibility": "Implement factory, messaging and connector persistence ports over existing store methods; keep cross-owner transactions indivisible.",
+                  "access": "Only trusted implementations hold *store.DB. Consumer-facing request/view types never expose store rows, SQL, unrestricted transaction callbacks or arbitrary filters. Narrow authority reads can join connector grants with core admission inside storage."
+                },
+                {
+                  "component": "CLI adapter and local administration services",
+                  "responsibility": "CLI parses/renders; owned services perform initialization, configuration writes, lifecycle, cleanup and other domain effects using existing packages.",
+                  "access": "CLI composition can open/close dependencies and bind the local control host, but handlers must not issue factory database calls or make Git/state policy decisions. No daemon RPC is introduced."
+                },
+                {
+                  "component": "Messaging/Discord consumer",
+                  "responsibility": "Keep transport authentication, conversation management, channel bindings, command presentation and delivery acknowledgment. Read factory views and invoke bounded core commands.",
+                  "access": "Replace FactoryStatus store mapping and factory-policy portions of OwnerActionDomain/natural resolvers with core operations. Receive a messaging persistence port plus core services; no general factory store access."
+                },
+                {
+                  "component": "Remote owner connector consumer",
+                  "responsibility": "Retain OAuth/authentication, consent, protocol/session and own grant management; delegate authorized reads, actions, advisory jobs and publication.",
+                  "access": "Replace connector.Options.DB with narrow connector-owned storage/authority dependencies and focused core interfaces. Do not expose concrete workflow orchestrators, broker backends or submission authority."
+                },
+                {
+                  "component": "Ticket/provider adapters and compatibility bridges",
+                  "responsibility": "Use projectconnection client construction and existing GitHub/Linear adapters for discovery, replies, managed stories and publication; bridge legacy internal values only where needed.",
+                  "access": "Consumer-defined narrow operations use ticket values. Adapters keep paging, retry interpretation and provider credentials; core pins connection versions, publisher identity, routing and separate code authority."
+                },
+                {
+                  "component": "Live-attempt submission broker and stdio adapter",
+                  "responsibility": "Retain descriptor/socket capability validation, allowed method/story scope, preflight, submit, durable receipt and correlation journal.",
+                  "access": "CLI helpers and mcpadapter delegate to existing submission.Call/broker. Core owns application result handling; remote connector credentials/grants never grant this capability."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Operation contract",
+                  "contract": "Each focused operation accepts context, trusted principal evidence and a typed bounded request; it returns a purpose-specific result or explicit error/refusal. Preserve existing request key, target revision and receipt conventions on operations that already use them. Resolve, recheck, execute and recover remain distinct for owner actions.",
+                  "rationale": "An unrestricted Execute(name, arbitrary payload), store facade or returned service object would bypass the intended boundary. Do not invent request identities for legacy commands that never had them."
+                },
+                {
+                  "element": "Read views",
+                  "contract": "Expose health/activity, owner waits, task evidence, retained code evidence and usage as bounded snapshots/pages with existing redaction, coverage, revision/freshness and cursor rules. Apply current repository/scope authorization before lookup/disclosure and at existing later-page checks; unknown usage remains unknown rather than zero.",
+                  "rationale": "Reuse connector OverviewProvider/TaskEvidenceProvider/CodeEvidenceProvider/UsageProvider and messaging StatusReader contracts where suitable, replacing store-coupled values without expanding visibility."
+                },
+                {
+                  "element": "Compound persistence contracts",
+                  "contract": "Use semantic methods equivalent to ensure conversation with capture and drain fence, claim/finish ordered reply, admit authorized action/job, queue action outcome with notices and record reported run with watermark. Their implementations retain existing transactions and compare-and-update guards; no service commits half of a compound operation.",
+                  "rationale": "store/conversations.go, conversation_delivery.go, owner_action_notices.go and owner_actions.go identify concrete transaction seams. Logical ownership must not become asynchronous cross-database coordination."
+                },
+                {
+                  "element": "Recovery sequence",
+                  "contract": "Restore durable due times, retained routing and locks at startup; reconcile interrupted/uncertain work before new admission as today. Claim existing pending work under its fences; check receipts/remote evidence for uncertain delivery; retry only the existing permitted step; record confirmed acknowledgment atomically. Retain pending/failed/uncertain distinctions if evidence is unavailable.",
+                  "rationale": "daemon/report_recovery.go and submission/client.go already separate lost replies, receipts and publication. Restart cannot imply success or authorize a second execution."
+                },
+                {
+                  "element": "Consumer cutover and bridge retirement",
+                  "contract": "For each operation family, move current policy into its owned implementation, wire CLI/Discord/remote callers to it, then remove replaced consumer branches and factory-table access. Preserve a bridge only for serializer compatibility or host wiring, document its owner/purpose/removal condition, and prohibit a fallback to the old policy after a new service refusal.",
+                  "rationale": "This keeps each integrated extraction usable and prevents two policy owners. Remaining daemon/turn code is acceptable only as core implementation/runtime mechanics, not an alternate consumer path."
+                },
+                {
+                  "element": "Boundary and compatibility evidence for acceptance shaping",
+                  "contract": "Characterize the full registered command surface before moving uncovered behavior; reuse existing local-process, authority, transaction rollback/race and restart fixtures. Check consumers' production dependencies/access seams, core independence from optional transports and pkg/execution independence from factory internals. Exercise both ticket providers with transports disabled and retained pending state.",
+                  "rationale": "Research F-11/F-17 lists reusable assets. Check behavior and dependency ownership, not source wording or mere wrapper invocation; a fake's nonce behavior cannot prove indefinite provider deduplication. Tasks and criterion IDs remain acceptance-stage work."
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

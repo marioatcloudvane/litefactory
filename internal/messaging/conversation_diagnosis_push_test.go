@@ -18,7 +18,7 @@ func TestConversationDiagnosisPushedOnceAndKeptAsContext(t *testing.T) {
 	run, at := factoryUnitRun(t, provider, code)
 	ctx := t.Context()
 	run.s.EnableResearch(&factoryUnitDiagnosis{}, nil)
-	repo, err := run.s.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
+	repo, err := fixtureDB(run.s).UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,26 +28,26 @@ func TestConversationDiagnosisPushedOnceAndKeptAsContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	dialogue := store.NaturalDialogue{Transport: "discord", OwnerID: "1", ChannelRef: "2", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: encoded, Digest: digest, Code: code, ExpiresAt: at.Add(time.Minute), UpdatedAt: at}
-	if err = run.s.db.SaveNaturalDialogue(ctx, dialogue, 0); err != nil {
+	if err = fixtureDB(run.s).SaveNaturalDialogue(ctx, dialogue, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err = run.s.db.BindNaturalPrompt(ctx, dialogue, "delivered-proposal"); err != nil {
+	if err = fixtureDB(run.s).BindNaturalPrompt(ctx, dialogue, "delivered-proposal"); err != nil {
 		t.Fatal(err)
 	}
-	if err = run.s.db.SaveConversationSession(ctx, run.t, "unit-session"); err != nil {
+	if err = fixtureDB(run.s).SaveConversationSession(ctx, run.t, "unit-session"); err != nil {
 		t.Fatal(err)
 	}
 	run.c.SessionHandle = "unit-session"
 	// This is retained work admitted under the previous policy, not a new
 	// pending proposal. Seed its durable admission and existing worker queue.
 	reply := store.ChatReply{Transport: "discord", ChannelRef: "2", MessageID: "nl-exec:" + code, Command: "diagnose", Arguments: payload.Invocation.Arguments, CreatedAt: at}
-	if err = run.s.db.AuthorizeConversationDialogue(ctx, run.t, dialogue, run.t.SourceID, reply, at); err != nil {
+	if err = fixtureDB(run.s).AuthorizeConversationDialogue(ctx, run.t, dialogue, run.t.SourceID, reply, at); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = run.s.db.StartConversationActionReply(ctx, run.t, reply, at); err != nil {
+	if _, err = fixtureDB(run.s).StartConversationActionReply(ctx, run.t, reply, at); err != nil {
 		t.Fatal(err)
 	}
-	if err = run.s.db.StartNaturalExecution(ctx, reply.MessageID, at); err != nil {
+	if err = fixtureDB(run.s).StartNaturalExecution(ctx, reply.MessageID, at); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = run.s.diagnose(ctx, Message{Transport: "discord", Channel: "2", ID: reply.MessageID, Sender: "1", Command: "diagnose", Arguments: payload.Invocation.Arguments}, at); !errors.Is(err, errDeferredDiagnosis) {
@@ -57,29 +57,29 @@ func TestConversationDiagnosisPushedOnceAndKeptAsContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queued, err := run.s.db.ClaimConversationReply(ctx, "discord", at)
+	queued, err := fixtureDB(run.s).ClaimConversationReply(ctx, "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(queued.ReplyText, "as soon as it's ready") {
 		t.Fatalf("queued reply %q", queued.ReplyText)
 	}
-	if err = run.s.db.FinishConversationReply(ctx, queued, "queue-notice", at); err != nil {
+	if err = fixtureDB(run.s).FinishConversationReply(ctx, queued, "queue-notice", at); err != nil {
 		t.Fatal(err)
 	}
-	action, err := run.s.db.ClaimChatDiagnosis(ctx, "discord", at)
+	action, err := fixtureDB(run.s).ClaimChatDiagnosis(ctx, "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
 	const saved = "Findings: the current task is waiting on the owner."
-	if err = run.s.db.CompleteChatDiagnosisResult(ctx, "discord", action.MessageID, action.AnswerAttempts, saved, at, "success"); err != nil {
+	if err = fixtureDB(run.s).CompleteChatDiagnosisResult(ctx, "discord", action.MessageID, action.AnswerAttempts, saved, at, "success"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Two sweeps, the second by a restarted service, find the same result.
-	restarted := New(run.s.db, "discord", "1", []string{"2"}, nil, FactoryStatus{DB: run.s.db})
+	restarted := New(fixtureDB(run.s), "discord", "1", []string{"2"}, nil, FactoryStatus{DB: fixtureDB(run.s)})
 	for _, s := range []*Service{run.s, run.s, restarted} {
-		results, err := s.db.ListConversationDiagnosisResults(ctx, "discord", 16)
+		results, err := fixtureDB(s).ListConversationDiagnosisResults(ctx, "discord", 16)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,27 +89,27 @@ func TestConversationDiagnosisPushedOnceAndKeptAsContext(t *testing.T) {
 			}
 		}
 	}
-	notice, err := run.s.db.ClaimChatNotice(ctx, "discord", at)
+	notice, err := fixtureDB(run.s).ClaimChatNotice(ctx, "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if notice.ChannelRef != "2" || notice.MessageID != "diagnosis:"+action.MessageID+":0001" || !strings.Contains(notice.ReplyText, "the current task is waiting on the owner.") {
 		t.Fatalf("pushed notice %+v", notice)
 	}
-	if err = run.s.db.FinishChatNotice(ctx, notice, false, at); err != nil {
+	if err = fixtureDB(run.s).FinishChatNotice(ctx, notice, false, at); err != nil {
 		t.Fatal(err)
 	}
-	if extra, err := run.s.db.ClaimChatNotice(ctx, "discord", at.Add(time.Hour)); !errors.Is(err, store.ErrNotFound) {
+	if extra, err := fixtureDB(run.s).ClaimChatNotice(ctx, "discord", at.Add(time.Hour)); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("result posted twice: %+v %v", extra, err)
 	}
-	row, err := run.s.db.ReadChatReply(ctx, "discord", action.MessageID)
+	row, err := fixtureDB(run.s).ReadChatReply(ctx, "discord", action.MessageID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if row.State != "confirmed" || row.FinishedAt.IsZero() {
 		t.Fatalf("inbox row not finished: %+v", row)
 	}
-	execution, err := run.s.db.ReadNaturalExecution(ctx, action.MessageID)
+	execution, err := fixtureDB(run.s).ReadNaturalExecution(ctx, action.MessageID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,17 +118,17 @@ func TestConversationDiagnosisPushedOnceAndKeptAsContext(t *testing.T) {
 	}
 
 	// The owner's next message sees the result as context, once.
-	scan, err := run.s.db.ReadNaturalScan(ctx, "2")
+	scan, err := fixtureDB(run.s).ReadNaturalScan(ctx, "2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = run.s.db.StageNaturalScan(ctx, scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: "102"}, []store.NaturalMessage{{ChannelRef: "2", SourceID: "102", OwnerID: "1", Text: "Thanks", CreatedAt: at}}, true); err != nil {
+	if err = fixtureDB(run.s).StageNaturalScan(ctx, scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: "102"}, []store.NaturalMessage{{ChannelRef: "2", SourceID: "102", OwnerID: "1", Text: "Thanks", CreatedAt: at}}, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = run.s.db.AdmitConversationTurn(ctx, run.c.ID, "102", "protected followup", at); err != nil {
+	if _, err = fixtureDB(run.s).AdmitConversationTurn(ctx, run.c.ID, "102", "protected followup", at); err != nil {
 		t.Fatal(err)
 	}
-	next, err := run.s.db.ClaimConversationTurn(ctx, run.c.ID, "unit-worker", at, time.Minute)
+	next, err := fixtureDB(run.s).ClaimConversationTurn(ctx, run.c.ID, "unit-worker", at, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,11 +138,11 @@ func TestConversationDiagnosisPushedOnceAndKeptAsContext(t *testing.T) {
 	if provider.calls != 1 || !strings.Contains(provider.prompts[0], saved) || !strings.Contains(provider.prompts[0], "Already posted") {
 		t.Fatalf("next turn context calls=%d", provider.calls)
 	}
-	link, err := run.s.db.GetConversationActionLink(ctx, run.t.ID)
+	link, err := fixtureDB(run.s).GetConversationActionLink(ctx, run.t.ID)
 	if err != nil || link.Outcome != saved {
 		t.Fatalf("saved link %+v %v", link, err)
 	}
-	pending, err := run.s.db.ListPendingConversationActionOutcomes(ctx, run.c.ID)
+	pending, err := fixtureDB(run.s).ListPendingConversationActionOutcomes(ctx, run.c.ID)
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("outcome eligible again: %+v %v", pending, err)
 	}

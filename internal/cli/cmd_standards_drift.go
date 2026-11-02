@@ -12,16 +12,14 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/drift"
+	"github.com/cloudvane/litefactory/internal/factory/localstandards"
 	"github.com/cloudvane/litefactory/internal/git"
-	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
-	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
-type driftConfigurator func(context.Context, *drift.Service, *repoRuntime, *Env, drift.Request) error
+type driftConfigurator func(context.Context, *localstandards.Drift, *repoRuntime, *Env, drift.Request) error
 
 type driftRepeated []string
 
@@ -74,14 +72,15 @@ func newStandardsDriftCommand(configure driftConfigurator) *Command {
 				return err
 			}
 			defer func() { err = errors.Join(err, rt.close()) }()
-			service := &drift.Service{Store: rt.db, OnCreated: func(a store.DriftAnalysis) error {
+			service := localstandards.NewDrift(rt.db)
+			service.OnCreated(func(a localstandards.DriftAnalysis) error {
 				out := env.Stdout
 				if asJSON {
 					out = env.Stderr
 				}
 				_, e := fmt.Fprintf(out, "Analysis: %s\n", a.ID)
 				return e
-			}}
+			})
 			if configure != nil {
 				if err = configure(ctx, service, rt, env, request); err != nil {
 					return err
@@ -136,9 +135,10 @@ func newStandardsAnalysisCommand(action string) *Command {
 				return err
 			}
 			defer func() { err = errors.Join(err, rt.close()) }()
+			service := localstandards.NewDrift(rt.db)
 			switch action {
 			case "list":
-				rows, e := rt.db.ListDriftAnalyses(ctx, repo, offset, limit)
+				rows, e := service.List(ctx, repo, offset, limit)
 				if e != nil {
 					return e
 				}
@@ -153,11 +153,11 @@ func newStandardsAnalysisCommand(action string) *Command {
 				return nil
 			case "show", "expire-evidence":
 				if action == "expire-evidence" {
-					if e := (&drift.Service{Store: rt.db}).ExpireEvidence(ctx, args[0]); e != nil {
+					if e := service.ExpireEvidence(ctx, args[0]); e != nil {
 						return e
 					}
 				}
-				view, e := (&drift.Service{Store: rt.db}).Inspect(ctx, args[0])
+				view, e := service.Inspect(ctx, args[0])
 				if e != nil {
 					return e
 				}
@@ -169,11 +169,8 @@ func newStandardsAnalysisCommand(action string) *Command {
 				}
 				return writeRunStandardsText(env.Stdout, view.Standards)
 			case "evidence":
-				if _, e := rt.db.GetDriftAnalysis(ctx, args[0]); e != nil {
-					return e
-				}
 				if evidenceID != "" {
-					row, e := rt.db.GetDriftEvidence(ctx, args[0], evidenceID)
+					row, e := service.Evidence(ctx, args[0], evidenceID)
 					if e != nil {
 						return e
 					}
@@ -182,7 +179,7 @@ func newStandardsAnalysisCommand(action string) *Command {
 					}
 					return writeDriftEvidenceText(env.Stdout, row)
 				}
-				rows, e := rt.db.ListDriftEvidence(ctx, args[0], offset, limit)
+				rows, e := service.EvidencePage(ctx, args[0], offset, limit)
 				if e != nil {
 					return e
 				}
@@ -202,7 +199,7 @@ func newStandardsAnalysisCommand(action string) *Command {
 	return c
 }
 
-func writeDriftAnalysisText(out io.Writer, a store.DriftAnalysis) error {
+func writeDriftAnalysisText(out io.Writer, a localstandards.DriftAnalysis) error {
 	_, err := fmt.Fprintf(out, "Analysis: %s\nRepository: %s\nExecution: %s\nFinding disposition: %s\nReason: %s\nRequested scope: %s\nPinned sources: %s\nStandards context: %s\nCoverage: %s\nLimits: %+v\nUsage: %+v\nLaunch provenance: %s\nOffered evidence ranges: %+v\nReport: %s\n", a.ID, a.Repository, a.Execution, a.Disposition, a.Reason, a.Scope, a.Pinned, a.Standards, a.Coverage, a.Limits, a.Usage, a.Provenance, a.Offers, a.Report)
 	if err != nil {
 		return err
@@ -214,31 +211,33 @@ func writeDriftAnalysisText(out io.Writer, a store.DriftAnalysis) error {
 	}
 	return nil
 }
-func writeDriftEvidenceText(out io.Writer, e store.DriftEvidence) error {
+func writeDriftEvidenceText(out io.Writer, e localstandards.DriftEvidence) error {
 	_, err := fmt.Fprintf(out, "Evidence: %s (%s)\nLocator: %s\nDigest: %s\nRedaction: %s\nOmission: %s\nMetadata: %s\n%s\n", e.ID, e.Kind, e.Locator, e.Digest, e.RedactionPolicy, e.Omission, e.Metadata, e.Text)
 	return err
 }
 
 const driftUsage = `Analyze the net changes between two explicit local commits and selected same-repository issue bodies/comments. No fetch, checkout, linked-source expansion or automatic restart occurs. Scope, retained standards, sanitized evidence, offered ranges, gaps, budgets and exact unapproved proposal versions remain inspectable. Discussion is an observation interval, not an atomic snapshot or exhaustive history. Unsupported provider isolation refuses launch. Reuse the same key and unchanged request to recover; after interruption inspect the retained identity before starting anew. Disabled MCP and unsupported configured providers refuse launch. Provider gaps and retry timing remain visible; no remote read is automatically retried. Proposals require separate human review, approval and publication.`
 
-func configureDriftCLI(ctx context.Context, service *drift.Service, rt *repoRuntime, env *Env, request drift.Request) error {
+func configureDriftCLI(ctx context.Context, service *localstandards.Drift, rt *repoRuntime, env *Env, request drift.Request) error {
 	owner, name, err := parseRepoFlag(nil, request.Repository)
 	if err != nil {
 		return err
 	}
-	repo, err := rt.db.GetRepoBySlug(ctx, store.ForgeGitHub, owner, name)
-	if err != nil {
-		return Preconditionf("registered repository required: %v", err)
+	if err = service.SelectRepository(ctx, owner, name); err != nil {
+		var missing *localstandards.RegisteredRepositoryRequired
+		if errors.As(err, &missing) {
+			return Preconditionf("registered repository required: %v", missing.Err)
+		}
+		return err
 	}
 	binary, err := git.Resolve(ctx)
 	if err != nil {
 		return err
 	}
 	redactor := redact.New(redact.Options{Logger: env.Logger, Environ: os.Environ()})
-	service.Acquisition = &drift.Acquirer{Store: rt.db, Git: binary, ClonePath: repo.Path, Repo: github.Repo{Owner: owner, Name: name}, Redactor: redactor}
 	cfg := rt.cfg
 	if !cfg.Settings.MCPAutoStart {
-		service.LaunchRefusal = "MCP automatic startup is disabled; drift analyst launch refused"
+		service.ConfigureRunner(nil, "MCP automatic startup is disabled; drift analyst launch refused")
 	}
 	ref, configured := secrets.ReferenceFrom(cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
 	var token secrets.Token
@@ -246,16 +245,12 @@ func configureDriftCLI(ctx context.Context, service *drift.Service, rt *repoRunt
 		token, _ = (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, ref)
 		redactor.AddToken(token)
 	}
-	factory := projectconnection.NewFactory(projectconnection.Options{DB: rt.db, Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: redactor, LegacyReference: ref, LegacyToken: token})
-	if version, e := rt.db.CurrentConnection(ctx, repo.ID, store.TicketConnection); e == nil {
-		if clients, e := factory.Clients(ctx, version, 0); e == nil {
-			service.Acquisition.Discussion = clients.Code
+	if err = service.ConfigureSource(ctx, owner, name, localstandards.DriftSourceOptions{Git: binary, Redactor: redactor, Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, LegacyReference: ref, LegacyToken: token, GitHubAPIBase: cfg.Providers.GitHub.APIBase}); err != nil {
+		var missing *localstandards.RegisteredRepositoryRequired
+		if errors.As(err, &missing) {
+			return Preconditionf("registered repository required: %v", missing.Err)
 		}
-	} else if errors.Is(e, store.ErrNotFound) && !token.Empty() {
-		client, e := github.New(github.Options{Token: token, APIBase: cfg.Providers.GitHub.APIBase, Redactor: redactor, Logger: env.Logger})
-		if e == nil {
-			service.Acquisition.Discussion = client
-		}
+		return err
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -266,7 +261,7 @@ func configureDriftCLI(ctx context.Context, service *drift.Service, rt *repoRunt
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
 		runner, e := harness.New(harness.Options{Paths: rt.paths, Claude: *cfg.Agents.Claude, Model: model, Environ: os.Environ(), Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if e == nil {
-			service.Runner = &drift.Provider{Runner: runner, Model: model, Directory: os.TempDir(), Executable: executable}
+			service.ConfigureRunner(&drift.Provider{Runner: runner, Model: model, Directory: os.TempDir(), Executable: executable}, "")
 		}
 	}
 	return nil

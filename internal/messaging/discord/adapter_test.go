@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"io"
 	"log/slog"
 	"net/http"
@@ -108,7 +110,7 @@ func TestOwnerCommands(t *testing.T) {
 	}))
 	defer api.Close()
 	adapter := discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("bot-secret"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
-	service := messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
+	service := messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "2", []string{"3"}, adapter, factory.NewHealth(db))
 	handler := adapter.Handler(service)
 	if err := adapter.Register(ctx); err != nil {
 		t.Fatal(err)
@@ -169,7 +171,7 @@ func TestOwnerCommands(t *testing.T) {
 	db = open()
 	at = at.Add(10 * time.Second)
 	adapter = discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("bot-secret"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
-	service = messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
+	service = messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "2", []string{"3"}, adapter, factory.NewHealth(db))
 	runStep(true)
 	runStep(false)
 	if len(sent) != 3 || nonce == "" || routes[2] != "/channels/3/messages" {
@@ -297,7 +299,7 @@ func TestDeferredEdit(t *testing.T) {
 			defer api.Close()
 			now := at
 			adapter := discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("bot-secret"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return now }})
-			service := messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
+			service := messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "2", []string{"3"}, adapter, factory.NewHealth(db))
 			var logs bytes.Buffer
 			service.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
 			w := signed(t, adapter.Handler(service), private, at, body("10", "3", "2", "details"))
@@ -402,7 +404,7 @@ func TestRefusedEditLogged(t *testing.T) {
 			}))
 			defer api.Close()
 			adapter := discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("bot-secret"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
-			service := messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
+			service := messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "2", []string{"3"}, adapter, factory.NewHealth(db))
 			var logs bytes.Buffer
 			service.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
 			w := signed(t, adapter.Handler(service), private, at, body("10", "3", "2", "details"))

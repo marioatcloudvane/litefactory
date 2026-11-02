@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"maps"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/factory/owneractions"
+	"github.com/cloudvane/litefactory/internal/owneraction"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // StandardsOperations is the shared domain adapter. Requests carry host-owned
@@ -47,22 +52,11 @@ type StandardsRecovery interface {
 	Recover(context.Context, StandardsRequest) (StandardsResult, bool, error)
 }
 
-// StandardsRequest identifies one exact retained operation.
-type StandardsRequest struct {
-	Operation                                              string
-	Arguments                                              map[string]string
-	Transport, OwnerID, ChannelID, MessageID, OperationKey string
-	At                                                     time.Time
-}
+// StandardsRequest and StandardsResult retain the existing adapter contract.
+type StandardsRequest = owneractions.StandardsRequest
 
-// StandardsResult contains factual domain output and factory-issued targets.
-type StandardsResult struct {
-	Status string
-
-	Text        string
-	References  map[string]string
-	Interrupted bool
-}
+// StandardsResult retains the factual standards adapter output.
+type StandardsResult = owneractions.StandardsResult
 
 // EnableStandards installs the typed adapter before conversation workers start.
 func (s *Service) EnableStandards(operations StandardsOperations) {
@@ -94,29 +88,9 @@ func (s *Service) EnableStandards(operations StandardsOperations) {
 	}
 }
 
-func standardsCommand(command string) bool {
-	return command == "standards" || strings.HasPrefix(command, "standards-")
-}
-
+func standardsCommand(command string) bool { return owneractions.StandardsCommand(command) }
 func standardsOperation(inv Invocation) (string, error) {
-	action := inv.Arguments["action"]
-	if inv.Command != "standards" {
-		action = strings.TrimPrefix(inv.Command, "standards-") + "." + action
-	}
-	allowed := "book.current book.history book.categories book.standards book.show author.list author.inspect author.start author.answer author.revise author.edit author.continue author.validate author.complete author.rebase author.publish proposal.list proposal.inspect proposal.review proposal.edit proposal.approve proposal.publish exception.propose exception.show exception.list exception.approve exception.revoke analysis.start analysis.list analysis.show operation.show"
-	if inv.Command == "standards" && (action == "discover" || action == "help") {
-		return "discover", nil
-	}
-	for _, op := range strings.Fields(allowed) {
-		if op != action {
-			continue
-		}
-		read := strings.HasPrefix(op, "book.") || strings.HasSuffix(op, ".inspect") || strings.HasSuffix(op, ".review") || strings.HasSuffix(op, ".show") || strings.HasSuffix(op, ".list")
-		if read == (inv.Command == "standards") {
-			return op, nil
-		}
-	}
-	return "", errors.New("standards action is unavailable; ask “show available standards operations” here to inspect supported actions")
+	return owneractions.StandardsOperation(owneraction.Invocation{Command: inv.Command, Arguments: inv.Arguments})
 }
 
 func (s *Service) standardsRequest(inv Invocation, channel, message string, at time.Time) (StandardsRequest, error) {
@@ -129,42 +103,7 @@ func standardsDiscovery() string {
 }
 
 func standardsMissingTerms(op string, args map[string]string) string {
-	var required []string
-	switch op {
-	case "author.start":
-		required = []string{"intent"}
-	case "author.answer", "author.revise", "author.publish":
-		// The session defaults to this conversation's; the text is the
-		// owner's own words (for publish: the words that say to publish).
-		required = []string{"text"}
-	case "proposal.edit":
-		required = []string{"id", "version"}
-	case "proposal.approve", "proposal.publish":
-		required = []string{"id", "version", "digest"}
-	case "exception.approve":
-		required = []string{"id", "digest"}
-	case "exception.revoke":
-		required = []string{"id", "reason"}
-	case "exception.propose":
-		if args["request"] == "" {
-			required = []string{"book_revision", "standard_id", "repository_id", "task_ref", "departure", "reason", "expires_at"}
-		}
-	case "analysis.start":
-		if args["repository_id"] == "" {
-			required = append(required, "project")
-		}
-		required = append(required, "after", "before")
-	}
-	var missing []string
-	for _, field := range required {
-		if strings.TrimSpace(args[field]) == "" {
-			missing = append(missing, field)
-		}
-	}
-	if len(missing) > 0 {
-		return "Please specify the exact standards terms before changing state: " + strings.Join(missing, ", ") + "."
-	}
-	return ""
+	return owneractions.StandardsMissingTerms(op, args)
 }
 
 // standardsProposeGap is why a standards change proposal cannot run as given,
@@ -281,8 +220,8 @@ func (r *factoryConversationRun) lookupStandards(ctx context.Context, inv Invoca
 	case "discover":
 		output.Text = standardsDiscovery()
 	case "operation.show":
-		var receipt store.StandardsConversationOperation
-		receipt, err = r.s.db.GetStandardsConversationOperation(ctx, request.Arguments["id"])
+		var receipt contracts.StandardsConversationOperation
+		receipt, err = r.s.factory.StandardsOperation(ctx, request.Arguments["id"])
 		if err == nil && (receipt.OwnerID != r.s.owner || receipt.ChannelID != r.c.ChannelRef || receipt.Transport != r.s.transport) {
 			err = store.ErrNotFound
 		}
@@ -317,14 +256,14 @@ func (r *factoryConversationRun) saveStandardsReference(ctx context.Context, arg
 	if err != nil {
 		return nil, err
 	}
-	ref := store.ConversationReference{ID: r.t.ID + "-standards-" + fmt.Sprint(r.ordinal), TurnID: r.t.ID, Kind: "standards", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+	ref := messagingstate.ConversationReference{ID: r.t.ID + "-standards-" + fmt.Sprint(r.ordinal), TurnID: r.t.ID, Kind: "standards", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
 	if err = r.s.db.SaveConversationReference(ctx, r.t, ref); err != nil {
 		return nil, err
 	}
 	return &ConversationReference{ID: ref.ID, OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: r.t.ID, ExpiresAt: ref.ExpiresAt, Arguments: maps.Clone(args)}, nil
 }
 
-func (s *Service) recoverStandardsConversationAction(ctx context.Context, t store.ConversationTurn, at time.Time) error {
+func (s *Service) recoverStandardsConversationAction(ctx context.Context, t messagingstate.ConversationTurn, at time.Time) error {
 	recovery, ok := s.standards.(StandardsRecovery)
 	if !ok {
 		return nil

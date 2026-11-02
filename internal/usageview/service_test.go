@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/connector"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -93,7 +94,7 @@ func TestRecordedUsageSanitizedUnknownAndBoundedAcquisition(t *testing.T) {
 	}
 	reader := &boundedUsageReader{db: db}
 	service := New(reader, redact.New(redact.Options{Environ: []string{}}))
-	projection, err := service.Usage(ctx, connector.UsageRequest{Filter: store.MeterFilter{}, View: "details"})
+	projection, err := service.Usage(ctx, connector.UsageRequest{Filter: contracts.UsageFilter{}, View: "details"})
 	if err != nil {
 		t.Fatal(err)
 	}

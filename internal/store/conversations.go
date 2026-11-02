@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"time"
 )
 
@@ -13,13 +14,7 @@ import (
 var ErrConversationDrain = errors.New("conversation provider change requires drain")
 
 // Conversation is a durable channel binding. Its name is a label, never a path.
-type Conversation struct {
-	ID, Transport, ChannelRef, OwnerID, Name, Provider, SessionHandle, StateDir, HealthReason string
-	Revision, NextSequence                                                                    int64
-	// FreshAfter is the sequence of the owner's last fresh-conversation turn; 0 means never.
-	FreshAfter             int64
-	Active, DeliveryPaused bool
-}
+type Conversation = messagingstate.Conversation
 
 const conversationColumns = `id,transport,channel_ref,owner_id,name,provider,session_handle,state_dir,health_reason,revision,next_sequence,active,delivery_paused,fresh_after`
 

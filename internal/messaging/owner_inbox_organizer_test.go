@@ -80,7 +80,7 @@ func TestInboxOrganizerFailureFinalizesCompleteFallbackOnce(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			run, _ := factoryUnitRun(t, &factoryUnitProvider{})
 			ctx := t.Context()
-			db := run.s.db
+			db := fixtureDB(run.s)
 			repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Owner: "owner", Name: "fallback", Forge: "github", BaseBranch: "main"})
 			if err != nil {
 				t.Fatal(err)

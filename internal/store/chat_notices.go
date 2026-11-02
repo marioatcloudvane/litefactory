@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"time"
 
@@ -13,13 +15,7 @@ import (
 
 // NoticePosition keeps unresolved mutable records as well as the allocation
 // watermark. Finishes and publication may arrive out of allocation order.
-type NoticePosition struct {
-	Source                      string
-	LastID, InitialID, Revision int64
-	Pending                     []int64
-	InitialAt                   time.Time
-	Seen                        map[string]string
-}
+type NoticePosition = contracts.NoticePosition
 
 // NoticeRecord projects existing factory facts; it contains no chat decisions.
 type NoticeRecord struct {
@@ -369,14 +365,7 @@ func insertChatNotices(ctx context.Context, tx *sql.Tx, transport string, notice
 }
 
 // ChatNotice shares the reply delivery state without an interaction handle.
-type ChatNotice struct {
-	ChatReply
-	TaskRef string
-	// After names a confirmed conversation action (its execution identity):
-	// the notice waits until the conversation has posted that confirmation,
-	// for at most noticeHold.
-	After string
-}
+type ChatNotice = messagingstate.ChatNotice
 
 // noticeHold bounds how long a notice waits for its conversation confirmation,
 // so a paused conversation never keeps a result from the owner.

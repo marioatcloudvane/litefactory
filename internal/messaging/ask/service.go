@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/redact"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // History is ephemeral and newest first. Unavailable readers are optional.
@@ -47,7 +47,7 @@ type Service struct {
 // Prepared is ephemeral read-only context. The inbox worker can retain the
 // resolved repository ID before invoking the model, but never stores this value.
 type Prepared struct {
-	Repository store.Repo
+	Repository contracts.Project
 	Bundle     Bundle
 	History    History
 	Options    RenderOptions

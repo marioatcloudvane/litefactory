@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/cloudvane/litefactory/internal/connector"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -43,11 +43,11 @@ func New(db *store.DB, binary *git.Binary, r *redact.Redactor, now func() time.T
 
 // Evidence acquires complete bounded sources before disclosure. Tokens and live
 // grant checks belong to the connector, never to a project invocation cache.
-func (p *Provider) Evidence(ctx context.Context, t store.ConnectorCodeTarget, r connector.CodeEvidenceRequest) (connector.CodeEvidencePage, error) {
+func (p *Provider) Evidence(ctx context.Context, t store.ConnectorCodeTarget, r contracts.CodeEvidenceRequest) (contracts.CodeEvidencePage, error) {
 	local := *p
 	local.roots = append(slices.Clone(p.roots), t.ClonePath)
 	p = &local
-	out := connector.CodeEvidencePage{Pin: r.Pin, Items: []map[string]any{}, Sources: []map[string]any{}, Gaps: []string{}}
+	out := contracts.CodeEvidencePage{Pin: r.Pin, Items: []map[string]any{}, Sources: []map[string]any{}, Gaps: []string{}}
 	if p.redactor == nil || p.redactor.PolicyID() == "" || r.Offset < 0 || r.Limit < 1 || r.Limit > 50 {
 		return out, errors.New("invalid evidence request")
 	}
@@ -137,7 +137,7 @@ func (p *Provider) Evidence(ctx context.Context, t store.ConnectorCodeTarget, r 
 	}
 	return out, nil
 }
-func (p *Provider) book(ctx context.Context, r connector.CodeEvidenceRequest, out *connector.CodeEvidencePage) ([]map[string]any, error) {
+func (p *Provider) book(ctx context.Context, r contracts.CodeEvidenceRequest, out *contracts.CodeEvidencePage) ([]map[string]any, error) {
 	if out.Pin.BookRevision == 0 {
 		out.Gaps = append(out.Gaps, "published_book_unavailable_at_observation")
 		return nil, nil
@@ -179,7 +179,7 @@ func (p *Provider) book(ctx context.Context, r connector.CodeEvidenceRequest, ou
 	}
 	return items, nil
 }
-func (p *Provider) repository(ctx context.Context, t store.ConnectorCodeTarget, r connector.CodeEvidenceRequest, out *connector.CodeEvidencePage) ([]map[string]any, error) {
+func (p *Provider) repository(ctx context.Context, t store.ConnectorCodeTarget, r contracts.CodeEvidenceRequest, out *contracts.CodeEvidencePage) ([]map[string]any, error) {
 	commit, ref := out.Pin.TaskCommit, out.Pin.TaskRef
 	if r.Branch == "base" {
 		commit, ref = out.Pin.BaseCommit, out.Pin.BaseRef

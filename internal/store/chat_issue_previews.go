@@ -4,19 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"time"
 	"unicode/utf8"
 )
 
 // ChatIssuePreview holds only the protected preview and its short-lived outcome.
 // ClaimVersion fences stale workers; no transaction is held during forge I/O.
-type ChatIssuePreview struct {
-	ID, Transport, ChannelRef, SourceMessageID, LastConfirmMessageID, Code, ContentHash, Title, Body, State string
-	RepoID                                                                                                  int64
-	CreatedAt, ExpiresAt, LastAttemptAt, LeaseUntil, FinishedAt                                             time.Time
-	ClaimVersion, IssueNumber                                                                               int
-	IssueLink                                                                                               string
-}
+type ChatIssuePreview = messagingstate.ChatIssuePreview
 
 const previewColumns = `id,transport,channel_ref,source_message_id,last_confirm_message_id,code,content_hash,title,body,state,repo_id,created_at,expires_at,last_attempt_at,lease_until,finished_at,claim_version,issue_number,issue_link`
 

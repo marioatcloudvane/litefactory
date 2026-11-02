@@ -4,15 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"time"
 )
 
 // ConversationTurn journals the launch boundary and durable delivery identity.
-type ConversationTurn struct {
-	ID, ConversationID, SourceID, Source, ReplyTo, Prompt, State, Worker, ReplyID, DiscordMessageID string
-	Sequence, Generation                                                                            int64
-	LeaseUntil, CreatedAt, FinishedAt, DeliveredAt                                                  time.Time
-}
+type ConversationTurn = messagingstate.ConversationTurn
 
 const conversationTurnColumns = `id,conversation_id,source_id,source,reply_to,prompt,state,worker,reply_id,discord_message_id,sequence,generation,lease_until,created_at,finished_at,delivered_at`
 

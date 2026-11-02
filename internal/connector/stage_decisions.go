@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
 	"strconv"
@@ -150,13 +151,13 @@ func decisionDescription(name string) string {
 }
 
 func (s *Server) callDecision(ctx context.Context, credential, name string, a decisionArguments) (ToolResult, error) {
-	grant, err := s.db.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
-	if err != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
-		return ToolResult{}, store.ErrConnectorInvalid
+	grant, err := s.storage.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
+	if err != nil || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
+		return ToolResult{}, connectorstate.ErrConnectorInvalid
 	}
 	service := s.stageDecisions.Load()
 	if service == nil || !service.Ready() || !decisionGrant(grant) {
-		return ToolResult{}, store.ErrConnectorScope
+		return ToolResult{}, connectorstate.ErrConnectorScope
 	}
 	p := owneraction.Principal{OwnerID: strconv.FormatInt(grant.OwnerID, 10), OwnerGeneration: grant.OwnerGeneration, Transport: "mcp", ClientID: grant.ClientID, GrantID: grant.ID, ChannelID: a.DiscordChannelID}
 	var value any
@@ -173,14 +174,14 @@ func (s *Server) callDecision(ctx context.Context, credential, name string, a de
 	if err != nil {
 		return ToolResult{}, err
 	}
-	if _, err = s.db.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now()); err != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
-		return ToolResult{}, store.ErrConnectorInvalid
+	if _, err = s.storage.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now()); err != nil || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
+		return ToolResult{}, connectorstate.ErrConnectorInvalid
 	}
 	return actionResult(value)
 }
 
-func decisionGrant(grant store.ConnectorGrant) bool {
-	return actionGrant(grant) && store.ConnectorScopeHas(grant.Scope, RepositoryActionsScope)
+func decisionGrant(grant connectorstate.ConnectorGrant) bool {
+	return actionGrant(grant) && connectorstate.ConnectorScopeHas(grant.Scope, RepositoryActionsScope)
 }
 
 func decisionFailure(err error) ToolResult {

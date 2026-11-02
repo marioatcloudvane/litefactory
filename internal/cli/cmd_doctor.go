@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/doctor"
+	"github.com/cloudvane/litefactory/internal/factory/localdoctor"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -81,49 +82,47 @@ func runDoctor(ctx context.Context, env *Env, operation string, args []string) (
 	}
 
 	if operation == "stop" {
-		stop, err := service.StopIssue(ctx, ref)
+		stop, err := localdoctor.StopIssue(ctx, &service, ref)
 		if err != nil {
 			return err
 		}
 		if stop.RunID != 0 {
-			run, err := db.GetRun(ctx, stop.RunID)
+			run, err := localdoctor.StopRun(ctx, &service, stop.RunID)
 			if err != nil {
 				return err
 			}
-			if run.Status == store.RunRunning {
+			if run.Running {
 				_, err = fmt.Fprintf(env.Stdout, "Stop requested for workflow run %d; cancellation and saving are pending daemon settlement. Doctor conversation stopped: %t. No issue comment will be posted. Wait for cancellation and saving to settle; no owner action is needed.\n", run.Ordinal, stop.Conversation)
 				return err
 			}
-			_, err = fmt.Fprintln(env.Stdout, doctor.StopSummary(stop)+" "+doctor.StopRunSummary(run)+" Inspect on the factory host: `"+report.RunInspectionCommand(ref, run.Ordinal)+"`.")
+			_, err = fmt.Fprintln(env.Stdout, stop.Summary+" "+run.Summary+" Inspect on the factory host: `"+report.RunInspectionCommand(ref, run.Ordinal)+"`.")
 			return err
 		}
-		_, err = fmt.Fprintln(env.Stdout, doctor.StopSummary(stop)+" No owner action is needed.")
+		_, err = fmt.Fprintln(env.Stdout, stop.Summary+" No owner action is needed.")
 		return err
 	}
 
-	var result doctor.Conversation
+	var result localdoctor.Conversation
 	if operation == "status" {
-		result, err = service.ReadConversation(ctx, ref)
+		result, err = localdoctor.ReadConversation(ctx, &service, ref)
 	} else {
-		result, err = service.Diagnose(ctx, doctor.DiagnoseRequest{Target: ref, Instructions: args[2]})
+		result, err = localdoctor.Diagnose(ctx, &service, doctor.DiagnoseRequest{Target: ref, Instructions: args[2]})
 	}
 	if result.Conversation.ID != 0 {
 		displayErr := renderDoctor(env.Stdout, result)
 		err = errors.Join(err, displayErr)
 		if displayErr == nil {
-			_, presentationErr := service.RecordPresentation(ctx, ref, result)
+			_, presentationErr := localdoctor.RecordPresentation(ctx, &service, ref, result)
 			err = errors.Join(err, presentationErr)
 		}
 	}
 	return err
 }
 
-func renderDoctor(w io.Writer, result doctor.Conversation) error {
+func renderDoctor(w io.Writer, result localdoctor.Conversation) error {
 	var text bytes.Buffer
-	text.WriteString(doctor.RenderAlerts(result.Alerts))
-	if result.Review != nil {
-		text.WriteString(doctor.RenderRejectedDiagnosisReview(*result.Review))
-	}
+	text.WriteString(result.AlertsText)
+	text.WriteString(result.ReviewText)
 	fmt.Fprintf(&text, "Doctor conversation %d · %s · generation %d\n", result.Conversation.ID, result.Conversation.State, result.Conversation.Generation)
 	if len(result.Attempts) > 0 {
 		last := result.Attempts[len(result.Attempts)-1]
@@ -165,7 +164,7 @@ func renderDoctor(w io.Writer, result doctor.Conversation) error {
 	}
 	switch {
 	case result.Repair != nil:
-		text.WriteString("\n" + doctor.RepairGuidance(result) + "\n")
+		text.WriteString("\n" + result.RepairGuidance + "\n")
 	case len(result.Attempts) > 0 && result.Attempts[len(result.Attempts)-1].State == "running":
 		text.WriteString("\nDiagnosis is running. Wait; no owner action is needed.\n")
 	case !result.ApplyAvailable:

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/connector"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -59,7 +60,7 @@ func TestPaidAdvisoryUsageAppearsInExistingViews(t *testing.T) {
 	}
 	for _, scope := range views {
 		t.Run(scope.name, func(t *testing.T) {
-			projection, err := service.Usage(t.Context(), connector.UsageRequest{Repository: scope.repository, Filter: scope.filter, View: "details"})
+			projection, err := service.Usage(t.Context(), connector.UsageRequest{Repository: scope.repository, Filter: contracts.UsageFilter(scope.filter), View: "details"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,7 +98,7 @@ func TestPaidAdvisoryUsageAppearsInExistingViews(t *testing.T) {
 	// An advisory launch without usage must prevent an all-in complete-cost claim.
 	admitUsageAdvisoryFixture(t, db, repo, session, "ask", 3, -1)
 	for _, scope := range views {
-		projection, err := service.Usage(ctx, connector.UsageRequest{Repository: scope.repository, Filter: scope.filter, View: "summary"})
+		projection, err := service.Usage(ctx, connector.UsageRequest{Repository: scope.repository, Filter: contracts.UsageFilter(scope.filter), View: "summary"})
 		if err != nil {
 			t.Fatal(err)
 		}

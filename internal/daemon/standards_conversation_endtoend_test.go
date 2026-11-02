@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -174,7 +176,7 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 	setup := func() {
 		book = &standards.Service{Store: db, OwnerID: 71}
 		author = &standards.Authoring{Store: db, Book: book, Runner: authorFixture}
-		service = messaging.New(db, "discord", "7", []string{"3"}, sender, messaging.FactoryStatus{DB: db})
+		service = messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "7", []string{"3"}, sender, factory.NewHealth(db))
 		service.Protect = func(_ context.Context, s string) (string, error) { return s, nil }
 		service.EnableStandards(&ConversationStandards{DB: db, Book: book, Authoring: author, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }})
 		current, e := db.ConnectorOwner(ctx, 71)

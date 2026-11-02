@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +19,7 @@ type OwnerInboxTicketDetail struct{ Title, URL, Body, Unavailable string }
 
 // OwnerInboxReader enriches a selected, currently authorized decision without mutations.
 type OwnerInboxReader interface {
-	ReadOwnerInboxTicket(context.Context, store.InboxDecision) (OwnerInboxTicketDetail, error)
+	ReadOwnerInboxTicket(context.Context, contracts.InboxDecision) (OwnerInboxTicketDetail, error)
 }
 
 // EnableOwnerInbox exposes recorded owner waits and read-only navigation.
@@ -32,8 +34,8 @@ func (s *Service) EnableOwnerInbox(reader OwnerInboxReader) {
 	}}, s.ownerInbox)
 }
 
-func (s *Service) inboxScope(channel string) store.InboxScope {
-	return store.InboxScope{Owner: s.owner, Transport: s.transport, Conversation: channel}
+func (s *Service) inboxScope(channel string) contracts.InboxScope {
+	return contracts.InboxScope{Owner: s.owner, Transport: s.transport, Conversation: channel}
 }
 
 func inboxPosition(raw string) (string, int, int, error) {
@@ -83,7 +85,7 @@ func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, c
 		}
 	}
 	scope := s.inboxScope(m.Channel)
-	filter := store.InboxFilter{Source: m.Arguments["source"], Project: m.Arguments["project"], Kind: m.Arguments["kind"]}
+	filter := contracts.InboxFilter{Source: m.Arguments["source"], Project: m.Arguments["project"], Kind: m.Arguments["kind"]}
 	operation := m.Arguments["operation"]
 	var id string
 	offset, entry := 0, 0
@@ -103,7 +105,7 @@ func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, c
 		return s.readOrganizedOwnerInbox(ctx, m, at, capture, id, offset, entry)
 	}
 	if id != "" {
-		_, _, organizationErr := s.db.ReadInboxNavigation(ctx, scope, id, inboxOrganizationVersion, at)
+		_, _, organizationErr := s.factory.InboxNavigation(ctx, scope, id, inboxOrganizationVersion, at)
 		if organizationErr == nil {
 			return s.readOrganizedOwnerInbox(ctx, m, at, capture, id, offset, entry)
 		}
@@ -118,7 +120,7 @@ func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, c
 		return s.openOwnerInbox(ctx, scope, id, offset, entry, at, capture)
 	}
 	if operation == "coverage" {
-		page, err := s.db.ReadInboxSnapshot(ctx, scope, id, 0, 1, at)
+		page, err := s.factory.InboxPage(ctx, scope, id, 0, 1, at)
 		if err != nil {
 			return inboxReadFailure(err), nil
 		}
@@ -130,7 +132,7 @@ func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, c
 	}
 	changedFilter := filter.Source != "" || filter.Project != "" || filter.Kind != ""
 	if id != "" && changedFilter {
-		page, err := s.db.ReadInboxSnapshot(ctx, scope, id, 0, 1, at)
+		page, err := s.factory.InboxPage(ctx, scope, id, 0, 1, at)
 		if err != nil {
 			return inboxReadFailure(err), nil
 		}
@@ -148,20 +150,20 @@ func (s *Service) readOwnerInbox(ctx context.Context, m Message, at time.Time, c
 	}
 	if id == "" || operation == "refresh" || changedFilter {
 		if id != "" && !changedFilter {
-			old, err := s.db.ReadInboxSnapshot(ctx, scope, id, 0, 1, at)
+			old, err := s.factory.InboxPage(ctx, scope, id, 0, 1, at)
 			if err != nil {
 				return inboxReadFailure(err), nil
 			}
 			filter = old.Snapshot.Filter
 		}
-		snap, err := s.db.CreateInboxSnapshot(ctx, scope, filter, at)
+		snap, err := s.factory.OpenInbox(ctx, scope, filter, at)
 		if err != nil {
 			return inboxReadFailure(err), nil
 		}
 		id = snap.ID
 		offset = 0
 	}
-	page, err := s.db.ReadInboxSnapshot(ctx, scope, id, offset, 1, at)
+	page, err := s.factory.InboxPage(ctx, scope, id, offset, 1, at)
 	if err != nil {
 		return inboxReadFailure(err), nil
 	}
@@ -191,7 +193,7 @@ func inboxReadFailure(err error) string {
 	return "The inbox snapshot is unavailable or access changed. Send “show my inbox” here to capture current waits; unavailable state does not mean nothing is waiting."
 }
 
-func renderInboxPage(page store.InboxPage) string {
+func renderInboxPage(page contracts.InboxPage) string {
 	snap := page.Snapshot
 	var b strings.Builder
 	fmt.Fprintf(&b, "Recorded owner waits captured %s. This is recorded state, not an atomic live view.\nOrder: source, configured project/destination, canonical ticket identity, decision identity; ascending bytewise.\n", snap.CapturedAt.UTC().Format(time.RFC3339))
@@ -233,8 +235,8 @@ func renderInboxPage(page store.InboxPage) string {
 	return b.String()
 }
 
-func (s *Service) openOwnerInbox(ctx context.Context, scope store.InboxScope, id string, offset, entry int, at time.Time, capture *inboxCapture) (string, error) {
-	page, err := s.db.ReadInboxSnapshot(ctx, scope, id, entry, 1, at)
+func (s *Service) openOwnerInbox(ctx context.Context, scope contracts.InboxScope, id string, offset, entry int, at time.Time, capture *inboxCapture) (string, error) {
+	page, err := s.factory.InboxPage(ctx, scope, id, entry, 1, at)
 	if err != nil {
 		return inboxReadFailure(err), nil
 	}
@@ -247,7 +249,7 @@ func (s *Service) openOwnerInbox(ctx context.Context, scope store.InboxScope, id
 		return "This decision is unavailable or source access changed. Send “show my inbox” here to capture currently authorized waits." + back, nil
 	}
 	saved := page.Entries[0]
-	current, err := s.db.CurrentInboxDecision(ctx, saved.Key)
+	current, err := s.factory.CurrentOwnerWait(ctx, saved.Key)
 	if err != nil {
 		return "This recorded wait has resolved, changed, or become unavailable. Send “show my inbox” here to capture current waits." + back, nil
 	}
@@ -281,10 +283,10 @@ func (s *Service) openOwnerInbox(ctx context.Context, scope store.InboxScope, id
 			text += "\n" + inboxShort(detail.Title, 200) + "\n" + inboxShort(detail.URL, 350) + "\n" + inboxShort(detail.Body, 650)
 		}
 	}
-	if err = s.db.InboxSourcesAuthorized(ctx, scope, id, []int64{current.ConnectionID}, at); err != nil {
+	if err = s.factory.AuthorizeInboxSources(ctx, scope, id, []int64{current.ConnectionID}, at); err != nil {
 		return "Source access changed while opening. Send “show my inbox” here to capture currently authorized waits." + back, nil
 	}
-	latest, latestErr := s.db.CurrentInboxDecision(ctx, saved.Key)
+	latest, latestErr := s.factory.CurrentOwnerWait(ctx, saved.Key)
 	if latestErr != nil {
 		return "This recorded wait resolved, changed, or became unavailable while refreshing the ticket. Send “show my inbox” here to capture current waits." + back, nil
 	}
@@ -295,7 +297,7 @@ func (s *Service) openOwnerInbox(ctx context.Context, scope store.InboxScope, id
 }
 
 // authorizeInboxAnswer fences saved bytes independently of their original read.
-func (s *Service) authorizeInboxAnswer(ctx context.Context, a store.ConversationAnswer, at time.Time) error {
+func (s *Service) authorizeInboxAnswer(ctx context.Context, a messagingstate.ConversationAnswer, at time.Time) error {
 	exchanges, err := s.db.ListConversationExchanges(ctx, a.TurnID)
 	if err != nil {
 		return err
@@ -338,7 +340,7 @@ func inboxLine(text string) string {
 
 func inboxShort(text string, limit int) string { return shortenLine(inboxLine(text), limit) }
 
-func renderInboxCoverage(snap store.InboxSnapshot, offset, browseOffset int) string {
+func renderInboxCoverage(snap contracts.InboxSnapshot, offset, browseOffset int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Coverage captured %s; recorded observation state.\n", snap.CapturedAt.UTC().Format(time.RFC3339))
 	if offset > len(snap.Coverage) {
@@ -371,8 +373,8 @@ func (s *Service) authorizeInboxResult(ctx context.Context, channel string, resu
 		if err := json.Unmarshal([]byte(raw), &sources); err != nil {
 			return err
 		}
-		return s.db.InboxSourcesAuthorized(ctx, s.inboxScope(channel), result.Arguments["inbox_snapshot"], sources, at)
+		return s.factory.AuthorizeInboxSources(ctx, s.inboxScope(channel), result.Arguments["inbox_snapshot"], sources, at)
 	}
 	// Older saved evidence did not record rendered source IDs, so fail closed.
-	return s.db.InboxSnapshotAuthorized(ctx, s.inboxScope(channel), result.Arguments["inbox_snapshot"], at)
+	return s.factory.AuthorizeInbox(ctx, s.inboxScope(channel), result.Arguments["inbox_snapshot"], at)
 }

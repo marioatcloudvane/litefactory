@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudvane/litefactory/internal/factory/localanalysis"
 	"github.com/cloudvane/litefactory/internal/loganalysis"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -17,11 +18,11 @@ func TestShowGroupsFindingsByWhoCanFixThem(t *testing.T) {
 	for _, dry := range []bool{false, true} {
 		scope := loganalysis.Scope{Request: loganalysis.Request{DryRun: dry}, Repositories: []loganalysis.Repository{{ID: 1, Name: "acme/app", Team: "mine@1.0.0", TeamOwned: true}}}
 		raw, _ := json.Marshal(report)
-		view := loganalysis.Inspection{Invocation: store.LogAnalysis{ID: "A1", State: "completed", Scope: mustJSON(t, scope)}, Report: raw}
+		view := localanalysis.Inspection{Invocation: localanalysis.AnalysisView{ID: "A1", State: "completed", Scope: mustJSON(t, scope)}, Report: raw}
 		if dry {
-			view.Filings = []store.LogAnalysisFiling{{FindingKey: "setup", Destination: "github:acme/app", State: store.FilingWouldFile, Title: "Title setup", Body: "would-be body"}, {FindingKey: "defect", Destination: "upstream", State: store.FilingWouldFile, Reason: "no upstream tracker is configured", Title: "Title defect", Body: "upstream body"}}
+			view.Filings = []localanalysis.Filing{{FindingKey: "setup", Destination: "github:acme/app", State: store.FilingWouldFile, Title: "Title setup", Body: "would-be body"}, {FindingKey: "defect", Destination: "upstream", State: store.FilingWouldFile, Reason: "no upstream tracker is configured", Title: "Title defect", Body: "upstream body"}}
 		} else {
-			view.Filings = []store.LogAnalysisFiling{{FindingKey: "setup", Destination: "github:acme/app", State: store.FilingFiled, Reference: "acme/app#5", URL: "https://github.test/acme/app/issues/5"}, {FindingKey: "defect", Destination: "upstream", State: store.FilingNotFiled, Reason: "no upstream tracker is configured", Title: "Title defect", Body: "upstream body"}}
+			view.Filings = []localanalysis.Filing{{FindingKey: "setup", Destination: "github:acme/app", State: store.FilingFiled, Reference: "acme/app#5", URL: "https://github.test/acme/app/issues/5"}, {FindingKey: "defect", Destination: "upstream", State: store.FilingNotFiled, Reason: "no upstream tracker is configured", Title: "Title defect", Body: "upstream body"}}
 		}
 		text := renderLogAnalysis(view, nil)
 		order := []string{"Filed Bugs", "Upstream reports", "Suggested team changes", "suggested change for your own team"}

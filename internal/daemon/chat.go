@@ -14,12 +14,15 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factory"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
+	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
@@ -50,6 +53,7 @@ type ChatOptions struct {
 	Client *http.Client
 }
 type chatRuntime struct {
+	actions       *owneraction.Service
 	service       *messaging.Service
 	adapter       *discord.Adapter
 	heartbeat     chan struct{}
@@ -130,7 +134,7 @@ func (d *Daemon) initChat(o *ChatOptions) error {
 // known at startup, and otherwise once in the chat goroutine.
 func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.Token) {
 	a := discord.New(discord.Options{ApplicationID: o.Settings.ApplicationID, PublicKey: key, Token: token, APIURL: o.APIURL, Client: o.Client})
-	s := messaging.New(d.db, "discord", o.Settings.OwnerID, o.Settings.ChannelIDs, a, messaging.FactoryStatus{DB: d.db})
+	s := messaging.NewWithServices(messagingstorage.New(d.db), factory.NewMessaging(d.db), "discord", o.Settings.OwnerID, o.Settings.ChannelIDs, a, factory.NewHealth(d.db))
 	s.Logger = d.log
 	if d.alerts != nil {
 		s.SetAlertControls(d.alerts.Command)
@@ -158,7 +162,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		body, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
 		return body.String(), err
 	}
-	answers := ask.Service{Repositories: d.db, Collector: ask.Collector{Factory: ask.StoreReader{Reader: d.db}}, Redactor: sanitizer}
+	answers := ask.Service{Repositories: factory.NewMessaging(d.db), Collector: ask.Collector{Factory: factory.NewTaskFacts(d.db)}, Redactor: sanitizer}
 	if o.Answers != nil {
 		answers = *o.Answers
 	}
@@ -267,7 +271,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 				}
 			}
 		}
-		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect, Issues: noticeIssueReader{d}}
+		d.chat.collector = &messaging.NoticeCollector{Factory: factory.NewMessaging(d.db), Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect, Issues: noticeIssueReader{d}}
 	}
 	handler := a.Handler(s)
 	d.chatHandler.Store(&handler)

@@ -87,11 +87,11 @@ func (s *Service) meter(ctx context.Context, m Message, at time.Time) (string, e
 	// Deferred delivery owns bounded reporting work; admission never queries usage.
 	bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	view, err := meterview.Read(bounded, s.db, request)
+	view, err := s.factory.Meter(bounded, request)
 	if err != nil {
 		return assessed(ctx, s.reportError(ctx, "meter", err), presentation.ReportableError)
 	}
-	if repoID, resolveErr := meterview.ResolveProject(ctx, s.db, request.Project); resolveErr == nil {
+	if repoID, resolveErr := s.factory.MeterProject(ctx, request.Project); resolveErr == nil {
 		presentation.AssessRepository(ctx, repoID)
 	}
 	lines := view.SummaryLines()
@@ -111,7 +111,7 @@ func (s *Service) meter(ctx context.Context, m Message, at time.Time) (string, e
 	}
 	rowLines := append(view.GroupLines(), view.DetailLines()...)
 	if len(request.By) > 0 {
-		breakdown, breakdownErr := meterview.ReadBreakdown(bounded, s.db, request, request.By)
+		breakdown, breakdownErr := s.factory.MeterBreakdown(bounded, request, request.By)
 		if breakdownErr != nil {
 			return assessed(ctx, s.reportError(ctx, "meter", breakdownErr), presentation.ReportableError)
 		}
@@ -162,11 +162,11 @@ func (s *Service) prices(ctx context.Context, m Message, at time.Time) (string, 
 	}
 	bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	catalogue, err := meterview.Prices(bounded, s.db, m.Arguments["agent"], m.Arguments["model"])
+	priceLines, err := s.factory.MeterPriceLines(bounded, m.Arguments["agent"], m.Arguments["model"])
 	if err != nil {
 		return assessed(ctx, s.reportError(ctx, "prices", err), presentation.ReportableError)
 	}
-	lines, err := s.protectReportLines(bounded, meterview.PriceLines(catalogue))
+	lines, err := s.protectReportLines(bounded, priceLines)
 	if err != nil {
 		return assessed(ctx, s.reportError(ctx, "prices", err), presentation.ReportableError)
 	}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"time"
 
@@ -39,7 +41,7 @@ func recordListedIssue(ctx context.Context, item listedIssue) {
 }
 
 // inboxListedIssue is the GitHub task behind an inbox decision, if any.
-func inboxListedIssue(d store.InboxDecision) (listedIssue, bool) {
+func inboxListedIssue(d contracts.InboxDecision) (listedIssue, bool) {
 	n, err := strconv.Atoi(d.Locator.Key)
 	if d.Locator.Provider != "github" || d.RepoID <= 0 || d.Locator.Container == "" || err != nil || n <= 0 {
 		return listedIssue{}, false
@@ -60,7 +62,7 @@ func (r *factoryConversationRun) saveListed(ctx context.Context, items []listedI
 		seen[key] = true
 		args := map[string]string{"project": item.Project, "issue": strconv.Itoa(item.Issue)}
 		raw, _ := json.Marshal(args)
-		saved := store.ConversationReference{ID: fmt.Sprintf("%s-listed-%d-%d%s", r.t.ID, r.ordinal, len(seen), r.refSuffix), TurnID: r.t.ID, Kind: "listed", Repository: strconv.FormatInt(item.RepoID, 10), Target: key, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+		saved := messagingstate.ConversationReference{ID: fmt.Sprintf("%s-listed-%d-%d%s", r.t.ID, r.ordinal, len(seen), r.refSuffix), TurnID: r.t.ID, Kind: "listed", Repository: strconv.FormatInt(item.RepoID, 10), Target: key, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
 		if err := r.s.db.SaveConversationReference(ctx, r.t, saved); err != nil {
 			return err
 		}
@@ -77,13 +79,13 @@ func (r *factoryConversationRun) takeListed() []ConversationReference {
 }
 
 // listedCurrent keeps a listed reference only while its task is still known.
-func (r *factoryConversationRun) listedCurrent(ctx context.Context, reference store.ConversationReference, args map[string]string) (bool, error) {
+func (r *factoryConversationRun) listedCurrent(ctx context.Context, reference messagingstate.ConversationReference, args map[string]string) (bool, error) {
 	repoID, _ := strconv.ParseInt(reference.Repository, 10, 64)
 	n, _ := strconv.Atoi(args["issue"])
 	if repoID <= 0 || n <= 0 {
 		return false, nil
 	}
-	repo, err := r.s.db.GetRepo(ctx, repoID)
+	repo, err := r.s.factory.Project(ctx, repoID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}

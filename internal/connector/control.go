@@ -5,15 +5,14 @@ package connector
 import (
 	"context"
 	"errors"
-
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 )
 
 // GrantControl is the local owner control surface supplied by trusted daemon
 // composition. The command implementation belongs to the local-control story.
 type GrantControl interface {
 	Ready(context.Context) error
-	List(context.Context) ([]store.ConnectorGrantSummary, error)
+	List(context.Context) ([]connectorstate.ConnectorGrantSummary, error)
 	Revoke(context.Context, string) error
 	RevokeAll(context.Context) error
 }
@@ -21,14 +20,14 @@ type GrantControl interface {
 // LocalControl binds a working local command host to the same durable database.
 // It cannot be enabled through operator configuration or remote routes.
 type LocalControl struct {
-	db      *store.DB
+	storage connectorstate.Storage
 	control GrantControl
 }
 
 // NewLocalControl registers the factory-owned local command implementation.
 // Ready must verify its actual command host, not an operator enablement flag.
-func NewLocalControl(ctx context.Context, db *store.DB, control GrantControl) (*LocalControl, error) {
-	if db == nil || control == nil {
+func NewLocalControl(ctx context.Context, storage connectorstate.Storage, control GrantControl) (*LocalControl, error) {
+	if storage == nil || control == nil {
 		return nil, errors.New("connector local grant control is unavailable")
 	}
 	if err := control.Ready(ctx); err != nil {
@@ -37,11 +36,11 @@ func NewLocalControl(ctx context.Context, db *store.DB, control GrantControl) (*
 	if _, err := control.List(ctx); err != nil {
 		return nil, errors.New("connector local grant control cannot read grants")
 	}
-	return &LocalControl{db: db, control: control}, nil
+	return &LocalControl{storage: storage, control: control}, nil
 }
 
-func (c *LocalControl) check(ctx context.Context, db *store.DB, _ int64) error {
-	if c == nil || c.db != db || c.control == nil {
+func (c *LocalControl) check(ctx context.Context, storage connectorstate.Storage, _ int64) error {
+	if c == nil || c.storage == nil || !c.storage.SameStore(storage) || c.control == nil {
 		return errors.New("connector requires local grant control")
 	}
 	if err := c.control.Ready(ctx); err != nil {

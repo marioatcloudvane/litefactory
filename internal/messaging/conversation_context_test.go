@@ -12,15 +12,15 @@ import (
 
 func TestConversationPreviewReferenceUsesSavedRevision(t *testing.T) {
 	run, at := factoryUnitRun(t, &factoryUnitProvider{fail: true})
-	repo, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
+	repo, err := fixtureDB(run.s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	preview := store.ChatIssuePreview{ID: "preview1", Transport: "discord", ChannelRef: "2", SourceMessageID: "draft1", Code: "12345678", ContentHash: "hash1", Title: "Feature", Body: "Exact saved feature", RepoID: repo.ID, CreatedAt: at, ExpiresAt: at.Add(24 * time.Hour)}
-	if err = run.s.db.SaveChatIssuePreview(t.Context(), preview); err != nil {
+	if err = fixtureDB(run.s).SaveChatIssuePreview(t.Context(), preview); err != nil {
 		t.Fatal(err)
 	}
-	preview, err = run.s.db.CurrentChatIssuePreview(t.Context(), "discord", "2")
+	preview, err = fixtureDB(run.s).CurrentChatIssuePreview(t.Context(), "discord", "2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestConversationPreviewReferenceUsesSavedRevision(t *testing.T) {
 	if err = run.savePreviewReference(t.Context(), preview); err != nil {
 		t.Fatal(err)
 	}
-	refs, err := run.s.db.ListConversationReferences(t.Context(), run.c.ID, at, 32)
+	refs, err := fixtureDB(run.s).ListConversationReferences(t.Context(), run.c.ID, at, 32)
 	if err != nil || len(refs) != 1 {
 		t.Fatalf("references %+v %v", refs, err)
 	}
@@ -53,7 +53,7 @@ func TestConversationPreviewReferenceUsesSavedRevision(t *testing.T) {
 	preview.ContentHash = "hash2"
 	preview.CreatedAt = at.Add(time.Minute)
 	preview.ExpiresAt = preview.CreatedAt.Add(24 * time.Hour)
-	if err = run.s.db.SaveChatIssuePreview(t.Context(), preview); err != nil {
+	if err = fixtureDB(run.s).SaveChatIssuePreview(t.Context(), preview); err != nil {
 		t.Fatal(err)
 	}
 	if current, err = run.referenceCurrent(t.Context(), refs[0], args); err != nil || current {
@@ -63,21 +63,21 @@ func TestConversationPreviewReferenceUsesSavedRevision(t *testing.T) {
 
 func TestConversationPreviousReplyStaysBoundedAndScoped(t *testing.T) {
 	run, at := factoryUnitRun(t, &factoryUnitProvider{fail: true})
-	if err := run.s.db.SaveConversationSession(t.Context(), run.t, "unit-session"); err != nil {
+	if err := fixtureDB(run.s).SaveConversationSession(t.Context(), run.t, "unit-session"); err != nil {
 		t.Fatal(err)
 	}
 	text := strings.Repeat("界", 2500)
 	if err := run.s.conversationOutcome(t.Context(), run.t, "completed", text, at); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = run.s.db.FinishConversationReply(t.Context(), reply, "delivered", at); err != nil {
+	if err = fixtureDB(run.s).FinishConversationReply(t.Context(), reply, "delivered", at); err != nil {
 		t.Fatal(err)
 	}
-	previous, err := run.s.db.LatestConversationTurn(t.Context(), run.c.ID)
+	previous, err := fixtureDB(run.s).LatestConversationTurn(t.Context(), run.c.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,11 +93,11 @@ func TestConversationPreviousReplyStaysBoundedAndScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	answer, _, err := run.s.db.ConversationReplyAnswer(t.Context(), reply)
+	answer, _, err := fixtureDB(run.s).ConversationReplyAnswer(t.Context(), reply)
 	if err != nil {
 		t.Fatal(err)
 	}
-	parts, err := run.s.db.ReadConversationAnswerParts(t.Context(), answer.ID)
+	parts, err := fixtureDB(run.s).ReadConversationAnswerParts(t.Context(), answer.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,23 +124,23 @@ func TestConversationFollowupPairsUnresolvedTasks(t *testing.T) {
 	r, at := factoryUnitRun(t, p, "What did #614 cost?")
 	for i, input := range []string{"What did #614 cost?", "What did #770 cost?", "And the earlier request?"} {
 		if i > 0 {
-			scan, err := r.s.db.ReadNaturalScan(t.Context(), "2")
+			scan, err := fixtureDB(r.s).ReadNaturalScan(t.Context(), "2")
 			if err != nil {
 				t.Fatal(err)
 			}
 			source := fmt.Sprint(101 + i)
-			if err := r.s.db.StageNaturalScan(t.Context(), scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: source}, []store.NaturalMessage{{ChannelRef: "2", SourceID: source, OwnerID: "1", Text: input, CreatedAt: at}}, true); err != nil {
+			if err := fixtureDB(r.s).StageNaturalScan(t.Context(), scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: source}, []store.NaturalMessage{{ChannelRef: "2", SourceID: source, OwnerID: "1", Text: input, CreatedAt: at}}, true); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := r.s.db.AdmitConversationTurn(t.Context(), r.c.ID, source, "{}", at); err != nil {
+			if _, err := fixtureDB(r.s).AdmitConversationTurn(t.Context(), r.c.ID, source, "{}", at); err != nil {
 				t.Fatal(err)
 			}
-			turn, err := r.s.db.ClaimConversationTurn(t.Context(), r.c.ID, "followup", at, time.Minute)
+			turn, err := fixtureDB(r.s).ClaimConversationTurn(t.Context(), r.c.ID, "followup", at, time.Minute)
 			if err != nil {
 				t.Fatal(err)
 			}
 			r.t = turn
-			c, err := r.s.db.ReadConversation(t.Context(), "discord", "2")
+			c, err := fixtureDB(r.s).ReadConversation(t.Context(), "discord", "2")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -152,11 +152,11 @@ func TestConversationFollowupPairsUnresolvedTasks(t *testing.T) {
 		if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
 			t.Fatal(err)
 		}
-		reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+		reply, err := fixtureDB(r.s).ClaimConversationReply(t.Context(), "discord", at)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := r.s.db.FinishConversationReply(t.Context(), reply, "delivered", at); err != nil {
+		if err := fixtureDB(r.s).FinishConversationReply(t.Context(), reply, "delivered", at); err != nil {
 			t.Fatal(err)
 		}
 	}

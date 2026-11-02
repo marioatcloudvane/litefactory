@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/store"
 	"os"
 	"strings"
 	"testing"
@@ -11,7 +13,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 type nativeRunner struct {
@@ -37,10 +38,10 @@ type chatLedger struct {
 	statuses []string
 }
 
-func (l *chatLedger) StartChatMeterAttempt(_ context.Context, repoID int64, provider string) (store.MeterAttempt, error) {
+func (l *chatLedger) StartChatMeterAttempt(_ context.Context, repoID int64, provider string) (contracts.ResponseMeterAttempt, error) {
 	a := store.MeterAttempt{ID: fmt.Sprintf("attempt-%d", len(l.attempts)+1), ChatRepoID: repoID, CodingAgent: provider}
 	l.attempts = append(l.attempts, a)
-	return a, nil
+	return contracts.ResponseMeterAttempt{ID: a.ID}, nil
 }
 func (*chatLedger) RecordMeterEvent(context.Context, string, string, agent.UsageEvent) error {
 	return nil

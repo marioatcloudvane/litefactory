@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/connector"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -41,23 +41,23 @@ func New(reader Reader, redactor *redact.Redactor, now func() time.Time, hostRoo
 
 // Evidence sanitizes complete units before applying the byte-page bound. A
 // refused unit is represented explicitly and still advances the source offset.
-func (s *Service) Evidence(ctx context.Context, target store.ConnectorGrantTarget, req connector.EvidenceRequest) (connector.EvidencePage, error) {
+func (s *Service) Evidence(ctx context.Context, target store.ConnectorGrantTarget, req contracts.EvidenceRequest) (contracts.EvidencePage, error) {
 	if s.reader == nil || s.redactor == nil {
-		return connector.EvidencePage{}, errors.New("task evidence unavailable")
+		return contracts.EvidencePage{}, errors.New("task evidence unavailable")
 	}
 	raw, err := s.reader.ReadTaskEvidence(ctx, target.SessionID, req.Section, req.Offset, req.Limit)
 	if err != nil {
-		return connector.EvidencePage{}, errors.New("task evidence unavailable")
+		return contracts.EvidencePage{}, errors.New("task evidence unavailable")
 	}
-	out := connector.EvidencePage{Revision: raw.Revision + ":" + s.redactor.PolicyID(), Items: []map[string]any{}, Sources: []map[string]any{}, Gaps: []string{}, HasMore: raw.HasMore, NextOffset: raw.NextOffset}
+	out := contracts.EvidencePage{Revision: raw.Revision + ":" + s.redactor.PolicyID(), Items: []map[string]any{}, Sources: []map[string]any{}, Gaps: []string{}, HasMore: raw.HasMore, NextOffset: raw.NextOffset}
 	for _, gap := range raw.Gaps {
 		clean, err := s.clean(ctx, gap, "")
 		if err != nil {
-			return connector.EvidencePage{}, errors.New("task evidence redaction failed")
+			return contracts.EvidencePage{}, errors.New("task evidence redaction failed")
 		}
 		text, ok := clean.(string)
 		if !ok {
-			return connector.EvidencePage{}, errors.New("task evidence unavailable")
+			return contracts.EvidencePage{}, errors.New("task evidence unavailable")
 		}
 		out.Gaps = append(out.Gaps, text)
 	}
@@ -69,7 +69,7 @@ func (s *Service) Evidence(ctx context.Context, target store.ConnectorGrantTarge
 		observed["read_at"] = s.now().UTC()
 		clean, err := s.cleanMap(ctx, observed)
 		if err != nil {
-			return connector.EvidencePage{}, errors.New("task evidence redaction failed")
+			return contracts.EvidencePage{}, errors.New("task evidence redaction failed")
 		}
 		out.Sources = append(out.Sources, clean)
 	}
@@ -77,7 +77,7 @@ func (s *Service) Evidence(ctx context.Context, target store.ConnectorGrantTarge
 		var clean map[string]any
 		encoded, err := json.Marshal(item)
 		if err != nil {
-			return connector.EvidencePage{}, errors.New("task evidence unavailable")
+			return contracts.EvidencePage{}, errors.New("task evidence unavailable")
 		}
 		if len(encoded) > 256<<10 {
 			clean = map[string]any{"unavailable": true, "reason": "source_unit_exceeds_budget", "source_offset": req.Offset + i}
@@ -85,13 +85,13 @@ func (s *Service) Evidence(ctx context.Context, target store.ConnectorGrantTarge
 		} else {
 			clean, err = s.cleanMap(ctx, item)
 			if err != nil {
-				return connector.EvidencePage{}, errors.New("task evidence redaction failed")
+				return contracts.EvidencePage{}, errors.New("task evidence redaction failed")
 			}
 		}
 		out.Items = append(out.Items, clean)
 		encoded, err = json.Marshal(out)
 		if err != nil {
-			return connector.EvidencePage{}, errors.New("task evidence unavailable")
+			return contracts.EvidencePage{}, errors.New("task evidence unavailable")
 		}
 		escaped, _ := json.Marshal(string(encoded))
 		if len(encoded)+len(escaped) > 56<<10 {
@@ -109,7 +109,7 @@ func (s *Service) Evidence(ctx context.Context, target store.ConnectorGrantTarge
 		}
 	}
 	if len(out.Items) == 0 && out.HasMore && out.NextOffset <= req.Offset {
-		return connector.EvidencePage{}, errors.New("task evidence cannot advance")
+		return contracts.EvidencePage{}, errors.New("task evidence cannot advance")
 	}
 	return out, nil
 }

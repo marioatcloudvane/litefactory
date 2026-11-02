@@ -16,7 +16,7 @@ import (
 func TestLogAnalysisStartIsAConfirmedActionWithResolvedScope(t *testing.T) {
 	ctx := t.Context()
 	s, ops, start := standardsGateFixture(t)
-	repo, err := s.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
+	repo, err := fixtureDB(s).UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestLogAnalysisStartIsAConfirmedActionWithResolvedScope(t *testing.T) {
 	if handled, err := run.confirm(ctx); !handled || err != nil {
 		t.Fatalf("confirmation not handled: %v %v", handled, err)
 	}
-	if err = s.ownerActions.Tick(ctx); err != nil {
+	if err = fixtureActions(s).Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if len(ops.executed) != 1 {
@@ -68,7 +68,7 @@ func TestLogAnalysisStartIsAConfirmedActionWithResolvedScope(t *testing.T) {
 func TestLogAnalysisStartAsksForAnUnclearScope(t *testing.T) {
 	ctx := t.Context()
 	s, ops, _ := standardsGateFixture(t)
-	if _, err := s.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"}); err != nil {
+	if _, err := fixtureDB(s).UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"}); err != nil {
 		t.Fatal(err)
 	}
 	for name, args := range map[string]map[string]string{
@@ -155,52 +155,52 @@ func TestLogAnalysisClarifiedProjectReusesTheEarlierWindow(t *testing.T) {
 	r, at := factoryUnitRun(t, p, "How is acme/app doing?")
 	for _, repo := range []store.Repo{{Forge: "github", Owner: "acme", Name: "app"}, {Forge: "github", Owner: "marioatcloudvane", Name: "litefactory"}} {
 		repo.Path = t.TempDir()
-		if _, err := r.s.db.UpsertRepo(ctx, repo); err != nil {
+		if _, err := fixtureDB(r.s).UpsertRepo(ctx, repo); err != nil {
 			t.Fatal(err)
 		}
 	}
-	r.s.EnableStandards(&standardsGateOperations{db: r.s.db})
-	if _, err := r.s.db.UpsertIdentity(ctx, store.Identity{Forge: "github", Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
+	r.s.EnableStandards(&standardsGateOperations{db: fixtureDB(r.s)})
+	if _, err := fixtureDB(r.s).UpsertIdentity(ctx, store.Identity{Forge: "github", Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := r.s.db.ConnectorOwner(ctx, 42)
+	owner, err := fixtureDB(r.s).ConnectorOwner(ctx, 42)
 	if err != nil {
 		t.Fatal(err)
 	}
 	principal := owneraction.Principal{OwnerID: "42", OwnerGeneration: owner.Generation, Transport: "discord", ChannelID: "2", DiscordOwnerID: "1"}
-	actions := owneraction.New(r.s.db, OwnerActionDomain{Service: r.s}, func() time.Time { return at })
+	actions := owneraction.New(fixtureDB(r.s), OwnerActionDomain{Service: r.s}, func() time.Time { return at })
 	actions.SetDiscord("1", []string{"2"})
 	actions.SetDelivery(gateApproval{})
 	r.s.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })
 
 	for i, input := range []string{"How is acme/app doing?", window, answer} {
 		if i > 0 {
-			scan, err := r.s.db.ReadNaturalScan(ctx, "2")
+			scan, err := fixtureDB(r.s).ReadNaturalScan(ctx, "2")
 			if err != nil {
 				t.Fatal(err)
 			}
 			source := fmt.Sprint(101 + i)
-			if err := r.s.db.StageNaturalScan(ctx, scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: source}, []store.NaturalMessage{{ChannelRef: "2", SourceID: source, OwnerID: "1", Text: input, CreatedAt: at}}, true); err != nil {
+			if err := fixtureDB(r.s).StageNaturalScan(ctx, scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: source}, []store.NaturalMessage{{ChannelRef: "2", SourceID: source, OwnerID: "1", Text: input, CreatedAt: at}}, true); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := r.s.db.AdmitConversationTurn(ctx, r.c.ID, source, "{}", at); err != nil {
+			if _, err := fixtureDB(r.s).AdmitConversationTurn(ctx, r.c.ID, source, "{}", at); err != nil {
 				t.Fatal(err)
 			}
-			if r.t, err = r.s.db.ClaimConversationTurn(ctx, r.c.ID, "followup", at, time.Minute); err != nil {
+			if r.t, err = fixtureDB(r.s).ClaimConversationTurn(ctx, r.c.ID, "followup", at, time.Minute); err != nil {
 				t.Fatal(err)
 			}
-			if r.c, err = r.s.db.ReadConversation(ctx, "discord", "2"); err != nil {
+			if r.c, err = fixtureDB(r.s).ReadConversation(ctx, "discord", "2"); err != nil {
 				t.Fatal(err)
 			}
 		}
 		if err := r.s.runFactoryConversation(ctx, r.c, r.b, r.t, at); err != nil {
 			t.Fatal(err)
 		}
-		reply, err := r.s.db.ClaimConversationReply(ctx, "discord", at)
+		reply, err := fixtureDB(r.s).ClaimConversationReply(ctx, "discord", at)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := r.s.db.FinishConversationReply(ctx, reply, "delivered", at); err != nil {
+		if err := fixtureDB(r.s).FinishConversationReply(ctx, reply, "delivered", at); err != nil {
 			t.Fatal(err)
 		}
 	}

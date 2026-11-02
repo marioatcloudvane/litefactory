@@ -6,14 +6,14 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"github.com/cloudvane/litefactory/internal/retainedevidence"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // AskHistory rebuilds /ask turns from delivered local chat rows, not from
 // transport messages, so hidden prefixes and edited messages do not matter.
 type AskHistory struct {
-	DB        *store.DB
+	DB        messagingstorage.Port
 	Transport string
 }
 
