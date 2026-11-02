@@ -240,6 +240,9 @@ func TestStandardsGrantDeclaredOnlyForThreeRoles(t *testing.T) {
 				}
 			}
 		}
+		// Exclusive paths may bind the same role more than once.
+		slices.Sort(granted)
+		granted = slices.Compact(granted)
 		mode := strings.TrimSuffix(filepath.Base(path), ".dot")
 		if !slices.Equal(granted, want[mode]) {
 			t.Fatalf("%s grants standards to %v, want %v", path, granted, want[mode])

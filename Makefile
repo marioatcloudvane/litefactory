@@ -38,6 +38,8 @@ empty :=
 space := $(empty) $(empty)
 MIXED_PACKAGES := ./internal/turn ./internal/store ./internal/cli
 RACE_TESTS_store := \
+	TestCITransportSerializesIndependentConnections \
+	TestAlertLedgerSerializesConcurrentMutations \
 	TestStageDecisionRecoveryRacesAtomicCommit \
 	TestStageDecisionRecoveryFenceAcrossIndependentConnections \
 	TestDiscussionQueuedCancelAndFencedRunningCompletion \
@@ -68,6 +70,7 @@ RACE_TESTS_store := \
 	TestStandardsCompetingPublications \
 	TestConversationCaptureConcurrentWinnerAndReplacement \
 	TestApprovalIsAtomicAndExcludesPendingRefinements \
+	TestPublishedStorySizingConcurrentPlanRevisionGuard \
 	TestReplanPreservesCompletedAndOldApprovedScope \
 	TestCommentReservationCrossConnectionAndReopen \
 	TestFamilyLedgerConcurrentReopenAndIsolation \

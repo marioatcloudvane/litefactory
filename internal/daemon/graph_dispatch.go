@@ -604,6 +604,7 @@ func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) err
 		return errors.Join(faults, err)
 	}
 	for _, dispatch := range dead {
+		d.alertDeadDispatch(ctx, dispatch, at)
 		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
 			continue
 		}

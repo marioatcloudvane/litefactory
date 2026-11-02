@@ -152,9 +152,28 @@ Refused old root keys: `max_concurrent_runs`, `default_base_branch`, `feature_pr
 
 Set at most one of `token_keychain` and `token_env`. Setting neither passes the file check, but the daemon will not start without a bot token. See [GitHub setup](../getting-started/github-setup.md).
 
+## bug_agent
+
+`bug_agent` is an optional top-level preference naming a configured agent (`claude` or `codex`). An unknown name or an agent absent from `agents` is a configuration error. It does not install an agent, change its grants or change Story selection.
+
+```yaml
+bug_agent: codex
+agents:
+  claude: {} # retains the general default
+  codex: {}
+```
+
+Bug selection at dispatch and continuation is: explicit `Coding Agent:` label on the Bug → immediate parent's recorded agent, otherwise its single valid agent label → `bug_agent` → first configured agent. Ambiguous and unknown labels are refused. No agent label is written to an unlabelled Bug. Hand-filed Bugs, log-analysis and Validate follow-ups, and babysitter-origin Bugs use this same rule; source links in their text do not establish parentage.
+
+**Inheritance exception:** a Claude parent overrides `bug_agent: codex`. Parent inheritance can therefore change an existing installation's Bug selection even when its configuration has not changed. To override that parent for one Bug, use an explicit Codex label on the Bug.
+
+Only the direct provider relationship is read, within the configured credential's visibility. The latest persisted parent run (including a failed run) wins over its current label. No further ancestors are consulted and no parent session is created. A successful nullable parent read can establish no observable parent; lookup failures remain errors or deferred retries, rather than silently choosing the setting. Reads of parent labels and local run history are separate observations, not an atomic snapshot.
+
+An executing invocation keeps its recorded agent. Later continuations reapply selection, and a provider change uses the existing cold-start/recovery controls rather than resuming another provider's conversation. Missing role grants remain a refusal, without automatic provider failover. [Bug workflow](../workflow/bug-runtime.md) and [judge precedence](../guides/judge.md) describe the unchanged gates and independent advisory selection.
+
 ## agents
 
-`agents` is an ordered mapping. Only `claude` and `codex` are allowed, and at least one must be present. Nothing is configured implicitly. The first entry is the default for unlabelled work; reorder to change it. If you write an agent's mapping, its omitted keys take the defaults below. `agents.<name>.model` is refused; pick a tier and set the model under `tiers`. See [coding agents](coding-agents.md).
+`agents` is an ordered mapping. Only `claude` and `codex` are allowed, and at least one must be present. Nothing is configured implicitly. The first entry is the general default; reorder to change it. Bugs first apply their explicit label, direct parent and optional `bug_agent` preference as described above. If you write an agent's mapping, its omitted keys take the defaults below. `agents.<name>.model` is refused; pick a tier and set the model under `tiers`. See [coding agents](coding-agents.md).
 
 | Key | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
@@ -221,6 +240,31 @@ Checks run under the Codex sandbox: files are readable except `deny_read` and `$
 | `bug_checks.deny_read` | list of strings | empty | clean absolute paths other than `/`, same character limits | Paths checks may not read, for example `~/.ssh` written out in full. |
 | `bug_checks.environment` | list of strings | empty | distinct environment variable names | Names of your environment variables passed to checks. Never put values here. |
 | `bug_checks.network` | boolean | `false` | `true` or `false` | Opens the network, loopback included, for tests that start local servers. There is no loopback-only mode. |
+
+## `alerts`
+
+This optional block defaults enabled and leaves existing work scheduling,
+conversations and task-report recovery unchanged. An absent block remains valid.
+See [factory alerts](../discord.md#factory-alerts) for a complete example, owner
+commands, recovery and installed verification.
+
+| Key | Type | Default | Range | Effect |
+| --- | --- | --- | --- | --- |
+| `alerts.enabled` | boolean | `true` | `true` or `false` | Controls all alert notifications; observation and retained state continue. |
+| `alerts.channel_id` | string | empty | numeric member of `chat.discord.channel_ids`, or empty | Destination override; empty uses `chat.discord.notice_channel_id`. Missing or unusable delivery is reported unavailable. |
+| `alerts.mention_owner` | string | `critical` | `critical`, `none` | Only critical openings/escalations may construct the configured owner mention. |
+| `alerts.cooldown_minutes` | integer | `60` | 1–10080 | Recovery-to-recurrence notification cooldown; incidents remain visible. |
+| `alerts.pool_wait_minutes` | integer | `30` | 1–10080 | Eligible work waiting beyond this interval with a full shared pool opens a critical incident. |
+| `alerts.no_progress_minutes` | integer | `120` | 1–10080 | Task progress delay; authoritative owner and planned waits are excluded. |
+| `alerts.delivery_wait_minutes` | integer | `15` | 1–10080 | Original report-delivery uncertainty delay before warning. |
+| `alerts.quiet_hours.enabled` | boolean | `true` | `true` or `false` | Hold warning notifications for a digest; critical notifications bypass quiet hours. |
+| `alerts.quiet_hours.start` | string | `23:00` | `HH:MM`, host-local 24-hour clock | Inclusive quiet-hours start. |
+| `alerts.quiet_hours.end` | string | `07:00` | `HH:MM`, distinct from start when enabled | Quiet-hours end. |
+| `alerts.rules` | mapping of booleans | all six enabled | `disk_low`, `pool_blocked`, `no_progress`, `provider_failure`, `task_stuck`, `delivery_stuck` | Each `false` suppresses that rule's openings, pending notifications and all-clears until reenabled. |
+
+Global timed suppression and per-rule mutes are runtime controls retained in the
+database. They compose with configuration disablement; no command overrides a
+configured `false`. No CI or production-deploy rule is registered by this block.
 
 ## Environment variables
 

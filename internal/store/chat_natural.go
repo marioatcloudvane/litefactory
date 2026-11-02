@@ -40,12 +40,18 @@ func (db *DB) ActivateNaturalScan(ctx context.Context, channel, boundary string)
 // expected fences concurrent collectors. At most 1000 released, unprocessed texts remain pending
 // per channel; the interval in progress stays staged until complete, bounded by the admission window.
 func (db *DB) StageNaturalScan(ctx context.Context, expected, next NaturalScan, messages []NaturalMessage, complete bool) error {
+	return db.StageNaturalScanWithControls(ctx, expected, next, messages, complete, nil)
+}
+
+// StageNaturalScanWithControls keeps reserved controls outside conversation
+// pending work, while releasing them only after a complete history interval.
+func (db *DB) StageNaturalScanWithControls(ctx context.Context, expected, next NaturalScan, messages []NaturalMessage, complete bool, controls map[string]bool) error {
 	if expected.ChannelRef != next.ChannelRef || next.HighWater == "" || len(messages) > 400 {
 		return errors.New("invalid natural scan")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error {
 		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM chat_natural_messages WHERE channel_ref=? AND state='pending'`, next.ChannelRef).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM chat_natural_messages WHERE channel_ref=? AND state IN ('pending','control_pending')`, next.ChannelRef).Scan(&count); err != nil {
 			return err
 		}
 		if count+len(messages) > 1000 {
@@ -67,8 +73,16 @@ func (db *DB) StageNaturalScan(ctx context.Context, expected, next NaturalScan, 
 			if _, err = tx.ExecContext(ctx, `INSERT INTO chat_natural_messages(channel_ref,source_id,owner_id,reply_to,content,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING`, m.ChannelRef, m.SourceID, m.OwnerID, m.ReplyTo, m.Text, FormatTime(m.CreatedAt)); err != nil {
 				return err
 			}
+			if controls[m.SourceID] {
+				if _, err = tx.ExecContext(ctx, `UPDATE chat_natural_messages SET state='staged_control' WHERE channel_ref=? AND source_id=? AND state='staged'`, m.ChannelRef, m.SourceID); err != nil {
+					return err
+				}
+			}
 		}
 		if complete {
+			if _, err = tx.ExecContext(ctx, `UPDATE chat_natural_messages SET state='control_pending' WHERE channel_ref=? AND state='staged_control'`, next.ChannelRef); err != nil {
+				return err
+			}
 			_, err = tx.ExecContext(ctx, `UPDATE chat_natural_messages SET state='pending' WHERE channel_ref=? AND state='staged'`, next.ChannelRef)
 		}
 		return err

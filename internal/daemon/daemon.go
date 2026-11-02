@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/alerts"
+	"github.com/cloudvane/litefactory/internal/cimonitor"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -241,6 +243,7 @@ type Options struct {
 	// the automatic start to run.
 	ValidateHead func(ctx context.Context, session store.Session) (string, error)
 
+	BugAgent     agent.Kind
 	DefaultAgent agent.Kind
 	Classifiers  map[agent.Kind]agent.Classifier
 	// DB is the open, migrated database. Required.
@@ -331,7 +334,10 @@ type Options struct {
 	// heartbeat and poll alone.
 	Webhook *WebhookOptions
 	// Chat enables the read-only messaging service.
-	Chat *ChatOptions
+	Chat   *ChatOptions
+	Alerts *config.AlertsSettings
+	// AlertsNow is the independently injected observation clock; it never reads Now, whose reads advance scheduler state.
+	AlertsNow func() time.Time
 
 	// MaxConcurrentRuns is how many runs may be in flight at the same instant,
 	// daemon-wide across every repository (D2). Zero means
@@ -418,8 +424,14 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
-	instructionPaths config.Paths
-	instructions     instructionpackage.CaptureSource
+	ciMonitor                *cimonitor.Observer
+	alerts                   *alerts.Engine
+	alertClock               func() time.Time
+	alertMu                  sync.RWMutex
+	alertSender              alerts.Transport
+	alertChannel, alertOwner string
+	instructionPaths         config.Paths
+	instructions             instructionpackage.CaptureSource
 
 	judge            *turn.JudgeService
 	tickPhaseTimeout time.Duration // zero uses the internal 30-second bound
@@ -465,6 +477,7 @@ type Daemon struct {
 	// New; see [Options.Agents] and [Daemon.resolveAgent].
 	agents          turn.RunnerSet
 	classifiers     map[agent.Kind]agent.Classifier
+	bugAgent        agent.Kind
 	defaultAgent    agent.Kind
 	interval        time.Duration
 	schedule        *discoverySchedule
@@ -559,6 +572,11 @@ func New(opts Options) (*Daemon, error) {
 	if maxRuns == 0 {
 		maxRuns = DefaultConcurrentRuns
 	}
+	if opts.BugAgent != "" {
+		if _, ok := opts.Agents[opts.BugAgent]; !ok {
+			return nil, invalidOptions("bug agent %q has no registered runner", opts.BugAgent)
+		}
+	}
 	defaultAgent := opts.DefaultAgent
 	if defaultAgent == "" {
 		return nil, invalidOptions("a default agent is required")
@@ -607,6 +625,7 @@ func New(opts Options) (*Daemon, error) {
 		classifiers:      maps.Clone(opts.Classifiers),
 		instructionPaths: opts.Paths,
 		instructions:     opts.Instructions,
+		bugAgent:         opts.BugAgent,
 		defaultAgent:     defaultAgent,
 		interval:         interval,
 		schedule:         newDiscoverySchedule(opts.DiscoveryInterval),
@@ -619,6 +638,15 @@ func New(opts Options) (*Daemon, error) {
 		coordinator:      newPool(1),
 
 		repoSessionCursor: make(map[int64]int64),
+	}
+	d.alertClock = opts.AlertsNow
+	if d.alertClock == nil {
+		d.alertClock = time.Now
+	}
+	if opts.Alerts != nil {
+		settings := *opts.Alerts
+		settings.Rules = maps.Clone(settings.Rules)
+		d.alerts = &alerts.Engine{DB: d.db, Settings: settings}
 	}
 	if d.connections != nil {
 		d.connections.SetRequestContext(d.bindQuotaRequest)
@@ -1002,6 +1030,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	d.serveRemoteConnector(webCtx, &serving)
 	d.chatServe(webCtx, &serving)
+	d.serveAlerts(webCtx, &serving)
+	d.serveMainCI(webCtx, &serving)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

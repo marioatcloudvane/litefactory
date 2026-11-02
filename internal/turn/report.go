@@ -890,6 +890,10 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 	if err != nil {
 		return report.Run{}, err
 	}
+	executions, err := r.executionRunEvidence(ctx, result.Run, 0)
+	if err != nil {
+		return report.Run{}, err
+	}
 	var timing store.AttemptTiming
 	if r.db != nil && result.Run.ID > 0 {
 		var timingErr error
@@ -905,12 +909,10 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		ConflictProposal:         conflictProposalForRun(result.ConflictProposal),
 		ConflictSuggestionFailed: result.ConflictSuggestionFailed,
 		Meter:                    metering,
+		Executions:               executions,
 		Ref:                      result.Ref,
 		Ordinal:                  ordinal,
-		// result.Run.Agent is the segment's own value (store.AgentClaude for
-		// every run this tree can produce today) rather than anything
-		// re-derived here, so the report names the tool that actually ran
-		// even on the path where Result itself is nil (AC-5.4).
+		// Immutable run selection survives later conversation provider changes.
 		Agent:     result.Run.Agent,
 		Result:    result.Harness,
 		Branch:    result.Branch,

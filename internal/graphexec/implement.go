@@ -146,9 +146,10 @@ func ImplementSpecs() []ActionSpec {
 //
 //   - the entry is the path selector, and every node has a positive, bounded
 //     lf_limit, which bounds every loop;
-//   - only the Implement actions, lf_sync_base, one worker agent and any number
-//     of sync resolver agents appear. An agent whose success reaches
-//     lf_implement_resolved is a resolver; every other agent is the worker;
+//   - only the Implement actions, lf_sync_base, one worker or two exclusive
+//     workers behind fact conditions, and sync resolver agents appear. An agent
+//     whose success reaches lf_implement_resolved is a resolver; every other
+//     agent is a worker;
 //   - the worker's accepted answer reaches the save step only through the result
 //     decision, so nothing but a completed answer marks a story done;
 //   - a failed attempt, a failed save and an exhausted budget route to the
@@ -158,9 +159,12 @@ func ImplementSpecs() []ActionSpec {
 //   - the batched question ends at a terminal, where the owner wait rests;
 //   - the completion reply, when a graph declares one, reads the merge step and
 //     ends at a terminal. A graph without it still validates;
-//   - a worker base-sync gate follows budget/run, admits only synced/current
-//     to the worker, retries itself and parks conflicts; no incoming worker
-//     or gate route may bypass those checks;
+//   - a worker base-sync gate follows budget/run, retries itself and parks
+//     conflicts. Its common synced/current/deferred path reaches the worker or
+//     an acyclic fact-only region selecting one of two equivalent workers.
+//     Neither worker nor the region may bypass the shared budget and sync;
+//   - released single-worker captures without this gate retain their original
+//     direct or explicit-sync routes;
 //   - a coordinator base sync, when a graph declares one, hands a conflict to a resolver
 //     agent; the resolver's success reaches its own resolved decision and its
 //     failure returns to a base sync; the decision returns resolved and retry to
@@ -174,7 +178,7 @@ func ValidateImplementGraph(p *Profile) error {
 	if start, ok := p.Node(p.Start); !ok || start.Action != ImplementSelectAction {
 		c.fail("implement graph must start at the path selector (%s), not %q", ImplementSelectAction, p.Start)
 	}
-	known := map[string]bool{"lf_agent": true}
+	known := map[string]bool{"lf_agent": true, ResearchIfAction: true}
 	for _, spec := range ImplementSpecs() {
 		known[spec.Name] = true
 	}
@@ -193,6 +197,10 @@ func ValidateImplementGraph(p *Profile) error {
 			c.fail("implement node %s uses action %s the Implement runtime does not implement", n.Name, n.Action)
 		}
 		switch n.Action {
+		case ResearchIfAction:
+			if _, err := decodeImplementFact(n.Action, n.Attrs); err != nil {
+				c.fail("implement condition %s: %v", n.Name, err)
+			}
 		case "lf_agent":
 			if c.isResolver(n) {
 				c.resolver(n)
@@ -243,8 +251,17 @@ func ValidateImplementGraph(p *Profile) error {
 			c.resolved(n)
 		}
 	}
-	if agents != 1 {
-		c.fail("implement graph requires exactly one worker agent, has %d", agents)
+	switch agents {
+	case 2:
+		c.workerRouting()
+	case 1:
+		for _, n := range p.Nodes {
+			if n.Action == ResearchIfAction {
+				c.fail("implement fact conditions require two exclusive routed workers")
+			}
+		}
+	default:
+		c.fail("implement graph requires exactly one worker agent or two exclusive routed workers, has %d", agents)
 	}
 	return errors.Join(c.faults...)
 }
@@ -463,7 +480,7 @@ func (c *implementCheck) workerSync(n Node) {
 	synced, a := Decide(c.p, n.Name, "synced")
 	current, b := Decide(c.p, n.Name, "current")
 	worker, exists := c.p.Node(synced)
-	if !a || !b || synced != current || !exists || worker.Action != "lf_agent" || c.isResolver(worker) {
+	if !a || !b || synced != current || !exists || (worker.Action != "lf_agent" && worker.Action != ResearchIfAction) || c.isResolver(worker) {
 		c.fail("worker sync %s requires synced and current to reach the same worker agent", n.Name)
 	}
 	c.edge(n, "retry", func(t Node) bool { return t.Name == n.Name }, "must retry the same worker sync")

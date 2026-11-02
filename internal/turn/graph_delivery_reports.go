@@ -50,7 +50,11 @@ func (r *Reporter) ReportGraphDeliveryCompletion(ctx context.Context, instanceID
 		if err != nil {
 			return redact.Body{}, err
 		}
-		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("Bug repair delivered: commit `%s` merged into `%s` through PR #%d (merge `%s`), and issue %s is closed.", progress.Commit, progress.Binding.Target, progress.PR.Number, progress.PR.MergeSHA, display.Reference()), "")
+		evidence, err := r.executionGraphEvidence(ctx, instanceID)
+		if err != nil {
+			return redact.Body{}, err
+		}
+		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("Bug repair delivered: commit `%s` merged into `%s` through PR #%d (merge `%s`), and issue %s is closed.", progress.Commit, progress.Binding.Target, progress.PR.Number, progress.PR.MergeSHA, display.Reference())+"\n\nFactory action: commit, push, integration and issue closure.\n\n"+report.RenderExecutions(evidence, report.ExecutionReportLimit), "")
 	})
 }
 
@@ -84,12 +88,12 @@ func (r *Reporter) ReportGraphDispatchStop(ctx context.Context, dispatch store.G
 	if projection == nil {
 		projection = &report.StopRecovery{Step: dispatch.Node, Disposition: "cancelled", Reason: dispatch.CancellationReason, Unresolved: "The retained graph and saved launch could not be established.", NextStep: "Ask the factory operator to inspect on the factory host: `" + report.TaskInspectionCommand(session.TaskRef) + "`."}
 	}
-	return r.deliverRecoveryProjection(ctx, intent, projection, "")
+	return r.deliverRecoveryProjection(ctx, intent, projection, nil)
 }
 
 // deliverRecoveryProjection links material updates without changing an original
 // wait or a previously retained body. Source IDs and state, not prose, define it.
-func (r *Reporter) deliverRecoveryProjection(ctx context.Context, intent store.ReportDelivery, projection *report.StopRecovery, initialBody string) (Posted, error) {
+func (r *Reporter) deliverRecoveryProjection(ctx context.Context, intent store.ReportDelivery, projection *report.StopRecovery, initialBody func() (string, error)) (Posted, error) {
 	material, _ := json.Marshal(struct {
 		Instance, Dispatch, Launch int64
 		Step, State, Route         string
@@ -110,8 +114,14 @@ func (r *Reporter) deliverRecoveryProjection(ctx context.Context, intent store.R
 	}
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
 		body := report.RenderStopRecovery(projection)
-		if notice.PreviousKey == "" && initialBody != "" {
-			body = initialBody + "\n\n" + body
+		if notice.PreviousKey == "" && initialBody != nil {
+			initial, err := initialBody()
+			if err != nil {
+				return redact.Body{}, err
+			}
+			if initial != "" {
+				body = initial + "\n\n" + body
+			}
 		}
 		if notice.PreviousKey != "" {
 			body += "\n\nThis updates the retained stop explanation `" + notice.PreviousKey + "`; prior history remains unchanged."

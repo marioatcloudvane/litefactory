@@ -28,7 +28,8 @@ The terminal and GitHub share one conversation per issue. Only one diagnosis per
 A diagnosis is read only. The agent can:
 
 - read the daemon log, the run logs, the task worktree (`git status`, `log`, `diff`) and the database, through a sandboxed shell and a read-only query tool (one `SELECT` at a time, with row, byte and time limits);
-- read one page of comments from the target issue at a time.
+- read one page of comments from the target issue at a time;
+- explicitly check configured factory CI access through `ci_access` when the diagnosis targets that factory repository.
 
 It cannot write outside a private scratch folder, use the network, read the factory's configuration, credentials or secrets, or change anything. Replies are redacted before they are saved or posted.
 
@@ -56,6 +57,77 @@ A failed run in the history is not proof that the daemon is stuck now. Ask docto
 ### Which agents can diagnose
 
 Diagnosis currently runs on Claude. Codex diagnosis is switched off in the code until its sandbox is verified, so a Codex-only setup gets a clear refusal instead of a diagnosis. Your input is still kept. Repairs, once approved, can run on either configured agent.
+
+## Factory alert evidence
+
+Doctor can read the retained factory-alert projection alongside task evidence.
+Inspect active incidents, each rule's enabled/readiness state, last successful
+observation and unavailable or stale reason. Check mute expiry and whether an
+opening is detected, queued, confirmed or uncertain. A recent empty incident
+list with unavailable observation is not proof of health. A working observer
+with unavailable Discord delivery can detect trouble without notifying you.
+
+These are recorded local facts: reading them does not probe a provider, send an
+alert, replay a report or repair work. An uncertain send can remain unresolved
+when Discord history cannot establish a matching receipt; do not infer delivery
+from elapsed time. Alert state survives restart, which supplies no clean
+recovery observation. See [factory alerts](../discord.md#factory-alerts) for
+thresholds, notification controls and the separate installed owner check.
+
+## CI access check
+
+In the configured factory repository's issue context, the owner can request:
+
+```text
+/doctor check the configured factory CI repository and active Actions workflow access using ci_access, and report any deferred wait
+```
+
+The terminal equivalent is `litefactory doctor OWNER/REPOSITORY ISSUE "check the
+configured factory CI access using ci_access"`. Use an issue in
+`alerts.ci.repository`. This is an explicit bounded diagnostic, not a general
+URL reader: the factory supplies the configured repository and exact workflow
+path, and `ci_access` accepts `{}` with no target overrides. It is unavailable
+in other project contexts and during repairs. The agent receives safe evidence,
+never credentials or raw provider responses; its shell still has no network
+access.
+
+The probe verifies repository identity and exact active workflow metadata through
+the existing GitHub credential path. It reports ready, unavailable or deferred
+access. It does not observe a CI conclusion, advance recovery confirmation,
+open/clear an incident or send a notification. Its only persistent write is
+CI-local transport timing: full Retry-After, reset and polling bounds are shared
+with scheduled polling and survive restart. A bound longer than one hour stays
+in force; repeated probes and restarts cannot bypass it. Use saved next-retry
+evidence when a probe is deferred. Ordinary alerts and overview reads remain
+local and make no diagnostic request.
+
+If a request is interrupted before its timing can be saved, transport timing
+remains uncertain and further CI requests are blocked even after the request
+lease expires. The same running process can retry the timing journal write
+without repeating its HTTP request. After that process is lost, the unknown wait
+cannot be reconstructed safely. Preserve the transport and incident evidence
+and have the operator investigate the interrupted request; a restart, elapsed
+time or successful unrelated request does not resolve this limitation.
+
+If access is unavailable, check selected-repository grants, Actions read,
+installation/organization approval, SSO, the exact workflow path and active
+state. A 404 may conceal denied access. Preserve the last known CI failure;
+missing reads, disabled workflows and empty/incomplete history never establish
+recovery. A failed Discord delivery is a separate limitation and does not stop
+CI observation. See [GitHub setup](../getting-started/github-setup.md#factory-main-ci-read-access).
+
+### Installed access verification
+
+Automated tests cannot establish installed credentials or grants. As owner,
+invoke the explicit check in the configured factory repository context and
+record the UTC time, configured target, returned repository/workflow identity,
+active workflow state and ready/unavailable/deferred outcome. Retain only safe
+redacted facts; never credentials or raw private responses. Confirm the exact
+repository and active workflow were read, not merely that public GitHub is
+reachable. If a durable wait or unavailable permission prevents the read, leave
+the live check unverified, correct the grant or wait until the stated retry,
+and request a fresh check. No CI rerun, repair or Discord delivery is part of
+this access check.
 
 ## Repairs
 
