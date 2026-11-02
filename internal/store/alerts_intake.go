@@ -3,16 +3,13 @@ package store
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"sort"
 )
 
 // AlertControlScan keeps an authenticated history interval independent of the
 // conversation backlog. Complete intervals retain only reserved control texts.
-type AlertControlScan struct {
-	Cursor, HighWater, Before string
-	Messages                  []NaturalMessage
-	Complete                  bool
-}
+type AlertControlScan = messagingstate.AlertControlScan
 
 // ReadAlertControlScan returns a detached local history checkpoint.
 func (db *DB) ReadAlertControlScan(ctx context.Context, channel string) (AlertControlScan, bool, error) {

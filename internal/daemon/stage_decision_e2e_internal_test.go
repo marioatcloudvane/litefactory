@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -91,7 +92,7 @@ func TestStageDecisionConfirmedRevisionJourney(t *testing.T) {
 	repo, err := f.db.GetRepo(ctx, f.session.RepoID)
 	researchRecoveryCheck(t, err)
 	token := stageDecisionToken(t, f.db, cfg.ResourceURL, at, 7, repo)
-	control, err := connector.NewLocalControl(ctx, f.db, stageDecisionControl{db: f.db, now: func() time.Time { return at }})
+	control, err := connector.NewLocalControl(ctx, connectorstorage.New(f.db), stageDecisionControl{db: f.db, now: func() time.Time { return at }})
 	researchRecoveryCheck(t, err)
 	actions := owneraction.New(f.db, stageDecisionFallback{}, func() time.Time { return at })
 	publisher := &stageDecisionPublisher{}
@@ -100,7 +101,7 @@ func TestStageDecisionConfirmedRevisionJourney(t *testing.T) {
 	decisions, err := stagedecision.New(stagedecision.Options{DB: f.db, Now: func() time.Time { return at }, Protect: func(_ context.Context, text string) (string, error) { return text, nil }, Publisher: publisher, Boundary: boundary})
 	researchRecoveryCheck(t, err)
 	decisions.BindActions(actions)
-	server, err := connector.New(ctx, connector.Options{Config: cfg, DB: f.db, Logger: slog.New(slog.DiscardHandler), LocalControl: control, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }, StageDecisions: decisions})
+	server, err := connector.New(ctx, connector.Options{Config: cfg, Storage: connectorstorage.New(f.db), Access: connectorstorage.New(f.db), Logger: slog.New(slog.DiscardHandler), LocalControl: control, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }, StageDecisions: decisions})
 	researchRecoveryCheck(t, err)
 	server.SetActions(actions)
 	handler := server.Handler()

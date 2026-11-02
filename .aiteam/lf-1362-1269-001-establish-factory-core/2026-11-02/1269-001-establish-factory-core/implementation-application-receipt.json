@@ -1,0 +1,82 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"request_id\":\"373feae7ac45c93c6325b6c0e7237b40\",\"result\":{\"Validation\":{\"valid\":true,\"complete\":true,\"diagnostics\":[],\"unchecked_paths\":[],\"expected_revision\":0,\"current_revision\":0},\"Receipt\":{\"ID\":3322,\"ResultID\":2958,\"RunID\":3618,\"AppliedRevision\":1,\"SubmissionReceiptID\":0,\"Attempt\":\"d6595a104432861866d05f52b92092d9\",\"RequestID\":\"373feae7ac45c93c6325b6c0e7237b40\",\"RequestHash\":\"55d4388f2c7c90f696e1010f077f66961514f7c6ff61883ae655979500df2094\",\"InputState\":\"accepted\",\"Payload\":\"eyJyZXN1bHQiOnsib3V0Y29tZSI6ImNvbXBsZXRlZCIsImNvbW1lbnQiOiJBSTtEUjogU2hhcmVkIGZhY3Rvcnkgb3duZXJzaGlwIGlzIGltcGxlbWVudGVkIGFuZCBjaGVja2VkLiBJbmRlcGVuZGVudCBhY2NlcHRhbmNlIGlzIG5leHQuXG5cbkNMSSwgRGlzY29yZCBhbmQgcmVtb3RlIGNvbnN1bWVycyBub3cgdXNlIGJvdW5kZWQgb3BlcmF0aW9ucyBhbmQgb3duZWQgdmlld3Mgd2hpbGUgcmV0YWluaW5nIHNhdmVkIGZvcm1hdHMgYW5kIGFwcHJvdmFsIGNoYW5uZWxzLiBUaHJlZSBzdWJhZ2VudHMgYnVpbHQgYWxvbmdzaWRlIG1lOyBJIHJldmlld2VkIHRoZWlyIGNoYW5nZXMgYW5kIHJhbiB2ZXJpZmljYXRpb24uIENvbXBsZXRlIGFmZmVjdGVkLXBhY2thZ2UgdGVzdHMsIHByZXNjcmliZWQgcmFjZSBzZWxlY3Rpb25zLCBidWlsZCwgZm9ybWF0dGluZywgZG9jdW1lbnRhdGlvbiBsaW5rcyBhbmQgcGlubmVkIGxpbnQgcGFzc2VkLiBUaGUgb2ZmbGluZSBiYXNlbGluZS9jdXJyZW50L2Jhc2VsaW5lIHN0b3JhZ2UgcmVoZWFyc2FsIHBhc3NlZC4gTm8gcHJlLWV4aXN0aW5nIGZhaWx1cmVzIHdlcmUgb2JzZXJ2ZWQsIGFuZCBubyBkZXZpYXRpb24gd2FzIHJlcXVpcmVkLlxuXG5Db250cm9sbGVkIHByb3ZpZGVycyBhbmQgZXhlY3V0aW9uIGRvIG5vdCBwcm92ZSBsaXZlIGRlbGl2ZXJ5LCBmdWxsIGdyYXBoIGhhbmRsaW5nIG9yIGxpdmUgc3RvcC9kcmFpbiByZWNvdmVyeS4gT3duZXIgY2hlY2sgcGVuZGluZzogQUMtMDAxLCBBQy0wMDIsIEFDLTAwMywgQUMtMDA1LCBBQy0wMDYsIEFDLTAwNy4gQWNjZXB0YW5jZSBhbmQgdGhlIHJlcG9zaXRvcnkgZnVsbCBjaGVjayByZW1haW4gd2l0aCBWYWxpZGF0ZTsgbm8gcHVibGljYXRpb24gaXMgZXN0YWJsaXNoZWQuIiwicGF5bG9hZCI6eyJpbXBsZW1lbnQiOnsic3RvcmllcyI6W119fX19\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXSwiZXhwZWN0ZWRfcmV2aXNpb24iOjAsImN1cnJlbnRfcmV2aXNpb24iOjB9\",\"Observations\":[{\"Sequence\":1,\"RunID\":3618,\"Attempt\":\"d6595a104432861866d05f52b92092d9\",\"Dimension\":\"received\",\"State\":\"received\"},{\"Sequence\":2,\"RunID\":3618,\"Attempt\":\"d6595a104432861866d05f52b92092d9\",\"Dimension\":\"input\",\"State\":\"accepted\"}],\"Latest\":{\"Received\":\"received\",\"Input\":\"accepted\",\"Engineering\":\"pending\",\"Acceptance\":\"pending\",\"Publication\":\"pending\"}},\"Snapshot\":{\"meta\":{\"schema_version\":1,\"task\":\"github:marioatcloudvane/litefactory#1362\",\"run_id\":3618,\"attempt_id\":\"d6595a104432861866d05f52b92092d9\",\"mode\":\"implement\",\"result_id\":\"result-2958\",\"result_revision\":1,\"scope_ref\":\"0086061e3196b9b097f48d92e02aed4990f71dadb400bc92e90441b72fc1cee3\",\"request_id\":\"373feae7ac45c93c6325b6c0e7237b40\",\"workflow_version\":2,\"submission_contract_version\":2},\"result\":{\"outcome\":\"completed\",\"comment\":\"AI;DR: Shared factory ownership is implemented and checked. Independent acceptance is next.\\n\\nCLI, Discord and remote consumers now use bounded operations and owned views while retaining saved formats and approval channels. Three subagents built alongside me; I reviewed their changes and ran verification. Complete affected-package tests, prescribed race selections, build, formatting, documentation links and pinned lint passed. The offline baseline/current/baseline storage rehearsal passed. No pre-existing failures were observed, and no deviation was required.\\n\\nControlled providers and execution do not prove live delivery, full graph handling or live stop/drain recovery. Owner check pending: AC-001, AC-002, AC-003, AC-005, AC-006, AC-007. Acceptance and the repository full check remain with Validate; no publication is established.\",\"payload\":{\"implement\":{}}}},\"Baseline\":null,\"Review\":null}}"
+    }
+  ],
+  "structuredContent": {
+    "request_id": "373feae7ac45c93c6325b6c0e7237b40",
+    "result": {
+      "Validation": {
+        "valid": true,
+        "complete": true,
+        "diagnostics": [],
+        "unchecked_paths": [],
+        "expected_revision": 0,
+        "current_revision": 0
+      },
+      "Receipt": {
+        "ID": 3322,
+        "ResultID": 2958,
+        "RunID": 3618,
+        "AppliedRevision": 1,
+        "SubmissionReceiptID": 0,
+        "Attempt": "d6595a104432861866d05f52b92092d9",
+        "RequestID": "373feae7ac45c93c6325b6c0e7237b40",
+        "RequestHash": "55d4388f2c7c90f696e1010f077f66961514f7c6ff61883ae655979500df2094",
+        "InputState": "accepted",
+        "Payload": "eyJyZXN1bHQiOnsib3V0Y29tZSI6ImNvbXBsZXRlZCIsImNvbW1lbnQiOiJBSTtEUjogU2hhcmVkIGZhY3Rvcnkgb3duZXJzaGlwIGlzIGltcGxlbWVudGVkIGFuZCBjaGVja2VkLiBJbmRlcGVuZGVudCBhY2NlcHRhbmNlIGlzIG5leHQuXG5cbkNMSSwgRGlzY29yZCBhbmQgcmVtb3RlIGNvbnN1bWVycyBub3cgdXNlIGJvdW5kZWQgb3BlcmF0aW9ucyBhbmQgb3duZWQgdmlld3Mgd2hpbGUgcmV0YWluaW5nIHNhdmVkIGZvcm1hdHMgYW5kIGFwcHJvdmFsIGNoYW5uZWxzLiBUaHJlZSBzdWJhZ2VudHMgYnVpbHQgYWxvbmdzaWRlIG1lOyBJIHJldmlld2VkIHRoZWlyIGNoYW5nZXMgYW5kIHJhbiB2ZXJpZmljYXRpb24uIENvbXBsZXRlIGFmZmVjdGVkLXBhY2thZ2UgdGVzdHMsIHByZXNjcmliZWQgcmFjZSBzZWxlY3Rpb25zLCBidWlsZCwgZm9ybWF0dGluZywgZG9jdW1lbnRhdGlvbiBsaW5rcyBhbmQgcGlubmVkIGxpbnQgcGFzc2VkLiBUaGUgb2ZmbGluZSBiYXNlbGluZS9jdXJyZW50L2Jhc2VsaW5lIHN0b3JhZ2UgcmVoZWFyc2FsIHBhc3NlZC4gTm8gcHJlLWV4aXN0aW5nIGZhaWx1cmVzIHdlcmUgb2JzZXJ2ZWQsIGFuZCBubyBkZXZpYXRpb24gd2FzIHJlcXVpcmVkLlxuXG5Db250cm9sbGVkIHByb3ZpZGVycyBhbmQgZXhlY3V0aW9uIGRvIG5vdCBwcm92ZSBsaXZlIGRlbGl2ZXJ5LCBmdWxsIGdyYXBoIGhhbmRsaW5nIG9yIGxpdmUgc3RvcC9kcmFpbiByZWNvdmVyeS4gT3duZXIgY2hlY2sgcGVuZGluZzogQUMtMDAxLCBBQy0wMDIsIEFDLTAwMywgQUMtMDA1LCBBQy0wMDYsIEFDLTAwNy4gQWNjZXB0YW5jZSBhbmQgdGhlIHJlcG9zaXRvcnkgZnVsbCBjaGVjayByZW1haW4gd2l0aCBWYWxpZGF0ZTsgbm8gcHVibGljYXRpb24gaXMgZXN0YWJsaXNoZWQuIiwicGF5bG9hZCI6eyJpbXBsZW1lbnQiOnsic3RvcmllcyI6W119fX19",
+        "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXSwiZXhwZWN0ZWRfcmV2aXNpb24iOjAsImN1cnJlbnRfcmV2aXNpb24iOjB9",
+        "Observations": [
+          {
+            "Sequence": 1,
+            "RunID": 3618,
+            "Attempt": "d6595a104432861866d05f52b92092d9",
+            "Dimension": "received",
+            "State": "received"
+          },
+          {
+            "Sequence": 2,
+            "RunID": 3618,
+            "Attempt": "d6595a104432861866d05f52b92092d9",
+            "Dimension": "input",
+            "State": "accepted"
+          }
+        ],
+        "Latest": {
+          "Received": "received",
+          "Input": "accepted",
+          "Engineering": "pending",
+          "Acceptance": "pending",
+          "Publication": "pending"
+        }
+      },
+      "Snapshot": {
+        "meta": {
+          "schema_version": 1,
+          "task": "github:marioatcloudvane/litefactory#1362",
+          "run_id": 3618,
+          "attempt_id": "d6595a104432861866d05f52b92092d9",
+          "mode": "implement",
+          "result_id": "result-2958",
+          "result_revision": 1,
+          "scope_ref": "0086061e3196b9b097f48d92e02aed4990f71dadb400bc92e90441b72fc1cee3",
+          "request_id": "373feae7ac45c93c6325b6c0e7237b40",
+          "workflow_version": 2,
+          "submission_contract_version": 2
+        },
+        "result": {
+          "outcome": "completed",
+          "comment": "AI;DR: Shared factory ownership is implemented and checked. Independent acceptance is next.\n\nCLI, Discord and remote consumers now use bounded operations and owned views while retaining saved formats and approval channels. Three subagents built alongside me; I reviewed their changes and ran verification. Complete affected-package tests, prescribed race selections, build, formatting, documentation links and pinned lint passed. The offline baseline/current/baseline storage rehearsal passed. No pre-existing failures were observed, and no deviation was required.\n\nControlled providers and execution do not prove live delivery, full graph handling or live stop/drain recovery. Owner check pending: AC-001, AC-002, AC-003, AC-005, AC-006, AC-007. Acceptance and the repository full check remain with Validate; no publication is established.",
+          "payload": {
+            "implement": {}
+          }
+        }
+      },
+      "Baseline": null,
+      "Review": null
+    }
+  },
+  "isError": false
+}

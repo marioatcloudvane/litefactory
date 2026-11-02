@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strings"
 	"time"
 )
@@ -58,7 +59,7 @@ func (db *DB) ListLegacyConversations(ctx context.Context) ([]Conversation, erro
 
 // ConversationLegacyInstructions are the exact pinned pre-migration values.
 // They are used only to check available saved instruction evidence for conflicts.
-type ConversationLegacyInstructions struct{ Native, Factory, Correction, ActionOutcome string }
+type ConversationLegacyInstructions = messagingstate.ConversationLegacyInstructions
 
 // BackfillLegacyConversationCapture retains the pinned baseline only for a
 // migration-marked binding. Conflicting saved instruction evidence pauses that

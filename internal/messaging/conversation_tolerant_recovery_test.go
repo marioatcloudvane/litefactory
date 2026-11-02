@@ -241,7 +241,7 @@ func TestConversationRecoveryRefusesUnsafeCorrectionBoundaries(t *testing.T) {
 			}
 			prompt := factoryConversationPrompt{Instructions: capture.Factory(), OwnerInput: run.t.Source, OwnerSources: []DialogueTurn{{SourceID: run.t.SourceID, Text: run.t.Source}}, Commands: run.s.ConversationCommands()}
 			if name != "missing native identity" {
-				if err := run.s.db.SaveConversationSession(t.Context(), run.t, "saved-session"); err != nil {
+				if err := fixtureDB(run.s).SaveConversationSession(t.Context(), run.t, "saved-session"); err != nil {
 					t.Fatal(err)
 				}
 				run.c.SessionHandle = "saved-session"
@@ -256,7 +256,7 @@ func TestConversationRecoveryRefusesUnsafeCorrectionBoundaries(t *testing.T) {
 				if kind == "provider" {
 					attempt = fmt.Sprintf("%s:%d", run.t.ID, (ordinal+1)/2)
 				}
-				if err := run.s.db.SaveConversationExchange(t.Context(), run.t, store.ConversationExchange{TurnID: run.t.ID, Ordinal: ordinal, Kind: kind, Request: string(encoded), ProviderAttempt: attempt, CapturedAt: at, Complete: complete}); err != nil {
+				if err := fixtureDB(run.s).SaveConversationExchange(t.Context(), run.t, store.ConversationExchange{TurnID: run.t.ID, Ordinal: ordinal, Kind: kind, Request: string(encoded), ProviderAttempt: attempt, CapturedAt: at, Complete: complete}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -283,7 +283,7 @@ func TestConversationRecoveryRefusesUnsafeCorrectionBoundaries(t *testing.T) {
 			if provider.calls != 0 {
 				t.Fatal("unsafe recovery replayed provider input")
 			}
-			saved, err := run.s.db.LatestConversationTurn(t.Context(), run.c.ID)
+			saved, err := fixtureDB(run.s).LatestConversationTurn(t.Context(), run.c.ID)
 			if err != nil || saved.State != "running" || saved.Generation != run.t.Generation {
 				t.Fatalf("rejected boundary changed ownership: %+v err=%v", saved, err)
 			}

@@ -6,6 +6,8 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localusage"
 	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"strings"
@@ -70,7 +72,7 @@ func TestMeterCSVTextRoundTrip(t *testing.T) {
 	t.Parallel()
 	for _, text := range []string{"=SUM(A1)", " \t+42", "\rfoo", "\nfoo", "'original", "plain,\"quote\"\nnext", "@cmd", "", " model"} {
 		model := text
-		b, err := meterCSVBytes(store.MeterRow{ActualModel: &model})
+		b, err := meterCSVBytes(localusage.ExportRow{ActualModel: &model})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -125,7 +127,7 @@ func TestMeterExportReleasesDatabaseBeforeWriter(t *testing.T) {
 	writer := &meterBlockingWriter{entered: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan error, 1)
 	go func() {
-		done <- writeMeter(t.Context(), writer, f.db, store.MeterFilter{RepoID: repo.ID}, meterOptions{}, true)
+		done <- writeMeter(t.Context(), writer, f.db, contracts.UsageFilter(store.MeterFilter{RepoID: repo.ID}), meterOptions{}, true)
 	}()
 	select {
 	case <-writer.entered:
@@ -154,13 +156,13 @@ type meterBrokenWriter struct{}
 func (meterBrokenWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 func TestMeterExportBrokenWriterAndCancellation(t *testing.T) {
 	f, repo, _ := meterTestHome(t)
-	if err := writeMeter(t.Context(), meterBrokenWriter{}, f.db, store.MeterFilter{RepoID: repo.ID}, meterOptions{}, true); !errors.Is(err, io.ErrClosedPipe) {
+	if err := writeMeter(t.Context(), meterBrokenWriter{}, f.db, contracts.UsageFilter(store.MeterFilter{RepoID: repo.ID}), meterOptions{}, true); !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	var out bytes.Buffer
-	if err := writeMeter(ctx, &out, f.db, store.MeterFilter{}, meterOptions{}, true); err == nil || out.Len() != 0 {
+	if err := writeMeter(ctx, &out, f.db, contracts.UsageFilter(store.MeterFilter{}), meterOptions{}, true); err == nil || out.Len() != 0 {
 		t.Fatalf("cancel: %v %q", err, out.String())
 	}
 }
@@ -170,7 +172,7 @@ type meterShortWriter struct{}
 func (meterShortWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
 func TestMeterCSVShortHeader(t *testing.T) {
 	f, _, _ := meterTestHome(t)
-	if err := writeMeter(t.Context(), meterShortWriter{}, f.db, store.MeterFilter{}, meterOptions{}, true); !errors.Is(err, io.ErrShortWrite) {
+	if err := writeMeter(t.Context(), meterShortWriter{}, f.db, contracts.UsageFilter(store.MeterFilter{}), meterOptions{}, true); !errors.Is(err, io.ErrShortWrite) {
 		t.Fatal(err)
 	}
 }

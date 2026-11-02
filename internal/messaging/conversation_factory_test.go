@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -100,7 +101,7 @@ type factoryFixedAction struct {
 }
 
 func (d factoryFixedAction) Resolve(ctx context.Context, _ owneraction.Principal, in owneraction.Invocation, _ time.Time) (owneraction.Facts, error) {
-	repo, err := d.service.db.GetRepo(ctx, d.payload.RepoID)
+	repo, err := fixtureDB(d.service).GetRepo(ctx, d.payload.RepoID)
 	if err != nil {
 		return owneraction.Facts{}, err
 	}
@@ -117,7 +118,8 @@ func (d factoryFixedAction) Resolve(ctx context.Context, _ owneraction.Principal
 		revision = fmt.Sprint(repo.ID)
 	}
 	if in.Command == "diagnose" {
-		session, err := d.service.db.GetOrCreateSession(ctx, repo, mustNumber(in.Arguments["issue"]))
+		number, _ := strconv.Atoi(in.Arguments["issue"])
+		session, err := fixtureDB(d.service).GetOrCreateSession(ctx, repo, number)
 		if err != nil {
 			return owneraction.Facts{}, err
 		}
@@ -138,15 +140,15 @@ func (d factoryFixedAction) Recover(ctx context.Context, p owneraction.Principal
 func executeFactoryAction(t *testing.T, run *factoryConversationRun, payload naturalPayload, at *time.Time) owneraction.Proposal {
 	t.Helper()
 	ctx := t.Context()
-	if _, err := run.s.db.UpsertIdentity(ctx, store.Identity{Forge: "github", Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
+	if _, err := fixtureDB(run.s).UpsertIdentity(ctx, store.Identity{Forge: "github", Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := run.s.db.ConnectorOwner(ctx, 42)
+	owner, err := fixtureDB(run.s).ConnectorOwner(ctx, 42)
 	if err != nil {
 		t.Fatal(err)
 	}
 	principal := owneraction.Principal{OwnerID: "42", OwnerGeneration: owner.Generation, Transport: "discord", ChannelID: "2", DiscordOwnerID: "1"}
-	actions := owneraction.New(run.s.db, factoryFixedAction{run.s, payload}, func() time.Time { return *at })
+	actions := owneraction.New(fixtureDB(run.s), factoryFixedAction{run.s, payload}, func() time.Time { return *at })
 	actions.SetDiscord("1", []string{"2"})
 	actions.SetDelivery(gateApproval{})
 	run.s.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })
@@ -188,7 +190,7 @@ func TestFactoryConversationLookupAndCorrectionShareBudget(t *testing.T) {
 	if provider.calls != 4 {
 		t.Fatalf("provider calls=%d", provider.calls)
 	}
-	exchanges, err := run.s.db.ListConversationExchanges(t.Context(), run.t.ID)
+	exchanges, err := fixtureDB(run.s).ListConversationExchanges(t.Context(), run.t.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +203,7 @@ func TestFactoryConversationLookupAndCorrectionShareBudget(t *testing.T) {
 	if evidence != 2 {
 		t.Fatalf("read was performed after the fourth invocation: evidence=%d", evidence)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +219,7 @@ func TestFactoryConversationNarrationFailureRetainsOutcome(t *testing.T) {
 	if err := run.narrate(t.Context(), saved); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,14 +258,14 @@ func TestFactoryConversationFirstCancellationSkipsProvider(t *testing.T) {
 	if provider.calls != 0 {
 		t.Fatalf("cancel invoked provider %d times", provider.calls)
 	}
-	c, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+	c, err := fixtureDB(run.s).ReadConversation(t.Context(), "discord", "2")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.HealthReason != "" || c.SessionHandle != "" {
 		t.Fatalf("cancel paused or created a session: %+v", c)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +279,7 @@ func TestFactoryConversationDiagnosisSavedOutcome(t *testing.T) {
 	run, at := factoryUnitRun(t, provider, "yes")
 	diagnosis := &factoryUnitDiagnosis{}
 	run.s.EnableResearch(diagnosis, nil)
-	repo, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
+	repo, err := fixtureDB(run.s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +288,7 @@ func TestFactoryConversationDiagnosisSavedOutcome(t *testing.T) {
 	if proposal.State != "succeeded" || proposal.Result.Summary != "Findings: the current task is waiting on the owner." || diagnosis.calls != 1 || diagnosis.request.Target != "github:acme/app#42" || diagnosis.request.Note != "check current state" || provider.calls != 0 {
 		t.Fatalf("saved diagnosis: %+v calls=%d request=%+v", proposal, diagnosis.calls, diagnosis.request)
 	}
-	if _, err = run.s.ownerActions.Step(t.Context(), proposal.ID); err != nil {
+	if _, err = fixtureActions(run.s).Step(t.Context(), proposal.ID); err != nil {
 		t.Fatal(err)
 	}
 	inspected, err := run.s.ownerActions.Inspect(t.Context(), mustFactoryPrincipal(t, run.s), proposal.ID)
@@ -318,7 +320,7 @@ func TestFactoryConversationJournalProtectsDecodedOutput(t *testing.T) {
 	if err := run.s.runFactoryConversation(t.Context(), run.c, run.b, run.t, at); err != nil {
 		t.Fatal(err)
 	}
-	exchanges, err := run.s.db.ListConversationExchanges(t.Context(), run.t.ID)
+	exchanges, err := fixtureDB(run.s).ListConversationExchanges(t.Context(), run.t.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +329,7 @@ func TestFactoryConversationJournalProtectsDecodedOutput(t *testing.T) {
 			t.Fatal("decoded provider output bypassed journal protection")
 		}
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,12 +355,12 @@ func TestFactoryConversationPreservesUncertainDomainOutcome(t *testing.T) {
 	run, at := factoryUnitRun(t, &factoryUnitProvider{fail: true}, "yes")
 	confirmer := &uncertainFactoryConfirmer{}
 	run.s.EnableFeatures(nil, confirmer)
-	repo, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
+	repo, err := fixtureDB(run.s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	preview := store.ChatIssuePreview{ID: "preview", Transport: "discord", ChannelRef: "2", SourceMessageID: "draft", Code: "12345678", ContentHash: "hash", Title: "Feature", Body: "Exact content", RepoID: repo.ID, CreatedAt: at, ExpiresAt: at.Add(24 * time.Hour)}
-	if err = run.s.db.SaveChatIssuePreview(t.Context(), preview); err != nil {
+	if err = fixtureDB(run.s).SaveChatIssuePreview(t.Context(), preview); err != nil {
 		t.Fatal(err)
 	}
 	payload := naturalPayload{Invocation: Invocation{Command: "confirm", Arguments: map[string]string{"code": preview.Code}}, Channel: "2", Project: "acme/app", RepoID: repo.ID, PreviewID: preview.ID, PreviewHash: preview.ContentHash, Question: preview.Title + "\n" + preview.Body}
@@ -366,11 +368,11 @@ func TestFactoryConversationPreservesUncertainDomainOutcome(t *testing.T) {
 	if confirmer.calls != 1 || proposal.State != "uncertain" || proposal.Result.Summary != "Issue creation outcome is uncertain." {
 		t.Fatalf("uncertainty lost: %+v calls=%d", proposal, confirmer.calls)
 	}
-	execution, err := run.s.db.ReadNaturalExecution(t.Context(), proposal.ExecutionID)
+	execution, err := fixtureDB(run.s).ReadNaturalExecution(t.Context(), proposal.ExecutionID)
 	if err != nil || execution.State != "uncertain" {
 		t.Fatalf("journal uncertainty lost: %+v %v", execution, err)
 	}
-	if _, err = run.s.ownerActions.Step(t.Context(), proposal.ID); err != nil {
+	if _, err = fixtureActions(run.s).Step(t.Context(), proposal.ID); err != nil {
 		t.Fatal(err)
 	}
 	if confirmer.calls != 1 {
@@ -427,14 +429,14 @@ func TestConversationFailureDiagnosticsAndRetry(t *testing.T) {
 				if strings.Contains(logs.String(), "secret-sentinel") {
 					t.Fatal("secret leaked")
 				}
-				saved, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				saved, err := fixtureDB(run.s).ReadConversation(t.Context(), "discord", "2")
 				if err != nil {
 					t.Fatal(err)
 				}
 				if (saved.HealthReason == "") != preStart {
 					t.Fatalf("incorrect health: %+v", saved)
 				}
-				latest, err := run.s.db.LatestConversationTurn(t.Context(), run.c.ID)
+				latest, err := fixtureDB(run.s).LatestConversationTurn(t.Context(), run.c.ID)
 				if err != nil || latest.State == "running" || latest.State == "pending" {
 					t.Fatalf("failed input not settled: %+v %v", latest, err)
 				}
@@ -452,11 +454,11 @@ func TestFactoryConversationSavedOutcomeRetainsMissingIdentityPause(t *testing.T
 	if err := run.failed(t.Context(), errors.New("unknown process outcome")); err != nil {
 		t.Fatal(err)
 	}
-	c, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+	c, err := fixtureDB(run.s).ReadConversation(t.Context(), "discord", "2")
 	if err != nil || c.HealthReason == "" {
 		t.Fatalf("uncertain continuity released: %+v %v", c, err)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil || !strings.Contains(reply.ReplyText, run.savedOutcomes) {
 		t.Fatalf("saved outcome lost: %+v %v", reply, err)
 	}
@@ -478,7 +480,7 @@ func TestFactoryConversationAccessBoundaryRetry(t *testing.T) {
 			if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
 				t.Fatal(err)
 			}
-			pending, err := r.s.db.LatestConversationTurn(t.Context(), r.c.ID)
+			pending, err := fixtureDB(r.s).LatestConversationTurn(t.Context(), r.c.ID)
 			if err != nil || pending.State != "pending" || pending.ReplyID != "" {
 				t.Fatalf("not deferred: %+v %v", pending, err)
 			}
@@ -488,15 +490,15 @@ func TestFactoryConversationAccessBoundaryRetry(t *testing.T) {
 			if worked, err := r.s.ConversationStep(t.Context(), at.Add(11*time.Second)); err != nil || !worked {
 				t.Fatalf("retry failed: %t %v", worked, err)
 			}
-			finished, err := r.s.db.LatestConversationTurn(t.Context(), r.c.ID)
+			finished, err := fixtureDB(r.s).LatestConversationTurn(t.Context(), r.c.ID)
 			if err != nil || finished.ID != pending.ID || finished.State != "completed" || finished.Generation <= pending.Generation {
 				t.Fatalf("reclaimed turn: %+v %v", finished, err)
 			}
-			c, err := r.s.db.ReadConversation(t.Context(), "discord", "2")
+			c, err := fixtureDB(r.s).ReadConversation(t.Context(), "discord", "2")
 			if err != nil || c.SessionHandle != "unit-session" || p.calls != 2 {
 				t.Fatalf("native input replayed: %+v calls=%d %v", c, p.calls, err)
 			}
-			exchanges, err := r.s.db.ListConversationExchanges(t.Context(), r.t.ID)
+			exchanges, err := fixtureDB(r.s).ListConversationExchanges(t.Context(), r.t.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -565,7 +567,7 @@ func TestFactoryConversationReportedDiagnosticsCorrection(t *testing.T) {
 			if p.calls != expectedCalls {
 				t.Fatalf("correction calls: %d", p.calls)
 			}
-			reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+			reply, err := fixtureDB(r.s).ClaimConversationReply(t.Context(), "discord", at)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -596,7 +598,7 @@ func TestFactoryConversationAcceptsPlainStatusAnswer(t *testing.T) {
 	if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(r.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +616,7 @@ func TestFactoryConversationToleratesNoiseAroundObject(t *testing.T) {
 	if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(r.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -628,13 +630,13 @@ func TestConversationPausedGuidanceUsesRetainedIdentityAndOperatorLogs(t *testin
 	if err := run.s.conversationUnavailable(t.Context(), run.c, run.t, "saved native session missing; no replacement session created", at); err != nil {
 		t.Fatal(err)
 	}
-	latest, err := run.s.db.LatestConversationTurn(t.Context(), run.c.ID)
+	latest, err := fixtureDB(run.s).LatestConversationTurn(t.Context(), run.c.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The complete retained presentation and the authorized health view must both
 	// carry the usable local inspection step; paused input is never retried here.
-	reply, err := run.s.db.ReadChatReply(t.Context(), "discord", latest.ReplyID)
+	reply, err := fixtureDB(run.s).ReadChatReply(t.Context(), "discord", latest.ReplyID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -655,7 +657,7 @@ func TestFactoryConversationUnknownFailureKeepsOneInspectionStep(t *testing.T) {
 	if err := run.failed(t.Context(), errors.New("provider completion unknown")); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -700,11 +702,11 @@ func runFreshTurn(t *testing.T, run *factoryConversationRun, source, text string
 	t.Helper()
 	ctx := t.Context()
 	if source != "101" {
-		scan, err := run.s.db.ReadNaturalScan(ctx, "2")
+		scan, err := fixtureDB(run.s).ReadNaturalScan(ctx, "2")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = run.s.db.StageNaturalScan(ctx, scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: source}, []store.NaturalMessage{{ChannelRef: "2", SourceID: source, OwnerID: "1", Text: text, CreatedAt: at}}, true); err != nil {
+		if err = fixtureDB(run.s).StageNaturalScan(ctx, scan, store.NaturalScan{ChannelRef: "2", Cursor: scan.Cursor, HighWater: source}, []store.NaturalMessage{{ChannelRef: "2", SourceID: source, OwnerID: "1", Text: text, CreatedAt: at}}, true); err != nil {
 			t.Fatal(err)
 		}
 		instructions, err := run.s.restoreConversationInstructions(ctx, run.c.ID, at)
@@ -715,13 +717,13 @@ func runFreshTurn(t *testing.T, run *factoryConversationRun, source, text string
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = run.s.db.AdmitConversationTurn(ctx, run.c.ID, source, prompt, at); err != nil {
+		if _, err = fixtureDB(run.s).AdmitConversationTurn(ctx, run.c.ID, source, prompt, at); err != nil {
 			t.Fatal(err)
 		}
-		if run.t, err = run.s.db.ClaimConversationTurn(ctx, run.c.ID, "unit-worker", at, time.Minute); err != nil {
+		if run.t, err = fixtureDB(run.s).ClaimConversationTurn(ctx, run.c.ID, "unit-worker", at, time.Minute); err != nil {
 			t.Fatal(err)
 		}
-		if run.c, err = run.s.db.ReadConversation(ctx, "discord", "2"); err != nil {
+		if run.c, err = fixtureDB(run.s).ReadConversation(ctx, "discord", "2"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -730,14 +732,14 @@ func runFreshTurn(t *testing.T, run *factoryConversationRun, source, text string
 	}
 	var replies []string
 	for {
-		reply, err := run.s.db.ClaimConversationReply(ctx, "discord", at)
+		reply, err := fixtureDB(run.s).ClaimConversationReply(ctx, "discord", at)
 		if errors.Is(err, store.ErrNotFound) {
 			break
 		}
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = run.s.db.FinishConversationReply(ctx, reply, "delivered-"+reply.MessageID, at); err != nil {
+		if err = fixtureDB(run.s).FinishConversationReply(ctx, reply, "delivered-"+reply.MessageID, at); err != nil {
 			t.Fatal(err)
 		}
 		replies = append(replies, reply.ReplyText)
@@ -775,7 +777,7 @@ func TestConversationProviderRefusalAndLoginReplies(t *testing.T) {
 				if name == "authentication" && !strings.Contains(strings.ToLower(reply), "sign in") {
 					t.Fatalf("login failure not reported: %s", reply)
 				}
-				saved, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				saved, err := fixtureDB(run.s).ReadConversation(t.Context(), "discord", "2")
 				if err != nil || saved.HealthReason != "" {
 					t.Fatalf("conversation paused: %+v %v", saved, err)
 				}
@@ -808,7 +810,7 @@ func TestConversationFreshCommandStartsNewNativeSession(t *testing.T) {
 					provider.fail[1] = providerCause(agent.ErrConversationRefused, refusedProviderText)
 					runFreshTurn(t, run, "101", "", at)
 				}
-				before, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				before, err := fixtureDB(run.s).ReadConversation(t.Context(), "discord", "2")
 				if err != nil || before.SessionHandle == "" {
 					t.Fatalf("refused turn left no native session: %+v %v", before, err)
 				}
@@ -822,7 +824,7 @@ func TestConversationFreshCommandStartsNewNativeSession(t *testing.T) {
 				if !strings.Contains(strings.ToLower(reply), "fresh") || !strings.Contains(reply, "work records") {
 					t.Fatalf("fresh reply: %s", reply)
 				}
-				after, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				after, err := fixtureDB(run.s).ReadConversation(t.Context(), "discord", "2")
 				if err != nil || after.SessionHandle != "" || after.FreshAfter == 0 || after.HealthReason != "" {
 					t.Fatalf("fresh transition not saved: %+v %v", after, err)
 				}
@@ -846,7 +848,7 @@ func TestConversationFreshCommandStartsNewNativeSession(t *testing.T) {
 						}
 					}
 				}
-				saved, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				saved, err := fixtureDB(run.s).ReadConversation(t.Context(), "discord", "2")
 				if err != nil || saved.SessionHandle != next.Session.Ref {
 					t.Fatalf("new native identity not saved: %+v %v", saved, err)
 				}

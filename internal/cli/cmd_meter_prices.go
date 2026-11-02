@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/factory/localusage"
 	"github.com/cloudvane/litefactory/internal/meter"
-	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -36,14 +36,18 @@ func newMeterPricesListCommand() *Command {
 	}}
 }
 func writeMeterPrices(ctx context.Context, env *Env, db *store.DB, asJSON bool) error {
-	catalog, err := meterview.Prices(ctx, db, "", "")
+	catalog, err := localusage.NewPrices(db).List(ctx)
 	if err != nil {
 		return err
 	}
 	if asJSON {
 		return json.NewEncoder(env.Stdout).Encode(catalog)
 	}
-	for _, line := range meterview.PriceLines(catalog) {
+	lines := []string{fmt.Sprintf("Price revision %d — USD per million tokens", catalog.RevisionID)}
+	for _, rate := range catalog.Rates {
+		lines = append(lines, fmt.Sprintf("%s\t%s\t%s\t%s", rate.CodingAgent, rate.Model, rate.Dimension, rate.USDPerMillion))
+	}
+	for _, line := range lines {
 		if _, err := fmt.Fprintln(env.Stdout, line); err != nil {
 			return err
 		}
@@ -83,7 +87,7 @@ func newMeterPricesSetCommand() *Command {
 				return err
 			}
 			defer func() { err = errors.Join(err, rt.close()) }()
-			revision, err := rt.db.SetMeterPrices(ctx, codingAgent, args[0], rates)
+			revision, err := localusage.NewPrices(rt.db).Set(ctx, codingAgent, args[0], rates)
 			if err != nil {
 				return err
 			}
@@ -92,14 +96,14 @@ func newMeterPricesSetCommand() *Command {
 		}
 	}}
 }
-func meterPriceArguments(codingAgent, model string, values map[string]*string) ([]store.MeterPriceRate, error) {
+func meterPriceArguments(codingAgent, model string, values map[string]*string) ([]localusage.Rate, error) {
 	if codingAgent != "claude" && codingAgent != "codex" {
 		return nil, Usagef(nil, "coding_agent must be claude or codex")
 	}
 	if model == "" || len(model) > 256 || strings.ContainsAny(model, "\x00\r\n\t") {
 		return nil, Usagef(nil, "invalid model")
 	}
-	rates := []store.MeterPriceRate{}
+	rates := []localusage.Rate{}
 	for _, dimension := range meter.PriceDimensions() {
 		value := values[dimension]
 		if value == nil || *value == "" {
@@ -112,7 +116,7 @@ func meterPriceArguments(codingAgent, model string, values map[string]*string) (
 		if err != nil {
 			return nil, Usagef(nil, "%s: %v", dimension, err)
 		}
-		rates = append(rates, store.MeterPriceRate{CodingAgent: codingAgent, Model: model, Dimension: dimension, USDPerMillion: canonical})
+		rates = append(rates, localusage.Rate{CodingAgent: codingAgent, Model: model, Dimension: dimension, USDPerMillion: canonical})
 	}
 	return rates, nil
 }

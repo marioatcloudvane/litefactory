@@ -669,7 +669,7 @@ func (d *Daemon) InstanceID() string { return d.instanceID }
 func (d *Daemon) Interval() time.Duration { return d.interval }
 
 // DiscoveryInterval returns the fallback discovery poll interval in force.
-func (d *Daemon) DiscoveryInterval() time.Duration { return d.schedule.interval }
+func (d *Daemon) DiscoveryInterval() time.Duration { return d.schedule.Interval() }
 
 // DiscoverySchedule is a read-only snapshot of one repository's poll schedule:
 // its last finished listing, last accepted webhook, next due time and whether a
@@ -1010,7 +1010,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.log.InfoContext(ctx, "daemon started",
 		slog.String("instance_id", d.instanceID),
 		slog.String("heartbeat_interval", d.interval.String()),
-		slog.String("discovery_interval", d.schedule.interval.String()),
+		slog.String("discovery_interval", d.schedule.Interval().String()),
 		slog.String("lock", d.lock.Path()),
 		slog.Uint64("min_free_disk_gb", d.minFreeDiskBytes>>30))
 

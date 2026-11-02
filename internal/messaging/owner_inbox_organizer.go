@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"io"
 	"sort"
 	"strings"
@@ -18,24 +19,24 @@ const inboxOrganizationVersion = 1
 const inboxOrganizerBytes = 256 << 10
 
 type inboxOrganizerTicket struct {
-	Key       string                `json:"key"`
-	Class     string                `json:"class"`
-	WaitingAt time.Time             `json:"waiting_at"`
-	Decisions []store.InboxDecision `json:"decisions"`
-	Evidence  []store.InboxEvidence `json:"evidence"`
+	Key       string                    `json:"key"`
+	Class     string                    `json:"class"`
+	WaitingAt time.Time                 `json:"waiting_at"`
+	Decisions []contracts.InboxDecision `json:"decisions"`
+	Evidence  []contracts.InboxEvidence `json:"evidence"`
 }
 type inboxOrganizerInput struct {
-	Version    int                    `json:"version"`
-	SnapshotID string                 `json:"snapshot_id"`
-	CapturedAt time.Time              `json:"captured_at"`
-	Filter     store.InboxFilter      `json:"filter"`
-	Coverage   []store.InboxCoverage  `json:"coverage"`
-	Tickets    []inboxOrganizerTicket `json:"tickets"`
+	Version    int                       `json:"version"`
+	SnapshotID string                    `json:"snapshot_id"`
+	CapturedAt time.Time                 `json:"captured_at"`
+	Filter     contracts.InboxFilter     `json:"filter"`
+	Coverage   []contracts.InboxCoverage `json:"coverage"`
+	Tickets    []inboxOrganizerTicket    `json:"tickets"`
 }
 type inboxOrganizerOutput struct {
-	Version int                          `json:"version"`
-	Layout  string                       `json:"layout"`
-	Tickets []store.InboxOrganizedTicket `json:"tickets"`
+	Version int                              `json:"version"`
+	Layout  string                           `json:"layout"`
+	Tickets []contracts.InboxOrganizedTicket `json:"tickets"`
 }
 
 func inboxPriority(kind string) int {
@@ -51,7 +52,7 @@ func inboxClass(priority int) string {
 	return []string{"Owner recovery", "Decision reviews", "Open questions"}[priority]
 }
 
-func inboxBaseline(page store.InboxPage) inboxOrganizerInput {
+func inboxBaseline(page contracts.InboxPage) inboxOrganizerInput {
 	input := inboxOrganizerInput{Version: inboxOrganizationVersion, SnapshotID: page.Snapshot.ID, CapturedAt: page.Snapshot.CapturedAt, Filter: page.Snapshot.Filter, Coverage: page.Snapshot.Coverage, Tickets: []inboxOrganizerTicket{}}
 	groups := map[string]int{}
 	for _, d := range page.Entries {
@@ -60,7 +61,7 @@ func inboxBaseline(page store.InboxPage) inboxOrganizerInput {
 		if !ok {
 			index = len(input.Tickets)
 			groups[key] = index
-			input.Tickets = append(input.Tickets, inboxOrganizerTicket{Key: key, Class: inboxClass(inboxPriority(d.Kind)), WaitingAt: d.WaitingAt, Decisions: []store.InboxDecision{}, Evidence: []store.InboxEvidence{}})
+			input.Tickets = append(input.Tickets, inboxOrganizerTicket{Key: key, Class: inboxClass(inboxPriority(d.Kind)), WaitingAt: d.WaitingAt, Decisions: []contracts.InboxDecision{}, Evidence: []contracts.InboxEvidence{}})
 		}
 		t := &input.Tickets[index]
 		priority := inboxPriority(t.DecisionsKind())
@@ -107,10 +108,10 @@ func (t inboxOrganizerTicket) DecisionsKind() string {
 		return "question"
 	}
 }
-func inboxFallback(input inboxOrganizerInput, reason string) store.InboxOrganization {
-	out := store.InboxOrganization{Version: inboxOrganizationVersion, Layout: "action_groups", Mode: "fallback", FallbackReason: reason, Tickets: []store.InboxOrganizedTicket{}}
+func inboxFallback(input inboxOrganizerInput, reason string) contracts.InboxOrganization {
+	out := contracts.InboxOrganization{Version: inboxOrganizationVersion, Layout: "action_groups", Mode: "fallback", FallbackReason: reason, Tickets: []contracts.InboxOrganizedTicket{}}
 	for _, t := range input.Tickets {
-		row := store.InboxOrganizedTicket{Key: t.Key, DecisionKeys: []string{}, EvidenceIDs: []string{}}
+		row := contracts.InboxOrganizedTicket{Key: t.Key, DecisionKeys: []string{}, EvidenceIDs: []string{}}
 		for _, d := range t.Decisions {
 			row.DecisionKeys = append(row.DecisionKeys, d.Key)
 		}
@@ -119,9 +120,9 @@ func inboxFallback(input inboxOrganizerInput, reason string) store.InboxOrganiza
 	return out
 }
 
-func validateInboxOrganization(raw []byte, input inboxOrganizerInput) (store.InboxOrganization, error) {
-	fail := func() (store.InboxOrganization, error) {
-		return store.InboxOrganization{}, errors.New("organizer result must preserve all identities and baseline order except evidenced forward promotions")
+func validateInboxOrganization(raw []byte, input inboxOrganizerInput) (contracts.InboxOrganization, error) {
+	fail := func() (contracts.InboxOrganization, error) {
+		return contracts.InboxOrganization{}, errors.New("organizer result must preserve all identities and baseline order except evidenced forward promotions")
 	}
 	if len(raw) > inboxOrganizerBytes || uniqueJSON(raw) != nil {
 		return fail()
@@ -169,7 +170,7 @@ func validateInboxOrganization(raw []byte, input inboxOrganizerInput) (store.Inb
 			if strings.TrimSpace(row.PromotionReason) == "" || len(row.EvidenceIDs) == 0 {
 				return fail()
 			}
-			evidence := map[string]store.InboxEvidence{}
+			evidence := map[string]contracts.InboxEvidence{}
 			for _, e := range t.Evidence {
 				evidence[e.ID] = e
 			}
@@ -195,11 +196,11 @@ func validateInboxOrganization(raw []byte, input inboxOrganizerInput) (store.Inb
 		}
 		remaining = append(remaining[:position], remaining[position+1:]...)
 	}
-	return store.InboxOrganization{Version: proposed.Version, Layout: proposed.Layout, Mode: "organized", Tickets: proposed.Tickets}, nil
+	return contracts.InboxOrganization{Version: proposed.Version, Layout: proposed.Layout, Mode: "organized", Tickets: proposed.Tickets}, nil
 }
 
-func (s *Service) finalizeOwnerInbox(ctx context.Context, scope store.InboxScope, page store.InboxPage, at time.Time, call func(context.Context, []byte, string, int) ([]byte, error)) (store.InboxOrganization, error) {
-	saved, err := s.db.ReadInboxOrganization(ctx, scope, page.Snapshot.ID, inboxOrganizationVersion, at)
+func (s *Service) finalizeOwnerInbox(ctx context.Context, scope contracts.InboxScope, page contracts.InboxPage, at time.Time, call func(context.Context, []byte, string, int) ([]byte, error)) (contracts.InboxOrganization, error) {
+	saved, err := s.factory.InboxOrganization(ctx, scope, page.Snapshot.ID, inboxOrganizationVersion, at)
 	if err == nil {
 		return saved, nil
 	}
@@ -219,7 +220,7 @@ func (s *Service) finalizeOwnerInbox(ctx context.Context, scope store.InboxScope
 		defer cancel()
 		correction := ""
 		for step := 1; step <= 2; step++ {
-			if err = s.db.InboxSnapshotAuthorized(bounded, scope, page.Snapshot.ID, at); err != nil {
+			if err = s.factory.AuthorizeInbox(bounded, scope, page.Snapshot.ID, at); err != nil {
 				return result, err
 			}
 			raw, callErr := call(bounded, encoded, correction, step)
@@ -239,7 +240,7 @@ func (s *Service) finalizeOwnerInbox(ctx context.Context, scope store.InboxScope
 	if ctx.Err() != nil {
 		return result, ctx.Err()
 	}
-	if err = s.db.InboxSnapshotAuthorized(ctx, scope, page.Snapshot.ID, at); err != nil {
+	if err = s.factory.AuthorizeInbox(ctx, scope, page.Snapshot.ID, at); err != nil {
 		return result, err
 	}
 	if runtime := s.conversations.Load(); runtime != nil {
@@ -259,7 +260,7 @@ func (s *Service) finalizeOwnerInbox(ctx context.Context, scope store.InboxScope
 			return result, err
 		}
 	}
-	return s.db.FinalizeInboxOrganization(ctx, scope, page.Snapshot.ID, result, at)
+	return s.factory.CommitInboxOrganization(ctx, scope, page.Snapshot.ID, result, at)
 }
 
 func inboxOrganizationMap(input inboxOrganizerInput) map[string]inboxOrganizerTicket {
@@ -270,7 +271,7 @@ func inboxOrganizationMap(input inboxOrganizerInput) map[string]inboxOrganizerTi
 	return out
 }
 
-func inboxOrganizedRow(t inboxOrganizerTicket, row store.InboxOrganizedTicket, id string, offset, index int) string {
+func inboxOrganizedRow(t inboxOrganizerTicket, row contracts.InboxOrganizedTicket, id string, offset, index int) string {
 	d := t.Decisions[0]
 	kinds := []string{}
 	seen := map[string]bool{}
@@ -309,7 +310,7 @@ func inboxOrganizedRow(t inboxOrganizerTicket, row store.InboxOrganizedTicket, i
 	return text + fmt.Sprintf("Open: %s:%d:%d\n", id, offset, index)
 }
 
-func renderOrganizedInbox(page store.InboxPage, view store.InboxOrganization, offset int) (string, int) {
+func renderOrganizedInbox(page contracts.InboxPage, view contracts.InboxOrganization, offset int) (string, int) {
 	previous := 0
 	for position := 0; position < offset; {
 		_, next := renderOrganizedInboxPage(page, view, position, previous)
@@ -323,7 +324,7 @@ func renderOrganizedInbox(page store.InboxPage, view store.InboxOrganization, of
 	return renderOrganizedInboxPage(page, view, offset, previous)
 }
 
-func renderOrganizedInboxPage(page store.InboxPage, view store.InboxOrganization, offset, previous int) (string, int) {
+func renderOrganizedInboxPage(page contracts.InboxPage, view contracts.InboxOrganization, offset, previous int) (string, int) {
 	input := inboxBaseline(page)
 	byKey := inboxOrganizationMap(input)
 	offset = min(offset, len(view.Tickets))
@@ -374,10 +375,10 @@ func renderOrganizedInboxPage(page store.InboxPage, view store.InboxOrganization
 func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at time.Time, capture *inboxCapture, id string, offset, entry int) (string, error) {
 	scope := s.inboxScope(m.Channel)
 	op := m.Arguments["operation"]
-	filter := store.InboxFilter{Source: m.Arguments["source"], Project: m.Arguments["project"], Kind: m.Arguments["kind"]}
+	filter := contracts.InboxFilter{Source: m.Arguments["source"], Project: m.Arguments["project"], Kind: m.Arguments["kind"]}
 	fresh := id == "" || op == "organize" || op == "refresh"
 	if id != "" {
-		saved, err := s.db.ReadInboxSnapshot(ctx, scope, id, 0, 1, at)
+		saved, err := s.factory.InboxPage(ctx, scope, id, 0, 1, at)
 		if err != nil {
 			return inboxNotice(inboxReadFailure(err))
 		}
@@ -394,7 +395,7 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 		fresh = fresh || filter != old
 	}
 	if fresh {
-		snap, err := s.db.CreateProtectedInboxSnapshot(ctx, scope, filter, at, func(text string) (string, error) {
+		snap, err := s.factory.OpenProtectedInbox(ctx, scope, filter, at, func(text string) (string, error) {
 			if s.Protect == nil {
 				return "", errors.New("inbox display protection unavailable")
 			}
@@ -406,11 +407,11 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 		id = snap.ID
 		offset = 0
 	}
-	var page store.InboxPage
-	var view store.InboxOrganization
+	var page contracts.InboxPage
+	var view contracts.InboxOrganization
 	var err error
 	if fresh {
-		page, err = s.db.ReadCompleteInboxSnapshot(ctx, scope, id, at)
+		page, err = s.factory.InboxOrganizationInput(ctx, scope, id, at)
 		if err == nil {
 			var call func(context.Context, []byte, string, int) ([]byte, error)
 			if capture != nil {
@@ -419,7 +420,7 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 			view, err = s.finalizeOwnerInbox(ctx, scope, page, at, call)
 		}
 	} else {
-		page, view, err = s.db.ReadInboxNavigation(ctx, scope, id, inboxOrganizationVersion, at)
+		page, view, err = s.factory.InboxNavigation(ctx, scope, id, inboxOrganizationVersion, at)
 	}
 	if err != nil {
 		return inboxNotice(inboxReadFailure(err))
@@ -501,14 +502,14 @@ func (s *Service) readOrganizedOwnerInbox(ctx context.Context, m Message, at tim
 	return text, nil
 }
 
-func inboxOrganizedDecision(ticket inboxOrganizerTicket, row store.InboxOrganizedTicket, position int) (store.InboxDecision, bool) {
+func inboxOrganizedDecision(ticket inboxOrganizerTicket, row contracts.InboxOrganizedTicket, position int) (contracts.InboxDecision, bool) {
 	if position < 0 || position >= len(row.DecisionKeys) || row.DecisionKeys[position] == "" {
-		return store.InboxDecision{}, false
+		return contracts.InboxDecision{}, false
 	}
 	for _, decision := range ticket.Decisions {
 		if decision.Key == row.DecisionKeys[position] {
 			return decision, true
 		}
 	}
-	return store.InboxDecision{}, false
+	return contracts.InboxDecision{}, false
 }

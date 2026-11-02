@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -173,7 +174,7 @@ func newConnectorFixture(t *testing.T, provider OverviewProvider) *connectorFixt
 	db, path := connectorTestDB(t)
 	fixture := &connectorFixture{db: db, path: path, issuer: "https://cloudvane.at/litefactory", logs: &connectorLogBuffer{}, now: time.Now().UTC().Truncate(time.Millisecond)}
 	fixture.control = &connectorFixtureControl{fixture: fixture}
-	local, err := NewLocalControl(t.Context(), db, fixture.control)
+	local, err := NewLocalControl(t.Context(), connectorstorage.New(db), fixture.control)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +185,7 @@ func newConnectorFixture(t *testing.T, provider OverviewProvider) *connectorFixt
 	cfg.GitHubSecretRef.Env = "TEST_GITHUB_SECRET"
 	cfg.CookieSecretRef.Env = "TEST_COOKIE_SECRET"
 	cfg.AllowedOrigins = []string{"https://client.example"}
-	fixture.options = Options{Config: cfg, DB: db, Logger: slog.New(slog.NewJSONHandler(fixture.logs, nil)), Now: func() time.Time { return fixture.now }, LocalControl: local, Overview: provider, GitHub: connectorFixtureIdentity{}, CookieKey: bytes.Repeat([]byte{7}, 32)}
+	fixture.options = Options{Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: slog.New(slog.NewJSONHandler(fixture.logs, nil)), Now: func() time.Time { return fixture.now }, LocalControl: local, Overview: provider, GitHub: connectorFixtureIdentity{}, CookieKey: bytes.Repeat([]byte{7}, 32)}
 	return fixture
 }
 func (f *connectorFixture) server(t *testing.T) http.Handler {
@@ -281,8 +282,8 @@ func (f *connectorFixture) restart(t *testing.T) http.Handler {
 		t.Fatal(err)
 	}
 	f.db = db
-	f.options.DB = db
-	local, err := NewLocalControl(t.Context(), db, f.control)
+	f.options.Storage, f.options.Access = connectorstorage.New(db), connectorstorage.New(db)
+	local, err := NewLocalControl(t.Context(), connectorstorage.New(db), f.control)
 	if err != nil {
 		t.Fatal(err)
 	}

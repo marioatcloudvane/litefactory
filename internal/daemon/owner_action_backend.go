@@ -10,9 +10,12 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factory/owneractions"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/stagedecision"
@@ -117,7 +120,7 @@ func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logg
 func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer *redact.Redactor) {
 	runtime := &ownerActionRuntime{}
 	if d.chat != nil {
-		runtime.actions = d.chat.service.OwnerActions()
+		runtime.actions = d.chat.actions
 		runtime.notices.Store(d.chat.service)
 	} else {
 		if options == nil {
@@ -130,7 +133,7 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		if sanitizer == nil {
 			sanitizer = redact.New(redact.Options{Logger: d.log})
 		}
-		backend := messaging.New(d.db, "mcp", "", nil, nil, messaging.FactoryStatus{DB: d.db})
+		backend := messaging.NewWithServices(messagingstorage.New(d.db), factory.NewMessaging(d.db), "mcp", "", nil, nil, factory.NewHealth(d.db))
 		backend.Protect = func(ctx context.Context, text string) (string, error) {
 			protected, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
 			return protected.String(), err
@@ -146,7 +149,7 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		research := ownerActionResearch{daemon: d, sanitizer: sanitizer, diagnoser: diagnosis, replyLimit: backend.ReplyLimit()}
 		backend.EnableResearch(research, research)
 		allowed := map[string]bool{"answer": d.forge != nil, "diagnose": diagnosis != nil}
-		answers := ask.Service{Repositories: d.db, Collector: ask.Collector{Factory: ask.StoreReader{Reader: d.db}}, Redactor: sanitizer}
+		answers := ask.Service{Repositories: factory.NewMessaging(d.db), Collector: ask.Collector{Factory: factory.NewTaskFacts(d.db)}, Redactor: sanitizer}
 		if options.Answers != nil {
 			answers = *options.Answers
 		}
@@ -192,7 +195,7 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 			standards = &operations
 			backend.EnableStandards(standards)
 		}
-		domain := independentOwnerActionDomain{OwnerActionDomain: messaging.OwnerActionDomain{Service: backend}, allowed: allowed, standards: standards}
+		domain := independentOwnerActionDomain{Domain: backend.FactoryOwnerActionDomain(), allowed: allowed, standards: standards}
 		runtime.actions = owneraction.New(d.db, domain, clock)
 	}
 	if options == nil {
@@ -264,7 +267,7 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 }
 
 type independentOwnerActionDomain struct {
-	messaging.OwnerActionDomain
+	owneractions.Domain
 	allowed   map[string]bool
 	standards *ConversationStandards
 }
@@ -276,7 +279,7 @@ func (d independentOwnerActionDomain) enabled(inv owneraction.Invocation) bool {
 	if d.standards == nil || standardsOperationName(inv.Command, inv.Arguments["action"]) == "" {
 		return false
 	}
-	for _, entry := range d.OwnerActionDomain.ActionCatalog() {
+	for _, entry := range d.Domain.ActionCatalog() {
 		if entry.Command == inv.Command && entry.Subaction == inv.Arguments["action"] {
 			return d.standards.capability(standardsOperationName(entry.Command, entry.Subaction)) == nil
 		}
@@ -300,18 +303,18 @@ func (d independentOwnerActionDomain) Resolve(ctx context.Context, p owneraction
 	if !d.enabled(inv) {
 		return owneraction.Facts{}, owneraction.ErrUnavailable
 	}
-	return d.OwnerActionDomain.Resolve(ctx, p, inv, at)
+	return d.Domain.Resolve(ctx, p, inv, at)
 }
 func (d independentOwnerActionDomain) Recheck(ctx context.Context, p owneraction.Principal, f owneraction.Facts, at time.Time) error {
 	if !d.enabled(f.Invocation) {
 		return owneraction.ErrUnavailable
 	}
-	return d.OwnerActionDomain.Recheck(ctx, p, f, at)
+	return d.Domain.Recheck(ctx, p, f, at)
 }
 
 func (d independentOwnerActionDomain) ActionCatalog() []owneraction.ActionDefinition {
 	out := []owneraction.ActionDefinition{}
-	for _, entry := range d.OwnerActionDomain.ActionCatalog() {
+	for _, entry := range d.Domain.ActionCatalog() {
 		if d.enabled(owneraction.Invocation{Command: entry.Command, Arguments: map[string]string{"action": entry.Subaction}}) {
 			out = append(out, entry)
 		}

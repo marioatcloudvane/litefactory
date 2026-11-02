@@ -11,12 +11,13 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localstandards"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/standards"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 const standardsAuthorUsage = `Work out one standard with the standards author.
@@ -95,16 +96,15 @@ func newStandardsAuthorCommandWithRunner(action string, runner standards.Authori
 				return err
 			}
 			defer func() { err = errors.Join(err, rt.close()) }()
-			owner, ownerErr := rt.db.GetIdentity(ctx, store.ForgeGitHub, store.RoleOwner)
-			if ownerErr != nil && !errors.Is(ownerErr, store.ErrNotFound) {
-				return ownerErr
+			mutation := action == "start" || action == "answer" || action == "edit" || action == "continue" || action == "validate" || action == "complete" || action == "rebase"
+			svc, err := localstandards.NewAuthoring(ctx, rt.db, mutation)
+			if errors.Is(err, localstandards.ErrOwnerRequired) {
+				return Preconditionf("configured numeric owner identity required")
 			}
-			switch action {
-			case "start", "answer", "edit", "continue", "validate", "complete", "rebase":
-				if ownerErr != nil || owner.UserID <= 0 {
-					return Preconditionf("configured numeric owner identity required")
-				}
+			if err != nil {
+				return err
 			}
+
 			instructions, instructionErr := instructionpackage.New(ctx, rt.paths)
 			if instructionErr != nil {
 				return instructionErr
@@ -113,15 +113,17 @@ func newStandardsAuthorCommandWithRunner(action string, runner standards.Authori
 			if binary, e := git.Resolve(ctx); e == nil {
 				reader.Git = binary
 			}
-			svc := &standards.Authoring{Store: rt.db, Book: &standards.Service{Store: rt.db, OwnerID: owner.UserID}, Instructions: instructions, Projects: reader}
+			dependencies := localstandards.AuthorDependencies{Instructions: instructions, Projects: reader}
 			if action == "continue" {
-				svc.Runner = runner
-				if svc.Runner == nil {
-					if svc.Runner, err = newStandardsAuthorReads(env, rt, reader); err != nil {
+				dependencies.Runner = runner
+				if dependencies.Runner == nil {
+					if dependencies.Runner, err = newStandardsAuthorReads(env, rt, reader); err != nil {
 						return err
 					}
 				}
 			}
+			svc.Configure(dependencies)
+
 			var result any
 			switch action {
 			case "start":
@@ -133,25 +135,19 @@ func newStandardsAuthorCommandWithRunner(action string, runner standards.Authori
 					raw, err = readAuthorInput(env, file)
 					intent = string(raw)
 				}
-				var projectID int64
+				request := contracts.StandardsAuthorStart{ID: args[0], TargetID: target, Intent: intent, Categories: authorCategoryIDs(categories)}
 				if err == nil && project != "" {
 					forge, slug, ok := strings.Cut(project, ":")
 					owner, name, valid := strings.Cut(slug, "/")
 					if !ok || !valid || strings.Contains(name, "/") {
 						return Usagef(c, "--project requires registered forge:owner/name")
 					}
-					var repo store.Repo
-					if repo, err = rt.db.GetRepoBySlug(ctx, forge, owner, name); err == nil {
-						projectID = repo.ID
-					}
+					request.ProjectForge, request.ProjectOwner, request.ProjectName = forge, owner, name
 				}
 				if err == nil {
-					mode := "create"
-					if target != "" {
-						mode = "edit"
-					}
-					result, err = svc.Start(ctx, standards.AuthoringStart{ID: args[0], Mode: mode, TargetID: target, Intent: intent, CategoryIDs: authorCategoryIDs(categories), ProjectID: projectID})
+					result, err = svc.Start(ctx, request)
 				}
+
 			case "list":
 				result, err = svc.List(ctx, 100)
 			case "show", "questions":
@@ -276,7 +272,7 @@ func decodeAuthorInput(env *Env, path string, dst any) error {
 
 func writeAuthorText(out io.Writer, result any) error {
 	switch v := result.(type) {
-	case standards.AuthoringSession:
+	case localstandards.AuthorSession:
 		categories := v.Base.Categories
 		if v.NewCategory != nil {
 			categories = append([]standards.Category{*v.NewCategory}, categories...)
@@ -325,14 +321,14 @@ func writeAuthorText(out io.Writer, result any) error {
 		}
 		_, err := fmt.Fprintf(out, "Inspect this saved version before using --expected-version %d. Complete creates a proposal for separate human review.\n", v.Version)
 		return err
-	case []standards.AuthoringSession:
+	case []localstandards.AuthorSession:
 		for _, session := range v {
 			if _, err := fmt.Fprintf(out, "%s version %d %s %s target=%s\n", session.ID, session.Version, session.Mode, session.Status, session.TargetID); err != nil {
 				return err
 			}
 		}
 		return nil
-	case store.StandardsProposalVersion:
+	case localstandards.Proposal:
 		_, err := fmt.Fprintf(out, "Proposal %s version %d\nBase revision: %d\nChange digest: %s\nResult digest: %s\nReview: litefactory standards proposal review %s --version %d\nHuman approval and publication remain separate.\n", v.ProposalID, v.Version, v.BaseRevision, v.ChangeDigest, v.ResultDigest, v.ProposalID, v.Version)
 		return err
 	default:

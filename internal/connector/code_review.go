@@ -7,13 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
 	"strings"
 	"time"
 	"unicode"
-
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 var codeToolNames = []string{"repo_read", "repo_grep", "repo_log", "repo_diff", "standards_read", "standards_role_counts"}
@@ -39,13 +38,13 @@ type codeArguments struct {
 }
 
 type codeToken struct {
-	Grant     string                    `json:"g"`
-	Target    store.ConnectorCodeTarget `json:"t"`
-	Pin       CodeEvidencePin           `json:"p"`
-	Expires   int64                     `json:"e"`
-	Operation string                    `json:"o,omitempty"`
-	Arguments codeArguments             `json:"a,omitempty"`
-	Offset    int                       `json:"n,omitempty"`
+	Grant     string                             `json:"g"`
+	Target    connectorstate.ConnectorCodeTarget `json:"t"`
+	Pin       CodeEvidencePin                    `json:"p"`
+	Expires   int64                              `json:"e"`
+	Operation string                             `json:"o,omitempty"`
+	Arguments codeArguments                      `json:"a,omitempty"`
+	Offset    int                                `json:"n,omitempty"`
 }
 
 func codeProperties(name string) map[string]any {
@@ -208,8 +207,8 @@ func (s *Server) openCodeToken(raw string) (codeToken, error) {
 	}
 	return c, nil
 }
-func (s *Server) codeAccess(ctx context.Context, credential, task string) (store.ConnectorGrant, store.ConnectorCodeTarget, error) {
-	return s.db.CheckConnectorCodeAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, task, s.now())
+func (s *Server) codeAccess(ctx context.Context, credential, task string) (connectorstate.ConnectorGrant, connectorstate.ConnectorCodeTarget, error) {
+	return s.access.CheckConnectorCodeAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, task, s.now())
 }
 func (s *Server) readCode(ctx context.Context, credential, name string, a codeArguments) (ToolResult, error) {
 	var token codeToken
@@ -281,7 +280,7 @@ func (s *Server) readCode(ctx context.Context, credential, name string, a codeAr
 	if e != nil || len(b) > 32<<10 {
 		return ToolResult{}, errors.New("evidence page exceeds bound")
 	}
-	if _, current, e := s.codeAccess(ctx, credential, a.TaskRef); e != nil || current != target || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
+	if _, current, e := s.codeAccess(ctx, credential, a.TaskRef); e != nil || current != target || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
 		return ToolResult{}, errors.New("code access denied")
 	}
 	summary := "Locally observed committed evidence is available."

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
 	"strconv"
@@ -173,9 +174,9 @@ func advisoryDescription(name string) string {
 	}
 }
 
-func advisoryToolAllowed(grant store.ConnectorGrant, name string) bool {
-	advisory := store.ConnectorScopeHas(grant.Scope, AdvisoryScope)
-	publish := store.ConnectorScopeHas(grant.Scope, DiscussionPublishScope)
+func advisoryToolAllowed(grant connectorstate.ConnectorGrant, name string) bool {
+	advisory := connectorstate.ConnectorScopeHas(grant.Scope, AdvisoryScope)
+	publish := connectorstate.ConnectorScopeHas(grant.Scope, DiscussionPublishScope)
 	switch name {
 	case "discussion_open":
 		return advisory || publish
@@ -187,13 +188,13 @@ func advisoryToolAllowed(grant store.ConnectorGrant, name string) bool {
 }
 
 func (s *Server) callAdvisory(ctx context.Context, credential, name string, a advisoryArguments) (ToolResult, error) {
-	grant, err := s.db.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
-	if err != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
-		return ToolResult{}, store.ErrConnectorInvalid
+	grant, err := s.storage.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
+	if err != nil || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
+		return ToolResult{}, connectorstate.ErrConnectorInvalid
 	}
 	service := s.taskDiscussion.Load()
 	if service == nil || !advisoryToolAllowed(grant, name) {
-		return ToolResult{}, store.ErrConnectorScope
+		return ToolResult{}, connectorstate.ErrConnectorScope
 	}
 	p := owneraction.Principal{OwnerID: strconv.FormatInt(grant.OwnerID, 10), OwnerGeneration: grant.OwnerGeneration, Transport: "mcp", ClientID: grant.ClientID, GrantID: grant.ID}
 	var value any
@@ -220,8 +221,8 @@ func (s *Server) callAdvisory(ctx context.Context, credential, name string, a ad
 	if err != nil {
 		return ToolResult{}, err
 	}
-	if _, err = s.db.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now()); err != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
-		return ToolResult{}, store.ErrConnectorInvalid
+	if _, err = s.storage.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now()); err != nil || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
+		return ToolResult{}, connectorstate.ErrConnectorInvalid
 	}
 	return actionResult(value)
 }
@@ -255,9 +256,9 @@ func advisoryFailure(err error) ToolResult {
 		summary = "This request or conclusion identity already belongs to different content."
 	case errors.Is(err, store.ErrWorkflowRevision):
 		summary = "The conversation changed or already has active work. Retrieve its current status before continuing."
-	case errors.Is(err, store.ErrConnectorScope):
+	case errors.Is(err, connectorstate.ErrConnectorScope):
 		summary = "Separate consent for this operation and its selected repository is required."
-	case errors.Is(err, store.ErrConnectorInvalid), errors.Is(err, store.ErrConnectorOwner):
+	case errors.Is(err, connectorstate.ErrConnectorInvalid), errors.Is(err, connectorstate.ErrConnectorOwner):
 		summary = "Current owner, client or repository authorization is unavailable."
 	case errors.Is(err, store.ErrNotFound):
 		summary = "The requested discussion record is unavailable in this owner and task scope."

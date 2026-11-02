@@ -55,7 +55,7 @@ func TestConversationTypingStopsWithWork(t *testing.T) {
 			run, at := factoryUnitRun(t, &factoryUnitProvider{})
 			send := &typingSender{}
 			run.s.sender = send
-			if err := run.s.db.DeferConversationTurn(t.Context(), run.t); err != nil {
+			if err := fixtureDB(run.s).DeferConversationTurn(t.Context(), run.t); err != nil {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithCancel(t.Context())
@@ -77,7 +77,7 @@ func TestConversationTypingStopsWithWork(t *testing.T) {
 				return agent.ConversationResult{Session: session, Answer: []byte(`{"version":1,"kind":"answer","text":"done"}`)}, nil
 			})
 			if mode == "paused" {
-				if err := run.s.db.SetConversationHealth(ctx, run.c.ID, "historical uncertainty", at); err != nil {
+				if err := fixtureDB(run.s).SetConversationHealth(ctx, run.c.ID, "historical uncertainty", at); err != nil {
 					t.Fatal(err)
 				}
 			}

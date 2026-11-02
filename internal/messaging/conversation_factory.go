@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"reflect"
 	"slices"
 	"strconv"
@@ -16,25 +17,23 @@ import (
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
-	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/retainedevidence"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 var errConversationBudget = errors.New("conversation budget exhausted")
 
 type factoryConversationPrompt struct {
-	RetainedEvidence []store.ConversationEvidence `json:"retained_evidence,omitempty"`
-	ContextGaps      []string                     `json:"context_gaps,omitempty"`
-	Instructions     string                       `json:"instructions"`
-	OwnerInput       string                       `json:"owner_input,omitempty"`
-	OwnerSources     []DialogueTurn               `json:"owner_sources"`
-	Commands         []CommandDefinition          `json:"commands"`
-	References       []ConversationReference      `json:"references"`
-	Context          string                       `json:"context,omitempty"`
-	RecentReplies    []conversationPriorReply     `json:"recent_factory_replies,omitempty"`
-	Evidence         *conversationReadResult      `json:"evidence,omitempty"`
+	RetainedEvidence []messagingstate.ConversationEvidence `json:"retained_evidence,omitempty"`
+	ContextGaps      []string                              `json:"context_gaps,omitempty"`
+	Instructions     string                                `json:"instructions"`
+	OwnerInput       string                                `json:"owner_input,omitempty"`
+	OwnerSources     []DialogueTurn                        `json:"owner_sources"`
+	Commands         []CommandDefinition                   `json:"commands"`
+	References       []ConversationReference               `json:"references"`
+	Context          string                                `json:"context,omitempty"`
+	RecentReplies    []conversationPriorReply              `json:"recent_factory_replies,omitempty"`
+	Evidence         *conversationReadResult               `json:"evidence,omitempty"`
 	// EarlierEvidence keeps this turn's previous lookup results, so an answer
 	// that needs several lookups can use all of them.
 	EarlierEvidence []conversationReadResult `json:"earlier_evidence,omitempty"`
@@ -88,9 +87,9 @@ type factoryConversationRun struct {
 	inboxResume    *conversationReadResult
 	instructions   *instructionpackage.ConversationCapture
 	s              *Service
-	c              store.Conversation
+	c              messagingstate.Conversation
 	b              ConversationBinding
-	t              store.ConversationTurn
+	t              messagingstate.ConversationTurn
 	at             time.Time
 	calls, ordinal int
 	savedOutcomes  string
@@ -181,25 +180,18 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 	r.calls++
 	r.ordinal++
 	r.safe = false
-	exchange := store.ConversationExchange{TurnID: r.t.ID, Ordinal: r.ordinal, Kind: "provider", Request: prompt, ProviderAttempt: fmt.Sprintf("%s:%d", r.t.ID, r.calls), CapturedAt: r.at}
+	exchange := messagingstate.ConversationExchange{TurnID: r.t.ID, Ordinal: r.ordinal, Kind: "provider", Request: prompt, ProviderAttempt: fmt.Sprintf("%s:%d", r.t.ID, r.calls), CapturedAt: r.at}
 	if err := r.s.db.SaveConversationExchange(ctx, r.t, exchange); err != nil {
 		return nil, err
 	}
-	attempt, err := r.s.db.StartPresentationMeterAttempt(ctx, 0, fmt.Sprintf("conversation-%s-%d", r.t.ID, r.calls), "generation", r.c.Provider)
+	attempt, err := r.s.factory.BeginPresentation(ctx, r.t.ID, r.c.Provider, "provider", r.calls)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		outcome := "success"
-		if err != nil {
-			outcome = "failure"
-		}
-		if ctx.Err() != nil {
-			outcome = "cancelled"
-		}
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		meterErr := r.s.db.FinishMeterAttempt(cleanup, attempt.ID, outcome, "unknown", "", "", []string{"conversation_provider_usage_not_observed"})
+		meterErr := attempt.Complete(cleanup, err != nil, ctx.Err() != nil)
 		err = errors.Join(err, meterErr)
 	}()
 	ref, err := naming.ConversationFreshSessionRef(r.c.ID, r.c.FreshAfter)
@@ -244,7 +236,7 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 	return result.Answer, nil
 }
 
-func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversation, b ConversationBinding, t store.ConversationTurn, at time.Time) error {
+func (s *Service) runFactoryConversation(ctx context.Context, c messagingstate.Conversation, b ConversationBinding, t messagingstate.ConversationTurn, at time.Time) error {
 	work, cancel := context.WithTimeout(ctx, response.Budget)
 	cancels := []context.CancelFunc{cancel}
 	defer func() {
@@ -446,7 +438,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 						return run.failed(ctx, e)
 					}
 					run.ordinal++
-					if e = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "correction", Request: protected, CapturedAt: at, Complete: true}); e != nil {
+					if e = s.db.SaveConversationExchange(work, t, messagingstate.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "correction", Request: protected, CapturedAt: at, Complete: true}); e != nil {
 						return e
 					}
 					run.safe = true
@@ -471,7 +463,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			if err != nil {
 				return err
 			}
-			if err = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: envelope.Kind, Request: requestText, CapturedAt: at, Complete: true}); err != nil {
+			if err = s.db.SaveConversationExchange(work, t, messagingstate.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: envelope.Kind, Request: requestText, CapturedAt: at, Complete: true}); err != nil {
 				return err
 			}
 		}
@@ -515,7 +507,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			if err != nil {
 				return err
 			}
-			if err = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "evidence", Request: requestText, Result: resultText, CapturedAt: at, Complete: result.Complete, Gaps: strings.Join(result.Gaps, "\n")}); err != nil {
+			if err = s.db.SaveConversationExchange(work, t, messagingstate.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "evidence", Request: requestText, Result: resultText, CapturedAt: at, Complete: result.Complete, Gaps: strings.Join(result.Gaps, "\n")}); err != nil {
 				return err
 			}
 			if err = run.retainLookup(work, result, 32+run.ordinal); err != nil {
@@ -572,7 +564,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			if err != nil {
 				return err
 			}
-			if err = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "evidence", Request: requestText, Result: resultText, CapturedAt: at, Complete: result.Complete, Gaps: strings.Join(result.Gaps, "\n")}); err != nil {
+			if err = s.db.SaveConversationExchange(work, t, messagingstate.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "evidence", Request: requestText, Result: resultText, CapturedAt: at, Complete: result.Complete, Gaps: strings.Join(result.Gaps, "\n")}); err != nil {
 				return err
 			}
 			if err = run.retainLookup(work, result, 32+run.ordinal); err != nil {
@@ -675,7 +667,7 @@ func (r *factoryConversationRun) references(ctx context.Context) ([]Conversation
 		// Re-resolve the registered project; a saved reference is never authority.
 		repoID, _ := strconv.ParseInt(v.Repository, 10, 64)
 		if repoID > 0 {
-			repo, err := r.s.db.GetRepo(ctx, repoID)
+			repo, err := r.s.factory.Project(ctx, repoID)
 			if err != nil || repo.Slug() != args["project"] {
 				continue
 			}
@@ -740,7 +732,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 		}
 		args := map[string]string{"reference": navigation}
 		raw, _ := json.Marshal(args)
-		saved := store.ConversationReference{ID: fmt.Sprintf("%s-inbox-%d", r.t.ID, r.ordinal), TurnID: r.t.ID, Kind: "inbox", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+		saved := messagingstate.ConversationReference{ID: fmt.Sprintf("%s-inbox-%d", r.t.ID, r.ordinal), TurnID: r.t.ID, Kind: "inbox", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
 		if e = s.db.SaveConversationReference(ctx, r.t, saved); e != nil {
 			return result, nil, e
 		}
@@ -795,7 +787,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		if len(request.By) > 0 {
-			breakdown, readErr := meterview.ReadBreakdown(bounded, s.db, request, request.By)
+			breakdown, readErr := s.factory.MeterBreakdown(bounded, request, request.By)
 			if readErr != nil {
 				result.Gaps = append(result.Gaps, "Current cost breakdown unavailable.")
 				break
@@ -810,7 +802,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			}
 			break
 		}
-		view, readErr := meterview.Read(bounded, s.db, request)
+		view, readErr := s.factory.Meter(bounded, request)
 		if readErr != nil {
 			result.Gaps = append(result.Gaps, "Current cost unavailable.")
 			break
@@ -899,7 +891,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 		}
 	}
 	raw, _ := json.Marshal(args)
-	saved := store.ConversationReference{ID: fmt.Sprintf("%s-target-%d%s", r.t.ID, r.ordinal, r.refSuffix), TurnID: r.t.ID, Kind: "target", Repository: strconv.FormatInt(p.RepoID, 10), Revision: p.Revision, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+	saved := messagingstate.ConversationReference{ID: fmt.Sprintf("%s-target-%d%s", r.t.ID, r.ordinal, r.refSuffix), TurnID: r.t.ID, Kind: "target", Repository: strconv.FormatInt(p.RepoID, 10), Revision: p.Revision, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
 	if err = s.db.SaveConversationReference(ctx, r.t, saved); err != nil {
 		return result, nil, err
 	}

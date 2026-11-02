@@ -1,4 +1,4 @@
-package ask
+package factory
 
 import (
 	"context"
@@ -6,13 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// StoreReads is the exact read-only factory capability needed by facts.
-type StoreReads interface {
+// taskFactReads is the exact read-only factory capability needed by facts.
+type taskFactReads interface {
 	ListTaskSessionsByRepo(context.Context, int64, int) ([]store.Session, bool, error)
 	ImplementStoryByWorkerSession(context.Context, int64) (store.ImplementStory, error)
 	LatestTaskRun(context.Context, int64) (store.Run, error)
@@ -26,23 +28,26 @@ type StoreReads interface {
 	GetGraphNodeAttempt(context.Context, int64) (store.GraphNodeAttempt, error)
 }
 
-// StoreReader projects bounded task metadata without exposing a writing client.
-type StoreReader struct{ Reader StoreReads }
+// TaskFacts projects bounded task metadata without exposing storage operations.
+type TaskFacts struct{ reader taskFactReads }
+
+// NewTaskFacts composes factory-owned projection with private read-only persistence.
+func NewTaskFacts(reader taskFactReads) *TaskFacts { return &TaskFacts{reader: reader} }
 
 // ReadProjectTasks reads up to 100 current factory tasks and their latest run.
-func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task, bool, error) {
-	sessions, more, err := s.Reader.ListTaskSessionsByRepo(ctx, repoID, 100)
+func (s *TaskFacts) ReadProjectTasks(ctx context.Context, repoID int64) ([]contracts.Task, bool, error) {
+	sessions, more, err := s.reader.ListTaskSessionsByRepo(ctx, repoID, 100)
 	if err != nil {
 		return nil, false, err
 	}
-	tasks, err := s.ReadTaskSessions(ctx, sessions)
+	tasks, err := s.readTaskSessions(ctx, sessions)
 	return tasks, more, err
 }
 
 // ReadIssueTasks resolves an exact registered target without treating omission
 // from the bounded project list as absence. It does not fetch remote history.
-func (s StoreReader) ReadIssueTasks(ctx context.Context, repo store.Repo, issue int) ([]Task, error) {
-	finder, ok := s.Reader.(interface {
+func (s *TaskFacts) ReadIssueTasks(ctx context.Context, repo contracts.TaskProject, issue int) ([]contracts.Task, error) {
+	finder, ok := s.reader.(interface {
 		FindSessionByIssue(context.Context, int, string, string) (store.Session, error)
 	})
 	if !ok {
@@ -59,31 +64,31 @@ func (s StoreReader) ReadIssueTasks(ctx context.Context, repo store.Repo, issue 
 	if session.RepoID != repo.ID || session.IssueNumber != issue {
 		return nil, errors.New("ask: named issue does not match registered repository")
 	}
-	return s.ReadTaskSessions(ctx, []store.Session{session})
+	return s.readTaskSessions(ctx, []store.Session{session})
 }
 
 // ReadTaskSessions projects explicitly selected sessions using the same current facts.
-func (s StoreReader) ReadTaskSessions(ctx context.Context, sessions []store.Session) ([]Task, error) {
-	var tasks []Task
+func (s *TaskFacts) readTaskSessions(ctx context.Context, sessions []store.Session) ([]contracts.Task, error) {
+	var tasks []contracts.Task
 	for _, session := range sessions {
-		t := Task{IssueNumber: session.IssueNumber, Reference: session.TaskRef}
-		run, err := s.Reader.LatestTaskRun(ctx, session.ID)
+		t := contracts.Task{IssueNumber: session.IssueNumber, Reference: session.TaskRef}
+		run, err := s.reader.LatestTaskRun(ctx, session.ID)
 		if err == nil {
-			t.LatestRun = &run
+			t.LatestRun = &contracts.TaskRun{Ordinal: run.Ordinal, Mode: run.Mode, Workflow: run.Workflow, Status: string(run.Status), SemanticOutcome: run.SemanticOutcome, StartedAt: run.StartedAt}
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
 		// The stored session state is a bookkeeping flag that can stay
 		// running after work ends; running comes only from the latest run.
 		switch {
-		case runActive(t.LatestRun):
+		case t.LatestRun.Active():
 			t.State = string(store.SessionRunning)
 		case session.State == store.SessionFailed:
 			t.State = string(store.SessionFailed)
 		default:
 			t.State = string(store.SessionIdle)
 		}
-		state, _, err := s.Reader.GetPlanWorkflowState(ctx, session.TaskRef)
+		state, _, err := s.reader.GetPlanWorkflowState(ctx, session.TaskRef)
 		if err != nil {
 			return nil, err
 		}
@@ -95,14 +100,14 @@ func (s StoreReader) ReadTaskSessions(ctx context.Context, sessions []store.Sess
 		if t.OwnerWait, err = s.ownerWait(ctx, session.ID); err != nil {
 			return nil, err
 		}
-		story, err := s.Reader.ImplementStoryByWorkerSession(ctx, session.ID)
+		story, err := s.reader.ImplementStoryByWorkerSession(ctx, session.ID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
 		// Implement parked work can only resume after an owner decision. Ordinary
 		// graph scheduling/backoff is not an owner wait.
 		if err == nil && story.State == store.ImplementParked {
-			t.OwnerBlocked = byteExcerpt(story.Reason, 512)
+			t.OwnerBlocked = factExcerpt(story.Reason, 512)
 		}
 		tasks = append(tasks, t)
 	}
@@ -111,37 +116,37 @@ func (s StoreReader) ReadTaskSessions(ctx context.Context, sessions []store.Sess
 
 // ownerWait returns the session's published, unanswered owner question or
 // review, using the same publication rule as /question. Nil means none.
-func (s StoreReader) ownerWait(ctx context.Context, sessionID int64) (*OwnerWait, error) {
-	instance, err := s.Reader.LatestSessionGraphInstance(ctx, sessionID)
+func (s *TaskFacts) ownerWait(ctx context.Context, sessionID int64) (*contracts.OwnerWait, error) {
+	instance, err := s.reader.LatestSessionGraphInstance(ctx, sessionID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil || instance.Status != store.GraphRunning {
 		return nil, err
 	}
-	wait, err := s.Reader.GetGraphOwnerWait(ctx, instance.ID)
+	wait, err := s.reader.GetGraphOwnerWait(ctx, instance.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil || wait.State != "waiting" {
 		return nil, err
 	}
-	delivery, err := s.Reader.GetReportDelivery(ctx, wait.DeliveryKey)
+	delivery, err := s.reader.GetReportDelivery(ctx, wait.DeliveryKey)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil || !delivery.Completed || delivery.CommentID < 1 {
 		return nil, err
 	}
-	pin, err := s.Reader.GetGraphDefinition(ctx, instance.DefinitionID)
+	pin, err := s.reader.GetGraphDefinition(ctx, instance.DefinitionID)
 	if err != nil {
 		return nil, err
 	}
-	intent, err := s.Reader.GetGraphComment(ctx, wait.DeliveryKey)
+	intent, err := s.reader.GetGraphComment(ctx, wait.DeliveryKey)
 	if err != nil {
 		return nil, err
 	}
-	out := &OwnerWait{Workflow: pin.Workflow, Kind: intent.Kind, Node: intent.Node, CommentID: delivery.CommentID}
+	out := &contracts.OwnerWait{Workflow: pin.Workflow, Kind: intent.Kind, Node: intent.Node, CommentID: delivery.CommentID}
 	if out.Workflow == "" {
 		out.Workflow = pin.Mode
 	}
@@ -160,7 +165,7 @@ func (s StoreReader) ownerWait(ctx context.Context, sessionID int64) (*OwnerWait
 		out.Asked = strings.Join(texts, "\n")
 	}
 	if wait.SourceAttemptID > 0 {
-		attempt, err := s.Reader.GetGraphNodeAttempt(ctx, wait.SourceAttemptID)
+		attempt, err := s.reader.GetGraphNodeAttempt(ctx, wait.SourceAttemptID)
 		if err == nil {
 			out.Since = attempt.FinishedAt
 		} else if !errors.Is(err, store.ErrNotFound) {
@@ -171,13 +176,24 @@ func (s StoreReader) ownerWait(ctx context.Context, sessionID int64) (*OwnerWait
 }
 
 // ReadDiscoveryPause uses the daemon's published health snapshot.
-func (s StoreReader) ReadDiscoveryPause(ctx context.Context) (bool, bool, error) {
-	snapshot, err := s.Reader.ReadHealthSnapshot(ctx)
+func (s *TaskFacts) ReadDiscoveryPause(ctx context.Context) (bool, bool, error) {
+	snapshot, err := s.reader.ReadHealthSnapshot(ctx)
 	return snapshot.Listener.DiscoveryPaused, snapshot.Found, err
 }
 
 // ReadRunsHeld uses the daemon's published health snapshot.
-func (s StoreReader) ReadRunsHeld(ctx context.Context) (string, error) {
-	snapshot, err := s.Reader.ReadHealthSnapshot(ctx)
+func (s *TaskFacts) ReadRunsHeld(ctx context.Context) (string, error) {
+	snapshot, err := s.reader.ReadHealthSnapshot(ctx)
 	return snapshot.Listener.RunsHeld, err
+}
+
+func factExcerpt(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	text = text[:limit]
+	for !utf8.ValidString(text) && len(text) > 0 {
+		text = text[:len(text)-1]
+	}
+	return text
 }

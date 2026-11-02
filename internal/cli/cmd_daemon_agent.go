@@ -10,17 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localadmin"
 	"github.com/cloudvane/litefactory/internal/launchd"
-	"github.com/cloudvane/litefactory/internal/secrets"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // daemonNeverTicked is what `daemon status` prints for a database whose poll
@@ -36,56 +33,16 @@ const daemonNeverTicked = "never"
 // a single byte is written or a single launchctl call is made. A `daemon start`
 // that refuses is one that left the previously loaded agent exactly as it was.
 func runDaemonStart(ctx context.Context, env *Env, runner launchd.Runner, opts daemonStartOptions) error {
-	paths, err := config.Locate()
+	result, err := localadmin.StartAgent(ctx, localadmin.AgentOptions{Level: opts.level, Runner: runner, Logger: env.Logger})
 	if err != nil {
-		return err
+		return localAdminError(err)
 	}
-	cfg, err := loadDaemonConfig(paths)
-	if err != nil {
-		return err
+	writeStartReport(env.Stdout, result)
+	if result.Credential.EnvName != "" {
+		writeMaterialisedTokenWarning(env.Stderr, result.Credential, result.PlistPath)
 	}
-	program, err := daemonProgram(opts.level)
-	if err != nil {
-		return err
-	}
-
-	// PATH is materialised from the installing shell. This is one half of the
-	// AC-2.2 fix: launchd would otherwise hand the daemon
-	// /usr/bin:/bin:/usr/sbin:/sbin, which contains no Homebrew claude. The
-	// other half is `daemon run` resolving its binaries at startup.
-	//
-	// LF_HOME is pinned to the home this command just read, so the daemon
-	// cannot end up using a different one than the configuration it was
-	// started from.
-	environment := map[string]string{
-		launchd.PathEnvVar: launchd.EffectivePATH(os.Getenv("PATH")),
-		config.EnvHome:     paths.Home(),
-	}
-	credential, err := resolveDaemonCredential(cfg, paths, environment)
-	if err != nil {
-		return err
-	}
-
-	// launchd creates the redirect files but not the directory that holds
-	// them, and a failed redirect kills the job before the daemon runs.
-	//nolint:gosec // 0700 in practice: the process umask is 0o077 (see cmd/litefactory/main.go).
-	if mkdirErr := os.MkdirAll(paths.LogsDir(), 0o777); mkdirErr != nil {
-		return fmt.Errorf("create %s: %w", paths.LogsDir(), mkdirErr)
-	}
-
-	manager := &launchd.Manager{Runner: runner, Logger: env.Logger}
-	agent := manager.NewAgent(program, paths.LogsDir(), environment)
-	result, err := manager.Install(ctx, agent)
-	if err != nil {
-		return err
-	}
-
-	writeStartReport(env.Stdout, agent, result, credential)
-	if credential.EnvName != "" {
-		writeMaterialisedTokenWarning(env.Stderr, credential, result.PlistPath)
-	}
-	if credential.Description == "" {
-		writeNoCredentialWarning(env.Stderr, paths)
+	if result.Credential.Description == "" {
+		writeNoCredentialWarning(env.Stderr, config.NewPaths(result.Home))
 	}
 	return nil
 }
@@ -99,22 +56,16 @@ func runDaemonStart(ctx context.Context, env *Env, runner launchd.Runner, opts d
 // It deliberately needs neither the configuration nor the database — stopping
 // has to work on a machine whose config.yaml is what broke the daemon.
 func runDaemonStop(ctx context.Context, env *Env, runner launchd.Runner) error {
-	manager := &launchd.Manager{Runner: runner, Logger: env.Logger}
-	unloaded, err := manager.Uninstall(ctx)
+	result, err := localadmin.StopAgent(ctx, localadmin.AgentOptions{Runner: runner, Logger: env.Logger})
 	if err != nil {
 		return err
 	}
-	path, err := manager.PlistPath()
-	if err != nil {
-		return err
-	}
-
-	if !unloaded {
-		fmt.Fprintf(env.Stdout, "%s was not loaded in %s\n", manager.ServiceTarget(), manager.Domain())
+	if !result.Unloaded {
+		fmt.Fprintf(env.Stdout, "%s was not loaded in %s\n", result.Target, result.Domain)
 	} else {
-		fmt.Fprintf(env.Stdout, "unloaded %s\n", manager.ServiceTarget())
+		fmt.Fprintf(env.Stdout, "unloaded %s\n", result.Target)
 	}
-	fmt.Fprintf(env.Stdout, "  the agent is still installed at %s; `litefactory daemon start` loads it again\n", path)
+	fmt.Fprintf(env.Stdout, "  the agent is still installed at %s; `litefactory daemon start` loads it again\n", result.PlistPath)
 	return nil
 }
 
@@ -129,8 +80,7 @@ func runDaemonStatus(ctx context.Context, env *Env, runner launchd.Runner) error
 	if err != nil {
 		return err
 	}
-	manager := &launchd.Manager{Runner: runner, Logger: env.Logger}
-	status, err := manager.Status(ctx)
+	status, err := localadmin.AgentStatus(ctx, localadmin.AgentOptions{Runner: runner, Logger: env.Logger})
 	if err != nil {
 		return err
 	}
@@ -179,7 +129,7 @@ func runDaemonStatus(ctx context.Context, env *Env, runner launchd.Runner) error
 // daemonRunning renders the running column, including launchd's own word for
 // the state when there is no process. "no" alone loses the difference between
 // a daemon that exited and one that launchd is holding back.
-func daemonRunning(status launchd.Status) string {
+func daemonRunning(status contracts.AgentStatusView) string {
 	switch {
 	case status.Running && status.PID > 0:
 		return fmt.Sprintf("yes (pid %d)", status.PID)
@@ -211,96 +161,32 @@ func daemonPresence(present bool) string {
 //
 // The database is opened and closed at once: `daemon status` must not hold a
 // connection while the daemon it is reporting on is writing.
-func lastTickTime(ctx context.Context, paths config.Paths) (_ time.Time, err error) {
-	if _, statErr := os.Stat(paths.DBPath()); statErr != nil {
-		if errors.Is(statErr, fs.ErrNotExist) {
-			return time.Time{}, Preconditionf("no litefactory database at %s: run `litefactory init` first", paths.DBPath())
-		}
-		return time.Time{}, fmt.Errorf("read %s: %w", paths.DBPath(), statErr)
-	}
-
-	db, err := store.Open(ctx, paths.DBPath())
-	if err != nil {
-		return time.Time{}, err
-	}
-	defer func() { err = errors.Join(err, db.Close()) }()
-
-	cursor, err := db.GetPollCursor(ctx)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return cursor.LastTickAt, nil
+func lastTickTime(ctx context.Context, paths config.Paths) (time.Time, error) {
+	at, err := localadmin.LastTickTime(ctx, paths)
+	return at, localAdminError(err)
 }
 
-// daemonCredential describes where the launchd agent will get the bot token.
-//
-// It carries no credential material by design. The value of a materialised
-// token_env goes straight into the agent's environment map and is held nowhere
-// else, so there is no field here that could be printed or logged by accident.
-type daemonCredential struct {
-	// Description names the source in the terms it was configured in, or is
-	// empty when no credential is configured at all.
-	Description string
-	// EnvName is the environment variable whose *value* was copied into the
-	// plist, and is non-empty only on the unsupported token_env path. It is a
-	// variable name, never a value.
-	EnvName string
-}
-
-// resolveDaemonCredential works out how the agent will authenticate and, on
-// the token_env path, copies the value into environment (D-D, AC-2.3).
-//
-// The two paths are deliberately asymmetric. A keychain reference needs
-// nothing in the plist: the daemon resolves it once at its own startup and
-// holds it, which is what keeps macOS from raising an allow-access dialog
-// nobody can see, over and over. token_env has no such indirection — under
-// launchd the daemon inherits no shell environment, so the only way it can see
-// the variable is for the value to be written into the plist. That is the
-// unsupported path, and the caller warns loudly about it.
-func resolveDaemonCredential(cfg *config.Config, paths config.Paths, environment map[string]string) (daemonCredential, error) {
-	ref, configured := secrets.ReferenceFrom(
-		cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
-	if !configured {
-		return daemonCredential{}, nil
-	}
-	if ref.Source != secrets.SourceEnv {
-		return daemonCredential{Description: ref.String()}, nil
-	}
-
-	value, found := os.LookupEnv(ref.EnvVar)
-	if !found || strings.TrimSpace(value) == "" {
-		// Refusing here is not the same as refusing token_env. The variable is
-		// the configured reference and it resolves to nothing, so installing
-		// the agent would produce a daemon that cannot authenticate and no
-		// terminal to say so in (S-5).
-		return daemonCredential{}, Preconditionf(
-			"github.token_env names $%s, but that variable is not set in this shell; a launchd agent inherits no shell environment, so `daemon start` has to copy the value into the plist\n"+
-				"  export it and re-run, or point %s at github.token_keychain instead",
-			ref.EnvVar, paths.ConfigPath())
-	}
-	environment[ref.EnvVar] = value
-	return daemonCredential{Description: ref.String(), EnvName: ref.EnvVar}, nil
-}
+type daemonCredential = contracts.AgentCredentialView
 
 // writeStartReport prints what was installed and, above all, the PATH the
 // daemon will actually search (AC-2.2). Reporting it is the point: a PATH that
 // is materialised silently is one nobody checks until claude cannot be found.
-func writeStartReport(out io.Writer, agent launchd.Agent, result launchd.InstallResult, credential daemonCredential) {
+func writeStartReport(out io.Writer, result contracts.AgentStartView) {
 	verb := "loaded"
 	if result.Replaced {
 		verb = "reloaded"
 	}
-	fmt.Fprintf(out, "%s %s\n", verb, agent.Label)
+	fmt.Fprintf(out, "%s %s\n", verb, result.Label)
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(tw, "  plist\t%s (mode %#o)\n", result.PlistPath, launchd.PlistMode.Perm())
 	fmt.Fprintf(tw, "  domain\t%s\n", result.Domain)
-	fmt.Fprintf(tw, "  program\t%s\n", strings.Join(agent.ProgramArguments, " "))
-	fmt.Fprintf(tw, "  PATH\t%s\n", agent.Environment[launchd.PathEnvVar])
-	fmt.Fprintf(tw, "  %s\t%s\n", config.EnvHome, agent.Environment[config.EnvHome])
-	fmt.Fprintf(tw, "  stdout\t%s\n", agent.StandardOutPath())
-	fmt.Fprintf(tw, "  stderr\t%s\n", agent.StandardErrorPath())
-	fmt.Fprintf(tw, "  bot token\t%s\n", daemonCredentialLabel(credential))
+	fmt.Fprintf(tw, "  program\t%s\n", strings.Join(result.ProgramArguments, " "))
+	fmt.Fprintf(tw, "  PATH\t%s\n", result.Path)
+	fmt.Fprintf(tw, "  %s\t%s\n", config.EnvHome, result.Home)
+	fmt.Fprintf(tw, "  stdout\t%s\n", result.StdoutPath)
+	fmt.Fprintf(tw, "  stderr\t%s\n", result.StderrPath)
+	fmt.Fprintf(tw, "  bot token\t%s\n", daemonCredentialLabel(result.Credential))
 	// A failed write of already-reported output is not actionable.
 	_ = tw.Flush()
 
@@ -351,48 +237,18 @@ func writeNoCredentialWarning(w io.Writer, paths config.Paths) {
 // litefactory performs inline instead of in a `doctor` command, and daemon
 // start is where it lands.
 func loadDaemonConfig(paths config.Paths) (*config.Config, error) {
-	cfg, err := config.Load(paths)
-	if err != nil {
-		var notInitialized *config.NotInitializedError
-		if errors.As(err, &notInitialized) || errors.Is(err, config.ErrLiteralSecret) {
-			return nil, Precondition(err)
-		}
-		return nil, err
-	}
-	return cfg, nil
+	cfg, err := localadmin.LoadConfig(paths)
+	return cfg, localAdminError(err)
 }
 
-// daemonProgram is the command the LaunchAgent execs: this binary, followed by
-// `daemon run`, followed by `--level <keyword>` when level is set (US-6,
-// AC-6.3).
-//
-// The path is resolved through its symlinks because os.Executable may hand
-// back the link the process was started through. A plist pointing at a
-// Homebrew shim that is later re-pointed would silently start a different
-// binary at the next login, which is not a failure anyone would think to look
-// for.
-//
-// level is appended untouched: Agent.Validate's checkPlistValue already
-// scans every ProgramArguments element for non-UTF-8 and control characters
-// before it reaches the plist XML, and it was validated against
-// logging.ParseLevel by the caller, so no second sanitisation pass belongs
-// here (D-5).
-func daemonProgram(level string) ([]string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("resolve this binary's path: %w", err)
+// daemonProgram retains the host helper while local administration owns the
+// resolved foreground invocation used by installation.
+func daemonProgram(level string) ([]string, error) { return localadmin.AgentProgram(level) }
+
+func localAdminError(err error) error {
+	var unavailable *contracts.LocalAdminUnavailable
+	if errors.As(err, &unavailable) {
+		return Precondition(unavailable.Err)
 	}
-	resolved, err := filepath.EvalSymlinks(exe)
-	if err != nil {
-		return nil, fmt.Errorf("resolve the symlinks of %s: %w", exe, err)
-	}
-	abs, err := filepath.Abs(resolved)
-	if err != nil {
-		return nil, fmt.Errorf("resolve %s to an absolute path: %w", resolved, err)
-	}
-	program := []string{abs, "daemon", "run"}
-	if level != "" {
-		program = append(program, "--level", level)
-	}
-	return program, nil
+	return err
 }

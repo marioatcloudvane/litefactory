@@ -13,20 +13,20 @@ import (
 func listedRunningTasks(t *testing.T, run *factoryConversationRun, numbers ...int) {
 	t.Helper()
 	ctx := t.Context()
-	repo, err := run.s.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
+	repo, err := fixtureDB(run.s).UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, n := range numbers {
-		session, err := run.s.db.GetOrCreateSession(ctx, repo, n)
+		session, err := fixtureDB(run.s).GetOrCreateSession(ctx, repo, n)
 		if err != nil {
 			t.Fatal(err)
 		}
-		segment, err := run.s.db.GetOrCreateSegment(ctx, session.ID, 1, "status", "codex")
+		segment, err := fixtureDB(run.s).GetOrCreateSegment(ctx, session.ID, 1, "status", "codex")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := run.s.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: "codex", TriggerCommentID: 1, StartedAt: run.at, LogPath: func(int) string { return "/tmp/status-fixture" }}); err != nil {
+		if _, err := fixtureDB(run.s).AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: "codex", TriggerCommentID: 1, StartedAt: run.at, LogPath: func(int) string { return "/tmp/status-fixture" }}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -132,7 +132,7 @@ func TestConversationUngroundedIssueCorrectionAndReply(t *testing.T) {
 	if err := json.Unmarshal([]byte(provider.prompts[1]), &corrected); err != nil || !strings.HasPrefix(corrected.CorrectionReason, "issue: ") {
 		t.Fatalf("correction reason %q %v", corrected.CorrectionReason, err)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 var errConversationInstructions = errors.New("conversation instruction validation failed")
@@ -27,7 +27,7 @@ func (s *Service) migrateConversationInstructions(ctx context.Context, at time.T
 	if err != nil {
 		return err
 	}
-	expected := store.ConversationLegacyInstructions{Native: baseline.Native(), Factory: baseline.Factory(), Correction: baseline.Correction(), ActionOutcome: baseline.ActionOutcome()}
+	expected := messagingstate.ConversationLegacyInstructions{Native: baseline.Native(), Factory: baseline.Factory(), Correction: baseline.Correction(), ActionOutcome: baseline.ActionOutcome()}
 	var failures []error
 	for _, c := range legacy {
 		if err := ctx.Err(); err != nil {

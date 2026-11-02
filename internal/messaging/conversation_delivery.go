@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 		}
 		return true, s.db.PauseConversationReply(ctx, r, "conversation delivery authorization unavailable; saved reply retained", at)
 	}
-	override, overrideErr := s.db.ReadInboxWithheldReply(ctx, r)
+	override, overrideErr := s.factory.WithheldInboxReply(ctx, r)
 	switch {
 	case overrideErr == nil:
 		r.ReplyText = override
@@ -53,7 +54,7 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 	default:
 		if answer, _, lookupErr := s.db.ConversationReplyAnswer(ctx, r); lookupErr == nil {
 			if err = s.authorizeInboxAnswer(ctx, answer, at); err != nil {
-				notice, saveErr := s.db.SaveInboxWithheldReply(ctx, r, at)
+				notice, saveErr := s.factory.RetainWithheldInboxReply(ctx, r, at)
 				if saveErr != nil {
 					return true, saveErr
 				}
@@ -117,7 +118,7 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 	}
 }
 
-func (s *Service) deliverConversationDetails(ctx context.Context, r store.ChatReply, at time.Time) error {
+func (s *Service) deliverConversationDetails(ctx context.Context, r messagingstate.ChatReply, at time.Time) error {
 	if !s.channels[r.ChannelRef] || s.conversations.Load().bindings[r.ChannelRef].Provider == "" {
 		return s.db.PauseConversationReply(ctx, r, "Answer details channel authorization removed; saved export retained", at)
 	}
@@ -129,7 +130,7 @@ func (s *Service) deliverConversationDetails(ctx context.Context, r store.ChatRe
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
-	override, overrideErr := s.db.ReadInboxWithheldReply(ctx, r)
+	override, overrideErr := s.factory.WithheldInboxReply(ctx, r)
 	switch {
 	case overrideErr == nil:
 		r.ReplyText = override
@@ -138,7 +139,7 @@ func (s *Service) deliverConversationDetails(ctx context.Context, r store.ChatRe
 		return overrideErr
 	case err == nil:
 		if inboxErr := s.authorizeInboxAnswer(ctx, a, at); inboxErr != nil {
-			notice, saveErr := s.db.SaveInboxWithheldReply(ctx, r, at)
+			notice, saveErr := s.factory.RetainWithheldInboxReply(ctx, r, at)
 			if saveErr != nil {
 				return saveErr
 			}

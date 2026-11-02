@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/factory/localusage"
 )
 
 func TestResearchMeterCSVAttribution(t *testing.T) {
@@ -21,12 +21,12 @@ func TestResearchMeterCSVAttribution(t *testing.T) {
 	instance, attempt := int64(71), int64(82)
 	for _, tc := range []struct {
 		name string
-		row  store.MeterRow
+		row  localusage.ExportRow
 		want []string
 	}{
-		{"graph success/retains attribution", store.MeterRow{ExecutionPath: "graph", RunID: 93, GraphInstanceID: &instance, GraphAttemptID: &attempt, GraphNode: "researcher", Outcome: "success", AgentVersion: "fixture-v1", SourceFormat: "fixture-events-v2", SourceInvocationID: "provider-1"}, []string{"graph", "93", "71", "82", "researcher", "success", "fixture-v1", "fixture-events-v2", "provider-1"}},
-		{"failed launch/unknown provider retained", store.MeterRow{ExecutionPath: "graph", RunID: 94, GraphInstanceID: &instance, GraphAttemptID: &attempt, GraphNode: "researcher", Outcome: "failure"}, []string{"graph", "94", "71", "82", "researcher", "failure", "", "", ""}},
-		{"legacy/no invented graph link", store.MeterRow{ExecutionPath: "legacy", RunID: 95, Outcome: "success"}, []string{"legacy", "95", "", "", "", "success", "", "", ""}},
+		{"graph success/retains attribution", localusage.ExportRow{ExecutionPath: "graph", RunID: 93, GraphInstanceID: &instance, GraphAttemptID: &attempt, GraphNode: "researcher", Outcome: "success", AgentVersion: "fixture-v1", SourceFormat: "fixture-events-v2", SourceInvocationID: "provider-1"}, []string{"graph", "93", "71", "82", "researcher", "success", "fixture-v1", "fixture-events-v2", "provider-1"}},
+		{"failed launch/unknown provider retained", localusage.ExportRow{ExecutionPath: "graph", RunID: 94, GraphInstanceID: &instance, GraphAttemptID: &attempt, GraphNode: "researcher", Outcome: "failure"}, []string{"graph", "94", "71", "82", "researcher", "failure", "", "", ""}},
+		{"legacy/no invented graph link", localusage.ExportRow{ExecutionPath: "legacy", RunID: 95, Outcome: "success"}, []string{"legacy", "95", "", "", "", "success", "", "", ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -43,17 +43,17 @@ func TestResearchMeterCSVUnknownUsage(t *testing.T) {
 	zero := int64(0)
 	for _, tc := range []struct {
 		name      string
-		tokens    store.MeterTokens
+		tokens    localusage.Tokens
 		kind      string
 		wantInput string
 	}{
-		{"missing measurement/blank", store.MeterTokens{}, "measurement", ""},
-		{"measured zero/explicit zero", store.MeterTokens{InputUncached: &zero}, "measurement", "0"},
-		{"coverage/nonadditive", store.MeterTokens{InputUncached: &zero}, "coverage", ""},
+		{"missing measurement/blank", localusage.Tokens{}, "measurement", ""},
+		{"measured zero/explicit zero", localusage.Tokens{InputUncached: &zero}, "measurement", "0"},
+		{"coverage/nonadditive", localusage.Tokens{InputUncached: &zero}, "coverage", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := researchCSVRecord(t, store.MeterRow{ExecutionPath: "graph", RowKind: tc.kind, Tokens: tc.tokens, CollectionStatus: "unknown", PricingStatus: "unknown"})
+			got := researchCSVRecord(t, localusage.ExportRow{ExecutionPath: "graph", RowKind: tc.kind, Tokens: tc.tokens, CollectionStatus: "unknown", PricingStatus: "unknown"})
 			if got[12] != tc.wantInput {
 				t.Fatalf("input tokens = %q, want %q", got[12], tc.wantInput)
 			}
@@ -68,7 +68,7 @@ func TestResearchMeterCSVUnknownUsage(t *testing.T) {
 
 func TestResearchMeterCSVUntrustedAttribution(t *testing.T) {
 	t.Parallel()
-	got := researchCSVRecord(t, store.MeterRow{GraphNode: "=node", AgentVersion: "+version", SourceFormat: "@format", SourceInvocationID: "-provider"})
+	got := researchCSVRecord(t, localusage.ExportRow{GraphNode: "=node", AgentVersion: "+version", SourceFormat: "@format", SourceInvocationID: "-provider"})
 	for i, want := range map[int]string{30: "'=node", 32: "'+version", 33: "'@format", 34: "'-provider"} {
 		if got[i] != want {
 			t.Errorf("column %d = %q, want %q", i, got[i], want)
@@ -76,7 +76,7 @@ func TestResearchMeterCSVUntrustedAttribution(t *testing.T) {
 	}
 }
 
-func researchCSVRecord(t *testing.T, row store.MeterRow) []string {
+func researchCSVRecord(t *testing.T, row localusage.ExportRow) []string {
 	t.Helper()
 	b, err := meterCSVBytes(row)
 	if err != nil {

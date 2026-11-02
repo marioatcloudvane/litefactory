@@ -12,6 +12,9 @@ a working local command host with trusted daemon composition. Setting
 Without an authorized installed projection, authenticated `tools/list` returns an empty list. These
 instructions do not establish hosted-client compatibility or deploy a proxy.
 
+The [factory ownership contracts](../factory-core.md) describe bounded remote
+operations, shared storage coordination and recovery limits.
+
 ## Prerequisites
 
 Use the persisted installation owner's positive numeric GitHub account ID, not a

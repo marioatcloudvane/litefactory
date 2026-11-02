@@ -30,16 +30,16 @@ func (selectionDomain) Recover(context.Context, owneraction.Principal, owneracti
 func sharedSelectionFixture(t *testing.T) (*Service, *owneraction.Service, owneraction.Principal, *time.Time, func(string, time.Time) *factoryConversationRun, *standardsDeliverySender) {
 	t.Helper()
 	s, _, start, sender := plainFixture(t)
-	if _, err := s.db.UpsertIdentity(t.Context(), store.Identity{Forge: "github", Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
+	if _, err := fixtureDB(s).UpsertIdentity(t.Context(), store.Identity{Forge: "github", Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := s.db.ConnectorOwner(t.Context(), 42)
+	owner, err := fixtureDB(s).ConnectorOwner(t.Context(), 42)
 	if err != nil {
 		t.Fatal(err)
 	}
 	at := time.Now().UTC().Truncate(time.Second)
 	principal := owneraction.Principal{OwnerID: "42", OwnerGeneration: owner.Generation, Transport: "discord", DiscordOwnerID: "7", ChannelID: "3"}
-	actions := owneraction.New(s.db, selectionDomain{}, func() time.Time { return at })
+	actions := owneraction.New(fixtureDB(s), selectionDomain{}, func() time.Time { return at })
 	actions.SetDiscord("7", []string{"3"})
 	s.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })
 	return s, actions, principal, &at, start, sender

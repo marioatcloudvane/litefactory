@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"strings"
 	"testing"
 
@@ -51,7 +53,7 @@ func TestOwnerActionDiagnosisRecoveryReadsOriginalSourceWithoutProvider(t *testi
 	}
 	retainSourceDiagnosis(t, db, "later", "owner-action:later", "Unrelated newer diagnosis")
 	provider := &recoveryOnlyDiagnoser{}
-	chat := messaging.New(db, "discord", "7", []string{"3"}, nil, messaging.FactoryStatus{DB: db})
+	chat := messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "7", []string{"3"}, nil, factory.NewHealth(db))
 	d := &Daemon{db: db, chat: &chatRuntime{service: chat, diagnoser: provider, redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=diagnosis-owner-secret"}})}}
 	for range 2 {
 		result, found, err := (chatResearch{daemon: d}).RecoverOwnerActionDiagnosis(ctx, target, "owner-action:original")
@@ -74,7 +76,7 @@ func TestOwnerActionDiagnosisRecoveryKeepsUnacceptedAttemptUncertain(t *testing.
 	if _, err := db.BeginDoctorAttempt(ctx, target, store.DoctorAttempt{ID: "running", SourceID: "owner-action:running", OwnerText: "Inspect the task", PromptVersion: "fixture", GuideVersion: "fixture"}); err != nil {
 		t.Fatal(err)
 	}
-	d := &Daemon{db: db, chat: &chatRuntime{service: messaging.New(db, "discord", "7", []string{"3"}, nil, messaging.FactoryStatus{DB: db}), redactor: redact.New(redact.Options{})}}
+	d := &Daemon{db: db, chat: &chatRuntime{service: messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "7", []string{"3"}, nil, factory.NewHealth(db)), redactor: redact.New(redact.Options{})}}
 	result, found, err := (chatResearch{daemon: d}).RecoverOwnerActionDiagnosis(ctx, target, "owner-action:running")
 	if err != nil || !found || result.State != "uncertain" {
 		t.Fatalf("unaccepted attempt claimed success: %+v %v %v", result, found, err)

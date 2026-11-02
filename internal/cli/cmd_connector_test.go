@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"io"
 	"os"
 	"strings"
@@ -191,7 +192,7 @@ func TestConnectorGrantCommandFailures(t *testing.T) {
 	if code != ExitFailure {
 		t.Fatalf("cancel: %d", code)
 	}
-	svc := connector.NewGrantService(db)
+	svc := connector.NewGrantService(connectorstorage.New(db))
 	grant, err := svc.InspectGrant(t.Context(), "first", grantCLINow)
 	if err != nil || grant.Status != "active" {
 		t.Fatalf("cancel mutated: %+v %v", grant, err)

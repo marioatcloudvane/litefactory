@@ -19,7 +19,7 @@ func TestConversationSavedInstructionIdentityBlocksFurtherInvocation(t *testing.
 	}
 	// A saved correction is a safe provider boundary, but its instruction identity
 	// must agree with the binding before it can be used for another invocation.
-	if err := run.s.db.SaveConversationExchange(t.Context(), run.t, store.ConversationExchange{TurnID: run.t.ID, Ordinal: 1, Kind: "correction", Request: string(prompt), CapturedAt: run.at, Complete: true}); err != nil {
+	if err := fixtureDB(run.s).SaveConversationExchange(t.Context(), run.t, store.ConversationExchange{TurnID: run.t.ID, Ordinal: 1, Kind: "correction", Request: string(prompt), CapturedAt: run.at, Complete: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := run.s.runFactoryConversation(t.Context(), run.c, run.b, run.t, run.at); err == nil || !strings.Contains(err.Error(), "conflicts with retained instructions") {
@@ -28,15 +28,15 @@ func TestConversationSavedInstructionIdentityBlocksFurtherInvocation(t *testing.
 	if provider.calls != 0 {
 		t.Fatal("conflicting saved prompt launched provider")
 	}
-	saved, err := run.s.db.ReadConversation(t.Context(), run.c.Transport, run.c.ChannelRef)
+	saved, err := fixtureDB(run.s).ReadConversation(t.Context(), run.c.Transport, run.c.ChannelRef)
 	if err != nil || !strings.Contains(saved.HealthReason, "model calls paused") {
 		t.Fatalf("conflicting prompt not paused: %+v %v", saved, err)
 	}
-	turn, err := run.s.db.LatestConversationTurn(t.Context(), run.c.ID)
+	turn, err := fixtureDB(run.s).LatestConversationTurn(t.Context(), run.c.ID)
 	if err != nil || turn.State != run.t.State {
 		t.Fatalf("paused input was consumed: %+v %v", turn, err)
 	}
-	exchanges, err := run.s.db.ListConversationExchanges(t.Context(), run.t.ID)
+	exchanges, err := fixtureDB(run.s).ListConversationExchanges(t.Context(), run.t.ID)
 	if err != nil || len(exchanges) != 1 || exchanges[0].Request != string(prompt) {
 		t.Fatal("authoritative saved prompt changed")
 	}
@@ -98,7 +98,7 @@ func TestConversationRedactionCannotChangeCapturedInstructionIdentity(t *testing
 	if provider.calls != 0 {
 		t.Fatal("changed instructions launched provider")
 	}
-	exchanges, err := run.s.db.ListConversationExchanges(t.Context(), run.t.ID)
+	exchanges, err := fixtureDB(run.s).ListConversationExchanges(t.Context(), run.t.ID)
 	if err != nil || len(exchanges) != 0 {
 		t.Fatal("changed instructions were journaled")
 	}
@@ -128,15 +128,15 @@ func TestConversationRedactionCannotJournalChangedCorrection(t *testing.T) {
 	if provider.calls != 1 {
 		t.Fatalf("changed correction reached further model call: calls=%d", provider.calls)
 	}
-	exchanges, err := run.s.db.ListConversationExchanges(t.Context(), run.t.ID)
+	exchanges, err := fixtureDB(run.s).ListConversationExchanges(t.Context(), run.t.ID)
 	if err != nil || len(exchanges) != 1 || exchanges[0].Kind != "provider" {
 		t.Fatalf("changed correction was journaled: %+v %v", exchanges, err)
 	}
-	saved, err := run.s.db.ReadConversation(t.Context(), run.c.Transport, run.c.ChannelRef)
+	saved, err := fixtureDB(run.s).ReadConversation(t.Context(), run.c.Transport, run.c.ChannelRef)
 	if err != nil || !strings.Contains(saved.HealthReason, "model calls paused") {
 		t.Fatalf("changed correction did not pause conversation: %+v %v", saved, err)
 	}
-	turn, err := run.s.db.LatestConversationTurn(t.Context(), run.c.ID)
+	turn, err := fixtureDB(run.s).LatestConversationTurn(t.Context(), run.c.ID)
 	if err != nil || turn.State != run.t.State {
 		t.Fatalf("changed correction consumed unfinished input: %+v %v", turn, err)
 	}

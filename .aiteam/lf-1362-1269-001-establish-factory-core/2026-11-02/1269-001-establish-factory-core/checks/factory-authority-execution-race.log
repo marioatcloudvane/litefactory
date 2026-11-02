@@ -1,0 +1,39 @@
+ok  	github.com/cloudvane/litefactory/internal/factory	2.652s
+?   	github.com/cloudvane/litefactory/internal/factory/contracts	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localadmin	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localanalysis	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localdoctor	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localprojects	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localrights	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localstandards	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localteams	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localusage	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/maintenance	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/owneractions	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/factory/runtime	1.723s
+?   	github.com/cloudvane/litefactory/internal/factory/ticketbridge	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/messaging	337.928s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	2.348s
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	10.298s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	2.735s
+ok  	github.com/cloudvane/litefactory/internal/messaging/presentation	1.638s
+ok  	github.com/cloudvane/litefactory/internal/messaging/prompts	2.459s
+ok  	github.com/cloudvane/litefactory/internal/messaging/response	3.762s
+?   	github.com/cloudvane/litefactory/internal/messagingstate	[no test files]
+?   	github.com/cloudvane/litefactory/internal/messagingstorage	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/connector	65.882s
+?   	github.com/cloudvane/litefactory/internal/connectorstate	[no test files]
+?   	github.com/cloudvane/litefactory/internal/connectorstorage	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/identity	15.391s
+ok  	github.com/cloudvane/litefactory/internal/owneraction	26.427s
+ok  	github.com/cloudvane/litefactory/internal/durableworkflow	30.174s
+ok  	github.com/cloudvane/litefactory/internal/stagedecision	16.965s
+ok  	github.com/cloudvane/litefactory/internal/taskdiscussion	4.595s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	12.167s
+ok  	github.com/cloudvane/litefactory/internal/submission	3.897s
+ok  	github.com/cloudvane/litefactory/pkg/execution/agent	1.550s
+ok  	github.com/cloudvane/litefactory/pkg/execution/graph	1.472s
+ok  	github.com/cloudvane/litefactory/pkg/execution/internal/process	14.940s
+ok  	github.com/cloudvane/litefactory/pkg/execution/providers/claude	6.244s
+ok  	github.com/cloudvane/litefactory/pkg/execution/providers/codex	9.109s
+?   	github.com/cloudvane/litefactory/scripts/factory-pending-state	[no test files]

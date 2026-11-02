@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"time"
 
@@ -123,14 +124,14 @@ func (r *factoryConversationRun) saveOwnerActionReadReference(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
-	saved := store.ConversationReference{ID: fmt.Sprintf("%s-action-%d-%d%s", r.t.ID, r.ordinal, index, r.refSuffix), TurnID: r.t.ID, Kind: kind, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+	saved := messagingstate.ConversationReference{ID: fmt.Sprintf("%s-action-%d-%d%s", r.t.ID, r.ordinal, index, r.refSuffix), TurnID: r.t.ID, Kind: kind, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
 	if err = r.s.db.SaveConversationReference(ctx, r.t, saved); err != nil {
 		return nil, err
 	}
 	return &ConversationReference{ID: saved.ID, OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: r.t.ID, ExpiresAt: saved.ExpiresAt, Arguments: args}, nil
 }
 
-func (r *factoryConversationRun) ownerActionReferenceCurrent(ctx context.Context, ref store.ConversationReference, args map[string]string) (bool, error) {
+func (r *factoryConversationRun) ownerActionReferenceCurrent(ctx context.Context, ref messagingstate.ConversationReference, args map[string]string) (bool, error) {
 	if r.s.ownerActions == nil || !r.at.Before(ref.ExpiresAt) {
 		return false, nil
 	}

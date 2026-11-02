@@ -16,7 +16,7 @@ func TestWorkflowDecisionShortNoticeKeepsCauseWorkAndNextStep(t *testing.T) {
 		StopOrigin: "dependency", StopCause: "blocked",
 		StopReason: "The dependency review is still awaiting the owner's decision.",
 	}
-	events, err := messaging.NoticeEvents("owner_waits", record)
+	events, err := fixtureNoticeEvents("owner_waits", record)
 	if err != nil || len(events) != 2 {
 		t.Fatalf("events=%+v err=%v", events, err)
 	}
@@ -35,7 +35,7 @@ func TestWorkflowDecisionShortNoticeKeepsCauseWorkAndNextStep(t *testing.T) {
 		t.Fatal("short notice exceeds chat budget")
 	}
 	record.Published = false
-	events, err = messaging.NoticeEvents("owner_waits", record)
+	events, err = fixtureNoticeEvents("owner_waits", record)
 	if err != nil || len(events) != 1 {
 		t.Fatalf("unpublished events=%+v err=%v", events, err)
 	}

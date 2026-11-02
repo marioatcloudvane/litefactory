@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"io"
 	"log/slog"
 	"net/http"
@@ -40,7 +43,7 @@ func TestMCPActionsAndHistorySurviveUnavailableDiscord(t *testing.T) {
 			setup := remoteSetupFixture(t)
 			db := setup.DB
 			at := time.Now().UTC().Truncate(time.Millisecond)
-			server, err := connector.New(t.Context(), connector.Options{Config: setup.Config.RemoteConnector, DB: db, Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }})
+			server, err := connector.New(t.Context(), connector.Options{Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -164,7 +167,7 @@ func TestMCPActionsAndHistorySurviveUnavailableDiscord(t *testing.T) {
 
 func TestLazyDiscordJoinsExistingOwnerActionExecutor(t *testing.T) {
 	setup := remoteSetupFixture(t)
-	server, err := connector.New(t.Context(), connector.Options{Config: setup.Config.RemoteConnector, DB: setup.DB, Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32)})
+	server, err := connector.New(t.Context(), connector.Options{Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(setup.DB), Access: connectorstorage.New(setup.DB), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,10 +180,10 @@ func TestLazyDiscordJoinsExistingOwnerActionExecutor(t *testing.T) {
 			t.Fatalf("missing handler advertised: %+v", entry)
 		}
 	}
-	chat := messaging.New(setup.DB, "discord", "7", []string{"3"}, nil, messaging.FactoryStatus{DB: setup.DB})
+	chat := messaging.NewWithServices(messagingstorage.New(setup.DB), factory.NewMessaging(setup.DB), "discord", "7", []string{"3"}, nil, factory.NewHealth(setup.DB))
 	adapter := discord.New(discord.Options{Token: secrets.NewToken("fixture")})
 	d.configureOwnerActions(chat, "7", []string{"3"}, adapter, time.Now)
-	if chat.OwnerActions() != actions || d.remoteConnector.actions != runtime || runtime.notices.Load() != chat {
+	if d.remoteConnector.actions != runtime || runtime.notices.Load() != chat {
 		t.Fatal("lazy Discord replaced the shared executor")
 	}
 }

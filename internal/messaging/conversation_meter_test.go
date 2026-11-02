@@ -15,7 +15,7 @@ import (
 
 func TestConversationMeterFollowupRetainsTaskAndRechecksAccess(t *testing.T) {
 	run, at := factoryUnitRun(t, &factoryUnitProvider{fail: true})
-	if _, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"}); err != nil {
+	if _, err := fixtureDB(run.s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"}); err != nil {
 		t.Fatal(err)
 	}
 	_, issued, err := run.lookup(t.Context(), Invocation{Command: "meter", Arguments: map[string]string{"project": "acme/app", "task": "42"}})
@@ -59,7 +59,7 @@ func TestConversationMeterFeatureTotalAcrossSnapshotPages(t *testing.T) {
 	}}
 	r, at := factoryUnitRun(t, provider, "What did #770 cost?")
 	ctx := t.Context()
-	repo, err := r.s.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
+	repo, err := fixtureDB(r.s).UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,36 +68,36 @@ func TestConversationMeterFeatureTotalAcrossSnapshotPages(t *testing.T) {
 	for _, dimension := range []string{"input_uncached", "output", "cache_read", "cache_write"} {
 		rates = append(rates, store.MeterPriceRate{CodingAgent: "claude", Model: model, Dimension: dimension, USDPerMillion: "1"})
 	}
-	if _, err := r.s.db.SetMeterPrices(ctx, "claude", model, rates); err != nil {
+	if _, err := fixtureDB(r.s).SetMeterPrices(ctx, "claude", model, rates); err != nil {
 		t.Fatal(err)
 	}
 	var parentRunID int64
 	for i, issue := range []int{770, 776, 777, 778} {
-		session, err := r.s.db.GetOrCreateSession(ctx, repo, issue)
+		session, err := fixtureDB(r.s).GetOrCreateSession(ctx, repo, issue)
 		if err != nil {
 			t.Fatal(err)
 		}
-		segment, err := r.s.db.GetOrCreateSegment(ctx, session.ID, 1, "session", store.AgentClaude)
+		segment, err := fixtureDB(r.s).GetOrCreateSegment(ctx, session.ID, 1, "session", store.AgentClaude)
 		if err != nil {
 			t.Fatal(err)
 		}
-		run, err := r.s.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: store.ModeSpike, Agent: store.AgentClaude, TriggerCommentID: int64(issue), LogPath: func(n int) string { return fmt.Sprintf("/logs/%d", n) }})
+		run, err := fixtureDB(r.s).AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: store.ModeSpike, Agent: store.AgentClaude, TriggerCommentID: int64(issue), LogPath: func(n int) string { return fmt.Sprintf("/logs/%d", n) }})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if i == 0 {
 			parentRunID = run.ID
 		}
-		a, err := r.s.db.StartMeterAttempt(ctx, run.ID, "claude")
+		a, err := fixtureDB(r.s).StartMeterAttempt(ctx, run.ID, "claude")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if i > 0 {
 			key := fmt.Sprint(issue)
-			if _, err := r.s.db.ReservePlanStory(ctx, "github:acme/app#770", key); err != nil {
+			if _, err := fixtureDB(r.s).ReservePlanStory(ctx, "github:acme/app#770", key); err != nil {
 				t.Fatal(err)
 			}
-			if err := r.s.db.BindPlanStoryIssue(ctx, "github:acme/app#770", key, int64(issue), issue); err != nil {
+			if err := fixtureDB(r.s).BindPlanStoryIssue(ctx, "github:acme/app#770", key, int64(issue), issue); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -108,18 +108,18 @@ func TestConversationMeterFeatureTotalAcrossSnapshotPages(t *testing.T) {
 			if n > 0 {
 				parent = "0"
 			}
-			if err := r.s.db.RecordMeterEvent(ctx, a.ID, "claude", agent.UsageEvent{Invocation: &agent.UsageInvocation{AttemptID: a.ID, ID: id, ParentID: parent, SourceID: "session", SourceInvocationID: id}}); err != nil {
+			if err := fixtureDB(r.s).RecordMeterEvent(ctx, a.ID, "claude", agent.UsageEvent{Invocation: &agent.UsageInvocation{AttemptID: a.ID, ID: id, ParentID: parent, SourceID: "session", SourceInvocationID: id}}); err != nil {
 				t.Fatal(err)
 			}
 			input, zero := int64(0), int64(0)
 			if n == 0 {
 				input = []int64{7885700, 12000000, 12000000, 12574300}[i]
 			}
-			if err := r.s.db.RecordMeterEvent(ctx, a.ID, "claude", agent.UsageEvent{Observation: &agent.UsageObservation{AttemptID: a.ID, SourceID: "session", EventKey: id, InvocationID: id, ActualModel: &model, ModelProvenance: "message", Mode: agent.CounterIncremental, Scope: agent.UsageExclusive, Tokens: agent.TokenUsage{InputUncached: &input, Output: &zero, CacheRead: &zero, CacheWrite: &zero}, Coverage: agent.UsageCoverage{Status: agent.CollectionComplete}}}); err != nil {
+			if err := fixtureDB(r.s).RecordMeterEvent(ctx, a.ID, "claude", agent.UsageEvent{Observation: &agent.UsageObservation{AttemptID: a.ID, SourceID: "session", EventKey: id, InvocationID: id, ActualModel: &model, ModelProvenance: "message", Mode: agent.CounterIncremental, Scope: agent.UsageExclusive, Tokens: agent.TokenUsage{InputUncached: &input, Output: &zero, CacheRead: &zero, CacheWrite: &zero}, Coverage: agent.UsageCoverage{Status: agent.CollectionComplete}}}); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if err := r.s.db.FinishMeterAttempt(ctx, a.ID, "success", "complete", "", "", nil); err != nil {
+		if err := fixtureDB(r.s).FinishMeterAttempt(ctx, a.ID, "success", "complete", "", "", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -131,7 +131,7 @@ func TestConversationMeterFeatureTotalAcrossSnapshotPages(t *testing.T) {
 		t.Fatalf("family amount: %+v", result)
 	}
 	// Unknown coverage must not erase known dollars or demand technical caveats.
-	if _, err := r.s.db.StartMeterAttempt(ctx, parentRunID, "claude"); err != nil {
+	if _, err := fixtureDB(r.s).StartMeterAttempt(ctx, parentRunID, "claude"); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.s.runFactoryConversation(ctx, r.c, r.b, r.t, at); err != nil {
@@ -140,7 +140,7 @@ func TestConversationMeterFeatureTotalAcrossSnapshotPages(t *testing.T) {
 	if len(provider.prompts) != 2 || !strings.Contains(provider.prompts[1], "44.460000") {
 		t.Fatalf("family evidence not supplied: %v", provider.prompts)
 	}
-	reply, err := r.s.db.ClaimConversationReply(ctx, "discord", at)
+	reply, err := fixtureDB(r.s).ClaimConversationReply(ctx, "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func meterUsage(t *testing.T, db *store.DB, repo store.Repo, issue int, mode, mo
 func TestConversationMeterBreakdownInOneLookup(t *testing.T) {
 	run, _ := factoryUnitRun(t, &factoryUnitProvider{fail: true}, "How did 770 split by mode and model?")
 	ctx := t.Context()
-	db := run.s.db
+	db := fixtureDB(run.s)
 	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 	if err != nil {
 		t.Fatal(err)

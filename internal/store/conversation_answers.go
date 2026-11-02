@@ -5,23 +5,16 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"time"
 	"unicode/utf16"
 )
 
 // ConversationAnswer freezes presentation identity separately from retained evidence.
-type ConversationAnswer struct {
-	ID, TurnID, Transport, OwnerID, ChannelRef, Blocks string
-	Version, ProposalPart                              int
-	CreatedAt, CompletedAt, ExpiredAt                  time.Time
-}
+type ConversationAnswer = messagingstate.ConversationAnswer
 
 // ConversationAnswerPart holds exact saved delivery bytes and acknowledgment metadata.
-type ConversationAnswerPart struct {
-	ReplyID, Text, Attachment, DiscordMessageID string
-	Ordinal                                     int
-	AcknowledgedAt                              time.Time
-}
+type ConversationAnswerPart = messagingstate.ConversationAnswerPart
 
 const answerColumns = `id,turn_id,transport,owner_id,channel_ref,blocks,version,proposal_part,created_at,completed_at,expired_at`
 

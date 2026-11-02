@@ -100,13 +100,13 @@ func (f *judgedConversation) say(t *testing.T, text, replyTo string, answer func
 	f.provider.mu.Lock()
 	f.provider.answer = answer
 	f.provider.mu.Unlock()
-	scan, err := f.s.db.ReadNaturalScan(ctx, "3")
+	scan, err := fixtureDB(f.s).ReadNaturalScan(ctx, "3")
 	if err != nil {
 		t.Fatal(err)
 	}
 	following := scan
 	following.HighWater = id
-	if err = f.s.db.StageNaturalScan(ctx, scan, following, []store.NaturalMessage{{ChannelRef: "3", SourceID: id, OwnerID: "7", ReplyTo: replyTo, Text: text, CreatedAt: f.at}}, true); err != nil {
+	if err = fixtureDB(f.s).StageNaturalScan(ctx, scan, following, []store.NaturalMessage{{ChannelRef: "3", SourceID: id, OwnerID: "7", ReplyTo: replyTo, Text: text, CreatedAt: f.at}}, true); err != nil {
 		t.Fatal(err)
 	}
 	for {
@@ -119,7 +119,7 @@ func (f *judgedConversation) say(t *testing.T, text, replyTo string, answer func
 		}
 	}
 	deliverAll(t, f.s, f.sender, "reply-"+id, f.at)
-	if err := f.s.ownerActions.Tick(ctx); err != nil {
+	if err := fixtureActions(f.s).Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
 	return id

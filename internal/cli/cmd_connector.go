@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"io"
 	"io/fs"
 	"os"
@@ -82,7 +83,7 @@ func newConnectorGrantsCommand(action string) *Command {
 			if env.Now != nil {
 				now = env.Now().UTC()
 			}
-			return runConnectorGrantCommand(ctx, env, connector.NewGrantService(db), paths.Home(), action, args, jsonOutput, now)
+			return runConnectorGrantCommand(ctx, env, connector.NewGrantService(connectorstorage.New(db)), paths.Home(), action, args, jsonOutput, now)
 		}
 	}
 	return cmd
