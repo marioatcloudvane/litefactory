@@ -328,9 +328,11 @@ var archiveRetained = map[string]ArchiveClass{
 	"chat_presentation_owners":      ArchiveClassGlobal,
 	// Chat delivery state follows its own short retention; source positions
 	// must survive task archival so enabling notices never replays history.
-	"chat_notices":           ArchiveClassGlobal,
-	"chat_notice_positions":  ArchiveClassGlobal,
-	"daemon_listener_status": ArchiveClassGlobal, "repo_discovery_status": ArchiveClassGlobal,
+	"alert_ledger":             ArchiveClassGlobal,
+	"alert_report_uncertainty": ArchiveClassGlobal,
+	"chat_notices":             ArchiveClassGlobal,
+	"chat_notice_positions":    ArchiveClassGlobal,
+	"daemon_listener_status":   ArchiveClassGlobal, "repo_discovery_status": ArchiveClassGlobal,
 	"repository_team_bindings":    ArchiveClassGlobal,
 	"project_connection_versions": ArchiveClassGlobal, "project_connections": ArchiveClassGlobal,
 	"project_ticket_bindings": ArchiveClassGlobal, "project_connection_observations": ArchiveClassGlobal,

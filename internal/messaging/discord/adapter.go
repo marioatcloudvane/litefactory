@@ -249,7 +249,10 @@ func writeCallback(w http.ResponseWriter, c callback) {
 }
 
 type allowedMentions struct {
-	Parse []string `json:"parse"`
+	Parse       []string `json:"parse"`
+	Users       []string `json:"users,omitempty"`
+	Roles       []string `json:"roles,omitempty"`
+	RepliedUser bool     `json:"replied_user"`
 }
 type outgoing struct {
 	Content         string          `json:"content"`
@@ -354,6 +357,9 @@ func (a *Adapter) call(ctx context.Context, method, path string, payload interfa
 	return a.callContent(ctx, method, path, payload, bot, nil)
 }
 func (a *Adapter) callContent(ctx context.Context, method, path string, payload interface{}, bot bool, attachment *presentation.Attachment) (messaging.Delivery, int) {
+	if wait := a.rateLimited(path); wait > 0 {
+		return messaging.Delivery{RetryAfter: wait}, http.StatusTooManyRequests
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return messaging.Delivery{Permanent: true}, 0
@@ -415,8 +421,14 @@ func (a *Adapter) callContent(ctx context.Context, method, path string, payload 
 		}
 		return d, res.StatusCode
 	}
+	if res.StatusCode == http.StatusTooManyRequests {
+		a.limitRead(path, res, response)
+	}
 	code, message := a.errorDetail(ctx, response)
 	d := a.refusal(res, response, attachment)
+	if res.StatusCode == http.StatusTooManyRequests {
+		d.RetryAfter = max(d.RetryAfter, a.rateLimited(path))
+	}
 	d.EditCode, d.EditMessage = code, message
 	return d, res.StatusCode
 }
@@ -457,7 +469,7 @@ func (a *Adapter) refusal(res *http.Response, response []byte, attachment *prese
 			RetryAfter float64 `json:"retry_after"`
 		}
 		if json.Unmarshal(response, &rate) == nil && rate.RetryAfter > 0 {
-			wait = max(wait, time.Duration(min(rate.RetryAfter, 3600)*float64(time.Second)))
+			wait = max(wait, retrySeconds(rate.RetryAfter))
 		}
 		return messaging.Delivery{RetryAfter: wait}
 	}
@@ -472,12 +484,25 @@ func (a *Adapter) refusal(res *http.Response, response []byte, attachment *prese
 	}
 	return messaging.Delivery{Permanent: res.StatusCode >= 400 && res.StatusCode < 500 && res.StatusCode != http.StatusRequestTimeout}
 }
+
+// retrySeconds preserves Discord's full delay while preventing duration overflow.
+func retrySeconds(seconds float64) time.Duration {
+	if seconds <= 0 {
+		return 0
+	}
+	const maxSeconds = float64((1<<63)-1) / float64(time.Second)
+	if seconds >= maxSeconds {
+		return time.Duration(1<<63 - 1)
+	}
+	return time.Duration(seconds * float64(time.Second))
+}
+
 func parseRetry(value string, at time.Time) time.Duration {
 	if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds > 0 {
-		return time.Duration(min(seconds, 3600) * float64(time.Second))
+		return retrySeconds(seconds)
 	}
 	if stamp, err := http.ParseTime(value); err == nil {
-		return min(max(stamp.Sub(at), 0), time.Hour)
+		return max(stamp.Sub(at), 0)
 	}
 	return 0
 }

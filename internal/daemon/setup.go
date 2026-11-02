@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/codeevidence"
@@ -80,6 +81,8 @@ type Setup struct {
 	Paths config.Paths
 	// Config is the validated config.yaml. Required.
 	Config *config.Config
+	// AlertsNow is separate from the scheduler clock and may be injected for offline monitoring.
+	AlertsNow func() time.Time
 	// DB is the open, migrated database. Required. The daemon does not close
 	// it; whoever opened it owns it.
 	DB *store.DB
@@ -220,6 +223,23 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	runners, err := buildRunners(s.Paths, s.Config, environ, s.Logger)
 	if err != nil {
 		return nil, Startup{}, err
+	}
+	providerAlerts := &alerts.Engine{DB: s.DB, Settings: s.Config.EffectiveAlerts()}
+	for kind, runner := range runners {
+		if observed, ok := runner.(interface {
+			SetProviderObserver(func(context.Context, agent.Request, *agent.RunResult, error))
+		}); ok {
+			providerKind := string(kind)
+			observed.SetProviderObserver(func(c context.Context, req agent.Request, res *agent.RunResult, runErr error) {
+				observedAt := time.Now()
+				if s.AlertsNow != nil {
+					observedAt = s.AlertsNow()
+				}
+				if err := recordProviderAlert(c, providerAlerts, providerKind, req, res, runErr, observedAt); err != nil {
+					s.Logger.WarnContext(c, "provider alert evidence unavailable")
+				}
+			})
+		}
 	}
 	configuredDefault, ok := s.Config.DefaultAgent()
 	if !ok {
@@ -734,6 +754,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		DiscoveryInterval: discoveryInterval,
 		Webhook:           webhookOpts,
 		Chat:              chatOpts,
+		Alerts:            &s.Config.Alerts,
+		AlertsNow:         s.AlertsNow,
 		// Nothing spends the slots yet; carrying the value from here means the
 		// pool, when it lands, reads a number that has been clamped three times.
 		MaxConcurrentRuns: maxRuns,

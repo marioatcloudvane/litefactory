@@ -121,6 +121,7 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.Webhook.validate()...)
 	errs = append(errs, c.RemoteConnector.Validate())
 	errs = append(errs, c.validateChat()...)
+	errs = append(errs, c.validateAlerts()...)
 	s := &c.Settings
 	if s.WorkerTimeoutSeconds < MinWorkerTimeoutSeconds || s.WorkerTimeoutSeconds > MaxWorkerTimeoutSeconds {
 		errs = append(errs, fmt.Errorf("settings.worker_timeout_seconds: %d is out of range; must be between %d and %d", s.WorkerTimeoutSeconds, MinWorkerTimeoutSeconds, MaxWorkerTimeoutSeconds))
