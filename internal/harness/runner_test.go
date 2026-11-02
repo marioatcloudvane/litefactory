@@ -88,6 +88,9 @@ func newFixture(t *testing.T, script string, adjust ...func(*config.Claude)) *fi
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	if err := WriteSettings(claude.SettingsPath, f.home); err != nil {
+		t.Fatal(err)
+	}
 	f.runner = runner
 	return f
 }

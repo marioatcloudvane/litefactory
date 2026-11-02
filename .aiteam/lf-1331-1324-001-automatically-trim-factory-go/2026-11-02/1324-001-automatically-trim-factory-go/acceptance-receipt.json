@@ -1,0 +1,21 @@
+{
+  "request_id": "9e38d3a4052195a2e292e20522ed14f6",
+  "request_hash": "8794d89c185924febc97839588ac737eac4d6bcd3368055af26c854a3ce35269",
+  "input": "accepted",
+  "validation": {
+    "valid": true,
+    "complete": true,
+    "diagnostics": [],
+    "unchecked_paths": [],
+    "expected_revision": 0,
+    "current_revision": 0
+  },
+  "states": {
+    "Received": "received",
+    "Input": "accepted",
+    "Engineering": "pending",
+    "Acceptance": "pending",
+    "Publication": "pending"
+  },
+  "candidate": "plan-1836-18853"
+}

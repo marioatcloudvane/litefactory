@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
@@ -103,6 +104,7 @@ type Status struct {
 	// RunsHeld says why new runs wait, for example on low free disk; empty
 	// while nothing holds them.
 	RunsHeld string
+	Disk     *diskstatus.Observation
 }
 
 // StatusReader supplies existing factory health at reply time.
@@ -119,7 +121,7 @@ func (f FactoryStatus) Read(ctx context.Context, at time.Time) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	v := Status{Running: snap.Found && !snap.Listener.DaemonStartedAt.IsZero() && at.Sub(snap.Listener.WrittenAt) <= 5*time.Minute, DiscoveryPaused: snap.Listener.DiscoveryPaused, RunsInFlight: snap.Listener.RunsInFlight, InFlightSessions: snap.Listener.InFlightSessions, InFlightLabels: snap.Listener.InFlightLabels, SlotsUsed: snap.Listener.SlotsUsed, SlotsTotal: snap.Listener.SlotsTotal, PauseReason: snap.Listener.PauseReason, ExpectedResumeAt: snap.Listener.ExpectedResumeAt, RunsHeld: snap.Listener.RunsHeld}
+	v := Status{Running: snap.Found && !snap.Listener.DaemonStartedAt.IsZero() && at.Sub(snap.Listener.WrittenAt) <= 5*time.Minute, DiscoveryPaused: snap.Listener.DiscoveryPaused, RunsInFlight: snap.Listener.RunsInFlight, InFlightSessions: snap.Listener.InFlightSessions, InFlightLabels: snap.Listener.InFlightLabels, SlotsUsed: snap.Listener.SlotsUsed, SlotsTotal: snap.Listener.SlotsTotal, PauseReason: snap.Listener.PauseReason, ExpectedResumeAt: snap.Listener.ExpectedResumeAt, RunsHeld: snap.Listener.RunsHeld, Disk: snap.Listener.Disk}
 	if !snap.Listener.LastHeartbeatStartedAt.IsZero() {
 		v.HeartbeatKnown = true
 		v.HeartbeatAge = max(time.Duration(0), at.Sub(snap.Listener.LastHeartbeatStartedAt)).Round(time.Second)
@@ -375,7 +377,7 @@ func (s *Service) health(ctx context.Context, _ Message, at time.Time) (string, 
 	if err != nil {
 		return "", err
 	}
-	return assessed(ctx, healthText(v)+s.conversationHealth(ctx, at), presentation.Success)
+	return assessed(ctx, healthText(v)+"\n"+diskstatus.Text(v.Disk, at)+s.conversationHealth(ctx, at), presentation.Success)
 }
 func healthText(v Status) string {
 	age := "unknown"
@@ -432,6 +434,7 @@ func (s *Service) summary(ctx context.Context, m Message, at time.Time) (string,
 	if v.RunsHeld != "" {
 		text += "Runs held: " + v.RunsHeld + "\n"
 	}
+	text += diskstatus.Text(v.Disk, at)
 	text += v.Polling
 	text += s.taskSummary(ctx, v, at)
 	return assessed(ctx, text, presentation.Success)

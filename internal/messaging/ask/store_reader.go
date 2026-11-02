@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -180,4 +181,10 @@ func (s StoreReader) ReadDiscoveryPause(ctx context.Context) (bool, bool, error)
 func (s StoreReader) ReadRunsHeld(ctx context.Context) (string, error) {
 	snapshot, err := s.Reader.ReadHealthSnapshot(ctx)
 	return snapshot.Listener.RunsHeld, err
+}
+
+// ReadDiskStatus returns the daemon's observations without refreshing their timestamps.
+func (s StoreReader) ReadDiskStatus(ctx context.Context) (*diskstatus.Observation, error) {
+	snapshot, err := s.Reader.ReadHealthSnapshot(ctx)
+	return snapshot.Listener.Disk, err
 }

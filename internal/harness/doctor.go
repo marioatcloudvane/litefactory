@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/redact"
 )
 
@@ -103,6 +104,33 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 		return agent.DoctorRunResult{}, err
 	}
 	env := r.persistentClaudeEnv(scratch, configDir)
+	if r.goBuildCaches.Main != "" {
+		if err := r.goBuildCaches.Revalidate(request.WorkingDirectory); err != nil {
+			return agent.DoctorRunResult{}, err
+		}
+		if err := config.ValidateGoCacheEnvironment(env); err != nil {
+			return agent.DoctorRunResult{}, err
+		}
+		env = overrideEnv(env, []string{"GOCACHE=" + r.goBuildCaches.Main, "GOCACHEPROG="})
+		if operation == "" {
+			for i := 0; i+1 < len(args); i++ {
+				if args[i] == "--settings" {
+					var document map[string]any
+					if err := json.Unmarshal([]byte(args[i+1]), &document); err != nil {
+						return agent.DoctorRunResult{}, err
+					}
+					if err := addCacheWriteGrant(document, r.goBuildCaches.Main); err != nil {
+						return agent.DoctorRunResult{}, err
+					}
+					data, err := json.Marshal(document)
+					if err != nil {
+						return agent.DoctorRunResult{}, err
+					}
+					args[i+1] = string(data)
+				}
+			}
+		}
+	}
 	if operation == "" {
 		env = append(env, "GIT_OPTIONAL_LOCKS=0", "CLAUDE_CODE_TMPDIR="+request.WorkingDirectory, "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1")
 	}

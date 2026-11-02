@@ -1435,7 +1435,7 @@ func TestLowDiskHoldsDispatchUntilSpaceReturns(t *testing.T) {
 		t.Fatalf("low-disk warning missing free and required bytes\nlogs:\n%s", logs)
 	}
 	listener := f.healthListener()
-	if listener.RunsHeld != "New runs wait: free disk 1.0 GB is below the 15 GB minimum." {
+	if listener.RunsHeld != "New runs wait: free disk 1.0 GiB is below the 15 GiB minimum." {
 		t.Fatalf("published runs held = %q while the guard holds runs", listener.RunsHeld)
 	}
 	if strings.Contains(listener.PauseReason, "free disk") {

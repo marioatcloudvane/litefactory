@@ -67,10 +67,11 @@ macOS, Landlock on Linux), the same kind of containment the Codex agents run und
 factory passes one explicit permission profile per command: the whole filesystem
 is readable except `$LF_HOME` and the operator's `deny_read` paths; writes are
 limited to the worktree, a private temporary directory (`TMPDIR`), the system
-`/tmp` (as in Codex's `workspace-write`) and the operator's `writable_roots` (for example compiler caches); the network is off
+`/tmp` (as in Codex's `workspace-write`), the selected dedicated main Go build
+cache data directory and the operator's `writable_roots` (for example compiler caches); the network is off
 unless the operator grants `network`, which opens it loopback included.
-The command sees only `PATH`, `HOME`, `LANG`, `TMPDIR` and declared environment
-names; nothing is inherited from the daemon. Each command runs in its own process
+The command sees `PATH`, `HOME`, `LANG`, `TMPDIR`, the final managed `GOCACHE`
+and declared environment names; nothing is inherited from the daemon. Each command runs in its own process
 group. When it ends, every remaining member is stopped and cleanup is confirmed
 only once the group is observed empty; otherwise cleanup stays unknown and the
 worktree guard is retained. There is no fallback to running tests with daemon
@@ -148,3 +149,30 @@ unrelated criterion and grants no delivery approval. Sandbox permissions, proces
 claims, locks, cleanup, unchanged-tree guards and owner-controlled delivery apply
 to discovery, targeted work and target-branch comparisons alike. No automatic
 merge or target-branch repair is performed.
+
+## Go cache routing and disk pressure
+
+Isolated checks, including fresh and stack wrappers, use the same dedicated main
+Go build cache as normal factory builds. Recipe or profile merging cannot replace
+the final managed `GOCACHE`; external `GOCACHEPROG` cache programs are refused.
+Read-only reviewers retain their separate reviewer cache and private temporary
+storage. Only the selected cache data directory receives the added sandbox write
+grant. See [cache configuration](configuration/config-yaml.md#dedicated-go-build-caches-and-disk-observations)
+for defaults, custom path validation and cold main-cache rebuilds. Host cache data
+and the Go module cache are untouched.
+
+The existing independent check free-disk probe runs against the worktree. A value
+below `settings.min_free_disk_gb` refuses a check; equality permits it, and `0`
+disables the guard. The threshold is in GiB (2³⁰ bytes), despite the compatible
+`_gb` setting name. A probe error refuses the check; the daemon's distinct
+fail-open probe policy remains unchanged. Active work and existing cancellation,
+`-trimpath` and housekeeping behavior are preserved.
+
+Health/status observations report partial and complete approximate logical cache
+sizes with their original timestamps. Unknown, stale, interrupted and incomplete
+readings do not become admission rules. Background scans retain progress across
+bounded slices and do not delay check admission or status reads. Logical bytes
+are not physical or reclaimed disk bytes, and partial observations under changing
+files are not guaranteed current-size lower bounds. Automatic cleanup is
+unavailable; this delivery adds no deletion, ownership registry, claims,
+cross-home exclusivity guarantee or recovery workflow.
