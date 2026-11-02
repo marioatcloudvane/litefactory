@@ -163,6 +163,9 @@ providers:
       account: "github-bot"
     # token_env: "LITEFACTORY_GITHUB_TOKEN"
 
+# Optional Bug preference: explicit Bug label, then immediate parent, wins.
+# bug_agent: codex
+
 # Agent declaration order is semantic: the first entry is the default for
 # unlabelled work and mode classification. Reorder these entries to change
 # the default; there is deliberately no separate default_agent setting.

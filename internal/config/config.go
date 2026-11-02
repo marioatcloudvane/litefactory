@@ -46,8 +46,10 @@ import (
 // written zero value (poll_interval_seconds: 0) is distinguishable from an
 // absent key and is rejected instead of silently replaced.
 type Config struct {
-	Judge  JudgeSettings  `yaml:"judge"`
-	Alerts AlertsSettings `yaml:"alerts"`
+	// BugAgent is an optional preference for Bugs without an explicit or inherited agent.
+	BugAgent Kind           `yaml:"bug_agent"`
+	Judge    JudgeSettings  `yaml:"judge"`
+	Alerts   AlertsSettings `yaml:"alerts"`
 	// Chat holds optional transport settings.
 	Chat     *Chat    `yaml:"chat"`
 	Settings Settings `yaml:"settings"`

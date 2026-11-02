@@ -15,6 +15,8 @@ import (
 // Captured from the starting commit before extraction, for every shipped/source
 // DOT graph and the retained legacy graph. These identities cover the factory
 // wire representation, semantic identity and every declared navigation result.
+// When a shipped graph is changed on purpose, its baseline entry must be
+// refreshed in the same change.
 func TestExtractionRetainsShippedAndLegacyGraphIdentities(t *testing.T) {
 	type identity struct{ Profile, Semantic, Navigation string }
 	raw, err := os.ReadFile("testdata/extraction-baseline.json")
