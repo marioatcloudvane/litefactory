@@ -16,8 +16,10 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/bugchecks"
+	"github.com/cloudvane/litefactory/internal/cimonitor"
 	"github.com/cloudvane/litefactory/internal/codeevidence"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/connector"
@@ -80,6 +82,8 @@ type Setup struct {
 	Paths config.Paths
 	// Config is the validated config.yaml. Required.
 	Config *config.Config
+	// AlertsNow is separate from the scheduler clock and may be injected for offline monitoring.
+	AlertsNow func() time.Time
 	// DB is the open, migrated database. Required. The daemon does not close
 	// it; whoever opened it owns it.
 	DB *store.DB
@@ -220,6 +224,23 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	runners, err := buildRunners(s.Paths, s.Config, environ, s.Logger)
 	if err != nil {
 		return nil, Startup{}, err
+	}
+	providerAlerts := &alerts.Engine{DB: s.DB, Settings: s.Config.EffectiveAlerts()}
+	for kind, runner := range runners {
+		if observed, ok := runner.(interface {
+			SetProviderObserver(func(context.Context, agent.Request, *agent.RunResult, error))
+		}); ok {
+			providerKind := string(kind)
+			observed.SetProviderObserver(func(c context.Context, req agent.Request, res *agent.RunResult, runErr error) {
+				observedAt := time.Now()
+				if s.AlertsNow != nil {
+					observedAt = s.AlertsNow()
+				}
+				if err := recordProviderAlert(c, providerAlerts, providerKind, req, res, runErr, observedAt); err != nil {
+					s.Logger.WarnContext(c, "provider alert evidence unavailable")
+				}
+			})
+		}
 	}
 	configuredDefault, ok := s.Config.DefaultAgent()
 	if !ok {
@@ -735,6 +756,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		DiscoveryInterval: discoveryInterval,
 		Webhook:           webhookOpts,
 		Chat:              chatOpts,
+		Alerts:            &s.Config.Alerts,
+		AlertsNow:         s.AlertsNow,
 		// Nothing spends the slots yet; carrying the value from here means the
 		// pool, when it lands, reads a number that has been clamped three times.
 		MaxConcurrentRuns: maxRuns,
@@ -787,6 +810,24 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	daemon.doctor.service.Runner = &doctor.Adapters{Providers: diagnosisProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
 	daemon.doctor.service.Comments = ticketWorkflow
+	// CI uses the configured factory credential and existing quota accounting.
+	// Its durable server wait is additional and local to this input.
+	ciOrigin, ciOriginErr := ticket.CanonicalOrigin(s.Config.Providers.GitHub.APIBase)
+	if ciOriginErr != nil {
+		return nil, Startup{}, ciOriginErr
+	}
+	ciVersion := store.ConnectionVersion{Provider: ticket.GitHub, Origin: ciOrigin, CredentialSource: string(legacyRef.Source), CredentialService: legacyRef.Service, CredentialAccount: legacyRef.Account, CredentialEnv: legacyRef.EnvVar}
+	ciClient, ciErr := github.New(github.Options{APIBase: string(ciOrigin), Token: legacyToken, Logger: s.Logger, UserAgent: s.UserAgent, Redactor: sharedRedactor, RequestContext: func(c context.Context) (context.Context, func(error), error) {
+		return daemon.bindQuotaRequest(context.WithValue(c, recoveryTickKey{}, daemon.alertClock()), ciVersion)
+	}})
+	if ciErr == nil {
+		daemon.ciMonitor = &cimonitor.Observer{Reader: ciClient, Engine: daemon.alerts, Target: s.Config.Alerts.CI, Origin: string(ciOrigin), Now: daemon.alertClock, Gate: &cimonitor.Gate{Store: s.DB, Key: "ci:" + string(ciOrigin), Now: daemon.alertClock}}
+	} else {
+		daemon.ciMonitor = &cimonitor.Observer{Engine: daemon.alerts, Target: s.Config.Alerts.CI, Origin: string(ciOrigin), Now: daemon.alertClock, Gate: &cimonitor.Gate{Store: s.DB, Key: "ci:" + string(ciOrigin), Now: daemon.alertClock}}
+	}
+	daemon.doctor.service.CIProbe = daemon.ciMonitor
+	daemon.doctor.service.CIRepository = s.Config.Alerts.CI.Repository
+
 	daemon.doctor.service.RepairRunner = &doctor.RepairAdapters{Providers: repairProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
 	advisors := make(map[string]turn.ConflictAdvisor)
 	for kind, runner := range runners {

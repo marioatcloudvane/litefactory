@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	native "github.com/cloudvane/litefactory/pkg/execution/providers/claude"
 )
 
@@ -19,6 +20,7 @@ type eventStream struct {
 	tools                      []string
 	sessionID                  string
 	result                     *resultEvent
+	providerFailure            agent.ProviderClass
 	quota                      quotaEvidence
 	writeErr                   error
 	usage                      *usageCollector
@@ -29,6 +31,12 @@ func (s *eventStream) decoder() *native.Stream {
 	if s.native == nil {
 		s.native = &native.Stream{Sink: s.sink, Logger: s.logger, Observe: func(line []byte) {
 			s.usage.observe(line)
+			var terminal struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(line, &terminal) == nil && terminal.Type == "result" {
+				s.providerFailure = agent.ProviderEventClass(line)
+			}
 			var event struct {
 				Type string    `json:"type"`
 				Info quotaInfo `json:"rate_limit_info"`

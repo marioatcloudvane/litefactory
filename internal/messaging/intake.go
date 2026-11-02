@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -23,23 +24,29 @@ type IntakeReader interface {
 	ReadIntakePage(context.Context, string, string, string) (IntakePage, error)
 }
 
-// Intake does no interpretation or execution; completed intervals alone become visible.
+// Intake authenticates history and releases only completed intervals. Optional
+// fixed alert controls are handled independently of conversation providers.
 type Intake struct {
 	DB               *store.DB
 	Reader           IntakeReader
 	Owner, Transport string
 	Channels         []string
+	// OrdinaryChannels limits conversation intake; nil preserves all channels.
+	OrdinaryChannels []string
 	Protect          func(context.Context, string) (string, error)
+	// Controls admits fixed owner commands outside conversation staging.
+	Controls func(context.Context, store.NaturalMessage, time.Time) (bool, error)
 }
 
-// Poll collects up to four pages per allowed channel without running commands.
+// Poll collects up to four pages per allowed channel and drains completed
+// fixed controls without invoking a conversation provider.
 func (i *Intake) Poll(ctx context.Context, at time.Time) error {
 	if i.DB == nil || i.Reader == nil || !intakeID(i.Owner) {
 		return errors.New("natural intake unavailable")
 	}
 	var failures []error
 	for _, channel := range i.Channels {
-		if err := i.pollChannel(ctx, channel, at); err != nil {
+		if err := i.pollAllowedChannel(ctx, channel, at); err != nil {
 			failures = append(failures, err)
 		}
 	}
@@ -51,7 +58,17 @@ func (i *Intake) PollChannel(ctx context.Context, channel string, at time.Time) 
 	if i.DB == nil || i.Reader == nil || !intakeID(i.Owner) || !slices.Contains(i.Channels, channel) {
 		return errors.New("natural intake unavailable")
 	}
-	return i.pollChannel(ctx, channel, at)
+	return i.pollAllowedChannel(ctx, channel, at)
+}
+func (i *Intake) pollAllowedChannel(ctx context.Context, channel string, at time.Time) error {
+	var controlErr error
+	if i.Controls != nil {
+		controlErr = i.pollAlertControls(ctx, channel, at)
+	}
+	if i.OrdinaryChannels != nil && !slices.Contains(i.OrdinaryChannels, channel) {
+		return controlErr
+	}
+	return errors.Join(controlErr, i.pollChannel(ctx, channel, at))
 }
 func (i *Intake) pollChannel(ctx context.Context, channel string, at time.Time) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -119,6 +136,7 @@ func (i *Intake) pollChannel(ctx context.Context, channel string, at time.Time) 
 			if len(m.Text) > 8192 {
 				return errors.New("natural intake text too large")
 			}
+
 			admitted = append(admitted, m)
 		}
 		scan.Before = page.LowID
@@ -128,9 +146,20 @@ func (i *Intake) pollChannel(ctx context.Context, channel string, at time.Time) 
 		}
 	}
 	if scan.HighWater == "" {
-		return nil
+		return i.drainControls(ctx, channel, at)
 	}
-	return i.DB.StageNaturalScan(ctx, expected, scan, admitted, complete)
+	controls := map[string]bool{}
+	if i.Controls != nil {
+		for _, m := range admitted {
+			if alerts.Reserved(m.Text) {
+				controls[m.SourceID] = true
+			}
+		}
+	}
+	if err := i.DB.StageNaturalScanWithControls(ctx, expected, scan, admitted, complete, controls); err != nil {
+		return err
+	}
+	return i.drainControls(ctx, channel, at)
 }
 func intakeID(value string) bool {
 	n, err := strconv.ParseUint(value, 10, 64)
@@ -150,4 +179,25 @@ func compareIntakeID(a, b string) int {
 		return 1
 	}
 	return 0
+}
+
+func (i *Intake) drainControls(ctx context.Context, channel string, at time.Time) error {
+	if i.Controls == nil {
+		return nil
+	}
+	messages, err := i.DB.PendingNaturalAlertControls(ctx, channel)
+	if err != nil {
+		return err
+	}
+	// Dedicated alert history is the sole command executor. Ordinary history
+	// may have a different cursor or incomplete interval; discard only its
+	// reserved copies so no control reaches a conversation or overtakes an
+	// older command still staged by the dedicated scanner.
+	for _, m := range messages {
+		if err = i.DB.FinishNaturalMessage(ctx, channel, m.SourceID, at); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

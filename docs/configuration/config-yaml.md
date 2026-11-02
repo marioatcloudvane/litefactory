@@ -241,6 +241,31 @@ Checks run under the Codex sandbox: files are readable except `deny_read` and `$
 | `bug_checks.environment` | list of strings | empty | distinct environment variable names | Names of your environment variables passed to checks. Never put values here. |
 | `bug_checks.network` | boolean | `false` | `true` or `false` | Opens the network, loopback included, for tests that start local servers. There is no loopback-only mode. |
 
+## `alerts`
+
+This optional block defaults enabled and leaves existing work scheduling,
+conversations and task-report recovery unchanged. An absent block remains valid.
+See [factory alerts](../discord.md#factory-alerts) for a complete example, owner
+commands, recovery and installed verification.
+
+| Key | Type | Default | Range | Effect |
+| --- | --- | --- | --- | --- |
+| `alerts.enabled` | boolean | `true` | `true` or `false` | Controls all alert notifications; observation and retained state continue. |
+| `alerts.channel_id` | string | empty | numeric member of `chat.discord.channel_ids`, or empty | Destination override; empty uses `chat.discord.notice_channel_id`. Missing or unusable delivery is reported unavailable. |
+| `alerts.mention_owner` | string | `critical` | `critical`, `none` | Only critical openings/escalations may construct the configured owner mention. |
+| `alerts.cooldown_minutes` | integer | `60` | 1–10080 | Recovery-to-recurrence notification cooldown; incidents remain visible. |
+| `alerts.pool_wait_minutes` | integer | `30` | 1–10080 | Eligible work waiting beyond this interval with a full shared pool opens a critical incident. |
+| `alerts.no_progress_minutes` | integer | `120` | 1–10080 | Task progress delay; authoritative owner and planned waits are excluded. |
+| `alerts.delivery_wait_minutes` | integer | `15` | 1–10080 | Original report-delivery uncertainty delay before warning. |
+| `alerts.quiet_hours.enabled` | boolean | `true` | `true` or `false` | Hold warning notifications for a digest; critical notifications bypass quiet hours. |
+| `alerts.quiet_hours.start` | string | `23:00` | `HH:MM`, host-local 24-hour clock | Inclusive quiet-hours start. |
+| `alerts.quiet_hours.end` | string | `07:00` | `HH:MM`, distinct from start when enabled | Quiet-hours end. |
+| `alerts.rules` | mapping of booleans | all six enabled | `disk_low`, `pool_blocked`, `no_progress`, `provider_failure`, `task_stuck`, `delivery_stuck` | Each `false` suppresses that rule's openings, pending notifications and all-clears until reenabled. |
+
+Global timed suppression and per-rule mutes are runtime controls retained in the
+database. They compose with configuration disablement; no command overrides a
+configured `false`. No CI or production-deploy rule is registered by this block.
+
 ## Environment variables
 
 These are the variables litefactory reads or hands on. Values you export in a terminal do not reach a daemon started by launchd; `daemon start` records `LF_HOME` and `PATH` when you run it, so run it again after changing them.

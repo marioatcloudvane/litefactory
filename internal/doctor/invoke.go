@@ -64,6 +64,8 @@ func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorC
 		return failure(e)
 	}
 	results.comments = s.Comments
+	results.ciProbe = s.CIProbe
+	results.ciRepository = s.CIRepository
 	runCtx, runCancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	if s.active == nil {

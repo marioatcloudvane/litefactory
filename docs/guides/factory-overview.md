@@ -65,6 +65,40 @@ failures retain readable sections with warnings; a failure to read any source
 is a tool error. The overview reads local recorded facts, without polling remote
 comments or guaranteeing that a previously confirmed link remains accessible.
 
+## Factory alerts
+
+The overview also shows a bounded, read-only local alert projection: active
+incidents, enabled rules, readiness, last successful observation, unavailable or
+stale coverage, mute expiry and notification delivery state. Subjects follow the
+same repository-access filtering as the rest of the overview; inaccessible task
+identities and provider details are not exposed.
+
+Check observation and delivery separately. An observer may remain ready while
+Discord is unavailable, and no incidents with stale or failed coverage does not
+mean healthy monitoring. Detected and queued notifications have no confirmed
+remote receipt. Uncertain sends might have reached Discord and remain visible
+until an exact reconciliation establishes confirmation. Overview reads do not
+poll providers, send notifications or repair work.
+
+Owner-only fixed Discord messages control notification mutes without changing
+work. See [factory alerts](../discord.md#factory-alerts) for configuration,
+recovery evidence, quiet-hour digests and installed owner verification.
+
+Main CI fields identify the single configured factory target, current conclusion
+or pending state, last successful observation, unavailable reason and next retry.
+`main_red` retains a known failure while `ci_monitoring_unavailable` separately
+reports missing or incomplete coverage. Disabled or changed workflows, empty
+history and access failures cannot establish green CI. Recovery needs two
+complete scheduled observations of qualifying newer success; restart supplies
+no clean evidence. Readiness can recover while the current CI result remains red.
+
+The overview never invokes the explicit doctor access probe. It displays saved
+CI-local retry bounds, including GitHub waits longer than one hour retained
+across restart. Installed access must be checked separately through
+[doctor](../operations/doctor.md#ci-access-check). Observation continues when
+Discord delivery is unavailable; a healthy CI read does not prove notification
+delivery. Project CI and production deploy monitoring are outside this target.
+
 ## Hosted verification record
 
 **2026-10-26: owner check handed to Validate after deployment; neither hosted

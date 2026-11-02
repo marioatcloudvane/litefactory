@@ -7,17 +7,20 @@ import (
 	"os"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/cimonitor"
 	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -76,18 +79,30 @@ func configureDoctorTicketWorkflow(ctx context.Context, service *doctor.Service,
 	defer cancel()
 	cfg := service.Config
 	service.Redactor = redact.New(redact.Options{Logger: env.Logger, Environ: environ})
+	ref, configured := secrets.ReferenceFrom(cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
+	var token secrets.Token
+	if configured {
+		token, _ = (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, ref)
+		service.Redactor.AddToken(token)
+	}
+	service.CIRepository = cfg.Alerts.CI.Repository
+	apiOrigin, ciOriginErr := ticket.CanonicalOrigin(cfg.Providers.GitHub.APIBase)
+	if ciOriginErr != nil {
+		return ciOriginErr
+	}
+	origin := string(apiOrigin)
+	ciClient, ciErr := github.New(github.Options{APIBase: origin, Token: token, Redactor: service.Redactor, Logger: env.Logger})
+	observer := &cimonitor.Observer{Target: cfg.Alerts.CI, Origin: origin, Gate: &cimonitor.Gate{Store: service.DB, Key: "ci:" + origin}}
+	if ciErr == nil {
+		observer.Reader = ciClient
+	}
+	service.CIProbe = observer
 	bot, err := service.DB.GetIdentity(ctx, store.ForgeGitHub, store.RoleBot)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil // Local diagnosis remains available without forge coverage.
 	}
 	if err != nil {
 		return err
-	}
-	ref, configured := secrets.ReferenceFrom(cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
-	var token secrets.Token
-	if configured {
-		token, _ = (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, ref)
-		service.Redactor.AddToken(token)
 	}
 	factory := projectconnection.NewFactory(projectconnection.Options{DB: service.DB, Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: service.Redactor, ExpectedActorID: bot.UserID, LegacyReference: ref, LegacyToken: token})
 	if err := projectconnection.Initialize(ctx, service.DB, *cfg, factory); err != nil {

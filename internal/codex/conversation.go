@@ -118,6 +118,9 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 			if event.Type == "result" || event.Type == "turn.failed" || event.Type == "turn.completed" {
 				failurePhase = "terminal"
 			}
+			if class := agent.ProviderEventClass(line); class != agent.ProviderUnknown {
+				e = &agent.ProviderFailure{Class: class, Cause: e}
+			}
 			observedErr = agent.ConversationError(e, failurePhase, false)
 			cancel()
 		}

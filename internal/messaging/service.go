@@ -139,6 +139,8 @@ type Handler func(context.Context, Message, time.Time) (string, error)
 
 // Service owns one transport. A single daemon sender calls Step.
 type Service struct {
+	providerObserverMu     sync.RWMutex
+	providerObserver       func(context.Context, string, string, string, string)
 	inboxReader            OwnerInboxReader
 	Instructions           prompts.Resolver
 	InstructionDiagnostics prompts.Sink
@@ -166,6 +168,7 @@ type Service struct {
 	ownerActions             *owneraction.Service
 	ownerPrincipal           func(context.Context, string) (owneraction.Principal, error)
 	workflowNoticeAuthorizer func(context.Context, string, string) error
+	alertControl             func(context.Context, string, string, time.Time) (string, error)
 }
 
 // SetWorkflowNoticeAuthorizer installs the current authority and destination check.
@@ -351,7 +354,7 @@ func (s *Service) retry(ctx context.Context, r store.ChatReply, at time.Time, hi
 
 func retryAt(r store.ChatReply, at time.Time, hint time.Duration) time.Time {
 	wait := min(time.Second<<min(max(r.Attempts-1, 0), 10), 15*time.Minute)
-	wait = max(wait, min(max(hint, 0), time.Hour))
+	wait = max(wait, max(hint, 0))
 	next := at.Add(wait)
 	if deadline := r.CreatedAt.Add(24 * time.Hour); deadline.Before(next) {
 		next = deadline

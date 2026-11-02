@@ -120,6 +120,7 @@ func runDoctor(ctx context.Context, env *Env, operation string, args []string) (
 
 func renderDoctor(w io.Writer, result doctor.Conversation) error {
 	var text bytes.Buffer
+	text.WriteString(doctor.RenderAlerts(result.Alerts))
 	if result.Review != nil {
 		text.WriteString(doctor.RenderRejectedDiagnosisReview(*result.Review))
 	}
