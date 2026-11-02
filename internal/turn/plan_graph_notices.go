@@ -501,8 +501,43 @@ func (r *planGraphRuntime) reportStop(ctx context.Context, instanceID int64) err
 				return err
 			}
 			text = "**Plan stopped: no stage has work to do right now.**\n\n" + planWaitingText(r.result.Ref, rows)
+		} else if r.story != "" {
+			// The notice asks for a reply. The factory starts the story's next
+			// work by itself when the scheduler's own rule offers it, so a reply
+			// is not needed then and the notice would be wrong.
+			continues, err := r.storyContinuesItself(ctx)
+			if err != nil || continues {
+				return err
+			}
 		}
 		return r.planNotice(ctx, fmt.Sprintf("plan-stopped:%d", instanceID), text)
 	}
 	return nil
+}
+
+// storyContinuesItself reports that the factory will start this story's next
+// work without an owner reply: the saved Plan state names work for the story and
+// the schedule for that work identity was never attempted. It uses the same
+// rule the daemon uses to offer the story.
+func (r *planGraphRuntime) storyContinuesItself(ctx context.Context) (bool, error) {
+	state, _, err := r.state(ctx)
+	if err != nil {
+		return false, err
+	}
+	if _, ok := StoryWorkID(state, r.story); !ok {
+		return false, nil
+	}
+	upstreamFailed, err := PlanLatestAgentFailedUpstream(ctx, r.opts.DB, r.req.SessionID)
+	if err != nil {
+		return false, err
+	}
+	id, ok := StoryWorkIDAfter(state, r.story, upstreamFailed)
+	if !ok {
+		return false, nil
+	}
+	attempted, err := r.opts.DB.ScheduleAttempted(ctx, r.req.SessionID, id)
+	if err != nil {
+		return false, err
+	}
+	return !attempted, nil
 }

@@ -2,6 +2,8 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -258,4 +260,98 @@ func TestPlanApprove_StageRewoundBeforeRecordingEndsQuietly(t *testing.T) {
 	if stage, create, ok := s.StoryNextStep(item.Key); !ok || create || stage != "story" {
 		t.Fatalf("next step = %q create=%v ok=%v, want the earlier story stage", stage, create, ok)
 	}
+}
+
+// A re-run that moved the story back to a stage whose approval is still current
+// is moved on by the graph approval, and the move is saved. Running the approval
+// again writes nothing.
+func TestPlanApprove_LoweredStoryWithCurrentApprovalSavesTheStageMove(t *testing.T) {
+	f, base, _, arm := ungatedTechnicalFixture(t)
+	executeGraphPlan(t, f, base)
+	var ref string
+	arm(func(s *planbrief.PlanState) {
+		var err error
+		if ref, err = s.ReviewRevision("story-001", "technical"); err != nil {
+			t.Errorf("technical revision: %v", err)
+		}
+		item := &s.Stories[0]
+		if item.Stage != "technical" {
+			t.Errorf("story is at %q before the approval, want technical", item.Stage)
+		}
+		item.Approvals["technical"] = ref
+		if item.ApprovedBy == nil {
+			item.ApprovedBy = map[string]string{}
+		}
+		item.ApprovedBy["technical"] = planbrief.ApprovalByGraph
+	})
+	executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
+
+	if !strings.HasSuffix(executedUngated(t, f), ungatedTechnicalNode) {
+		t.Fatalf("approval did not end the run: %s", executedUngated(t, f))
+	}
+	s, revision, err := f.db.GetPlanWorkflowState(t.Context(), f.ref().String())
+	mustProgress(t, err)
+	item := s.Stories[0]
+	if item.Stage != "acceptance" || item.Approvals["technical"] != ref || item.ApprovedBy["technical"] != planbrief.ApprovalByGraph {
+		t.Fatalf("stage move not saved: stage=%q approvals=%v by=%v", item.Stage, item.Approvals, item.ApprovedBy)
+	}
+
+	instance, ok := newestGraphInstance(f)
+	if !ok {
+		t.Fatal("no graph instance")
+	}
+	specs, err := PlanSpecs()
+	mustProgress(t, err)
+	definition, err := capturedWorkflow(t.Context(), f.opts, base, agent.WorkflowPlan, specs)
+	mustProgress(t, err)
+	runtime := &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, definition: definition, parentRef: f.ref(), parentNumber: f.ref().Issue, selected: "story-001", stage: "technical"}
+	out, err := runtime.approve(t.Context(), ActivityRequest{InstanceID: instance.ID, Node: ungatedTechnicalNode, Attrs: map[string]string{"lf_source": "technical_agent"}})
+	if err != nil || out.Outcome != "approved" {
+		t.Fatalf("replay: %+v %v", out, err)
+	}
+	again, againRevision, err := f.db.GetPlanWorkflowState(t.Context(), f.ref().String())
+	mustProgress(t, err)
+	if againRevision != revision || again.Stories[0].Stage != "acceptance" || !reflect.DeepEqual(again.Stories[0].Approvals, item.Approvals) {
+		t.Fatalf("replay wrote state: revision %d -> %d, stage %q, approvals %v", revision, againRevision, again.Stories[0].Stage, again.Stories[0].Approvals)
+	}
+}
+
+// A parallel rerun keeps an approval that stands only while the story is past
+// that stage; a story moved back to the stage falls through to ApproveByGraph.
+func TestPlanApprove_ParallelStageApprovedOnlyPastTheStage(t *testing.T) {
+	s := planbrief.PlanState{SharedRevision: "shared-1"}
+	d := planbrief.PlanDraft{Key: "a", Name: "A story", Problem: "A problem"}
+	if err := s.PutCandidate(d, "story", "a-candidate"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ApproveByGraph("a", "story", "a-candidate", ""); err != nil || got.Outcome != "approved" {
+		t.Fatalf("story approval: %+v %v", got, err)
+	}
+	request := &graphexec.PlanStoryRequest{RequestID: "req-1", Stage: "story", Candidate: "a-candidate", Draft: s.Stories[0].Draft}
+	raw, err := json.Marshal(request)
+	mustProgress(t, err)
+	item := &s.Stories[0]
+	item.Route = &planbrief.PlanRouteState{Version: planbrief.PlanParallelVersion}
+	item.Parallel = &planbrief.PlanParallelGroup{Version: planbrief.PlanParallelVersion, Sealed: true, Applied: map[string]string{"story": "applied"}, Projections: map[string]json.RawMessage{"story": raw}}
+	a := ActivityRequest{Attrs: map[string]string{"lf_stage": "story"}}
+	before := cloneTurnPlanState(t, s)
+	if item.Stage != "technical" || !parallelStageApproved(&s, a, request) {
+		t.Fatalf("approved story past its stage not kept: stage %q", item.Stage)
+	}
+	if !reflect.DeepEqual(before, cloneTurnPlanState(t, s)) {
+		t.Fatal("kept approval wrote state")
+	}
+	item.Stage = "story"
+	if parallelStageApproved(&s, a, request) {
+		t.Fatal("story moved back to its approved stage was kept without moving on")
+	}
+}
+
+func cloneTurnPlanState(t *testing.T, s planbrief.PlanState) planbrief.PlanState {
+	t.Helper()
+	raw, err := json.Marshal(s)
+	mustProgress(t, err)
+	var out planbrief.PlanState
+	mustProgress(t, json.Unmarshal(raw, &out))
+	return out
 }
