@@ -16,12 +16,12 @@ func insertConnectorActionCoverage(ctx context.Context, tx *sql.Conn, g Connecto
 		return nil
 	}
 	if c == nil || c.All || len(c.Repositories) == 0 || len(c.Repositories) > connectorMaxCoveredRepositories {
-		return connectorRefused(ErrConnectorInvalid, "repository:actions requires an explicit finite repository selection")
+		return connectorRefusedCode(ErrConnectorInvalid, "action_repositories_missing", "repository:actions requires an explicit finite repository selection")
 	}
 	seen := map[string]bool{}
 	for _, requested := range c.Repositories {
 		if seen[requested.RepositoryRef] {
-			return connectorRefused(ErrConnectorInvalid, "repository selected twice: %q", requested.RepositoryRef)
+			return connectorRefusedCode(ErrConnectorInvalid, "repository_selected_twice", "repository selected twice: %q", requested.RepositoryRef)
 		}
 		seen[requested.RepositoryRef] = true
 		r, err := resolveConnectorRepository(ctx, tx, requested.RepositoryRef)

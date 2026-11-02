@@ -36,6 +36,9 @@ type oauthResponse struct {
 	// code is the OAuth error code a refusal sent, so the audit line can name
 	// which check refused (it never carries credentials).
 	code string
+	// detail is the fixed short code of a consent refusal, such as
+	// "duration_missing", so the audit line names which check failed.
+	detail string
 }
 
 func (w *oauthResponse) WriteHeader(status int) {
@@ -81,7 +84,11 @@ func (s *Server) authorizationHandler(handler http.HandlerFunc) http.HandlerFunc
 				reason = "token_revoked"
 			}
 		}
-		s.audit(r, "authorization", outcome, reason, "unavailable", start)
+		detail := ""
+		if outcome == "refusal" {
+			detail = response.detail
+		}
+		s.auditDetail(r, "authorization", outcome, reason, detail, "unavailable", start)
 	}
 }
 

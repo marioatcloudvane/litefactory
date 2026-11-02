@@ -92,9 +92,13 @@ type ConnectorGrant struct {
 // references the caller supplied or may see; it never carries credentials or
 // local paths. errors.Is matches its kind (ErrConnectorInvalid or
 // ErrConnectorScope).
+//
+// Code, when set, is a fixed short code for the audit log (for example
+// "repository_not_registered"); unlike Reason it never quotes input.
 type ConnectorRefusal struct {
 	kind   error
 	Reason string
+	Code   string
 }
 
 func (e *ConnectorRefusal) Error() string { return e.Reason }
@@ -102,6 +106,24 @@ func (e *ConnectorRefusal) Unwrap() error { return e.kind }
 
 func connectorRefused(kind error, format string, args ...any) error {
 	return &ConnectorRefusal{kind: kind, Reason: fmt.Sprintf(format, args...)}
+}
+
+func connectorRefusedCode(kind error, code, format string, args ...any) error {
+	return &ConnectorRefusal{kind: kind, Reason: fmt.Sprintf(format, args...), Code: code}
+}
+
+// ConnectorRefusalCode returns the audit code of a refusal: its Code, or
+// "refused" for a refusal without one. It returns "" when err is not a
+// refusal.
+func ConnectorRefusalCode(err error) string {
+	var refusal *ConnectorRefusal
+	if !errors.As(err, &refusal) {
+		return ""
+	}
+	if refusal.Code == "" {
+		return "refused"
+	}
+	return refusal.Code
 }
 
 // ConnectorRefusalReason returns the plain reason of a refusal, or "" when err
