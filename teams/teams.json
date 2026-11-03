@@ -242,7 +242,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "e87e550e65b7d19fcc689fffdeba66a8251cb910b52d38afafd05133a5c5cdf3"
+          "sha256": "c429cbebbe243d4ce5429e0233cdf9602c5954432a78a6959b7380fe00d82b65"
         },
         {
           "path": "stack-profile.json",
@@ -313,7 +313,7 @@
           "sha256": "1405d4bbebf1130a73ed2df79a2269e61ddc24ae28f7b9e629bb717adcfe206a"
         }
       ],
-      "checksum": "23169d815600b228d836c0e1735fc3d8ae324203e4b36a8ff8927d151ff9d096"
+      "checksum": "0824c1e2abf09c01ba21a8f8e75383429c39df7a8a3db80b232ecd1a570bf630"
     },
     {
       "name": "Go development",
@@ -543,7 +543,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "e87e550e65b7d19fcc689fffdeba66a8251cb910b52d38afafd05133a5c5cdf3"
+          "sha256": "c429cbebbe243d4ce5429e0233cdf9602c5954432a78a6959b7380fe00d82b65"
         },
         {
           "path": "stack-profile.json",
@@ -614,7 +614,7 @@
           "sha256": "bb8a77ed702700cc7679ad5bde2ded64e74d124603b8ab880fe63ecaa77ab50d"
         }
       ],
-      "checksum": "dc5e7fb08e1f546bc13942c0758ffafd478ec26b35b58849bdafc1479af08caa"
+      "checksum": "906a8af8cb4688f0a3505c115ba55c0e89c72208682e54effa82cf37ff188e01"
     },
     {
       "name": "Python FastAPI with React",
@@ -868,7 +868,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "e87e550e65b7d19fcc689fffdeba66a8251cb910b52d38afafd05133a5c5cdf3"
+          "sha256": "c429cbebbe243d4ce5429e0233cdf9602c5954432a78a6959b7380fe00d82b65"
         },
         {
           "path": "stack-profile.json",
@@ -943,7 +943,7 @@
           "sha256": "32846e32489ea924ed5f03b64313aed103d27b0c3bd1fd0d7964ac5032cbbe11"
         }
       ],
-      "checksum": "e41559a7be06ef0a2a7d7b1e8adddb0ecaf62130e5e1f3a3d00285ab7bb75cfb"
+      "checksum": "21c333a952d4a348e4cb95f2290184bbb881e126dbad03f995acfb31be64658a"
     },
     {
       "name": "Swift iOS",
@@ -1170,7 +1170,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "e87e550e65b7d19fcc689fffdeba66a8251cb910b52d38afafd05133a5c5cdf3"
+          "sha256": "c429cbebbe243d4ce5429e0233cdf9602c5954432a78a6959b7380fe00d82b65"
         },
         {
           "path": "stack-profile.json",
@@ -1237,7 +1237,7 @@
           "sha256": "8cb3466181df603579239db25036f59ae25e310d9a7581a36cad2f6ca02bb94e"
         }
       ],
-      "checksum": "d9a7f5a351da12908c1cd9e8a0eabd186c29d4348f55fcbf5d20b5efd5745c4f"
+      "checksum": "e5354c2221ba418e249175ae6b1c4509be63c25f7644c7381e504ddf7be672db"
     }
   ]
 }

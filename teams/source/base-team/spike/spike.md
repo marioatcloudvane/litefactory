@@ -39,7 +39,7 @@ When the owner answers your question or adds details, take them into your propos
 
 ## Say plainly what you will build
 
-Before you ask for the go, give the owner a short summary in easy, plain words of what will happen when he says go, so he can see exactly what starts. Shape it as a small section of the comment:
+Before you ask for the go, give the owner a short summary in easy, plain words of what will happen when the owner says go, so the owner can see exactly what starts. Shape it as a small section of the comment:
 
 - **What I will build**: 3 to 6 short bullets in plain language that say what will be different afterwards, as the owner would notice it. No jargon and no file paths in these bullets.
 - **What I will not change**: a line or a few bullets on what stays as it is, so the edges of the change are clear.
