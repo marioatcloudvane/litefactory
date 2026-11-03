@@ -286,6 +286,11 @@ func (s ValidateState) reportCommand(item *validateReportItem, action string) (s
 // the citable checks and the evidence permalink prefixes.
 func validateReportScope(st ValidateState, followUp bool, permalinks []string) *agentresult.ReportScope {
 	scope := &agentresult.ReportScope{FollowUp: followUp, Items: map[string][]string{}, Global: st.reportGlobalActions(), Evidence: map[string]bool{}, Permalinks: slices.Clone(permalinks)}
+	// While a review is missing the reporter may not advise ship (#1364);
+	// the owner's explicit ship waiver stays available.
+	if roles, _ := st.notReviewed(); len(roles) > 0 {
+		scope.Global = slices.DeleteFunc(scope.Global, func(a string) bool { return a == agentresult.ReportActionShip })
+	}
 	for _, item := range st.reportItems() {
 		var actions []string
 		for _, a := range item.Actions {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -402,5 +403,162 @@ func TestFactoryBugTextCarriesFactsAndMarker(t *testing.T) {
 	title, body := validateFactoryBugText(st, "github:acme/api#497", store.ValidateFactoryBug{Item: "failure-1", CommentID: 9, Marker: marker})
 	if !strings.Contains(title, "make test") || !strings.Contains(body, "269 passed in 427.3s") || !strings.Contains(body, "No owner wait is recorded") || !strings.HasSuffix(strings.TrimSpace(body), marker) {
 		t.Fatalf("title %q body:\n%s", title, body)
+	}
+}
+
+const capacityReason = "model at capacity"
+
+// capacityFixture is a passed, assessed run whose architecture reviewer has no
+// usable result (the model is at capacity), so its one item is not reviewed,
+// as on MAR-72 (#1364). next is the reporter's next step.
+func capacityFixture(t *testing.T, next agentresult.ReportItem) *ownerFixture {
+	t.Helper()
+	o := capacitySetup(t, next)
+	o.toOwner()
+	st := o.state()
+	if st.Suite.Outcome != store.SuitePassed || !st.Assessed {
+		t.Fatalf("a passed, assessed suite: %+v assessed %v", st.Suite, st.Assessed)
+	}
+	if roles, _ := st.notReviewed(); len(roles) != 1 || roles[0] != agent.ReviewRoleArchitecture {
+		t.Fatalf("only the architecture reviewer is missing: %v", roles)
+	}
+	if len(o.reporterReqs) != 1 {
+		t.Fatalf("one reporter run: %d", len(o.reporterReqs))
+	}
+	return o
+}
+
+func capacitySetup(t *testing.T, next agentresult.ReportItem) *ownerFixture {
+	t.Helper()
+	o := newOwnerFixture(t)
+	o.reviewers.run = func(req ValidateReviewRequest) (*agentresult.Result, error) {
+		if req.Role == agent.ReviewRoleArchitecture {
+			return &agentresult.Result{Outcome: "blocked", Reason: capacityReason}, nil
+		}
+		return goodReview(req), nil
+	}
+	o.reporterRun = func(ValidateReporterRequest) (*agentresult.Result, error) {
+		report := &agentresult.ValidateReport{Mode: agentresult.ReportModeReport, Headline: "The suite passed; no open items were reported.", Why: "The records show a passing suite and no open findings.", Certainty: "certain", Next: &next}
+		return &agentresult.Result{Outcome: "completed", Comment: "Summary written.", Payload: agentresult.Payload{Validate: &agentresult.Validate{Report: report}}}, nil
+	}
+	return o
+}
+
+// #1364 BUG-1364-1, BUG-1364-5: while a review is missing the reporter's ship
+// advice is refused, the factory's report recommends the rerun, and a replayed
+// step starts no second reporter.
+func TestReporterShipAdviceRefusedWhileAReviewIsMissing(t *testing.T) {
+	o := capacityFixture(t, agentresult.ReportItem{Action: agentresult.ReportActionShip, Recommendation: "Ship it; nothing is open.", Diagnosis: agentresult.DiagnosisNone})
+	rows, err := o.db.ListValidateReporter(t.Context(), o.instance.ID)
+	if err != nil || len(rows) != 1 || rows[0].State != store.ReporterFallback || !strings.Contains(rows[0].Reason, "not valid") || !strings.Contains(rows[0].Reason, "next.action") {
+		t.Fatalf("the ship advice was not refused: %+v %v", rows, err)
+	}
+	st := o.state()
+	if st.Summary != nil {
+		t.Fatalf("a refused summary is shown: %+v", st.Summary)
+	}
+	out := renderValidateReport(st, nil, "")
+	summary := summaryOf(out)
+	if !strings.Contains(summary, "**Next:** Run the missing reviews again; the passed suite is reused. `"+ValidateStartCommand+"`") || strings.Contains(summary, ValidateShipCommand) || strings.Contains(out, "no open items") {
+		t.Fatalf("the next step is not the rerun:\n%s", out)
+	}
+	if !strings.Contains(out, "The "+agent.ReviewRoleArchitecture+" reviewer has no usable result") || !strings.Contains(out, capacityReason) {
+		t.Fatalf("the details lost the missing-reviewer blocker:\n%s", out)
+	}
+
+	// BUG-1364-5: a replayed reporter step keeps the stored fallback.
+	r := capacitySetup(t, agentresult.ReportItem{Action: agentresult.ReportActionShip, Recommendation: "Ship it; nothing is open.", Diagnosis: agentresult.DiagnosisNone})
+	r.stepTo("reporter")
+	attempt, err := r.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: r.instance.ID, Node: "reporter", Limit: 32, StartedAt: r.clock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := ActivityRequest{Mode: agent.ModeValidate, Node: "reporter", InstanceID: r.instance.ID, NodeAttemptID: attempt.ID}
+	h := ValidateReporterActivity{b: r.b}
+	for i := range 2 {
+		res, err := h.Execute(t.Context(), r.opts, req)
+		if err != nil || res.Outcome != "fallback" {
+			t.Fatalf("run %d: %+v %v", i+1, res, err)
+		}
+	}
+	rows, err = r.db.ListValidateReporter(t.Context(), r.instance.ID)
+	if err != nil || len(rows) != 1 || rows[0].State != store.ReporterFallback || len(r.reporterReqs) != 1 {
+		t.Fatalf("the replay started a reporter or changed the row: %+v %v, runs %d", rows, err, len(r.reporterReqs))
+	}
+}
+
+// #1364 BUG-1364-3: while a review is missing a rerun next step is accepted
+// and shown with the Validate start command.
+func TestReporterRerunAdviceAcceptedWhileAReviewIsMissing(t *testing.T) {
+	o := capacityFixture(t, agentresult.ReportItem{Action: agentresult.ReportActionRerun, Recommendation: "Run the architecture review again.", Diagnosis: agentresult.DiagnosisFactory})
+	rows, err := o.db.ListValidateReporter(t.Context(), o.instance.ID)
+	if err != nil || len(rows) != 1 || rows[0].State != store.ReporterAccepted {
+		t.Fatalf("the rerun advice was refused: %+v %v", rows, err)
+	}
+	summary := summaryOf(renderValidateReport(o.state(), nil, ""))
+	if !strings.Contains(summary, "**Next:** Run the architecture review again") || !strings.Contains(summary, "`"+ValidateStartCommand+"`") || strings.Contains(summary, ValidateShipCommand) {
+		t.Fatalf("the rerun is not the next step:\n%s", summary)
+	}
+}
+
+// #1364 BUG-1364-2: the reporter gets the displayed blockers as data; the
+// prompt text around the data does not change.
+func TestReporterPromptCarriesTheBlockers(t *testing.T) {
+	o := capacityFixture(t, agentresult.ReportItem{Action: agentresult.ReportActionRerun, Recommendation: "Run it again.", Diagnosis: agentresult.DiagnosisFactory})
+	st := o.state()
+	scope := validateReportScope(st, false, nil)
+	prompt, err := validateReporterPrompt(st, scope, validateReporterBudget{Minutes: 10, Reruns: 3}, store.ValidateReporterResult{Mode: store.ReporterModeReport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	split := func(p string) (string, string) {
+		before, rest, ok := strings.Cut(p, "<validate-reporter>")
+		data, after, ok2 := strings.Cut(rest, "</validate-reporter>")
+		if !ok || !ok2 {
+			t.Fatalf("no markers:\n%s", p)
+		}
+		return before + "<validate-reporter></validate-reporter>" + after, data
+	}
+	outer, data := split(prompt)
+	var in struct {
+		Blockers []string          `json:"blockers"`
+		Items    []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(data), &in); err != nil {
+		t.Fatal(err)
+	}
+	if len(in.Blockers) == 0 || !strings.Contains(strings.Join(in.Blockers, "\n"), agent.ReviewRoleArchitecture) || !strings.Contains(strings.Join(in.Blockers, "\n"), capacityReason) {
+		t.Fatalf("the blockers are not in the input: %s", data)
+	}
+	if len(in.Blockers) != len(st.Open) {
+		t.Fatalf("blockers %v, displayed %v", in.Blockers, st.Open)
+	}
+	bare := st
+	bare.Open = nil
+	plain, err := validateReporterPrompt(bare, scope, validateReporterBudget{Minutes: 10, Reruns: 3}, store.ValidateReporterResult{Mode: store.ReporterModeReport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plainOuter, _ := split(plain); plainOuter != outer || strings.Contains(outer, "blocker") {
+		t.Fatalf("the prompt text changed with the blockers:\n%s\n---\n%s", outer, plainOuter)
+	}
+}
+
+// #1364 BUG-1364-4: a fully reviewed, passed run still admits ship advice.
+func TestReporterShipAdviceAllowedWhenFullyReviewed(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.toOwner()
+	st := o.state()
+	if roles, _ := st.notReviewed(); len(roles) != 0 || st.Suite.Outcome != store.SuitePassed {
+		t.Fatalf("a fully reviewed, passed run: %v %+v", roles, st.Suite)
+	}
+	scope := validateReportScope(st, false, nil)
+	if !slices.Contains(scope.Global, agentresult.ReportActionShip) {
+		t.Fatalf("ship is not offered: %v", scope.Global)
+	}
+	report := &agentresult.ValidateReport{Mode: agentresult.ReportModeReport, Headline: "Everything passed.", Next: &agentresult.ReportItem{Action: agentresult.ReportActionShip, Recommendation: "Ship it.", Diagnosis: agentresult.DiagnosisNone}}
+	ctx := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "validate", WorkflowVersion: store.WorkflowSeparated, Report: scope}
+	if d := agentresult.ValidateResult(agentresult.Result{Outcome: "completed", Comment: "Summary.", Payload: agentresult.Payload{Validate: &agentresult.Validate{Report: report}}}, ctx); !d.Valid {
+		t.Fatalf("ship advice refused on a fully reviewed run: %+v", d.Diagnostics)
 	}
 }

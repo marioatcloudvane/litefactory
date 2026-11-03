@@ -267,6 +267,7 @@ type validateReporterInput struct {
 	Outcome     string                      `json:"outcome,omitempty"`
 	Budget      validateReporterBudget      `json:"budget"`
 	Failures    []validateReporterFail      `json:"failures,omitempty"`
+	Blockers    []string                    `json:"blockers,omitempty"`
 	Items       []validateReporterEntry     `json:"items"`
 	RunActions  []string                    `json:"run_actions,omitempty"`
 	Checks      []string                    `json:"checks,omitempty"`
@@ -304,7 +305,7 @@ type validateReporterTurn struct {
 const validateReporterTail = 3000
 
 func validateReporterPrompt(st ValidateState, scope *agentresult.ReportScope, budget validateReporterBudget, row store.ValidateReporterResult) (string, error) {
-	in := validateReporterInput{Mode: agentresult.ReportModeReport, Commit: st.Commit, Suite: st.Suite.Outcome, SuiteReason: clipText(st.Suite.Reason, 500), Outcome: st.Outcome, Budget: budget, RunActions: scope.Global, Permalinks: scope.Permalinks}
+	in := validateReporterInput{Mode: agentresult.ReportModeReport, Commit: st.Commit, Suite: st.Suite.Outcome, SuiteReason: clipText(st.Suite.Reason, 500), Outcome: st.Outcome, Budget: budget, Blockers: st.Open, RunActions: scope.Global, Permalinks: scope.Permalinks}
 	for i, f := range st.Failures {
 		in.Failures = append(in.Failures, validateReporterFail{Ref: validateFailureRef(i), Command: f.Command, Exit: f.Exit, Reason: clipText(f.Reason, 500), Cause: clipText(f.Cause, 500), Objective: clipText(f.Objective, 500), OutputTail: tailText(f.OutputTail, validateReporterTail)})
 	}
