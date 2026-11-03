@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=10m -race ./internal/factory/contracts
+?   	github.com/cloudvane/litefactory/internal/factory/contracts	[no test files]
+
+EXIT 0

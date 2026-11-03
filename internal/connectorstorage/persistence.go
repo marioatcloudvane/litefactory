@@ -3,7 +3,9 @@ package connectorstorage
 
 import (
 	"context"
+	"github.com/cloudvane/litefactory/internal/connectoraccess"
 	"github.com/cloudvane/litefactory/internal/connectorstate"
+	"github.com/cloudvane/litefactory/internal/factory/readtargets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"time"
 )
@@ -15,14 +17,19 @@ type Ports interface {
 	connectorstate.LocalGrants
 }
 
-type persistence struct{ db *store.DB }
+type persistence struct {
+	db     *store.DB
+	access *connectoraccess.Service
+}
 
 // New composes connector-owned persistence without exposing the general store.
 func New(db *store.DB) Ports {
 	if db == nil {
 		return nil
 	}
-	return &persistence{db: db}
+	p := &persistence{db: db}
+	p.access = connectoraccess.New(p, readtargets.New(db))
+	return p
 }
 
 func (p *persistence) SameStore(other connectorstate.Storage) bool {
@@ -83,19 +90,19 @@ func (p *persistence) RevokeConnectorToken(ctx context.Context, clientID, digest
 }
 
 func (p *persistence) ListConnectorRepositories(ctx context.Context) ([]connectorstate.ConnectorRepository, error) {
-	return p.db.ListConnectorRepositories(ctx)
+	return p.access.ListConnectorRepositories(ctx)
 }
 
 func (p *persistence) CheckConnectorDiscussionAccess(ctx context.Context, digest string, pin int64, resource, taskRef string, now time.Time) (connectorstate.ConnectorGrant, connectorstate.ConnectorGrantTarget, error) {
-	return p.db.CheckConnectorDiscussionAccess(ctx, digest, pin, resource, taskRef, now)
+	return p.access.CheckConnectorDiscussionAccess(ctx, digest, pin, resource, taskRef, now)
 }
 
 func (p *persistence) CheckConnectorCodeAccess(ctx context.Context, digest string, pin int64, resource, taskRef string, now time.Time) (connectorstate.ConnectorGrant, connectorstate.ConnectorCodeTarget, error) {
-	return p.db.CheckConnectorCodeAccess(ctx, digest, pin, resource, taskRef, now)
+	return p.access.CheckConnectorCodeAccess(ctx, digest, pin, resource, taskRef, now)
 }
 
 func (p *persistence) CheckConnectorUsageAccess(ctx context.Context, digest string, pin int64, resource, scope, repositoryRef, taskRef string, now time.Time) (connectorstate.ConnectorGrant, connectorstate.ConnectorUsageTarget, error) {
-	return p.db.CheckConnectorUsageAccess(ctx, digest, pin, resource, scope, repositoryRef, taskRef, now)
+	return p.access.CheckConnectorUsageAccess(ctx, digest, pin, resource, scope, repositoryRef, taskRef, now)
 }
 
 func (p *persistence) CheckLocalConnectorGrantControl(ctx context.Context) error {

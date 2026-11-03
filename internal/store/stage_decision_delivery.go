@@ -89,7 +89,8 @@ func (db *DB) AdvanceStageDecisionDelivery(ctx context.Context, key, expected, s
 			if err != nil {
 				return err
 			}
-			t, err := resolveConnectorDiscussionTarget(ctx, tx, v.TaskRef)
+			t, err := resolveReadTaskTarget(ctx, tx, v.TaskRef)
+			err = connectorTargetError(err)
 			if err != nil {
 				return err
 			}

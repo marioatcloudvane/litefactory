@@ -148,6 +148,10 @@ type Server struct {
 
 // New refuses construction until security prerequisites and owner binding work.
 func New(ctx context.Context, opts Options) (*Server, error) {
+	return newServer(ctx, opts, false)
+}
+
+func newServer(ctx context.Context, opts Options, reconciled bool) (*Server, error) {
 	if err := opts.Config.Validate(); err != nil {
 		return nil, err
 	}
@@ -170,8 +174,10 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if now == nil {
 		now = time.Now
 	}
-	if _, err := opts.Storage.ReconcileConnectorOwner(ctx, opts.Config.OwnerID, now()); err != nil {
-		return nil, err
+	if !reconciled {
+		if _, err := opts.Storage.ReconcileConnectorOwner(ctx, opts.Config.OwnerID, now()); err != nil {
+			return nil, err
+		}
 	}
 	if err := opts.LocalControl.check(ctx, opts.Storage, opts.Config.OwnerID); err != nil {
 		return nil, err

@@ -2,68 +2,50 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
-	"errors"
-	"github.com/cloudvane/litefactory/internal/connectorstorage"
-	"net"
 	"sync"
-	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/connector"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
 
+type remoteConnectorServices interface {
+	SetActions(connector.OwnerActions)
+	SetWorkflows(connector.Workflows)
+	SetTaskDiscussion(connector.TaskDiscussion)
+	SetStageDecisions(connector.StageDecisions)
+}
+
 type remoteConnectorRuntime struct {
-	config   config.RemoteConnector
-	server   *connector.Server
-	listener net.Listener
-	actions  *ownerActionRuntime
+	config    config.RemoteConnector
+	server    remoteConnectorServices
+	lifecycle *connector.Runtime
+	actions   *ownerActionRuntime
 }
 
 func prepareRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRuntime, error) {
-	cfg := s.Config.RemoteConnector
-	if !cfg.Enabled {
-		return nil, nil
-	}
-	if err := cfg.Validate(); err != nil {
+	return prepareRemoteConnectorWithControl(ctx, s, nil)
+}
+
+func prepareRemoteConnectorWithControl(ctx context.Context, s Setup, control connector.GrantControl) (*remoteConnectorRuntime, error) {
+	runtime, err := connector.Prepare(ctx, connector.LifecycleOptions{
+		Options:      connector.Options{Config: s.Config.RemoteConnector, Storage: connectorstorage.New(s.DB), Access: connectorstorage.New(s.DB), Logger: s.Logger, LocalControl: s.ConnectorControl, Overview: s.ConnectorOverview, TaskEvidence: s.ConnectorTaskEvidence, Usage: s.ConnectorUsage, CodeEvidence: s.ConnectorCodeEvidence},
+		GrantControl: control,
+		Launchd:      s.Launchd,
+		ResolveSecret: func(ctx context.Context, ref config.ConnectorSecretRef) (string, error) {
+			source, _ := secrets.ReferenceFrom(ref.Keychain.Service, ref.Keychain.Account, ref.Env)
+			token, err := s.ConnectionSecrets.Resolve(ctx, source)
+			if err != nil {
+				return "", err
+			}
+			return token.Reveal(), nil
+		},
+	})
+	if err != nil || runtime == nil {
 		return nil, err
 	}
-	// Reconcile even when the sibling command host is not installed: a changed
-	// configured pin must never revive an earlier grant when changed back.
-	if _, err := s.DB.ReconcileConnectorOwner(ctx, cfg.OwnerID, time.Now()); err != nil {
-		return nil, err
-	}
-	if s.ConnectorControl == nil {
-		return nil, errors.New("remote connector requires the factory local grant-control host")
-	}
-	resolve := func(ref config.ConnectorSecretRef) (secrets.Token, error) {
-		source, _ := secrets.ReferenceFrom(ref.Keychain.Service, ref.Keychain.Account, ref.Env)
-		if s.Launchd && source.Source != secrets.SourceKeychain {
-			return secrets.Token{}, errors.New("remote connector requires keychain references under launchd")
-		}
-		return s.ConnectionSecrets.Resolve(ctx, source)
-	}
-	githubSecret, githubErr := resolve(cfg.GitHubSecretRef)
-	cookieSecret, cookieErr := resolve(cfg.CookieSecretRef)
-	if err := errors.Join(githubErr, cookieErr); err != nil {
-		return nil, err
-	}
-	// These dedicated secrets are revealed only to the connector's identity and
-	// cookie encryption boundaries, never to a factory worker or a log attribute.
-	key, err := base64.StdEncoding.DecodeString(cookieSecret.Reveal())
-	if err != nil || len(key) != 32 {
-		return nil, errors.New("remote connector cookie key must encode exactly 32 random bytes as base64")
-	}
-	server, err := connector.New(ctx, connector.Options{Config: cfg, Storage: connectorstorage.New(s.DB), Access: connectorstorage.New(s.DB), Logger: s.Logger, LocalControl: s.ConnectorControl, Overview: s.ConnectorOverview, TaskEvidence: s.ConnectorTaskEvidence, Usage: s.ConnectorUsage, CodeEvidence: s.ConnectorCodeEvidence, GitHubSecret: githubSecret.Reveal(), CookieKey: key})
-	if err != nil {
-		return nil, err
-	}
-	listener, err := server.Listen(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &remoteConnectorRuntime{config: cfg, server: server, listener: listener}, nil
+	return &remoteConnectorRuntime{config: s.Config.RemoteConnector, server: runtime, lifecycle: runtime}, nil
 }
 
 func (d *Daemon) serveRemoteConnector(ctx context.Context, serving *sync.WaitGroup) {
@@ -71,11 +53,11 @@ func (d *Daemon) serveRemoteConnector(ctx context.Context, serving *sync.WaitGro
 		return
 	}
 	serving.Add(1)
-	// One serve goroutine is joined by Run; its listener and bounded handlers are
-	// canceled and drained when the shared serving context ends.
+	// Exactly one serving goroutine ends on shared-context cancellation; Run
+	// joins it after the connector drains and before the shared database closes.
 	go func() {
 		defer serving.Done()
-		if err := d.remoteConnector.server.Serve(ctx, d.remoteConnector.listener); err != nil {
+		if err := d.remoteConnector.lifecycle.Serve(ctx); err != nil {
 			d.log.ErrorContext(ctx, "remote connector stopped", "component", "connector", "reason", "listener")
 		}
 	}()
@@ -85,9 +67,5 @@ func (d *Daemon) closeRemoteConnector() error {
 	if d.remoteConnector == nil {
 		return nil
 	}
-	err := d.remoteConnector.listener.Close()
-	if errors.Is(err, net.ErrClosed) {
-		return nil
-	}
-	return err
+	return d.remoteConnector.lifecycle.Close()
 }

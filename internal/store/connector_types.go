@@ -1,6 +1,8 @@
 package store
 
 import (
+	"errors"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/connectorstate"
@@ -110,3 +112,10 @@ func ConnectorScopeSubset(sub, super string) bool {
 func ConnectorKnownScopes() []string { return connectorstate.ConnectorKnownScopes() }
 
 var connectorRepositoryScopes = connectorstate.RepositoryScopes()
+
+func connectorTargetError(err error) error {
+	if errors.Is(err, contracts.ErrReadTargetInvalid) {
+		return ErrConnectorInvalid
+	}
+	return err
+}

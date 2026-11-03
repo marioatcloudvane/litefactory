@@ -53,7 +53,7 @@ func seedCodeProtocolTarget(t *testing.T, db *store.DB) store.ConnectorCodeTarge
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := db.ResolveConnectorCodeTarget(t.Context(), s.TaskRef)
+	target, err := db.ReadCodeTarget(t.Context(), s.TaskRef)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func seedCodeProtocolTarget(t *testing.T, db *store.DB) store.ConnectorCodeTarge
 
 func issueCodeProtocolTokens(t *testing.T, f *connectorFixture, client connectorTestClient, target store.ConnectorCodeTarget, expires time.Time) (string, string) {
 	t.Helper()
-	discussion, err := f.db.ResolveConnectorDiscussionTarget(t.Context(), target.TaskRef)
+	discussion, err := f.db.ReadTaskTarget(t.Context(), target.TaskRef)
 	if err != nil {
 		t.Fatal(err)
 	}

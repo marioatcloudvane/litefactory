@@ -540,7 +540,8 @@ func (db *DB) ClaimDiscussionPublication(ctx context.Context, c DiscussionConclu
 		if stored.State != "pending" || !stored.NextAttemptAt.IsZero() && at.Before(stored.NextAttemptAt) {
 			return ErrWorkflowRevision
 		}
-		target, err := resolveConnectorDiscussionTarget(ctx, tx, stored.TaskRef)
+		target, err := resolveReadTaskTarget(ctx, tx, stored.TaskRef)
+		err = connectorTargetError(err)
 		if err != nil {
 			return err
 		}

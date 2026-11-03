@@ -428,7 +428,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	defer func() {
 		if !handedOver && remoteConnector != nil {
-			_ = remoteConnector.listener.Close()
+			_ = remoteConnector.lifecycle.Close()
 		}
 	}()
 
@@ -973,12 +973,5 @@ func waitImplementStatus(ctx context.Context, delay time.Duration) error {
 // before the remote boundary checks readiness. No remote configuration can turn
 // this capability on independently of its implementation.
 func prepareFactoryRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRuntime, error) {
-	if s.Config.RemoteConnector.Enabled && s.ConnectorControl == nil {
-		control, err := connector.NewLocalControl(ctx, connectorstorage.New(s.DB), connector.NewGrantService(connectorstorage.New(s.DB)))
-		if err != nil {
-			return nil, err
-		}
-		s.ConnectorControl = control
-	}
-	return prepareRemoteConnector(ctx, s)
+	return prepareRemoteConnectorWithControl(ctx, s, connector.NewGrantService(connectorstorage.New(s.DB)))
 }

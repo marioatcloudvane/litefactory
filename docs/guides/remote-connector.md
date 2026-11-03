@@ -4,13 +4,13 @@ The remote connector is a separate owner-authorized boundary. Reads stay read-on
 binds only to a numeric loopback address, and requires a dedicated HTTPS reverse
 proxy. It never exposes attempt tools or worker submission authority. Only enabled existing owner actions are available through proposals.
 
-This foundation supplies OAuth, durable grants and the MCP transport. Remote
-serving stays closed until **Local control of connector grants (#1187)** registers
-a working local command host with trusted daemon composition. Setting
-`enabled: true` cannot bypass that gate. **Factory overview in Claude and ChatGPT
-(#1188)** supplies the overview projection and verifies both hosted clients.
-Without an authorized installed projection, authenticated `tools/list` returns an empty list. These
-instructions do not establish hosted-client compatibility or deploy a proxy.
+The connector supplies OAuth, durable grants and the MCP transport. Remote
+serving requires the shipped local grant-control host to pass readiness checks
+through trusted daemon composition. Setting `enabled: true` cannot bypass that
+gate. Existing installed projections determine the available read tools; without
+an authorized installed projection, authenticated `tools/list` returns an empty
+list. Hosted-client checks remain installation evidence: these instructions do
+not establish hosted-client compatibility or deploy a proxy.
 
 The [factory ownership contracts](../factory-core.md) describe bounded remote
 operations, shared storage coordination and recovery limits.
@@ -55,6 +55,49 @@ or resolve a hostname. Unknown configuration keys remain errors. Restart the
 daemon after configuration changes. A changed owner identity or conflicting
 configured pin irreversibly invalidates existing grants and pending browser
 transactions; changing back does not revive them.
+
+## Ownership and preparation
+
+The connector owns authentication, consent, scope and repository coverage,
+credential transitions and remote HTTP preparation, serving and close. The factory
+owns repository enumeration and retained discussion, code and usage targets, plus
+the existing evidence projections and shared action execution/recovery runtime.
+Trusted composition binds authorization, core target reads and local grant control
+to one database handle. The physical SQLite database and stored formats are unchanged.
+
+For enabled valid configuration, owner reconciliation happens before local-control
+readiness, secret resolution or listener creation. A later preparation failure
+leaves the listener closed and preserves any committed invalidation. A pin changed
+away and back cannot revive old grants. Disabled mode has no remote prerequisites
+and leaves ordinary core workflows usable. Shared remote and Discord actions
+continue through one core runtime; Discord-required approval stays pending or
+unavailable when Discord is absent.
+
+## Restart and rollback
+
+1. Stop the daemon through its existing service lifecycle and let owned work drain.
+   Wait for the process to exit so its remote listener, handlers and database
+   handles are closed. Do not run old and new daemons concurrently on this state.
+2. Keep the latest factory database, including its current grants, spent refresh
+   ancestors, revocations, owner generation and pending workflow records. Do not
+   restore an earlier database snapshot to accompany older code: that can restore
+   revoked authority or make spent credentials usable again.
+3. Select the compatible previous build, then restart through the same service
+   lifecycle against that latest state and existing configuration. Ordinary
+   reconciliation resumes pending work. Confirm valid access and refusal of
+   revoked credentials; use [local grant controls](../cli/connector-grants.md)
+   independently of remote startup when inspection or revocation is needed.
+
+The [authorization rehearsal](../../.aiteam/lf-1378-1271-001-separate-remote-owner-access/2026-11-03/1271-001-separate-remote-owner-access/rehearsal/README.md)
+verified pinned previous revision `5a08f9e4e99640ef56592c90094f1dae75babe87`,
+changed code and previous code again against one temporary database. Separate
+processes checked valid grants, current and spent refresh tokens, replay and
+explicit revocation, and irreversible owner generations with unchanged schema.
+This route is verified for that build pair; compatibility with arbitrary older
+schemas is not established. The controlled providers do not certify a hosted
+client or a live proxy. Revocation applies at subsequent protected checks and
+cannot recall returned bytes. SQLite's current `synchronous=NORMAL` does not
+promise the newest commit survives whole-machine power loss.
 
 ## Fixed nginx routes
 
