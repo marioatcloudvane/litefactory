@@ -1,0 +1,21 @@
+{
+  "command": [
+    "go",
+    "test",
+    "-count=1",
+    "-timeout=30m",
+    "./internal/store"
+  ],
+  "base_head": "95e970f0ca06b40dd04d8aff459ff4c0f9e9715d",
+  "source_manifest_sha256": "27af277f9ab903086ca34bdb6fab39b27cac236aa7b4bdd6313176748c2d9810",
+  "started_at": "2026-11-03T15:08:25.317315+00:00",
+  "timeout_seconds": 1860,
+  "go_version": "go version go1.27.0 darwin/arm64",
+  "environment": {
+    "GOFLAGS": "-trimpath",
+    "GOLANGCI_LINT_CACHE": "isolated temporary cache"
+  },
+  "exit_code": 0,
+  "finished_at": "2026-11-03T15:10:45.565937+00:00",
+  "log_sha256": "2cc82dd0b6da4fae903eaaba93db836dfbf2f659ea3c34ccfd7ce23b190c8866"
+}

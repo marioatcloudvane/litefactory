@@ -1,0 +1,26 @@
+Command: ['python3', 'scripts/discord-component-recovery.py', 'rehearse', '--evidence-dir', '.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/recovery']
+ok  	github.com/cloudvane/litefactory/internal/store	0.840s
+ok  	github.com/cloudvane/litefactory/internal/store	0.446s
+ok  	github.com/cloudvane/litefactory/internal/store	0.431s
+ok  	github.com/cloudvane/litefactory/internal/store	0.468s
+ok  	github.com/cloudvane/litefactory/internal/store	0.541s
+Phase: compile previous-code reader at d41b68afd2f722003d0d12efe396801be4195367
+Phase: new start -> stop/drain -> previous-code pending-state check -> new resume -> stop/drain
+=== RUN   TestDiscordComponentProcessStopDrainRestart
+    recovery_process_test.go:195: phase: start new-code component with partial reply, unfinished conversation and pending approval
+    recovery_process_test.go:206: phase: first new-code component stopped and drained
+    recovery_process_test.go:233: new code stopped; previous code reopened unchanged pending conversations, delivery and approval; resuming new code
+    recovery_process_test.go:244: phase: resumed new-code component delivered remaining saved reply and stopped/drained
+    recovery_process_test.go:270: effect observations: first part sends=1; second part attempts=2; retry nonce unchanged; pending approval and unfinished conversation unchanged
+--- PASS: TestDiscordComponentProcessStopDrainRestart (4.19s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/discordcomponent	5.669s
+Phase: previous code verifies completed delivery fence and retained pending state
+=== RUN   TestDiscordComponentProcessRollback
+    discord_component_recovery_test.go:279: previous code preserved completed delivery fence, pending approval and unfinished conversation
+--- PASS: TestDiscordComponentProcessRollback (0.03s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/store	0.435s
+Fixture process evidence retained at /Users/mariomh/.lf-worktrees/litefactory/task-1370/.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/recovery
+Baseline/current/baseline reopen and current recovery/baseline reopen passed
+New start/stop -> previous-code unchanged pending-state read -> new resume passed

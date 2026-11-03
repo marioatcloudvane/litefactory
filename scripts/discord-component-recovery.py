@@ -31,6 +31,7 @@ def run(tree, directory, operation):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=["generate", "rehearse"])
+    parser.add_argument("--evidence-dir", type=pathlib.Path, help="retain fixture process manifests and logs, without the database")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="lf-discord-compat-") as name:
         scratch = pathlib.Path(name)
@@ -61,18 +62,33 @@ def main():
                 run(tree, state, "verify")
             run(ROOT, state, "recover")
             run(baseline, state, "verify")
+            print("Phase: compile previous-code reader at " + BASELINE, flush=True)
+            reader = scratch / "baseline-store-reader"
+            subprocess.run(["go", "test", "-c", "-trimpath", "-o", str(reader), "./internal/store"],
+                           cwd=baseline, check=True, timeout=360)
             process_state = scratch / "process-state"
             process_state.mkdir()
             env = os.environ.copy()
-            env.update(LF_DISCORD_PROCESS_EXPORT=str(process_state), GOFLAGS="-trimpath")
-            subprocess.run(["go", "test", "-race", "-count=1", "-timeout=2m", "-run",
+            env.update(LF_DISCORD_PROCESS_EXPORT=str(process_state),
+                       LF_DISCORD_BASELINE_READER=str(reader), GOFLAGS="-trimpath")
+            print("Phase: new start -> stop/drain -> previous-code pending-state check -> new resume -> stop/drain", flush=True)
+            subprocess.run(["go", "test", "-race", "-v", "-count=1", "-timeout=2m", "-run",
                             "^TestDiscordComponentProcessStopDrainRestart$", "./internal/discordcomponent"],
                            cwd=ROOT, env=env, check=True, timeout=180)
-            subprocess.run(["go", "test", "-count=1", "-timeout=2m", "-run",
+            print("Phase: previous code verifies completed delivery fence and retained pending state", flush=True)
+            subprocess.run(["go", "test", "-v", "-count=1", "-timeout=2m", "-run",
                             "^TestDiscordComponentProcessRollback$", "./internal/store"],
                            cwd=baseline, env=env, check=True, timeout=180)
+            if args.evidence_dir:
+                destination = args.evidence_dir.resolve()
+                destination.mkdir(parents=True, exist_ok=True)
+                for retained in ["pending-manifest.json", "process-manifest.json", "baseline-pending-read.log",
+                                 "before.log", "after.log", "before.drained", "after.drained"]:
+                    shutil.copyfile(process_state / retained, destination / retained)
+                (destination / "baseline.txt").write_text(BASELINE + "\n")
+                print("Fixture process evidence retained at " + str(destination), flush=True)
             print("Baseline/current/baseline reopen and current recovery/baseline reopen passed")
-            print("Component process stop/drain/restart and same-state baseline rollback read passed")
+            print("New start/stop -> previous-code unchanged pending-state read -> new resume passed")
 
 
 if __name__ == "__main__":

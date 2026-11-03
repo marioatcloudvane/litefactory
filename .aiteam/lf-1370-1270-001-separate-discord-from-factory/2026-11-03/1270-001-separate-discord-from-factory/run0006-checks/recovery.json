@@ -1,0 +1,21 @@
+{
+  "command": [
+    "python3",
+    "scripts/discord-component-recovery.py",
+    "rehearse",
+    "--evidence-dir",
+    ".aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/recovery"
+  ],
+  "base_head": "95e970f0ca06b40dd04d8aff459ff4c0f9e9715d",
+  "source_manifest_sha256": "27af277f9ab903086ca34bdb6fab39b27cac236aa7b4bdd6313176748c2d9810",
+  "started_at": "2026-11-03T15:11:41.795713+00:00",
+  "timeout_seconds": 1800,
+  "go_version": "go version go1.27.0 darwin/arm64",
+  "environment": {
+    "GOFLAGS": "-trimpath",
+    "GOLANGCI_LINT_CACHE": "isolated temporary cache"
+  },
+  "exit_code": 0,
+  "finished_at": "2026-11-03T15:11:59.854978+00:00",
+  "log_sha256": "f0c28232c37065ccf21200b42cc6af521b910a293632c306445a8475bb4f748e"
+}

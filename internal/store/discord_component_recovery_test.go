@@ -212,8 +212,8 @@ func TestDiscordComponentBaselineRecovery(t *testing.T) {
 	}
 }
 
-// The rehearsal invokes this reader under archived previous code after both
-// extracted-component processes have stopped and joined their workers.
+// The rehearsal invokes this reader under archived previous code between the
+// first component stop/drain and new-code resume, then again after delivery.
 func TestDiscordComponentProcessRollback(t *testing.T) {
 	directory := discordFixtureDirectory(t, "LF_DISCORD_PROCESS_EXPORT")
 	if directory == "" {
@@ -222,11 +222,16 @@ func TestDiscordComponentProcessRollback(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(directory, "process-manifest.json"))
 	discordFixtureRequire(t, err)
 	var expected struct {
-		Conversation Conversation
-		Capture      []byte
-		Turn         ConversationTurn
-		Answer       ConversationAnswer
-		Parts        []ConversationAnswerPart
+		Conversation      Conversation
+		Capture           []byte
+		Turn              ConversationTurn
+		Answer            ConversationAnswer
+		Parts             []ConversationAnswerPart
+		Reply             ChatReply
+		Proposal          OwnerAction
+		Unfinished        Conversation
+		UnfinishedCapture []byte
+		UnfinishedTurn    ConversationTurn
 	}
 	discordFixtureRequire(t, json.Unmarshal(data, &expected))
 	db, err := Open(t.Context(), filepath.Join(directory, "pending.db"))
@@ -244,10 +249,33 @@ func TestDiscordComponentProcessRollback(t *testing.T) {
 	discordFixtureRequire(t, err)
 	actual.Parts, err = db.ReadConversationAnswerParts(t.Context(), "process-answer")
 	discordFixtureRequire(t, err)
+	if len(actual.Parts) != 2 {
+		t.Fatal("process snapshot must retain two answer parts")
+	}
+	actual.Reply, err = db.ReadChatReply(t.Context(), "discord", actual.Parts[1].ReplyID)
+	discordFixtureRequire(t, err)
+	actual.Proposal, err = db.ReadOwnerAction(t.Context(), "process-approval")
+	discordFixtureRequire(t, err)
+	actual.Unfinished, err = db.ReadConversation(t.Context(), "discord", "201")
+	discordFixtureRequire(t, err)
+	actual.UnfinishedCapture, _, err = db.ReadConversationCapture(t.Context(), actual.Unfinished.ID)
+	discordFixtureRequire(t, err)
+	actual.UnfinishedTurn, err = db.LatestConversationTurn(t.Context(), actual.Unfinished.ID)
+	discordFixtureRequire(t, err)
+	if _, err = db.ReadNaturalExecution(t.Context(), actual.Proposal.ExecutionID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rollback authorized pending approval: %v", err)
+	}
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatal("compatible previous code changed process recovery state")
 	}
-	if _, err := db.ClaimConversationReply(t.Context(), "discord", time.Now().UTC()); !errors.Is(err, ErrNotFound) {
+	if actual.Answer.CompletedAt.IsZero() {
+		if actual.Parts[0].AcknowledgedAt.IsZero() || !actual.Parts[1].AcknowledgedAt.IsZero() || actual.Reply.State != "pending" {
+			t.Fatal("rollback lost partial pending delivery")
+		}
+		t.Log("previous code preserved pending reply bytes, acknowledgment, native identities, unfinished turn and approval")
+	} else if _, err := db.ClaimConversationReply(t.Context(), "discord", time.Now().UTC()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("rollback replayed a completed process delivery: %v", err)
+	} else {
+		t.Log("previous code preserved completed delivery fence, pending approval and unfinished conversation")
 	}
 }
