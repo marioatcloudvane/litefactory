@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/cloudvane/litefactory/internal/connector"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -47,13 +47,13 @@ func (s *Service) PolicyID() string {
 
 // Usage acquires everything before returning any facts and closes SQLite state
 // even after cancellation. No live snapshot escapes to a remote continuation.
-func (s *Service) Usage(ctx context.Context, r connector.UsageRequest) (out connector.UsageProjection, err error) {
+func (s *Service) Usage(ctx context.Context, r contracts.UsageRequest) (out contracts.UsageProjection, err error) {
 	if s.reader == nil || s.redactor == nil {
 		return out, errors.New("usage unavailable")
 	}
 	policy := s.PolicyID()
 	rows := []store.MeterRow{}
-	snapshot, e := s.reader.NewMeterSnapshot(ctx, r.Filter, store.MeterSnapshotOptions{MaxRows: 10000, MaxBytes: 16 << 20, IncludeHistoricalRates: true, AllowEmptyInterval: r.Empty})
+	snapshot, e := s.reader.NewMeterSnapshot(ctx, store.MeterFilter(r.Filter), store.MeterSnapshotOptions{MaxRows: 10000, MaxBytes: 16 << 20, IncludeHistoricalRates: true, AllowEmptyInterval: r.Empty})
 	if e != nil {
 		return out, e
 	}
@@ -127,7 +127,7 @@ func (s *Service) Usage(ctx context.Context, r connector.UsageRequest) (out conn
 		Filter  store.MeterFilter
 		View    string
 		By      []string
-	}{members, rows, rates, r.Filter, r.View, r.By})
+	}{members, rows, rates, store.MeterFilter(r.Filter), r.View, r.By})
 	if e != nil {
 		return out, e
 	}
@@ -139,16 +139,16 @@ func (s *Service) Usage(ctx context.Context, r connector.UsageRequest) (out conn
 	var ok bool
 	out.Facts, ok = safe["facts"].(map[string]any)
 	if !ok {
-		return connector.UsageProjection{}, errors.New("usage facts unavailable")
+		return contracts.UsageProjection{}, errors.New("usage facts unavailable")
 	}
 	safeItems, ok := safe["items"].([]any)
 	if !ok {
-		return connector.UsageProjection{}, errors.New("usage items unavailable")
+		return contracts.UsageProjection{}, errors.New("usage items unavailable")
 	}
 	for _, item := range safeItems {
 		value, ok := item.(map[string]any)
 		if !ok {
-			return connector.UsageProjection{}, errors.New("usage item unavailable")
+			return contracts.UsageProjection{}, errors.New("usage item unavailable")
 		}
 		out.Items = append(out.Items, value)
 	}
@@ -156,12 +156,12 @@ func (s *Service) Usage(ctx context.Context, r connector.UsageRequest) (out conn
 		out.Items = []map[string]any{}
 	}
 	if policy != s.PolicyID() {
-		return connector.UsageProjection{}, errors.New("usage redaction policy changed")
+		return contracts.UsageProjection{}, errors.New("usage redaction policy changed")
 	}
 	out.Policy = policy
 	out.Revision = hex.EncodeToString(hash[:]) + ":" + out.Policy
 	if ctx.Err() != nil {
-		return connector.UsageProjection{}, ctx.Err()
+		return contracts.UsageProjection{}, ctx.Err()
 	}
 	return out, nil
 }

@@ -6,27 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"strings"
 	"time"
 )
 
 // InboxOrganization is an immutable display projection of a complete snapshot.
-type InboxOrganization struct {
-	Version        int                    `json:"version"`
-	Layout         string                 `json:"layout"`
-	Mode           string                 `json:"mode"`
-	FallbackReason string                 `json:"fallback_reason,omitempty"`
-	Tickets        []InboxOrganizedTicket `json:"tickets"`
-}
+type InboxOrganization = contracts.InboxOrganization
 
 // InboxOrganizedTicket retains all request identities for one qualified ticket.
-type InboxOrganizedTicket struct {
-	Key             string   `json:"key"`
-	DecisionKeys    []string `json:"decision_keys"`
-	Summary         string   `json:"summary"`
-	PromotionReason string   `json:"promotion_reason,omitempty"`
-	EvidenceIDs     []string `json:"evidence_ids,omitempty"`
-}
+type InboxOrganizedTicket = contracts.InboxOrganizedTicket
 
 // ReadCompleteInboxSnapshot returns every entry, refusing any lost source access.
 func (db *DB) ReadCompleteInboxSnapshot(ctx context.Context, scope InboxScope, id string, now time.Time) (InboxPage, error) {

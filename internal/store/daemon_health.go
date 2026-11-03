@@ -3,11 +3,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/diskstatus"
 )
 
 // ListenerStatus is the daemon's published webhook listener state. It is
@@ -51,6 +54,7 @@ type ListenerStatus struct {
 	// RunsHeld says why new runs wait, for example on low free disk; empty
 	// while nothing holds them.
 	RunsHeld string
+	Disk     *diskstatus.Observation
 }
 
 // RepoDiscoveryStatus is the published discovery health of one repository.
@@ -83,23 +87,33 @@ type HealthSnapshot struct {
 // listener row is upserted and every repository row not in repos is dropped, so
 // a removed repository leaves nothing behind.
 func (db *DB) ReplaceHealthSnapshot(ctx context.Context, listener ListenerStatus, repos []RepoDiscoveryStatus) error {
-	err := db.withTx(ctx, func(tx *sql.Tx) error {
+	diskJSON, err := json.Marshal(listener.Disk)
+	if err != nil {
+		return fmt.Errorf("store: encode disk observation: %w", err)
+	}
+	if listener.Disk == nil {
+		diskJSON = nil
+	}
+	if len(diskJSON) > 65536 {
+		return fmt.Errorf("store: disk observation exceeds 64 KiB")
+	}
+	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO daemon_listener_status (id, listen_address, listening, daemon_started_at, written_at,
     last_heartbeat_started_at, discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight, chat_status,
-    in_flight_sessions, slots_used, slots_total, runs_held)
-VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    in_flight_sessions, slots_used, slots_total, runs_held, disk_status)
+VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET listen_address = excluded.listen_address, listening = excluded.listening,
     daemon_started_at = excluded.daemon_started_at, written_at = excluded.written_at,
     last_heartbeat_started_at = excluded.last_heartbeat_started_at, discovery_paused = excluded.discovery_paused,
     pause_reason = excluded.pause_reason, paused_since = excluded.paused_since,
     expected_resume_at = excluded.expected_resume_at, runs_in_flight = excluded.runs_in_flight,
     chat_status = excluded.chat_status, in_flight_sessions = excluded.in_flight_sessions,
-    slots_used = excluded.slots_used, slots_total = excluded.slots_total, runs_held = excluded.runs_held`,
+    slots_used = excluded.slots_used, slots_total = excluded.slots_total, runs_held = excluded.runs_held, disk_status = excluded.disk_status`,
 			listener.ListenAddress, boolInt(listener.Listening), FormatTime(listener.DaemonStartedAt), FormatTime(listener.WrittenAt),
 			nullTime(listener.LastHeartbeatStartedAt), boolInt(listener.DiscoveryPaused), listener.PauseReason,
 			nullTime(listener.PausedSince), nullTime(listener.ExpectedResumeAt), listener.RunsInFlight, listener.ChatStatus,
-			joinIDs(listener.InFlightSessions, listener.InFlightLabels), listener.SlotsUsed, listener.SlotsTotal, listener.RunsHeld); err != nil {
+			joinIDs(listener.InFlightSessions, listener.InFlightLabels), listener.SlotsUsed, listener.SlotsTotal, listener.RunsHeld, diskJSON); err != nil {
 			return fmt.Errorf("write listener status: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM repo_discovery_status`); err != nil {
@@ -130,19 +144,24 @@ func (db *DB) ReadHealthSnapshot(ctx context.Context) (HealthSnapshot, error) {
 	var listening, paused int
 	var started, written, inFlight string
 	var beat, pausedSince, resumeAt sql.NullString
+	var diskJSON []byte
 	err := db.sql.QueryRowContext(ctx,
 		`SELECT listen_address, listening, daemon_started_at, written_at, last_heartbeat_started_at,
        discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight, chat_status,
-       in_flight_sessions, slots_used, slots_total, runs_held
+       in_flight_sessions, slots_used, slots_total, runs_held, CASE WHEN length(CAST(disk_status AS BLOB))<=65536 THEN disk_status ELSE NULL END
 FROM daemon_listener_status WHERE id = 1`).
 		Scan(&snap.Listener.ListenAddress, &listening, &started, &written, &beat,
 			&paused, &snap.Listener.PauseReason, &pausedSince, &resumeAt, &snap.Listener.RunsInFlight, &snap.Listener.ChatStatus,
-			&inFlight, &snap.Listener.SlotsUsed, &snap.Listener.SlotsTotal, &snap.Listener.RunsHeld)
+			&inFlight, &snap.Listener.SlotsUsed, &snap.Listener.SlotsTotal, &snap.Listener.RunsHeld, &diskJSON)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return HealthSnapshot{}, nil
 	case err != nil:
 		return HealthSnapshot{}, fmt.Errorf("store: read listener status: %w", err)
+	}
+	snap.Listener.Disk, err = diskstatus.Decode(diskJSON)
+	if err != nil {
+		return HealthSnapshot{}, fmt.Errorf("store: parse disk observation: %w", err)
 	}
 	snap.Found = true
 	snap.Listener.Listening = listening != 0

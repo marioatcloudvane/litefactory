@@ -21,6 +21,9 @@ type ControlPolicy struct {
 	Workflow            agent.Workflow
 	Responses, Defaults []string
 	Ask, Approved       string
+	// Delivery validates a workflow-owned delivery authorization contract.
+	// Nil selects the retained-result review contract.
+	Delivery func(*Profile, Node) error
 	// MeasureActions are mode-declared steps that do one measurable thing and
 	// return an outcome. They may sit on an answer path: each outcome edge is
 	// followed as that path's continuation, and a failed edge must reach the
@@ -158,6 +161,20 @@ func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 	}
 	var faults []error
 	for _, node := range p.Nodes {
+		if node.Action == DeliverAction {
+			if err := validateControlDelivery(p, node, policy); err != nil {
+				faults = append(faults, err)
+			}
+		}
+		if node.Attrs["lf_approve_reply"] != "" {
+			target, ok := Decide(p, node.Name, "approved")
+			ship, found := p.Node(target)
+			waiting, rests := Decide(p, node.Name, "published")
+			terminal, exists := p.Node(waiting)
+			if node.Action != "lf_ask" || node.Attrs["lf_kind"] != "review" || !ok || !found || ship.Action != DeliverAction || ship.Attrs["lf_operation"] != "merge" || !rests || !exists || !terminal.Terminal {
+				faults = append(faults, fmt.Errorf("review %q requires a shipping approval edge", node.Name))
+			}
+		}
 		if policy.Generation != "" && node.Action == policy.Generation {
 			source, ok := p.Node(node.Attrs["lf_source"])
 			if !ok || source.Action != "lf_agent" {
@@ -202,9 +219,15 @@ func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 					hasControl = true
 				}
 			}
+			routed := RoutesResponse(node)
+			for _, outcome := range node.Outcomes {
+				if (routed && outcome == "success") || (!routed && slices.Contains(policy.Responses, outcome)) {
+					faults = append(faults, fmt.Errorf("research agent %q outcome %q: a result-routed agent (lf_response=result) declares its responses instead of success", node.Name, outcome))
+				}
+			}
 			if hasControl {
 				next, ok := Decide(p, node.Name, "success")
-				if !ok {
+				if !ok && !routed {
 					faults = append(faults, fmt.Errorf("research agent %q has no deterministic success edge", node.Name))
 					continue
 				}
@@ -217,6 +240,14 @@ func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 							}
 						}
 						if !declared {
+							continue
+						}
+					}
+					if routed {
+						// A result-routed agent's response is its outcome: each
+						// response starts at its own edge.
+						if next, ok = Decide(p, node.Name, response); !ok {
+							faults = append(faults, fmt.Errorf("research agent %q has no deterministic %q edge", node.Name, response))
 							continue
 						}
 					}
@@ -304,6 +335,12 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 			}
 		}
 		return nil
+	}
+	if node.Action == DeliverAction {
+		if response == policy.Ask {
+			return errors.New("unanswered questions cannot authorize delivery")
+		}
+		return validateControlDelivery(p, node, policy)
 	}
 	switch node.Action {
 	case "lf_agent":
@@ -488,8 +525,18 @@ func ResponseReachesOwnerWait(p *Profile, agentName string, policy ControlPolicy
 	if p == nil {
 		return false
 	}
-	next, ok := Decide(p, agentName, "success")
+	start := "success"
+	if node, found := p.Node(agentName); found && RoutesResponse(node) {
+		start = policy.Ask
+	}
+	next, ok := Decide(p, agentName, start)
 	return ok && reachesOwnerWait(p, next, policy, map[string]bool{})
+}
+
+// RoutesResponse reports an agent node whose response is its outcome
+// (lf_response=result), so its DOT routes each response on its own edge.
+func RoutesResponse(node Node) bool {
+	return node.Action == "lf_agent" && node.Attrs["lf_response"] == "result"
 }
 
 func reachesOwnerWait(p *Profile, name string, policy ControlPolicy, seen map[string]bool) bool {
@@ -523,4 +570,11 @@ func reachesOwnerWait(p *Profile, name string, policy ControlPolicy, seen map[st
 		}
 	}
 	return false
+}
+
+func validateControlDelivery(p *Profile, n Node, policy ControlPolicy) error {
+	if policy.Delivery != nil {
+		return policy.Delivery(p, n)
+	}
+	return validateDeliveryNode(p, n)
 }

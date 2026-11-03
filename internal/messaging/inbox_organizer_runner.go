@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -35,7 +34,7 @@ func (r *factoryConversationRun) organizerCall(ctx context.Context, input []byte
 		return nil, errors.New("missing inbox snapshot identity")
 	}
 	scope := r.s.inboxScope(r.c.ChannelRef)
-	if err := r.s.db.InboxSnapshotAuthorized(ctx, scope, snapshot.ID, r.at); err != nil {
+	if err := r.s.factory.AuthorizeInbox(ctx, scope, snapshot.ID, r.at); err != nil {
 		return nil, err
 	}
 	runtime := r.s.conversations.Load()
@@ -78,27 +77,20 @@ func (r *factoryConversationRun) organizerCall(ctx context.Context, input []byte
 	}
 	state := filepath.Join(runtime.root, "inbox-organizer-"+identity)
 	defer func() { err = errors.Join(err, os.RemoveAll(state)) }()
-	attempt, err := r.s.db.StartPresentationMeterAttempt(ctx, 0, fmt.Sprintf("conversation-inbox-organizer-%s-%d", r.t.ID, step), "generation", r.c.Provider)
+	attempt, err := r.s.factory.BeginPresentation(ctx, r.t.ID, r.c.Provider, "inbox-organizer", step)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		outcome := "success"
-		if err != nil {
-			outcome = "failure"
-		}
-		if ctx.Err() != nil {
-			outcome = "cancelled"
-		}
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		err = errors.Join(err, r.s.db.FinishMeterAttempt(cleanup, attempt.ID, outcome, "unknown", "", "", []string{"conversation_inbox_organizer_usage_not_observed"}))
+		err = errors.Join(err, attempt.Complete(cleanup, err != nil, ctx.Err() != nil))
 	}()
 	result, err := provider.RunConversation(ctx, agent.ConversationRequest{ConversationID: r.c.ID, TurnID: r.t.ID, Model: reasoner.Model, Effort: reasoner.Effort, StateDirectory: state, Prompt: prompt, NativeInstructions: instructions, Session: agent.SessionRef{Ref: ref}, BeforeLaunch: func(cb context.Context) error {
 		if err := conversationAccess(cb, runtime, r.c.ChannelRef, r.at); err != nil {
 			return err
 		}
-		if err := r.s.db.InboxSnapshotAuthorized(cb, scope, snapshot.ID, r.at); err != nil {
+		if err := r.s.factory.AuthorizeInbox(cb, scope, snapshot.ID, r.at); err != nil {
 			return err
 		}
 		return r.s.db.RenewConversationTurn(cb, r.t, r.at, 10*time.Minute)

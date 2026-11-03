@@ -13,10 +13,10 @@ import (
 func TestConversationLegacyEvidenceSurvivesInterruptedRecovery(t *testing.T) {
 	provider := &factoryUnitProvider{fail: true}
 	run, at := factoryUnitRun(t, provider)
-	if err := run.s.db.SaveConversationSession(t.Context(), run.t, "unit-session"); err != nil {
+	if err := fixtureDB(run.s).SaveConversationSession(t.Context(), run.t, "unit-session"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app", BaseBranch: "main"}); err != nil {
+	if _, err := fixtureDB(run.s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app", BaseBranch: "main"}); err != nil {
 		t.Fatal(err)
 	}
 	// Prerequisite rows have no fact_id/status/target. Recovery must derive
@@ -31,21 +31,21 @@ func TestConversationLegacyEvidenceSurvivesInterruptedRecovery(t *testing.T) {
 		{6, `{"command":"question","arguments":{"project":"acme/app","issue":"42"},"source":"factory:question","result":"Question temporarily unavailable.","complete":false,"gaps":["Current question unavailable."]}`, "Question temporarily unavailable.", "acme/app#42", "incomplete", false, []string{"Current question unavailable."}},
 	}
 	for _, old := range legacy {
-		if err := run.s.db.SaveConversationExchange(t.Context(), run.t, store.ConversationExchange{TurnID: run.t.ID, Ordinal: old.ordinal, Kind: "evidence", Result: old.raw, CapturedAt: at, Complete: old.complete, Gaps: strings.Join(old.gaps, "\n")}); err != nil {
+		if err := fixtureDB(run.s).SaveConversationExchange(t.Context(), run.t, store.ConversationExchange{TurnID: run.t.ID, Ordinal: old.ordinal, Kind: "evidence", Result: old.raw, CapturedAt: at, Complete: old.complete, Gaps: strings.Join(old.gaps, "\n")}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := run.s.conversationOutcome(t.Context(), run.t, "interrupted", "The prior provider turn was interrupted; its retained evidence remains available.", at); err != nil {
 		t.Fatalf("legacy reads prevented interrupted completion: %v", err)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = run.s.db.FinishConversationReply(t.Context(), reply, "recovery-message", at); err != nil {
+	if err = fixtureDB(run.s).FinishConversationReply(t.Context(), reply, "recovery-message", at); err != nil {
 		t.Fatal(err)
 	}
-	answer, err := run.s.db.ReadConversationAnswer(t.Context(), "discord", "1", "2", "")
+	answer, err := fixtureDB(run.s).ReadConversationAnswer(t.Context(), "discord", "1", "2", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestConversationLegacyEvidenceSurvivesInterruptedRecovery(t *testing.T) {
 			t.Fatalf("legacy metadata not restored from saved record: %+v, want identity %s capture %s", result, wantID, at.Truncate(time.Millisecond))
 		}
 	}
-	saved, err := run.s.db.ListConversationExchanges(t.Context(), run.t.ID)
+	saved, err := fixtureDB(run.s).ListConversationExchanges(t.Context(), run.t.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

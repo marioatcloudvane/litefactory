@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,7 +58,7 @@ func TestConversationDiagnosisPostedWithIssueProposal(t *testing.T) {
 	researchRecoveryCheck(t, err)
 
 	newService := func() *messaging.Service {
-		s := messaging.New(d.db, "discord", "1", []string{"2"}, nil, messaging.FactoryStatus{DB: d.db})
+		s := messaging.NewWithServices(messagingstorage.New(d.db), factory.NewMessaging(d.db), "discord", "1", []string{"2"}, nil, factory.NewHealth(d.db))
 		s.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 		binding := messaging.ConversationBinding{Channel: "2", Name: "owner", Provider: "claude", Model: "fixture"}
 		researchRecoveryCheck(t, s.EnableConversations(ctx, messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{binding}, StateRoot: filepath.Join(t.TempDir(), "sessions"), Providers: map[string]messaging.ConversationProvider{"claude": chatDeliveryProvider{}}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, at))

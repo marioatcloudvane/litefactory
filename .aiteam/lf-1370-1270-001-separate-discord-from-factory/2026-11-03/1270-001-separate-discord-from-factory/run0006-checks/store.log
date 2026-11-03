@@ -1,0 +1,2 @@
+Command: ['go', 'test', '-count=1', '-timeout=30m', './internal/store']
+ok  	github.com/cloudvane/litefactory/internal/store	139.000s

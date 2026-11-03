@@ -5,16 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 )
 
 const connectorCodeReviewScope = "task:code-review"
 
 // ConnectorCodeTarget describes only the retained execution destination. It
 // contains no current connection settings or client-selected filesystem path.
-type ConnectorCodeTarget struct {
-	TaskRef, RepositoryRef, ClonePath, RemoteURL, TaskBranch, BaseBranch, CodeRemoteID string
-	SessionID, RepoID, CodeVersionID                                                   int64
-}
+type ConnectorCodeTarget = connectorstate.ConnectorCodeTarget
 
 func resolveConnectorCodeTarget(ctx context.Context, q connectorTargetQuery, taskRef string) (ConnectorCodeTarget, error) {
 	var t ConnectorCodeTarget

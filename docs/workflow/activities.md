@@ -103,9 +103,9 @@ A Validate graph contains exactly one node of each of these activities (plus one
 | `lf_validate_report` | Keeps the one report comment current. | `done` | – | 💬 |
 | `lf_validate_ask` | Publishes the owner wait. | `published` | `lf_source` (the resolve node) | 💬 ⏸ |
 | `lf_validate_issue` | Creates (or recovers) a follow-up issue for each finding the owner sent to an issue. | `done` | – | 📌 |
-| `lf_validate_push` | Pushes the tested commit and finds or opens the PR. | `done` | – | 🔀 📌 |
-| `lf_validate_merge` | Merges the PR at the confirmed head. | `done` | – | 📌 |
-| `lf_validate_close` | Closes the parent and the accepted story issues; Validate only succeeds here. | `closed, open` | – | 📌 |
+| `lf_deliver` (`lf_operation="push"`) | Pushes the tested commit and finds or opens the PR. Old name `lf_validate_push` remains a compatibility wrapper. | `done` | `lf_operation` | 🔀 📌 |
+| `lf_deliver` (`lf_operation="merge"`) | Merges the PR at the confirmed head. Old name `lf_validate_merge` remains a compatibility wrapper. | `done` | `lf_operation` | 📌 |
+| `lf_deliver` (`lf_operation="close"`) | Closes the parent and the accepted story issues; Validate only succeeds here. Old name `lf_validate_close` remains a compatibility wrapper. | `closed, open` | `lf_operation` | 📌 |
 | `lf_validate_implement` | Sends blocking findings back: fast-forwards story branches, reopens stories with the findings as guidance and schedules `/implement` once. | `started` | `lf_suite` | 🔀 🗄 (schedules a run) |
 
 ## Bug
@@ -119,15 +119,11 @@ and its delivery step.
 
 ## Spike
 
-All four Spike steps read an agent's result (`lf_source`). For `lf_spike_check`
-and `lf_spike_issue`, `failed` is a finding, not a fault.
-
-| Activity | What it does | Outcomes | Attributes | Effects |
-|---|---|---|---|---|
-| `lf_spike_note` | Writes `SPIKE.md` with the status the node declares and records it. | `success, failed` | `lf_status` | files, 🗄 |
-| `lf_spike_gate` | Classifies the investigator's proposal against the limits; saves HEAD as the baseline when small. | `none, small, too_big, blocked` | `lf_max_files` (1–5), `lf_forbid` | 🗄 |
-| `lf_spike_check` | Measures the fixer's real change and, when small, runs the named recipe phases. | `passed, failed, too_big, blocked` | `lf_max_files`, `lf_forbid`, `lf_phases` | ▶ 🗄 |
-| `lf_spike_issue` | Files one plain issue for a change that is too big. | `filed, failed` | – | 📌 |
+Spike registers no activities of its own: one result-routed `lf_agent`
+(`lf_response="result"`, outcomes `ask, done, failed`) with `lf_ask` and
+`lf_comment` publications, and the factory-wide `lf_deliver` (`push`, `merge`,
+`close`) behind a `ship` review. See [Spike](spike.md) and
+[Factory delivery](delivery.md).
 
 ## Node, edge and graph attributes
 
@@ -145,7 +141,7 @@ and `lf_spike_issue`, `failed` is a finding, not a fault.
 | `lf_task` | agent | Task text. | 1–65536 bytes (node, then role, then graph default) |
 | `lf_access` | agent | Tool access. | `read`, `write` (Validate repair: write; Bug analyst: read) |
 | `lf_budget` | agent | Time budget per run in minutes. | 1–1440 |
-| `lf_response` | agent | Routes the agent's retained result as the outcome. | `result` (only with `lf_park=owner`) |
+| `lf_response` | agent | Routes the agent's retained result as the outcome: the agent declares its responses (e.g. `ask, done`) instead of `success`. | `result` (Bug agents also need `lf_park=owner`) |
 | `lf_park` | Bug nodes | Parks at the owner instead of failing. | `owner` |
 | `lf_stop` | Bug nodes | Outcomes that park at the owner (no edge). | from blocked, failed, invalid, exhausted, stale (first four required) |
 | `lf_contract` | Bug `lf_loop` | Marks the owner conversation. | `owner_conversation` |
@@ -159,11 +155,9 @@ and `lf_spike_issue`, `failed` is a finding, not a fault.
 | `lf_args` | `lf_gate` | Ordered parameters of that command, filled from saved Plan state. Plan only. | `story,stage,candidate` (exactly this order) |
 | `lf_suite` | Validate nodes | Names the suite node. | node with `lf_validate_suite` |
 | `lf_rounds` | repair budget | Repair-round bound. | 1, 2 |
-| `lf_max_files` | Validate repair check, Spike gate/check | File limit for a change. | 1–5 |
-| `lf_forbid` | Validate repair check, Spike gate/check | Kinds of change not allowed. | package, dependency, schema, api (+ tests, criteria in Validate) |
+| `lf_max_files` | Validate repair check | File limit for a change. | 1–5 |
+| `lf_forbid` | Validate repair check | Kinds of change not allowed. | package, dependency, schema, api, tests, criteria |
 | `lf_roles` | `lf_validate_review` | Reviewer roles. | exactly `validate-acceptance,validate-code,validate-architecture` |
-| `lf_status` | `lf_spike_note` | Spike status to record. | asking, answered, hand_back, blocked, fix_proposed, fixed, fix_unverified, fix_too_big |
-| `lf_phases` | `lf_spike_check` | Recipe phases to run. | regression, focused, full |
 | `team`, `mode`/`workflow`, `profile_version`, `start` | graph | Graph identity, version and entry node. | Bug uses `workflow="bug"`, the others `mode=` |
 
 ## Where the registry lives

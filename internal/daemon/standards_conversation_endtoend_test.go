@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -139,6 +143,14 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 	provider := &standardsJourneyProvider{}
 	remoteID := 500
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/applications/@me" {
+			fmt.Fprint(w, `{"flags":262144}`)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/channels/3/messages" {
+			fmt.Fprint(w, `[]`)
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/channels/3/messages" {
 			t.Errorf("unexpected Discord request %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -174,15 +186,19 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 	setup := func() {
 		book = &standards.Service{Store: db, OwnerID: 71}
 		author = &standards.Authoring{Store: db, Book: book, Runner: authorFixture}
-		service = messaging.New(db, "discord", "7", []string{"3"}, sender, messaging.FactoryStatus{DB: db})
+		service = messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "7", []string{"3"}, sender, factory.NewHealth(db))
 		service.Protect = func(_ context.Context, s string) (string, error) { return s, nil }
-		service.EnableStandards(&ConversationStandards{DB: db, Book: book, Authoring: author, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }})
+		operations := &ConversationStandards{DB: db, Book: book, Authoring: author, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
+		service.EnableStandards(operations)
 		current, e := db.ConnectorOwner(ctx, 71)
 		if e != nil {
 			t.Fatal(e)
 		}
 		principal = owneraction.Principal{OwnerID: "71", OwnerGeneration: current.Generation, Transport: "discord", DiscordOwnerID: "7", ChannelID: "3"}
-		actions = owneraction.New(db, messaging.OwnerActionDomain{Service: service}, func() time.Time { return at })
+		core := &Daemon{db: db, filter: independentActionFilter{}, log: slog.New(slog.DiscardHandler), chat: &chatRuntime{service: service, adapter: sender.adapter}}
+		core.prepareIndependentOwnerActions(&ChatOptions{Settings: config.DiscordChat{OwnerID: "7", ChannelIDs: []string{"3"}}, Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3"}}}, Standards: operations, Now: func() time.Time { return at }}, nil)
+		core.configureOwnerActions(service, "7", []string{"3"}, sender.adapter)
+		actions = core.ownerActions.actions
 		actions.SetDiscord("7", []string{"3"})
 		actions.SetDelivery(actionApprovalDelivery{sender.adapter})
 		service.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })

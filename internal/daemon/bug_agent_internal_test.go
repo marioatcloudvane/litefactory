@@ -308,3 +308,87 @@ func bugAgentRecordParent(t *testing.T, db *store.DB, parent ticket.Ref, agents 
 		}
 	}
 }
+
+// parentlessIngress models a ticket provider (such as Linear) that has no
+// ObserveParent capability; it can still read the Bug itself and its replies.
+type parentlessIngress struct {
+	origin   ticket.Origin
+	resolves atomic.Int32
+}
+
+func (p *parentlessIngress) Resolve(_ context.Context, locator ticket.Locator) (ticket.Snapshot, error) {
+	p.resolves.Add(1)
+	return ticket.Snapshot{Ref: ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: p.origin, RemoteID: "700"}, Locator: locator}, State: github.StateOpen}, nil
+}
+
+func (p *parentlessIngress) QualifyReply(ticket.Ref, github.Comment) (ticket.Reply, error) {
+	return ticket.Reply{}, errors.New("not used")
+}
+
+func (p *parentlessIngress) Discover(context.Context, string, time.Time) ([]ticket.Snapshot, error) {
+	return nil, errors.New("not used")
+}
+
+func (p *parentlessIngress) RepliesAfter(context.Context, ticket.Ref, ticket.Cursor) (ticket.ReplyPage, error) {
+	return ticket.ReplyPage{Complete: true}, nil
+}
+
+func parentlessBugDaemon(t *testing.T, bugAgent agent.Kind) (*Daemon, *task, *parentlessIngress) {
+	t.Helper()
+	d, task, queries, _, _ := bugAgentTestDaemon(t, bugAgentCase{bugAgent: bugAgent}, nil)
+	ingress := &parentlessIngress{origin: "https://tickets.example"}
+	filter, err := turn.NewFilter(d.db, turn.Identities{OwnerUserID: 42, BotUserID: 99, TicketOrigin: ingress.origin}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.tickets, d.filter = ingress, filter
+	t.Cleanup(func() {
+		if queries.Load() != 0 {
+			t.Errorf("parent-less provider fell back to GitHub parent queries: %d", queries.Load())
+		}
+	})
+	return d, task, ingress
+}
+
+func TestEffectiveBugAgentSkipsParentWhenProviderCannotObserveParents(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		bugAgent agent.Kind
+		want     string
+		source   string
+	}{
+		{name: "configured Bug agent", bugAgent: "codex", want: "codex", source: "bug_agent"},
+		{name: "default agent", want: "claude", source: "default"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, task, ingress := parentlessBugDaemon(t, tc.bugAgent)
+			decision, source, err := d.effectiveAgent(t.Context(), task, agent.WorkflowBug)
+			if err != nil || decision.Agent != tc.want || source != tc.source || decision.refused() {
+				t.Fatalf("decision=%+v source=%s err=%v, want %s from %s", decision, source, err, tc.want, tc.source)
+			}
+			if ingress.resolves.Load() != 0 {
+				t.Fatalf("parent step called the provider: resolves=%d", ingress.resolves.Load())
+			}
+		})
+	}
+}
+
+func TestBugContinuationRecoversWhenProviderCannotObserveParents(t *testing.T) {
+	d, task, _ := parentlessBugDaemon(t, "codex")
+	continuation := bugAgentContinuation(t, d, task, "codex")
+	ready, err := d.observeContinuation(t.Context(), task, continuation)
+	if err != nil || !ready {
+		t.Fatalf("parent-less provider blocked recovery: ready=%t err=%v", ready, err)
+	}
+	saved, err := d.db.GetContinuation(t.Context(), continuation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != "pending" || saved.CancellationReason != "" {
+		t.Fatalf("recovery decision changed: %+v", saved)
+	}
+	run, err := d.db.GetRun(t.Context(), continuation.SourceRunID)
+	if err != nil || run.Agent != "codex" {
+		t.Fatalf("historical provider rewritten: run=%+v err=%v", run, err)
+	}
+}

@@ -212,6 +212,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"PrepareGraphBugSource":        {},
 		"BugRuntime.saveGraphDelivery": {},
 		"BugRuntime.pushGraphDelivery": {},
+		"DeliveryActivity.checkout":    {},
 		// The Implement merge builds, publishes and removes its scratch tree
 		// on the shared clone; each is one acquisition.
 		"beginImplementScratch": {},

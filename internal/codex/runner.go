@@ -31,12 +31,13 @@ const (
 // Options configures a Runner.
 type Options struct {
 	// Instructions supplies per-invocation role captures; nil uses the shared package.
-	Instructions instructionpackage.CaptureSource
-	Paths        config.Paths
-	Codex        config.Codex
-	Model        string
-	Environ      []string
-	Logger       *slog.Logger
+	Instructions  instructionpackage.CaptureSource
+	Paths         config.Paths
+	GoBuildCaches config.GoBuildCaches
+	Codex         config.Codex
+	Model         string
+	Environ       []string
+	Logger        *slog.Logger
 	// ThinkingLogs is settings.thinking_logs; none launches codex unchanged.
 	ThinkingLogs config.ThinkingLogs
 }
@@ -46,6 +47,7 @@ type Runner struct {
 	providerObserver agent.ProviderObserver
 	instructions     instructionpackage.CaptureSource
 	paths            config.Paths
+	goBuildCaches    config.GoBuildCaches
 	binary           config.Executable
 	home             string
 	model            string
@@ -97,7 +99,22 @@ func New(opts Options) (*Runner, error) {
 			return nil, fmt.Errorf("invalid codex options: writable root %q must be absolute", root)
 		}
 	}
-	return &Runner{instructions: opts.Instructions, paths: opts.Paths, binary: binary, home: opts.Paths.Home(),
+	caches := opts.GoBuildCaches
+	if caches.Main == "" {
+		var err error
+		caches, err = opts.Paths.ResolveGoBuildCaches(config.Settings{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := caches.Revalidate(""); err != nil {
+		return nil, err
+	}
+	if err := config.ValidateGoCacheEnvironment(opts.Environ); err != nil {
+		return nil, err
+	}
+
+	return &Runner{instructions: opts.Instructions, paths: opts.Paths, goBuildCaches: caches, binary: binary, home: opts.Paths.Home(),
 		model: model, writable: append([]string(nil), opts.Codex.WritableRoots...),
 		network: opts.Codex.NetworkAccess, userConfig: opts.Codex.AllowUserConfig,
 		timeout: time.Duration(opts.Codex.TimeoutSeconds) * time.Second,
@@ -285,6 +302,16 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *agent.RunR
 	collector := newUsageCollector(runCtx, req)
 	collector.prepareRollouts(stackEnv)
 	var stream streamState
+	if r.goBuildCaches.Main != "" {
+		cache := r.goBuildCaches.Main
+		if sandbox == "read-only" {
+			cache = r.goBuildCaches.Reviewer
+		}
+		if err := config.ValidateGoCacheEnvironment(stackEnv); err != nil {
+			return nil, err
+		}
+		stackEnv = managedCacheEnv(stackEnv, cache)
+	}
 	capture, err := native.Execute(runCtx, native.Prepared{Binary: r.binary.Path, Arguments: args, Environment: stackEnv, Directory: req.WorktreePath, Prompt: req.Prompt, Logger: r.logger,
 		BeforeLaunch: func(ctx context.Context) error { return agent.VerifyRequestDelivery(ctx, req) },
 		Consume:      func(stdout io.Reader) { stream = consumeUsage(stdout, logFile, collector) },
@@ -433,6 +460,18 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 		}
 	}
 	roots := append([]string(nil), r.writable...)
+	if r.goBuildCaches.Main != "" {
+		if err := r.goBuildCaches.Revalidate(req.WorktreePath); err != nil {
+			return nil, err
+		}
+		cache := r.goBuildCaches.Main
+		if sandbox == "read-only" {
+			cache = r.goBuildCaches.Reviewer
+		}
+		if sandbox != "read-only" {
+			roots = append(roots, cache)
+		}
+	}
 	if req.SubmissionRoot != "" {
 		roots = append(roots, req.SubmissionRoot)
 	}
@@ -461,7 +500,17 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	if req.Path.Resuming() {
 		session = req.Session.Resume
 	}
-	return native.Arguments(native.Options{AllowUserConfig: !ignoreUserConfig, Permission: &native.Sandbox{Mode: sandbox}, ExtraArgs: args, WritableRoots: roots, NetworkAccess: r.network, Model: model, Effort: string(thinking), ReasoningSummary: summary}, session), nil
+	permission := &native.Sandbox{Mode: sandbox}
+	network := r.network
+	if sandbox == "read-only" && r.goBuildCaches.Reviewer != "" {
+		// --add-dir is ignored by native read-only mode. A named profile preserves
+		// read-only worktree access while granting only the reviewer cache writes.
+		permission = nil
+		roots = nil
+		network = false
+		args = append(args, "-c", `default_permissions="factory_reviewer"`, "-c", `permissions.factory_reviewer.filesystem={"/"="read",`+strconv.Quote(r.goBuildCaches.Reviewer)+`="write"}`, "-c", `permissions.factory_reviewer.network.enabled=false`)
+	}
+	return native.Arguments(native.Options{AllowUserConfig: !ignoreUserConfig, Permission: permission, ExtraArgs: args, WritableRoots: roots, NetworkAccess: network, Model: model, Effort: string(thinking), ReasoningSummary: summary}, session), nil
 }
 
 // reasoningSummary maps the factory setting to the native summary selection.

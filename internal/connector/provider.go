@@ -3,7 +3,8 @@ package connector
 import (
 	"context"
 	"encoding/json"
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 )
 
 // OverviewProvider is the sole read capability that the overview story supplies.
@@ -13,37 +14,23 @@ type OverviewProvider interface {
 	Overview(context.Context, json.RawMessage) (ToolResult, error)
 }
 
-// ToolResult is a bounded MCP read result, with optional structured content.
-type ToolResult struct {
-	Content           []TextContent   `json:"content"`
-	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
-	IsError           bool            `json:"isError,omitempty"`
-}
+// ToolResult retains the shared factory read contract under the connector API.
+// ToolResult is the bounded factory read result.
+type ToolResult = contracts.ToolResult
 
-// TextContent is the text representation of a read projection.
-type TextContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
+// TextContent retains the shared factory read contract under the connector API.
+// TextContent is one rendered factory read item.
+type TextContent = contracts.TextContent
 
 // TaskEvidenceProvider supplies only sanitized local evidence for a trusted target.
 type TaskEvidenceProvider interface {
-	Evidence(context.Context, store.ConnectorGrantTarget, EvidenceRequest) (EvidencePage, error)
+	Evidence(context.Context, connectorstate.ConnectorGrantTarget, EvidenceRequest) (EvidencePage, error)
 }
 
-// EvidenceRequest is a validated section and bounded advancing position.
-type EvidenceRequest struct {
-	Section string
-	Offset  int
-	Limit   int
-}
+// EvidenceRequest retains the shared factory read contract under the connector API.
+// EvidenceRequest selects a bounded page of task evidence.
+type EvidenceRequest = contracts.EvidenceRequest
 
-// EvidencePage carries sanitized source facts and explicit coverage gaps.
-type EvidencePage struct {
-	Revision   string           `json:"revision"`
-	Items      []map[string]any `json:"items"`
-	Sources    []map[string]any `json:"sources"`
-	Gaps       []string         `json:"gaps"`
-	HasMore    bool             `json:"has_more"`
-	NextOffset int              `json:"-"`
-}
+// EvidencePage retains the shared factory read contract under the connector API.
+// EvidencePage retains sanitized task facts and coverage gaps.
+type EvidencePage = contracts.EvidencePage

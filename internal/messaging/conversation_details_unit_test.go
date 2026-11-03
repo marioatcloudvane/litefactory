@@ -34,7 +34,7 @@ func (s *detailsUnitSender) DeliverReply(_ context.Context, _ Target, payload pr
 func detailsUnitAnswer(t *testing.T, results []conversationReadResult) (*factoryConversationRun, store.ConversationAnswer, time.Time) {
 	t.Helper()
 	run, at := factoryUnitRun(t, &factoryUnitProvider{fail: true})
-	if err := run.s.db.SaveConversationSession(t.Context(), run.t, "unit-session"); err != nil {
+	if err := fixtureDB(run.s).SaveConversationSession(t.Context(), run.t, "unit-session"); err != nil {
 		t.Fatal(err)
 	}
 	for i, result := range results {
@@ -45,21 +45,21 @@ func detailsUnitAnswer(t *testing.T, results []conversationReadResult) (*factory
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = run.s.db.SaveConversationExchange(t.Context(), run.t, store.ConversationExchange{TurnID: run.t.ID, Ordinal: i + 1, Kind: "evidence", Result: string(raw), CapturedAt: at, Complete: result.Complete}); err != nil {
+		if err = fixtureDB(run.s).SaveConversationExchange(t.Context(), run.t, store.ConversationExchange{TurnID: run.t.ID, Ordinal: i + 1, Kind: "evidence", Result: string(raw), CapturedAt: at, Complete: result.Complete}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := run.s.saveConversationPresentation(t.Context(), run.t, "completed", []presentation.AnswerBlock{{Text: "An explanation."}}, "", at); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = run.s.db.FinishConversationReply(t.Context(), reply, "answer-message", at); err != nil {
+	if err = fixtureDB(run.s).FinishConversationReply(t.Context(), reply, "answer-message", at); err != nil {
 		t.Fatal(err)
 	}
-	answer, err := run.s.db.ReadConversationAnswer(t.Context(), "discord", "1", "2", "")
+	answer, err := fixtureDB(run.s).ReadConversationAnswer(t.Context(), "discord", "1", "2", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func detailsUnitFreeze(t *testing.T, run *factoryConversationRun, answer store.C
 	if more, err := run.s.Step(t.Context(), at); err != nil || !more {
 		t.Fatalf("freeze details: %t %v", more, err)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestConversationDetailsPartitionRetryAndInlineFallback(t *testing.T) {
 	sent := &detailsUnitSender{}
 	run.s.sender = sent
 	head := detailsUnitFreeze(t, run, answer, at)
-	saved, err := run.s.db.ReadConversationDetailsParts(t.Context(), head)
+	saved, err := fixtureDB(run.s).ReadConversationDetailsParts(t.Context(), head)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestConversationDetailsPartitionRetryAndInlineFallback(t *testing.T) {
 	if err = run.s.deliverConversationDetails(t.Context(), head, at); err != nil {
 		t.Fatal(err)
 	}
-	retry, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at.Add(time.Second))
+	retry, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,11 +140,11 @@ func TestConversationDetailsPartitionRetryAndInlineFallback(t *testing.T) {
 	if len(sent.payloads) != 2 || !reflect.DeepEqual(sent.payloads[0], sent.payloads[1]) {
 		t.Fatal("uncertain retry did not send identical payload")
 	}
-	inline, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at.Add(time.Second))
+	inline, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", at.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	frozen, err := run.s.db.ReadConversationDetailsParts(t.Context(), inline)
+	frozen, err := fixtureDB(run.s).ReadConversationDetailsParts(t.Context(), inline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,14 +199,14 @@ func TestConversationDetailsAccessRecheckedAfterFreeze(t *testing.T) {
 	if len(sent.payloads) != 0 || len(sent.texts) != 0 {
 		t.Fatal("access loss disclosed frozen data")
 	}
-	retained, err := run.s.db.ReadChatReply(t.Context(), "discord", head.MessageID)
+	retained, err := fixtureDB(run.s).ReadChatReply(t.Context(), "discord", head.MessageID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if retained.State != "pending" || retained.ReplyAttachment != head.ReplyAttachment {
 		t.Fatalf("access loss failed to retain export: %+v", retained)
 	}
-	conversation, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+	conversation, err := fixtureDB(run.s).ReadConversation(t.Context(), "discord", "2")
 	if err != nil {
 		t.Fatal(err)
 	}

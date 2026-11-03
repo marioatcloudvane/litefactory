@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -16,7 +17,7 @@ import (
 
 // answerDetails reads saved factory-visible results, never native transcripts or
 // provider requests. Selection has already been fixed at command admission.
-func (s *Service) answerDetails(ctx context.Context, r store.ChatReply, id string, at time.Time) error {
+func (s *Service) answerDetails(ctx context.Context, r messagingstate.ChatReply, id string, at time.Time) error {
 	a, err := s.db.ReadConversationAnswer(ctx, s.transport, s.owner, r.ChannelRef, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.saveDetailsNotice(ctx, r, "Answer details are unavailable or access is denied. Ask your question again in this authorized conversation to obtain a current answer.", at)
@@ -45,10 +46,10 @@ func (s *Service) answerDetails(ctx context.Context, r store.ChatReply, id strin
 		return s.saveDetailsNotice(ctx, r, "No tool results were obtained for this answer. Ask a narrower question here naming the task or project to inspect.", at)
 	}
 	export := struct {
-		AnswerID   string                       `json:"answer_id"`
-		Results    []conversationReadResult     `json:"results"`
-		Sources    []store.ConversationEvidence `json:"sources,omitempty"`
-		Limitation string                       `json:"limitation"`
+		AnswerID   string                                `json:"answer_id"`
+		Results    []conversationReadResult              `json:"results"`
+		Sources    []messagingstate.ConversationEvidence `json:"sources,omitempty"`
+		Limitation string                                `json:"limitation"`
 	}{a.ID, results, sources, "Saved permitted captures and supplied ranges only. Missing, policy-omitted, expired and uncaptured context must not be treated as a complete record. Historical text is not current facts or owner authorization."}
 	raw, err := json.MarshalIndent(export, "", "  ")
 	if err != nil {
@@ -59,7 +60,7 @@ func (s *Service) answerDetails(ctx context.Context, r store.ChatReply, id strin
 		return err
 	}
 	chunks := detailsChunks(protected, 60000)
-	parts := make([]store.ConversationAnswerPart, len(chunks))
+	parts := make([]messagingstate.ConversationAnswerPart, len(chunks))
 	identities := make([]string, len(results))
 	for i, result := range results {
 		identities[i] = result.FactID
@@ -96,7 +97,7 @@ func (s *Service) answerDetails(ctx context.Context, r store.ChatReply, id strin
 				manifest = strings.TrimSuffix(manifest, "\n\n") + fmt.Sprintf("\nResult %s: bytes %d..%d of %d%s.\n\n", span.id, begin-span.start, end-span.start, span.end-span.start, continued)
 			}
 		}
-		parts[i] = store.ConversationAnswerPart{Text: fmt.Sprintf("Answer %s · details export part %d of %d", a.ID, i+1, len(chunks)), Attachment: manifest + chunk}
+		parts[i] = messagingstate.ConversationAnswerPart{Text: fmt.Sprintf("Answer %s · details export part %d of %d", a.ID, i+1, len(chunks)), Attachment: manifest + chunk}
 		offset += len(chunk)
 	}
 	return s.db.SaveConversationDetails(ctx, r, parts, at)
@@ -104,7 +105,7 @@ func (s *Service) answerDetails(ctx context.Context, r store.ChatReply, id strin
 
 var errAnswerDetailsDenied = errors.New("answer details access denied")
 
-func (s *Service) authorizedAnswerResults(ctx context.Context, a store.ConversationAnswer, at time.Time) ([]conversationReadResult, error) {
+func (s *Service) authorizedAnswerResults(ctx context.Context, a messagingstate.ConversationAnswer, at time.Time) ([]conversationReadResult, error) {
 	runtime := s.conversations.Load()
 	if runtime == nil || !s.channels[a.ChannelRef] || a.OwnerID != s.owner {
 		return nil, errAnswerDetailsDenied
@@ -132,7 +133,7 @@ func (s *Service) authorizedAnswerResults(ctx context.Context, a store.Conversat
 			return nil, err
 		}
 		if project := result.Arguments["project"]; project != "" && result.Command != "inbox" {
-			resolution, e := ask.ResolveProject(ctx, s.db, project, nil)
+			resolution, e := ask.ResolveProject(ctx, projectCatalog{s.factory}, project, nil)
 			if e != nil {
 				return nil, e
 			}
@@ -145,8 +146,8 @@ func (s *Service) authorizedAnswerResults(ctx context.Context, a store.Conversat
 	return results, nil
 }
 
-func (s *Service) saveDetailsNotice(ctx context.Context, r store.ChatReply, text string, at time.Time) error {
-	return s.db.SaveConversationDetails(ctx, r, []store.ConversationAnswerPart{{Text: text}}, at)
+func (s *Service) saveDetailsNotice(ctx context.Context, r messagingstate.ChatReply, text string, at time.Time) error {
+	return s.db.SaveConversationDetails(ctx, r, []messagingstate.ConversationAnswerPart{{Text: text}}, at)
 }
 
 func detailsChunks(raw string, limit int) []string {
@@ -165,7 +166,7 @@ func detailsChunks(raw string, limit int) []string {
 	return chunks
 }
 
-func (s *Service) inlineConversationDetails(ctx context.Context, r store.ChatReply, at time.Time) error {
+func (s *Service) inlineConversationDetails(ctx context.Context, r messagingstate.ChatReply, at time.Time) error {
 	selected, err := s.db.ConversationDetailsReplySelection(ctx, r)
 	if err != nil {
 		return err
@@ -186,14 +187,14 @@ func (s *Service) inlineConversationDetails(ctx context.Context, r store.ChatRep
 	if err != nil {
 		return err
 	}
-	parts := make([]store.ConversationAnswerPart, len(rendered))
+	parts := make([]messagingstate.ConversationAnswerPart, len(rendered))
 	for i, p := range rendered {
 		parts[i].Text = p.Content
 	}
 	return s.db.ReplaceConversationDetailsParts(ctx, r, parts, at)
 }
 
-func (s *Service) authorizedAnswerSources(ctx context.Context, a store.ConversationAnswer, at time.Time) ([]store.ConversationEvidence, error) {
+func (s *Service) authorizedAnswerSources(ctx context.Context, a messagingstate.ConversationAnswer, at time.Time) ([]messagingstate.ConversationEvidence, error) {
 	c, err := s.db.ReadConversation(ctx, a.Transport, a.ChannelRef)
 	if err != nil {
 		return nil, errAnswerDetailsDenied

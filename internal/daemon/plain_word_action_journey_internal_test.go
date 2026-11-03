@@ -7,6 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"io"
 	"log/slog"
 	"net/http"
@@ -152,6 +155,14 @@ func TestPlainWordActionJourney(t *testing.T) {
 	approvalMessage, approvalText := "", ""
 	var sent []string
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/applications/@me" {
+			fmt.Fprint(w, `{"flags":262144}`)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/channels/3/messages" {
+			fmt.Fprint(w, `[]`)
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/channels/3/typing" {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -180,12 +191,15 @@ func TestPlainWordActionJourney(t *testing.T) {
 	}))
 	defer api.Close()
 	adapter := discord.New(discord.Options{Token: secrets.NewToken("test-token"), APIURL: api.URL, Client: api.Client()})
-	chat := messaging.New(db, "discord", "7", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
+	chat := messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "7", []string{"3"}, adapter, factory.NewHealth(db))
 	chat.Protect = func(_ context.Context, s string) (string, error) { return s, nil }
 	author := &plainJourneyAuthor{}
 	sharedStandards := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: author}, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 	chat.EnableStandards(sharedStandards)
-	actions := owneraction.New(db, messaging.OwnerActionDomain{Service: chat}, func() time.Time { return at })
+	core := &Daemon{db: db, filter: independentActionFilter{}, log: slog.New(slog.DiscardHandler), chat: &chatRuntime{service: chat, adapter: adapter}}
+	core.prepareIndependentOwnerActions(&ChatOptions{Settings: config.DiscordChat{OwnerID: "7", ChannelIDs: []string{"3"}}, Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3"}}}, Standards: sharedStandards, Now: func() time.Time { return at }}, nil)
+	core.configureOwnerActions(chat, "7", []string{"3"}, adapter)
+	actions := core.ownerActions.actions
 	actions.SetDiscord("7", []string{"3"})
 	actions.SetDelivery(actionApprovalDelivery{adapter})
 	discordPrincipal := owneraction.Principal{OwnerID: "42", OwnerGeneration: current.Generation, Transport: "discord", DiscordOwnerID: "7", ChannelID: "3"}
@@ -194,7 +208,7 @@ func TestPlainWordActionJourney(t *testing.T) {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	local, err := connector.NewLocalControl(ctx, db, plainJourneyControl{db: db, now: func() time.Time { return at }})
+	local, err := connector.NewLocalControl(ctx, connectorstorage.New(db), plainJourneyControl{db: db, now: func() time.Time { return at }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +218,7 @@ func TestPlainWordActionJourney(t *testing.T) {
 	cfg.GitHubClientID = "fixture"
 	cfg.GitHubSecretRef.Env = "TEST_GITHUB_SECRET"
 	cfg.CookieSecretRef.Env = "TEST_COOKIE_SECRET"
-	server, err := connector.New(ctx, connector.Options{Config: cfg, DB: db, Logger: logger, LocalControl: local, GitHubSecret: "fixture-secret", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }, Actions: actions})
+	server, err := connector.New(ctx, connector.Options{Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: logger, LocalControl: local, GitHubSecret: "fixture-secret", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }, Actions: actions})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +301,7 @@ func TestPlainWordActionJourney(t *testing.T) {
 	if got := mcpSay("show that"); got.State != "awaiting_discord" || approvalMessage == "" {
 		t.Fatalf("MCP bypassed Discord: %+v", got)
 	}
-	daemon := &Daemon{chat: &chatRuntime{service: chat}, log: logger}
+	daemon := &Daemon{chat: &chatRuntime{service: chat, actions: actions}, log: logger}
 	daemon.ownerReaction(ctx, discord.OwnerReaction{UserID: "7", ChannelID: "3", MessageID: approvalMessage, ReceivedAt: at})
 	if _, err = actions.Step(ctx, binding.ID); err != nil {
 		t.Fatal(err)

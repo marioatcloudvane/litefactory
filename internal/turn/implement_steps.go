@@ -358,7 +358,7 @@ func implementAfterAgentFailure(ctx context.Context, opts Options, a ActivityReq
 		} else {
 			reason = safe.String()
 		}
-		row, err := opts.DB.HoldImplementStoryTimeout(ctx, instance.SessionID, a.NodeAttemptID, clipText(reason, maxImplementReason), spikeNow(opts))
+		row, err := opts.DB.HoldImplementStoryTimeout(ctx, instance.SessionID, a.NodeAttemptID, clipText(reason, maxImplementReason), graphNow(opts))
 		if errors.Is(err, store.ErrNotFound) {
 			return ActivityResult{Outcome: "failed", Diagnostic: out.Diagnostic, ProcessResult: out.ProcessResult}, nil
 		}
@@ -388,7 +388,7 @@ func implementAfterAgentFailure(ctx context.Context, opts Options, a ActivityReq
 	if err != nil {
 		return out, errors.Join(cause, err)
 	}
-	if _, err := opts.DB.RecordImplementFailure(ctx, row.Parent, row.Generation, row.Key, reason, spikeNow(opts)); err != nil {
+	if _, err := opts.DB.RecordImplementFailure(ctx, row.Parent, row.Generation, row.Key, reason, graphNow(opts)); err != nil {
 		return out, errors.Join(cause, err)
 	}
 	if opts.MCP != nil {

@@ -915,6 +915,11 @@ func parallelStageApproved(s *planbrief.PlanState, a ActivityRequest, request *g
 		return false
 	}
 	stage := a.Attrs["lf_stage"]
+	// A story that a re-run moved back to this stage falls through to
+	// ApproveByGraph, which moves it on again.
+	if slices.Index(planReviewStages, item.Stage) <= slices.Index(planReviewStages, stage) {
+		return false
+	}
 	if item.Parallel.Applied[stage] == "" || request.Draft.StageRevision(stage) != item.Draft.StageRevision(stage) {
 		return false
 	}

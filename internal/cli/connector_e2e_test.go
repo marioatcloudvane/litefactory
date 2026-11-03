@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"io"
 	"log/slog"
 	"net/http"
@@ -85,11 +86,11 @@ func TestConnectorLocalRevocationMainPath(t *testing.T) {
 	second, _ := seed("second")
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	serve := func(db *store.DB) *httptest.Server {
-		local, err := connector.NewLocalControl(t.Context(), db, connector.NewGrantService(db))
+		local, err := connector.NewLocalControl(t.Context(), connectorstorage.New(db), connector.NewGrantService(connectorstorage.New(db)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		server, err := connector.New(t.Context(), connector.Options{Config: cfg, DB: db, Logger: logger, LocalControl: local, Now: func() time.Time { return now }, CookieKey: bytes.Repeat([]byte{7}, 32), GitHubSecret: "unused-test-secret"})
+		server, err := connector.New(t.Context(), connector.Options{Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: logger, LocalControl: local, Now: func() time.Time { return now }, CookieKey: bytes.Repeat([]byte{7}, 32), GitHubSecret: "unused-test-secret"})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -10,7 +10,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localusage"
 )
 
 const meterCSVHeaderLine = "project,issue,run,attempt_id,attempt_started_at,attempt_finished_at,coding_agent,mode,invocation_id,parent_invocation_id,actual_model,model_provenance,input_uncached_tokens,cache_read_tokens,cache_write_tokens,cache_write_5m_tokens,cache_write_1h_tokens,output_tokens,reasoning_tokens,price_revision_id,estimated_usd,priced_subtotal_usd,pricing_status,collection_status,diagnostic_codes,row_kind,execution_path,run_id,graph_instance_id,graph_attempt_id,graph_node,outcome,agent_version,source_format,source_invocation_id\n"
@@ -26,7 +27,7 @@ func meterCSVText(value string) string {
 	}
 	return value
 }
-func meterCSVBytes(r store.MeterRow) ([]byte, error) {
+func meterCSVBytes(r localusage.ExportRow) ([]byte, error) {
 	nullable := func(v *string) string {
 		if v == nil {
 			return ""
@@ -68,38 +69,33 @@ func meterCSVBytes(r store.MeterRow) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
-func writeMeterCSV(ctx context.Context, out io.Writer, snapshot *store.MeterSnapshot) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if n, err := io.WriteString(out, meterCSVHeaderLine); err != nil {
-		return err
-	} else if n != len(meterCSVHeaderLine) {
-		return io.ErrShortWrite
-	}
-	for {
-		page, err := snapshot.Next(ctx, 256)
-		if err != nil {
-			return err
-		}
-		if len(page) == 0 {
-			return ctx.Err()
-		}
-		for _, row := range page {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			b, err := meterCSVBytes(row)
+func exportMeterCSV(ctx context.Context, out io.Writer, reports *localusage.Reports, filter contracts.UsageFilter) error {
+	return reports.Export(ctx, filter, localusage.ExportEncoding{
+		HeaderBytes: len(meterCSVHeaderLine),
+		RowBytes:    func(row localusage.ExportRow) (int, error) { data, err := meterCSVBytes(row); return len(data), err },
+		WriteHeader: func() error {
+			n, err := io.WriteString(out, meterCSVHeaderLine)
 			if err != nil {
 				return err
 			}
-			n, err := out.Write(b)
-			if err != nil {
-				return err
-			}
-			if n != len(b) {
+			if n != len(meterCSVHeaderLine) {
 				return io.ErrShortWrite
 			}
-		}
-	}
+			return nil
+		},
+		WriteRow: func(row localusage.ExportRow) error {
+			data, err := meterCSVBytes(row)
+			if err != nil {
+				return err
+			}
+			n, err := out.Write(data)
+			if err != nil {
+				return err
+			}
+			if n != len(data) {
+				return io.ErrShortWrite
+			}
+			return nil
+		},
+	})
 }

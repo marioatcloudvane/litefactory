@@ -3,6 +3,7 @@ package feature
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"strings"
 	"testing"
 	"time"
@@ -43,8 +44,8 @@ func (m *draftModel) Answer(ctx context.Context, _ int64, prompt string) ([]byte
 
 type catalog struct{}
 
-func (catalog) ListRepos(context.Context) ([]store.Repo, error) {
-	return []store.Repo{{ID: 1, Forge: "github", Owner: "acme", Name: "app"}}, nil
+func (catalog) ListRepos(context.Context) ([]contracts.Project, error) {
+	return []contracts.Project{{ID: 1, Forge: "github", Owner: "acme", Name: "app"}}, nil
 }
 
 type previewMemory struct {

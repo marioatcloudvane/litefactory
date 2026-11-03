@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localprojects"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -95,95 +96,40 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 	}
 	defer func() { err = errors.Join(err, rt.close()) }()
 
-	// Resolving git here rather than inside internal/repos means a missing or
-	// broken git is reported once, with the PATH it searched, before any of the
-	// checks below run and blame the repository for it.
-	binary, err := git.Resolve(ctx)
-	if err != nil {
-		return Precondition(err)
-	}
-	clone, err := binary.Open(ctx, path)
-	if err != nil {
-		check := repos.CheckGitRepository
-		if errors.Is(err, fs.ErrNotExist) {
-			check = repos.CheckPath
-		}
-		return repoRegistrationError(cmd, &repos.CheckError{Check: check, Path: path, Err: err})
-	}
-	previous, previousErr := rt.db.GetRepoByPath(ctx, clone.Path())
-	if previousErr != nil && !errors.Is(previousErr, store.ErrNotFound) {
-		return previousErr
-	}
-	if previousErr == nil {
-		if opts.base == "" {
-			opts.base = previous.BaseBranch
-		}
-		if opts.worktrees == "" {
-			opts.worktrees = previous.WorktreeRoot
-		}
-		if opts.prefix == "" {
-			opts.prefix = previous.FeaturePrefix
-		}
-	}
+	return projectRegistrationError(cmd, projectAdministration(rt, env).Register(ctx, contracts.RegisterProjectRequest{
+		Path: path, BaseBranch: opts.base, WorktreeRoot: opts.worktrees, FeaturePrefix: opts.prefix,
+	}, contracts.ProjectRegistrationPresentation{
+		Registration: func(registration contracts.ProjectRegistrationView, existed bool) {
+			writeRegistration(env.Stdout, registration, existed)
+		},
+		Webhook: func(repository contracts.RepositoryView, result contracts.ProjectWebhookView) {
+			writeRepoAddWebhook(env.Stdout, env.Stderr, repository, result)
+		},
+	}))
+}
 
-	registration, err := repos.Resolve(ctx, binary, path, repos.Options{
-		BaseBranch:    opts.base,
-		WorktreeRoot:  opts.worktrees,
-		FeaturePrefix: opts.prefix,
-	}, repos.Defaults{
-		BaseBranch:    rt.cfg.Settings.DefaultBaseBranch,
-		WorktreeRoot:  rt.cfg.Settings.WorktreeRoot,
-		FeaturePrefix: rt.cfg.Settings.FeaturePrefix,
-	})
-	if err != nil {
-		return repoRegistrationError(cmd, err)
-	}
-
-	// AC-PAR-4.8, and it runs before the upsert so that a refused registration
-	// leaves no row behind. internal/repos decides; the rows come from here,
-	// because that package makes no query of its own.
-	existing, err := rt.db.ListRepos(ctx)
-	if err != nil {
-		return err
-	}
-	if err := repos.ValidateNewWorktreeRoot(registration, existing); err != nil {
-		return repoRegistrationError(cmd, err)
-	}
-
-	// Whether the row already existed only changes the verb in the output, but
-	// it is the difference between "I registered something" and "I changed
-	// something you already had", and the user should not have to guess which
-	// happened (AC-1.8).
-	_, err = rt.db.GetRepoByPath(ctx, registration.Path)
+func projectRegistrationError(cmd *Command, err error) error {
+	var registration *contracts.ProjectRegistrationFailure
+	var unavailable *contracts.ProjectUnavailable
 	switch {
-	case err == nil:
-	case errors.Is(err, store.ErrNotFound):
+	case errors.As(err, &registration):
+		return repoRegistrationError(cmd, registration.Err)
+	case errors.As(err, &unavailable):
+		return Precondition(err)
 	default:
 		return err
 	}
-	existed := err == nil
+}
 
-	stored, err := rt.db.UpsertRepo(ctx, registration.StoreRepo())
-	if err != nil {
-		return err
-	}
-
-	if err := projectconnection.SeedRegistration(ctx, rt.db, stored, *rt.cfg); err != nil {
-		return err
-	}
-	writeRegistration(env.Stdout, registration, existed)
-
-	// A webhook problem never undoes or fails the registration above: the repo
-	// keeps working on polling.
-	writeRepoAddWebhook(env.Stdout, env.Stderr, stored, ensureWebhook(ctx, env, rt, stored))
-	return nil
+func projectAdministration(rt *repoRuntime, env *Env) *localprojects.Administration {
+	return localprojects.NewAdministration(rt.db, rt.cfg, localprojects.Options{Logger: env.Logger, Keychain: env.Keychain, KeychainWrite: env.KeychainWrite, UserAgent: initUserAgent(env)})
 }
 
 // writeRegistration prints what was stored, and where each resolved value came
 // from. Naming the source is the point: "base branch main" invites a shrug,
 // "base branch main (remote HEAD)" tells the user which of the three sources
 // answered and therefore which one to change.
-func writeRegistration(out io.Writer, r *repos.Registration, existed bool) {
+func writeRegistration(out io.Writer, r contracts.ProjectRegistrationView, existed bool) {
 	verb := "registered"
 	if existed {
 		verb = "updated"
@@ -208,7 +154,7 @@ func runRepoList(ctx context.Context, env *Env) (err error) {
 	}
 	defer func() { err = errors.Join(err, rt.close()) }()
 
-	list, err := rt.db.ListRepos(ctx)
+	list, err := projectAdministration(rt, env).List(ctx)
 	if err != nil {
 		return err
 	}
@@ -221,7 +167,7 @@ func runRepoList(ctx context.Context, env *Env) (err error) {
 	fmt.Fprintf(tw, "ID\tPATH\tREMOTE\tBASE\tWORKTREES\tLAST FETCH\n")
 	for _, repo := range list {
 		fmt.Fprintf(tw, "%d\t%s\t%s:%s\t%s\t%s\t%s\n",
-			repo.ID, repo.Path, repo.Forge, repo.Slug(), repo.BaseBranch,
+			repo.ID, repo.Path, repo.Forge, repo.Slug, repo.BaseBranch,
 			repo.WorktreeRoot, repoFetchTime(repo.LastFetchAt))
 	}
 	return tw.Flush()

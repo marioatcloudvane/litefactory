@@ -199,7 +199,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 
 	case req.ResumeAttemptID != 0:
 		judgeRecovery := (workflow == agent.WorkflowResearch || workflow == agent.WorkflowPlan) && node.Action == graphexec.JudgeAction
-		if (!judgeRecovery && workflow != agent.WorkflowBug) || node.Action == ResearchAgentAction || req.RunID != 0 {
+		if (!judgeRecovery && node.Action != graphexec.DeliverAction && workflow != agent.WorkflowBug) || node.Action == ResearchAgentAction || req.RunID != 0 {
 			return out, errors.New("only bounded factory effects may resume an attempt")
 		}
 		attempt, err = opts.DB.GetGraphNodeAttempt(ctx, req.ResumeAttemptID)
@@ -444,11 +444,11 @@ const researchAncestorLimit = 64
 // A failed or completed predecessor starts a fresh owner attempt, ending
 // allowance inheritance.
 // limitSpansReplies names the workflows whose graphs document lf_limit as the
-// cap on their owner rounds: Spike allows one question round, and Validate's
-// resolve loop stops when its limit runs out so nothing is approved. Every
-// other workflow gives each owner reply a fresh allowance (#984).
+// cap on their owner rounds: Validate's resolve loop stops when its limit runs
+// out so nothing is approved. Every other workflow gives each owner reply a
+// fresh allowance (#984).
 func limitSpansReplies(workflow agent.Workflow) bool {
-	return workflow == agent.WorkflowSpike || workflow == agent.WorkflowValidate
+	return workflow == agent.WorkflowValidate
 }
 
 func researchBudgetAncestors(ctx context.Context, db *store.DB, instance int64, node graphexec.Node) (map[int64]string, error) {

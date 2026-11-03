@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -188,7 +189,7 @@ func (s *Service) ensureConversation(ctx context.Context, r *conversationRuntime
 			return err
 		}
 	}
-	bound, err := s.db.EnsureConversationWithCapture(ctx, store.Conversation{Transport: s.transport, ChannelRef: b.Channel, OwnerID: s.owner, Name: b.Name, Provider: b.Provider, StateDir: state}, raw, at)
+	bound, err := s.db.EnsureConversationWithCapture(ctx, messagingstate.Conversation{Transport: s.transport, ChannelRef: b.Channel, OwnerID: s.owner, Name: b.Name, Provider: b.Provider, StateDir: state}, raw, at)
 	if err != nil {
 		c, e := s.db.ReadConversation(ctx, s.transport, b.Channel)
 		if e == nil && !errors.Is(err, store.ErrConversationDrain) {
@@ -364,8 +365,10 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 				return false, err
 			}
 			if _, err = s.db.AdmitConversationTurn(ctx, c.ID, m.SourceID, prompt, at); err != nil {
+				logIntake(s.Logger, s.transport, "conversation_admission", channel, m.SourceID, "persistence_failed")
 				return false, err
 			}
+			logIntake(s.Logger, s.transport, "conversation_admission", channel, m.SourceID, "persisted")
 		}
 		t, err := s.db.ClaimConversationTurn(ctx, c.ID, r.worker, at, 10*time.Minute)
 		if errors.Is(err, store.ErrNotFound) {
@@ -385,7 +388,7 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 	return false, nil
 }
 
-func (s *Service) runConversation(ctx context.Context, c store.Conversation, b ConversationBinding, t store.ConversationTurn, at time.Time) (failure error) {
+func (s *Service) runConversation(ctx context.Context, c messagingstate.Conversation, b ConversationBinding, t messagingstate.ConversationTurn, at time.Time) (failure error) {
 	defer func() {
 		if failure != nil {
 			s.logConversationFailure(ctx, c, t, agent.ConversationError(failure, "accounting", false))
@@ -494,7 +497,7 @@ func (s *Service) runConversation(ctx context.Context, c store.Conversation, b C
 	}
 }
 
-func (s *Service) conversationOutcome(ctx context.Context, t store.ConversationTurn, state, text string, at time.Time) error {
+func (s *Service) conversationOutcome(ctx context.Context, t messagingstate.ConversationTurn, state, text string, at time.Time) error {
 	protected, err := s.Protect(ctx, text)
 	if err != nil {
 		return err
@@ -504,7 +507,7 @@ func (s *Service) conversationOutcome(ctx context.Context, t store.ConversationT
 	}
 	return s.db.CompleteConversationTurn(ctx, t, state, protected, at)
 }
-func (s *Service) conversationUnavailable(ctx context.Context, c store.Conversation, t store.ConversationTurn, reason string, at time.Time) error {
+func (s *Service) conversationUnavailable(ctx context.Context, c messagingstate.Conversation, t messagingstate.ConversationTurn, reason string, at time.Time) error {
 	s.logConversationFailure(ctx, c, t, agent.ConversationError(errors.New(reason), "continuity", false))
 	if err := s.conversationOutcome(ctx, t, "unavailable", "Conversation paused: "+reason+". Context and queued messages are retained. "+conversationOperatorInspection(c.ID), at); err != nil {
 		return err
@@ -549,7 +552,7 @@ func (s *Service) conversationHealth(ctx context.Context, at time.Time) string {
 
 // conversationHandled records a deterministic factory reply without launching a
 // native session. The store refuses it if a provider input was journaled.
-func (s *Service) conversationHandled(ctx context.Context, t store.ConversationTurn, text string, at time.Time) error {
+func (s *Service) conversationHandled(ctx context.Context, t messagingstate.ConversationTurn, text string, at time.Time) error {
 	protected, err := s.Protect(ctx, text)
 	if err != nil {
 		return err
@@ -563,7 +566,7 @@ func (s *Service) conversationHandled(ctx context.Context, t store.ConversationT
 // conversationFresh answers the owner's fresh-conversation command and, in the
 // same fenced store transaction, makes the next turn start a new native
 // session without the earlier owner messages.
-func (s *Service) conversationFresh(ctx context.Context, c store.Conversation, t store.ConversationTurn, at time.Time) error {
+func (s *Service) conversationFresh(ctx context.Context, c messagingstate.Conversation, t messagingstate.ConversationTurn, at time.Time) error {
 	provider := "Claude"
 	if c.Provider == "codex" {
 		provider = "Codex"
@@ -586,7 +589,7 @@ func conversationPreStartRetry(err error) bool {
 		(!errors.As(err, &access) || !access.Permanent)
 }
 
-func (s *Service) conversationPreStartOutcome(ctx context.Context, t store.ConversationTurn, at time.Time) error {
+func (s *Service) conversationPreStartOutcome(ctx context.Context, t messagingstate.ConversationTurn, at time.Time) error {
 	const notice = "The conversation turn failed before a provider process started. Its input will not be replayed. Your next message can retry using the same conversation identity."
 	if s.conversations.Load().factory {
 		return s.conversationOutcome(ctx, t, "interrupted", notice, at)
@@ -598,7 +601,7 @@ func (s *Service) conversationPreStartOutcome(ctx context.Context, t store.Conve
 	return s.db.CompleteConversationPreStartTurn(ctx, t, protected, at)
 }
 
-func (s *Service) logConversationFailure(ctx context.Context, c store.Conversation, t store.ConversationTurn, err error) {
+func (s *Service) logConversationFailure(ctx context.Context, c messagingstate.Conversation, t messagingstate.ConversationTurn, err error) {
 	if s.Logger == nil || err == nil {
 		return
 	}

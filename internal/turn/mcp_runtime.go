@@ -40,7 +40,7 @@ type MCPRuntime struct {
 	Redactor           *redact.Redactor
 	BotID              int64
 	ImplementStatus    *ImplementStatusService
-	// BugChecksIsolation supplies the configured sandbox to shared Spike checks.
+	// BugChecksIsolation supplies the configured sandbox to shared stack and Validate checks.
 	BugChecksIsolation bugchecks.Isolation
 	// DisableMCP disables native registration while retaining the shared final route.
 	DisableMCP     bool

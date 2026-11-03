@@ -4,6 +4,7 @@ package response
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // ChatRunner is a provider-owned response-only adapter behind the doctor gate.
@@ -22,7 +22,7 @@ type ChatRunner interface {
 
 // MeterWriter grants only the existing usage ledger, no project writes.
 type MeterWriter interface {
-	StartChatMeterAttempt(context.Context, int64, string) (store.MeterAttempt, error)
+	StartChatMeterAttempt(context.Context, int64, string) (contracts.ResponseMeterAttempt, error)
 	RecordMeterEvent(context.Context, string, string, agent.UsageEvent) error
 	FinishMeterAttempt(context.Context, string, string, string, string, string, []string) error
 }
@@ -48,12 +48,12 @@ func (m *NativeModel) Answer(ctx context.Context, repoID int64, prompt string) (
 	if m.Meter == nil {
 		return nil, ErrUnavailable
 	}
-	return m.run(ctx, prompt, nil, func(ctx context.Context, provider, _ string) (store.MeterAttempt, error) {
+	return m.run(ctx, prompt, nil, func(ctx context.Context, provider, _ string) (contracts.ResponseMeterAttempt, error) {
 		return m.Meter.StartChatMeterAttempt(ctx, repoID, provider)
 	})
 }
 
-func (m *NativeModel) run(ctx context.Context, prompt string, launch *agent.MCPLaunchSpec, start func(context.Context, string, string) (store.MeterAttempt, error)) (_ []byte, err error) {
+func (m *NativeModel) run(ctx context.Context, prompt string, launch *agent.MCPLaunchSpec, start func(context.Context, string, string) (contracts.ResponseMeterAttempt, error)) (_ []byte, err error) {
 	if m.Config == nil || m.Meter == nil {
 		return nil, ErrUnavailable
 	}

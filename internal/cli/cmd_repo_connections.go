@@ -5,16 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localprojects"
 	"strconv"
-	"strings"
-	"time"
-
-	"github.com/cloudvane/litefactory/internal/github"
-	"github.com/cloudvane/litefactory/internal/projectconnection"
-	"github.com/cloudvane/litefactory/internal/secrets"
-	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/ticket"
-	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 type connectionFlags struct {
@@ -58,10 +51,10 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 	if err != nil || id <= 0 {
 		return Usagef(cmd, "project-id must be a positive registered repository ID")
 	}
-	var role store.ConnectionRole
+	var role string
 	if len(args) > 1 {
-		role = store.ConnectionRole(args[1])
-		if role != store.CodeConnection && role != store.TicketConnection {
+		role = args[1]
+		if role != "code" && role != "ticket" {
 			return Usagef(cmd, "role must be code or ticket")
 		}
 	}
@@ -70,141 +63,31 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		return err
 	}
 	defer func() { err = errors.Join(err, rt.close()) }()
-	repo, err := rt.db.GetRepo(ctx, id)
+	service, err := localprojects.Open(ctx, rt.db, id, localprojects.Options{Logger: env.Logger, Keychain: env.Keychain})
 	if err != nil {
-		return Precondition(err)
+		return projectCommandError(cmd, err)
 	}
-	if action == "list" {
-		versions, err := rt.db.ListConnections(ctx, id)
-		if err != nil {
-			return err
-		}
-		for _, v := range versions {
-			if role != "" && v.Role != role {
-				continue
-			}
-			if err = writeConnectionWithBindings(ctx, env, rt.db, v); err != nil {
-				return err
-			}
-			observation, e := rt.db.GetConnectionObservation(ctx, v.ID)
-			switch {
-			case errors.Is(e, store.ErrNotFound):
-				status := "unchecked"
-				if !v.Enabled {
-					status = "disabled"
-				}
-				_, err = fmt.Fprintf(env.Stdout, "  health %s; write access unknown\n", status)
-			case e != nil:
-				return e
-			default:
-				_, err = fmt.Fprintf(env.Stdout, "  checked %s: %s (%s); capabilities %v; remedy %s\n", observation.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), observation.Status, observation.Reason, observation.Capabilities, observation.Remedy)
-			}
-			if err != nil {
-				return err
-			}
-
-		}
-		state, e := rt.db.GetProjectImportState(ctx, id)
-		if e == nil {
-			_, err = fmt.Fprintf(env.Stdout, "  legacy import %s (%s)\n", state.Status, state.Reason)
-			return err
-		}
-		if !errors.Is(e, store.ErrNotFound) {
-			return e
-		}
-		return nil
-	}
+	present := connectionPresentation(env)
 	switch action {
+	case "list":
+		err = service.ListConnections(ctx, role, present)
 	case "set":
-		if f.revision < 0 {
-			return Usagef(cmd, "--revision is required")
-		}
-		origin, e := ticket.CanonicalOrigin(f.origin)
-		if e != nil {
-			return Usagef(cmd, "invalid API origin")
-		}
-		owner, name, ok := strings.Cut(f.destination, "/")
-		if !ok || (github.Repo{Owner: owner, Name: name}).Validate() != nil {
-			return Usagef(cmd, "destination must be owner/name")
-		}
-		v := store.ConnectionVersion{RepoID: id, Role: role, Provider: ticket.Provider(f.provider), Origin: origin, Destination: f.destination, RemoteID: f.remoteID, Enabled: true, Provenance: "explicit"}
-		if v.Provider == ticket.Linear {
-			if role != store.TicketConnection || f.destination != f.team+"/"+f.project || f.workspace == "" || f.team == "" || f.project == "" {
-				return Usagef(cmd, "Linear requires ticket role and workspace/team/project IDs; destination must be team/project")
-			}
-			v.Linear = store.LinearConfiguration{WorkspaceID: f.workspace, TeamID: f.team, ProjectID: f.project, AuthKind: f.authKind, ModeLabelsJSON: f.modeLabels, LifecycleStatesJSON: f.states}
-		} else if v.Provider != ticket.GitHub {
-			return Usagef(cmd, "provider must be github or linear")
-		}
-		parts := strings.Split(f.credential, ":")
-		switch {
-		case len(parts) == 2 && parts[0] == "env":
-			v.CredentialSource = "env"
-			v.CredentialEnv = parts[1]
-		case len(parts) == 3 && parts[0] == "keychain":
-			v.CredentialSource = "keychain"
-			v.CredentialService = parts[1]
-			v.CredentialAccount = parts[2]
-		default:
-			return Usagef(cmd, "credential must reference env:NAME or keychain:SERVICE:ACCOUNT")
-		}
-		if role == store.CodeConnection {
-			v.ClonePath = repo.Path
-			v.RemoteURL = repo.RemoteURL
-			v.BaseBranch = repo.BaseBranch
-			v.FeaturePrefix = repo.FeaturePrefix
-			v.WorktreeRoot = repo.WorktreeRoot
-		}
-		if v.Provider == ticket.Linear {
-			checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			factory := projectconnection.NewFactory(projectconnection.Options{DB: rt.db, Logger: env.Logger, Resolver: secrets.Resolver{Keychain: env.Keychain}})
-			candidate := v
-			candidate.ID = 1
-			clients, e := factory.Clients(checkCtx, candidate, 0)
-			if e != nil {
-				return Precondition(e)
-			}
-			if _, e = clients.Linear.Inspect(checkCtx); e != nil {
-				return Preconditionf("Linear configuration could not be verified; check workspace, team, project and mappings")
-			}
-		}
-		saved, e := rt.db.SetConnection(ctx, v, f.revision)
-		if e != nil {
-			return Precondition(e)
-		}
-		return writeConnectionWithBindings(ctx, env, rt.db, saved)
+		err = service.SetConnection(ctx, contracts.SetProjectConnectionRequest{Role: role, Provider: f.provider, Workspace: f.workspace, Team: f.team, Project: f.project, AuthKind: f.authKind, ModeLabels: f.modeLabels, States: f.states, Revision: f.revision, Origin: f.origin, Destination: f.destination, Credential: f.credential, RemoteID: f.remoteID}, present)
 	case "disable":
-		if f.revision < 1 {
-			return Usagef(cmd, "--revision is required")
-		}
-		saved, e := rt.db.DisableConnection(ctx, id, role, f.revision)
-		if e != nil {
-			return Precondition(e)
-		}
-		return writeConnectionWithBindings(ctx, env, rt.db, saved)
+		err = service.DisableConnection(ctx, role, f.revision, present)
 	case "check":
-		v, e := rt.db.CurrentConnection(ctx, id, role)
-		if e != nil {
-			return Precondition(e)
+		v, observation, checkErr := service.CheckConnection(ctx, role)
+		if checkErr != nil {
+			return projectCommandError(cmd, checkErr)
 		}
-		identities, e := turn.LoadIdentities(ctx, rt.db, store.ForgeGitHub)
-		if e != nil {
-			return Precondition(e)
-		}
-		factory := projectconnection.NewFactory(projectconnection.Options{DB: rt.db, Logger: env.Logger, ExpectedActorID: identities.BotUserID, Resolver: secrets.Resolver{Keychain: env.Keychain}})
-		observation := factory.Check(ctx, v)
-		if e = rt.db.SaveConnectionObservation(ctx, observation); e != nil {
-			return Precondition(e)
-		}
-		_, e = fmt.Fprintf(env.Stdout, "project %d connection %d (%s) %s version %d checked %s: %s (%s); capabilities %v; remedy %s\n", v.RepoID, v.ID, v.Destination, role, v.Revision, observation.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), observation.Status, observation.Reason, observation.Capabilities, observation.Remedy)
-		return e
+		_, err = fmt.Fprintf(env.Stdout, "project %d connection %d (%s) %s version %d checked %s: %s (%s); capabilities %v; remedy %s\n", v.RepoID, v.ID, v.Destination, role, v.Revision, observation.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), observation.Status, observation.Reason, observation.Capabilities, observation.Remedy)
 	default:
 		return Usagef(cmd, "unknown connection operation")
 	}
+	return projectCommandError(cmd, err)
 }
 
-func writeConnection(env *Env, v store.ConnectionVersion) error {
+func writeConnection(env *Env, v contracts.ProjectConnectionView) error {
 	_, err := fmt.Fprintf(env.Stdout, "project %d %s version %d (id %d) %s %s %s enabled=%t provenance=%s\n", v.RepoID, v.Role, v.Revision, v.ID, v.Provider, v.Origin, v.Destination, v.Enabled, v.Provenance)
 	return err
 }
@@ -242,99 +125,72 @@ func runRepoBinding(ctx context.Context, env *Env, cmd *Command, action string, 
 		return err
 	}
 	defer func() { err = errors.Join(err, rt.close()) }()
-	if _, err = rt.db.GetRepo(ctx, id); err != nil {
-		return Precondition(err)
-	}
-	if action == "list" {
-		bindings, e := rt.db.ListTicketBindings(ctx, id)
-		if e != nil {
-			return e
-		}
-		for _, b := range bindings {
-			if err = writeBinding(env, b); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if action == "disable" {
-		if f.id <= 0 || f.revision < 1 {
-			return Usagef(cmd, "--binding and --revision are required")
-		}
-		old, e := rt.db.GetTicketBindingByID(ctx, f.id)
-		if e != nil {
-			return Precondition(e)
-		}
-		if old.RepoID != id {
-			return Preconditionf("binding belongs to a different project")
-		}
-		b, e := rt.db.DisableTicketBinding(ctx, f.id, f.revision)
-		if e != nil {
-			return Precondition(e)
-		}
-		return writeBinding(env, b)
-	}
-	v, err := rt.db.CurrentConnection(ctx, id, store.TicketConnection)
+	service, err := localprojects.Open(ctx, rt.db, id, localprojects.Options{Logger: env.Logger, Keychain: env.Keychain})
 	if err != nil {
-		return Precondition(err)
+		return projectCommandError(cmd, err)
 	}
-	if f.container == "" {
-		f.container = v.Destination
+	request := contracts.ProjectBindingRequest{ID: f.id, Revision: f.revision, Key: f.key, RemoteID: f.remoteID, Container: f.container, Number: f.number}
+	if action == "list" {
+		return service.ListBindings(ctx, func(binding contracts.ProjectBindingView) error { return writeBinding(env, binding) })
 	}
-	owner, name, ok := strings.Cut(f.container, "/")
-	if !ok || (github.Repo{Owner: owner, Name: name}).Validate() != nil || (v.Provider == ticket.GitHub && f.number <= 0) || (v.Provider == ticket.Linear && f.key == "") || f.remoteID == "" {
-		return Usagef(cmd, "valid --container, --number and --remote-id are required")
-	}
-	key := strconv.Itoa(f.number)
-	if v.Provider == ticket.Linear {
-		key = f.key
-	}
-	ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: f.remoteID}, Locator: ticket.Locator{Provider: v.Provider, Origin: v.Origin, Container: f.container, Key: key}}
-	proposed := store.TicketBinding{RepoID: id, ConnectionVersionID: v.ID, Ref: ref, Enabled: true, Provenance: "explicit"}
-	var b store.TicketBinding
+	var binding contracts.ProjectBindingView
 	switch action {
+	case "disable":
+		binding, err = service.DisableBinding(ctx, request)
 	case "add":
-		b, err = rt.db.AddTicketBinding(ctx, proposed)
+		binding, err = service.AddBinding(ctx, request)
 	case "correct":
-		if f.id <= 0 || f.revision < 1 {
-			return Usagef(cmd, "--binding and --revision are required")
-		}
-		proposed.ID = f.id
-		b, err = rt.db.CorrectTicketBinding(ctx, proposed, f.revision)
+		binding, err = service.CorrectBinding(ctx, request)
 	default:
 		return Usagef(cmd, "unknown binding operation")
 	}
 	if err != nil {
-		return Precondition(err)
+		return projectCommandError(cmd, err)
 	}
-	return writeBinding(env, b)
+	return writeBinding(env, binding)
 }
-func writeBinding(env *Env, b store.TicketBinding) error {
+
+func writeBinding(env *Env, b contracts.ProjectBindingView) error {
 	_, err := fmt.Fprintf(env.Stdout, "binding %d project %d revision %d %s %s ticket %s at %s#%s connection %d enabled=%t\n", b.ID, b.RepoID, b.Revision, b.Ref.Identity.Provider, b.Ref.Identity.Origin, b.Ref.Identity.RemoteID, b.Ref.Locator.Container, b.Ref.Locator.Key, b.ConnectionVersionID, b.Enabled)
 	return err
 }
 
-func writeConnectionWithBindings(ctx context.Context, env *Env, db *store.DB, v store.ConnectionVersion) error {
-	if err := writeConnection(env, v); err != nil {
+func connectionPresentation(env *Env) contracts.ConnectionPresentation {
+	return contracts.ConnectionPresentation{
+		Connection: func(view contracts.ProjectConnectionView) error { return writeConnection(env, view) },
+		BindingConflict: func(view contracts.ProjectBindingConflict) error {
+			_, err := fmt.Fprintf(env.Stdout, "  binding %d cannot inherit source from version id %d to current version id %d: %s; verify or restore the intended ticket source\n", view.BindingID, view.PriorVersionID, view.CurrentVersionID, view.Reason)
+			return err
+		},
+		Health: func(view contracts.ProjectConnectionHealth) error {
+			if !view.Checked {
+				status := "unchecked"
+				if !view.Enabled {
+					status = "disabled"
+				}
+				_, err := fmt.Fprintf(env.Stdout, "  health %s; write access unknown\n", status)
+				return err
+			}
+			observation := view.Observation
+			_, err := fmt.Fprintf(env.Stdout, "  checked %s: %s (%s); capabilities %v; remedy %s\n", observation.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), observation.Status, observation.Reason, observation.Capabilities, observation.Remedy)
+			return err
+		},
+		Import: func(view contracts.ProjectImportView) error {
+			_, err := fmt.Fprintf(env.Stdout, "  legacy import %s (%s)\n", view.Status, view.Reason)
+			return err
+		},
+	}
+}
+
+func projectCommandError(cmd *Command, err error) error {
+	var invalid *contracts.ProjectUsageError
+	var unavailable *contracts.ProjectUnavailable
+	switch {
+	case errors.As(err, &invalid):
+		return Usagef(cmd, "%v", err)
+	case errors.As(err, &unavailable):
+		return Precondition(err)
+	default:
 		return err
 	}
-	if v.Role != store.TicketConnection {
-		return nil
-	}
-	bindings, err := db.ListTicketBindings(ctx, v.RepoID)
-	if err != nil {
-		return err
-	}
-	var findings []error
-	for _, b := range bindings {
-		if !b.Enabled || b.ConnectionVersionID == v.ID {
-			continue
-		}
-		err := db.CheckTicketBindingSource(ctx, b, v)
-		if errors.Is(err, store.ErrBindingConflict) {
-			_, err = fmt.Fprintf(env.Stdout, "  binding %d cannot inherit source from version id %d to current version id %d: %s; verify or restore the intended ticket source\n", b.ID, b.ConnectionVersionID, v.ID, err)
-		}
-		findings = append(findings, err)
-	}
-	return errors.Join(findings...)
 }

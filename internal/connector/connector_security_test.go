@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -169,7 +170,7 @@ func TestConstructionRequiresTrustedControl(t *testing.T) {
 		t.Fatal("empty capability bypassed local revocation gate")
 	}
 	fixture.options.LocalControl = nil
-	if _, err := NewLocalControl(t.Context(), fixture.db, &connectorUnavailableControl{}); err == nil {
+	if _, err := NewLocalControl(t.Context(), connectorstorage.New(fixture.db), &connectorUnavailableControl{}); err == nil {
 		t.Fatal("unavailable command host registered")
 	}
 }
@@ -250,5 +251,29 @@ func TestConfidentialBasicCredentialFailuresPreserveGrant(t *testing.T) {
 	}
 	if response := fixture.ping(t, server, tokens.AccessToken); response.Code != 200 {
 		t.Fatalf("failed authentication changed grant: HTTP %d", response.Code)
+	}
+}
+
+// Independent adapters to one backend are valid; a token or target lookup
+// must never be paired with local control over a different backend.
+func TestConstructionBindsAuthenticationAccessAndLocalControl(t *testing.T) {
+	t.Parallel()
+	fixture := newConnectorFixture(t, nil)
+	foreign := newConnectorFixture(t, nil)
+	options := fixture.options
+	options.Access = connectorstorage.New(foreign.db)
+	if _, err := New(t.Context(), options); err == nil {
+		t.Fatal("access from a different backend was accepted")
+	}
+	options = fixture.options
+	options.LocalControl = foreign.options.LocalControl
+	if _, err := New(t.Context(), options); err == nil {
+		t.Fatal("local control from a different backend was accepted")
+	}
+	options.Storage = connectorstorage.New(fixture.db)
+	options.Access = connectorstorage.New(fixture.db)
+	options.LocalControl = fixture.options.LocalControl
+	if _, err := New(t.Context(), options); err != nil {
+		t.Fatalf("independent adapters over the same backend were refused: %v", err)
 	}
 }

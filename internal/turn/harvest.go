@@ -61,7 +61,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	if allowance <= 0 {
 		allowance = 1800 * time.Second
 	}
-	start := spikeNow(opts)
+	start := graphNow(opts)
 	deadline := start.Add(allowance)
 	source := opts.WorkerTimeoutSource
 	if source == "" {

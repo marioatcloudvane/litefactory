@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"net"
 	"sync"
 	"time"
@@ -54,7 +55,7 @@ func prepareRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRunti
 	if err != nil || len(key) != 32 {
 		return nil, errors.New("remote connector cookie key must encode exactly 32 random bytes as base64")
 	}
-	server, err := connector.New(ctx, connector.Options{Config: cfg, DB: s.DB, Logger: s.Logger, LocalControl: s.ConnectorControl, Overview: s.ConnectorOverview, TaskEvidence: s.ConnectorTaskEvidence, Usage: s.ConnectorUsage, CodeEvidence: s.ConnectorCodeEvidence, GitHubSecret: githubSecret.Reveal(), CookieKey: key})
+	server, err := connector.New(ctx, connector.Options{Config: cfg, Storage: connectorstorage.New(s.DB), Access: connectorstorage.New(s.DB), Logger: s.Logger, LocalControl: s.ConnectorControl, Overview: s.ConnectorOverview, TaskEvidence: s.ConnectorTaskEvidence, Usage: s.ConnectorUsage, CodeEvidence: s.ConnectorCodeEvidence, GitHubSecret: githubSecret.Reveal(), CookieKey: key})
 	if err != nil {
 		return nil, err
 	}
@@ -68,9 +69,6 @@ func prepareRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRunti
 func (d *Daemon) serveRemoteConnector(ctx context.Context, serving *sync.WaitGroup) {
 	if d.remoteConnector == nil {
 		return
-	}
-	if d.remoteConnector.actions != nil {
-		d.remoteConnector.actions.start(ctx, serving, d.log)
 	}
 	serving.Add(1)
 	// One serve goroutine is joined by Run; its listener and bounded handlers are

@@ -10,9 +10,14 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factory/featuredraft"
+	"github.com/cloudvane/litefactory/internal/factory/owneractions"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/stagedecision"
@@ -22,12 +27,15 @@ import (
 // ownerActionRuntime owns one executor independently of Discord availability.
 // Discord can join later without replacing the execution claims or worker.
 type ownerActionRuntime struct {
-	decisions   *stagedecision.Service
-	discussions *taskdiscussion.Service
-	actions     *owneraction.Service
-	workflows   *durableworkflow.Service
-	notices     atomic.Pointer[messaging.Service]
-	once        sync.Once
+	reconcileResearch func(context.Context) error
+	sanitizer         *redact.Redactor
+	adapter           atomic.Pointer[discord.Adapter]
+	decisions         *stagedecision.Service
+	discussions       *taskdiscussion.Service
+	actions           *owneraction.Service
+	workflows         *durableworkflow.Service
+	notices           atomic.Pointer[messaging.Service]
+	once              sync.Once
 }
 
 func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logger *slog.Logger) {
@@ -94,6 +102,11 @@ func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logg
 						logger.WarnContext(ctx, "decision summary requires reconciliation")
 					}
 				}
+				if r.reconcileResearch != nil {
+					if err := r.reconcileResearch(ctx); err != nil {
+						logger.WarnContext(ctx, "chat answer note remains pending")
+					}
+				}
 				if err := r.actions.Tick(ctx); err != nil {
 					logger.WarnContext(ctx, "owner action progression needs inspection")
 				}
@@ -112,14 +125,12 @@ func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logg
 	})
 }
 
-// prepareIndependentOwnerActions runs before serving. A healthy Discord backend
-// already owns these same adapters; otherwise composition installs them directly.
+// prepareIndependentOwnerActions composes the core coordinator before transport
+// activation. Remote wiring may later attach its domains to the same instance.
 func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer *redact.Redactor) {
-	runtime := &ownerActionRuntime{}
-	if d.chat != nil {
-		runtime.actions = d.chat.service.OwnerActions()
-		runtime.notices.Store(d.chat.service)
-	} else {
+	runtime := d.ownerActions
+	if runtime == nil {
+		runtime = &ownerActionRuntime{}
 		if options == nil {
 			options = &ChatOptions{}
 		}
@@ -127,52 +138,57 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		if clock == nil {
 			clock = time.Now
 		}
+		if sanitizer == nil && options.Answers != nil {
+			sanitizer = options.Answers.Redactor
+		}
 		if sanitizer == nil {
 			sanitizer = redact.New(redact.Options{Logger: d.log})
 		}
-		backend := messaging.New(d.db, "mcp", "", nil, nil, messaging.FactoryStatus{DB: d.db})
-		backend.Protect = func(ctx context.Context, text string) (string, error) {
+		runtime.sanitizer = sanitizer
+		runtime.reconcileResearch = d.researchAnswers(sanitizer).Reconcile
+		protect := func(ctx context.Context, text string) (string, error) {
 			protected, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
 			return protected.String(), err
 		}
-		backend.Instructions = options.Instructions
-		backend.InstructionDiagnostics = options.InstructionDiagnostics
 		var diagnosis ChatDiagnoser
 		if options.Diagnoser != nil {
 			diagnosis = options.Diagnoser
 		} else if d.doctor.service != nil {
 			diagnosis = d.doctor.service
 		}
-		research := ownerActionResearch{daemon: d, sanitizer: sanitizer, diagnoser: diagnosis, replyLimit: backend.ReplyLimit()}
-		backend.EnableResearch(research, research)
-		allowed := map[string]bool{"answer": d.forge != nil, "diagnose": diagnosis != nil}
-		answers := ask.Service{Repositories: d.db, Collector: ask.Collector{Factory: ask.StoreReader{Reader: d.db}}, Redactor: sanitizer}
+		research := ownerActionResearch{daemon: d, sanitizer: sanitizer, diagnoser: diagnosis, replyLimit: presentation.MessageLimit}
+		availability := owneractions.Availability{Answer: d.forge != nil, Diagnose: diagnosis != nil}
+		answers := ask.Service{Repositories: factory.NewMessaging(d.db), Collector: ask.Collector{Factory: factory.NewTaskFacts(d.db)}, Redactor: sanitizer}
 		if options.Answers != nil {
 			answers = *options.Answers
 		}
 		if answers.Redactor == nil {
 			answers.Redactor = sanitizer
 		}
+		if options.Instructions != nil {
+			answers.Instructions = options.Instructions
+		}
+		if options.InstructionDiagnostics != nil {
+			answers.InstructionDiagnostics = options.InstructionDiagnostics
+		}
 		writer, _ := d.forge.(ChatIssueForge)
 		var creator *ChatIssueCreator
 		if writer != nil && d.filter.Identities().BotUserID > 0 {
 			creator = &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: sanitizer, Now: clock}
-			allowed["confirm"] = true
+			availability.Confirm = true
 		}
-		var drafter *feature.Drafter
+		var drafter *featuredraft.Service
 		if answers.Model != nil {
-			drafter = &feature.Drafter{Instructions: options.Instructions, InstructionDiagnostics: options.InstructionDiagnostics, Repositories: answers.Repositories, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: backend.Protect, Now: clock}
-			allowed["draft"] = true
-		}
-		if creator != nil || drafter != nil {
-			backend.EnableFeatures(drafter, creator)
+			drafter = (&feature.Drafter{Instructions: answers.Instructions, InstructionDiagnostics: answers.InstructionDiagnostics, Repositories: answers.Repositories, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: protect, Now: clock}).Factory()
+			availability.Draft = true
 		}
 		var standards *ConversationStandards
 		if options.Standards != nil {
 			operations := *options.Standards
 			operations.OwnerID = options.Settings.OwnerID
 			operations.Authorized = func(ctx context.Context, request messaging.StandardsRequest) error {
-				if d.chat == nil || d.chat.adapter == nil {
+				adapter := runtime.adapter.Load()
+				if adapter == nil {
 					return errors.New("discord transport unavailable")
 				}
 				permitted, bound := false, false
@@ -187,13 +203,30 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 				if !permitted || !bound {
 					return errors.New("standards conversation is not authorized")
 				}
-				return d.chat.adapter.CheckIntakeCapability(ctx, request.ChannelID)
+				return adapter.CheckIntakeCapability(ctx, request.ChannelID)
 			}
 			standards = &operations
-			backend.EnableStandards(standards)
+			availability.Standards = true
 		}
-		domain := independentOwnerActionDomain{OwnerActionDomain: messaging.OwnerActionDomain{Service: backend}, allowed: allowed, standards: standards}
+		targets := owneractions.NewTargets(d.db)
+		render := func(ctx context.Context, q owneractions.Question) (string, error) {
+			return messaging.RenderQuestion(ctx, q, protect, presentation.MessageLimit)
+		}
+		core := owneractions.Domain{
+			Actions:      owneractions.Actions{FallbackTransport: "mcp", Targets: targets, Protect: protect, Research: research, Features: independentFeatureEffects{drafter: drafter, confirmer: creator}, Answer: owneractions.AnswerAdmission{Research: research, Protect: protect, Render: render}, Availability: availability},
+			Diagnosis:    owneractions.Diagnosis{Targets: targets, Protect: protect, Effects: independentDiagnosisEffects{research: research}, Availability: availability},
+			Standards:    owneractions.Standards{Targets: targets, Protect: protect, Available: standards != nil, Frozen: standards},
+			Availability: availability,
+		}
+		domain := independentOwnerActionDomain{Domain: core, standards: standards}
 		runtime.actions = owneraction.New(d.db, domain, clock)
+	}
+	d.ownerActions = runtime
+	if d.remoteConnector == nil {
+		return
+	}
+	if d.remoteConnector.actions == runtime {
+		return
 	}
 	if options == nil {
 		options = &ChatOptions{}
@@ -264,54 +297,41 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 }
 
 type independentOwnerActionDomain struct {
-	messaging.OwnerActionDomain
-	allowed   map[string]bool
+	owneractions.Domain
 	standards *ConversationStandards
 }
 
 func (d independentOwnerActionDomain) enabled(inv owneraction.Invocation) bool {
-	if d.allowed[inv.Command] {
-		return true
+	if !owneractions.StandardsCommand(inv.Command) {
+		return d.Availability.Allows(inv.Command)
 	}
-	if d.standards == nil || standardsOperationName(inv.Command, inv.Arguments["action"]) == "" {
+	operation, err := owneractions.StandardsOperation(inv)
+	if d.standards == nil || err != nil {
 		return false
 	}
-	for _, entry := range d.OwnerActionDomain.ActionCatalog() {
+	for _, entry := range d.Domain.ActionCatalog() {
 		if entry.Command == inv.Command && entry.Subaction == inv.Arguments["action"] {
-			return d.standards.capability(standardsOperationName(entry.Command, entry.Subaction)) == nil
+			return d.standards.capability(operation) == nil
 		}
 	}
 	return false
-}
-func standardsOperationName(command, subaction string) string {
-	switch command {
-	case "standards-author":
-		return "author." + subaction
-	case "standards-proposal":
-		return "proposal." + subaction
-	case "standards-exception":
-		return "exception." + subaction
-	case "standards-analysis":
-		return "analysis." + subaction
-	}
-	return ""
 }
 func (d independentOwnerActionDomain) Resolve(ctx context.Context, p owneraction.Principal, inv owneraction.Invocation, at time.Time) (owneraction.Facts, error) {
 	if !d.enabled(inv) {
 		return owneraction.Facts{}, owneraction.ErrUnavailable
 	}
-	return d.OwnerActionDomain.Resolve(ctx, p, inv, at)
+	return d.Domain.Resolve(ctx, p, inv, at)
 }
 func (d independentOwnerActionDomain) Recheck(ctx context.Context, p owneraction.Principal, f owneraction.Facts, at time.Time) error {
 	if !d.enabled(f.Invocation) {
 		return owneraction.ErrUnavailable
 	}
-	return d.OwnerActionDomain.Recheck(ctx, p, f, at)
+	return d.Domain.Recheck(ctx, p, f, at)
 }
 
 func (d independentOwnerActionDomain) ActionCatalog() []owneraction.ActionDefinition {
 	out := []owneraction.ActionDefinition{}
-	for _, entry := range d.OwnerActionDomain.ActionCatalog() {
+	for _, entry := range d.Domain.ActionCatalog() {
 		if d.enabled(owneraction.Invocation{Command: entry.Command, Arguments: map[string]string{"action": entry.Subaction}}) {
 			out = append(out, entry)
 		}
@@ -342,4 +362,52 @@ func (a ownerActionResearch) RecoverOwnerActionDiagnosis(ctx context.Context, ta
 	return recoverOwnerActionDiagnosis(ctx, a.daemon.db, target, key, func(ctx context.Context, c doctor.Conversation) (string, error) {
 		return renderOwnerActionDiagnosis(ctx, c, a.sanitizer, a.replyLimit)
 	})
+}
+
+// independentDiagnosisEffects binds the existing execution and receipt host.
+type independentDiagnosisEffects struct{ research ownerActionResearch }
+
+func (e independentDiagnosisEffects) DiagnosisAvailable() bool { return e.research.diagnoser != nil }
+func (e independentDiagnosisEffects) Diagnose(ctx context.Context, task, note, key string) (owneraction.Result, error) {
+	work, assessment := presentation.WithAssessment(ctx)
+	summary, err := e.research.OwnerActionDiagnosis(work, task, note, key)
+	return independentAssessedResult(assessment, summary), err
+}
+func (e independentDiagnosisEffects) RecoverDiagnosis(ctx context.Context, task, key string) (owneraction.Result, bool, error) {
+	return e.research.RecoverOwnerActionDiagnosis(ctx, task, key)
+}
+
+type independentFeatureEffects struct {
+	drafter   *featuredraft.Service
+	confirmer *ChatIssueCreator
+}
+
+func (e independentFeatureEffects) DraftAvailable() bool {
+	return e.drafter.Available()
+}
+func (e independentFeatureEffects) ConfirmAvailable() bool { return e.confirmer != nil }
+func (e independentFeatureEffects) Draft(ctx context.Context, transport, channel, key, project, note string, at time.Time) (owneraction.Result, error) {
+	result, err := e.drafter.Reply(ctx, transport, channel, key, project, note, at)
+	return result.ActionResult(), err
+}
+func (e independentFeatureEffects) Confirm(ctx context.Context, transport, channel, key, code string, at time.Time) (owneraction.Result, error) {
+	work, assessment := presentation.WithAssessment(ctx)
+	summary, err := e.confirmer.Confirm(work, transport, channel, key, code, at)
+	return independentAssessedResult(assessment, summary), err
+}
+func (e independentFeatureEffects) RecoverFeature(ctx context.Context, transport, channel, code string, at time.Time) (string, bool, error) {
+	if e.confirmer == nil {
+		return "", false, nil
+	}
+	return e.confirmer.RecoverOwnerActionFeature(ctx, transport, channel, code, at)
+}
+func independentAssessedResult(assessment *presentation.Assessment, summary string) owneraction.Result {
+	result := owneraction.Result{State: "succeeded", Summary: summary}
+	switch assessment.Status {
+	case presentation.Uncertain:
+		result.State = "uncertain"
+	case presentation.Refusal, presentation.ReportableError:
+		result.State = "failed"
+	}
+	return result
 }

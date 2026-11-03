@@ -100,6 +100,10 @@ func (d *Daemon) publishHealth(ctx context.Context, now time.Time) {
 	if d.pool != nil {
 		listener.SlotsUsed, listener.SlotsTotal = d.pool.capacity()
 	}
+	listener.Disk = d.diskStatus()
+	if listener.Disk != nil {
+		d.log.DebugContext(ctx, "Go cache observations", slog.String("main", listener.Disk.Main.Path), slog.String("main_size_state", listener.Disk.Main.State), slog.String("main_size_error", listener.Disk.Main.Error), slog.Int64("main_partial_bytes", listener.Disk.Main.PartialBytes), slog.String("reviewer", listener.Disk.Reviewer.Path), slog.String("reviewer_size_state", listener.Disk.Reviewer.State), slog.String("reviewer_size_error", listener.Disk.Reviewer.Error), slog.Int64("reviewer_partial_bytes", listener.Disk.Reviewer.PartialBytes), slog.String("automatic_cleanup", "unavailable"))
+	}
 	sig := healthSignature(listener, rows)
 	if p.written && sig == p.signature && now.Sub(p.writtenAt) < healthRefreshInterval {
 		return
@@ -125,8 +129,8 @@ func (d *Daemon) collectHealth(ctx context.Context) (store.ListenerStatus, []sto
 		listener.Listening = true
 		listener.ListenAddress = d.webhook.ln.Addr().String()
 	}
-	if status := d.chatStatus.Load(); status != nil {
-		listener.ChatStatus = *status
+	if d.discord != nil {
+		listener.ChatStatus = d.discord.Status()
 	}
 	rows := make([]store.RepoDiscoveryStatus, 0, len(repos))
 	for _, repo := range repos {
@@ -169,6 +173,7 @@ func (d *Daemon) hookRegistered(ctx context.Context, repoID int64) (bool, error)
 
 func healthSignature(l store.ListenerStatus, rows []store.RepoDiscoveryStatus) string {
 	var b strings.Builder
+	b.WriteString(diskSignature(l.Disk))
 	at := func(t time.Time) string {
 		if t.IsZero() {
 			return "-"

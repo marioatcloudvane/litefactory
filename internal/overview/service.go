@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/alerts"
-	"github.com/cloudvane/litefactory/internal/connector"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -111,7 +111,7 @@ func (s *Service) Build(ctx context.Context) (Result, error) {
 		return Result{}, errors.New("overview unavailable")
 	}
 	now := s.now().UTC()
-	r := Result{Version: 1, GeneratedAt: now, Window: Window{now.Add(-168 * time.Hour), now}, Health: map[string]any{"status": "unknown"}, Activity: emptyList(), OwnerWaits: emptyList(), RecentPublications: emptyList(), Coverage: Coverage{Sources: map[string]Source{}, Repositories: []map[string]any{}, Warnings: []string{"local_observations_not_remote_poll"}}}
+	r := Result{Version: 1, GeneratedAt: now, Window: Window{now.Add(-168 * time.Hour), now}, Health: map[string]any{"status": "unknown", "disk_cache": nil}, Activity: emptyList(), OwnerWaits: emptyList(), RecentPublications: emptyList(), Coverage: Coverage{Sources: map[string]Source{}, Repositories: []map[string]any{}, Warnings: []string{"local_observations_not_remote_poll"}}}
 	readable := 0
 	source := func(name string, err error, observed *time.Time, status string, reasons ...string) {
 		if err != nil {
@@ -177,7 +177,7 @@ func (s *Service) Build(ctx context.Context) (Result, error) {
 			slotsUsed = &h.SlotsUsed
 			slotsTotal = &h.SlotsTotal
 		}
-		r.Health = map[string]any{"status": status, "written_at": observed, "heartbeat_at": optional(h.LastHeartbeatStartedAt), "heartbeat_age_seconds": age(now, h.LastHeartbeatStartedAt), "runs_in_flight": h.RunsInFlight, "slots_used": slotsUsed, "slots_total": slotsTotal, "discovery_paused": h.DiscoveryPaused, "pause_reason": h.PauseReason, "expected_resume_at": optional(h.ExpectedResumeAt), "runs_held": h.RunsHeld}
+		r.Health = map[string]any{"status": status, "written_at": observed, "heartbeat_at": optional(h.LastHeartbeatStartedAt), "heartbeat_age_seconds": age(now, h.LastHeartbeatStartedAt), "runs_in_flight": h.RunsInFlight, "slots_used": slotsUsed, "slots_total": slotsTotal, "discovery_paused": h.DiscoveryPaused, "pause_reason": h.PauseReason, "expected_resume_at": optional(h.ExpectedResumeAt), "runs_held": h.RunsHeld, "disk_cache": h.Disk}
 		if h.LastHeartbeatStartedAt.IsZero() {
 			reasons = append(reasons, "heartbeat_unknown")
 		}
@@ -440,26 +440,26 @@ func (s *Service) protect(ctx context.Context, r *Result) error {
 
 // Overview returns the same retained facts in JSON text and structured content.
 // Independent list budgets reserve room for health and coverage in both copies.
-func (s *Service) Overview(ctx context.Context, args json.RawMessage) (connector.ToolResult, error) {
+func (s *Service) Overview(ctx context.Context, args json.RawMessage) (contracts.ToolResult, error) {
 	var input map[string]json.RawMessage
 	if len(bytes.TrimSpace(args)) == 0 || json.Unmarshal(args, &input) != nil || input == nil || len(input) != 0 {
-		return connector.ToolResult{}, errors.New("overview requires empty object")
+		return contracts.ToolResult{}, errors.New("overview requires empty object")
 	}
 	r, err := s.Build(ctx)
 	if err != nil {
-		return connector.ToolResult{}, err
+		return contracts.ToolResult{}, err
 	}
 	raw, err := json.Marshal(r)
 	if err != nil {
-		return connector.ToolResult{}, err
+		return contracts.ToolResult{}, err
 	}
-	result := connector.ToolResult{Content: []connector.TextContent{{Type: "text", Text: string(raw)}}, StructuredContent: raw}
+	result := contracts.ToolResult{Content: []contracts.TextContent{{Type: "text", Text: string(raw)}}, StructuredContent: raw}
 	encoded, err := json.Marshal(result)
 	if err != nil {
-		return connector.ToolResult{}, err
+		return contracts.ToolResult{}, err
 	}
-	if len(encoded) > connector.MaxResponseBytes-connector.MaxRequestBytes-1024 {
-		return connector.ToolResult{}, errors.New("overview exceeds response budget")
+	if len(encoded) > contracts.OverviewProjectionMaxBytes {
+		return contracts.ToolResult{}, errors.New("overview exceeds response budget")
 	}
 	return result, nil
 }

@@ -49,7 +49,7 @@ func TestAnalysisWindowAcceptsPlainLocalWindows(t *testing.T) {
 
 func TestAnalysisWindowFormsAreNamedToOwnerAndAgent(t *testing.T) {
 	s, _, _ := standardsGateFixture(t)
-	if _, err := s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"}); err != nil {
+	if _, err := fixtureDB(s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"}); err != nil {
 		t.Fatal(err)
 	}
 	description := ""

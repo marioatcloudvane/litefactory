@@ -6,6 +6,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factory"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/projectread"
@@ -29,5 +30,5 @@ func newStandardsAuthoringRunner(rt *repoRuntime, reads projectread.Session) *re
 			providers["codex"] = runner
 		}
 	}
-	return &response.Authoring{Model: &response.NativeModel{Config: rt.cfg, Paths: rt.paths, Providers: providers, Meter: rt.db}, Reads: reads}
+	return &response.Authoring{Model: &response.NativeModel{Config: rt.cfg, Paths: rt.paths, Providers: providers, Meter: factory.NewResponseMeter(rt.db)}, Reads: reads}
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/diskstatus"
+
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
@@ -113,11 +115,16 @@ func (db *DB) OverviewRepositories(ctx context.Context) ([]OverviewRepository, b
 func (db *DB) OverviewHealth(ctx context.Context) (HealthSnapshot, error) {
 	var h HealthSnapshot
 	var written string
+	var diskJSON []byte
 	var beat, resume sql.NullString
-	err := db.sql.QueryRowContext(ctx, `SELECT written_at,last_heartbeat_started_at,runs_in_flight,slots_used,slots_total,discovery_paused,CASE WHEN length(CAST(pause_reason AS BLOB))<=8192 THEN pause_reason ELSE 'pause_reason_omitted' END,expected_resume_at,CASE WHEN length(CAST(runs_held AS BLOB))<=8192 THEN runs_held ELSE 'dispatch_hold_detail_omitted' END FROM daemon_listener_status WHERE id=1`).Scan(&written, &beat, &h.Listener.RunsInFlight, &h.Listener.SlotsUsed, &h.Listener.SlotsTotal, &h.Listener.DiscoveryPaused, &h.Listener.PauseReason, &resume, &h.Listener.RunsHeld)
+	err := db.sql.QueryRowContext(ctx, `SELECT written_at,last_heartbeat_started_at,runs_in_flight,slots_used,slots_total,discovery_paused,CASE WHEN length(CAST(pause_reason AS BLOB))<=8192 THEN pause_reason ELSE 'pause_reason_omitted' END,expected_resume_at,CASE WHEN length(CAST(runs_held AS BLOB))<=8192 THEN runs_held ELSE 'dispatch_hold_detail_omitted' END,CASE WHEN length(CAST(disk_status AS BLOB))<=65536 THEN disk_status ELSE NULL END FROM daemon_listener_status WHERE id=1`).Scan(&written, &beat, &h.Listener.RunsInFlight, &h.Listener.SlotsUsed, &h.Listener.SlotsTotal, &h.Listener.DiscoveryPaused, &h.Listener.PauseReason, &resume, &h.Listener.RunsHeld, &diskJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return h, nil
 	}
+	if err != nil {
+		return h, err
+	}
+	h.Listener.Disk, err = diskstatus.Decode(diskJSON)
 	if err != nil {
 		return h, err
 	}

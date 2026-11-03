@@ -10,7 +10,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
-	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -107,9 +106,6 @@ type Options struct {
 	ResearchReporter *Reporter
 	// Judge is the shared isolated advisory service, enabled only by opted-in nodes.
 	Judge *JudgeService
-	// spikeRunCommand replaces the sandboxed recipe runner. It exists so a test can
-	// supply command results without a sandbox; production leaves it nil.
-	spikeRunCommand func(ctx context.Context, worktree string, command config.BugCheckCommand) bugchecks.CommandResult
 	// MCP is the optional startup-owned automatic tool runtime.
 	MCP *MCPRuntime
 	// ValidateAutoStart is the loaded validate.auto_start setting. It only changes

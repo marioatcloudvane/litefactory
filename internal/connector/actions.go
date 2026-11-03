@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
 	"strconv"
@@ -12,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/owneraction"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 var errActionUnclassified = errors.New("action is not classified")
@@ -188,13 +188,13 @@ func actionDescription(name string) string {
 }
 
 func (s *Server) callAction(ctx context.Context, credential, name string, a actionArguments) (ToolResult, error) {
-	grant, err := s.db.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
-	if err != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
-		return ToolResult{}, store.ErrConnectorInvalid
+	grant, err := s.storage.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
+	if err != nil || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
+		return ToolResult{}, connectorstate.ErrConnectorInvalid
 	}
 	actions := s.actions.Load()
 	if actions == nil || !actionGrant(grant) {
-		return ToolResult{}, store.ErrConnectorScope
+		return ToolResult{}, connectorstate.ErrConnectorScope
 	}
 	p := owneraction.Principal{OwnerID: strconv.FormatInt(grant.OwnerID, 10), OwnerGeneration: grant.OwnerGeneration, Transport: "mcp", ClientID: grant.ClientID, GrantID: grant.ID, ChannelID: a.DiscordChannelID}
 	var value any
@@ -251,8 +251,8 @@ func actionResult(value any) (ToolResult, error) {
 	return result, nil
 }
 
-func actionGrant(g store.ConnectorGrant) bool {
-	return store.ConnectorScopeHas(g.Scope, RepositoryActionsScope) || store.ConnectorScopeHas(g.Scope, StandardsManagementScope)
+func actionGrant(g connectorstate.ConnectorGrant) bool {
+	return connectorstate.ConnectorScopeHas(g.Scope, RepositoryActionsScope) || connectorstate.ConnectorScopeHas(g.Scope, StandardsManagementScope)
 }
 
 func actionFailure(err error) ToolResult {
@@ -266,9 +266,9 @@ func actionFailure(err error) ToolResult {
 		summary = "Request key already belongs to different action facts"
 	case errors.Is(err, errActionUnclassified):
 		summary = "Action is not classified or enabled"
-	case errors.Is(err, store.ErrConnectorScope):
+	case errors.Is(err, connectorstate.ErrConnectorScope):
 		summary = "Action scope or explicit selected-repository consent is missing"
-	case errors.Is(err, store.ErrConnectorInvalid), errors.Is(err, store.ErrConnectorOwner):
+	case errors.Is(err, connectorstate.ErrConnectorInvalid), errors.Is(err, connectorstate.ErrConnectorOwner):
 		summary = "Current owner, client or original grant is unauthorized"
 	}
 	return ToolResult{Content: []TextContent{{Type: "text", Text: summary}}, IsError: true}

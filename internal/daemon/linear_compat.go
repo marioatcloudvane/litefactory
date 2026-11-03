@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/cloudvane/litefactory/internal/factory/ticketbridge"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -29,60 +30,12 @@ func (d *Daemon) ticketLocator(ctx context.Context, a TicketIngress, origin tick
 	}
 	return ticket.Locator{Provider: id.Provider, Origin: id.Origin, Container: r.String(), Key: id.RemoteID}, nil
 }
-func (d *Daemon) legacySnapshot(ctx context.Context, s ticket.Snapshot) (github.Issue, error) {
-	if s.Ref.Identity.Provider == ticket.GitHub {
-		return legacyTicketSnapshot(s)
-	}
-	if s.Ref.Identity.Provider != ticket.Linear || s.Ref.Validate() != nil {
-		return github.Issue{}, store.ErrTicketIdentityConflict
-	}
-	slot, err := d.db.LocalTicketSlot(ctx, "issue", s.Ref.Identity)
-	if err != nil {
-		return github.Issue{}, err
-	}
-	author, err := d.legacyActor(ctx, s.Author)
-	if err != nil {
-		return github.Issue{}, err
-	}
-	copySnapshot := s
-	out := github.Issue{QualifiedSnapshot: &copySnapshot, ID: slot, Number: int(slot), Title: s.Title, Body: s.Body, State: s.State, StateReason: s.StateReason, Author: author, Labels: s.Labels, HTMLURL: s.BrowserURL, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt}
-	for _, a := range s.Assignees {
-		u, e := d.legacyActor(ctx, a)
-		if e != nil {
-			return github.Issue{}, e
-		}
-		out.Assignees = append(out.Assignees, u)
-	}
-	return out, nil
+func (d *Daemon) legacySnapshot(ctx context.Context, snapshot ticket.Snapshot) (github.Issue, error) {
+	return ticketbridge.New(d.db).Snapshot(ctx, snapshot)
 }
-func (d *Daemon) legacyActor(ctx context.Context, a ticket.Actor) (github.User, error) {
-	if a.Identity.RemoteID == "" {
-		return github.User{}, nil
-	}
-	slot, err := d.db.LocalTicketSlot(ctx, "actor", a.Identity)
-	return github.User{ID: slot, Login: a.Handle, IsBot: a.IsBot, IsHuman: !a.IsBot}, err
-}
-func (d *Daemon) legacyReply(ctx context.Context, r ticket.Reply) (github.Comment, error) {
-	slot, err := d.db.LocalTicketSlot(ctx, "comment", r.Identity)
-	if err != nil {
-		return github.Comment{}, err
-	}
-	author, err := d.legacyActor(ctx, r.Author)
-	if err != nil {
-		return github.Comment{}, err
-	}
-	var replyTo int64
-	if r.ReplyTo.RemoteID != "" {
-		if r.ReplyTo.Provider != r.Identity.Provider || r.ReplyTo.Origin != r.Identity.Origin {
-			return github.Comment{}, store.ErrTicketIdentityConflict
-		}
-		replyTo, err = d.db.LocalTicketSlot(ctx, "comment", r.ReplyTo)
-		if err != nil {
-			return github.Comment{}, err
-		}
-	}
-	copyReply := r
-	return github.Comment{ReplyToCommentID: replyTo, ID: slot, Author: author, Body: r.Body, HTMLURL: r.BrowserURL, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, QualifiedReply: &copyReply}, nil
+
+func (d *Daemon) legacyReply(ctx context.Context, reply ticket.Reply) (github.Comment, error) {
+	return ticketbridge.New(d.db).Reply(ctx, reply)
 }
 func (d *Daemon) bindingRef(ctx context.Context, a TicketIngress, origin ticket.Origin, r github.Repo, i github.Issue) (ticket.Ref, error) {
 	if ingressProvider(a) == ticket.GitHub {

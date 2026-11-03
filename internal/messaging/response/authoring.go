@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"sync"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -38,7 +39,7 @@ func (a *Authoring) Metadata() (string, string, string) {
 func (a *Authoring) Answer(ctx context.Context, call standards.AuthoringCall) ([]byte, error) {
 	m := a.Model
 	writer, ok := m.Meter.(interface {
-		StartAuthoringMeterAttempt(context.Context, string, string, string, string, string, string) (store.MeterAttempt, error)
+		StartAuthoringMeterAttempt(context.Context, string, string, string, string, string, string) (contracts.ResponseMeterAttempt, error)
 	})
 	if !ok || call.Session == "" {
 		return nil, errors.New("standards authoring: metered response-only provider unavailable")
@@ -58,7 +59,7 @@ func (a *Authoring) Answer(ctx context.Context, call standards.AuthoringCall) ([
 		}
 		defer func() { _ = stop() }()
 	}
-	raw, err := m.run(ctx, call.Prompt, launch, func(ctx context.Context, provider, model string) (store.MeterAttempt, error) {
+	raw, err := m.run(ctx, call.Prompt, launch, func(ctx context.Context, provider, model string) (contracts.ResponseMeterAttempt, error) {
 		// Like the attempt itself, the meter row is bookkeeping, not the
 		// conversation operation's effect; only the finished draft commits it.
 		attempt, err := writer.StartAuthoringMeterAttempt(store.WithoutStandardsConversationOperation(ctx), call.Session, provider, model, authoringPromptDigest(call.Prompt), call.Attempt, call.Token)

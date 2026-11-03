@@ -62,7 +62,7 @@ func runReasonerTurn(t *testing.T, run *factoryConversationRun) string {
 	if err := run.s.runFactoryConversation(t.Context(), run.c, run.b, run.t, run.at); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", run.at)
+	reply, err := fixtureDB(run.s).ClaimConversationReply(t.Context(), "discord", run.at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestConversationConsultRunsReasonerLookupsAndAnswerUsesIt(t *testing.T) {
 	if answerPrompt.Evidence == nil || answerPrompt.Evidence.Source != "factory:reasoner" || !answerPrompt.Evidence.Complete || !strings.Contains(answerPrompt.Evidence.Result, "Healthy per the health lookup") || !strings.Contains(answerPrompt.Evidence.Result, "health for factory") {
 		t.Fatalf("consult result not handed to the conversation model as evidence: %+v", answerPrompt.Evidence)
 	}
-	exchanges, err := run.s.db.ListConversationExchanges(t.Context(), run.t.ID)
+	exchanges, err := fixtureDB(run.s).ListConversationExchanges(t.Context(), run.t.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestConversationConsultRunsReasonerLookupsAndAnswerUsesIt(t *testing.T) {
 	if !slices.Contains(kinds, "consult") || !slices.Contains(kinds, "evidence") {
 		t.Fatalf("consult not journaled: %v", kinds)
 	}
-	meter := reasonerMeterRows(t, run.s.db)
+	meter := reasonerMeterRows(t, fixtureDB(run.s))
 	if len(meter) != 3 {
 		t.Fatalf("reasoner calls metered=%d, want 3", len(meter))
 	}
@@ -195,11 +195,11 @@ func TestConversationConsultFailureDegradesToAnswerWithGap(t *testing.T) {
 	if evidence == nil || evidence.Complete || evidence.Source != "factory:reasoner" || len(evidence.Gaps) != 1 || !strings.Contains(evidence.Gaps[0], "provider failed") {
 		t.Fatalf("failed consult not handed over as a gap: %+v", evidence)
 	}
-	c, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+	c, err := fixtureDB(run.s).ReadConversation(t.Context(), "discord", "2")
 	if err != nil || c.HealthReason != "" {
 		t.Fatalf("failed consult paused the conversation: %+v %v", c.HealthReason, err)
 	}
-	meter := reasonerMeterRows(t, run.s.db)
+	meter := reasonerMeterRows(t, fixtureDB(run.s))
 	if len(meter) != 1 {
 		t.Fatalf("failed reasoner call metered=%d, want 1", len(meter))
 	}
@@ -234,10 +234,10 @@ func TestConversationReasonerCannotProposeActions(t *testing.T) {
 	if evidence == nil || evidence.Complete || !strings.Contains(evidence.Gaps[0], "format check") {
 		t.Fatalf("rejected reasoner output not reported as a gap: %+v", evidence)
 	}
-	if _, err := run.s.db.ReadNaturalDialogue(t.Context(), run.s.transport, run.s.owner, run.c.ChannelRef); !errors.Is(err, store.ErrNotFound) {
+	if _, err := fixtureDB(run.s).ReadNaturalDialogue(t.Context(), run.s.transport, run.s.owner, run.c.ChannelRef); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("reasoner output created a pending action: %v", err)
 	}
-	exchanges, err := run.s.db.ListConversationExchanges(t.Context(), run.t.ID)
+	exchanges, err := fixtureDB(run.s).ListConversationExchanges(t.Context(), run.t.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

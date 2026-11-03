@@ -1,0 +1,2 @@
+Command: ['go', 'test', '-race', '-count=1', '-timeout=10m', './internal/discordcomponent']
+ok  	github.com/cloudvane/litefactory/internal/discordcomponent	12.963s

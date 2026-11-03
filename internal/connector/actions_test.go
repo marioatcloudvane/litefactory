@@ -70,15 +70,15 @@ func TestActionArgumentsPreserveClientCarriedIdentifiers(t *testing.T) {
 
 func TestActionConsentIsSeparateFromReadSelection(t *testing.T) {
 	form := url.Values{"repositories": {"all"}, "repository": {"github:owner/read"}}
-	if _, reason := consentActionCoverage(form); reason == "" {
+	if _, reason, _ := consentActionCoverage(form); reason == "" {
 		t.Fatal("read selection became action consent")
 	}
 	form["action_repository"] = []string{"github:owner/action"}
-	got, reason := consentActionCoverage(form)
+	got, reason, _ := consentActionCoverage(form)
 	if reason != "" || got.All || len(got.Repositories) != 1 || got.Repositories[0].RepositoryRef != "github:owner/action" {
 		t.Fatalf("action coverage: %+v %s", got, reason)
 	}
-	read, reason := consentCoverage(form, DiscussionScope)
+	read, reason, _ := consentCoverage(form, DiscussionScope)
 	if reason != "" || !read.All {
 		t.Fatalf("read coverage changed: %+v %s", read, reason)
 	}

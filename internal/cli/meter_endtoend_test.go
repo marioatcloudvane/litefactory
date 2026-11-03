@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"os"
@@ -228,7 +229,7 @@ func TestMeterEndToEndFrozenPricingDuringSlowExport(t *testing.T) {
 	writer := &meterBufferedGate{entered: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan error, 1)
 	go func() {
-		done <- writeMeter(t.Context(), writer, f.db, store.MeterFilter{RepoID: repo.ID}, meterOptions{}, true)
+		done <- writeMeter(t.Context(), writer, f.db, contracts.UsageFilter(store.MeterFilter{RepoID: repo.ID}), meterOptions{}, true)
 	}()
 	select {
 	case <-writer.entered:
@@ -316,7 +317,7 @@ func TestMeterEndToEndCancelledSlowExportCleanup(t *testing.T) {
 	writer := &meterBufferedGate{entered: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan error, 1)
 	go func() {
-		done <- writeMeter(ctx, writer, f.db, store.MeterFilter{RepoID: repo.ID}, meterOptions{}, true)
+		done <- writeMeter(ctx, writer, f.db, contracts.UsageFilter(store.MeterFilter{RepoID: repo.ID}), meterOptions{}, true)
 	}()
 	select {
 	case <-writer.entered:

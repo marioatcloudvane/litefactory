@@ -43,6 +43,24 @@ func postConsent(t *testing.T, j browserJourney, csrf string, cookie *http.Cooki
 	return connectorForm(t, j.handler, j.fixture.issuer+"/oauth/consent", values, nil, cookie).Code
 }
 
+// lastConsentAudit returns the reason and detail of the newest "connector
+// outcome" line, which after a consent post is that post's audit line.
+func lastConsentAudit(t *testing.T, f *connectorFixture) (string, string) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(f.logs.String()), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		var line struct{ Msg, Reason, Detail string }
+		if err := json.Unmarshal([]byte(lines[i]), &line); err != nil {
+			t.Fatalf("log line %q: %v", lines[i], err)
+		}
+		if line.Msg == "connector outcome" {
+			return line.Reason, line.Detail
+		}
+	}
+	t.Fatalf("no connector outcome in %s", f.logs.String())
+	return "", ""
+}
+
 func TestConsentPageOffersScopesAndDurationsAndAllowsOnlyItsOwnInlineAssets(t *testing.T) {
 	t.Parallel()
 	_, result, _, _ := verifiedConsent(t)
@@ -102,6 +120,9 @@ func TestConsentRefusesAllowWithoutAValidScope(t *testing.T) {
 		}
 		if code := postConsent(t, j, csrf, cookie, extra); code != http.StatusBadRequest {
 			t.Errorf("%s: HTTP %d", name, code)
+		}
+		if reason, detail := lastConsentAudit(t, j.fixture); reason != "consent:invalid_scope" || detail != "no_scope" {
+			t.Errorf("%s: audit reason %q detail %q", name, reason, detail)
 		}
 	}
 	browserNoGrants(t, j.fixture)
@@ -236,15 +257,23 @@ func TestOwnerGrantsKnownScopeTheClientDidNotRequest(t *testing.T) {
 func TestConsentSelectionsRequiredOnlyWhenTicked(t *testing.T) {
 	t.Parallel()
 	j, _, csrf, cookie := verifiedConsent(t)
-	for name, extra := range map[string]url.Values{
-		"repository usage without repository": {"scope": {Scope, RepositoryUsageScope}},
-		"task usage without repository":       {"scope": {TaskUsageScope}},
-		"discussion without repository":       {"scope": {DiscussionScope}},
-		"code review without discussion":      {"scope": {CodeReviewScope}, "repositories": {"all"}},
+	for name, tc := range map[string]struct {
+		form           url.Values
+		reason, detail string
+	}{
+		"repository usage without repository":  {url.Values{"scope": {Scope, RepositoryUsageScope}}, "consent:invalid_request", "repositories_missing"},
+		"task usage without repository":        {url.Values{"scope": {TaskUsageScope}}, "consent:invalid_request", "repositories_missing"},
+		"discussion without repository":        {url.Values{"scope": {DiscussionScope}}, "consent:invalid_request", "repositories_missing"},
+		"code review without discussion":       {url.Values{"scope": {CodeReviewScope}, "repositories": {"all"}}, "consent:invalid_scope", "code_review_needs_discussion"},
+		"actions without action repository":    {url.Values{"scope": {RepositoryActionsScope}, "repositories": {"all"}}, "consent:invalid_request", "action_repositories_missing"},
+		"actions with empty action repository": {url.Values{"scope": {RepositoryActionsScope}, "action_repository": {""}}, "consent:invalid_request", "action_repository_invalid"},
 	} {
-		extra.Set("duration", "1")
-		if code := postConsent(t, j, csrf, cookie, extra); code != http.StatusBadRequest {
+		tc.form.Set("duration", "1")
+		if code := postConsent(t, j, csrf, cookie, tc.form); code != http.StatusBadRequest {
 			t.Errorf("%s: HTTP %d", name, code)
+		}
+		if reason, detail := lastConsentAudit(t, j.fixture); reason != tc.reason || detail != tc.detail {
+			t.Errorf("%s: audit reason %q detail %q, want %q %q", name, reason, detail, tc.reason, tc.detail)
 		}
 	}
 	browserNoGrants(t, j.fixture)
@@ -297,6 +326,13 @@ func TestConsentRefusesOtherDurations(t *testing.T) {
 		}
 		if code := postConsent(t, j, csrf, cookie, extra); code != http.StatusBadRequest {
 			t.Errorf("duration %q: HTTP %d", duration, code)
+		}
+		want := "duration_invalid"
+		if duration == "" {
+			want = "duration_missing"
+		}
+		if reason, detail := lastConsentAudit(t, j.fixture); reason != "consent:invalid_request" || detail != want {
+			t.Errorf("duration %q: audit reason %q detail %q, want %q", duration, reason, detail, want)
 		}
 	}
 	browserNoGrants(t, j.fixture)

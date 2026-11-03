@@ -1,0 +1,19 @@
+{
+  "command": [
+    "go",
+    "vet",
+    "./..."
+  ],
+  "base_head": "95e970f0ca06b40dd04d8aff459ff4c0f9e9715d",
+  "source_manifest_sha256": "27af277f9ab903086ca34bdb6fab39b27cac236aa7b4bdd6313176748c2d9810",
+  "started_at": "2026-11-03T15:08:25.316820+00:00",
+  "timeout_seconds": 660,
+  "go_version": "go version go1.27.0 darwin/arm64",
+  "environment": {
+    "GOFLAGS": "-trimpath",
+    "GOLANGCI_LINT_CACHE": "isolated temporary cache"
+  },
+  "exit_code": 0,
+  "finished_at": "2026-11-03T15:08:49.445033+00:00",
+  "log_sha256": "ec6d309f6d8adfe223c8d2ae440215c8d39a5e2bbc5dc46b382233d12bb6ff76"
+}

@@ -3,6 +3,7 @@ package discord
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // capabilityTTL is how long a passed capability check stands. Message reads
@@ -59,7 +59,12 @@ func (e *IntakeFailure) Kind() string {
 
 // CheckIntakeCapability verifies Message Content and current channel history
 // access. A passed check stands for capabilityTTL per channel.
-func (a *Adapter) CheckIntakeCapability(ctx context.Context, channel string) error {
+func (a *Adapter) CheckIntakeCapability(ctx context.Context, channel string) (failure error) {
+	defer func() {
+		if failure != nil {
+			a.intakeDiagnostic("capability", channel, "", "capability_check_failed")
+		}
+	}()
 	if !numeric(channel) {
 		return &IntakeFailure{Capability: true}
 	}
@@ -76,6 +81,7 @@ func (a *Adapter) CheckIntakeCapability(ctx context.Context, channel string) err
 		return err
 	}
 	if app.Flags&((1<<18)|(1<<19)) == 0 {
+		a.intakeDiagnostic("capability", channel, "", "message_content_intent_missing")
 		return &IntakeFailure{Capability: true}
 	}
 	// A successful history read proves current visibility and message-history access.
@@ -90,9 +96,15 @@ func (a *Adapter) CheckIntakeCapability(ctx context.Context, channel string) err
 }
 
 // ReadIntakePage returns ordered identities and only eligible owner content.
-func (a *Adapter) ReadIntakePage(ctx context.Context, channel, owner, before string) (messaging.IntakePage, error) {
+func (a *Adapter) ReadIntakePage(ctx context.Context, channel, owner, before string) (page messaging.IntakePage, failure error) {
+	defer func() {
+		if failure != nil {
+			a.intakeDiagnostic("rest_read", channel, "", "read_failed")
+		}
+	}()
 	var result messaging.IntakePage
 	if !numeric(channel) || !numeric(owner) || (before != "" && !numeric(before)) {
+		a.intakeDiagnostic("rest_read", channel, "", "malformed_identity")
 		return result, &IntakeFailure{Capability: true}
 	}
 	path := "/channels/" + channel + "/messages?limit=100"
@@ -127,6 +139,7 @@ func (a *Adapter) ReadIntakePage(ctx context.Context, channel, owner, before str
 	for index, m := range messages {
 		id, err := parseIntakeSnowflake(m.ID)
 		if err != nil || id == 0 || strconv.FormatUint(id, 10) != m.ID || (index > 0 && id >= previous) {
+			a.intakeDiagnostic("rest_filter", channel, m.ID, "malformed_identity_or_order")
 			return messaging.IntakePage{}, &IntakeFailure{}
 		}
 		previous = id
@@ -134,20 +147,37 @@ func (a *Adapter) ReadIntakePage(ctx context.Context, channel, owner, before str
 			result.HighID = m.ID
 		}
 		result.LowID = m.ID
-		if m.Channel != channel || m.Author.ID != owner || m.Author.Bot || m.Webhook != "" || (m.Type != 0 && m.Type != 19) || len(m.Snapshots) > 0 {
-			continue
+		reason := "eligible"
+		switch {
+		case m.Channel != channel:
+			reason = "wrong_channel"
+		case m.Author.ID != owner:
+			reason = "wrong_owner"
+		case m.Author.Bot:
+			reason = "bot"
+		case m.Webhook != "":
+			reason = "webhook"
+		case m.Type != 0 && m.Type != 19:
+			reason = "unsupported_form"
+		case len(m.Snapshots) > 0:
+			reason = "forwarded_form"
+		case m.Content == "":
+			reason = "empty_content"
 		}
-		if m.Content == "" {
+		if reason != "eligible" {
+			a.intakeDiagnostic("rest_filter", m.Channel, m.ID, reason)
 			continue
 		}
 		if len(m.Content) > 8192 {
+			a.intakeDiagnostic("rest_filter", channel, m.ID, "content_too_large")
 			return messaging.IntakePage{}, &IntakeFailure{}
 		}
+		a.intakeDiagnostic("rest_filter", m.Channel, m.ID, "eligible")
 		reply := ""
 		if m.Reference.Channel == channel && numeric(m.Reference.Message) {
 			reply = m.Reference.Message
 		}
-		result.Messages = append(result.Messages, store.NaturalMessage{Transport: "discord", ChannelRef: channel, SourceID: m.ID, OwnerID: owner, ReplyTo: reply, Text: m.Content, CreatedAt: m.Timestamp})
+		result.Messages = append(result.Messages, messagingstate.NaturalMessage{Transport: "discord", ChannelRef: channel, SourceID: m.ID, OwnerID: owner, ReplyTo: reply, Text: m.Content, CreatedAt: m.Timestamp})
 	}
 	return result, nil
 }
@@ -236,4 +266,20 @@ func (a *Adapter) limitRead(path string, res *http.Response, raw []byte) (time.D
 }
 func parseIntakeSnowflake(value string) (uint64, error) {
 	return strconv.ParseUint(value, 10, 64)
+}
+
+// intakeDiagnostic accepts only fixed categories and validated, bounded identities.
+// Receipt and eligibility here do not imply durable admission.
+func (a *Adapter) intakeDiagnostic(stage, channel, source, reason string) {
+	if a.options.Logger == nil {
+		return
+	}
+	fields := []any{"transport", "discord", "stage", stage, "reason", reason}
+	if n, err := parseIntakeSnowflake(channel); err == nil && n > 0 && strconv.FormatUint(n, 10) == channel {
+		fields = append(fields, "channel_id", channel)
+	}
+	if n, err := parseIntakeSnowflake(source); err == nil && n > 0 && strconv.FormatUint(n, 10) == source {
+		fields = append(fields, "source_id", source)
+	}
+	a.options.Logger.Info("Discord intake", fields...)
 }

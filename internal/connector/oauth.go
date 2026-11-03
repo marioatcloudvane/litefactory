@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"mime"
 	"net/http"
@@ -36,6 +37,9 @@ type oauthResponse struct {
 	// code is the OAuth error code a refusal sent, so the audit line can name
 	// which check refused (it never carries credentials).
 	code string
+	// detail is the fixed short code of a consent refusal, such as
+	// "duration_missing", so the audit line names which check failed.
+	detail string
 }
 
 func (w *oauthResponse) WriteHeader(status int) {
@@ -81,7 +85,11 @@ func (s *Server) authorizationHandler(handler http.HandlerFunc) http.HandlerFunc
 				reason = "token_revoked"
 			}
 		}
-		s.audit(r, "authorization", outcome, reason, "unavailable", start)
+		detail := ""
+		if outcome == "refusal" {
+			detail = response.detail
+		}
+		s.auditDetail(r, "authorization", outcome, reason, detail, "unavailable", start)
 	}
 }
 
@@ -152,7 +160,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
-	client := store.ConnectorClient{ID: id, Name: input.ClientName, AuthMethod: input.AuthMethod, Redirects: input.RedirectURIs, CreatedAt: s.now(), ExpiresAt: s.now().Add(24 * time.Hour)}
+	client := connectorstate.ConnectorClient{ID: id, Name: input.ClientName, AuthMethod: input.AuthMethod, Redirects: input.RedirectURIs, CreatedAt: s.now(), ExpiresAt: s.now().Add(24 * time.Hour)}
 	secret := ""
 	if input.AuthMethod != "none" {
 		secret, err = randomCredential()
@@ -162,7 +170,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		}
 		client.SecretDigest = digest(secret)
 	}
-	if err := s.db.RegisterConnectorClient(r.Context(), client, s.now()); err != nil {
+	if err := s.storage.RegisterConnectorClient(r.Context(), client, s.now()); err != nil {
 		storeOAuthError(w, err)
 		return
 	}
@@ -230,30 +238,30 @@ func validAuthMethod(method string) bool {
 	return method == "none" || method == "client_secret_basic" || method == "client_secret_post"
 }
 
-func (s *Server) authenticateClient(w http.ResponseWriter, r *http.Request, form url.Values) (store.ConnectorClient, bool) {
+func (s *Server) authenticateClient(w http.ResponseWriter, r *http.Request, form url.Values) (connectorstate.ConnectorClient, bool) {
 	id, secret, method := form.Get("client_id"), form.Get("client_secret"), "none"
 	basic := len(r.Header.Values("Authorization")) != 0
 	if basic {
 		if len(r.Header.Values("Authorization")) != 1 || id != "" || secret != "" {
 			invalidClient(w, true)
-			return store.ConnectorClient{}, false
+			return connectorstate.ConnectorClient{}, false
 		}
 		var ok bool
 		id, secret, ok = r.BasicAuth()
 		if !ok {
 			invalidClient(w, true)
-			return store.ConnectorClient{}, false
+			return connectorstate.ConnectorClient{}, false
 		}
 		var err error
 		id, err = url.QueryUnescape(id)
 		if err != nil {
 			invalidClient(w, true)
-			return store.ConnectorClient{}, false
+			return connectorstate.ConnectorClient{}, false
 		}
 		secret, err = url.QueryUnescape(secret)
 		if err != nil {
 			invalidClient(w, true)
-			return store.ConnectorClient{}, false
+			return connectorstate.ConnectorClient{}, false
 		}
 		method = "client_secret_basic"
 	} else if _, supplied := form["client_secret"]; supplied {
@@ -261,20 +269,20 @@ func (s *Server) authenticateClient(w http.ResponseWriter, r *http.Request, form
 	}
 	if id == "" || len(id) > 128 || len(secret) > 256 {
 		invalidClient(w, basic)
-		return store.ConnectorClient{}, false
+		return connectorstate.ConnectorClient{}, false
 	}
-	client, err := s.db.GetConnectorClient(r.Context(), id, s.now())
+	client, err := s.storage.GetConnectorClient(r.Context(), id, s.now())
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrConnectorInvalid) {
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, connectorstate.ErrConnectorInvalid) {
 			invalidClient(w, basic)
 		} else {
 			storeOAuthError(w, err)
 		}
-		return store.ConnectorClient{}, false
+		return connectorstate.ConnectorClient{}, false
 	}
 	if client.AuthMethod != method || (method != "none" && (secret == "" || subtle.ConstantTimeCompare([]byte(client.SecretDigest), []byte(digest(secret))) != 1)) {
 		invalidClient(w, basic)
-		return store.ConnectorClient{}, false
+		return connectorstate.ConnectorClient{}, false
 	}
 	return client, true
 }
@@ -326,8 +334,8 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	x := store.ConnectorExchange{ClientID: client.ID, Resource: s.cfg.ResourceURL, Scope: requestedScope, OwnerID: s.cfg.OwnerID, Now: now, Pair: store.ConnectorTokenPair{AccessDigest: digest(access), RefreshDigest: digest(refresh), AccessExpiresAt: now.Add(15 * time.Minute)}}
-	var grant store.ConnectorGrant
+	x := connectorstate.ConnectorExchange{ClientID: client.ID, Resource: s.cfg.ResourceURL, Scope: requestedScope, OwnerID: s.cfg.OwnerID, Now: now, Pair: connectorstate.ConnectorTokenPair{AccessDigest: digest(access), RefreshDigest: digest(refresh), AccessExpiresAt: now.Add(15 * time.Minute)}}
+	var grant connectorstate.ConnectorGrant
 	switch form.Get("grant_type") {
 	case "authorization_code":
 		if form.Get("refresh_token") != "" || form.Get("code") == "" || len(form.Get("code")) > 256 || !validVerifier(form.Get("code_verifier")) {
@@ -335,14 +343,14 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		x.Digest, x.RedirectURI, x.PKCEChallenge = digest(form.Get("code")), form.Get("redirect_uri"), digest(form.Get("code_verifier"))
-		grant, err = s.db.ExchangeConnectorCode(r.Context(), x)
+		grant, err = s.storage.ExchangeConnectorCode(r.Context(), x)
 	case "refresh_token":
 		if form.Get("code") != "" || form.Get("code_verifier") != "" || form.Get("redirect_uri") != "" || form.Get("refresh_token") == "" || len(form.Get("refresh_token")) > 256 {
 			oauthError(w, http.StatusBadRequest, "invalid_grant")
 			return
 		}
 		x.Digest = digest(form.Get("refresh_token"))
-		grant, err = s.db.RotateConnectorRefresh(r.Context(), x)
+		grant, err = s.storage.RotateConnectorRefresh(r.Context(), x)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type")
 		return
@@ -388,7 +396,7 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	if err := s.db.RevokeConnectorToken(r.Context(), client.ID, digest(form.Get("token")), s.now()); err != nil {
+	if err := s.storage.RevokeConnectorToken(r.Context(), client.ID, digest(form.Get("token")), s.now()); err != nil {
 		storeOAuthError(w, err)
 		return
 	}
@@ -454,9 +462,9 @@ func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
 
 func storeOAuthError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, store.ErrConnectorInvalid), errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, connectorstate.ErrConnectorInvalid), errors.Is(err, store.ErrNotFound):
 		oauthError(w, http.StatusBadRequest, "invalid_grant")
-	case errors.Is(err, store.ErrConnectorCapacity):
+	case errors.Is(err, connectorstate.ErrConnectorCapacity):
 		w.Header().Set("Retry-After", "60")
 		oauthError(w, http.StatusTooManyRequests, "temporarily_unavailable")
 	default:

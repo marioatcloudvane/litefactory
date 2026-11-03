@@ -5,12 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
-	"os"
 
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/git"
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localteams"
 	"github.com/cloudvane/litefactory/internal/teampackage"
 )
 
@@ -35,112 +33,43 @@ func newTeamBindingCommand(operation string) *Command {
 	return cmd
 }
 
-// openTeamBindingDB requires an existing ordinary database and no daemon,
-// configuration, credentials or network. Migration failures fail closed.
-func openTeamBindingDB(ctx context.Context, paths config.Paths) (*store.DB, error) {
-	info, err := os.Lstat(paths.DBPath())
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, errors.New("repository database is not an ordinary file")
-	}
-	db, err := store.Open(ctx, paths.DBPath())
-	if err != nil {
-		return nil, err
-	}
-	if err = db.Migrate(ctx); err != nil {
-		return nil, errors.Join(err, db.Close())
-	}
-	return db, nil
-}
-
+// teamRemovalGuard is a compatibility binding for existing local composition.
+// The factory service owns the removal fence and its persistence access.
 func teamRemovalGuard(paths config.Paths) func(context.Context, teampackage.Identity) ([]string, error) {
-	return func(ctx context.Context, id teampackage.Identity) (uses []string, err error) {
-		db, err := openTeamBindingDB(ctx, paths)
-		if errors.Is(err, fs.ErrNotExist) {
-			// Only a genuinely absent database means no bindings. An existing broken
-			// database must not be mistaken for an uninitialized installation.
-			if _, statErr := os.Lstat(paths.DBPath()); errors.Is(statErr, fs.ErrNotExist) {
-				return nil, nil
-			}
-		}
-		if err != nil {
-			return nil, err
-		}
-		defer func() { err = errors.Join(err, db.Close()) }()
-		return db.RepositoryTeamUses(ctx, id.Source, id.Slug, id.Version)
-	}
+	return localteams.RemovalGuard(paths)
 }
 
-func runTeamBinding(ctx context.Context, env *Env, operation, repoPath, source string, args []string) (err error) {
-	paths, err := config.Locate()
+func runTeamBinding(ctx context.Context, env *Env, operation, repoPath, source string, args []string) error {
+	service, err := localteams.New(localteams.Options{Transport: env.TeamTransport})
 	if err != nil {
 		return err
 	}
-	if repoPath == "" {
-		repoPath, err = os.Getwd()
-		if err != nil {
+	request := contracts.TeamBindingRequest{RepoPath: repoPath, Source: source}
+	present := func(result contracts.TeamBindingView) error {
+		if result.Unlinked {
+			if !result.Changed {
+				_, err := fmt.Fprintf(env.Stdout, "Repository %s is already unlinked (built-in workflows)\n", result.RepoPath)
+				return err
+			}
+			_, err := fmt.Fprintf(env.Stdout, "Unlinked repository %s from %s %s from %s (built-in workflows)\n", result.RepoPath, result.Slug, result.Version, result.Source)
 			return err
 		}
-	}
-	binary, err := git.Resolve(ctx)
-	if err != nil {
-		return err
-	}
-	clone, err := binary.Open(ctx, repoPath)
-	if err != nil {
-		return err
-	}
-	db, err := openTeamBindingDB(ctx, paths)
-	if errors.Is(err, fs.ErrNotExist) {
-		return Preconditionf("repository %s is not registered; use `litefactory repo add %s`", clone.Path(), clone.Path())
-	}
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, db.Close()) }()
-	repo, err := db.GetRepoByPath(ctx, clone.Path())
-	if errors.Is(err, store.ErrNotFound) {
-		return Preconditionf("repository %s is not registered; use `litefactory repo add %s`", clone.Path(), clone.Path())
-	}
-	if err != nil {
-		return err
-	}
-	manager, err := teampackage.New(teampackage.Options{Paths: paths, Validate: validateTeamPackage, Transport: env.TeamTransport, InUse: teamRemovalGuard(paths)})
-	if err != nil {
-		return err
-	}
-	return manager.WithCatalogue(ctx, func(access *teampackage.CatalogueAccess) error {
-		if operation == "unlink" {
-			prior, changed, err := db.DeleteRepositoryTeamBinding(ctx, repo.ID)
-			if err != nil {
-				return err
-			}
-			if !changed {
-				_, err = fmt.Fprintf(env.Stdout, "Repository %s is already unlinked (built-in workflows)\n", repo.Path)
-				return err
-			}
-			_, err = fmt.Fprintf(env.Stdout, "Unlinked repository %s from %s %s from %s (built-in workflows)\n", repo.Path, prior.Slug, prior.Version, prior.Source)
-			return err
+		status := "Linked"
+		if !result.Changed {
+			status = "Already linked"
 		}
-		return access.WithSelected(ctx, source, args[0], args[1], func(entry teampackage.Installed, _ fs.FS) error {
-			id := entry.Identity
-			binding := store.RepositoryTeamBinding{RepoID: repo.ID, Source: id.Source, Slug: id.Slug, Version: id.Version, Kind: "fetched", ReleaseDigest: id.Digest}
-			if entry.Editable {
-				binding.Kind = "local"
-				binding.ReleaseDigest = ""
-			}
-			changed, err := db.ReplaceRepositoryTeamBinding(ctx, binding)
-			if err != nil {
-				return err
-			}
-			status := "Linked"
-			if !changed {
-				status = "Already linked"
-			}
-			_, err = fmt.Fprintf(env.Stdout, "%s repository %s to %s %s from %s\n", status, repo.Path, id.Slug, id.Version, id.Source)
-			return err
-		})
-	})
+		_, err := fmt.Fprintf(env.Stdout, "%s repository %s to %s %s from %s\n", status, result.RepoPath, result.Slug, result.Version, result.Source)
+		return err
+	}
+	if operation == "unlink" {
+		err = service.Unlink(ctx, request, present)
+	} else {
+		request.Slug, request.Version = args[0], args[1]
+		err = service.Link(ctx, request, present)
+	}
+	var unavailable *contracts.TeamRepositoryUnavailable
+	if errors.As(err, &unavailable) {
+		return Precondition(err)
+	}
+	return err
 }

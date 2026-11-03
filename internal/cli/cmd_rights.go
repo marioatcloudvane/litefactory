@@ -12,11 +12,12 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localrights"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/rights"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 // The rights commands are local and owner-only: machine access implies the
@@ -46,7 +47,7 @@ func newRightsCatalogueCommand() *Command {
 			o.bindRepo(fs)
 			return func(ctx context.Context, env *Env, _ []string) error {
 				return withRights(ctx, env, &o, false, func(rc *rightsContext) error {
-					entries, err := rc.svc.Entries(ctx, rc.repo.ID)
+					entries, err := rc.svc.Entries(ctx)
 					if err != nil {
 						return err
 					}
@@ -73,7 +74,7 @@ func newRightsListCommand() *Command {
 			fs.BoolVar(&o.all, "all", false, "include revoked grants")
 			return func(ctx context.Context, env *Env, _ []string) error {
 				return withRights(ctx, env, &o, false, func(rc *rightsContext) error {
-					grants, err := rc.svc.ListGrants(ctx, rc.repo.ID, !o.all)
+					grants, err := rc.svc.ListGrants(ctx, !o.all)
 					if err != nil {
 						return err
 					}
@@ -110,14 +111,14 @@ func newRightsGrantCommand() *Command {
 					if err != nil {
 						return err
 					}
-					g, err := rc.svc.Grant(ctx, rights.GrantInput{RepoID: rc.repo.ID, SubjectID: user.ID, SubjectLogin: user.Login, Workflow: o.workflow, Stage: o.stage, Action: o.action, TaskRef: rc.taskRef(o.task), ExpiresAt: expiry})
+					g, err := rc.svc.Grant(ctx, contracts.GrantRightRequest{SubjectID: user.ID, SubjectLogin: user.Login, Workflow: o.workflow, Stage: o.stage, Action: o.action, TaskRef: o.task, ExpiresAt: expiry})
 					if err != nil {
 						return rightsError(err)
 					}
 					if o.json {
 						return writeJSON(env, g)
 					}
-					return writeGrants(env, []store.RightsGrant{g})
+					return writeGrants(env, []contracts.RightsGrantView{g})
 				})
 			}
 		}}
@@ -135,14 +136,14 @@ func newRightsRevokeCommand() *Command {
 					return err
 				}
 				return withRights(ctx, env, &o, false, func(rc *rightsContext) error {
-					g, err := rc.svc.Revoke(ctx, rc.repo.ID, id)
+					g, err := rc.svc.Revoke(ctx, id)
 					if err != nil {
 						return rightsError(err)
 					}
 					if o.json {
 						return writeJSON(env, g)
 					}
-					return writeGrants(env, []store.RightsGrant{g})
+					return writeGrants(env, []contracts.RightsGrantView{g})
 				})
 			}
 		}}
@@ -164,7 +165,7 @@ func newRightsHistoryCommand() *Command {
 			o.bindRepo(fs)
 			return func(ctx context.Context, env *Env, _ []string) error {
 				return withRights(ctx, env, &o, false, func(rc *rightsContext) error {
-					rows, err := rc.svc.History(ctx, rc.repo.ID)
+					rows, err := rc.svc.History(ctx)
 					if err != nil {
 						return err
 					}
@@ -203,20 +204,15 @@ func newReviewerAssignCommand() *Command {
 					if err != nil {
 						return err
 					}
-					in := rights.AssignInput{RepoID: rc.repo.ID, TaskRef: rc.taskRef(o.task), Workflow: o.workflow, Stage: o.stage, ReviewerID: user.ID, ReviewerLogin: user.Login}
-					var a store.ReviewerAssignment
-					if o.replace {
-						a, err = rc.svc.Replace(ctx, in)
-					} else {
-						a, err = rc.svc.Assign(ctx, in)
-					}
+					in := contracts.AssignReviewerRequest{TaskRef: o.task, Workflow: o.workflow, Stage: o.stage, ReviewerID: user.ID, ReviewerLogin: user.Login, Replace: o.replace}
+					a, err := rc.svc.Assign(ctx, in)
 					if err != nil {
 						return rightsError(err)
 					}
 					if o.json {
 						return writeJSON(env, a)
 					}
-					return writeAssignments(env, []store.ReviewerAssignment{a})
+					return writeAssignments(env, []contracts.ReviewerView{a})
 				})
 			}
 		}}
@@ -234,14 +230,14 @@ func newReviewerRemoveCommand() *Command {
 					return err
 				}
 				return withRights(ctx, env, &o, false, func(rc *rightsContext) error {
-					a, err := rc.svc.Remove(ctx, rc.repo.ID, id)
+					a, err := rc.svc.Remove(ctx, id)
 					if err != nil {
 						return rightsError(err)
 					}
 					if o.json {
 						return writeJSON(env, a)
 					}
-					return writeAssignments(env, []store.ReviewerAssignment{a})
+					return writeAssignments(env, []contracts.ReviewerView{a})
 				})
 			}
 		}}
@@ -257,7 +253,7 @@ func newReviewerListCommand() *Command {
 			fs.BoolVar(&o.all, "all", false, "include removed assignments")
 			return func(ctx context.Context, env *Env, _ []string) error {
 				return withRights(ctx, env, &o, false, func(rc *rightsContext) error {
-					rows, err := rc.svc.ListReviewers(ctx, rc.repo.ID, rc.taskRef(o.task), !o.all)
+					rows, err := rc.svc.ListReviewers(ctx, o.task, !o.all)
 					if err != nil {
 						return err
 					}
@@ -271,20 +267,8 @@ func newReviewerListCommand() *Command {
 }
 
 type rightsContext struct {
-	svc    *rights.Service
-	repo   store.Repo
+	svc    *localrights.Repository
 	lookup func(ctx context.Context, login string) (github.User, error)
-}
-
-// taskRef turns a bare issue number into the canonical task reference.
-func (rc *rightsContext) taskRef(task string) string {
-	task = strings.TrimPrefix(task, "#")
-	if task != "" {
-		if _, err := strconv.Atoi(task); err == nil {
-			return fmt.Sprintf("%s:%s/%s#%s", rc.repo.Forge, rc.repo.Owner, rc.repo.Name, task)
-		}
-	}
-	return task
 }
 
 // withRights opens the store, resolves the repository and the owner, and runs
@@ -299,16 +283,13 @@ func withRights(ctx context.Context, env *Env, o *rightsFlags, needLookup bool, 
 		return err
 	}
 	defer func() { err = errors.Join(err, rt.close()) }()
-	repo, err := rt.db.GetRepoBySlug(ctx, store.ForgeGitHub, owner, name)
-	if errors.Is(err, store.ErrNotFound) {
-		return Preconditionf("repository %s is not registered", o.repo)
-	}
+	scope, err := localrights.OpenRepository(ctx, rt.db, owner, name)
 	if err != nil {
+		var unavailable *contracts.LocalRightsUnavailable
+		if errors.As(err, &unavailable) {
+			return Precondition(unavailable.Err)
+		}
 		return err
-	}
-	ids, err := turn.LoadIdentities(ctx, rt.db, store.ForgeGitHub)
-	if err != nil {
-		return Preconditionf("configured numeric owner identity required: %v", err)
 	}
 	resolve, err := daemon.RepositoryWorkflowSource(rt.paths, rt.db)
 	if err != nil {
@@ -318,7 +299,8 @@ func withRights(ctx context.Context, env *Env, o *rightsFlags, needLookup bool, 
 	if env.RightsCatalogue != nil {
 		source = env.RightsCatalogue
 	}
-	rc := &rightsContext{repo: repo, svc: &rights.Service{Store: rt.db, Catalogue: source, OwnerID: ids.OwnerUserID}}
+	scope.SetCatalogue(source)
+	rc := &rightsContext{svc: scope}
 	rc.lookup = env.LookupUser
 	if needLookup && rc.lookup == nil {
 		reference, configured := secrets.ReferenceFrom(rt.cfg.Providers.GitHub.TokenKeychain.Service, rt.cfg.Providers.GitHub.TokenKeychain.Account, rt.cfg.Providers.GitHub.TokenEnv)
@@ -368,7 +350,7 @@ func writeJSON(env *Env, v any) error {
 	return enc.Encode(v)
 }
 
-func writeGrants(env *Env, grants []store.RightsGrant) error {
+func writeGrants(env *Env, grants []contracts.RightsGrantView) error {
 	tw := tabwriter.NewWriter(env.Stdout, 0, 4, 2, ' ', 0)
 	for _, g := range grants {
 		state := "active"
@@ -387,7 +369,7 @@ func writeGrants(env *Env, grants []store.RightsGrant) error {
 	return tw.Flush()
 }
 
-func writeAssignments(env *Env, rows []store.ReviewerAssignment) error {
+func writeAssignments(env *Env, rows []contracts.ReviewerView) error {
 	tw := tabwriter.NewWriter(env.Stdout, 0, 4, 2, ' ', 0)
 	for _, a := range rows {
 		state := "open"

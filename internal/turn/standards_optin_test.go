@@ -292,3 +292,98 @@ func TestStandardsGrantFollowsPinnedNode(t *testing.T) {
 		}
 	}
 }
+
+// #1366: a granted role on a Linear task reads the published book through the
+// real broker, the first read pins that book for `standards run`, and the
+// family ledger confirms the call once even when the request is replayed.
+func TestGrantedRoleOnLinearTaskReadsPublishedStandards(t *testing.T) {
+	for _, c := range []struct{ mode, role, standard string }{
+		{"validate", "validate-architecture", "layering"},
+		{"plan", "plan-technical", "design"},
+		{"implement", "story-worker", "errors"},
+	} {
+		t.Run(c.mode, func(t *testing.T) {
+			prep, db := linearLifecycleMCPPreparation(t, c.mode)
+			revision := publishRunStandards(t, db, "linear-"+c.mode, 0, []standards.Operation{
+				{Kind: "category.add", Category: &standards.Category{ID: "go", Name: "Go"}},
+				{Kind: "standard.add", Standard: &standards.Standard{ID: "errors", Rule: "MUST wrap errors", Description: "Wrap errors.\n", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"story-worker"}}},
+				{Kind: "standard.add", Standard: &standards.Standard{ID: "design", Rule: "MUST name the seams", Description: "Name the seams.\n", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"plan-technical"}}},
+				{Kind: "standard.add", Standard: &standards.Standard{ID: "layering", Rule: "MUST respect layering", Description: "Respect layering.\n", Evidence: "Evidence.", Scope: "All repositories.", Check: "manual", CategoryID: "go", AppliesTo: []string{"validate-architecture"}}},
+			})
+			prepared, spec, err := prepareMCPWith(t.Context(), prep, agent.Request{Mode: c.mode, Invocation: agent.InvocationResearchNode}, nil, nil, c.role)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := prepared.close(context.WithoutCancel(t.Context())); err != nil {
+					t.Error(err)
+				}
+			}()
+			client := submission.Client{DescriptorPath: spec.DescriptorPath()}
+			reply, err := client.Call(t.Context(), "standards_categories", json.RawMessage(`{}`))
+			if err != nil || reply.Error != "" {
+				t.Fatalf("standards_categories: %v %s", err, reply.Error)
+			}
+			var list standards.RoleCategories
+			if err := json.Unmarshal(reply.Result, &list); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(list.Categories, []standards.RoleCategory{{ID: "go", Name: "Go", Count: 1}}) {
+				t.Fatalf("%s categories: %s", c.role, reply.Result)
+			}
+			read, err := client.Call(t.Context(), "standards_read", json.RawMessage(`{}`))
+			if err != nil || read.Error != "" {
+				t.Fatalf("standards_read: %v %s", err, read.Error)
+			}
+			var page standards.RolePage
+			if err := json.Unmarshal(read.Result, &page); err != nil {
+				t.Fatal(err)
+			}
+			if page.Status.Integrity != "verified" || !slices.Equal(page.StandardIDs, []string{c.standard}) {
+				t.Fatalf("%s read: %s", c.role, read.Result)
+			}
+			root, err := db.ResolveStandardsRoot(t.Context(), prep.run.ID)
+			mustProgress(t, err)
+			view, err := (&standards.Runtime{Store: db, RootRunID: fmt.Sprint(root)}).Inspect(t.Context())
+			mustProgress(t, err)
+			if view.Status.Binding.RevisionID != revision.ID || view.Status.Binding.Digest != revision.Digest || view.Status.Integrity != "verified" {
+				t.Fatalf("inspection shows %+v, want revision %d digest %s", view.Status, revision.ID, revision.Digest)
+			}
+			// receipts_get is granted to the validate and implement launches; the
+			// plan launch carries only communication receipts, as on GitHub tasks.
+			receipts := slices.Contains(spec.PermittedTools(), "receipts_get")
+			if receipts != (c.mode != "plan") {
+				t.Fatalf("%s receipts_get grant: %v", c.mode, spec.PermittedTools())
+			}
+			var receipt submission.Response
+			if receipts {
+				receipt, err = client.Call(t.Context(), "receipts_get", mcpReceiptArgs(t, read.RequestID))
+				if err != nil || receipt.Error != "" {
+					t.Fatalf("receipts_get: %v %s", err, receipt.Error)
+				}
+				var got FamilyReceipt
+				if err := json.Unmarshal(receipt.Result, &got); err != nil {
+					t.Fatal(err)
+				}
+				if got.Disposition != "confirmed" || got.Tool != "standards_read" {
+					t.Fatalf("receipt %s", receipt.Result)
+				}
+			}
+			replay, err := client.Call(t.Context(), "standards_read", json.RawMessage(`{}`))
+			if err != nil || replay.Error != "" || replay.RequestID != read.RequestID {
+				t.Fatalf("replay: %v %s id %s want %s", err, replay.Error, replay.RequestID, read.RequestID)
+			}
+			binding, err := db.GetStandardsRunBinding(t.Context(), fmt.Sprint(root))
+			mustProgress(t, err)
+			if binding.RevisionID != revision.ID || binding.Digest != revision.Digest {
+				t.Fatalf("replay changed the binding: %+v", binding)
+			}
+			if receipts {
+				again, err := client.Call(t.Context(), "receipts_get", mcpReceiptArgs(t, read.RequestID))
+				if err != nil || again.Error != "" || string(again.Result) != string(receipt.Result) {
+					t.Fatalf("replay changed the ledger: %v %s %s", err, again.Error, again.Result)
+				}
+			}
+		})
+	}
+}

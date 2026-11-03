@@ -78,15 +78,15 @@ func (gateApproval) Send(_ context.Context, p owneraction.Proposal) (string, err
 
 func installGateActions(t *testing.T, s *Service, clock func() time.Time) owneraction.Principal {
 	t.Helper()
-	if _, err := s.db.UpsertIdentity(t.Context(), store.Identity{Forge: "github", Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
+	if _, err := fixtureDB(s).UpsertIdentity(t.Context(), store.Identity{Forge: "github", Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := s.db.ConnectorOwner(t.Context(), 42)
+	owner, err := fixtureDB(s).ConnectorOwner(t.Context(), 42)
 	if err != nil {
 		t.Fatal(err)
 	}
 	principal := owneraction.Principal{OwnerID: "42", OwnerGeneration: owner.Generation, Transport: "discord", ChannelID: "3", DiscordOwnerID: "7"}
-	actions := owneraction.New(s.db, OwnerActionDomain{Service: s}, clock)
+	actions := owneraction.New(fixtureDB(s), OwnerActionDomain{Service: s}, clock)
 	actions.SetDiscord("7", []string{"3"})
 	actions.SetDelivery(gateApproval{})
 	s.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })
@@ -173,16 +173,16 @@ func TestStandardsApprovalRequiresConversationAndOwnerTap(t *testing.T) {
 	if handled, err := run.confirm(t.Context()); !handled || err != nil {
 		t.Fatalf("confirm: %v %v", handled, err)
 	}
-	if _, err = s.ownerActions.Step(t.Context(), proposal.ID); err != nil {
+	if _, err = fixtureActions(s).Step(t.Context(), proposal.ID); err != nil {
 		t.Fatal(err)
 	}
 	if len(ops.executed) != 0 {
 		t.Fatal("binding action ran before owner tap")
 	}
-	if _, err = s.ownerActions.Reaction(t.Context(), owneraction.Reaction{ChannelID: "3", MessageID: "approval:" + proposal.ID, UserID: "7", Emoji: "✅"}); err != nil {
+	if _, err = fixtureActions(s).Reaction(t.Context(), owneraction.Reaction{ChannelID: "3", MessageID: "approval:" + proposal.ID, UserID: "7", Emoji: "✅"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.ownerActions.Step(t.Context(), proposal.ID); err != nil {
+	if _, err = fixtureActions(s).Step(t.Context(), proposal.ID); err != nil {
 		t.Fatal(err)
 	}
 	if len(ops.executed) != 1 || ops.executed[0].Operation != "proposal.approve" || ops.executed[0].Arguments["digest"] != "change" {
@@ -220,24 +220,24 @@ func TestStandardsConversationRecoversCommittedOutcomeBeforeUncertainChatRecover
 		t.Fatal(err)
 	}
 	dialogue := store.NaturalDialogue{Transport: "discord", OwnerID: "7", ChannelRef: "3", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: payload, Digest: digest, Code: "saved-code", ExpiresAt: now.Add(time.Minute), UpdatedAt: now}
-	if err = s.db.SaveNaturalDialogue(ctx, dialogue, 0); err != nil {
+	if err = fixtureDB(s).SaveNaturalDialogue(ctx, dialogue, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.db.BindNaturalPrompt(ctx, dialogue, "preview-prompt"); err != nil {
+	if err = fixtureDB(s).BindNaturalPrompt(ctx, dialogue, "preview-prompt"); err != nil {
 		t.Fatal(err)
 	}
 	reply := store.ChatReply{Transport: "discord", MessageID: "nl-exec:saved-code", ChannelRef: "3", Command: "standards-author", Arguments: p.Invocation.Arguments}
-	if err = s.db.AuthorizeConversationDialogue(ctx, run.t, dialogue, run.t.SourceID, reply, now); err != nil {
+	if err = fixtureDB(s).AuthorizeConversationDialogue(ctx, run.t, dialogue, run.t.SourceID, reply, now); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.db.StartNaturalExecution(ctx, reply.MessageID, now); err != nil {
+	if err = fixtureDB(s).StartNaturalExecution(ctx, reply.MessageID, now); err != nil {
 		t.Fatal(err)
 	}
 	// The response-only recovery fixture represents an upstream committed receipt;
 	// the daemon adapter test separately verifies it against the shared domain store.
 	recovery := &standardsGateRecovery{}
-	path := s.db.Path()
-	if err = s.db.Close(); err != nil {
+	path := fixtureDB(s).Path()
+	if err = fixtureDB(s).Close(); err != nil {
 		t.Fatal(err)
 	}
 	db, err := store.Open(ctx, path)
@@ -293,10 +293,10 @@ func TestFactoryChangingActionsCannotUseRetiredPolicyWithoutSharedService(t *tes
 		t.Fatalf("retired author bypass executed: %+v", ops.executed)
 	}
 	legacy := store.NaturalDialogue{Transport: "discord", OwnerID: "7", ChannelRef: "3", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: `{"Invocation":{"Command":"standards-author","Arguments":{"action":"publish"}}}`, Digest: "legacy-digest", Code: "legacy-code", ExpiresAt: now.Add(time.Minute), UpdatedAt: now}
-	if err := s.db.SaveNaturalDialogue(t.Context(), legacy, 0); err != nil {
+	if err := fixtureDB(s).SaveNaturalDialogue(t.Context(), legacy, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.BindNaturalPrompt(t.Context(), legacy, "legacy-prompt"); err != nil {
+	if err := fixtureDB(s).BindNaturalPrompt(t.Context(), legacy, "legacy-prompt"); err != nil {
 		t.Fatal(err)
 	}
 	run := start("yes", now.Add(6*time.Second))
@@ -307,7 +307,7 @@ func TestFactoryChangingActionsCannotUseRetiredPolicyWithoutSharedService(t *tes
 	if len(ops.executed) != 0 {
 		t.Fatal("legacy pending work executed")
 	}
-	if _, err := s.db.ReadNaturalExecution(t.Context(), "nl-exec:legacy-code"); err == nil {
+	if _, err := fixtureDB(s).ReadNaturalExecution(t.Context(), "nl-exec:legacy-code"); err == nil {
 		t.Fatal("legacy pending work was admitted")
 	}
 }

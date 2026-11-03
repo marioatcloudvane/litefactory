@@ -6,12 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
 	"strings"
 
-	"github.com/cloudvane/litefactory/internal/git"
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/maintenance"
 )
 
 // taskCleanOptions holds the parsed flags of "litefactory task clean".
@@ -67,71 +65,33 @@ func runTaskClean(ctx context.Context, env *Env, cmd *Command, opts taskCleanOpt
 	}
 	defer func() { err = errors.Join(err, rt.close()) }()
 
-	session, err := rt.db.FindSessionByIssue(ctx, issue, owner, name)
+	result, err := maintenance.New(rt.db).CleanTask(ctx, contracts.CleanTaskRequest{
+		Issue: issue, Owner: owner, Repository: name, Force: opts.force,
+	})
+	switch result.State {
+	case contracts.CleanTaskNoWorktree:
+		fmt.Fprintf(env.Stdout, "%s has no worktree recorded; nothing to remove\n", result.TaskRef)
+	case contracts.CleanTaskAlreadyGone:
+		fmt.Fprintf(env.Stdout, "%s: %s is already gone; clearing the recorded path\n", result.TaskRef, result.Path)
+	case contracts.CleanTaskRemoved:
+		fmt.Fprintf(env.Stdout, "%s: removed the worktree at %s\n", result.TaskRef, result.Path)
+		if result.Branch != "" {
+			fmt.Fprintf(env.Stdout, "  branch %s is untouched; the work is still on it\n", result.Branch)
+		}
+	}
 	if err != nil {
-		return taskLookupError(err, issue)
-	}
-	if session.WorktreePath == "" {
-		fmt.Fprintf(env.Stdout, "%s has no worktree recorded; nothing to remove\n", session.TaskRef)
-		writeRetentionNote(env.Stdout, rt.cfg.Settings.WorktreeRetainDays)
-		return nil
-	}
-	repo, err := rt.db.GetRepo(ctx, session.RepoID)
-	if err != nil {
-		return err
-	}
-
-	if err := removeWorktree(ctx, env, repo, session, opts.force); err != nil {
-		return err
-	}
-	if err := rt.db.SetSessionWorktree(ctx, session.ID, ""); err != nil {
-		return err
+		var unavailable *contracts.CleanTaskUnavailable
+		var dirty *contracts.CleanTaskDirty
+		switch {
+		case errors.As(err, &unavailable):
+			return Precondition(unavailable.Err)
+		case errors.As(err, &dirty):
+			return dirtyWorktreeError(dirty)
+		default:
+			return taskLookupError(err, issue)
+		}
 	}
 	writeRetentionNote(env.Stdout, rt.cfg.Settings.WorktreeRetainDays)
-	return nil
-}
-
-// removeWorktree runs the removal itself, or explains why it did not.
-//
-// A directory that is already gone is not a failure: the recorded path is
-// cleared and the command says what it found. That is the difference between a
-// command a user can re-run after deleting a worktree by hand and one that
-// leaves a dangling column they cannot clear.
-func removeWorktree(
-	ctx context.Context,
-	env *Env,
-	repo store.Repo,
-	session store.Session,
-	force bool,
-) error {
-	if _, statErr := os.Stat(session.WorktreePath); errors.Is(statErr, fs.ErrNotExist) {
-		fmt.Fprintf(env.Stdout, "%s: %s is already gone; clearing the recorded path\n",
-			session.TaskRef, session.WorktreePath)
-		return nil
-	}
-
-	binary, err := git.Resolve(ctx)
-	if err != nil {
-		return Precondition(err)
-	}
-	clone, err := binary.Open(ctx, repo.Path)
-	if err != nil {
-		return Precondition(err)
-	}
-
-	err = clone.WorktreeRemove(ctx, session.WorktreePath, git.WorktreeRemoveOptions{Force: force})
-	var dirty *git.WorktreeDirtyError
-	switch {
-	case errors.As(err, &dirty):
-		return dirtyWorktreeError(dirty, session)
-	case err != nil:
-		return err
-	}
-
-	fmt.Fprintf(env.Stdout, "%s: removed the worktree at %s\n", session.TaskRef, session.WorktreePath)
-	if session.Branch != "" {
-		fmt.Fprintf(env.Stdout, "  branch %s is untouched; the work is still on it\n", session.Branch)
-	}
 	return nil
 }
 
@@ -140,10 +100,10 @@ func removeWorktree(
 // The list is the whole value of the message: "it has uncommitted changes" sends
 // the user to go and look, and the point of a refusal is that they should be
 // able to decide without looking.
-func dirtyWorktreeError(dirty *git.WorktreeDirtyError, session store.Session) error {
+func dirtyWorktreeError(dirty *contracts.CleanTaskDirty) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: %s has uncommitted changes; nothing was removed\n",
-		session.TaskRef, dirty.Path)
+		dirty.TaskRef, dirty.Path)
 	for _, change := range dirty.Changes {
 		fmt.Fprintf(&b, "  %s\n", change)
 	}
@@ -161,17 +121,20 @@ func writeRetentionNote(out io.Writer, retainDays int) {
 // on. `task clean` takes no --repo flag, so an ambiguous issue number is a
 // refusal that names the candidates rather than an invitation to disambiguate.
 func taskLookupError(err error, issue int) error {
-	var ambiguous *store.AmbiguousIssueError
-	if errors.As(err, &ambiguous) {
+	var lookup *contracts.CleanTaskLookupError
+	if !errors.As(err, &lookup) {
+		return err
+	}
+	if len(lookup.Candidates) > 0 {
 		var b strings.Builder
 		fmt.Fprintf(&b, "issue %d exists in more than one registered repository:\n", issue)
-		for _, candidate := range ambiguous.Candidates {
-			fmt.Fprintf(&b, "  %s\n", candidate.TaskRef)
+		for _, candidate := range lookup.Candidates {
+			fmt.Fprintf(&b, "  %s\n", candidate)
 		}
 		fmt.Fprint(&b, "remove the worktree with `git worktree remove` in the clone you mean")
 		return errors.New(b.String())
 	}
-	if errors.Is(err, store.ErrNotFound) {
+	if lookup.Missing {
 		return fmt.Errorf("no task for issue %d: litefactory has never run it", issue)
 	}
 	return err

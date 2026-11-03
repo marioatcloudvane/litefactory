@@ -1,0 +1,17 @@
+ok  	github.com/cloudvane/litefactory/internal/factory	2.169s
+?   	github.com/cloudvane/litefactory/internal/factory/contracts	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localadmin	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localanalysis	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localdoctor	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localprojects	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localrights	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localstandards	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localteams	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/localusage	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/maintenance	[no test files]
+?   	github.com/cloudvane/litefactory/internal/factory/owneractions	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/factory/runtime	1.475s
+?   	github.com/cloudvane/litefactory/internal/factory/ticketbridge	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/connector	43.164s
+?   	github.com/cloudvane/litefactory/internal/messagingstorage	[no test files]
+?   	github.com/cloudvane/litefactory/scripts/factory-pending-state	[no test files]

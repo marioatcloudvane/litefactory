@@ -62,6 +62,11 @@ digraph implement {
  budget        [lf_action="lf_implement_budget", lf_outcomes="run,park", lf_limit="8"];
  worker_agent  [lf_slot_budget="3", lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="story-worker", lf_standards="story-worker", lf_skills="implement-result,dotnet-web-engineering", lf_budget="120", lf_limit="3"];
  worker_result [lf_action="lf_implement_result", lf_outcomes="completed,incomplete,blocked", lf_source="worker_agent", lf_limit="3"];
+ sizing_valid [lf_action="lf_if", lf_outcomes="true,false", lf_field="story.sizing_valid", lf_condition="true", lf_limit="3"];
+ size_s [lf_action="lf_if", lf_outcomes="true,false", lf_field="story.size", lf_condition="S", lf_limit="3"];
+ size_m [lf_action="lf_if", lf_outcomes="true,false", lf_field="story.size", lf_condition="M", lf_limit="3"];
+ worker_flagship [lf_slot_budget="3", lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="story-worker", lf_standards="story-worker", lf_skills="implement-result,dotnet-web-engineering", lf_budget="120", lf_limit="3", lf_model_tier="flagship"];
+ worker_flagship_result [lf_action="lf_implement_result", lf_outcomes="completed,incomplete,blocked", lf_source="worker_flagship", lf_limit="3"];
  story_done    [lf_action="lf_implement_story_done", lf_outcomes="done,retry", lf_limit="3"];
  park_story    [lf_action="lf_implement_park", lf_outcomes="parked", lf_limit="4"];
 
@@ -121,12 +126,24 @@ digraph implement {
  // Worker: budget, then synchronize the selected story base before the agent. Completed is saved; blocked parks at once. An
  // incomplete answer, a failed attempt or a failed save goes back to the budget.
  budget        -> sync_before_worker [lf_on="run"];
- sync_before_worker -> worker_agent [lf_on="synced"];
- sync_before_worker -> worker_agent [lf_on="current"];
- sync_before_worker -> worker_agent [lf_on="deferred"];
+ sync_before_worker -> sizing_valid [lf_on="synced"];
+ sync_before_worker -> sizing_valid [lf_on="current"];
+ sync_before_worker -> sizing_valid [lf_on="deferred"];
  sync_before_worker -> sync_before_worker [lf_on="retry"];
  sync_before_worker -> park_story [lf_on="conflict"];
  budget        -> park_story    [lf_on="park"];
+ // Valid S/M inherit the captured role tier; all other facts use flagship.
+ sizing_valid -> size_s [lf_on="true"];
+ sizing_valid -> worker_flagship [lf_on="false"];
+ size_s -> worker_agent [lf_on="true"];
+ size_s -> size_m [lf_on="false"];
+ size_m -> worker_agent [lf_on="true"];
+ size_m -> worker_flagship [lf_on="false"];
+ worker_flagship -> worker_flagship_result [lf_on="success"];
+ worker_flagship -> budget [lf_on="failed"];
+ worker_flagship_result -> story_done [lf_on="completed"];
+ worker_flagship_result -> budget [lf_on="incomplete"];
+ worker_flagship_result -> park_story [lf_on="blocked"];
  worker_agent  -> worker_result [lf_on="success"];
  worker_agent  -> budget        [lf_on="failed"];
  worker_result -> story_done    [lf_on="completed"];

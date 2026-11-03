@@ -94,9 +94,9 @@ digraph validate {
  owner_report  [lf_action="lf_validate_report", lf_outcomes="done", lf_limit="64"];
  owner_ask     [lf_action="lf_validate_ask", lf_outcomes="published", lf_source="owner_resolve", lf_limit="32"];
  owner_issue   [lf_action="lf_validate_issue", lf_outcomes="done", lf_limit="24"];
- owner_push    [lf_action="lf_validate_push", lf_outcomes="done", lf_limit="8"];
- owner_merge   [lf_action="lf_validate_merge", lf_outcomes="done", lf_limit="8"];
- owner_close   [lf_action="lf_validate_close", lf_outcomes="closed,open", lf_limit="8"];
+ owner_push    [lf_action="lf_deliver", lf_operation="push", lf_outcomes="done", lf_limit="8"];
+ owner_merge   [lf_action="lf_deliver", lf_operation="merge", lf_outcomes="done", lf_limit="8"];
+ owner_close   [lf_action="lf_deliver", lf_operation="close", lf_outcomes="closed,open", lf_limit="8"];
  owner_implement [lf_action="lf_validate_implement", lf_outcomes="started", lf_suite="suite", lf_limit="4"];
  // A factory Bug is only proposed in the summary; the owner's own command
  // files it upstream once, through the log-analysis filing path.

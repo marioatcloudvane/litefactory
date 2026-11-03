@@ -74,7 +74,7 @@ func TestConversationActionReadsReauthorizeReferencesAndRefuseInvalidControls(t 
 	if err != nil || ref == nil {
 		t.Fatal(err)
 	}
-	stored, err := s.db.ListConversationReferences(t.Context(), run.c.ID, *at, 10)
+	stored, err := fixtureDB(s).ListConversationReferences(t.Context(), run.c.ID, *at, 10)
 	if err != nil || len(stored) != 1 {
 		t.Fatalf("saved reference: %+v %v", stored, err)
 	}
@@ -113,7 +113,7 @@ func TestConversationCanCancelAuthorizedHistoryAcrossDestinations(t *testing.T) 
 	if err != nil || inspected.State != "cancelled" {
 		t.Fatalf("authorized history cancellation refused: %+v %v", inspected, err)
 	}
-	if _, err = run.s.db.ReadNaturalExecution(t.Context(), proposal.ExecutionID); !errors.Is(err, store.ErrNotFound) {
+	if _, err = fixtureDB(run.s).ReadNaturalExecution(t.Context(), proposal.ExecutionID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("cancelled history admitted effects: %v", err)
 	}
 }

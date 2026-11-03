@@ -66,7 +66,7 @@ Build/test output uses .litefactory/swift-ios/DerivedData inside the repository.
 }
 ```
 
-Standalone `swift test` is limited to explicitly selected host-compatible Swift Package Manager targets, with repository-relative working directory and bounded timeout. It is optional additional evidence, never a substitute for iOS simulator build/test or iOS-only package validation. Use existing XCTest/Swift Testing suites and preserve Package.resolved. Bug and Spike retain their already pinned recipes.
+Standalone `swift test` is limited to explicitly selected host-compatible Swift Package Manager targets, with repository-relative working directory and bounded timeout. It is optional additional evidence, never a substitute for iOS simulator build/test or iOS-only package validation. Use existing XCTest/Swift Testing suites and preserve Package.resolved. Bug retains its already pinned recipes.
 
 ## Offline regeneration
 

@@ -604,7 +604,7 @@ func TestSpikeWorkflowFinishedLaunchRetiresOwnerComment(t *testing.T) {
 	f, forge, req := assembledSpikeFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
 		calls++
 		return nil, errors.New("a retired comment must not reach an agent")
-	}), "execution: graph\n")
+	}))
 	authority := f.opts.MCP
 	f.opts.MCP = nil
 	if _, err := Execute(t.Context(), f.opts, req); err == nil || !strings.Contains(err.Error(), "result authority") {

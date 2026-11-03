@@ -13,17 +13,20 @@ import (
 	"github.com/cloudvane/litefactory/internal/owneraction"
 )
 
-// configureOwnerActions composes the shared service over existing domain adapters.
-func (d *Daemon) configureOwnerActions(s *messaging.Service, discordOwner string, channels []string, adapter *discord.Adapter, clock func() time.Time) {
-	var actions *owneraction.Service
-	if d.remoteConnector != nil && d.remoteConnector.actions != nil {
-		actions = d.remoteConnector.actions.actions
-		if workflows := d.remoteConnector.actions.workflows; workflows != nil {
-			bindWorkflowNoticeAuthorizer(s, adapter, workflows)
-		}
-		d.remoteConnector.actions.notices.Store(s)
-	} else {
-		actions = owneraction.New(d.db, messaging.OwnerActionDomain{Service: s}, clock)
+// configureOwnerActions attaches delivery and bounded consumer access to the existing coordinator.
+func (d *Daemon) configureOwnerActions(s *messaging.Service, discordOwner string, channels []string, adapter *discord.Adapter) {
+	if d.ownerActions == nil {
+		return
+	}
+	runtime := d.ownerActions
+	runtime.adapter.Store(adapter)
+	actions := runtime.actions
+	if workflows := runtime.workflows; workflows != nil {
+		bindWorkflowNoticeAuthorizer(s, adapter, workflows)
+	}
+	runtime.notices.Store(s)
+	if d.chat != nil {
+		d.chat.actions = actions
 	}
 	actions.SetDiscord(discordOwner, channels)
 	actions.SetDelivery(actionApprovalDelivery{adapter})
@@ -55,21 +58,13 @@ func (a actionApprovalDelivery) Send(ctx context.Context, p owneraction.Proposal
 }
 
 func (d *Daemon) startOwnerActions(ctx context.Context, wg *sync.WaitGroup) {
-	if d.remoteConnector != nil && d.remoteConnector.actions != nil {
-		d.remoteConnector.actions.start(ctx, wg, d.log)
-		return
+	if d.ownerActions != nil {
+		d.ownerActions.start(ctx, wg, d.log)
 	}
-	actions := d.chat.service.OwnerActions()
-	if actions == nil {
-		return
-	}
-	runtime := &ownerActionRuntime{actions: actions}
-	runtime.notices.Store(d.chat.service)
-	runtime.start(ctx, wg, d.log)
 }
 
 func (d *Daemon) ownerReaction(ctx context.Context, r discord.OwnerReaction) {
-	actions := d.chat.service.OwnerActions()
+	actions := d.chat.actions
 	if actions == nil {
 		return
 	}

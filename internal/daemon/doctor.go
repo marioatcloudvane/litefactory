@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/doctor"
+	"github.com/cloudvane/litefactory/internal/factory/localdoctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -450,54 +451,9 @@ type doctorTicket struct {
 // task's own connection version and actor when one exists, otherwise the
 // project's current ticket connection.
 func (d *Daemon) doctorTicketTarget(ctx context.Context, repo store.Repo, issue github.Issue) (doctorTicket, error) {
-	t := doctorTicket{ref: naming.Ref{Forge: naming.ForgeGitHub, Owner: strings.ToLower(repo.Owner), Repo: strings.ToLower(repo.Name), Issue: issue.Number}}
-	var err error
-	if t.connection, err = d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection); err != nil {
-		return t, err
-	}
-	t.locator = ticket.Locator{Provider: t.connection.Provider, Origin: t.connection.Origin, Container: t.connection.Destination, Key: strconv.Itoa(issue.Number)}
 	scope, _ := ctx.Value(connectionScopeKey{}).(connectionScope)
-	if scope.sessionID != 0 {
-		t.session, err = d.db.GetSession(ctx, scope.sessionID)
-	} else {
-		t.session, err = d.db.GetSessionByTicketLocator(ctx, t.locator)
-	}
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return t, err
-	}
-	if err == nil {
-		if t.session.RepoID != repo.ID {
-			return t, store.ErrTicketIdentityConflict
-		}
-		binding, readErr := d.db.GetSessionTicket(ctx, t.session.ID)
-		if readErr != nil {
-			return t, readErr
-		}
-		if binding.RemoteID != strconv.FormatInt(issue.ID, 10) || binding.Locator.Key != strconv.Itoa(issue.Number) {
-			return t, store.ErrTicketIdentityConflict
-		}
-		t.locator = binding.Locator
-		snapshot, readErr := d.db.GetExecutionSnapshot(ctx, t.session.ID)
-		if readErr != nil {
-			return t, readErr
-		}
-		t.publisherID = snapshot.ActorID
-		t.connection, readErr = d.db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
-		if readErr != nil {
-			return t, readErr
-		}
-		t.ref, readErr = naming.ParseRef(t.session.TaskRef)
-		if readErr != nil {
-			return t, readErr
-		}
-	} else {
-		owner, name, valid := strings.Cut(t.locator.Container, "/")
-		if !valid {
-			return t, errors.New("doctor ticket destination is invalid")
-		}
-		t.ref.Owner, t.ref.Repo = owner, name
-	}
-	return t, nil
+	target, err := localdoctor.ResolveTicketTarget(ctx, d.db, repo, issue, scope.sessionID)
+	return doctorTicket{ref: target.Ref, session: target.Session, connection: target.Connection, locator: target.Locator, publisherID: target.PublisherID}, err
 }
 
 type doctorSourceContextKey struct{}

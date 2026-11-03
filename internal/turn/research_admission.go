@@ -38,7 +38,7 @@ func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
 		}
 	}
 	for _, spec := range []graphexec.ActionSpec{
-		{Name: ResearchAgentAction, Mode: policy.Mode, Workflow: policy.Workflow, Outcomes: []string{"success", "failed"}, Attributes: graphexec.AgentAttributes()},
+		{Name: ResearchAgentAction, Mode: policy.Mode, Workflow: policy.Workflow, Outcomes: agentOutcomes(policy), Attributes: graphexec.AgentAttributes()},
 		graphexec.ControlSpec(graphexec.ResearchLoopAction, policy.Control),
 		graphexec.ControlSpec(graphexec.ResearchIfAction, policy.Control), comments, asks,
 	} {
@@ -59,6 +59,11 @@ func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
 		if err = specs.Register(graphexec.SyncBaseWorkflowSpec(workflow, policy.Mode)); err != nil {
 			return specs, err
 		}
+	}
+	delivery := graphexec.DeliverSpec(policy.Mode)
+	delivery.Workflow = policy.Workflow
+	if err := specs.Register(delivery); err != nil {
+		return specs, err
 	}
 	return specs, nil
 }

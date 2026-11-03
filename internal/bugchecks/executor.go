@@ -38,6 +38,7 @@ const SandboxProfile = "lf-bug-checks"
 // WritableRoots, and the network is off unless granted. There is deliberately
 // no unisolated fallback.
 type Isolation struct {
+	GoBuildCaches config.GoBuildCaches
 	invocationEnv []string
 	// Binary is the Codex CLI that applies the sandbox.
 	Binary        string
@@ -291,6 +292,10 @@ func (p Isolation) resolve(root string, c config.BugCheckCommand) (string, strin
 		env = append(env, name+"="+value)
 	}
 	env = append(env, p.invocationEnv...)
+	env, err = p.cacheEnvironment(root, env)
+	if err != nil {
+		return "", "", nil, err
+	}
 	return executable, cwd, env, nil
 }
 

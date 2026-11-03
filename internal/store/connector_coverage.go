@@ -33,11 +33,11 @@ func (db *DB) ListConnectorRepositories(ctx context.Context) ([]ConnectorReposit
 func resolveConnectorRepository(ctx context.Context, q connectorTargetQuery, ref string) (ConnectorRepository, error) {
 	var r ConnectorRepository
 	if ref == "" || len(ref) > 1024 {
-		return r, connectorRefused(ErrConnectorInvalid, "repository not registered: %q", ref)
+		return r, connectorRefusedCode(ErrConnectorInvalid, "repository_not_registered", "repository not registered: %q", ref)
 	}
 	err := q.QueryRowContext(ctx, `SELECT id,forge||':'||owner||'/'||name FROM repos WHERE forge||':'||owner||'/'||name=?`, ref).Scan(&r.RepoID, &r.RepositoryRef)
 	if errors.Is(err, sql.ErrNoRows) {
-		return r, connectorRefused(ErrConnectorInvalid, "repository not registered: %q", ref)
+		return r, connectorRefusedCode(ErrConnectorInvalid, "repository_not_registered", "repository not registered: %q", ref)
 	}
 	return r, err
 }
@@ -48,7 +48,7 @@ func resolveConnectorRepository(ctx context.Context, q connectorTargetQuery, ref
 // no coverage. task:code-review also needs task:discussion.
 func insertConnectorCoverage(ctx context.Context, tx *sql.Conn, g ConnectorGrant) error {
 	if ConnectorScopeHas(g.Scope, connectorCodeReviewScope) && !ConnectorScopeHas(g.Scope, connectorDiscussionScope) {
-		return connectorRefused(ErrConnectorScope, "%s also needs %s", connectorCodeReviewScope, connectorDiscussionScope)
+		return connectorRefusedCode(ErrConnectorScope, "code_review_needs_discussion", "%s also needs %s", connectorCodeReviewScope, connectorDiscussionScope)
 	}
 	if !ConnectorRepositoryScoped(g.Scope) {
 		if g.Coverage != nil {
@@ -58,10 +58,10 @@ func insertConnectorCoverage(ctx context.Context, tx *sql.Conn, g ConnectorGrant
 	}
 	c := g.Coverage
 	if (ConnectorScopeHas(g.Scope, "task:advisory") || ConnectorScopeHas(g.Scope, "task:discussion-publish")) && (c == nil || c.All) {
-		return connectorRefused(ErrConnectorScope, "advisory execution and discussion publication require explicit repository selection")
+		return connectorRefusedCode(ErrConnectorScope, "all_repositories_not_allowed", "advisory execution and discussion publication require explicit repository selection")
 	}
 	if c == nil || !c.All && len(c.Repositories) == 0 {
-		return connectorRefused(ErrConnectorInvalid, "choose all repositories or at least one registered repository for %s", strings.Join(connectorGrantRepositoryScopes(g.Scope), ", "))
+		return connectorRefusedCode(ErrConnectorInvalid, "repositories_missing", "choose all repositories or at least one registered repository for %s", strings.Join(connectorGrantRepositoryScopes(g.Scope), ", "))
 	}
 	if c.All {
 		if len(c.Repositories) != 0 {
@@ -75,7 +75,7 @@ func insertConnectorCoverage(ctx context.Context, tx *sql.Conn, g ConnectorGrant
 	seen := map[string]bool{}
 	for _, requested := range c.Repositories {
 		if seen[requested.RepositoryRef] {
-			return connectorRefused(ErrConnectorInvalid, "repository selected twice: %q", requested.RepositoryRef)
+			return connectorRefusedCode(ErrConnectorInvalid, "repository_selected_twice", "repository selected twice: %q", requested.RepositoryRef)
 		}
 		seen[requested.RepositoryRef] = true
 		r, err := resolveConnectorRepository(ctx, tx, requested.RepositoryRef)

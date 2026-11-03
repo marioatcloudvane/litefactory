@@ -9,7 +9,8 @@ import (
 	"os"
 
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/standards"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localstandards"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -50,30 +51,23 @@ func newStandardsRunCommand() *Command {
 				return err
 			}
 			defer func() { err = errors.Join(err, db.Close()) }()
-			session, err := db.FindSessionByIssue(ctx, issue, owner, name)
+			runID, err := localstandards.NewRuns(db).TaskRun(ctx, contracts.StandardsTaskRun{Issue: issue, Ordinal: ordinal, Owner: owner, Repository: name})
 			if err != nil {
-				return lookupError(err, issue, firstNonEmpty(repo, joinRepo(owner, name)))
-			}
-			runs, err := db.ListRuns(ctx, session.ID)
-			if err != nil {
+				var lookup *contracts.StandardsTaskLookupError
+				if errors.As(err, &lookup) {
+					return lookupError(lookup.Err, issue, firstNonEmpty(repo, joinRepo(owner, name)))
+				}
 				return err
 			}
-			run, err := selectRun(runs, ordinal, issue)
-			if err != nil {
-				return err
-			}
-			return inspectRunStandards(ctx, env, db, run.ID, asJSON)
+
+			return inspectRunStandards(ctx, env, db, runID, asJSON)
 		}
 	}
 	return c
 }
 
 func inspectRunStandards(ctx context.Context, env *Env, db *store.DB, runID int64, asJSON bool) error {
-	root, err := db.ResolveStandardsRoot(ctx, runID)
-	if err != nil {
-		return err
-	}
-	view, err := (&standards.Runtime{Store: db, RootRunID: fmt.Sprint(root)}).Inspect(ctx)
+	view, err := localstandards.NewRuns(db).Inspect(ctx, runID)
 	if err != nil {
 		return err
 	}
@@ -83,7 +77,7 @@ func inspectRunStandards(ctx context.Context, env *Env, db *store.DB, runID int6
 	return writeRunStandardsText(env.Stdout, view)
 }
 
-func writeRunStandardsText(out io.Writer, view standards.RunInspection) error {
+func writeRunStandardsText(out io.Writer, view localstandards.RunInspection) error {
 	s := view.Status
 	b := s.Binding
 	if _, err := fmt.Fprintf(out, "Standards invocation %s\nRevision: %d\nSource: %s\nSchema: %d\nDigest: %s\nCaptured: %s (%s)\nFresh verification: %s at %s\nReason: %s\n", b.RootRunID, b.RevisionID, b.Source, b.SchemaVersion, b.Digest, logsTime(b.CapturedAt), b.Outcome, s.Integrity, logsTime(s.VerifiedAt), s.Reason); err != nil {

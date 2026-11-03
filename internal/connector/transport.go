@@ -89,11 +89,23 @@ func correlationID(ctx context.Context) string {
 	return v
 }
 
+// audit writes one "connector outcome" line. detail, when not empty, is a
+// fixed short code naming which check refused (never input, credentials or
+// identity data); it is logged as its own field next to reason.
 func (s *Server) audit(r *http.Request, event, outcome, reason, tool string, start time.Time) {
+	s.auditDetail(r, event, outcome, reason, "", tool, start)
+}
+
+func (s *Server) auditDetail(r *http.Request, event, outcome, reason, detail, tool string, start time.Time) {
 	if tool != "factory_overview" && tool != "task_evidence_read" && tool != "unavailable" {
 		tool = "unknown"
 	}
-	s.logger.InfoContext(r.Context(), "connector outcome", slog.String("event", event), slog.String("outcome", outcome), slog.String("reason", reason), slog.String("tool", tool), slog.String("correlation_id", correlationID(r.Context())), slog.Int64("duration_ms", max(0, time.Since(start).Milliseconds())))
+	attrs := []any{slog.String("event", event), slog.String("outcome", outcome), slog.String("reason", reason)}
+	if detail != "" {
+		attrs = append(attrs, slog.String("detail", detail))
+	}
+	attrs = append(attrs, slog.String("tool", tool), slog.String("correlation_id", correlationID(r.Context())), slog.Int64("duration_ms", max(0, time.Since(start).Milliseconds())))
+	s.logger.InfoContext(r.Context(), "connector outcome", attrs...)
 }
 
 // Handler returns the fixed public routes behind common bounded admission.
@@ -156,7 +168,7 @@ func (s *Server) Handler() http.Handler {
 			refuse(429, "capacity")
 			return
 		}
-		if err := s.localControl.check(ctx, s.db, s.cfg.OwnerID); err != nil {
+		if err := s.localControl.check(ctx, s.storage, s.cfg.OwnerID); err != nil {
 			refuse(503, "local_control")
 			return
 		}
@@ -197,10 +209,10 @@ func (s *Server) Listen(ctx context.Context) (net.Listener, error) {
 	if err := s.cfg.Validate(); err != nil {
 		return nil, err
 	}
-	if err := s.localControl.check(ctx, s.db, s.cfg.OwnerID); err != nil {
+	if err := s.localControl.check(ctx, s.storage, s.cfg.OwnerID); err != nil {
 		return nil, err
 	}
-	if _, err := s.db.ConnectorOwner(ctx, s.cfg.OwnerID); err != nil {
+	if _, err := s.storage.ConnectorOwner(ctx, s.cfg.OwnerID); err != nil {
 		return nil, err
 	}
 	var lc net.ListenConfig

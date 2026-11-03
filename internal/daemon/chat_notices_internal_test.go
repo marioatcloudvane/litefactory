@@ -1,7 +1,7 @@
 package daemon
 
 import (
-	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -42,7 +42,8 @@ func TestChatNoticeUsesConfiguredLinearReader(t *testing.T) {
 	filter, err := turn.NewFilter(db, turn.Identities{OwnerUserID: 42, BotUserID: 99}, nil)
 	linearWorkflowCheck(t, err)
 	d := &Daemon{db: db, connections: factory, filter: filter, log: slog.New(slog.DiscardHandler)}
-	d.buildChat(&ChatOptions{Settings: config.DiscordChat{ApplicationID: "1", OwnerID: "2", ChannelIDs: []string{"3"}, NoticeChannelID: "3"}}, make(ed25519.PublicKey, ed25519.PublicKeySize), secrets.NewToken("chat-fixture"))
+	d.webhook = &webhookRuntime{}
+	linearWorkflowCheck(t, d.initChat(&ChatOptions{Settings: config.DiscordChat{ApplicationID: "1", PublicKey: hex.EncodeToString(make([]byte, 32)), OwnerID: "2", ChannelIDs: []string{"3"}, NoticeChannelID: "3"}, Token: secrets.NewToken("chat-fixture")}))
 	at := time.Now().UTC()
 	ctx = projectContext(ctx, repo.ID)
 	linearWorkflowCheck(t, d.chat.collector.Collect(ctx, at))

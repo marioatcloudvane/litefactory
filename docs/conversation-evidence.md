@@ -76,3 +76,85 @@ Admission depends on the required flags and runtime empty tools/MCP catalogs, no
 an exact patch version. Probe and init numeric versions are logged. These fixtures
 establish adapter behavior, not native CLI certification. Historical observations
 above remain observations of their recorded versions.
+
+
+## Discord component extraction
+
+On 2026-11-03 the extraction-specific recovery checks passed with isolated state
+and controlled providers. No live Discord, paid model, operator configuration or
+provider credentials were used. This evidence supplements the earlier native
+conversation checks; it does not change their unverified native demonstrations.
+
+The fixture at `internal/store/testdata/discord-component-recovery` was written
+by baseline commit `d41b68afd2f722003d0d12efe396801be4195367`. It retains two
+conversations, synthetic immutable captures, native session/directory identities,
+a completed answer with one of three parts acknowledged, an unfinished turn and
+a protected pending owner approval. Reopen checks compare the full SQLite schema
+and saved values under baseline, current and baseline code. Current recovery
+finishes only remaining saved parts, rejects duplicate acknowledgment and leaves
+pending approval and unfinished identity intact; previous code then reads the
+recovered state.
+
+`TestDiscordComponentProcessStopDrainRestart` uses two current-code component
+child processes, a dedicated temporary database and a loopback HTTP provider.
+The rehearsal places a separately compiled storage reader from the pinned
+baseline between the two component processes:
+
+1. The first current process acknowledges the first answer part, retains the
+   second after a 429, then stops admission and joins its workers before closing
+   the database. A separate unfinished conversation and a protected owner
+   approval remain pending.
+2. With all current-code database handles closed, the baseline reader opens that
+   same pending database and compares the saved reply bytes, acknowledgment and
+   retry schedule, captures, native identities, unfinished turn and approval.
+   Current code then checks that the reader left those saved values unchanged.
+3. The second current process resumes the remaining saved reply with the same
+   nonce, without resending the acknowledged first part or invoking a model.
+   It stops and drains again. The pending approval and unfinished conversation
+   remain unchanged and gain no execution authority.
+4. Baseline storage code reopens the completed state, checks the retained pending
+   work and verifies that completed delivery cannot be claimed again.
+
+The same database is used throughout; the rehearsal does not replace pending
+rows, rewrite captures or adjust leases between processes. Delivery progress
+makes its normal acknowledgment and retry writes, so this is a comparison of
+saved values and recovery fences, not a claim that the database file never
+changes. No native model provider is installed in the process test.
+
+Reproduce the fixture checks and process sequence, retaining evidence, with:
+
+```sh
+python3 scripts/discord-component-recovery.py rehearse --evidence-dir /tmp/discord-recovery-evidence
+```
+
+The script uses `git archive`, temporary state and finite child timeouts; it never
+switches branches or changes the checked-in fixture. The focused component test
+runs with race detection. The evidence directory retains the baseline revision,
+pending and completed manifests, both component logs and drain markers, and the
+baseline pending-state reader log. It does not retain the database. The command
+transcript supplies the final baseline check and delivery-effect observations;
+retain it alongside these files. Formatting, vet, lint and package-test execution
+records are separate from process recovery evidence and acceptance.
+
+The repair execution records are retained with the story: the
+[rehearsal transcript](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/recovery.log) and
+[command metadata](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/recovery.json),
+[pending snapshot](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/recovery/pending-manifest.json) and
+[completed snapshot](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/recovery/process-manifest.json), plus the
+[previous-code pending-state read](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/recovery/baseline-pending-read.log).
+Separate command records cover
+[gofmt](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/gofmt.json),
+[`go vet ./...`](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/vet.json) and
+[`make lint`](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/lint.json), with their
+[formatter output](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/gofmt.log),
+[vet output](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/vet.log) and
+[lint output](../.aiteam/lf-1370-1270-001-separate-discord-from-factory/2026-11-03/1270-001-separate-discord-from-factory/run0006-checks/lint.log).
+Metadata records command, timing, exit status, output hash and source-manifest
+hash. These are execution records; acceptance and publication remain separate.
+
+Coverage is limited to this pinned baseline and the constructed states. The
+intermediate and final baseline checks execute old storage code rather than an
+old Discord transport. A running native subprocess, all historical schemas/provider
+formats and live nonce-window expiry are not simulated. An unfinished lease is
+not proof of native process exit. Provider history and nonce enforcement remain
+bounded; uncertain effects retain their existing reconciliation requirements.

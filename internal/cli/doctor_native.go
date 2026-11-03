@@ -12,12 +12,12 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/doctor"
+	"github.com/cloudvane/litefactory/internal/factory/localdoctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
-	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -36,13 +36,17 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 	repairs := make(map[string]agent.DoctorRepairRunner)
 	advisors := make(map[string]turn.ConflictAdvisor)
 	cfg := service.Config
+	caches, err := service.Paths.ResolveGoBuildCaches(cfg.Settings)
+	if err != nil {
+		return fmt.Errorf("configure doctor Go caches: %w", err)
+	}
 	environ := os.Environ()
 	if err := configureDoctorTicketWorkflow(ctx, service, env, environ); err != nil {
 		return err
 	}
 	if cfg.Agents.Claude != nil {
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
-		runner, e := harness.New(harness.Options{Paths: service.Paths, Claude: *cfg.Agents.Claude, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
+		runner, e := harness.New(harness.Options{GoBuildCaches: caches, Paths: service.Paths, Claude: *cfg.Agents.Claude, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if e == nil {
 			providers["claude"] = runner
 			repairs["claude"] = runner
@@ -51,7 +55,7 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 	}
 	if cfg.Agents.Codex != nil {
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("codex"), config.TierFlagship)
-		runner, e := codex.New(codex.Options{Paths: service.Paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
+		runner, e := codex.New(codex.Options{GoBuildCaches: caches, Paths: service.Paths, Codex: *cfg.Agents.Codex, Model: model, Environ: environ, Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if e == nil {
 			providers["codex"] = runner
 			repairs["codex"] = runner
@@ -64,8 +68,8 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 	if gitErr == nil {
 		effects := &daemon.FactoryDoctorRepairEffects{DB: service.DB, Git: binary, CloneGate: daemon.NewDoctorRepairCloneGate(), Advisors: advisors, Redactor: service.Redactor}
 		effects.Comments, _ = service.Comments.(daemon.DoctorRepairComments)
-		if bot, e := service.DB.GetIdentity(ctx, store.ForgeGitHub, store.RoleBot); e == nil {
-			effects.BotID = bot.UserID
+		if botID, e := localdoctor.BotID(ctx, service.DB); e == nil {
+			effects.BotID = botID
 		}
 		service.RepairEffects = effects
 	}
@@ -97,18 +101,18 @@ func configureDoctorTicketWorkflow(ctx context.Context, service *doctor.Service,
 		observer.Reader = ciClient
 	}
 	service.CIProbe = observer
-	bot, err := service.DB.GetIdentity(ctx, store.ForgeGitHub, store.RoleBot)
+	botID, err := localdoctor.BotID(ctx, service.DB)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil // Local diagnosis remains available without forge coverage.
 	}
 	if err != nil {
 		return err
 	}
-	factory := projectconnection.NewFactory(projectconnection.Options{DB: service.DB, Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: service.Redactor, ExpectedActorID: bot.UserID, LegacyReference: ref, LegacyToken: token})
+	factory := projectconnection.NewFactory(projectconnection.Options{DB: service.DB, Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: service.Redactor, ExpectedActorID: botID, LegacyReference: ref, LegacyToken: token})
 	if err := projectconnection.Initialize(ctx, service.DB, *cfg, factory); err != nil {
 		return err
 	}
-	clients, err := doctorBootstrapClients(ctx, service.DB, factory)
+	clients, err := localdoctor.BootstrapClients(ctx, service.DB, factory)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil // The read tools report unavailable remote coverage.
 	}
@@ -122,54 +126,6 @@ func configureDoctorTicketWorkflow(ctx context.Context, service *doctor.Service,
 	}
 	service.Comments = workflow
 	return nil
-}
-
-// Bootstrap metadata is only used to construct the bridge. Its selector still
-// requires the retained session context before any remote operation.
-func doctorBootstrapClients(ctx context.Context, db *store.DB, factory *projectconnection.Factory) (*projectconnection.Clients, error) {
-	projects, err := db.ListRepos(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, project := range projects {
-		sessions, err := db.ListRepoSessions(ctx, project.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, session := range sessions {
-			snapshot, err := db.GetExecutionSnapshot(ctx, session.ID)
-			if errors.Is(err, store.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			version, err := db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
-			if errors.Is(err, store.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			if clients, err := factory.Clients(ctx, version, snapshot.ActorID); err == nil {
-				return clients, nil
-			}
-		}
-		version, err := db.CurrentConnection(ctx, project.ID, store.TicketConnection)
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if !version.Enabled {
-			continue
-		}
-		if clients, err := factory.Clients(ctx, version, 0); err == nil {
-			return clients, nil
-		}
-	}
-	return nil, store.ErrNotFound
 }
 
 func configureDoctorHost(service *doctor.Service) (func() error, error) {
@@ -193,26 +149,13 @@ func applyDoctorCLI(ctx context.Context, service *doctor.Service, env *Env, requ
 		return doctorApplyRefusal(ctx, service, request, err)
 	}
 	defer func() { err = errors.Join(err, closeHost()) }()
-	if err = service.CheckRepairCapability(ctx, request.Target); err != nil {
-		return doctorApplyRefusal(ctx, service, request, err)
+	applied, err := localdoctor.Apply(ctx, service, request)
+	if !applied {
+		return err
 	}
-	request.PresentationID, err = service.DB.CurrentDoctorLocalPresentation(ctx, request.Target.String())
-	if err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			return doctorApplyRefusal(ctx, service, request, fmt.Errorf("current proposal presentation could not be read: %w", err))
-		}
-		return fmt.Errorf("doctor apply performed no repair: it requires a fully displayed current proposal. Inspect it on the factory host with `litefactory doctor status %s/%s %d`", request.Target.Owner, request.Target.Repo, request.Target.Issue)
-	}
-	_, err = service.Apply(ctx, request)
-	if err == nil {
-		operation, readErr := service.DB.ReadDoctorRepair(ctx, request.Target.String())
-		if readErr == nil && operation.State == "restart_pending" {
-			_, err = service.DispatchRepairRestart(ctx, request.Target)
-		}
-	}
-	saved, statusErr := service.ReadConversation(ctx, request.Target)
+	saved, statusErr := localdoctor.ReadConversation(ctx, service, request.Target)
 	if statusErr == nil {
-		saved.RepairInspectionRequired = err != nil
+		saved = localdoctor.RequireRepairInspection(saved, err != nil)
 		statusErr = renderDoctor(env.Stdout, saved)
 	}
 	return errors.Join(err, statusErr)
@@ -221,12 +164,5 @@ func applyDoctorCLI(ctx context.Context, service *doctor.Service, env *Env, requ
 // Capability refusals occur before approval or repair reservation. A retained
 // repair belongs to an earlier command and must not be attributed to this one.
 func doctorApplyRefusal(ctx context.Context, service *doctor.Service, request doctor.ApplyRequest, cause error) error {
-	state := "No retained repair was found."
-	repair, err := service.DB.ReadDoctorRepair(ctx, request.Target.String())
-	if err == nil {
-		state = fmt.Sprintf("Retained repair %s has state %s; this command did not cause it.", repair.ID, repair.State)
-	} else if !errors.Is(err, store.ErrNotFound) {
-		state = "Retained repair status could not be read."
-	}
-	return fmt.Errorf("doctor apply performed no repair: %w. %s Inspect on the factory host: `%s`", cause, state, report.TaskInspectionCommand(request.Target.String()))
+	return localdoctor.ApplyRefusal(ctx, service, request, cause)
 }
