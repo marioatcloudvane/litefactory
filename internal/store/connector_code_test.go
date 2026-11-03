@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"reflect"
 	"strings"
 	"testing"
@@ -50,7 +51,7 @@ func TestConnectorCodeReviewDerivesTheTasksRetainedCodeAndFailsClosed(t *testing
 			connectorTestOwner(t, db, 42)
 			connectorTestClient(t, db, "client")
 			s, code := codeReviewSession(t, db)
-			target, err := db.ResolveConnectorCodeTarget(t.Context(), s.TaskRef)
+			target, err := db.ReadCodeTarget(t.Context(), s.TaskRef)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -84,7 +85,7 @@ func TestConnectorCodeReviewDerivesTheTasksRetainedCodeAndFailsClosed(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, got, err := db.CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, task, now)
+			_, got, err := testConnectorAccess(db).CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, task, now)
 			switch scenario {
 			case "retained settings":
 				if err != nil || !reflect.DeepEqual(got, target) {
@@ -117,11 +118,11 @@ func TestConnectorCodeReviewRequiresBothScopesAndRetainedIdentity(t *testing.T) 
 	connectorTestOwner(t, db, 42)
 	connectorTestClient(t, db, "client")
 	s := testSession(t, db, 7)
-	if _, err := db.ResolveConnectorCodeTarget(t.Context(), s.TaskRef); !errors.Is(err, ErrConnectorInvalid) {
+	if _, err := db.ReadCodeTarget(t.Context(), s.TaskRef); !errors.Is(err, contracts.ErrReadTargetInvalid) {
 		t.Fatalf("missing retained identity: %v", err)
 	}
 	_, x := grantCoverage(t, db, "discussion", connectorTestScope+" "+connectorDiscussionScope, &ConnectorCoverage{All: true})
-	if _, _, err := db.CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, s.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorScope) {
+	if _, _, err := testConnectorAccess(db).CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, s.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorScope) {
 		t.Fatalf("discussion granted code: %v", err)
 	}
 	b, g, c, _ := coverageConsentFixture(t, db, "code-only", connectorCodeReviewScope, &ConnectorCoverage{All: true})
@@ -159,14 +160,14 @@ func TestConnectorCodeReviewMappedParentBase(t *testing.T) {
 	if _, err = db.sql.ExecContext(t.Context(), `INSERT INTO implement_stories(parent,generation,story_key,position,branch,state,created_at,updated_at,state_at,worker_session) VALUES(?,1,'story-001',1,?,'running',?,?,?,?)`, parent.TaskRef, s.Branch, FormatTime(connectorTestNow), FormatTime(connectorTestNow), FormatTime(connectorTestNow), s.ID); err != nil {
 		t.Fatal(err)
 	}
-	target, err := db.ResolveConnectorCodeTarget(t.Context(), s.TaskRef)
+	target, err := db.ReadCodeTarget(t.Context(), s.TaskRef)
 	if err != nil || target.BaseBranch != "lf/8-parent" {
 		t.Fatalf("mapped parent %+v %v", target, err)
 	}
 	if _, err = db.sql.ExecContext(t.Context(), `UPDATE sessions SET branch=NULL WHERE id=?`, parent.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.ResolveConnectorCodeTarget(t.Context(), s.TaskRef); !errors.Is(err, ErrConnectorInvalid) {
+	if _, err = db.ReadCodeTarget(t.Context(), s.TaskRef); !errors.Is(err, contracts.ErrReadTargetInvalid) {
 		t.Fatalf("missing parent fell back: %v", err)
 	}
 }
@@ -207,7 +208,7 @@ func TestConnectorCodeReviewPlanMappingUsesRetainedTicketSource(t *testing.T) {
 			if err = db.BindPlanStoryIssue(t.Context(), parent.TaskRef, "story-001", 7007, 7); err != nil {
 				t.Fatal(err)
 			}
-			retained, err := db.ResolveConnectorCodeTarget(t.Context(), oldChild.TaskRef)
+			retained, err := db.ReadCodeTarget(t.Context(), oldChild.TaskRef)
 			if err != nil || retained.BaseBranch != "lf/8-old-parent" {
 				t.Fatalf("original child mapping %+v %v", retained, err)
 			}
@@ -244,12 +245,12 @@ func TestConnectorCodeReviewPlanMappingUsesRetainedTicketSource(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got, err := db.ResolveConnectorCodeTarget(t.Context(), newChild.TaskRef)
+			got, err := db.ReadCodeTarget(t.Context(), newChild.TaskRef)
 			if scenario == "foreign plan ignored" {
 				if err != nil || got.BaseBranch != "main" || got.TaskBranch != "lf/7-new-child" {
 					t.Fatalf("foreign parent selected %+v %v", got, err)
 				}
-			} else if !errors.Is(err, ErrConnectorInvalid) {
+			} else if !errors.Is(err, contracts.ErrReadTargetInvalid) {
 				t.Fatalf("unproven mapping fell back %+v %v", got, err)
 			}
 		})

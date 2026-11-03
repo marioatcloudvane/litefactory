@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=10m -race ./internal/connectoraccess
+?   	github.com/cloudvane/litefactory/internal/connectoraccess	[no test files]
+
+EXIT 0

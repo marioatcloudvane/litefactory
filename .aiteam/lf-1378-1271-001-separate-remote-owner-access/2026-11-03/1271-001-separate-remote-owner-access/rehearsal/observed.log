@@ -1,0 +1,79 @@
+Authorization compatibility rehearsal
+No production URLs or real credentials. Controlled clock: 2026-11-03T12:00:00Z.
+$ go build -o /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/old -ldflags -X main.buildIdentity=5a08f9e4e99640ef56592c90094f1dae75babe87 ./cmd/lf1378rehearsal
+binary identity=5a08f9e4e99640ef56592c90094f1dae75babe87 sha256=b40ca6141bcff3301dc91d048db044618bc663721f1933af3982c1403a718c3b
+$ /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/old seed /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/authorization.db /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/credentials.json
+build=5a08f9e4e99640ef56592c90094f1dae75babe87 phase=seed clock=2026-11-03T12:00:00Z
+valid seeded protected_read=true HTTP=200
+rotated seeded protected_read=true HTTP=200
+revoked seeded protected_read=true HTTP=200
+generation seeded protected_read=true HTTP=200
+PASS phase=seed schema_sha256=8f694680d9a657dbcde855c37cadcf8d5666146cad93934d466281098226a677 owner_generation=2 handles=closed
+$ /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/old restart-old /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/authorization.db /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/credentials.json
+build=5a08f9e4e99640ef56592c90094f1dae75babe87 phase=restart-old clock=2026-11-03T12:00:30Z
+generation prechange restart protected_read=true HTTP=200
+revoked prechange restart protected_read=true HTTP=200
+rotated prechange restart protected_read=true HTTP=200
+valid prechange restart protected_read=true HTTP=200
+PASS phase=restart-old schema_sha256=8f694680d9a657dbcde855c37cadcf8d5666146cad93934d466281098226a677 owner_generation=2 handles=closed
+$ go build -o /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/changed -ldflags -X main.buildIdentity=source-sha256-57fbcaf66e4d11757cfceab4872e5d133cb7a48c828e4344430340a5067897b3 ./cmd/lf1378rehearsal
+binary identity=source-sha256-57fbcaf66e4d11757cfceab4872e5d133cb7a48c828e4344430340a5067897b3 sha256=74b1cecb889d7e8ee4eb4ff47c946e38f9817caab6dfc65c24442d31056ebb5e
+$ /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/changed upgrade /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/authorization.db /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/credentials.json
+build=source-sha256-57fbcaf66e4d11757cfceab4872e5d133cb7a48c828e4344430340a5067897b3 phase=upgrade clock=2026-11-03T12:01:00Z
+generation upgrade protected_read=true HTTP=200
+revoked upgrade protected_read=true HTTP=200
+rotated upgrade protected_read=true HTTP=200
+valid upgrade protected_read=true HTTP=200
+upgrade rotation refresh=true HTTP=200
+rotated successor protected_read=true HTTP=200
+grant revoked protected_read=false HTTP=401
+PASS phase=upgrade schema_sha256=8f694680d9a657dbcde855c37cadcf8d5666146cad93934d466281098226a677 owner_generation=2 handles=closed
+$ /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/changed restart-current /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/authorization.db /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/credentials.json
+build=source-sha256-57fbcaf66e4d11757cfceab4872e5d133cb7a48c828e4344430340a5067897b3 phase=restart-current clock=2026-11-03T12:01:30Z
+valid changed restart protected_read=true HTTP=200
+rotated changed restart protected_read=true HTTP=200
+generation changed restart protected_read=true HTTP=200
+revoked changed restart protected_read=false HTTP=401
+revoked changed restart refresh=false HTTP=400
+PASS phase=restart-current schema_sha256=8f694680d9a657dbcde855c37cadcf8d5666146cad93934d466281098226a677 owner_generation=2 handles=closed
+$ /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/old rollback /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/authorization.db /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/credentials.json
+build=5a08f9e4e99640ef56592c90094f1dae75babe87 phase=rollback clock=2026-11-03T12:02:00Z
+valid rollback protected_read=true HTTP=200
+rotated rollback protected_read=true HTTP=200
+generation rollback protected_read=true HTTP=200
+revoked rollback protected_read=false HTTP=401
+revoked rollback refresh=false HTTP=400
+rollback current refresh refresh=true HTTP=200
+rollback current successor protected_read=true HTTP=200
+rollback spent ancestor replay refresh=false HTTP=400
+replay revoked successor protected_read=false HTTP=401
+replay revoked current refresh refresh=false HTTP=400
+unrelated grant after replay protected_read=true HTTP=200
+PASS phase=rollback schema_sha256=8f694680d9a657dbcde855c37cadcf8d5666146cad93934d466281098226a677 owner_generation=2 handles=closed
+$ /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/old restart-rollback /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/authorization.db /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/credentials.json
+build=5a08f9e4e99640ef56592c90094f1dae75babe87 phase=restart-rollback clock=2026-11-03T12:02:30Z
+valid after rollback restart protected_read=true HTTP=200
+rotated after rollback restart protected_read=false HTTP=401
+rotated after rollback restart refresh=false HTTP=400
+revoked after rollback restart protected_read=false HTTP=401
+revoked after rollback restart refresh=false HTTP=400
+PASS phase=restart-rollback schema_sha256=8f694680d9a657dbcde855c37cadcf8d5666146cad93934d466281098226a677 owner_generation=2 handles=closed
+$ /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/changed generation-change /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/authorization.db /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/credentials.json
+build=source-sha256-57fbcaf66e4d11757cfceab4872e5d133cb7a48c828e4344430340a5067897b3 phase=generation-change clock=2026-11-03T12:03:00Z
+generation family before pin change protected_read=true HTTP=200
+generation pin away and back protected_read=false HTTP=401
+revoked pin away and back protected_read=false HTTP=401
+rotated pin away and back protected_read=false HTTP=401
+valid pin away and back protected_read=false HTTP=401
+PASS phase=generation-change schema_sha256=8f694680d9a657dbcde855c37cadcf8d5666146cad93934d466281098226a677 owner_generation=3 handles=closed
+$ /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/old generation-restart /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/authorization.db /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/lf1378-rehearsal-34tdcw1e/credentials.json
+build=5a08f9e4e99640ef56592c90094f1dae75babe87 phase=generation-restart clock=2026-11-03T12:03:30Z
+rotated generation restart protected_read=false HTTP=401
+rotated generation restart refresh=false HTTP=400
+valid generation restart protected_read=false HTTP=401
+valid generation restart refresh=false HTTP=400
+generation generation restart protected_read=false HTTP=401
+generation generation restart refresh=false HTTP=400
+revoked generation restart protected_read=false HTTP=401
+revoked generation restart refresh=false HTTP=400
+PASS phase=generation-restart schema_sha256=8f694680d9a657dbcde855c37cadcf8d5666146cad93934d466281098226a677 owner_generation=3 handles=closed

@@ -35,7 +35,8 @@ func captureDiscussionConsentTx(ctx context.Context, tx *sql.Tx, actor OwnerActi
 	if actor.Transport != "mcp" || actor.OwnerID != strconv.FormatInt(s.OwnerID, 10) || actor.OwnerGeneration != s.OwnerGeneration || actor.GrantID != grant {
 		return "", ErrConnectorOwner
 	}
-	target, err := resolveConnectorDiscussionTarget(ctx, tx, s.TaskRef)
+	target, err := resolveReadTaskTarget(ctx, tx, s.TaskRef)
+	err = connectorTargetError(err)
 	if err != nil {
 		return "", err
 	}

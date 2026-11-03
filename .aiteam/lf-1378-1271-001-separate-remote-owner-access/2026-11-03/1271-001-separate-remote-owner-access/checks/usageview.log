@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=10m -race ./internal/usageview
+ok  	github.com/cloudvane/litefactory/internal/usageview	8.346s
+
+EXIT 0
