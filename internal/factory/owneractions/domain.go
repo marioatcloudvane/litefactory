@@ -12,7 +12,7 @@ import (
 // participates in selecting or recovering a frozen operation.
 type Domain struct {
 	Actions, Standards, Diagnosis owneraction.Domain
-	Catalog                       func() []owneraction.ActionDefinition
+	Availability                  Availability
 }
 
 func (d Domain) operation(command string) owneraction.Domain {
@@ -47,8 +47,5 @@ func (d Domain) Recover(ctx context.Context, p owneraction.Principal, facts owne
 
 // ActionCatalog returns the enabled command definitions supplied at composition.
 func (d Domain) ActionCatalog() []owneraction.ActionDefinition {
-	if d.Catalog == nil {
-		return nil
-	}
-	return d.Catalog()
+	return d.Availability.ActionCatalog()
 }

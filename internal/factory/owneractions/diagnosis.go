@@ -22,10 +22,10 @@ type DiagnosisEffects interface {
 
 // Diagnosis owns frozen diagnosis targets and their effect-time checks.
 type Diagnosis struct {
-	Targets  *Targets
-	Validate func(owneraction.Invocation) (owneraction.Invocation, error)
-	Protect  func(context.Context, string) (string, error)
-	Effects  DiagnosisEffects
+	Targets      *Targets
+	Availability Availability
+	Protect      func(context.Context, string) (string, error)
+	Effects      DiagnosisEffects
 }
 
 // legacyInvocation and legacyNatural retain the saved pending-action encoding.
@@ -59,7 +59,7 @@ func channel(p owneraction.Principal) string {
 
 // Resolve freezes the exact reviewed action and its target.
 func (d Diagnosis) Resolve(ctx context.Context, p owneraction.Principal, in owneraction.Invocation, at time.Time) (owneraction.Facts, error) {
-	inv, err := d.Validate(owneraction.Invocation{Command: in.Command, Arguments: maps.Clone(in.Arguments)})
+	inv, err := d.Availability.ValidateChange(owneraction.Invocation{Command: in.Command, Arguments: maps.Clone(in.Arguments)})
 	if err != nil {
 		return owneraction.Facts{}, err
 	}
@@ -122,7 +122,7 @@ func (d Diagnosis) Recheck(ctx context.Context, _ owneraction.Principal, f owner
 	if err != nil {
 		return err
 	}
-	if _, err = d.Validate(owneraction.Invocation{Command: p.Natural.Invocation.Command, Arguments: p.Natural.Invocation.Arguments}); err != nil {
+	if _, err = d.Availability.ValidateChange(owneraction.Invocation{Command: p.Natural.Invocation.Command, Arguments: p.Natural.Invocation.Arguments}); err != nil {
 		return errors.New("This action is no longer enabled; request a fresh proposal.") //nolint:staticcheck // Preserve the existing owner-visible refusal text.
 	}
 	if p.Natural.RepoID > 0 {

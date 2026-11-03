@@ -4,35 +4,41 @@ import (
 	"context"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/factory/featuredraft"
 	"github.com/cloudvane/litefactory/internal/factory/owneractions"
+	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 )
 
-// diagnosisDomain supplies parsing, protection and the existing effect host;
-// target selection and all frozen-target decisions belong to the factory.
-func (b OwnerActionDomain) diagnosisDomain() owneractions.Diagnosis {
-	s := b.Service
-	return owneractions.Diagnosis{Targets: s.factory.Targets, Protect: s.Protect, Effects: diagnosisEffects{s}, Validate: func(in owneraction.Invocation) (owneraction.Invocation, error) {
-		inv, effect, err := s.ValidateInvocation(Invocation{Command: in.Command, Arguments: in.Arguments})
-		if err != nil || effect != ChangeEffect {
-			return owneraction.Invocation{}, ErrInvalidInvocation
-		}
-		return owneraction.Invocation{Command: inv.Command, Arguments: inv.Arguments}, nil
-	}}
+// actionAvailability supplies registration facts to the shared factory validator.
+func (s *Service) actionAvailability() owneractions.Availability {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, draft := s.definitions["draft"]
+	_, confirm := s.definitions["confirm"]
+	_, answer := s.definitions["answer"]
+	_, diagnose := s.definitions["diagnose"]
+	_, standards := s.definitions["standards-author"]
+	return owneractions.Availability{Draft: draft, Confirm: confirm, Answer: answer, Diagnose: diagnose, Standards: standards}
 }
 
-type diagnosisEffects struct{ service *Service }
+func (b OwnerActionDomain) diagnosisDomain() owneractions.Diagnosis {
+	s := b.Service
+	return owneractions.Diagnosis{Targets: s.factory.Targets, Protect: s.Protect, Effects: diagnosisEffects{diagnosis: s.diagnosis}, Availability: s.actionAvailability()}
+}
+
+type diagnosisEffects struct{ diagnosis Diagnosis }
 
 func (e diagnosisEffects) DiagnosisAvailable() bool {
-	_, ok := e.service.diagnosis.(interface {
+	_, ok := e.diagnosis.(interface {
 		OwnerActionDiagnosis(context.Context, string, string, string) (string, error)
 	})
 	return ok
 }
 
 func (e diagnosisEffects) Diagnose(ctx context.Context, task, note, key string) (owneraction.Result, error) {
-	diagnosis, ok := e.service.diagnosis.(interface {
+	diagnosis, ok := e.diagnosis.(interface {
 		OwnerActionDiagnosis(context.Context, string, string, string) (string, error)
 	})
 	if !ok {
@@ -50,7 +56,7 @@ func (e diagnosisEffects) Diagnose(ctx context.Context, task, note, key string) 
 	return result, err
 }
 func (e diagnosisEffects) RecoverDiagnosis(ctx context.Context, task, key string) (owneraction.Result, bool, error) {
-	if recovery, ok := e.service.diagnosis.(interface {
+	if recovery, ok := e.diagnosis.(interface {
 		RecoverOwnerActionDiagnosis(context.Context, string, string) (owneraction.Result, bool, error)
 	}); ok {
 		return recovery.RecoverOwnerActionDiagnosis(ctx, task, key)
@@ -61,33 +67,33 @@ func (e diagnosisEffects) RecoverDiagnosis(ctx context.Context, task, key string
 func (b OwnerActionDomain) standardsDomain() owneractions.Standards {
 	s := b.Service
 	frozen, _ := s.standards.(owneractions.FrozenStandards)
-	return owneractions.Standards{Targets: s.factory.Targets, Available: s.standards != nil, Frozen: frozen, Protect: s.Protect, Validate: func(in owneraction.Invocation) (owneraction.Invocation, error) {
-		inv, effect, err := s.ValidateInvocation(Invocation{Command: in.Command, Arguments: in.Arguments})
-		if err != nil || effect != ChangeEffect {
-			return owneraction.Invocation{}, ErrInvalidInvocation
-		}
-		return owneraction.Invocation{Command: inv.Command, Arguments: inv.Arguments}, nil
-	}}
+	return owneractions.Standards{Targets: s.factory.Targets, Available: s.standards != nil, Frozen: frozen, Protect: s.Protect}
 }
 
 func (b OwnerActionDomain) actionDomain() owneractions.Actions {
 	s := b.Service
-	return owneractions.Actions{FallbackTransport: s.transport, Targets: s.factory.Targets, Protect: s.Protect, Research: s.research, Features: featureEffects{s}, Answer: owneractions.AnswerAdmission{Research: s.research, Protect: s.Protect, Render: s.renderQuestion}, Validate: func(in owneraction.Invocation) (owneraction.Invocation, error) {
-		inv, effect, err := s.ValidateInvocation(Invocation{Command: in.Command, Arguments: in.Arguments})
-		if err != nil || effect != ChangeEffect {
-			return owneraction.Invocation{}, ErrInvalidInvocation
-		}
-		return owneraction.Invocation{Command: inv.Command, Arguments: inv.Arguments}, nil
-	}}
+	return owneractions.Actions{FallbackTransport: s.transport, Targets: s.factory.Targets, Protect: s.Protect, Research: s.research, Features: featureEffects{drafter: factoryDraft(s.drafter), confirmer: s.confirmer}, Answer: owneractions.AnswerAdmission{Research: s.research, Protect: s.Protect, Render: s.renderQuestion}, Availability: s.actionAvailability()}
 }
 
-type featureEffects struct{ service *Service }
+func factoryDraft(drafter *feature.Drafter) *featuredraft.Service {
+	if drafter == nil {
+		return nil
+	}
+	core := drafter.Factory()
+	core.Bind = nil
+	core.History = nil
+	return core
+}
+
+type featureEffects struct {
+	drafter   *featuredraft.Service
+	confirmer FeatureConfirmer
+}
 
 func (e featureEffects) DraftAvailable() bool {
-	s := e.service
-	return s.drafter != nil && s.drafter.Model != nil && s.drafter.Redactor != nil && s.drafter.Store != nil && s.drafter.Repositories != nil
+	return e.drafter.Available()
 }
-func (e featureEffects) ConfirmAvailable() bool { return e.service.confirmer != nil }
+func (e featureEffects) ConfirmAvailable() bool { return e.confirmer != nil }
 func assessedAction(assessment *presentation.Assessment, summary string) owneraction.Result {
 	result := owneraction.Result{State: "succeeded", Summary: summary}
 	switch assessment.Status {
@@ -99,20 +105,16 @@ func assessedAction(assessment *presentation.Assessment, summary string) ownerac
 	return result
 }
 func (e featureEffects) Draft(ctx context.Context, transport, channel, key, project, note string, at time.Time) (owneraction.Result, error) {
-	work, assessment := presentation.WithAssessment(ctx)
-	drafter := *e.service.drafter
-	drafter.Bind = nil
-	drafter.History = nil
-	summary, _, err := drafter.Reply(work, transport, channel, key, project, note, at)
-	return assessedAction(assessment, summary), err
+	result, err := e.drafter.Reply(ctx, transport, channel, key, project, note, at)
+	return result.ActionResult(), err
 }
 func (e featureEffects) Confirm(ctx context.Context, transport, channel, key, code string, at time.Time) (owneraction.Result, error) {
 	work, assessment := presentation.WithAssessment(ctx)
-	summary, err := e.service.confirmer.Confirm(work, transport, channel, key, code, at)
+	summary, err := e.confirmer.Confirm(work, transport, channel, key, code, at)
 	return assessedAction(assessment, summary), err
 }
 func (e featureEffects) RecoverFeature(ctx context.Context, transport, channel, code string, at time.Time) (string, bool, error) {
-	if recovery, ok := e.service.confirmer.(interface {
+	if recovery, ok := e.confirmer.(interface {
 		RecoverOwnerActionFeature(context.Context, string, string, string, time.Time) (string, bool, error)
 	}); ok {
 		return recovery.RecoverOwnerActionFeature(ctx, transport, channel, code, at)

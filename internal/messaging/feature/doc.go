@@ -1,3 +1,4 @@
-// Package feature builds protected feature previews using the existing isolated
-// chat model and live project history. Drafting has no forge capability.
+// Package feature adapts live chat history, captured instruction content and
+// presentation to factory-owned protected feature drafting. The adapter has no
+// issue-creation capability and does not decide preview admission or persistence.
 package feature

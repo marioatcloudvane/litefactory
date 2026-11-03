@@ -56,9 +56,11 @@ func (s *Service) EnableResearch(diagnosis Diagnosis, answers ResearchAnswers) {
 	// optional project follows every required option.
 	base := []Argument{{Name: "issue", Type: IntegerArgument, Required: true, Description: "Positive issue number"}}
 	project := Argument{Name: "project", Type: TextArgument, Description: "Managed owner/repo or unique repo; defaults to the only registered project"}
-	s.RegisterCommand(CommandDefinition{Name: "diagnose", NaturalLanguage: true, Effect: ChangeEffect, Description: "Explain what is wrong or stuck", Arguments: append(append([]Argument(nil), base...), project, Argument{Name: "note", Type: TextArgument, Description: "Optional diagnosis context"})}, s.diagnose)
+	defdiagnose, _ := owneractions.ChangeDefinition("diagnose")
+	s.RegisterCommand(defdiagnose, s.diagnose)
 	s.RegisterCommand(CommandDefinition{Name: "question", NaturalLanguage: true, Effect: ReadEffect, Description: "Show the current research question", Arguments: append(append([]Argument(nil), base...), project)}, s.question)
-	s.RegisterCommand(CommandDefinition{Name: "answer", NaturalLanguage: true, Effect: ChangeEffect, Description: "Answer the current research question", Arguments: append(append([]Argument(nil), base...), Argument{Name: "revision", Type: TextArgument, Required: true, Description: "Current 12-character question token"}, Argument{Name: "text", Type: TextArgument, Required: true, Description: "Answer, up to 65536 bytes"}, project)}, s.researchAnswer)
+	defanswer, _ := owneractions.ChangeDefinition("answer")
+	s.RegisterCommand(defanswer, s.researchAnswer)
 }
 
 func (s *Service) researchTarget(ctx context.Context, m Message, taskRequired bool) (string, string) {
@@ -104,17 +106,22 @@ func questionText(q Question) string {
 }
 
 func (s *Service) renderQuestion(ctx context.Context, q Question) (string, error) {
+	return RenderQuestion(ctx, q, s.Protect, s.ReplyLimit())
+}
+
+// RenderQuestion formats a protected question for the supplied delivery budget.
+func RenderQuestion(ctx context.Context, q Question, protect func(context.Context, string) (string, error), limit int) (string, error) {
 	if q.Text != "" {
-		if s.Protect != nil {
+		if protect != nil {
 			var err error
-			q.Text, err = s.Protect(ctx, q.Text)
+			q.Text, err = protect(ctx, q.Text)
 			if err != nil {
 				return "", err
 			}
 		}
 		// Leave room for the complete reason and token, plus substitution margin.
 		fixed := replySize(questionText(Question{Text: " ", Token: q.Token, Reason: q.Reason}))
-		q.Text = shortenLine(q.Text, max(0, s.ReplyLimit()-fixed-128))
+		q.Text = shortenLine(q.Text, max(0, limit-fixed-128))
 	}
 	return questionText(q), nil
 }

@@ -65,25 +65,7 @@ func (s *Service) EnableStandards(operations StandardsOperations) {
 		return
 	}
 	for _, name := range []string{"standards", "standards-author", "standards-proposal", "standards-exception", "standards-analysis"} {
-		def := CommandDefinition{Name: name, Description: "Discover and inspect retained standards, authoring, proposals, exceptions and log analyses", NaturalLanguage: true, Effect: ChangeEffect}
-		switch name {
-		case "standards":
-			def.Description = "Look up the book of standards. action: discover, book.current, book.history, book.categories, book.standards (rendered, with standards per role and category), book.show (revision), author.list, author.inspect (id, version), proposal.list, proposal.inspect or proposal.review (id, version; review shows before and after), exception.list, exception.show (id), analysis.list (recent log analyses with status), analysis.show (id), operation.show (id)."
-		case "standards-author":
-			def.Description = "Work out one standard with the standards author, from draft to the book. action start takes the owner's idea as intent, optionally project (the author then reads its code and recent incidents) and target_id to sharpen an existing standard; it requires conversational confirmation (it costs money), then the author produces its recorded draft. answer takes the owner's reply as text: answers to the open questions (question_id optional: without it the reply answers all of them) or, with no open question, any change the owner wants (\"make it shorter\", \"category X\", \"suggest something\"); the author then drafts again by itself. edit sets one field to the owner's literal value: category_id (an existing category or the draft's new one), rule (starts with MUST), description, evidence, scope, check (automated, semi_automated or manual) or applies_to (comma-separated roles). continue asks the author for its next draft. publish takes the draft into the book in one step once it has no open questions and nothing blocking: it completes it into a proposal, approves and publishes it; give the owner's words that say so (\"publish it\", \"yes, good\") from the current message as text; it refuses with the reason while something is open. revise takes the owner's change request as text for a completed proposal that is not yet published (stage proposal); the author drafts a new version. validate, complete and rebase are kept for repairs. Every action freezes the selected author session, version and book revision while proposing. All author changes require separate conversational confirmation; publication also requires the configured owner's Discord reaction."
-		case "standards-proposal":
-			def.Description = "Propose action edit, approve or publish for an exact proposal id and version, for proposals that did not come from this conversation's author (a draft goes into the book with standards-author publish). Approve and publish need its digest; publish needs an approved version. Edit selects target_id and owner category_id/rule/description/evidence/scope/check/applies_to or exact owner JSON operations."
-		case "standards-exception":
-			def.Description = "Propose action propose, approve or revoke. Propose requires book_revision, standard_id, repository_id (or project), task_ref, departure, reason, expires_at; approve needs id and digest; revoke needs id and reason."
-		case "standards-analysis":
-			def.Description = "Propose action start: a log analysis of one project's runs. Give project and window in the factory's local time (today, today since 2 pm, since 14:00, since 2 pm yesterday, yesterday, last N days, last N hours, this week, last week) or exact after and before times. dry_run true previews what would be filed. It runs in the background and posts its result here."
-		}
-		if name == "standards" {
-			def.Effect = ReadEffect
-		}
-		for _, arg := range []string{"action", "id", "version", "base", "digest", "mode", "target_id", "intent", "category_ids", "question_id", "text", "replace", "category_id", "rule", "description", "evidence", "scope", "check", "applies_to", "operations", "request", "reason", "after", "before", "window", "dry_run", "limit", "offset", "revision", "repository_id", "project", "book_revision", "standard_id", "task_ref", "departure", "expires_at", "replaces"} {
-			def.Arguments = append(def.Arguments, Argument{Name: arg, Type: TextArgument, Required: arg == "action", Description: "Exact retained target or owner supplied content; action selects an enabled operation"})
-		}
+		def, _ := owneractions.StandardsDefinition(name)
 		s.RegisterCommand(def, nil)
 	}
 }
