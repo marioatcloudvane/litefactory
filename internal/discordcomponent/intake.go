@@ -99,7 +99,7 @@ func (n *naturalIntake) gatewayState(s discord.GatewayState) {
 	switch {
 	case quiet:
 	case s.Phase == discord.GatewayConnected:
-		n.log.Info("Discord Gateway connected; ordinary messages arrive as they are sent")
+		n.log.Info("Discord Gateway connected; ready for message events")
 	case s.Phase == discord.GatewayFailed:
 		n.log.Error("Discord Gateway failed permanently", slog.String("reason", s.Reason))
 	default:

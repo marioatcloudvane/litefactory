@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -44,6 +45,7 @@ type Intake interface {
 
 // Options are immutable adapter settings. APIURL and Client are offline test seams.
 type Options struct {
+	Logger        *slog.Logger
 	ApplicationID string
 	PublicKey     ed25519.PublicKey
 	Token         secrets.Token
