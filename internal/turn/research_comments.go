@@ -49,7 +49,7 @@ func ResearchCommentSpec() graphexec.ActionSpec {
 
 // ResearchAskSpec declares Research question and review publication kinds.
 func ResearchAskSpec() graphexec.ActionSpec {
-	return graphexec.ActionSpec{Name: AskAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}}}
+	return graphexec.ActionSpec{Name: AskAction, Mode: agent.ModeResearch, Outcomes: []string{"published", "approved"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}, "lf_approve_reply": {Values: []string{"ship"}}}}
 }
 
 // RegisterComment installs shared report and owner-wait activities for the admitted policy.
@@ -130,6 +130,16 @@ func (h CommentActivity) Execute(ctx context.Context, opts Options, req Activity
 	}
 	if err != nil {
 		return ActivityResult{}, err
+	}
+	if kind == "review" && node.Attrs["lf_approve_reply"] != "" {
+		progress, e := preparedDelivery(ctx, opts.DB, req.InstanceID)
+		if e != nil {
+			return ActivityResult{}, e
+		}
+		if progress.Binding.SourceAttemptID != source.ID {
+			return ActivityResult{}, errors.New("delivery review source changed")
+		}
+		candidate.Comment += deliveryReviewNotice(progress, node.Attrs["lf_approve_reply"])
 	}
 	posted, key, err := h.Reporter.ReportWorkflowCandidate(ctx, source, req.Node, kind, candidate, scope, h.Policy.NextStep(h.Profile, req.Node, kind), h.Policy)
 	if err != nil {
@@ -444,6 +454,9 @@ func renderResearchComment(candidate agentresult.Result, next string, artifacts 
 func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 	if profile == nil {
 		return ""
+	}
+	if n, ok := profile.Node(node); ok && kind == "review" && n.Attrs["lf_approve_reply"] != "" {
+		return fmt.Sprintf("Reply `%s` to ship this exact candidate. Other feedback resumes the conversation. Nothing merges until you approve.", n.Attrs["lf_approve_reply"])
 	}
 	switch kind {
 	case "review":

@@ -32,7 +32,8 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 	if p == nil || p.Workflow != agent.WorkflowBug || p.Mode != "" {
 		return errors.New("owner conversation requires standalone Bug identity")
 	}
-	var loop, analyst, fixer, final Node
+	var loop, analyst, fixer, final, merge, closeNode Node
+	var deliveries int
 	var loops, analysts, fixers, finals, syncs int
 	gate, gated := BugFixerSyncGate(p)
 	var faults []error
@@ -83,6 +84,22 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 				if next, ok := Decide(p, n.Name, outcome); ok && (!gated || n.Name != gate.Name || outcome != "retry" || next != n.Name) {
 					faults = append(faults, fmt.Errorf("base sync %q must park on %s", n.Name, outcome))
 				}
+			}
+		case DeliverAction:
+			deliveries++
+			switch n.Attrs["lf_operation"] {
+			case "push":
+				finals++
+				final = n
+			case "merge":
+				merge = n
+			case "close":
+				closeNode = n
+			default:
+				faults = append(faults, errors.New("invalid delivery operation"))
+			}
+			if n.Attrs["lf_owner_continuation"] != "required" {
+				faults = append(faults, errors.New("revalidation requires claimed owner continuation"))
 			}
 		case "lf_bug_finalize":
 			finals++
@@ -162,7 +179,20 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 	exact(loop, []string{"analyse", "approved", "blocked"})
 	exact(analyst, []string{"ask", "done", "blocked"})
 	exact(fixer, []string{"succeeded", "reshape", "blocked"})
-	exact(final, []string{"completed", "revalidate", "stale", "blocked"})
+	if deliveries == 0 {
+		exact(final, []string{"completed", "revalidate", "stale", "blocked"})
+	} else {
+		if deliveries != 3 || merge.Name == "" || closeNode.Name == "" || final.Action != DeliverAction {
+			faults = append(faults, errors.New("delivery requires one push, merge and close"))
+		}
+		exact(final, []string{"ready", "revalidate", "stale", "blocked"})
+		exact(merge, []string{"merged", "revalidate", "stale", "blocked"})
+		exact(closeNode, []string{"completed", "revalidate", "stale", "blocked"})
+		route(final, "ready", merge.Name)
+		route(merge, "merged", closeNode.Name)
+		route(merge, "revalidate", fixer.Name)
+		route(closeNode, "revalidate", fixer.Name)
+	}
 	route(loop, "analyse", analyst.Name)
 	route(loop, "approved", fixer.Name)
 	route(analyst, "ask", loop.Name)
@@ -170,7 +200,11 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 	route(fixer, "reshape", loop.Name)
 	route(fixer, "succeeded", final.Name)
 	route(final, "revalidate", fixer.Name)
-	next, ok := Decide(p, final.Name, "completed")
+	end := final
+	if deliveries != 0 {
+		end = closeNode
+	}
+	next, ok := Decide(p, end.Name, "completed")
 	target, found := p.Node(next)
 	if resolved, valid := resolve(next); valid {
 		target, found = p.Node(resolved)
@@ -180,7 +214,25 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 	}
 	// No other edge can bypass approval, repeat repair, or create an extra loop.
 	for _, edge := range p.Edges {
-		allowed := edge.From == loop.Name && (edge.On == "analyse" || edge.On == "approved") || edge.From == analyst.Name && (edge.On == "ask" || edge.On == "done") || edge.From == fixer.Name && (edge.On == "reshape" || edge.On == "succeeded") || edge.From == final.Name && (edge.On == "completed" || edge.On == "revalidate")
+		allowed := false
+		switch edge.From {
+		case loop.Name:
+			allowed = edge.On == "analyse" || edge.On == "approved"
+		case analyst.Name:
+			allowed = edge.On == "ask" || edge.On == "done"
+		case fixer.Name:
+			allowed = edge.On == "reshape" || edge.On == "succeeded"
+		case final.Name:
+			success := "completed"
+			if deliveries != 0 {
+				success = "ready"
+			}
+			allowed = edge.On == success || edge.On == "revalidate"
+		case merge.Name:
+			allowed = deliveries != 0 && (edge.On == "merged" || edge.On == "revalidate")
+		case closeNode.Name:
+			allowed = deliveries != 0 && (edge.On == "completed" || edge.On == "revalidate")
+		}
 		if node, exists := p.Node(edge.From); exists && node.Action == SyncBaseAction {
 			allowed = edge.On == "synced" || edge.On == "current" || edge.On == "deferred" || gated && node.Name == gate.Name && edge.On == "retry" && edge.To == gate.Name
 		}

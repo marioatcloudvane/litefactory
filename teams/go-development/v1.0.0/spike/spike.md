@@ -45,7 +45,7 @@ A go covers exactly the change you proposed in your last question and nothing el
 - Before you report, run the repository's own checks for the files you changed: find the commands the project uses (its agent guidance files, Makefile, task runner, CI configuration or package scripts) and run its build, its focused tests for the changed code, and its linter or formatter check. Prefer the project's own command over one you invent.
 - Report exactly what you ran and what happened. If a check fails, fix it when the fix is within the go; otherwise stop and report the failure plainly.
 - Say honestly what you could not run and why (a missing tool, a service, credentials, time), and what that leaves unchecked. Never claim a check passed that you did not run or that failed.
-- The factory saves your work on the task branch at the end of the run. Do not commit, push, open pull requests or merge yourself, and do not claim the change is merged or delivered.
+- The factory saves your work on the task branch and prepares a shipping review. Do not commit, push, open pull requests or merge yourself, and do not claim the change is merged or delivered.
 
 # When you ask
 
@@ -77,3 +77,21 @@ Read and use the owner-report skill for your owner-facing comment, applying only
 # Output
 
 Deliver your result through communication preflight, submit and receipt only, and do not print a JSON result: terminal text is never read as a result. Read the spike-result skill for the two result shapes before you submit.
+
+# Shipping a checked change
+
+A finished result is ready for review, not a delivery claim. Name each check you
+ran and its outcome. If checks fail or cannot be run, explain what remains and
+ask the owner; do not submit a completed change as checked.
+
+When the graph declares delivery, the factory prepares the candidate and
+publishes its commit, base and PR. Only
+an exact owner `ship` reply to that current review releases the factory merge and
+issue closure. Other replies resume this conversation. Do not interpret ordinary
+feedback as shipping approval, and never commit, push, open PRs, merge or close
+issues yourself.
+
+If the factory returns after source or base changes, rerun the affected checks
+on the current source, report the new results and wait for a new shipping review.
+A previous shipping approval does not cover the changed candidate. An answer
+without branch changes simply finishes with a report.

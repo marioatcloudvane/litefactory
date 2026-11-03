@@ -44,7 +44,11 @@ func (r *Reporter) ReportGraphDeliveryCompletion(ctx context.Context, instanceID
 	if e != nil {
 		return Posted{}, e
 	}
-	intent := r.deliveryIntent(ref, ref, session.ID, 0, 0, fmt.Sprintf("bug-delivery-completed:%d", instanceID))
+	keyPrefix := "bug-delivery-completed"
+	if progress.Binding.Summary != "" {
+		keyPrefix = "graph-delivery-completed"
+	}
+	intent := r.deliveryIntent(ref, ref, session.ID, 0, 0, fmt.Sprintf("%s:%d", keyPrefix, instanceID))
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
 		display, err := lookupTicketDisplay(ctx, r.forge, ref, progress.Binding.IssueNumber)
 		if err != nil {
@@ -54,7 +58,11 @@ func (r *Reporter) ReportGraphDeliveryCompletion(ctx context.Context, instanceID
 		if err != nil {
 			return redact.Body{}, err
 		}
-		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("Bug repair delivered: commit `%s` merged into `%s` through PR #%d (merge `%s`), and issue %s is closed.", progress.Commit, progress.Binding.Target, progress.PR.Number, progress.PR.MergeSHA, display.Reference())+"\n\nFactory action: commit, push, integration and issue closure.\n\n"+report.RenderExecutions(evidence, report.ExecutionReportLimit), "")
+		label := "Bug repair"
+		if progress.Binding.Summary != "" {
+			label = "Change"
+		}
+		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("%s delivered: commit `%s` merged into `%s` through PR #%d (merge `%s`), and issue %s is closed.", label, progress.Commit, progress.Binding.Target, progress.PR.Number, progress.PR.MergeSHA, display.Reference())+"\n\nFactory action: commit, push, integration and issue closure.\n\n"+report.RenderExecutions(evidence, report.ExecutionReportLimit), "")
 	})
 }
 

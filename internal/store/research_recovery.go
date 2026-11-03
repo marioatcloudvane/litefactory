@@ -84,6 +84,12 @@ func (db *DB) RecoverResearchDispatch(ctx context.Context, instanceID int64, in 
 // SettleResearchReview consumes only the authenticated current review reply and
 // moves to its explicit graph approval edge, without allocating an agent attempt.
 func (db *DB) SettleResearchReview(ctx context.Context, instanceID int64, key, target string, at time.Time) error {
+	return db.SettleGraphReview(ctx, instanceID, key, target, "research", "done", at)
+}
+
+// SettleGraphReview consumes a claimed, published review for an admitted exact reply.
+// The caller resolves the token and target from the retained graph, never agent text.
+func (db *DB) SettleGraphReview(ctx context.Context, instanceID int64, key, target, workflow, reply string, at time.Time) error {
 	return db.withTx(ctx, func(tx *sql.Tx) error {
 		wait, e := scanGraphOwnerWait(tx.QueryRowContext(ctx, `SELECT `+graphWaitColumns+` FROM graph_owner_waits WHERE instance_id=? AND delivery_key=?`, instanceID, key))
 		if e != nil {
@@ -96,12 +102,17 @@ func (db *DB) SettleResearchReview(ctx context.Context, instanceID int64, key, t
 		if e != nil {
 			return e
 		}
-		if mode != "research" || status != GraphRunning || kind != "review" || source != wait.SourceAttemptID || !completed || wait.State != "claimed" || wait.ReplyID <= comment || wait.ReplyAuthorID < 1 || strings.ToLower(strings.TrimSpace(wait.ReplyBody)) != "done" || target == "" || at.IsZero() {
-			return graphInvariant("Research review is not authenticated current approval")
+		if mode != workflow || reply == "" || status != GraphRunning || kind != "review" || source != wait.SourceAttemptID || !completed || wait.State != "claimed" || wait.ReplyID <= comment || wait.ReplyAuthorID < 1 || strings.ToLower(strings.TrimSpace(wait.ReplyBody)) != reply || target == "" || at.IsZero() {
+			return graphInvariant("graph review is not authenticated current approval")
 		}
 		if _, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='allocated' WHERE delivery_key=?`, key); e != nil {
 			return e
 		}
 		return setGraphInstanceTx(ctx, tx, instanceID, target, GraphRunning, at, time.Time{})
 	})
+}
+
+// ApprovedGraphReview recovers a consumed review independently of later retry waits.
+func (db *DB) ApprovedGraphReview(ctx context.Context, instance, source int64) (GraphOwnerWait, error) {
+	return scanGraphOwnerWait(db.sql.QueryRowContext(ctx, `SELECT `+graphWaitColumns+` FROM graph_owner_waits WHERE instance_id=? AND source_attempt_id=? AND state='allocated' AND delivery_key IN (SELECT delivery_key FROM graph_comment_intents WHERE instance_id=? AND kind='review') ORDER BY rowid DESC LIMIT 1`, instance, source, instance))
 }

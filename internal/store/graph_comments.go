@@ -104,11 +104,9 @@ func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (b
 		}
 		return true, nil
 	}
-	// Bug factory activities have no subprocess run. Their actual succeeded
-	// or failed source attempt remains the publication authority; never invent
-	// a run or extend this exception to existing agent-backed workflows.
+	// Parked factory activities retain their source attempt as publication authority.
 	if stopOrigin != "" {
-		if workflow != "bug" || kind != "question" || session != d.SessionID || run.Int64 != d.RunID {
+		if workflow == "" || kind != "question" || session != d.SessionID || run.Int64 != d.RunID {
 			return false, errors.New("store: parked graph report binding mismatch")
 		}
 		return true, nil
