@@ -101,6 +101,15 @@ func (d *Daemon) observeAlerts(ctx context.Context, at time.Time) (resultErr err
 		if !complete || (!task.HasWork && !task.Waiting) {
 			continue
 		}
+		// Recheck terminal evidence even for returned rows: closure can land
+		// after the bounded source snapshot and retained audit rows can remain.
+		terminal, err := d.db.AlertTaskTerminal(ctx, task.Task)
+		if err != nil {
+			return err
+		}
+		if terminal {
+			continue
+		}
 		if err := d.alerts.Progress(ctx, task, at); err != nil {
 			return err
 		}
@@ -146,16 +155,7 @@ func (d *Daemon) observeAlerts(ctx context.Context, at time.Time) (resultErr err
 			clean, err = d.db.AlertTaskSettled(ctx, s.Kind, s.Key)
 		case "no_progress":
 			if complete {
-				found := false
-				for _, t := range tasks {
-					if t.Task == s.Key {
-						found = true
-						break
-					}
-				}
-				if !found {
-					clean, err = d.db.AlertTaskTerminal(ctx, s.Key)
-				}
+				clean, err = d.db.AlertTaskTerminal(ctx, s.Key)
 			}
 		}
 		if err != nil {

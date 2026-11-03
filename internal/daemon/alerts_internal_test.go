@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -254,5 +255,198 @@ func TestFactoryAlertBackoffExcludesPendingButStillObservesRunningWork(t *testin
 				t.Fatalf("running=%t progress=%+v", running, progress)
 			}
 		})
+	}
+}
+
+func TestFactoryAlertRetainedInputAfterCompletion(t *testing.T) {
+	for _, node := range []string{"delivered", "finished", "closed"} {
+		for _, opening := range []string{"none", "queued", "confirmed", "uncertain"} {
+			t.Run(node+"/"+opening, func(t *testing.T) {
+				d, session, at := alertDaemonFixture(t)
+				ctx := t.Context()
+				must := func(err error) {
+					t.Helper()
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				d.freeDiskBytes = func(string) (uint64, error) { return 1000, nil }
+				_, err := d.db.RecordComment(ctx, store.Comment{SessionID: session.ID, ForgeCommentID: 40, AuthorUserID: 42, Body: "work", CreatedAt: session.CreatedAt, Classification: store.ClassificationInstruction})
+				must(err)
+				input, err := d.db.RetainOwnerInstruction(ctx, session.ID, 40, 42, "work", store.OwnerInputTarget{})
+				must(err)
+				sender := &retainedAlertSender{uncertain: opening == "uncertain"}
+				drain := func(stamp time.Time) {
+					t.Helper()
+					for i := 0; i < 10; i++ {
+						more, err := d.alerts.SendStep(ctx, stamp, "123", "456", sender)
+						must(err)
+						if !more {
+							return
+						}
+					}
+					t.Fatal("not idle")
+				}
+				if opening != "none" {
+					must(d.observeAlerts(ctx, at))
+					if opening == "confirmed" || opening == "uncertain" {
+						drain(at)
+					}
+				}
+				if node != "closed" {
+					def, err := d.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "bug", ProfileVersion: 1, Path: "bug.dot", Digest: strings.Repeat("b", 64), CreatedAt: session.CreatedAt})
+					must(err)
+					g, err := d.db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: def.ID, CurrentNode: node, StartedAt: session.CreatedAt})
+					must(err)
+					must(d.db.SetGraphInstanceStatus(ctx, g.ID, store.GraphSucceeded, time.Time{}, at.Add(-time.Hour)))
+				}
+				must(d.db.SetSessionState(ctx, session.ID, store.SessionFailed))
+				must(d.db.ClearSessionNeedsPoll(ctx, session.ID))
+				for i := 1; i <= 4; i++ {
+					stamp := at.Add(time.Duration(i) * time.Minute)
+					must(d.observeAlerts(ctx, stamp))
+					if i >= 2 {
+						drain(stamp)
+					}
+				}
+				if opening == "uncertain" {
+					if len(sender.messages) != 1 {
+						t.Fatal("uncertain opening resent")
+					}
+					sender.uncertain = false
+					drain(at.Add(10 * time.Minute))
+				}
+				// Persisted recovery and receipt debt must survive process restart.
+				path := d.db.Path()
+				must(d.db.Close())
+				reopened, err := store.Open(ctx, path)
+				must(err)
+				d.db = reopened
+				d.alerts.DB = reopened
+				t.Cleanup(func() { _ = reopened.Close() })
+				must(d.observeAlerts(ctx, at.Add(20*time.Minute)))
+				drain(at.Add(20 * time.Minute))
+				ledger, err := d.db.ReadAlerts(ctx)
+				must(err)
+				s := ledger.Subjects[alerts.SubjectID("no_progress", "task", session.TaskRef)]
+				if s != nil && s.Active {
+					t.Fatalf("completed task retains active alert: %+v", s)
+				}
+				want := 0
+				if opening == "confirmed" || opening == "uncertain" {
+					want = 2
+					if s.Episodes[s.Episode].RecoveredAt.IsZero() {
+						t.Fatal("missing recovery")
+					}
+				}
+				if len(sender.messages) != want {
+					t.Fatalf("sent %d notifications, want %d: %+v", len(sender.messages), want, sender.messages)
+				}
+				retained, err := d.db.RetainOwnerInstruction(ctx, session.ID, 40, 42, "work", store.OwnerInputTarget{})
+				must(err)
+				if retained != input {
+					t.Fatal("retained instruction changed")
+				}
+			})
+		}
+	}
+}
+
+type retainedAlertSender struct {
+	messages  []alerts.Message
+	uncertain bool
+}
+
+func (s *retainedAlertSender) SendAlert(_ context.Context, m alerts.Message) alerts.Delivery {
+	s.messages = append(s.messages, m)
+	return alerts.Delivery{Confirmed: !s.uncertain, RemoteID: fmt.Sprint(len(s.messages))}
+}
+func (s *retainedAlertSender) ReconcileAlert(_ context.Context, _ alerts.Message, _ string) (string, error) {
+	if !s.uncertain {
+		return "1", nil
+	}
+	return "", nil
+}
+
+func TestFactoryAlertUnavailableScanCannotRecoverOrRepeat(t *testing.T) {
+	d, session, at := alertDaemonFixture(t)
+	ctx := t.Context()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(d.db.SetSessionState(ctx, session.ID, store.SessionRunning))
+	sender := &retainedAlertSender{}
+	drain := func() {
+		t.Helper()
+		for i := 0; i < 10; i++ {
+			more, err := d.alerts.SendStep(ctx, at, "123", "456", sender)
+			must(err)
+			if !more {
+				return
+			}
+		}
+		t.Fatal("not idle")
+	}
+	must(d.observeAlerts(ctx, at))
+	drain()
+	original := d.db
+	repo, err := original.GetRepo(ctx, session.RepoID)
+	must(err)
+	must(original.SetSessionState(ctx, session.ID, store.SessionIdle))
+	must(original.ClearSessionNeedsPoll(ctx, session.ID))
+	// The disk observation succeeds in the ledger, then the source read fails.
+	unavailable, err := store.Open(ctx, filepath.Join(t.TempDir(), "unavailable.db"))
+	must(err)
+	must(unavailable.Close())
+	d.db = unavailable
+	at = at.Add(time.Minute)
+	if err = d.observeAlerts(ctx, at); err == nil {
+		t.Fatal("unavailable source read accepted")
+	}
+	d.db = original
+	ledger, err := original.ReadAlerts(ctx)
+	must(err)
+	key := alerts.SubjectID("no_progress", "task", session.TaskRef)
+	if !ledger.Subjects[key].Active || ledger.Observers["no_progress"].Ready {
+		t.Fatal("failed read supplied recovery")
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err = d.observeAlerts(canceled, at); err == nil {
+		t.Fatal("cancelled read accepted")
+	}
+	// A bounded scan cannot use absence to clear an existing episode either.
+	for i := 0; i < 1001; i++ {
+		s, err := original.GetOrCreateSession(ctx, repo, 2000+i)
+		must(err)
+		must(original.SetSessionNeedsPoll(ctx, s.ID))
+	}
+	must(d.observeAlerts(ctx, at.Add(time.Minute)))
+	drain()
+	ledger, err = original.ReadAlerts(ctx)
+	must(err)
+	if !ledger.Subjects[key].Active || ledger.Observers["no_progress"].Ready {
+		t.Fatal("incomplete scan supplied recovery")
+	}
+	if len(sender.messages) != 2 {
+		t.Fatalf("successful subjects repeated after partial failure: %d", len(sender.messages))
+	}
+	for i := 0; i < 1001; i++ {
+		s, err := original.GetOrCreateSession(ctx, repo, 2000+i)
+		must(err)
+		must(original.ClearSessionNeedsPoll(ctx, s.ID))
+	}
+	for i := 1; i <= 2; i++ {
+		at = at.Add(time.Duration(i) * time.Minute)
+		must(d.observeAlerts(ctx, at))
+		drain()
+	}
+	ledger, err = original.ReadAlerts(ctx)
+	must(err)
+	if ledger.Subjects[key].Active || !ledger.Observers["no_progress"].Ready || len(sender.messages) != 3 {
+		t.Fatal("complete retry failed to settle exactly once")
 	}
 }
