@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"github.com/cloudvane/litefactory/internal/factory"
 	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"log/slog"
@@ -135,6 +136,14 @@ func TestChatResearchOwnerJourney(t *testing.T) {
 	if answer.Reason != "answer recorded" {
 		t.Fatalf("answer: %+v", answer)
 	}
+	forge.postErr = errors.New("lost acknowledgment")
+	if err := d.chatResearchNotes(ctx); err == nil {
+		t.Fatal("lost acknowledgment was reported as confirmed")
+	}
+	if err := d.chatResearchNotes(ctx); err == nil || len(forge.posts) != 1 {
+		t.Fatal("uncertain publication repeated the write")
+	}
+	forge.seen = append(forge.seen, forge.posts[0])
 	researchRecoveryCheck(t, d.chatResearchNotes(ctx))
 	researchRecoveryCheck(t, d.chatResearchNotes(ctx))
 	if len(forge.posts) != 1 || !strings.Contains(forge.posts[0].Body, "Owner answered from chat: Use the existing boundary.") {

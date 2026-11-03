@@ -792,8 +792,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
 	daemon.remoteConnector = remoteConnector
+	daemon.prepareIndependentOwnerActions(actionOpts, sharedRedactor)
 	if remoteConnector != nil {
-		daemon.prepareIndependentOwnerActions(actionOpts, sharedRedactor)
 		if decisionErr := daemon.prepareStageDecisions(reporter, sharedRedactor, s.Now); decisionErr != nil {
 			s.Logger.WarnContext(ctx, "stage decision admission unavailable")
 		}

@@ -1,4 +1,4 @@
-package daemon
+package retainedinbox
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
-func TestOwnerInboxReadFailure(t *testing.T) {
+func TestOwnerInboxreadFailure(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name string
@@ -33,7 +33,7 @@ func TestOwnerInboxReadFailure(t *testing.T) {
 		{"unknown", errors.New("private provider response"), "unavailable"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			detail := inboxReadFailure(test.err)
+			detail := readFailure(test.err)
 			if !strings.Contains(detail.Unavailable, test.want) || strings.Contains(detail.Unavailable, "private") || detail.Title != "" || detail.Body != "" || detail.URL != "" {
 				t.Fatalf("unsafe or wrong failure: %#v", detail)
 			}
@@ -46,6 +46,7 @@ func TestOwnerInboxQualifiedRead(t *testing.T) {
 	ctx := t.Context()
 	var origin string
 	requests := 0
+	var revoke func()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		if r.Method != http.MethodGet {
@@ -58,6 +59,9 @@ func TestOwnerInboxQualifiedRead(t *testing.T) {
 		case "/repos/acme/tickets":
 			_, _ = w.Write([]byte(`{"id":91,"full_name":"acme/tickets","has_issues":true}`))
 		case "/repos/acme/tickets/issues/1":
+			if revoke != nil {
+				revoke()
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 101, "number": 1, "title": "Current title", "body": "Current details fixture-token", "state": "open", "url": origin + r.URL.Path, "html_url": "https://github.com/acme/tickets/issues/1"})
 		default:
 			t.Errorf("unexpected read: %s", r.URL.Path)
@@ -83,7 +87,7 @@ func TestOwnerInboxQualifiedRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	factory := projectconnection.NewFactory(projectconnection.Options{DB: db, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "fixture-token", true }}})
-	reader := ownerInboxReader{daemon: &Daemon{db: db, connections: factory}}
+	reader := New(db, factory)
 	decision := store.InboxDecision{RepoID: repo.ID, ConnectionID: version.ID, Ref: ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: ticket.Origin(origin), RemoteID: "101"}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: ticket.Origin(origin), Container: "acme/tickets", Key: "1"}}}
 	detail, err := reader.ReadOwnerInboxTicket(ctx, decision)
 	if err != nil || detail.Title != "Current title" || !strings.HasPrefix(detail.Body, "Current details") || strings.Contains(detail.Body, "fixture-token") {
@@ -96,9 +100,16 @@ func TestOwnerInboxQualifiedRead(t *testing.T) {
 	if err != nil || detail.Title != "" || detail.Unavailable == "" || requests != before {
 		t.Fatalf("cross-provider identity leaked: %#v %v", detail, err)
 	}
-	if _, err = db.DisableConnection(ctx, repo.ID, store.TicketConnection, version.Revision); err != nil {
-		t.Fatal(err)
+	revoke = func() {
+		if _, e := db.DisableConnection(ctx, repo.ID, store.TicketConnection, version.Revision); e != nil {
+			t.Error(e)
+		}
 	}
+	detail, err = reader.ReadOwnerInboxTicket(ctx, decision)
+	if err != nil || detail.Title != "" || detail.Body != "" || detail.Unavailable == "" {
+		t.Fatalf("revocation during provider read leaked: %#v %v", detail, err)
+	}
+	before = requests
 	detail, err = reader.ReadOwnerInboxTicket(ctx, decision)
 	if err != nil || detail.Title != "" || detail.Unavailable == "" || requests != before {
 		t.Fatalf("revoked source leaked: %#v %v", detail, err)

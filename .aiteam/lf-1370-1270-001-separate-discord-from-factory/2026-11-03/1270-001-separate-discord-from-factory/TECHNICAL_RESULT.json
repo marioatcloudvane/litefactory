@@ -1,0 +1,241 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "AI;DR: The architecture keeps Discord in the existing deployment, reuses its conversation/storage services and gives lifecycle ownership to one component. Review this technical proposal at the current gate; acceptance planning still follows.\n\nFactory core keeps research answers, creation recovery, retained routing and the single shared approval coordinator. The daemon supplies dependencies and mounts the handler. This preserves current interactions without a schema or configuration migration.\n\nThe main risks are duplicated workers, policy hidden in relocated hosts and lost recovery fences. The design addresses them with one active path, bounded operations and unchanged transactions. Upgrade/rollback and stop/drain evidence remain unverified. No implementation or tests ran in this pass; receipt acknowledgment will establish neither acceptance nor publication.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "7a5924253dd275ae21887b4d90debebedfb00774936a695941ab3bb7dcbfaf19",
+          "changed_sections": [
+            "architecture",
+            "guidance"
+          ],
+          "draft": {
+            "key": "story-001",
+            "name": "Separate Discord from factory internals",
+            "user_story": {
+              "actor": "factory owner and operator",
+              "want": "Discord interactions to run as a distinct component within the existing deployment, using the factory's bounded operations while preserving current behavior and saved work",
+              "benefit": "I can continue conversations, approve permitted actions and recover pending replies safely while Discord changes remain separate from factory workflow decisions",
+              "notes": [
+                "Covers: O-01, O-02, O-03, O-04, O-05, O-06, O-07, O-08, O-09, O-10, O-11, O-12, O-13, O-14.",
+                "Work mode: refactor (S-01). Preserve behavior throughout the transition; the existing classified Research inventory defines the affected responsibilities and compatibility obligations.",
+                "AS-01 — One repository, one Go module and coordinated in-process releases remain the chosen scope; incremental cuts are permitted only when each leaves the deployment usable and retires the paths it replaces, as required by the issue. (agent's call)",
+                "AS-02 — Reuse the existing SQLite schema and narrow storage adapter; extend bounded ownership operations as needed without changing stored encodings or splitting compound transactions, because logical ownership does not require physical separation. (agent's call)",
+                "AS-03 — Existing private store-symbol aliases can remain only as documented compatibility bridges without granting factory persistence capability; final boundary checks must include relocated hosts and shared approval wiring. (agent's call)",
+                "AS-04 — Historical conversation upgrade coverage and a live stop/drain/rollback are unverified in this pass. Existing fixture evidence is reusable but cannot stand in for extraction-specific compatibility acceptance. (agent's call)",
+                "No material intent questions remain. Extraction-specific upgrade and stop/drain/rollback evidence is still unverified; retain these recovery outcomes for technical and acceptance planning."
+              ]
+            },
+            "problem": "Discord startup, conversations and delivery are still mixed with factory decisions and recovery. This makes changing Discord risky for owner permissions, approvals and unfinished work. Owners need the same interactions and recovery after separation, including when Discord is unavailable.",
+            "in_scope": [
+              "Separate Discord intake, credentials, transport lifecycle, conversations, presentation, reactions and delivery within the existing deployment. Include token retry, signature verification, gateway reconnect, polling fallback and conversation workers; the daemon supplies dependencies and mounts the handler.",
+              "Keep research-answer admission and reconciliation, feature-creation claims and recovery, retained inbox routing, standards, analysis, diagnosis and publication decisions in core, exposed to Discord through bounded commands and reads.",
+              "Give Discord only conversation/delivery storage and bounded core capabilities. Keep general database access, workflow records, arbitrary transactions, daemon internals and the full approval coordinator outside its consumer boundary.",
+              "Retain one core owner-action coordinator shared with other enabled consumers. Discord continues to deliver approval requests and receive reactions under existing central policy.",
+              "Retire replaced daemon transport loops and direct chat policy paths in the same usable cutover as their replacements. Retain only dependency composition and primitive effect hosts, without duplicate policy or fallback execution.",
+              "Preserve current gateway, conversation, presentation, authorization, owner-action and delivery behavior, including deferred token recovery, reconnect/poll fallback, refusal, throttling, ordered saved-byte replay and shared approvals with the remote consumer enabled or disabled.",
+              "Carry forward the classified Research inventory and behavior evidence across the extracted lifecycle and all consumer adapters. Include characterization of uncovered research-answer, feature-confirmation/creation recovery, retained inbox routing and shared-approval behavior before replacement; include trusted hosts and compound operations in boundary review.",
+              "Preserve saved conversations, immutable captures, unfinished turns, pending approvals and partially acknowledged deliveries across upgrade, restart and rollback to compatible previous code. Recovery resumes reconciliation and saved outcomes without losing pending work or executing completed work again.",
+              "Include extraction-specific compatibility coverage for state written by the previous code, reopened by the new code and reopened again by the previous code, plus a controlled process stop, drain and restart rehearsal. Preserve core ticket workflows when Discord is absent and retain affected-package and full repository verification obligations, including prescribed race coverage.",
+              "Document component ownership, unchanged configuration and operator use, missing-token recovery versus invalid-configuration refusal, status, recovery and rollback procedures, and the limits of tested upgrade coverage and provider delivery guarantees."
+            ],
+            "not_in_scope": [
+              "K-01 — Preserve owner/channel admission, confirmation/approval policy, redaction, commands, recorded outcomes, retained ticket/code routing, receipts, worktree isolation and immutable captures; factory decisions and publication authority stay in core. (owner said: issue #1270 supplied scope)",
+              "K-02 — Saved conversations and pending deliveries survive upgrade/restart; preserve transaction fences and current bounded delivery guarantees. Core workflows remain usable with Discord disabled. (owner said: issue #1270 supplied completion)",
+              "N-01 — Exclude separate processes/releases, new platforms or features, new remote authority, approval policy changes and broad database migration. Remote MCP extraction is not a prerequisite. (owner said: issue #1270 supplied scope)",
+              "K-03 — Keep the SQLite schema, saved encodings, identities, capture digests, connection revisions and authorization generations unchanged, with existing compound transactions remaining atomic. (agent's call)",
+              "K-04 — Keep commands, webhook behavior, presentation, channel bindings, instruction capture, model selection, retention rules and configuration keys/defaults compatible for existing installations. (agent's call)",
+              "K-05 — Recheck current owner/channel authority and retained ticket/code routing at the existing boundaries, including around provider reads and before effects, without treating transport admission as workflow approval. (agent's call)",
+              "K-06 — Preserve saved reply bytes, per-channel ordering, stable nonces, Retry-After handling, paused permanent-refusal records and uncertain delivery recovery without claiming stronger provider deduplication. (agent's call)",
+              "K-07 — Keep optional missing credentials recoverable without stopping core workflows, retain startup refusal for malformed enabled configuration, and leave Discord-required approvals pending or unavailable when Discord is absent. (agent's call)",
+              "K-08 — Every intermediate extraction leaves the deployment usable and preserves existing authority and recovery behavior until its replacement takes over. (agent's call)",
+              "N-02 — Exclude physical database separation, schema or serializer conversion, independent component version compatibility and a new network-facing core API. (agent's call)",
+              "N-03 — Exclude incidental behavior fixes, command redesign, provider/model changes, team-role or skill changes, and removal of harmless value aliases solely for tidiness. (agent's call)"
+            ],
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "owner-report"
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Basis and scope",
+                  "decision": "Keep one in-process component, one Go module, one coordinated release and the existing database. This L story retains O-01–O-14, K-01–K-08 and N-01–N-03 without narrowing; no Ruling is needed.",
+                  "rationale": "The supplied size reflects lifecycle, policy and recovery changes across packages. Research F-01–F-14 and current source at f3b7065c0456fe75702fa7ce70f93377a12bd076 support extraction without a process, schema or network API split. Current source was inspected; earlier Research checks are not new execution evidence."
+                },
+                {
+                  "area": "Reuse and dependency direction",
+                  "decision": "Reuse internal/messaging, messaging/discord, messagingstate, messagingstorage, factory/contracts, factory/owneractions and factory/featuredraft. Add internal/discordcomponent as the lifecycle composition package above messaging and its Discord adapter. Factory packages must not import this component, messaging or daemon.",
+                  "rationale": "The adapter already imports messaging, so placing runtime composition in messaging would create a cycle. A sibling component gives lifecycle ownership a clear home while preserving the existing domain services and factory boundary guard."
+                },
+                {
+                  "area": "Consumer capability boundary",
+                  "decision": "The component receives messagingstorage.Port, bounded factory operations, current-principal lookup, read-only instructions, isolated model providers, clock, logger and secret resolver. It never receives *store.DB, SQL, transaction callbacks, daemon, workflow rows, domain registration or *owneraction.Service. Trusted wiring constructs private adapters; compatibility aliases carry values or error identity only.",
+                  "rationale": "Existing messaging.Service and messagingstorage already separate logical ownership from the shared database. Extend purpose-specific operations rather than expose a general repository or move privileged access into a newly named host."
+                },
+                {
+                  "area": "Core ownership",
+                  "decision": "Move policy in chatResearch, ChatIssueCreator and ownerInboxReader into focused factory services. Core owns research admission/reconciliation, creation claims/recovery, retained target selection, standards/analysis/diagnosis decisions and publication. Keep only provider I/O, executor invocation and other primitive effects in trusted hosts, without policy fallbacks.",
+                  "rationale": "internal/daemon/chat_research.go, chat_issue.go and chat_owner_inbox.go currently combine storage, authority checks and external effects. Moving those bodies wholesale to Discord would violate O-04/O-05. Existing factory services and domain adapters remain the decision owners."
+                },
+                {
+                  "area": "Shared approval composition",
+                  "decision": "Compose one owner-action coordinator and one recovery runner in trusted core wiring regardless of remote enablement. Install Discord delivery and a bounded reaction input after token availability; give conversations the existing OwnerActions interface. Reuse the same coordinator for remote callers. Core builds domains from installed capability facts and primitive hosts, without requiring a messaging.Service to construct core policy.",
+                  "rationale": "daemon/owner_actions.go currently reuses remote actions when present but otherwise builds from s.FactoryOwnerActionDomain(). Preserve shared identity, generation and outcome state while removing lifecycle dependence on Discord. A late token must not create another coordinator or runner; no Discord delivery means required approvals stay unavailable or pending."
+                },
+                {
+                  "area": "Authority and routing",
+                  "decision": "Preserve owner/channel admission, source identity and principal generation checks. Core rechecks retained ticket/code connections around provider reads and current authority before effects; Discord capability checks remain at intake and delivery. Transport admission, model interpretation and reaction receipt alone grant no workflow authority.",
+                  "rationale": "ownerInboxReader rechecks connection revision after network I/O; ChatIssueCreator checks effect authority immediately before create. Research answer claims use the current graph wait and a session lock. These checks must survive decomposition, including revoked access during I/O."
+                },
+                {
+                  "area": "Availability and lifecycle",
+                  "decision": "Move token resolution/retry, public-key validation, token redaction, adapter construction, registration, gateway/poll fallback and conversation/delivery workers into the component. Expose a handler that returns the existing unavailable response until ready, status, wake and a context-bound serve/join lifecycle. Keep optional missing-token recovery distinct from malformed enabled configuration refusal.",
+                  "rationale": "daemon/chat.go, chat_natural.go and chat_conversations.go own these responsibilities today. Independent turn and delivery loops prevent slow model calls from blocking saved replies. The daemon supplies dependencies, mounts /litefactory/discord and signals lifecycle; ordinary ticket work remains usable with Discord absent."
+                },
+                {
+                  "area": "Transitions and retirement",
+                  "decision": "For S-01, establish characterization of uncovered boundary behavior before replacement. Introduce core operations and adapt callers first; then switch lifecycle ownership and remove replaced daemon loops and direct policy bodies in the same usable cut. Retain wrappers only for composition or value compatibility, with an explicit owner and removal condition.",
+                  "rationale": "A single active runtime and a single policy path prevent duplicate admission, execution and reconciliation. Every intermediate cut must preserve K-08. Import movement alone cannot demonstrate O-07/O-08; review trusted hosts and compound methods too."
+                },
+                {
+                  "area": "State and recovery",
+                  "decision": "Keep schema, serializers, captures, connection revisions, authorization generations, proposal IDs, reply IDs and native session paths/handles unchanged. Preserve existing atomic store operations and effect fences. Persist uncertainty before external effects and recover existing outcomes instead of generating another turn or treating a missing acknowledgment as failure.",
+                  "rationale": "Research F-07/F-13 and docs/factory-core.md identify compatibility and transaction requirements. A shared database is sufficient; new serializers or split writes would add migration risk without meeting another outcome."
+                },
+                {
+                  "area": "Discord delivery guarantees",
+                  "decision": "Keep stable enforced nonces, authenticated confirmation, saved-byte replay and local per-channel dispatch order. Preserve Retry-After handling, pause permanent refusals and retain uncertain replies. Do not promise indefinite duplicate suppression or delivery while permission is absent.",
+                  "rationale": "Checked 2026-11-03: [Discord message documentation](https://docs.discord.com/developers/resources/message#create-message) limits enforced nonce uniqueness to the same author over a few minutes. [Rate-limit documentation](https://docs.discord.com/developers/topics/rate-limits) specifies 429 retry_after/Retry-After and changing route/global budgets. Existing bounded guarantees satisfy K-06; long outages can still produce duplicates."
+                },
+                {
+                  "area": "Discord intake guarantees",
+                  "decision": "Keep gateway heartbeat/reconnect/resume plus persisted-cursor catch-up at startup and reconnect, and the existing five-minute safety polling when unhealthy. Preserve signed interaction admission and quick acknowledgment; long-running work stays asynchronous. Reuse existing capability refusal and backoff logic.",
+                  "rationale": "Checked 2026-11-03: [Gateway documentation](https://docs.discord.com/developers/events/gateway#resuming) permits ordered missed-event replay on successful resume but requires re-identification after a non-resumable session; it does not guarantee indefinite replay. [Interaction documentation](https://docs.discord.com/developers/interactions/receiving-and-responding) requires an initial response within three seconds and limits token lifetime to fifteen minutes. Cursor reads remain bounded by current history access."
+                },
+                {
+                  "area": "External factory effects",
+                  "decision": "Preserve research-note exact-body/bot-author reconciliation and creation marker verification, including open and closed issue pagination, retained uncertainty and existing retry guards. Keep publication ownership in core; primitive provider hosts must not decide whether an uncertain operation may run again.",
+                  "rationale": "chat_research.go leaves PossiblySent notes pending when its bounded scan cannot confirm delivery. chat_issue.go fails closed on incomplete or conflicting marker reads and uses its existing two-minute uncertain-create guard. Research F-04/F-07 supports these existing limits; neither marker lookup nor elapsed time is a provider idempotency guarantee."
+                },
+                {
+                  "area": "Stop, drain and rollback",
+                  "decision": "Stop new admission before shutting down; cancel and join all owned workers before releasing shared resources. Preserve durable leases, unfinished turns, approvals and unacknowledged reply parts. Restart existing reconciliation against unchanged state. Roll back only to compatible previous code after stop/drain, without deleting state or switching approval channels.",
+                  "rationale": "An offline baseline/current/baseline reopen must cover extraction-specific conversations and partial deliveries, and a controlled process rehearsal must cover stop/drain/restart. These are planned evidence obligations, not demonstrated compatibility. AS-04 remains applicable; a fixture does not certify every historical state or live provider."
+                },
+                {
+                  "area": "Shared edit surfaces and dependencies",
+                  "decision": "Coordinate edits to daemon startup/webhook composition, chat.go, chat_natural.go, chat_conversations.go, owner_actions.go and remote approval wiring; messaging/service.go command registration and storage ports; factory/contracts and owneractions; docs/discord.md, docs/factory-core.md, docs/conversation-evidence.md and relevant configuration documentation. Keep internal/config/chat.go keys/defaults and store schema unchanged.",
+                  "rationale": "The promoted set contains only this story, so no unordered sibling dependency exists within it. Research records the core prerequisite as already merged. Remote extraction is not a prerequisite; its future shared approval/composition edits must be ordered before merging if that separate scope overlaps. No new dependency is invented for this set."
+                },
+                {
+                  "area": "Guidance and evidence limits",
+                  "decision": "Apply go and owner-report. Preserve captured instruction packages, launch restrictions and role/skill behavior; agent-setup is not selected because this story changes no agent setup artifacts. Follow both published agent-guidance and testing standards: no new agent-behavior prose in Go and no tests pinning shipped skill/agent wording. Extend behavior and capability checks through the extracted composition, retaining affected-package checks and make check with its prescribed race coverage.",
+                  "rationale": "Instruction capture and model selection are compatibility boundaries, not reasons to redesign guidance. Standards categories agent-guidance and testing were read in full. Boundary tests must cover the new component and adapters as well as review core host semantics. No code, test execution, live provider check, engineering completion or acceptance is claimed in this Plan pass."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Conversation, binding, capture and turn",
+                  "definition": "Existing messagingstate conversation records relate an owner/channel binding to immutable instruction captures, native session identity and ordered turns. Messaging owns their bounded persistence through messagingstorage.",
+                  "constraints": "No new schema or encodings. Keep capture digests, model/provider binding, state directories, rename retention and drained provider replacement. An interrupted turn retains existing recovery semantics; it must not silently become a fresh native session."
+                },
+                {
+                  "entity": "Reply, answer part, notice and intake cursor",
+                  "definition": "Existing saved replies/parts and acknowledgments track delivery progress; intake scan cursors track admitted owner messages. Continue using stored reply bytes and stable identity for retries.",
+                  "constraints": "Keep admission/cursor and answer/part transactions atomic, preserve per-channel ordering and partial acknowledgment, and retain paused/uncertain records. Delivery recovery must not invoke a model. Retained inbox authorization may substitute only the existing durable withheld reply operation."
+                },
+                {
+                  "entity": "Research wait, owner reply and report delivery",
+                  "definition": "Core-owned graph wait and answer claims link the exact question/delivery identity to the protected owner reply and reconciled issue note. Discord receives a bounded question/result view.",
+                  "constraints": "Session locking, current wait/token checks, durable claim and report completion fences remain internal to core. Reviews cannot be answered as research questions. No graph/session/result rows cross the consumer boundary."
+                },
+                {
+                  "entity": "Feature preview and creation claim",
+                  "definition": "Reuse factory/featuredraft preview identity, confirmation code, protected payload/hash and store creation attempt/outcome records. Core confirmation returns a bounded result for presentation.",
+                  "constraints": "Preserve expiry, separate-message confirmation, supersession, replay, marker identity, bot-author matching and uncertain recovery. Claim/begin/finish methods retain their existing transactional fences; network I/O stays outside transactions."
+                },
+                {
+                  "entity": "Owner proposal, authority and retained target",
+                  "definition": "The one shared coordinator retains proposals, approvals, delivery links and outcomes against current principals and retained connection revisions. Conversations hold links to those core identities.",
+                  "constraints": "No duplicate coordinator state or consumer-owned authority table. Keep authorization generations, grant and routing fences, proposal identity and atomic outcome-plus-notice writes. Conversation/delivery ports cannot grant generic access to workflow or owner-action records."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Daemon composition",
+                  "responsibility": "Construct private storage and core service adapters, providers, credential resolver and the single approval runtime; mount the component handler and join its lifecycle.",
+                  "access": "Privileged composition may hold the database and primitive hosts. It passes only explicit bounded capabilities outward. Existing workflow mechanics can remain hosted here; extracted policy cannot remain as a fallback."
+                },
+                {
+                  "component": "internal/discordcomponent (new lifecycle owner)",
+                  "responsibility": "Prepare existing Discord settings, resolve/retry credentials, create transport/redactor, register commands, run gateway/cursor intake, conversation and delivery workers, handle reactions and expose availability.",
+                  "access": "Depends on messaging, messaging/discord, messagingstorage.Port and bounded core interfaces. No store/SQL/daemon imports or full approval service. Uses immutable settings copies and injected clock/client seams for controlled-provider checks."
+                },
+                {
+                  "component": "Messaging and presentation",
+                  "responsibility": "Retain conversations, interpretation, protected rendering, /details, saved replies, notices and delivery order. Translate owner inputs to existing bounded factory requests.",
+                  "access": "Reuse Service, Intake, Ask, feature draft adapter, presentation and messagingstate. Keep current OwnerActions interface and current-principal lookup. Core decision results map to existing messages/assessments without moving permission policy into rendering."
+                },
+                {
+                  "component": "Focused factory services and shared coordinator",
+                  "responsibility": "Own research answers and reconciliation, feature confirmation/recovery, retained inbox reads, standards/analysis/diagnosis and publication decisions, plus shared action validation, approval and recovery.",
+                  "access": "Private store and existing factory domain services. Neutral request/result types in factory/contracts avoid factory imports of messaging/discordcomponent. Trusted effects use narrow host ports; coordinator configuration and execution/recovery entry points never reach consumers."
+                },
+                {
+                  "component": "Messaging persistence adapter",
+                  "responsibility": "Provide conversation, scan, reply and delivery operations over existing unchanged store transactions.",
+                  "access": "Reuse messagingstorage.New at trusted composition. Audit new methods by ownership: workflow/approval policy stays in factory; operations spanning owned records remain one atomic store call, never arbitrary callbacks or exposed transactions."
+                },
+                {
+                  "component": "Primitive provider and execution hosts",
+                  "responsibility": "Perform exact reads, writes or isolated executions requested by core, preserving retained target and credential/redaction handling.",
+                  "access": "Core supplies verified targets and protected payloads. Hosts expose only required effects and observations; no chat policy, arbitrary database handles returned to consumers, independent retries that repeat authority, or second approval scheduler."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Lifecycle contract",
+                  "contract": "New component options preserve existing config and injection seams; preparation validates enabled configuration and returns disabled or token-waiting state as appropriate. Handler/Status/Wake expose transport integration. Serve(ctx) owns all child workers and returns only after they join; trusted composition owns the process stop signal.",
+                  "rationale": "This replaces daemon transport coordination without adding a process or config surface. Startup remains usable during missing-token retry; initialization and late-token activation happen once, with no unjoined goroutines or competing loops."
+                },
+                {
+                  "element": "Core request/read contracts",
+                  "contract": "Introduce narrow research current/answer/reconcile, feature confirm/reconcile and retained-inbox detail operations. Carry source/channel/principal identity, question/preview identity and existing time/fence values; return bounded status and protected display data. Preserve existing caller messages through presentation adapters.",
+                  "rationale": "Concrete contract names can follow existing package conventions. Their authority and data ownership are fixed: callers cannot select arbitrary workflow rows, publication targets, transactions or execution methods. Move policy before deleting old bodies; neutral values prevent circular imports."
+                },
+                {
+                  "element": "Shared actions and reactions",
+                  "contract": "Trusted wiring builds domains once from existing core services and installed capability facts. Consumers receive Propose/Confirm/Cancel/Inspect/History/Available as today. Discord receives only a reaction-submission capability and supplies delivery observations; core validates current principal, prompt and channel. A single trusted runner executes/reconciles actions.",
+                  "rationale": "Separates transport readiness from policy ownership. Discord token retry only attaches delivery to the existing coordinator; remote on/off does not change authorization or create a second runner. Ambiguous sends authorize nothing."
+                },
+                {
+                  "element": "Research and creation recovery",
+                  "contract": "Research rechecks the exact current wait under the existing lock, protects the answer, claims once and lets core reconcile the saved note. Feature confirmation claims the existing preview, verifies protected bytes and markers, rechecks authority before create, then records or retains uncertainty. Saved success returns the saved outcome.",
+                  "rationale": "These paths carry externally visible effects and must keep their present refusal, replay and uncertainty behavior. Replacing them with transport callbacks that embed policy would merely relocate the coupling."
+                },
+                {
+                  "element": "Retained inbox and publication reads",
+                  "contract": "Core resolves the recorded connection and provider identity, performs bounded provider reads, checks returned identity and rechecks the current connection before exposing redacted fields. Delivery rechecks retained snapshot authority and uses the existing withheld-reply transaction when required.",
+                  "rationale": "Provider I/O opens a revocation race. Keeping both checks and redaction in the core access path prevents stale routing or credential-bearing content crossing into saved conversation display data."
+                },
+                {
+                  "element": "Proof boundary and cutover order",
+                  "contract": "Use Research F-02–F-08 as the ownership inventory. Characterize research/creation/inbox/shared approvals before moving policy; then exercise the same behavior through new operations and component composition. Extend dependency checks to all consumer adapters and review trusted hosts/compound writes. Run upgrade fixture reopen and controlled stop/drain/restart after the switch, retaining affected-package and full repository obligations.",
+                  "rationale": "This defines the architecture safety net and ordering, not acceptance-stage tasks or criteria. Existing test names and old fixture results are reusable starting points but cannot certify the new lifecycle, baseline-written conversation state or rollback."
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

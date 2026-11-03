@@ -155,6 +155,14 @@ func TestPlainWordActionJourney(t *testing.T) {
 	approvalMessage, approvalText := "", ""
 	var sent []string
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/applications/@me" {
+			fmt.Fprint(w, `{"flags":262144}`)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/channels/3/messages" {
+			fmt.Fprint(w, `[]`)
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/channels/3/typing" {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -188,7 +196,10 @@ func TestPlainWordActionJourney(t *testing.T) {
 	author := &plainJourneyAuthor{}
 	sharedStandards := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: author}, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 	chat.EnableStandards(sharedStandards)
-	actions := owneraction.New(db, messaging.OwnerActionDomain{Service: chat}, func() time.Time { return at })
+	core := &Daemon{db: db, filter: independentActionFilter{}, log: slog.New(slog.DiscardHandler), chat: &chatRuntime{service: chat, adapter: adapter}}
+	core.prepareIndependentOwnerActions(&ChatOptions{Settings: config.DiscordChat{OwnerID: "7", ChannelIDs: []string{"3"}}, Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3"}}}, Standards: sharedStandards, Now: func() time.Time { return at }}, nil)
+	core.configureOwnerActions(chat, "7", []string{"3"}, adapter)
+	actions := core.ownerActions.actions
 	actions.SetDiscord("7", []string{"3"})
 	actions.SetDelivery(actionApprovalDelivery{adapter})
 	discordPrincipal := owneraction.Principal{OwnerID: "42", OwnerGeneration: current.Generation, Transport: "discord", DiscordOwnerID: "7", ChannelID: "3"}

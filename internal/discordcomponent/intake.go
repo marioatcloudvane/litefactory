@@ -1,4 +1,4 @@
-package daemon
+package discordcomponent
 
 import (
 	"context"
@@ -38,14 +38,14 @@ type naturalIntake struct {
 	wake   chan struct{}
 }
 
-// startNaturalIntake runs the Gateway and the reads it triggers, both
-// joined by wg when ctx ends.
-func (d *Daemon) startNaturalIntake(ctx context.Context, wg *sync.WaitGroup, intake *messaging.Intake) {
-	if intake == nil {
+func (c *Component) startNaturalIntake(ctx context.Context, wg *sync.WaitGroup) {
+	if c.intake == nil {
 		return
 	}
-	n := &naturalIntake{intake: intake, run: d.chat.adapter.RunGateway, notify: d.chat.service.Notify, status: d.setChatStatus, reads: d.chat.reads, log: d.log, safety: safetyPoll}
-	n.reaction = func(r discord.OwnerReaction) { d.ownerReaction(ctx, r) }
+	n := &naturalIntake{intake: c.intake, run: c.adapter.RunGateway, notify: c.service.Notify, status: c.setStatus, reads: c.reads, log: c.log, safety: safetyPoll}
+	if c.hooks.Reaction != nil {
+		n.reaction = func(r discord.OwnerReaction) { c.hooks.Reaction(ctx, r) }
+	}
 	n.start(ctx, wg)
 }
 

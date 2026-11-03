@@ -70,9 +70,6 @@ func (d *Daemon) serveRemoteConnector(ctx context.Context, serving *sync.WaitGro
 	if d.remoteConnector == nil {
 		return
 	}
-	if d.remoteConnector.actions != nil {
-		d.remoteConnector.actions.start(ctx, serving, d.log)
-	}
 	serving.Add(1)
 	// One serve goroutine is joined by Run; its listener and bounded handlers are
 	// canceled and drained when the shared serving context ends.

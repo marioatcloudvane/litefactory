@@ -182,7 +182,7 @@ func TestLazyDiscordJoinsExistingOwnerActionExecutor(t *testing.T) {
 	}
 	chat := messaging.NewWithServices(messagingstorage.New(setup.DB), factory.NewMessaging(setup.DB), "discord", "7", []string{"3"}, nil, factory.NewHealth(setup.DB))
 	adapter := discord.New(discord.Options{Token: secrets.NewToken("fixture")})
-	d.configureOwnerActions(chat, "7", []string{"3"}, adapter, time.Now)
+	d.configureOwnerActions(chat, "7", []string{"3"}, adapter)
 	if d.remoteConnector.actions != runtime || runtime.notices.Load() != chat {
 		t.Fatal("lazy Discord replaced the shared executor")
 	}
