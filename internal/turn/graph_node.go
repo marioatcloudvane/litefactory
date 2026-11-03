@@ -199,7 +199,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 
 	case req.ResumeAttemptID != 0:
 		judgeRecovery := (workflow == agent.WorkflowResearch || workflow == agent.WorkflowPlan) && node.Action == graphexec.JudgeAction
-		if (!judgeRecovery && workflow != agent.WorkflowBug) || node.Action == ResearchAgentAction || req.RunID != 0 {
+		if (!judgeRecovery && node.Action != graphexec.DeliverAction && workflow != agent.WorkflowBug) || node.Action == ResearchAgentAction || req.RunID != 0 {
 			return out, errors.New("only bounded factory effects may resume an attempt")
 		}
 		attempt, err = opts.DB.GetGraphNodeAttempt(ctx, req.ResumeAttemptID)

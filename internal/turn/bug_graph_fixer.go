@@ -141,7 +141,7 @@ func CurrentGraphBugRepairEligibility(ctx context.Context, db *store.DB, instanc
 		return eligibility, e
 	}
 	for _, delivery := range attempts {
-		if delivery.ID > attempt.ID && delivery.Node == "finalization" && delivery.Outcome == "revalidate" {
+		if delivery.ID > attempt.ID && delivery.Outcome == "revalidate" {
 			return eligibility, errors.New("delivery changed the source; a fresh successful repair check is required")
 		}
 	}

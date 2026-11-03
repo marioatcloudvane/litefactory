@@ -33,6 +33,11 @@ type SimplifiedBugPolicy struct {
 // SimplifiedBugSpecs is capture-only; registration still needs real handlers.
 func SimplifiedBugSpecs() (graphexec.Registry, error) {
 	r := graphexec.Registry{Policy: graphexec.ValidateOwnerConversationGraph}
+	delivery := graphexec.DeliverSpec("")
+	delivery.Workflow = agent.WorkflowBug
+	if e := r.Register(delivery); e != nil {
+		return r, e
+	}
 	for _, s := range []graphexec.ActionSpec{graphexec.OwnerConversationSpec(), graphexec.BugFinalizationSpec(), graphexec.SyncBaseWorkflowSpec(agent.WorkflowBug, ""), {Name: ResearchAgentAction, Workflow: agent.WorkflowBug, Outcomes: graphexec.OwnerStopAgentOutcomes(), Attributes: graphexec.AgentAttributes()}} {
 		if e := r.Register(s); e != nil {
 			return r, e
@@ -62,6 +67,18 @@ func (p SimplifiedBugPolicy) Register(specs *graphexec.Registry, activities *Act
 	}
 	if e = activities.Register("lf_bug_finalize", p.Finalization); e != nil {
 		return e
+	}
+	for _, node := range p.Profile.Nodes {
+		if node.Action == graphexec.DeliverAction {
+			binding, ok := p.Finalization.(GraphBugFinalization)
+			if !ok {
+				return errors.New("global delivery requires trusted Bug bindings")
+			}
+			if e = activities.Register(graphexec.DeliverAction, DeliveryActivity{profile: p.Profile, bug: &binding}); e != nil {
+				return e
+			}
+			break
+		}
 	}
 	for _, node := range p.Profile.Nodes {
 		if node.Action == graphexec.SyncBaseAction {

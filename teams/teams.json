@@ -234,7 +234,7 @@
         },
         {
           "path": "spike/skills/spike-result/SKILL.md",
-          "sha256": "e0d8dedf8a7a6e3c98275d1700fd2fc6ab7ebcbb6a02aeec3a3bf65069db8e5e"
+          "sha256": "3053d785a899e245c1eb2803234eabd5450cedaf459d1e540f2941acbad8c2dc"
         },
         {
           "path": "spike/spike.dot",
@@ -242,7 +242,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "c429cbebbe243d4ce5429e0233cdf9602c5954432a78a6959b7380fe00d82b65"
+          "sha256": "52c4e87670b78bb13c6169bd8c68c8ee7aa89aa97ef5412f0b8141805582372d"
         },
         {
           "path": "stack-profile.json",
@@ -313,7 +313,7 @@
           "sha256": "1405d4bbebf1130a73ed2df79a2269e61ddc24ae28f7b9e629bb717adcfe206a"
         }
       ],
-      "checksum": "0824c1e2abf09c01ba21a8f8e75383429c39df7a8a3db80b232ecd1a570bf630"
+      "checksum": "7651798d1c6e83bb3bf911d286bd786e773f87cd6b183b7c6d21510e64e5995e"
     },
     {
       "name": "Go development",
@@ -535,7 +535,7 @@
         },
         {
           "path": "spike/skills/spike-result/SKILL.md",
-          "sha256": "e0d8dedf8a7a6e3c98275d1700fd2fc6ab7ebcbb6a02aeec3a3bf65069db8e5e"
+          "sha256": "3053d785a899e245c1eb2803234eabd5450cedaf459d1e540f2941acbad8c2dc"
         },
         {
           "path": "spike/spike.dot",
@@ -543,7 +543,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "c429cbebbe243d4ce5429e0233cdf9602c5954432a78a6959b7380fe00d82b65"
+          "sha256": "52c4e87670b78bb13c6169bd8c68c8ee7aa89aa97ef5412f0b8141805582372d"
         },
         {
           "path": "stack-profile.json",
@@ -614,7 +614,7 @@
           "sha256": "bb8a77ed702700cc7679ad5bde2ded64e74d124603b8ab880fe63ecaa77ab50d"
         }
       ],
-      "checksum": "906a8af8cb4688f0a3505c115ba55c0e89c72208682e54effa82cf37ff188e01"
+      "checksum": "083687b31db6fa1ce24a767309e5e6ba3e46970b2efe1c7cc86d061712d786aa"
     },
     {
       "name": "Python FastAPI with React",
@@ -860,7 +860,7 @@
         },
         {
           "path": "spike/skills/spike-result/SKILL.md",
-          "sha256": "e0d8dedf8a7a6e3c98275d1700fd2fc6ab7ebcbb6a02aeec3a3bf65069db8e5e"
+          "sha256": "3053d785a899e245c1eb2803234eabd5450cedaf459d1e540f2941acbad8c2dc"
         },
         {
           "path": "spike/spike.dot",
@@ -868,7 +868,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "c429cbebbe243d4ce5429e0233cdf9602c5954432a78a6959b7380fe00d82b65"
+          "sha256": "52c4e87670b78bb13c6169bd8c68c8ee7aa89aa97ef5412f0b8141805582372d"
         },
         {
           "path": "stack-profile.json",
@@ -943,7 +943,7 @@
           "sha256": "32846e32489ea924ed5f03b64313aed103d27b0c3bd1fd0d7964ac5032cbbe11"
         }
       ],
-      "checksum": "21c333a952d4a348e4cb95f2290184bbb881e126dbad03f995acfb31be64658a"
+      "checksum": "95fe3a9094e6dbf7442c8ce97cb943d055c4edc423bad5b2775ff879f34cf59d"
     },
     {
       "name": "Swift iOS",
@@ -1162,7 +1162,7 @@
         },
         {
           "path": "spike/skills/spike-result/SKILL.md",
-          "sha256": "e0d8dedf8a7a6e3c98275d1700fd2fc6ab7ebcbb6a02aeec3a3bf65069db8e5e"
+          "sha256": "3053d785a899e245c1eb2803234eabd5450cedaf459d1e540f2941acbad8c2dc"
         },
         {
           "path": "spike/spike.dot",
@@ -1170,7 +1170,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "c429cbebbe243d4ce5429e0233cdf9602c5954432a78a6959b7380fe00d82b65"
+          "sha256": "52c4e87670b78bb13c6169bd8c68c8ee7aa89aa97ef5412f0b8141805582372d"
         },
         {
           "path": "stack-profile.json",
@@ -1237,7 +1237,7 @@
           "sha256": "8cb3466181df603579239db25036f59ae25e310d9a7581a36cad2f6ca02bb94e"
         }
       ],
-      "checksum": "e5354c2221ba418e249175ae6b1c4509be63c25f7644c7381e504ddf7be672db"
+      "checksum": "dae2c905f4afe2184ebfc0755b5581cb917f50c0eaadb37c6354cb444f4be5be"
     }
   ]
 }
