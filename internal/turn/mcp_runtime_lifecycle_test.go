@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 type lifecycleMCPHost func(context.Context, agent.Request) (*agent.RunResult, error)
@@ -283,4 +285,45 @@ func TestMCPRuntimeApplicationGuidanceSizes(t *testing.T) {
 			t.Logf("mode=%s installed=%v shared_provider_neutral=true excluding_contract_words=%d excluding_contract_bytes=%d including_contract_words=%d including_contract_bytes=%d provider_tokens=unavailable; no authentic host acquisition", mode, spec.PermittedTools(), len(strings.Fields(withoutContract)), len(withoutContract), len(strings.Fields(rendered)), len(rendered))
 		})
 	}
+}
+
+// linearLifecycleMCPPreparation is lifecycleMCPPreparation for a task admitted
+// from a Linear ticket connection, whose task ref names the Linear team/project
+// container rather than the GitHub code repository.
+func linearLifecycleMCPPreparation(t *testing.T, mode string) (*preparation, *store.DB) {
+	t.Helper()
+	ctx := t.Context()
+	root := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(root, "linear-results.db"))
+	mustProgress(t, err)
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	mustProgress(t, db.Migrate(ctx))
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: root, Forge: store.ForgeGitHub, Owner: "example", Name: "results", RemoteURL: "git@github.com:example/results.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: filepath.Join(root, "worktrees")})
+	mustProgress(t, err)
+	code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: repo.Slug(), CredentialSource: "env", CredentialEnv: "TOKEN", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, RemoteURL: repo.RemoteURL, BaseBranch: repo.BaseBranch, FeaturePrefix: repo.FeaturePrefix, WorktreeRoot: repo.WorktreeRoot}, 0)
+	mustProgress(t, err)
+	tickets, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team-uuid/project-uuid", CredentialSource: "env", CredentialEnv: "LINEAR", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team-uuid", ProjectID: "project-uuid", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"label-plan"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
+	mustProgress(t, err)
+	bot, err := db.LocalTicketSlot(ctx, "actor", ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "publisher-uuid"})
+	mustProgress(t, err)
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "issue-uuid"}, Locator: ticket.Locator{Provider: ticket.Linear, Origin: tickets.Origin, Container: tickets.Destination, Key: "issue-uuid"}}
+	_, err = db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: tickets.ID, Ref: ref, Enabled: true, Provenance: "explicit"})
+	mustProgress(t, err)
+	session, err := db.AdmitSession(ctx, repo, ref, code.Revision, tickets.Revision, bot, "publisher", "linear:team-uuid/project-uuid#72")
+	mustProgress(t, err)
+	attempt := agentResultRun(t, db, session, mode, "attempt-1", 1)
+	authority, err := NewAttemptAuthority(ctx, db)
+	mustProgress(t, err)
+	t.Cleanup(func() {
+		if err := authority.Close(context.WithoutCancel(t.Context())); err != nil {
+			t.Error(err)
+		}
+	})
+	task, err := naming.ParseRef(session.TaskRef)
+	mustProgress(t, err)
+	return &preparation{ref: task, session: session, run: store.Run{ID: attempt.RunID}, mcpRuntime: &MCPRuntime{Authority: authority, Paths: config.NewPaths(launchFixtureDirectory(t)), Executable: "/factory/litefactory", Now: time.Now}}, db
 }
