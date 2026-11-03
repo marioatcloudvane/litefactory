@@ -365,8 +365,10 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 				return false, err
 			}
 			if _, err = s.db.AdmitConversationTurn(ctx, c.ID, m.SourceID, prompt, at); err != nil {
+				logIntake(s.Logger, s.transport, "conversation_admission", channel, m.SourceID, "persistence_failed")
 				return false, err
 			}
+			logIntake(s.Logger, s.transport, "conversation_admission", channel, m.SourceID, "persisted")
 		}
 		t, err := s.db.ClaimConversationTurn(ctx, c.ID, r.worker, at, 10*time.Minute)
 		if errors.Is(err, store.ErrNotFound) {

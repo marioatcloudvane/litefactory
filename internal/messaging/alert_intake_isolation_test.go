@@ -1,7 +1,9 @@
 package messaging_test
 
 import (
+	"bytes"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -44,11 +46,18 @@ func TestAlertControlScanFailurePreservesOrdinaryConversationIntake(t *testing.T
 		{ChannelRef: "2", OwnerID: "3", SourceID: "101", Text: "ordinary conversation input", CreatedAt: at},
 	}}
 	reader := &intakeReader{pages: map[string]messaging.IntakePage{"": page, "201": page}}
+	var logs bytes.Buffer
 	intake := alertControlIntake(t, db, reader)
+	intake.Logger = slog.New(slog.NewTextHandler(&logs, nil))
 	intake.OrdinaryChannels = []string{"2"}
 	err := intake.Poll(ctx, at)
 	if err == nil || !strings.Contains(err.Error(), "alert control scan capacity unavailable") {
 		t.Fatalf("missing independent alert failure: %v", err)
+	}
+	for _, want := range []string{"stage=control_scan reason=persistence_failed", "stage=ordinary_scan reason=released"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("missing %s: %s", want, logs.String())
+		}
 	}
 	pending, err := db.PendingNaturalMessages(ctx, "2", 100)
 	if err != nil || len(pending) != 1 || pending[0].SourceID != "101" || pending[0].Text != "ordinary conversation input" {
