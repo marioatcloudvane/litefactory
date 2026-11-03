@@ -25,6 +25,31 @@ func WorkflowReplyContext(ctx context.Context, db *store.DB, instanceID, attempt
 	if err != nil {
 		return "", err
 	}
+	if wait.State == "allocated" && wait.ContinuationAttemptID == 0 {
+		intent, e := db.GetGraphComment(ctx, wait.DeliveryKey)
+		if e != nil {
+			return "", e
+		}
+		if intent.Kind != "review" {
+			return "", errors.New("runless approval must name a review")
+		}
+		prior, e := policy.load(ctx, db, wait.SourceAttemptID, scope)
+		if e != nil {
+			return "", e
+		}
+		state, e := db.LatestGraphRecord(ctx, instanceID, "delivery_revalidation")
+		if e != nil {
+			return "", e
+		}
+		raw, e := json.Marshal(struct {
+			Findings agentresult.ResearchNode `json:"findings"`
+			State    json.RawMessage          `json:"factory_delivery_state"`
+		}{prior, state})
+		if e != nil {
+			return "", e
+		}
+		return "\n<note>Consumed shipping review and changed factory delivery state; historical findings, not current approval.\n" + string(raw) + "\n</note>\n", nil
+	}
 	if wait.State == "allocated" && wait.ContinuationAttemptID != attemptID {
 		previous, err := db.GetGraphNodeAttempt(ctx, wait.ContinuationAttemptID)
 		if err != nil {
@@ -34,9 +59,27 @@ func WorkflowReplyContext(ctx context.Context, db *store.DB, instanceID, attempt
 		if err != nil {
 			return "", err
 		}
+		deliveryRecheck := false
+		if current.Node == previous.Node {
+			attempts, e := db.ListGraphNodeAttempts(ctx, instanceID)
+			if e != nil {
+				return "", e
+			}
+			for i := len(attempts) - 1; i >= 0; i-- {
+				prior := attempts[i]
+				if prior.ID >= current.ID {
+					continue
+				}
+				if prior.Outcome == "revalidate" {
+					_, e = db.LatestGraphRecord(ctx, instanceID, "delivery_revalidation")
+					deliveryRecheck = e == nil
+				}
+				break
+			}
+		}
 		// A completed continuation consumed this reply. Later stages cannot reuse
 		// its approval, but they also must not inherit its already-satisfied wait.
-		if previous.InstanceID == instanceID && previous.Status == store.GraphSucceeded && current.InstanceID == instanceID && current.ID > previous.ID && (current.Node != previous.Node || policy.Mode == "research") && current.Status == store.GraphRunning {
+		if previous.InstanceID == instanceID && previous.Status == store.GraphSucceeded && current.InstanceID == instanceID && current.ID > previous.ID && (current.Node != previous.Node || policy.Mode == "research" || deliveryRecheck) && current.Status == store.GraphRunning {
 			if current.Node != previous.Node {
 				return "", nil
 			}

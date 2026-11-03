@@ -212,7 +212,7 @@ func graphBugExhaustionReason(ctx context.Context, db *store.DB, node graphexec.
 		if last.Status != store.GraphSucceeded {
 			return reason, nil
 		}
-		if last.Node == "finalization" && last.Outcome == "revalidate" {
+		if last.Outcome == "revalidate" {
 			break
 		}
 		outputs, err := db.ListGraphOutputs(ctx, last.ID)
@@ -230,7 +230,7 @@ func graphBugExhaustionReason(ctx context.Context, db *store.DB, node graphexec.
 			return reason, nil
 		}
 	}
-	if last.Node != "finalization" || last.Outcome != "revalidate" {
+	if last.Outcome != "revalidate" {
 		return reason, nil
 	}
 	outputs, err := db.ListGraphOutputs(ctx, last.ID)
@@ -327,7 +327,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		suffix := retained + "\n<note>Factory source preparation.\n" + sourceNote + "</note>\n"
 		return w.finishRoute(ctx, route, &request, suffix, w.prep.promptInput.SessionArtifactDir)
 	}
-	finalization := GraphBugFinalization{Code: r.cfg.Code, Tickets: r.cfg.Tickets, Redactor: r.opts.MCP.Redactor, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery, SyncBase: r.syncGraphDelivery}
+	finalization := GraphBugFinalization{Inspect: r.inspectGraphDelivery, Code: r.cfg.Code, Tickets: r.cfg.Tickets, Redactor: r.opts.MCP.Redactor, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery, SyncBase: r.syncGraphDelivery}
 	policy := SimplifiedBugPolicy{Profile: r.definition.Profile, Reporter: r.opts.ResearchReporter, Analyst: GraphBugAnalystActivity{Prepare: func(ctx context.Context, o Options, a ActivityRequest, c agentresult.Context, s string) (ResearchInvocation, error) {
 		if e := prepareWith(false)(ctx, o, a); e != nil {
 			return ResearchInvocation{}, e
@@ -888,4 +888,27 @@ func applyBugDeliveryConflict(ctx context.Context, gated gatedScratch, s *gitScr
 	}
 	result, err := s.wt.CompleteMerge(ctx, options)
 	return result.Head, err
+}
+
+func (r *BugRuntime) inspectGraphDelivery(ctx context.Context, b GraphDeliveryBinding) (head, base string, err error) {
+	h := DeliveryActivity{w: &researchWorkflow{opts: r.opts}}
+	err = h.checkout(ctx, b, func(clone *git.Clone, tree *git.Worktree) error {
+		if e := clone.Fetch(ctx, r.opts.remote()); e != nil {
+			return e
+		}
+		status, e := tree.Status(ctx)
+		if e != nil {
+			return e
+		}
+		if len(status) != 0 {
+			return errors.New("candidate has unsaved changes")
+		}
+		head, e = tree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+		if e != nil {
+			return e
+		}
+		base, e = tree.RevParse(ctx, "refs/remotes/"+r.opts.remote()+"/"+b.Target, git.RevParseOptions{})
+		return e
+	})
+	return head, base, err
 }

@@ -47,8 +47,8 @@ func validateOwnerStop(node Node, workflow agent.Workflow) error {
 		}
 		return errors.Join(faults...)
 	}
-	if workflow != agent.WorkflowBug || node.Terminal || node.Limit <= 0 {
-		faults = append(faults, errors.New("owner parking requires a bounded admitted Bug activity"))
+	if (workflow != agent.WorkflowBug && node.Action != DeliverAction) || node.Terminal || node.Limit <= 0 {
+		faults = append(faults, errors.New("owner parking requires a bounded admitted activity"))
 	}
 	values := OwnerStopAttributes()["lf_stop"].Values
 	if node.Action == SyncBaseAction {
