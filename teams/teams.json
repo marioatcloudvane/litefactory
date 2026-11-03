@@ -274,7 +274,7 @@
         },
         {
           "path": "validate/skills/validate-report/SKILL.md",
-          "sha256": "f99d572e944d5e8aea5e7cb9674936e251ef7f6398b5882ed029d61eb5829460"
+          "sha256": "08ec073af888d6562fa6e5284c07e420acbe84022c7583dbf505c472095511eb"
         },
         {
           "path": "validate/skills/validate-report/node-result.md",
@@ -313,7 +313,7 @@
           "sha256": "1405d4bbebf1130a73ed2df79a2269e61ddc24ae28f7b9e629bb717adcfe206a"
         }
       ],
-      "checksum": "7dfd131cbd59db00d1a89b2a0da8833e78c7fe163e4fc5b2366687f892eb55c1"
+      "checksum": "b3cbcfc1f53863543c97e53fc9bd6842d704d5e2219a951dfd057234e6982375"
     },
     {
       "name": "Go development",
@@ -575,7 +575,7 @@
         },
         {
           "path": "validate/skills/validate-report/SKILL.md",
-          "sha256": "f99d572e944d5e8aea5e7cb9674936e251ef7f6398b5882ed029d61eb5829460"
+          "sha256": "08ec073af888d6562fa6e5284c07e420acbe84022c7583dbf505c472095511eb"
         },
         {
           "path": "validate/skills/validate-report/node-result.md",
@@ -614,7 +614,7 @@
           "sha256": "bb8a77ed702700cc7679ad5bde2ded64e74d124603b8ab880fe63ecaa77ab50d"
         }
       ],
-      "checksum": "12bd412b4f8ef642949407ab4e8abc82e7bfc0d76b3fba62c143e8741e9feb76"
+      "checksum": "79bff1efd2f1186c659dd4a23ffa8e30f79ed98ab061a2a3c28317846d751f53"
     },
     {
       "name": "Python FastAPI with React",
@@ -904,7 +904,7 @@
         },
         {
           "path": "validate/skills/validate-report/SKILL.md",
-          "sha256": "f99d572e944d5e8aea5e7cb9674936e251ef7f6398b5882ed029d61eb5829460"
+          "sha256": "08ec073af888d6562fa6e5284c07e420acbe84022c7583dbf505c472095511eb"
         },
         {
           "path": "validate/skills/validate-report/node-result.md",
@@ -943,7 +943,7 @@
           "sha256": "32846e32489ea924ed5f03b64313aed103d27b0c3bd1fd0d7964ac5032cbbe11"
         }
       ],
-      "checksum": "a80e33358a01873325e490dc6614ba5f157ab98eddc2ea4ed9029e1eb3bf9f41"
+      "checksum": "c4d504fbc91e790e8de28c8f02e07451315060934e7d5d73cf6c301fb4866a9b"
     },
     {
       "name": "Swift iOS",
@@ -1198,7 +1198,7 @@
         },
         {
           "path": "validate/skills/validate-report/SKILL.md",
-          "sha256": "f99d572e944d5e8aea5e7cb9674936e251ef7f6398b5882ed029d61eb5829460"
+          "sha256": "08ec073af888d6562fa6e5284c07e420acbe84022c7583dbf505c472095511eb"
         },
         {
           "path": "validate/skills/validate-report/node-result.md",
@@ -1237,7 +1237,7 @@
           "sha256": "8cb3466181df603579239db25036f59ae25e310d9a7581a36cad2f6ca02bb94e"
         }
       ],
-      "checksum": "fa6c878aca5a447458e397fda7f96e423684a26aedbfc8f363ae2469acd80460"
+      "checksum": "5eb020653197cc7a6fd334f20993688a2516ee89521eb357a7ab934fe428bc7b"
     }
   ]
 }

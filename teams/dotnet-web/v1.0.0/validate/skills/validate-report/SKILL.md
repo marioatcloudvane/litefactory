@@ -32,6 +32,10 @@ Choose exactly one action per item, from this list only. Each item in your input
  - `factory-bug`: the failure is a defect of the factory or its environment; propose an upstream factory Bug. The owner confirms it with the command the factory shows; nothing is filed automatically.
  - `wait-for-main`: the failure already fails on main; wait until main is fixed, then bring main into the feature branch.
 
+# Blockers
+
+Your input's `blockers` are the blockers the details show to the owner, one line each. A reviewer with no usable result (for example the model is at capacity) is an open item: name it in the headline or why, and make `rerun` the next step, because the factory runs the missing reviews again and reuses the passed suite. While `blockers` is not empty, never say that nothing is open, that no blockers or open items were reported, or that the run is ready to ship.
+
 The next step may leave `ref` empty only for `ship`, `send-back`, `rerun` or `wait-for-main`, and only when the input lists it under the run's actions.
 
 # Diagnosis classes
