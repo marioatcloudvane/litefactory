@@ -3,17 +3,13 @@ package messaging
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/factory/owneractions"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // DiagnosisRequest contains explicit command input, never repair authority.
@@ -43,7 +39,7 @@ type Diagnosis interface {
 }
 
 // Question identifies one published owner question.
-type Question struct{ Text, Token, Reason string }
+type Question = owneractions.Question
 
 // ResearchAnswers owns the checks and atomic admission of research answers.
 type ResearchAnswers interface {
@@ -60,58 +56,19 @@ func (s *Service) EnableResearch(diagnosis Diagnosis, answers ResearchAnswers) {
 	// optional project follows every required option.
 	base := []Argument{{Name: "issue", Type: IntegerArgument, Required: true, Description: "Positive issue number"}}
 	project := Argument{Name: "project", Type: TextArgument, Description: "Managed owner/repo or unique repo; defaults to the only registered project"}
-	s.RegisterCommand(CommandDefinition{Name: "diagnose", NaturalLanguage: true, Effect: ChangeEffect, Description: "Explain what is wrong or stuck", Arguments: append(append([]Argument(nil), base...), project, Argument{Name: "note", Type: TextArgument, Description: "Optional diagnosis context"})}, s.diagnose)
+	defdiagnose, _ := owneractions.ChangeDefinition("diagnose")
+	s.RegisterCommand(defdiagnose, s.diagnose)
 	s.RegisterCommand(CommandDefinition{Name: "question", NaturalLanguage: true, Effect: ReadEffect, Description: "Show the current research question", Arguments: append(append([]Argument(nil), base...), project)}, s.question)
-	s.RegisterCommand(CommandDefinition{Name: "answer", NaturalLanguage: true, Effect: ChangeEffect, Description: "Answer the current research question", Arguments: append(append([]Argument(nil), base...), Argument{Name: "revision", Type: TextArgument, Required: true, Description: "Current 12-character question token"}, Argument{Name: "text", Type: TextArgument, Required: true, Description: "Answer, up to 65536 bytes"}, project)}, s.researchAnswer)
+	defanswer, _ := owneractions.ChangeDefinition("answer")
+	s.RegisterCommand(defanswer, s.researchAnswer)
 }
 
 func (s *Service) researchTarget(ctx context.Context, m Message, taskRequired bool) (string, string) {
-	n, err := strconv.Atoi(m.Arguments["issue"])
-	if err != nil || n < 1 {
-		return "", "issue must be a positive number"
+	ref, repoID, refusal := s.factory.Targets.ResearchTarget(ctx, m.Arguments, taskRequired)
+	if repoID > 0 {
+		presentation.AssessRepository(ctx, repoID)
 	}
-	project := strings.TrimSpace(m.Arguments["project"])
-	if project == "" {
-		resolution, resolveErr := ask.ResolveProject(ctx, s.db, "", nil)
-		if resolveErr != nil {
-			return "", "Project lookup failed; nothing was applied. Ask the factory operator to inspect project registration on the factory host before repeating this command."
-		}
-		if resolution.Refusal != "" {
-			return "", resolution.Refusal
-		}
-		project = resolution.Repository.Slug()
-	}
-	repositories, err := s.db.ListRepos(ctx)
-	if err != nil {
-		return "", "Project lookup failed; nothing was applied. Ask the factory operator to inspect project registration on the factory host before repeating this command."
-	}
-	var matches []string
-	for _, repo := range repositories {
-		if repo.Forge == store.ForgeGitHub && (project == repo.Slug() || (!strings.Contains(project, "/") && project == repo.Name)) {
-			matches = append(matches, repo.Slug())
-		}
-	}
-	if len(matches) == 0 {
-		return "", "unknown project"
-	}
-	if len(matches) > 1 {
-		sort.Strings(matches)
-		return "", "ambiguous project; use one of: " + strings.Join(matches, ", ")
-	}
-	for _, repo := range repositories {
-		if repo.Slug() == matches[0] && repo.Forge == store.ForgeGitHub {
-			presentation.AssessRepository(ctx, repo.ID)
-		}
-	}
-	ref := fmt.Sprintf("github:%s#%d", matches[0], n)
-	if taskRequired {
-		if _, err := s.db.GetSessionByTaskRef(ctx, ref); errors.Is(err, store.ErrNotFound) {
-			return "", "there is no factory task for this issue"
-		} else if err != nil {
-			return "", "Task lookup failed; nothing was applied. Ask the factory operator to inspect retained task state on the factory host before repeating this command."
-		}
-	}
-	return ref, ""
+	return ref, refusal
 }
 
 func (s *Service) diagnose(ctx context.Context, m Message, at time.Time) (string, error) {
@@ -149,17 +106,22 @@ func questionText(q Question) string {
 }
 
 func (s *Service) renderQuestion(ctx context.Context, q Question) (string, error) {
+	return RenderQuestion(ctx, q, s.Protect, s.ReplyLimit())
+}
+
+// RenderQuestion formats a protected question for the supplied delivery budget.
+func RenderQuestion(ctx context.Context, q Question, protect func(context.Context, string) (string, error), limit int) (string, error) {
 	if q.Text != "" {
-		if s.Protect != nil {
+		if protect != nil {
 			var err error
-			q.Text, err = s.Protect(ctx, q.Text)
+			q.Text, err = protect(ctx, q.Text)
 			if err != nil {
 				return "", err
 			}
 		}
 		// Leave room for the complete reason and token, plus substitution margin.
 		fixed := replySize(questionText(Question{Text: " ", Token: q.Token, Reason: q.Reason}))
-		q.Text = shortenLine(q.Text, max(0, s.ReplyLimit()-fixed-128))
+		q.Text = shortenLine(q.Text, max(0, limit-fixed-128))
 	}
 	return questionText(q), nil
 }
@@ -189,51 +151,16 @@ func (s *Service) researchAnswer(ctx context.Context, m Message, at time.Time) (
 	if refusal != "" {
 		return assessed(ctx, refusal, presentation.Refusal)
 	}
-	text := m.Arguments["text"]
-	if s.research != nil && strings.TrimSpace(text) == "" {
-		// After a restart, raw answer text is gone. A previously committed
-		// claim must still be reported honestly, without reapplying anything.
-		q, err := s.research.Current(ctx, ref)
-		if err == nil && q.Reason == "already answered" {
-			return assessed(ctx, questionText(q), presentation.Success)
-		}
-		if _, present := m.Arguments["text"]; !present {
-			// The inbox may have lost its acknowledgement after a successful
-			// claim and a newer question. Missing volatile input cannot prove
-			// that the original answer was never recorded.
-			reason := "Your answer could not be confirmed. Inspect " + researchIssueURL(ref) + " before resending; it may already be recorded."
-			if err == nil {
-				q.Reason = reason
-				if rendered, renderErr := s.renderQuestion(ctx, q); renderErr == nil {
-					return assessed(ctx, rendered, presentation.Uncertain)
-				}
-			}
-			return assessed(ctx, reason, presentation.Uncertain)
-		}
+	result, err := (owneractions.AnswerAdmission{Research: s.research, Protect: s.Protect, Render: s.renderQuestion}).Answer(ctx, ref, m.Arguments, at)
+	switch result.State {
+	case "succeeded":
+		presentation.Assess(ctx, presentation.Success)
+	case "failed":
+		presentation.Assess(ctx, presentation.Refusal)
+	case "uncertain":
+		presentation.Assess(ctx, presentation.Uncertain)
 	}
-	if s.research == nil || strings.TrimSpace(text) == "" || len(text) > 65536 {
-		return assessed(ctx, "Your answer was not recorded; nothing was applied. Inspect the current question on "+researchIssueURL(ref)+" before submitting a corrected answer.", presentation.Refusal)
-	}
-	if s.Protect != nil {
-		var err error
-		text, err = s.Protect(ctx, text)
-		if err != nil {
-			return assessed(ctx, "Your answer was not recorded; nothing was applied. Inspect the current question on "+researchIssueURL(ref)+" before submitting a corrected answer.", presentation.Refusal) //nolint:nilerr // An answer must never be retried automatically.
-		}
-	}
-	q, err := s.research.Answer(ctx, ref, m.Arguments["revision"], text, at)
-	if err != nil {
-		return assessed(ctx, "Your answer was not recorded; nothing was applied. Inspect the current question on "+researchIssueURL(ref)+" before submitting a corrected answer.", presentation.Refusal) //nolint:nilerr // An answer must never be retried automatically.
-	}
-	text, renderErr := s.renderQuestion(ctx, q)
-	if renderErr != nil {
-		return q.Reason + "; current question details unavailable. Inspect " + researchIssueURL(ref) + " for the current question before replying.", nil //nolint:nilerr // Refused answers must not be retried after rendering fails.
-	}
-	status := presentation.Refusal
-	if q.Reason == "answer recorded" || q.Reason == "already answered" {
-		status = presentation.Success
-	}
-	return assessed(ctx, text, status)
+	return result.Summary, err
 }
 
 func researchIssueURL(task string) string {

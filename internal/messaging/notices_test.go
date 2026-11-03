@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 			r.State = "waiting"
 			r.Published = true
 			r.Candidate = []byte(`{"questions":[{"text":"What scope?"}]}`)
-			events, err := messaging.NoticeEvents(tc.source, r)
+			events, err := fixtureNoticeEvents(tc.source, r)
 			if err != nil || len(events) != 1 {
 				t.Fatalf("events=%+v err=%v", events, err)
 			}
@@ -57,7 +58,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	review := record
 	review.Key, review.Kind, review.CommentID, review.State, review.Published = "review-key", "review", 92, "waiting", true
 	review.Candidate = []byte(`{"outcome":"completed"}`)
-	events, err := messaging.NoticeEvents("owner_waits", review)
+	events, err := fixtureNoticeEvents("owner_waits", review)
 	if err != nil || len(events) != 1 || events[0].Kind != "waiting for you" {
 		t.Fatalf("review wait=%+v err=%v", events, err)
 	}
@@ -71,7 +72,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	}{{"allocated", true}, {"cancelled", true}, {"claimed", true}, {"waiting", false}, {"cancelled", false}} {
 		r := review
 		r.State, r.Published = w.state, w.published
-		if events, err := messaging.NoticeEvents("owner_waits", r); err != nil || len(events) != 0 {
+		if events, err := fixtureNoticeEvents("owner_waits", r); err != nil || len(events) != 0 {
 			t.Fatalf("%+v wait events=%+v err=%v", w, events, err)
 		}
 	}
@@ -79,20 +80,20 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	for _, nodes := range [][2]string{{"select_path", "budget"}, {"budget", "worker_agent"}, {"same", "same"}} {
 		r := record
 		r.From, r.To = nodes[0], nodes[1]
-		if events, err := messaging.NoticeEvents("transitions", r); err != nil || len(events) != 0 {
+		if events, err := fixtureNoticeEvents("transitions", r); err != nil || len(events) != 0 {
 			t.Fatalf("node transition events=%+v err=%v", events, err)
 		}
 	}
 	// Same-mode follow-on runs, including recovered runs, do not start again.
 	continued := record
 	continued.PreviousMode = "implement"
-	if events, err := messaging.NoticeEvents("run_starts", continued); err != nil || len(events) != 0 {
+	if events, err := fixtureNoticeEvents("run_starts", continued); err != nil || len(events) != 0 {
 		t.Fatalf("same-mode start events=%+v err=%v", events, err)
 	}
 	changed := record
 	changed.Workflow = "plan"
 	changed.PreviousMode = "research"
-	events, err = messaging.NoticeEvents("run_starts", changed)
+	events, err = fixtureNoticeEvents("run_starts", changed)
 	if err != nil || len(events) != 1 || events[0].Kind != "started" || !strings.Contains(messaging.NoticeText(events[0]), "Plan #1 started.") {
 		t.Fatalf("mode change start=%+v err=%v", events, err)
 	}
@@ -111,7 +112,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	} {
 		r := record
 		r.Run.Status, r.Run.Error, r.Run.SemanticOutcome = f.status, f.error, ""
-		events, err := messaging.NoticeEvents("run_finishes", r)
+		events, err := fixtureNoticeEvents("run_finishes", r)
 		kinds := []string(nil)
 		for _, e := range events {
 			kinds = append(kinds, e.Kind)
@@ -122,13 +123,13 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	}
 	record.Run.Status = store.RunFailed
 	record.Run.RecoveryReason = `owner-stop:{"run_id":7,"at":"2026-10-10T18:00:00Z"}`
-	events, err = messaging.NoticeEvents("run_finishes", record)
+	events, err = fixtureNoticeEvents("run_finishes", record)
 	if err != nil || events[0].Kind != "stopped" {
 		t.Fatalf("stop=%+v err=%v", events, err)
 	}
 	abandonedStop := record
 	abandonedStop.Run.Error = "abandoned: the caller's run context ended before claude finished (daemon shutdown or cancellation)"
-	events, err = messaging.NoticeEvents("run_finishes", abandonedStop)
+	events, err = fixtureNoticeEvents("run_finishes", abandonedStop)
 	if err != nil || len(events) != 1 || events[0].Kind != "stopped" {
 		t.Fatalf("abandoned owner stop=%+v err=%v", events, err)
 	}
@@ -139,12 +140,12 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	parked.StopCause = "exhausted"
 	parked.StopReason = "Budget spent"
 	parked.Candidate = []byte(`{"reason":"Budget spent"}`)
-	events, err = messaging.NoticeEvents("owner_waits", parked)
+	events, err = fixtureNoticeEvents("owner_waits", parked)
 	if err != nil || len(events) != 1 || events[0].Kind != "stopped" || events[0].Key != "run:7:finish" {
 		t.Fatalf("unpublished parked stop=%+v err=%v", events, err)
 	}
 	parked.Run.RecoveryReason = ""
-	events, err = messaging.NoticeEvents("owner_waits", parked)
+	events, err = fixtureNoticeEvents("owner_waits", parked)
 	if err != nil || len(events) != 1 || events[0].Key != "stop:park@"+store.FormatTime(at)+"@github:acme/repo#1" || !strings.Contains(messaging.NoticeText(events[0]), "stopped and needs your guidance") {
 		t.Fatalf("independent graph stop=%+v err=%v", events, err)
 	}
@@ -152,7 +153,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	parked.Ready = true
 	parked.State = "waiting"
 	parked.Published = true
-	events, err = messaging.NoticeEvents("owner_waits", parked)
+	events, err = fixtureNoticeEvents("owner_waits", parked)
 	if err != nil || len(events) != 2 || events[0].Key != "stop:park@"+store.FormatTime(at)+"@github:acme/repo#1" || events[1].Kind != "waiting for you" || events[0].Asked != "" {
 		t.Fatalf("runless parked stop=%+v err=%v", events, err)
 	}
@@ -247,7 +248,7 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 		return r
 	}
 	history := allocate(1, at.Add(-time.Hour), false)
-	c := &messaging.NoticeCollector{DB: db, Transport: "test"}
+	c := &messaging.NoticeCollector{Factory: factory.NewMessaging(db), Transport: "test"}
 	if err := c.Collect(ctx, at); err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +367,7 @@ func TestNoticeBugAnalysisReviewIsShort(t *testing.T) {
 	at := time.Date(2026, 10, 11, 22, 55, 0, 0, time.UTC)
 	analysis := "Bug work is waiting at conversation.\n\n- **What goes wrong:** the notice pastes everything.\n" + strings.Repeat("- **Why:** a long cause. ", 400)
 	r := store.NoticeRecord{ID: 9, TaskRef: "github:acme/repo#690", Workflow: "bug", Key: "review-key", Kind: "question", StopOrigin: "conversation", StopCause: "diagnosis_review", StopReason: analysis, Candidate: []byte(`{"cause":"diagnosis_review","reason":"What goes wrong"}`), CommentID: 93, State: "waiting", Published: true, Ready: true, At: at}
-	events, err := messaging.NoticeEvents("owner_waits", r)
+	events, err := fixtureNoticeEvents("owner_waits", r)
 	if err != nil || len(events) != 1 || events[0].Kind != "waiting for you" || events[0].Question != "" {
 		t.Fatalf("events=%+v err=%v", events, err)
 	}
@@ -386,7 +387,7 @@ func TestNoticeBugAnalysisReviewIsShort(t *testing.T) {
 	// A Bug analysis question names itself plainly.
 	r.StopCause = "diagnosis_question"
 	r.Candidate = []byte(`{"questions":[{"text":"Which release?"}]}`)
-	events, err = messaging.NoticeEvents("owner_waits", r)
+	events, err = fixtureNoticeEvents("owner_waits", r)
 	if err != nil || len(events) != 1 || events[0].Asked != "Bug analysis question" || events[0].Question != "Which release?" {
 		t.Fatalf("events=%+v err=%v", events, err)
 	}
@@ -399,7 +400,7 @@ func TestNoticeQuestionIsOneShortSentence(t *testing.T) {
 	first := "Should the release target the stable channel? " + strings.Repeat("More context follows here. ", 40)
 	r := store.NoticeRecord{ID: 10, TaskRef: "github:acme/repo#1", Workflow: "research", Key: "q", Kind: "question", CommentID: 94, State: "waiting", Published: true, Ready: true, At: at}
 	r.Candidate = []byte(`{"questions":[{"text":"` + first + `"},{"text":"` + strings.Repeat("Second question text. ", 40) + `"}]}`)
-	events, err := messaging.NoticeEvents("owner_waits", r)
+	events, err := fixtureNoticeEvents("owner_waits", r)
 	if err != nil || len(events) != 1 {
 		t.Fatalf("events=%+v err=%v", events, err)
 	}
@@ -421,12 +422,12 @@ func TestNoticeQuestionIsOneShortSentence(t *testing.T) {
 func TestNoticeIgnoredRunFinishPostsNothing(t *testing.T) {
 	t.Parallel()
 	r := store.NoticeRecord{ID: 11, TaskRef: "github:acme/repo#690", Workflow: "bug", Ready: true, Ignore: true, Run: store.Run{ID: 11, Status: store.RunSucceeded}}
-	if events, err := messaging.NoticeEvents("run_finishes", r); err != nil || len(events) != 0 {
+	if events, err := fixtureNoticeEvents("run_finishes", r); err != nil || len(events) != 0 {
 		t.Fatalf("events=%+v err=%v", events, err)
 	}
 	r.Ignore = false
 	r.Run = store.Run{ID: 11, Status: store.RunFailed, Error: "controlled failure"}
-	if events, err := messaging.NoticeEvents("run_finishes", r); err != nil || len(events) != 1 || events[0].Kind != "failed" {
+	if events, err := fixtureNoticeEvents("run_finishes", r); err != nil || len(events) != 1 || events[0].Kind != "failed" {
 		t.Fatalf("events=%+v err=%v", events, err)
 	}
 }
@@ -504,7 +505,7 @@ func TestNoticeCollectorPublicIdentityEveryKind(t *testing.T) {
 			segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", "codex")
 			must(err)
 			at := time.Now().UTC()
-			c := &messaging.NoticeCollector{DB: db, Transport: "test", Channel: "3", Issues: reader}
+			c := &messaging.NoticeCollector{Factory: factory.NewMessaging(db), Transport: "test", Channel: "3", Issues: reader}
 			must(c.Collect(ctx, at))
 			keys := map[string]string{}
 			for i, kind := range []string{"completed", "failed", "stopped"} {
@@ -609,7 +610,7 @@ func TestNoticeGraphContinuationSettlesOnce(t *testing.T) {
 				launch := store.WorkflowLaunch{Mode: mode, SessionID: session.ID, TriggerID: 10, DefinitionID: definition.ID, Start: "work", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte(`{"role":"eA=="}`)}
 				admitted, err := db.AdmitWorkflowLaunch(ctx, launch)
 				must(err)
-				c := &messaging.NoticeCollector{DB: db, Transport: "test", Channel: "3"}
+				c := &messaging.NoticeCollector{Factory: factory.NewMessaging(db), Transport: "test", Channel: "3"}
 				must(c.Collect(ctx, at))
 				allocate := func(trigger int64) (store.Run, store.GraphNodeAttempt) {
 					t.Helper()
@@ -673,7 +674,7 @@ func TestNoticeGraphContinuationSettlesOnce(t *testing.T) {
 					must(err)
 				}
 				// Recreate the collector to exercise durable positions, then collect twice.
-				c = &messaging.NoticeCollector{DB: db, Transport: "test", Channel: "3"}
+				c = &messaging.NoticeCollector{Factory: factory.NewMessaging(db), Transport: "test", Channel: "3"}
 				must(c.Collect(ctx, at))
 				must(c.Collect(ctx, at))
 				absent(first)

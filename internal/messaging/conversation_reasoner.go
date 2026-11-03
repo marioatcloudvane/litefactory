@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // conversationReasonerBudget bounds one consult's wall-clock time, all of its
@@ -32,20 +32,20 @@ const conversationReasonerNote = "The reasoner was already consulted in this tur
 // reasonerPrompt is everything one reasoner step sees. Each step is a fresh
 // native session with the whole state, so a step can be replayed safely.
 type reasonerPrompt struct {
-	RetainedEvidence []store.ConversationEvidence `json:"retained_evidence,omitempty"`
-	ContextGaps      []string                     `json:"context_gaps,omitempty"`
-	Question         string                       `json:"question"`
-	Tried            string                       `json:"tried"`
-	OwnerSources     []DialogueTurn               `json:"owner_sources"`
-	RecentReplies    []conversationPriorReply     `json:"recent_factory_replies,omitempty"`
-	Context          string                       `json:"context,omitempty"`
-	Focus            *conversationFocus           `json:"focus,omitempty"`
-	Evidence         []conversationReadResult     `json:"evidence,omitempty"`
-	Lookups          []conversationReadResult     `json:"lookups,omitempty"`
-	Commands         []CommandDefinition          `json:"commands"`
-	References       []ConversationReference      `json:"references"`
-	LookupsLeft      int                          `json:"lookups_left"`
-	CorrectionReason string                       `json:"correction_reason,omitempty"`
+	RetainedEvidence []messagingstate.ConversationEvidence `json:"retained_evidence,omitempty"`
+	ContextGaps      []string                              `json:"context_gaps,omitempty"`
+	Question         string                                `json:"question"`
+	Tried            string                                `json:"tried"`
+	OwnerSources     []DialogueTurn                        `json:"owner_sources"`
+	RecentReplies    []conversationPriorReply              `json:"recent_factory_replies,omitempty"`
+	Context          string                                `json:"context,omitempty"`
+	Focus            *conversationFocus                    `json:"focus,omitempty"`
+	Evidence         []conversationReadResult              `json:"evidence,omitempty"`
+	Lookups          []conversationReadResult              `json:"lookups,omitempty"`
+	Commands         []CommandDefinition                   `json:"commands"`
+	References       []ConversationReference               `json:"references"`
+	LookupsLeft      int                                   `json:"lookups_left"`
+	CorrectionReason string                                `json:"correction_reason,omitempty"`
 }
 
 // errReasonerOutput is a reasoner output that is neither a valid lookup nor a
@@ -232,21 +232,14 @@ func (r *factoryConversationRun) reasonerCall(ctx context.Context, reasoner Conv
 	}
 	state := filepath.Join(runtime.root, "reasoner-"+identity)
 	defer func() { err = errors.Join(err, os.RemoveAll(state)) }()
-	attempt, err := r.s.db.StartPresentationMeterAttempt(ctx, 0, fmt.Sprintf("conversation-reasoner-%s-%d", r.t.ID, step), "generation", r.c.Provider)
+	attempt, err := r.s.factory.BeginPresentation(ctx, r.t.ID, r.c.Provider, "reasoner", step)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		outcome := "success"
-		if err != nil {
-			outcome = "failure"
-		}
-		if ctx.Err() != nil {
-			outcome = "cancelled"
-		}
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		err = errors.Join(err, r.s.db.FinishMeterAttempt(cleanup, attempt.ID, outcome, "unknown", "", "", []string{"conversation_reasoner_usage_not_observed"}))
+		err = errors.Join(err, attempt.Complete(cleanup, err != nil, ctx.Err() != nil))
 	}()
 	result, err := provider.RunConversation(ctx, agent.ConversationRequest{ConversationID: r.c.ID, TurnID: r.t.ID, Model: reasoner.Model, Effort: reasoner.Effort, StateDirectory: state, Prompt: prompt, NativeInstructions: instructions, Session: agent.SessionRef{Ref: ref}, BeforeLaunch: func(cb context.Context) error {
 		if err := r.authorizeRestoredPrompt(cb, &disclosure); err != nil {

@@ -191,6 +191,9 @@ func (c *Config) Validate() error {
 		(!branchNameRE.MatchString(s.DefaultBaseBranch) || strings.Contains(s.DefaultBaseBranch, "..")) {
 		errs = append(errs, fmt.Errorf("settings.default_base_branch: %q is not a valid branch name", s.DefaultBaseBranch))
 	}
+	if s.GoBuildCachePath != "" && !filepath.IsAbs(s.GoBuildCachePath) {
+		errs = append(errs, fmt.Errorf("settings.go_build_cache_path: %q must be an absolute path", s.GoBuildCachePath))
+	}
 	if s.WorktreeRoot != "" && !filepath.IsAbs(s.WorktreeRoot) {
 		errs = append(errs, fmt.Errorf("settings.worktree_root: %q must be an absolute path; a relative one would depend on the daemon's working directory", s.WorktreeRoot))
 	}
@@ -413,6 +416,7 @@ func (c *Config) normalize() {
 	c.Settings.DefaultBaseBranch = strings.TrimSpace(c.Settings.DefaultBaseBranch)
 	c.Settings.FeaturePrefix = strings.TrimSpace(c.Settings.FeaturePrefix)
 	c.Settings.WorktreeRoot = strings.TrimSpace(c.Settings.WorktreeRoot)
+	c.Settings.GoBuildCachePath = strings.TrimSpace(c.Settings.GoBuildCachePath)
 	c.Settings.LogLevel = strings.ToLower(strings.TrimSpace(c.Settings.LogLevel))
 	c.Settings.ThinkingLogs = ThinkingLogs(strings.ToLower(strings.TrimSpace(string(c.Settings.ThinkingLogs))))
 

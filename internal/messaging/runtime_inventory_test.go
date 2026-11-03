@@ -32,12 +32,12 @@ func TestRuntimeConversationStopWrappersAssembled(t *testing.T) {
 			} else if name != "draft failure" {
 				run.s.EnableFeatures(nil, confirmer)
 			}
-			repo, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
+			repo, err := fixtureDB(run.s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 			if err != nil {
 				t.Fatal(err)
 			}
 			preview := store.ChatIssuePreview{ID: "preview", Transport: "discord", ChannelRef: "2", SourceMessageID: "draft", Code: "12345678", ContentHash: "hash", Title: "Feature", Body: "Exact content", RepoID: repo.ID, CreatedAt: at, ExpiresAt: at.Add(24 * time.Hour)}
-			if err = run.s.db.SaveChatIssuePreview(t.Context(), preview); err != nil {
+			if err = fixtureDB(run.s).SaveChatIssuePreview(t.Context(), preview); err != nil {
 				t.Fatal(err)
 			}
 			payload := naturalPayload{Invocation: Invocation{Command: "confirm", Arguments: map[string]string{"code": preview.Code}}, Channel: "2", Project: "acme/app", RepoID: repo.ID, PreviewID: preview.ID, PreviewHash: preview.ContentHash, Question: preview.Title + "\n" + preview.Body}
@@ -54,7 +54,7 @@ func TestRuntimeConversationStopWrappersAssembled(t *testing.T) {
 				}
 			}
 			proposal := executeFactoryAction(t, run, payload, &at)
-			execution, err := run.s.db.ReadNaturalExecution(t.Context(), proposal.ExecutionID)
+			execution, err := fixtureDB(run.s).ReadNaturalExecution(t.Context(), proposal.ExecutionID)
 			if err != nil {
 				t.Fatal(err)
 			}

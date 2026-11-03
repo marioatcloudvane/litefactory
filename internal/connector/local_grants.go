@@ -3,15 +3,14 @@ package connector
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // ErrGrantNotFound identifies an exact ID absent from retained grant state.
-var ErrGrantNotFound = store.ErrConnectorGrantNotFound
+var ErrGrantNotFound = connectorstate.ErrConnectorGrantNotFound
 
 // GrantCoverage describes the scope-specific reach of a connector grant. The
 // first three fields describe factory:overview. Repositories describes the
@@ -38,13 +37,13 @@ type GrantRepositoryCoverage struct {
 	Repositories []string `json:"repositories"`
 }
 
-func grantRepositoryCoverage(g store.ConnectorLocalGrant) *GrantRepositoryCoverage {
-	if !store.ConnectorRepositoryScoped(g.Scope) {
+func grantRepositoryCoverage(g connectorstate.ConnectorLocalGrant) *GrantRepositoryCoverage {
+	if !connectorstate.ConnectorRepositoryScoped(g.Scope) {
 		return nil
 	}
 	c := &GrantRepositoryCoverage{Scopes: []string{}, All: g.AllRepositories, Future: g.AllRepositories, Repositories: []string{}}
 	for _, s := range []string{DiscussionScope, CodeReviewScope, RepositoryUsageScope, TaskUsageScope, AdvisoryScope, DiscussionPublishScope} {
-		if store.ConnectorScopeHas(g.Scope, s) {
+		if connectorstate.ConnectorScopeHas(g.Scope, s) {
 			c.Scopes = append(c.Scopes, s)
 		}
 	}
@@ -90,10 +89,10 @@ type GrantMutation struct {
 
 // GrantService is the shared local filesystem-owner control implementation.
 // It requires neither remote configuration nor an online daemon.
-type GrantService struct{ db *store.DB }
+type GrantService struct{ db connectorstate.LocalGrants }
 
 // NewGrantService binds local administration to an existing durable store.
-func NewGrantService(db *store.DB) *GrantService { return &GrantService{db: db} }
+func NewGrantService(db connectorstate.LocalGrants) *GrantService { return &GrantService{db: db} }
 
 // Ready verifies that the bound store can read retained grant state.
 func (s *GrantService) Ready(ctx context.Context) error {
@@ -118,7 +117,7 @@ func (s *GrantService) ListGrantSummaries(ctx context.Context, now time.Time) ([
 		for i, ref := range g.ActionRepositories {
 			actionRepositories[i] = safeGrantLabel(ref)
 		}
-		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{ActionRepositories: actionRepositories, StandardsManagement: store.ConnectorScopeHas(g.Scope, StandardsManagementScope), AllRegisteredRepositories: store.ConnectorScopeHas(g.Scope, Scope), PrivateRepositories: store.ConnectorScopeHas(g.Scope, Scope), FutureRepositories: store.ConnectorScopeHas(g.Scope, Scope), Repositories: grantRepositoryCoverage(g), CodeReview: store.ConnectorScopeHas(g.Scope, CodeReviewScope), FactoryUsage: store.ConnectorScopeHas(g.Scope, FactoryUsageScope), UsageTaskFamily: store.ConnectorScopeHas(g.Scope, TaskUsageScope)}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
+		out = append(out, GrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: safeGrantLabel(g.ClientName), Scope: g.Scope, Resource: g.Resource, Coverage: GrantCoverage{ActionRepositories: actionRepositories, StandardsManagement: connectorstate.ConnectorScopeHas(g.Scope, StandardsManagementScope), AllRegisteredRepositories: connectorstate.ConnectorScopeHas(g.Scope, Scope), PrivateRepositories: connectorstate.ConnectorScopeHas(g.Scope, Scope), FutureRepositories: connectorstate.ConnectorScopeHas(g.Scope, Scope), Repositories: grantRepositoryCoverage(g), CodeReview: connectorstate.ConnectorScopeHas(g.Scope, CodeReviewScope), FactoryUsage: connectorstate.ConnectorScopeHas(g.Scope, FactoryUsageScope), UsageTaskFamily: connectorstate.ConnectorScopeHas(g.Scope, TaskUsageScope)}, CreatedAt: g.CreatedAt.UTC(), ExpiresAt: g.ExpiresAt.UTC(), Renewable: g.Status == "active", Status: g.Status, RevokedAt: grantTime(g.RevokedAt), RevocationReason: safeGrantLabel(g.RevocationReason), AccessTokens: GrantAccessTokens{Count: g.AccessTokenCount, UsableCount: usableTokenCount(g), EarliestExpiry: grantTime(g.EarliestAccessExpiry), LatestExpiry: grantTime(g.LatestAccessExpiry), Usable: usableTokenCount(g) > 0}})
 	}
 	return out, nil
 }
@@ -162,14 +161,14 @@ func (s *GrantService) revoke(ctx context.Context, id string, all bool, now time
 }
 
 // List adapts safe summaries to the trusted daemon readiness surface.
-func (s *GrantService) List(ctx context.Context) ([]store.ConnectorGrantSummary, error) {
+func (s *GrantService) List(ctx context.Context) ([]connectorstate.ConnectorGrantSummary, error) {
 	rows, err := s.ListGrantSummaries(ctx, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
-	out := make([]store.ConnectorGrantSummary, 0, len(rows))
+	out := make([]connectorstate.ConnectorGrantSummary, 0, len(rows))
 	for _, g := range rows {
-		r := store.ConnectorGrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: g.ClientName, ActionRepositories: g.Coverage.ActionRepositories, Resource: g.Resource, Scope: g.Scope, CreatedAt: g.CreatedAt, ExpiresAt: g.ExpiresAt}
+		r := connectorstate.ConnectorGrantSummary{ID: g.ID, ClientID: g.ClientID, ClientName: g.ClientName, ActionRepositories: g.Coverage.ActionRepositories, Resource: g.Resource, Scope: g.Scope, CreatedAt: g.CreatedAt, ExpiresAt: g.ExpiresAt}
 		if g.RevokedAt != nil {
 			r.RevokedAt = *g.RevokedAt
 		}
@@ -206,7 +205,7 @@ func safeGrantLabel(v string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(quoted, `"`), `"`)
 }
 
-func usableTokenCount(g store.ConnectorLocalGrant) int {
+func usableTokenCount(g connectorstate.ConnectorLocalGrant) int {
 	if g.Status != "active" {
 		return 0
 	}

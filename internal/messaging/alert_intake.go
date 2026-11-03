@@ -3,10 +3,10 @@ package messaging
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/alerts"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // pollAlertControls has its own durable cursor and finite history budget. A
@@ -48,7 +48,7 @@ func (i *Intake) pollAlertControls(ctx context.Context, channel string, at time.
 		}
 	}
 	expected := scan
-	var admitted []store.NaturalMessage
+	var admitted []messagingstate.NaturalMessage
 	complete := false
 	for pageNumber := 0; pageNumber < 4; pageNumber++ {
 		page, err := i.Reader.ReadIntakePage(ctx, channel, i.Owner, scan.Before)
@@ -112,7 +112,7 @@ func (i *Intake) pollAlertControls(ctx context.Context, channel string, at time.
 	}
 	return i.drainAlertControlScan(ctx, channel, scan, at)
 }
-func (i *Intake) drainAlertControlScan(ctx context.Context, channel string, scan store.AlertControlScan, at time.Time) error {
+func (i *Intake) drainAlertControlScan(ctx context.Context, channel string, scan messagingstate.AlertControlScan, at time.Time) error {
 	if !scan.Complete {
 		return nil
 	}

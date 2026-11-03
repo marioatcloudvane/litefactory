@@ -3,6 +3,7 @@ package messaging
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 // recoveryTarget resolves owner text before consulting the retained focus. A
 // repository reference is a hint only; the current catalog remains authoritative.
 func (r *factoryConversationRun) recoveryTarget(ctx context.Context) (string, string, error) {
-	repos, err := r.s.db.ListRepos(ctx)
+	repos, err := r.s.factory.Projects(ctx)
 	if err != nil {
 		return "", "", err
 	}
@@ -44,7 +45,7 @@ func (r *factoryConversationRun) recoveryTarget(ctx context.Context) (string, st
 		if project == "" {
 			project = focus
 		}
-		resolved, err = ask.ResolveProject(ctx, r.s.db, project, nil)
+		resolved, err = ask.ResolveProject(ctx, projectCatalog{r.s.factory}, project, nil)
 	}
 	if err != nil {
 		return "", "", err
@@ -64,11 +65,11 @@ func (r *factoryConversationRun) recoveryTarget(ctx context.Context) (string, st
 	return resolved.Repository.Slug(), issue, nil
 }
 
-func (r *factoryConversationRun) evidenceAuthorized(ctx context.Context, e store.ConversationEvidence) (bool, error) {
+func (r *factoryConversationRun) evidenceAuthorized(ctx context.Context, e messagingstate.ConversationEvidence) (bool, error) {
 	if e.Repository == "" {
 		return false, nil
 	}
-	resolved, err := ask.ResolveProject(ctx, r.s.db, e.Repository, nil)
+	resolved, err := ask.ResolveProject(ctx, projectCatalog{r.s.factory}, e.Repository, nil)
 	if err != nil {
 		return false, err
 	}
@@ -119,7 +120,7 @@ func (r *factoryConversationRun) retainView(ctx context.Context, ordinal int, ki
 		}
 	}
 
-	resolved, err := ask.ResolveProject(ctx, r.s.db, repository, nil)
+	resolved, err := ask.ResolveProject(ctx, projectCatalog{r.s.factory}, repository, nil)
 	if err != nil {
 		return err
 	}
@@ -135,7 +136,7 @@ func (r *factoryConversationRun) retainView(ctx context.Context, ordinal int, ki
 	if len(view) < len(original) {
 		entry.Omissions = []string{"Only the supplied byte range is retained in this view; original capture coverage is separate."}
 	}
-	return r.s.db.SaveConversationEvidence(ctx, r.t, store.ConversationEvidence{TurnID: r.t.ID, SourceTurnID: sourceTurn, Ordinal: ordinal, Repository: repository, Issue: issue, CapturedAt: captured, ExpiresAt: captured.Add(24 * time.Hour), Entry: entry, Content: protected, RangeStart: 0, RangeEnd: int64(len(view)), ViewDigest: retainedevidence.Digest([]byte(protected))})
+	return r.s.db.SaveConversationEvidence(ctx, r.t, messagingstate.ConversationEvidence{TurnID: r.t.ID, SourceTurnID: sourceTurn, Ordinal: ordinal, Repository: repository, Issue: issue, CapturedAt: captured, ExpiresAt: captured.Add(24 * time.Hour), Entry: entry, Content: protected, RangeStart: 0, RangeEnd: int64(len(view)), ViewDigest: retainedevidence.Digest([]byte(protected))})
 }
 
 func (r *factoryConversationRun) retainLookup(ctx context.Context, result conversationReadResult, ordinal int) error {
@@ -310,7 +311,7 @@ func (r *factoryConversationRun) authorizeRestoredPrompt(ctx context.Context, p 
 		if project == "" {
 			continue
 		}
-		resolved, err := ask.ResolveProject(ctx, r.s.db, project, nil)
+		resolved, err := ask.ResolveProject(ctx, projectCatalog{r.s.factory}, project, nil)
 		if err != nil {
 			return err
 		}
@@ -373,7 +374,7 @@ func valueEvidence(e *conversationReadResult) []conversationReadResult {
 // scopeOwnerSources keeps the current request and historical owner sources that
 // were never tied to a target, while excluding those whose target belongs to
 // another project or selected issue or whose capture is no longer available.
-func (r *factoryConversationRun) scopeOwnerSources(ctx context.Context, sources []store.ConversationTurn) ([]store.ConversationTurn, error) {
+func (r *factoryConversationRun) scopeOwnerSources(ctx context.Context, sources []messagingstate.ConversationTurn) ([]messagingstate.ConversationTurn, error) {
 	repository, issue, err := r.recoveryTarget(ctx)
 	if err != nil {
 		return nil, err
@@ -381,7 +382,7 @@ func (r *factoryConversationRun) scopeOwnerSources(ctx context.Context, sources 
 	if repository == "" {
 		return sources, nil
 	}
-	out := make([]store.ConversationTurn, 0, len(sources))
+	out := make([]messagingstate.ConversationTurn, 0, len(sources))
 	for _, source := range sources {
 		if source.ID == r.t.ID {
 			out = append(out, source)
@@ -420,7 +421,7 @@ func (r *factoryConversationRun) scopeOwnerSources(ctx context.Context, sources 
 // Replies become recoverable only from an actual saved completed answer, never
 // from text whose answer transaction failed. Capture scope comes from the
 // original admitted owner record, not the new follow-up's selected issue.
-func (r *factoryConversationRun) retainPreviousReplies(ctx context.Context, sources []store.ConversationTurn) error {
+func (r *factoryConversationRun) retainPreviousReplies(ctx context.Context, sources []messagingstate.ConversationTurn) error {
 	for i, source := range sources {
 		if source.ID == r.t.ID || source.ReplyID == "" || source.FinishedAt.IsZero() {
 			continue
@@ -429,7 +430,7 @@ func (r *factoryConversationRun) retainPreviousReplies(ctx context.Context, sour
 		if err != nil {
 			return err
 		}
-		var scope *store.ConversationEvidence
+		var scope *messagingstate.ConversationEvidence
 		for j := range captures {
 			e := &captures[j]
 			if e.Entry.Kind == "owner" && e.SourceTurnID == source.ID {
@@ -523,7 +524,7 @@ func (r *factoryConversationRun) retainCoverage(ctx context.Context, repository,
 
 // A retained Ask link cannot outlive or replace its delivered owning row. This
 // check also covers lookup/reply views derived from that row after restart.
-func (r *factoryConversationRun) askSourceCurrent(ctx context.Context, e store.ConversationEvidence) (bool, error) {
+func (r *factoryConversationRun) askSourceCurrent(ctx context.Context, e messagingstate.ConversationEvidence) (bool, error) {
 	identity := strings.SplitN(e.Entry.OwnerID, ":", 2)
 	if len(identity) != 2 || identity[0] != r.c.Transport {
 		return false, nil

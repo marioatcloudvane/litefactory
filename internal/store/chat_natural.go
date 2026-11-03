@@ -4,18 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"time"
 )
 
 // NaturalScan retains a closed interval's progress without admitting partial history.
-type NaturalScan struct{ ChannelRef, Cursor, HighWater, Before string }
+type NaturalScan = messagingstate.NaturalScan
 
 // NaturalMessage contains only prefiltered owner text from one allowed channel.
-type NaturalMessage struct {
-	Transport, ChannelRef, SourceID, OwnerID, ReplyTo, Text string
-	CreatedAt                                               time.Time
-}
+type NaturalMessage = messagingstate.NaturalMessage
 
 // ReadNaturalScan returns the saved channel cursor and unfinished scan progress.
 func (db *DB) ReadNaturalScan(ctx context.Context, channel string) (NaturalScan, error) {

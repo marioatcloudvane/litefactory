@@ -3,10 +3,10 @@ package ask_test
 import (
 	"context"
 	"fmt"
+	factoryviews "github.com/cloudvane/litefactory/internal/factory"
 	"testing"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -87,7 +87,7 @@ func TestStoreReaderOwnerWaits(t *testing.T) {
 	finished := time.Date(2026, 10, 9, 8, 0, 0, 0, time.UTC)
 	w := newWaitStore(finished, 1, 2)
 	w.sessions = append(w.sessions, store.Session{ID: 3, IssueNumber: 3})
-	tasks, _, err := ask.StoreReader{Reader: w}.ReadProjectTasks(t.Context(), 1)
+	tasks, _, err := factoryviews.NewTaskFacts(w).ReadProjectTasks(t.Context(), 1)
 	if err != nil || len(tasks) != 3 {
 		t.Fatalf("tasks: %+v, %v", tasks, err)
 	}
@@ -118,7 +118,7 @@ func TestStoreReaderOwnerWaits(t *testing.T) {
 			t.Parallel()
 			w := newWaitStore(finished, 1)
 			tc.alter(w)
-			tasks, _, err := ask.StoreReader{Reader: w}.ReadProjectTasks(t.Context(), 1)
+			tasks, _, err := factoryviews.NewTaskFacts(w).ReadProjectTasks(t.Context(), 1)
 			if err != nil || len(tasks) != 1 || tasks[0].OwnerWait != nil {
 				t.Fatalf("unexpected wait: %+v, %v", tasks, err)
 			}
@@ -141,7 +141,7 @@ func TestStoreReaderTaskStateFromLatestRun(t *testing.T) {
 		{ID: 4, IssueNumber: 4, State: store.SessionFailed},
 		{ID: 5, IssueNumber: 5, State: store.SessionRunning},
 	}
-	tasks, _, err := ask.StoreReader{Reader: w}.ReadProjectTasks(t.Context(), 1)
+	tasks, _, err := factoryviews.NewTaskFacts(w).ReadProjectTasks(t.Context(), 1)
 	if err != nil || len(tasks) != 5 {
 		t.Fatalf("tasks: %+v, %v", tasks, err)
 	}

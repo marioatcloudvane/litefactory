@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/retainedevidence"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // retainAskSources keeps delivered Ask identities in the shared contract as
@@ -34,7 +34,7 @@ func (r *factoryConversationRun) retainAskSources(ctx context.Context, result co
 	if len(envelope.History.Turns) == 0 {
 		return nil
 	}
-	resolution, err := ask.ResolveProject(ctx, r.s.db, result.Arguments["project"], nil)
+	resolution, err := ask.ResolveProject(ctx, projectCatalog{r.s.factory}, result.Arguments["project"], nil)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (r *factoryConversationRun) retainAskSources(ctx context.Context, result co
 			return err
 		}
 		entry := retainedevidence.Entry{Kind: "ask", OwnerID: turn.SourceID, Revision: turn.Revision, Digest: turn.Revision, Channel: strconv.FormatInt(resolution.Repository.ID, 10), Bytes: -1, Capture: retainedevidence.Unknown, Availability: retainedevidence.Available, Omissions: []string{"Delivered local reply with stored question excerpt only; original raw-row extent and uncaptured history are unknown."}}
-		e := store.ConversationEvidence{TurnID: r.t.ID, SourceTurnID: r.t.ID, Ordinal: ordinal, Repository: turn.Project, CapturedAt: result.CapturedAt, ExpiresAt: result.CapturedAt.Add(24 * time.Hour), Entry: entry, Content: protected, RangeEnd: int64(len(protected)), ViewDigest: retainedevidence.Digest([]byte(protected))}
+		e := messagingstate.ConversationEvidence{TurnID: r.t.ID, SourceTurnID: r.t.ID, Ordinal: ordinal, Repository: turn.Project, CapturedAt: result.CapturedAt, ExpiresAt: result.CapturedAt.Add(24 * time.Hour), Entry: entry, Content: protected, RangeEnd: int64(len(protected)), ViewDigest: retainedevidence.Digest([]byte(protected))}
 		if err := r.s.db.SaveConversationEvidence(ctx, r.t, e); err != nil {
 			return err
 		}

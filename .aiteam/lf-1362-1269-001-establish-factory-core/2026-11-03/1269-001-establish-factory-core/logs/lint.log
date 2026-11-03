@@ -1,0 +1,7 @@
+golangci-lint v2.13.1 (installed)
+internal/daemon/owner_action_backend.go:280:12: QF1008: could remove embedded field "Domain" from selector (staticcheck)
+		return d.Domain.Availability.Allows(inv.Command)
+		         ^
+1 issues:
+* staticcheck: 1
+make: *** [lint] Error 1

@@ -8,6 +8,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/doctor"
+	"github.com/cloudvane/litefactory/internal/factory/localdoctor"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -138,7 +139,7 @@ func TestDoctorLocalPresentationUsesCurrentCapabilityAndSettlement(t *testing.T)
 				c.Repair = &store.DoctorRepair{ID: "retained-7", TaskRef: c.Conversation.TaskRef, State: tc.state}
 			}
 			var out bytes.Buffer
-			if err := renderDoctor(&out, c); err != nil {
+			if err := renderDoctor(&out, localdoctor.InspectConversation(c)); err != nil {
 				t.Fatal(err)
 			}
 			text := out.String()

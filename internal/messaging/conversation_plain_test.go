@@ -57,7 +57,7 @@ func TestPlainYesConfirmsTheOneOpenProposal(t *testing.T) {
 	for _, yes := range []string{"yes", "Ja", "ok!", "do it", "mach"} {
 		t.Run(yes, func(t *testing.T) {
 			s, ops, start, sender := plainFixture(t)
-			if _, err := s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
+			if _, err := fixtureDB(s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
 				t.Fatal(err)
 			}
 			now := time.Now().UTC().Truncate(time.Second)
@@ -66,7 +66,7 @@ func TestPlainYesConfirmsTheOneOpenProposal(t *testing.T) {
 			if handled, err := run.confirm(t.Context()); !handled || err != nil {
 				t.Fatalf("plain confirmation: %v %v", handled, err)
 			}
-			if err := s.ownerActions.Tick(t.Context()); err != nil {
+			if err := fixtureActions(s).Tick(t.Context()); err != nil {
 				t.Fatal(err)
 			}
 			if len(ops.executed) != 1 || ops.executed[0].OperationKey != "owner-action:"+p.ID || !maps.Equal(ops.executed[0].Arguments, p.Facts.Invocation.Arguments) {
@@ -91,7 +91,7 @@ func TestPlainYesConfirmsTheOneOpenProposal(t *testing.T) {
 
 func TestPlainYesNeverConfirmsMoreThanAYesOrAnEarlierProposal(t *testing.T) {
 	s, ops, start, sender := plainFixture(t)
-	if _, err := s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
+	if _, err := fixtureDB(s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
@@ -133,7 +133,7 @@ func TestPlainYesNeverConfirmsMoreThanAYesOrAnEarlierProposal(t *testing.T) {
 	if handled, err := run.confirm(t.Context()); !handled || err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ownerActions.Tick(t.Context()); err != nil {
+	if err := fixtureActions(s).Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if len(ops.executed) != 1 || !maps.Equal(ops.executed[0].Arguments, second.Facts.Invocation.Arguments) {
@@ -143,7 +143,7 @@ func TestPlainYesNeverConfirmsMoreThanAYesOrAnEarlierProposal(t *testing.T) {
 
 func TestProposalIsPlainWhileTheStoredProposalStaysExact(t *testing.T) {
 	s, _, start, sender := plainFixture(t)
-	if _, err := s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
+	if _, err := fixtureDB(s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
@@ -181,7 +181,7 @@ func TestProposalIsPlainWhileTheStoredProposalStaysExact(t *testing.T) {
 // the history reference; failed and uncertain outcomes say what to do next.
 func TestOwnerActionOutcomeNoticeIsPlain(t *testing.T) {
 	s, _, start, sender := plainFixture(t)
-	if _, err := s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
+	if _, err := fixtureDB(s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
@@ -190,7 +190,7 @@ func TestOwnerActionOutcomeNoticeIsPlain(t *testing.T) {
 		t.Fatalf("confirmation: %v %v", handled, err)
 	}
 	deliverAll(t, s, sender, "confirmation", now.Add(5*time.Second))
-	if err := s.ownerActions.Tick(t.Context()); err != nil {
+	if err := fixtureActions(s).Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	posted := len(sender.texts)
@@ -240,7 +240,7 @@ func announcementStart(t *testing.T, s *Service, start func(string, time.Time) *
 	t.Helper()
 	run := start("confirmation of retained work", at)
 	execution := "retained-execution"
-	if err := s.db.SaveConversationActionLink(t.Context(), run.t, store.ConversationActionLink{TurnID: run.t.ID, ExecutionID: execution}); err != nil {
+	if err := fixtureDB(s).SaveConversationActionLink(t.Context(), run.t, store.ConversationActionLink{TurnID: run.t.ID, ExecutionID: execution}); err != nil {
 		t.Fatal(err)
 	}
 	if err := run.complete(t.Context(), "The retained action was admitted."); err != nil {
@@ -281,10 +281,10 @@ func TestBackgroundResultIsNotHeldForever(t *testing.T) {
 func TestShortProjectNamesResolveOnlyWhenUnambiguous(t *testing.T) {
 	ctx := t.Context()
 	s, _, _ := standardsGateFixture(t)
-	if _, err := s.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
+	if _, err := fixtureDB(s).UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "cockpit"}); err != nil {
+	if _, err := fixtureDB(s).UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "cockpit"}); err != nil {
 		t.Fatal(err)
 	}
 	analysis := func(project string) (naturalPayload, string) {
@@ -300,7 +300,7 @@ func TestShortProjectNamesResolveOnlyWhenUnambiguous(t *testing.T) {
 			t.Fatalf("%q not resolved: %q %+v", name, refusal, p)
 		}
 	}
-	if _, err := s.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "other", Name: "litefactory"}); err != nil {
+	if _, err := fixtureDB(s).UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "other", Name: "litefactory"}); err != nil {
 		t.Fatal(err)
 	}
 	p, refusal := analysis("litefactory")

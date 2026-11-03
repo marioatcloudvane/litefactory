@@ -493,7 +493,7 @@ func TestOwnerStopTerminatesRunnerAndChild(t *testing.T) {
 			}
 			body := fmt.Sprintf("#!/bin/sh\n/bin/sleep 120 &\nchild=$!\nprintf '%%s %%s\\n' \"$$\" \"$child\" | /usr/bin/nc 127.0.0.1 %d\nwait\n", address.Port)
 			check(os.WriteFile(script, []byte(body), 0700))
-			runner, err := harness.New(harness.Options{Paths: config.NewPaths(filepath.Join(root, "home")), Claude: config.Claude{Binary: script, Tools: []string{"Read"}, AllowedTools: []string{"Read"}, SettingsPath: filepath.Join(root, "settings.json"), TimeoutSeconds: 60}, Model: config.DefaultClaudeModel, Environ: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "USER=fixture"}, Logger: d.log})
+			runner, err := harness.New(harness.Options{Paths: config.NewPaths(filepath.Join(t.TempDir(), "home")), Claude: config.Claude{Binary: script, Tools: []string{"Read"}, AllowedTools: []string{"Read"}, SettingsPath: filepath.Join(root, "settings.json"), TimeoutSeconds: 60}, Model: config.DefaultClaudeModel, Environ: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "USER=fixture"}, Logger: d.log})
 			check(err)
 			worker, cancel := context.WithCancel(ctx)
 			defer cancel()

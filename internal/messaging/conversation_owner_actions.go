@@ -3,6 +3,7 @@ package messaging
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strings"
 	"time"
 
@@ -13,15 +14,23 @@ import (
 
 var errAmbiguousOwnerAction = errors.New("more than one proposal is pending; describe which action you mean before confirming or cancelling")
 
-// EnableOwnerActions installs the one daemon-owned policy service before intake.
-func (s *Service) EnableOwnerActions(actions *owneraction.Service, principal func(context.Context, string) (owneraction.Principal, error)) {
+// OwnerActions is the proposal and delivery-acknowledgment capability used by
+// conversations. Execution, approval reactions and recovery remain factory-owned.
+type OwnerActions interface {
+	Propose(context.Context, owneraction.Principal, owneraction.Invocation, string) (owneraction.Proposal, error)
+	Confirm(context.Context, owneraction.Principal, string) (owneraction.Proposal, error)
+	Cancel(context.Context, owneraction.Principal, string) (owneraction.Proposal, error)
+	Inspect(context.Context, owneraction.Principal, string) (owneraction.Proposal, error)
+	History(context.Context, owneraction.Principal, string, int) (owneraction.Page, error)
+	Available(context.Context, string, string) error
+}
+
+// EnableOwnerActions installs bounded factory operations before intake.
+func (s *Service) EnableOwnerActions(actions OwnerActions, principal func(context.Context, string) (owneraction.Principal, error)) {
 	s.ownerActions = actions
 	s.ownerPrincipal = principal
 	s.registerOwnerActionReads()
 }
-
-// OwnerActions returns the shared service for trusted daemon composition.
-func (s *Service) OwnerActions() *owneraction.Service { return s.ownerActions }
 
 // OwnerActionText renders the plain factory review of p for Discord; narration
 // cannot alter this block. The full record stays in inspect and history.
@@ -59,7 +68,7 @@ func (r *factoryConversationRun) proposeShared(ctx context.Context, inv Invocati
 		_, _ = r.s.ownerActions.Cancel(ctx, principal, p.ID)
 		return r.complete(ctx, "The exact proposal is too large to show safely here. Nothing was authorized; shorten the request or review it through MCP.")
 	}
-	if err = r.s.db.SaveConversationActionLink(ctx, r.t, store.ConversationActionLink{TurnID: r.t.ID, DialogueID: p.ID, DialogueRevision: 1}); err != nil {
+	if err = r.s.db.SaveConversationActionLink(ctx, r.t, messagingstate.ConversationActionLink{TurnID: r.t.ID, DialogueID: p.ID, DialogueRevision: 1}); err != nil {
 		return err
 	}
 	return r.s.saveConversationPresentation(ctx, r.t, "completed", nil, text, r.at)
@@ -144,7 +153,7 @@ func (r *factoryConversationRun) sharedControl(ctx context.Context) (bool, error
 		return true, r.complete(ctx, err.Error())
 	}
 	if p == nil {
-		if invalidated, e := r.s.db.LegacyOwnerActionInvalidation(ctx, r.s.owner, r.c.ChannelRef); e != nil {
+		if invalidated, e := r.s.factory.InvalidateLegacyOwnerAction(ctx, r.s.owner, r.c.ChannelRef); e != nil {
 			return true, e
 		} else if invalidated {
 			return true, r.complete(ctx, "The confirmation policy changed. Old pending proposals cannot run; request a fresh proposal.")
@@ -207,7 +216,7 @@ func sharedAcknowledgment(p owneraction.Proposal) string {
 	return OwnerActionText(p)
 }
 
-func (s *Service) bindSharedProposal(ctx context.Context, r store.ChatReply, message string) error {
+func (s *Service) bindSharedProposal(ctx context.Context, r messagingstate.ChatReply, message string) error {
 	answer, ordinal, err := s.db.ConversationReplyAnswer(ctx, r)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
@@ -265,7 +274,7 @@ func (s *Service) OwnerActionNotifications(ctx context.Context, at time.Time) er
 	if s.ownerActions == nil || s.ownerPrincipal == nil {
 		return nil
 	}
-	due, err := s.db.OwnerActionNoticesDue(ctx)
+	due, err := s.factory.PendingOwnerActionNotices(ctx)
 	if err != nil {
 		return err
 	}
@@ -289,7 +298,7 @@ func (s *Service) OwnerActionNotifications(ctx context.Context, at time.Time) er
 		if e != nil {
 			return e
 		}
-		if e = s.db.QueueOwnerActionOutcome(ctx, p.ID, p.State, notices); e != nil && !errors.Is(e, store.ErrNotFound) {
+		if e = s.factory.CompleteOwnerActionNotice(ctx, p.ID, p.State, notices); e != nil && !errors.Is(e, store.ErrNotFound) {
 			return e
 		}
 	}

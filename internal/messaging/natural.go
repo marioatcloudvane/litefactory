@@ -6,13 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/factory/owneractions"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/owneraction"
 )
 
 type naturalPayload struct {
@@ -98,60 +99,24 @@ func naturalFreshConversation(text string) bool {
 }
 
 func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time.Time) (string, error) {
-	if standardsCommand(p.Invocation.Command) {
-		op, err := standardsOperation(p.Invocation)
-		if err != nil {
-			return err.Error(), nil //nolint:nilerr // Invalid selections are owner-visible clarifications, not retryable failures.
-		}
-		if s.standards == nil {
-			return "Standards operations are unavailable; no standards action was performed. Ask the factory operator to inspect standards service availability using `litefactory logs --all` on the factory host.", nil
-		}
-		args := p.Invocation.Arguments
-		if args["project"] != "" && args["repository_id"] == "" {
-			resolution, e := s.resolveNaturalProject(ctx, args)
-			if e != nil {
-				return "", e
-			}
-			if resolution.Refusal != "" {
-				return resolution.Refusal, nil
-			}
-			p.RepoID = resolution.Repository.ID
-			p.Project = resolution.Repository.Slug()
-			args["project"] = p.Project
-			args["repository_id"] = strconv.FormatInt(p.RepoID, 10)
-		}
-		if raw := args["repository_id"]; raw != "" {
-			id, e := strconv.ParseInt(raw, 10, 64)
-			if e != nil || id < 1 {
-				return "", ErrInvalidInvocation
-			}
-			repo, e := s.db.GetRepo(ctx, id)
-			if e != nil {
-				return "", e
-			}
-			if e = s.db.CheckOwnerActionResolution(ctx, repo.ID, repo.Forge+":"+repo.Slug()); e != nil {
-				return "", e
-			}
-			p.RepoID = repo.ID
-			p.Project = repo.Slug()
-		}
-		if op == "analysis.start" && args["window"] != "" {
-			after, before, ok := analysisWindow(args["window"], at)
-			if !ok {
-				return analysisWindowRefusal, nil
-			}
-			args["after"], args["before"] = after, before
-			p.window = args["window"]
-			delete(args, "window")
-		}
-		if p.Invocation.Command != "standards" {
-			if p.freezeTargets {
-				return "", nil
-			}
-			return standardsMissingTerms(op, p.Invocation.Arguments), nil
-		}
-		return "", nil
+	if p.Invocation.Command == "draft" || p.Invocation.Command == "confirm" || p.Invocation.Command == "answer" {
+		selection := actionSelection(*p, s.transport)
+		refusal, err := (OwnerActionDomain{Service: s}).actionDomain().Normalize(ctx, &selection, at)
+		p.RepoID, p.Project, p.ProjectPending = selection.RepoID, selection.Project, selection.ProjectPending
+		p.PreviewID, p.PreviewHash, p.Question, p.Revision = selection.PreviewID, selection.PreviewHash, selection.Question, selection.Revision
+		return refusal, err
 	}
+
+	if standardsCommand(p.Invocation.Command) {
+		selection := owneractions.StandardsSelection{Invocation: owneraction.Invocation{Command: p.Invocation.Command, Arguments: p.Invocation.Arguments}, RepoID: p.RepoID, Project: p.Project, Window: p.window}
+		refusal, err := (OwnerActionDomain{Service: s}).standardsDomain().Normalize(ctx, &selection, p.freezeTargets, at)
+		p.RepoID, p.Project, p.window = selection.RepoID, selection.Project, selection.Window
+		if errors.Is(err, owneractions.ErrInvalidSelection) {
+			err = ErrInvalidInvocation
+		}
+		return refusal, err
+	}
+
 	args := p.Invocation.Arguments
 	if p.Invocation.Command == "meter" {
 		now := at.In(time.Local)
@@ -165,7 +130,7 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 			args["to"] = to
 		}
 	}
-	if p.Invocation.Command == "ask" || p.Invocation.Command == "draft" || p.Invocation.Command == "diagnose" || p.Invocation.Command == "question" || p.Invocation.Command == "answer" || (p.Invocation.Command == "meter" || p.Invocation.Command == "status") && (args["task"] != "" || args["issue"] != "") || args["project"] != "" {
+	if p.Invocation.Command == "ask" || p.Invocation.Command == "diagnose" || p.Invocation.Command == "question" || (p.Invocation.Command == "meter" || p.Invocation.Command == "status") && (args["task"] != "" || args["issue"] != "") || args["project"] != "" {
 		resolution, err := s.resolveNaturalProjectFocus(ctx, args, p.focus)
 		if err != nil {
 			return "", err
@@ -177,7 +142,7 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 		args["project"] = resolution.Repository.Slug()
 		p.Project = args["project"]
 		p.RepoID = resolution.Repository.ID
-		if err = s.db.CheckOwnerActionResolution(ctx, resolution.Repository.ID, resolution.Repository.Forge+":"+resolution.Repository.Slug()); err != nil {
+		if err = s.factory.AuthorizeProject(ctx, resolution.Repository.ID, resolution.Repository.Forge+":"+resolution.Repository.Slug()); err != nil {
 			return "", err
 		}
 	}
@@ -190,243 +155,36 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 			args[field] = v
 		}
 	}
-	switch p.Invocation.Command {
-	case "answer":
-		ref, refusal := s.researchTarget(ctx, Message{Arguments: args}, true)
-		if refusal != "" {
-			return refusal, nil
-		}
-		if s.research == nil {
-			return "No research answer is available here.", nil
-		}
-		q, err := s.research.Current(ctx, ref)
-		if err != nil {
-			return "", err
-		}
-		if q.Text == "" || q.Token != args["revision"] {
-			return "Please provide the current research question revision from /question.", nil
-		}
-		p.Question, p.Revision = q.Text, q.Token
-	case "confirm":
-		preview, err := s.db.ChatIssuePreviewByCode(ctx, naturalTransport(*p, s.transport), p.Channel, args["code"])
-		if errors.Is(err, store.ErrNotFound) {
-			return "Please provide the current preview code from /draft.", nil
-		}
-		if err != nil {
-			return "", err
-		}
-		if preview.State != "previewed" || !at.Before(preview.ExpiresAt) {
-			return "The saved preview is no longer available; create a new draft.", nil
-		}
-		repos, err := s.db.ListRepos(ctx)
-		if err != nil {
-			return "", err
-		}
-		for _, repo := range repos {
-			if repo.ID == preview.RepoID {
-				if err = s.db.CheckOwnerActionResolution(ctx, repo.ID, repo.Forge+":"+repo.Slug()); err != nil {
-					return "", err
-				}
-				p.Project = repo.Slug()
-			}
-		}
-		if p.Project == "" {
-			return "The preview project is no longer registered.", nil
-		}
-		p.RepoID = preview.RepoID
-		p.PreviewID = preview.ID
-		p.PreviewHash = preview.ContentHash
-		p.Question = preview.Title + "\n" + preview.Body
-	}
 	return "", nil
 }
 
-// relativeBound turns a spanned relative time phrase into RFC3339 local-midnight
-// bounds of now's location. A closed period without "since" also returns its end;
-// unrecognised text is not ok and stays for meterview to reject.
 func relativeBound(phrase string, now time.Time) (string, string, bool) {
-	phrase = strings.ToLower(strings.TrimSpace(phrase))
-	since := strings.HasPrefix(phrase, "since ")
-	phrase = strings.TrimSpace(strings.TrimPrefix(phrase, "since "))
-	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	week := day.AddDate(0, 0, -(int(day.Weekday())+6)%7)
-	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-	var from, to time.Time
-	switch phrase {
-	case "today":
-		from = day
-	case "yesterday":
-		from, to = day.AddDate(0, 0, -1), day
-	case "this week":
-		from = week
-	case "last week":
-		from, to = week.AddDate(0, 0, -7), week
-	case "this month":
-		from = month
-	case "last month":
-		from, to = month.AddDate(0, -1, 0), month
-	default:
-		found := false
-		for d := time.Sunday; d <= time.Saturday; d++ {
-			if phrase == strings.ToLower(d.String()) {
-				from, found = day.AddDate(0, 0, -(int(day.Weekday())-int(d)+7)%7), true
-			}
-		}
-		if !found {
-			return "", "", false
-		}
-	}
-	if since || to.IsZero() {
-		return from.Format(time.RFC3339), "", true
-	}
-	return from.Format(time.RFC3339), to.Format(time.RFC3339), true
+	return owneractions.RelativeBound(phrase, now)
 }
 
-// analysisWindowRefusal names every window form analysisWindow accepts.
-const analysisWindowRefusal = "Please give the analysis window as today, today since 2 pm, since 14:00, since 2 pm yesterday, yesterday, last N days, last N hours, this week, last week, or as exact after and before times."
-
-// analysisWindow turns a spanned window phrase into closed UTC bounds: a clock
-// time ("today since 2 pm", "since 14:00 yesterday") and "last N days" (or
-// hours) end now, and the calendar phrases of relativeBound end at their
-// period's end or now. A trailing "only" ("today only") is ignored.
 func analysisWindow(phrase string, now time.Time) (string, string, bool) {
-	text := strings.ToLower(strings.TrimSpace(phrase))
-	text = strings.TrimSpace(strings.TrimSuffix(text, " only"))
-	if start, matched := clockWindowStart(text, now.In(time.Local)); matched {
-		if start.After(now) {
-			return "", "", false
-		}
-		return start.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339), true
-	}
-	fields := strings.Fields(strings.TrimPrefix(strings.TrimPrefix(text, "last "), "past "))
-	if len(fields) == 2 {
-		n, err := strconv.Atoi(fields[0])
-		unit := map[string]time.Duration{"day": 24 * time.Hour, "hour": time.Hour}[strings.TrimSuffix(fields[1], "s")]
-		if err == nil && n > 0 && n <= 366 && unit > 0 {
-			return now.UTC().Add(-time.Duration(n) * unit).Format(time.RFC3339), now.UTC().Format(time.RFC3339), true
-		}
-	}
-	from, to, ok := relativeBound(text, now.In(time.Local))
-	if !ok {
-		return "", "", false
-	}
-	start, _ := time.Parse(time.RFC3339, from)
-	end := now
-	if to != "" {
-		end, _ = time.Parse(time.RFC3339, to)
-	}
-	return start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339), true
+	return owneractions.AnalysisWindow(phrase, now)
 }
-
-// clockWindowStart reads "since"/"from" and a clock time ("14:00", "14", "2 pm",
-// "2pm", "2:30 pm"), optionally preceded or followed by "today" or "yesterday",
-// as that local time on the chosen day (today by default).
-func clockWindowStart(text string, now time.Time) (time.Time, bool) {
-	fields := strings.Fields(strings.ReplaceAll(text, ",", " "))
-	days := 0
-	if len(fields) > 0 && (fields[0] == "today" || fields[0] == "yesterday") {
-		days, fields = map[string]int{"today": 0, "yesterday": 1}[fields[0]], fields[1:]
-	} else if n := len(fields); n > 0 && (fields[n-1] == "today" || fields[n-1] == "yesterday") {
-		days, fields = map[string]int{"today": 0, "yesterday": 1}[fields[n-1]], fields[:n-1]
-	}
-	if len(fields) < 2 || len(fields) > 3 || fields[0] != "since" && fields[0] != "from" {
-		return time.Time{}, false
-	}
-	clock := strings.Join(fields[1:], "")
-	meridiem := ""
-	if strings.HasSuffix(clock, "am") || strings.HasSuffix(clock, "pm") {
-		clock, meridiem = clock[:len(clock)-2], clock[len(clock)-2:]
-	}
-	hourText, minuteText, hasMinutes := strings.Cut(clock, ":")
-	hour, err := strconv.Atoi(hourText)
-	if err != nil || len(hourText) > 2 || hour < 0 || hour > 23 {
-		return time.Time{}, false
-	}
-	minute := 0
-	if hasMinutes {
-		if minute, err = strconv.Atoi(minuteText); err != nil || len(minuteText) != 2 || minute < 0 || minute > 59 {
-			return time.Time{}, false
-		}
-	}
-	if meridiem != "" {
-		if hour < 1 || hour > 12 {
-			return time.Time{}, false
-		}
-		hour %= 12
-		if meridiem == "pm" {
-			hour += 12
-		}
-	}
-	return time.Date(now.Year(), now.Month(), now.Day()-days, hour, minute, 0, 0, now.Location()), true
-}
-
 func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.Time) (string, error) {
-	if standardsCommand(p.Invocation.Command) {
-		if s.standards == nil {
-			return "Standards operations are unavailable; no standards action was performed. Ask the factory operator to inspect standards service availability using `litefactory logs --all` on the factory host.", nil
-		}
-		if _, err := standardsOperation(p.Invocation); err != nil {
-			return err.Error(), nil //nolint:nilerr // A retired selection is a saved refusal, not retryable work.
-		}
-		if p.RepoID > 0 {
-			resolution, e := ask.ResolveProject(ctx, s.db, p.Project, nil)
-			if e != nil {
-				return "", e
-			}
-			if resolution.Refusal != "" || resolution.Repository.ID != p.RepoID {
-				return "The registered standards project changed. Request a fresh proposal.", nil
-			}
-		}
-		for _, value := range p.Invocation.Arguments {
-			protected, err := s.Protect(ctx, value)
-			if err != nil {
-				return "", err
-			}
-			if protected != value {
-				return "Protection changed the exact standards request. Request a fresh proposal.", nil
-			}
-		}
-		return "", nil
+	if p.Invocation.Command == "draft" || p.Invocation.Command == "confirm" || p.Invocation.Command == "answer" {
+		return (OwnerActionDomain{Service: s}).actionDomain().RecheckSelection(ctx, actionSelection(p, s.transport), at)
 	}
+
+	if standardsCommand(p.Invocation.Command) {
+		return (OwnerActionDomain{Service: s}).standardsDomain().RecheckSelection(ctx, owneractions.StandardsSelection{Invocation: owneraction.Invocation{Command: p.Invocation.Command, Arguments: p.Invocation.Arguments}, RepoID: p.RepoID, Project: p.Project})
+	}
+
 	_, _, err := s.ValidateInvocation(p.Invocation)
 	if err != nil {
 		return "This action is no longer enabled; request a fresh proposal.", nil //nolint:nilerr // A stale catalogue entry is a saved refusal, not retryable execution work.
 	}
 	if p.RepoID > 0 {
-		resolution, e := ask.ResolveProject(ctx, s.db, p.Project, nil)
+		resolution, e := ask.ResolveProject(ctx, projectCatalog{s.factory}, p.Project, nil)
 		if e != nil {
 			return "", e
 		}
 		if resolution.Refusal != "" || resolution.Repository.ID != p.RepoID {
 			return "The project changed; request a fresh proposal.", nil
-		}
-	}
-	if p.Invocation.Command == "answer" {
-		ref, refusal := s.researchTarget(ctx, Message{Arguments: p.Invocation.Arguments}, true)
-		if refusal != "" {
-			return refusal, nil
-		}
-		if s.research == nil {
-			return "Research answers are unavailable; no answer was recorded. Open " + researchIssueURL(ref) + " to inspect its current question before sending another answer.", nil
-		}
-		q, e := s.research.Current(ctx, ref)
-		if e != nil {
-			return "", e
-		}
-		if q.Token != p.Revision || q.Text != p.Question {
-			return "The research question changed; request a fresh proposal.", nil
-		}
-	}
-	if p.Invocation.Command == "confirm" {
-		preview, e := s.db.ChatIssuePreviewByCode(ctx, naturalTransport(p, s.transport), p.Channel, p.Invocation.Arguments["code"])
-		if errors.Is(e, store.ErrNotFound) {
-			return "The preview changed; request a fresh proposal.", nil
-		}
-		if e != nil {
-			return "", e
-		}
-		if preview.ID != p.PreviewID || preview.ContentHash != p.PreviewHash || preview.Title+"\n"+preview.Body != p.Question || preview.RepoID != p.RepoID || preview.State != "previewed" || !at.Before(preview.ExpiresAt) {
-			return "The preview changed; request a fresh proposal.", nil
 		}
 	}
 	if s.Protect != nil {
@@ -451,127 +209,25 @@ func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]str
 	return s.resolveNaturalProjectFocus(ctx, args, "")
 }
 
-// resolutionRepositories keeps project choices within the current action grant;
-// contexts outside owner-action resolution retain the legacy catalog.
-type resolutionRepositories struct{ db *store.DB }
-
-func (r resolutionRepositories) ListRepos(ctx context.Context) ([]store.Repo, error) {
-	return r.db.ListOwnerActionResolutionRepositories(ctx)
-}
-
 // resolveNaturalProjectFocus also takes the conversation's last discussed
 // project: it picks among several projects holding the same task number, and
 // stands in when the number is unknown everywhere or no project is named.
 func (s *Service) resolveNaturalProjectFocus(ctx context.Context, args map[string]string, focus string) (ask.Resolution, error) {
-	option := strings.TrimRight(strings.TrimSpace(args["project"]), "!?.,;: ")
-	resolution, err := ask.ResolveProject(ctx, resolutionRepositories{s.db}, option, nil)
-	if err != nil || option != "" {
-		return resolution, err
+	selected, err := s.factory.Targets.ResolveProject(ctx, args, focus)
+	out := ask.Resolution{Inherited: selected.Inherited, Refusal: selected.Refusal}
+	if err == nil && selected.Refusal == "" {
+		out.Repository, err = s.factory.Project(ctx, selected.Repository.ID)
 	}
-	issue, _ := strconv.Atoi(args["issue"])
-	if issue == 0 {
-		issue, _ = strconv.Atoi(args["task"])
-	}
-	if issue == 0 {
-		targets := ask.ExplicitIssues(args["question"])
-		if len(targets) == 1 {
-			issue = targets[0]
-		}
-	}
-	repos, err := s.db.ListOwnerActionResolutionRepositories(ctx)
-	if err != nil {
-		return resolution, err
-	}
-	var focused *store.Repo
-	for i := range repos {
-		if focus != "" && repos[i].Forge == "github" && repos[i].Slug() == focus {
-			focused = &repos[i]
-		}
-	}
-	if issue > 0 {
-		var exact []store.Repo
-		var sessions []store.Session
-		for _, repo := range repos {
-			if repo.Forge != "github" {
-				continue
-			}
-			session, e := s.knownNumericTask(ctx, repo, issue)
-			if e == nil {
-				exact = append(exact, repo)
-				sessions = append(sessions, session)
-			} else if !errors.Is(e, store.ErrNotFound) {
-				return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, e
-			}
-		}
-		switch len(exact) {
-		case 1:
-			return ask.Resolution{Repository: exact[0]}, nil
-		case 0:
-			if focused != nil {
-				return ask.Resolution{Repository: *focused}, nil
-			}
-			return ask.Resolution{Refusal: "No known task matches that number. Please name a project and task."}, nil
-		default:
-			if focused != nil {
-				for _, repo := range exact {
-					if repo.ID == focused.ID {
-						return ask.Resolution{Repository: repo}, nil
-					}
-				}
-			}
-			names := make([]string, 0, len(exact))
-			for i, repo := range exact {
-				name := fmt.Sprintf("%s #%d", repo.Slug(), issue)
-				if title := strings.TrimSpace(strings.ReplaceAll(sessions[i].FeatureSlug, "-", " ")); title != "" {
-					name += " (" + title + ")"
-				}
-				names = append(names, name)
-			}
-			return ask.Resolution{Refusal: "Task " + strconv.Itoa(issue) + " exists in more than one project: " + strings.Join(names, " and ") + ". Which one do you mean?"}, nil
-		}
-	}
-	if resolution.Refusal == "" {
-		return resolution, nil
-	}
-	if focused != nil {
-		return ask.Resolution{Repository: *focused}, nil
-	}
-	var active []store.Repo
-	for _, repo := range repos {
-		if repo.Forge != "github" {
-			continue
-		}
-		sessions, _, e := s.db.ListTaskSessionsByRepo(ctx, repo.ID, 1)
-		if e != nil {
-			return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, e
-		}
-		if len(sessions) > 0 {
-			active = append(active, repo)
-		}
-	}
-	if len(active) == 1 {
-		return ask.Resolution{Repository: active[0]}, nil
-	}
-	return resolution, nil
+	return out, err
 }
 
-// Numeric GitHub references cannot select a Linear task's internal numeric alias.
-func (s *Service) knownNumericTask(ctx context.Context, repo store.Repo, number int) (store.Session, error) {
-	session, err := s.db.GetSessionByTaskRef(ctx, store.TaskRef(repo.Forge, repo.Owner, repo.Name, number))
+// knownNumericTask retains the legacy row bridge for existing presentation callers.
+func (s *Service) knownNumericTask(ctx context.Context, repo contracts.Project, number int) (owneractions.Task, error) {
+	task, err := s.factory.Targets.NumericTask(ctx, repo.ID, number)
 	if err != nil {
-		return store.Session{}, err
+		return owneractions.Task{}, err
 	}
-	binding, err := s.db.GetSessionTicket(ctx, session.ID)
-	if errors.Is(err, store.ErrNotFound) {
-		return session, nil
-	}
-	if err != nil {
-		return store.Session{}, err
-	}
-	if string(binding.Locator.Provider) != "github" || binding.Locator.Container != repo.Slug() || binding.Locator.Key != strconv.Itoa(number) {
-		return store.Session{}, store.ErrNotFound
-	}
-	return session, nil
+	return task, nil
 }
 
 func naturalTransport(p naturalPayload, fallback string) string {

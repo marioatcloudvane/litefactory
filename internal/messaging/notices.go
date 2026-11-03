@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -12,7 +14,7 @@ import (
 	"unicode"
 	"unicode/utf16"
 
-	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/factory"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -36,7 +38,7 @@ type NoticeEvent struct {
 
 // NoticeEvents maps source facts to stable event identities. Graph node
 // transitions and same-mode follow-on runs are intentionally silent.
-func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
+func NoticeEvents(source string, r contracts.NoticeRecord) ([]NoticeEvent, error) {
 	parked := source == "owner_waits" && r.StopOrigin != "" && r.StopCause != "diagnosis_question" && r.StopCause != "diagnosis_review"
 	if r.Ignore || (!r.Ready && !parked) {
 		return nil, nil
@@ -45,7 +47,7 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := NoticeEvent{Task: ref, Workflow: r.Workflow, RunID: r.Run.ID, At: r.At}
+	e := NoticeEvent{Task: ref, Workflow: r.Workflow, RunID: r.RunID, At: r.At}
 	switch source {
 	case "run_starts":
 		// A further run in the same mode continues work already announced,
@@ -62,13 +64,14 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 	case "run_finishes":
 		e.Key = fmt.Sprintf("run:%d:finish", r.ID)
 		e.Kind = "failed"
-		if _, ok := r.Run.OwnerStop(); ok {
+		switch {
+		case r.RunOwnerStopped:
 			e.Kind = "stopped"
-		} else if strings.HasPrefix(r.Run.Error, "abandoned:") {
+		case strings.HasPrefix(r.RunError, "abandoned:"):
 			// The daemon abandoned the run in process, as on shutdown;
 			// recovery relaunches it silently, so it is not a failure.
 			return nil, nil
-		} else if r.Run.Succeeded() {
+		case r.RunSucceeded:
 			e.Kind = "completed"
 		}
 	case "transitions":
@@ -107,11 +110,11 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 			stopped.Key = "stop:" + r.Key + "@" + store.FormatTime(r.At) + "@" + r.TaskRef
 			// An owner-cancelled run and its parked graph are the same stop.
 			// Other graph parking is a separate event from the source run finish.
-			if _, ownerStop := r.Run.OwnerStop(); ownerStop {
-				stopped.Key = fmt.Sprintf("run:%d:finish", r.Run.ID)
+			if r.RunOwnerStopped {
+				stopped.Key = fmt.Sprintf("run:%d:finish", r.RunID)
 			}
 			stopped.Kind = "stopped"
-			if _, ownerStop := r.Run.OwnerStop(); !ownerStop {
+			if !r.RunOwnerStopped {
 				stopped.NeedsGuidance = true
 			}
 			stopped.Question = ""
@@ -317,7 +320,7 @@ func noticeUsage(s *report.MeterSummary) string {
 // NoticeCollector reads existing tables only and writes chat-owned state. It
 // runs solely in the sender goroutine; failures never enter run execution.
 type NoticeCollector struct {
-	DB                 *store.DB
+	Factory            *factory.Messaging
 	Transport, Channel string
 	Logger             *slog.Logger
 	Protect            func(context.Context, string) (string, error)
@@ -336,7 +339,7 @@ func (c *NoticeCollector) Collect(ctx context.Context, at time.Time) error {
 	if c.Channel == "" {
 		return nil
 	}
-	if err := c.DB.InitNoticePositions(ctx, c.Transport, at); err != nil {
+	if err := c.Factory.InitializeNotices(ctx, c.Transport, at); err != nil {
 		return err
 	}
 	var errs []error
@@ -349,7 +352,7 @@ func (c *NoticeCollector) Collect(ctx context.Context, at time.Time) error {
 	return errors.Join(errs...)
 }
 func (c *NoticeCollector) collectSource(ctx context.Context, source string, at time.Time, titles map[string]github.Issue) error {
-	before, records, err := c.DB.ListNoticeRecords(ctx, c.Transport, source, at)
+	before, records, err := c.Factory.NoticeEvents(ctx, c.Transport, source, at)
 	if err != nil {
 		return err
 	}
@@ -370,7 +373,7 @@ func (c *NoticeCollector) collectSource(ctx context.Context, source string, at t
 			after.Seen[id] = fingerprint
 		}
 	}
-	notices := []store.ChatNotice{}
+	notices := []messagingstate.ChatNotice{}
 	for _, r := range records {
 		after.LastID = max(after.LastID, r.ID)
 		if source == "transitions" || source == "owner_waits" {
@@ -420,13 +423,13 @@ func (c *NoticeCollector) collectSource(ctx context.Context, source string, at t
 					return err
 				}
 			}
-			notices = append(notices, store.ChatNotice{TaskRef: event.Task.String(), ChatReply: store.ChatReply{Transport: c.Transport, MessageID: event.Key, ChannelRef: c.Channel, Command: event.Kind, CreatedAt: at, ReplyText: text}})
+			notices = append(notices, messagingstate.ChatNotice{TaskRef: event.Task.String(), ChatReply: messagingstate.ChatReply{Transport: c.Transport, MessageID: event.Key, ChannelRef: c.Channel, Command: event.Kind, CreatedAt: at, ReplyText: text}})
 		}
 	}
 	if len(records) == 0 && len(before.Seen) == len(after.Seen) {
 		return nil
 	}
-	return c.DB.AdmitNotices(ctx, c.Transport, before, after, notices)
+	return c.Factory.AdmitNoticeBatch(ctx, c.Transport, before, after, notices)
 }
 
 // issueMetadata reads each task once per Collect pass. A missing reader
@@ -450,30 +453,8 @@ func (c *NoticeCollector) issueMetadata(ctx context.Context, ref naming.Ref, tit
 	return issue
 }
 
-func (c *NoticeCollector) runUsage(ctx context.Context, runID int64) (summary *report.MeterSummary, err error) {
-	snapshot, err := c.DB.NewMeterSnapshot(ctx, store.MeterFilter{RunID: runID}, store.MeterSnapshotOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer func() { err = errors.Join(err, snapshot.Close(ctx)) }()
-	for {
-		rows, e := snapshot.Next(ctx, 256)
-		if e != nil {
-			return nil, e
-		}
-		if len(rows) == 0 {
-			break
-		}
-		if summary == nil {
-			summary = &report.MeterSummary{}
-		}
-		for _, row := range rows {
-			if e = summary.Add(report.MeterValues{Tokens: agent.TokenUsage(row.Tokens), EstimatedUSD: row.EstimatedUSD, PricedSubtotalUSD: row.PricedSubtotalUSD, PriceRevisionID: row.PriceRevisionID, CollectionStatus: row.CollectionStatus, PricingStatus: row.PricingStatus, Diagnostics: row.Diagnostics}); e != nil {
-				return nil, e
-			}
-		}
-	}
-	return summary, nil
+func (c *NoticeCollector) runUsage(ctx context.Context, runID int64) (*report.MeterSummary, error) {
+	return c.Factory.RunUsage(ctx, runID)
 }
 
 // NoticeStep uses the command sender's retry policy and neutral transport. The
@@ -545,7 +526,7 @@ func (s *Service) Announce(ctx context.Context, channel, key, operation, text st
 
 // announcement protects and splits one factory message into its notices. A
 // verbatim factory line, such as a link, follows as its own unescaped message.
-func (s *Service) announcement(ctx context.Context, channel, key, operation, text, verbatim string, at time.Time) ([]store.ChatNotice, error) {
+func (s *Service) announcement(ctx context.Context, channel, key, operation, text, verbatim string, at time.Time) ([]messagingstate.ChatNotice, error) {
 	if s.Protect != nil {
 		protected, err := s.Protect(ctx, text)
 		if err != nil {
@@ -562,9 +543,9 @@ func (s *Service) announcement(ctx context.Context, channel, key, operation, tex
 	if err != nil {
 		return nil, err
 	}
-	notices := make([]store.ChatNotice, len(parts))
+	notices := make([]messagingstate.ChatNotice, len(parts))
 	for i, part := range parts {
-		notices[i] = store.ChatNotice{TaskRef: key, After: strings.TrimPrefix(operation, s.transport+":"+channel+":"), ChatReply: store.ChatReply{Transport: s.transport, MessageID: fmt.Sprintf("%s:%04d", key, i+1), ChannelRef: channel, Command: "announce", CreatedAt: at, ReplyText: part.Content}}
+		notices[i] = messagingstate.ChatNotice{TaskRef: key, After: strings.TrimPrefix(operation, s.transport+":"+channel+":"), ChatReply: messagingstate.ChatReply{Transport: s.transport, MessageID: fmt.Sprintf("%s:%04d", key, i+1), ChannelRef: channel, Command: "announce", CreatedAt: at, ReplyText: part.Content}}
 	}
 	return notices, nil
 }

@@ -1,0 +1,4 @@
+ok  	github.com/cloudvane/litefactory/internal/codeevidence	18.842s
+ok  	github.com/cloudvane/litefactory/internal/overview	6.136s
+ok  	github.com/cloudvane/litefactory/internal/taskevidence	8.116s
+ok  	github.com/cloudvane/litefactory/internal/usageview	5.361s

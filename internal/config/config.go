@@ -124,8 +124,10 @@ type Settings struct {
 	LogRetainDays       int    `yaml:"log_retain_days"`
 	ArchiveRetainDays   int    `yaml:"archive_retain_days"`
 	// MinFreeDiskGB holds run dispatch and check launches while free disk
-	// space is below this many GB; 0 disables both guards.
-	MinFreeDiskGB              int    `yaml:"min_free_disk_gb"`
+	// space is below this many GiB; 0 disables both guards.
+	MinFreeDiskGB int `yaml:"min_free_disk_gb"`
+	// GoBuildCachePath selects the dedicated main Go build cache; empty uses the factory-home sibling.
+	GoBuildCachePath           string `yaml:"go_build_cache_path"`
 	LogLevel                   string `yaml:"log_level"`
 	AttachmentMaxImageBytes    int64  `yaml:"attachment_max_image_bytes"`
 	AttachmentMaxDocumentBytes int64  `yaml:"attachment_max_document_bytes"`

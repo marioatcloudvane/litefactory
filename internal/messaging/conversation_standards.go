@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"maps"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/factory/owneractions"
+	"github.com/cloudvane/litefactory/internal/owneraction"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // StandardsOperations is the shared domain adapter. Requests carry host-owned
@@ -47,22 +52,11 @@ type StandardsRecovery interface {
 	Recover(context.Context, StandardsRequest) (StandardsResult, bool, error)
 }
 
-// StandardsRequest identifies one exact retained operation.
-type StandardsRequest struct {
-	Operation                                              string
-	Arguments                                              map[string]string
-	Transport, OwnerID, ChannelID, MessageID, OperationKey string
-	At                                                     time.Time
-}
+// StandardsRequest and StandardsResult retain the existing adapter contract.
+type StandardsRequest = owneractions.StandardsRequest
 
-// StandardsResult contains factual domain output and factory-issued targets.
-type StandardsResult struct {
-	Status string
-
-	Text        string
-	References  map[string]string
-	Interrupted bool
-}
+// StandardsResult retains the factual standards adapter output.
+type StandardsResult = owneractions.StandardsResult
 
 // EnableStandards installs the typed adapter before conversation workers start.
 func (s *Service) EnableStandards(operations StandardsOperations) {
@@ -71,52 +65,14 @@ func (s *Service) EnableStandards(operations StandardsOperations) {
 		return
 	}
 	for _, name := range []string{"standards", "standards-author", "standards-proposal", "standards-exception", "standards-analysis"} {
-		def := CommandDefinition{Name: name, Description: "Discover and inspect retained standards, authoring, proposals, exceptions and log analyses", NaturalLanguage: true, Effect: ChangeEffect}
-		switch name {
-		case "standards":
-			def.Description = "Look up the book of standards. action: discover, book.current, book.history, book.categories, book.standards (rendered, with standards per role and category), book.show (revision), author.list, author.inspect (id, version), proposal.list, proposal.inspect or proposal.review (id, version; review shows before and after), exception.list, exception.show (id), analysis.list (recent log analyses with status), analysis.show (id), operation.show (id)."
-		case "standards-author":
-			def.Description = "Work out one standard with the standards author, from draft to the book. action start takes the owner's idea as intent, optionally project (the author then reads its code and recent incidents) and target_id to sharpen an existing standard; it requires conversational confirmation (it costs money), then the author produces its recorded draft. answer takes the owner's reply as text: answers to the open questions (question_id optional: without it the reply answers all of them) or, with no open question, any change the owner wants (\"make it shorter\", \"category X\", \"suggest something\"); the author then drafts again by itself. edit sets one field to the owner's literal value: category_id (an existing category or the draft's new one), rule (starts with MUST), description, evidence, scope, check (automated, semi_automated or manual) or applies_to (comma-separated roles). continue asks the author for its next draft. publish takes the draft into the book in one step once it has no open questions and nothing blocking: it completes it into a proposal, approves and publishes it; give the owner's words that say so (\"publish it\", \"yes, good\") from the current message as text; it refuses with the reason while something is open. revise takes the owner's change request as text for a completed proposal that is not yet published (stage proposal); the author drafts a new version. validate, complete and rebase are kept for repairs. Every action freezes the selected author session, version and book revision while proposing. All author changes require separate conversational confirmation; publication also requires the configured owner's Discord reaction."
-		case "standards-proposal":
-			def.Description = "Propose action edit, approve or publish for an exact proposal id and version, for proposals that did not come from this conversation's author (a draft goes into the book with standards-author publish). Approve and publish need its digest; publish needs an approved version. Edit selects target_id and owner category_id/rule/description/evidence/scope/check/applies_to or exact owner JSON operations."
-		case "standards-exception":
-			def.Description = "Propose action propose, approve or revoke. Propose requires book_revision, standard_id, repository_id (or project), task_ref, departure, reason, expires_at; approve needs id and digest; revoke needs id and reason."
-		case "standards-analysis":
-			def.Description = "Propose action start: a log analysis of one project's runs. Give project and window in the factory's local time (today, today since 2 pm, since 14:00, since 2 pm yesterday, yesterday, last N days, last N hours, this week, last week) or exact after and before times. dry_run true previews what would be filed. It runs in the background and posts its result here."
-		}
-		if name == "standards" {
-			def.Effect = ReadEffect
-		}
-		for _, arg := range []string{"action", "id", "version", "base", "digest", "mode", "target_id", "intent", "category_ids", "question_id", "text", "replace", "category_id", "rule", "description", "evidence", "scope", "check", "applies_to", "operations", "request", "reason", "after", "before", "window", "dry_run", "limit", "offset", "revision", "repository_id", "project", "book_revision", "standard_id", "task_ref", "departure", "expires_at", "replaces"} {
-			def.Arguments = append(def.Arguments, Argument{Name: arg, Type: TextArgument, Required: arg == "action", Description: "Exact retained target or owner supplied content; action selects an enabled operation"})
-		}
+		def, _ := owneractions.StandardsDefinition(name)
 		s.RegisterCommand(def, nil)
 	}
 }
 
-func standardsCommand(command string) bool {
-	return command == "standards" || strings.HasPrefix(command, "standards-")
-}
-
+func standardsCommand(command string) bool { return owneractions.StandardsCommand(command) }
 func standardsOperation(inv Invocation) (string, error) {
-	action := inv.Arguments["action"]
-	if inv.Command != "standards" {
-		action = strings.TrimPrefix(inv.Command, "standards-") + "." + action
-	}
-	allowed := "book.current book.history book.categories book.standards book.show author.list author.inspect author.start author.answer author.revise author.edit author.continue author.validate author.complete author.rebase author.publish proposal.list proposal.inspect proposal.review proposal.edit proposal.approve proposal.publish exception.propose exception.show exception.list exception.approve exception.revoke analysis.start analysis.list analysis.show operation.show"
-	if inv.Command == "standards" && (action == "discover" || action == "help") {
-		return "discover", nil
-	}
-	for _, op := range strings.Fields(allowed) {
-		if op != action {
-			continue
-		}
-		read := strings.HasPrefix(op, "book.") || strings.HasSuffix(op, ".inspect") || strings.HasSuffix(op, ".review") || strings.HasSuffix(op, ".show") || strings.HasSuffix(op, ".list")
-		if read == (inv.Command == "standards") {
-			return op, nil
-		}
-	}
-	return "", errors.New("standards action is unavailable; ask “show available standards operations” here to inspect supported actions")
+	return owneractions.StandardsOperation(owneraction.Invocation{Command: inv.Command, Arguments: inv.Arguments})
 }
 
 func (s *Service) standardsRequest(inv Invocation, channel, message string, at time.Time) (StandardsRequest, error) {
@@ -129,42 +85,7 @@ func standardsDiscovery() string {
 }
 
 func standardsMissingTerms(op string, args map[string]string) string {
-	var required []string
-	switch op {
-	case "author.start":
-		required = []string{"intent"}
-	case "author.answer", "author.revise", "author.publish":
-		// The session defaults to this conversation's; the text is the
-		// owner's own words (for publish: the words that say to publish).
-		required = []string{"text"}
-	case "proposal.edit":
-		required = []string{"id", "version"}
-	case "proposal.approve", "proposal.publish":
-		required = []string{"id", "version", "digest"}
-	case "exception.approve":
-		required = []string{"id", "digest"}
-	case "exception.revoke":
-		required = []string{"id", "reason"}
-	case "exception.propose":
-		if args["request"] == "" {
-			required = []string{"book_revision", "standard_id", "repository_id", "task_ref", "departure", "reason", "expires_at"}
-		}
-	case "analysis.start":
-		if args["repository_id"] == "" {
-			required = append(required, "project")
-		}
-		required = append(required, "after", "before")
-	}
-	var missing []string
-	for _, field := range required {
-		if strings.TrimSpace(args[field]) == "" {
-			missing = append(missing, field)
-		}
-	}
-	if len(missing) > 0 {
-		return "Please specify the exact standards terms before changing state: " + strings.Join(missing, ", ") + "."
-	}
-	return ""
+	return owneractions.StandardsMissingTerms(op, args)
 }
 
 // standardsProposeGap is why a standards change proposal cannot run as given,
@@ -281,8 +202,8 @@ func (r *factoryConversationRun) lookupStandards(ctx context.Context, inv Invoca
 	case "discover":
 		output.Text = standardsDiscovery()
 	case "operation.show":
-		var receipt store.StandardsConversationOperation
-		receipt, err = r.s.db.GetStandardsConversationOperation(ctx, request.Arguments["id"])
+		var receipt contracts.StandardsConversationOperation
+		receipt, err = r.s.factory.StandardsOperation(ctx, request.Arguments["id"])
 		if err == nil && (receipt.OwnerID != r.s.owner || receipt.ChannelID != r.c.ChannelRef || receipt.Transport != r.s.transport) {
 			err = store.ErrNotFound
 		}
@@ -317,14 +238,14 @@ func (r *factoryConversationRun) saveStandardsReference(ctx context.Context, arg
 	if err != nil {
 		return nil, err
 	}
-	ref := store.ConversationReference{ID: r.t.ID + "-standards-" + fmt.Sprint(r.ordinal), TurnID: r.t.ID, Kind: "standards", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+	ref := messagingstate.ConversationReference{ID: r.t.ID + "-standards-" + fmt.Sprint(r.ordinal), TurnID: r.t.ID, Kind: "standards", Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
 	if err = r.s.db.SaveConversationReference(ctx, r.t, ref); err != nil {
 		return nil, err
 	}
 	return &ConversationReference{ID: ref.ID, OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: r.t.ID, ExpiresAt: ref.ExpiresAt, Arguments: maps.Clone(args)}, nil
 }
 
-func (s *Service) recoverStandardsConversationAction(ctx context.Context, t store.ConversationTurn, at time.Time) error {
+func (s *Service) recoverStandardsConversationAction(ctx context.Context, t messagingstate.ConversationTurn, at time.Time) error {
 	recovery, ok := s.standards.(StandardsRecovery)
 	if !ok {
 		return nil

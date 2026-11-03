@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	factoryviews "github.com/cloudvane/litefactory/internal/factory"
 	"log/slog"
 	"maps"
 	"os"
@@ -217,6 +219,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		environ = os.Environ()
 	}
 
+	caches, err := s.Paths.ResolveGoBuildCaches(s.Config.Settings)
+	if err != nil {
+		return nil, Startup{}, err
+	}
+	s.Logger.InfoContext(ctx, "factory Go cache routing", slog.String("main", caches.Main), slog.String("reviewer", caches.Reviewer), slog.String("automatic_cleanup", "unavailable"))
 	gitBinary, err := git.Resolve(ctx)
 	if err != nil {
 		return nil, Startup{}, fmt.Errorf("the daemon needs git: %w", err)
@@ -361,6 +368,15 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err := repos.ValidateWorktreeRoots(registered); err != nil {
 		return nil, Startup{}, err
 	}
+	var cacheRootErrors []error
+	for _, repo := range registered {
+		if err := caches.Revalidate(repo.WorktreeRoot); err != nil {
+			cacheRootErrors = append(cacheRootErrors, fmt.Errorf("go cache overlaps registered worktree root for %s/%s: %w", repo.Owner, repo.Name, err))
+		}
+	}
+	if err := errors.Join(cacheRootErrors...); err != nil {
+		return nil, Startup{}, err
+	}
 
 	var lock *Lock
 	if s.DoctorHost != nil && s.DoctorHost.Recovery != nil {
@@ -440,7 +456,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 				providers[string(kind)] = native
 			}
 		}
-		actionOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
+		actionOpts.Answers = &ask.Service{Repositories: factoryviews.NewMessaging(s.DB), Collector: ask.Collector{Factory: factoryviews.NewTaskFacts(s.DB), Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: factoryviews.NewResponseMeter(s.DB)}, Redactor: sharedRedactor}
 		{
 			instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
 			if instructionErr != nil {
@@ -623,6 +639,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		digest := sha256.Sum256(encoded)
 		isolation.Revision = hex.EncodeToString(digest[:])
 	}
+	isolation, err = isolation.WithGoBuildCaches(caches)
+	if err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
 	// Checks wait for disk space rather than fail on a full volume.
 	isolation.MinFreeBytes = s.Config.Settings.MinFreeDiskBytes()
 	// Spike checks retain the configured operator sandbox.
@@ -689,7 +709,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		if s.Config.Settings.MCPAutoStart {
 			reads = projectread.Session{Reader: reader, RunsRoot: s.Paths.RunsDir(), Executable: executable, Prepare: projectSecrets(s.DB, connections)}
 		}
-		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Reads: reads}}
+		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: factoryviews.NewResponseMeter(s.DB)}, Reads: reads}}
 		actionOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Analyses: analyses}
 	}
 	daemon, err := New(Options{
@@ -712,6 +732,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		MinFreeDiskBytes:         s.Config.Settings.MinFreeDiskBytes(),
 		DiskPath:                 s.Paths.Home(),
+		GoBuildCaches:            caches,
 		// An automatic start needs the Validate graph's host bindings; without
 		// them the turn would take the legacy path, which must never be started
 		// by itself.
@@ -953,7 +974,7 @@ func waitImplementStatus(ctx context.Context, delay time.Duration) error {
 // this capability on independently of its implementation.
 func prepareFactoryRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRuntime, error) {
 	if s.Config.RemoteConnector.Enabled && s.ConnectorControl == nil {
-		control, err := connector.NewLocalControl(ctx, s.DB, connector.NewGrantService(s.DB))
+		control, err := connector.NewLocalControl(ctx, connectorstorage.New(s.DB), connector.NewGrantService(connectorstorage.New(s.DB)))
 		if err != nil {
 			return nil, err
 		}

@@ -10,8 +10,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/cloudvane/litefactory/internal/factory/localstandards"
 	"github.com/cloudvane/litefactory/internal/standardsexceptions"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 func newStandardsExceptionCommand(action string) *Command {
@@ -56,18 +56,15 @@ func newStandardsExceptionCommand(action string) *Command {
 				return err
 			}
 			defer func() { err = errors.Join(err, rt.close()) }()
-			svc := &standardsexceptions.Service{Store: rt.db}
 			mutation := action == "propose" || action == "approve" || action == "revoke"
-			if mutation {
-				owner, e := rt.db.GetIdentity(ctx, store.ForgeGitHub, store.RoleOwner)
-				if e != nil || owner.UserID <= 0 {
-					if e != nil && !errors.Is(e, store.ErrNotFound) {
-						return e
-					}
-					return Preconditionf("configured numeric owner identity required")
-				}
-				svc.OwnerID = owner.UserID
+			svc, err := localstandards.NewExceptions(ctx, rt.db, mutation)
+			if errors.Is(err, localstandards.ErrOwnerRequired) {
+				return Preconditionf("configured numeric owner identity required")
 			}
+			if err != nil {
+				return err
+			}
+
 			var result any
 			switch action {
 			case "propose":
@@ -144,9 +141,9 @@ func readExceptionRequest(env *Env, path string, dst *standardsexceptions.Reques
 }
 func writeExceptionText(w io.Writer, result any) error {
 	switch v := result.(type) {
-	case standardsexceptions.View:
+	case localstandards.ExceptionView:
 		return renderException(w, v)
-	case []standardsexceptions.View:
+	case []localstandards.ExceptionView:
 		for _, item := range v {
 			if err := renderException(w, item); err != nil {
 				return err
@@ -157,7 +154,7 @@ func writeExceptionText(w io.Writer, result any) error {
 		return errors.New("unexpected exception result")
 	}
 }
-func renderException(w io.Writer, v standardsexceptions.View) error {
+func renderException(w io.Writer, v localstandards.ExceptionView) error {
 	// The complete structured agreement remains visible in text mode as indented terms and events.
 	raw, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {

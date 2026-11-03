@@ -93,7 +93,9 @@ func (d *Daemon) bugParent(ctx context.Context, t *task) (*ticket.Ref, error) {
 	}
 	reader, ok := ingress.(optionalParentReader)
 	if !ok {
-		return nil, errors.New("ticket provider does not support observable Bug parent relationships")
+		// A provider without parent relationships (such as Linear) has no
+		// observable parent; that is not a lookup failure.
+		return nil, nil
 	}
 	child, err := ingress.Resolve(ctx, locatorAt(origin, t.forgeRepo, t.issue.Number))
 	if err != nil {

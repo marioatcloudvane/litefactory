@@ -3,6 +3,7 @@ package ask_test
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"strings"
 	"testing"
 	"time"
@@ -15,11 +16,11 @@ import (
 func TestExplicitBugAnswerScopesEvidence(t *testing.T) {
 	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	question := "What happened with bug 726, is it delivered?"
-	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
+	repo := contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
 	for _, present := range []bool{false, true} {
 		f := &factory{tasks: []ask.Task{{IssueNumber: 723, Reference: "github:owner/app#723"}}}
 		if present {
-			f.tasks = append(f.tasks, ask.Task{IssueNumber: 726, Reference: "github:owner/app#726", LatestRun: &store.Run{Ordinal: 1, Status: store.RunSucceeded}})
+			f.tasks = append(f.tasks, ask.Task{IssueNumber: 726, Reference: "github:owner/app#726", LatestRun: &contracts.TaskRun{Ordinal: 1, Status: string(store.RunSucceeded)}})
 		}
 		s := &ask.Service{Repositories: catalog{repo}, Collector: ask.Collector{Factory: f, Issues: &forge{}}, Redactor: redact.New(redact.Options{})}
 		prepared, err := s.Prepare(t.Context(), question, "", "3", at)
@@ -47,7 +48,7 @@ type exactIssueFactory struct {
 	selected []ask.Task
 }
 
-func (f *exactIssueFactory) ReadIssueTasks(_ context.Context, repo store.Repo, issue int) ([]ask.Task, error) {
+func (f *exactIssueFactory) ReadIssueTasks(_ context.Context, repo contracts.TaskProject, issue int) ([]ask.Task, error) {
 	if repo.ID != 1 || issue != 726 {
 		return nil, errors.New("unexpected target")
 	}
@@ -55,7 +56,7 @@ func (f *exactIssueFactory) ReadIssueTasks(_ context.Context, repo store.Repo, i
 }
 
 func TestNamedIssueOutsideBoundedProjectList(t *testing.T) {
-	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
+	repo := contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
 	f := &exactIssueFactory{factory: factory{tasks: []ask.Task{{IssueNumber: 723}}}, selected: []ask.Task{{IssueNumber: 726, Reference: "github:owner/app#726"}}}
 	service := ask.Service{Repositories: catalog{repo}, Collector: ask.Collector{Factory: f, Issues: &forge{}}, Redactor: redact.New(redact.Options{})}
 	prepared, err := service.Prepare(t.Context(), "What about #726?", "owner/app", "channel", time.Now())

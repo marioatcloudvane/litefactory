@@ -7,13 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // DiscussionMaxResponseBytes includes the complete UTF-8 JSON-RPC envelope.
@@ -123,7 +122,7 @@ func (e accessRefusal) Error() string { return e.reason }
 // accessError keeps a store refusal's plain reason and hides anything else
 // behind the fallback.
 func accessError(err error, fallback string) error {
-	if reason := store.ConnectorRefusalReason(err); reason != "" {
+	if reason := connectorstate.ConnectorRefusalReason(err); reason != "" {
 		return accessRefusal{reason: reason}
 	}
 	return errors.New(fallback)
@@ -140,7 +139,7 @@ func refusalSummary(err error) string {
 }
 
 func (s *Server) readEvidence(ctx context.Context, credential string, a evidenceArguments) (ToolResult, error) {
-	grant, target, err := s.db.CheckConnectorDiscussionAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, a.TaskRef, s.now())
+	grant, target, err := s.access.CheckConnectorDiscussionAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, a.TaskRef, s.now())
 	if err != nil {
 		return ToolResult{}, accessError(err, "discussion access denied")
 	}
@@ -289,7 +288,7 @@ func DiscussionResult(summary string, evidence any) (ToolResult, error) {
 	return result, nil
 }
 
-func (s *Server) availableTools(grant store.ConnectorGrant) []string {
+func (s *Server) availableTools(grant connectorstate.ConnectorGrant) []string {
 	names := []string{}
 	if decisions := s.stageDecisions.Load(); decisions != nil && decisions.Ready() && s.actions.Load() != nil && decisionGrant(grant) {
 		names = append(names, decisionToolNames...)
@@ -304,16 +303,16 @@ func (s *Server) availableTools(grant store.ConnectorGrant) []string {
 			}
 		}
 	}
-	if s.overview != nil && store.ConnectorScopeHas(grant.Scope, Scope) {
+	if s.overview != nil && connectorstate.ConnectorScopeHas(grant.Scope, Scope) {
 		names = append(names, "factory_overview")
 	}
-	if s.taskEvidence != nil && store.ConnectorScopeHas(grant.Scope, DiscussionScope) {
+	if s.taskEvidence != nil && connectorstate.ConnectorScopeHas(grant.Scope, DiscussionScope) {
 		names = append(names, "task_evidence_read")
 	}
-	if s.usage != nil && (store.ConnectorScopeHas(grant.Scope, FactoryUsageScope) || store.ConnectorScopeHas(grant.Scope, RepositoryUsageScope) || store.ConnectorScopeHas(grant.Scope, TaskUsageScope)) {
+	if s.usage != nil && (connectorstate.ConnectorScopeHas(grant.Scope, FactoryUsageScope) || connectorstate.ConnectorScopeHas(grant.Scope, RepositoryUsageScope) || connectorstate.ConnectorScopeHas(grant.Scope, TaskUsageScope)) {
 		names = append(names, "usage_read")
 	}
-	if s.codeEvidence != nil && store.ConnectorScopeHas(grant.Scope, DiscussionScope) && store.ConnectorScopeHas(grant.Scope, CodeReviewScope) {
+	if s.codeEvidence != nil && connectorstate.ConnectorScopeHas(grant.Scope, DiscussionScope) && connectorstate.ConnectorScopeHas(grant.Scope, CodeReviewScope) {
 		names = append(names, codeToolNames...)
 	}
 	if s.actions.Load() != nil && actionGrant(grant) {

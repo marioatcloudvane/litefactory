@@ -11,8 +11,9 @@ import (
 	"os"
 	"slices"
 
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localstandards"
 	"github.com/cloudvane/litefactory/internal/standards"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 type standardsFlags struct {
@@ -114,15 +115,14 @@ func newStandardsCommand(group, action string) *Command {
 				return err
 			}
 			defer func() { err = errors.Join(err, rt.close()) }()
-			svc := &standards.Service{Store: rt.db}
-			owner, ownerErr := rt.db.GetIdentity(ctx, store.ForgeGitHub, store.RoleOwner)
-			if ownerErr != nil && !errors.Is(ownerErr, store.ErrNotFound) {
-				return ownerErr
-			}
-			if group == "proposal" && (action == "approve" || action == "publish") && (ownerErr != nil || owner.UserID <= 0) {
+			svc, err := localstandards.NewBook(ctx, rt.db, group == "proposal" && (action == "approve" || action == "publish"))
+			if errors.Is(err, localstandards.ErrOwnerRequired) {
 				return Preconditionf("configured numeric owner identity required")
 			}
-			svc.OwnerID = owner.UserID
+			if err != nil {
+				return err
+			}
+
 			result, e := runStandards(ctx, env, svc, group, action, args, o)
 			if e != nil {
 				return standardsCommandError(e)
@@ -180,7 +180,7 @@ func readStandardsInput(env *Env, path string) (standardsInput, error) {
 	return in, nil
 }
 
-func runStandards(ctx context.Context, env *Env, svc *standards.Service, group, action string, args []string, o standardsFlags) (any, error) {
+func runStandards(ctx context.Context, env *Env, svc *localstandards.Book, group, action string, args []string, o standardsFlags) (any, error) {
 	switch group + " " + action {
 	case "proposal create", "proposal edit":
 		in, err := readStandardsInput(env, o.file)
@@ -268,53 +268,13 @@ func runStandards(ctx context.Context, env *Env, svc *standards.Service, group, 
 		if o.proposal == "" || o.expected < 1 {
 			return nil, Usagef(nil, "--proposal and --expected-version are required")
 		}
-		p, err := svc.Proposal(ctx, o.proposal, o.expected)
-		if err != nil {
-			return nil, err
-		}
-		op := standards.Operation{Kind: "category." + action, ID: args[0]}
-		if action != "remove" {
-			op.ID = ""
-			op.Category = &standards.Category{ID: args[0], Name: o.name, Description: o.description}
-		}
-		ops, err := amendStandardsCategory(p.Operations, op, action, args[0])
-		if err != nil {
-			return nil, err
-		}
-		return svc.Edit(ctx, o.proposal, o.expected, p.BaseRevision, ops)
+		return svc.ChangeCategory(ctx, contracts.StandardsCategoryChange{Proposal: o.proposal, Expected: o.expected, Action: action, ID: args[0], Name: o.name, Description: o.description})
 	}
 	return nil, Usagef(nil, "unknown standards operation")
 }
 
 func amendStandardsCategory(original []standards.Operation, op standards.Operation, action, categoryID string) ([]standards.Operation, error) {
-	ops := append([]standards.Operation{}, original...)
-	found := false
-	for i, existing := range ops {
-		id := existing.ID
-		if existing.Category != nil {
-			id = existing.Category.ID
-		}
-		if id != categoryID || (existing.Kind != "category.add" && existing.Kind != "category.replace" && existing.Kind != "category.remove") {
-			continue
-		}
-		found = true
-		if action == "add" {
-			return nil, fmt.Errorf("%w: category %s already has an operation; use replace or edit the complete change set", standards.ErrInvalid, categoryID)
-		}
-		if action == "remove" && existing.Kind == "category.add" {
-			ops = append(ops[:i:i], ops[i+1:]...)
-		} else {
-			if action == "replace" && existing.Kind == "category.add" {
-				op.Kind = "category.add"
-			}
-			ops[i] = op
-		}
-		break
-	}
-	if !found {
-		ops = append(ops, op)
-	}
-	return ops, nil
+	return localstandards.AmendCategory(original, op, action, categoryID)
 }
 
 func standardsRevisionID(raw string) (int64, error) {

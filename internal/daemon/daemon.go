@@ -193,7 +193,8 @@ type ScheduleProposalItem struct {
 // a test builds one with its own doubles.
 type Options struct {
 	// Paths locates the owner instruction package.
-	Paths config.Paths
+	Paths         config.Paths
+	GoBuildCaches config.GoBuildCaches
 	// Instructions supplies per-invocation captures; nil uses the shared package.
 	Instructions instructionpackage.CaptureSource
 
@@ -466,6 +467,8 @@ type Daemon struct {
 	minFreeDiskBytes         uint64
 	diskPath                 string
 	freeDiskBytes            func(path string) (uint64, error)
+	diskObservation          diskObservation
+	cacheSampler             *cacheSampler
 	validateAutoStart        bool
 	validateHead             func(ctx context.Context, session store.Session) (string, error)
 	// toolProfiles and toolCeiling are the operator's tool configuration as it
@@ -658,6 +661,9 @@ func New(opts Options) (*Daemon, error) {
 	if err := d.initChat(opts.Chat); err != nil {
 		return nil, err
 	}
+	if opts.GoBuildCaches.Main != "" {
+		d.cacheSampler = newCacheSampler(opts.GoBuildCaches.Main, opts.GoBuildCaches.Reviewer)
+	}
 	return d, nil
 }
 
@@ -669,7 +675,7 @@ func (d *Daemon) InstanceID() string { return d.instanceID }
 func (d *Daemon) Interval() time.Duration { return d.interval }
 
 // DiscoveryInterval returns the fallback discovery poll interval in force.
-func (d *Daemon) DiscoveryInterval() time.Duration { return d.schedule.interval }
+func (d *Daemon) DiscoveryInterval() time.Duration { return d.schedule.Interval() }
 
 // DiscoverySchedule is a read-only snapshot of one repository's poll schedule:
 // its last finished listing, last accepted webhook, next due time and whether a
@@ -1000,6 +1006,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 
+	if d.cacheSampler != nil {
+		d.restoreCacheObservations(ctx)
+		samplerCtx, stopSampler := context.WithCancel(ctx)
+		defer stopSampler()
+		go d.cacheSampler.Run(samplerCtx)
+	}
+
 	ticks, stop := d.tickSource()
 	defer stop()
 	// A production ticker waits a full interval before its first tick; the
@@ -1010,7 +1023,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.log.InfoContext(ctx, "daemon started",
 		slog.String("instance_id", d.instanceID),
 		slog.String("heartbeat_interval", d.interval.String()),
-		slog.String("discovery_interval", d.schedule.interval.String()),
+		slog.String("discovery_interval", d.schedule.Interval().String()),
 		slog.String("lock", d.lock.Path()),
 		slog.Uint64("min_free_disk_gb", d.minFreeDiskBytes>>30))
 

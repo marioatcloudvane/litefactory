@@ -38,6 +38,7 @@ settings:
   worktree_root: ""
   worktree_retain_days: 14
   min_free_disk_gb: 2
+  go_build_cache_path: ""
   log_level: "info"
   auto_sync_base: true
   auto_sync_max_behind: 100
@@ -122,7 +123,8 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 | `settings.deploy_backup_keep` | integer | `5` | 1 to 100 | Newest pre-deploy database backups the daily cleanup keeps. |
 | `settings.log_retain_days` | integer | `30` | 1 to 3650 | Days rotated global log files are kept before daily deletion. |
 | `settings.archive_retain_days` | integer | `30` | 1 to 3650 | Days archive files and the run logs they cover are kept before daily deletion. |
-| `settings.min_free_disk_gb` | integer | `2` | 0 to 10000 | Runs and check commands wait while free disk is below this many GB. `0` turns the guard off. |
+| `settings.min_free_disk_gb` | integer | `2` | 0 to 10000 | Runs and check commands wait while free disk is below this many GiB (1 GiB = 2³⁰ bytes). Equality permits work; `0` turns the guard off. |
+| `settings.go_build_cache_path` | string | empty | absolute dedicated directory, or empty | Main Go build cache. Empty uses `<canonical LF_HOME>-go-cache/go-build`; reviewers keep the existing `<LF_HOME>-review-cache/go-build`. |
 | `settings.log_level` | string | `info` | `debug`, `info`, `warn`, `error` (case does not matter) | Log detail. `--level` on `daemon run` or `daemon start` overrides it for that run. |
 | `settings.attachment_max_image_bytes` | integer | `5242880` (5 MiB) | 1024 to 209715200 | Largest single image. |
 | `settings.attachment_max_document_bytes` | integer | `10485760` (10 MiB) | 1024 to 209715200 | Largest single document. |
@@ -167,7 +169,7 @@ Bug selection at dispatch and continuation is: explicit `Coding Agent:` label on
 
 **Inheritance exception:** a Claude parent overrides `bug_agent: codex`. Parent inheritance can therefore change an existing installation's Bug selection even when its configuration has not changed. To override that parent for one Bug, use an explicit Codex label on the Bug.
 
-Only the direct provider relationship is read, within the configured credential's visibility. The latest persisted parent run (including a failed run) wins over its current label. No further ancestors are consulted and no parent session is created. A successful nullable parent read can establish no observable parent; lookup failures remain errors or deferred retries, rather than silently choosing the setting. Reads of parent labels and local run history are separate observations, not an atomic snapshot.
+Only the direct provider relationship is read, within the configured credential's visibility. The latest persisted parent run (including a failed run) wins over its current label. No further ancestors are consulted and no parent session is created. Ticket providers without parent relationships, such as Linear, skip the parent step and continue with `bug_agent` or the first configured agent. A successful nullable parent read can establish no observable parent; lookup failures remain errors or deferred retries, rather than silently choosing the setting. Reads of parent labels and local run history are separate observations, not an atomic snapshot.
 
 An executing invocation keeps its recorded agent. Later continuations reapply selection, and a provider change uses the existing cold-start/recovery controls rather than resuming another provider's conversation. Missing role grants remain a refusal, without automatic provider failover. [Bug workflow](../workflow/bug-runtime.md) and [judge precedence](../guides/judge.md) describe the unchanged gates and independent advisory selection.
 
@@ -307,3 +309,48 @@ See [remote connector setup](../guides/remote-connector.md) for the complete
 configuration, dedicated GitHub OAuth app, fixed HTTPS proxy/discovery/callback
 routes, token policy and sibling integration contracts. Overview content and
 hosted Claude/ChatGPT checks belong to #1188.
+
+## Dedicated Go build caches and disk observations
+
+Normal factory Go builds and isolated checks use the dedicated main cache selected
+by `settings.go_build_cache_path`. The factory creates missing directories and
+reuses valid populated directories without ownership claims. Root, home,
+factory-home, host-cache and worktree overlaps, symlink cache components and local
+main/reviewer overlap fail setup clearly; there is no host-cache fallback.
+`GOCACHEPROG` external cache programs are incompatible with this on-disk routing.
+Custom directories must remain dedicated: there is no cross-home exclusivity
+check, ownership registry, claim or recovery workflow.
+
+The main cache starts cold, so initial builds can take longer. Existing read-only
+reviewer cache contents remain at the existing `<LF_HOME>-review-cache/go-build`
+path, including when `LF_HOME` names a symlink to the factory home. Host cache data is neither
+migrated nor retired; Go module-download settings and caches remain unchanged.
+Only the selected cache data directory is added to each process's sandbox write
+roots. Existing explicitly configured write roots remain configured.
+
+Existing CLI health/status, messaging health/status and ask facts show the guarded
+filesystem, free space, configured stop threshold, actual disk hold, both cache
+paths and whether each is on the same, another or an unknown filesystem. Values
+use GiB even though the compatible setting name remains `min_free_disk_gb`.
+Below the threshold, new work waits; queued and active work remain preserved.
+Daemon free-space probe errors log and permit dispatch, while an independent
+check-launch probe error refuses that check. With the guard disabled, free-space
+observations are display only and cannot hold admission.
+
+Cache sizes are approximate logical bytes of regular files, not allocated or
+reclaimable space. One background observer gives each cache a bounded slice per
+round, at most once every five minutes, retaining progress across rounds. Status
+shows observed partial bytes, examined entries, pass start and progress time
+separately from any last complete reading and its original observation interval.
+A partial reading is visible before a complete one exists; concurrent file changes
+mean it is not a guaranteed lower bound on current live size. Symlinks and other
+volumes are not traversed; unsupported depth and read errors remain incomplete.
+Unknown, interrupted, stale and error readings are labelled rather than shown as
+zero or refreshed merely because health was published again. Observation never
+blocks status or admission. The slice budget stops further calls after return; it
+cannot interrupt a blocked filesystem call.
+
+`automatic_cleanup=unavailable`: this delivery does not delete caches, reclaim
+space, add a manual cleanup command or supply a deletion/recovery procedure.
+Native Go cache maintenance remains Go's behavior. Disk pressure still requires
+operator intervention; unrelated applications can continue consuming space.

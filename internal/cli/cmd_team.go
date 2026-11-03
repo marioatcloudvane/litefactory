@@ -6,13 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"os"
 	"slices"
 	"strings"
 
-	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/teampackage"
-	"github.com/cloudvane/litefactory/internal/turn"
+	"github.com/cloudvane/litefactory/internal/factory/localteams"
 )
 
 func newTeamCommand(operation string) *Command {
@@ -51,34 +48,10 @@ func newTeamCommand(operation string) *Command {
 	return cmd
 }
 func validateTeamPackage(ctx context.Context, source fs.FS, workflows map[string]string) error {
-	return turn.ValidateTeamWorkflows(ctx, source, workflows)
+	return localteams.ValidatePackage(ctx, source, workflows)
 }
 func runTeam(ctx context.Context, env *Env, operation, source string, args []string) error {
-	paths, err := config.Locate()
-	if err != nil {
-		return err
-	}
-	if operation == "install" || operation == "update" {
-		if source == "" {
-			file, err := os.Open(paths.ConfigPath())
-			if err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return err
-			}
-			var cfg *config.Config
-			if file != nil {
-				// Team discovery needs only strict configuration decoding, not runner grants.
-				defer file.Close()
-				cfg, err = config.Decode(file)
-			}
-			if err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return err
-			}
-			if cfg != nil {
-				source = cfg.Settings.TeamSource
-			}
-		}
-	}
-	manager, err := teampackage.New(teampackage.Options{Paths: paths, Transport: env.TeamTransport, Validate: validateTeamPackage, InUse: teamRemovalGuard(paths)})
+	manager, err := localteams.New(localteams.Options{Transport: env.TeamTransport})
 	if err != nil {
 		return err
 	}
@@ -136,10 +109,7 @@ func runTeam(ctx context.Context, env *Env, operation, source string, args []str
 			_, err = fmt.Fprintf(env.Stdout, "Team: %s\nVersion: %s\nSource: local, editable\nPath: %s\nOrigin: %s %s %s\nOrigin checksum: %s\nCloned at: %s\n", entry.Identity.Slug, entry.Identity.Version, entry.Path, entry.Origin.Source, entry.Origin.Slug, entry.Origin.Version, entry.Origin.Checksum, entry.Origin.ClonedAt)
 			return err
 		}
-		modes := make([]string, 0, len(entry.Workflows))
-		for mode := range entry.Workflows {
-			modes = append(modes, mode)
-		}
+		modes := entry.Workflows
 		slices.Sort(modes)
 		_, err = fmt.Fprintf(env.Stdout, "Team: %s\nVersion: %s\nSource: %s\nPath: %s\nChecksum: %s\nWorkflows: %s\nIntegrity: verified\n", entry.Identity.Slug, entry.Identity.Version, entry.Identity.Source, entry.Path, entry.Identity.Digest, strings.Join(modes, ", "))
 		return err

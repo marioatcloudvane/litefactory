@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 func TestConversationAskContextAdmissionAndBudget(t *testing.T) {
-	prepared := ask.Prepared{Repository: store.Repo{Owner: "one", Name: "app"}, History: ask.History{Turns: []ask.Turn{
+	prepared := ask.Prepared{Repository: contracts.Project{Owner: "one", Name: "app"}, History: ask.History{Turns: []ask.Turn{
 		{Project: "one/app", Question: "stored excerpt", Answer: "eligible", SourceID: "reply-1", Revision: "revision-1"},
 		{Project: "other/app", Answer: "unrelated"},
 	}}}

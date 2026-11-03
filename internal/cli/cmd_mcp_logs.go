@@ -10,10 +10,10 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factory/localanalysis"
 	"github.com/cloudvane/litefactory/internal/logevidence"
 	"github.com/cloudvane/litefactory/internal/mcpadapter"
 	"github.com/cloudvane/litefactory/internal/redact"
-	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
@@ -62,18 +62,9 @@ func runMCPLogs(ctx context.Context, env *Env, selections []string) (err error) 
 		return errors.New("mcp logs database unavailable")
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
-	var ids []int64
-	for _, selection := range selections {
-		forge, slug, ok := strings.Cut(selection, ":")
-		owner, name, valid := strings.Cut(slug, "/")
-		if !ok || !valid || owner == "" || name == "" || strings.Contains(name, "/") {
-			return errors.New("mcp logs repository must be forge:owner/name")
-		}
-		repo, e := db.GetRepoBySlug(ctx, forge, owner, name)
-		if e != nil {
-			return errors.New("mcp logs repository is not registered")
-		}
-		ids = append(ids, repo.ID)
+	ids, err := localanalysis.EvidenceRepositories(ctx, db, selections)
+	if err != nil {
+		return err
 	}
 	redactor := redact.New(redact.Options{Logger: env.Logger, Environ: os.Environ()})
 	if err = initializeLogCredentials(ctx, env, db, cfg, ids, redactor); err != nil {
@@ -107,32 +98,5 @@ func runMCPLogs(ctx context.Context, env *Env, selections []string) (err error) 
 }
 
 func initializeLogCredentials(ctx context.Context, env *Env, db *store.DB, cfg *config.Config, ids []int64, r *redact.Redactor) error {
-	resolver := secrets.Resolver{Keychain: env.Keychain}
-	register := func(ref secrets.Reference) error {
-		token, err := resolver.Resolve(ctx, ref)
-		if err != nil {
-			return errors.New("mcp logs cannot initialize configured credential redaction")
-		}
-		r.AddToken(token)
-		return nil
-	}
-	if ref, ok := secrets.ReferenceFrom(cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv); ok {
-		if err := register(ref); err != nil {
-			return err
-		}
-	}
-	for _, id := range ids {
-		versions, err := db.ListConnections(ctx, id)
-		if err != nil {
-			return errors.New("mcp logs credential registry unavailable")
-		}
-		for _, v := range versions {
-			if ref, ok := secrets.ReferenceFrom(v.CredentialService, v.CredentialAccount, v.CredentialEnv); ok {
-				if err := register(ref); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
+	return localanalysis.InitializeCredentials(ctx, env.Keychain, db, cfg, ids, r)
 }

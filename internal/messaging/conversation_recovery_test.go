@@ -13,11 +13,11 @@ import (
 
 func TestConversationRecoveryTargetAndCurrentGrant(t *testing.T) {
 	run, at := factoryUnitRun(t, &factoryUnitProvider{fail: true})
-	first, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "one", Name: "first"})
+	first, err := fixtureDB(run.s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "one", Name: "first"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "two", Name: "second"})
+	second, err := fixtureDB(run.s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "two", Name: "second"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestConversationRecoveryTargetAndCurrentGrant(t *testing.T) {
 
 func TestConversationRecoveryReplyExcerptCoverage(t *testing.T) {
 	run, at := factoryUnitRun(t, &factoryUnitProvider{fail: true})
-	repo, err := run.s.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "one", Name: "app"})
+	repo, err := fixtureDB(run.s).UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "one", Name: "app"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestConversationRecoveryReplyExcerptCoverage(t *testing.T) {
 	if err = run.retainView(t.Context(), 15, "reply", "reply1", run.t.ID, repo.Slug(), "", original, original[:4096], at, retainedevidence.Unknown); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := run.s.db.ListConversationTurnEvidence(t.Context(), run.t.ID, at)
+	rows, err := fixtureDB(run.s).ListConversationTurnEvidence(t.Context(), run.t.ID, at)
 	if err != nil || len(rows) != 1 || rows[0].Entry.Bytes != 5000 || rows[0].RangeEnd != 4096 || len(rows[0].Entry.Omissions) == 0 {
 		t.Fatalf("lost source excerpt coverage: %+v %v", rows, err)
 	}

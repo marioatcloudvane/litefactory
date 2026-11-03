@@ -10,19 +10,14 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io/fs"
 	"log/slog"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/durableworkflow"
-	"github.com/cloudvane/litefactory/internal/owneraction"
-	"github.com/cloudvane/litefactory/internal/stagedecision"
-	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
 
 // Scope is the read authority behind the factory_overview tool.
@@ -60,7 +55,7 @@ type ScopeInfo struct{ Name, Description string }
 // KnownScopes lists every scope the connector can issue, in display order. A
 // client may request any non-empty subset. The consent page offers all of
 // them, pre-ticks the requested ones, and the owner ticks which to grant.
-// store.ConnectorKnownScopes must list the same names.
+// connectorstate.ConnectorKnownScopes must list the same names.
 var KnownScopes = []ScopeInfo{
 	{Name: DiscussionScope, Description: "Read recorded status, results, questions, research, Plan and approval evidence for any task in the repositories selected below; the client names the task on each call. Read-only; it cannot change work or grant workflow approval."},
 	{Name: CodeReviewScope, Description: "Read committed task/base code, reachable history and changes, and published standards and role counts for any task in the selected repositories, from that task's own retained code repository. Requires task:discussion; read-only."},
@@ -89,7 +84,7 @@ func scopeNames() []string {
 // normalizeScope validates an RFC 6749 scope string against KnownScopes and
 // returns it in catalogue order. Empty, repeated or unknown scopes are refused.
 func normalizeScope(raw string) (string, bool) {
-	tokens, ok := store.ConnectorScopes(raw)
+	tokens, ok := connectorstate.ConnectorScopes(raw)
 	if !ok {
 		return "", false
 	}
@@ -109,12 +104,13 @@ func normalizeScope(raw string) (string, bool) {
 
 // Options supplies dependencies resolved by trusted daemon composition.
 type Options struct {
-	TaskDiscussion *taskdiscussion.Service
-	StageDecisions *stagedecision.Service
-	Workflows      *durableworkflow.Service
-	Actions        *owneraction.Service
+	TaskDiscussion TaskDiscussion
+	StageDecisions StageDecisions
+	Workflows      Workflows
+	Actions        OwnerActions
 	Config         config.RemoteConnector
-	DB             *store.DB
+	Storage        connectorstate.Storage
+	Access         connectorstate.Access
 	Logger         *slog.Logger
 	Now            func() time.Time
 	LocalControl   *LocalControl
@@ -129,12 +125,13 @@ type Options struct {
 
 // Server owns remote authentication independently of local factory authority.
 type Server struct {
-	taskDiscussion atomic.Pointer[taskdiscussion.Service]
-	stageDecisions atomic.Pointer[stagedecision.Service]
-	actions        atomic.Pointer[owneraction.Service]
-	workflows      atomic.Pointer[durableworkflow.Service]
+	taskDiscussion serviceSlot[TaskDiscussion]
+	stageDecisions serviceSlot[StageDecisions]
+	actions        serviceSlot[OwnerActions]
+	workflows      serviceSlot[Workflows]
 	cfg            config.RemoteConnector
-	db             *store.DB
+	storage        connectorstate.Storage
+	access         connectorstate.Access
 	logger         *slog.Logger
 	now            func() time.Time
 	localControl   *LocalControl
@@ -157,8 +154,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if !opts.Config.Enabled {
 		return nil, errors.New("connector: remote access disabled")
 	}
-	if opts.DB == nil || opts.Logger == nil || opts.LocalControl == nil {
+	if opts.Storage == nil || opts.Access == nil || opts.Logger == nil || opts.LocalControl == nil {
 		return nil, errors.New("connector: required dependency unavailable")
+	}
+	if !opts.Access.SameStore(opts.Storage) {
+		return nil, errors.New("connector: access and authentication backends differ")
 	}
 	if len(opts.CookieKey) != 32 {
 		return nil, errors.New("connector: cookie key must be 32 bytes")
@@ -170,10 +170,10 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if now == nil {
 		now = time.Now
 	}
-	if _, err := opts.DB.ReconcileConnectorOwner(ctx, opts.Config.OwnerID, now()); err != nil {
+	if _, err := opts.Storage.ReconcileConnectorOwner(ctx, opts.Config.OwnerID, now()); err != nil {
 		return nil, err
 	}
-	if err := opts.LocalControl.check(ctx, opts.DB, opts.Config.OwnerID); err != nil {
+	if err := opts.LocalControl.check(ctx, opts.Storage, opts.Config.OwnerID); err != nil {
 		return nil, err
 	}
 	block, err := aes.NewCipher(opts.CookieKey)
@@ -189,7 +189,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		github = &GitHubProvider{ClientID: opts.Config.GitHubClientID, ClientSecret: opts.GitHubSecret}
 	}
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
-	server := &Server{cfg: opts.Config, db: opts.DB, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}
+	server := &Server{cfg: opts.Config, storage: opts.Storage, access: opts.Access, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}
 	server.taskDiscussion.Store(opts.TaskDiscussion)
 	server.stageDecisions.Store(opts.StageDecisions)
 	server.actions.Store(opts.Actions)
@@ -211,13 +211,13 @@ func digest(value string) string {
 }
 
 // SetActions safely publishes trusted composition when lazy setup finishes.
-func (s *Server) SetActions(actions *owneraction.Service) { s.actions.Store(actions) }
+func (s *Server) SetActions(actions OwnerActions) { s.actions.Store(actions) }
 
 // SetWorkflows publishes the installed coordinator before serving.
-func (s *Server) SetWorkflows(v *durableworkflow.Service) { s.workflows.Store(v) }
+func (s *Server) SetWorkflows(v Workflows) { s.workflows.Store(v) }
 
 // SetTaskDiscussion publishes the ready isolated discussion service.
-func (s *Server) SetTaskDiscussion(v *taskdiscussion.Service) { s.taskDiscussion.Store(v) }
+func (s *Server) SetTaskDiscussion(v TaskDiscussion) { s.taskDiscussion.Store(v) }
 
 // SetStageDecisions publishes the ready stage decision service.
-func (s *Server) SetStageDecisions(v *stagedecision.Service) { s.stageDecisions.Store(v) }
+func (s *Server) SetStageDecisions(v StageDecisions) { s.stageDecisions.Store(v) }

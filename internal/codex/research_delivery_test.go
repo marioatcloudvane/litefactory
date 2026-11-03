@@ -39,7 +39,7 @@ printf '%s\n' '{"type":"turn.completed"}'`)
 				t.Fatalf("main role launch failed: result=%+v error=%v", result, err)
 			}
 			args := string(mustRead(t, argv))
-			for _, want := range []string{"developer_instructions=", "Selected main role", "Persistent result instructions", "--model worker", "--sandbox read-only", "--ignore-user-config", "features.multi_agent=false", "skills.config="} {
+			for _, want := range []string{"developer_instructions=", "Selected main role", "Persistent result instructions", "--model worker", `default_permissions="factory_reviewer"`, "--ignore-user-config", "features.multi_agent=false", "skills.config="} {
 				if !strings.Contains(args, want) {
 					t.Errorf("missing %q in %s", want, args)
 				}

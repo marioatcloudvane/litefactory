@@ -4,6 +4,9 @@ Every `litefactory` command, with its arguments, flags, defaults and exit codes.
 
 Back to the [documentation index](../README.md) or the [CLI index](README.md).
 
+See the [factory compatibility inventory](../factory-cli-inventory.md) for
+stopped-daemon availability and retained behavior coverage during extraction.
+
 ## How commands work
 
 ```text

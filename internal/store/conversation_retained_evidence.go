@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"time"
 
@@ -17,16 +18,7 @@ import (
 // Entry identifies captured bytes; ViewDigest identifies the derived view.
 // SourceTurnID pins retention to its original turn, so a follow-up cannot extend it.
 // Read methods provide no access grant: callers recheck owner/channel/repository.
-type ConversationEvidence struct {
-	TurnID, SourceTurnID  string
-	Ordinal               int
-	Repository, Issue     string
-	CapturedAt, ExpiresAt time.Time
-	Entry                 retainedevidence.Entry
-	Content               string
-	RangeStart, RangeEnd  int64
-	ViewDigest            string
-}
+type ConversationEvidence = messagingstate.ConversationEvidence
 
 func conversationEvidenceManifest(e ConversationEvidence) retainedevidence.Manifest {
 	repository := e.Repository

@@ -5,19 +5,16 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 )
 
 // ErrConnectorGrantNotFound identifies an exact grant ID absent from retained state.
-var ErrConnectorGrantNotFound = errors.New("store: connector grant not found")
+var ErrConnectorGrantNotFound = connectorstate.ErrConnectorGrantNotFound
 
 // ConnectorLocalGrant contains only the allowlisted metadata needed for local inspection.
 // Unlike remote authorization, local administration does not need an owner pin.
-type ConnectorLocalGrant struct {
-	ConnectorGrantSummary
-	Status, RevocationReason                 string
-	AccessTokenCount, UsableAccessTokenCount int
-	EarliestAccessExpiry, LatestAccessExpiry time.Time
-}
+type ConnectorLocalGrant = connectorstate.ConnectorLocalGrant
 
 // ListLocalConnectorGrants reads all retained generations and token expiry aggregates
 // from one fresh snapshot. It neither cleans up records nor changes owner state.

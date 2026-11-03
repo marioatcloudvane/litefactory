@@ -114,9 +114,12 @@ settings:
   log_retain_days: %d # days rotated global logs are kept before daily deletion; valid range: %d..%d
   archive_retain_days: %d # days archive files and the run logs they cover are kept before daily deletion; valid range: %d..%d
   log_level: %q # debug, info, warn or error
-  # Runs and check commands wait while free disk space is below this many GB;
+  # Runs and check commands wait while free disk space is below this many GiB;
   # 0 disables the guard.
   min_free_disk_gb: %d # valid range: %d..%d
+  # Dedicated main Go build cache; empty uses <canonical LF_HOME>-go-cache/go-build.
+  # The first main build is cold; existing host and module caches are untouched.
+  go_build_cache_path: ""
   # Attachment ingestion is additionally gated per workflow mode below.
   attachment_max_image_bytes: %d # valid range: %d..%d
   attachment_max_document_bytes: %d # valid range: %d..%d

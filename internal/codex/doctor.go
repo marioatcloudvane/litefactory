@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
 	native "github.com/cloudvane/litefactory/pkg/execution/providers/codex"
 )
@@ -61,6 +62,15 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	}
 	env := execution.IsolatedEnvironment(r.environ, home)
 	env = append(env, "CODEX_HOME="+home)
+	if r.goBuildCaches.Main != "" {
+		if err := r.goBuildCaches.Revalidate(request.WorkingDirectory); err != nil {
+			return agent.DoctorRunResult{}, err
+		}
+		if err := config.ValidateGoCacheEnvironment(env); err != nil {
+			return agent.DoctorRunResult{}, err
+		}
+		env = managedCacheEnv(env, r.goBuildCaches.Main)
+	}
 	if operation == "" {
 		env = append(env, "GIT_OPTIONAL_LOCKS=0")
 		args = append(args[:len(args)-1], "-c", "permissions.doctor_diagnosis.filesystem."+strconv.Quote(home)+"=\"deny\"", "-")
@@ -144,6 +154,12 @@ func (r *Runner) scopedDoctorArguments(request agent.DoctorRequest, operation st
 			settings = append(settings, "permissions.doctor_diagnosis.filesystem."+strconv.Quote(path)+"=\"read\"")
 		}
 		settings = append(settings, "permissions.doctor_diagnosis.filesystem."+strconv.Quote(request.WorkingDirectory)+"=\"write\"")
+		if r.goBuildCaches.Main != "" {
+			if err := r.goBuildCaches.Revalidate(request.WorkingDirectory); err != nil {
+				return nil, err
+			}
+			settings = append(settings, "permissions.doctor_diagnosis.filesystem."+strconv.Quote(r.goBuildCaches.Main)+"=\"write\"")
+		}
 		for _, path := range request.Sandbox.DeniedReadPaths {
 			settings = append(settings, "permissions.doctor_diagnosis.filesystem."+strconv.Quote(path)+"=\"deny\"")
 		}

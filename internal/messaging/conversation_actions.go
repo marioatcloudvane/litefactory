@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // propose routes every new changing action through the shared policy service.
@@ -133,7 +133,7 @@ func (r *factoryConversationRun) consumeOutcomes(ctx context.Context) (string, e
 			return "", err
 		}
 		r.ordinal++
-		if err = r.s.db.SaveConversationExchange(ctx, r.t, store.ConversationExchange{TurnID: r.t.ID, Ordinal: r.ordinal, Kind: "saved_outcome", Request: reply.MessageID, Result: protected, CapturedAt: r.at, Complete: true}); err != nil {
+		if err = r.s.db.SaveConversationExchange(ctx, r.t, messagingstate.ConversationExchange{TurnID: r.t.ID, Ordinal: r.ordinal, Kind: "saved_outcome", Request: reply.MessageID, Result: protected, CapturedAt: r.at, Complete: true}); err != nil {
 			return "", err
 		}
 		reply.ReplyText = protected
