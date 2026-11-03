@@ -102,9 +102,9 @@ func (f *gatewayFixture) add(id string) {
 }
 
 func (f *gatewayFixture) start(safety time.Duration) {
-	a := discord.New(discord.Options{APIURL: f.server.URL, Client: f.server.Client(), Token: secrets.NewToken("gateway-token")})
-	intake := &messaging.Intake{DB: f.db, Reader: a, Owner: "7", Channels: []string{"3"}, Transport: "discord", Protect: func(_ context.Context, s string) (string, error) { return s, nil }}
 	logger := slog.New(slog.NewTextHandler(lockedWriter{&f.logMu, &f.logs}, nil))
+	a := discord.New(discord.Options{Logger: logger, APIURL: f.server.URL, Client: f.server.Client(), Token: secrets.NewToken("gateway-token")})
+	intake := &messaging.Intake{Logger: logger, DB: f.db, Reader: a, Owner: "7", Channels: []string{"3"}, Transport: "discord", Protect: func(_ context.Context, s string) (string, error) { return s, nil }}
 	n := &naturalIntake{intake: intake, run: a.RunGateway, notify: func() { f.notified.Add(1) }, status: func(s string) { f.status.Store(&s) }, reads: &discordReadLog{log: logger}, log: logger, safety: safety, backoff: [2]time.Duration{time.Millisecond, 5 * time.Millisecond}}
 	ctx, cancel := context.WithCancel(f.t.Context())
 	var wg sync.WaitGroup
@@ -254,6 +254,14 @@ func TestGatewayStagesPushedMessagesAndCatchesUpAfterReconnect(t *testing.T) {
 	}
 	f.logMu.Lock()
 	defer f.logMu.Unlock()
+	for _, want := range []string{"stage=gateway_receipt", "reason=duplicate_or_replay", "stage=rest_filter", "stage=ordinary_scan reason=released"} {
+		if !strings.Contains(f.logs.String(), want) {
+			t.Errorf("missing %s: %s", want, f.logs.String())
+		}
+	}
+	if strings.Contains(f.logs.String(), "ordinary messages arrive") {
+		t.Error("connection claims message receipt")
+	}
 	if !strings.Contains(f.logs.String(), "Discord Gateway disconnected") {
 		t.Fatalf("logs miss the disconnect:\n%s", f.logs.String())
 	}
