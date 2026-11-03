@@ -1,7 +1,6 @@
-AI;DR: Acceptance proposal input acknowledged; owner review remains pending.
+AI;DR: Revised AC-004 input acknowledged; owner review remains pending.
 
-Request: b815164d9f4cf600e69b4786701218bb
-Receipt: 3366; result 3000; applied input revision 1.
+Request: 19a3126bd5bb97739e10117f4d1b6526
 Input validation: valid and complete; no diagnostics or unchecked paths.
-Input: accepted. Engineering: pending. Acceptance: pending. Publication: pending.
-The matching receipt was read after submission. The exact authored input is retained in ACCEPTANCE_RESULT.json. Receipt acknowledgment does not approve or publish the proposal.
+Input: accepted. Engineering, acceptance and publication remain pending.
+The matching receipt was read after submission. Exact authored input is retained in ACCEPTANCE_RESULT.json. Only AC-004 proof_method changed; criterion IDs/text, tasks and settled story content remain unchanged. Acknowledgment does not approve or publish the proposal.

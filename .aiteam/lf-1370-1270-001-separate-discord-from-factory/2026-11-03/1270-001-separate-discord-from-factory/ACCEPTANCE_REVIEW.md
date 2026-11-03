@@ -1,4 +1,4 @@
-AI;DR: The complete proposal preserves current Discord behavior and saved recovery while separating component ownership. Review the criteria and task order at this third-stage gate; implementation remains future work.
+AI;DR: Revised only AC-004’s proof method as requested: the owner restores an unavailable optional token with Discord enabled and observes available status. Validate reads the disabled-mode, reconnect and malformed-configuration evidence; everything else stands for owner review.
 
 Uncovered outcomes: none. Ruling: none; no agreed outcome is narrowed.
 
@@ -41,7 +41,7 @@ Validate reviewer: compare the classified behavior inventory and before/after ch
 
 AC-004 — You can keep core ticket work running while Discord is unavailable and recover Discord through the existing credential and connection behavior. (Manual)
 
-Owner check: start with Discord disabled or its optional token unavailable, continue ticket work and see required Discord approvals remain pending or unavailable; restore credentials and observe recovery, reconnect/catch-up and status, and confirm malformed enabled settings still refuse startup. Validate reviewer also reviews controlled-provider refusal, throttling, polling fallback and prescribed affected-package/full-check race evidence. Covers: O-03, O-09, O-13.
+Owner check: with Discord enabled and its optional token unavailable, restore the token and observe the available status. Validate reviewer: read the delivered work and controlled-provider evidence for core ticket workflows with Discord disabled or its optional token unavailable, required Discord approvals remaining pending or unavailable, deferred-token recovery, reconnect/catch-up, polling fallback, malformed enabled configuration refusing startup, refusal, throttling and prescribed affected-package/full-check race coverage. Covers: O-03, O-09, O-13.
 
 
 AC-005 — You retain saved conversations, captures, unfinished turns, approvals and partially delivered replies across upgrade, stop/drain/restart and rollback to compatible previous code. (Manual)
