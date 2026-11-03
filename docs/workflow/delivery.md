@@ -2,8 +2,8 @@
 
 `lf_deliver` is one factory activity. Every node declares exactly one
 `lf_operation`: `push`, `merge` or `close`. An operation limits effects; it does
-not grant permission. Team versions stay at 1.0.0. The owner wires the DOT graphs;
-this change does not install a new delivery flow.
+not grant permission. Team versions stay at 1.0.0. The shipped Spike and Validate
+graphs use `lf_deliver`; Bug still uses its `lf_bug_finalize` compatibility entry.
 
 | Workflow binding | push | merge | close | Authority |
 |---|---|---|---|---|

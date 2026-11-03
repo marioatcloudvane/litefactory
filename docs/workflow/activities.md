@@ -103,9 +103,9 @@ A Validate graph contains exactly one node of each of these activities (plus one
 | `lf_validate_report` | Keeps the one report comment current. | `done` | – | 💬 |
 | `lf_validate_ask` | Publishes the owner wait. | `published` | `lf_source` (the resolve node) | 💬 ⏸ |
 | `lf_validate_issue` | Creates (or recovers) a follow-up issue for each finding the owner sent to an issue. | `done` | – | 📌 |
-| `lf_validate_push` | Pushes the tested commit and finds or opens the PR. | `done` | – | 🔀 📌 |
-| `lf_validate_merge` | Merges the PR at the confirmed head. | `done` | – | 📌 |
-| `lf_validate_close` | Closes the parent and the accepted story issues; Validate only succeeds here. | `closed, open` | – | 📌 |
+| `lf_deliver` (`lf_operation="push"`) | Pushes the tested commit and finds or opens the PR. Old name `lf_validate_push` remains a compatibility wrapper. | `done` | `lf_operation` | 🔀 📌 |
+| `lf_deliver` (`lf_operation="merge"`) | Merges the PR at the confirmed head. Old name `lf_validate_merge` remains a compatibility wrapper. | `done` | `lf_operation` | 📌 |
+| `lf_deliver` (`lf_operation="close"`) | Closes the parent and the accepted story issues; Validate only succeeds here. Old name `lf_validate_close` remains a compatibility wrapper. | `closed, open` | `lf_operation` | 📌 |
 | `lf_validate_implement` | Sends blocking findings back: fast-forwards story branches, reopens stories with the findings as guidance and schedules `/implement` once. | `started` | `lf_suite` | 🔀 🗄 (schedules a run) |
 
 ## Bug
@@ -121,7 +121,9 @@ and its delivery step.
 
 Spike registers no activities of its own: one result-routed `lf_agent`
 (`lf_response="result"`, outcomes `ask, done, failed`) with `lf_ask` and
-`lf_comment` publications. See [Spike](spike.md).
+`lf_comment` publications, and the factory-wide `lf_deliver` (`push`, `merge`,
+`close`) behind a `ship` review. See [Spike](spike.md) and
+[Factory delivery](delivery.md).
 
 ## Node, edge and graph attributes
 
