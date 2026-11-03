@@ -155,7 +155,7 @@ func newFlowFixture(t *testing.T) *flowFixture {
 
 // newFlowFixtureOn admits the run's task on the named forge, so a test can
 // observe forge-specific owner rendering on the same graph.
-func newFlowFixtureOn(t *testing.T, forge string) *flowFixture {
+func newFlowFixtureOn(t *testing.T, forge string, global ...bool) *flowFixture {
 	t.Helper()
 	root := t.TempDir()
 	db, err := store.Open(t.Context(), filepath.Join(root, "litefactory.db"))
@@ -205,6 +205,9 @@ func newFlowFixtureOn(t *testing.T, forge string) *flowFixture {
 	f.base = head
 
 	f.profile = captureValidate(t).Profile
+	if len(global) > 0 && global[0] {
+		f.profile = operationValidateProfile(t)
+	}
 	def, err := db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: f.profile.Team, Mode: "validate", ProfileVersion: f.profile.ProfileVersion, Path: "validate.dot", Digest: f.profile.Digest, CreatedAt: f.clock})
 	if err != nil {
 		t.Fatal(err)

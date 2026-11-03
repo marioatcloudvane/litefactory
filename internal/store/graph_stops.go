@@ -42,11 +42,20 @@ func (db *DB) ParkGraphNode(ctx context.Context, in GraphStop) error {
 			return graphInvariant("stop no longer owns running origin")
 		}
 		var workflow string
-		if e = tx.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(d.workflow,''),d.mode) FROM graph_definitions d JOIN workflow_admissions a ON a.session_id=? WHERE d.id=? AND a.family='standalone'`, instance.SessionID, instance.DefinitionID).Scan(&workflow); e != nil {
+		if e = tx.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(d.workflow,''),d.mode) FROM graph_definitions d WHERE d.id=?`, instance.DefinitionID).Scan(&workflow); e != nil {
 			return e
 		}
-		if workflow != "bug" {
-			return graphInvariant("owner parking requires admitted standalone Bug workflow")
+		if workflow == "bug" {
+			var admitted bool
+			if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_admissions WHERE session_id=? AND family='standalone' AND workflow='bug')`, instance.SessionID).Scan(&admitted); e != nil {
+				return e
+			}
+			if !admitted {
+				return graphInvariant("owner parking requires admitted standalone Bug workflow")
+			}
+		}
+		if workflow == "" {
+			return graphInvariant("owner parking requires admitted workflow")
 		}
 		var previousSource int64
 		var previousOrigin, previousCause, previousReason string

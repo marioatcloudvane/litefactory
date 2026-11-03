@@ -83,7 +83,7 @@ var ValidateRepairCheckOutcomes = []string{"kept", "too_big", "handback", "unfin
 // ValidateControlPolicy is the closed response vocabulary of a Validate agent:
 // the repair responses and a reviewer's done. It never approves.
 func ValidateControlPolicy() ControlPolicy {
-	return ControlPolicy{Mode: agent.ModeValidate, Responses: []string{"repaired", "handback", "blocked", "done"}}
+	return ControlPolicy{Delivery: func(p *Profile, _ Node) error { return ValidateFlowGraph(p) }, Mode: agent.ModeValidate, Responses: []string{"repaired", "handback", "blocked", "done"}}
 }
 
 // ValidateRepairBudgetSpec declares the step that starts a repair round: run
@@ -225,14 +225,14 @@ func ValidateFlowGraph(p *Profile) error {
 		if n.Terminal {
 			continue
 		}
-		counts[n.Action]++
+		counts[ValidateDeliveryAction(n)]++
 		if n.Limit <= 0 || n.Limit > ValidateNodeLimitMax {
 			c.fail("validate node %s requires a positive lf_limit of at most %d", n.Name, ValidateNodeLimitMax)
 		}
-		if !known[n.Action] {
+		if !known[ValidateDeliveryAction(n)] {
 			c.fail("validate node %s uses action %s the Validate runtime does not implement", n.Name, n.Action)
 		}
-		switch n.Action {
+		switch ValidateDeliveryAction(n) {
 		case "lf_agent":
 			c.repairAgent(n)
 		case ValidateSuiteAction:
@@ -330,7 +330,9 @@ func (c *flowCheck) edge(n Node, outcome string, accept func(Node) bool, rule st
 	}
 }
 
-func action(a string) func(Node) bool { return func(t Node) bool { return t.Action == a } }
+func action(a string) func(Node) bool {
+	return func(t Node) bool { return ValidateDeliveryAction(t) == a }
+}
 
 func (c *flowCheck) named(n Node, attr, want string) {
 	if source, ok := c.p.Node(n.Attrs[attr]); !ok || source.Action != want {
