@@ -17,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/diskstatus"
 	"github.com/cloudvane/litefactory/internal/factory"
 	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/owneractions"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
@@ -33,32 +34,21 @@ type Message struct {
 	Arguments                               map[string]string
 }
 
-// ArgumentType describes values without transport-specific types.
-type ArgumentType string
+// ArgumentType and command declarations are owned by the factory catalogue.
+type ArgumentType = owneractions.ArgumentType
 
-// Supported argument kinds map to scalar text, whole numbers and yes/no values.
+// Argument is a factory-declared command option.
+type Argument = owneractions.Argument
+
+// CommandDefinition is a factory-owned command declaration.
+type CommandDefinition = owneractions.CommandDefinition
+
+// Supported argument kinds retain their existing wire names.
 const (
-	TextArgument    ArgumentType = "text"
-	IntegerArgument ArgumentType = "integer"
-	BooleanArgument ArgumentType = "boolean"
+	TextArgument    = owneractions.TextArgument
+	IntegerArgument = owneractions.IntegerArgument
+	BooleanArgument = owneractions.BooleanArgument
 )
-
-// Argument declares an accepted command option.
-type Argument struct {
-	Name        string
-	Type        ArgumentType
-	Required    bool
-	Description string
-}
-
-// CommandDefinition is the transport-neutral command catalogue entry.
-type CommandDefinition struct {
-	Name, Description string
-	Arguments         []Argument
-	// NaturalLanguage and Effect opt into suggestion routing, never execution.
-	NaturalLanguage bool
-	Effect          CommandEffect
-}
 
 // Target identifies a reply; Handle is opaque and credentials remain in the adapter.
 type Target struct {
@@ -164,6 +154,9 @@ func (s *Service) Register(name string, h Handler) {
 
 // RegisterCommand adds a handler and its neutral option declarations.
 func (s *Service) RegisterCommand(def CommandDefinition, h Handler) {
+	if canonical, ok := owneractions.ChangeDefinition(def.Name); ok {
+		def = canonical
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	def.Arguments = append([]Argument(nil), def.Arguments...)

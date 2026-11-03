@@ -25,7 +25,7 @@ type FeatureEffects interface {
 type Actions struct {
 	FallbackTransport string
 	Targets           *Targets
-	Validate          func(owneraction.Invocation) (owneraction.Invocation, error)
+	Availability      Availability
 	Protect           func(context.Context, string) (string, error)
 	Research          ResearchAnswers
 	Answer            AnswerAdmission
@@ -120,7 +120,7 @@ func (a Actions) Normalize(ctx context.Context, p *Selection, at time.Time) (str
 
 // RecheckSelection verifies saved action terms against current registered state.
 func (a Actions) RecheckSelection(ctx context.Context, p Selection, at time.Time) (string, error) {
-	if _, err := a.Validate(p.Invocation); err != nil {
+	if _, err := a.Availability.ValidateChange(p.Invocation); err != nil {
 		return "This action is no longer enabled; request a fresh proposal.", nil //nolint:nilerr // A retired catalogue selection is a final owner-visible refusal.
 	}
 	if p.RepoID > 0 {
@@ -180,7 +180,7 @@ func selection(p legacyNatural) Selection {
 
 // Resolve freezes the exact reviewed action and its target.
 func (a Actions) Resolve(ctx context.Context, principal owneraction.Principal, in owneraction.Invocation, at time.Time) (owneraction.Facts, error) {
-	inv, err := a.Validate(owneraction.Invocation{Command: in.Command, Arguments: maps.Clone(in.Arguments)})
+	inv, err := a.Availability.ValidateChange(owneraction.Invocation{Command: in.Command, Arguments: maps.Clone(in.Arguments)})
 	if err != nil {
 		return owneraction.Facts{}, err
 	}

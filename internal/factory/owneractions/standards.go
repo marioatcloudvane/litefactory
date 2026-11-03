@@ -25,7 +25,6 @@ type Standards struct {
 	Targets   *Targets
 	Available bool
 	Frozen    FrozenStandards
-	Validate  func(owneraction.Invocation) (owneraction.Invocation, error)
 	Protect   func(context.Context, string) (string, error)
 }
 
@@ -129,7 +128,7 @@ func standardsRequest(p owneraction.Principal, f owneraction.Facts, key string, 
 
 // Resolve freezes the exact reviewed action and its target.
 func (s Standards) Resolve(ctx context.Context, principal owneraction.Principal, in owneraction.Invocation, at time.Time) (owneraction.Facts, error) {
-	inv, err := s.Validate(owneraction.Invocation{Command: in.Command, Arguments: maps.Clone(in.Arguments)})
+	inv, err := (Availability{Standards: s.Available}).ValidateChange(owneraction.Invocation{Command: in.Command, Arguments: maps.Clone(in.Arguments)})
 	if err != nil {
 		return owneraction.Facts{}, err
 	}

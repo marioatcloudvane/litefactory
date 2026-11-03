@@ -22,6 +22,8 @@ exit mapping; local services remain callable with the daemon stopped.
 | Teams and repository bindings | Factory local teams | Package operations and locked binding updates |
 | Project connections and approvers | Factory local projects | Immutable connection versions, bindings and owner appointments |
 | Reviewed owner actions | Factory owner-action domains | Resolve, recheck, execute and receipt recovery using verified principals |
+| Action schemas and availability | Factory owner-action catalogue | Fixed argument validation and discovery from trusted installed-capability facts |
+| Feature drafts | Factory feature draft service | Protected preview generation, identity, hash, expiry, replay and creation fences |
 | Remote authentication and consent | Connector state adapter | Browser, token, grant and protocol transitions only |
 | Remote factory target access | Trusted connector access adapter | Current grant checks and purpose-specific retained targets |
 | Remote read projections | Existing overview, task/code evidence and usage services | Shared factory read contracts, redacted bounded pages |
@@ -51,6 +53,20 @@ remote authentication and consent use the connector persistence adapter.
 These are source ownership boundaries. The acceptance review must assess the
 remaining trusted host wiring and behavior evidence independently.
 
+Changing-action validation and discovery use fixed schemas in
+`internal/factory/owneractions`. Messaging supplies installed-command facts;
+it cannot replace required fields, scalar types or input budgets. Resolve and
+recheck call the factory validator directly, without callbacks into messaging.
+Remote action composition constructs the same factory domains without creating
+a messaging service. Existing authentication and approval checks still apply.
+
+`internal/factory/featuredraft` owns project selection, pending-preview checks,
+isolated response validation, protected preview identity and content hash,
+confirmation code, expiry and durable save. Composition supplies registered
+projects, instruction content, isolated generation, protection, history and
+persistence capabilities. The messaging draft adapter translates those values
+and presents the factory result; it makes no preview admission or save decision.
+
 ## Persistence and transactions
 
 No schema, migration, connection revision, capture digest, authorization generation
@@ -74,6 +90,9 @@ A shared physical database does not grant a consumer general table access.
 | Daemon discovery and in-flight wrappers | Factory runtime; preserve existing host calls while retiring the old policy body | All host callers use the runtime contract directly |
 | Messaging health value aliases | Factory health; preserve existing presentation type names over neutral health contracts | Consumers use neutral contract names directly |
 | Pending owner-action payload structures | Factory owner-action domains; preserve exact saved natural/domain JSON | Supported proposals drain, or a reviewed compatible conversion exists |
+| Messaging invocation and command aliases | Factory owner-action catalogue; preserve existing command registration and saved invocation field names | Consumers use factory catalogue values directly |
+| Messaging feature draft adapter and helpers | Factory feature draft service; adapt instruction/history/model capabilities and preserve existing presentation calls | All callers use factory drafting and helper names directly |
+| Store and messaging preview aliases | Factory preview contract; preserve saved fields, confirmation identity and creation fences | Persistence callers use the factory contract directly with recovery coverage |
 | Ask project and task lookup adapters | Factory target selection and task facts; project and task views preserve conversation presentation without storage rows | Legacy Ask entry names and workflow compatibility values are no longer needed |
 | Store conversation and inbox value aliases | Messaging owns conversation/delivery values; factory owns inbox views; aliases preserve existing store callers and encodings | Internal persistence callers adopt owned value names with unchanged-state recovery coverage |
 | GitHub workflow shapes and Linear local slots | Factory ticket bridge; retain current workflow serializers and qualified provenance | Workflow serializers use qualified ticket values with recovery proof |

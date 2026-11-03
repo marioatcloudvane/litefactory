@@ -2,6 +2,7 @@
 package messagingstate
 
 import (
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/retainedevidence"
 	"time"
 )
@@ -104,13 +105,7 @@ type ChatNotice struct {
 
 // ChatIssuePreview holds only the protected preview and its short-lived outcome.
 // ClaimVersion fences stale workers; no transaction is held during forge I/O.
-type ChatIssuePreview struct {
-	ID, Transport, ChannelRef, SourceMessageID, LastConfirmMessageID, Code, ContentHash, Title, Body, State string
-	RepoID                                                                                                  int64
-	CreatedAt, ExpiresAt, LastAttemptAt, LeaseUntil, FinishedAt                                             time.Time
-	ClaimVersion, IssueNumber                                                                               int
-	IssueLink                                                                                               string
-}
+type ChatIssuePreview = contracts.ChatIssuePreview
 
 // NaturalDialogue is the single current protected proposal or clarification.
 type NaturalDialogue struct {

@@ -1,119 +1,52 @@
 package feature
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"github.com/cloudvane/litefactory/internal/messagingstate"
-	"io"
-	"strings"
 	"time"
-	"unicode/utf16"
-	"unicode/utf8"
 
+	"github.com/cloudvane/litefactory/internal/factory/featuredraft"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"github.com/cloudvane/litefactory/internal/redact"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Heading keeps the issue body from beginning with a model-supplied command.
-const Heading = "# Feature request"
+// Heading retains the feature issue's fixed body heading.
+const Heading = featuredraft.Heading
 
-// MarkerPrefix identifies a confirmed preview for forge reconciliation.
-const MarkerPrefix = "<!-- litefactory:chat-issue:"
+// MarkerPrefix retains the saved preview publication marker.
+const MarkerPrefix = featuredraft.MarkerPrefix
 
-// Draft is the strict tool-free model response, with exclusive clarification.
-type Draft struct {
-	Title         string `json:"title"`
-	Summary       string `json:"summary"`
-	Problem       string `json:"problem"`
-	Wanted        string `json:"wanted_outcome"`
-	Clarification string `json:"needs_clarification,omitempty"`
-}
+// Draft is the factory-owned isolated generation response.
+type Draft = featuredraft.Draft
 
-// Decode rejects unknown fields and permits only one of draft or clarification.
-func Decode(raw []byte) (Draft, error) {
-	var d Draft
-	if len(raw) > 16<<10 || !utf8.Valid(raw) || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return d, errors.New("invalid draft encoding")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&d); err != nil {
-		return d, err
-	}
-	var trailing json.RawMessage
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return d, errors.New("trailing draft data")
-	}
-	if d.Clarification != "" {
-		if len(d.Clarification) > 300 || strings.ContainsAny(d.Clarification, "\r\n") || d.Title != "" || d.Summary != "" || d.Problem != "" || d.Wanted != "" {
-			return d, errors.New("invalid clarification")
-		}
-		return d, nil
-	}
-	if strings.TrimSpace(d.Title) == "" || utf8.RuneCountInString(d.Title) > 120 || strings.ContainsAny(d.Title, "\r\n") {
-		return d, errors.New("invalid draft title")
-	}
-	for _, s := range []string{d.Summary, d.Problem, d.Wanted} {
-		if strings.TrimSpace(s) == "" || len(s) > 6000 {
-			return d, errors.New("invalid draft section")
-		}
-	}
-	return d, nil
-}
+// PreviewStore is the bounded persistence capability used by factory drafting.
+type PreviewStore = featuredraft.PreviewStore
 
-// Sanitize removes command and factory marker lines before hashing or display.
-func Sanitize(s string) string {
-	var lines []string
-	for _, line := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "<!-- lf:") || strings.HasPrefix(trimmed, "<!-- litefactory:") || strings.HasPrefix(trimmed, "[lf:ask:") {
-			continue
-		}
-		lines = append(lines, line)
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
-}
+// Decode delegates strict response validation to the factory owner.
+func Decode(raw []byte) (Draft, error) { return featuredraft.Decode(raw) }
 
-// Hash binds confirmation to the exact protected title and body.
-func Hash(title, body string) string {
-	sum := sha256.Sum256([]byte(title + "\x00" + body))
-	return hex.EncodeToString(sum[:])
-}
+// Sanitize delegates protected draft normalization to the factory owner.
+func Sanitize(s string) string { return featuredraft.Sanitize(s) }
 
-// Marker returns the exact hidden line searched before every create attempt.
-func Marker(p messagingstate.ChatIssuePreview) string { return MarkerPrefix + p.ID + " -->" }
+// Hash retains the exact saved title and body compatibility encoding.
+func Hash(title, body string) string { return featuredraft.Hash(title, body) }
 
-// IssueBody appends only the fixed marker and timestamped chat origin footer.
-func IssueBody(p messagingstate.ChatIssuePreview) string {
-	return p.Body + "\n\n" + Marker(p) + "\nCreated from chat at " + p.CreatedAt.UTC().Format(time.RFC3339) + "."
-}
+// Marker returns the factory's saved publication marker.
+func Marker(p messagingstate.ChatIssuePreview) string { return featuredraft.Marker(p) }
 
-// Render refuses an oversized full preview rather than shortening confirmed text.
+// IssueBody returns the exact protected body and origin footer.
+func IssueBody(p messagingstate.ChatIssuePreview) string { return featuredraft.IssueBody(p) }
+
+// Render delegates the complete protected preview's presentation budget.
 func Render(p messagingstate.ChatIssuePreview, project string) (string, error) {
-	text := "Project: " + project + "\nTitle: " + p.Title + "\n\n" + p.Body + "\n\nConfirm separately with /confirm code:" + p.Code + " within 24 hours."
-	if len(utf16.Encode([]rune(text))) > 2000 {
-		return "", errors.New("preview does not fit one message")
-	}
-	return text, nil
+	return featuredraft.Render(p, project)
 }
 
-// PreviewStore is limited to preview state; the drafter cannot create issues.
-type PreviewStore interface {
-	CurrentChatIssuePreview(context.Context, string, string) (messagingstate.ChatIssuePreview, error)
-	ChatIssuePreviewForMessage(context.Context, string, string) (messagingstate.ChatIssuePreview, error)
-	SaveChatIssuePreview(context.Context, messagingstate.ChatIssuePreview) error
-}
-
-// Drafter reuses the read-only project catalog, live history and isolated model.
+// Drafter adapts chat context, instruction capture and presentation to the
+// factory-owned draft operation. It contains no preview admission policy.
 type Drafter struct {
 	Instructions           prompts.Resolver
 	InstructionDiagnostics prompts.Sink
@@ -122,180 +55,54 @@ type Drafter struct {
 	Model                  ask.Model
 	Redactor               *redact.Redactor
 	Store                  PreviewStore
-	// Now is supplied by daemon wiring; expiry starts after generation completes.
-	Now     func() time.Time
-	Bind    func(context.Context, int64) error
-	Protect func(context.Context, string) (string, error)
+	Now                    func() time.Time
+	Bind                   func(context.Context, int64) error
+	Protect                func(context.Context, string) (string, error)
 }
 
-// Reply uses bounded live history and a current preview, never an archive.
-func (d *Drafter) Reply(ctx context.Context, transport, channel, message, project, note string, at time.Time) (string, int64, error) {
-	if d.Redactor == nil || d.Store == nil || d.Repositories == nil {
-		presentation.Assess(ctx, presentation.ReportableError)
-		return "", 0, errors.New("draft dependencies missing")
+// Factory supplies primitive content and effect capabilities. The returned
+// service makes every project, preview and durable-write decision itself.
+func (d *Drafter) Factory() *featuredraft.Service {
+	service := &featuredraft.Service{
+		Instructions: func(ctx context.Context) (featuredraft.Instructions, error) {
+			instructions, err := prompts.Load(ctx, d.Instructions, prompts.Draft, d.InstructionDiagnostics)
+			return featuredraft.Instructions{Main: instructions.Main, Correction: instructions.Correction}, err
+		},
+		Repositories: d.Repositories, Redactor: d.Redactor, Store: d.Store,
+		Now: d.Now, Bind: d.Bind, Protect: d.Protect,
 	}
-	if old, err := d.Store.ChatIssuePreviewForMessage(ctx, transport, message); err == nil {
-		if old.State == "previewed" && at.Before(old.ExpiresAt) {
-			repos, e := d.Repositories.ListRepos(ctx)
-			if e != nil {
-				presentation.Assess(ctx, presentation.ReportableError)
-				return "", 0, e
-			}
-			for _, repo := range repos {
-				if repo.ID == old.RepoID {
-					text, e := Render(old, repo.Slug())
-					presentation.Assess(ctx, presentation.Success)
-					return text, repo.ID, e
+	if d.Model != nil {
+		service.Model = modelAdapter{d.Model}
+	}
+	if d.History != nil {
+		service.History = func(ctx context.Context, channel string) (featuredraft.History, error) {
+			history, err := d.History.ReadAskHistory(ctx, channel)
+			var turns []featuredraft.Turn
+			if history.Turns != nil {
+				turns = make([]featuredraft.Turn, len(history.Turns))
+				for i, turn := range history.Turns {
+					turns[i] = featuredraft.Turn{Question: turn.Question, Project: turn.Project, Answer: turn.Answer, At: turn.At, SourceID: turn.SourceID, Revision: turn.Revision}
 				}
 			}
-		}
-		presentation.Assess(ctx, presentation.Refusal)
-		return "This draft has ended. Ask for a new /draft.", old.RepoID, nil
-	} else if !errors.Is(err, store.ErrNotFound) {
-		presentation.Assess(ctx, presentation.ReportableError)
-		return "", 0, err
-	}
-	history := ask.History{}
-	if d.History != nil {
-		h, e := d.History.ReadAskHistory(ctx, channel)
-		if e == nil {
-			history = h
+			return featuredraft.History{Turns: turns}, err
 		}
 	}
-	resolved, err := ask.ResolveProject(ctx, d.Repositories, project, history.Turns)
-	if err != nil {
-		presentation.Assess(ctx, presentation.ReportableError)
-		return "", 0, err
-	}
-	if resolved.Refusal != "" {
-		presentation.Assess(ctx, presentation.Refusal)
-		return resolved.Refusal, 0, nil
-	}
-	repo := resolved.Repository
-	if d.Bind != nil {
-		if e := d.Bind(ctx, repo.ID); e != nil {
-			presentation.Assess(ctx, presentation.ReportableError)
-			return "", 0, e
-		}
-	}
-	current, err := d.Store.CurrentChatIssuePreview(ctx, transport, channel)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		presentation.Assess(ctx, presentation.ReportableError)
-		return "", repo.ID, err
-	}
-	if err == nil && current.State == "creating" && (at.Before(current.ExpiresAt) || at.Before(current.LeaseUntil)) {
-		presentation.Assess(ctx, presentation.Uncertain)
-		return "Creation is still in progress for code " + current.Code + ". Please try /draft later.", repo.ID, nil
-	}
-	if len(history.Turns) == 0 && strings.TrimSpace(note) == "" {
-		presentation.Assess(ctx, presentation.Refusal)
-		return "Please describe the feature idea in /draft note.", repo.ID, nil
-	}
-	if d.Model == nil {
-		presentation.Assess(ctx, presentation.ReportableError)
-		return "Drafting unavailable right now.", repo.ID, nil
-	}
-	type prior struct {
-		Title string `json:"title"`
-		Body  string `json:"body"`
-	}
-	var preview *prior
-	if err == nil && current.RepoID == repo.ID && at.Before(current.ExpiresAt) {
-		preview = &prior{current.Title, current.Body}
-	}
-	data := struct {
-		Project string     `json:"project"`
-		History []ask.Turn `json:"recent_ask_turns"`
-		Note    string     `json:"note"`
-		Current *prior     `json:"current_preview,omitempty"`
-	}{repo.Slug(), history.Turns, note, preview}
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		presentation.Assess(ctx, presentation.ReportableError)
-		return "", repo.ID, err
-	}
-	instructions, err := prompts.Load(ctx, d.Instructions, prompts.Draft, d.InstructionDiagnostics)
-	if err != nil {
-		presentation.Assess(ctx, presentation.ReportableError)
-		return "", repo.ID, err
-	}
-	prompt := instructions.Main + "\nUNTRUSTED_CONTEXT_JSON\n" + string(encoded)
-	for attempt := 0; attempt < 2; attempt++ {
-		raw, e := d.Model.Answer(ctx, repo.ID, prompt)
-		if errors.Is(e, ask.ErrUnavailable) {
-			presentation.Assess(ctx, presentation.ReportableError)
-			return "Drafting unavailable right now.", repo.ID, nil
-		}
-		if e != nil {
-			presentation.Assess(ctx, presentation.ReportableError)
-			return "", repo.ID, e
-		}
-		draft, e := Decode(raw)
-		if e == nil && draft.Clarification != "" {
-			presentation.Assess(ctx, presentation.Refusal)
-			return "Please clarify: " + draft.Clarification, repo.ID, nil
-		}
-		var p messagingstate.ChatIssuePreview
-		if e == nil {
-			p, e = d.preview(ctx, draft, transport, channel, message, repo.ID, at)
-		}
-		var text string
-		if e == nil {
-			text, e = Render(p, repo.Slug())
-		}
-		if e == nil {
-			if e = d.Store.SaveChatIssuePreview(ctx, p); e != nil {
-				presentation.Assess(ctx, presentation.ReportableError)
-				return "", repo.ID, e
-			}
-			presentation.Assess(ctx, presentation.Success)
-			return text, repo.ID, nil
-		}
-		prompt += "\n" + instructions.Correction
-	}
-	presentation.Assess(ctx, presentation.Refusal)
-	return "Could not build a clear draft. Please describe the idea more briefly.", repo.ID, nil
+	return service
 }
 
-func (d *Drafter) preview(ctx context.Context, draft Draft, transport, channel, message string, repoID int64, at time.Time) (messagingstate.ChatIssuePreview, error) {
-	p := messagingstate.ChatIssuePreview{Transport: transport, ChannelRef: channel, SourceMessageID: message, RepoID: repoID, CreatedAt: at, ExpiresAt: at.Add(24 * time.Hour)}
-	summary, problem, wanted := Sanitize(draft.Summary), Sanitize(draft.Problem), Sanitize(draft.Wanted)
-	if summary == "" || problem == "" || wanted == "" {
-		return p, errors.New("empty protected section")
+// Reply presents the factory response without reinterpreting a refusal.
+func (d *Drafter) Reply(ctx context.Context, transport, channel, message, project, note string, at time.Time) (string, int64, error) {
+	result, err := d.Factory().Reply(ctx, transport, channel, message, project, note, at)
+	presentation.Assess(ctx, presentation.Status(result.Status))
+	return result.Text, result.RepoID, err
+}
+
+type modelAdapter struct{ model ask.Model }
+
+func (m modelAdapter) Answer(ctx context.Context, repoID int64, prompt string) ([]byte, error) {
+	raw, err := m.model.Answer(ctx, repoID, prompt)
+	if errors.Is(err, ask.ErrUnavailable) {
+		return nil, featuredraft.ErrUnavailable
 	}
-	title, err := d.Redactor.Apply(ctx, Sanitize(draft.Title), 64<<10)
-	if err != nil {
-		return p, err
-	}
-	body, err := d.Redactor.Apply(ctx, fmt.Sprintf("%s\n\n## Summary\n%s\n\n## Problem\n%s\n\n## Wanted outcome\n%s\n\n## Origin", Heading, summary, problem, wanted), 64<<10)
-	if err != nil {
-		return p, err
-	}
-	p.Title, p.Body = title.String(), body.String()
-	if d.Protect != nil {
-		p.Title, err = d.Protect(ctx, p.Title)
-		if err != nil {
-			return p, err
-		}
-		p.Body, err = d.Protect(ctx, p.Body)
-		if err != nil {
-			return p, err
-		}
-	}
-	if p.Title == "" || utf8.RuneCountInString(p.Title) > 120 || utf8.RuneCountInString(p.Body) > 1500 {
-		return p, errors.New("protected draft too large")
-	}
-	id := make([]byte, 16)
-	if _, err := rand.Read(id); err != nil {
-		return p, err
-	}
-	p.ID = hex.EncodeToString(id)
-	p.ContentHash = Hash(p.Title, p.Body)
-	code := sha256.Sum256([]byte(p.ID + p.ContentHash))
-	p.Code = hex.EncodeToString(code[:4])
-	if d.Now != nil {
-		p.CreatedAt = d.Now()
-		p.ExpiresAt = p.CreatedAt.Add(24 * time.Hour)
-	}
-	return p, nil
+	return raw, err
 }
