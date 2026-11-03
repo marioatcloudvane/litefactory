@@ -30,7 +30,7 @@ func TestFactoryDependencyDirection(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			for _, forbidden := range []string{"/internal/cli", "/internal/daemon", "/internal/messaging", "/internal/connector"} {
+			for _, forbidden := range []string{"/internal/cli", "/internal/daemon", "/internal/messaging", "/internal/connector", "/internal/discordcomponent"} {
 				if strings.HasSuffix(name, forbidden) || strings.Contains(name, forbidden+"/") {
 					t.Errorf("%s imports transport or host %s", path, name)
 				}

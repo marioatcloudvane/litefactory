@@ -24,6 +24,11 @@ exit mapping; local services remain callable with the daemon stopped.
 | Reviewed owner actions | Factory owner-action domains | Resolve, recheck, execute and receipt recovery using verified principals |
 | Action schemas and availability | Factory owner-action catalogue | Fixed argument validation and discovery from trusted installed-capability facts |
 | Feature drafts | Factory feature draft service | Protected preview generation, identity, hash, expiry, replay and creation fences |
+| Research answers | Factory research-answer service | Exact current wait, locked claim and protected note reconciliation |
+| Feature confirmation and creation | Factory feature creator | Separate-message confirmation, marker verification and saved-outcome recovery |
+| Retained owner inbox | Factory retained-inbox reader | Identity and connection revision checks before and after provider reads |
+| Conversation diagnosis | Factory conversation-diagnosis service | Bounded queue, claim, cancellation/recovery and result publication |
+| Discord lifecycle | Discord component | Handler, status, wake and joined serve lifecycle over conversation/delivery storage |
 | Remote authentication and consent | Connector state adapter | Browser, token, grant and protocol transitions only |
 | Remote factory target access | Trusted connector access adapter | Current grant checks and purpose-specific retained targets |
 | Remote read projections | Existing overview, task/code evidence and usage services | Shared factory read contracts, redacted bounded pages |
@@ -83,6 +88,35 @@ sessions. Factory workflow state, schedules, locks, attempts, results,
 publication intent, retained routing and binding decisions remain factory-owned.
 A shared physical database does not grant a consumer general table access.
 
+## Discord ownership cutover
+
+`internal/discordcomponent` owns token retry/redaction, signed HTTP intake,
+registration, Gateway/cursor/poll intake and independent conversation and delivery
+workers. Daemon transport loops are replaced by component composition, handler
+mounting, wake and lifecycle join. Research admission/reconciliation moved to
+`factory/researchanswers`; feature confirmation/marker recovery to
+`factory/featuredraft`; retained reads to `factory/retainedinbox`; diagnosis
+queue/recovery/publication to `factory/conversationdiagnosis`. Trusted daemon
+hosts supply exact provider reads/writes, model invocation, current identities,
+capacity and presentation; they do not retain a second decision path.
+
+The shared owner-action runtime is composed independently of token readiness and
+remote enablement. It owns one execution/recovery loop and research-note
+reconciliation. Discord attaches its delivery adapter and bounded reaction input
+when ready. Consumers receive bounded action operations, not the coordinator's
+registration, execution or recovery controls.
+
+The component receives `messagingstorage.Port` and factory projections. The port
+retains existing compound capture, turn, answer/part, acknowledgment and notice
+transactions. Cross-owner decisions such as retained-inbox withholding and
+owner-action outcome-plus-notice completion remain bounded factory operations;
+no SQL, general database handle or arbitrary transaction callback crosses the
+consumer boundary. Dependency checks traverse nested messaging and remote
+adapters as well as the new component and its public capability types. Factory
+packages cannot import the component. These structural checks supplement manual
+inspection of hosts and compound methods; they cannot prove policy ownership by
+package names alone.
+
 ## Compatibility bridges
 
 | Bridge | Owner and purpose | Removal condition |
@@ -96,6 +130,8 @@ A shared physical database does not grant a consumer general table access.
 | Ask project and task lookup adapters | Factory target selection and task facts; project and task views preserve conversation presentation without storage rows | Legacy Ask entry names and workflow compatibility values are no longer needed |
 | Store conversation and inbox value aliases | Messaging owns conversation/delivery values; factory owns inbox views; aliases preserve existing store callers and encodings | Internal persistence callers adopt owned value names with unchanged-state recovery coverage |
 | GitHub workflow shapes and Linear local slots | Factory ticket bridge; retain current workflow serializers and qualified provenance | Workflow serializers use qualified ticket values with recovery proof |
+| Messaging store error, timestamp, inbox-identity and context-fence helpers | Existing owners retain error identity, saved timestamp encoding, qualified identity and metering fences without persistence access | Consumers adopt equivalent neutral helpers with compatibility evidence; no database or workflow rows may be added |
+| Daemon research, feature and retained-inbox adapters | Trusted composition maps current identities, primitive provider capabilities and presentation to factory operations | Host callers use those operations directly; no fallback policy may be retained |
 | Store connector value aliases | Connector state; retain existing source compatibility and serialized fields | Storage callers use connector-owned state names directly |
 | CLI helper wrappers | Local administration services; retain existing local host/test composition | All callers use the owned local operations directly |
 
@@ -128,8 +164,18 @@ connection versions, captures and uncertain report completion. The offline
 rehearsal opens a temporary copy with baseline, current, then baseline code,
 checking the saved values each time. Commands and scope are documented beside
 [the fixture](../internal/store/testdata/factory-pending-state/README.md).
-This exercises storage compatibility; it does not rehearse a live process
-stop/drain or establish recovery for every historical pending-state shape.
+That original fixture exercises storage compatibility. The Discord extraction adds
+[its own baseline fixture and process rehearsal](../internal/store/testdata/discord-component-recovery/README.md):
+conversation/native identities, captures, unfinished turns, pending approvals and
+partial replies survive baseline/current/baseline reopen. Two current component
+processes run against a local fake provider, with a pinned previous-code storage
+reader between them. The first process stops and drains with partial delivery;
+all current database handles close before the reader checks the same pending
+state. The second current process resumes the remaining saved bytes, stops and
+drains, and previous storage code checks the completed delivery fence. Pending
+approval and unfinished conversation state remain unchanged. This exercises
+previous storage code, not a previous Discord transport, and does not establish
+every historical pending-state shape or live-provider behavior.
 
 Provider deduplication is bounded. Preserve the current per-channel ordering,
 stable nonces, authenticated delivery observations and retry/refusal rules. An

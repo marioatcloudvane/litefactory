@@ -35,8 +35,13 @@ func TestMessagingConsumerCannotAcquireFactoryPersistenceOrWorker(t *testing.T) 
 				name = spec.Name.Name
 			}
 			imports[name] = imported
-			if imported == "database/sql" || strings.HasSuffix(imported, "/internal/turn") || strings.HasSuffix(imported, "/internal/daemon") || strings.HasSuffix(imported, "/internal/submission") {
-				t.Errorf("%s imports privileged capability %s", path, imported)
+			if name == "." {
+				t.Errorf("%s hides imported capability names with a dot import", path)
+			}
+			for _, forbidden := range []string{"database/sql", "/internal/turn", "/internal/daemon", "/internal/submission", "/internal/discordcomponent", "/pkg/execution"} {
+				if imported == forbidden || strings.HasSuffix(imported, forbidden) || strings.Contains(imported, forbidden+"/") {
+					t.Errorf("%s imports privileged capability %s", path, imported)
+				}
 			}
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
@@ -57,7 +62,7 @@ func TestMessagingConsumerCannotAcquireFactoryPersistenceOrWorker(t *testing.T) 
 					t.Errorf("%s accesses factory persistence symbol %s", path, name)
 				}
 			}
-			if strings.HasSuffix(imported, "/internal/owneraction") && selected.Sel.Name == "Service" {
+			if strings.HasSuffix(imported, "/internal/owneraction") && (selected.Sel.Name == "Service" || selected.Sel.Name == "New") {
 				t.Errorf("%s acquires full owner-action coordinator", path)
 			}
 			return true

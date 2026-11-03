@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"net/http"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -16,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/cimonitor"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/discordcomponent"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -500,14 +500,8 @@ type Daemon struct {
 	// sets it; nil runs the real tick.
 	tick func(context.Context) (TickResult, error)
 
-	// chatBeat, chatWait, chatHandler and chatStatus carry chat that may be
-	// built after start: chatBeat is set in New when chat is configured,
-	// chatWait while the bot token is unresolved. chatHandler and chatStatus
-	// are read by the webhook server and the health publisher.
-	chatBeat    chan struct{}
-	chatWait    *chatPending
-	chatHandler atomic.Pointer[http.Handler]
-	chatStatus  atomic.Pointer[string]
+	discord      *discordcomponent.Component
+	ownerActions *ownerActionRuntime
 
 	// runsHeld is the free-disk hold text of the current tick: cleared at the
 	// start of every tick and set only when the disk guard holds runs, and
@@ -1042,6 +1036,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	d.serveRemoteConnector(webCtx, &serving)
+	d.startOwnerActions(webCtx, &serving)
 	d.chatServe(webCtx, &serving)
 	d.serveAlerts(webCtx, &serving)
 	d.serveMainCI(webCtx, &serving)

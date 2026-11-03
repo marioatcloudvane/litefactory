@@ -15,7 +15,7 @@ import (
 )
 
 // OwnerInboxTicketDetail contains only display facts returned by a ticket reader.
-type OwnerInboxTicketDetail struct{ Title, URL, Body, Unavailable string }
+type OwnerInboxTicketDetail = contracts.OwnerInboxTicketDetail
 
 // OwnerInboxReader enriches a selected, currently authorized decision without mutations.
 type OwnerInboxReader interface {

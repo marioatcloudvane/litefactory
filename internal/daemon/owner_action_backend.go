@@ -15,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/factory/owneractions"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/owneraction"
@@ -26,12 +27,15 @@ import (
 // ownerActionRuntime owns one executor independently of Discord availability.
 // Discord can join later without replacing the execution claims or worker.
 type ownerActionRuntime struct {
-	decisions   *stagedecision.Service
-	discussions *taskdiscussion.Service
-	actions     *owneraction.Service
-	workflows   *durableworkflow.Service
-	notices     atomic.Pointer[messaging.Service]
-	once        sync.Once
+	reconcileResearch func(context.Context) error
+	sanitizer         *redact.Redactor
+	adapter           atomic.Pointer[discord.Adapter]
+	decisions         *stagedecision.Service
+	discussions       *taskdiscussion.Service
+	actions           *owneraction.Service
+	workflows         *durableworkflow.Service
+	notices           atomic.Pointer[messaging.Service]
+	once              sync.Once
 }
 
 func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logger *slog.Logger) {
@@ -98,6 +102,11 @@ func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logg
 						logger.WarnContext(ctx, "decision summary requires reconciliation")
 					}
 				}
+				if r.reconcileResearch != nil {
+					if err := r.reconcileResearch(ctx); err != nil {
+						logger.WarnContext(ctx, "chat answer note remains pending")
+					}
+				}
 				if err := r.actions.Tick(ctx); err != nil {
 					logger.WarnContext(ctx, "owner action progression needs inspection")
 				}
@@ -116,14 +125,12 @@ func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logg
 	})
 }
 
-// prepareIndependentOwnerActions runs before serving. A healthy Discord backend
-// already owns these same adapters; otherwise composition installs them directly.
+// prepareIndependentOwnerActions composes the core coordinator before transport
+// activation. Remote wiring may later attach its domains to the same instance.
 func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer *redact.Redactor) {
-	runtime := &ownerActionRuntime{}
-	if d.chat != nil {
-		runtime.actions = d.chat.actions
-		runtime.notices.Store(d.chat.service)
-	} else {
+	runtime := d.ownerActions
+	if runtime == nil {
+		runtime = &ownerActionRuntime{}
 		if options == nil {
 			options = &ChatOptions{}
 		}
@@ -131,9 +138,14 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		if clock == nil {
 			clock = time.Now
 		}
+		if sanitizer == nil && options.Answers != nil {
+			sanitizer = options.Answers.Redactor
+		}
 		if sanitizer == nil {
 			sanitizer = redact.New(redact.Options{Logger: d.log})
 		}
+		runtime.sanitizer = sanitizer
+		runtime.reconcileResearch = d.researchAnswers(sanitizer).Reconcile
 		protect := func(ctx context.Context, text string) (string, error) {
 			protected, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
 			return protected.String(), err
@@ -153,6 +165,12 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		if answers.Redactor == nil {
 			answers.Redactor = sanitizer
 		}
+		if options.Instructions != nil {
+			answers.Instructions = options.Instructions
+		}
+		if options.InstructionDiagnostics != nil {
+			answers.InstructionDiagnostics = options.InstructionDiagnostics
+		}
 		writer, _ := d.forge.(ChatIssueForge)
 		var creator *ChatIssueCreator
 		if writer != nil && d.filter.Identities().BotUserID > 0 {
@@ -161,7 +179,7 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		}
 		var drafter *featuredraft.Service
 		if answers.Model != nil {
-			drafter = (&feature.Drafter{Instructions: options.Instructions, InstructionDiagnostics: options.InstructionDiagnostics, Repositories: answers.Repositories, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: protect, Now: clock}).Factory()
+			drafter = (&feature.Drafter{Instructions: answers.Instructions, InstructionDiagnostics: answers.InstructionDiagnostics, Repositories: answers.Repositories, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: protect, Now: clock}).Factory()
 			availability.Draft = true
 		}
 		var standards *ConversationStandards
@@ -169,7 +187,8 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 			operations := *options.Standards
 			operations.OwnerID = options.Settings.OwnerID
 			operations.Authorized = func(ctx context.Context, request messaging.StandardsRequest) error {
-				if d.chat == nil || d.chat.adapter == nil {
+				adapter := runtime.adapter.Load()
+				if adapter == nil {
 					return errors.New("discord transport unavailable")
 				}
 				permitted, bound := false, false
@@ -184,7 +203,7 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 				if !permitted || !bound {
 					return errors.New("standards conversation is not authorized")
 				}
-				return d.chat.adapter.CheckIntakeCapability(ctx, request.ChannelID)
+				return adapter.CheckIntakeCapability(ctx, request.ChannelID)
 			}
 			standards = &operations
 			availability.Standards = true
@@ -201,6 +220,13 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		}
 		domain := independentOwnerActionDomain{Domain: core, standards: standards}
 		runtime.actions = owneraction.New(d.db, domain, clock)
+	}
+	d.ownerActions = runtime
+	if d.remoteConnector == nil {
+		return
+	}
+	if d.remoteConnector.actions == runtime {
+		return
 	}
 	if options == nil {
 		options = &ChatOptions{}

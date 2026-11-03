@@ -5,8 +5,8 @@ import (
 	"errors"
 
 	"github.com/cloudvane/litefactory/internal/doctor"
+	"github.com/cloudvane/litefactory/internal/factory/conversationdiagnosis"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
-	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 )
 
@@ -27,27 +27,15 @@ func (a chatResearch) OwnerActionDiagnosis(ctx context.Context, target, note, ke
 }
 
 func runOwnerActionDiagnosis(ctx context.Context, d *Daemon, service ChatDiagnoser, sanitizer *redact.Redactor, replyLimit int, target, note, key string) (string, error) {
-	ref, err := naming.ParseRef(target)
-	if err != nil {
-		return "", err
-	}
-	if service == nil {
-		return "", errors.New("diagnosis unavailable")
-	}
-	if err := d.db.CheckOwnerActionEffect(ctx); err != nil {
-		return "", err
-	}
-	conversation, err := service.Diagnose(ctx, doctor.DiagnoseRequest{Target: ref, Instructions: note, SourceID: key})
-	if err != nil {
-		return "", err
-	}
-	text, err := renderOwnerActionDiagnosis(ctx, conversation, sanitizer, replyLimit)
+	result, err := conversationdiagnosis.RunAction(ctx, d.db, service, func(ctx context.Context, c doctor.Conversation) (string, error) {
+		return renderOwnerActionDiagnosis(ctx, c, sanitizer, replyLimit)
+	}, target, note, key)
 	if err == nil {
-		if conversation.Diagnosis == nil {
-			presentation.Assess(ctx, presentation.ReportableError)
-		} else {
-			presentation.Assess(ctx, presentation.Success)
+		status := presentation.Success
+		if result.State == "failed" {
+			status = presentation.ReportableError
 		}
+		presentation.Assess(ctx, status)
 	}
-	return text, err
+	return result.Summary, err
 }

@@ -101,7 +101,7 @@ func naturalFreshConversation(text string) bool {
 func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time.Time) (string, error) {
 	if p.Invocation.Command == "draft" || p.Invocation.Command == "confirm" || p.Invocation.Command == "answer" {
 		selection := actionSelection(*p, s.transport)
-		refusal, err := (OwnerActionDomain{Service: s}).actionDomain().Normalize(ctx, &selection, at)
+		refusal, err := (selectionDomains{Service: s}).actionDomain().Normalize(ctx, &selection, at)
 		p.RepoID, p.Project, p.ProjectPending = selection.RepoID, selection.Project, selection.ProjectPending
 		p.PreviewID, p.PreviewHash, p.Question, p.Revision = selection.PreviewID, selection.PreviewHash, selection.Question, selection.Revision
 		return refusal, err
@@ -109,7 +109,7 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 
 	if standardsCommand(p.Invocation.Command) {
 		selection := owneractions.StandardsSelection{Invocation: owneraction.Invocation{Command: p.Invocation.Command, Arguments: p.Invocation.Arguments}, RepoID: p.RepoID, Project: p.Project, Window: p.window}
-		refusal, err := (OwnerActionDomain{Service: s}).standardsDomain().Normalize(ctx, &selection, p.freezeTargets, at)
+		refusal, err := (selectionDomains{Service: s}).standardsDomain().Normalize(ctx, &selection, p.freezeTargets, at)
 		p.RepoID, p.Project, p.window = selection.RepoID, selection.Project, selection.Window
 		if errors.Is(err, owneractions.ErrInvalidSelection) {
 			err = ErrInvalidInvocation
@@ -167,11 +167,11 @@ func analysisWindow(phrase string, now time.Time) (string, string, bool) {
 }
 func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.Time) (string, error) {
 	if p.Invocation.Command == "draft" || p.Invocation.Command == "confirm" || p.Invocation.Command == "answer" {
-		return (OwnerActionDomain{Service: s}).actionDomain().RecheckSelection(ctx, actionSelection(p, s.transport), at)
+		return (selectionDomains{Service: s}).actionDomain().RecheckSelection(ctx, actionSelection(p, s.transport), at)
 	}
 
 	if standardsCommand(p.Invocation.Command) {
-		return (OwnerActionDomain{Service: s}).standardsDomain().RecheckSelection(ctx, owneractions.StandardsSelection{Invocation: owneraction.Invocation{Command: p.Invocation.Command, Arguments: p.Invocation.Arguments}, RepoID: p.RepoID, Project: p.Project})
+		return (selectionDomains{Service: s}).standardsDomain().RecheckSelection(ctx, owneractions.StandardsSelection{Invocation: owneraction.Invocation{Command: p.Invocation.Command, Arguments: p.Invocation.Arguments}, RepoID: p.RepoID, Project: p.Project})
 	}
 
 	_, _, err := s.ValidateInvocation(p.Invocation)

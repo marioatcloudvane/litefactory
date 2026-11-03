@@ -129,8 +129,8 @@ func (d *Daemon) collectHealth(ctx context.Context) (store.ListenerStatus, []sto
 		listener.Listening = true
 		listener.ListenAddress = d.webhook.ln.Addr().String()
 	}
-	if status := d.chatStatus.Load(); status != nil {
-		listener.ChatStatus = *status
+	if d.discord != nil {
+		listener.ChatStatus = d.discord.Status()
 	}
 	rows := make([]store.RepoDiscoveryStatus, 0, len(repos))
 	for _, repo := range repos {
