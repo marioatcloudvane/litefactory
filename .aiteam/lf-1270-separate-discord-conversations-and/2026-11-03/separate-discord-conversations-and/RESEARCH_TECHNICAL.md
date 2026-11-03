@@ -112,3 +112,44 @@ Evidence:
 - `docs/factory-core.md:120`
 - `internal/store/testdata/factory-pending-state/README.md:1`
 - `docs/discord.md:1`
+
+## F-11
+
+Shaping confirms the boundary is larger than adapter movement: daemon chat preparation owns credential retry and construction, while core documentation already assigns workflow and approval authority to factory services and permits only primitive host effects. The existing messaging guard covers messaging sources but cannot by itself certify extracted runtime composition.
+
+Evidence:
+
+- `internal/daemon/chat.go:31`
+- `internal/daemon/chat.go:71`
+- `internal/daemon/chat.go:135`
+- `internal/messaging/boundary_test.go:15`
+- `docs/factory-core.md:30`
+
+## F-12
+
+The previous core architecture repair at commit 413556aa moved action validation, availability and preview decisions into factory and removed remote setup's dependency on a messaging service; this supports preserving that cut and avoiding a second approval coordinator, rather than reintroducing policy in the extracted Discord component.
+
+Evidence:
+
+- `docs/factory-core.md:60`
+- `docs/factory-core.md:67`
+
+## F-13
+
+Existing pre-cutover fixture documentation lists graph attempts, captures, protected proposals, grants and retained connections, but does not establish saved Discord conversation or partial-delivery upgrade coverage; it explicitly excludes a live daemon stop/drain rehearsal, so extraction-specific compatibility and lifecycle proof remain acceptance work.
+
+Evidence:
+
+- `internal/store/testdata/factory-pending-state/README.md:1`
+- `docs/factory-core.md:120`
+- `internal/messaging/conversation_e2e_test.go:25`
+- `internal/messaging/conversation_delivery_test.go:46`
+
+## F-14
+
+This shaping pass inspected current boundaries, recovery documentation and recent refactor history; it changed no code and ran no new tests, so F-09 remains prior-pass evidence rather than proof of the proposed extraction.
+
+Evidence:
+
+- `internal/daemon/chat.go:135`
+- `docs/factory-core.md:142`
