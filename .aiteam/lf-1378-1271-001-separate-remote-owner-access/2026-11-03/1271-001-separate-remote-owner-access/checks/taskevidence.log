@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=10m -race ./internal/taskevidence
+ok  	github.com/cloudvane/litefactory/internal/taskevidence	14.729s
+
+EXIT 0

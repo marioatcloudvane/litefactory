@@ -66,7 +66,7 @@ func TestConnectorConsentRefusesMissingOrUnknownRepositoriesAndRollsBack(t *test
 	api := testRepository(t, db, "acme", "api")
 	scope := connectorTestScope + " " + connectorDiscussionScope
 	b, g, c, x := coverageConsentFixture(t, db, "grant", scope, nil)
-	if _, _, err := db.CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, "github:acme/api#7", connectorTestNow); !errors.Is(err, ErrConnectorInvalid) {
+	if _, _, err := testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, "github:acme/api#7", connectorTestNow); !errors.Is(err, ErrConnectorInvalid) {
 		t.Fatalf("before Allow: %v", err)
 	}
 	for _, tc := range []struct {
@@ -113,30 +113,30 @@ func TestConnectorAllRepositoriesCoversTasksInAnyRepositoryIncludingLaterOnes(t 
 	g, x := grantCoverage(t, db, "all", scope, &ConnectorCoverage{All: true})
 	later := testRepoSession(t, db, "acme", "web", 3)
 	for _, session := range []Session{first, later} {
-		_, target, err := db.CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, session.TaskRef, connectorTestNow)
+		_, target, err := testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, session.TaskRef, connectorTestNow)
 		if err != nil || target.SessionID != session.ID || target.RepoID != session.RepoID {
 			t.Fatalf("discussion %s: %+v %v", session.TaskRef, target, err)
 		}
 		ref := strings.SplitN(session.TaskRef, "#", 2)[0]
-		_, usage, err := db.CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorTaskUsageScope, ref, session.TaskRef, connectorTestNow)
+		_, usage, err := testConnectorAccess(db).CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorTaskUsageScope, ref, session.TaskRef, connectorTestNow)
 		if err != nil || usage.SessionID != session.ID || usage.RepoID != session.RepoID {
 			t.Fatalf("task usage %s: %+v %v", session.TaskRef, usage, err)
 		}
-		if _, usage, err = db.CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorRepositoryUsageScope, ref, "", connectorTestNow); err != nil || usage.RepoID != session.RepoID {
+		if _, usage, err = testConnectorAccess(db).CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorRepositoryUsageScope, ref, "", connectorTestNow); err != nil || usage.RepoID != session.RepoID {
 			t.Fatalf("repository usage %s: %+v %v", ref, usage, err)
 		}
 	}
-	_, _, err := db.CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, "github:acme/api#999", connectorTestNow)
+	_, _, err := testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, "github:acme/api#999", connectorTestNow)
 	if !errors.Is(err, ErrConnectorInvalid) || ConnectorRefusalReason(err) != `task not found: "github:acme/api#999"` {
 		t.Fatalf("unknown task: %v", err)
 	}
-	if _, _, err = db.CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorRepositoryUsageScope, "github:acme/none", "", connectorTestNow); ConnectorRefusalReason(err) != `repository not registered: "github:acme/none"` {
+	if _, _, err = testConnectorAccess(db).CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorRepositoryUsageScope, "github:acme/none", "", connectorTestNow); ConnectorRefusalReason(err) != `repository not registered: "github:acme/none"` {
 		t.Fatalf("unknown repository: %v", err)
 	}
-	if _, _, err = db.CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorTaskUsageScope, "github:acme/web", first.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorInvalid) {
+	if _, _, err = testConnectorAccess(db).CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorTaskUsageScope, "github:acme/web", first.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorInvalid) {
 		t.Fatalf("task outside the named repository: %v", err)
 	}
-	if _, _, err = db.CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorFactoryUsageScope, "", "", connectorTestNow); !errors.Is(err, ErrConnectorScope) {
+	if _, _, err = testConnectorAccess(db).CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorFactoryUsageScope, "", "", connectorTestNow); !errors.Is(err, ErrConnectorScope) {
 		t.Fatalf("task usage gained factory usage: %v", err)
 	}
 	// Refresh keeps scope and coverage.
@@ -149,7 +149,7 @@ func TestConnectorAllRepositoriesCoversTasksInAnyRepositoryIncludingLaterOnes(t 
 	if err = db.RevokeConnectorGrant(t.Context(), 42, g.ID, connectorTestNow); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = db.CheckConnectorDiscussionAccess(t.Context(), "renewed", 42, connectorTestResource, first.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorInvalid) {
+	if _, _, err = testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), "renewed", 42, connectorTestResource, first.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorInvalid) {
 		t.Fatalf("revoked access: %v", err)
 	}
 }
@@ -166,20 +166,20 @@ func TestConnectorListedRepositoryRefusesOtherRepositoriesWithAClearReason(t *te
 	if err != nil || grant.Coverage == nil || grant.Coverage.All || len(grant.Coverage.Repositories) != 1 || grant.Coverage.Repositories[0].RepoID != covered.RepoID {
 		t.Fatalf("coverage %+v %v", grant.Coverage, err)
 	}
-	if _, _, err = db.CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, covered.TaskRef, connectorTestNow); err != nil {
+	if _, _, err = testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, covered.TaskRef, connectorTestNow); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = db.CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, other.TaskRef, connectorTestNow)
+	_, _, err = testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, other.TaskRef, connectorTestNow)
 	if !errors.Is(err, ErrConnectorScope) || ConnectorRefusalReason(err) != `repository not covered by this grant: "github:acme/web" (task "github:acme/web#3")` {
 		t.Fatalf("other repository: %v", err)
 	}
-	if _, _, err = db.CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorRepositoryUsageScope, "github:acme/web", "", connectorTestNow); ConnectorRefusalReason(err) != `repository not covered by this grant: "github:acme/web"` {
+	if _, _, err = testConnectorAccess(db).CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorRepositoryUsageScope, "github:acme/web", "", connectorTestNow); ConnectorRefusalReason(err) != `repository not covered by this grant: "github:acme/web"` {
 		t.Fatalf("other repository usage: %v", err)
 	}
-	if _, _, err = db.CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorTaskUsageScope, "github:acme/web", other.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorScope) {
+	if _, _, err = testConnectorAccess(db).CheckConnectorUsageAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, connectorTaskUsageScope, "github:acme/web", other.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorScope) {
 		t.Fatalf("other task usage: %v", err)
 	}
-	if _, _, err = db.CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, covered.TaskRef, connectorTestNow); ConnectorRefusalReason(err) != "this grant does not include task:code-review" {
+	if _, _, err = testConnectorAccess(db).CheckConnectorCodeAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, covered.TaskRef, connectorTestNow); ConnectorRefusalReason(err) != "this grant does not include task:code-review" {
 		t.Fatalf("code without scope: %v", err)
 	}
 }
@@ -212,7 +212,7 @@ func TestConnectorRepositoryCoverageLifecycleFailsClosed(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err = db.CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, session.TaskRef, now); err == nil {
+			if _, _, err = testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), x.Pair.AccessDigest, 42, connectorTestResource, session.TaskRef, now); err == nil {
 				t.Fatalf("%s allowed", scenario)
 			}
 			if scenario == "repository rebound" && !errors.Is(err, ErrConnectorScope) {
@@ -242,7 +242,7 @@ func TestConnectorDiscussionMigrationPreservesExistingGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	connectorTestAccess(t, db, access, true)
-	if _, _, err = db.CheckConnectorDiscussionAccess(t.Context(), access, 42, connectorTestResource, "github:acme/api#7", connectorTestNow); !errors.Is(err, ErrConnectorScope) {
+	if _, _, err = testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), access, 42, connectorTestResource, "github:acme/api#7", connectorTestNow); !errors.Is(err, ErrConnectorScope) {
 		t.Fatalf("old grant gained discussion: %v", err)
 	}
 }
@@ -278,11 +278,11 @@ func TestConnectorRepositoryMigrationCoversTheBoundTasksRepository(t *testing.T)
 		t.Fatal(err)
 	}
 	for _, session := range []Session{bound, sibling} {
-		if _, _, err = db.CheckConnectorDiscussionAccess(t.Context(), "old-access", 42, connectorTestResource, session.TaskRef, connectorTestNow); err != nil {
+		if _, _, err = testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), "old-access", 42, connectorTestResource, session.TaskRef, connectorTestNow); err != nil {
 			t.Fatalf("migrated grant lost %s: %v", session.TaskRef, err)
 		}
 	}
-	if _, _, err = db.CheckConnectorDiscussionAccess(t.Context(), "old-access", 42, connectorTestResource, other.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorScope) {
+	if _, _, err = testConnectorAccess(db).CheckConnectorDiscussionAccess(t.Context(), "old-access", 42, connectorTestResource, other.TaskRef, connectorTestNow); !errors.Is(err, ErrConnectorScope) {
 		t.Fatalf("migrated grant widened beyond its repository: %v", err)
 	}
 	grants, err := db.ListLocalConnectorGrants(t.Context(), connectorTestNow)

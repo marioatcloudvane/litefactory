@@ -14,10 +14,10 @@ func TestFactoryConnectorComposesShippedLocalControl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime == nil || runtime.server == nil || runtime.listener == nil {
+	if runtime == nil || runtime.server == nil || runtime.lifecycle == nil {
 		t.Fatal("factory did not compose the real local control capability")
 	}
-	if err := runtime.listener.Close(); err != nil {
+	if err := runtime.lifecycle.Close(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -44,7 +44,7 @@ func TestFactoryConnectorLocalControlDoesNotBypassPrerequisites(t *testing.T) {
 			}
 			runtime, err := prepareFactoryRemoteConnector(t.Context(), s)
 			if runtime != nil {
-				_ = runtime.listener.Close()
+				_ = runtime.lifecycle.Close()
 				t.Fatal("unavailable prerequisites still bound remote listener")
 			}
 			if state == "disabled" {

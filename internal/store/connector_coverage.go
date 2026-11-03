@@ -4,43 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"slices"
 	"strings"
 )
 
 // connectorMaxCoveredRepositories bounds one grant's explicit repository list.
 const connectorMaxCoveredRepositories = 1000
-
-// ListConnectorRepositories returns the registered repositories the consent
-// page offers, ordered by reference.
-func (db *DB) ListConnectorRepositories(ctx context.Context) ([]ConnectorRepository, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT id,forge||':'||owner||'/'||name AS ref FROM repos ORDER BY ref,id LIMIT ?`, connectorMaxCoveredRepositories)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []ConnectorRepository{}
-	for rows.Next() {
-		var r ConnectorRepository
-		if err = rows.Scan(&r.RepoID, &r.RepositoryRef); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-func resolveConnectorRepository(ctx context.Context, q connectorTargetQuery, ref string) (ConnectorRepository, error) {
-	var r ConnectorRepository
-	if ref == "" || len(ref) > 1024 {
-		return r, connectorRefusedCode(ErrConnectorInvalid, "repository_not_registered", "repository not registered: %q", ref)
-	}
-	err := q.QueryRowContext(ctx, `SELECT id,forge||':'||owner||'/'||name FROM repos WHERE forge||':'||owner||'/'||name=?`, ref).Scan(&r.RepoID, &r.RepositoryRef)
-	if errors.Is(err, sql.ErrNoRows) {
-		return r, connectorRefusedCode(ErrConnectorInvalid, "repository_not_registered", "repository not registered: %q", ref)
-	}
-	return r, err
-}
 
 // insertConnectorCoverage records which repositories a new grant covers. A
 // grant with a task-level or repository-level scope needs either all
@@ -78,7 +48,10 @@ func insertConnectorCoverage(ctx context.Context, tx *sql.Conn, g ConnectorGrant
 			return connectorRefusedCode(ErrConnectorInvalid, "repository_selected_twice", "repository selected twice: %q", requested.RepositoryRef)
 		}
 		seen[requested.RepositoryRef] = true
-		r, err := resolveConnectorRepository(ctx, tx, requested.RepositoryRef)
+		r, err := resolveReadRepository(ctx, tx, requested.RepositoryRef)
+		if errors.Is(err, contracts.ErrReadTargetInvalid) {
+			return connectorRefusedCode(ErrConnectorInvalid, "repository_not_registered", "repository not registered: %q", requested.RepositoryRef)
+		}
 		if err != nil {
 			return err
 		}
@@ -124,35 +97,6 @@ func loadConnectorCoverage(ctx context.Context, q interface {
 		c.Repositories = append(c.Repositories, r)
 	}
 	return c, rows.Err()
-}
-
-// connectorCoveredTask resolves an existing task named on a call and checks
-// that the grant covers its repository.
-func connectorCoveredTask(ctx context.Context, q connectorTargetQuery, g ConnectorGrant, taskRef string) (ConnectorGrantTarget, error) {
-	t, err := resolveConnectorDiscussionTarget(ctx, q, taskRef)
-	if errors.Is(err, ErrConnectorInvalid) {
-		return ConnectorGrantTarget{}, connectorRefused(ErrConnectorInvalid, "task not found: %q", taskRef)
-	}
-	if err != nil {
-		return ConnectorGrantTarget{}, err
-	}
-	if !g.Coverage.Covers(t.RepoID, t.RepositoryRef) {
-		return ConnectorGrantTarget{}, connectorRefused(ErrConnectorScope, "repository not covered by this grant: %q (task %q)", t.RepositoryRef, t.TaskRef)
-	}
-	return t, nil
-}
-
-// connectorCoveredRepository resolves a registered repository named on a call
-// and checks that the grant covers it.
-func connectorCoveredRepository(ctx context.Context, q connectorTargetQuery, g ConnectorGrant, ref string) (ConnectorRepository, error) {
-	r, err := resolveConnectorRepository(ctx, q, ref)
-	if err != nil {
-		return r, err
-	}
-	if !g.Coverage.Covers(r.RepoID, r.RepositoryRef) {
-		return ConnectorRepository{}, connectorRefused(ErrConnectorScope, "repository not covered by this grant: %q", r.RepositoryRef)
-	}
-	return r, nil
 }
 
 // splitConnectorRepositories turns the newline-joined stored list into a
