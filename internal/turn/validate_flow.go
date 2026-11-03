@@ -158,7 +158,7 @@ func (b ValidateFlowBindings) now(opts Options) time.Time {
 	if b.Now != nil {
 		return b.Now().UTC()
 	}
-	return spikeNow(opts)
+	return graphNow(opts)
 }
 
 // RegisterValidateFlow registers the Validate steps after the suite in both registries.

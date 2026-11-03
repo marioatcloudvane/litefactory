@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -76,14 +77,27 @@ func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, hand
 	if _, exists := activities.Resolve(ResearchAgentAction); exists {
 		return errors.New("research agent activity already registered")
 	}
-	outcomes := []string{"success", "failed"}
-	if handler.Policy.Workflow == agent.WorkflowBug {
-		outcomes = graphexec.OwnerStopAgentOutcomes()
-	}
-	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: handler.Policy.Mode, Workflow: handler.Policy.Workflow, Outcomes: outcomes, Attributes: graphexec.AgentAttributes()}); err != nil {
+	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: handler.Policy.Mode, Workflow: handler.Policy.Workflow, Outcomes: agentOutcomes(handler.Policy), Attributes: graphexec.AgentAttributes()}); err != nil {
 		return err
 	}
 	return activities.Register(ResearchAgentAction, handler)
+}
+
+// agentOutcomes is the agent action's outcome vocabulary under a policy:
+// success and failed, plus the policy's own responses, which only a
+// result-routed agent (lf_response=result) declares so its DOT can route each
+// response directly. Bug keeps its owner-stop vocabulary.
+func agentOutcomes(policy WorkflowPolicy) []string {
+	if policy.Workflow == agent.WorkflowBug {
+		return graphexec.OwnerStopAgentOutcomes()
+	}
+	outcomes := []string{"success", "failed"}
+	for _, response := range policy.Control.Responses {
+		if !slices.Contains(outcomes, response) {
+			outcomes = append(outcomes, response)
+		}
+	}
+	return outcomes
 }
 
 // Execute invokes a reserved attempt and retains its validated result without
@@ -162,7 +176,7 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	if budgeted {
 		allowance, source = time.Duration(minutes)*time.Minute, "node"
 	}
-	started := spikeNow(opts)
+	started := graphNow(opts)
 	deadline := started.Add(agentBudgetClock(allowance))
 	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
 		deadline, source = parent, "parent"
@@ -189,7 +203,7 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 			cleanup, stop := agent.EvidenceContext(runCtx)
 			defer stop()
 			cleanupDeadline, _ = cleanup.Deadline()
-			timeoutRecordErr = opts.DB.RecordAttemptTimeout(cleanup, store.AttemptTimeout{NodeAttemptID: a.NodeAttemptID, Budget: timing.Allowance, TimedOutAt: spikeNow(opts)})
+			timeoutRecordErr = opts.DB.RecordAttemptTimeout(cleanup, store.AttemptTimeout{NodeAttemptID: a.NodeAttemptID, Budget: timing.Allowance, TimedOutAt: graphNow(opts)})
 		})
 	}
 	// Deadline authority is persisted independently of provider evidence drains.

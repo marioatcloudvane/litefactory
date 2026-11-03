@@ -5,9 +5,8 @@
 A repository can tell the factory how to test it with a recipe in `.litefactory/bug-checks.yaml`. The factory reads the recipe from the exact commit being tested, never from a working branch the agent could change. Today it is used by:
 
 - **[Validate](workflow/validate.md):** the suite step uses the `full` phase as its complete obligation inventory, with conservative automatic selection when its captured workflow supports it.
-- **[Spike](workflow/spike.md):** the check after a small fix runs the `focused` and then the `full` phase.
 
-(The Bug workflow lets its fixer run the project's own commands and runs no recipe of its own; see [Bug](workflow/bug-runtime.md).)
+(The Bug workflow lets its fixer run the project's own commands and runs no recipe of its own; see [Bug](workflow/bug-runtime.md). Spike's agent likewise runs the checks it judges useful; see [Spike](workflow/spike.md).)
 
 A recipe does not grant permission; the operator's `bug_checks` sandbox settings in [config.yaml](configuration/config-yaml.md) do. All three phases must validate before any command runs, even if a workflow only uses one. This is the format (the executable names are placeholders, not a real project recipe):
 

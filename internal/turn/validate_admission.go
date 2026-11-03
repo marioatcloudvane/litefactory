@@ -300,7 +300,7 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 			return rt.refuse(ctx, fmt.Sprintf("The Validate run on commit %s stopped before it finished. Comment `%s` to start a fresh run; the old control reply is not replayed.", shortSHA(entry.Commit), ValidateStartCommand))
 		}
 		rt.entry = entry
-		return rt.launch(ctx, spikeNow(opts))
+		return rt.launch(ctx, graphNow(opts))
 	}
 	// A replay remains bound to its original graph even after a later full
 	// request replaced the entry's current instance. It cannot cancel that run.
@@ -327,7 +327,7 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 	if err != nil {
 		return rt.result, fmt.Errorf("read the integration branch head: %w", err)
 	}
-	now := spikeNow(opts)
+	now := graphNow(opts)
 	in := store.ValidateEntry{SessionID: rt.session.ID, Commit: head, Branch: rt.session.Branch, Source: source, CommentID: req.Trigger.CommentID, AuthorID: req.Trigger.AuthorID, Note: strings.TrimSpace(req.Command.Text)}
 	if auto {
 		in.CommentID, in.AuthorID, in.Note = 0, 0, ""

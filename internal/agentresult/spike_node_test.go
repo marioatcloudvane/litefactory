@@ -11,7 +11,7 @@ func spikeContext(questions bool) Context {
 
 const spikeAskEnvelope = `{"version":1,"response":"ask","result":{"outcome":"incomplete","reason":"Need a decision","comment":"Blocked.","questions":[{"id":"q1","audience":"technical","text":"Which one?"}],"payload":{"spike":{"request":"r"}}}}`
 
-const spikeDoneEnvelope = `{"version":1,"response":"done","result":{"outcome":"completed","comment":"Answered.","payload":{"spike":{"request":"r","findings":["f"],"proposed_fix":{"defects":["d"],"files":["a.go","a_test.go"],"change_kinds":["code","test"],"regression_test":"TestA"}}}}}`
+const spikeDoneEnvelope = `{"version":1,"response":"done","result":{"outcome":"completed","comment":"Answered.","payload":{"spike":{"request":"r","findings":["f"]}}}}`
 
 func TestDecodeSpikeNodeAcceptsAskAndDoneOnly(t *testing.T) {
 	if _, d := DecodeSpikeNode([]byte(spikeDoneEnvelope), spikeContext(true)); !d.Valid || !d.Complete {
@@ -87,41 +87,14 @@ func TestSpikeQuestionsFollowTrustedPermissionOnly(t *testing.T) {
 	}
 }
 
-func TestSpikeProposedFixIsValidatedForShapeOnly(t *testing.T) {
-	base := func(fix string) Result {
+// The retired factory-recorded fields are no longer part of the result: a
+// strict decode refuses them instead of silently keeping them.
+func TestSpikeResultRefusesRetiredFields(t *testing.T) {
+	for _, field := range []string{`"status":"answered"`, `"proposed_fix":{}`, `"fix_report":{}`} {
 		var node ResearchNode
-		envelope := `{"version":1,"response":"done","result":{"outcome":"completed","comment":"c","payload":{"spike":{"request":"r","proposed_fix":` + fix + `}}}}`
-		if d := Decode([]byte(envelope), &node); !d.Valid {
-			t.Fatalf("decode %s: %+v", fix, d)
+		envelope := `{"version":1,"response":"done","result":{"outcome":"completed","comment":"c","payload":{"spike":{"request":"r",` + field + `}}}}`
+		if d := Decode([]byte(envelope), &node); d.Valid {
+			t.Errorf("retired field %s was accepted", field)
 		}
-		return node.Result
-	}
-	valid := `{"defects":["d"],"files":["a.go"],"change_kinds":["code"],"regression_test":"T"}`
-	if d := ValidateResult(base(valid), spikeContext(true)); !d.Valid {
-		t.Fatalf("valid proposal refused: %+v", d)
-	}
-	// Size is the graph's judgement, never this package's.
-	large := `{"defects":["a","b","c"],"files":["1.go","2.go","3.go","4.go","5.go","6.go"],"change_kinds":["code","dependency","schema"],"regression_test":""}`
-	if d := ValidateResult(base(large), spikeContext(true)); !d.Valid {
-		t.Fatalf("a large proposal must be validated by shape only: %+v", d)
-	}
-	for name, fix := range map[string]string{
-		"blank defect":   `{"defects":[" "],"files":["a.go"],"change_kinds":["code"],"regression_test":"T"}`,
-		"absolute file":  `{"defects":["d"],"files":["/etc/passwd"],"change_kinds":["code"],"regression_test":"T"}`,
-		"escaping file":  `{"defects":["d"],"files":["../x.go"],"change_kinds":["code"],"regression_test":"T"}`,
-		"duplicate file": `{"defects":["d"],"files":["a.go","a.go"],"change_kinds":["code"],"regression_test":"T"}`,
-		"unknown kind":   `{"defects":["d"],"files":["a.go"],"change_kinds":["magic"],"regression_test":"T"}`,
-	} {
-		if d := ValidateResult(base(fix), spikeContext(true)); d.Valid {
-			t.Errorf("%s accepted", name)
-		}
-	}
-	var node ResearchNode
-	withStatus := `{"version":1,"response":"done","result":{"outcome":"completed","comment":"c","payload":{"spike":{"request":"r","status":"answered"}}}}`
-	if d := Decode([]byte(withStatus), &node); !d.Valid {
-		t.Fatal(d)
-	}
-	if d := ValidateResult(node.Result, spikeContext(true)); d.Valid {
-		t.Fatal("an authored status was accepted")
 	}
 }

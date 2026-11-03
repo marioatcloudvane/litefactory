@@ -31,7 +31,7 @@ func TestOwnerReportSourceCaptureNativeDeliveryAndColdReplay(t *testing.T) {
 		{agent.WorkflowImplement, turn.ImplementSpecs, []string{"worker_agent", "sync_start_resolve", "sync_done_resolve"}},
 		{agent.WorkflowValidate, turn.ValidateFlowSpecs, []string{"repair_agent", "review:validate-acceptance", "review:validate-code", "review:validate-architecture"}},
 		{agent.WorkflowBug, turn.SimplifiedBugSpecs, []string{"analyst", "fixer"}},
-		{agent.WorkflowSpike, turn.SpikeSpecs, []string{"probe_agent", "fix_agent", "refix_agent"}},
+		{agent.WorkflowSpike, turn.SpikeSpecs, []string{"spike"}},
 	}
 	for _, team := range []string{"go-development", "swift-ios", "python-fastapi", "dotnet-web"} {
 		t.Run(team, func(t *testing.T) {

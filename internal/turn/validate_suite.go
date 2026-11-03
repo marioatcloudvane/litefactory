@@ -264,7 +264,7 @@ func (h ValidateSuiteActivity) now(opts Options) time.Time {
 	if h.b.Now != nil {
 		return h.b.Now().UTC()
 	}
-	return spikeNow(opts)
+	return graphNow(opts)
 }
 
 func (h ValidateSuiteActivity) runner(opts Options) (ValidateSuiteRunner, string) {

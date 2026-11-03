@@ -2,8 +2,6 @@ package teamsource
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -38,15 +36,12 @@ func TestImplementSlotPolicyCaptureAndRetainedReplay(t *testing.T) {
 		}
 	}
 	// Retained bytes from the former policy remain independent of current source.
-	prior, err := CaptureWorkflow(t.Context(), os.DirFS(filepath.Join(repoRoot(), "teams/go-development/v1.0.0/implement")), "implement.dot", "go-development", agent.ModeImplement, registry)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The former policy had no slot budget on any routed worker.
 	historical := RetainedFiles{}
-	for name, data := range prior.Files {
+	for name, data := range fresh.Files {
 		historical[name] = bytes.Clone(data)
 	}
-	historical["implement.dot"] = bytes.Replace(historical["implement.dot"], []byte(`lf_slot_budget="3", `), nil, 1)
+	historical["implement.dot"] = bytes.ReplaceAll(historical["implement.dot"], []byte(`lf_slot_budget="3", `), nil)
 	old, err := CaptureWorkflow(t.Context(), historical, "implement.dot", "go-development", agent.ModeImplement, registry)
 	if err != nil {
 		t.Fatal(err)

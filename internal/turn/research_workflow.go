@@ -554,7 +554,8 @@ func (w *researchWorkflow) predecessorContext(ctx context.Context, scope agentre
 			continue
 		}
 
-		if a.Status != store.GraphSucceeded || a.RunID == 0 || a.Outcome != "success" {
+		// A result-routed agent's succeeded outcome is its response, not success.
+		if a.Status != store.GraphSucceeded || a.RunID == 0 || (a.Outcome != "success" && !graphexec.RoutesResponse(definitionNode)) {
 			continue
 		}
 		node, e := w.policy.load(ctx, w.opts.DB, a.ID, scope)
