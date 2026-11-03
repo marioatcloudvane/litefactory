@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,7 +59,10 @@ func valid(s string, n int) bool {
 	return strings.TrimSpace(s) != "" && len(s) <= n && utf8.ValidString(s)
 }
 func (s *Service) authorize(ctx context.Context, p Principal, task, scope string) (store.DiscussionScope, error) {
-	target, err := s.db.ResolveConnectorDiscussionTarget(ctx, task)
+	target, err := s.db.ReadTaskTarget(ctx, task)
+	if errors.Is(err, contracts.ErrReadTargetInvalid) {
+		err = store.ErrConnectorInvalid
+	}
 	if err != nil {
 		return store.DiscussionScope{}, err
 	}

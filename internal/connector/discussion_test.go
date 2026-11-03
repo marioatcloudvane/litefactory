@@ -208,7 +208,7 @@ func seedDiscussionTarget(t *testing.T, db *store.DB) store.ConnectorGrantTarget
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := db.ResolveConnectorDiscussionTarget(t.Context(), session.TaskRef)
+	target, err := db.ReadTaskTarget(t.Context(), session.TaskRef)
 	if err != nil {
 		t.Fatal(err)
 	}

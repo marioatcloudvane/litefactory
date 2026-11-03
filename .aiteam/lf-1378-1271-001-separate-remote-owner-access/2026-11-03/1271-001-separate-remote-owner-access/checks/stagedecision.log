@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=10m -race ./internal/stagedecision
+ok  	github.com/cloudvane/litefactory/internal/stagedecision	22.446s
+
+EXIT 0

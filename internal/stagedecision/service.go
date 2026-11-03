@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"io"
 	"strconv"
 	"strings"
@@ -58,7 +59,10 @@ func actor(p owneraction.Principal) store.OwnerActionPrincipal {
 	return store.OwnerActionPrincipal{OwnerID: p.OwnerID, OwnerGeneration: p.OwnerGeneration, Transport: p.Transport, ClientID: p.ClientID, GrantID: p.GrantID, ChannelID: p.ChannelID, DiscordOwnerID: p.DiscordOwnerID}
 }
 func (s *Service) authorize(ctx context.Context, p owneraction.Principal, task string) (store.DiscussionScope, error) {
-	target, err := s.db.ResolveConnectorDiscussionTarget(ctx, task)
+	target, err := s.db.ReadTaskTarget(ctx, task)
+	if errors.Is(err, contracts.ErrReadTargetInvalid) {
+		err = store.ErrConnectorInvalid
+	}
 	if err != nil {
 		return store.DiscussionScope{}, err
 	}

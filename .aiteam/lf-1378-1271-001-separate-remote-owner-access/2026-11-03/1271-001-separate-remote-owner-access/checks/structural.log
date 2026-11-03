@@ -1,0 +1,6 @@
+$ git diff --check
+EXIT 0
+$ gofmt -l .
+EXIT 0
+19 local documentation references resolve. Documentation consistency reviewed.
+All rehearsed Go/module bytes match final source. The remote guide introductory prose was clarified after the snapshot; it does not enter the executable.

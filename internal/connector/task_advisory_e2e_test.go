@@ -74,7 +74,7 @@ func (c advisoryJourneyCapture) Capture(ctx context.Context, task, operation str
 	if err != nil {
 		return taskdiscussion.Basis{}, err
 	}
-	target, err := c.db.ResolveConnectorDiscussionTarget(ctx, task)
+	target, err := c.db.ReadTaskTarget(ctx, task)
 	if err != nil {
 		return taskdiscussion.Basis{}, err
 	}

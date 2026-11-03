@@ -29,8 +29,9 @@ exit mapping; local services remain callable with the daemon stopped.
 | Retained owner inbox | Factory retained-inbox reader | Identity and connection revision checks before and after provider reads |
 | Conversation diagnosis | Factory conversation-diagnosis service | Bounded queue, claim, cancellation/recovery and result publication |
 | Discord lifecycle | Discord component | Handler, status, wake and joined serve lifecycle over conversation/delivery storage |
-| Remote authentication and consent | Connector state adapter | Browser, token, grant and protocol transitions only |
-| Remote factory target access | Trusted connector access adapter | Current grant checks and purpose-specific retained targets |
+| Remote authentication, consent and grant coverage | Connector authorization service and persistence | Browser, token, grant and protocol transitions; scope and coverage checks |
+| Remote retained targets | Factory readtargets service | Registered repositories and retained discussion, code and usage identities |
+| Remote HTTP lifecycle | Connector runtime | Preparation, early owner reconciliation, listener serving and idempotent close |
 | Remote read projections | Existing overview, task/code evidence and usage services | Shared factory read contracts, redacted bounded pages |
 
 Daemon composition supplies providers, verified identities, clocks and primitive
@@ -117,6 +118,40 @@ packages cannot import the component. These structural checks supplement manual
 inspection of hosts and compound methods; they cannot prove policy ownership by
 package names alone.
 
+## Remote ownership cutover
+
+`internal/factory/readtargets` owns repository enumeration and retained task,
+code and usage resolution through neutral `factory/contracts` values. Its store
+queries live in `internal/store/read_targets.go`; compound consent and admission
+transactions reuse those same query helpers on their existing transaction.
+Retained ticket bindings, connection versions, code destinations and parent
+branches remain authoritative. Missing or inconsistent retained data refuses the
+read; current configuration and client paths cannot replace it.
+
+`internal/connectoraccess` owns credential, scope and repository coverage checks
+and maps core target failures to the existing safe refusals. The private
+`connectorstorage` binding constructs persistence and the core reader from one
+store handle. The authorization service cannot itself attest backend identity;
+only that trusted binding can supply the server's access port. Independent
+wrappers over one handle remain compatible, while mixed handles are refused.
+No general database handle crosses the remote boundary. Protected reads retain
+checks before acquisition and before release; revocation cannot retract bytes
+already returned.
+
+`connector.Prepare` validates enabled configuration and reconciles owner authority
+before local-control readiness, dedicated secret resolution or listener creation
+can fail. Its runtime owns serving, bounded drain and close. The daemon supplies
+providers and bounded shared services, cancels and joins the serve loop, and
+closes preparation resources before closing shared persistence. Disabled remote
+access needs no connector credentials or local-control readiness. The shared
+owner-action execution and recovery runtime remains independent of either
+transport; remote access does not replace required Discord approval.
+
+The former mixed store target/access methods and direct daemon reconciliation
+have been removed. Source aliases preserve field shapes without a fallback to
+old policy. Local grant commands still work with the daemon stopped and remote
+access disabled; see [grant administration](cli/connector-grants.md).
+
 ## Compatibility bridges
 
 | Bridge | Owner and purpose | Removal condition |
@@ -132,7 +167,7 @@ package names alone.
 | GitHub workflow shapes and Linear local slots | Factory ticket bridge; retain current workflow serializers and qualified provenance | Workflow serializers use qualified ticket values with recovery proof |
 | Messaging store error, timestamp, inbox-identity and context-fence helpers | Existing owners retain error identity, saved timestamp encoding, qualified identity and metering fences without persistence access | Consumers adopt equivalent neutral helpers with compatibility evidence; no database or workflow rows may be added |
 | Daemon research, feature and retained-inbox adapters | Trusted composition maps current identities, primitive provider capabilities and presentation to factory operations | Host callers use those operations directly; no fallback policy may be retained |
-| Store connector value aliases | Connector state; retain existing source compatibility and serialized fields | Storage callers use connector-owned state names directly |
+| Store connector value aliases | Connector state owns authorization; factory contracts own retained target values; preserve source compatibility and serialized fields | Storage callers use connector-owned state names directly |
 | CLI helper wrappers | Local administration services; retain existing local host/test composition | All callers use the owned local operations directly |
 
 These bridges translate values or compose dependencies. A service refusal must
@@ -176,6 +211,18 @@ drains, and previous storage code checks the completed delivery fence. Pending
 approval and unfinished conversation state remain unchanged. This exercises
 previous storage code, not a previous Discord transport, and does not establish
 every historical pending-state shape or live-provider behavior.
+
+Remote authorization has a separate [real-build compatibility rehearsal](../.aiteam/lf-1378-1271-001-separate-remote-owner-access/2026-11-03/1271-001-separate-remote-owner-access/rehearsal/README.md).
+It builds pinned pre-change revision `5a08f9e4e99640ef56592c90094f1dae75babe87`
+and changed code, then runs them sequentially against one temporary database,
+closing all handles between processes. Valid access, refresh rotation, spent-token
+replay revocation, explicit revocation and owner-generation invalidation survive
+restart and return to previous code with the same schema. This proves the tested
+build pair with synthetic providers and a controlled clock, not arbitrary historic
+versions or hosted-client certification. Follow the [remote rollback procedure](guides/remote-connector.md#restart-and-rollback)
+against the latest saved authorization state; never restore an obsolete snapshot.
+SQLite `synchronous=NORMAL` covers process restart in this rehearsal, not survival
+of the newest commit after whole-machine power loss.
 
 Provider deduplication is bounded. Preserve the current per-channel ordering,
 stable nonces, authenticated delivery observations and retry/refusal rules. An
