@@ -167,10 +167,15 @@ checking the saved values each time. Commands and scope are documented beside
 That original fixture exercises storage compatibility. The Discord extraction adds
 [its own baseline fixture and process rehearsal](../internal/store/testdata/discord-component-recovery/README.md):
 conversation/native identities, captures, unfinished turns, pending approvals and
-partial replies survive baseline/current/baseline reopen. Two real component
-processes stop/drain/restart against a local fake provider, then previous storage
-code reopens the same recovered process database. This does not establish every
-historical pending-state shape or live-provider behavior.
+partial replies survive baseline/current/baseline reopen. Two current component
+processes run against a local fake provider, with a pinned previous-code storage
+reader between them. The first process stops and drains with partial delivery;
+all current database handles close before the reader checks the same pending
+state. The second current process resumes the remaining saved bytes, stops and
+drains, and previous storage code checks the completed delivery fence. Pending
+approval and unfinished conversation state remain unchanged. This exercises
+previous storage code, not a previous Discord transport, and does not establish
+every historical pending-state shape or live-provider behavior.
 
 Provider deduplication is bounded. Preserve the current per-channel ordering,
 stable nonces, authenticated delivery observations and retry/refusal rules. An

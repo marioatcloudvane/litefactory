@@ -44,8 +44,12 @@ compatible code with the same configuration and let it reconcile saved state.
 
 The extraction's controlled tests cover baseline/current/baseline database
 reopen, saved replies and approvals, plus real component process cancellation,
-drain and restart against a local fake Discord provider. The same process
-rehearsal database is reopened by compatible previous storage code. Details and
+drain and restart against a local fake Discord provider. Between the two current
+component processes, compatible previous storage code opens the same pending
+database with all current database handles closed; current code then resumes
+remaining saved delivery. A final previous-code read checks the completed
+fence and retained pending approval and unfinished conversation. These checks
+exercise previous storage code, not a previous Discord transport. Details and
 limits are in [conversation evidence](conversation-evidence.md#discord-component-extraction)
 and the [recovery fixture](../internal/store/testdata/discord-component-recovery/README.md).
 They do not certify every historical installation, native provider state format

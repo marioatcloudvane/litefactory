@@ -3,6 +3,7 @@ package discordcomponent_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -54,7 +55,11 @@ func TestDiscordComponentProcessStopDrainRestart(t *testing.T) {
 	database := filepath.Join(directory, "pending.db")
 	db, err := store.Open(ctx, database)
 	processRequire(t, err)
-	defer func() { processRequire(t, db.Close()) }()
+	defer func() {
+		if db != nil {
+			processRequire(t, db.Close())
+		}
+	}()
 	processRequire(t, db.Migrate(ctx))
 	pkg, err := instructionpackage.ShippedConversationPackage(ctx)
 	processRequire(t, err)
@@ -75,6 +80,22 @@ func TestDiscordComponentProcessStopDrainRestart(t *testing.T) {
 	processRequire(t, err)
 	processRequire(t, db.SaveConversationSession(ctx, turn, "retained-native-session"))
 	processRequire(t, db.CompleteConversationAnswer(ctx, turn, "completed", store.ConversationAnswer{ID: "process-answer", Version: 1, Blocks: "[]"}, []store.ConversationAnswerPart{{Text: "first saved bytes"}, {Text: "second saved bytes"}}, at))
+	unfinished, err := db.EnsureConversationWithCapture(ctx, store.Conversation{Transport: "discord", ChannelRef: "201", OwnerID: "100", Name: "unfinished", Provider: "claude", StateDir: filepath.Join(directory, "unfinished-native")}, raw, at)
+	processRequire(t, err)
+	processRequire(t, db.ActivateNaturalScan(ctx, "201", "100"))
+	unfinishedScan, err := db.ReadNaturalScan(ctx, "201")
+	processRequire(t, err)
+	processRequire(t, db.StageNaturalScan(ctx, unfinishedScan, store.NaturalScan{ChannelRef: "201", Cursor: "100", HighWater: "301"}, []store.NaturalMessage{{ChannelRef: "201", SourceID: "301", OwnerID: "100", Text: "unfinished retained input", CreatedAt: at}}, true))
+	_, err = db.AdmitConversationTurn(ctx, unfinished.ID, "301", "unfinished retained envelope", at)
+	processRequire(t, err)
+	unfinishedTurn, err := db.ClaimConversationTurn(ctx, unfinished.ID, "stopped-fixture-worker", at, time.Hour)
+	processRequire(t, err)
+	processRequire(t, db.SaveConversationSession(ctx, unfinishedTurn, "unfinished-native-session"))
+	_, err = db.UpsertIdentity(ctx, store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH})
+	processRequire(t, err)
+	owner, err := db.ConnectorOwner(ctx, 42)
+	processRequire(t, err)
+	processRequire(t, db.CreateOwnerAction(ctx, store.OwnerAction{ID: "process-approval", PolicyVersion: 1, Principal: store.OwnerActionPrincipal{OwnerID: "42", OwnerGeneration: owner.Generation, Transport: "discord", ChannelID: "200", DiscordOwnerID: "100"}, RequestKey: "process-request", RequestDigest: "protected-request", Facts: `{"revision":"saved"}`, Payload: `{"exact":"saved protected payload"}`, Digest: "saved-digest", Scope: "standards:management", Tier: "conversational", State: "awaiting_confirmation", CreatedAt: at, AvailableAt: at, ConfirmNotBefore: at.Add(5 * time.Second), ExpiresAt: at.Add(15 * time.Minute), ExecutionID: "owner-action:process-approval"}))
 	var mu sync.Mutex
 	restarted := false
 	var nonces []string
@@ -171,6 +192,7 @@ func TestDiscordComponentProcessStopDrainRestart(t *testing.T) {
 			t.Fatal("missing completed drain")
 		}
 	}
+	t.Log("phase: start new-code component with partial reply, unfinished conversation and pending approval")
 	first := start("before")
 	wait(func() bool {
 		parts, err := db.ReadConversationAnswerParts(ctx, "process-answer")
@@ -181,10 +203,34 @@ func TestDiscordComponentProcessStopDrainRestart(t *testing.T) {
 		return err == nil && reply.State == "pending" && reply.Attempts > 0
 	})
 	stop(first, "before")
+	t.Log("phase: first new-code component stopped and drained")
 	parts, err := db.ReadConversationAnswerParts(ctx, "process-answer")
 	processRequire(t, err)
 	if parts[0].AcknowledgedAt.IsZero() || !parts[1].AcknowledgedAt.IsZero() {
 		t.Fatal("drain lost partial acknowledgment")
+	}
+	pending := readProcessSnapshot(t, db)
+	if pending.Proposal.State != "awaiting_confirmation" || pending.UnfinishedTurn.State != "running" || !pending.Answer.CompletedAt.IsZero() {
+		t.Fatal("rollback must begin with pending approval, unfinished turn and partial delivery")
+	}
+	writeProcessSnapshot(t, directory, "pending-manifest.json", pending)
+	writeProcessSnapshot(t, directory, "process-manifest.json", pending)
+	if baseline := os.Getenv("LF_DISCORD_BASELINE_READER"); baseline != "" {
+		processRequire(t, db.Close())
+		db = nil
+		reader := exec.CommandContext(ctx, baseline, "-test.run=^TestDiscordComponentProcessRollback$", "-test.timeout=20s", "-test.v")
+		reader.Env = append(os.Environ(), "LF_DISCORD_PROCESS_EXPORT="+directory)
+		output, runErr := reader.CombinedOutput()
+		processRequire(t, os.WriteFile(filepath.Join(directory, "baseline-pending-read.log"), output, 0600))
+		if runErr != nil {
+			t.Fatalf("previous-code pending-state reopen failed: %v\n%s", runErr, output)
+		}
+		db, err = store.Open(ctx, database)
+		processRequire(t, err)
+		if actual := readProcessSnapshot(t, db); !reflect.DeepEqual(actual, pending) {
+			t.Fatal("previous-code reopen changed pending state before new-code resume")
+		}
+		t.Log("new code stopped; previous code reopened unchanged pending conversations, delivery and approval; resuming new code")
 	}
 	mu.Lock()
 	restarted = true
@@ -195,6 +241,7 @@ func TestDiscordComponentProcessStopDrainRestart(t *testing.T) {
 		return err == nil && !answer.CompletedAt.IsZero()
 	})
 	stop(second, "after")
+	t.Log("phase: resumed new-code component delivered remaining saved reply and stopped/drained")
 	after, err := db.ReadConversation(ctx, "discord", "200")
 	processRequire(t, err)
 	if after.ID != conversation.ID || after.SessionHandle != "retained-native-session" || after.StateDir != conversation.StateDir {
@@ -205,22 +252,11 @@ func TestDiscordComponentProcessStopDrainRestart(t *testing.T) {
 	if !reflect.DeepEqual(retained, raw) {
 		t.Fatal("restart replaced captured instructions")
 	}
-	answer, err := db.ReadConversationAnswer(ctx, "discord", "100", "200", "process-answer")
-	processRequire(t, err)
-	parts, err = db.ReadConversationAnswerParts(ctx, "process-answer")
-	processRequire(t, err)
-	finished, err := db.LatestConversationTurn(ctx, after.ID)
-	processRequire(t, err)
-	snapshot := struct {
-		Conversation store.Conversation
-		Capture      []byte
-		Turn         store.ConversationTurn
-		Answer       store.ConversationAnswer
-		Parts        []store.ConversationAnswerPart
-	}{after, retained, finished, answer, parts}
-	encoded, err := json.Marshal(snapshot)
-	processRequire(t, err)
-	processRequire(t, os.WriteFile(filepath.Join(directory, "process-manifest.json"), encoded, 0600))
+	completed := readProcessSnapshot(t, db)
+	if !reflect.DeepEqual(completed.Proposal, pending.Proposal) || !reflect.DeepEqual(completed.Unfinished, pending.Unfinished) || !reflect.DeepEqual(completed.UnfinishedTurn, pending.UnfinishedTurn) || !reflect.DeepEqual(completed.UnfinishedCapture, pending.UnfinishedCapture) {
+		t.Fatal("new-code resume changed pending approval or unfinished conversation")
+	}
+	writeProcessSnapshot(t, directory, "process-manifest.json", completed)
 	mu.Lock()
 	defer mu.Unlock()
 	if firstSends != 1 || secondSends < 2 || len(nonces) < 2 {
@@ -231,6 +267,7 @@ func TestDiscordComponentProcessStopDrainRestart(t *testing.T) {
 			t.Fatal("retry changed nonce")
 		}
 	}
+	t.Logf("effect observations: first part sends=%d; second part attempts=%d; retry nonce unchanged; pending approval and unfinished conversation unchanged", firstSends, secondSends)
 }
 
 func runDiscordProcessChild(t *testing.T) {
@@ -244,9 +281,9 @@ func runDiscordProcessChild(t *testing.T) {
 	db, err := store.Open(ctx, database)
 	processRequire(t, err)
 	component, err := discordcomponent.New(discordcomponent.Options{
-		Credentials: discordcomponent.Credentials{Settings: config.DiscordChat{Enabled: true, ApplicationID: "500", PublicKey: strings.Repeat("00", 32), OwnerID: "100", ChannelIDs: []string{"200"}}, Token: secrets.NewToken("offline-process-token"), APIURL: base, Client: &http.Client{Timeout: 5 * time.Second}},
+		Credentials: discordcomponent.Credentials{Settings: config.DiscordChat{Enabled: true, ApplicationID: "500", PublicKey: strings.Repeat("00", 32), OwnerID: "100", ChannelIDs: []string{"200", "201"}}, Token: secrets.NewToken("offline-process-token"), APIURL: base, Client: &http.Client{Timeout: 5 * time.Second}},
 		Storage:     messagingstorage.New(db), Factory: factory.NewMessaging(db), Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "200", Name: "saved", Provider: "claude", Model: "offline"}}, StateRoot: directory},
+		Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "200", Name: "saved", Provider: "claude", Model: "offline"}, {Channel: "201", Name: "unfinished", Provider: "claude", Model: "offline"}}, StateRoot: directory},
 	})
 	processRequire(t, err)
 	component.Serve(ctx)
@@ -259,4 +296,57 @@ func runDiscordProcessChild(t *testing.T) {
 	processRequire(t, os.WriteFile(filepath.Join(directory, os.Getenv("LF_DISCORD_PROCESS_PHASE")+".drained"), []byte("joined and admission stopped"), 0600))
 	_, err = fmt.Fprintln(os.Stdout, "component cancellation joined all workers before database close")
 	processRequire(t, err)
+}
+
+type processSnapshot struct {
+	Conversation      store.Conversation
+	Capture           []byte
+	Turn              store.ConversationTurn
+	Answer            store.ConversationAnswer
+	Parts             []store.ConversationAnswerPart
+	Reply             store.ChatReply
+	Proposal          store.OwnerAction
+	Unfinished        store.Conversation
+	UnfinishedCapture []byte
+	UnfinishedTurn    store.ConversationTurn
+}
+
+func readProcessSnapshot(t *testing.T, db *store.DB) (snapshot processSnapshot) {
+	t.Helper()
+	ctx := t.Context()
+	var err error
+	snapshot.Conversation, err = db.ReadConversation(ctx, "discord", "200")
+	processRequire(t, err)
+	snapshot.Capture, _, err = db.ReadConversationCapture(ctx, snapshot.Conversation.ID)
+	processRequire(t, err)
+	snapshot.Turn, err = db.LatestConversationTurn(ctx, snapshot.Conversation.ID)
+	processRequire(t, err)
+	snapshot.Answer, err = db.ReadConversationAnswer(ctx, "discord", "100", "200", "process-answer")
+	processRequire(t, err)
+	snapshot.Parts, err = db.ReadConversationAnswerParts(ctx, "process-answer")
+	processRequire(t, err)
+	if len(snapshot.Parts) != 2 {
+		t.Fatal("missing saved answer parts")
+	}
+	snapshot.Reply, err = db.ReadChatReply(ctx, "discord", snapshot.Parts[1].ReplyID)
+	processRequire(t, err)
+	snapshot.Proposal, err = db.ReadOwnerAction(ctx, "process-approval")
+	processRequire(t, err)
+	snapshot.Unfinished, err = db.ReadConversation(ctx, "discord", "201")
+	processRequire(t, err)
+	snapshot.UnfinishedCapture, _, err = db.ReadConversationCapture(ctx, snapshot.Unfinished.ID)
+	processRequire(t, err)
+	snapshot.UnfinishedTurn, err = db.LatestConversationTurn(ctx, snapshot.Unfinished.ID)
+	processRequire(t, err)
+	if _, err = db.ReadNaturalExecution(ctx, snapshot.Proposal.ExecutionID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("pending approval gained execution authority: %v", err)
+	}
+	return snapshot
+}
+
+func writeProcessSnapshot(t *testing.T, directory, name string, snapshot processSnapshot) {
+	t.Helper()
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	processRequire(t, err)
+	processRequire(t, os.WriteFile(filepath.Join(directory, name), data, 0600))
 }

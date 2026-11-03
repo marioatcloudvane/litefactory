@@ -1,0 +1,18 @@
+{
+  "command": [
+    "make",
+    "fmt"
+  ],
+  "base_head": "95e970f0ca06b40dd04d8aff459ff4c0f9e9715d",
+  "source_manifest_sha256": "27af277f9ab903086ca34bdb6fab39b27cac236aa7b4bdd6313176748c2d9810",
+  "started_at": "2026-11-03T15:08:25.316980+00:00",
+  "timeout_seconds": 120,
+  "go_version": "go version go1.27.0 darwin/arm64",
+  "environment": {
+    "GOFLAGS": "-trimpath",
+    "GOLANGCI_LINT_CACHE": "isolated temporary cache"
+  },
+  "exit_code": 0,
+  "finished_at": "2026-11-03T15:08:25.971671+00:00",
+  "log_sha256": "075665f5b9c7d291d519a17e5aa7287d173b906116196bc9b57c73b85f1da327"
+}

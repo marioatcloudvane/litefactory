@@ -22,8 +22,13 @@ Run `python3 scripts/discord-component-recovery.py rehearse` to perform:
    pending approval without creating an execution.
 3. Baseline reopen of that recovered database against the recorded current
    state, proving that compatible previous code can read the recovery outcome.
-4. Current component process stop/drain/restart, followed by baseline reopen of
-   that same process database and comparison of its saved recovery outcome.
+4. New component start and stop/drain while a reply remains partially delivered,
+   a separate conversation turn remains unfinished and an approval remains pending.
+5. Pinned previous-code storage reopen of that exact pending database, comparing
+   captures, native identities, unfinished turn, reply bytes/acknowledgments/retry
+   state and approval, without creating execution authority.
+6. New component resume, delivery of only the remaining reply with the same
+   nonce, then stop/drain and another previous-code read of the completed fence.
 
 Each command runs a separate bounded process. Baseline code is extracted with
 `git archive` into a temporary directory; the branch and worktree never change.
@@ -33,17 +38,28 @@ and exercises the saved-byte recovery assertions without needing git history.
 `TestDiscordComponentProcessStopDrainRestart` separately exercises the extracted
 component in two real child processes against an isolated database and a local
 fake Discord HTTP server. It observes the first reply acknowledgment, a 429 on
-the second reply, cancellation and worker join before database close, then a new
-process delivering the remaining saved bytes with the same nonce. It also checks
+the second reply, cancellation and worker join before database close. During the
+script rehearsal, the baseline reader opens unchanged pending state before the
+new process resumes and delivers the remaining saved bytes with the same nonce. It also checks
 that admission is unavailable after drain and that native identity and captured
 instructions survive. No model provider is installed, and no live credentials
 or services are used.
 
+Use `--evidence-dir /absolute/evidence/directory` with `rehearse` to retain the
+pending and completed manifests, child logs, drain markers, baseline reader log
+and baseline commit. The database stays temporary. Manifests contain fixture
+state and captured instruction integrity data, not live provider credentials.
+Verbose output names the phases and effect counts. The standalone component
+test exercises stop/restart; the script supplies the compiled baseline reader
+needed for the intervening previous-code check.
+
 These checks passed during implementation on 2026-11-03. They cover one known
 baseline and constructed pending states, not all historical installations or
-native provider state formats. The process rehearsal database is reopened by the baseline storage implementation
-after both component processes exit; it does not launch a previous Discord
-transport or simulate a running native subprocess. The unfinished-turn fixture checks
-its recovery identity after the baseline process exits; a lease alone never
-proves process exit. Provider deduplication outside its bounded nonce window and
+native provider state formats. The process rehearsal database is reopened by the
+baseline storage implementation between the new component processes and after
+final drain; it does not launch a previous Discord transport or simulate a
+running native subprocess. Its separate unfinished turn has a future lease and
+is compared unchanged rather than replayed. The baseline fixture separately
+checks expired unfinished-turn identity after the baseline process exits; a
+lease alone never proves process exit. Provider deduplication outside its bounded nonce window and
 uncertain remote effects remain subject to the existing delivery guarantees.
