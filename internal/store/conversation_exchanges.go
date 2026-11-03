@@ -4,18 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"time"
 )
 
 // ConversationExchange is private evidence for one bounded provider step.
 // Request and Result contain validated, redacted JSON owned by the factory.
-type ConversationExchange struct {
-	TurnID                                       string
-	Ordinal                                      int
-	Kind, Request, Result, ProviderAttempt, Gaps string
-	CapturedAt                                   time.Time
-	Complete                                     bool
-}
+type ConversationExchange = messagingstate.ConversationExchange
 
 func conversationFence(ctx context.Context, tx *sql.Tx, t ConversationTurn) error {
 	var n int
@@ -68,10 +63,7 @@ func (db *DB) ListConversationExchanges(ctx context.Context, turnID string) ([]C
 }
 
 // ConversationReference binds source bytes or a target revision to its scope.
-type ConversationReference struct {
-	ID, TurnID, Kind, Repository, Target, Revision, Content string
-	ExpiresAt                                               time.Time
-}
+type ConversationReference = messagingstate.ConversationReference
 
 // SaveConversationReference pins exact source data or a resolved target under a fenced turn.
 func (db *DB) SaveConversationReference(ctx context.Context, t ConversationTurn, r ConversationReference) error {
@@ -103,10 +95,7 @@ func (db *DB) ResolveConversationReference(ctx context.Context, conversationID, 
 }
 
 // ConversationActionLink preserves proposal and saved effect identities independently of narration.
-type ConversationActionLink struct {
-	TurnID, DialogueID, ExecutionID, PreviewID, PayloadDigest, Outcome string
-	DialogueRevision                                                   int64
-}
+type ConversationActionLink = messagingstate.ConversationActionLink
 
 // SaveConversationActionLink links a fenced turn to an immutable proposal or saved effect.
 func (db *DB) SaveConversationActionLink(ctx context.Context, t ConversationTurn, a ConversationActionLink) error {

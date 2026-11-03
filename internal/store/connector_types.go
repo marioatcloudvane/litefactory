@@ -1,277 +1,112 @@
 package store
 
 import (
-	"errors"
-	"fmt"
-	"slices"
-	"strings"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 )
 
-// Connector failures distinguish invalid authorization from unavailable storage.
-var (
-	ErrConnectorScope    = errors.New("store: connector scope insufficient")
-	ErrConnectorInvalid  = errors.New("store: invalid connector authorization")
-	ErrConnectorCapacity = errors.New("store: connector capacity reached")
-	ErrConnectorOwner    = errors.New("store: connector owner unavailable or mismatched")
-)
+// ConnectorOwner retains the connector-owned compatibility value.
+// Compatibility names preserve serialized records; store owns atomic persistence only.
+type ConnectorOwner = connectorstate.ConnectorOwner
 
-// ConnectorOwner is the irreversible generation of installation owner authority.
-type ConnectorOwner struct{ OwnerID, Generation int64 }
+// ConnectorClient retains the connector-owned compatibility value.
+type ConnectorClient = connectorstate.ConnectorClient
 
-// ConnectorClient contains registration metadata and only a secret digest.
-type ConnectorClient struct {
-	ID, Name, AuthMethod, SecretDigest string
-	Redirects                          []string
-	CreatedAt, ExpiresAt               time.Time
-}
+// ConnectorBrowser retains the connector-owned compatibility value.
+type ConnectorBrowser = connectorstate.ConnectorBrowser
 
-// ConnectorBrowser binds one browser transaction to its OAuth request.
-type ConnectorBrowser struct {
-	ID, ClientID, RedirectURI, State, Resource, Scope, PKCEChallenge string
-	NonceDigest, UpstreamStateDigest                                 string
-	OwnerGeneration                                                  int64
-	Verified                                                         bool
-	ExpiresAt                                                        time.Time
-}
+// ConnectorGrantTarget retains the connector-owned compatibility value.
+type ConnectorGrantTarget = connectorstate.ConnectorGrantTarget
 
-// ConnectorGrantTarget is a locally recorded task, resolved on each call.
-type ConnectorGrantTarget struct {
-	TaskRef, RepositoryRef string
-	SessionID, RepoID      int64
-}
+// ConnectorUsageTarget retains the connector-owned compatibility value.
+type ConnectorUsageTarget = connectorstate.ConnectorUsageTarget
 
-// ConnectorUsageTarget is the repository or task a usage read resolved to.
-type ConnectorUsageTarget struct {
-	Scope, TaskRef, RepositoryRef string
-	SessionID, RepoID             int64
-}
+// ConnectorRepository retains the connector-owned compatibility value.
+type ConnectorRepository = connectorstate.ConnectorRepository
 
-// ConnectorRepository names one registered repository by its local identity
-// and canonical reference (forge:owner/name).
-type ConnectorRepository struct {
-	RepositoryRef string
-	RepoID        int64
-}
+// ConnectorCoverage retains the connector-owned compatibility value.
+type ConnectorCoverage = connectorstate.ConnectorCoverage
 
-// ConnectorCoverage says which registered repositories a grant's task-level
-// and repository-level scopes cover. All includes repositories registered
-// later; otherwise only the listed repositories are covered.
-type ConnectorCoverage struct {
-	Repositories []ConnectorRepository
-	All          bool
-}
+// ConnectorGrant retains the connector-owned compatibility value.
+type ConnectorGrant = connectorstate.ConnectorGrant
 
-// Covers reports whether the registered repository is covered. A listed
-// repository counts only while its identity and reference both still match.
-func (c *ConnectorCoverage) Covers(repoID int64, repositoryRef string) bool {
-	if c == nil {
-		return false
-	}
-	if c.All {
-		return true
-	}
-	return slices.ContainsFunc(c.Repositories, func(r ConnectorRepository) bool {
-		return r.RepoID == repoID && r.RepositoryRef == repositoryRef
-	})
-}
+// ConnectorRefusal retains the connector-owned compatibility value.
+type ConnectorRefusal = connectorstate.ConnectorRefusal
 
-// ConnectorGrant is a consented, absolute-expiry family of read credentials.
-// Coverage is set when the scope includes a task-level or repository-level
-// scope (ConnectorRepositoryScoped).
-type ConnectorGrant struct {
-	Coverage                      *ConnectorCoverage
-	ActionCoverage                *ConnectorCoverage
-	ID, ClientID, Resource, Scope string
-	OwnerID, OwnerGeneration      int64
-	CreatedAt, ExpiresAt          time.Time
-}
+// ConnectorCode retains the connector-owned compatibility value.
+type ConnectorCode = connectorstate.ConnectorCode
 
-// ConnectorRefusal is an authorization refusal with a plain reason the owner
-// or client can act on, such as "task not found: …". The reason names only
-// references the caller supplied or may see; it never carries credentials or
-// local paths. errors.Is matches its kind (ErrConnectorInvalid or
-// ErrConnectorScope).
-//
-// Code, when set, is a fixed short code for the audit log (for example
-// "repository_not_registered"); unlike Reason it never quotes input.
-type ConnectorRefusal struct {
-	kind   error
-	Reason string
-	Code   string
-}
+// ConnectorTokenPair retains the connector-owned compatibility value.
+type ConnectorTokenPair = connectorstate.ConnectorTokenPair
 
-func (e *ConnectorRefusal) Error() string { return e.Reason }
-func (e *ConnectorRefusal) Unwrap() error { return e.kind }
+// ConnectorExchange retains the connector-owned compatibility value.
+type ConnectorExchange = connectorstate.ConnectorExchange
+
+// ConnectorGrantSummary retains the connector-owned compatibility value.
+type ConnectorGrantSummary = connectorstate.ConnectorGrantSummary
+
+// ErrConnectorScope retains the connector-owned compatibility value.
+var ErrConnectorScope = connectorstate.ErrConnectorScope
+
+// ErrConnectorInvalid retains the connector-owned compatibility value.
+var ErrConnectorInvalid = connectorstate.ErrConnectorInvalid
+
+// ErrConnectorCapacity retains the connector-owned compatibility value.
+var ErrConnectorCapacity = connectorstate.ErrConnectorCapacity
+
+// ErrConnectorOwner retains the connector-owned compatibility value.
+var ErrConnectorOwner = connectorstate.ErrConnectorOwner
+
+// ConnectorMaxGrantMonths retains the connector-owned compatibility value.
+const ConnectorMaxGrantMonths = connectorstate.ConnectorMaxGrantMonths
 
 func connectorRefused(kind error, format string, args ...any) error {
-	return &ConnectorRefusal{kind: kind, Reason: fmt.Sprintf(format, args...)}
+	return connectorstate.Refused(kind, format, args...)
 }
-
 func connectorRefusedCode(kind error, code, format string, args ...any) error {
-	return &ConnectorRefusal{kind: kind, Reason: fmt.Sprintf(format, args...), Code: code}
+	return connectorstate.RefusedCode(kind, code, format, args...)
 }
-
-// ConnectorRefusalCode returns the audit code of a refusal: its Code, or
-// "refused" for a refusal without one. It returns "" when err is not a
-// refusal.
-func ConnectorRefusalCode(err error) string {
-	var refusal *ConnectorRefusal
-	if !errors.As(err, &refusal) {
-		return ""
-	}
-	if refusal.Code == "" {
-		return "refused"
-	}
-	return refusal.Code
-}
-
-// ConnectorRefusalReason returns the plain reason of a refusal, or "" when err
-// is not one.
-func ConnectorRefusalReason(err error) string {
-	var refusal *ConnectorRefusal
-	if errors.As(err, &refusal) {
-		return refusal.Reason
-	}
-	return ""
-}
-
-// connectorRepositoryScopes are the scopes whose reach is limited to the
-// grant's repository coverage.
-var connectorRepositoryScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, connectorRepositoryUsageScope, connectorTaskUsageScope, "task:advisory", "task:discussion-publish"}
-
-// ConnectorRepositoryScoped reports whether scope includes a task-level or
-// repository-level scope and therefore needs repository coverage.
-func ConnectorRepositoryScoped(scope string) bool {
-	return slices.ContainsFunc(connectorRepositoryScopes, func(s string) bool { return ConnectorScopeHas(scope, s) })
-}
-
-// ConnectorCode is a single-use, digest-only authorization code.
-type ConnectorCode struct {
-	Digest, GrantID, ClientID, RedirectURI, Resource, Scope, PKCEChallenge string
-	ExpiresAt                                                              time.Time
-}
-
-// ConnectorTokenPair is generated by the service before an atomic transition.
-type ConnectorTokenPair struct {
-	AccessDigest, RefreshDigest string
-	AccessExpiresAt             time.Time
-}
-
-// ConnectorMaxGrantMonths is the longest grant lifetime the owner can choose on
-// the consent page. A month is a calendar month in UTC (time.AddDate).
-const ConnectorMaxGrantMonths = 24
-
-// ConnectorGrantExpiry is the absolute expiry of a grant consented at now for
-// the given number of calendar months: now.UTC().AddDate(0, months, 0). Go
-// normalizes a day that does not exist in the target month forward, so
-// 31 January plus one month is 3 March (2 March in a leap year).
-func ConnectorGrantExpiry(now time.Time, months int) time.Time {
-	return now.UTC().AddDate(0, months, 0)
-}
-
-// ConnectorMaxGrantExpiry is the latest expiry the store accepts for a grant
-// created at now.
-func ConnectorMaxGrantExpiry(now time.Time) time.Time {
-	return ConnectorGrantExpiry(now, ConnectorMaxGrantMonths)
-}
-
-// ConnectorScopes splits an RFC 6749 scope string (scope tokens separated by
-// single spaces). It reports false for an empty set, an empty token or a
-// repeated token.
-func ConnectorScopes(scope string) ([]string, bool) {
-	if scope == "" {
-		return nil, false
-	}
-	tokens := strings.Split(scope, " ")
-	seen := make(map[string]bool, len(tokens))
-	for _, token := range tokens {
-		if token == "" || seen[token] {
-			return nil, false
-		}
-		seen[token] = true
-	}
-	return tokens, true
-}
-
-// ConnectorScopeHas reports whether a valid scope string contains token.
-func ConnectorScopeHas(scope, token string) bool {
-	tokens, ok := ConnectorScopes(scope)
-	if !ok {
-		return false
-	}
-	for _, t := range tokens {
-		if t == token {
-			return true
-		}
-	}
-	return false
-}
-
-// ConnectorScopeSubset reports whether sub is a valid, non-empty scope string
-// whose every token appears in the valid scope string super.
-func ConnectorScopeSubset(sub, super string) bool {
-	tokens, ok := ConnectorScopes(sub)
-	if !ok {
-		return false
-	}
-	for _, token := range tokens {
-		if !ConnectorScopeHas(super, token) {
-			return false
-		}
-	}
-	return true
-}
-
-// connectorKnownScopes is every scope a grant may carry. It mirrors
-// connector.KnownScopes (a connector test keeps the two in step); the store
-// refuses a grant naming anything else.
-var connectorKnownScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, "factory:overview", connectorFactoryUsageScope, connectorRepositoryUsageScope, connectorTaskUsageScope, "repository:actions", "standards:management", "task:advisory", "task:discussion-publish"}
-
-// ConnectorKnownScopes returns the scopes the store accepts on a grant.
-func ConnectorKnownScopes() []string { return slices.Clone(connectorKnownScopes) }
-
-// connectorScopeKnown reports whether scope is a valid, non-empty scope string
-// whose every token is a known scope.
-func connectorScopeKnown(scope string) bool {
-	tokens, ok := ConnectorScopes(scope)
-	if !ok {
-		return false
-	}
-	for _, token := range tokens {
-		if !slices.Contains(connectorKnownScopes, token) {
-			return false
-		}
-	}
-	return true
-}
-
-// connectorScopeMatches accepts an empty request (the grant's own scope
-// applies) or a request naming a non-empty subset of the grant's scope. The
-// issued tokens always carry the grant's whole scope, which the token
-// response returns (RFC 6749 §3.3): the owner may have granted scopes the
-// client never asked for, and a client that repeats its original request at
-// the token endpoint must not lose access the owner gave it.
+func connectorScopeKnown(scope string) bool { return connectorstate.ScopeKnown(scope) }
 func connectorScopeMatches(requested, granted string) bool {
-	return requested == "" || ConnectorScopeSubset(requested, granted)
+	return connectorstate.ScopeMatches(requested, granted)
 }
 
-// ConnectorExchange binds a code or refresh credential to the authenticated client.
-// Scope is the scope the client asked for; empty means the grant's scope.
-type ConnectorExchange struct {
-	Digest, ClientID, RedirectURI, Resource, Scope, PKCEChallenge string
-	OwnerID                                                       int64
-	Now                                                           time.Time
-	Pair                                                          ConnectorTokenPair
+// ConnectorRefusalCode delegates to the connector-owned value contract.
+func ConnectorRefusalCode(err error) string { return connectorstate.ConnectorRefusalCode(err) }
+
+// ConnectorRefusalReason delegates to the connector-owned value contract.
+func ConnectorRefusalReason(err error) string { return connectorstate.ConnectorRefusalReason(err) }
+
+// ConnectorRepositoryScoped delegates to the connector-owned value contract.
+func ConnectorRepositoryScoped(scope string) bool {
+	return connectorstate.ConnectorRepositoryScoped(scope)
 }
 
-// ConnectorGrantSummary omits all credential material and browser state.
-// Repositories lists the covered repository references of a grant that does
-// not cover all repositories; it is filled only by local inspection.
-type ConnectorGrantSummary struct {
-	Repositories                              []string
-	ActionRepositories                        []string
-	AllRepositories                           bool
-	ID, ClientID, ClientName, Resource, Scope string
-	CreatedAt, ExpiresAt, RevokedAt           time.Time
+// ConnectorGrantExpiry delegates to the connector-owned value contract.
+func ConnectorGrantExpiry(now time.Time, months int) time.Time {
+	return connectorstate.ConnectorGrantExpiry(now, months)
 }
+
+// ConnectorMaxGrantExpiry delegates to the connector-owned value contract.
+func ConnectorMaxGrantExpiry(now time.Time) time.Time {
+	return connectorstate.ConnectorMaxGrantExpiry(now)
+}
+
+// ConnectorScopes delegates to the connector-owned value contract.
+func ConnectorScopes(scope string) ([]string, bool) { return connectorstate.ConnectorScopes(scope) }
+
+// ConnectorScopeHas delegates to the connector-owned value contract.
+func ConnectorScopeHas(scope, token string) bool {
+	return connectorstate.ConnectorScopeHas(scope, token)
+}
+
+// ConnectorScopeSubset delegates to the connector-owned value contract.
+func ConnectorScopeSubset(sub, super string) bool {
+	return connectorstate.ConnectorScopeSubset(sub, super)
+}
+
+// ConnectorKnownScopes delegates to the connector-owned value contract.
+func ConnectorKnownScopes() []string { return connectorstate.ConnectorKnownScopes() }
+
+var connectorRepositoryScopes = connectorstate.RepositoryScopes()

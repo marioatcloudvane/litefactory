@@ -3,6 +3,8 @@ package response
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"os"
 	"strings"
 	"testing"
@@ -39,15 +41,15 @@ type authorLedger struct {
 	finished          bool
 }
 
-func (*authorLedger) StartChatMeterAttempt(context.Context, int64, string) (store.MeterAttempt, error) {
-	return store.MeterAttempt{}, errors.New("authoring cannot fabricate chat ownership")
+func (*authorLedger) StartChatMeterAttempt(context.Context, int64, string) (contracts.ResponseMeterAttempt, error) {
+	return contracts.ResponseMeterAttempt{}, errors.New("authoring cannot fabricate chat ownership")
 }
-func (l *authorLedger) StartAuthoringMeterAttempt(_ context.Context, session, provider, model, inputDigest, attemptID, token string) (store.MeterAttempt, error) {
+func (l *authorLedger) StartAuthoringMeterAttempt(_ context.Context, session, provider, model, inputDigest, attemptID, token string) (contracts.ResponseMeterAttempt, error) {
 	if model == "" || len(inputDigest) != 64 {
-		return store.MeterAttempt{}, errors.New("missing prepared input or model")
+		return contracts.ResponseMeterAttempt{}, errors.New("missing prepared input or model")
 	}
 	l.session, l.provider = session, provider
-	return store.MeterAttempt{ID: "authoring-usage"}, nil
+	return contracts.ResponseMeterAttempt{ID: "authoring-usage"}, nil
 }
 func (*authorLedger) RecordMeterEvent(context.Context, string, string, agent.UsageEvent) error {
 	return nil
@@ -139,7 +141,7 @@ func TestAuthoringMeterLeavesTheConversationOperationOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &authorRunner{verified: true, answer: []byte(`{"schema_version":1}`)}
-	a := &Authoring{Model: &NativeModel{Config: cfg, Paths: config.NewPaths(t.TempDir()), Providers: map[string]ChatRunner{"claude": runner}, Meter: db}}
+	a := &Authoring{Model: &NativeModel{Config: cfg, Paths: config.NewPaths(t.TempDir()), Providers: map[string]ChatRunner{"claude": runner}, Meter: factory.NewResponseMeter(db)}}
 	ctx := store.WithStandardsConversationOperation(t.Context(), o.Key, o.RequestDigest)
 	if _, err = a.Answer(ctx, standards.AuthoringCall{Session: session.ID, Attempt: "attempt", Token: "token", Prompt: "bounded data"}); err != nil {
 		t.Fatal(err)

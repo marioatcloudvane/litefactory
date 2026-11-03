@@ -2,19 +2,18 @@ package ask
 
 import (
 	"context"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"testing"
-
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
-type repoList []store.Repo
+type repoList []contracts.Project
 
-func (r repoList) ListRepos(context.Context) ([]store.Repo, error) { return r, nil }
+func (r repoList) ListRepos(context.Context) ([]contracts.Project, error) { return r, nil }
 
 func TestResolveProjectDefaultsOnlyProject(t *testing.T) {
-	app := store.Repo{ID: 1, Forge: "github", Owner: "acme", Name: "app"}
-	web := store.Repo{ID: 2, Forge: "github", Owner: "acme", Name: "web"}
-	local := store.Repo{ID: 3, Forge: "local", Owner: "acme", Name: "tool"}
+	app := contracts.Project{ID: 1, Forge: "github", Owner: "acme", Name: "app"}
+	web := contracts.Project{ID: 2, Forge: "github", Owner: "acme", Name: "web"}
+	local := contracts.Project{ID: 3, Forge: "local", Owner: "acme", Name: "tool"}
 	got, err := ResolveProject(t.Context(), repoList{app, local}, "", nil)
 	if err != nil || got.Refusal != "" || got.Repository.ID != 1 || got.Inherited {
 		t.Fatalf("single project not defaulted: %+v %v", got, err)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"maps"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 
 // prepareNaturalExecution fences effects before the existing command dispatcher.
 // An interrupted effect is reported honestly rather than replayed blindly.
-func (s *Service) prepareNaturalExecution(ctx context.Context, r *store.ChatReply, at time.Time) (bool, error) {
+func (s *Service) prepareNaturalExecution(ctx context.Context, r *messagingstate.ChatReply, at time.Time) (bool, error) {
 	execution, err := s.db.ReadNaturalExecution(ctx, r.MessageID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -96,7 +97,7 @@ func (s *Service) prepareNaturalExecution(ctx context.Context, r *store.ChatRepl
 }
 
 // finishNaturalOutcome saves the factual result before presentation or delivery.
-func (s *Service) finishNaturalOutcome(ctx context.Context, r store.ChatReply, text string, at time.Time) error {
+func (s *Service) finishNaturalOutcome(ctx context.Context, r messagingstate.ChatReply, text string, at time.Time) error {
 	execution, err := s.db.ReadNaturalExecution(ctx, r.MessageID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil

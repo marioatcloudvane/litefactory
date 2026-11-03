@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/drift"
+	"github.com/cloudvane/litefactory/internal/factory/localstandards"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/gittest"
@@ -55,11 +56,13 @@ func TestDriftEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 		t.Fatal(err)
 	}
 	analyst := &driftFixtureAnalyst{}
-	configure := func(_ context.Context, s *drift.Service, rt *repoRuntime, _ *Env, _ drift.Request) error {
+	configure := func(_ context.Context, s *localstandards.Drift, rt *repoRuntime, _ *Env, _ drift.Request) error {
 		redactor := redact.New(redact.Options{})
 		redactor.AddToken(secrets.NewToken("fixture-secret-value"))
-		s.Acquisition = &drift.Acquirer{Store: rt.db, Git: binary, ClonePath: repo.Dir, Repo: github.Repo{Owner: "acme", Name: "api"}, Discussion: driftFixtureDiscussion{}, Redactor: redactor}
-		s.Runner = analyst
+		if err := s.ConfigureSource(t.Context(), "acme", "api", localstandards.DriftSourceOptions{Git: binary, Discussion: driftFixtureDiscussion{}, Redactor: redactor}); err != nil {
+			return err
+		}
+		s.ConfigureRunner(analyst, "")
 		return nil
 	}
 	run := func(command *Command, args ...string) string {

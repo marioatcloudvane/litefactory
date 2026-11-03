@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"log/slog"
 	"strings"
 	"testing"
@@ -57,7 +59,7 @@ func TestChatResearchOwnerJourney(t *testing.T) {
 	d.forge, d.log = forge, slog.New(slog.DiscardHandler)
 	d.doctor.pool = newPool(1)
 	at := time.Now().UTC()
-	s := messaging.New(f.db, "discord", "7", []string{"2"}, nil, messaging.FactoryStatus{DB: f.db})
+	s := messaging.NewWithServices(messagingstorage.New(f.db), factory.NewMessaging(f.db), "discord", "7", []string{"2"}, nil, factory.NewHealth(f.db))
 	fake := &chatDoctorFixture{}
 	d.chat = &chatRuntime{service: s, diagnoser: fake, redactor: redact.New(redact.Options{Environ: []string{"API_SECRET=chat-owner-secret"}}), notes: map[string]string{}}
 	research := chatResearch{d}
@@ -184,7 +186,7 @@ func TestChatResearchOwnerJourney(t *testing.T) {
 		t.Fatalf("interrupted diagnosis: %+v", r)
 	}
 	fake.started = nil
-	d.chat.service = messaging.New(f.db, "discord", "7", []string{"2"}, nil, messaging.FactoryStatus{DB: f.db})
+	d.chat.service = messaging.NewWithServices(messagingstorage.New(f.db), factory.NewMessaging(f.db), "discord", "7", []string{"2"}, nil, factory.NewHealth(f.db))
 	researchRecoveryCheck(t, f.db.RecoverChatDiagnoses(ctx, "discord", at))
 	d.dispatchChatDiagnosis(ctx, at)
 	d.doctor.pool.wait()
@@ -203,7 +205,7 @@ func TestRecoveredChatDiagnosisWithoutDoctor(t *testing.T) {
 	d, _, _ := doctorDaemonFixture(t)
 	d.doctor.service = nil
 	ctx, at := t.Context(), time.Now().UTC()
-	s := messaging.New(d.db, "discord", "7", []string{"2"}, nil, messaging.FactoryStatus{DB: d.db})
+	s := messaging.NewWithServices(messagingstorage.New(d.db), factory.NewMessaging(d.db), "discord", "7", []string{"2"}, nil, factory.NewHealth(d.db))
 	d.chat = &chatRuntime{service: s, redactor: redact.New(redact.Options{}), notes: map[string]string{}}
 	_, err := d.db.AdmitChatReply(ctx, store.ChatReply{Transport: "discord", MessageID: "1", ChannelRef: "2", Command: "diagnose", CreatedAt: at})
 	researchRecoveryCheck(t, err)

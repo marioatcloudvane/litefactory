@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/alerts"
-	"github.com/cloudvane/litefactory/internal/connector"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -440,26 +440,26 @@ func (s *Service) protect(ctx context.Context, r *Result) error {
 
 // Overview returns the same retained facts in JSON text and structured content.
 // Independent list budgets reserve room for health and coverage in both copies.
-func (s *Service) Overview(ctx context.Context, args json.RawMessage) (connector.ToolResult, error) {
+func (s *Service) Overview(ctx context.Context, args json.RawMessage) (contracts.ToolResult, error) {
 	var input map[string]json.RawMessage
 	if len(bytes.TrimSpace(args)) == 0 || json.Unmarshal(args, &input) != nil || input == nil || len(input) != 0 {
-		return connector.ToolResult{}, errors.New("overview requires empty object")
+		return contracts.ToolResult{}, errors.New("overview requires empty object")
 	}
 	r, err := s.Build(ctx)
 	if err != nil {
-		return connector.ToolResult{}, err
+		return contracts.ToolResult{}, err
 	}
 	raw, err := json.Marshal(r)
 	if err != nil {
-		return connector.ToolResult{}, err
+		return contracts.ToolResult{}, err
 	}
-	result := connector.ToolResult{Content: []connector.TextContent{{Type: "text", Text: string(raw)}}, StructuredContent: raw}
+	result := contracts.ToolResult{Content: []contracts.TextContent{{Type: "text", Text: string(raw)}}, StructuredContent: raw}
 	encoded, err := json.Marshal(result)
 	if err != nil {
-		return connector.ToolResult{}, err
+		return contracts.ToolResult{}, err
 	}
-	if len(encoded) > connector.MaxResponseBytes-connector.MaxRequestBytes-1024 {
-		return connector.ToolResult{}, errors.New("overview exceeds response budget")
+	if len(encoded) > contracts.OverviewProjectionMaxBytes {
+		return contracts.ToolResult{}, errors.New("overview exceeds response budget")
 	}
 	return result, nil
 }

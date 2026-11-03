@@ -7,11 +7,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 const browserCookieName = "__Host-lf_connector"
@@ -43,7 +42,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	client, err := s.db.GetConnectorClient(r.Context(), q.Get("client_id"), s.now())
+	client, err := s.storage.GetConnectorClient(r.Context(), q.Get("client_id"), s.now())
 	if err != nil {
 		storeOAuthError(w, err)
 		return
@@ -59,7 +58,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	owner, err := s.db.ConnectorOwner(r.Context(), s.cfg.OwnerID)
+	owner, err := s.storage.ConnectorOwner(r.Context(), s.cfg.OwnerID)
 	if err != nil {
 		storeOAuthError(w, err)
 		return
@@ -70,14 +69,14 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	b := store.ConnectorBrowser{ID: credentials[0], ClientID: client.ID, RedirectURI: q.Get("redirect_uri"), State: q.Get("state"), Resource: s.cfg.ResourceURL, Scope: scope, PKCEChallenge: q.Get("code_challenge"), NonceDigest: digest(credentials[1]), UpstreamStateDigest: digest(credentials[3]), OwnerGeneration: owner.Generation, ExpiresAt: now.Add(10 * time.Minute)}
+	b := connectorstate.ConnectorBrowser{ID: credentials[0], ClientID: client.ID, RedirectURI: q.Get("redirect_uri"), State: q.Get("state"), Resource: s.cfg.ResourceURL, Scope: scope, PKCEChallenge: q.Get("code_challenge"), NonceDigest: digest(credentials[1]), UpstreamStateDigest: digest(credentials[3]), OwnerGeneration: owner.Generation, ExpiresAt: now.Add(10 * time.Minute)}
 	cookie := browserCookie{Transaction: b.ID, Nonce: credentials[1], Verifier: credentials[2], Expires: b.ExpiresAt.Unix()}
 	encodedCookie, err := s.encodeBrowserCookie(cookie)
 	if err != nil {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
-	if err := s.db.CreateConnectorBrowser(r.Context(), b, s.cfg.OwnerID, now); err != nil {
+	if err := s.storage.CreateConnectorBrowser(r.Context(), b, s.cfg.OwnerID, now); err != nil {
 		storeOAuthError(w, err)
 		return
 	}
@@ -121,7 +120,7 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cookie.Verified || b.Verified || q.Get("error") != "" || q.Get("state") == "" || q.Get("code") == "" || len(q.Get("code")) > 2048 || subtle.ConstantTimeCompare([]byte(digest(q.Get("state"))), []byte(b.UpstreamStateDigest)) != 1 {
-		if err := s.db.AbandonConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, s.now()); err != nil {
+		if err := s.storage.AbandonConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, s.now()); err != nil {
 			storeOAuthError(w, err)
 			return
 		}
@@ -131,7 +130,7 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	ownerID, err := s.github.Verify(r.Context(), q.Get("code"), cookie.Verifier, s.cfg.IssuerURL+"/oauth/github/callback")
 	if err != nil || ownerID != s.cfg.OwnerID {
-		if err := s.db.AbandonConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, s.now()); err != nil {
+		if err := s.storage.AbandonConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, s.now()); err != nil {
 			storeOAuthError(w, err)
 			return
 		}
@@ -139,7 +138,7 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "access_denied")
 		return
 	}
-	if err := s.db.VerifyConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), digest(q.Get("state")), s.cfg.OwnerID, s.now()); err != nil {
+	if err := s.storage.VerifyConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), digest(q.Get("state")), s.cfg.OwnerID, s.now()); err != nil {
 		clearBrowserCookie(w)
 		storeOAuthError(w, err)
 		return
@@ -155,7 +154,7 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
-	client, err := s.db.GetConnectorClient(r.Context(), b.ClientID, s.now())
+	client, err := s.storage.GetConnectorClient(r.Context(), b.ClientID, s.now())
 	if err != nil {
 		storeOAuthError(w, err)
 		return
@@ -165,7 +164,7 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
-	repositories, err := s.db.ListConnectorRepositories(r.Context())
+	repositories, err := s.access.ListConnectorRepositories(r.Context())
 	if err != nil {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
@@ -210,7 +209,7 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 	// anything else is refused with a page naming what was wrong, without a
 	// grant, and leaves the pending consent usable.
 	grantScope, grantExpires := b.Scope, now
-	var coverage, actionCoverage *store.ConnectorCoverage
+	var coverage, actionCoverage *connectorstate.ConnectorCoverage
 	if allow {
 		var ok bool
 		if grantScope, ok = consentScope(form["scope"]); !ok {
@@ -226,12 +225,12 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 			consentRefusal(w, "invalid_request", detail, "choose one of the offered grant durations")
 			return
 		}
-		grantExpires = store.ConnectorGrantExpiry(now, months)
-		if store.ConnectorScopeHas(grantScope, CodeReviewScope) && !store.ConnectorScopeHas(grantScope, DiscussionScope) {
+		grantExpires = connectorstate.ConnectorGrantExpiry(now, months)
+		if connectorstate.ConnectorScopeHas(grantScope, CodeReviewScope) && !connectorstate.ConnectorScopeHas(grantScope, DiscussionScope) {
 			consentRefusal(w, "invalid_scope", "code_review_needs_discussion", CodeReviewScope+" also needs "+DiscussionScope+"; tick both")
 			return
 		}
-		if store.ConnectorScopeHas(grantScope, RepositoryActionsScope) {
+		if connectorstate.ConnectorScopeHas(grantScope, RepositoryActionsScope) {
 			selected, reason, detail := consentActionCoverage(form)
 			if reason != "" {
 				consentRefusal(w, "invalid_request", detail, reason)
@@ -239,7 +238,7 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 			}
 			actionCoverage = &selected
 		}
-		if store.ConnectorRepositoryScoped(grantScope) {
+		if connectorstate.ConnectorRepositoryScoped(grantScope) {
 			selected, reason, detail := consentCoverage(form, grantScope)
 			if reason != "" {
 				consentRefusal(w, "invalid_request", detail, reason)
@@ -258,15 +257,15 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
 		return
 	}
-	grant := store.ConnectorGrant{ID: grantID, ClientID: b.ClientID, Resource: b.Resource, Scope: grantScope, OwnerID: s.cfg.OwnerID, OwnerGeneration: b.OwnerGeneration, CreatedAt: now, ExpiresAt: grantExpires, Coverage: coverage, ActionCoverage: actionCoverage}
-	authorizationCode := store.ConnectorCode{Digest: digest(code), GrantID: grantID, ClientID: b.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: grantScope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: now.Add(5 * time.Minute)}
-	if err := s.db.ConsentConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, now, grant, authorizationCode, allow); err != nil {
-		if reason := store.ConnectorRefusalReason(err); reason != "" {
+	grant := connectorstate.ConnectorGrant{ID: grantID, ClientID: b.ClientID, Resource: b.Resource, Scope: grantScope, OwnerID: s.cfg.OwnerID, OwnerGeneration: b.OwnerGeneration, CreatedAt: now, ExpiresAt: grantExpires, Coverage: coverage, ActionCoverage: actionCoverage}
+	authorizationCode := connectorstate.ConnectorCode{Digest: digest(code), GrantID: grantID, ClientID: b.ClientID, RedirectURI: b.RedirectURI, Resource: b.Resource, Scope: grantScope, PKCEChallenge: b.PKCEChallenge, ExpiresAt: now.Add(5 * time.Minute)}
+	if err := s.storage.ConsentConnectorBrowser(r.Context(), b.ID, digest(cookie.Nonce), s.cfg.OwnerID, now, grant, authorizationCode, allow); err != nil {
+		if reason := connectorstate.ConnectorRefusalReason(err); reason != "" {
 			code := "invalid_request"
-			if errors.Is(err, store.ErrConnectorScope) {
+			if errors.Is(err, connectorstate.ErrConnectorScope) {
 				code = "invalid_scope"
 			}
-			consentRefusal(w, code, store.ConnectorRefusalCode(err), reason)
+			consentRefusal(w, code, connectorstate.ConnectorRefusalCode(err), reason)
 			return
 		}
 		storeOAuthError(w, err)
@@ -304,28 +303,28 @@ func (s *Server) encodeBrowserCookie(value browserCookie) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(sealed), nil
 }
 
-func (s *Server) loadBrowser(r *http.Request) (browserCookie, store.ConnectorBrowser, error) {
+func (s *Server) loadBrowser(r *http.Request) (browserCookie, connectorstate.ConnectorBrowser, error) {
 	var value browserCookie
-	var b store.ConnectorBrowser
+	var b connectorstate.ConnectorBrowser
 	cookies := r.CookiesNamed(browserCookieName)
 	if len(cookies) != 1 || len(cookies[0].Value) > 4096 {
-		return value, b, store.ErrConnectorInvalid
+		return value, b, connectorstate.ErrConnectorInvalid
 	}
 	sealed, err := base64.RawURLEncoding.DecodeString(cookies[0].Value)
 	if err != nil || len(sealed) < s.cookie.NonceSize() {
-		return value, b, store.ErrConnectorInvalid
+		return value, b, connectorstate.ErrConnectorInvalid
 	}
 	nonce := sealed[:s.cookie.NonceSize()]
 	plain, err := s.cookie.Open(nil, nonce, sealed[s.cookie.NonceSize():], []byte(s.cfg.IssuerURL))
 	if err != nil || json.Unmarshal(plain, &value) != nil || s.now().Unix() >= value.Expires {
-		return value, b, store.ErrConnectorInvalid
+		return value, b, connectorstate.ErrConnectorInvalid
 	}
-	b, err = s.db.GetConnectorBrowser(r.Context(), value.Transaction, s.cfg.OwnerID, s.now())
+	b, err = s.storage.GetConnectorBrowser(r.Context(), value.Transaction, s.cfg.OwnerID, s.now())
 	if err != nil {
 		return value, b, err
 	}
 	if subtle.ConstantTimeCompare([]byte(digest(value.Nonce)), []byte(b.NonceDigest)) != 1 {
-		return value, b, store.ErrConnectorInvalid
+		return value, b, connectorstate.ErrConnectorInvalid
 	}
 	return value, b, nil
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -78,7 +79,7 @@ func TestOwnerCodeStandardsConsentToEvidence(t *testing.T) {
 	mustReview(t, err)
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	clock := func() time.Time { return now }
-	local, err := connector.NewLocalControl(t.Context(), db, reviewControl{db, clock})
+	local, err := connector.NewLocalControl(t.Context(), connectorstorage.New(db), reviewControl{db, clock})
 	mustReview(t, err)
 	cfg := config.DefaultRemoteConnector()
 	cfg.Enabled = true
@@ -87,7 +88,7 @@ func TestOwnerCodeStandardsConsentToEvidence(t *testing.T) {
 	cfg.GitHubSecretRef.Env = "TEST_GITHUB_SECRET"
 	cfg.CookieSecretRef.Env = "TEST_COOKIE_SECRET"
 	cfg.AllowedOrigins = []string{"https://client.example"}
-	server, err := connector.New(t.Context(), connector.Options{Config: cfg, DB: db, Logger: slog.New(slog.DiscardHandler), Now: clock, LocalControl: local, GitHub: reviewIdentity{}, CookieKey: bytes.Repeat([]byte{7}, 32), CodeEvidence: codeevidence.New(db, binary, redact.New(redact.Options{Environ: []string{}}), clock)})
+	server, err := connector.New(t.Context(), connector.Options{Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: slog.New(slog.DiscardHandler), Now: clock, LocalControl: local, GitHub: reviewIdentity{}, CookieKey: bytes.Repeat([]byte{7}, 32), CodeEvidence: codeevidence.New(db, binary, redact.New(redact.Options{Environ: []string{}}), clock)})
 	mustReview(t, err)
 	handler := server.Handler()
 	request := func(method, path, ctype, body string, headers http.Header, cookies ...*http.Cookie) *httptest.ResponseRecorder {

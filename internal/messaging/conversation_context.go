@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ import (
 
 // savePreviewReference exposes only a code from a saved factory preview. Native
 // history and owner/model-authored values cannot manufacture this reference.
-func (r *factoryConversationRun) savePreviewReference(ctx context.Context, preview store.ChatIssuePreview) error {
+func (r *factoryConversationRun) savePreviewReference(ctx context.Context, preview messagingstate.ChatIssuePreview) error {
 	if preview.Transport != r.c.Transport || preview.ChannelRef != r.c.ChannelRef || preview.State != "previewed" || !r.at.Before(preview.ExpiresAt) {
 		return errors.New("conversation preview is not current")
 	}
@@ -24,7 +25,7 @@ func (r *factoryConversationRun) savePreviewReference(ctx context.Context, previ
 	if current.ID != preview.ID || current.ContentHash != preview.ContentHash || current.Code != preview.Code || current.RepoID != preview.RepoID {
 		return errors.New("conversation preview changed")
 	}
-	repo, err := r.s.db.GetRepo(ctx, preview.RepoID)
+	repo, err := r.s.factory.Project(ctx, preview.RepoID)
 	if err != nil {
 		return err
 	}
@@ -32,13 +33,13 @@ func (r *factoryConversationRun) savePreviewReference(ctx context.Context, previ
 	if err != nil {
 		return err
 	}
-	return r.s.db.SaveConversationReference(ctx, r.t, store.ConversationReference{ID: r.t.ID + "-preview", TurnID: r.t.ID, Kind: "preview", Repository: strconv.FormatInt(preview.RepoID, 10), Target: preview.ID, Revision: preview.ContentHash, Content: string(content), ExpiresAt: preview.ExpiresAt})
+	return r.s.db.SaveConversationReference(ctx, r.t, messagingstate.ConversationReference{ID: r.t.ID + "-preview", TurnID: r.t.ID, Kind: "preview", Repository: strconv.FormatInt(preview.RepoID, 10), Target: preview.ID, Revision: preview.ContentHash, Content: string(content), ExpiresAt: preview.ExpiresAt})
 }
 
 // previousFactoryReply is explanation context only, never an executable source.
 // Its selection is based on persisted turn sequence, independent of slice order.
-func (r *factoryConversationRun) previousFactoryReply(ctx context.Context, sources []store.ConversationTurn) (string, error) {
-	var previous *store.ConversationTurn
+func (r *factoryConversationRun) previousFactoryReply(ctx context.Context, sources []messagingstate.ConversationTurn) (string, error) {
+	var previous *messagingstate.ConversationTurn
 	for i := range sources {
 		source := &sources[i]
 		if source.ID == r.t.ID || source.ConversationID != r.c.ID || source.Sequence >= r.t.Sequence || source.ReplyID == "" {
@@ -105,14 +106,14 @@ func (r *factoryConversationRun) previousFactoryReply(ctx context.Context, sourc
 // referenceCurrent refreshes revision-sensitive factory references. It does not
 // grant permission: the coordinator still resolves the registered repository,
 // and proposal/confirmation/execution independently recheck target permissions.
-func (r *factoryConversationRun) referenceCurrent(ctx context.Context, reference store.ConversationReference, args map[string]string) (bool, error) {
+func (r *factoryConversationRun) referenceCurrent(ctx context.Context, reference messagingstate.ConversationReference, args map[string]string) (bool, error) {
 	if !r.at.Before(reference.ExpiresAt) {
 		return false, nil
 	}
 	switch reference.Kind {
 	case "inbox":
 		id, _, _, err := inboxPosition(args["reference"])
-		return err == nil && r.s.db.InboxSourcesAuthorized(ctx, r.s.inboxScope(r.c.ChannelRef), id, nil, r.at) == nil, nil
+		return err == nil && r.s.factory.AuthorizeInboxSources(ctx, r.s.inboxScope(r.c.ChannelRef), id, nil, r.at) == nil, nil
 	case "listed":
 		return r.listedCurrent(ctx, reference, args)
 	case "owner-action", "owner-action-page":
@@ -160,7 +161,7 @@ type conversationPriorReply struct {
 	Limitation string    `json:"limitation"`
 }
 
-func (r *factoryConversationRun) recentFactoryReplies(ctx context.Context, sources []store.ConversationTurn, turns []DialogueTurn) ([]conversationPriorReply, error) {
+func (r *factoryConversationRun) recentFactoryReplies(ctx context.Context, sources []messagingstate.ConversationTurn, turns []DialogueTurn) ([]conversationPriorReply, error) {
 	var out []conversationPriorReply
 	remaining := 4096
 	for _, turn := range turns {
@@ -168,7 +169,7 @@ func (r *factoryConversationRun) recentFactoryReplies(ctx context.Context, sourc
 			if source.SourceID != turn.SourceID || source.ID == r.t.ID {
 				continue
 			}
-			reply, err := r.previousFactoryReply(ctx, []store.ConversationTurn{source})
+			reply, err := r.previousFactoryReply(ctx, []messagingstate.ConversationTurn{source})
 			if err != nil {
 				return nil, err
 			}

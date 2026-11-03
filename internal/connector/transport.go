@@ -168,7 +168,7 @@ func (s *Server) Handler() http.Handler {
 			refuse(429, "capacity")
 			return
 		}
-		if err := s.localControl.check(ctx, s.db, s.cfg.OwnerID); err != nil {
+		if err := s.localControl.check(ctx, s.storage, s.cfg.OwnerID); err != nil {
 			refuse(503, "local_control")
 			return
 		}
@@ -209,10 +209,10 @@ func (s *Server) Listen(ctx context.Context) (net.Listener, error) {
 	if err := s.cfg.Validate(); err != nil {
 		return nil, err
 	}
-	if err := s.localControl.check(ctx, s.db, s.cfg.OwnerID); err != nil {
+	if err := s.localControl.check(ctx, s.storage, s.cfg.OwnerID); err != nil {
 		return nil, err
 	}
-	if _, err := s.db.ConnectorOwner(ctx, s.cfg.OwnerID); err != nil {
+	if _, err := s.storage.ConnectorOwner(ctx, s.cfg.OwnerID); err != nil {
 		return nil, err
 	}
 	var lc net.ListenConfig

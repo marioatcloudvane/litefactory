@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"reflect"
 	"slices"
 	"time"
@@ -71,7 +72,7 @@ func (r *factoryConversationRun) validateContinuationContext(ctx context.Context
 // recoverFactoryBoundary is called only after process-exit proof. It checks the
 // journal before yielding the expired worker's fence; claiming the pending turn
 // then gives the next worker a new generation. Action links never take this path.
-func (s *Service) recoverFactoryBoundary(ctx context.Context, c store.Conversation, b ConversationBinding, t store.ConversationTurn, at time.Time) (bool, error) {
+func (s *Service) recoverFactoryBoundary(ctx context.Context, c messagingstate.Conversation, b ConversationBinding, t messagingstate.ConversationTurn, at time.Time) (bool, error) {
 	if _, err := s.db.GetConversationActionLink(ctx, t.ID); err == nil {
 		return false, nil
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -135,7 +136,7 @@ func (s *Service) recoverFactoryBoundary(ctx context.Context, c store.Conversati
 // The journal is an alternating sequence of launches and their factory-owned
 // boundaries. Evidence belongs to a saved read; terminal actions are never
 // continuation boundaries.
-func validConversationTransition(rows []store.ConversationExchange, i int) bool {
+func validConversationTransition(rows []messagingstate.ConversationExchange, i int) bool {
 	x := rows[i]
 	previous := ""
 	if i > 0 {

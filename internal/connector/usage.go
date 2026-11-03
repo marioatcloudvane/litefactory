@@ -9,14 +9,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/meterview"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // UsageProvider materializes an allowlisted, sanitized, immutable local read.
@@ -26,22 +27,13 @@ type UsageProvider interface {
 	PolicyID() string
 }
 
-// UsageRequest contains the server-authorized filter and resolved time bounds.
-type UsageRequest struct {
-	Repository string
-	Filter     store.MeterFilter
-	View       string
-	By         []string
-	Empty      bool
-}
+// UsageRequest retains the shared factory read contract under the connector API.
+// UsageRequest selects an authorized recorded usage view.
+type UsageRequest = contracts.UsageRequest
 
-// UsageProjection is fully sanitized before it can enter the view cache.
-type UsageProjection struct {
-	Facts    map[string]any
-	Items    []map[string]any
-	Revision string
-	Policy   string
-}
+// UsageProjection retains the shared factory read contract under the connector API.
+// UsageProjection contains sanitized immutable recorded usage facts.
+type UsageProjection = contracts.UsageProjection
 
 type usageArguments struct {
 	Scope      string   `json:"scope"`
@@ -165,8 +157,9 @@ func canonicalUsageRepository(v string) bool {
 	}
 	return true
 }
-func resolveUsagePeriod(a usageArguments, t time.Time) (store.MeterFilter, usageBounds, error) {
-	f, e := meterview.Validate(meterview.Request{Project: a.Repository, Task: a.Issue, Mode: a.Mode, Agent: a.Agent, Model: a.Model, From: a.From, To: a.To}, false)
+func resolveUsagePeriod(a usageArguments, t time.Time) (contracts.UsageFilter, usageBounds, error) {
+	validated, e := meterview.Validate(meterview.Request{Project: a.Repository, Task: a.Issue, Mode: a.Mode, Agent: a.Agent, Model: a.Model, From: a.From, To: a.To}, false)
+	f := contracts.UsageFilter(validated)
 	if e != nil {
 		return f, usageBounds{}, e
 	}
@@ -327,8 +320,8 @@ func (s *Server) openUsage(raw string) (usageCursor, error) {
 	return c, nil
 }
 
-func (s *Server) usageAccess(ctx context.Context, credential string, a usageArguments) (store.ConnectorGrant, store.ConnectorUsageTarget, error) {
-	g, t, err := s.db.CheckConnectorUsageAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, a.permission(), a.Repository, a.taskRef(), s.now())
+func (s *Server) usageAccess(ctx context.Context, credential string, a usageArguments) (connectorstate.ConnectorGrant, connectorstate.ConnectorUsageTarget, error) {
+	g, t, err := s.access.CheckConnectorUsageAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, a.permission(), a.Repository, a.taskRef(), s.now())
 	if err != nil {
 		return g, t, accessError(err, "usage access unavailable")
 	}

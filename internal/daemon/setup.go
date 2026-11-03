@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	factoryviews "github.com/cloudvane/litefactory/internal/factory"
 	"log/slog"
 	"maps"
 	"os"
@@ -454,7 +456,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 				providers[string(kind)] = native
 			}
 		}
-		actionOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
+		actionOpts.Answers = &ask.Service{Repositories: factoryviews.NewMessaging(s.DB), Collector: ask.Collector{Factory: factoryviews.NewTaskFacts(s.DB), Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: factoryviews.NewResponseMeter(s.DB)}, Redactor: sharedRedactor}
 		{
 			instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
 			if instructionErr != nil {
@@ -707,7 +709,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		if s.Config.Settings.MCPAutoStart {
 			reads = projectread.Session{Reader: reader, RunsRoot: s.Paths.RunsDir(), Executable: executable, Prepare: projectSecrets(s.DB, connections)}
 		}
-		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Reads: reads}}
+		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: factoryviews.NewResponseMeter(s.DB)}, Reads: reads}}
 		actionOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Analyses: analyses}
 	}
 	daemon, err := New(Options{
@@ -972,7 +974,7 @@ func waitImplementStatus(ctx context.Context, delay time.Duration) error {
 // this capability on independently of its implementation.
 func prepareFactoryRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRuntime, error) {
 	if s.Config.RemoteConnector.Enabled && s.ConnectorControl == nil {
-		control, err := connector.NewLocalControl(ctx, s.DB, connector.NewGrantService(s.DB))
+		control, err := connector.NewLocalControl(ctx, connectorstorage.New(s.DB), connector.NewGrantService(connectorstorage.New(s.DB)))
 		if err != nil {
 			return nil, err
 		}

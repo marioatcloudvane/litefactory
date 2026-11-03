@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	factoryviews "github.com/cloudvane/litefactory/internal/factory"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -86,7 +87,7 @@ func TestConversationCapturedEvidenceFollowupAndRestart(t *testing.T) {
 		s.Protect = func(_ context.Context, text string) (string, error) {
 			return strings.ReplaceAll(text, "fixture-secret", "[redacted]"), nil
 		}
-		s.EnableAsk(&ask.Service{Repositories: db, Collector: ask.Collector{Factory: ask.StoreReader{Reader: db}}, History: messaging.AskHistory{DB: db, Transport: "discord"}, Redactor: redact.New(redact.Options{})})
+		s.EnableAsk(&ask.Service{Repositories: factoryviews.NewMessaging(db), Collector: ask.Collector{Factory: factoryviews.NewTaskFacts(db)}, History: messaging.AskHistory{DB: db, Transport: "discord"}, Redactor: redact.New(redact.Options{})})
 		if err := s.EnableConversations(ctx, messaging.ConversationOptions{Factory: true, Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "evidence", Provider: "claude", Model: "recorded"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }}, at); err != nil {
 			t.Fatal(err)
 		}

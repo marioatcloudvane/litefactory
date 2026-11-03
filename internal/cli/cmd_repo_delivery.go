@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/factory/localprojects"
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
 
@@ -42,7 +42,7 @@ func newRepoDeliveryCommand() *Command {
 			defer func() { err = errors.Join(err, rt.close()) }()
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			source, err := daemon.RequestCodeDelivery(ctx, daemon.DeliveryRequestOptions{DB: rt.db, Resolver: secrets.Resolver{Keychain: env.Keychain}, Credential: ref, Parent: args[0], Generation: generation, RequestID: requestID})
+			source, err := localprojects.RequestCodeDelivery(ctx, localprojects.DeliveryRequestOptions{DB: rt.db, Resolver: secrets.Resolver{Keychain: env.Keychain}, Credential: ref, Parent: args[0], Generation: generation, RequestID: requestID})
 			if err != nil {
 				return Precondition(err)
 			}

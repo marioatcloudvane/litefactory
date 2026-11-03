@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/diskstatus"
-	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/factory/localadmin"
 )
 
 func TestDaemonHeartbeatDiskCacheObservations(t *testing.T) {
 	now := time.Date(2026, 11, 2, 19, 0, 0, 0, time.UTC)
 	for _, found := range []bool{false, true} {
 		var b bytes.Buffer
-		if err := printDaemonHeartbeat(&b, store.HealthSnapshot{Found: found}, time.Time{}, true, now); err != nil {
+		if err := printDaemonHeartbeat(&b, localadmin.HealthSnapshot{Found: found}, time.Time{}, true, now); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(b.String(), "observations unavailable") {
@@ -22,7 +22,7 @@ func TestDaemonHeartbeatDiskCacheObservations(t *testing.T) {
 		}
 	}
 	var b bytes.Buffer
-	snap := store.HealthSnapshot{Found: true, Listener: store.ListenerStatus{WrittenAt: now, Disk: &diskstatus.Observation{Version: 1, ObservedAt: now.Add(-time.Hour), GuardedPath: "/fixture/factory", Main: diskstatus.Cache{Path: "/fixture/main", State: "partial", PassStartedAt: now.Add(-2 * time.Hour), ProgressAt: now.Add(-time.Hour), PartialBytes: 37, EntriesExamined: 11}, Reviewer: diskstatus.Cache{Path: "/fixture/reviewer", State: "unavailable"}}}}
+	snap := localadmin.HealthSnapshot{Found: true, Listener: localadmin.ListenerHealth{WrittenAt: now, Disk: &diskstatus.Observation{Version: 1, ObservedAt: now.Add(-time.Hour), GuardedPath: "/fixture/factory", Main: diskstatus.Cache{Path: "/fixture/main", State: "partial", PassStartedAt: now.Add(-2 * time.Hour), ProgressAt: now.Add(-time.Hour), PartialBytes: 37, EntriesExamined: 11}, Reviewer: diskstatus.Cache{Path: "/fixture/reviewer", State: "unavailable"}}}}
 	if err := printDaemonHeartbeat(&b, snap, time.Time{}, true, now); err != nil {
 		t.Fatal(err)
 	}

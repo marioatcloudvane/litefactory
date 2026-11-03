@@ -30,13 +30,13 @@ var ghLiteralExceptions = map[string]string{
 
 // identityImporters are the files that may import this package. `gh` is
 // identity discovery only and is reached by `litefactory init` and nothing
-// else, so the list is one file long.
+// else, so only the factory-owned bootstrap implementation is admitted.
 //
 // The daemon deliberately is not on it: it compares the *stored* owner id with
 // the bot it resolves from the API (S-5), and re-deriving the owner from gh at
 // daemon start would put an interactive keychain prompt on the launchd path.
 var identityImporters = []string{
-	"internal/cli/cmd_init.go",
+	"internal/factory/localadmin/bootstrap.go",
 }
 
 // TestGHIsInvokedOnlyFromThisPackage enforces the review invariant of LF-0:

@@ -11,7 +11,7 @@ import (
 func TestConversationIssueResolutionAcrossProjectsAndFocus(t *testing.T) {
 	run, _ := factoryUnitRun(t, &factoryUnitProvider{fail: true}, "and 42?")
 	ctx := t.Context()
-	db := run.s.db
+	db := fixtureDB(run.s)
 	app, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app"})
 	if err != nil {
 		t.Fatal(err)

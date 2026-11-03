@@ -3,17 +3,19 @@ package messaging
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"slices"
 	"strconv"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/alerts"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // IntakePage retains only authenticated owner messages; IDs also cover discarded senders.
 type IntakePage struct {
-	Messages      []store.NaturalMessage
+	Messages      []messagingstate.NaturalMessage
 	HighID, LowID string
 	Count         int
 }
@@ -27,7 +29,7 @@ type IntakeReader interface {
 // Intake authenticates history and releases only completed intervals. Optional
 // fixed alert controls are handled independently of conversation providers.
 type Intake struct {
-	DB               *store.DB
+	DB               messagingstorage.Port
 	Reader           IntakeReader
 	Owner, Transport string
 	Channels         []string
@@ -35,7 +37,7 @@ type Intake struct {
 	OrdinaryChannels []string
 	Protect          func(context.Context, string) (string, error)
 	// Controls admits fixed owner commands outside conversation staging.
-	Controls func(context.Context, store.NaturalMessage, time.Time) (bool, error)
+	Controls func(context.Context, messagingstate.NaturalMessage, time.Time) (bool, error)
 }
 
 // Poll collects up to four pages per allowed channel and drains completed
@@ -95,7 +97,7 @@ func (i *Intake) pollChannel(ctx context.Context, channel string, at time.Time) 
 		return err
 	}
 	expected := scan
-	var admitted []store.NaturalMessage
+	var admitted []messagingstate.NaturalMessage
 	complete := false
 	for pageNumber := 0; pageNumber < 4; pageNumber++ {
 		page, e := i.Reader.ReadIntakePage(ctx, channel, i.Owner, scan.Before)

@@ -23,7 +23,10 @@ func (d *Daemon) configureOwnerActions(s *messaging.Service, discordOwner string
 		}
 		d.remoteConnector.actions.notices.Store(s)
 	} else {
-		actions = owneraction.New(d.db, messaging.OwnerActionDomain{Service: s}, clock)
+		actions = owneraction.New(d.db, s.FactoryOwnerActionDomain(), clock)
+	}
+	if d.chat != nil {
+		d.chat.actions = actions
 	}
 	actions.SetDiscord(discordOwner, channels)
 	actions.SetDelivery(actionApprovalDelivery{adapter})
@@ -59,7 +62,7 @@ func (d *Daemon) startOwnerActions(ctx context.Context, wg *sync.WaitGroup) {
 		d.remoteConnector.actions.start(ctx, wg, d.log)
 		return
 	}
-	actions := d.chat.service.OwnerActions()
+	actions := d.chat.actions
 	if actions == nil {
 		return
 	}
@@ -69,7 +72,7 @@ func (d *Daemon) startOwnerActions(ctx context.Context, wg *sync.WaitGroup) {
 }
 
 func (d *Daemon) ownerReaction(ctx context.Context, r discord.OwnerReaction) {
-	actions := d.chat.service.OwnerActions()
+	actions := d.chat.actions
 	if actions == nil {
 		return
 	}

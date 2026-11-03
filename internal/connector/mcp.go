@@ -5,14 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"mime"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 const protocolLatest = "2025-11-25"
@@ -46,13 +45,13 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		refusal(401, "credentials")
 		return
 	}
-	grant, err := s.db.CheckConnectorAccess(r.Context(), digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
+	grant, err := s.storage.CheckConnectorAccess(r.Context(), digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
 	if err != nil {
 		switch {
-		case errors.Is(err, store.ErrConnectorScope):
+		case errors.Is(err, connectorstate.ErrConnectorScope):
 			w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="factory:overview"`)
 			refusal(403, "scope")
-		case errors.Is(err, store.ErrConnectorInvalid), errors.Is(err, store.ErrConnectorOwner):
+		case errors.Is(err, connectorstate.ErrConnectorInvalid), errors.Is(err, connectorstate.ErrConnectorOwner):
 			s.challenge(w)
 			refusal(401, "credentials")
 		default:
@@ -245,10 +244,10 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				requiredScope = AdvisoryScope + " " + DiscussionPublishScope
 			}
 		}
-		if params.Name == "factory_overview" && !store.ConnectorScopeHas(grant.Scope, Scope) {
+		if params.Name == "factory_overview" && !connectorstate.ConnectorScopeHas(grant.Scope, Scope) {
 			requiredScope = Scope
 		}
-		if params.Name == "task_evidence_read" && !store.ConnectorScopeHas(grant.Scope, DiscussionScope) {
+		if params.Name == "task_evidence_read" && !connectorstate.ConnectorScopeHas(grant.Scope, DiscussionScope) {
 			requiredScope = DiscussionScope
 		}
 		if requiredScope != "" {
@@ -407,15 +406,15 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		// Only a successful task read can release evidence. Failed or canceled
 		// providers return a fixed refusal with no source facts.
 		if params.Name == "task_evidence_read" && callErr == nil && ctx.Err() == nil {
-			_, _, accessErr := s.db.CheckConnectorDiscussionAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, evidenceArgs.TaskRef, s.now())
-			if accessErr != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
+			_, _, accessErr := s.access.CheckConnectorDiscussionAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, evidenceArgs.TaskRef, s.now())
+			if accessErr != nil || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
 				refuseRPC(-32603, "Access unavailable", "credentials")
 				return
 			}
 		}
 
 		if params.Name == "usage_read" && callErr == nil && ctx.Err() == nil {
-			if _, _, accessErr := s.usageAccess(ctx, credential, usageArgs); accessErr != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
+			if _, _, accessErr := s.usageAccess(ctx, credential, usageArgs); accessErr != nil || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
 				refuseRPC(-32603, "Access unavailable", "credentials")
 				return
 			}

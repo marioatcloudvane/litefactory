@@ -5,23 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"time"
 )
 
 // ChatReply contains only the durable command and delivery state, never tokens.
-type ChatReply struct {
-	OutcomeStatus                                                          string
-	ConversationTurnID                                                     string
-	Transport, MessageID, ChannelRef, Command, State, ReplyText, TargetRef string
-	PresentationState, PresentationOutcome, ReplyAttachment                string
-	PresentationGeneration, PresentationCheck                              bool
-	Arguments                                                              map[string]string
-	Question, ProjectOption                                                string
-	ResolvedRepoID                                                         int64
-	AnswerAttempts                                                         int
-	Attempts                                                               int
-	NextAttemptAt, CreatedAt, FinishedAt, LastErrorAt                      time.Time
-}
+type ChatReply = messagingstate.ChatReply
 
 const chatColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,question,project_option,COALESCE(resolved_repo_id,0),answer_attempts,target_ref,presentation_state,presentation_outcome,presentation_generation,presentation_check,reply_attachment,outcome_status,conversation_turn_id`
 

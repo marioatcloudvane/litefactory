@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"io"
 	"log/slog"
 	"net"
@@ -52,7 +53,7 @@ func remoteSetupFixture(t *testing.T) Setup {
 	cfg.RemoteConnector.GitHubClientID = "dedicated-app"
 	cfg.RemoteConnector.GitHubSecretRef.Env = "TEST_APP"
 	cfg.RemoteConnector.CookieSecretRef.Env = "TEST_COOKIE"
-	control, err := connector.NewLocalControl(t.Context(), db, remoteControlFixture{db})
+	control, err := connector.NewLocalControl(t.Context(), connectorstorage.New(db), remoteControlFixture{db})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/localusage"
 	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -55,8 +57,8 @@ func newMeterExportCommand() *Command {
 	}}
 }
 
-func meterFilter(args []string, o meterOptions, export bool) (store.MeterFilter, string, error) {
-	f := store.MeterFilter{Mode: o.mode, CodingAgent: o.codingAgent, Model: o.model, Issue: o.issue}
+func meterFilter(args []string, o meterOptions, export bool) (contracts.UsageFilter, string, error) {
+	f := contracts.UsageFilter{Mode: o.mode, CodingAgent: o.codingAgent, Model: o.model, Issue: o.issue}
 	if export && len(args) != 1 || !export && len(args) > 2 {
 		return f, "", Usagef(nil, "invalid metering scope")
 	}
@@ -78,12 +80,12 @@ func meterFilter(args []string, o meterOptions, export bool) (store.MeterFilter,
 	if e != nil {
 		return f, "", Usagef(nil, "%s", e)
 	}
-	f = validated
+	f = contracts.UsageFilter(validated)
 	return f, project, nil
 }
 
 func resolveMeterProject(ctx context.Context, db *store.DB, selector string) (int64, error) {
-	id, err := meterview.ResolveProject(ctx, db, selector)
+	id, err := localusage.NewReports(db).Project(ctx, selector)
 	var viewErr *meterview.Error
 	if errors.As(err, &viewErr) {
 		return 0, Usagef(nil, "%s", viewErr)
@@ -114,22 +116,17 @@ func runMeter(ctx context.Context, env *Env, args []string, o meterOptions, expo
 	return writeMeter(ctx, env.Stdout, rt.db, f, o, export)
 }
 
-func writeMeter(ctx context.Context, out io.Writer, db *store.DB, f store.MeterFilter, o meterOptions, export bool) (err error) {
+func writeMeter(ctx context.Context, out io.Writer, db *store.DB, f contracts.UsageFilter, o meterOptions, export bool) error {
+	reports := localusage.NewReports(db)
 	if !export {
-		view, e := meterview.Build(ctx, db, f, o.details)
-		if e != nil {
-			return e
+		view, err := reports.Summary(ctx, f, o.details, o.json)
+		if err != nil {
+			return err
 		}
 		if o.json {
-			return json.NewEncoder(out).Encode(view)
+			return json.NewEncoder(out).Encode(view.JSON)
 		}
 		return view.WriteText(out)
 	}
-	options := store.MeterSnapshotOptions{HeaderBytes: len(meterCSVHeaderLine), RowBytes: func(r store.MeterRow) (int, error) { b, e := meterCSVBytes(r); return len(b), e }}
-	snapshot, err := db.NewMeterSnapshot(ctx, f, options)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, snapshot.Close(ctx)) }()
-	return writeMeterCSV(ctx, out, snapshot)
+	return exportMeterCSV(ctx, out, reports, f)
 }

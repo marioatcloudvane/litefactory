@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
 	"strconv"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/owneraction"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 var workflowToolNames = []string{"workflows_list", "workflow_describe", "workflow_propose", "workflow_continue_propose", "workflow_job_get"}
@@ -151,13 +151,13 @@ func workflowDescription(name string) string {
 	}
 }
 func (s *Server) callWorkflow(ctx context.Context, credential, name string, a workflowArguments) (ToolResult, error) {
-	grant, e := s.db.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
-	if e != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
-		return ToolResult{}, store.ErrConnectorInvalid
+	grant, e := s.storage.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now())
+	if e != nil || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
+		return ToolResult{}, connectorstate.ErrConnectorInvalid
 	}
 	service := s.workflows.Load()
 	if service == nil || !actionGrant(grant) {
-		return ToolResult{}, store.ErrConnectorScope
+		return ToolResult{}, connectorstate.ErrConnectorScope
 	}
 	p := owneraction.Principal{OwnerID: strconv.FormatInt(grant.OwnerID, 10), OwnerGeneration: grant.OwnerGeneration, Transport: "mcp", ClientID: grant.ClientID, GrantID: grant.ID}
 	var value any
@@ -178,8 +178,8 @@ func (s *Server) callWorkflow(ctx context.Context, credential, name string, a wo
 	if e != nil {
 		return ToolResult{}, e
 	}
-	if _, err := s.db.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now()); err != nil || s.localControl.check(ctx, s.db, s.cfg.OwnerID) != nil {
-		return ToolResult{}, store.ErrConnectorInvalid
+	if _, err := s.storage.CheckConnectorAccess(ctx, digest(credential), s.cfg.OwnerID, s.cfg.ResourceURL, "", s.now()); err != nil || s.localControl.check(ctx, s.storage, s.cfg.OwnerID) != nil {
+		return ToolResult{}, connectorstate.ErrConnectorInvalid
 	}
 	result, encodeErr := actionResult(value)
 	if encodeErr != nil && a.Limit > 1 && (name == "workflows_list" || name == "workflow_job_get") {

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/diskstatus"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 type diskFactory struct {
@@ -25,7 +25,7 @@ func TestFactsRetainDiskCacheObservations(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 11, 2, 19, 0, 0, 0, time.UTC)
 	f := &diskFactory{observation: &diskstatus.Observation{Version: 1, ObservedAt: now.Add(-time.Hour), Main: diskstatus.Cache{Path: "/fixture/main", State: "partial", PartialBytes: 51, PassStartedAt: now.Add(-time.Hour), ProgressAt: now.Add(-time.Hour)}}}
-	bundle, err := (ask.Collector{Factory: f}).Collect(t.Context(), store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, now)
+	bundle, err := (ask.Collector{Factory: f}).Collect(t.Context(), contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}

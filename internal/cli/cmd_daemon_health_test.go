@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/diskstatus"
+	"github.com/cloudvane/litefactory/internal/factory/localadmin"
 	"github.com/cloudvane/litefactory/internal/launchd"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -28,15 +30,15 @@ func TestDaemonRelative(t *testing.T) {
 	}
 }
 
-func healthFixture() (store.HealthSnapshot, time.Time) {
+func healthFixture() (localadmin.HealthSnapshot, time.Time) {
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
-	return store.HealthSnapshot{
+	return localadmin.HealthSnapshot{
 		Found: true,
-		Listener: store.ListenerStatus{
+		Listener: localadmin.ListenerHealth{
 			ListenAddress: "127.0.0.1:8787", Listening: true,
-			DaemonStartedAt: now.Add(-time.Hour), WrittenAt: now.Add(-time.Minute),
+			WrittenAt: now.Add(-time.Minute),
 		},
-		Repos: []store.RepoDiscoveryStatus{
+		Repos: []localadmin.RepositoryHealth{
 			{Owner: "acme", Name: "api", WebhookMode: "webhook", SecretPresent: true,
 				LastDeliveryAt: now.Add(-3 * time.Minute), LastPollFinishedAt: now.Add(-18 * time.Minute), NextPollDueAt: now.Add(42 * time.Minute)},
 			{Owner: "acme", Name: "web", WebhookMode: "polling only"},
@@ -88,7 +90,7 @@ func TestPrintDaemonHealthStoppedDaemonSaysAsOf(t *testing.T) {
 func TestPrintDaemonHealthListenerOffAndNoSnapshot(t *testing.T) {
 	t.Parallel()
 	snap, now := healthFixture()
-	snap.Listener = store.ListenerStatus{WrittenAt: now}
+	snap.Listener = localadmin.ListenerHealth{WrittenAt: now}
 	snap.Repos = snap.Repos[1:]
 	var out bytes.Buffer
 	if err := printDaemonHealth(&out, snap, true, now); err != nil {
@@ -103,7 +105,7 @@ func TestPrintDaemonHealthListenerOffAndNoSnapshot(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := printDaemonHealth(&out, store.HealthSnapshot{}, true, now); err != nil {
+	if err := printDaemonHealth(&out, localadmin.HealthSnapshot{}, true, now); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "no health snapshot") {
@@ -136,10 +138,10 @@ func TestPrintDaemonHealthChatStatus(t *testing.T) {
 func TestDaemonNextPollOwed(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
-	if got := daemonNextPoll(store.RepoDiscoveryStatus{PollOwed: true}, now); !strings.Contains(got, "owed") {
+	if got := daemonNextPoll(localadmin.RepositoryHealth{PollOwed: true}, now); !strings.Contains(got, "owed") {
 		t.Errorf("owed listing with no schedule = %q", got)
 	}
-	got := daemonNextPoll(store.RepoDiscoveryStatus{PollOwed: true, NextPollDueAt: now.Add(-10 * time.Minute)}, now)
+	got := daemonNextPoll(localadmin.RepositoryHealth{PollOwed: true, NextPollDueAt: now.Add(-10 * time.Minute)}, now)
 	if !strings.Contains(got, "10m ago") || !strings.Contains(got, "owed") {
 		t.Errorf("late owed listing = %q", got)
 	}
@@ -159,7 +161,7 @@ func TestDaemonStatusPrintsThePublishedHealth(t *testing.T) {
 	}
 	at := time.Date(2099, 1, 2, 3, 4, 5, 0, time.UTC)
 	if err := db.ReplaceHealthSnapshot(h.t.Context(),
-		store.ListenerStatus{ListenAddress: "127.0.0.1:8787", Listening: true, DaemonStartedAt: at, WrittenAt: at},
+		store.ListenerStatus{ListenAddress: "127.0.0.1:8787", Listening: true, DaemonStartedAt: at, WrittenAt: at, Disk: &diskstatus.Observation{Version: 1, ObservedAt: at, Main: diskstatus.Cache{Path: "/fixture/core-cache", State: "partial", PartialBytes: 37, PassStartedAt: at, ProgressAt: at}}},
 		[]store.RepoDiscoveryStatus{{RepoID: repo.ID, WebhookMode: "webhook, no delivery yet", SecretPresent: true,
 			LastPollFinishedAt: at, NextPollDueAt: at.Add(time.Hour), WrittenAt: at}}); err != nil {
 		t.Fatal(err)
@@ -175,7 +177,7 @@ func TestDaemonStatusPrintsThePublishedHealth(t *testing.T) {
 	for _, want := range []string{
 		"127.0.0.1:8787/litefactory/webhook (bound)",
 		"as of 2099-01-02T03:04:05Z, daemon not running",
-		"acme/api", "webhook, no delivery yet", daemonNoDelivery, "2099-01-02T04:04:05Z (in ",
+		"/fixture/core-cache", "observed partial logical bytes=37", "acme/api", "webhook, no delivery yet", daemonNoDelivery, "2099-01-02T04:04:05Z (in ",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("output lacks %q:\n%s", want, stdout)
@@ -191,8 +193,8 @@ func TestDaemonStatusPrintsThePublishedHealth(t *testing.T) {
 	}
 }
 
-func heartbeatSnapshot(l store.ListenerStatus) store.HealthSnapshot {
-	return store.HealthSnapshot{Found: true, Listener: l}
+func heartbeatSnapshot(l store.ListenerStatus) localadmin.HealthSnapshot {
+	return localadmin.HealthSnapshot{Found: true, Listener: localadmin.ListenerHealth{ListenAddress: l.ListenAddress, Listening: l.Listening, WrittenAt: l.WrittenAt, LastHeartbeatStartedAt: l.LastHeartbeatStartedAt, DiscoveryPaused: l.DiscoveryPaused, PauseReason: l.PauseReason, PausedSince: l.PausedSince, ExpectedResumeAt: l.ExpectedResumeAt, RunsInFlight: l.RunsInFlight, ChatStatus: l.ChatStatus, RunsHeld: l.RunsHeld}}
 }
 
 // AC-008: the heartbeat block says what the daemon is doing, each fact with its age.
@@ -259,7 +261,7 @@ func TestPrintDaemonHeartbeatDaemonDownIsLabelled(t *testing.T) {
 		t.Errorf("down output:\n%s", &out)
 	}
 	out.Reset()
-	if err := printDaemonHeartbeat(&out, store.HealthSnapshot{}, time.Time{}, true, now); err != nil || !strings.Contains(out.String(), "observations unavailable") || strings.Contains(out.String(), "free=0") {
+	if err := printDaemonHeartbeat(&out, localadmin.HealthSnapshot{}, time.Time{}, true, now); err != nil || !strings.Contains(out.String(), "observations unavailable") || strings.Contains(out.String(), "free=0") {
 		t.Errorf("no snapshot: err=%v out=%q", err, &out)
 	}
 }

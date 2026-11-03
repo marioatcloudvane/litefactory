@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/factory/localadmin"
 	"github.com/cloudvane/litefactory/internal/launchd"
 	"github.com/cloudvane/litefactory/internal/logging"
 	"github.com/cloudvane/litefactory/internal/repos"
@@ -187,7 +188,7 @@ func runDaemonRunWithRecovery(ctx context.Context, env *Env, repairID, recoveryT
 	// surfaces, so re-resolving it per tick would be a prompt storm nobody can
 	// answer.
 	token, err := resolveDaemonToken(ctx, paths, cfg)
-	var bootstrap store.ConnectionVersion
+	var bootstrap localadmin.StartupConnection
 	projectStartup := err != nil
 	if projectStartup {
 		token, bootstrap, err = resolveProjectStartupToken(ctx, env, db, cfg, err)

@@ -5,16 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"time"
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/diskstatus"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factory/owneractions"
 	"github.com/cloudvane/litefactory/internal/github"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // Facts limits bound live issue reads, excerpts and the complete encoded bundle.
@@ -42,23 +41,11 @@ type Bundle struct {
 	Gaps        []string  `json:"gaps"`
 }
 
-// Task is a read-only projection; it contains no clone paths or credentials.
-type Task struct {
-	IssueNumber  int
-	Reference    string
-	State        string
-	LatestRun    *store.Run
-	PlanStages   []string
-	OwnerWait    *OwnerWait
-	OwnerBlocked string
-}
+// Task and OwnerWait retain the collector names for neutral factory projections.
+type Task = contracts.Task
 
-// OwnerWait is a published owner question or review still waiting for a reply.
-type OwnerWait struct {
-	Workflow, Kind, Node, Asked string
-	CommentID                   int64
-	Since                       time.Time
-}
+// OwnerWait retains the published owner-wait projection name.
+type OwnerWait = contracts.OwnerWait
 
 // FactoryReader builds a fresh bounded project projection. Incomplete reports
 // omitted task data; source errors are exposed as gaps rather than fabricated
@@ -86,11 +73,11 @@ type Collector struct {
 
 // Collect records omissions explicitly and caps the complete encoded bundle,
 // including fact metadata and gaps, rather than only counting issue body bytes.
-func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (Bundle, error) {
+func (c Collector) Collect(ctx context.Context, repo contracts.Project, at time.Time) (Bundle, error) {
 	return c.collect(ctx, repo, at, 0)
 }
 
-func (c Collector) collect(ctx context.Context, repo store.Repo, at time.Time, target int) (Bundle, error) {
+func (c Collector) collect(ctx context.Context, repo contracts.Project, at time.Time, target int) (Bundle, error) {
 	b := Bundle{TargetIssue: target, CapturedAt: at.UTC(), Project: repo.Slug(), Facts: []Fact{}, Gaps: []string{}}
 	if c.Factory == nil || repo.ID < 1 || repo.Forge != "github" || at.IsZero() {
 		return b, errors.New("ask: invalid facts collection context")
@@ -170,9 +157,9 @@ func (c Collector) collect(ctx context.Context, repo store.Repo, at time.Time, t
 		// The bounded project list may omit an older named task. Resolve only
 		// that exact registered repository/issue through an optional reader.
 		if reader, ok := c.Factory.(interface {
-			ReadIssueTasks(context.Context, store.Repo, int) ([]Task, error)
+			ReadIssueTasks(context.Context, contracts.TaskProject, int) ([]Task, error)
 		}); ok {
-			selected, readErr := reader.ReadIssueTasks(ctx, repo, target)
+			selected, readErr := reader.ReadIssueTasks(ctx, contracts.TaskProject{ID: repo.ID, Owner: repo.Owner, Name: repo.Name}, target)
 			if readErr != nil {
 				b.Gaps = append(b.Gaps, "Named issue factory evidence could not be read.")
 			} else {
@@ -266,8 +253,8 @@ func (c Collector) collect(ctx context.Context, repo store.Repo, at time.Time, t
 }
 
 // runActive reports whether the factory is still executing the run.
-func runActive(run *store.Run) bool {
-	return run != nil && (run.Status == store.RunPrelaunch || run.Status == store.RunRunning)
+func runActive(run *contracts.TaskRun) bool {
+	return run.Active()
 }
 
 func waitText(issue int, w OwnerWait, at time.Time) string {
@@ -303,17 +290,5 @@ func byteExcerpt(s string, limit int) string {
 	return s
 }
 
-var issueReference = regexp.MustCompile(`(?i)(?:\b(?:issue|bug)\s*#?\s*|#)([1-9][0-9]*)\b`)
-
-// ExplicitIssues returns distinct issue numbers in encounter order. It does not
-// infer an issue from a bare number, run number or PR number.
-func ExplicitIssues(text string) []int {
-	var out []int
-	for _, m := range issueReference.FindAllStringSubmatch(text, -1) {
-		n, err := strconv.Atoi(m[1])
-		if err == nil && !slices.Contains(out, n) {
-			out = append(out, n)
-		}
-	}
-	return out
-}
+// ExplicitIssues retains the Ask contract for the factory-owned parser.
+func ExplicitIssues(text string) []int { return owneractions.ExplicitIssues(text) }

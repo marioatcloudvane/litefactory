@@ -36,7 +36,7 @@ func (r *factoryConversationRun) loadFocus(ctx context.Context) (*conversationFo
 	if repoID <= 0 {
 		return nil, nil
 	}
-	repo, err := r.s.db.GetRepo(ctx, repoID)
+	repo, err := r.s.factory.Project(ctx, repoID)
 	if err != nil || repo.Slug() != args["project"] {
 		return nil, nil //nolint:nilerr // A missing or unavailable project cannot supply conversational focus.
 	}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -96,7 +98,7 @@ func TestTaskNoticeJourney(t *testing.T) {
 	defer api.Close()
 	adapter := discord.New(discord.Options{ApplicationID: "1", Token: secrets.NewToken("notice-test-token"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
 	issues := titledIssues{}
-	collector := &messaging.NoticeCollector{DB: db, Transport: "discord", Issues: issues}
+	collector := &messaging.NoticeCollector{Factory: factory.NewMessaging(db), Transport: "discord", Issues: issues}
 	must(collector.Collect(ctx, at)) // Off means even positions are absent.
 	if _, _, err := db.ListNoticeRecords(ctx, "discord", "run_starts", at); err == nil {
 		t.Fatal("disabled notices wrote a position")
@@ -127,7 +129,7 @@ func TestTaskNoticeJourney(t *testing.T) {
 	mode = "implement"
 	runs := []store.Run{allocate(2), allocate(3), allocate(4)}
 	must(collector.Collect(ctx, at))
-	service := messaging.New(db, "discord", "2", []string{"3"}, adapter, nil)
+	service := messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "2", []string{"3"}, adapter, nil)
 	more, err := service.NoticeStep(ctx, at)
 	must(err)
 	if !more {
@@ -137,8 +139,8 @@ func TestTaskNoticeJourney(t *testing.T) {
 	must(db.Close())
 	db, err = store.Open(ctx, path)
 	must(err)
-	collector = &messaging.NoticeCollector{DB: db, Transport: "discord", Channel: "3", Issues: issues}
-	service = messaging.New(db, "discord", "2", []string{"3"}, adapter, nil)
+	collector = &messaging.NoticeCollector{Factory: factory.NewMessaging(db), Transport: "discord", Channel: "3", Issues: issues}
+	service = messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "2", []string{"3"}, adapter, nil)
 	must(collector.Collect(ctx, at.Add(time.Second)))
 	// Add measured usage to only the successful run.
 	model := "notice-fixture"

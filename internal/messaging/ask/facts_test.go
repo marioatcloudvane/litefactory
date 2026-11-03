@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	factoryviews "github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"strings"
 	"testing"
 	"time"
@@ -15,9 +17,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-type catalog []store.Repo
+type catalog []contracts.Project
 
-func (c catalog) ListRepos(context.Context) ([]store.Repo, error) { return c, nil }
+func (c catalog) ListRepos(context.Context) ([]contracts.Project, error) { return c, nil }
 
 func TestProjectResolution(t *testing.T) {
 	t.Parallel()
@@ -60,7 +62,7 @@ func TestProjectResolution(t *testing.T) {
 	}
 	large := catalog{}
 	for i := range 200 {
-		large = append(large, store.Repo{ID: int64(i + 1), Forge: "github", Owner: "owner", Name: fmt.Sprintf("repository-%03d", i)})
+		large = append(large, contracts.Project{ID: int64(i + 1), Forge: "github", Owner: "owner", Name: fmt.Sprintf("repository-%03d", i)})
 	}
 	got, err := ask.ResolveProject(t.Context(), large, "unknown", nil)
 	if err != nil || len(got.Refusal) > 1000 || !strings.Contains(got.Refusal, "left out") {
@@ -102,8 +104,8 @@ func (f *forge) ReadOpenIssues(_ context.Context, repo github.Repo, limit int) (
 func TestFreshFactsAndForgeFailure(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC)
-	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app", BaseBranch: "main"}
-	f := &factory{tasks: []ask.Task{{IssueNumber: 7, Reference: "github:owner/app#7", State: "running", LatestRun: &store.Run{Ordinal: 3, Mode: "implement", Status: store.RunRunning, StartedAt: at}, PlanStages: []string{"story-001: acceptance"}}}}
+	repo := contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app", BaseBranch: "main"}
+	f := &factory{tasks: []ask.Task{{IssueNumber: 7, Reference: "github:owner/app#7", State: "running", LatestRun: &contracts.TaskRun{Ordinal: 3, Mode: "implement", Status: string(store.RunRunning), StartedAt: at}, PlanStages: []string{"story-001: acceptance"}}}}
 	g := &forge{issues: []github.Issue{{Number: 7, State: "open", Title: "older", UpdatedAt: at}, {Number: 8, State: "open", Title: "newer", UpdatedAt: at.Add(time.Minute)}}}
 	c := ask.Collector{Factory: f, Issues: g}
 	b, err := c.Collect(t.Context(), repo, at)
@@ -123,7 +125,7 @@ func TestFreshFactsAndForgeFailure(t *testing.T) {
 		t.Fatalf("issue link: %+v", b.Facts[3])
 	}
 	f.tasks[0].State = "idle"
-	f.tasks[0].LatestRun.Status = store.RunSucceeded
+	f.tasks[0].LatestRun.Status = string(store.RunSucceeded)
 	f.paused = true
 	g.err = errors.New("remote unavailable")
 	b, err = c.Collect(t.Context(), repo, at.Add(time.Hour))
@@ -143,7 +145,7 @@ func TestFreshFactsAndForgeFailure(t *testing.T) {
 func TestFactsRunsHeldFollowsDiscovery(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC)
-	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app", BaseBranch: "main"}
+	repo := contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app", BaseBranch: "main"}
 	f := &factory{held: "New runs wait: free disk 1.4 GB is below the 2 GB minimum."}
 	c := ask.Collector{Factory: f, Issues: &forge{}}
 	b, err := c.Collect(t.Context(), repo, at)
@@ -177,7 +179,7 @@ func TestFactsLimitsCountEncodedMetadata(t *testing.T) {
 	for i := range 75 {
 		g.issues = append(g.issues, github.Issue{Number: i + 1, State: "open", Title: "bounded", Body: strings.Repeat("界\"\n", 1000), UpdatedAt: at.Add(time.Duration(i) * time.Minute)})
 	}
-	b, err := (ask.Collector{Factory: &factory{}, Issues: g}).Collect(t.Context(), store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, at)
+	b, err := (ask.Collector{Factory: &factory{}, Issues: g}).Collect(t.Context(), contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +212,7 @@ func ownerWaitBundle(t *testing.T, at time.Time) ask.Bundle {
 		g.issues = append(g.issues, github.Issue{Number: n, State: "open", Title: "feature", Body: "## Research questions\n- What?", UpdatedAt: at})
 	}
 	g.issues = append(g.issues, github.Issue{Number: 530, State: "closed", Title: "done", Body: "## Research questions\n- Old?", UpdatedAt: at})
-	b, err := (ask.Collector{Factory: ask.StoreReader{Reader: w}, Issues: g}).Collect(t.Context(), store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, at)
+	b, err := (ask.Collector{Factory: factoryviews.NewTaskFacts(w), Issues: g}).Collect(t.Context(), contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +260,7 @@ func handles(b ask.Bundle) map[string]ask.Fact {
 func TestFactsReportOnlyOpenRunningTasks(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 12, 11, 11, 0, 0, time.UTC)
-	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
+	repo := contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
 	w := &waitStore{runs: map[int64]store.Run{
 		562: {Ordinal: 4, Mode: "validate", Status: store.RunSucceeded, StartedAt: at.Add(-24 * time.Hour)},
 		629: {Ordinal: 2, Mode: "bug", Status: store.RunRunning, StartedAt: at.Add(-time.Hour)},
@@ -268,7 +270,7 @@ func TestFactsReportOnlyOpenRunningTasks(t *testing.T) {
 		{ID: 629, IssueNumber: 629, TaskRef: "github:owner/app#629", State: store.SessionIdle},
 	}
 	g := &forge{issues: []github.Issue{{Number: 629, State: "open", Title: "bug", UpdatedAt: at}}}
-	b, err := (ask.Collector{Factory: ask.StoreReader{Reader: w}, Issues: g}).Collect(t.Context(), repo, at)
+	b, err := (ask.Collector{Factory: factoryviews.NewTaskFacts(w), Issues: g}).Collect(t.Context(), repo, at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +304,7 @@ func TestFactsReportOnlyOpenRunningTasks(t *testing.T) {
 	} {
 		g := &forge{issues: []github.Issue{{Number: 629, State: "open", Title: "bug", UpdatedAt: at}}}
 		alter(g)
-		b, err := (ask.Collector{Factory: ask.StoreReader{Reader: w}, Issues: g}).Collect(t.Context(), repo, at)
+		b, err := (ask.Collector{Factory: factoryviews.NewTaskFacts(w), Issues: g}).Collect(t.Context(), repo, at)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -325,8 +327,8 @@ func TestFactsKeepRunningWorkUnderBudget(t *testing.T) {
 		g.issues = append(g.issues, github.Issue{Number: i + 1, State: "open", Title: "bounded", Body: strings.Repeat("x", ask.MaxIssueBody), UpdatedAt: at.Add(time.Duration(i) * time.Minute)})
 	}
 	g.issues = append(g.issues, github.Issue{Number: 900, State: "open", Title: "running", UpdatedAt: at.Add(-time.Hour)})
-	f := &factory{tasks: []ask.Task{{IssueNumber: 900, Reference: "github:owner/app#900", State: "running", LatestRun: &store.Run{Ordinal: 1, Mode: "implement", Status: store.RunPrelaunch, StartedAt: at}}}}
-	b, err := (ask.Collector{Factory: f, Issues: g}).Collect(t.Context(), store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, at)
+	f := &factory{tasks: []ask.Task{{IssueNumber: 900, Reference: "github:owner/app#900", State: "running", LatestRun: &contracts.TaskRun{Ordinal: 1, Mode: "implement", Status: string(store.RunPrelaunch), StartedAt: at}}}}
+	b, err := (ask.Collector{Factory: f, Issues: g}).Collect(t.Context(), contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,10 +342,10 @@ func TestFactsKeepRunningWorkUnderBudget(t *testing.T) {
 func TestFactsSayNothingIsRunning(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 12, 11, 11, 0, 0, time.UTC)
-	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
+	repo := contracts.Project{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
 	f := &factory{tasks: []ask.Task{
-		{IssueNumber: 7, State: "idle", LatestRun: &store.Run{Ordinal: 1, Status: store.RunSucceeded, StartedAt: at}},
-		{IssueNumber: 8, State: "failed", LatestRun: &store.Run{Ordinal: 2, Status: store.RunFailed, StartedAt: at}},
+		{IssueNumber: 7, State: "idle", LatestRun: &contracts.TaskRun{Ordinal: 1, Status: string(store.RunSucceeded), StartedAt: at}},
+		{IssueNumber: 8, State: "failed", LatestRun: &contracts.TaskRun{Ordinal: 2, Status: string(store.RunFailed), StartedAt: at}},
 		{IssueNumber: 9, State: "idle"},
 	}}
 	count := func(b ask.Bundle) (n int) {

@@ -13,9 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/diskstatus"
-	"github.com/cloudvane/litefactory/internal/linear"
-	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/ticket"
+	"github.com/cloudvane/litefactory/internal/factory/localadmin"
 	"github.com/cloudvane/litefactory/internal/webhook"
 )
 
@@ -24,8 +22,8 @@ import (
 const daemonNoDelivery = "none since start"
 
 type daemonHealth struct {
-	store.HealthSnapshot
-	unsupportedDoctor   []store.Repo
+	localadmin.HealthSnapshot
+	unsupportedDoctor   []string
 	missingModeMappings []string
 }
 
@@ -39,46 +37,14 @@ func readHealthSnapshot(ctx context.Context, paths config.Paths) (_ daemonHealth
 		}
 		return daemonHealth{}, fmt.Errorf("read %s: %w", paths.DBPath(), statErr)
 	}
-	db, err := store.Open(ctx, paths.DBPath())
-	if err != nil {
-		return daemonHealth{}, err
-	}
-	defer func() { err = errors.Join(err, db.Close()) }()
-	snap, err := db.ReadHealthSnapshot(ctx)
-	if err != nil {
-		return daemonHealth{}, err
-	}
-	repos, err := db.ListRepos(ctx)
-	if err != nil {
-		return daemonHealth{}, err
-	}
-	health := daemonHealth{HealthSnapshot: snap}
-	for _, repo := range repos {
-		connection, err := db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return daemonHealth{}, err
-		}
-		if connection.Enabled && connection.Provider == ticket.Linear {
-			health.unsupportedDoctor = append(health.unsupportedDoctor, repo)
-			labels, err := connection.Linear.ModeLabels()
-			if err != nil {
-				return daemonHealth{}, err
-			}
-			if missing := linear.MissingModeLabels(labels); len(missing) > 0 {
-				health.missingModeMappings = append(health.missingModeMappings, fmt.Sprintf("project %d (%s) connection %d (%s): missing mode mappings: %s; add label IDs to --mode-labels, or use a mapped mode", repo.ID, repo.Slug(), connection.ID, connection.Destination, strings.Join(missing, ", ")))
-			}
-		}
-	}
-	return health, nil
+	inspection, err := localadmin.InspectHealth(ctx, paths)
+	return daemonHealth{HealthSnapshot: inspection.HealthSnapshot, unsupportedDoctor: inspection.UnsupportedDoctor, missingModeMappings: inspection.MissingModeMappings}, err
 }
 
 // printDaemonHealth writes the webhook listener line, the snapshot's age and
 // one block per repository. A snapshot of a daemon that is not running is shown
 // under "as of <time>, daemon not running": it is what the last daemon saw.
-func printDaemonHealth(w io.Writer, snap store.HealthSnapshot, running bool, now time.Time) error {
+func printDaemonHealth(w io.Writer, snap localadmin.HealthSnapshot, running bool, now time.Time) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if !snap.Found {
 		fmt.Fprintf(tw, "webhook\tno health snapshot has been published yet\n")
@@ -118,7 +84,7 @@ func printDaemonHealth(w io.Writer, snap store.HealthSnapshot, running bool, now
 // or paused and why, and how many runs were in flight. A daemon that is not
 // running is shown under "as of <time>, daemon not running": these are the
 // last things it recorded, not things it is doing now.
-func printDaemonHeartbeat(w io.Writer, snap store.HealthSnapshot, lastCompleted time.Time, running bool, now time.Time) error {
+func printDaemonHeartbeat(w io.Writer, snap localadmin.HealthSnapshot, lastCompleted time.Time, running bool, now time.Time) error {
 	if !snap.Found {
 		_, err := io.WriteString(w, diskstatus.Text(nil, now))
 		return err
@@ -179,7 +145,7 @@ func daemonTimeOr(t time.Time, none string) string {
 }
 
 // daemonNextPoll renders the next listing as RFC3339 plus a relative form.
-func daemonNextPoll(r store.RepoDiscoveryStatus, now time.Time) string {
+func daemonNextPoll(r localadmin.RepositoryHealth, now time.Time) string {
 	if r.NextPollDueAt.IsZero() {
 		if r.PollOwed {
 			return "due now (listing owed)"
@@ -216,7 +182,7 @@ func daemonRelative(d time.Duration) string {
 }
 
 // daemonSecret is MISSING only when the listener is on and no secret is cached.
-func daemonSecret(r store.RepoDiscoveryStatus, listening bool) string {
+func daemonSecret(r localadmin.RepositoryHealth, listening bool) string {
 	switch {
 	case r.SecretPresent:
 		return "ok"
@@ -228,10 +194,10 @@ func daemonSecret(r store.RepoDiscoveryStatus, listening bool) string {
 }
 
 // This is current configuration, independent of the daemon's recorded snapshot.
-func printDoctorConfiguration(w io.Writer, repos []store.Repo) error {
+func printDoctorConfiguration(w io.Writer, repos []string) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, repo := range repos {
-		fmt.Fprintf(tw, "project %s\tbackground Doctor discovery unsupported/skipped for Linear (current configuration)\n", repo.Slug())
+		fmt.Fprintf(tw, "project %s\tbackground Doctor discovery unsupported/skipped for Linear (current configuration)\n", repo)
 	}
 	return tw.Flush()
 }

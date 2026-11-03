@@ -25,7 +25,7 @@ func TestFactoryConversationTwoCorrectionsAcrossLookup(t *testing.T) {
 	if p.calls != 4 {
 		t.Fatalf("calls=%d", p.calls)
 	}
-	rows, err := r.s.db.ListConversationExchanges(t.Context(), r.t.ID)
+	rows, err := fixtureDB(r.s).ListConversationExchanges(t.Context(), r.t.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestFactoryConversationTwoCorrectionsAcrossLookup(t *testing.T) {
 	if err := json.Unmarshal([]byte(p.prompts[2]), &afterLookup); err != nil || afterLookup.Correction != "" || afterLookup.CorrectionReason != "" {
 		t.Fatalf("successful lookup retained defect feedback: %+v %v", afterLookup, err)
 	}
-	reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(r.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil || !strings.Contains(reply.ReplyText, "limit") && !strings.Contains(reply.ReplyText, "budget") {
 		t.Fatalf("missing bounded failure: %+v %v", reply, err)
 	}
@@ -79,7 +79,7 @@ func TestFactoryConversationPreStartRetryReusesCorrection(t *testing.T) {
 	if worked, err := r.s.ConversationStep(t.Context(), at.Add(2*time.Minute)); err != nil || !worked {
 		t.Fatalf("retry: worked=%t %v", worked, err)
 	}
-	rows, err := r.s.db.ListConversationExchanges(t.Context(), r.t.ID)
+	rows, err := fixtureDB(r.s).ListConversationExchanges(t.Context(), r.t.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestFactoryConversationRejectsInvalidCorrectionBoundary(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			r, _ := factoryUnitRun(t, &factoryUnitProvider{})
-			if err := r.s.db.SaveConversationExchange(t.Context(), r.t, store.ConversationExchange{TurnID: r.t.ID, Ordinal: 1, Kind: "correction", Complete: test.complete, Request: test.request, CapturedAt: r.at}); err != nil {
+			if err := fixtureDB(r.s).SaveConversationExchange(t.Context(), r.t, store.ConversationExchange{TurnID: r.t.ID, Ordinal: 1, Kind: "correction", Complete: test.complete, Request: test.request, CapturedAt: r.at}); err != nil {
 				t.Fatal(err)
 			}
 			if _, _, _, err := r.resumeBoundary(t.Context(), &factoryConversationPrompt{}); err == nil {
@@ -142,13 +142,13 @@ func TestFactoryConversationRejectsInvalidCorrectionBoundary(t *testing.T) {
 func TestFactoryConversationSavedOutcomeSurvivesInstructionPause(t *testing.T) {
 	r, at := factoryUnitRun(t, &factoryUnitProvider{})
 	r.savedOutcomes = "The confirmed action was saved."
-	if err := r.s.db.SetConversationHealth(t.Context(), r.c.ID, "retained instructions invalid", at); err != nil {
+	if err := fixtureDB(r.s).SetConversationHealth(t.Context(), r.c.ID, "retained instructions invalid", at); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.failed(t.Context(), errConversationInstructions); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	reply, err := fixtureDB(r.s).ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil || !strings.Contains(reply.ReplyText, r.savedOutcomes) || !strings.Contains(reply.ReplyText, "could not be completed") || !strings.Contains(reply.ReplyText, "No action was repeated") {
 		t.Fatalf("known outcome or limitation lost: %+v %v", reply, err)
 	}

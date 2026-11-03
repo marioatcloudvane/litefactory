@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/diskstatus"
+	"github.com/cloudvane/litefactory/internal/factory"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -19,14 +20,14 @@ func TestStatusRetainsDiskCacheObservations(t *testing.T) {
 	if err := db.ReplaceHealthSnapshot(t.Context(), store.ListenerStatus{WrittenAt: now, DaemonStartedAt: now, Disk: o}, nil); err != nil {
 		t.Fatal(err)
 	}
-	mapped, err := (messaging.FactoryStatus{DB: db}).Read(t.Context(), now)
+	mapped, err := factory.NewHealth(db).Read(t.Context(), now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if mapped.Disk == nil || !mapped.Disk.ObservedAt.Equal(observed) {
 		t.Fatalf("sample timestamp refreshed: %+v", mapped.Disk)
 	}
-	s := messaging.New(db, "test", "owner", []string{"channel"}, nil, messaging.FactoryStatus{DB: db})
+	s := messaging.New(db, "test", "owner", []string{"channel"}, nil, factory.NewHealth(db))
 	text, status, err := s.RunCommand(t.Context(), messaging.Message{Transport: "test", ID: "disk", Channel: "channel", Sender: "owner", Command: "status"}, now)
 	if err != nil || status != "success" {
 		t.Fatalf("status: %s %v", status, err)
