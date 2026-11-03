@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=10m -race ./internal/factory/readtargets
+?   	github.com/cloudvane/litefactory/internal/factory/readtargets	[no test files]
+
+EXIT 0

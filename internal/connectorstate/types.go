@@ -4,6 +4,7 @@ package connectorstate
 import (
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"slices"
 	"strings"
 	"time"
@@ -37,10 +38,7 @@ type ConnectorBrowser struct {
 }
 
 // ConnectorGrantTarget is a locally recorded task, resolved on each call.
-type ConnectorGrantTarget struct {
-	TaskRef, RepositoryRef string
-	SessionID, RepoID      int64
-}
+type ConnectorGrantTarget = contracts.ReadTaskTarget
 
 // ConnectorUsageTarget is the repository or task a usage read resolved to.
 type ConnectorUsageTarget struct {
@@ -50,10 +48,7 @@ type ConnectorUsageTarget struct {
 
 // ConnectorRepository names one registered repository by its local identity
 // and canonical reference (forge:owner/name).
-type ConnectorRepository struct {
-	RepositoryRef string
-	RepoID        int64
-}
+type ConnectorRepository = contracts.ReadRepository
 
 // ConnectorCoverage says which registered repositories a grant's task-level
 // and repository-level scopes cover. All includes repositories registered
@@ -290,10 +285,7 @@ type ConnectorGrantSummary struct {
 }
 
 // ConnectorCodeTarget describes the immutable retained code destination.
-type ConnectorCodeTarget struct {
-	TaskRef, RepositoryRef, ClonePath, RemoteURL, TaskBranch, BaseBranch, CodeRemoteID string
-	SessionID, RepoID, CodeVersionID                                                   int64
-}
+type ConnectorCodeTarget = contracts.ReadCodeTarget
 
 // ErrConnectorGrantNotFound identifies an exact grant ID absent from retained state.
 var ErrConnectorGrantNotFound = errors.New("store: connector grant not found")

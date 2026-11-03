@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=10m -race ./internal/connectorstorage
+ok  	github.com/cloudvane/litefactory/internal/connectorstorage	5.346s
+
+EXIT 0
