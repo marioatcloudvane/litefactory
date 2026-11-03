@@ -1,14 +1,22 @@
-// One conversational agent authors checked results. Generic factory delivery
-// prepares changed candidates, waits for an exact authenticated ship reply,
-// and merges/closes only the reviewed commit. Source changes return for checks.
-// Questions and ordinary review feedback resume the same agent.
+// Spike is one conversational agent. It reads the code, answers questions, asks
+// when something is unclear, changes code only when the owner clearly says so,
+// runs whatever checks it judges useful, and reports. All of that lives in the
+// role's Markdown. The factory does as little as possible.
+//
+// The agent's result names its own response (lf_response="result"): "ask" or
+// "done". The factory follows that response straight to a publication: a
+// question is posted and the instance waits for the owner, whose reply resumes
+// this same agent with its saved result as context; a finished report is posted
+// and the Spike completes. A later owner reply starts the next Spike from this
+// one. A failed attempt posts why and stops.
+//
+// The two publication nodes are the factory's own posting steps. They hold no
+// Spike logic: they post the agent's message as written and, for a question,
+// record the durable owner wait.
 digraph spike {
  graph [team="swift-ios", mode="spike", profile_version="2", start="spike"];
 
  spike    [lf_action="lf_agent", lf_agent_markdown="spike", lf_skills="spike-result", lf_access="write", lf_response="result", lf_outcomes="ask,done,failed", lf_limit="8"];
- prepare [lf_action="lf_deliver", lf_phase="prepare", lf_source="spike", lf_outcomes="ready,unchanged,revalidate,blocked", lf_limit="8", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
- review [lf_action="lf_ask", lf_kind="review", lf_source="spike", lf_approve_reply="ship", lf_outcomes="published,approved", lf_limit="8"];
- deliver [lf_action="lf_deliver", lf_phase="ship", lf_source="spike", lf_outcomes="completed,revalidate,blocked", lf_limit="8", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
  ask      [lf_action="lf_ask", lf_kind="question", lf_outcomes="published", lf_source="spike", lf_limit="8"];
  report   [lf_action="lf_comment", lf_kind="final", lf_outcomes="published", lf_source="spike", lf_limit="8"];
  failure  [lf_action="lf_comment", lf_kind="failure", lf_outcomes="published", lf_limit="8"];
@@ -17,14 +25,7 @@ digraph spike {
  stopped  [lf_terminal="true"];
 
  spike   -> ask      [lf_on="ask"];
- spike   -> prepare  [lf_on="done"];
- prepare -> report [lf_on="unchanged"];
- prepare -> spike [lf_on="revalidate"];
- prepare -> review [lf_on="ready"];
- review -> waiting [lf_on="published"];
- review -> deliver [lf_on="approved"];
- deliver -> spike [lf_on="revalidate"];
- deliver -> complete [lf_on="completed"];
+ spike   -> report   [lf_on="done"];
  spike   -> failure  [lf_on="failed"];
  ask     -> waiting  [lf_on="published"];
  report  -> complete [lf_on="published"];

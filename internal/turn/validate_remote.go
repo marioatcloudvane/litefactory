@@ -256,6 +256,10 @@ type ValidatePushActivity struct{ b ValidateFlowBindings }
 
 // Execute pushes and opens the pull request, each only once.
 func (h ValidatePushActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+	return (DeliveryActivity{validate: &h.b, operation: "push"}).Execute(ctx, opts, req)
+}
+
+func (h ValidatePushActivity) execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
 	r, err := h.b.remote(ctx, opts, req, graphexec.ValidatePushAction)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
@@ -421,6 +425,10 @@ type ValidateMergeActivity struct{ b ValidateFlowBindings }
 
 // Execute merges once.
 func (h ValidateMergeActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+	return (DeliveryActivity{validate: &h.b, operation: "merge"}).Execute(ctx, opts, req)
+}
+
+func (h ValidateMergeActivity) execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
 	r, err := h.b.remote(ctx, opts, req, graphexec.ValidateMergeAction)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
@@ -452,19 +460,18 @@ func (h ValidateMergeActivity) Execute(ctx context.Context, opts Options, req Ac
 	if current.Head != pr.Head {
 		return done(map[string]any{"acted": false, "stale": true}, r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("Pull request #%d is at head %s, not the confirmed %s. Nothing was merged.", pr.Number, short(current.Head), short(pr.Head))))
 	}
-	if mergeErr := r.b.Delivery.code().MergeDeliveryPR(ctx, r.target.Repo, pr.Number, pr.Head); mergeErr != nil {
-		// The merge may have happened despite the error: look before saying so.
-		again, getErr := r.b.Delivery.code().GetDeliveryPR(ctx, r.target.Repo, pr.Number)
-		if getErr != nil {
-			return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "Merging reported "+mergeErr.Error()+" and the result could not be read."))
+	observed, mergeErr, readErr := reconcileDeliveryMerge(ctx, r.b.Delivery.code(), r.target.Repo, pr.Number, pr.Head)
+	if readErr != nil {
+		reason := "The merge was sent but the result could not be read: " + readErr.Error()
+		if mergeErr != nil {
+			reason = "Merging reported " + mergeErr.Error() + " and the result could not be read."
 		}
-		if !again.Merged {
-			return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("Merging pull request #%d failed: %s", pr.Number, mergeErr.Error())))
-		}
-		current = again
-	} else if current, err = r.b.Delivery.code().GetDeliveryPR(ctx, r.target.Repo, pr.Number); err != nil {
-		return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The merge was sent but the result could not be read: "+err.Error()))
+		return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectUncertain, map[string]any{}, reason))
 	}
+	if mergeErr != nil && !observed.Merged {
+		return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("Merging pull request #%d failed: %s", pr.Number, mergeErr.Error())))
+	}
+	current = observed
 	if !current.Merged {
 		return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectUncertain, map[string]any{}, fmt.Sprintf("Pull request #%d is not merged yet.", pr.Number)))
 	}
@@ -487,6 +494,10 @@ type ValidateCloseActivity struct{ b ValidateFlowBindings }
 
 // Execute closes every listed issue.
 func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+	return (DeliveryActivity{validate: &h.b, operation: "close"}).Execute(ctx, opts, req)
+}
+
+func (h ValidateCloseActivity) execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
 	r, err := h.b.remote(ctx, opts, req, graphexec.ValidateCloseAction)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err

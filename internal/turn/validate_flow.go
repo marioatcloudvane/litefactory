@@ -176,6 +176,7 @@ func RegisterValidateFlow(specs *graphexec.Registry, activities *ActivityRegistr
 		graphexec.ValidateReportAction:       ValidateReportActivity{b},
 		graphexec.ValidateAskAction:          ValidateAskActivity{b},
 		graphexec.ValidateIssueAction:        ValidateIssueActivity{b},
+		graphexec.DeliverAction:              DeliveryActivity{validate: &b},
 		graphexec.ValidatePushAction:         ValidatePushActivity{b},
 		graphexec.ValidateMergeAction:        ValidateMergeActivity{b},
 		graphexec.ValidateCloseAction:        ValidateCloseActivity{b},
@@ -187,7 +188,7 @@ func RegisterValidateFlow(specs *graphexec.Registry, activities *ActivityRegistr
 			return err
 		}
 	}
-	for _, spec := range []graphexec.ActionSpec{graphexec.ValidateRepairBudgetSpec(), graphexec.ValidateRepairCheckSpec(), graphexec.ValidateReviewSpec(), graphexec.ValidateOutcomeSpec(),
+	for _, spec := range []graphexec.ActionSpec{graphexec.DeliverSpec(agent.ModeValidate), graphexec.ValidateRepairBudgetSpec(), graphexec.ValidateRepairCheckSpec(), graphexec.ValidateReviewSpec(), graphexec.ValidateOutcomeSpec(),
 		graphexec.ValidateResolveSpec(), graphexec.ValidateReportSpec(), graphexec.ValidateAskSpec(), graphexec.ValidateIssueSpec(), graphexec.ValidatePushSpec(), graphexec.ValidateMergeSpec(), graphexec.ValidateCloseSpec(), graphexec.ValidateImplementSpec(),
 		graphexec.ValidateReporterSpec(), graphexec.ValidateFactoryBugSpec()} {
 		if _, ok := specs.Resolve(spec.Name); ok {
@@ -222,7 +223,7 @@ func loadValidateStep(ctx context.Context, opts Options, req ActivityRequest, pr
 		return step, err
 	}
 	node, ok := profile.Node(req.Node)
-	if !ok || node.Action != action || pin.Digest != profile.Digest || pin.Mode != string(agent.ModeValidate) {
+	if !ok || graphexec.ValidateDeliveryAction(node) != action || pin.Digest != profile.Digest || pin.Mode != string(agent.ModeValidate) {
 		return step, errors.New("validate step profile binding mismatch")
 	}
 	attempt, err := opts.DB.GetGraphNodeAttempt(ctx, req.NodeAttemptID)

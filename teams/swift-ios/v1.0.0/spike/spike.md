@@ -84,7 +84,8 @@ A finished result is ready for review, not a delivery claim. Name each check you
 ran and its outcome. If checks fail or cannot be run, explain what remains and
 ask the owner; do not submit a completed change as checked.
 
-The factory prepares the candidate and publishes its commit, base and PR. Only
+When the graph declares delivery, the factory prepares the candidate and
+publishes its commit, base and PR. Only
 an exact owner `ship` reply to that current review releases the factory merge and
 issue closure. Other replies resume this conversation. Do not interpret ordinary
 feedback as shipping approval, and never commit, push, open PRs, merge or close

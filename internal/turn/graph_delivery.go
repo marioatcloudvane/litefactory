@@ -38,12 +38,12 @@ type GraphDeliveryBinding struct {
 	Eligibility                           GraphBugRepairEligibility
 }
 
-// GraphBugFinalization delivers an accepted repair by reconciling against git
+// GraphDelivery delivers an authorized candidate by reconciling against git
 // and GitHub: every step observes the current state and performs only the next
 // missing action, so re-running it after any failure is always safe. Nothing is
 // recorded as uncertain; a failure parks with GitHub's reason and an owner
 // reply re-runs this step from the top.
-type GraphBugFinalization struct {
+type GraphDelivery struct {
 	Forge    DeliveryOperations
 	Code     BugCodeForge
 	Tickets  BugCloseForge
@@ -53,13 +53,19 @@ type GraphBugFinalization struct {
 	Save func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error)
 	// SyncBase synchronizes the saved head; any changed source requires revalidation.
 	SyncBase func(context.Context, Options, ActivityRequest, GraphDeliveryBinding, string) (syncBaseOutput, error)
-	// Phase is empty for legacy finalization, prepare to stop before merging, or ship.
-	Phase string
+	// Operation limits effects; empty retains the legacy all-in-one Bug wrapper.
+	Operation  string
+	ExpectedPR int
+	// Inspect reads the saved candidate and current remote base without saving.
+	Inspect func(context.Context, GraphDeliveryBinding) (string, string, error)
 	// Bind supplies workflow-neutral admission instead of the legacy Bug adapter.
 	Bind func(context.Context, Options, ActivityRequest) (GraphDeliveryBinding, error)
 	// PublishSaved pushes the task branch; pushing an unchanged branch is a no-op.
 	PublishSaved func(context.Context, Options, ActivityRequest, string) error
 }
+
+// GraphBugFinalization preserves the legacy Bug entry point and its admission.
+type GraphBugFinalization = GraphDelivery
 
 type graphDeliveryProgress struct {
 	Record              string `json:"record"`
@@ -71,7 +77,7 @@ type graphDeliveryProgress struct {
 }
 
 // Execute saves, pushes, opens or finds the PR, merges it and closes the issue.
-func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+func (h GraphDelivery) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
 	if h.Code == nil {
 		h.Code = h.Forge
 	}
@@ -81,7 +87,7 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 	out := graphDeliveryProgress{Record: "delivery_progress"}
 	finish := func(outcome, reason string) (ActivityResult, error) {
 		out.Outcome, out.Reason = outcome, reason
-		if h.Phase == "prepare" && outcome == "ready" {
+		if h.Operation == "push" && outcome == "ready" {
 			out.Record = "delivery_prepared"
 		}
 		raw, e := json.Marshal(out)
@@ -114,7 +120,55 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 	out.Binding = binding
 	repo := binding.Repository
 
-	head, e := h.Save(ctx, opts, req, binding)
+	if h.Operation != "" && h.Operation != "push" && h.Operation != "merge" && h.Operation != "close" {
+		return ActivityResult{}, errors.New("invalid delivery operation")
+	}
+	var head string
+	if h.Operation != "" && h.Bind == nil {
+		if h.Inspect == nil {
+			return finish("blocked", "Delivery requires read-only candidate inspection")
+		}
+		if h.Operation == "push" {
+			if _, err := h.Save(ctx, opts, req, binding); err != nil {
+				return finish("blocked", err.Error())
+			}
+		}
+		actual, base, err := h.Inspect(ctx, binding)
+		if err != nil {
+			return finish("blocked", err.Error())
+		}
+		if h.Operation == "push" {
+			head = actual
+			binding.BaseCommit = base
+		} else {
+			var prepared graphDeliveryProgress
+			raw, err := opts.DB.LatestGraphRecord(ctx, req.InstanceID, "delivery_prepared")
+			if err == nil {
+				err = json.Unmarshal(raw, &prepared)
+			}
+			if err != nil {
+				return finish("blocked", "No prepared delivery: "+err.Error())
+			}
+			prior := prepared.Binding
+			if prior.SessionID != binding.SessionID || prior.Repository != binding.Repository || prior.TicketRepository != binding.TicketRepository || prior.IssueID != binding.IssueID || prior.Branch != binding.Branch || prior.Target != binding.Target || prior.Eligibility.AttemptID != binding.Eligibility.AttemptID || prepared.Commit != actual {
+				return finish("revalidate", "The checked delivery candidate changed")
+			}
+			binding.BaseCommit = prior.BaseCommit
+			// A merged candidate can be reconciled even after its base advances.
+			remote, err := h.Code.GetDeliveryPR(ctx, binding.Repository, prepared.PR.Number)
+			if err != nil {
+				return finish("blocked", err.Error())
+			}
+			if remote.Head != actual || remote.Branch != binding.Branch || remote.Target != binding.Target || (!remote.Merged && base != binding.BaseCommit) {
+				return finish("revalidate", "The checked pull request or base changed")
+			}
+			head = actual
+			h.ExpectedPR = prepared.PR.Number
+		}
+		out.Binding = binding
+	} else {
+		head, e = h.Save(ctx, opts, req, binding)
+	}
 	if e != nil {
 		return finish("blocked", "Saving the repair failed: "+e.Error())
 	}
@@ -124,13 +178,24 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 	if e != nil {
 		return finish("blocked", "Listing PRs for "+binding.Branch+" failed: "+e.Error())
 	}
-	if h.Phase == "prepare" && found && pr.Merged {
+	if h.ExpectedPR > 0 && (!found || pr.Number != h.ExpectedPR) {
+		return finish("revalidate", "The prepared pull request identity changed")
+	}
+	if h.Operation == "push" && found && pr.Merged {
 		out.PR = pr
 		return finish("ready", "The candidate is already merged; issue closure still requires review")
 	}
+	if h.Operation == "close" && (!found || !pr.Merged) {
+		return finish("blocked", "Closure requires the exact candidate to be confirmed merged")
+	}
+	if (h.Operation == "merge" || h.Operation == "close") && (!found || pr.Head != head) {
+		return finish("revalidate", "The prepared pull request changed")
+	}
 	if !found || !pr.Merged {
-		if e = h.PublishSaved(ctx, opts, req, head); e != nil {
-			return finish("blocked", "Pushing "+binding.Branch+" failed: "+e.Error())
+		if h.Operation == "" || h.Operation == "push" {
+			if e = h.PublishSaved(ctx, opts, req, head); e != nil {
+				return finish("blocked", "Pushing "+binding.Branch+" failed: "+e.Error())
+			}
 		}
 		sync := func() (ActivityResult, bool, error) {
 			state, err := h.SyncBase(ctx, opts, req, binding, head)
@@ -156,8 +221,10 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 				return res, true, e
 			}
 		}
-		if res, stop, err := sync(); stop {
-			return res, err
+		if h.Operation == "" || h.Operation == "push" {
+			if res, stop, err := sync(); stop {
+				return res, err
+			}
 		}
 		if !found {
 			title, body, pe := h.presentation(ctx, binding)
@@ -175,26 +242,28 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 			}
 		}
 		out.PR = pr
-		if h.Phase == "prepare" {
+		if h.Operation == "push" {
 			if pr.Head != head {
 				return finish("blocked", "The pull request has not reached the saved candidate head")
 			}
 			return finish("ready", fmt.Sprintf("Candidate %s is ready in PR #%d", head, pr.Number))
 		}
-		if me := h.Code.MergeDeliveryPR(ctx, repo, pr.Number, head); me != nil {
-			// The merge may have happened despite the error; look before reporting.
-			if again, ge := h.Code.GetDeliveryPR(ctx, repo, pr.Number); ge != nil || !again.Merged {
-				var api *github.APIError
-				if ge == nil && errors.As(me, &api) && api.StatusCode == http.StatusMethodNotAllowed && strings.Contains(strings.ToLower(api.Message), "merge conflict") {
-					if res, stop, err := sync(); stop {
-						return res, err
-					}
+		observed, mergeErr, readErr := reconcileDeliveryMerge(ctx, h.Code, repo, pr.Number, head)
+		if mergeErr != nil && (readErr != nil || !observed.Merged) {
+			var api *github.APIError
+			if h.Operation == "" && readErr == nil && errors.As(mergeErr, &api) && api.StatusCode == http.StatusMethodNotAllowed && strings.Contains(strings.ToLower(api.Message), "merge conflict") {
+				if res, stop, err := sync(); stop {
+					return res, err
 				}
-				return finish("blocked", fmt.Sprintf("Merging PR #%d failed: %s. Reply to retry once GitHub allows the merge.", pr.Number, me.Error()))
 			}
+			return finish("blocked", fmt.Sprintf("Merging PR #%d failed: %s. Reply to retry once GitHub allows the merge.", pr.Number, mergeErr.Error()))
 		}
-		if pr, e = h.Code.GetDeliveryPR(ctx, repo, pr.Number); e != nil {
-			return finish("blocked", fmt.Sprintf("Reading PR #%d after merging failed: %s", out.PR.Number, e.Error()))
+		if readErr != nil {
+			return finish("blocked", fmt.Sprintf("Reading PR #%d after merging failed: %s", pr.Number, readErr.Error()))
+		}
+		pr = observed
+		if pr.Head != head || pr.Branch != binding.Branch || pr.Target != binding.Target {
+			return finish("revalidate", "The merged candidate identity changed")
 		}
 		if !pr.Merged {
 			return finish("blocked", fmt.Sprintf("PR #%d is not merged yet. Reply to retry.", pr.Number))
@@ -203,6 +272,9 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 	out.PR = pr
 	out.Integration = true
 
+	if h.Operation == "merge" {
+		return finish("merged", fmt.Sprintf("Merged PR #%d at %s", pr.Number, head))
+	}
 	ticketRepo := binding.TicketRepository
 	if ticketRepo.Owner == "" {
 		ticketRepo = repo
@@ -217,7 +289,7 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 // findPR returns this branch's PR into the target: a merged one carrying head,
 // else an open one. A closed or older merged PR does not count, so a new
 // repair generation gets a new PR.
-func (h GraphBugFinalization) findPR(ctx context.Context, b GraphDeliveryBinding, head string) (github.DeliveryPR, bool, error) {
+func (h GraphDelivery) findPR(ctx context.Context, b GraphDeliveryBinding, head string) (github.DeliveryPR, bool, error) {
 	if h.Code == nil {
 		h.Code = h.Forge
 	}
@@ -240,7 +312,7 @@ func (h GraphBugFinalization) findPR(ctx context.Context, b GraphDeliveryBinding
 	return open, open.Number > 0, nil
 }
 
-func (h GraphBugFinalization) presentation(ctx context.Context, b GraphDeliveryBinding) (redact.Body, redact.Body, error) {
+func (h GraphDelivery) presentation(ctx context.Context, b GraphDeliveryBinding) (redact.Body, redact.Body, error) {
 	summary := b.Summary
 	prefix := "Change: "
 	contextLine := ""
@@ -288,4 +360,12 @@ func (b GraphDeliveryBinding) displayReference() string {
 		return b.IssueReference
 	}
 	return "this issue"
+}
+
+// reconcileDeliveryMerge observes a sent merge even when its reply is lost.
+// Callers retain their workflow's retry/uncertainty policy and authorization.
+func reconcileDeliveryMerge(ctx context.Context, code BugCodeForge, repo github.Repo, number int, head string) (github.DeliveryPR, error, error) {
+	mergeErr := code.MergeDeliveryPR(ctx, repo, number, head)
+	observed, readErr := code.GetDeliveryPR(ctx, repo, number)
+	return observed, mergeErr, readErr
 }

@@ -17,11 +17,21 @@ import (
 
 // DeliveryActivity binds the shared delivery loop to a retained graph candidate.
 // Review authority is read from factory records, never from the agent's prose.
-type DeliveryActivity struct{ w *researchWorkflow }
+type DeliveryActivity struct {
+	w        *researchWorkflow
+	profile  *graphexec.Profile
+	bug      *GraphBugFinalization
+	validate *ValidateFlowBindings
+	// operation is set only by legacy compatibility wrappers.
+	operation string
+}
 
 var errDeliveryCandidateChanged = errors.New("reviewed source or base changed")
 
 func registerDelivery(specs *graphexec.Registry, activities *ActivityRegistry, w *researchWorkflow) error {
+	if _, exists := activities.Resolve(graphexec.DeliverAction); exists {
+		return nil
+	}
 	delivery := graphexec.DeliverSpec(w.policy.Mode)
 	delivery.Workflow = w.policy.Workflow
 	if err := specs.Register(delivery); err != nil {
@@ -76,6 +86,35 @@ func (h DeliveryActivity) checkout(ctx context.Context, binding GraphDeliveryBin
 
 // Execute prepares without merging, or ships only the exact displayed candidate.
 func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+	if h.validate != nil {
+		node, ok := h.validate.Profile.Node(req.Node)
+		if !ok {
+			return ActivityResult{}, errors.New("delivery node absent from pinned graph")
+		}
+		operation := node.Attrs["lf_operation"]
+		if h.operation != "" {
+			operation = h.operation
+		}
+		switch operation {
+		case "push":
+			return (ValidatePushActivity{*h.validate}).execute(ctx, opts, req)
+		case "merge":
+			return (ValidateMergeActivity{*h.validate}).execute(ctx, opts, req)
+		case "close":
+			return (ValidateCloseActivity{*h.validate}).execute(ctx, opts, req)
+		default:
+			return ActivityResult{}, errors.New("invalid delivery operation")
+		}
+	}
+	if h.bug != nil {
+		node, ok := h.profile.Node(req.Node)
+		if !ok || node.Action != graphexec.DeliverAction {
+			return ActivityResult{}, errors.New("delivery node differs from pinned graph")
+		}
+		handler := *h.bug
+		handler.Operation = node.Attrs["lf_operation"]
+		return handler.Execute(ctx, opts, req)
+	}
 	w := h.w
 	node, ok := w.definition.Profile.Node(req.Node)
 	if !ok || node.Action != graphexec.DeliverAction {
@@ -128,7 +167,7 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 	}
 	binding := GraphDeliveryBinding{Record: "delivery_binding", InstanceID: instance.ID, SessionID: session.ID, IssueNumber: session.IssueNumber, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, TicketRepository: ticketRepo, Branch: session.Branch, Target: repo.BaseBranch, Summary: result.Result.Comment, RunID: source.RunID, SourceAttemptID: source.ID, Marker: fmt.Sprintf("<!-- lf:delivery instance=%d -->", instance.ID)}
 	binding.IssueReference = session.TaskRef
-	phase := node.Attrs["lf_phase"]
+	operation := node.Attrs["lf_operation"]
 	code, _ := opts.MCP.Comments.(BugCodeForge)
 	tickets, _ := opts.ResearchReporter.forge.(BugCloseForge)
 	if opts.Bug != nil {
@@ -140,8 +179,9 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 		}
 	}
 	var head string
-	switch phase {
-	case "prepare":
+	expectedPR := 0
+	switch operation {
+	case "push":
 		if w.prep != nil && !w.saved {
 			if _, err = w.saveNow(ctx); err != nil {
 				return finish("blocked", err.Error())
@@ -171,7 +211,7 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 		if head == binding.BaseCommit {
 			return finish("unchanged", "No branch changes to deliver")
 		}
-	case "ship":
+	case "merge", "close":
 		prepared, e := preparedDelivery(ctx, opts.DB, instance.ID)
 		if e != nil {
 			return finish("blocked", e.Error())
@@ -192,7 +232,7 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 		}
 		review, exists := w.definition.Profile.Node(intent.Node)
 		target, released := graphexec.Decide(w.definition.Profile, intent.Node, "approved")
-		if !exists || !released || target != req.Node || review.Attrs["lf_approve_reply"] == "" || wait.State != "allocated" || wait.SourceAttemptID != source.ID || !strings.EqualFold(strings.TrimSpace(wait.ReplyBody), review.Attrs["lf_approve_reply"]) {
+		if !exists || !released || !deliveryApprovalReaches(w.definition.Profile, target, req.Node) || review.Attrs["lf_approve_reply"] == "" || wait.State != "allocated" || wait.SourceAttemptID != source.ID || !strings.EqualFold(strings.TrimSpace(wait.ReplyBody), review.Attrs["lf_approve_reply"]) {
 			return finish("blocked", "No consumed owner approval for this delivery")
 		}
 		// The published review itself must name this prepared commit.
@@ -205,6 +245,7 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 		}
 		binding = prepared.Binding
 		head = prepared.Commit
+		expectedPR = prepared.PR.Number
 		if code == nil {
 			return finish("blocked", "Delivery requires factory code gateway")
 		}
@@ -244,7 +285,7 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 			return finish("blocked", err.Error())
 		}
 	default:
-		return ActivityResult{}, errors.New("invalid delivery phase")
+		return ActivityResult{}, errors.New("invalid delivery operation")
 	}
 	if tickets == nil || code == nil {
 		return finish("blocked", "Delivery requires factory code and ticket gateways")
@@ -258,7 +299,7 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 	}
 	binding.IssueID = issue.ID
 	runtime := &BugRuntime{opts: opts, definition: w.definition}
-	handler := GraphBugFinalization{Phase: phase, Code: code, Tickets: tickets, Redactor: opts.MCP.Redactor, Bind: func(context.Context, Options, ActivityRequest) (GraphDeliveryBinding, error) { return binding, nil }, Save: func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error) {
+	handler := GraphDelivery{ExpectedPR: expectedPR, Operation: operation, Code: code, Tickets: tickets, Redactor: opts.MCP.Redactor, Bind: func(context.Context, Options, ActivityRequest) (GraphDeliveryBinding, error) { return binding, nil }, Save: func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error) {
 		return head, nil
 	}, PublishSaved: runtime.pushGraphDelivery, SyncBase: func(ctx context.Context, o Options, a ActivityRequest, b GraphDeliveryBinding, head string) (syncBaseOutput, error) {
 		sync := SyncBaseBinding{Repo: sessionGraphSyncRepo{runtime: runtime, sessionID: session.ID}, Bind: func(context.Context, Options, ActivityRequest) (SyncBaseTarget, error) {
@@ -313,4 +354,15 @@ func deliveryRevalidationContext(ctx context.Context, db *store.DB, p *graphexec
 
 func deliveryReviewNotice(p graphDeliveryProgress, reply string) string {
 	return fmt.Sprintf("\n\nFactory candidate: commit `%s`, base `%s`, PR #%d into `%s`. Reply `%s` to merge and close.", p.Commit, p.Binding.BaseCommit, p.PR.Number, p.Binding.Target, reply)
+}
+
+// A consumed review can authorize closure only through its merge node's declared
+// successful edge. It never authorizes another candidate or an unrelated node.
+func deliveryApprovalReaches(p *graphexec.Profile, target, current string) bool {
+	if target == current {
+		return true
+	}
+	n, ok := p.Node(target)
+	next, routed := graphexec.Decide(p, target, "merged")
+	return ok && n.Action == graphexec.DeliverAction && n.Attrs["lf_operation"] == "merge" && routed && next == current
 }

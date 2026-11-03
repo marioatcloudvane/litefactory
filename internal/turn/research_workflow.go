@@ -335,7 +335,8 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			}
 			return w.finish(ctx, parkErr)
 		}
-		if step.Status == store.GraphSucceeded && node.Action == graphexec.DeliverAction {
+		var delivery graphDeliveryProgress
+		if step.Status == store.GraphSucceeded && node.Action == graphexec.DeliverAction && json.Unmarshal(step.Activity.Output, &delivery) == nil && delivery.Record == "delivery_progress" && delivery.Closed {
 			if _, err := opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID); err != nil {
 				return w.finish(ctx, err)
 			}

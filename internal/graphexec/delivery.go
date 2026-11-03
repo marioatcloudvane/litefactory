@@ -13,8 +13,9 @@ const DeliverAction = "lf_deliver"
 // DeliverSpec exposes mechanics, never permission to merge.
 func DeliverSpec(mode agent.Mode) ActionSpec {
 	attrs := OwnerStopAttributes()
-	attrs["lf_phase"] = AttributeSpec{Required: true, Values: []string{"prepare", "ship"}}
-	return ActionSpec{Name: DeliverAction, Mode: mode, Outcomes: []string{"ready", "unchanged", "completed", "revalidate", "blocked"}, Attributes: attrs}
+	attrs["lf_operation"] = AttributeSpec{Required: true, Values: []string{"push", "merge", "close"}}
+	attrs["lf_owner_continuation"] = AttributeSpec{Values: []string{"required"}}
+	return ActionSpec{Name: DeliverAction, Mode: mode, Outcomes: []string{"ready", "unchanged", "merged", "completed", "revalidate", "stale", "blocked", "done", "closed", "open"}, Attributes: attrs}
 }
 
 // validateDeliveryNode constrains mechanical return and owner approval routes.
@@ -23,12 +24,16 @@ func validateDeliveryNode(p *Profile, n Node) error {
 	if !ok || source.Action != "lf_agent" {
 		return fmt.Errorf("delivery %q needs an agent source", n.Name)
 	}
-	phase := n.Attrs["lf_phase"]
+	operation := n.Attrs["lf_operation"]
 	want := []string{"ready", "unchanged", "revalidate", "blocked"}
-	if phase == "ship" {
+	switch operation {
+	case "merge":
+		want = []string{"merged", "revalidate", "blocked"}
+	case "close":
 		want = []string{"completed", "revalidate", "blocked"}
-	} else if phase != "prepare" {
-		return fmt.Errorf("invalid delivery phase at %q", n.Name)
+	case "push":
+	default:
+		return fmt.Errorf("invalid delivery operation at %q", n.Name)
 	}
 	if len(n.Outcomes) != len(want) {
 		return fmt.Errorf("delivery %q has invalid outcomes", n.Name)
@@ -58,6 +63,10 @@ func validateDeliveryNode(p *Profile, n Node) error {
 			if target.Action != "lf_comment" || target.Attrs["lf_kind"] != "final" || target.Attrs["lf_source"] != source.Name {
 				return fmt.Errorf("unchanged delivery requires its final report")
 			}
+		case "merged":
+			if target.Action != DeliverAction || target.Attrs["lf_operation"] != "close" || target.Attrs["lf_source"] != source.Name {
+				return fmt.Errorf("merged delivery requires its close operation")
+			}
 		case "completed":
 			if !target.Terminal {
 				return fmt.Errorf("confirmed delivery must end at a terminal")
@@ -66,12 +75,14 @@ func validateDeliveryNode(p *Profile, n Node) error {
 			return fmt.Errorf("blocked delivery must park for its owner")
 		}
 	}
-	if phase == "ship" {
+	if operation == "merge" || operation == "close" {
 		admitted := false
 		for _, e := range p.Edges {
 			if e.To == n.Name {
 				review, _ := p.Node(e.From)
-				if e.On != "approved" || review.Action != "lf_ask" || review.Attrs["lf_approve_reply"] == "" || review.Attrs["lf_source"] != source.Name {
+				allowed := operation == "merge" && e.On == "approved" && review.Action == "lf_ask" && review.Attrs["lf_approve_reply"] != "" && review.Attrs["lf_source"] == source.Name
+				allowed = allowed || operation == "close" && e.On == "merged" && review.Action == DeliverAction && review.Attrs["lf_operation"] == "merge" && review.Attrs["lf_source"] == source.Name
+				if !allowed {
 					return fmt.Errorf("shipping requires an explicit owner approval edge")
 				}
 				admitted = true
@@ -82,4 +93,22 @@ func validateDeliveryNode(p *Profile, n Node) error {
 		}
 	}
 	return nil
+}
+
+// ValidateDeliveryAction identifies a delivery capability without changing the
+// captured node identity. Validate's effect ledger remains its admission gate.
+func ValidateDeliveryAction(n Node) string {
+	if n.Action != DeliverAction {
+		return n.Action
+	}
+	switch n.Attrs["lf_operation"] {
+	case "push":
+		return ValidatePushAction
+	case "merge":
+		return ValidateMergeAction
+	case "close":
+		return ValidateCloseAction
+	default:
+		return ""
+	}
 }

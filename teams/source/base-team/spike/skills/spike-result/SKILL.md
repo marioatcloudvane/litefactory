@@ -72,7 +72,8 @@ If the shared route reports diagnostics, correct exactly those fields and submit
 
 A completed result with branch changes is a checked candidate, not a claim of
 merge or delivery. Include the commands actually run and their outcomes. The
-factory displays its saved commit and PR for owner review; an exact `ship` reply
+factory, when delivery is declared in the graph, displays its saved commit and
+PR for owner review; an exact `ship` reply
 releases delivery. After a source/base change, rerun the affected checks and
 submit fresh results for a new review. Failed or unavailable checks belong in an
 incomplete result with a concrete owner question. Do not ship through agent tools.

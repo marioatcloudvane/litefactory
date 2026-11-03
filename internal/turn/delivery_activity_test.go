@@ -3,11 +3,16 @@ package turn
 import (
 	"context"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -66,6 +71,7 @@ func TestDeliveryWaitsForExactOwnerReview(t *testing.T) {
 				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, FinishedAt: time.Now()}, nil
 			})
 			f, _, req := assembledSpikeFixture(t, runner)
+			f.opts.WorkflowSource = deliveryWorkflowSource
 			remote := &graphDeliveryForge{issue: github.Issue{ID: 123, Number: 123, State: "open"}}
 			code := checkoutDeliveryForge{graphDeliveryForge: remote, checkout: &checkout}
 			f.opts.Bug = &BugRuntime{cfg: BugRuntimeConfig{Code: code, Tickets: code}}
@@ -216,8 +222,9 @@ func TestDeliveryWaitsForExactOwnerReview(t *testing.T) {
 }
 
 func TestDeliveryPreparationNeverMergesOrCloses(t *testing.T) {
-	f, h, req, forge, _ := graphFinalizationFixture(t)
-	h.Phase = "prepare"
+	f, h, req, forge, head := graphFinalizationFixture(t)
+	h.Operation = "push"
+	h.Inspect = func(context.Context, GraphDeliveryBinding) (string, string, error) { return head, "base", nil }
 	got, err := h.Execute(t.Context(), f.opts, req)
 	mustProgress(t, err)
 	if got.Outcome != "ready" || forge.merges != 0 || forge.closes != 0 {
@@ -229,4 +236,67 @@ func TestDeliveryPreparationNeverMergesOrCloses(t *testing.T) {
 	if got.Outcome != "ready" || forge.closes != 0 {
 		t.Fatalf("prepare closed an already merged candidate: %+v", got)
 	}
+}
+
+const deliveryOperationFixture = `// One conversational agent authors checked results. Generic factory delivery
+// prepares changed candidates, waits for an exact authenticated ship reply,
+// and merges/closes only the reviewed commit. Source changes return for checks.
+// Questions and ordinary review feedback resume the same agent.
+digraph spike {
+ graph [team="{{team}}", mode="spike", profile_version="2", start="spike"];
+
+ spike    [lf_action="lf_agent", lf_agent_markdown="spike", lf_skills="spike-result", lf_access="write", lf_response="result", lf_outcomes="ask,done,failed", lf_limit="8"];
+ prepare [lf_action="lf_deliver", lf_operation="push", lf_source="spike", lf_outcomes="ready,unchanged,revalidate,blocked", lf_limit="8", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
+ review [lf_action="lf_ask", lf_kind="review", lf_source="spike", lf_approve_reply="ship", lf_outcomes="published,approved", lf_limit="8"];
+ deliver [lf_action="lf_deliver", lf_operation="merge", lf_source="spike", lf_outcomes="merged,revalidate,blocked", lf_limit="8", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
+ close [lf_action="lf_deliver", lf_operation="close", lf_source="spike", lf_outcomes="completed,revalidate,blocked", lf_limit="8", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
+ ask      [lf_action="lf_ask", lf_kind="question", lf_outcomes="published", lf_source="spike", lf_limit="8"];
+ report   [lf_action="lf_comment", lf_kind="final", lf_outcomes="published", lf_source="spike", lf_limit="8"];
+ failure  [lf_action="lf_comment", lf_kind="failure", lf_outcomes="published", lf_limit="8"];
+ waiting  [lf_terminal="true"];
+ complete [lf_terminal="true"];
+ stopped  [lf_terminal="true"];
+
+ spike   -> ask [lf_on="ask"];
+ spike   -> prepare  [lf_on="done"];
+ prepare -> report [lf_on="unchanged"];
+ prepare -> spike [lf_on="revalidate"];
+ prepare -> review [lf_on="ready"];
+ review -> waiting [lf_on="published"];
+ review -> deliver [lf_on="approved"];
+ deliver -> spike [lf_on="revalidate"];
+ deliver -> close [lf_on="merged"];
+ close -> complete [lf_on="completed"];
+ close -> spike [lf_on="revalidate"];
+ spike   -> failure  [lf_on="failed"];
+ ask     -> waiting  [lf_on="published"];
+ report  -> complete [lf_on="published"];
+ failure -> stopped  [lf_on="published"];
+}
+`
+
+func deliveryWorkflowSource(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+	if workflow != agent.WorkflowSpike {
+		return fixtureWorkflowSource(ctx, repo, workflow, specs)
+	}
+	root, err := teamsourcetest.Workflow(ctx, teamsourcetest.Go, "spike")
+	if err != nil {
+		return nil, err
+	}
+	files := fstest.MapFS{}
+	err = fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		raw, err := fs.ReadFile(root, p)
+		if p == "spike.dot" {
+			raw = []byte(strings.ReplaceAll(deliveryOperationFixture, "{{team}}", "go-development"))
+		}
+		files[p] = &fstest.MapFile{Data: raw}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return fixtureInstalled(teamsource.CaptureWorkflow(ctx, files, "spike.dot", "go-development", agent.ModeSpike, specs))
 }
