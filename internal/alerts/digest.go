@@ -37,7 +37,7 @@ func (e *Engine) digest(l *store.AlertLedger, held []*store.AlertNotification, a
 		if resolved {
 			state = "already resolved"
 		}
-		entry := n.Body
+		entry := withoutAlertMarkers(n.Body)
 		if _, rest, ok := strings.Cut(entry, "\n"); ok {
 			entry = rest
 		}

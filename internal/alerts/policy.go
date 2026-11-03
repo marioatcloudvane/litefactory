@@ -184,6 +184,13 @@ func (e *Engine) muted(l *store.AlertLedger, rule string, at time.Time) bool {
 // Ready reconciles unattempted transitions against current state. Attempted
 // bytes and membership stay immutable, including uncertain notifications.
 func (e *Engine) Ready(l *store.AlertLedger, at time.Time, channel string) []*store.AlertNotification {
+	// Only unattempted bodies may adopt the current composition. Attempted
+	// bytes must remain available for exact legacy receipt reconciliation.
+	for _, n := range l.Notifications {
+		if n.Attempt == 0 && (n.State == "queued" || n.State == "held") {
+			n.Body = withoutAlertMarkers(n.Body)
+		}
+	}
 	e.reconcileDigests(l, at, channel)
 	var out []*store.AlertNotification
 	var held []*store.AlertNotification
@@ -327,7 +334,7 @@ func render(s *store.AlertSubject, n *store.AlertNotification, resolved bool) st
 	if n.Kind == "clear" {
 		summary = "Two observations confirmed recovery."
 	}
-	return safeText(heading+"\n"+summary+"\nAffected: "+subject+"\n"+action, 1600) + "\n" + n.Marker
+	return safeText(heading+"\n"+summary+"\nAffected: "+subject+"\n"+action, 1600)
 }
 
 // SafeText neutralizes every mention, including an injected configured owner.
@@ -370,4 +377,20 @@ func safeText(s string, limit int) string {
 		n += size
 	}
 	return b.String() + "…"
+}
+
+// withoutAlertMarkers removes legacy engine markers before new transport
+// composition, including member markers embedded in queued digests.
+func withoutAlertMarkers(body string) string {
+	for {
+		start := strings.Index(body, "[lf:alert:")
+		if start < 0 {
+			return strings.TrimSpace(body)
+		}
+		end := strings.IndexByte(body[start:], ']')
+		if end < 0 {
+			return strings.TrimSpace(body)
+		}
+		body = body[:start] + body[start+end+1:]
+	}
 }

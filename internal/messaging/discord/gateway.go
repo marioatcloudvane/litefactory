@@ -376,7 +376,12 @@ func (a *Adapter) gatewayConnect(ctx context.Context, session *gatewaySession, o
 						o.OnReaction(reaction)
 					}
 				case "MESSAGE_CREATE":
-					if channel, id, ok := ownerMessage(f.D, o.Owner, channels); ok && id > last[channel] {
+					if channel, id, ok := a.ownerMessage(f.D, o.Owner, channels); ok {
+						if id <= last[channel] {
+							a.intakeDiagnostic("gateway_filter", channel, strconv.FormatUint(id, 10), "duplicate_or_replay")
+							continue
+						}
+						a.intakeDiagnostic("gateway_filter", channel, strconv.FormatUint(id, 10), "eligible")
 						last[channel] = id
 						if o.OnMessage != nil {
 							o.OnMessage(channel)
@@ -390,7 +395,7 @@ func (a *Adapter) gatewayConnect(ctx context.Context, session *gatewaySession, o
 
 // ownerMessage reports the channel and ID of a message the owner wrote in
 // an allowed channel. Bots, webhooks and other senders are ignored.
-func ownerMessage(raw json.RawMessage, owner string, channels []string) (string, uint64, bool) {
+func (a *Adapter) ownerMessage(raw json.RawMessage, owner string, channels []string) (string, uint64, bool) {
 	var m struct {
 		ID      string `json:"id"`
 		Channel string `json:"channel_id"`
@@ -400,13 +405,31 @@ func ownerMessage(raw json.RawMessage, owner string, channels []string) (string,
 			Bot bool   `json:"bot"`
 		} `json:"author"`
 	}
-	if json.Unmarshal(raw, &m) != nil || m.Author.ID != owner || m.Author.Bot || m.Webhook != "" || !slices.Contains(channels, m.Channel) {
+	if json.Unmarshal(raw, &m) != nil {
+		a.intakeDiagnostic("gateway_receipt", "", "", "malformed_event")
 		return "", 0, false
+	}
+	a.intakeDiagnostic("gateway_receipt", m.Channel, m.ID, "received")
+	reason := ""
+	switch {
+	case m.Author.ID != owner:
+		reason = "wrong_owner"
+	case m.Author.Bot:
+		reason = "bot"
+	case m.Webhook != "":
+		reason = "webhook"
+	case !slices.Contains(channels, m.Channel):
+		reason = "wrong_channel"
 	}
 	id, err := strconv.ParseUint(m.ID, 10, 64)
-	if err != nil || id == 0 {
+	if reason == "" && (err != nil || id == 0) {
+		reason = "malformed_identity"
+	}
+	if reason != "" {
+		a.intakeDiagnostic("gateway_filter", m.Channel, m.ID, reason)
 		return "", 0, false
 	}
+
 	return m.Channel, id, true
 }
 

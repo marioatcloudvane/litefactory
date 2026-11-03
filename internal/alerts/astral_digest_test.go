@@ -47,6 +47,21 @@ func TestQuietDigestAstralHTTPPayloadsAreBounded(t *testing.T) {
 	}
 	var posts []payload
 	client := &http.Client{Transport: astralTransportFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodGet {
+			response := `{"id":"99","bot":true}`
+			if r.URL.Path != "/users/@me" {
+				history := []map[string]any{}
+				for i, p := range posts {
+					history = append(history, map[string]any{"id": fmt.Sprint(1001 + i), "channel_id": "123", "content": p.Content, "author": map[string]any{"id": "99", "bot": true}})
+				}
+				raw, err := json.Marshal(history)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response = string(raw)
+			}
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(response))}, nil
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/channels/123/messages" {
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -55,6 +70,9 @@ func TestQuietDigestAstralHTTPPayloadsAreBounded(t *testing.T) {
 			t.Error(err)
 		}
 		posts = append(posts, p)
+		if len(posts) == 2 { // Remote acceptance without a usable response identity.
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"id":"%d"}`, 1000+len(posts))))}, nil
 	})}
 	adapter := discord.New(discord.Options{ApplicationID: "1", Token: secrets.NewToken("offline-astral"), APIURL: "https://offline.invalid", Client: client, Now: func() time.Time { return at }})
@@ -70,6 +88,15 @@ func TestQuietDigestAstralHTTPPayloadsAreBounded(t *testing.T) {
 	if sent, err := engine.SendStep(ctx, at, "123", "456", adapter); err != nil || sent {
 		t.Fatalf("quiet warnings were not held: sent=%v err=%v", sent, err)
 	}
+	// Simulate held bodies persisted by the previous renderer.
+	if err := db.UpdateAlerts(ctx, func(l *store.AlertLedger) error {
+		for _, n := range l.Notifications {
+			n.Body += "\n" + n.Marker
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	at = at.Add(8 * time.Hour)
 	for i := 0; i < 20; i++ {
 		sent, err := engine.SendStep(ctx, at, "123", "456", adapter)
@@ -83,12 +110,52 @@ func TestQuietDigestAstralHTTPPayloadsAreBounded(t *testing.T) {
 			t.Fatal("digest did not become idle")
 		}
 	}
+	before, err := db.ReadAlerts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmed, uncertain := 0, 0
+	for _, n := range before.Notifications {
+		if n.Kind == "digest" {
+			if n.State == "confirmed" {
+				confirmed++
+			}
+			if n.State == "uncertain" {
+				uncertain++
+			}
+		}
+	}
+	if confirmed == 0 || uncertain != 1 {
+		t.Fatalf("partial digest states: confirmed=%d uncertain=%d", confirmed, uncertain)
+	}
+	path := db.Path()
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.DB = db
+	postCount := len(posts)
+	at = at.Add(6 * time.Minute)
+	for i := 0; i < 3; i++ {
+		if _, err = engine.SendStep(ctx, at, "123", "456", adapter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(posts) != postCount {
+		t.Fatal("digest part resent after restart")
+	}
 	if len(posts) < 2 {
 		t.Fatalf("astral members did not form bounded parts: %d", len(posts))
 	}
 	var combined strings.Builder
 	nonces := map[string]bool{}
 	for _, p := range posts {
+		if strings.Count(p.Content, "[lf:alert:") != 1 {
+			t.Fatal("digest must have one transport marker")
+		}
 		if len(utf16.Encode([]rune(p.Content))) > 2000 {
 			t.Fatal("serialized Discord payload exceeds UTF-16 content limit")
 		}

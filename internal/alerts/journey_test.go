@@ -1,8 +1,11 @@
 package alerts_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -66,6 +69,9 @@ func TestFactoryAlertJourney(t *testing.T) {
 		}
 		if len(p.Mentions.Parse) != 0 || len(p.Mentions.Roles) != 0 || p.Mentions.RepliedUser {
 			t.Error("alert permits an untrusted mention class")
+		}
+		if strings.Count(p.Content, "[lf:alert:") != 1 {
+			t.Error("notification must carry exactly one transport marker")
 		}
 		posts = append(posts, p)
 		w.Header().Set("Content-Type", "application/json")
@@ -168,5 +174,194 @@ func TestFactoryAlertJourney(t *testing.T) {
 	drain()
 	if len(posts) != 4 {
 		t.Fatal("confirmed all-clear repeated after restart")
+	}
+	// Escalation uses the same transport composition and only critical notices
+	// may mention the configured owner.
+	o := alerts.Observation{Rule: "task_stuck", Kind: "task", Key: "escalation", TaskRef: "github:test/factory#2", At: at, ID: "warning", Condition: "failing", Severity: "warning"}
+	must(engine.Observe(ctx, o))
+	drain()
+	o.At = at.Add(time.Minute)
+	o.ID = "critical"
+	o.Severity = "critical"
+	at = o.At
+	must(engine.Observe(ctx, o))
+	drain()
+	drain()
+	if len(posts) != 6 || len(posts[4].Mentions.Users) != 0 || len(posts[5].Mentions.Users) != 1 {
+		t.Fatal("escalation delivery or mentions changed")
+	}
+	ledger, err = db.ReadAlerts(ctx)
+	must(err)
+	for _, n := range ledger.Notifications {
+		if n.State != "confirmed" {
+			t.Fatalf("notification not confirmed: %+v", n)
+		}
+		marker := sha256.Sum256([]byte(n.ID))
+		nonce := sha256.Sum256([]byte("alert:" + n.ID))
+		found := false
+		for _, p := range posts {
+			if p.Nonce == hex.EncodeToString(nonce[:12]) {
+				found = true
+				if !strings.Contains(p.Content, "[lf:alert:"+hex.EncodeToString(marker[:12])+"]") {
+					t.Fatal("marker does not identify notification")
+				}
+			}
+		}
+		if !found {
+			t.Fatal("notification missing its stable nonce")
+		}
+	}
+}
+
+// Exercise persisted formatting and transport outcomes together. History is an
+// offline Discord server; attempted legacy bytes must match it across restart.
+func TestAlertHTTPDeliveryAndLegacyReceipts(t *testing.T) {
+	for _, mode := range []string{"confirmed", "refused", "rate-limit", "timeout", "confirmation-loss", "legacy"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := t.Context()
+			at := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+			path := filepath.Join(t.TempDir(), "delivery.db")
+			db, err := store.Open(ctx, path)
+			must := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			must(err)
+			must(db.Migrate(ctx))
+			t.Cleanup(func() { must(db.Close()) })
+			engine := &alerts.Engine{DB: db, Settings: config.DefaultAlerts(), Location: time.UTC}
+			must(engine.Disk(ctx, at, 1, 100, nil))
+			var id, body string
+			must(db.UpdateAlerts(ctx, func(l *store.AlertLedger) error {
+				due := engine.Ready(l, at, "123")
+				n := due[0]
+				id = n.ID
+				n.Body += "\n" + n.Marker // pre-upgrade queued content
+				body = n.Body
+				if mode == "legacy" {
+					n.Attempt = 1
+					n.AttemptedAt = at
+					n.State = "uncertain"
+					n.OwnerID = "456"
+				}
+				return nil
+			}))
+			type wire struct {
+				Content, Nonce string
+				Enforce        bool `json:"enforce_nonce"`
+			}
+			var posts []wire
+			accepted := map[string]string{}
+			if mode == "legacy" {
+				sum := sha256.Sum256([]byte(id))
+				accepted["1001"] = "<@456> " + body + "\n[lf:alert:" + hex.EncodeToString(sum[:12]) + "]"
+			}
+			client := &http.Client{Transport: astralTransportFunc(func(r *http.Request) (*http.Response, error) {
+				status := http.StatusOK
+				var response string
+				switch {
+				case r.Method == http.MethodPost:
+					var p wire
+					must(json.NewDecoder(r.Body).Decode(&p))
+					posts = append(posts, p)
+					if strings.Count(p.Content, "[lf:alert:") != 1 || !p.Enforce {
+						t.Error("new notification composition invalid")
+					}
+					switch {
+					case mode == "refused":
+						status = http.StatusForbidden
+						response = `{}`
+					case mode == "rate-limit" && len(posts) == 1:
+						status = http.StatusTooManyRequests
+						response = `{"retry_after":60}`
+					default:
+						accepted["1001"] = p.Content
+						response = `{"id":"1001"}`
+						if mode == "timeout" {
+							return nil, io.ErrUnexpectedEOF
+						}
+						if mode == "confirmation-loss" {
+							must(db.Close())
+						}
+					}
+				case r.URL.Path == "/users/@me":
+					response = `{"id":"99","bot":true}`
+				default:
+					history := []map[string]any{}
+					for remote, content := range accepted {
+						history = append(history, map[string]any{"id": remote, "channel_id": "123", "content": content, "author": map[string]any{"id": "99", "bot": true}})
+					}
+					encoded, e := json.Marshal(history)
+					must(e)
+					response = string(encoded)
+				}
+				return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(response))}, nil
+			})}
+			adapter := discord.New(discord.Options{Token: secrets.NewToken("offline-delivery"), APIURL: "https://offline.invalid", Client: client, Now: func() time.Time { return at }})
+			_, err = engine.SendStep(ctx, at, "123", "456", adapter)
+			if mode == "confirmation-loss" {
+				if err == nil {
+					t.Fatal("lost local confirmation reported success")
+				}
+			} else {
+				must(err)
+			}
+			must(db.Close())
+			db, err = store.Open(ctx, path)
+			must(err)
+			engine.DB = db
+			ledger, err := db.ReadAlerts(ctx)
+			must(err)
+			n := ledger.Notifications[id]
+			want := "confirmed"
+			switch mode {
+			case "refused", "rate-limit":
+				want = "queued"
+			case "timeout":
+				want = "uncertain"
+			case "confirmation-loss":
+				want = "sending"
+			}
+			if n.State != want {
+				t.Fatalf("state=%s want=%s", n.State, want)
+			}
+			attemptedBody := n.Body
+			if mode == "legacy" && n.Body != body {
+				t.Fatal("legacy attempted bytes changed")
+			}
+			if mode != "legacy" && strings.Contains(n.Body, "[lf:alert:") {
+				t.Fatal("unattempted legacy body not normalized")
+			}
+			// The refused destination is intentionally left queued. Other uncertain
+			// effects reconcile from history; only a known 429 permits another POST.
+			if mode != "refused" {
+				at = at.Add(6 * time.Minute)
+				for i := 0; i < 3; i++ {
+					_, err = engine.SendStep(ctx, at, "123", "456", adapter)
+					must(err)
+				}
+				ledger, err = db.ReadAlerts(ctx)
+				must(err)
+				n = ledger.Notifications[id]
+				if n.State != "confirmed" || n.Body != attemptedBody {
+					t.Fatalf("receipt/bytes changed: %+v", n)
+				}
+			}
+			wantPosts := 1
+			if mode == "legacy" {
+				wantPosts = 0
+			}
+			if mode == "rate-limit" {
+				wantPosts = 2
+			}
+			if len(posts) != wantPosts {
+				t.Fatalf("POSTs=%d want=%d", len(posts), wantPosts)
+			}
+			if len(posts) == 2 && posts[0] != posts[1] {
+				t.Fatal("safe retry changed identity or content")
+			}
+		})
 	}
 }
