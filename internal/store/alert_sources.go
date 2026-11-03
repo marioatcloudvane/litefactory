@@ -43,7 +43,7 @@ func (db *DB) AlertTaskSources(ctx context.Context, at time.Time) (out []AlertTa
  EXISTS(SELECT 1 FROM automatic_continuations c WHERE c.session_id=s.id AND c.status='pending'),
  max(s.created_at,COALESCE((SELECT max(started_at) FROM runs r WHERE r.session_id=s.id),s.created_at),COALESCE((SELECT max(finished_at) FROM runs r WHERE r.session_id=s.id),s.created_at),COALESCE((SELECT max(t.at) FROM graph_transitions t JOIN graph_instances g ON g.id=t.instance_id WHERE g.session_id=s.id),s.created_at),COALESCE((SELECT max(o.created_at) FROM graph_outputs o JOIN graph_node_attempts a ON a.id=o.node_attempt_id JOIN graph_instances g ON g.id=a.instance_id WHERE g.session_id=s.id),s.created_at)),
  COALESCE((SELECT g.current_node FROM graph_instances g WHERE g.session_id=s.id ORDER BY g.id DESC LIMIT 1),'')||':result:'||COALESCE((SELECT sum(a.revision) FROM application_results a WHERE a.task=s.task_ref AND a.workflow NOT IN ('doctor','judge')),0)
- FROM sessions s WHERE s.state='running' OR s.needs_poll=1 OR EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.status='running') OR EXISTS(SELECT 1 FROM schedules p WHERE p.session_id=s.id AND p.status='pending') OR EXISTS(SELECT 1 FROM owner_instruction_inputs o WHERE o.session_id=s.id AND o.assigned_attempt_id IS NULL) OR EXISTS(SELECT 1 FROM automatic_continuations c WHERE c.session_id=s.id AND c.status='pending') OR EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=s.id) ORDER BY s.id LIMIT 1001`, FormatTime(at), FormatTime(at), FormatTime(at), FormatTime(at), FormatTime(at))
+ FROM sessions s WHERE NOT (`+alertTaskTerminalSQL+`) AND (s.state='running' OR s.needs_poll=1 OR EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.status='running') OR EXISTS(SELECT 1 FROM schedules p WHERE p.session_id=s.id AND p.status='pending') OR EXISTS(SELECT 1 FROM owner_instruction_inputs o WHERE o.session_id=s.id AND o.assigned_attempt_id IS NULL) OR EXISTS(SELECT 1 FROM automatic_continuations c WHERE c.session_id=s.id AND c.status='pending') OR EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=s.id)) ORDER BY s.id LIMIT 1001`, FormatTime(at), FormatTime(at), FormatTime(at), FormatTime(at), FormatTime(at))
 		if err != nil {
 			return err
 		}
@@ -85,7 +85,7 @@ func (db *DB) AlertTaskSources(ctx context.Context, at time.Time) (out []AlertTa
 // irrelevant: an unpublished owner wait is still an authoritative work wait.
 func alertPlanWaits(ctx context.Context, tx *sql.Tx, out *[]AlertTaskSource) (bool, error) {
 	complete := true
-	rows, err := tx.QueryContext(ctx, `SELECT p.parent,s.repo_id,CASE WHEN length(CAST(p.state_json AS BLOB))<=1048576 THEN p.state_json ELSE '' END,length(CAST(p.state_json AS BLOB)) FROM plan_workflow_states p JOIN sessions s ON s.task_ref=p.parent WHERE p.parent NOT IN (SELECT parent_task FROM managed_parent_closures) AND COALESCE((SELECT g.status FROM graph_instances g JOIN graph_definitions d ON d.id=g.definition_id WHERE g.session_id=s.id AND (d.workflow='plan' OR d.mode='plan') ORDER BY g.id DESC LIMIT 1),'running')='running' ORDER BY s.id LIMIT 129`)
+	rows, err := tx.QueryContext(ctx, `SELECT p.parent,s.repo_id,CASE WHEN length(CAST(p.state_json AS BLOB))<=1048576 THEN p.state_json ELSE '' END,length(CAST(p.state_json AS BLOB)) FROM plan_workflow_states p JOIN sessions s ON s.task_ref=p.parent WHERE NOT (`+alertTaskTerminalSQL+`) AND p.parent NOT IN (SELECT parent_task FROM managed_parent_closures) AND COALESCE((SELECT g.status FROM graph_instances g JOIN graph_definitions d ON d.id=g.definition_id WHERE g.session_id=s.id AND (d.workflow='plan' OR d.mode='plan') ORDER BY g.id DESC LIMIT 1),'running')='running' ORDER BY s.id LIMIT 129`)
 	if err != nil {
 		return false, err
 	}
@@ -125,13 +125,17 @@ func alertPlanWaits(ctx context.Context, tx *sql.Tx, out *[]AlertTaskSource) (bo
 		}
 		var v AlertTaskSource
 		var stamp string
-		err := tx.QueryRowContext(ctx, `SELECT id,created_at FROM sessions WHERE task_ref=?`, task).Scan(&v.SessionID, &stamp)
+		var terminal bool
+		err := tx.QueryRowContext(ctx, `SELECT s.id,s.created_at,`+alertTaskTerminalSQL+` FROM sessions s WHERE s.task_ref=?`, task).Scan(&v.SessionID, &stamp, &terminal)
 		if errors.Is(err, sql.ErrNoRows) {
 			complete = false
 			return nil
 		}
 		if err != nil {
 			return err
+		}
+		if terminal {
+			return nil
 		}
 		v.ProgressAt, err = ParseTime(stamp)
 		if err != nil {
@@ -296,10 +300,22 @@ func (db *DB) AlertTaskSettled(ctx context.Context, kind, key string) (bool, err
 	return false, nil
 }
 
-// AlertTaskTerminal requires an explicit quiescent source state.
+// alertTaskTerminalSQL is shared by both source paths and recovery. Backlog
+// retirement or the latest delivered/finished workflow is affirmative evidence;
+// retained historical input alone cannot override it. New admitted input and
+// live execution, schedules or continuations still own work.
+const alertTaskTerminalSQL = `s.state<>'running'
+ AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.status IN ('running','prelaunch'))
+ AND NOT EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND g.status='running')
+ AND NOT EXISTS(SELECT 1 FROM schedules p WHERE p.session_id=s.id AND p.status='pending')
+ AND NOT EXISTS(SELECT 1 FROM automatic_continuations c WHERE c.session_id=s.id AND c.status='pending')
+ AND (s.needs_poll=0 OR EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND g.status='succeeded' AND g.current_node IN ('delivered','finished')
+ AND NOT EXISTS(SELECT 1 FROM owner_instruction_inputs o JOIN comments c ON c.id=o.comment_id WHERE o.session_id=s.id AND o.assigned_attempt_id IS NULL AND c.classification='instruction' AND max(c.created_at,c.recorded_at)>g.finished_at)))`
+
+// AlertTaskTerminal requires affirmative completion and no current work owner.
 func (db *DB) AlertTaskTerminal(ctx context.Context, task string) (bool, error) {
 	var terminal bool
-	err := db.sql.QueryRowContext(ctx, `SELECT NOT EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.status='running') AND s.state<>'running' AND s.needs_poll=0 FROM sessions s WHERE s.task_ref=?`, task).Scan(&terminal)
+	err := db.sql.QueryRowContext(ctx, `SELECT `+alertTaskTerminalSQL+` FROM sessions s WHERE s.task_ref=?`, task).Scan(&terminal)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

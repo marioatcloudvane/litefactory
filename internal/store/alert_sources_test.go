@@ -44,7 +44,7 @@ func TestAlertTaskSourcesAuthoritativeWaitAndProgress(t *testing.T) {
 		t.Fatalf("run start progress=%+v %v", rows, err)
 	}
 	finishAt := at.Add(-20 * time.Minute)
-	if _, err = db.sql.ExecContext(ctx, `UPDATE runs SET finished_at=? WHERE id=?`, FormatTime(finishAt), run.ID); err != nil {
+	if _, err = db.sql.ExecContext(ctx, `UPDATE runs SET finished_at=?,status='succeeded' WHERE id=?`, FormatTime(finishAt), run.ID); err != nil {
 		t.Fatal(err)
 	}
 	rows, _, err = db.AlertTaskSources(ctx, at)
@@ -235,6 +235,13 @@ func TestAlertTaskSourcesUnpublishedPlanWaitIncludesChild(t *testing.T) {
 	child, err := db.GetOrCreateSession(ctx, repo, 20)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// These are admitted live Plan sessions; retired backlog must not be
+	// revived by a retained policy ledger.
+	for _, session := range []Session{parent, child} {
+		if err = db.SetSessionNeedsPoll(ctx, session.ID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	state := planbrief.PlanState{SharedRevision: "shared", Stories: []planbrief.PlanStoryState{{Key: "story", Stage: "story", Candidate: "candidate", Draft: planbrief.PlanDraft{Key: "story"}}}}
 	if err = state.OpenPlanWait("story", "unpublished-story-wait", "review", 1); err != nil {
@@ -582,5 +589,169 @@ func TestAlertTaskSourcesFutureQuotaContinuationDoesNotHideRunningWork(t *testin
 	}
 	if source := read(); source.Waiting || source.Eligible {
 		t.Fatalf("invalidated resume identity supplied false wait or eligibility: %+v", source)
+	}
+}
+
+func TestAlertCompletedSourcesAndCurrentWork(t *testing.T) {
+	for _, mode := range []string{"bug", "implement", "plan", "research", "validate"} {
+		for _, scenario := range []string{"delivered", "finished", "retired", "failed", "cancelled", "handoff", "new-input", "new-admission", "new-graph", "older-running", "schedule", "running"} {
+			t.Run(mode+"/"+scenario, func(t *testing.T) {
+				db, g := graphDispatchFixture(t)
+				ctx := t.Context()
+				at := graphTestTime().Add(4 * time.Hour)
+				must := func(err error) {
+					t.Helper()
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				recordOwnerInput(t, db, g.SessionID, 30, "retained")
+				_, stampErr := db.sql.ExecContext(ctx, `UPDATE comments SET recorded_at=? WHERE session_id=?`, FormatTime(at.Add(-2*time.Hour)), g.SessionID)
+				must(stampErr)
+				_, err := db.RetainOwnerInstruction(ctx, g.SessionID, 30, 42, "retained", OwnerInputTarget{})
+				must(err)
+				_, err = db.sql.ExecContext(ctx, `UPDATE graph_definitions SET mode=? WHERE id=?`, mode, g.DefinitionID)
+				must(err)
+				node := "delivered"
+				status := GraphSucceeded
+				if scenario == "finished" {
+					node = "finished"
+				}
+				if scenario == "handoff" {
+					node = "ready"
+				}
+				if scenario == "failed" {
+					status = GraphFailed
+				}
+				if scenario == "cancelled" {
+					status = GraphCancelled
+				}
+				_, err = db.sql.ExecContext(ctx, `UPDATE graph_instances SET current_node=? WHERE id=?`, node, g.ID)
+				must(err)
+				if scenario != "older-running" {
+					must(db.SetGraphInstanceStatus(ctx, g.ID, status, time.Time{}, at.Add(-time.Hour)))
+				}
+				must(db.SetSessionState(ctx, g.SessionID, SessionFailed))
+				must(db.SetSessionNeedsPoll(ctx, g.SessionID))
+				switch scenario {
+				case "retired":
+					must(db.ClearSessionNeedsPoll(ctx, g.SessionID))
+				case "new-input":
+					_, err = db.sql.ExecContext(ctx, `UPDATE comments SET created_at=? WHERE session_id=?`, FormatTime(at), g.SessionID)
+					must(err)
+				case "new-admission":
+					_, err = db.sql.ExecContext(ctx, `UPDATE comments SET recorded_at=? WHERE session_id=?`, FormatTime(at), g.SessionID)
+					must(err)
+				case "new-graph", "older-running":
+					next, e := db.CreateGraphInstance(ctx, GraphInstance{SessionID: g.SessionID, DefinitionID: g.DefinitionID, CurrentNode: "finished", StartedAt: at})
+					must(e)
+					if scenario == "older-running" {
+						must(db.SetGraphInstanceStatus(ctx, next.ID, GraphSucceeded, time.Time{}, at))
+					}
+				case "schedule":
+					_, _, err = db.CreateOrGetSchedule(ctx, CreateScheduleParams{SessionID: g.SessionID, SourceCommentID: 99, OwnerHandle: "owner", Payload: "work", DueAt: at})
+					must(err)
+				case "running":
+					must(db.SetSessionState(ctx, g.SessionID, SessionRunning))
+				}
+				session, err := db.GetSession(ctx, g.SessionID)
+				must(err)
+				terminal, err := db.AlertTaskTerminal(ctx, session.TaskRef)
+				must(err)
+				want := scenario == "delivered" || scenario == "finished" || scenario == "retired" || scenario == "older-running"
+				if terminal != want {
+					t.Fatalf("terminal=%t want=%t", terminal, want)
+				}
+				rows, complete, err := db.AlertTaskSources(ctx, at)
+				must(err)
+				count := 1
+				if want {
+					count = 0
+				}
+				if !complete || len(rows) != count {
+					t.Fatalf("sources=%+v complete=%t", rows, complete)
+				}
+				if !want && !rows[0].HasWork {
+					t.Fatalf("current work missing: %+v", rows)
+				}
+				input, err := db.GetOwnerInstruction(ctx, g.SessionID, 30)
+				must(err)
+				if input.AttemptID != 0 {
+					t.Fatal("instruction consumed")
+				}
+			})
+		}
+	}
+}
+
+func TestAlertPlanWaitCannotReviveCompletedParentOrChild(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	repo := testRepo(t, db, "owner", "repo")
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	parent, err := db.GetOrCreateSession(ctx, repo, 10)
+	must(err)
+	child, err := db.GetOrCreateSession(ctx, repo, 20)
+	must(err)
+	state := planbrief.PlanState{SharedRevision: "shared", Stories: []planbrief.PlanStoryState{{Key: "story", Stage: "story", Candidate: "candidate", Draft: planbrief.PlanDraft{Key: "story"}}}}
+	must(state.OpenPlanWait("story", "retained-wait", "review", 1))
+	_, err = db.SavePlanWorkflowState(ctx, parent.TaskRef, 0, state)
+	must(err)
+	_, err = db.sql.ExecContext(ctx, `INSERT INTO plan_story_drafts(parent,story_key,ordinal,issue_id,issue_number) VALUES(?,'story',1,1,20)`, parent.TaskRef)
+	must(err)
+	// The legacy Plan ledger remains after backlog retirement. Neither source
+	// path may convert that historical wait back into live work.
+	for _, input := range []bool{false, true} {
+		if input {
+			for _, s := range []Session{parent, child} {
+				recordOwnerInput(t, db, s.ID, 30, "retained")
+				_, err = db.RetainOwnerInstruction(ctx, s.ID, 30, 42, "retained", OwnerInputTarget{})
+				must(err)
+			}
+		}
+		rows, complete, err := db.AlertTaskSources(ctx, graphTestTime())
+		must(err)
+		if !complete || len(rows) != 0 {
+			t.Fatalf("retired wait revived: %+v complete=%t", rows, complete)
+		}
+	}
+	must(db.SetSessionNeedsPoll(ctx, parent.ID))
+	rows, complete, err := db.AlertTaskSources(ctx, graphTestTime())
+	must(err)
+	if !complete || len(rows) != 1 || rows[0].Task != parent.TaskRef || !rows[0].Waiting {
+		t.Fatalf("child wait augmentation revived retired child: %+v complete=%t", rows, complete)
+	}
+
+}
+
+func TestAlertRetiredInputsDoNotExhaustSourceBound(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	repo := testRepo(t, db, "owner", "repo")
+	for i := 1; i <= 1001; i++ {
+		s, err := db.GetOrCreateSession(ctx, repo, i)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recordOwnerInput(t, db, s.ID, 30, "retained")
+		if _, err = db.RetainOwnerInstruction(ctx, s.ID, 30, 42, "retained", OwnerInputTarget{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live, err := db.GetOrCreateSession(ctx, repo, 1002)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SetSessionState(ctx, live.ID, SessionRunning); err != nil {
+		t.Fatal(err)
+	}
+	rows, complete, err := db.AlertTaskSources(ctx, graphTestTime())
+	if err != nil || !complete || len(rows) != 1 || rows[0].SessionID != live.ID || !rows[0].Running {
+		t.Fatalf("retired rows exhausted source bound: %+v complete=%t err=%v", rows, complete, err)
 	}
 }

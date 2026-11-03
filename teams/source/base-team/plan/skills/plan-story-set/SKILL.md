@@ -9,9 +9,14 @@ decision and requirement they settled, then group what belongs together into one
 story; its pieces become that story's tasks later. Tasks are the key work items:
 fewer stories, more tasks. A separate story needs a real reason: independently
 deliverable and reviewable, a clearly different area or risk (for example a
-retirement or migration), or a forced ordering dependency. Default to one story for
-small work, rarely more than two for medium. Each extra story justifies itself in
-one line in the comment. When in doubt, fewer stories. Never cut one outcome into
+retirement or migration), or a forced ordering dependency. Size is a reason to
+split too: an L story, or one covering many outcomes, becomes several stories when
+its outcomes can be built, reviewed and accepted on their own. Never hide several
+independent outcomes in one umbrella story. Default to one story for small work,
+rarely more than two for medium. For large work, split by independent outcome; if
+you keep an L story whole, say in one line why it cannot be cut. Each extra story
+justifies itself in one line in the comment. When in doubt on small or medium
+work, fewer stories. Never cut one outcome into
 layers, chores or "part 1/part 2".
 
 Account for all agreed scope. Each item lands in exactly one entry; say in the
