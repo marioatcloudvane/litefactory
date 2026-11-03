@@ -333,7 +333,7 @@ func seedReviewTarget(t *testing.T, db *store.DB, clone string) store.ConnectorC
 	mustReview(t, err)
 	session, err = db.FreezeSessionSlug(ctx, session.ID, "review", "review-task")
 	mustReview(t, err)
-	target, err := db.ResolveConnectorCodeTarget(ctx, session.TaskRef)
+	target, err := db.ReadCodeTarget(ctx, session.TaskRef)
 	mustReview(t, err)
 	return target
 }

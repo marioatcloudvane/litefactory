@@ -96,7 +96,7 @@ func TestRemoteConnectorPreparationFailsClosed(t *testing.T) {
 			}
 			runtime, err := prepareRemoteConnector(t.Context(), s)
 			if runtime != nil {
-				defer runtime.listener.Close()
+				defer runtime.lifecycle.Close()
 				t.Fatal("invalid setup bound listener")
 			}
 			if name == "disabled" {
@@ -134,12 +134,12 @@ func TestRemoteConnectorListenerLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = runtime.listener.Close() })
+	t.Cleanup(func() { _ = runtime.lifecycle.Close() })
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- runtime.server.Serve(ctx, runtime.listener) }()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+runtime.listener.Addr().String()+"/.well-known/oauth-protected-resource/litefactory/mcp", nil)
+	go func() { done <- runtime.lifecycle.Serve(ctx) }()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+runtime.lifecycle.Addr().String()+"/.well-known/oauth-protected-resource/litefactory/mcp", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

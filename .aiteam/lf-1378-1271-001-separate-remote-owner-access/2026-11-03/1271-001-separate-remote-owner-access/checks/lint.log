@@ -1,0 +1,10 @@
+$ make lint PKGS=./internal/store ./internal/daemon ./internal/cli ./internal/connector ./internal/connectorstate ./internal/connectorstorage ./internal/connectoraccess ./internal/factory ./internal/factory/contracts ./internal/factory/readtargets ./internal/taskdiscussion ./internal/stagedecision ./internal/codeevidence ./internal/overview ./internal/taskevidence ./internal/usageview
+golangci-lint v2.13.1 (installed)
+internal/factory/readtargets/service.go:57:9: S1016: should convert t (type github.com/cloudvane/litefactory/internal/factory/contracts.ReadTaskTarget) to github.com/cloudvane/litefactory/internal/factory/contracts.ReadUsageTarget instead of using struct literal (staticcheck)
+	return contracts.ReadUsageTarget{RepoID: t.RepoID, SessionID: t.SessionID, RepositoryRef: t.RepositoryRef, TaskRef: t.TaskRef}, nil
+	       ^
+1 issues:
+* staticcheck: 1
+make: *** [lint] Error 1
+
+EXIT 2
