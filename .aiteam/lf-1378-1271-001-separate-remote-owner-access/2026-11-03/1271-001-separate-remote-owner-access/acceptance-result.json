@@ -1,0 +1,306 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "The complete proposed Plan adds six observable criteria and seven ordered tasks while retaining the settled intent and architecture.\n\nUncovered outcomes: none. Ruling: none; no outcome is narrowed.\n\n| Outcome | Story |\n|---|---|\n| O-01, O-02, O-03, O-04, O-05, O-06, O-07, O-08 | [story-001](https://github.com/marioatcloudvane/litefactory/issues/1378) |\n\nParent link-only index: [story-001](https://github.com/marioatcloudvane/litefactory/issues/1378). This is the complete active set; no retired stories, sibling dependencies or external issue dependencies are recorded. Shared decisions remain at initial. The promoted set revision is 48e94dd718cc6dd1ef5e3514859ed790730cb3aedcb171947688109eaeb417f0; this review uses the supplied technical candidate plan-1906-19605 and current story revision ec1f5049a8d6a32a337e0fafbaa04adc9a71b8e9e9dfecf8dc1e0db0e1a9ddd1.\n\nstory-001 \u2014 M \u2014 Existing ports bound changes across connector authorization, core target reads, daemon lifecycle and docs; security compatibility and unverified rollback need proof, direct paths need retirement, and no schema or state-format migration is planned.\n\nThe story sub-issue holds the complete intent, scope, architecture, criteria and tasks. Core owns authoritative retained targets; connector owns authorization and remote lifecycle; the daemon composes one process over unchanged SQLite state and the existing shared approval runtime. K-01\u2013K-08 and N-01\u2013N-04 remain unchanged, as do AS-01\u2013AS-04. No material owner questions remain.\n\nWork order is T-01 safety net \u2192 T-02 target/authorization cut \u2192 T-03 lifecycle cut \u2192 T-04 integration proof \u2192 T-05 old/current/old rehearsal \u2192 T-06 retirement audit \u2192 T-07 operator guidance. Every extraction must remain usable. AC-001 is the single automated main-path criterion; AC-002\u2013AC-006 require independent Validate review. Task links cover every criterion. Workers produce the work and evidence; they do not accept Manual criteria.\n\nRollback, compatibility and documentation checks are future obligations, not passing results. No implementation or tests ran in this acceptance pass. Live-provider certification, power-loss guarantees and restoration of old authorization snapshots remain excluded. Owner review must cover this exact acceptance proposal and assembled Plan within this third stage. After the required exact approvals and factory readiness, use `/implement <instruction>`; this proposal does not change mode or authorize implementation.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "ec1f5049a8d6a32a337e0fafbaa04adc9a71b8e9e9dfecf8dc1e0db0e1a9ddd1",
+          "changed_sections": [
+            "criteria",
+            "tasks"
+          ],
+          "draft": {
+            "key": "story-001",
+            "name": "Separate remote owner access from factory internals",
+            "user_story": {
+              "actor": "factory owner using remote access, and operator maintaining the factory",
+              "want": "remote connection, authorization and lifecycle responsibilities separated from the factory's ownership of workflow data and protected reads",
+              "benefit": "keep using current remote tools and approvals safely while maintaining or rolling back the factory without losing valid access or reviving revoked access",
+              "notes": [
+                "Covers: O-01, O-02, O-03, O-04, O-05, O-06, O-07, O-08.",
+                "Work mode: refactor (S-01). Existing behavior is the compatibility baseline.",
+                "Assumption AS-01: Keep one Go module/process and the existing physical SQLite database with unchanged schema and serialized authorization. Any need for migration returns for scope review.",
+                "Assumption AS-02: Current reviewed actions, workflows, discussion/publication and stage tools remain compatibility obligations despite the original emphasis on reads.",
+                "Assumption AS-03: Reuse existing core ownership and read services; exact package boundaries belong to technical review.",
+                "Assumption AS-04: Historical authorization-state rollback and live-client behavior are not established by Research. Compatibility proof remains part of this story; mandatory live-provider certification is excluded."
+              ]
+            },
+            "problem": "Remote access already works, but authorization storage, factory target lookup and startup owner checks still share responsibilities. That makes it harder to change the remote connection safely or tell which part owns a decision. Owners need the same tools, permissions and approvals after the separation, including across restart, upgrade and rollback. Operators need clear ownership and recovery guidance without a new deployment or data migration.",
+            "in_scope": [
+              "Separate existing remote transport and authorization lifecycle from core-owned reads, reusing the established core ownership and shared approval runtime.",
+              "Keep repository listing and lookup of retained discussion, code and usage targets core-owned; keep authentication, consent, grant coverage and revocation connector-owned.",
+              "Make remote HTTP preparation and shutdown connector-owned while the daemon supplies dependencies and coordinates the shared process lifecycle.",
+              "Keep authorization data connector-owned and workflow data core-owned within the existing shared database and unchanged stored formats.",
+              "Retire replaced direct factory access, mixed authorization-storage/target-lookup paths and direct daemon authorization reconciliation, leaving one authoritative route for each policy.",
+              "Establish compatibility checks before replacing uncovered boundaries, using the Research inventory to preserve tool results and refusals, target authorization, shared-backend binding and startup owner invalidation.",
+              "Demonstrate persisted authorization compatibility through pre-change, changed and pre-change builds, including restart with valid grants, rotated refresh tokens and revoked grants; preserve valid access and refuse invalid access.",
+              "Keep each delivered extraction usable in the current deployment, including core workflows with remote access disabled and shared approvals through either existing transport.",
+              "Update core ownership, remote connector and local grant administration guidance, including the verified stop-and-restart rollback route without restoring obsolete authorization state."
+            ],
+            "not_in_scope": [
+              "K-01 \u2014 Preserve current scopes, repository restrictions, owner identity/generation, revocation enforcement, refusal behavior and stored grants/tokens through upgrade and restart. (owner said: issue #1271)",
+              "K-02 \u2014 Preserve owner approvals, permissions, retained ticket/code connections, receipts, delivery recovery, worktree isolation and immutable captures. Core workflows remain usable with the connector disabled. (owner said: issue #1271)",
+              "N-01 \u2014 No separate process/release, new providers/tools/scopes, new remote authority, new stage steering or confirmation behavior, or agent result broker access. Existing approved capabilities remain existing behavior. (owner said: issue #1271; agent's call on reconciling historical wording with current code)",
+              "K-03 \u2014 Preserve existing remote tool discovery, inputs, outputs, transport routes, consent screens, refusal semantics, configuration keys and local grant administration behavior. (agent's call)",
+              "K-04 \u2014 Existing reviewed actions, workflows, discussion/publication and stage tools retain their current bounded interfaces and shared core approval, execution and recovery owner. (agent's call)",
+              "K-05 \u2014 Preserve same-backend authentication/target binding, indivisible consent and token transitions, finite repository coverage and authorization checks before acquisition and before releasing protected results. (agent's call)",
+              "K-06 \u2014 Missing dependencies or required core target data must still refuse access, and changing the owner pin away and back must not revive grants even when connector preparation fails. (agent's call)",
+              "K-07 \u2014 Retained ticket/code identity and branch selection must remain authoritative, with no fallback to current configuration or client-selected paths when retained data is missing or inconsistent. (agent's call)",
+              "K-08 \u2014 Every deliverable extraction must leave the current deployment usable, including core workflows with remote access disabled and shared approvals with either transport enabled. (owner said: issue #1271; agent's call on explicit shared-transport coverage)",
+              "N-02 \u2014 Physical database separation, schema migrations, serialized authorization changes and broad relocation of existing projection services are outside this minimal extraction. (agent's call)",
+              "N-03 \u2014 Behavior changes discovered during the refactor and adjacent MCP or confirmation features require separate scope review rather than inclusion in this work. (agent's call)",
+              "N-04 \u2014 Independent versions, multi-host operation, new team or skill changes and mandatory live-provider certification are outside this in-process boundary refactor. (agent's call)"
+            ],
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go"
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Scope and evidence",
+                  "decision": "Keep the M-sized refactor within one Go module, process and existing SQLite schema. Reuse connector.Server, connectorstate.Storage/LocalGrants, existing read projections and the shared owner-action runtime. No outcome is narrowed.",
+                  "rationale": "Research F-01\u2013F-10 and source inspected at ceb3d9ce1a3fded289cd64a980eb852388d3937e show working ports and projection services. A new deployment or broad provider relocation adds risk without serving O-01\u2013O-08."
+                },
+                {
+                  "area": "Core target ownership",
+                  "decision": "Add a focused internal/factory/readtargets service with neutral target values in internal/factory/contracts. It owns repository enumeration and repository, discussion, code and usage target resolution. Reuse the retained identity queries in internal/store through purpose-specific core read methods; move their definitions to a core-target store source file and retire the mixed connector-facing lookup methods after cutover.",
+                  "rationale": "internal/store/connector_code.go validates retained execution, ticket binding, code version and parent branch. These are factory facts, not grant policy. Moving only the adapter name would leave ownership mixed; duplicating these queries would create divergent policy."
+                },
+                {
+                  "area": "Authorization and shared-backend binding",
+                  "decision": "Keep the Access behavior as a connector authorization service over Storage and the core target contract. Trusted binding constructs authentication, target reader and local grant control from the same *store.DB; preserve identity-based SameStore checks, including separate adapters over the same DB. Do not accept a configurable backend name, caller-supplied equality flag or unrelated target reader as production proof.",
+                  "rationale": "connector.New and LocalControl.check currently reject mixed backends. Splitting persistence and lookup must retain this guarantee while keeping database handles out of the remote consumer."
+                },
+                {
+                  "area": "Transactions and refusal compatibility",
+                  "decision": "Retain connectorWrite and existing compound consent, code exchange, refresh rotation, replay revocation and grant-checked core admission transactions. Within shared persistence, consent resolves selected repositories using the same core-owned query helper on the existing transaction. Do not resolve externally then commit independently. Preserve scope checks, finite action/advisory coverage, repository ID plus reference matching, error identities, safe refusal reasons and token-resource binding.",
+                  "rationale": "internal/store/connector.go, connector_coverage.go and connector_actions.go already enforce these fences. Ordinary protected target reads currently use sequenced authorization and target checks, not one new global transaction; retain their pre-acquisition and pre-release rechecks rather than promise stronger atomicity."
+                },
+                {
+                  "area": "Lifecycle ownership",
+                  "decision": "Put remote preparation, listener ownership, serve and close behind a connector-owned lifecycle facade. For enabled, valid configuration, reconcile the owner pin before local-control readiness, secret resolution or listener creation can fail. Daemon supplies the secret resolver, config, clock, logger, bounded services and cancellation; it joins serving and closes partial preparations. Keep disabled mode free of connector prerequisites.",
+                  "rationale": "internal/daemon/remote_connector.go performs early reconciliation, while connector.New repeats it. One connector-owned preparation path must replace these responsibilities without losing irreversible pin-away-and-back invalidation or the existing bounded shutdown."
+                },
+                {
+                  "area": "Existing tools and core authority",
+                  "decision": "Keep tool names, discovery, schemas, routes, scopes, configuration, consent presentation and local grant CLI behavior. Continue existing OwnerActions, Workflows, TaskDiscussion and StageDecisions interfaces with one core execution/recovery owner. Preserve Discord-required approval as pending/unavailable when Discord is absent.",
+                  "rationale": "internal/connector/services.go and docs/factory-core.md establish broader capabilities than reads. Remote authentication does not grant workflow approval, execution, broker access or authority to choose a retained code path."
+                },
+                {
+                  "area": "Refactor safety and rollback",
+                  "decision": "Establish the missing behavior safety net before each extraction using Research's classified inventory, then remove replaced policy bodies and route every caller through the new owner. Rehearse pinned pre-change/current/pre-change builds sequentially against the same temporary persisted authorization state, closing all handles between runs. Exercise valid access, current and spent refresh tokens, revocation and owner generation through restart; preserve current state during rollback.",
+                  "rationale": "Research F-07/F-08 support existing coverage but do not prove connector rollback. Pin this story's pre-implementation code, not only the earlier factory fixture. A source alias is acceptable for encoding compatibility; a fallback to old authorization or target logic is not. If unchanged formats cannot meet O-07, return for scope review."
+                },
+                {
+                  "area": "External guarantees and limits",
+                  "decision": "Require no new provider delivery, ordering or deduplication guarantee. Retain GitHub identity verification and existing core provider/recovery contracts. Research F-04/F-07/F-09 and docs/factory-core.md support reusing bounded interfaces, retained identities and receipt recovery, not indefinite exactly-once delivery. Controlled providers can exercise protocol compatibility; live-client certification remains outside scope.",
+                  "rationale": "This extraction changes local ownership. Revocation is enforced after durable commit on subsequent protected checks and cannot retract returned bytes. docs/cli/connector-grants.md records SQLite synchronous=NORMAL and obsolete-backup limits: process restart is covered, newest commits after power loss and restoring old authorization snapshots are not promised."
+                },
+                {
+                  "area": "Shared edit surfaces and dependencies",
+                  "decision": "Coordinate edits to internal/daemon/setup.go, remote_connector.go and lifecycle callers; connectorstate ports/types; connectorstorage; core contracts; store target/coverage code; connector/factory boundary tests; docs/factory-core.md, docs/guides/remote-connector.md and docs/cli/connector-grants.md. Preserve command catalogues, route tables, configuration keys and migrations. The supplied set contains only story-001, so no sibling dependency revision is needed.",
+                  "rationale": "These are shared composition and documentation surfaces. Research identifies #1269/#1270 as existing foundations and adjacent MCP work as excluded; this review does not assert current external branch ordering."
+                },
+                {
+                  "area": "Guidance and standards",
+                  "decision": "Apply go guidance. No agent-setup guidance ID or frontend design is selected because no agent, skill or UI change is in scope. Follow the agent-guidance and testing standards: add no behavioral instruction prose in Go and no shipped Markdown wording/hash tests. Record existing Go-side response guidance at internal/connector/stage_decisions.go:191\u2013199 as a pre-existing standards violation for operator disposition; do not relocate it in this refactor.",
+                  "rationale": "The inspected error responses instruct the client to shorten, review or retrieve proposals. The standard requires reporting encountered guidance without silently expanding scope. Documentation proof is review and reference integrity; behavior tests should exercise code and synthetic fixtures."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Authorization state",
+                  "definition": "Connector-owned clients, browser transactions, owner generation, consent grants, repository coverage, authorization codes and access/refresh families retain their existing tables and serialized fields.",
+                  "constraints": "No schema or encoding migration. Spent refresh ancestors, consumed codes, revocation times and monotonic owner generation remain durable. Existing aliases may preserve source compatibility without retaining duplicate policy."
+                },
+                {
+                  "entity": "Core repository and retained targets",
+                  "definition": "Core contracts carry the existing repository ID/reference, task/session identity and retained code destination/version/remote/branches. Usage resolution carries repository/task identity; permission scopes remain connector concepts.",
+                  "constraints": "Resolve from recorded sessions, snapshots, ticket identities and connection versions. Validate parent mappings as today. Never substitute current configuration, another repository, default branch or a client path. Internal clone paths stay inside trusted read-provider calls and out of remote responses."
+                },
+                {
+                  "entity": "Cross-owner repository coverage",
+                  "definition": "Grant coverage refers to registered repository identity plus canonical reference; the physical store remains the transaction coordinator for consent and covered core admissions.",
+                  "constraints": "Core owns repository existence and retained identity. Connector owns whether a grant covers those facts. Preserve all-read coverage where currently allowed, explicit finite selections for actions/advisory/publication, and rejection of renamed/deleted or rebound identities."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Core readtargets and existing projections",
+                  "responsibility": "Resolve bounded authoritative targets; reuse overview, taskevidence, usageview and codeevidence to acquire and redact the actual views.",
+                  "access": "Private store readers only. Core contracts import no connector, transport or storage implementation. No authorization credentials are passed to target resolution; projection providers retain their existing bounded interfaces."
+                },
+                {
+                  "component": "Connector authorization and persistence binding",
+                  "responsibility": "Check live token, owner, resource and scope; resolve through core targets; enforce grant coverage; translate typed core failures to existing safe connector refusals.",
+                  "access": "Storage retains credential transitions and LocalGrants retains stopped-daemon control. connectorstorage becomes trusted composition/persistence binding, not a target-policy implementation. It constructs a private Access wrapper using the same DB's core reader and storage identity; remote code receives only narrow ports."
+                },
+                {
+                  "component": "Connector lifecycle facade",
+                  "responsibility": "Prepare one remote server/listener, reconcile owner authority, obtain dedicated secrets through a supplied resolver, validate prerequisites, serve and drain on cancellation, and close idempotently.",
+                  "access": "Reuse connector.Server.Listen/Serve and existing five-second drain. Expose bounded service attachment and lifecycle methods to daemon; do not expose raw database or shared coordinator control. Return explicit errors and close acquired resources on later failure."
+                },
+                {
+                  "component": "Daemon composition and shared owner-action runtime",
+                  "responsibility": "Supply dependencies, attach existing bounded action/workflow/discussion/stage services, coordinate process cancellation and join exactly one remote serve loop.",
+                  "access": "Retain one independently composed owner-action execution/recovery loop across Discord and remote access. No direct authorization reconciliation or second target policy in daemon. Local grant commands remain callable without starting daemon or resolving remote secrets."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Protected read flow",
+                  "contract": "Authenticate and check local control \u2192 connector checks required scopes \u2192 core resolves exact target \u2192 connector checks coverage \u2192 existing provider acquires bounded evidence \u2192 repeat current authorization/target checks before release. Propagate cancellation and withhold protected results after access, target, provider or local-control failure.",
+                  "rationale": "Preserves existing MCP and code-provider checks, continuation behavior and refusal semantics. Structural imports alone cannot prove that failed reads do not release evidence."
+                },
+                {
+                  "element": "Core target persistence and consent collaboration",
+                  "contract": "Extract repository and retained-target query implementations once into core-owned store read helpers returning neutral contracts. The core service uses purpose-specific DB methods; internal compound consent/admission methods reuse transaction-bound helpers. No SQL connection, arbitrary transaction callback or broad store interface crosses the connector contract.",
+                  "rationale": "Keeps repository resolution authoritative in both ordinary reads and transactional consent without breaking atomic writes or introducing package cycles. Neutral missing/inconsistent-target errors are mapped at the connector boundary; saved representations remain unchanged."
+                },
+                {
+                  "element": "Binding and transition",
+                  "contract": "The trusted binding constructor receives one DB and creates storage/local-grant ports plus a connector Access service bound to that DB's core reader. Access.SameStore delegates to the bound storage identity, which cannot be independently replaced after construction. Cut over server, providers and CLI/composition callers; remove old CheckConnectorDiscussion/Code/UsageAccess policy bodies and combined persistence Access implementation when their callers are migrated.",
+                  "rationale": "Preserves acceptance of separate wrappers over one backend and rejection of mismatched storage/local control. Narrow translation aliases may remain, but no fallback may call replaced target/authorization policy."
+                },
+                {
+                  "element": "Startup and recovery",
+                  "contract": "Disabled \u2192 no remote runtime. Enabled \u2192 validate configuration \u2192 reconcile owner \u2192 validate local control and resolve secrets \u2192 construct/listen \u2192 attach bounded services \u2192 serve. On any failure, return the existing class of refusal and close partial resources; retain completed invalidation. On shutdown, cancel/drain/join before shared DB closure. Rollback stops and drains, selects the pinned compatible previous build, and restarts against the latest state without restoring a prior DB snapshot.",
+                  "rationale": "Makes lifecycle and failure ownership explicit. The old/current/old rehearsal must use real builds' authorization paths, not just compare database rows; keep clocks and synthetic provider fixtures controlled so expiry or network availability does not mask compatibility."
+                }
+              ]
+            },
+            "criteria": [
+              {
+                "id": "AC-001",
+                "text": "You can use an existing remote tool to read an authorized retained target while unauthorized requests remain refused before protected results are released. (Auto)",
+                "proof_method": "End-to-end controlled-provider test exercises the existing remote protocol through authentication, core target resolution, grant coverage and protected read release, including revocation between acquisition and release. Covers: O-01, O-02, O-06."
+              },
+              {
+                "id": "AC-002",
+                "text": "You retain existing remote tools, permissions, approvals and local grant controls with one clear owner for authorization and one for factory targets. (Manual)",
+                "proof_method": "Validate reviewer reads the delivered boundary changes and compatibility evidence against the Research classified inventory, checking retired direct and mixed policy routes, same-backend binding, retained identities, compound transactions and unchanged public contracts. Covers: O-01, O-02, O-04, O-05, O-06."
+              },
+              {
+                "id": "AC-003",
+                "text": "You can start and stop remote access safely without a failed preparation or an owner change reviving invalidated access. (Manual)",
+                "proof_method": "Validate reviewer reads lifecycle changes and failure-path evidence for early owner reconciliation, pin-away-and-back invalidation, missing prerequisites, partial-resource cleanup, bounded drain and joining before database closure. Covers: O-03, O-04, O-06."
+              },
+              {
+                "id": "AC-004",
+                "text": "You can keep using core workflows with remote access disabled and existing shared approvals through either transport after each extraction. (Manual)",
+                "proof_method": "Validate reviewer reads staged compatibility evidence for disabled remote mode, each existing transport and shared execution/recovery ownership, including pending or unavailable Discord-required approval when Discord is absent. Covers: O-01, O-03, O-06."
+              },
+              {
+                "id": "AC-005",
+                "text": "You can restart, upgrade and roll back against the latest saved authorization state while valid access remains usable and revoked or spent credentials remain refused. (Manual)",
+                "proof_method": "Validate reviewer reads the pinned pre-change/changed/pre-change rehearsal report and real-build authorization results for valid grants, refresh rotation and replay, revocation and owner generations, with handles closed between runs and no snapshot restoration or schema/encoding change; scope excludes power-loss durability and retracting already returned bytes. Covers: O-05, O-07."
+              },
+              {
+                "id": "AC-006",
+                "text": "You can follow consistent ownership, grant administration and stop-and-restart rollback guidance without restoring obsolete authorization state. (Manual)",
+                "proof_method": "Validate reviewer reads the three updated operator guides for consistency with delivered ownership and rehearsal evidence, verifies references resolve and confirms documented provider, durability and obsolete-backup limits. Covers: O-08."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-01",
+                "description": "Kind: code \u2014 Before extraction, map Research F-01\u2013F-10 and K-01\u2013K-08 to existing tests and add missing characterization checks for public tool results/refusals, consent and token transactions, finite repository coverage, retained identities, same-DB wrappers versus mixed backends, pre-acquisition/pre-release authorization and owner invalidation on preparation failure. Pin the pre-implementation revision for rollback. Run the affected baseline tests before changing these boundaries.",
+                "owner_role": "unit-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-02",
+                "description": "Kind: code \u2014 Extract neutral target contracts and the core readtargets service, reusing purpose-specific transaction-bound store query helpers for repository enumeration and retained discussion/code/usage resolution. Compose connector authorization and local control from the same DB, preserve existing transactions and safe refusals, cut callers over, and remove replaced mixed lookup and access policy bodies. Extend focused ownership, identity and binding tests; leave the deployment usable.",
+                "owner_role": "implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002"
+                ],
+                "depends_on": [
+                  "T-01"
+                ]
+              },
+              {
+                "id": "T-03",
+                "description": "Kind: code \u2014 Move preparation, early owner reconciliation, listener serving and idempotent close into the connector lifecycle facade; reduce daemon to dependency composition and cancellation/join coordination. Retire direct daemon authorization reconciliation. Preserve disabled mode, stopped-daemon grant commands and the single shared action/recovery runtime; test secret/readiness/listener failures, invalidation, cleanup and shutdown ordering.",
+                "owner_role": "implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004"
+                ],
+                "depends_on": [
+                  "T-02"
+                ]
+              },
+              {
+                "id": "T-04",
+                "description": "Kind: code \u2014 Deliver the main-path remote protocol end-to-end test with controlled providers, including revocation during acquisition. Extend the Research compatibility inventory evidence across tools, consent, scopes, target failures, retained code branches, local grants and shared actions/workflows/discussion/stage tools; exercise disabled mode and each transport without new live-provider requirements. Run focused Go tests, relevant race checks and required repository checks, and retain results for independent Validate review.",
+                "owner_role": "integration-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004"
+                ],
+                "depends_on": [
+                  "T-03"
+                ]
+              },
+              {
+                "id": "T-05",
+                "description": "Kind: code \u2014 Build a repeatable pinned pre-change/changed/pre-change authorization rehearsal using real builds sequentially against one temporary database, controlled time and synthetic providers. Close all handles between runs; check valid access, rotated/current/spent refresh tokens, replay revocation, revoked grants and owner generations through restart and rollback. Retain build identities and observed authorization results; preserve latest state and unchanged schema/encodings. If compatibility requires migration, return for scope review.",
+                "owner_role": "integration-test-engineer",
+                "criterion_ids": [
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T-04"
+                ]
+              },
+              {
+                "id": "T-06",
+                "description": "Kind: code \u2014 Audit the completed cut for remaining callers or duplicate target/auth policy, direct daemon reconciliation, broad exposed store access and dependency-direction violations; remove obsolete routes while preserving encoding aliases that contain no policy. Run affected boundary and compatibility checks and record the retirement map and remaining external limits for Validate.",
+                "owner_role": "implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T-05"
+                ]
+              },
+              {
+                "id": "T-07",
+                "description": "Kind: markdown \u2014 Update docs/factory-core.md, docs/guides/remote-connector.md and docs/cli/connector-grants.md for final ownership, existing local administration, and the rehearsed stop/drain/select previous build/restart route using latest authorization state. Describe no obsolete snapshot restoration, SQLite durability and provider limits. Review text consistency and resolve references; add no wording/hash tests or language lint for documentation. Retain the pre-existing Go response-guidance issue for operator disposition without expanding this refactor.",
+                "owner_role": "implementation-engineer",
+                "criterion_ids": [
+                  "AC-006"
+                ],
+                "depends_on": [
+                  "T-06"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
