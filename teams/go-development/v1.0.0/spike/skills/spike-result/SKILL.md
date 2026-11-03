@@ -47,7 +47,7 @@ An incomplete result with a nonblank `reason` and at least one question. Each qu
 
 A completed result with no questions and no reason. The comment's first word is "Finished", followed by what is done in one plain sentence, for example "Finished: General is now the first Settings tab ...". After a change made under a go, that sentence restates what you built against your "What I will build" summary, and the comment says clearly right after if anything differs and why. Then the comment is the answer or what changed, each check you ran and its result, and anything left open.
 
-After a change, run the repository's own checks for the files you changed before you submit: its build, its focused tests and its linter or formatter check, using the commands the project itself uses (agent guidance files, Makefile, task runner, CI configuration, package scripts). Name each command and its result. Say plainly what you could not run and why, and what that leaves unchecked. The factory saves the change on the task branch; say that the change is saved on the task branch and not merged yet. Do not say it is merged or delivered, and do not write that it is ready for a commit step, a delivery step or any other next factory step: when delivery is declared, the factory publishes its own shipping review.
+After a change, run the repository's own checks for the files you changed before you submit: its build, its focused tests and its linter or formatter check, using the commands the project itself uses (agent guidance files, Makefile, task runner, CI configuration, package scripts). Name each command and its result. Say plainly what you could not run and why, and what that leaves unchecked. The factory saves the change on the task branch; say that the change is saved on the task branch and not merged yet. Do not say it is merged or delivered, and do not write that it is ready for a commit step, a delivery step or any other next factory step: the factory publishes its own shipping review and waits for the owner's `ship`.
 
 ```json
 {
@@ -73,8 +73,8 @@ If the shared route reports diagnostics, correct exactly those fields and submit
 
 A completed result with branch changes is a checked candidate, not a claim of
 merge or delivery. Include the commands actually run and their outcomes. The
-factory, when delivery is declared in the graph, displays its saved commit and
-PR for owner review; an exact `ship` reply
-releases delivery. After a source/base change, rerun the affected checks and
+factory saves and pushes it, opens the PR and publishes a shipping review with
+the saved commit and your checks; only the owner's exact `ship` reply releases
+the merge. A finished answer without branch changes is posted as your report. After a source/base change, rerun the affected checks and
 submit fresh results for a new review. Failed or unavailable checks belong in an
 incomplete result with a concrete owner question. Do not ship through agent tools.

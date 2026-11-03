@@ -41,14 +41,20 @@ The flow lives in one file,
   skill. It declares `lf_response="result"`, so its own response is the outcome.
 - `ask` → `waiting`: on `ask`, the factory posts the agent's comment and
   questions and waits for the owner.
-- `report` → `complete`: on `done`, the factory publishes the result.
-
-The team graphs remain owner-controlled. To enable delivery, the owner routes a
-finished changed candidate through the global activity described in
-[Factory delivery](delivery.md): `push`, a review ask with
-`lf_approve_reply="ship"`, `merge`, then `close`. No graph migration is automatic.
-The review displays the saved commit, base and PR; changed candidates need fresh
-checks and a new review. Other feedback resumes the same agent.
+- `prepare` (`lf_deliver`, `push`): on `done`, the factory saves, synchronizes
+  and pushes the task branch and finds or opens the PR. An answer without branch
+  changes is `unchanged` and goes to `report` → `complete`, which publishes the
+  agent's final report.
+- `review` → `waiting`: a prepared candidate (`ready`) gets a shipping review
+  (`lf_kind="review"`, `lf_approve_reply="ship"`) showing the saved commit, base,
+  PR and the agent's checks, and waits for the owner.
+- `deliver` (`merge`) → `close` (`close`) → `complete`: only an authenticated
+  exact owner `ship` reply to the current review releases `approved`; the
+  factory merges the reviewed commit and closes the issue.
+- `revalidate` from `prepare`, `deliver` or `close` returns to `spike` when the
+  source or base changed: the agent reruns its checks and a new review follows.
+  Other feedback on the review resumes the same agent. Remote failures park for
+  the owner's retry. See [Factory delivery](delivery.md).
 
 - `failure` → `stopped`: a failed attempt posts why and stops.
 
@@ -57,7 +63,7 @@ checks and a new review. Other feedback resumes the same agent.
 - **The agent asks:** the question is posted and the instance waits. The owner's
   reply resumes the same agent with its saved result and the reply. There is no
   cap on question rounds; each reply gets a fresh node allowance.
-- **The agent finishes:** answers finish; when delivery is declared, checked changes await shipping review. A later
+- **The agent finishes:** answers finish; checked changes await the shipping review and the owner's `ship`. A later
   owner comment starts the next Spike, which receives the finished one's result
   and the comment as context.
 - **The agent fails:** one failure report is posted and the Spike stops. Comment
