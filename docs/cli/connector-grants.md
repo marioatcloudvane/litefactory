@@ -23,6 +23,23 @@ They do not contact GitHub or another network service. A missing database is an
 error; the commands never create a new empty factory to stand in for it. Local
 filesystem permissions are the authority for this administration.
 
+## Ownership and rollback
+
+The connector owns these authorization records and local grant operations. The
+factory owns registered repositories and retained task/code/usage identities;
+a grant cannot replace missing retained target data. Trusted composition uses
+one database handle for credential storage, target reads and local control, with
+unchanged SQLite schema and stored field formats.
+
+For restart or rollback, stop and drain the daemon, wait for all handles to close,
+select the compatible previous build and restart against the **latest** database.
+Keep committed revocations, refresh rotation/replay history and owner generations.
+Never restore an obsolete authorization snapshot to match an older binary; doing
+so can revive access. The [remote restart and rollback procedure](../guides/remote-connector.md#restart-and-rollback)
+links the tested pre-change/changed/pre-change build rehearsal and its limits.
+These commands remain available while the daemon is stopped or remote preparation
+fails; no remote secret or hosted client is required.
+
 ## Reading inspection results
 
 List and inspect show the same safe summary for each retained grant: stable grant

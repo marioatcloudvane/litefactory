@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"github.com/cloudvane/litefactory/internal/factory/contracts"
 )
 
 // Action coverage is deliberately independent of read coverage: an all-read
@@ -24,7 +26,10 @@ func insertConnectorActionCoverage(ctx context.Context, tx *sql.Conn, g Connecto
 			return connectorRefusedCode(ErrConnectorInvalid, "repository_selected_twice", "repository selected twice: %q", requested.RepositoryRef)
 		}
 		seen[requested.RepositoryRef] = true
-		r, err := resolveConnectorRepository(ctx, tx, requested.RepositoryRef)
+		r, err := resolveReadRepository(ctx, tx, requested.RepositoryRef)
+		if errors.Is(err, contracts.ErrReadTargetInvalid) {
+			err = connectorRefusedCode(ErrConnectorInvalid, "repository_not_registered", "repository not registered: %q", requested.RepositoryRef)
+		}
 		if err != nil {
 			return err
 		}
