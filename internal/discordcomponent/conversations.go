@@ -1,4 +1,4 @@
-package daemon
+package discordcomponent
 
 import (
 	"context"
@@ -9,14 +9,14 @@ import (
 // startConversations owns two goroutines, both joined by the serving wait group
 // and bounded by its context. One runs turns, one dispatches saved replies, so
 // a slow provider never blocks reply retries, ordinary commands or intake.
-func (d *Daemon) startConversations(ctx context.Context, wg *sync.WaitGroup, at time.Time) {
-	if d.chat.conversations == nil {
+func (c *Component) startConversations(ctx context.Context, wg *sync.WaitGroup, at time.Time) {
+	if c.conversations == nil {
 		return
 	}
-	if err := d.chat.service.EnableConversations(ctx, *d.chat.conversations, at); err != nil {
-		d.log.WarnContext(ctx, "conversation configuration could not be fully applied; retained work remains isolated")
+	if err := c.service.EnableConversations(ctx, *c.conversations, at); err != nil {
+		c.log.WarnContext(ctx, "conversation configuration could not be fully applied; retained work remains isolated")
 	}
-	for _, step := range []func(context.Context, time.Time) (bool, error){d.chat.service.ConversationStep, d.chat.service.ConversationDeliveryStep} {
+	for _, step := range []func(context.Context, time.Time) (bool, error){c.service.ConversationStep, c.service.ConversationDeliveryStep} {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -29,7 +29,7 @@ func (d *Daemon) startConversations(ctx context.Context, wg *sync.WaitGroup, at 
 				for range 32 {
 					more, err := step(ctx, time.Now())
 					if err != nil {
-						d.log.WarnContext(ctx, "conversation processing deferred; durable state retained", "error", err)
+						c.log.WarnContext(ctx, "conversation processing deferred; durable state retained", "error", err)
 						break
 					}
 					if !more {

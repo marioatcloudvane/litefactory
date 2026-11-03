@@ -235,14 +235,17 @@ func (a Actions) Resolve(ctx context.Context, principal owneraction.Principal, i
 }
 
 // Recheck checks the saved target before an effect.
-func (a Actions) Recheck(ctx context.Context, _ owneraction.Principal, f owneraction.Facts, at time.Time) error {
+func (a Actions) Recheck(ctx context.Context, principal owneraction.Principal, f owneraction.Facts, at time.Time) error {
 	p, err := unpackDiagnosis(f)
 	if err != nil {
 		return err
 	}
 	saved := selection(p.Natural)
 	if saved.Transport == "" {
-		saved.Transport = a.FallbackTransport
+		saved.Transport = principal.Transport
+		if saved.Transport == "" {
+			saved.Transport = a.FallbackTransport
+		}
 	}
 	refusal, err := a.RecheckSelection(ctx, saved, at)
 	if err != nil {

@@ -76,3 +76,49 @@ Admission depends on the required flags and runtime empty tools/MCP catalogs, no
 an exact patch version. Probe and init numeric versions are logged. These fixtures
 establish adapter behavior, not native CLI certification. Historical observations
 above remain observations of their recorded versions.
+
+
+## Discord component extraction
+
+On 2026-11-03 the extraction-specific recovery checks passed with isolated state
+and controlled providers. No live Discord, paid model, operator configuration or
+provider credentials were used. This evidence supplements the earlier native
+conversation checks; it does not change their unverified native demonstrations.
+
+The fixture at `internal/store/testdata/discord-component-recovery` was written
+by baseline commit `d41b68afd2f722003d0d12efe396801be4195367`. It retains two
+conversations, synthetic immutable captures, native session/directory identities,
+a completed answer with one of three parts acknowledged, an unfinished turn and
+a protected pending owner approval. Reopen checks compare the full SQLite schema
+and saved values under baseline, current and baseline code. Current recovery
+finishes only remaining saved parts, rejects duplicate acknowledgment and leaves
+pending approval and unfinished identity intact; previous code then reads the
+recovered state.
+
+`TestDiscordComponentProcessStopDrainRestart` runs the extracted component in two
+real child processes with a dedicated temporary database and loopback HTTP
+provider. The first process acknowledges the first part, retains the second on
+429, handles cancellation, closes admission and joins workers before database
+close. A new process delivers the remaining saved bytes with the same nonce,
+without redelivering the acknowledged first part. Native identity and captured
+instructions stay unchanged. The rehearsal then opens that exact database with
+baseline storage code and checks the saved outcome and lack of replayable
+completed delivery. No native model provider is installed in this process test.
+
+Reproduce both checks with:
+
+```sh
+python3 scripts/discord-component-recovery.py rehearse
+```
+
+The script uses `git archive`, temporary state and finite child timeouts; it never
+switches branches or changes the checked-in fixture. The focused component test
+runs with race detection. Full affected-package and repository verification are
+reported separately by Implement and Validate, respectively.
+
+Coverage is limited to this pinned baseline and the constructed states. The
+process rollback check opens old storage code rather than launching an old
+Discord transport. A running native subprocess, all historical schemas/provider
+formats and live nonce-window expiry are not simulated. An unfinished lease is
+not proof of native process exit. Provider history and nonce enforcement remain
+bounded; uncertain effects retain their existing reconciliation requirements.

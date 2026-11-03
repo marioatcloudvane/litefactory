@@ -2,11 +2,8 @@ package daemon
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"sync"
@@ -14,6 +11,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/alerts"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/discordcomponent"
 	"github.com/cloudvane/litefactory/internal/factory"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging"
@@ -53,89 +51,62 @@ type ChatOptions struct {
 	Client *http.Client
 }
 type chatRuntime struct {
-	actions       *owneraction.Service
-	service       *messaging.Service
-	adapter       *discord.Adapter
-	heartbeat     chan struct{}
-	collector     *messaging.NoticeCollector
-	diagnoser     ChatDiagnoser
-	redactor      *redact.Redactor
-	mu            sync.Mutex
-	notes         map[string]string
-	intake        *messaging.Intake
-	conversations *messaging.ConversationOptions
-	analyses      *ConversationAnalyses
-	reads         *discordReadLog
+	diagnosisWorkers sync.WaitGroup
+	actions          *owneraction.Service
+	service          *messaging.Service
+	adapter          *discord.Adapter
+	collector        *messaging.NoticeCollector
+	diagnoser        ChatDiagnoser
+	redactor         *redact.Redactor
+	mu               sync.Mutex
+	notes            map[string]string
+	analyses         *ConversationAnalyses
 }
 
 func prepareChat(ctx context.Context, cfg *config.Config, resolver secrets.Resolver) (*ChatOptions, error) {
-	if cfg.Chat == nil || cfg.Chat.Discord == nil || !cfg.Chat.Discord.Enabled {
-		return nil, nil
+	credentials, err := discordcomponent.Prepare(ctx, cfg, resolver)
+	if err != nil || credentials == nil {
+		return nil, err
 	}
-	c := *cfg.Chat.Discord
-	c.ChannelIDs = append([]string(nil), c.ChannelIDs...)
-	c.Conversations = append([]config.ChannelConversation(nil), c.Conversations...)
-	ref, ok := secrets.ReferenceFrom(c.TokenKeychain.Service, c.TokenKeychain.Account, c.TokenEnv)
-	if !ok {
-		return nil, fmt.Errorf("chat.discord requires a bot token reference")
-	}
-	setting := "chat.discord.token_keychain"
-	if c.TokenKeychain.Service == "" && c.TokenKeychain.Account == "" {
-		setting = "chat.discord.token_env"
-	}
-	o := &ChatOptions{Settings: c, TokenSetting: setting, Resolve: func(ctx context.Context) (secrets.Token, error) {
-		return resolver.Resolve(ctx, ref)
-	}}
-	// A token that cannot be resolved leaves only chat unavailable; the daemon
-	// starts and the chat goroutine retries on later heartbeats.
-	if token, err := resolver.Resolve(ctx, ref); err == nil {
-		o.Token = token
-	}
-	return o, nil
+	return &ChatOptions{Settings: credentials.Settings, Token: credentials.Token, Resolve: credentials.Resolve, TokenSetting: credentials.TokenSetting}, nil
 }
-
-// chatPending is chat that is configured but waits for its bot token. It is
-// written by New and read only by the chat goroutine.
-type chatPending struct {
-	opts *ChatOptions
-	key  ed25519.PublicKey
-}
-
-const chatAvailable = "available"
-
-func chatTokenUnavailable(o *ChatOptions) string {
-	return "unavailable: bot token (" + o.TokenSetting + ") could not be resolved; retrying on later heartbeats"
-}
-func (d *Daemon) setChatStatus(status string) { d.chatStatus.Store(&status) }
 
 func (d *Daemon) initChat(o *ChatOptions) error {
 	if o == nil {
 		return nil
 	}
+	copied := *o
+	copied.Settings.ChannelIDs = append([]string(nil), o.Settings.ChannelIDs...)
+	copied.Settings.Conversations = append([]config.ChannelConversation(nil), o.Settings.Conversations...)
+	if o.Conversations != nil {
+		options := *o.Conversations
+		options.Bindings = append([]messaging.ConversationBinding(nil), options.Bindings...)
+		options.Providers = maps.Clone(options.Providers)
+		options.Models = maps.Clone(options.Models)
+		copied.Conversations = &options
+	}
+	o = &copied
 	if d.webhook == nil {
 		return fmt.Errorf("chat requires the webhook listener")
 	}
-	key, err := hex.DecodeString(o.Settings.PublicKey)
-	if err != nil || len(key) != ed25519.PublicKeySize {
-		return fmt.Errorf("chat public key is invalid")
+	d.prepareIndependentOwnerActions(o, nil)
+	component, err := discordcomponent.New(discordcomponent.Options{
+		Credentials: discordcomponent.Credentials{Settings: o.Settings, Token: o.Token, Resolve: o.Resolve, TokenSetting: o.TokenSetting, APIURL: o.APIURL, Client: o.Client},
+		Storage:     messagingstorage.New(d.db), Factory: factory.NewMessaging(d.db), Health: factory.NewHealth(d.db), Logger: d.log,
+		Conversations: o.Conversations, AlertControls: d.alerts != nil, Redactor: d.ownerActions.sanitizer,
+		Configure: func(s *messaging.Service, a *discord.Adapter, sanitizer *redact.Redactor) discordcomponent.Hooks {
+			return d.configureChat(o, s, a, sanitizer)
+		},
+	})
+	if err != nil {
+		return err
 	}
-	d.chatBeat = make(chan struct{}, 1)
-	if o.Token.Empty() && o.Resolve != nil {
-		d.chatWait = &chatPending{opts: o, key: key}
-		d.setChatStatus(chatTokenUnavailable(o))
-		d.log.Error("chat.discord bot token could not be resolved; chat unavailable, retrying on a later heartbeat", slog.String("setting", o.TokenSetting))
-		return nil
-	}
-	d.buildChat(o, key, o.Token)
+	d.discord = component
 	return nil
 }
 
-// buildChat constructs the chat runtime. It runs in New when the token is
-// known at startup, and otherwise once in the chat goroutine.
-func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.Token) {
-	a := discord.New(discord.Options{ApplicationID: o.Settings.ApplicationID, PublicKey: key, Token: token, APIURL: o.APIURL, Client: o.Client})
-	s := messaging.NewWithServices(messagingstorage.New(d.db), factory.NewMessaging(d.db), "discord", o.Settings.OwnerID, o.Settings.ChannelIDs, a, factory.NewHealth(d.db))
-	s.Logger = d.log
+// configureChat installs bounded core operations; transport and workers belong to the component.
+func (d *Daemon) configureChat(o *ChatOptions, s *messaging.Service, a *discord.Adapter, sanitizer *redact.Redactor) discordcomponent.Hooks {
 	if d.alerts != nil {
 		s.SetAlertControls(d.alerts.Command)
 		s.SetProviderObserver(func(c context.Context, provider, conversation, turn, class string) {
@@ -157,11 +128,6 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	s.EnableOwnerInbox(ownerInboxReader{daemon: d})
 	s.Instructions = o.Instructions
 	s.InstructionDiagnostics = o.InstructionDiagnostics
-	sanitizer := redact.New(redact.Options{Logger: d.log, Token: token})
-	s.Protect = func(ctx context.Context, text string) (string, error) {
-		body, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
-		return body.String(), err
-	}
 	answers := ask.Service{Repositories: factory.NewMessaging(d.db), Collector: ask.Collector{Factory: factory.NewTaskFacts(d.db)}, Redactor: sanitizer}
 	if o.Answers != nil {
 		answers = *o.Answers
@@ -183,8 +149,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 
 	writer, _ := d.forge.(ChatIssueForge)
 	s.EnableFeatures(&feature.Drafter{Instructions: answers.Instructions, InstructionDiagnostics: answers.InstructionDiagnostics, Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
-	reads := &discordReadLog{log: d.log}
-	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: d.chatBeat, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string), reads: reads}
+	d.chat = &chatRuntime{service: s, adapter: a, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}
 	if o.Conversations != nil {
 		options := *o.Conversations
 		options.Bindings = append([]messaging.ConversationBinding(nil), options.Bindings...)
@@ -192,7 +157,6 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		options.Models = maps.Clone(options.Models)
 		options.CheckAccess = func(ctx context.Context, channel string) error {
 			err := a.CheckIntakeCapability(ctx, channel)
-			reads.report(ctx, "conversation access", err)
 			if err == nil {
 				return nil
 			}
@@ -226,42 +190,9 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 			s.EnableStandards(&operations)
 			d.chat.analyses = operations.Analyses
 		}
-		d.chat.conversations = &options
-		// Ordinary messages feed only conversations, so intake reads only
-		// allowed channels that a conversation is bound to.
-		var channels []string
-		for _, channel := range o.Settings.ChannelIDs {
-			for _, binding := range options.Bindings {
-				if binding.Channel == channel {
-					channels = append(channels, channel)
-					break
-				}
-			}
-		}
-		if len(channels) > 0 {
-			d.chat.intake = &messaging.Intake{DB: d.db, Reader: a, Owner: o.Settings.OwnerID, Channels: channels, Transport: "discord", Protect: s.Protect}
-		}
-	}
-	if d.alerts != nil {
-		ordinaryChannels := []string{}
-		if o.Conversations != nil {
-			for _, channel := range o.Settings.ChannelIDs {
-				for _, binding := range o.Conversations.Bindings {
-					if binding.Channel == channel {
-						ordinaryChannels = append(ordinaryChannels, channel)
-						break
-					}
-				}
-			}
-		}
-		d.chat.intake = &messaging.Intake{DB: d.db, Reader: a, Owner: o.Settings.OwnerID, Channels: append([]string(nil), o.Settings.ChannelIDs...), Transport: "discord", Protect: s.Protect, Controls: s.HandleAlertControl, OrdinaryChannels: ordinaryChannels}
 	}
 	s.EnableResearch(chatResearch{d}, chatResearch{d})
-	clock := o.Now
-	if clock == nil {
-		clock = time.Now
-	}
-	d.configureOwnerActions(s, o.Settings.OwnerID, o.Settings.ChannelIDs, a, clock)
+	d.configureOwnerActions(s, o.Settings.OwnerID, o.Settings.ChannelIDs, a)
 	if o.Settings.NoticeChannelID != "" {
 		if o.Conversations != nil {
 			for _, binding := range o.Conversations.Bindings {
@@ -273,154 +204,57 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		}
 		d.chat.collector = &messaging.NoticeCollector{Factory: factory.NewMessaging(d.db), Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect, Issues: noticeIssueReader{d}}
 	}
-	handler := a.Handler(s)
-	d.chatHandler.Store(&handler)
-	d.setChatStatus(chatAvailable)
-}
-func (d *Daemon) chatWake() {
-	if d.chatBeat == nil {
-		return
-	}
-	select {
-	case d.chatBeat <- struct{}{}:
-	default:
-	}
-}
-
-// awaitChatToken retries token resolution on each heartbeat, the same way
-// tryRegister retries command registration, and builds the chat runtime once
-// the token resolves. It reports false when ctx ends first.
-func (d *Daemon) awaitChatToken(ctx context.Context) bool {
-	o := d.chatWait.opts
-	for {
-		select {
-		case <-ctx.Done():
-			return false
-		case <-d.chatBeat:
-		}
-		token, err := o.Resolve(ctx)
-		if ctx.Err() != nil {
-			return false
-		}
-		if err != nil || token.Empty() {
-			d.log.WarnContext(ctx, "chat.discord bot token could not be resolved; chat unavailable, retrying on a later heartbeat", slog.String("setting", o.TokenSetting))
-			continue
-		}
-		d.buildChat(o, d.chatWait.key, token)
-		d.log.InfoContext(ctx, "chat.discord bot token resolved; chat started", slog.String("setting", o.TokenSetting))
-		return true
-	}
-}
-
-// chatServe owns one goroutine, bounded by the daemon's serving context. All
-// network work runs here rather than on discovery or heartbeat goroutines.
-func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
-	if d.chatBeat == nil {
-		return
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if d.chat == nil && !d.awaitChatToken(ctx) {
-			return
-		}
-		d.startConversations(ctx, wg, time.Now())
-		d.startOwnerActions(ctx, wg)
-		if d.chat.analyses != nil {
-			service := d.chat.service
-			d.chat.analyses.serve(ctx, wg, func(ctx context.Context, channel, key, operation, text string) error {
-				return service.Announce(ctx, channel, key, operation, text, time.Now())
-			})
-		}
-		d.startNaturalIntake(ctx, wg, d.chat.intake)
-		if err := d.db.RecoverChatAnswers(ctx, "discord", time.Now()); err != nil {
-			d.log.WarnContext(ctx, "chat answer recovery failed; waiting rows retain their leases")
-		}
-		if err := d.db.RecoverChatDiagnoses(ctx, "discord", time.Now()); err != nil {
-			d.log.WarnContext(ctx, "chat diagnosis recovery failed")
-		}
-		d.dispatchChatDiagnosis(ctx, time.Now())
-		timer := time.NewTicker(time.Second)
-		defer timer.Stop()
-		registered := false
-		tryRegister := func() {
-			if registered {
-				return
+	hooks := discordcomponent.Hooks{
+		Start: func(ctx context.Context) func() {
+			var owned sync.WaitGroup
+			owned.Add(1)
+			d.chat.diagnosisWorkers.Add(1)
+			if d.chat.analyses != nil {
+				d.chat.analyses.serve(ctx, &owned, func(ctx context.Context, channel, key, operation, text string) error {
+					return s.Announce(ctx, channel, key, operation, text, time.Now())
+				})
 			}
-			if err := d.chat.adapter.Register(ctx, d.chat.service.SlashCommands()...); err != nil {
-				d.log.WarnContext(ctx, "chat commands could not be registered; retrying on a later heartbeat", slog.Any("error", err))
-			} else {
-				registered = true
+			return func() { owned.Done(); owned.Wait(); d.chat.diagnosisWorkers.Done(); d.chat.diagnosisWorkers.Wait() }
+		},
+		Recover: func(ctx context.Context, at time.Time) {
+			if err := d.db.RecoverChatAnswers(ctx, "discord", at); err != nil {
+				d.log.WarnContext(ctx, "chat answer recovery failed; waiting rows retain their leases")
 			}
-		}
-		tryRegister()
-		for {
-			if ctx.Err() != nil {
-				return
+			if err := d.db.RecoverChatDiagnoses(ctx, "discord", at); err != nil {
+				d.log.WarnContext(ctx, "chat diagnosis recovery failed")
 			}
-			if err := d.chatResearchNotes(ctx); err != nil {
-				d.log.WarnContext(ctx, "chat answer note remains pending")
-			}
-			if err := d.chatDiagnosisResults(ctx, time.Now()); err != nil {
+		},
+		Reconcile: func(ctx context.Context, at time.Time) {
+			if err := d.chatDiagnosisResults(ctx, at); err != nil {
 				d.log.WarnContext(ctx, "chat diagnosis result remains unposted; retrying on the next pass")
 			}
-			if d.chat.collector != nil {
-				if err := d.chat.collector.Collect(ctx, time.Now()); err != nil {
-					d.log.WarnContext(ctx, "chat notice collection failed; retrying on the next pass")
-				}
-			}
-			// Notices also carry factory messages for a conversation, such as a
-			// finished log analysis, so they are delivered without a collector.
-			for range 32 {
-				more, err := d.chat.service.NoticeStep(ctx, time.Now())
-				if err != nil {
-					d.log.WarnContext(ctx, "chat notice processing failed; durable work will be retried")
-					break
-				}
-				if !more {
-					break
-				}
-			}
-			for range 32 {
-				more, err := d.chat.service.Step(ctx, time.Now())
-				if err != nil {
-					d.log.WarnContext(ctx, "chat reply processing failed; durable work will be retried")
-					break
-				}
-				if !more {
-					break
-				}
-			}
-			if err := d.chat.service.Purge(ctx, time.Now()); err != nil {
-				d.log.WarnContext(ctx, "chat reply purge failed")
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-d.chat.service.Wake():
-				d.dispatchChatDiagnosis(ctx, time.Now())
-			case <-d.chat.heartbeat:
-				d.dispatchChatDiagnosis(ctx, time.Now())
-				tryRegister()
-			case <-timer.C:
-			}
-		}
-	}()
+		},
+		Dispatch: d.dispatchChatDiagnosis, Reaction: d.ownerReaction,
+	}
+	if d.chat.collector != nil {
+		hooks.Collect = d.chat.collector.Collect
+	}
+	return hooks
 }
-
-// webhookRouter serves the Discord path once chat is built and answers 503
-// while chat waits for its bot token.
+func (d *Daemon) chatWake() {
+	if d.discord != nil {
+		d.discord.Wake()
+	}
+}
+func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
+	if d.discord == nil {
+		return
+	}
+	wg.Go(func() { d.discord.Serve(ctx) })
+}
 func (d *Daemon) webhookRouter(githubHandler http.Handler) http.Handler {
-	if d.chatBeat == nil {
+	if d.discord == nil {
 		return githubHandler
 	}
+	handler := d.discord.Handler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == discord.Path {
-			if h := d.chatHandler.Load(); h != nil {
-				(*h).ServeHTTP(w, r)
-				return
-			}
-			http.Error(w, "chat unavailable", http.StatusServiceUnavailable)
+			handler.ServeHTTP(w, r)
 			return
 		}
 		githubHandler.ServeHTTP(w, r)

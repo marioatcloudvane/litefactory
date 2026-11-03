@@ -1,4 +1,4 @@
-// Package featuredraft owns protected feature preview creation and its durable
-// identity. It accepts primitive isolated generation and context capabilities;
-// it has no issue-creation or transport capability.
+// Package featuredraft owns protected feature previews, confirmation claims and
+// issue creation reconciliation. Primitive model and forge capabilities supply
+// effects; the service retains admission, retry and publication decisions.
 package featuredraft

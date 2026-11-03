@@ -11,6 +11,48 @@ work, and nothing typed in Discord reaches the GitHub comment parser.
 Set up GitHub first, including its webhook listener: [GitHub setup](getting-started/github-setup.md).
 For Linear tickets, also complete [Linear setup](project-connections.md#linear-tickets-with-github-code).
 
+## Component ownership and recovery
+
+Discord runs as one component inside the existing daemon. It owns credential
+retry, signature verification, command registration, Gateway reconnect and
+polling, conversations, reactions and reply delivery. The daemon supplies
+bounded factory operations and mounts the unchanged `/litefactory/discord`
+endpoint. No separate process, release, database or new configuration is needed.
+
+Factory core owns research answers, feature confirmation and creation recovery,
+retained ticket routing, diagnosis, standards and publication decisions. One
+shared owner-action coordinator serves Discord and the optional remote consumer.
+Late token recovery attaches delivery to that existing coordinator; it does not
+create another approval worker. An unavailable Discord approval stays pending
+or unavailable and cannot be confirmed through another channel.
+
+With a valid enabled configuration, a missing optional bot token leaves core
+ticket work running. Restore the configured Keychain item or environment token
+and check `litefactory daemon status`: a later heartbeat retries resolution and
+changes the token-unavailable status to available. Gateway status then reports
+connection health. A malformed enabled configuration is refused at startup;
+missing-token retry does not waive required IDs, public key, listener or token
+reference validation. Disabled Discord leaves core ticket workflows usable.
+
+For restart or compatible rollback, use the normal daemon service stop operation
+and wait for it to exit before replacing the binary or reopening its database.
+Shutdown stops new Discord admission, cancels in-flight work and joins active
+handlers and owned workers before shared resources close. Preserve the database
+and private conversation state directories together. Do not delete pending
+replies, rewrite captures or change approval channels to force recovery. Start
+compatible code with the same configuration and let it reconcile saved state.
+
+The extraction's controlled tests cover baseline/current/baseline database
+reopen, saved replies and approvals, plus real component process cancellation,
+drain and restart against a local fake Discord provider. The same process
+rehearsal database is reopened by compatible previous storage code. Details and
+limits are in [conversation evidence](conversation-evidence.md#discord-component-extraction)
+and the [recovery fixture](../internal/store/testdata/discord-component-recovery/README.md).
+They do not certify every historical installation, native provider state format
+or live Discord outage. Retry uses saved bytes and stable nonces in channel
+order, honors Retry-After and preserves paused permanent refusals. Discord's
+bounded nonce history does not provide indefinite duplicate suppression.
+
 ## Set up
 
 ### 1. Create the Discord application and bot
@@ -379,7 +421,8 @@ edit below so that the new threshold, delay or delivery setting takes effect.
 
 ## Limits
 
-- **Best-effort delivery.** Replies and notices are retried for up to 24 hours.
+- **Best-effort delivery.** Ordinary command replies and notices are retried for up to 24 hours.
+  Saved conversation replies retain their own durable retry and pause state.
   Discord checks duplicate-send tokens for only a few minutes, so after a
   restart or delayed retry a reply can appear twice. Exactly-once is not
   promised.
