@@ -1,9 +1,13 @@
 package messaging_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factory"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,7 +98,9 @@ func TestAlertControlIntakeUnboundChannelsAndRestartedCompleteInterval(t *testin
 			{ChannelRef: "2", SourceID: fmt.Sprint(high - 1), OwnerID: "3", Text: "ordinary unbound text", CreatedAt: at},
 		}}
 	}
+	var logs bytes.Buffer
 	intake := alertControlIntake(t, db, reader)
+	intake.Logger = slog.New(slog.NewTextHandler(&logs, nil))
 	if err := intake.Poll(ctx, at); err != nil {
 		t.Fatal(err)
 	}
@@ -106,9 +112,16 @@ func TestAlertControlIntakeUnboundChannelsAndRestartedCompleteInterval(t *testin
 	if err != nil || !ok || scan.Before != "201" || scan.Complete || len(scan.Messages) != 4 {
 		t.Fatalf("control scan not durable: %+v %t %v", scan, ok, err)
 	}
+	if !strings.Contains(logs.String(), "reason=partial_staged") || strings.Contains(logs.String(), "reason=released") {
+		t.Fatal(logs.String())
+	}
 	restarted := alertControlIntake(t, db, reader)
+	restarted.Logger = intake.Logger
 	if err = restarted.Poll(ctx, at); err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), "reason=released") || strings.Count(logs.String(), "reason=completed") != 5 {
+		t.Fatal(logs.String())
 	}
 	ledger, err = db.ReadAlerts(ctx)
 	if err != nil || len(ledger.Receipts) != 5 || !ledger.Controls.OffUntil.IsZero() {
@@ -120,5 +133,54 @@ func TestAlertControlIntakeUnboundChannelsAndRestartedCompleteInterval(t *testin
 	}
 	if _, err = db.ReadNaturalScan(ctx, "2"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unbound ordinary scan activated: %v", err)
+	}
+}
+
+func TestControlDiagnosticsAfterEffectReplyFailure(t *testing.T) {
+	db := database(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	if err := db.ActivateAlertControlScan(ctx, "2", "100"); err != nil {
+		t.Fatal(err)
+	}
+	port := &diagnosticFailStore{Port: db, failReply: true}
+	engine := &alerts.Engine{DB: db, Settings: config.DefaultAlerts(), Location: time.UTC}
+	service := messaging.NewWithServices(port, factory.NewMessaging(db), "discord", "3", []string{"2"}, &sender{}, nil)
+	service.SetAlertControls(engine.Command)
+	reader := &intakeReader{pages: map[string]messaging.IntakePage{"": {HighID: "101", LowID: "101", Count: 1, Messages: []store.NaturalMessage{{ChannelRef: "2", OwnerID: "3", SourceID: "101", Text: "mute disk 2h", CreatedAt: at}}}}}
+	intake := alertControlIntake(t, db, reader)
+	intake.Controls = service.HandleAlertControl
+	var logs bytes.Buffer
+	intake.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	if err := intake.Poll(ctx, at); err == nil {
+		t.Fatal("queue failure disappeared")
+	}
+	ledger, err := db.ReadAlerts(ctx)
+	if err != nil || len(ledger.Receipts) != 1 || !ledger.Controls.RuleMutes["disk_low"].Equal(at.Add(2*time.Hour)) {
+		t.Fatalf("effect %+v %v", ledger, err)
+	}
+	scan, _, err := db.ReadAlertControlScan(ctx, "2")
+	if err != nil || !scan.Complete || scan.Cursor != "101" || len(scan.Messages) != 1 {
+		t.Fatalf("retry state %+v %v", scan, err)
+	}
+	if !strings.Contains(logs.String(), "reason=execution_or_reply_failed") || strings.Contains(logs.String(), "reason=completed") || strings.Contains(logs.String(), "private") {
+		t.Fatal(logs.String())
+	}
+	port.failReply = false
+	for range 2 {
+		if err = intake.Poll(ctx, at.Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ledger, err = db.ReadAlerts(ctx)
+	if err != nil || len(ledger.Receipts) != 1 || !ledger.Controls.RuleMutes["disk_low"].Equal(at.Add(2*time.Hour)) {
+		t.Fatalf("repeated effect %+v %v", ledger, err)
+	}
+	scan, _, err = db.ReadAlertControlScan(ctx, "2")
+	if err != nil || scan.Cursor != "101" || len(scan.Messages) != 0 {
+		t.Fatalf("unfinished retry %+v %v", scan, err)
+	}
+	if !strings.Contains(logs.String(), "reason=completed") {
+		t.Fatal(logs.String())
 	}
 }

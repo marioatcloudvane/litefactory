@@ -1,12 +1,15 @@
 package discord_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -30,23 +33,36 @@ func TestOrdinaryIntakeFiltersAndCapability(t *testing.T) {
    {"id":"6","channel_id":"2","content":"webhook","author":{"id":"3"},"webhook_id":"1"},
    {"id":"5","channel_id":"2","content":"system","author":{"id":"3"},"type":6},
    {"id":"4","channel_id":"99","content":"thread","author":{"id":"3"}},
-   {"id":"3","channel_id":"2","content":"forwarded","author":{"id":"3"},"message_snapshots":[{}]}
+   {"id":"3","channel_id":"2","content":"forwarded","author":{"id":"3"},"message_snapshots":[{}]},
+ {"id":"2","channel_id":"2","content":"","author":{"id":"3"}}
   ]`)
 	}))
 	defer api.Close()
 	now := time.Now()
-	a := discord.New(discord.Options{APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return now }})
+	var logs bytes.Buffer
+	a := discord.New(discord.Options{Logger: slog.New(slog.NewTextHandler(&logs, nil)), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return now }})
 	if err := a.CheckIntakeCapability(t.Context(), "2"); err != nil {
 		t.Fatal(err)
 	}
 	page, err := a.ReadIntakePage(t.Context(), "2", "3", "")
-	if err != nil || len(page.Messages) != 1 || page.Count != 7 || page.HighID != "9" || page.LowID != "3" || page.Messages[0].ReplyTo != "7" {
+	if err != nil || len(page.Messages) != 1 || page.Count != 8 || page.HighID != "9" || page.LowID != "2" || page.Messages[0].ReplyTo != "7" {
 		t.Fatalf("page %+v error %v", page, err)
+	}
+	for _, reason := range []string{"eligible", "wrong_owner", "wrong_channel", "bot", "webhook", "unsupported_form", "forwarded_form", "empty_content"} {
+		if !strings.Contains(logs.String(), "reason="+reason) {
+			t.Errorf("missing %s: %s", reason, logs.String())
+		}
+	}
+	if strings.Contains(logs.String(), "private outsider") || strings.Contains(logs.String(), "message_content_intent_missing") {
+		t.Fatal("content leaked or empty content mislabeled")
 	}
 	flags = 0
 	now = now.Add(6 * time.Minute)
 	if a.CheckIntakeCapability(t.Context(), "2") == nil {
 		t.Error("missing content capability accepted")
+	}
+	if !strings.Contains(logs.String(), "reason=message_content_intent_missing") {
+		t.Fatal("missing capability diagnostic")
 	}
 }
 func TestOrdinaryIntakeRateLimit(t *testing.T) {
@@ -232,5 +248,27 @@ func TestRefusedReadSurfacesAtOnce(t *testing.T) {
 	checks := fake.count("/applications/@me")
 	if err = a.CheckIntakeCapability(t.Context(), "2"); err == nil || fake.count("/applications/@me") != checks+1 {
 		t.Fatalf("refused access still cached: %v", err)
+	}
+}
+
+func TestMalformedHistoryDiagnosticsDoNotEchoIdentity(t *testing.T) {
+	for _, id := range []string{"private-identity", "0", "01", "18446744073709551616"} {
+		t.Run(id, func(t *testing.T) {
+			var logs bytes.Buffer
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintf(w, `[{"id":%q,"channel_id":"2","content":"private body","author":{"id":"3"}}]`, id)
+			}))
+			defer api.Close()
+			a := discord.New(discord.Options{APIURL: api.URL, Client: api.Client(), Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+			if _, err := a.ReadIntakePage(t.Context(), "2", "3", ""); err == nil {
+				t.Fatal("malformed identity accepted")
+			}
+			if !strings.Contains(logs.String(), "reason=malformed_identity_or_order") || !strings.Contains(logs.String(), "reason=read_failed") {
+				t.Fatal(logs.String())
+			}
+			if strings.Contains(logs.String(), "source_id=") || strings.Contains(logs.String(), "private") {
+				t.Fatal("invalid identity or content logged")
+			}
+		})
 	}
 }

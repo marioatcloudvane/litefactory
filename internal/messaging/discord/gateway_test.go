@@ -1,10 +1,12 @@
 package discord_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -239,20 +241,39 @@ func TestGatewayIdentifiesHeartbeatsAndReportsOwnerMessages(t *testing.T) {
 		gwWrite(c, 0, message("103", "3", "8", false), 5, "MESSAGE_CREATE")
 		gwWrite(c, 0, message("104", "4", "7", false), 6, "MESSAGE_CREATE")
 		gwWrite(c, 0, message("105", "3", "7", false), 7, "MESSAGE_UPDATE")
+		webhook := message("105", "3", "7", false)
+		webhook["webhook_id"] = "9"
+		gwWrite(c, 0, webhook, 7, "MESSAGE_CREATE")
+		gwWrite(c, 0, message("private-identity", "3", "7", false), 7, "MESSAGE_CREATE")
 		gwWrite(c, 0, message("106", "3", "7", false), 8, "MESSAGE_CREATE")
 		drain(c, true)
 	})
 	r := newRecorder()
-	run(t, g.adapter(), r.options())
+	var logs bytes.Buffer
+	a := discord.New(discord.Options{APIURL: g.server.URL, Client: g.server.Client(), Token: secrets.NewToken("gateway-token"), Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	cancel, done := run(t, a, r.options())
 	r.await(t, "two owner messages", func() bool { return len(r.messages) >= 2 })
 	if beat := <-beats; string(beat) != "1" {
 		t.Errorf("heartbeat carried %s, want the last sequence 1", beat)
 	}
 	time.Sleep(50 * time.Millisecond)
+	cancel()
+	err := <-done
+	done <- err
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.messages) != 2 || r.readies != 1 {
 		t.Fatalf("messages %v readies %d: want the owner's two messages in channel 3 once each", r.messages, r.readies)
+	}
+	for _, reason := range []string{"received", "eligible", "duplicate_or_replay", "wrong_owner", "wrong_channel", "bot", "webhook", "malformed_identity"} {
+		if !strings.Contains(logs.String(), "reason="+reason) {
+			t.Errorf("missing %s: %s", reason, logs.String())
+		}
+	}
+	for _, private := range []string{"private text", "private-identity", "gateway-token"} {
+		if strings.Contains(logs.String(), private) {
+			t.Error("private data logged")
+		}
 	}
 	if r.states[0].Phase != discord.GatewayConnecting || r.states[len(r.states)-1].Phase != discord.GatewayConnected {
 		t.Fatalf("states %+v", r.states)

@@ -182,7 +182,7 @@ func (c *Component) stopAdmission() {
 func (c *Component) build(token secrets.Token) {
 	o := c.opts
 	settings := o.Credentials.Settings
-	a := discord.New(discord.Options{ApplicationID: settings.ApplicationID, PublicKey: c.key, Token: token, APIURL: o.Credentials.APIURL, Client: o.Credentials.Client})
+	a := discord.New(discord.Options{Logger: c.log, ApplicationID: settings.ApplicationID, PublicKey: c.key, Token: token, APIURL: o.Credentials.APIURL, Client: o.Credentials.Client})
 	s := messaging.NewWithServices(o.Storage, o.Factory, "discord", settings.OwnerID, settings.ChannelIDs, a, o.Health)
 	s.Logger = c.log
 	sanitizer := o.Redactor
@@ -224,8 +224,20 @@ func (c *Component) build(token secrets.Token) {
 			}
 		}
 	}
+	for _, channel := range settings.ChannelIDs {
+		bound := false
+		for _, ordinary := range channels {
+			if ordinary == channel {
+				bound = true
+				break
+			}
+		}
+		if !bound {
+			c.log.Info("Discord intake", "transport", "discord", "stage", "setup", "channel_id", channel, "reason", "no_conversation_binding", "alert_controls", o.AlertControls)
+		}
+	}
 	if len(channels) > 0 || o.AlertControls {
-		c.intake = &messaging.Intake{DB: o.Storage, Reader: a, Owner: settings.OwnerID, Channels: channels, Transport: "discord", Protect: s.Protect}
+		c.intake = &messaging.Intake{Logger: c.log, DB: o.Storage, Reader: a, Owner: settings.OwnerID, Channels: channels, Transport: "discord", Protect: s.Protect}
 		if o.AlertControls {
 			c.intake.OrdinaryChannels = channels
 			c.intake.Channels = append([]string(nil), settings.ChannelIDs...)
