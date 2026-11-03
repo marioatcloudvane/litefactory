@@ -41,7 +41,16 @@ The flow lives in one file,
   skill. It declares `lf_response="result"`, so its own response is the outcome.
 - `ask` → `waiting`: on `ask`, the factory posts the agent's comment and
   questions and waits for the owner.
-- `report` → `complete`: on `done`, the factory posts the agent's report.
+- `prepare`: on `done`, generic `lf_deliver` with `lf_phase="prepare"` saves,
+  synchronizes and pushes the candidate and finds or opens its PR. It never merges.
+  No branch changes route to `report` → `complete`.
+- `review` → `waiting`: the factory displays the saved commit, base and PR. The
+  declared `lf_approve_reply="ship"` accepts only an exact authenticated current
+  owner reply. Other feedback resumes the same agent.
+- `deliver` → `complete`: generic `lf_deliver` with `lf_phase="ship"` verifies the
+  reviewed source and base, merges the exact commit, then closes the issue and
+  publishes confirmed delivery. A changed candidate returns for checks and a
+  fresh review. Mechanical failures park for an owner retry.
 - `failure` → `stopped`: a failed attempt posts why and stops.
 
 ## The conversation
@@ -49,14 +58,18 @@ The flow lives in one file,
 - **The agent asks:** the question is posted and the instance waits. The owner's
   reply resumes the same agent with its saved result and the reply. There is no
   cap on question rounds; each reply gets a fresh node allowance.
-- **The agent finishes:** the report is posted and the Spike completes. A later
+- **The agent finishes:** unchanged answers finish; checked changes await shipping review. A later
   owner comment starts the next Spike, which receives the finished one's result
   and the comment as context.
 - **The agent fails:** one failure report is posted and the Spike stops. Comment
   again to start a fresh one.
 
-The factory does not judge the size of a change, choose or run checks, count
-files or repairs, write a Spike note, file follow-up issues or parse approvals.
-Check results in a report are the agent's own evidence, not a factory
-certification. Changes are committed and pushed with the run's branch, as for any
-run; Spike opens no pull request and merges nothing.
+The agent chooses and runs checks; its report is evidence, not factory
+certification. Markdown defines that behavior. DOT defines preparation, review,
+revalidation and shipping routes. The generic Go activity owns delivery effects;
+it grants no permission on its own. Shipping approval is bound to the displayed
+source, commit and base. Retries reconcile remote state before repeating effects.
+
+The existing Bug delivery adapter continues to use the shared reconciliation
+loop with its own approval rules. Validate's owner commands and effect records
+retain their existing boundaries. Existing captured graphs remain supported.

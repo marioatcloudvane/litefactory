@@ -32,6 +32,9 @@ type GraphDeliveryBinding struct {
 	Repository                            github.Repo
 	TicketRepository                      github.Repo
 	Branch, Target, Marker, Predecessor   string
+	Summary                               string
+	RunID, SourceAttemptID                int64
+	BaseCommit                            string
 	Eligibility                           GraphBugRepairEligibility
 }
 
@@ -50,6 +53,10 @@ type GraphBugFinalization struct {
 	Save func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error)
 	// SyncBase synchronizes the saved head; any changed source requires revalidation.
 	SyncBase func(context.Context, Options, ActivityRequest, GraphDeliveryBinding, string) (syncBaseOutput, error)
+	// Phase is empty for legacy finalization, prepare to stop before merging, or ship.
+	Phase string
+	// Bind supplies workflow-neutral admission instead of the legacy Bug adapter.
+	Bind func(context.Context, Options, ActivityRequest) (GraphDeliveryBinding, error)
 	// PublishSaved pushes the task branch; pushing an unchanged branch is a no-op.
 	PublishSaved func(context.Context, Options, ActivityRequest, string) error
 }
@@ -74,6 +81,9 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 	out := graphDeliveryProgress{Record: "delivery_progress"}
 	finish := func(outcome, reason string) (ActivityResult, error) {
 		out.Outcome, out.Reason = outcome, reason
+		if h.Phase == "prepare" && outcome == "ready" {
+			out.Record = "delivery_prepared"
+		}
 		raw, e := json.Marshal(out)
 		diagnostic := reason
 		if out.Commit != "" {
@@ -84,16 +94,22 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 		}
 		return ActivityResult{Outcome: outcome, Diagnostic: diagnostic, Kind: store.GraphOutputJSON, Output: raw}, e
 	}
-	if opts.DB == nil || (h.Code == nil || h.Tickets == nil) || h.Redactor == nil || h.Resolve == nil || h.Save == nil || h.PublishSaved == nil || h.SyncBase == nil || req.Workflow != agent.WorkflowBug || req.Mode != "" {
+	if opts.DB == nil || (h.Code == nil || h.Tickets == nil) || h.Redactor == nil || (h.Resolve == nil && h.Bind == nil) || h.Save == nil || h.PublishSaved == nil || h.SyncBase == nil || (h.Bind == nil && (req.Workflow != agent.WorkflowBug || req.Mode != "")) {
 		return ActivityResult{}, errors.New("incomplete graph finalization factory bindings")
 	}
-	eligibility, e := CurrentGraphBugRepairEligibility(ctx, opts.DB, req.InstanceID)
-	if e != nil {
-		return finish("blocked", "No accepted successful repair to deliver: "+e.Error())
+	var binding GraphDeliveryBinding
+	var e error
+	if h.Bind != nil {
+		binding, e = h.Bind(ctx, opts, req)
+	} else {
+		var eligibility GraphBugRepairEligibility
+		eligibility, e = CurrentGraphBugRepairEligibility(ctx, opts.DB, req.InstanceID)
+		if e == nil {
+			binding, e = h.Resolve(ctx, opts, req, eligibility)
+		}
 	}
-	binding, e := h.Resolve(ctx, opts, req, eligibility)
 	if e != nil {
-		return finish("blocked", "Resolving the delivery target failed: "+e.Error())
+		return finish("blocked", "Resolving authorized delivery failed: "+e.Error())
 	}
 	out.Binding = binding
 	repo := binding.Repository
@@ -107,6 +123,10 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 	pr, found, e := h.findPR(ctx, binding, head)
 	if e != nil {
 		return finish("blocked", "Listing PRs for "+binding.Branch+" failed: "+e.Error())
+	}
+	if h.Phase == "prepare" && found && pr.Merged {
+		out.PR = pr
+		return finish("ready", "The candidate is already merged; issue closure still requires review")
 	}
 	if !found || !pr.Merged {
 		if e = h.PublishSaved(ctx, opts, req, head); e != nil {
@@ -155,6 +175,12 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 			}
 		}
 		out.PR = pr
+		if h.Phase == "prepare" {
+			if pr.Head != head {
+				return finish("blocked", "The pull request has not reached the saved candidate head")
+			}
+			return finish("ready", fmt.Sprintf("Candidate %s is ready in PR #%d", head, pr.Number))
+		}
 		if me := h.Code.MergeDeliveryPR(ctx, repo, pr.Number, head); me != nil {
 			// The merge may have happened despite the error; look before reporting.
 			if again, ge := h.Code.GetDeliveryPR(ctx, repo, pr.Number); ge != nil || !again.Merged {
@@ -215,17 +241,24 @@ func (h GraphBugFinalization) findPR(ctx context.Context, b GraphDeliveryBinding
 }
 
 func (h GraphBugFinalization) presentation(ctx context.Context, b GraphDeliveryBinding) (redact.Body, redact.Body, error) {
-	summary := b.Eligibility.Repair.Summary
+	summary := b.Summary
+	prefix := "Change: "
+	contextLine := ""
+	if summary == "" {
+		summary = b.Eligibility.Repair.Summary
+		prefix = "Bug repair: "
+		contextLine = " Approved diagnosis: " + b.Eligibility.Handoff.Candidate.Digest
+	}
 	// Neutralize automatic closure phrases in untrusted summaries. The factory
 	// closes the issue itself after the merge, never through a PR keyword.
 	summary = regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b`).ReplaceAllString(summary, "address")
 	// Shorten before redaction: an over-budget title would get the redactor's
 	// multi-line truncation notice, which GitHub titles cannot carry.
-	title, e := h.Redactor.Apply(ctx, graphDeliveryTitle("Bug repair: "+strings.Split(summary, "\n")[0]), 256)
+	title, e := h.Redactor.Apply(ctx, graphDeliveryTitle(prefix+strings.Split(summary, "\n")[0]), 256)
 	if e != nil {
 		return redact.Body{}, redact.Body{}, e
 	}
-	body, e := h.Redactor.Apply(ctx, fmt.Sprintf("%s\n\nIssue %s. Approved diagnosis: %s\n\n%s", summary, b.displayReference(), b.Eligibility.Handoff.Candidate.Digest, b.Marker), 65536)
+	body, e := h.Redactor.Apply(ctx, fmt.Sprintf("%s\n\nIssue %s.%s\n\n%s", summary, b.displayReference(), contextLine, b.Marker), 65536)
 	return title, body, e
 }
 

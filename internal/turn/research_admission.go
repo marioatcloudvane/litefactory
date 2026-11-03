@@ -60,6 +60,11 @@ func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
 			return specs, err
 		}
 	}
+	delivery := graphexec.DeliverSpec(policy.Mode)
+	delivery.Workflow = policy.Workflow
+	if err := specs.Register(delivery); err != nil {
+		return specs, err
+	}
 	return specs, nil
 }
 

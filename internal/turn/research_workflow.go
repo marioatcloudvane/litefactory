@@ -153,6 +153,9 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			return result, err
 		}
 	}
+	if err := registerDelivery(&specs, &activities, w); err != nil {
+		return result, err
+	}
 	if policy.Mode == agent.ModePlan && policy.Handlers != nil && policy.Handlers.Parallel != nil {
 		if err := specs.Register(graphexec.PlanParallelSpec()); err != nil {
 			return result, err
@@ -179,7 +182,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		if waitErr == nil && wait.State == "waiting" {
 			return w.finish(ctx, nil)
 		}
-		if policy.Mode == agent.ModeResearch && waitErr == nil && wait.State == "claimed" && strings.EqualFold(strings.TrimSpace(wait.ReplyBody), "done") {
+		if waitErr == nil && wait.State == "claimed" {
 			settled, err := w.settleReview(ctx, wait)
 			if err != nil {
 				return w.finish(ctx, err)
@@ -290,7 +293,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		}
 		executed = true
 		runID, resumeID := w.result.Run.ID, int64(0)
-		if node.Action == graphexec.JudgeAction {
+		if node.Action == graphexec.JudgeAction || node.Action == graphexec.DeliverAction {
 			runID = 0
 			prior, e := opts.DB.LatestGraphNodeAttempt(ctx, instance.ID, node.Name)
 			if e != nil && !errors.Is(e, store.ErrNotFound) {
@@ -331,6 +334,11 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				_, parkErr = opts.DB.ParkCapturedGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, step.NextNode, now.Add(opts.GraphRetryDelay), now, spent, w.admission.LaunchID)
 			}
 			return w.finish(ctx, parkErr)
+		}
+		if step.Status == store.GraphSucceeded && node.Action == graphexec.DeliverAction {
+			if _, err := opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID); err != nil {
+				return w.finish(ctx, err)
+			}
 		}
 		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" || step.Status == "waiting_child" {
 			return w.finish(ctx, nil)
@@ -472,7 +480,11 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 	if err != nil {
 		return ResearchInvocation{}, route.abort(ctx, err)
 	}
-	return w.finishRoute(ctx, route, &req, sessionDirectoryContext(sessionPath, prep.parentSessionDir, prep.parentSessionFiles)+saved+predecessor+handoff+continuation, sessionPath)
+	state, e := deliveryRevalidationContext(ctx, w.opts.DB, w.definition.Profile, a)
+	if e != nil {
+		return ResearchInvocation{}, route.abort(ctx, e)
+	}
+	return w.finishRoute(ctx, route, &req, state+sessionDirectoryContext(sessionPath, prep.parentSessionDir, prep.parentSessionFiles)+saved+predecessor+handoff+continuation, sessionPath)
 }
 
 // parentSessionContext names, in order, the parent session files a story worker
@@ -765,6 +777,21 @@ func RecoverWorkflowPublications(ctx context.Context, opts Options, sessionID in
 	}
 	scope := policy.baseContext(true)
 	for instance.ID != 0 {
+		if instance.Status == store.GraphSucceeded {
+			if raw, e := opts.DB.LatestGraphRecord(ctx, instance.ID, "delivery_progress"); e == nil {
+				var progress graphDeliveryProgress
+				if e = json.Unmarshal(raw, &progress); e != nil {
+					return e
+				}
+				if progress.Outcome == "completed" {
+					if _, e = opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID); e != nil {
+						return e
+					}
+				}
+			} else if !errors.Is(e, store.ErrNotFound) {
+				return e
+			}
+		}
 		after := ""
 		for {
 			page, e := opts.DB.ListGraphComments(ctx, instance.ID, after, 100)
@@ -777,6 +804,13 @@ func RecoverWorkflowPublications(ctx context.Context, opts Options, sessionID in
 					return e
 				}
 				if e == nil && delivery.Completed {
+					continue
+				}
+				var stop GraphStopQuestion
+				if json.Unmarshal(intent.Candidate, &stop) == nil && stop.Version == 1 && stop.Origin != "" && stop.Cause != "" {
+					if _, e = opts.ResearchReporter.RecoverGraphStopQuestion(ctx, intent.Key); e != nil {
+						return e
+					}
 					continue
 				}
 				if _, e = opts.ResearchReporter.RecoverWorkflowComment(ctx, intent.Key, scope, policy); e != nil {
@@ -793,6 +827,12 @@ func RecoverWorkflowPublications(ctx context.Context, opts Options, sessionID in
 			return e
 		}
 		instance.ID = prior
+		if prior != 0 {
+			instance, e = opts.DB.GetGraphInstance(ctx, prior)
+			if e != nil {
+				return e
+			}
+		}
 	}
 	return nil
 }
@@ -940,6 +980,30 @@ func (w *researchWorkflow) settleReview(ctx context.Context, wait store.GraphOwn
 	source, err := w.opts.DB.GetGraphNodeAttempt(ctx, wait.SourceAttemptID)
 	if err != nil {
 		return false, err
+	}
+	review, exists := w.definition.Profile.Node(intent.Node)
+	if exists && review.Action == AskAction && review.Attrs["lf_approve_reply"] != "" {
+		if !strings.EqualFold(strings.TrimSpace(wait.ReplyBody), review.Attrs["lf_approve_reply"]) {
+			return false, nil
+		}
+		latest, e := latestResearchAgentAttempt(ctx, w.opts, w.definition.Profile, wait.InstanceID, review.Attrs["lf_source"])
+		if e != nil {
+			return false, e
+		}
+		if latest.ID != source.ID {
+			return false, errors.New("review source is no longer current")
+		}
+		target, ok := graphexec.Decide(w.definition.Profile, review.Name, "approved")
+		if !ok {
+			return false, errors.New("review lacks approval edge")
+		}
+		if err := w.opts.DB.SettleGraphReview(ctx, wait.InstanceID, wait.DeliveryKey, target, string(w.policy.Mode), review.Attrs["lf_approve_reply"], w.opts.MCP.Now()); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if w.policy.Mode != agent.ModeResearch || !strings.EqualFold(strings.TrimSpace(wait.ReplyBody), "done") {
+		return false, nil
 	}
 	for _, control := range w.definition.Profile.Nodes {
 		if control.Action != graphexec.ResearchIfAction || control.Attrs["lf_source"] != source.Node || control.Attrs["lf_condition"] != "approved" {

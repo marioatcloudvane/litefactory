@@ -158,6 +158,20 @@ func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 	}
 	var faults []error
 	for _, node := range p.Nodes {
+		if node.Action == DeliverAction {
+			if err := validateDeliveryNode(p, node); err != nil {
+				faults = append(faults, err)
+			}
+		}
+		if node.Attrs["lf_approve_reply"] != "" {
+			target, ok := Decide(p, node.Name, "approved")
+			ship, found := p.Node(target)
+			waiting, rests := Decide(p, node.Name, "published")
+			terminal, exists := p.Node(waiting)
+			if node.Action != "lf_ask" || node.Attrs["lf_kind"] != "review" || !ok || !found || ship.Action != DeliverAction || ship.Attrs["lf_phase"] != "ship" || !rests || !exists || !terminal.Terminal {
+				faults = append(faults, fmt.Errorf("review %q requires a shipping approval edge", node.Name))
+			}
+		}
 		if policy.Generation != "" && node.Action == policy.Generation {
 			source, ok := p.Node(node.Attrs["lf_source"])
 			if !ok || source.Action != "lf_agent" {
@@ -318,6 +332,12 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 			}
 		}
 		return nil
+	}
+	if node.Action == DeliverAction {
+		if response == policy.Ask {
+			return errors.New("unanswered questions cannot authorize delivery")
+		}
+		return validateDeliveryNode(p, node)
 	}
 	switch node.Action {
 	case "lf_agent":
