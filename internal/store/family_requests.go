@@ -30,8 +30,11 @@ type FamilyRequest struct {
 	Reference                                 FamilyReference
 }
 
+// validFamilyScope accepts a task of any ticket provider ("github:", "linear:")
+// whose container is exactly the scope repository.
 func validFamilyScope(s FamilyScope) bool {
-	return s.RunID > 0 && s.Attempt != "" && len(s.Attempt) <= 256 && s.Repository != "" && len(s.Repository) <= 512 && len(s.Task) <= 1024 && strings.HasPrefix(s.Task, "github:"+s.Repository+"#")
+	provider, rest, ok := strings.Cut(s.Task, ":")
+	return s.RunID > 0 && s.Attempt != "" && len(s.Attempt) <= 256 && s.Repository != "" && len(s.Repository) <= 512 && len(s.Task) <= 1024 && ok && provider != "" && strings.HasPrefix(rest, s.Repository+"#")
 }
 
 func familyScopeMatches(s FamilyScope, b ResultBinding) bool {

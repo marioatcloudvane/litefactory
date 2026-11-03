@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -66,5 +67,67 @@ func TestFamilyLedgerConcurrentReopenAndIsolation(t *testing.T) {
 	var count int
 	if err = reopened.sql.QueryRowContext(t.Context(), `SELECT count(*) FROM family_requests`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("ledger count %d: %v", count, err)
+	}
+}
+
+// #1366: the ledger scope accepts every ticket provider whose task belongs to
+// the scope repository, and still refuses missing providers, foreign
+// repositories and tasks without an issue separator, writing no row.
+func TestFamilyScopeAcceptsEveryProviderAndRefusesMalformedTasks(t *testing.T) {
+	db := newTestDB(t)
+	begin := func(t *testing.T, issue int, task, repository string) error {
+		t.Helper()
+		session := testSession(t, db, issue)
+		if _, err := db.sql.ExecContext(t.Context(), `UPDATE sessions SET task_ref=? WHERE id=?`, task, session.ID); err != nil {
+			t.Fatal(err)
+		}
+		session.TaskRef = task
+		b, err := db.BindResultAttempt(t.Context(), resultRun(t, db, session, "validate", fmt.Sprintf("scope-%d", issue), int64(issue)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := FamilyRequest{Scope: FamilyScope{Repository: repository, Task: b.Task, RunID: b.RunID, Attempt: b.Attempt}, RequestID: "scope", Tool: "standards_read", PayloadHash: strings.Repeat("c", 64)}
+		_, first, err := db.BeginFamilyRequest(t.Context(), b, q)
+		if err == nil && !first {
+			t.Fatal("a new request was not elected")
+		}
+		return err
+	}
+	rows := func(t *testing.T) int {
+		t.Helper()
+		var n int
+		if err := db.sql.QueryRowContext(t.Context(), `SELECT count(*) FROM family_requests`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	for i, c := range []struct{ task, repository string }{
+		{"linear:a/b#1", "a/b"},
+		{"github:o/r#1", "o/r"},
+		{"linear:b6e5f992-a8c2-4824-adee-fe247c92ba59/441971ef-e9fc-48d9-93b2-51cf19c3c675#4503599629192685", "b6e5f992-a8c2-4824-adee-fe247c92ba59/441971ef-e9fc-48d9-93b2-51cf19c3c675"},
+	} {
+		before := rows(t)
+		if err := begin(t, 900+i, c.task, c.repository); err != nil {
+			t.Fatalf("%s refused: %v", c.task, err)
+		}
+		if rows(t) != before+1 {
+			t.Fatalf("%s wrote no ledger row", c.task)
+		}
+	}
+	for i, c := range []struct{ task, repository string }{
+		{":o/r#1", "o/r"},
+		{"o/r#1", "o/r"},
+		{"linear:a/b#2", "a/c"},
+		{"github:o/r#2", "o/other"},
+		{"linear:a/b1", "a/b"},
+		{"linear:a/b", "a/b"},
+	} {
+		before := rows(t)
+		if err := begin(t, 950+i, c.task, c.repository); err == nil {
+			t.Fatalf("task %q with repository %q accepted", c.task, c.repository)
+		}
+		if rows(t) != before {
+			t.Fatalf("refused task %q wrote a ledger row", c.task)
+		}
 	}
 }
