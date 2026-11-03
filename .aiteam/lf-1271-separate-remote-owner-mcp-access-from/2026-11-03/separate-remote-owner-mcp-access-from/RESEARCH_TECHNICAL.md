@@ -112,3 +112,14 @@ Evidence:
 - `docs/factory-core.md:91`
 - `internal/connector/boundary_test.go:14`
 - `internal/factory/boundary_test.go:17`
+
+## F-10
+
+Shaping inspection confirms that connectorstorage currently combines Storage, Access and LocalGrants, and daemon preparation directly reconciles owner state before requiring local control; core target resolvers enforce retained ticket/code identity and parent-branch consistency, so the extraction must preserve those semantics and preparation ordering effects. Current HEAD f7b3d431082a78c979053bf37f788ba14e10484c adds the saved research on top of the tested bca2495749c3b7204246b185b44f9de446b31fa4 baseline; no new tests or code changes were made in shaping. No builder-check advisory was supplied. No additional team/skill surface was found in the inspected boundary files; historical rollback remains a future proof obligation, not an observed failure.
+
+Evidence:
+
+- `internal/connectorstorage/persistence.go:11`
+- `internal/daemon/remote_connector.go:28`
+- `internal/store/connector_code.go:18`
+- `internal/connector/services.go:14`
