@@ -76,7 +76,7 @@ comment shows the exact text to copy.
 | Syntax | What it causes | What it will not do |
 | --- | --- | --- |
 | `/approve-plan set <revision>` | Promotes the proposed story set (64-character revision) and creates the stories. | Does not accept a stale revision; a changed set needs a new review. |
-| `/approve-plan <story-key> <stage> <candidate>` | Approves one stage (`story`, `technical` or `acceptance`) of one story. Post it on the story's sub-issue or on the parent. | Does not approve a stage that was changed since the review. |
+| `/approve-plan <story-key> <stage> <candidate>` | Approves one stage (`story`, `technical` or `acceptance`) of one story. Post it on the story's sub-issue or on the parent. The command must be the whole first line; lines below it are guidance for the next stage. | Does not approve a stage that was changed since the review. |
 | `/approve-plan-set <ref>` | Approves the final assembled plan, once every story has all three stages approved. | Does not start Implement. |
 | `/plan-new-story` | Reserves one more story key. Exact text, nothing else in the comment. | Does not write the story; Plan does that next. |
 | `/approve-bug analysis <revision>` | On a Bug task, approves the posted analysis so the fix starts. | Does not work on a task that is not a Bug task. |
