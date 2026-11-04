@@ -16,6 +16,11 @@ import (
 // brainstormLaunchBatch bounds the items one owner-action pass inspects.
 const brainstormLaunchBatch = 16
 
+// brainstormStartWait bounds how long an admitted launch, or a Plan already
+// running on the issue, may go without its brief seed and first agent before
+// the item counts as created but not started.
+const brainstormStartWait = 15 * time.Minute
+
 // brainstormLaunchCommand is what a launch attempt hands to the normal locked
 // turn path. It is never posted on the forge.
 const brainstormLaunchCommand = "/plan Start Plan from the brainstorm brief."
@@ -75,6 +80,7 @@ func (d *Daemon) stepBrainstormLaunch(ctx context.Context, it store.BrainstormTa
 		if err != nil || !ok {
 			return err
 		}
+		next.UpdatedAt = now
 		it = next
 	}
 	attempts, err := d.db.BrainstormLaunchAttempts(ctx, it.ID)
@@ -103,10 +109,19 @@ func (d *Daemon) stepBrainstormLaunch(ctx context.Context, it store.BrainstormTa
 		}
 		if err == nil && latest.Status == store.GraphRunning {
 			// Plan is already running or waiting for the owner on this issue:
-			// one active Plan launch per session, so no attempt opens.
+			// one active Plan launch per session, so no attempt opens. Only
+			// this item's own admitted launch carries its brief seed, so that
+			// Plan does not count as started for it.
 			next := it
-			next.State = store.BrainstormItemPlanStarted
-			next.Reason = ""
+			if now.Sub(it.UpdatedAt) >= brainstormStartWait {
+				next.State = store.BrainstormItemPlanStartFailed
+				next.Reason = fmt.Sprintf("created as issue #%d but not started; another Plan is running on the issue without this brief", it.IssueNumber)
+			} else {
+				next.Reason = "created; another Plan is running on the issue without this brief"
+				if next.Reason == it.Reason {
+					return nil
+				}
+			}
 			_, err = d.db.SaveBrainstormTaskItem(ctx, next, it.State, now)
 			return err
 		}
@@ -266,7 +281,7 @@ func (d *Daemon) classifyBrainstormAttempt(ctx context.Context, it store.Brainst
 		if _, err = d.db.MoveBrainstormLaunchAttempt(ctx, a.ID, a.State, store.BrainstormLaunchSucceeded, outcome, run.ID, "", now); err != nil {
 			return "", err
 		}
-		a.State, a.Outcome, a.RunID = store.BrainstormLaunchSucceeded, outcome, run.ID
+		a.State, a.Outcome, a.RunID, a.UpdatedAt = store.BrainstormLaunchSucceeded, outcome, run.ID, now
 		current, err := d.db.ReadBrainstormTaskItem(ctx, it.ID)
 		if err != nil {
 			return "", err
@@ -300,8 +315,9 @@ func (d *Daemon) closeBrainstormAttemptFailed(ctx context.Context, itemID string
 
 // settleBrainstormStart marks the item started only once its brief seed is
 // complete (or an existing brief was kept) and the first Plan agent was
-// dispatched. A seed that failed after admission leaves the item created but
-// not started, with the reason, on the same issue and launch.
+// dispatched. A launch whose Plan ends first, or whose brief and first agent
+// are not ready within brainstormStartWait, leaves the item created but not
+// started, with the reason, on the same issue and launch.
 func (d *Daemon) settleBrainstormStart(ctx context.Context, it store.BrainstormTaskItem, a store.BrainstormLaunchAttempt, now time.Time) error {
 	if it.State != store.BrainstormItemPlanStarting {
 		return nil
@@ -323,13 +339,44 @@ func (d *Daemon) settleBrainstormStart(ctx context.Context, it store.BrainstormT
 		if !state.HasSeed {
 			reason = "created; Plan is admitted without a brief"
 		}
-		if next.Reason == reason {
+		ended, err := d.brainstormPlanEnded(ctx, state)
+		if err != nil {
+			return err
+		}
+		// The wait runs from admission or from the item's last change,
+		// whichever is later, so an owner retry gets a fresh wait on the same
+		// issue and launch. The item stays final afterwards; a retry re-checks.
+		since := a.UpdatedAt
+		if it.UpdatedAt.After(since) {
+			since = it.UpdatedAt
+		}
+		switch {
+		case ended:
+			next.State = store.BrainstormItemPlanStartFailed
+			reason = fmt.Sprintf("created as issue #%d but not started; Plan ended before its brief and first agent were ready", it.IssueNumber)
+		case now.Sub(since) >= brainstormStartWait:
+			next.State = store.BrainstormItemPlanStartFailed
+			reason = fmt.Sprintf("created as issue #%d but not started; its brief and first agent were not ready within %s", it.IssueNumber, brainstormStartWait)
+		case next.Reason == reason:
 			return nil
 		}
 		next.Reason = reason
 	}
 	_, err = d.db.SaveBrainstormTaskItem(ctx, next, it.State, now)
 	return err
+}
+
+// brainstormPlanEnded reports whether the admitted launch's Plan instance has
+// failed or finished.
+func (d *Daemon) brainstormPlanEnded(ctx context.Context, state store.BrainstormLaunchStatus) (bool, error) {
+	if !state.Admitted || state.InstanceID == 0 {
+		return false, nil
+	}
+	instance, err := d.db.GetGraphInstance(ctx, state.InstanceID)
+	if err != nil {
+		return false, err
+	}
+	return instance.Status != store.GraphRunning && instance.Status != store.GraphPending, nil
 }
 
 func (d *Daemon) failBrainstormStart(ctx context.Context, it store.BrainstormTaskItem, failed int, now time.Time) error {

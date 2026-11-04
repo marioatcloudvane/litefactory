@@ -20,6 +20,8 @@ type launchFixture struct {
 	session store.Session
 	item    store.BrainstormTaskItem
 	at      time.Time
+	// now is the launch step's wall clock.
+	now time.Time
 }
 
 func newLaunchFixture(t *testing.T) *launchFixture {
@@ -62,7 +64,9 @@ func newLaunchFixture(t *testing.T) *launchFixture {
 		t.Fatal(err)
 	}
 	d := &Daemon{db: db, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	return &launchFixture{d: d, db: db, session: session, item: item, at: at}
+	f := &launchFixture{d: d, db: db, session: session, item: item, at: at, now: at}
+	d.brainstormTasks.clock = func() time.Time { return f.now }
+	return f
 }
 
 func (f *launchFixture) reserved(t *testing.T) store.BrainstormLaunchAttempt {
@@ -259,7 +263,64 @@ func TestBrainstormLaunchRestartClassifiesFromRunRow(t *testing.T) {
 	}
 }
 
-func TestBrainstormLaunchRunningPlanMeansStarted(t *testing.T) {
+func TestBrainstormLaunchAdmittedWithoutBriefEndsNotStartedAfterWait(t *testing.T) {
+	t.Parallel()
+	f := newLaunchFixture(t)
+	a := f.reserved(t)
+	f.admit(t, a.TriggerID())
+	f.run(t, a.TriggerID(), store.RunFailed)
+	if _, err := f.d.classifyBrainstormAttempt(t.Context(), f.item, a, nil, f.at); err != nil {
+		t.Fatal(err)
+	}
+	f.now = f.at.Add(brainstormStartWait - time.Minute)
+	item, _ := f.db.ReadBrainstormTaskItem(t.Context(), f.item.ID)
+	if err := f.d.stepBrainstormLaunch(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	if item, _ = f.db.ReadBrainstormTaskItem(t.Context(), f.item.ID); item.State != store.BrainstormItemPlanStarting {
+		t.Fatalf("wait ended early: %+v", item)
+	}
+	f.now = f.at.Add(brainstormStartWait)
+	if err := f.d.stepBrainstormLaunch(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	item, _ = f.db.ReadBrainstormTaskItem(t.Context(), f.item.ID)
+	if item.State != store.BrainstormItemPlanStartFailed || item.IssueNumber != 10 || item.FailedLaunchAttempts != 0 {
+		t.Fatalf("after the wait: %+v", item)
+	}
+	attempts, _ := f.db.BrainstormLaunchAttempts(t.Context(), f.item.ID)
+	if len(attempts) != 1 || attempts[0].ID != a.ID || attempts[0].State != store.BrainstormLaunchSucceeded {
+		t.Fatalf("the wait changed the launch: %+v", attempts)
+	}
+}
+
+func TestBrainstormLaunchPlanFailedAfterAdmissionEndsNotStarted(t *testing.T) {
+	t.Parallel()
+	f := newLaunchFixture(t)
+	a := f.reserved(t)
+	admitted, _ := f.admit(t, a.TriggerID())
+	f.run(t, a.TriggerID(), store.RunFailed)
+	if _, err := f.d.classifyBrainstormAttempt(t.Context(), f.item, a, nil, f.at); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.SetGraphInstanceStatus(t.Context(), admitted.Instance.ID, store.GraphFailed, time.Time{}, f.at); err != nil {
+		t.Fatal(err)
+	}
+	item, _ := f.db.ReadBrainstormTaskItem(t.Context(), f.item.ID)
+	if err := f.d.stepBrainstormLaunch(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	item, _ = f.db.ReadBrainstormTaskItem(t.Context(), f.item.ID)
+	if item.State != store.BrainstormItemPlanStartFailed || item.FailedLaunchAttempts != 0 {
+		t.Fatalf("failed Plan kept the item waiting: %+v", item)
+	}
+	attempts, _ := f.db.BrainstormLaunchAttempts(t.Context(), f.item.ID)
+	if len(attempts) != 1 || attempts[0].ID != a.ID {
+		t.Fatalf("failed Plan opened a new launch: %+v", attempts)
+	}
+}
+
+func TestBrainstormLaunchRunningPlanWithoutSeedIsNotStarted(t *testing.T) {
 	t.Parallel()
 	f := newLaunchFixture(t)
 	plan, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "plan", ProfileVersion: 1, Path: "plan/plan.dot", Digest: strings.Repeat("c", 64), CreatedAt: f.at})
@@ -274,7 +335,16 @@ func TestBrainstormLaunchRunningPlanMeansStarted(t *testing.T) {
 	}
 	item, _ := f.db.ReadBrainstormTaskItem(t.Context(), f.item.ID)
 	attempts, _ := f.db.BrainstormLaunchAttempts(t.Context(), f.item.ID)
-	if item.State != store.BrainstormItemPlanStarted || len(attempts) != 0 {
-		t.Fatalf("active Plan got a second launch: %+v %+v", item, attempts)
+	if item.State != store.BrainstormItemPlanStarting || len(attempts) != 0 {
+		t.Fatalf("running Plan without the brief: %+v %+v", item, attempts)
+	}
+	f.now = f.at.Add(brainstormStartWait)
+	if err = f.d.stepBrainstormLaunch(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	item, _ = f.db.ReadBrainstormTaskItem(t.Context(), f.item.ID)
+	attempts, _ = f.db.BrainstormLaunchAttempts(t.Context(), f.item.ID)
+	if item.State != store.BrainstormItemPlanStartFailed || len(attempts) != 0 {
+		t.Fatalf("after the wait: %+v %+v", item, attempts)
 	}
 }
