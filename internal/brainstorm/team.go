@@ -22,6 +22,7 @@ const (
 	researchRole     = "research"
 	evidenceSkill    = "research-evidence"
 	brainstormSkill  = "brainstorm"
+	draftsSkill      = "brainstorm-drafts"
 )
 
 // InstalledTeam captures the research role and scan skills from a repository's
@@ -84,7 +85,13 @@ func captureTeam(read func(string) ([]byte, error)) (TeamCapture, error) {
 	if err != nil {
 		return out, err
 	}
-	_, files, err := skillclosure.Load([]string{evidenceSkill, brainstormSkill}, read)
+	skills := []string{evidenceSkill, brainstormSkill}
+	if _, err := read("skills/" + draftsSkill + "/SKILL.md"); err == nil {
+		skills = append(skills, draftsSkill)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return out, err
+	}
+	_, files, err := skillclosure.Load(skills, read)
 	if err != nil {
 		return out, err
 	}

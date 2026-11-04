@@ -48,7 +48,7 @@ func (s *Service) runRequest(ctx context.Context, sc store.BrainstormScanRun) (R
 	if err != nil {
 		return RunRequest{}, p, err
 	}
-	return RunRequest{ScanID: sc.ID, JobID: sc.JobID, ExecutionID: sc.ExecutionID, BrainstormID: sc.BrainstormID, RepositoryRef: sc.RepositoryRef, Question: sc.Question, Team: team, Digest: digest, ContextFiles: files}, p, nil
+	return RunRequest{ScanID: sc.ID, JobID: sc.JobID, ExecutionID: sc.ExecutionID, BrainstormID: sc.BrainstormID, RepositoryRef: sc.RepositoryRef, Question: sc.Question, Purpose: sc.Purpose, Team: team, Digest: digest, ContextFiles: files}, p, nil
 }
 
 // stopReason reports why a running scan must stop, or "" while it may continue.
@@ -131,7 +131,7 @@ func (s *Service) ExecuteClaim(ctx context.Context, a store.WorkflowAttempt, j s
 				return s.finish(ctx, a, store.BrainstormScanFinish{State: "failed", FailureReason: reasonFailed}, false)
 			}
 			// A returned success wins a stop race.
-			return s.finishResult(ctx, a, c.result, false)
+			return s.finishResult(ctx, a, sc, c.result, false)
 		case <-ticker.C:
 			reason, e := s.stopReason(ctx, p, sc)
 			if e != nil {
@@ -154,7 +154,7 @@ func (s *Service) ExecuteClaim(ctx context.Context, a store.WorkflowAttempt, j s
 			select {
 			case c := <-done:
 				if c.err == nil {
-					return s.finishResult(ctx, a, c.result, false)
+					return s.finishResult(ctx, a, sc, c.result, false)
 				}
 				if stop != "" {
 					return s.finish(ctx, a, store.BrainstormScanFinish{State: "cancelled", FailureReason: stop}, false)
@@ -168,7 +168,7 @@ func (s *Service) ExecuteClaim(ctx context.Context, a store.WorkflowAttempt, j s
 }
 
 // finishResult revalidates and protects a returned result before keeping it.
-func (s *Service) finishResult(ctx context.Context, a store.WorkflowAttempt, r RunResult, recovery bool) error {
+func (s *Service) finishResult(ctx context.Context, a store.WorkflowAttempt, sc store.BrainstormScanRun, r RunResult, recovery bool) error {
 	raw, err := json.Marshal(r)
 	if err != nil {
 		return err
@@ -176,7 +176,8 @@ func (s *Service) finishResult(ctx context.Context, a store.WorkflowAttempt, r R
 	if len(raw) > MaxResultBytes {
 		return s.finish(ctx, a, store.BrainstormScanFinish{State: "failed", FailureReason: reasonOversized}, recovery)
 	}
-	if len(AnswerDiagnostics(r.Answer)) != 0 || !json.Valid(r.Research) {
+	drafts := sc.Purpose == PurposeDrafts
+	if len(AnswerDiagnostics(r.Answer)) != 0 || (!drafts && !json.Valid(r.Research)) || (drafts && len(r.Drafts) == 0) {
 		return s.finish(ctx, a, store.BrainstormScanFinish{State: "failed", FailureReason: reasonFailed}, recovery)
 	}
 	f := store.BrainstormScanFinish{State: "succeeded", BasisCommit: r.Commit, Cost: r.Cost}
@@ -191,7 +192,12 @@ func (s *Service) finishResult(ctx context.Context, a store.WorkflowAttempt, r R
 	if f.Answer, err = protect(r.Answer); err == nil {
 		f.Research, err = protect(string(r.Research))
 	}
-	if err == nil && !json.Valid([]byte(f.Research)) {
+	if drafts && err == nil {
+		if f.Drafts, err = draftSetInput(r, protect); err == nil {
+			f.Drafts.Summary = f.Answer
+		}
+	}
+	if err == nil && !drafts && !json.Valid([]byte(f.Research)) {
 		err = errors.New("protected research is not JSON")
 	}
 	for _, q := range r.Questions {
@@ -212,7 +218,14 @@ func (s *Service) finishResult(ctx context.Context, a store.WorkflowAttempt, r R
 	if f.Cost == "" {
 		f.Cost = CostUnknown
 	}
-	return s.finish(ctx, a, f, recovery)
+	if err = s.finish(ctx, a, f, recovery); err != nil || !drafts {
+		return err
+	}
+	// The duplicate search is advice only: its failure never undoes the set.
+	search, cancelSearch := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	defer cancelSearch()
+	_ = s.searchDuplicates(search, sc.ID, sc.RepositoryRef)
+	return nil
 }
 
 func (s *Service) finish(ctx context.Context, a store.WorkflowAttempt, f store.BrainstormScanFinish, recovery bool) error {
@@ -248,5 +261,5 @@ func (s *Service) RecoverClaim(ctx context.Context, a store.WorkflowAttempt) err
 	if !found {
 		return s.finish(ctx, a, store.BrainstormScanFinish{State: "uncertain", FailureReason: reasonNoReceipt}, true)
 	}
-	return s.finishResult(ctx, a, result, true)
+	return s.finishResult(ctx, a, sc, result, true)
 }

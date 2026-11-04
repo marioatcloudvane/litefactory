@@ -81,7 +81,7 @@ func legacyRecordActor(ctx context.Context, tx *sql.Tx, kind, key string) (int64
 			if run > 0 {
 				return legacyRunActor(ctx, tx, run, 0)
 			}
-			if trigger > 0 && trigger < chatTriggerBase {
+			if trigger > 0 && trigger < chatTriggerBase && !IsBrainstormLaunchTrigger(trigger) {
 				return legacySourceActor(ctx, tx, session, trigger)
 			}
 			return 0, nil
@@ -136,7 +136,7 @@ func legacyRecordActor(ctx context.Context, tx *sql.Tx, kind, key string) (int64
 	return actor, err
 }
 func legacySourceActor(ctx context.Context, tx *sql.Tx, session, source int64) (int64, error) {
-	if session <= 0 || source <= 0 || source >= chatTriggerBase {
+	if session <= 0 || source <= 0 || source >= chatTriggerBase || IsBrainstormLaunchTrigger(source) {
 		return 0, nil
 	}
 	var actor int64

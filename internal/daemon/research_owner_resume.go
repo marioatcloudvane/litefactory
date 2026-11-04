@@ -135,7 +135,7 @@ func AdmitBugOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID i
 // mode resolves to, so a Validate stopped under an Implement-labelled parent
 // resumes too. Stopped work that cannot resume is answered with the reason.
 func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (handled bool, err error) {
-	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.ticketIdentities(ctx).OwnerUserID || store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) {
+	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.ticketIdentities(ctx).OwnerUserID || store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) || store.IsBrainstormLaunchTrigger(trigger.CommentID) {
 		return false, nil
 	}
 	if consumed, e := d.consumed(ctx, t.session.ID, trigger.CommentID); e != nil || consumed {

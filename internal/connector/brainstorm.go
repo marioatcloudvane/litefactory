@@ -32,9 +32,13 @@ type Brainstorms interface {
 	ScanGet(context.Context, owneraction.Principal, string, string, int) (brainstorm.ScanView, error)
 	ScanCancel(context.Context, owneraction.Principal, string) (brainstorm.ScanView, error)
 	SearchIssues(context.Context, owneraction.Principal, string, string, int) (brainstorm.IssueSearchView, error)
+	Draft(context.Context, owneraction.Principal, brainstorm.DraftRequest) (brainstorm.ScanView, error)
+	DraftsGet(context.Context, owneraction.Principal, string) (brainstorm.DraftSetView, error)
+	TaskBatchRepository(context.Context, owneraction.Principal, string) (string, error)
+	TasksGet(context.Context, owneraction.Principal, string) (brainstorm.TasksView, error)
 }
 
-var brainstormToolNames = []string{"brainstorm_open", "brainstorm_get", "brainstorm_entries", "brainstorm_scans", "brainstorm_list", "brainstorm_add", "brainstorm_close", "brainstorm_ask", "brainstorm_scan_get", "brainstorm_scan_cancel", "issue_search"}
+var brainstormToolNames = []string{"brainstorm_open", "brainstorm_get", "brainstorm_entries", "brainstorm_scans", "brainstorm_list", "brainstorm_add", "brainstorm_close", "brainstorm_ask", "brainstorm_scan_get", "brainstorm_scan_cancel", "issue_search", "brainstorm_draft", "brainstorm_drafts_get", "brainstorm_tasks_get"}
 
 func isBrainstormTool(name string) bool { return slices.Contains(brainstormToolNames, name) }
 
@@ -53,6 +57,8 @@ type brainstormArguments struct {
 	DocumentName     string `json:"document_name,omitempty"`
 	IssueReference   string `json:"issue_reference,omitempty"`
 	Question         string `json:"question,omitempty"`
+	Note             string `json:"note,omitempty"`
+	Batch            string `json:"batch,omitempty"`
 	RequestKey       string `json:"request_key,omitempty"`
 	ExpectedRevision int64  `json:"expected_revision,omitempty"`
 	Cursor           string `json:"cursor,omitempty"`
@@ -83,6 +89,12 @@ func brainstormFields(name string) (allowed, required []string) {
 		return []string{"scan"}, []string{"scan"}
 	case "issue_search":
 		return []string{"repository", "text", "limit"}, []string{"repository", "text"}
+	case "brainstorm_draft":
+		return []string{"brainstorm", "request_key", "note"}, []string{"brainstorm", "request_key"}
+	case "brainstorm_drafts_get":
+		return []string{"brainstorm"}, []string{"brainstorm"}
+	case "brainstorm_tasks_get":
+		return []string{"batch"}, []string{"batch"}
 	}
 	return nil, nil
 }
@@ -97,8 +109,10 @@ func brainstormStringMax(field string) int {
 		return brainstorm.MaxDocumentBytes
 	case "document_name", "issue_reference":
 		return 512
-	case "question":
+	case "question", "note":
 		return brainstorm.MaxQuestionBytes
+	case "batch":
+		return 256
 	case "cursor":
 		return brainstorm.MaxCursorBytes
 	default:
@@ -140,7 +154,7 @@ func parseBrainstormArguments(name string, raw json.RawMessage) (brainstormArgum
 		}
 	}
 	for _, f := range []struct{ name, value string }{
-		{"repository", a.Repository}, {"brainstorm", a.Brainstorm}, {"scan", a.Scan}, {"kind", a.Kind}, {"text", a.Text}, {"document_name", a.DocumentName}, {"issue_reference", a.IssueReference}, {"question", a.Question}, {"request_key", a.RequestKey}, {"cursor", a.Cursor},
+		{"repository", a.Repository}, {"brainstorm", a.Brainstorm}, {"scan", a.Scan}, {"kind", a.Kind}, {"text", a.Text}, {"document_name", a.DocumentName}, {"issue_reference", a.IssueReference}, {"question", a.Question}, {"request_key", a.RequestKey}, {"cursor", a.Cursor}, {"note", a.Note}, {"batch", a.Batch},
 	} {
 		if _, present := fields[f.name]; present && (strings.TrimSpace(f.value) == "" || len(f.value) > brainstormStringMax(f.name)) {
 			return a, invalid
@@ -236,6 +250,12 @@ func brainstormDescription(name string) string {
 		return "Read one question's state, spoken answer, cost and paged evidence. Reading never starts another run. Requires repository:brainstorm consent."
 	case "brainstorm_scan_cancel":
 		return "Cancel a waiting question or ask a running one to stop. A finished answer may still win. Requires repository:brainstorm consent."
+	case "brainstorm_draft":
+		return "Ask the Shaping agent to turn this brainstorm into one to five issue drafts. Starts one paid read-only agent run and returns the scan and its state; read the drafts with brainstorm_drafts_get when it is answered. A retry with the same request key returns the same scan. Requires repository:brainstorm consent."
+	case "brainstorm_drafts_get":
+		return "Read the latest draft set of a brainstorm: its spoken summary and each draft's title, size, impact, related issues, possible duplicates and ledger. Requires repository:brainstorm consent."
+	case "brainstorm_tasks_get":
+		return "Read one batch of issues created from brainstorm drafts: per draft its state, issue number and plain next step. Requires repository:actions and repository:brainstorm consent for the repository."
 	default:
 		return "Search open and closed issues of the repository's project through its GitHub or Linear ticket connection. A match is a warning to check, never proof of a duplicate. Requires repository:brainstorm consent for the repository."
 	}
@@ -243,7 +263,7 @@ func brainstormDescription(name string) string {
 
 func brainstormReadOnly(name string) bool {
 	switch name {
-	case "brainstorm_get", "brainstorm_entries", "brainstorm_scans", "brainstorm_list", "brainstorm_scan_get", "issue_search":
+	case "brainstorm_get", "brainstorm_entries", "brainstorm_scans", "brainstorm_list", "brainstorm_scan_get", "issue_search", "brainstorm_drafts_get", "brainstorm_tasks_get":
 		return true
 	}
 	return false
@@ -251,6 +271,14 @@ func brainstormReadOnly(name string) bool {
 
 func brainstormGrant(g connectorstate.ConnectorGrant) bool {
 	return connectorstate.ConnectorScopeHas(g.Scope, BrainstormScope)
+}
+
+// brainstormToolAllowed also requires repository:actions for brainstorm_tasks_get.
+func brainstormToolAllowed(g connectorstate.ConnectorGrant, name string) bool {
+	if !brainstormGrant(g) {
+		return false
+	}
+	return name != "brainstorm_tasks_get" || connectorstate.ConnectorScopeHas(g.Scope, RepositoryActionsScope)
 }
 
 func (s *Server) brainstormRepositoryCovered(ctx context.Context, grant connectorstate.ConnectorGrant, ref string) error {
@@ -276,6 +304,9 @@ func brainstormRepository(ctx context.Context, service Brainstorms, p owneractio
 	if a.Repository != "" {
 		return a.Repository, nil
 	}
+	if a.Batch != "" {
+		return service.TaskBatchRepository(ctx, p, a.Batch)
+	}
 	id := a.Brainstorm
 	if id == "" {
 		scan, err := service.ScanGet(ctx, p, a.Scan, "", 1)
@@ -297,7 +328,7 @@ func (s *Server) callBrainstorm(ctx context.Context, credential, name string, a 
 		return ToolResult{}, connectorstate.ErrConnectorInvalid
 	}
 	service := s.brainstorms.Load()
-	if service == nil || !brainstormGrant(grant) {
+	if service == nil || !brainstormToolAllowed(grant, name) {
 		return ToolResult{}, connectorstate.ErrConnectorScope
 	}
 	p := owneraction.Principal{OwnerID: strconv.FormatInt(grant.OwnerID, 10), OwnerGeneration: grant.OwnerGeneration, Transport: "mcp", ClientID: grant.ClientID, GrantID: grant.ID}
@@ -366,6 +397,21 @@ func (s *Server) callBrainstorm(ctx context.Context, credential, name string, a 
 		if summary == "" {
 			summary = fmt.Sprintf("%d matching issues found.", len(v.Matches))
 		}
+	case "brainstorm_draft":
+		var v brainstorm.ScanView
+		v, err = service.Draft(ctx, p, brainstorm.DraftRequest{BrainstormID: a.Brainstorm, RequestKey: a.RequestKey, Note: a.Note})
+		value, summary = v, brainstormScanSummary(v)
+	case "brainstorm_drafts_get":
+		var v brainstorm.DraftSetView
+		v, err = service.DraftsGet(ctx, p, a.Brainstorm)
+		value, summary = v, v.Summary
+		if summary == "" {
+			summary = fmt.Sprintf("%d drafts.", len(v.Drafts))
+		}
+	case "brainstorm_tasks_get":
+		var v brainstorm.TasksView
+		v, err = service.TasksGet(ctx, p, a.Batch)
+		value, summary = v, brainstormTasksSummary(v)
 	default:
 		return ToolResult{}, errors.New("unknown brainstorm tool")
 	}
@@ -415,9 +461,22 @@ func brainstormScanSummary(v brainstorm.ScanView) string {
 	return summary
 }
 
+func brainstormTasksSummary(v brainstorm.TasksView) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Batch is %s.", v.State)
+	for _, it := range v.Items {
+		fmt.Fprintf(&b, " %s: %s", it.Title, strings.ReplaceAll(it.State, "_", " "))
+		if it.IssueNumber > 0 {
+			fmt.Fprintf(&b, ", issue %d", it.IssueNumber)
+		}
+		fmt.Fprintf(&b, "; next: %s.", it.NextStep)
+	}
+	return b.String()
+}
+
 func brainstormFailure(err error) ToolResult {
 	summary := "Brainstorm is unavailable."
-	for _, known := range []error{brainstorm.ErrNotFound, brainstorm.ErrClosed, brainstorm.ErrStaleRevision, brainstorm.ErrRequestReuse, brainstorm.ErrSkillMissing, brainstorm.ErrNoTracker, brainstorm.ErrQueueFull, brainstorm.ErrCapReached, brainstorm.ErrInvalid, brainstorm.ErrCursor, brainstorm.ErrForbidden} {
+	for _, known := range []error{brainstorm.ErrNotFound, brainstorm.ErrClosed, brainstorm.ErrStaleRevision, brainstorm.ErrRequestReuse, brainstorm.ErrSkillMissing, brainstorm.ErrNoTracker, brainstorm.ErrQueueFull, brainstorm.ErrCapReached, brainstorm.ErrInvalid, brainstorm.ErrCursor, brainstorm.ErrForbidden, brainstorm.ErrDraftsSkillMissing, brainstorm.ErrNoDrafts, brainstorm.ErrDraftsChanged} {
 		if errors.Is(err, known) {
 			summary = known.Error() + "."
 			return ToolResult{Content: []TextContent{{Type: "text", Text: summary}}, IsError: true}

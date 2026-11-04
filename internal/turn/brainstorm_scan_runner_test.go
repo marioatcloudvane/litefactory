@@ -30,7 +30,7 @@ func brainstormTestTeam() brainstorm.TeamCapture {
 }
 
 func TestBrainstormScanInstructionsUseCapturedRoleAndSkills(t *testing.T) {
-	prompt, err := brainstormScanInstructions(brainstormTestTeam())
+	prompt, err := brainstormScanInstructions(brainstormTestTeam(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestBrainstormScanInstructionsUseCapturedRoleAndSkills(t *testing.T) {
 	}
 	broken := brainstormTestTeam()
 	delete(broken.Files, "skills/brainstorm/SKILL.md")
-	if _, err = brainstormScanInstructions(broken); err == nil {
+	if _, err = brainstormScanInstructions(broken, ""); err == nil {
 		t.Fatal("missing brainstorm skill accepted")
 	}
 }

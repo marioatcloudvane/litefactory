@@ -25,6 +25,8 @@ func (d *Daemon) configureOwnerActions(s *messaging.Service, discordOwner string
 		bindWorkflowNoticeAuthorizer(s, adapter, workflows)
 	}
 	runtime.notices.Store(s)
+	allowed := append([]string(nil), channels...)
+	d.brainstormTasks.channels.Store(&allowed)
 	if d.chat != nil {
 		d.chat.actions = actions
 	}
@@ -61,6 +63,7 @@ func (d *Daemon) startOwnerActions(ctx context.Context, wg *sync.WaitGroup) {
 	if d.ownerActions != nil {
 		d.ownerActions.start(ctx, wg, d.log)
 	}
+	d.startBrainstormTasks(ctx, wg)
 }
 
 func (d *Daemon) ownerReaction(ctx context.Context, r discord.OwnerReaction) {

@@ -35,7 +35,7 @@ var workflows = []string{"bug", "implement", "plan", "research", "spike", "valid
 // outOfGraphSkills lists, per workflow, the skills a release carries although
 // no graph node binds them. Their full skill closure is released; any other
 // file outside the captured role closure is still refused.
-var outOfGraphSkills = map[string][]string{"research": {"brainstorm"}}
+var outOfGraphSkills = map[string][]string{"research": {"brainstorm", "brainstorm-drafts"}}
 
 // Generate validates a complete candidate before replacing any generated output.
 // Check mode reports every drifted path and never writes source or release files.

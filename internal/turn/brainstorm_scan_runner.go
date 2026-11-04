@@ -60,13 +60,13 @@ func (r *BrainstormScanRunner) Run(ctx context.Context, in brainstorm.RunRequest
 	if err != nil {
 		return result, err
 	}
-	results := &brainstormScanResults{db: r.DB, binding: b}
+	results := &brainstormScanResults{db: r.DB, binding: b, purpose: scan.Purpose}
 	if saved, e := results.accepted(ctx, scan.BasisCommit); e == nil {
 		return saved, nil
 	} else if !errors.Is(e, store.ErrNotFound) {
 		return result, e
 	}
-	prompt, err := brainstormScanInstructions(in.Team)
+	prompt, err := brainstormScanInstructions(in.Team, scan.Purpose)
 	if err != nil {
 		return result, err
 	}
@@ -177,7 +177,7 @@ func (r *BrainstormScanRunner) Recover(ctx context.Context, in brainstorm.RunReq
 	if err != nil {
 		return zero, false, err
 	}
-	saved, err := (&brainstormScanResults{db: r.DB, binding: b}).accepted(ctx, scan.BasisCommit)
+	saved, err := (&brainstormScanResults{db: r.DB, binding: b, purpose: scan.Purpose}).accepted(ctx, scan.BasisCommit)
 	if errors.Is(err, store.ErrNotFound) {
 		return zero, false, nil
 	}
@@ -190,7 +190,7 @@ func (r *BrainstormScanRunner) checkRequest(ctx context.Context, in brainstorm.R
 	if err != nil {
 		return scan, err
 	}
-	if scan.ID != in.ScanID || scan.JobID != in.JobID || scan.BrainstormID != in.BrainstormID || scan.RepositoryRef != in.RepositoryRef || scan.Question != in.Question {
+	if scan.ID != in.ScanID || scan.JobID != in.JobID || scan.BrainstormID != in.BrainstormID || scan.RepositoryRef != in.RepositoryRef || scan.Question != in.Question || scan.Purpose != in.Purpose {
 		return scan, store.ErrResultAuthority
 	}
 	var team brainstorm.TeamCapture
@@ -210,7 +210,7 @@ func (r *BrainstormScanRunner) checkRequest(ctx context.Context, in brainstorm.R
 
 // brainstormScanInstructions is the captured research role body followed by
 // the two captured skills and their resources, all from the admission capture.
-func brainstormScanInstructions(team brainstorm.TeamCapture) (string, error) {
+func brainstormScanInstructions(team brainstorm.TeamCapture, purpose string) (string, error) {
 	role := team.Role
 	if strings.HasPrefix(role, "---\n") {
 		if end := strings.Index(role[4:], "\n---\n"); end >= 0 {
@@ -222,7 +222,11 @@ func brainstormScanInstructions(team brainstorm.TeamCapture) (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString(strings.TrimRight(role, "\n"))
-	for _, skill := range []string{"research-evidence", "brainstorm"} {
+	skills := []string{"research-evidence", "brainstorm"}
+	if purpose == brainstorm.PurposeDrafts {
+		skills = append(skills, "brainstorm-drafts")
+	}
+	for _, skill := range skills {
 		root := "skills/" + skill + "/SKILL.md"
 		_, body, err := skillclosure.Parse([]byte(team.Files[root]), skill)
 		if err != nil {
@@ -233,6 +237,9 @@ func brainstormScanInstructions(team brainstorm.TeamCapture) (string, error) {
 		prefix := "skills/" + skill + "/"
 		var names []string
 		for name := range team.Files {
+			if purpose != brainstorm.PurposeDrafts && strings.HasPrefix(name, "skills/brainstorm-drafts/") {
+				continue
+			}
 			if strings.HasPrefix(name, prefix) && name != root {
 				names = append(names, name)
 			}
@@ -347,6 +354,16 @@ func (w *brainstormScanWorkspace) close(ctx context.Context) error {
 type brainstormScanResults struct {
 	db      *store.DB
 	binding store.BrainstormScanResultBinding
+	purpose string
+}
+
+// validate checks a result with the validator of the scan's purpose: a
+// drafts scan accepts only payload.brainstorm_drafts, a question scan only research.
+func (s *brainstormScanResults) validate(data []byte) (brainstorm.RunResult, agentresult.Diagnostics) {
+	if s.purpose == brainstorm.PurposeDrafts {
+		return brainstorm.ValidateDraftsResult(data)
+	}
+	return brainstorm.ValidateScanResult(data)
 }
 
 func (s *brainstormScanResults) accepted(ctx context.Context, commit string) (brainstorm.RunResult, error) {
@@ -354,7 +371,7 @@ func (s *brainstormScanResults) accepted(ctx context.Context, commit string) (br
 	if err != nil {
 		return brainstorm.RunResult{}, err
 	}
-	result, d := brainstorm.ValidateScanResult(raw)
+	result, d := s.validate(raw)
 	if !d.Valid {
 		return brainstorm.RunResult{}, errors.New("retained brainstorm scan result is invalid")
 	}
@@ -384,10 +401,10 @@ func (s *brainstormScanResults) handle(ctx context.Context, q submission.Request
 		if err := s.db.CheckBrainstormScanResultWriter(ctx, s.binding); err != nil {
 			return nil, err
 		}
-		_, d := brainstorm.ValidateScanResult(data)
+		_, d := s.validate(data)
 		return json.Marshal(d)
 	case "communication_submit", "submit":
-		if _, d := brainstorm.ValidateScanResult(data); !d.Valid {
+		if _, d := s.validate(data); !d.Valid {
 			return nil, errors.New("brainstorm scan result is invalid; correct it with communication_preflight")
 		}
 		replay, err := s.db.SubmitBrainstormScanResult(ctx, s.binding, q.RequestID, data)

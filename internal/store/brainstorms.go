@@ -74,11 +74,13 @@ type BrainstormScan struct {
 	ExchangeSeq                                                   int64
 	CreatedAt, FinishedAt                                         time.Time
 	JobState, JobSummary                                          string
+	// Purpose is "" (question) or "drafts".
+	Purpose string
 }
 
 const brainstormColumns = `id,owner_id,owner_generation,repository_ref,state,close_reason,revision,next_seq,next_scan_seq,grant_id,created_at,last_activity_at,closed_at`
 const brainstormEntryColumns = `id,brainstorm_id,seq,kind,text,document_name,issue_reference,scan_id,request_key,digest,created_at`
-const brainstormScanColumns = `s.id,s.brainstorm_id,s.scan_seq,s.owner_id,s.owner_generation,s.repository_ref,s.request_key,s.digest,s.question,s.team_version,s.team_files,s.basis_commit,s.grant_id,s.consent_revision,s.job_id,s.execution_id,s.answer,s.research,s.questions,s.usage,s.cost,s.failure_reason,s.exchange_seq,s.created_at,s.finished_at,COALESCE(j.state,''),COALESCE(j.summary,'')`
+const brainstormScanColumns = `s.id,s.brainstorm_id,s.scan_seq,s.owner_id,s.owner_generation,s.repository_ref,s.request_key,s.digest,s.question,s.team_version,s.team_files,s.basis_commit,s.grant_id,s.consent_revision,s.job_id,s.execution_id,s.answer,s.research,s.questions,s.usage,s.cost,s.failure_reason,s.exchange_seq,s.created_at,s.finished_at,COALESCE(j.state,''),COALESCE(j.summary,''),COALESCE(s.purpose,'')`
 const brainstormScanFrom = ` FROM brainstorm_scans s LEFT JOIN durable_workflow_jobs j ON j.id=s.job_id`
 
 func parseBrainstormTime(raw string, out *time.Time) error {
@@ -126,7 +128,7 @@ func scanBrainstormEntry(row scanner) (BrainstormEntry, error) {
 func scanBrainstormScan(row scanner) (BrainstormScan, error) {
 	var s BrainstormScan
 	var created, finished string
-	err := row.Scan(&s.ID, &s.BrainstormID, &s.ScanSeq, &s.OwnerID, &s.OwnerGeneration, &s.RepositoryRef, &s.RequestKey, &s.Digest, &s.Question, &s.TeamVersion, &s.TeamFiles, &s.BasisCommit, &s.GrantID, &s.ConsentRevision, &s.JobID, &s.ExecutionID, &s.Answer, &s.Research, &s.Questions, &s.Usage, &s.Cost, &s.FailureReason, &s.ExchangeSeq, &created, &finished, &s.JobState, &s.JobSummary)
+	err := row.Scan(&s.ID, &s.BrainstormID, &s.ScanSeq, &s.OwnerID, &s.OwnerGeneration, &s.RepositoryRef, &s.RequestKey, &s.Digest, &s.Question, &s.TeamVersion, &s.TeamFiles, &s.BasisCommit, &s.GrantID, &s.ConsentRevision, &s.JobID, &s.ExecutionID, &s.Answer, &s.Research, &s.Questions, &s.Usage, &s.Cost, &s.FailureReason, &s.ExchangeSeq, &created, &finished, &s.JobState, &s.JobSummary, &s.Purpose)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, ErrNotFound
 	}
@@ -458,7 +460,7 @@ func (db *DB) BrainstormScanByRequest(ctx context.Context, o BrainstormOwner, br
 // kind brainstorm_scan and the queued attempt in one transaction. A known
 // request key with the same digest returns the first scan and replayed.
 func (db *DB) AdmitBrainstormScan(ctx context.Context, s BrainstormScan, at time.Time) (BrainstormScan, bool, error) {
-	if !brainstormOwnerValid(s.BrainstormOwner) || s.ID == "" || s.BrainstormID == "" || s.RequestKey == "" || len(s.RequestKey) > 256 || s.Digest == "" || s.JobID == "" || s.ExecutionID == "" || s.GrantID == "" || s.TeamVersion == "" || !json.Valid([]byte(s.TeamFiles)) || strings.TrimSpace(s.Question) == "" || !utf8.ValidString(s.Question) || len(s.Question) > BrainstormMaxEntryBytes || at.IsZero() {
+	if !brainstormOwnerValid(s.BrainstormOwner) || s.ID == "" || s.BrainstormID == "" || s.RequestKey == "" || len(s.RequestKey) > 256 || s.Digest == "" || s.JobID == "" || s.ExecutionID == "" || s.GrantID == "" || s.TeamVersion == "" || !json.Valid([]byte(s.TeamFiles)) || strings.TrimSpace(s.Question) == "" || (s.Purpose != "" && s.Purpose != BrainstormPurposeQuestion && s.Purpose != BrainstormPurposeDrafts) || !utf8.ValidString(s.Question) || len(s.Question) > BrainstormMaxEntryBytes || at.IsZero() {
 		return BrainstormScan{}, false, ErrConnectorInvalid
 	}
 	var id string
@@ -493,7 +495,7 @@ func (db *DB) AdmitBrainstormScan(ctx context.Context, s BrainstormScan, at time
 			return ErrBrainstormQueueFull
 		}
 		now := ownerActionTime(at)
-		if _, err = tx.ExecContext(ctx, `INSERT INTO brainstorm_scans(id,brainstorm_id,scan_seq,owner_id,owner_generation,repository_ref,request_key,digest,question,team_version,team_files,basis_commit,grant_id,consent_revision,job_id,execution_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, s.ID, b.ID, b.NextScanSeq, b.OwnerID, b.OwnerGeneration, b.RepositoryRef, s.RequestKey, s.Digest, s.Question, s.TeamVersion, s.TeamFiles, s.BasisCommit, s.GrantID, s.ConsentRevision, s.JobID, s.ExecutionID, now); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO brainstorm_scans(id,brainstorm_id,scan_seq,owner_id,owner_generation,repository_ref,request_key,digest,question,team_version,team_files,basis_commit,grant_id,consent_revision,job_id,execution_id,created_at,purpose) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, s.ID, b.ID, b.NextScanSeq, b.OwnerID, b.OwnerGeneration, b.RepositoryRef, s.RequestKey, s.Digest, s.Question, s.TeamVersion, s.TeamFiles, s.BasisCommit, s.GrantID, s.ConsentRevision, s.JobID, s.ExecutionID, now, brainstormPurposeColumn(s.Purpose)); err != nil {
 			return err
 		}
 		snapshot, _ := json.Marshal(map[string]string{"brainstorm": b.ID, "scan": s.ID, "repository": b.RepositoryRef})
