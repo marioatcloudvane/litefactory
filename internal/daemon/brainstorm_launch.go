@@ -133,7 +133,57 @@ func (d *Daemon) stepBrainstormLaunch(ctx context.Context, it store.BrainstormTa
 		}
 		open = &a
 	}
+	if settled, err := d.boundOpenBrainstormAttempt(ctx, it, *open, now); err != nil || settled {
+		return err
+	}
 	return d.driveBrainstormAttempt(ctx, repo, it, *open)
+}
+
+// boundOpenBrainstormAttempt keeps an open attempt within the start wait
+// before it is handed off again. An admitted launch whose turn is still under
+// way is judged by its seed and first agent now, not when the turn ends. An
+// attempt that never got admitted (deferred, prelaunch or lock-held each pass)
+// settles as created but not started once the wait has passed. The attempt
+// stays open, so a later owner retry continues the same launch and no second
+// one opens.
+func (d *Daemon) boundOpenBrainstormAttempt(ctx context.Context, it store.BrainstormTaskItem, a store.BrainstormLaunchAttempt, now time.Time) (bool, error) {
+	since := a.CreatedAt
+	if it.UpdatedAt.After(since) {
+		since = it.UpdatedAt
+	}
+	state, err := d.db.BrainstormLaunchState(ctx, a.SessionID, a.TriggerID())
+	if err != nil {
+		return false, err
+	}
+	if state.Admitted {
+		seeded := state.HasSeed && (state.Seed.State == store.BrainstormSeedComplete || state.Seed.State == store.BrainstormSeedSkippedExisting)
+		ended, err := d.brainstormPlanEnded(ctx, state)
+		if err != nil {
+			return false, err
+		}
+		if (!seeded || !state.AgentDispatched) && !ended && now.Sub(since) < brainstormStartWait {
+			// Saving a waiting reason here would restart the wait.
+			return false, nil
+		}
+		timed := a
+		timed.UpdatedAt = since
+		if err = d.settleBrainstormStart(ctx, it, timed, now); err != nil {
+			return false, err
+		}
+		current, err := d.db.ReadBrainstormTaskItem(ctx, it.ID)
+		if err != nil {
+			return false, err
+		}
+		return current.State != store.BrainstormItemPlanStarting, nil
+	}
+	if now.Sub(since) < brainstormStartWait {
+		return false, nil
+	}
+	next := it
+	next.State = store.BrainstormItemPlanStartFailed
+	next.Reason = fmt.Sprintf("created as issue #%d but not started; Plan could not be launched within %s", it.IssueNumber, brainstormStartWait)
+	_, err = d.db.SaveBrainstormTaskItem(ctx, next, it.State, now)
+	return true, err
 }
 
 func (d *Daemon) driveBrainstormAttempt(ctx context.Context, repo store.Repo, it store.BrainstormTaskItem, a store.BrainstormLaunchAttempt) error {
