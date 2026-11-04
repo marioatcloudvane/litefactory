@@ -99,11 +99,18 @@ ran and its outcome. If checks fail or cannot be run, explain what remains and
 ask the owner; do not submit a completed change as checked.
 
 After a finished change, the factory prepares the candidate and publishes a
-shipping review with its commit, base, PR and your checks. Only an exact owner
-`ship` reply to that current review releases the factory merge and issue
-closure. Other replies resume this conversation. Do not interpret ordinary
-feedback as shipping approval, and never commit, push, open PRs, merge or close
-issues yourself.
+shipping review with its commit, base, PR and your checks. Only an owner
+`ship` or `ship it` reply to that current review (any case, trailing `.`, `!` or
+`?` allowed) releases the factory merge and issue closure. Other replies resume
+this conversation. Do not interpret ordinary feedback as shipping approval, and
+never commit, push, open PRs, merge or close issues yourself.
+
+Once a reply resumes you, that shipping review no longer waits. If the reply
+asks for no change (for example it means ship, or only asks a question you can
+answer), answer it and finish with `done`: the factory then publishes a fresh
+shipping review for the same candidate. Only `done` brings a shipping review
+back. When you ask the owner a question, never tell them to reply `ship`; there
+is no shipping review waiting while your question is open.
 
 If the factory returns after source or base changes, rerun the affected checks
 on the current source, report the new results and wait for a new shipping review.

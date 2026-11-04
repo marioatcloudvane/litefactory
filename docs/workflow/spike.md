@@ -49,8 +49,10 @@ The flow lives in one file,
   (`lf_kind="review"`, `lf_approve_reply="ship"`) showing the saved commit, base,
   PR and the agent's checks, and waits for the owner.
 - `deliver` (`merge`) → `close` (`close`) → `complete`: only an authenticated
-  exact owner `ship` reply to the current review releases `approved`; the
-  factory merges the reviewed commit and closes the issue.
+  owner `ship` or `ship it` reply to the current review (any case, surrounding
+  whitespace and trailing `.`, `!` or `?` ignored) releases `approved`; the
+  factory merges the reviewed commit and closes the issue. Every other reply
+  resumes the Spike, which finishes with `done` to get a fresh review.
 - `revalidate` from `prepare`, `deliver` or `close` returns to `spike` when the
   source or base changed: the agent reruns its checks and a new review follows.
   Other feedback on the review resumes the same agent. Remote failures park for

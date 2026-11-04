@@ -74,7 +74,10 @@ If the shared route reports diagnostics, correct exactly those fields and submit
 A completed result with branch changes is a checked candidate, not a claim of
 merge or delivery. Include the commands actually run and their outcomes. The
 factory saves and pushes it, opens the PR and publishes a shipping review with
-the saved commit and your checks; only the owner's exact `ship` reply releases
-the merge. A finished answer without branch changes is posted as your report. After a source/base change, rerun the affected checks and
+the saved commit and your checks; only the owner's `ship` or `ship it` reply
+(any case, trailing `.`, `!` or `?` allowed) releases the merge. When a reply
+resumes you from a shipping review without asking for a change, finish with
+`done` so the factory publishes a fresh review for the same candidate. While you
+ask a question no review waits, so never tell the owner to reply `ship` in it. A finished answer without branch changes is posted as your report. After a source/base change, rerun the affected checks and
 submit fresh results for a new review. Failed or unavailable checks belong in an
 incomplete result with a concrete owner question. Do not ship through agent tools.
