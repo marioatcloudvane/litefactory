@@ -49,7 +49,7 @@ func (f checkoutDeliveryForge) ListDeliveryPRs(ctx context.Context, repo github.
 }
 
 func TestDeliveryWaitsForExactOwnerReview(t *testing.T) {
-	for _, reply := range []string{"ship", "ship please", "changed head", "changed base", "changed PR", "retry close", "interrupted ship"} {
+	for _, reply := range []string{"ship", "ship it!", "Ship It", " SHIP. ", "ship please", "don't ship", "ship it later", "shipit", "changed head", "changed base", "changed PR", "retry close", "interrupted ship"} {
 		t.Run(reply, func(t *testing.T) {
 			calls := 0
 			checkout := ""
@@ -95,10 +95,10 @@ func TestDeliveryWaitsForExactOwnerReview(t *testing.T) {
 			}
 			body := reply
 			if reply == "interrupted ship" {
-				body = "ship"
+				body = "ship it!"
 			}
 			if reply == "changed head" {
-				body = "ship"
+				body = "ship it!"
 				mustProgress(t, os.WriteFile(filepath.Join(checkout, "change.txt"), []byte("unchecked\n"), 0600))
 			}
 			if reply == "changed base" {
@@ -207,15 +207,30 @@ func TestDeliveryWaitsForExactOwnerReview(t *testing.T) {
 				}
 				return
 			}
-			if reply == "ship" || reply == "retry close" {
+			switch reply {
+			case "ship", "ship it!", "Ship It", " SHIP. ", "retry close":
 				if remote.merges != 1 || remote.closes != 1 || calls != 1 {
 					t.Fatalf("shipping failed merges=%d closes=%d calls=%d", remote.merges, remote.closes, calls)
+				}
+				consumed, e := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+				mustProgress(t, e)
+				if reply != "retry close" && (consumed.DeliveryKey != wait.DeliveryKey || consumed.State != "allocated") {
+					t.Fatalf("review approval not consumed: %+v", consumed)
 				}
 				if spikeInstance(t, f).Status != store.GraphSucceeded {
 					t.Fatal("shipping did not complete")
 				}
-			} else if remote.merges != 0 || remote.closes != 0 {
-				t.Fatal("nonapproval or changed source shipped")
+			case "ship please", "don't ship", "ship it later", "shipit":
+				if remote.merges != 0 || remote.closes != 0 || calls != 2 {
+					t.Fatalf("nonapproval did not resume the Spike: merges=%d closes=%d calls=%d", remote.merges, remote.closes, calls)
+				}
+				if spikeInstance(t, f).Status == store.GraphSucceeded {
+					t.Fatal("nonapproval completed delivery")
+				}
+			default:
+				if remote.merges != 0 || remote.closes != 0 {
+					t.Fatal("nonapproval or changed source shipped")
+				}
 			}
 		})
 	}

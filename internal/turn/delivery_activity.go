@@ -232,7 +232,7 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 		}
 		review, exists := w.definition.Profile.Node(intent.Node)
 		target, released := graphexec.Decide(w.definition.Profile, intent.Node, "approved")
-		if !exists || !released || !deliveryApprovalReaches(w.definition.Profile, target, req.Node) || review.Attrs["lf_approve_reply"] == "" || wait.State != "allocated" || wait.SourceAttemptID != source.ID || !strings.EqualFold(strings.TrimSpace(wait.ReplyBody), review.Attrs["lf_approve_reply"]) {
+		if !exists || !released || !deliveryApprovalReaches(w.definition.Profile, target, req.Node) || review.Attrs["lf_approve_reply"] == "" || wait.State != "allocated" || wait.SourceAttemptID != source.ID || !store.IsApprovalReply(wait.ReplyBody, review.Attrs["lf_approve_reply"]) {
 			return finish("blocked", "No consumed owner approval for this delivery")
 		}
 		// The published review itself must name this prepared commit.

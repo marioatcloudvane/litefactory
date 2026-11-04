@@ -87,6 +87,18 @@ func (db *DB) SettleResearchReview(ctx context.Context, instanceID int64, key, t
 	return db.SettleGraphReview(ctx, instanceID, key, target, "research", "done", at)
 }
 
+// IsApprovalReply reports whether an owner reply approves a review whose
+// approval token is token. It lowercases the reply, collapses whitespace and
+// strips trailing '.', '!' and '?'. The only accepted spelling beyond the token
+// itself is "ship it" for the "ship" token; no other text is interpreted.
+func IsApprovalReply(body, token string) bool {
+	if token == "" {
+		return false
+	}
+	reply := strings.TrimRight(strings.Join(strings.Fields(strings.ToLower(body)), " "), ".!?")
+	return reply == token || (token == "ship" && reply == "ship it")
+}
+
 // SettleGraphReview consumes a claimed, published review for an admitted exact reply.
 // The caller resolves the token and target from the retained graph, never agent text.
 func (db *DB) SettleGraphReview(ctx context.Context, instanceID int64, key, target, workflow, reply string, at time.Time) error {
@@ -102,7 +114,7 @@ func (db *DB) SettleGraphReview(ctx context.Context, instanceID int64, key, targ
 		if e != nil {
 			return e
 		}
-		if mode != workflow || reply == "" || status != GraphRunning || kind != "review" || source != wait.SourceAttemptID || !completed || wait.State != "claimed" || wait.ReplyID <= comment || wait.ReplyAuthorID < 1 || strings.ToLower(strings.TrimSpace(wait.ReplyBody)) != reply || target == "" || at.IsZero() {
+		if mode != workflow || reply == "" || status != GraphRunning || kind != "review" || source != wait.SourceAttemptID || !completed || wait.State != "claimed" || wait.ReplyID <= comment || wait.ReplyAuthorID < 1 || !IsApprovalReply(wait.ReplyBody, reply) || target == "" || at.IsZero() {
 			return graphInvariant("graph review is not authenticated current approval")
 		}
 		if _, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='allocated' WHERE delivery_key=?`, key); e != nil {

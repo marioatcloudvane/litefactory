@@ -19,8 +19,10 @@ final comment. `revalidate` returns to its source for fresh checks.
 
 The review ask uses `lf_kind="review"`, `lf_source` and
 `lf_approve_reply="ship"`, with outcomes `published,approved`. `published` ends at
-a waiting terminal. Only a claimed authenticated exact owner reply releases its
-`approved` edge to `merge`. The review displays the saved commit, base and PR.
+a waiting terminal. Only a claimed authenticated owner reply matching the token
+releases its `approved` edge to `merge`. For `ship` the accepted replies are
+`ship` and `ship it`, in any case, with surrounding whitespace and trailing `.`,
+`!` or `?` ignored; any other reply resumes the source agent. The review displays the saved commit, base and PR.
 An agent's words cannot approve it. `merge` returns `merged` to its `close`
 operation, and `close` returns `completed` to a terminal. Both return
 `revalidate` to their source when candidate identity changes. Remote failures

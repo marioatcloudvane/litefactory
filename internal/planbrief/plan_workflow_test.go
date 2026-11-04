@@ -140,6 +140,23 @@ func TestPlanWorkflow_ExactOwnerReply(t *testing.T) {
 			}
 		})
 	}
+	t.Run("exact command with guidance below", func(t *testing.T) {
+		s := workflowFixture(t, "a")
+		r := workflowReply(t, &s, 0, 11)
+		r.Body = "\n" + r.Body + "\n\nFor the next stage: change the actor."
+		ok, err := s.ApplyOwnerReply(r)
+		if err != nil || !ok || s.Stories[0].Stage != "technical" || s.Stories[0].ApprovedBy["story"] != planbrief.ApprovalByOwner {
+			t.Fatalf("approval with guidance below refused: %v %v %+v", ok, err, s.Stories[0])
+		}
+	})
+	t.Run("same-line text after the command", func(t *testing.T) {
+		s := workflowFixture(t, "a")
+		r := workflowReply(t, &s, 0, 11)
+		r.Body += " please\nmore"
+		if ok, _ := s.ApplyOwnerReply(r); ok || len(s.Stories[0].Approvals) != 0 {
+			t.Fatal("same-line text approved")
+		}
+	})
 	t.Run("exact reply replay", func(t *testing.T) {
 		s := workflowFixture(t, "a")
 		r := workflowReply(t, &s, 0, 11)
@@ -438,12 +455,14 @@ func TestPlanWorkflow_RetirementRejectsStaleAndForeign(t *testing.T) {
 }
 
 func TestPlanWorkflowInlineApproval(t *testing.T) {
-	for _, suffix := range []string{"", "\r\nchange it"} {
+	// Lines below the command are guidance for the next stage (#1390); text on
+	// the command's own line is not.
+	for _, suffix := range []string{"", "\r\nchange it", " change it"} {
 		s := workflowFixture(t, "a")
 		reply := workflowReply(t, &s, 0, 10)
 		reply.Body = " \n`" + reply.Body + "`" + suffix
 		promoted, err := s.ApplyOwnerReply(reply)
-		if err != nil || promoted != (suffix == "") {
+		if err != nil || promoted != (suffix != " change it") {
 			t.Fatalf("suffix %q: promoted=%t err=%v", suffix, promoted, err)
 		}
 	}
