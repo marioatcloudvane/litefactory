@@ -984,7 +984,7 @@ func (w *researchWorkflow) settleReview(ctx context.Context, wait store.GraphOwn
 	}
 	review, exists := w.definition.Profile.Node(intent.Node)
 	if exists && review.Action == AskAction && review.Attrs["lf_approve_reply"] != "" {
-		if !strings.EqualFold(strings.TrimSpace(wait.ReplyBody), review.Attrs["lf_approve_reply"]) {
+		if !store.IsApprovalReply(wait.ReplyBody, review.Attrs["lf_approve_reply"]) {
 			return false, nil
 		}
 		latest, e := latestResearchAgentAttempt(ctx, w.opts, w.definition.Profile, wait.InstanceID, review.Attrs["lf_source"])
