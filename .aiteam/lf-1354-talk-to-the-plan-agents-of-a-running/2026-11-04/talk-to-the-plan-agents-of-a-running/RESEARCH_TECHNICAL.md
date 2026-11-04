@@ -81,3 +81,22 @@ Issue-thread Plan discussions are a separate existing route: tests show answer-o
 Evidence:
 
 - `internal/turn/plan_graph_discussion_test.go:35`
+
+## F-11
+
+Shaping inspection at commit 45de2d5b265d082bec98f673ba58afe165b1d27d confirms the connector guide already advertises Plan set, assembled, story, technical and acceptance advice, task:advisory permission, isolated execution and non-mutation; current target selection still refuses mismatched story waits, holds and unsealed parallel groups, and Plan judgment adds no further content threshold.
+
+Evidence:
+
+- `docs/guides/remote-connector.md:741`
+- `internal/taskdiscussion/capture.go:253`
+
+## F-12
+
+Proposed verification scope impacts advisory capture/store/runner and connector tests plus existing connector usage guidance; hosted clients and shared Research/Bug advisory paths depend on these boundaries. No replacement, data migration, new tool schema, new permission or captured-team rewrite is indicated by the inspected existing capability. The remaining evidence gap is production capture-to-provider integration and authentic hosted-client observation, not an established missing Plan selector.
+
+Evidence:
+
+- `internal/taskdiscussion/capture.go:253`
+- `internal/connector/task_advisory_e2e_test.go:136`
+- `docs/guides/remote-connector.md:768`
