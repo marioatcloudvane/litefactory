@@ -668,8 +668,11 @@ func TestValidateImplementReplyAfterAgentWithMixedHistory(t *testing.T) {
 	source, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: plan.ID, LaunchID: admission.LaunchID, Node: planDefinition.Profile.Start, RunID: planRun.ID, Limit: 3, StartedAt: implementClock})
 	mustProgress(t, err)
 	mustProgress(t, db.CompleteGraphNodeAttempt(ctx, source.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: implementClock}))
-	mustProgress(t, db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "plan-wait", InstanceID: plan.ID, SourceAttemptID: source.ID, Node: "ask", Kind: "question", Candidate: []byte(`{"outcome":"incomplete"}`)}))
-	_, err = db.EnsureReportDelivery(ctx, store.ReportDelivery{Key: "plan-wait", SessionID: session.ID, RunID: planRun.ID, TriggerID: 5900, Task: session.TaskRef, Destination: "acme/acme-api#123", TriggerNamespace: "issue-comment", Purpose: "plan-question", BotUserID: ownerBotID, Body: "Plan waiting", Marker: "plan-wait"})
+	planDelivery := store.ReportDelivery{Key: "plan-wait", SessionID: session.ID, RunID: planRun.ID, TriggerID: 5900, Task: session.TaskRef, Destination: "acme/acme-api#123", TriggerNamespace: "issue-comment", Purpose: "plan-question", BotUserID: ownerBotID, Body: "Plan waiting", Marker: "plan-wait"}
+	planCandidate, err := json.Marshal(planPublication{Intent: planDelivery, Text: "Plan waiting"})
+	mustProgress(t, err)
+	mustProgress(t, db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "plan-wait", InstanceID: plan.ID, SourceAttemptID: source.ID, Node: "ask", Kind: "question", Candidate: planCandidate}))
+	_, err = db.EnsureReportDelivery(ctx, planDelivery)
 	mustProgress(t, err)
 	_, err = db.MarkReportDeliverySent(ctx, "plan-wait")
 	mustProgress(t, err)

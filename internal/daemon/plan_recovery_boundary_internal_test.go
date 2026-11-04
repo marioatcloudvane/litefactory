@@ -514,3 +514,112 @@ func planParentsOfferedWhenDue(t *testing.T, hooked, delivered bool) {
 		t.Errorf("parent without due work not offered on the listing tick: %v", parents)
 	}
 }
+
+// A complete Linear plan is locally known work, even between listings.
+func TestLinearPlanParentAssemblyBetweenListings(t *testing.T) {
+	w := newLinearOwnerWait(t)
+	ctx := t.Context()
+	_, err := w.d.db.AdmitPlanWorkflowPath(ctx, w.session.ID, "graph")
+	publicationMust(t, err)
+	_, err = w.d.db.ReservePlanStory(ctx, w.session.TaskRef, "story-a")
+	publicationMust(t, err)
+	_, err = w.d.db.SavePlanWorkflowState(ctx, w.session.TaskRef, 0, approvedPlanState(t, "go-implementation-engineer", true))
+	publicationMust(t, err)
+	q := &repoQueue{repo: w.q.repo, forgeRepo: w.q.forgeRepo, log: w.q.log}
+	seen := map[int64]*candidate{}
+	publicationMust(t, w.d.graphPlanParents(ctx, map[int64]*repoQueue{q.repo.ID: q}, seen))
+	if len(q.candidates) != 1 || seen[w.session.ID] == nil {
+		t.Fatalf("due Linear assembly skipped between listings: %d candidates", len(q.candidates))
+	}
+	publicationMust(t, w.d.graphPlanParents(ctx, map[int64]*repoQueue{q.repo.ID: q}, seen))
+	if len(q.candidates) != 1 {
+		t.Fatal("duplicate parent candidate")
+	}
+}
+
+func TestLinearPlanAssemblyEligibilityBoundaries(t *testing.T) {
+	for _, kind := range []string{"incomplete", "held", "opened", "approved", "attempted", "pending", "graph-approved", "multiple", "revised"} {
+		t.Run(kind, func(t *testing.T) {
+			w := newLinearOwnerWait(t)
+			ctx, db := t.Context(), w.d.db
+			_, err := db.AdmitPlanWorkflowPath(ctx, w.session.ID, "graph")
+			publicationMust(t, err)
+			_, err = db.ReservePlanStory(ctx, w.session.TaskRef, "story-a")
+			publicationMust(t, err)
+			state := approvedPlanState(t, "go-implementation-engineer", true)
+			scope := planbrief.TaskOwnerScope()
+			want := false
+			switch kind {
+			case "incomplete":
+				delete(state.Stories[0].Approvals, "acceptance")
+			case "held":
+				state.Stories[0].Hold = "owner decision"
+			case "opened", "approved":
+				_, err = state.OpenAssembledReview(scope)
+				publicationMust(t, err)
+				if kind == "approved" {
+					publicationMust(t, state.ApproveAssembled(7, 7, 500, "/approve-plan-set "+state.AssembledWait, scope))
+				}
+			case "graph-approved":
+				state = approvedPlanState(t, "go-implementation-engineer", false)
+				for _, stage := range []string{"story", "technical", "acceptance"} {
+					approval, e := state.ApproveByGraph("story-a", stage, "candidate", "")
+					publicationMust(t, e)
+					if approval.Outcome != "approved" {
+						t.Fatalf("graph approval: %+v", approval)
+					}
+				}
+				want = true
+			case "multiple":
+				other := approvedPlanState(t, "go-implementation-engineer", true).Stories[0]
+				other.Key, other.Draft.Key = "story-b", "story-b"
+				state.Stories = append(state.Stories, other)
+				for _, stage := range []string{"story", "technical", "acceptance"} {
+					ref, e := state.ReviewRevision("story-b", stage)
+					publicationMust(t, e)
+					state.Stories[1].Approvals[stage] = ref
+				}
+				want = true
+			case "pending", "revised":
+				want = true
+			}
+			if kind == "attempted" || kind == "pending" || kind == "revised" {
+				id := planWorkID("assemble", state.PlanSetRevision())
+				scheduled, _, e := db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: w.session.ID, SourceCommentID: id, OwnerHandle: "owner", Payload: planWorkPayload, DueAt: w.now})
+				publicationMust(t, e)
+				if kind != "pending" {
+					_, ok, e := db.ReserveSchedule(ctx, scheduled.ID, w.now)
+					publicationMust(t, e)
+					if !ok {
+						t.Fatal("not reserved")
+					}
+					_, e = db.FinishSchedule(ctx, scheduled.ID, store.ScheduleFailed, 0, w.now)
+					publicationMust(t, e)
+				}
+				if kind == "revised" {
+					state.Stories[0].Draft.Problem = "A revised approved problem"
+					for _, stage := range []string{"story", "technical", "acceptance"} {
+						ref, e := state.ReviewRevision("story-a", stage)
+						publicationMust(t, e)
+						state.Stories[0].Approvals[stage] = ref
+					}
+				}
+			}
+			_, err = db.SavePlanWorkflowState(ctx, w.session.TaskRef, 0, state)
+			publicationMust(t, err)
+			for _, listing := range []bool{false, true} {
+				q := &repoQueue{repo: w.q.repo, forgeRepo: w.q.forgeRepo, log: w.q.log, listing: listing}
+				seen := map[int64]*candidate{}
+				publicationMust(t, w.d.graphPlanParents(ctx, map[int64]*repoQueue{q.repo.ID: q}, seen))
+				if got := seen[w.session.ID] != nil; got != (want || listing) {
+					t.Fatalf("listing=%v offered=%v want=%v", listing, got, want || listing)
+				}
+			}
+			retained, _, err := db.GetPlanWorkflowState(ctx, w.session.TaskRef)
+			publicationMust(t, err)
+			if !reflect.DeepEqual(state, retained) {
+				t.Fatal("discovery changed approvals")
+			}
+		})
+	}
+}

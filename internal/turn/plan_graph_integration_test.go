@@ -805,3 +805,244 @@ func TestPlanGraphIntegration_AuthorityRevokedAfterPreflightRetainsNothingAndApp
 		}
 	}
 }
+
+// Recovery must load candidate bytes even when listing returns only metadata.
+func TestPlanPublicationRecoveryRetainedCandidate(t *testing.T) {
+	for _, phase := range []string{"candidate", "pending", "confirmed", "no-display", "malformed", "wrong-session", "confirmed-malformed", "confirmed-wrong-session", "wrong-task", "cancelled", "predecessor", "story"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx := t.Context()
+			f, base, forge, before := completeSingleStory(t)
+			instance, err := f.db.LatestWorkflowInstance(ctx, f.session.ID, "plan")
+			mustProgress(t, err)
+			comments, err := f.db.ListGraphComments(ctx, instance.ID, "", 100)
+			mustProgress(t, err)
+			if len(comments) == 0 {
+				t.Fatal("missing source")
+			}
+			var saved store.GraphCommentIntent
+			for _, comment := range comments {
+				if comment.Kind == "final" {
+					saved, err = f.db.GetGraphComment(ctx, comment.Key)
+					break
+				}
+			}
+			mustProgress(t, err)
+			source, err := f.db.GetGraphNodeAttempt(ctx, saved.SourceAttemptID)
+			mustProgress(t, err)
+			run, err := f.db.GetRun(ctx, source.RunID)
+			mustProgress(t, err)
+			target := f.ref()
+			if phase == "story" {
+				binding, e := f.db.GetPlanStoryDraft(ctx, f.ref().String(), "story-001")
+				mustProgress(t, e)
+				target.Issue = binding.IssueNumber
+			}
+			intent := f.opts.ResearchReporter.deliveryIntent(f.ref(), target, f.session.ID, run.TriggerCommentID, run.ID, "recovery-regression:"+phase)
+			display := &store.OwnerDecisionDisplay{TaskRef: f.ref().String(), Action: "/approve-plan-set", Target: "/approve-plan-set recovery", Revision: "recovery", InstanceID: instance.ID, CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+			if phase == "no-display" {
+				display = nil
+			}
+			publication := planPublication{Intent: intent, Text: "retained-recovery-" + phase, Display: display}
+			if strings.Contains(phase, "wrong-session") {
+				publication.Intent.SessionID++
+			}
+			if phase == "wrong-task" {
+				publication.Intent.Task = "github:other/repo#1"
+			}
+			if phase == "predecessor" {
+				discussionRunner(t, f, "set", "Explain recovery")
+				executeGraphPlan(t, f, nextTrigger(base, 9981, "Explain recovery"))
+				latest, e := f.db.LatestWorkflowInstance(ctx, f.session.ID, "plan")
+				mustProgress(t, e)
+				if latest.ID == instance.ID {
+					t.Fatal("no successor")
+				}
+			}
+			raw, err := json.Marshal(publication)
+			mustProgress(t, err)
+			if strings.Contains(phase, "malformed") {
+				raw = []byte(`{`)
+			}
+			saved.Key, saved.Candidate = intent.Key, raw
+			mustProgress(t, f.db.RetainGraphComment(ctx, saved))
+			if phase == "pending" {
+				forge.failWith(503)
+			}
+			if phase == "pending" || strings.HasPrefix(phase, "confirmed") {
+				_, err = f.opts.ResearchReporter.deliverFullText(ctx, intent, publication.Text)
+				if strings.HasPrefix(phase, "confirmed") {
+					mustProgress(t, err)
+				} else if err == nil {
+					t.Fatal("expected refusal")
+				}
+				forge.recover()
+			}
+			posts := len(forge.all())
+			if phase == "cancelled" {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				if e := recoverPlanPublications(cancelled, f.opts, f.session.ID); e == nil || len(forge.all()) != posts {
+					t.Fatal("cancelled recovery had an effect")
+				}
+			}
+			err = recoverPlanPublications(ctx, f.opts, f.session.ID)
+			if strings.Contains(phase, "malformed") || strings.Contains(phase, "wrong-session") || phase == "wrong-task" {
+				if err == nil || len(forge.all()) != posts {
+					t.Fatalf("invalid candidate published: %v", err)
+				}
+				return
+			}
+			mustProgress(t, err)
+			delivery, err := f.db.GetReportDelivery(ctx, intent.Key)
+			mustProgress(t, err)
+			if !delivery.Completed {
+				t.Fatal("unconfirmed recovery")
+			}
+			if display != nil {
+				got, e := f.db.ResolveOwnerDecisionDisplay(ctx, display.TaskRef, display.Action, store.OwnerDecisionReference(display.TaskRef, display.Action, display.Target, display.Revision), 0)
+				mustProgress(t, e)
+				if got.PublicationID != delivery.CommentID || !got.CreatedAt.Equal(display.CreatedAt) {
+					t.Fatalf("display lost: %+v", got)
+				}
+			}
+			posts = len(forge.all())
+			mustProgress(t, recoverPlanPublications(ctx, f.opts, f.session.ID))
+			again, err := f.db.GetGraphComment(ctx, intent.Key)
+			mustProgress(t, err)
+			if len(forge.all()) != posts || string(again.Candidate) != string(raw) {
+				t.Fatal("recovery changed bytes or duplicated post")
+			}
+			after := graphPlanState(t, f)
+			a, _ := json.Marshal(before)
+			b, _ := json.Marshal(after)
+			if string(a) != string(b) {
+				t.Fatal("recovery changed approvals")
+			}
+		})
+	}
+}
+
+func TestPlanPublicationRecoveryPartialProgress(t *testing.T) {
+	ctx := t.Context()
+	f, _, forge, before := completeSingleStory(t)
+	instance, err := f.db.LatestWorkflowInstance(ctx, f.session.ID, "plan")
+	mustProgress(t, err)
+	comments, err := f.db.ListGraphComments(ctx, instance.ID, "", 100)
+	mustProgress(t, err)
+	var source store.GraphCommentIntent
+	for _, comment := range comments {
+		if comment.Kind == "final" {
+			source, err = f.db.GetGraphComment(ctx, comment.Key)
+			mustProgress(t, err)
+			break
+		}
+	}
+	var original planPublication
+	mustProgress(t, json.Unmarshal(source.Candidate, &original))
+	var records []store.GraphCommentIntent
+	for _, suffix := range []string{"first", "second"} {
+		p := original
+		p.Intent = f.opts.ResearchReporter.deliveryIntent(f.ref(), f.ref(), f.session.ID, original.Intent.TriggerID, original.Intent.RunID, "partial-recovery:"+suffix)
+		p.Text = "partial-recovery-" + suffix
+		p.Display = &store.OwnerDecisionDisplay{TaskRef: f.ref().String(), Action: "/approve-plan-set", Target: "/approve-plan-set " + suffix, Revision: suffix, InstanceID: instance.ID, CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+		raw, e := json.Marshal(p)
+		mustProgress(t, e)
+		record := source
+		record.Key, record.Candidate = p.Intent.Key, raw
+		mustProgress(t, f.db.RetainGraphComment(ctx, record))
+		records = append(records, record)
+	}
+	interrupted, cancel := context.WithCancel(ctx)
+	defer cancel()
+	posts := 0
+	forge.mu.Lock()
+	forge.afterPost = func() {
+		posts++
+		if posts == 2 {
+			cancel()
+		}
+	}
+	forge.mu.Unlock()
+	if err = recoverPlanPublications(interrupted, f.opts, f.session.ID); err == nil {
+		t.Fatal("cancelled publication completed")
+	}
+	forge.mu.Lock()
+	forge.afterPost = nil
+	forge.mu.Unlock()
+	confirmed := 0
+	for _, record := range records {
+		d, e := f.db.GetReportDelivery(ctx, record.Key)
+		mustProgress(t, e)
+		if d.Completed {
+			confirmed++
+			var p planPublication
+			mustProgress(t, json.Unmarshal(record.Candidate, &p))
+			shown, e := f.db.ResolveOwnerDecisionDisplay(ctx, p.Display.TaskRef, p.Display.Action, store.OwnerDecisionReference(p.Display.TaskRef, p.Display.Action, p.Display.Target, p.Display.Revision), 0)
+			mustProgress(t, e)
+			if shown.PublicationID != d.CommentID {
+				t.Fatal("first publication display missing")
+			}
+		}
+	}
+	if confirmed != 1 {
+		t.Fatalf("confirmed before retry=%d", confirmed)
+	}
+	count := len(forge.all())
+	mustProgress(t, recoverPlanPublications(ctx, f.opts, f.session.ID))
+	mustProgress(t, recoverPlanPublications(ctx, f.opts, f.session.ID))
+	if len(forge.all()) != count {
+		t.Fatal("partial recovery duplicated publication")
+	}
+	for _, record := range records {
+		d, e := f.db.GetReportDelivery(ctx, record.Key)
+		mustProgress(t, e)
+		if !d.Completed {
+			t.Fatal("partial recovery did not finish")
+		}
+		saved, e := f.db.GetGraphComment(ctx, record.Key)
+		mustProgress(t, e)
+		if string(saved.Candidate) != string(record.Candidate) {
+			t.Fatal("partial recovery changed candidate")
+		}
+	}
+	after := graphPlanState(t, f)
+	a, err := json.Marshal(before)
+	mustProgress(t, err)
+	b, err := json.Marshal(after)
+	mustProgress(t, err)
+	if string(a) != string(b) {
+		t.Fatal("partial recovery changed approvals")
+	}
+}
+
+func TestPlanAssemblyReplaysRetainedPublicationWithoutDisplay(t *testing.T) {
+	ctx := t.Context()
+	f, base, forge, state := completeSingleStory(t)
+	instance, err := f.db.LatestWorkflowInstance(ctx, f.session.ID, "plan")
+	mustProgress(t, err)
+	specs, err := PlanSpecs()
+	mustProgress(t, err)
+	definition, err := capturedWorkflow(ctx, f.opts, base, agent.WorkflowPlan, specs)
+	mustProgress(t, err)
+	source, err := latestResearchAgentAttempt(ctx, f.opts, definition.Profile, instance.ID, "")
+	mustProgress(t, err)
+	run, err := f.db.GetRun(ctx, source.RunID)
+	mustProgress(t, err)
+	const revision = "retained-assembly"
+	intent := f.opts.ResearchReporter.deliveryIntent(f.ref(), f.ref(), base.SessionID, run.TriggerCommentID, run.ID, "plan-assembled:"+revision)
+	raw, err := json.Marshal(planPublication{Intent: intent, Text: "retained-assembly-without-display"})
+	mustProgress(t, err)
+	mustProgress(t, f.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: instance.ID, SourceAttemptID: source.ID, Node: "acceptance_review", Kind: "final", Candidate: raw}))
+	runtime := &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, definition: definition, parentRef: f.ref()}
+	for range 2 {
+		mustProgress(t, runtime.assembledComment(ctx, state, revision))
+	}
+	if posts := parentPostsWith(f, forge, "retained-assembly-without-display"); len(posts) != 1 {
+		t.Fatalf("replayed posts=%d", len(posts))
+	}
+	saved, err := f.db.GetGraphComment(ctx, intent.Key)
+	mustProgress(t, err)
+	if string(saved.Candidate) != string(raw) {
+		t.Fatal("replay invented a display")
+	}
+}
