@@ -604,17 +604,18 @@ func copyBounded(dst io.Writer, src io.Reader, head []byte, bound int64) (writte
 // (AC-4.4) — and an agent told plainly that the file is raw will try its own
 // tools instead of assuming litefactory already extracted the text.
 //
-// Rejections are not rendered here. What the agent needs is the list of
-// files it can actually open; why some other file did not make it is the
-// operator's business, and belongs in the run report and the manifest.
+// Rejections follow under a short note, one safe [Rejection.Line] each. An
+// agent that is told nothing about a refused file sees only the raw link in
+// the comment, tries it without credentials and reports the host's error;
+// naming the file and the reason stops that. The lines carry no URL.
 //
 // The empty string means there is nothing to say, and the caller must then
 // render no section at all (AC-3.3).
-func PromptSection(accepted []Attachment) string {
-	if len(accepted) == 0 {
+func PromptSection(accepted []Attachment, rejected ...Rejection) string {
+	if len(accepted) == 0 && len(rejected) == 0 {
 		return ""
 	}
-	lines := make([]string, 0, len(accepted)+2)
+	lines := make([]string, 0, len(accepted)+len(rejected)+4)
 	documents := false
 	for _, att := range accepted {
 		name, named := attachmentNameSpan(att.Name)
@@ -630,6 +631,15 @@ func PromptSection(accepted []Attachment) string {
 		lines = append(lines, "",
 			"The documents above are exactly as they were uploaded. litefactory does not "+
 				"convert them, so open or extract them with your own tools if you need their contents.")
+	}
+	if len(rejected) > 0 {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, "These attachments are not available to you; do not try to fetch their links yourself:")
+		for _, line := range Lines(rejected) {
+			lines = append(lines, "- "+line)
+		}
 	}
 	return strings.Join(lines, "\n")
 }
