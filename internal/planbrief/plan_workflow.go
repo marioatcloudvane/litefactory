@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/cloudvane/litefactory/internal/commandtext"
 )
@@ -477,8 +478,18 @@ func approvableWait(item *PlanStoryState) bool {
 	return false
 }
 
-// ApplyOwnerReply consumes exact authenticated replies once. Only the exact
-// command promotes; questions, prose and mixed edit/approval text remain feedback.
+// PlanCommandLine splits a normalized owner reply into its first non-blank
+// line, trimmed, and the trimmed text below it. An approval command is matched
+// against that line alone; the text below is guidance for the next stage.
+func PlanCommandLine(body string) (line, rest string) {
+	text := strings.TrimLeftFunc(commandtext.Normalize(body), unicode.IsSpace)
+	line, rest, _ = strings.Cut(text, "\n")
+	return strings.TrimSpace(line), strings.TrimSpace(rest)
+}
+
+// ApplyOwnerReply consumes exact authenticated replies once. Only a first line
+// that is exactly the command promotes; the lines below it are guidance for the
+// next stage. Questions, prose and text on the command's line remain feedback.
 func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
 	if r.ID < 1 || r.OwnerID < 1 || r.ActorID != r.OwnerID {
 		return false, errors.New("plan reply is not authenticated owner evidence")
@@ -513,7 +524,7 @@ func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
 		return false, errors.New("plan reply dependencies or shared decisions changed")
 	}
 	command := "/approve-plan " + r.Key + " " + r.Stage + " " + r.Candidate
-	if !approvableWait(item) || strings.TrimSpace(commandtext.Normalize(r.Body)) != command {
+	if line, _ := PlanCommandLine(r.Body); !approvableWait(item) || line != command {
 		s.ConsumedReplies = append(s.ConsumedReplies, r.ID)
 		item.Wait = nil
 		return false, nil
@@ -784,7 +795,15 @@ func (s *PlanState) ApproveAssembled(ownerID, actorID, replyID int64, body strin
 		return err
 	}
 	ref := s.PlanSetRevision()
-	if s.AssembledWait != ref || strings.TrimSpace(commandtext.Normalize(body)) != "/approve-plan-set "+ref {
+	exact := strings.TrimSpace(commandtext.Normalize(body)) == "/approve-plan-set "+ref
+	// An identical repeat of a recorded approval whose save is not confirmed
+	// (for example, its push failed) is a repeat: it only consumes the reply,
+	// so the turn reaches the save again.
+	if exact && s.AssembledApproval == ref && s.SavedRevision != ref {
+		s.ConsumedReplies = append(s.ConsumedReplies, replyID)
+		return nil
+	}
+	if s.AssembledWait != ref || !exact {
 		return ErrPlanAssembledStale
 	}
 	s.AssembledApproval = ref

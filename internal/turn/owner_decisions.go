@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/commandtext"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -105,6 +106,20 @@ func ResolvePlanStoryDecision(ctx context.Context, db *store.DB, task string, co
 	if len(fields) == 0 || (fields[0] != "/approve-plan" && fields[0] != "/approve-plan-set") {
 		return body, nil
 	}
+	// A story approval is read from the first line; the lines below it are
+	// guidance for the next stage and follow the resolved command.
+	rest := ""
+	if fields[0] == "/approve-plan" {
+		var line string
+		line, rest = planbrief.PlanCommandLine(body)
+		fields = strings.Fields(line)
+	}
+	withRest := func(target string) string {
+		if rest == "" {
+			return target
+		}
+		return target + "\n" + rest
+	}
 	// Only the two new short forms belong to this resolver. Preserve all
 	// existing explicit commands and mixed feedback for their original policy.
 	if len(fields) != 1 && (len(fields) != 2 || !strings.HasPrefix(fields[1], "d-")) {
@@ -114,7 +129,7 @@ func ResolvePlanStoryDecision(ctx context.Context, db *store.DB, task string, co
 		if b.Body != body || b.AuthorID != author || b.ReplyToCommentID != publicationID {
 			return body, errors.New("the admitted Plan decision changed on replay")
 		}
-		return b.Normalized, nil
+		return withRest(b.Normalized), nil
 	} else if !errors.Is(e, store.ErrNotFound) {
 		return body, e
 	}
@@ -135,5 +150,5 @@ func ResolvePlanStoryDecision(ctx context.Context, db *store.DB, task string, co
 	if err = db.PutOwnerDecisionBinding(ctx, store.OwnerDecisionBinding{TaskRef: task, CommentID: comment, AuthorID: author, ReplyToCommentID: publicationID, Body: body, Normalized: d.Target, Display: d, CreatedAt: now}); err != nil {
 		return body, err
 	}
-	return d.Target, nil
+	return withRest(d.Target), nil
 }

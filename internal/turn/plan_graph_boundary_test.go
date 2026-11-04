@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -156,6 +157,9 @@ type graphPlanAnswer struct {
 	// is what the provider reported.
 	Stop   agent.Outcome
 	Reason string
+	// Prompt is the prompt the factory gave this node, for tests that check
+	// what a stage was told.
+	Prompt string
 }
 
 func graphPlanFixture(t *testing.T, kind string, mutate ...func(*graphPlanAnswer)) (*fixture, *graphPlanHTTP, Request, *int) {
@@ -214,7 +218,7 @@ func graphPlanFixtureWithForge(t *testing.T, kind string, mutate ...func(*graphP
 			d.Tasks = []planbrief.TaskContent{{ID: "T-001", Description: "Implement", OwnerRole: "go-implementation-engineer", CriterionIDs: []string{"AC-001"}, DependsOn: []string{}}}
 			changed = []string{"criteria", "tasks"}
 		}
-		answer := graphPlanAnswer{Stage: stage, Request: &ar.PlanStoryRequest{Operation: operation, ExpectedRevision: expected, Draft: d, ChangedSections: changed}}
+		answer := graphPlanAnswer{Stage: stage, Prompt: req.Prompt, Request: &ar.PlanStoryRequest{Operation: operation, ExpectedRevision: expected, Draft: d, ChangedSections: changed}}
 		for _, change := range mutate {
 			change(&answer)
 		}
@@ -848,5 +852,131 @@ func TestPlanGraphBoundary_AskPublishesQuestionsWithoutAStoryEffect(t *testing.T
 	mustProgress(t, err)
 	if len(intents) != 1 || intents[0].Node != "story_ask" {
 		t.Fatalf("the question was not published as retained: %+v", intents)
+	}
+}
+
+// withReplyBody gives a Plan owner reply request a new comment body, on the
+// trigger, the child reply and the command alike.
+func withReplyBody(req Request, body string) Request {
+	req.Trigger.Body = body
+	if req.Trigger.PlanReply != nil {
+		reply := *req.Trigger.PlanReply
+		reply.Body = body
+		req.Trigger.PlanReply = &reply
+	}
+	req.Command = Command{Kind: KindFreeText, Text: body}
+	return req
+}
+
+// #1390: an approval command on the first line with guidance below it approves
+// the reviewed stage, resolves its published decision and hands the guidance to
+// the next stage only. The approved stage never runs again, and a note asking to
+// change it leaves the approved content untouched.
+func TestPlanGraphBoundary_ApprovalWithGuidanceBelow(t *testing.T) {
+	prompts := map[string][]string{}
+	f, _, base, calls := graphPlanFixture(t, "agent", func(a *graphPlanAnswer) { prompts[a.Stage] = append(prompts[a.Stage], a.Prompt) })
+	task := f.ref().String()
+	executeGraphPlan(t, f, base)
+	executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
+	before := graphPlanState(t, f).Stories[0]
+	if before.Stage != "technical" || before.Wait == nil || *calls != 2 {
+		t.Fatalf("technical review missing: %+v calls=%d", before, *calls)
+	}
+	shown, err := f.db.ExplicitOwnerDecisionDisplay(t.Context(), task, "/approve-plan", before.Wait.Revision)
+	mustProgress(t, err)
+	draftBefore, err := f.db.GetPlanStoryDraft(t.Context(), task, "story-001")
+	mustProgress(t, err)
+	var technical planbrief.PlanDraft
+	mustProgress(t, json.Unmarshal([]byte(draftBefore.DraftJSON), &technical))
+	req := graphPlanApprove(t, f, base, base.Trigger.CommentID+2)
+	command := req.Trigger.Body
+	if shown.Target != command {
+		t.Fatalf("published decision %q, want %q", shown.Target, command)
+	}
+	req = withReplyBody(req, command+"\n\nNOTE-1390: for acceptance, also change the architecture to a single role.")
+	executeGraphPlan(t, f, req)
+	after := graphPlanState(t, f)
+	item := after.Stories[0]
+	if item.Stage != "acceptance" || item.Approvals["technical"] != before.Wait.Revision || item.ApprovedBy["technical"] != planbrief.ApprovalByOwner {
+		t.Fatalf("approval with guidance below did not approve the technical stage: %+v", item)
+	}
+	if *calls != 3 || len(prompts["technical"]) != 1 || len(prompts["acceptance"]) != 1 {
+		t.Fatalf("approved stage ran again or next stage did not run: calls=%d prompts=%v", *calls, prompts)
+	}
+	if !strings.Contains(prompts["acceptance"][0], "NOTE-1390") {
+		t.Fatal("the guidance below the command did not reach the next stage")
+	}
+	if item.Wait != nil && item.Wait.Stage == "technical" {
+		t.Fatal("technical review reopened")
+	}
+	draftAfter, err := f.db.GetPlanStoryDraft(t.Context(), task, "story-001")
+	mustProgress(t, err)
+	var accepted planbrief.PlanDraft
+	mustProgress(t, json.Unmarshal([]byte(draftAfter.DraftJSON), &accepted))
+	if !reflect.DeepEqual(accepted.Architecture, technical.Architecture) {
+		t.Fatal("approved technical content changed")
+	}
+	resolved, err := f.db.ExplicitOwnerDecisionDisplay(t.Context(), task, "/approve-plan", before.Wait.Revision)
+	mustProgress(t, err)
+	if !resolved.Resolved {
+		t.Fatal("the published technical decision was not resolved")
+	}
+	if after.PlanCurrentCommand("story-001") == command {
+		t.Fatal("the approved command is still offered")
+	}
+	// Replaying the same comment records nothing new and runs nothing.
+	_, _ = Execute(f.turnContext(t), f.opts, req)
+	replayed := graphPlanState(t, f)
+	count := 0
+	for _, id := range replayed.ConsumedReplies {
+		if id == req.Trigger.CommentID {
+			count++
+		}
+	}
+	if count != 1 || *calls != 3 || !reflect.DeepEqual(replayed.Stories[0].Approvals, item.Approvals) || !reflect.DeepEqual(replayed.Stories[0].ApprovedBy, item.ApprovedBy) {
+		t.Fatalf("replay changed state: count=%d calls=%d %+v", count, *calls, replayed.Stories[0])
+	}
+}
+
+// #1390: the same multi-line approval written on the parent issue approves the
+// named story and resolves its published decision.
+func TestPlanGraphBoundary_ParentApprovalWithGuidanceBelow(t *testing.T) {
+	f, _, base, _ := graphPlanFixture(t, "agent")
+	task := f.ref().String()
+	executeGraphPlan(t, f, base)
+	before := graphPlanState(t, f).Stories[0]
+	if before.Wait == nil {
+		t.Fatal("story review missing")
+	}
+	shown, err := f.db.ExplicitOwnerDecisionDisplay(t.Context(), task, "/approve-plan", before.Wait.Revision)
+	mustProgress(t, err)
+	command := "/approve-plan story-001 " + before.Wait.Stage + " " + before.Wait.Candidate
+	req := base
+	req.Trigger = Trigger{CommentID: base.Trigger.CommentID + 1, Author: "owner", AuthorID: 7}
+	req = withReplyBody(req, command+"\nNOTE-1390: keep the next stage small.")
+	out, err := Execute(f.turnContext(t), f.opts, req)
+	mustProgress(t, err)
+	if strings.Contains(out.Reason, "not approved") {
+		t.Fatalf("parent approval refused: %q", out.Reason)
+	}
+	item := graphPlanState(t, f).Stories[0]
+	if item.Approvals["story"] != before.Wait.Revision || item.ApprovedBy["story"] != planbrief.ApprovalByOwner || item.Stage == "story" {
+		t.Fatalf("parent approval with guidance below did not approve: %+v", item)
+	}
+	resolved, err := f.db.ExplicitOwnerDecisionDisplay(t.Context(), task, "/approve-plan", before.Wait.Revision)
+	mustProgress(t, err)
+	if shown.Target != command || !resolved.Resolved {
+		t.Fatalf("the published decision %q was not resolved", shown.Target)
+	}
+}
+
+// #1390: a stale candidate on the first line stays refused when a note follows.
+func TestPlanGraphBoundary_StaleApprovalWithGuidanceBelowRefused(t *testing.T) {
+	f, _, base, _ := graphPlanFixture(t, "agent")
+	executeGraphPlan(t, f, base)
+	state := graphPlanState(t, f)
+	reason := state.PlanReplyReason("story-001", "/approve-plan story-001 story old-candidate\nplease go on")
+	if !strings.Contains(reason, "nothing was approved") || !strings.Contains(reason, state.PlanCurrentCommand("story-001")) {
+		t.Fatalf("stale approval with a note: %q", reason)
 	}
 }

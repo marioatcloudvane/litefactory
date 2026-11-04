@@ -566,7 +566,10 @@ func (r *planGraphRuntime) applyReply(ctx context.Context, reply planbrief.PlanO
 		return true, nil
 	})
 	if err == nil && approved {
-		return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan", strings.TrimSpace(commandtext.Normalize(reply.Body)))
+		// The published decision is the command alone, without any guidance
+		// written below it.
+		command, _ := planbrief.PlanCommandLine(reply.Body)
+		return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan", command)
 	}
 	return err
 }
@@ -574,9 +577,9 @@ func (r *planGraphRuntime) applyReply(ctx context.Context, reply planbrief.PlanO
 var planStoryCommandPattern = regexp.MustCompile(`^/approve-plan (story-[0-9]{3,}) (?:story|technical|acceptance) \S+$`)
 
 // planStoryCommandKey reports whether body is a story approval command written
-// on the parent, and names the story it is for.
+// on the parent, on its first line, and names the story it is for.
 func planStoryCommandKey(body string) (string, bool) {
-	text := strings.TrimSpace(commandtext.Normalize(body))
+	text, _ := planbrief.PlanCommandLine(body)
 	m := planStoryCommandPattern.FindStringSubmatch(text)
 	if m == nil {
 		return "", false

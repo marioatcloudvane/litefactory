@@ -140,6 +140,23 @@ func TestPlanWorkflow_ExactOwnerReply(t *testing.T) {
 			}
 		})
 	}
+	t.Run("exact command with guidance below", func(t *testing.T) {
+		s := workflowFixture(t, "a")
+		r := workflowReply(t, &s, 0, 11)
+		r.Body = "\n" + r.Body + "\n\nFor the next stage: change the actor."
+		ok, err := s.ApplyOwnerReply(r)
+		if err != nil || !ok || s.Stories[0].Stage != "technical" || s.Stories[0].ApprovedBy["story"] != planbrief.ApprovalByOwner {
+			t.Fatalf("approval with guidance below refused: %v %v %+v", ok, err, s.Stories[0])
+		}
+	})
+	t.Run("same-line text after the command", func(t *testing.T) {
+		s := workflowFixture(t, "a")
+		r := workflowReply(t, &s, 0, 11)
+		r.Body += " please\nmore"
+		if ok, _ := s.ApplyOwnerReply(r); ok || len(s.Stories[0].Approvals) != 0 {
+			t.Fatal("same-line text approved")
+		}
+	})
 	t.Run("exact reply replay", func(t *testing.T) {
 		s := workflowFixture(t, "a")
 		r := workflowReply(t, &s, 0, 11)
@@ -438,12 +455,14 @@ func TestPlanWorkflow_RetirementRejectsStaleAndForeign(t *testing.T) {
 }
 
 func TestPlanWorkflowInlineApproval(t *testing.T) {
-	for _, suffix := range []string{"", "\r\nchange it"} {
+	// Lines below the command are guidance for the next stage (#1390); text on
+	// the command's own line is not.
+	for _, suffix := range []string{"", "\r\nchange it", " change it"} {
 		s := workflowFixture(t, "a")
 		reply := workflowReply(t, &s, 0, 10)
 		reply.Body = " \n`" + reply.Body + "`" + suffix
 		promoted, err := s.ApplyOwnerReply(reply)
-		if err != nil || promoted != (suffix == "") {
+		if err != nil || promoted != (suffix != " change it") {
 			t.Fatalf("suffix %q: promoted=%t err=%v", suffix, promoted, err)
 		}
 	}
@@ -883,5 +902,64 @@ func TestPlanWorkflow_GraphApprovalAfterUnchangedStoryRerunReachesAcceptance(t *
 	st = s.Stories[0]
 	if st.Stage != "acceptance" || st.Approvals["technical"] != want || st.Approvals["story"] != storyRef {
 		t.Fatalf("technical approval not recorded or stage not acceptance: %+v", st)
+	}
+}
+
+// An identical repeat of a recorded but unsaved final approval is accepted as a
+// repeat so the save can be retried; anything else stays refused.
+func TestPlanWorkflow_RepeatedFinalApprovalBeforeSave(t *testing.T) {
+	scope := planbrief.ContentScope{Roles: []string{"engineer"}}
+	approved := func(t *testing.T) (planbrief.PlanState, string) {
+		s := workflowFixture(t, "a")
+		approveWorkflowStory(t, &s, 0, 10)
+		ref, err := s.OpenAssembledReview(scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = s.ApproveAssembled(7, 7, 20, "/approve-plan-set "+ref, scope); err != nil {
+			t.Fatal(err)
+		}
+		return s, ref
+	}
+	t.Run("identical repeat while unsaved", func(t *testing.T) {
+		s, ref := approved(t)
+		before := cloneWorkflow(t, s)
+		if err := s.ApproveAssembled(7, 7, 21, "/approve-plan-set "+ref, scope); err != nil {
+			t.Fatalf("identical repeat refused: %v", err)
+		}
+		if s.AssembledApproval != ref || s.AssembledWait != "" || s.SavedRevision != "" || s.PublishedRevision != before.PublishedRevision {
+			t.Fatalf("repeat changed more than the consumed reply: %+v", s)
+		}
+		if !slices.Equal(s.ConsumedReplies, append(before.ConsumedReplies, 21)) {
+			t.Fatalf("consumed replies %v", s.ConsumedReplies)
+		}
+		if err := s.ApproveAssembled(7, 7, 21, "/approve-plan-set "+ref, scope); err == nil {
+			t.Fatal("a consumed repeat reply was accepted twice")
+		}
+	})
+	for _, tt := range []struct {
+		name    string
+		owner   int64
+		actor   int64
+		body    func(string) string
+		changes func(*planbrief.PlanState, string)
+	}{
+		{"other revision", 7, 7, func(string) string { return "/approve-plan-set " + strings.Repeat("c", 64) }, nil},
+		{"foreign actor", 7, 8, func(ref string) string { return "/approve-plan-set " + ref }, nil},
+		{"already saved", 7, 7, func(ref string) string { return "/approve-plan-set " + ref }, func(s *planbrief.PlanState, ref string) { s.SavedRevision = ref }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, ref := approved(t)
+			if tt.changes != nil {
+				tt.changes(&s, ref)
+			}
+			before := cloneWorkflow(t, s)
+			if err := s.ApproveAssembled(tt.owner, tt.actor, 22, tt.body(ref), scope); err == nil {
+				t.Fatal("refused case accepted")
+			}
+			if !slices.Equal(s.ConsumedReplies, before.ConsumedReplies) || s.SavedRevision != before.SavedRevision || s.AssembledApproval != before.AssembledApproval {
+				t.Fatalf("refusal changed the plan: %+v", s)
+			}
+		})
 	}
 }
