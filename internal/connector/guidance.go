@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-//go:embed guidance/*.md
+//go:embed guidance/*.md guidance/overview/*.md guidance/prompts/*.md
 var guidanceFiles embed.FS
 
 // loadGuidance accepts only the stable installed tool identifiers. Bounding each
