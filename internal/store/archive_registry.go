@@ -320,6 +320,12 @@ var archiveRetained = map[string]ArchiveClass{
 	"task_discussions":       ArchiveClassGlobal,
 	"advisory_admissions":    ArchiveClassGlobal,
 	"discussion_conclusions": ArchiveClassGlobal,
+	// Brainstorms are owner and repository scoped, span task families and keep
+	// the scan admissions that link paid shared durable jobs to their results.
+	"brainstorms":              ArchiveClassGlobal,
+	"brainstorm_entries":       ArchiveClassGlobal,
+	"brainstorm_scans":         ArchiveClassGlobal,
+	"brainstorm_scan_receipts": ArchiveClassGlobal,
 	// Decision receipts and possible-send evidence outlive archived task artifacts.
 	"stage_decision_receipts":       ArchiveClassGlobal,
 	"stage_decision_deliveries":     ArchiveClassGlobal,

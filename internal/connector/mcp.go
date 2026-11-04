@@ -97,12 +97,12 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		var params struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name)) {
+		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name) || isBrainstormTool(params.Name)) {
 			tool = params.Name
 		}
 	}
 	refuseRPC := func(code int, msg, reason string) {
-		if tool == "usage_read" || isCodeTool(tool) || isActionTool(tool) || isWorkflowTool(tool) || isAdvisoryTool(tool) {
+		if tool == "usage_read" || isCodeTool(tool) || isActionTool(tool) || isWorkflowTool(tool) || isAdvisoryTool(tool) || isBrainstormTool(tool) {
 			s.writeDiscussionValue(w, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": code, "message": msg}})
 		} else {
 			s.rpcError(w, req.ID, code, msg)
@@ -137,12 +137,12 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		} else {
 			version = protocolLatest
 		}
-		instructions, guidanceErr := loadGuidance(s.guidance, s.availableTools(grant))
+		instructions, guidanceErr := composeInstructions(s.guidance, s.availableTools(grant))
 		if guidanceErr != nil {
 			refuseRPC(-32603, "Tool guidance unavailable", "guidance")
 			return
 		}
-		s.rpcResult(w, req.ID, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "litefactory", "version": "1"}, "instructions": instructions})
+		s.rpcResult(w, req.ID, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}, "prompts": map[string]any{}}, "serverInfo": map[string]string{"name": "litefactory", "version": "1"}, "instructions": instructions})
 		s.audit(r, event, "success", "initialized", tool, start)
 	case "ping":
 		s.rpcResult(w, req.ID, map[string]any{})
@@ -177,6 +177,11 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		for _, name := range brainstormToolNames {
+			if slices.Contains(s.availableTools(grant), name) {
+				tools = append(tools, map[string]any{"name": name, "description": brainstormDescription(name), "inputSchema": brainstormInputSchema(name), "annotations": map[string]bool{"readOnlyHint": brainstormReadOnly(name), "destructiveHint": false, "idempotentHint": name != "brainstorm_scan_cancel", "openWorldHint": name == "brainstorm_ask" || name == "issue_search"}})
+			}
+		}
 		for _, name := range advisoryToolNames {
 			if slices.Contains(s.availableTools(grant), name) {
 				tools = append(tools, map[string]any{"name": name, "description": advisoryDescription(name), "inputSchema": advisoryInputSchema(name), "outputSchema": advisoryOutputSchema(name), "annotations": map[string]bool{"readOnlyHint": name == "advisory_job_get", "destructiveHint": false, "idempotentHint": true, "openWorldHint": true}})
@@ -189,6 +194,60 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 		s.rpcResult(w, req.ID, map[string]any{"tools": tools})
 		s.audit(r, event, "success", "listed", tool, start)
+	case "prompts/list":
+		if len(req.Params) > 0 && string(req.Params) != "null" {
+			var lp struct {
+				Cursor *string `json:"cursor"`
+			}
+			if !strictParams(req.Params, &lp) || lp.Cursor != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+		}
+		prompts, perr := promptList(s.guidance, s.availableTools(grant))
+		if perr != nil {
+			refuseRPC(-32603, "Prompt guidance unavailable", "guidance")
+			return
+		}
+		s.rpcResult(w, req.ID, map[string]any{"prompts": prompts})
+		s.audit(r, event, "success", "listed", tool, start)
+	case "prompts/get":
+		var gp struct {
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments"`
+		}
+		if !strictParams(req.Params, &gp) {
+			refuseRPC(-32602, "Invalid params", "params")
+			return
+		}
+		var spec *promptSpec
+		for i := range promptSpecs {
+			if promptSpecs[i].Name == gp.Name && promptSpecs[i].listed(s.availableTools(grant)) {
+				spec = &promptSpecs[i]
+			}
+		}
+		arg := ""
+		argOK := spec != nil
+		if spec != nil {
+			if spec.Argument == "" {
+				argOK = len(gp.Arguments) == 0
+			} else {
+				v, has := gp.Arguments[spec.Argument]
+				arg = v
+				argOK = has && len(gp.Arguments) == 1 && v != "" && len(v) <= 512 && !strings.ContainsAny(v, "\r\n")
+			}
+		}
+		if !argOK {
+			refuseRPC(-32602, "Invalid params", "params")
+			return
+		}
+		desc, text, perr := promptText(s.guidance, *spec, arg)
+		if perr != nil {
+			refuseRPC(-32603, "Prompt guidance unavailable", "guidance")
+			return
+		}
+		s.rpcResult(w, req.ID, map[string]any{"description": desc, "messages": []any{map[string]any{"role": "user", "content": map[string]any{"type": "text", "text": text}}}})
+		s.audit(r, event, "success", "prompt", tool, start)
 	case "tools/call":
 		var params struct {
 			Name      string          `json:"name"`
@@ -198,7 +257,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			refuseRPC(-32602, "Invalid params", "params")
 			return
 		}
-		if isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name) {
+		if isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name) || isBrainstormTool(params.Name) {
 			d := json.NewDecoder(bytes.NewReader(body))
 			if err := uniqueJSONObject(d); err != nil {
 				refuseRPC(-32602, "Invalid params", "params")
@@ -243,6 +302,9 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			if params.Name == "discussion_open" {
 				requiredScope = AdvisoryScope + " " + DiscussionPublishScope
 			}
+		}
+		if isBrainstormTool(params.Name) && !brainstormGrant(grant) {
+			requiredScope = BrainstormScope
 		}
 		if params.Name == "factory_overview" && !connectorstate.ConnectorScopeHas(grant.Scope, Scope) {
 			requiredScope = Scope
@@ -314,6 +376,14 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		var brainstormArgs brainstormArguments
+		if isBrainstormTool(params.Name) {
+			brainstormArgs, err = parseBrainstormArguments(params.Name, params.Arguments)
+			if err != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+		}
 		var decisionArgs decisionArguments
 		if isDecisionTool(params.Name) {
 			decisionArgs, err = parseDecisionArguments(params.Name, params.Arguments)
@@ -355,6 +425,8 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				result, callErr = s.callDecision(ctx, credential, params.Name, decisionArgs)
 			case isAdvisoryTool(params.Name):
 				result, callErr = s.callAdvisory(ctx, credential, params.Name, advisoryArgs)
+			case isBrainstormTool(params.Name):
+				result, callErr = s.callBrainstorm(ctx, credential, params.Name, brainstormArgs)
 			case isWorkflowTool(params.Name):
 				result, callErr = s.callWorkflow(ctx, credential, params.Name, workflowArgs)
 			case isActionTool(params.Name):
@@ -397,6 +469,9 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			if isAdvisoryTool(params.Name) {
 				result = advisoryFailure(callErr)
 			}
+			if isBrainstormTool(params.Name) {
+				result = brainstormFailure(callErr)
+			}
 			reason = "provider"
 			outcome = "error"
 		} else if result.IsError {
@@ -421,7 +496,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var written bool
-		if params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name) {
+		if params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name) || isBrainstormTool(params.Name) {
 			written = s.writeDiscussionRPC(w, req.ID, result)
 		} else {
 			written = s.rpcResult(w, req.ID, result)

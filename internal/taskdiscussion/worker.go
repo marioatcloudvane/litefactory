@@ -9,6 +9,12 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
+// AdmissionKind is the shared durable workflow admission kind of advisory jobs.
+const AdmissionKind = "advisory"
+
+// Kind declares the admission kind this coordinator consumes.
+func (s *Service) Kind() string { return AdmissionKind }
+
 // Deadline supplies the installed finite provider budget to the shared coordinator.
 func (s *Service) Deadline() time.Duration { return s.deadline }
 func (s *Service) runRequest(a store.AdvisoryAdmission) (RunRequest, Principal, error) {
@@ -181,21 +187,19 @@ func (s *Service) RecoverClaim(ctx context.Context, a store.WorkflowAttempt) err
 	return s.finish(ctx, a, state, answer, true)
 }
 
-// RunOnce is useful for installations with only the advisory coordinator. The
-// database claim serializes it with every other durable workflow coordinator.
+// RunOnce drives only an advisory attempt at the head of the shared queue; it can
+// never claim another kind's attempt. The daemon drives claims through the shared
+// durable workflow Service, with which this coordinator registers.
 func (s *Service) RunOnce(ctx context.Context) (bool, error) {
 	if !s.Idle() {
 		return false, nil
 	}
-	a, j, err := s.db.ClaimWorkflowAttempt(ctx, s.now(), s.deadline)
+	a, j, err := s.db.ClaimWorkflowAttemptKind(ctx, s.now(), s.deadline, AdmissionKind)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
-	}
-	if a.AdmissionKind != "advisory" {
-		return true, errors.New("shared workflow coordinator required for workflow jobs")
 	}
 	return true, s.ExecuteClaim(ctx, a, j)
 }

@@ -121,3 +121,6 @@ func (r *Runtime) SetTaskDiscussion(v TaskDiscussion) { r.server.SetTaskDiscussi
 
 // SetStageDecisions attaches the core stage decision service.
 func (r *Runtime) SetStageDecisions(v StageDecisions) { r.server.SetStageDecisions(v) }
+
+// SetBrainstorm installs the repository brainstorm service.
+func (r *Runtime) SetBrainstorm(v Brainstorms) { r.server.SetBrainstorm(v) }
