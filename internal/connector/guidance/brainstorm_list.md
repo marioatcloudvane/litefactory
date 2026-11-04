@@ -1,0 +1,1 @@
+Use brainstorm_list when the owner asks about earlier brainstorms for a repository. It lists them newest first, open and closed. Follow next_cursor for more. A closed brainstorm can still be read with brainstorm_get, brainstorm_entries and brainstorm_scans, but not changed.

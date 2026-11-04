@@ -1,0 +1,3 @@
+Call issue_search whenever the owner asks whether there is already an issue for something, and before you suggest a new issue. Pass a few plain search words, not a sentence. It searches open and closed issues of the repository's project through its GitHub or Linear connection.
+
+Say issue numbers as numbers. A match is only a possible duplicate to check, never proof; matching is literal and results can be incomplete. Keep a relevant match as a related_issue entry with brainstorm_add. If the project has no GitHub or Linear connection, or the provider refuses with a wait time, say so plainly; do not retry on your own. Searching never edits, closes or merges an issue.

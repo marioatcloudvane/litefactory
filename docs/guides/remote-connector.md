@@ -183,7 +183,7 @@ connector grant.
 The authorization request's `scope` is a space-separated list of known scopes;
 the available scopes are `factory:overview`, `task:discussion`, `factory:usage`,
 `repository:usage`, `task:usage`, `task:code-review`, `task:advisory`,
-`task:discussion-publish`, `repository:actions` and
+`task:discussion-publish`, `repository:brainstorm`, `repository:actions` and
 `standards:management`. The consent page
 offers every known scope: the scopes the client requested are pre-ticked, the
 others are shown unticked and the owner may tick them. This matters when a
@@ -303,8 +303,10 @@ Initialize instructions now start with a short factory overview and a brainstorm
 guide, then the per-tool guidance above. The overview and brainstorm text name no
 tool, so every grant, including a usage-only grant, receives the same words. They
 say that the factory keeps no raw documents, that brainstorming and scanning only
-read, and that a spoken yes approves no Plan stage. They do not claim brainstorm
-tools exist. The connector also offers MCP prompts through `prompts/list` and
+read, and that a spoken yes approves no Plan stage. The brainstorm guide names
+no tool either: it says brainstorm tools exist only when the tool list has them,
+and how to use them when present. The per-tool guidance of the brainstorm tools
+(see "Repository brainstorms") is sent only to grants with `repository:brainstorm`. The connector also offers MCP prompts through `prompts/list` and
 `prompts/get`: `brainstorm_feature` (always), `whats_waiting` (with
 `factory_overview`) and `review_task` (with `task_evidence_read`, one required
 `task` argument). Prompts are static text and need no extra scope; a client may
@@ -951,3 +953,49 @@ proposal identities, existing approval bindings and GitHub workflows. Installing
 these action names does not bump confirmation policy or invalidate old pending
 proposals. Keep uncertain outcomes visible until reconciled, and never run an
 older daemon against a schema it cannot validate.
+
+## Repository brainstorms
+
+The `repository:brainstorm` scope lets a chat client keep one durable
+brainstorm per repository in the factory and ask factual questions about the
+repository. Coverage is an explicit repository list only: the consent page
+refuses "All repositories" for this scope (`all_repositories_not_allowed`), as
+for `task:advisory`. **Each factual question starts one paid read-only research
+agent run without another confirmation.** An older grant without this scope sees
+none of these tools in `tools/list`, and calling one returns 403 with
+`error="insufficient_scope"` and `scope="repository:brainstorm"`. Every call is
+checked again: the repository must be registered and still covered by the
+grant, and the grant must still hold the scope. A paid run also checks that
+consent while it waits and runs.
+
+| Tool | Purpose |
+|---|---|
+| `brainstorm_open` | Open or resume the owner's open brainstorm for a repository. |
+| `brainstorm_get` | Header, revision, entry counts per kind, question counts per state, newest entries and questions. |
+| `brainstorm_entries` | Page every kept entry oldest first, optionally of one kind. |
+| `brainstorm_scans` | Page every question ever asked oldest first with its live state. |
+| `brainstorm_list` | List the owner's brainstorms for a repository, newest first. |
+| `brainstorm_add` | Keep an idea, decision, open question, related issue or document note (with its document name). |
+| `brainstorm_close` | Close a brainstorm; it stays readable. |
+| `brainstorm_ask` | Admit one factual question as a paid read-only research scan. |
+| `brainstorm_scan_get` | Read a question's state, spoken answer, cost and paged evidence. |
+| `brainstorm_scan_cancel` | Cancel a waiting question or stop a running one. |
+| `issue_search` | Search open and closed issues of the repository's project (GitHub or Linear). |
+
+Question states are `waiting`, `running`, `stopping`, `answered`, `failed`,
+`cancelled` and `unsure` (interrupted by a restart, not rerun; ask again).
+Writes take a `request_key`; a retry with the same key and content replays the
+first result, and the same key with different content is refused.
+`brainstorm_add` and `brainstorm_close` also take `expected_revision` and are
+refused when the brainstorm changed. Paged replies carry `next_cursor` while
+more remains; pages hold 1 to 50 items and cursors are bound to the reader.
+Issue search text is at most 200 characters and returns 1 to 50 matches; a
+project with neither a GitHub nor a Linear connection is refused plainly, and
+nothing is retried. Replies use the task discussion bounds: a summary of at most
+1,000 Unicode code points and a complete response of at most 128 KiB.
+
+The initialize instructions tell the client to open or resume the brainstorm
+first, to page all entries and questions when resuming, to send every factual
+question to `brainstorm_ask` on its own without asking the owner, to use
+`issue_search` for "is there already an issue" questions, and to read the spoken
+answer aloud. A brainstorm writes no code, edits no issues and approves nothing.

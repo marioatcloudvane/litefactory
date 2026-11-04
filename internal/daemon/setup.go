@@ -800,6 +800,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		if advisoryErr := daemon.prepareTaskDiscussion(ctx, judgeService, reporter, sharedRedactor, s.Now); advisoryErr != nil {
 			s.Logger.WarnContext(ctx, "task discussion admission unavailable")
 		}
+		if brainstormErr := daemon.prepareBrainstorm(judgeService, sharedRedactor, s.Now); brainstormErr != nil {
+			s.Logger.WarnContext(ctx, "brainstorm unavailable")
+		}
 	}
 	handedOver = true
 	validateSlots.bind(daemon.pool)
