@@ -2,10 +2,7 @@ package durableworkflow
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/owneraction"
+	"github.com/cloudvane/litefactory/internal/signedcursor"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -65,7 +63,17 @@ type Options struct {
 	NoticeDestination func(context.Context, owneraction.Principal, Definition, Resolved) (string, error)
 }
 
-// AdvisoryCoordinator consumes only server-admitted private advisory claims.
+// ClaimCoordinator consumes server-admitted claims of one non-confirmed admission kind.
+// The shared Service stays the only claimer; recovery may only read receipts.
+type ClaimCoordinator interface {
+	Kind() string
+	Deadline() time.Duration
+	Idle() bool
+	ExecuteClaim(context.Context, store.WorkflowAttempt, store.WorkflowJob) error
+	RecoverClaim(context.Context, store.WorkflowAttempt) error
+}
+
+// AdvisoryCoordinator is the private advisory coordinator before it declares its kind.
 type AdvisoryCoordinator interface {
 	Deadline() time.Duration
 	Idle() bool
@@ -73,9 +81,17 @@ type AdvisoryCoordinator interface {
 	RecoverClaim(context.Context, store.WorkflowAttempt) error
 }
 
+type advisoryKind struct{ AdvisoryCoordinator }
+
+func (advisoryKind) Kind() string { return "advisory" }
+
+// ConfirmedWorkflowKind is the built-in admission kind of owner-confirmed workflows.
+const ConfirmedWorkflowKind = "confirmed_workflow"
+
 // Service owns the shared durable worker.
 type Service struct {
-	advisory AdvisoryCoordinator
+	coordinators map[string]ClaimCoordinator
+	coordMu      sync.Mutex
 
 	db                *store.DB
 	registry          *Registry
@@ -88,7 +104,7 @@ type Service struct {
 	fallback          owneraction.Domain
 	mu                sync.Mutex
 	workerMu          sync.Mutex
-	cursorKey         [32]byte
+	cursors           signedcursor.Codec
 }
 
 // New validates trusted coordinator dependencies.
@@ -130,11 +146,11 @@ func New(o Options) (*Service, error) {
 			return nil, errors.New("workflow contract omits its fixed policy permission")
 		}
 	}
-	var key [32]byte
-	if _, err := rand.Read(key[:]); err != nil {
+	cursors, err := signedcursor.New()
+	if err != nil {
 		return nil, err
 	}
-	return &Service{cursorKey: key, db: o.DB, registry: o.Registry, adapters: adapters, policies: policies, now: o.Now, protect: o.Protect, noticeDestination: o.NoticeDestination}, nil
+	return &Service{cursors: cursors, coordinators: map[string]ClaimCoordinator{}, db: o.DB, registry: o.Registry, adapters: adapters, policies: policies, now: o.Now, protect: o.Protect, noticeDestination: o.NoticeDestination}, nil
 }
 
 // BindActions attaches the shared confirmation service before serving.
@@ -243,31 +259,13 @@ type cursor struct {
 }
 
 func (s *Service) encodeCursor(c cursor) string {
-	raw, _ := json.Marshal(c)
-	mac := hmac.New(sha256.New, s.cursorKey[:])
-	_, _ = mac.Write(raw)
-	return base64.RawURLEncoding.EncodeToString(raw) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	// Cursor fields are bounded server values, far below the shared size limit.
+	v, _ := s.cursors.Encode(c)
+	return v
 }
 func (s *Service) decodeCursor(value string) (cursor, error) {
 	var c cursor
-	raw, signature, ok := strings.Cut(value, ".")
-	if !ok {
-		return c, errors.New("invalid workflow cursor")
-	}
-	b, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil {
-		return c, err
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(signature)
-	if err != nil {
-		return c, err
-	}
-	mac := hmac.New(sha256.New, s.cursorKey[:])
-	_, _ = mac.Write(b)
-	if !hmac.Equal(sig, mac.Sum(nil)) {
-		return c, errors.New("invalid workflow cursor")
-	}
-	err = json.Unmarshal(b, &c)
+	err := s.cursors.Decode(value, &c)
 	return c, err
 }
 func (s *Service) reader(ctx context.Context, p owneraction.Principal) (string, error) {
@@ -277,7 +275,7 @@ func (s *Service) reader(ctx context.Context, p owneraction.Principal) (string, 
 
 // List filters current authority before applying pagination.
 func (s *Service) List(ctx context.Context, p owneraction.Principal, project, raw string, limit int) (Page, error) {
-	if limit < 1 || limit > 50 || len(raw) > 4096 {
+	if !signedcursor.ValidPage(limit, raw) {
 		return Page{}, errors.New("invalid workflow page")
 	}
 	fp, err := s.reader(ctx, p)
@@ -745,5 +743,55 @@ func catalogueEntry(d Definition, available bool, reason string) CatalogueEntry 
 	return CatalogueEntry{Ref: d.Ref, Version: d.Version, Digest: d.Digest, Name: d.Name, Purpose: d.Purpose, BindingProject: d.BindingProject, ProjectMode: d.ProjectMode, FixedProject: d.FixedProject, RequiredPermissions: d.RequiredPermissions, DeadlineSeconds: d.DeadlineSeconds, Impact: d.Impact, Available: available, UnavailableReason: reason}
 }
 
-// BindAdvisory installs the fixed private advisory coordinator before worker start.
-func (s *Service) BindAdvisory(a AdvisoryCoordinator) { s.advisory = a }
+// Register installs one coordinator per non-confirmed admission kind before worker start.
+func (s *Service) Register(c ClaimCoordinator) error {
+	if c == nil {
+		return errors.New("claim coordinator unavailable")
+	}
+	kind := c.Kind()
+	if kind == "" || kind == ConfirmedWorkflowKind {
+		return errors.New("claim coordinator kind is reserved or empty")
+	}
+	if c.Deadline() <= 0 {
+		return errors.New("claim coordinator deadline must be positive")
+	}
+	s.coordMu.Lock()
+	defer s.coordMu.Unlock()
+	if _, ok := s.coordinators[kind]; ok {
+		return errors.New("claim coordinator kind already registered")
+	}
+	s.coordinators[kind] = c
+	return nil
+}
+
+// BindAdvisory installs the private advisory coordinator before worker start.
+func (s *Service) BindAdvisory(a AdvisoryCoordinator) error {
+	if a == nil {
+		return errors.New("claim coordinator unavailable")
+	}
+	if c, ok := a.(ClaimCoordinator); ok && c.Kind() != "advisory" {
+		return errors.New("advisory coordinator must declare kind advisory")
+	}
+	return s.Register(advisoryKind{a})
+}
+
+func (s *Service) coordinator(kind string) (ClaimCoordinator, bool) {
+	s.coordMu.Lock()
+	defer s.coordMu.Unlock()
+	c, ok := s.coordinators[kind]
+	return c, ok
+}
+
+// claimWindow reports whether every coordinator is idle and the longest registered deadline.
+func (s *Service) claimWindow() (bool, time.Duration) {
+	s.coordMu.Lock()
+	defer s.coordMu.Unlock()
+	limit := time.Second
+	for _, c := range s.coordinators {
+		if !c.Idle() {
+			return false, 0
+		}
+		limit = max(limit, c.Deadline())
+	}
+	return true, limit
+}

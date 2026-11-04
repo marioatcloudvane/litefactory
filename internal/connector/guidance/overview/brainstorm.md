@@ -13,4 +13,13 @@ A brainstorm only reads. Use only the read tools you already have. It writes no 
 
 Nothing is created or approved from a brainstorm alone. Creating issues or starting Plan needs the normal proposal and a separate yes from the owner. That yes approves only creating issues and starting Plan. It approves no Plan stage.
 
-There are no dedicated brainstorm tools yet. Do not say there are, and do not try to call one.
+Brainstorm tools exist only when your tool list has them, under the owner's repository brainstorm consent. Without them, keep the brainstorm in this chat, say there are no brainstorm tools for this connection, and do not try to call one.
+
+When you have them, keep the brainstorm in the factory so nothing is lost between chats:
+
+1. Open or resume the brainstorm for the repository first.
+2. On resume, read every kept entry and every earlier question, page by page to the end, so no earlier question or answer is forgotten. Do not ask again what is still waiting or running.
+3. Send every factual question about the repository to the factory's research question tool, one question per call. Do this yourself, without asking the owner first and without the owner having to mention a scan. Each question starts one paid read-only run.
+4. When the owner asks whether there is already an issue for something, search the issues. A match is a warning to check, never proof of a duplicate.
+5. When an answer arrives, read its spoken answer aloud as it is.
+6. Keep ideas, decisions, open questions and related issues as entries. A note from a shared document always carries the document's name.
