@@ -298,6 +298,20 @@ use `factory_overview`; questions about a named task and supporting evidence use
 `task_evidence_read`; recorded usage and supported historical cost questions use
 `usage_read`. Usage-only grants receive guidance for usage only. Reinitialize
 after fresh consent to receive current guidance.
+
+Initialize instructions now start with a short factory overview and a brainstorm
+guide, then the per-tool guidance above. The overview and brainstorm text name no
+tool, so every grant, including a usage-only grant, receives the same words. They
+say that the factory keeps no raw documents, that brainstorming and scanning only
+read, and that a spoken yes approves no Plan stage. They do not claim brainstorm
+tools exist. The connector also offers MCP prompts through `prompts/list` and
+`prompts/get`: `brainstorm_feature` (always), `whats_waiting` (with
+`factory_overview`) and `review_task` (with `task_evidence_read`, one required
+`task` argument). Prompts are static text and need no extra scope; a client may
+not show them. For a client that ignores instructions and prompts, run
+`litefactory connector template` and paste the output into the client's project
+instructions. It is built from the same files the connector sends, so it cannot
+drift; it needs no grant, database or network.
 No grant or initialization cache expands another grant's permissions.
 
 Task discussion supplies a deterministic factual summary of at most 1,000 Unicode

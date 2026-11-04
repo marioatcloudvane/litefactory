@@ -137,12 +137,12 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		} else {
 			version = protocolLatest
 		}
-		instructions, guidanceErr := loadGuidance(s.guidance, s.availableTools(grant))
+		instructions, guidanceErr := composeInstructions(s.guidance, s.availableTools(grant))
 		if guidanceErr != nil {
 			refuseRPC(-32603, "Tool guidance unavailable", "guidance")
 			return
 		}
-		s.rpcResult(w, req.ID, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "litefactory", "version": "1"}, "instructions": instructions})
+		s.rpcResult(w, req.ID, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}, "prompts": map[string]any{}}, "serverInfo": map[string]string{"name": "litefactory", "version": "1"}, "instructions": instructions})
 		s.audit(r, event, "success", "initialized", tool, start)
 	case "ping":
 		s.rpcResult(w, req.ID, map[string]any{})
@@ -189,6 +189,60 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 		s.rpcResult(w, req.ID, map[string]any{"tools": tools})
 		s.audit(r, event, "success", "listed", tool, start)
+	case "prompts/list":
+		if len(req.Params) > 0 && string(req.Params) != "null" {
+			var lp struct {
+				Cursor *string `json:"cursor"`
+			}
+			if !strictParams(req.Params, &lp) || lp.Cursor != nil {
+				refuseRPC(-32602, "Invalid params", "params")
+				return
+			}
+		}
+		prompts, perr := promptList(s.guidance, s.availableTools(grant))
+		if perr != nil {
+			refuseRPC(-32603, "Prompt guidance unavailable", "guidance")
+			return
+		}
+		s.rpcResult(w, req.ID, map[string]any{"prompts": prompts})
+		s.audit(r, event, "success", "listed", tool, start)
+	case "prompts/get":
+		var gp struct {
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments"`
+		}
+		if !strictParams(req.Params, &gp) {
+			refuseRPC(-32602, "Invalid params", "params")
+			return
+		}
+		var spec *promptSpec
+		for i := range promptSpecs {
+			if promptSpecs[i].Name == gp.Name && promptSpecs[i].listed(s.availableTools(grant)) {
+				spec = &promptSpecs[i]
+			}
+		}
+		arg := ""
+		argOK := spec != nil
+		if spec != nil {
+			if spec.Argument == "" {
+				argOK = len(gp.Arguments) == 0
+			} else {
+				v, has := gp.Arguments[spec.Argument]
+				arg = v
+				argOK = has && len(gp.Arguments) == 1 && v != "" && len(v) <= 512 && !strings.ContainsAny(v, "\r\n")
+			}
+		}
+		if !argOK {
+			refuseRPC(-32602, "Invalid params", "params")
+			return
+		}
+		desc, text, perr := promptText(s.guidance, *spec, arg)
+		if perr != nil {
+			refuseRPC(-32603, "Prompt guidance unavailable", "guidance")
+			return
+		}
+		s.rpcResult(w, req.ID, map[string]any{"description": desc, "messages": []any{map[string]any{"role": "user", "content": map[string]any{"type": "text", "text": text}}}})
+		s.audit(r, event, "success", "prompt", tool, start)
 	case "tools/call":
 		var params struct {
 			Name      string          `json:"name"`
