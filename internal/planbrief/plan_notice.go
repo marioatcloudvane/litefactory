@@ -98,9 +98,12 @@ func (s *PlanState) withCurrentCommand(key, reason string) string {
 }
 
 // PlanReplyReason checks exact approval commands against the current display.
+// An approval is read from the first line only; the lines below it are guidance.
 // Ordinary discussion and mixed prose retain their normal feedback semantics.
 func (s *PlanState) PlanReplyReason(key, body string) string {
 	parts := strings.Fields(commandtext.Normalize(body))
+	line, _ := PlanCommandLine(body)
+	approval := strings.Fields(line)
 	item, err := s.story(key)
 	if err != nil {
 		return "This story could not be found in the plan."
@@ -121,8 +124,8 @@ func (s *PlanState) PlanReplyReason(key, body string) string {
 			return "This story, a story it depends on, or a shared decision changed after the latest review. Wait for the updated review and use the command it shows."
 		}
 	}
-	if len(parts) == 4 && parts[0] == "/approve-plan" {
-		if w == nil || !approvableWait(item) || parts[1] != key || parts[2] != item.Stage || parts[3] != item.Candidate || w.Candidate != item.Candidate {
+	if len(approval) == 4 && approval[0] == "/approve-plan" {
+		if w == nil || !approvableWait(item) || approval[1] != key || approval[2] != item.Stage || approval[3] != item.Candidate || w.Candidate != item.Candidate {
 			return s.withCurrentCommand(key, "This approval does not match the latest review of this story, so nothing was approved.")
 		}
 		if len(item.Draft.Questions) > 0 {

@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"strings"
 	"testing"
@@ -90,6 +91,44 @@ func TestPlanPublishedShortApprovalsResolveOnce(t *testing.T) {
 	executeGraphPlan(t, f, next)
 	if graphPlanState(t, f).Stories[0].Stage == after.Stage {
 		t.Fatal("short reference did not advance exact stage")
+	}
+}
+
+// #1390: a short approval on the first line with guidance below resolves to
+// the displayed command, approves it and keeps the guidance, also on replay.
+func TestPlanPublishedShortApprovalWithGuidanceBelow(t *testing.T) {
+	for _, form := range []string{"bare", "reference"} {
+		t.Run(form, func(t *testing.T) {
+			f, _, base, _ := graphPlanFixture(t, "go")
+			task := f.ref().String()
+			executeGraphPlan(t, f, base)
+			first := graphPlanState(t, f).Stories[0]
+			shown, err := f.db.ExplicitOwnerDecisionDisplay(t.Context(), task, "/approve-plan", first.Wait.Revision)
+			mustProgress(t, err)
+			short := "/approve-plan"
+			if form == "reference" {
+				short += " " + shown.Reference
+			}
+			body := short + "\n\nNOTE-1390 for the next stage"
+			req := withReplyBody(graphPlanApprove(t, f, base, base.Trigger.CommentID+1), body)
+			executeGraphPlan(t, f, req)
+			after := graphPlanState(t, f).Stories[0]
+			if after.Stage == first.Stage || after.ApprovedBy[first.Stage] != planbrief.ApprovalByOwner {
+				t.Fatalf("short approval with guidance below did not advance: %+v", after)
+			}
+			resolved, err := f.db.ExplicitOwnerDecisionDisplay(t.Context(), task, "/approve-plan", first.Wait.Revision)
+			mustProgress(t, err)
+			if !resolved.Resolved {
+				t.Fatal("published decision not resolved")
+			}
+			want := shown.Target + "\nNOTE-1390 for the next stage"
+			for range 2 {
+				got, err := ResolvePlanStoryDecision(t.Context(), f.db, task, req.Trigger.CommentID, 7, body, implementClock, "story-001")
+				if err != nil || got != want {
+					t.Fatalf("replay: %q %v, want %q", got, err, want)
+				}
+			}
+		})
 	}
 }
 
