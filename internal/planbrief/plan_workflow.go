@@ -795,7 +795,15 @@ func (s *PlanState) ApproveAssembled(ownerID, actorID, replyID int64, body strin
 		return err
 	}
 	ref := s.PlanSetRevision()
-	if s.AssembledWait != ref || strings.TrimSpace(commandtext.Normalize(body)) != "/approve-plan-set "+ref {
+	exact := strings.TrimSpace(commandtext.Normalize(body)) == "/approve-plan-set "+ref
+	// An identical repeat of a recorded approval whose save is not confirmed
+	// (for example, its push failed) is a repeat: it only consumes the reply,
+	// so the turn reaches the save again.
+	if exact && s.AssembledApproval == ref && s.SavedRevision != ref {
+		s.ConsumedReplies = append(s.ConsumedReplies, replyID)
+		return nil
+	}
+	if s.AssembledWait != ref || !exact {
 		return ErrPlanAssembledStale
 	}
 	s.AssembledApproval = ref
