@@ -602,3 +602,23 @@ func TestEffectCheckAfterBeginRefusesWriteAndKeepsItemPending(t *testing.T) {
 		t.Fatalf("item=%+v creates=%d", it, len(f.forge.creates))
 	}
 }
+
+func TestAdmittedLaunchThatNeverStartedSettlesAsNotStarted(t *testing.T) {
+	f := newFixture(t, 1)
+	f.run(3 * time.Second)
+	f.db.setState("item-1", store.BrainstormItemPlanStarting)
+	f.run(2 * time.Second)
+	if c := f.db.conts[0]; c.State != "running" || len(f.ann.order) != 0 {
+		t.Fatalf("waiting launch settled: %+v %v", c, f.ann.order)
+	}
+	// The launch step ends the bounded wait without counting a failed attempt.
+	f.db.setState("item-1", store.BrainstormItemPlanStartFailed)
+	f.run(2 * time.Second)
+	c := f.db.conts[0]
+	if c.State != "settled" || c.SummaryState != SummarySent || f.db.batch.State != "settled" || len(f.ann.order) != 1 {
+		t.Fatalf("cont=%+v batch=%q summaries=%v", c, f.db.batch.State, f.ann.order)
+	}
+	if o, ok := outcome(f.db.item("item-1"), c.Items[0], false); !ok || o != outcomeNotStarted {
+		t.Fatalf("outcome = %q %v", o, ok)
+	}
+}
