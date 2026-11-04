@@ -154,3 +154,33 @@ func TestScanHandlesEmptyInput(t *testing.T) {
 		t.Errorf("Scan(blank) = %+v, want none", refs)
 	}
 }
+
+// TestScanFindsLinearUploads covers the syntaxes Linear inserts for a pasted
+// file: a Markdown image, a Markdown link and a bare URL on uploads.linear.app.
+func TestScanFindsLinearUploads(t *testing.T) {
+	t.Parallel()
+
+	const png = "https://uploads.linear.app/org-1/upload-2/shot.png"
+	const heic = "https://uploads.linear.app/org-1/upload-3/IMG_0001.heic"
+	body := "![shot](" + png + ")\n[IMG_0001.heic](" + heic + ")\nsee " + png
+	refs := Scan(body)
+	if len(refs) != 2 {
+		t.Fatalf("Scan returned %d refs, want 2: %+v", len(refs), refs)
+	}
+	if refs[0].URL != png || refs[0].Name != "shot" {
+		t.Errorf("first ref = %+v", refs[0])
+	}
+	if refs[1].URL != heic || refs[1].Name != "IMG_0001.heic" {
+		t.Errorf("second ref = %+v", refs[1])
+	}
+	for _, other := range []string{
+		"![x](http://uploads.linear.app/org/a.png)",
+		"![x](https://uploads.linear.app.evil.example/a.png)",
+		"![x](https://api.linear.app/graphql)",
+		"![x](https://linear.app/team/issue/MAR-81)",
+	} {
+		if refs := Scan(other); len(refs) != 0 {
+			t.Errorf("Scan(%q) = %+v, want none", other, refs)
+		}
+	}
+}

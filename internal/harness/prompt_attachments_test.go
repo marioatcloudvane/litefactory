@@ -104,3 +104,16 @@ func TestBlankAttachmentsRenderNothing(t *testing.T) {
 		t.Errorf("a whitespace-only attachments value changed the prompt:\n%q", got)
 	}
 }
+
+// TestRejectedAttachmentsReachTheAgent covers the Linear HEIC case: a section
+// holding only refused files is still rendered, so the agent learns why the
+// file is missing instead of trying the raw link.
+func TestRejectedAttachmentsReachTheAgent(t *testing.T) {
+	in := testPromptInput()
+	in.Attachments = "These attachments are not available to you:\n- `IMG_0001.heic` is an unsupported file type."
+	prompt := buildPrompt(t, in)
+
+	if !strings.Contains(prompt, "## Attachments") || !strings.Contains(prompt, "`IMG_0001.heic` is an unsupported file type.") {
+		t.Errorf("a rejection-only attachments section was not rendered:\n%s", prompt)
+	}
+}
