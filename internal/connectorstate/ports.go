@@ -24,7 +24,8 @@ type Storage interface {
 	RevokeConnectorToken(ctx context.Context, clientID, digest string, now time.Time) error
 }
 
-// Access resolves current grant coverage and retained factory targets. Implementations keep existing authority checks and their transaction fences.
+// Access authorizes protected reads against core-owned retained targets.
+// Production composition binds credential storage and target reads to one backend.
 type Access interface {
 	// SameStore preserves the authentication and target-resolution backend binding.
 	SameStore(Storage) bool

@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=10m -race ./internal/overview
+ok  	github.com/cloudvane/litefactory/internal/overview	9.155s
+
+EXIT 0

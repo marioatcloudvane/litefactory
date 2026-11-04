@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=35m ./internal/cli
+ok  	github.com/cloudvane/litefactory/internal/cli	48.207s
+
+EXIT 0

@@ -1,0 +1,4 @@
+$ go test -count=1 -timeout=10m -race ./internal/connectorstate
+?   	github.com/cloudvane/litefactory/internal/connectorstate	[no test files]
+
+EXIT 0
