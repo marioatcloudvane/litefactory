@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -63,13 +64,27 @@ func (e turnExecutor) Execute(ctx context.Context, req turn.Request) (turn.Resul
 		if err != nil {
 			return turn.Result{}, err
 		}
-		if clients.Code != nil {
-			opts.AssetFetcher = clients.Code
-		} else {
-			opts.AssetFetcher = nil
-		}
+		opts.AssetFetcher = assetFetcher(clients)
 	}
 	return turn.Execute(ctx, opts, req)
+}
+
+// assetFetcher picks the client that fetches a turn's attachments: the code
+// client when the connection has one, otherwise the Linear ticket client,
+// which holds its own upload-host check. It returns an untyped nil when
+// neither exists, so turn's "no fetcher" gate sees nil rather than a typed
+// nil interface.
+func assetFetcher(clients *projectconnection.Clients) attach.Fetcher {
+	switch {
+	case clients == nil:
+		return nil
+	case clients.Code != nil:
+		return clients.Code
+	case clients.Linear != nil:
+		return clients.Linear
+	default:
+		return nil
+	}
 }
 
 func (e turnExecutor) ApplyConfirmedResolution(ctx context.Context, req turn.ApplyRequest) (turn.ApplyResult, error) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"io"
 	"os"
@@ -224,3 +225,13 @@ func TestConnectorGrantCommandFailures(t *testing.T) {
 type grantFailWriter struct{}
 
 func (grantFailWriter) Write([]byte) (int, error) { return 0, errors.New("sensitive-writer-secret") }
+
+func TestConnectorTemplatePrintsGuidance(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	cmd := newConnectorTemplateCommand()
+	handler := cmd.New(flag.NewFlagSet("t", flag.ContinueOnError))
+	if err := handler(t.Context(), &Env{Stdout: &out}, nil); err != nil || !strings.Contains(out.String(), "Prompts") {
+		t.Fatalf("template: %v %q", err, out.String())
+	}
+}
