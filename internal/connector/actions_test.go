@@ -426,7 +426,7 @@ func TestActionServicePublicationIsSafeDuringDiscovery(t *testing.T) {
 				t.Errorf("partial service publication: %v", names)
 				return
 			}
-			if schema := server.actionSchema("action_propose"); schema["type"] != "object" {
+			if schema := server.actionSchema("action_propose", true); schema["type"] != "object" {
 				t.Errorf("unavailable schema during publication: %v", schema)
 				return
 			}

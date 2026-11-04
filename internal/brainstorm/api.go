@@ -95,7 +95,9 @@ type IssueSearcher interface {
 // RunRequest binds one scan run to its durable admitted identity.
 type RunRequest struct {
 	ScanID, JobID, ExecutionID, BrainstormID, RepositoryRef, Question string
-	Team                                                              TeamCapture
+	// Purpose is "" for a question scan or PurposeDrafts for a drafts scan.
+	Purpose string
+	Team    TeamCapture
 	// Digest is the bounded prompt fact block (newest entries within
 	// MaxDigestBytes plus the index), as JSON.
 	Digest json.RawMessage
@@ -109,9 +111,11 @@ type RunResult struct {
 	Answer    string          `json:"answer"`   // result.comment, the spoken answer
 	Research  json.RawMessage `json:"research"` // payload.research: findings, decisions, assumptions
 	Questions []string        `json:"questions,omitempty"`
-	Commit    string          `json:"commit"`
-	Usage     json.RawMessage `json:"usage,omitempty"`
-	Cost      string          `json:"cost,omitempty"`
+	// Drafts is payload.brainstorm_drafts of a drafts scan.
+	Drafts json.RawMessage `json:"drafts,omitempty"`
+	Commit string          `json:"commit"`
+	Usage  json.RawMessage `json:"usage,omitempty"`
+	Cost   string          `json:"cost,omitempty"`
 }
 
 // Runner executes one read-only scan and recovers only from an existing receipt.
@@ -163,6 +167,7 @@ type ScanItem struct {
 	ScanID      string    `json:"scan"`
 	Seq         int64     `json:"scan_seq"`
 	Question    string    `json:"question"`
+	Purpose     string    `json:"purpose,omitempty"` // drafts for a drafts scan
 	State       string    `json:"state"`
 	AdmittedAt  time.Time `json:"admitted_at"`
 	FinishedAt  time.Time `json:"finished_at,omitzero"`

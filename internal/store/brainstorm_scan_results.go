@@ -24,6 +24,8 @@ type BrainstormScanRun struct {
 	Cost                                string
 	ExchangeSeq                         int64
 	CreatedAt, FinishedAt               time.Time
+	// Purpose is "" (question) or "drafts".
+	Purpose string
 }
 
 // BrainstormContextEntry is one kept entry as written into scan context files.
@@ -38,6 +40,8 @@ type BrainstormScanFinish struct {
 	// State is the shared job state: succeeded, failed, cancelled or uncertain.
 	State, Answer, Research, BasisCommit, Usage, Cost, FailureReason string
 	Questions                                                        []string
+	// Drafts is the validated draft set of a succeeded drafts scan; nil otherwise.
+	Drafts *BrainstormDraftSetInput
 }
 
 // BrainstormScanResultBinding grants one scan execution a private result writer.
@@ -46,12 +50,12 @@ type BrainstormScanResultBinding struct {
 	Fence               int64
 }
 
-const brainstormScanRunColumns = `id,brainstorm_id,scan_seq,owner_id,owner_generation,repository_ref,request_key,question,team_version,team_files,basis_commit,grant_id,consent_revision,job_id,execution_id,failure_reason,answer,research,questions,usage,cost,exchange_seq,created_at,finished_at`
+const brainstormScanRunColumns = `id,brainstorm_id,scan_seq,owner_id,owner_generation,repository_ref,request_key,question,team_version,team_files,basis_commit,grant_id,consent_revision,job_id,execution_id,failure_reason,answer,research,questions,usage,cost,exchange_seq,created_at,finished_at,COALESCE(purpose,'')`
 
 func scanBrainstormScanRun(row scanner) (BrainstormScanRun, error) {
 	var s BrainstormScanRun
 	var created, finished string
-	err := row.Scan(&s.ID, &s.BrainstormID, &s.ScanSeq, &s.OwnerID, &s.OwnerGeneration, &s.RepositoryRef, &s.RequestKey, &s.Question, &s.TeamVersion, &s.TeamFiles, &s.BasisCommit, &s.GrantID, &s.ConsentRevision, &s.JobID, &s.ExecutionID, &s.FailureReason, &s.Answer, &s.Research, &s.Questions, &s.Usage, &s.Cost, &s.ExchangeSeq, &created, &finished)
+	err := row.Scan(&s.ID, &s.BrainstormID, &s.ScanSeq, &s.OwnerID, &s.OwnerGeneration, &s.RepositoryRef, &s.RequestKey, &s.Question, &s.TeamVersion, &s.TeamFiles, &s.BasisCommit, &s.GrantID, &s.ConsentRevision, &s.JobID, &s.ExecutionID, &s.FailureReason, &s.Answer, &s.Research, &s.Questions, &s.Usage, &s.Cost, &s.ExchangeSeq, &created, &finished, &s.Purpose)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, ErrNotFound
 	}
@@ -194,6 +198,14 @@ func (db *DB) FinishBrainstormScan(ctx context.Context, a WorkflowAttempt, f Bra
 					}
 				}
 				if _, err = tx.ExecContext(ctx, `UPDATE brainstorms SET revision=revision+1,last_activity_at=? WHERE id=?`, stamp, scan.BrainstormID); err != nil {
+					return err
+				}
+			}
+			if scan.Purpose == BrainstormPurposeDrafts {
+				if f.Drafts == nil {
+					return ErrConnectorInvalid
+				}
+				if err = insertBrainstormDraftSetTx(ctx, tx, scan.BrainstormID, scan.ID, *f.Drafts, at); err != nil {
 					return err
 				}
 			}

@@ -502,6 +502,8 @@ type Daemon struct {
 
 	discord      *discordcomponent.Component
 	ownerActions *ownerActionRuntime
+	// brainstormTasks carries the notice channel allowlist for batch summaries.
+	brainstormTasks brainstormTaskRuntime
 
 	// runsHeld is the free-disk hold text of the current tick: cleared at the
 	// start of every tick and set only when the disk guard holds runs, and

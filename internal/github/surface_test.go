@@ -98,6 +98,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"ListCommentsAfter",          // GET  /repos/{o}/{r}/issues/{n}/comments
 		"ListRepositoryCommentsPage", // bounded doctor routing metadata; no issue history expansion
 		"ListCommentsPage",           // GET one bounded /repos/{o}/{r}/issues/{n}/comments page for observation
+		"ListCreatedIssuesPage",      // GET one bounded /repos/{o}/{r}/issues?creator=&state=all&sort=created&direction=desc page
 		"GetDeliveryHead",
 		"ListAnalysisPRFiles",        // GET bounded PR file observations
 		"ListAnalysisReviewComments", // GET bounded PR review discussion

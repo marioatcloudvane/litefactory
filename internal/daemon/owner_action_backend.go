@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/brainstorm"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/factory"
@@ -21,6 +22,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/stagedecision"
+	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
 
@@ -34,8 +36,10 @@ type ownerActionRuntime struct {
 	discussions       *taskdiscussion.Service
 	actions           *owneraction.Service
 	workflows         *durableworkflow.Service
-	notices           atomic.Pointer[messaging.Service]
-	once              sync.Once
+	// brainstormDrafts is bound once the brainstorm service is prepared.
+	brainstormDrafts brainstormDraftsPort
+	notices          atomic.Pointer[messaging.Service]
+	once             sync.Once
 }
 
 func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logger *slog.Logger) {
@@ -212,13 +216,15 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		render := func(ctx context.Context, q owneractions.Question) (string, error) {
 			return messaging.RenderQuestion(ctx, q, protect, presentation.MessageLimit)
 		}
+		availability.Brainstorm = true
 		core := owneractions.Domain{
 			Actions:      owneractions.Actions{FallbackTransport: "mcp", Targets: targets, Protect: protect, Research: research, Features: independentFeatureEffects{drafter: drafter, confirmer: creator}, Answer: owneractions.AnswerAdmission{Research: research, Protect: protect, Render: render}, Availability: availability},
 			Diagnosis:    owneractions.Diagnosis{Targets: targets, Protect: protect, Effects: independentDiagnosisEffects{research: research}, Availability: availability},
 			Standards:    owneractions.Standards{Targets: targets, Protect: protect, Available: standards != nil, Frozen: standards},
+			Brainstorm:   owneractions.BrainstormTasks{DB: d.db, Drafts: &runtime.brainstormDrafts, Protect: protect, Availability: availability},
 			Availability: availability,
 		}
-		domain := independentOwnerActionDomain{Domain: core, standards: standards}
+		domain := independentOwnerActionDomain{Domain: core, standards: standards, brainstorm: &runtime.brainstormDrafts}
 		runtime.actions = owneraction.New(d.db, domain, clock)
 	}
 	d.ownerActions = runtime
@@ -298,10 +304,14 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 
 type independentOwnerActionDomain struct {
 	owneractions.Domain
-	standards *ConversationStandards
+	standards  *ConversationStandards
+	brainstorm *brainstormDraftsPort
 }
 
 func (d independentOwnerActionDomain) enabled(inv owneraction.Invocation) bool {
+	if owneractions.BrainstormCommand(inv.Command) {
+		return d.Availability.Allows(inv.Command) && d.brainstorm != nil && d.brainstorm.ready()
+	}
 	if !owneractions.StandardsCommand(inv.Command) {
 		return d.Availability.Allows(inv.Command)
 	}
@@ -410,4 +420,31 @@ func independentAssessedResult(assessment *presentation.Assessment, summary stri
 		result.State = "failed"
 	}
 	return result
+}
+
+// brainstormDraftsPort late-binds the brainstorm service, which is prepared
+// after the owner action domain, to the brainstorm task owner actions.
+type brainstormDraftsPort struct {
+	service atomic.Pointer[brainstorm.Service]
+}
+
+// bind publishes the prepared brainstorm service to the brainstorm task actions.
+func (b *brainstormDraftsPort) bind(s *brainstorm.Service) { b.service.Store(s) }
+
+func (b *brainstormDraftsPort) ready() bool { return b.service.Load() != nil }
+
+func (b *brainstormDraftsPort) IssueDrafts(ctx context.Context, p owneraction.Principal, brainstormID, draftSetID string, keys []string, generation int) (store.BrainstormDraftSet, []owneractions.BrainstormIssueDraft, error) {
+	s := b.service.Load()
+	if s == nil {
+		return store.BrainstormDraftSet{}, nil, owneraction.ErrUnavailable
+	}
+	set, drafts, err := s.IssueDrafts(ctx, p, brainstormID, draftSetID, keys, generation)
+	if err != nil {
+		return set, nil, err
+	}
+	out := make([]owneractions.BrainstormIssueDraft, len(drafts))
+	for i, d := range drafts {
+		out[i] = owneractions.BrainstormIssueDraft{DraftID: d.DraftID, Key: d.Key, Title: d.Title, Body: d.Body, Marker: d.Marker, Generation: d.Generation, Ledger: d.Ledger, LedgerDigest: d.LedgerDigest}
+	}
+	return set, out, nil
 }

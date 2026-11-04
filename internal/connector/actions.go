@@ -276,7 +276,8 @@ func actionFailure(err error) ToolResult {
 
 // actionSchema narrows discovery to the enabled domain catalogue. Admission
 // still checks the same fixed registry and domain validation independently.
-func (s *Server) actionSchema(name string) map[string]any {
+// Brainstorm actions are listed only for a grant that holds the brainstorm scope.
+func (s *Server) actionSchema(name string, brainstorm bool) map[string]any {
 	schema := actionInputSchema(name)
 	actions := s.actions.Load()
 	if name != "action_propose" || actions == nil {
@@ -285,6 +286,9 @@ func (s *Server) actionSchema(name string) map[string]any {
 	catalog := actions.Catalog()
 	variants := []any{}
 	for _, entry := range catalog {
+		if !brainstorm && strings.HasPrefix(entry.Command, "brainstorm_") {
+			continue
+		}
 		argumentProperties := map[string]any{}
 		required := []string{}
 		for _, argument := range entry.Arguments {

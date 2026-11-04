@@ -23,3 +23,14 @@ When you have them, keep the brainstorm in the factory so nothing is lost betwee
 4. When the owner asks whether there is already an issue for something, search the issues. A match is a warning to check, never proof of a duplicate.
 5. When an answer arrives, read its spoken answer aloud as it is.
 6. Keep ideas, decisions, open questions and related issues as entries. A note from a shared document always carries the document's name.
+
+When the owner is done and your tools can make drafts, turn the brainstorm into tasks:
+
+1. Ask the factory for drafts. It turns the kept brainstorm into one to five task drafts. This is one more paid read-only run.
+2. Read the spoken summary and each draft aloud: title, size, impact and any possible duplicate. A possible duplicate is a warning, never proof.
+3. Ask the drafter's open questions one at a time. Keep each answer in the brainstorm as a decision, so the next drafts use it.
+4. Let the owner drop any draft. Only the drafts the owner keeps go on.
+5. If your tools can create tasks, propose creating the kept drafts. Read the proposal back. Confirm only after the owner says yes in a separate message.
+6. Then read the outcome of every draft and say it plainly, with its issue number when known.
+
+A draft counts as started only after its brief is ready and Plan's first agent runs. If the factory cannot tell yet whether an issue was made, say so plainly: the issue is not identified yet, nothing was duplicated, not found in search is not proof it was not created, and the factory keeps checking for a while. Never ask to create it again on your own. When the checks run out, only the owner can ask for a new issue, and that may lead to two issues for the same draft.

@@ -65,6 +65,7 @@ func (d *Daemon) prepareBrainstorm(judge *turn.JudgeService, sanitizer *redact.R
 		return err
 	}
 	d.remoteConnector.server.SetBrainstorm(service)
+	d.remoteConnector.actions.brainstormDrafts.bind(service)
 	return nil
 }
 

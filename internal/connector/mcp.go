@@ -167,7 +167,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 
 		for _, name := range actionToolNames {
 			if slices.Contains(s.availableTools(grant), name) {
-				tools = append(tools, map[string]any{"name": name, "description": actionDescription(name), "inputSchema": s.actionSchema(name), "annotations": map[string]bool{"readOnlyHint": name == "action_inspect" || name == "action_history", "destructiveHint": name == "action_confirm", "idempotentHint": true, "openWorldHint": true}})
+				tools = append(tools, map[string]any{"name": name, "description": actionDescription(name), "inputSchema": s.actionSchema(name, slices.Contains(s.availableTools(grant), "brainstorm_drafts_get")), "annotations": map[string]bool{"readOnlyHint": name == "action_inspect" || name == "action_history", "destructiveHint": name == "action_confirm", "idempotentHint": true, "openWorldHint": true}})
 			}
 		}
 
@@ -303,8 +303,11 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				requiredScope = AdvisoryScope + " " + DiscussionPublishScope
 			}
 		}
-		if isBrainstormTool(params.Name) && !brainstormGrant(grant) {
+		if isBrainstormTool(params.Name) && !brainstormToolAllowed(grant, params.Name) {
 			requiredScope = BrainstormScope
+			if params.Name == "brainstorm_tasks_get" {
+				requiredScope = BrainstormScope + " " + RepositoryActionsScope
+			}
 		}
 		if params.Name == "factory_overview" && !connectorstate.ConnectorScopeHas(grant.Scope, Scope) {
 			requiredScope = Scope

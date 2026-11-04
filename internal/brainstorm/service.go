@@ -128,7 +128,7 @@ func plainState(sc store.BrainstormScan) (string, string) {
 
 func scanItem(sc store.BrainstormScan) ScanItem {
 	state, reason := plainState(sc)
-	item := ScanItem{ScanID: sc.ID, Seq: sc.ScanSeq, Question: sc.Question, State: state, AdmittedAt: sc.CreatedAt, FinishedAt: sc.FinishedAt, Reason: reason}
+	item := ScanItem{ScanID: sc.ID, Seq: sc.ScanSeq, Question: sc.Question, Purpose: sc.Purpose, State: state, AdmittedAt: sc.CreatedAt, FinishedAt: sc.FinishedAt, Reason: reason}
 	if state == ScanAnswered {
 		item.ExchangeSeq = sc.ExchangeSeq
 	}
