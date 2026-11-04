@@ -22,6 +22,10 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 	if err != nil {
 		return err
 	}
+	session, err := o.DB.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
 	if o.ResearchReporter == nil {
 		return errors.New("plan publication recovery requires durable reporter")
 	}
@@ -38,6 +42,19 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 						return err
 					}
 					continue
+				}
+				// Listings contain metadata only; both delivery and display recovery
+				// need the original immutable publication bytes.
+				intent, err = o.DB.GetGraphComment(ctx, intent.Key)
+				if err != nil {
+					return err
+				}
+				var retained planPublication
+				if err = json.Unmarshal(intent.Candidate, &retained); err != nil {
+					return err
+				}
+				if retained.Intent.Key != intent.Key || retained.Intent.SessionID != sessionID || retained.Intent.Task != session.TaskRef || retained.Text == "" {
+					return errors.New("plan publication retained identity mismatch")
 				}
 				delivery, err := o.DB.GetReportDelivery(ctx, intent.Key)
 				if err == nil {
@@ -57,13 +74,6 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 				}
 				if !errors.Is(err, store.ErrNotFound) {
 					return err
-				}
-				var retained planPublication
-				if err = json.Unmarshal(intent.Candidate, &retained); err != nil {
-					return err
-				}
-				if retained.Intent.Key != intent.Key || retained.Intent.SessionID != sessionID || retained.Text == "" {
-					return errors.New("plan publication retained identity mismatch")
 				}
 				source, err := o.DB.GetGraphNodeAttempt(ctx, intent.SourceAttemptID)
 				if err != nil {

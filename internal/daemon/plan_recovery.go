@@ -13,7 +13,8 @@ import (
 
 // graphPlanParents admits retained drafts even before managed publication and
 // without owner comments. The existing worker scheduler supplies capacity/backoff.
-// A Linear parent is re-added only on its repository's listing ticks (#920).
+// A Linear parent waits for listing ticks (#920), except for an assembled
+// review that is due and whose schedule has not been attempted (#1385).
 // Any other parent is re-added between listings only when it has due Plan work
 // (#1138): an idle parent costs nothing until its new input arrives as a
 // webhook hint, ticket observation, forge discovery or backlog flag, or the
@@ -33,16 +34,19 @@ func (d *Daemon) graphPlanParents(ctx context.Context, byRepo map[int64]*repoQue
 			prior.addSource("plan_recovery")
 			continue
 		}
-		if skip, err := d.linearOffListing(ctx, q, s.RepoID, linearRepo); err != nil {
-			return err
-		} else if skip {
-			continue
-		}
 		ref, err := naming.ParseRef(s.TaskRef)
 		if err != nil {
 			return err
 		}
-		if !q.listing {
+		if skip, err := d.linearOffListing(ctx, q, s.RepoID, linearRepo); err != nil {
+			return err
+		} else if skip {
+			if due, err := d.planParentAssemblyDue(ctx, q, s, ref); err != nil {
+				return err
+			} else if !due {
+				continue
+			}
+		} else if !q.listing {
 			if due, err := d.planParentDue(ctx, q, s, ref); err != nil {
 				return err
 			} else if !due {
@@ -77,14 +81,8 @@ func (d *Daemon) planParentDue(ctx context.Context, q *repoQueue, s store.Sessio
 
 func (d *Daemon) planParentDueWork(ctx context.Context, q *repoQueue, s store.Session, ref naming.Ref) (bool, error) {
 	parent := ref.String()
-	t := &task{repo: q.repo, forgeRepo: q.forgeRepo, session: s, ref: ref, issue: github.Issue{Number: ref.Issue}, log: q.log}
-	if id, ok, err := d.planWorkFor(ctx, t); err != nil {
-		return false, err
-	} else if ok {
-		attempted, err := d.db.ScheduleAttempted(ctx, s.ID, id)
-		if err != nil || !attempted {
-			return err == nil, err
-		}
+	if due, err := d.planParentAssemblyDue(ctx, q, s, ref); err != nil || due {
+		return due, err
 	}
 	if debt, err := d.db.PlanStoryRecoveryDebt(ctx, parent, 1); err != nil || len(debt) > 0 {
 		return err == nil, err
@@ -104,6 +102,21 @@ func (d *Daemon) planParentDueWork(ctx context.Context, q *repoQueue, s store.Se
 	}
 	awaiting, err := d.db.ListStoriesAwaitingDiscovery(ctx, s.ID, parent, feature.Generation)
 	return len(awaiting) > 0, err
+}
+
+// planParentAssemblyDue shares assembly identity and attempted-schedule protection
+// with ordinary parent recovery. Read errors never authorize off-listing work.
+func (d *Daemon) planParentAssemblyDue(ctx context.Context, q *repoQueue, s store.Session, ref naming.Ref) (bool, error) {
+	t := &task{repo: q.repo, forgeRepo: q.forgeRepo, session: s, ref: ref, issue: github.Issue{Number: ref.Issue}, log: q.log}
+	if id, ok, err := d.planWorkFor(ctx, t); err != nil {
+		return false, err
+	} else if ok {
+		attempted, err := d.db.ScheduleAttempted(ctx, s.ID, id)
+		if err != nil || !attempted {
+			return err == nil, err
+		}
+	}
+	return false, nil
 }
 
 // planChildSweepOwed is the check [Daemon.refinePlanChildren] makes before it

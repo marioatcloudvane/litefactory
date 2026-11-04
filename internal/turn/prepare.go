@@ -467,7 +467,7 @@ func prepare(
 		PreviousMayAsk:    previousMayAsk(previous, resume, previousTriggerBody, req.Issue.Body),
 		PreviousMode:      previous.Mode,
 		History:           history,
-		Attachments:       attach.PromptSection(attachments.Accepted),
+		Attachments:       attachmentsPrompt(attachments),
 		PreviousFailed:    previousFailed,
 		PreviousReason:    previousReason,
 	}
@@ -1436,6 +1436,13 @@ func ingestAttachments(
 		slog.Int("rejected", len(result.Rejected)),
 	)
 	return result
+}
+
+// attachmentsPrompt renders the prompt's Attachments section from one
+// turn's ingestion: the files that landed and, after them, the ones that did
+// not with their reason, so the agent never falls back to a raw link.
+func attachmentsPrompt(result attach.Result) string {
+	return attach.PromptSection(result.Accepted, result.Rejected...)
 }
 
 // aiteamDirName is the team's directory at the worktree root, where the

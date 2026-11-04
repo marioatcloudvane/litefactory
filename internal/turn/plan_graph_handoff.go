@@ -87,23 +87,48 @@ func (r *planGraphRuntime) assembledComment(ctx context.Context, s planbrief.Pla
 	}
 	key := "plan-assembled:" + ref
 	intent := reporter.deliveryIntent(r.result.Ref, r.result.Ref, r.req.SessionID, run.TriggerCommentID, run.ID, key)
-	text, err := r.assembledText(ctx, s, ref)
-	if err != nil {
-		return err
-	}
-	display := store.OwnerDecisionDisplay{TaskRef: r.parentRef.String(), Action: "/approve-plan-set", Target: "/approve-plan-set " + ref, Revision: ref, InstanceID: instance.ID, CreatedAt: r.opts.MCP.Now()}
-	raw, err := json.Marshal(planPublication{Intent: intent, Text: text, Display: &display})
-	if err != nil {
-		return err
-	}
-	if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: instance.ID, SourceAttemptID: source.ID, Node: "acceptance_review", Kind: "final", Candidate: raw}); err != nil {
+	var text string
+	var display *store.OwnerDecisionDisplay
+	saved, err := reporter.db.GetGraphComment(ctx, intent.Key)
+	switch {
+	case err == nil:
+		var retained planPublication
+		if err = json.Unmarshal(saved.Candidate, &retained); err != nil {
+			return err
+		}
+		if retained.Intent.Key != intent.Key || retained.Intent.SessionID != intent.SessionID || retained.Intent.Task != intent.Task || retained.Intent.Destination != intent.Destination || retained.Text == "" {
+			return errors.New("retained assembled Plan comment identity mismatch")
+		}
+		display = retained.Display
+		if display != nil && (display.TaskRef != r.parentRef.String() || display.Revision != ref || display.Action != "/approve-plan-set" || display.Target != "/approve-plan-set "+ref || display.InstanceID != saved.InstanceID) {
+			return errors.New("retained assembled Plan display identity mismatch")
+		}
+		intent, text = retained.Intent, retained.Text
+	case errors.Is(err, store.ErrNotFound):
+		text, err = r.assembledText(ctx, s, ref)
+		if err != nil {
+			return err
+		}
+		display = &store.OwnerDecisionDisplay{TaskRef: r.parentRef.String(), Action: "/approve-plan-set", Target: "/approve-plan-set " + ref, Revision: ref, InstanceID: instance.ID, CreatedAt: r.opts.MCP.Now()}
+		raw, err := json.Marshal(planPublication{Intent: intent, Text: text, Display: display})
+		if err != nil {
+			return err
+		}
+		if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: instance.ID, SourceAttemptID: source.ID, Node: "acceptance_review", Kind: "final", Candidate: raw}); err != nil {
+			return err
+		}
+	default:
 		return err
 	}
 	posted, err := reporter.deliver(ctx, intent, func() (redact.Body, error) { return reporter.renderer.RenderReportDelivery(ctx, text, "") })
 	if err != nil {
 		return err
 	}
-	return r.opts.DB.PutOwnerDecisionDisplay(ctx, store.OwnerDecisionDisplay{TaskRef: r.parentRef.String(), Action: "/approve-plan-set", Target: "/approve-plan-set " + ref, Revision: ref, InstanceID: instance.ID, PublicationID: posted.CommentID, CreatedAt: r.opts.MCP.Now()})
+	if display != nil {
+		display.PublicationID = posted.CommentID
+		return r.opts.DB.PutOwnerDecisionDisplay(ctx, *display)
+	}
+	return nil
 }
 
 // assembledText is the final plan review: the story set table with each
