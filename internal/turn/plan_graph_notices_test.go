@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"hash/fnv"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -623,5 +625,98 @@ func TestPlanWorkID_IdentitiesAreUnchanged(t *testing.T) {
 	effect := planbrief.PlanState{SharedRevision: "s", Stories: []planbrief.PlanStoryState{{Key: "story-001", Stage: "acceptance", Effect: "pending", EffectRequest: "plan-request-692-6680", Wait: &planbrief.PlanWait{Kind: "review"}, Draft: planbrief.PlanDraft{Key: "story-001"}}}}
 	if got, ok := StoryWorkID(effect, "story-001"); !ok || got != previous("effect", "story-001", "plan-request-692-6680") {
 		t.Fatalf("effect identity %d ok %v", got, ok)
+	}
+}
+
+// A final approval whose save push fails keeps the approval without claiming
+// readiness, and a new identical approval from the owner retries the save
+// until the push succeeds. Stale and foreign approvals stay refused.
+func TestPlanNotices_RepeatedFinalApprovalRetriesAFailedSave(t *testing.T) {
+	f, base, forge, state := completeSingleStory(t)
+	ref := state.AssembledWait
+	dir := f.worktreeDir()
+	branch := f.repo.GitIn(dir, "rev-parse", "--abbrev-ref", "HEAD")
+	remoteHead := func() string {
+		return f.repo.Git("--git-dir", f.repo.Origin, "for-each-ref", "--format=%(objectname)", "refs/heads/"+branch)
+	}
+	breakPush := func() {
+		f.repo.Git("config", "remote.origin.pushurl", filepath.Join(t.TempDir(), "missing.git"))
+	}
+	healPush := func() { f.repo.Git("config", "--unset", "remote.origin.pushurl") }
+	approval := func(id int64, author int64, body string) Request {
+		req := base
+		req.Trigger = Trigger{CommentID: id, Body: body, AuthorID: author}
+		req.Command = Command{Kind: KindFreeText, Text: body}
+		return req
+	}
+	ready := func() bool {
+		feature, err := f.db.GetManagedFeature(t.Context(), f.ref().String())
+		return err == nil && feature.Ready
+	}
+	confirmations := func() int { return len(parentPostsWith(f, forge, "Plan approved and ready")) }
+
+	// C2: the first approval's push fails.
+	breakPush()
+	first := approval(base.Trigger.CommentID+30, 7, "/approve-plan-set "+ref)
+	if out, err := Execute(f.turnContext(t), f.opts, first); err == nil && out.Err == nil {
+		t.Fatalf("a failed save push was not reported: err=%v result=%+v", err, out)
+	}
+	after := graphPlanState(t, f)
+	if after.AssembledApproval != ref || after.SavedRevision != "" || ready() || confirmations() != 0 {
+		t.Fatalf("a failed save claimed readiness: %+v ready=%t confirmations=%d", after, ready(), confirmations())
+	}
+	local := f.repo.GitIn(dir, "rev-parse", "HEAD")
+	if local == remoteHead() {
+		t.Fatal("the save commit is not retained locally")
+	}
+
+	// C5: an approval for another revision and a foreign author stay refused
+	// while the approval is recorded but unsaved.
+	other := approval(base.Trigger.CommentID+31, 7, "/approve-plan-set "+strings.Repeat("c", 64))
+	if out, err := Execute(f.turnContext(t), f.opts, other); err != nil || out.Disposition != DispositionPrepareFailed {
+		t.Fatalf("an approval for another revision was not refused: err=%v result=%+v", err, out)
+	}
+	_, _ = Execute(f.turnContext(t), f.opts, approval(base.Trigger.CommentID+32, 99, "/approve-plan-set "+ref))
+	if now := graphPlanState(t, f); now.SavedRevision != "" || slices.Contains(now.ConsumedReplies, base.Trigger.CommentID+31) || slices.Contains(now.ConsumedReplies, base.Trigger.CommentID+32) || ready() || f.repo.GitIn(dir, "rev-parse", "HEAD") != local {
+		t.Fatalf("a refused approval changed the plan: %+v", now)
+	}
+
+	// C3: a repeat while the push still fails stays safe and adds no commit.
+	repeat := approval(base.Trigger.CommentID+33, 7, "/approve-plan-set "+ref)
+	out, err := Execute(f.turnContext(t), f.opts, repeat)
+	if out.Disposition == DispositionPrepareFailed || (err == nil && out.Err == nil) {
+		t.Fatalf("an identical repeat approval was refused or hid the failed push: err=%v result=%+v", err, out)
+	}
+	if now := graphPlanState(t, f); now.SavedRevision != "" || ready() || confirmations() != 0 || f.repo.GitIn(dir, "rev-parse", "HEAD") != local {
+		t.Fatalf("a repeat with a failing push claimed readiness: %+v", now)
+	}
+
+	// C1: once the push recovers, another identical approval completes the save.
+	healPush()
+	success := approval(base.Trigger.CommentID+34, 7, "/approve-plan-set "+ref)
+	executeGraphPlan(t, f, success)
+	saved := graphPlanState(t, f)
+	if saved.AssembledApproval != ref || saved.SavedRevision != ref || saved.PublishedRevision != ref {
+		t.Fatalf("the repeat approval did not save the plan: %+v", saved)
+	}
+	if !ready() || confirmations() != 1 {
+		t.Fatalf("ready=%t confirmations=%d", ready(), confirmations())
+	}
+	head := f.repo.GitIn(dir, "rev-parse", "HEAD")
+	if remoteHead() != head {
+		t.Fatalf("remote head %s, want the local save commit %s", remoteHead(), head)
+	}
+
+	// C4: replaying the successful repeat comment duplicates nothing.
+	_, _ = Execute(f.turnContext(t), f.opts, success)
+	replayed := graphPlanState(t, f)
+	count := 0
+	for _, id := range replayed.ConsumedReplies {
+		if id == success.Trigger.CommentID {
+			count++
+		}
+	}
+	if count != 1 || !ready() || confirmations() != 1 || f.repo.GitIn(dir, "rev-parse", "HEAD") != head || remoteHead() != head {
+		t.Fatalf("a replay duplicated effects: consumed=%d ready=%t confirmations=%d", count, ready(), confirmations())
 	}
 }
