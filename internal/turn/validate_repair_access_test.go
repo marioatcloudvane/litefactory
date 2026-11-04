@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -163,5 +164,78 @@ func TestValidateReviewerGetsOnlyTheReadOnlyShell(t *testing.T) {
 		if surface, _ := requestPermissions(got).Payload.(harness.ToolSurface); surface.ReadOnlyShell {
 			t.Fatalf("%s read node marked as read-only shell", profile)
 		}
+	}
+}
+
+// On a managed parent the repair agent keeps its validate-repair grant at the
+// request the runner receives: the managed read-only Validate context, built
+// for reviewers, must not narrow it or tell it not to edit (#1396).
+func TestValidateRepairOnManagedParentKeepsItsWriteSurface(t *testing.T) {
+	for _, kind := range []agent.Kind{agent.Kind(store.AgentClaude), agent.Kind(store.AgentCodex)} {
+		t.Run(string(kind), func(t *testing.T) {
+			var seen []agent.Request
+			runner := newStubRunner(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+				seen = append(seen, req)
+				return nil, errors.New("stop after recording the request")
+			})
+			f := newFixture(t, runner)
+			setupVersionedProgressScope(t, f, 0)
+			f.opts.Runners = RunnerSet{kind: runner}
+			grant, err := validateRepairGrant(validateRepairResolver(t), validateModeRequest(kind))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := f.request()
+			req.Mode, req.Agent = agent.ModeValidate, kind
+			req.Tools, req.AllowedTools, req.ToolProfile, req.CodexSandbox = grant.Tools, grant.AllowedTools, grant.ToolProfile, grant.CodexSandbox
+			req.Command = ParseCommand("/validate assess")
+			req.Trigger.Body = "/validate assess"
+			_, _ = Execute(t.Context(), f.opts, req)
+			if len(seen) == 0 {
+				t.Fatalf("repair agent never started:\n%s", f.logs)
+			}
+			got := seen[0]
+			if got.RetainedValidation {
+				t.Fatal("repair run carries the managed read-only Validate narrowing")
+			}
+			if strings.Contains(got.Prompt, "Managed read-only Validate contract") || strings.Contains(got.Prompt, "Factory-retained validation context") {
+				t.Fatal("repair prompt carries the managed read-only Validate contract")
+			}
+			switch payload := got.Permissions.Payload.(type) {
+			case harness.ToolSurface:
+				if !slices.Contains(payload.Tools, "Edit") || !slices.Contains(payload.Tools, "Bash") {
+					t.Fatalf("Claude repair surface: %+v", payload)
+				}
+			case codex.Sandbox:
+				if payload.Mode != "workspace-write" {
+					t.Fatalf("Codex repair sandbox: %+v", payload)
+				}
+			default:
+				t.Fatalf("repair permissions: %+v", got.Permissions)
+			}
+		})
+	}
+}
+
+// A reviewer on the same managed parent keeps the read-only Validate context.
+func TestValidateReviewerOnManagedParentKeepsRetainedValidation(t *testing.T) {
+	var seen []agent.Request
+	runner := newStubRunner(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		seen = append(seen, req)
+		return nil, errors.New("stop after recording the request")
+	})
+	f := newFixture(t, runner)
+	setupVersionedProgressScope(t, f, 0)
+	kind := agent.Kind(store.AgentClaude)
+	f.opts.Runners = RunnerSet{kind: runner}
+	reviewer := validateModeRequest(kind)
+	req := f.request()
+	req.Mode, req.Agent = agent.ModeValidate, kind
+	req.Tools, req.AllowedTools, req.ToolProfile = reviewer.Tools, reviewer.AllowedTools, reviewer.ToolProfile
+	req.Command = ParseCommand("/validate assess")
+	req.Trigger.Body = "/validate assess"
+	_, _ = Execute(t.Context(), f.opts, req)
+	if len(seen) == 0 || !seen[0].RetainedValidation || !strings.Contains(seen[0].Prompt, "Managed read-only Validate contract") {
+		t.Fatalf("managed reviewer lost the read-only Validate context: %d", len(seen))
 	}
 }

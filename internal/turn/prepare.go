@@ -508,8 +508,12 @@ func prepare(
 	// A story worker's story comes from the Implement graph, not from a
 	// parent bundle or contract of its own story issue.
 	if !storyWorker && !req.preparationAssessment && req.Workflow != agent.WorkflowBug {
-		if err := prepareApprovedContext(ctx, opts, &promptInput, run.ID); err != nil {
-			return nil, err
+		// The Validate repair agent writes under its own validate-repair
+		// grant; the managed read-only Validate context is for reviewers.
+		if req.ToolProfile != config.ValidateRepairProfile {
+			if err := prepareApprovedContext(ctx, opts, &promptInput, run.ID); err != nil {
+				return nil, err
+			}
 		}
 		if contract, contractErr := opts.DB.GetFeatureContract(ctx, ref.String()); contractErr == nil {
 			promptInput.SubmissionVersion = contract.SubmissionVersion
