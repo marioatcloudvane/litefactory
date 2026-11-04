@@ -25,8 +25,8 @@ type Ref struct {
 	URL string
 }
 
-// assetHosts is the set of hosts GitHub serves issue and comment attachment
-// bytes from.
+// assetHosts is the set of hosts GitHub and Linear serve issue and comment
+// attachment bytes from.
 //
 // This list is deliberately a near-duplicate of the one internal/github
 // enforces before it dials, and the duplication is the point rather than an
@@ -43,6 +43,10 @@ var assetHosts = map[string]bool{
 	"objects.githubusercontent.com":             true,
 	"user-images.githubusercontent.com":         true,
 	"private-user-images.githubusercontent.com": true,
+	// Linear serves pasted issue and comment uploads from here. The same
+	// split applies: internal/linear's FetchAsset holds its own host check
+	// and is the only place the Linear credential is sent.
+	"uploads.linear.app": true,
 }
 
 // assetGitHubPathPrefix is the only github.com path treated as an

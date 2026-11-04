@@ -471,3 +471,41 @@ func TestPromptSectionSanitisesTheAttachmentName(t *testing.T) {
 		t.Errorf("prompt section for one attachment spans multiple lines: %q", got)
 	}
 }
+
+// TestPromptSectionNamesRejectionsToTheAgent is the HEIC half of the Linear
+// bug: a file litefactory refused must be named to the agent with its reason,
+// so the agent does not try the raw link instead.
+func TestPromptSectionNamesRejectionsToTheAgent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	heic := body([]byte("\x00\x00\x00\x18ftypheic"), 64)
+	f := newFetcher().
+		serve(assetURL("shot.png"), body(pngMagic, 128)).
+		serve(assetURL("IMG_0001.heic"), heic)
+	got, err := Ingest(context.Background(), f, dir, refsFor("shot.png", "IMG_0001.heic"), generous)
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if len(got.Accepted) != 1 || len(got.Rejected) != 1 || got.Rejected[0].Reason != ReasonUnsupportedType {
+		t.Fatalf("accepted %+v rejected %+v", got.Accepted, got.Rejected)
+	}
+
+	section := PromptSection(got.Accepted, got.Rejected...)
+	accepted := strings.Index(section, got.Accepted[0].Path)
+	rejected := strings.Index(section, got.Rejected[0].Line())
+	if accepted < 0 || rejected < 0 || rejected < accepted {
+		t.Errorf("section does not list the accepted file, then the rejection line:\n%s", section)
+	}
+	if strings.Contains(section, "https://") {
+		t.Errorf("section carries a URL:\n%s", section)
+	}
+
+	only := PromptSection(nil, got.Rejected...)
+	if !strings.Contains(only, got.Rejected[0].Line()) {
+		t.Errorf("a rejection-only section does not name the refused file:\n%s", only)
+	}
+	if PromptSection(nil) != "" {
+		t.Error("PromptSection(nil) is not empty")
+	}
+}
