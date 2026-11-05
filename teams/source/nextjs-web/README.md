@@ -7,6 +7,6 @@ go run ./cmd/teamrelease -source teams/source/nextjs-web
 go run ./cmd/teamrelease -check -source teams/source/nextjs-web
 ```
 
-Only the owner releases and links versions: fixes and features edit this source and never change the version or publish a release. Published release bytes are immutable.
+Any change to this source or to `teams/source/base-team` regenerates `teams/*/v1.0.0` and `teams/teams.json` in the same change with the all-teams command in `teams/README.md`. Teams stay at 1.0.0: regenerate in place, never change the version. `go test ./internal/teamrelease` fails when a release differs from its source. Only the owner links versions.
 
 The stack profile installs dependencies with `npm ci` and checks with `npm run lint` and `npm run build`. A repository with more scripts (for example a test script) overrides `checks` in `.litefactory/stack.overrides.json`.
