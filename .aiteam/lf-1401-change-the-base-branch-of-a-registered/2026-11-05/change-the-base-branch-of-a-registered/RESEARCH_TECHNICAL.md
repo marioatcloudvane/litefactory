@@ -23,13 +23,13 @@ Evidence:
 
 ## f3
 
-The base branch lives in two places: the `repos.base_branch` column, and the code-role project connection version (`base_branch`, `clone_path`, ...). Re-registration calls ImportLegacyConnections, which only inserts a connection when none exists and skips otherwise. So `repo add --base` likely leaves the connection's base stale. The assumption is not tested against the daemon.
+The base branch lives in two places: the `repos.base_branch` column, and the code-role project connection version (`base_branch`, `clone_path`, ...). Re-registration calls SeedRegistration, which calls ImportLegacyConnections; that only inserts a connection when none exists and skips otherwise. So `repo add --base` likely leaves the connection's base stale. Connection versions are revisioned (UNIQUE repo_id, role, revision) with a current pointer in `project_connections`, so a new revision is the natural update. Not tested against the daemon.
 
 Evidence:
 
 - `internal/store/project_connections.go:339`
 - `internal/projectconnection/import.go:333`
-- `internal/factory/localprojects/connections.go:55`
+- `internal/store/migrations/20261011130305000_project_connections.sql:13`
 
 ## f4
 
@@ -42,7 +42,7 @@ Evidence:
 
 ## f5
 
-Many readers use the repos row's base directly: worktree creation, delivery target, sync, harvest, retirement and project read. These are in turn/prepare.go, turn/delivery_activity.go, turn/validate_runtime.go, turn/bug_graph_runtime.go, daemon/retirement_execute.go and projectread. Retirement compares the base across a fresh read and aborts if it changed. A mid-run change to the row would therefore affect open work, which is why open work must be checked.
+Many readers use a repo's base: worktree creation, delivery target, sync, harvest, retirement and project read (turn/prepare.go, turn/delivery_activity.go, turn/validate_runtime.go, turn/bug_graph_runtime.go, daemon/retirement_execute.go, projectread). Retirement compares the base across a fresh read and aborts if it changed. A mid-run change could therefore disturb open work. Refined by f10: delivery obtains its repo through executionRepository, which prefers the pinned snapshot.
 
 Evidence:
 
@@ -52,7 +52,7 @@ Evidence:
 
 ## f6
 
-Open-work signals exist in the schema: `runs.status='running'`, `graph_instances.status='running'` and `graph_node_attempts.status IN ('pending','running')`. No store helper for 'repo has open work' was found by name. Repo to graph instance mapping was not traced in this pass.
+Open-work signals exist in the schema: `runs.status='running'`, `graph_instances.status='running'` and `graph_node_attempts.status IN ('pending','running')`. No store helper for 'repo has open work' was found by name. The repo mapping gap is closed by f9.
 
 Evidence:
 
@@ -69,8 +69,35 @@ Evidence:
 
 ## f8
 
-Impact. Touched: the cli repo commands, the localprojects administration, the store (a repo base update plus a new connection version, and an open-work query), and the git package (remote branch check), with tests and the CLI docs. Depends on it: delivery, worktree, sync and retirement paths via repo.BaseBranch; config `default_base_branch` is unaffected. Superseded: nothing; `repo add --base` keeps working. Data: no migration is needed, since both columns exist. Existing main-based repos are unaffected as long as the command only runs on explicit request.
+Impact. Touched: the cli repo commands, the localprojects administration, the store (a repo base update plus a new connection version, and an open-work query), and the git package (remote branch check), with tests and the CLI docs. Depends on it: delivery, worktree, sync and retirement paths via the repo base; config `default_base_branch` is unaffected. Superseded: nothing; `repo add` keeps working (see q3 for its base-change path). Data: no migration is needed, since both columns exist. Existing main-based repos are unaffected as long as the command only runs on explicit request.
 
 Evidence:
 
 - `internal/factory/localprojects/registration.go:104`
+
+## f9
+
+Repository to open work is traceable: sessions.repo_id links a repo to its sessions; runs.session_id and graph_instances.session_id link runs and workflow instances; graph_node_attempts.instance_id links attempts. So 'open work for repo R' is a join over sessions of R.
+
+Evidence:
+
+- `internal/store/migrations/0001_init.sql:50`
+- `internal/store/migrations/0048_graph_execution_foundations.sql:13`
+
+## f10
+
+executionRepository returns the session's pinned snapshot target when one exists and falls back to the live repos row only for sessions without a snapshot. The snapshot is keyed by session (one per issue), so an issue keeps its pinned base for all later runs, not just the current one.
+
+Evidence:
+
+- `internal/turn/execution_connections.go:14`
+- `internal/store/migrations/20261011130305000_project_connections.sql:44`
+
+## f11
+
+Inference: an issue waiting for an owner reply keeps its graph instance in status 'running' (graph_instances has no waiting status; owner waits are a separate table hanging off a running instance). So 'refuse while any graph instance runs' would also block on issues paused for the owner.
+
+Evidence:
+
+- `internal/store/migrations/0051_graph_owner_waits.sql:1`
+- `internal/store/migrations/0048_graph_execution_foundations.sql:17`
