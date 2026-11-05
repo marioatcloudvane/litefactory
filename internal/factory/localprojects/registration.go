@@ -106,16 +106,13 @@ func (a *Administration) Register(ctx context.Context, request contracts.Registe
 	existed := err == nil
 
 	stored, err := a.db.RegisterRepo(ctx, registration.StoreRepo(), explicitBase)
-	if errors.Is(err, store.ErrBaseChangeViaAdd) {
-		return errBaseChangeViaAdd("", request.BaseBranch)
-	}
 	if err != nil {
-		return err
+		return registerRefusal(err, request.BaseBranch)
 	}
 	if stored.BaseBranch != registration.BaseBranch {
-		// A base change committed after the earlier read; report what is stored.
+		// A base change committed after the earlier read; report what is
+		// stored. The source label stays as resolved.
 		registration.BaseBranch = stored.BaseBranch
-		registration.BaseBranchSource = repos.SourceFlag
 	}
 
 	if err := projectconnection.SeedRegistration(ctx, a.db, stored, *a.cfg); err != nil {
@@ -137,4 +134,15 @@ func (a *Administration) List(ctx context.Context) ([]contracts.RepositoryView, 
 		out = append(out, repositoryView(row))
 	}
 	return out, err
+}
+
+// registerRefusal maps a guarded registration write error. A base-change
+// refusal names the base the store found at write time, which can differ from
+// the earlier read when a `repo base` committed in between.
+func registerRefusal(err error, requested string) error {
+	var refusal *store.BaseChangeViaAddError
+	if errors.As(err, &refusal) {
+		return errBaseChangeViaAdd(refusal.Stored, requested)
+	}
+	return err
 }

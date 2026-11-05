@@ -333,7 +333,9 @@ func TestRegisterRepoAfterConcurrentBaseChange(t *testing.T) {
 	if err != nil || got.BaseBranch != "develop" {
 		t.Fatalf("stale implicit %+v %v", got, err)
 	}
-	if _, err = db.RegisterRepo(t.Context(), stale, true); !errors.Is(err, ErrBaseChangeViaAdd) {
+	_, err = db.RegisterRepo(t.Context(), stale, true)
+	var refusal *BaseChangeViaAddError
+	if !errors.Is(err, ErrBaseChangeViaAdd) || !errors.As(err, &refusal) || refusal.Stored != "develop" {
 		t.Fatalf("stale explicit err=%v", err)
 	}
 	if recordBase(t, db, repo.ID) != "develop" {

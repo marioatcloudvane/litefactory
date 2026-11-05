@@ -12,6 +12,17 @@ import (
 // for a base branch other than the stored one. `repo base` is the only way.
 var ErrBaseChangeViaAdd = errors.New("store: base branch of a registered repository can only change with repo base")
 
+// BaseChangeViaAddError is the [ErrBaseChangeViaAdd] refusal with the base
+// that was stored when the guarded write re-read the row.
+type BaseChangeViaAddError struct{ Stored string }
+
+func (e *BaseChangeViaAddError) Error() string {
+	return fmt.Sprintf("%v (stored %q)", ErrBaseChangeViaAdd, e.Stored)
+}
+
+// Is reports the refusal as [ErrBaseChangeViaAdd].
+func (e *BaseChangeViaAddError) Is(target error) bool { return target == ErrBaseChangeViaAdd }
+
 // OpenWorkItem is one piece of executing work that blocks a base change.
 type OpenWorkItem struct {
 	// Issue is the task reference of the session the work belongs to.
@@ -34,7 +45,7 @@ func (e *OpenWorkError) Error() string {
 // RegisterRepo is the guarded registration write. In one transaction it
 // re-reads the row by path: a new path is inserted; an existing path keeps the
 // stored base when explicitBase is false and refuses a different explicit base
-// with [ErrBaseChangeViaAdd], writing nothing. LastFetchAt is never touched.
+// with a [*BaseChangeViaAddError] naming the stored base, writing nothing. LastFetchAt is never touched.
 func (db *DB) RegisterRepo(ctx context.Context, r Repo, explicitBase bool) (Repo, error) {
 	if r.Path == "" {
 		return Repo{}, errors.New("store: register repo: path is required")
@@ -47,7 +58,7 @@ func (db *DB) RegisterRepo(ctx context.Context, r Repo, explicitBase bool) (Repo
 		case err != nil:
 			return err
 		case explicitBase && r.BaseBranch != current.BaseBranch:
-			return ErrBaseChangeViaAdd
+			return &BaseChangeViaAddError{Stored: current.BaseBranch}
 		default:
 			r.BaseBranch = current.BaseBranch
 		}
