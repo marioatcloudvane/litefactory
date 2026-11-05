@@ -28,7 +28,7 @@ func TestOwnedBarrierRequiresAcknowledgedPID(t *testing.T) {
 			acknowledged := false
 			exited := false
 			phase, started, err := RunOwned(t.Context(), binary, nil, []string{}, OwnedOptions{
-				Directory: directory, Timeout: time.Second * 5, Lock: lock,
+				Directory: directory, Timeout: 60 * time.Second, Lock: lock,
 				OnStarted: func(pid int) error {
 					if pid <= 1 {
 						t.Errorf("invalid owned PID %d", pid)

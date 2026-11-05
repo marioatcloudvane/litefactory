@@ -984,7 +984,7 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	}
 	if display != nil {
 		display.PublicationID = posted.CommentID
-		if err = r.opts.DB.PutOwnerDecisionDisplay(ctx, *display); err != nil {
+		if err = r.opts.DB.PutOwnerDecisionDisplay(context.WithoutCancel(ctx), *display); err != nil {
 			return ActivityResult{}, err
 		}
 	}
