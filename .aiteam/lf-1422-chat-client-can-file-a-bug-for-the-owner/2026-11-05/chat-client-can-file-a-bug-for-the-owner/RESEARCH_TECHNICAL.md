@@ -71,12 +71,14 @@ Evidence:
 
 ## f8
 
-Bug workflow docs say a Bug is an issue with the bug label and no Mode label, and say to 'label the issue bug and comment as the owner'. Whether a freshly labelled issue starts on its own without that owner comment is NOT confirmed by this pass. The issue says 'starting on its own'. This needs checking in the dispatcher before the design is fixed.
+Confirmed in shaping (observed): a Bug filed by the factory does not start on its own today. The Bug docs say to label the issue bug and comment as the owner; log-analysis and Validate follow-up filing only create and label the issue and start no run. Starting on its own is therefore new behaviour this work must add.
 
 Evidence:
 
 - `docs/workflow/bug-runtime.md:9`
-- `docs/guides/workflow.md:31`
+- `docs/guides/workflow.md:30`
+- `internal/loganalysis/trackers.go:88`
+- `internal/turn/validate_remote.go:179`
 
 ## f9
 
@@ -98,8 +100,46 @@ Evidence:
 
 ## f11
 
-Impact: touched are owneraction registry, factory/owneractions (catalog, new handler), connector (tool list, schema, guidance, overview), daemon/host wiring of the new handler, and docs/tests. No database migration is evident if the handler reuses existing owner-action tables; a dedicated durable claim for replay safety might add one (not confirmed). Callers: existing Discord/chat paths that list owner actions through the catalogue. None found superseded.
+Impact: touched are owneraction registry, factory/owneractions (catalog, new handler), connector (tool list, schema, guidance, overview), daemon/host wiring of the new handler and of the automatic Bug start (shaping addition, see f12), remote-connector and bug-runtime docs, and tests. No database migration is evident if the handler reuses existing owner-action tables; a dedicated durable row for replay safety and the start might add one (not confirmed). Depends on it: chat clients through the connector, and Discord/chat paths that list owner actions through the catalogue. Superseded: none found (looked at connector tools, owner-action catalogue, log analysis and Validate follow-up filing).
 
 Evidence:
 
 - `internal/factory/owneractions/catalog.go:118`
+- `internal/daemon/brainstorm_launch.go:28`
+
+## f12
+
+Precedent for starting work without a posted owner comment (observed): after brainstorm tasks are created, the daemon starts Plan on each new issue with a private owner-authored trigger that is never posted on the forge, one launch attempt per item, and reports 'created but not started' after a bounded wait.
+
+Evidence:
+
+- `internal/daemon/brainstorm_launch.go:19`
+- `internal/daemon/brainstorm_launch.go:24`
+- `internal/daemon/brainstorm_launch.go:262`
+
+## f13
+
+Existing Bug filing (log analysis) is GitHub only: it looks for an issue with the marker, creates one if absent, then adds the bug label. Linear filing is not supported, and Validate follow-ups on Linear get no bug label.
+
+Evidence:
+
+- `internal/loganalysis/trackers.go:88`
+- `internal/loganalysis/trackers.go:115`
+- `internal/turn/validate_remote.go:186`
+
+## f14
+
+action_confirm guidance says admission and background work are not proof of external success and the client reads recorded state (action_inspect) before describing the result. So the URL may only be known after the confirm call returns.
+
+Evidence:
+
+- `internal/connector/guidance/action_confirm.md:7`
+
+## f15
+
+Bug rules that apply unchanged: no labels are added to unlabelled Bugs (agent chosen by bug_agent or default), analysis is read-only, and repair needs the exact /approve-bug command.
+
+Evidence:
+
+- `docs/workflow/bug-runtime.md:15`
+- `docs/workflow/bug-runtime.md:21`
