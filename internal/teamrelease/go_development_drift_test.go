@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/teampackage"
@@ -41,6 +42,37 @@ func TestPublishedReleasesAreUnchanged(t *testing.T) {
 		if got := len(snapshot(t, dir)); got != len(release.Files) {
 			t.Errorf("%s has %d files, catalogue lists %d", release.Download, got, len(release.Files))
 		}
+	}
+}
+
+// Every published release must match its current source: a teams/source change
+// lands together with its regenerated release and catalogue. Fix a failure with
+// the all-teams go run ./cmd/teamrelease command in teams/README.md; never bump.
+func TestPublishedReleasesMatchSource(t *testing.T) {
+	root := canonicalTemp(t)
+	for name, raw := range snapshot(t, "../../teams") {
+		put(t, filepath.Join(root, "teams", filepath.FromSlash(name)), raw)
+	}
+	catalogue := releaseCatalogue(t, root)
+	var sources []string
+	for _, release := range catalogue.Releases {
+		sources = append(sources, "teams/source/"+release.Slug)
+	}
+	if len(sources) == 0 {
+		t.Fatal("catalogue lists no releases")
+	}
+	if err := GenerateSources(t.Context(), root, true, sources); err != nil {
+		t.Fatalf("published releases differ from teams/source; regenerate them with go run ./cmd/teamrelease (see teams/README.md):\n%v", err)
+	}
+	// The same check catches a source change that was not regenerated.
+	p := filepath.Join(root, "teams/source/base-team/bug/bug-fixer.md")
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, p, append(raw, []byte("\nUnregenerated change.\n")...))
+	if err := GenerateSources(t.Context(), root, true, sources); err == nil || !strings.Contains(err.Error(), "drift: teams/teams.json") {
+		t.Fatalf("unregenerated source change was not reported as drift: %v", err)
 	}
 }
 

@@ -163,20 +163,107 @@ func TestGenerationDeterminismAndReadOnlyDrift(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, root)) {
 		t.Fatal("source check wrote output")
 	}
-	meta := filepath.Join(root, "teams/source/go-development/release.json")
-	b, err := os.ReadFile(meta)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A changed source needs a new version: the published one is immutable.
-	put(t, meta, bytes.ReplaceAll(b, []byte(version), []byte("99.0.0")))
+	// A changed source regenerates the same version in place: never bump.
 	generate(t, root)
 	after := snapshot(t, root)
 	if bytes.Equal(first["teams/teams.json"], after["teams/teams.json"]) {
 		t.Fatal("source edit did not change catalogue hashes")
 	}
-	if !bytes.Contains(after["teams/go-development/v99.0.0/implement/skills/litefactory-rules/litefactory.md"], []byte("Retained new guidance")) {
+	if !bytes.Contains(after["teams/go-development/v"+version+"/implement/skills/litefactory-rules/litefactory.md"], []byte("Retained new guidance")) {
 		t.Fatal("missing materialization")
+	}
+}
+
+// A source change without a version change regenerates the published release in
+// place (the owner rule: stay at 1.0.0, regenerate, never bump). Check mode
+// reports the stale release as drift and writes nothing.
+func TestSameVersionSourceChangeRegeneratesInPlace(t *testing.T) {
+	root := canonicalTemp(t)
+	for name, raw := range snapshot(t, "../../teams") {
+		put(t, filepath.Join(root, "teams", filepath.FromSlash(name)), raw)
+	}
+	sources := []string{"teams/source/go-development"}
+	// Bring the copy in sync first, so only the edit below is drift.
+	if err := GenerateSources(t.Context(), root, false, sources); err != nil {
+		t.Fatal(err)
+	}
+	version := sourceVersion(t, filepath.Join(root, "teams/source/go-development"))
+	const file, oldText, newText = "bug/bug-fixer.md", "Fix the bug, nothing more", "Fix the reported bug, nothing more"
+	p := filepath.Join(root, "teams/source/base-team", file)
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Count(raw, []byte(oldText)) != 1 {
+		t.Fatalf("%s: expected exactly one %q", file, oldText)
+	}
+	put(t, p, bytes.Replace(raw, []byte(oldText), []byte(newText), 1))
+	released := "teams/go-development/v" + version + "/" + file
+
+	before := snapshot(t, root)
+	err = GenerateSources(t.Context(), root, true, sources)
+	if err == nil || strings.Contains(err.Error(), "use a new version") || !strings.Contains(err.Error(), "drift: "+released) || !strings.Contains(err.Error(), "drift: teams/teams.json") {
+		t.Fatalf("check of stale release: %v", err)
+	}
+	if !reflect.DeepEqual(before, snapshot(t, root)) {
+		t.Fatal("check wrote output")
+	}
+
+	if err := GenerateSources(t.Context(), root, false, sources); err != nil {
+		t.Fatalf("same-version regeneration: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(released)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got, []byte(newText)) {
+		t.Fatal("release was not regenerated with the source change")
+	}
+	catalogue := releaseCatalogue(t, root)
+	var entries []teampackage.Release
+	for _, r := range catalogue.Releases {
+		if r.Slug == "go-development" {
+			entries = append(entries, r)
+		}
+	}
+	if len(entries) != 1 || entries[0].Version != version {
+		t.Fatalf("go-development catalogue entries: %+v", entries)
+	}
+	dir := filepath.Join(root, "teams", filepath.FromSlash(entries[0].Download))
+	files := snapshot(t, dir)
+	if len(files) != len(entries[0].Files) {
+		t.Fatalf("%s has %d files, catalogue lists %d", entries[0].Download, len(files), len(entries[0].Files))
+	}
+	for _, f := range entries[0].Files {
+		sum := sha256.Sum256(files[f.Path])
+		if hex.EncodeToString(sum[:]) != f.SHA256 {
+			t.Fatalf("%s/%s does not match the catalogue", entries[0].Download, f.Path)
+		}
+	}
+	manager, err := teampackage.New(teampackage.Options{Paths: config.NewPaths(canonicalTemp(t)), Validate: turn.ValidateTeamWorkflows})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, _, err := manager.Install(t.Context(), filepath.Join(root, "teams/teams.json"), "go-development", version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.ReadFile(filepath.Join(installed.Path, filepath.FromSlash(file)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(home, []byte(newText)) {
+		t.Fatal("installed release lacks the source change")
+	}
+	settled := snapshot(t, root)
+	if err := GenerateSources(t.Context(), root, false, sources); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(settled, snapshot(t, root)) {
+		t.Fatal("second regeneration changed bytes")
+	}
+	if err := GenerateSources(t.Context(), root, true, sources); err != nil {
+		t.Fatalf("check after regeneration: %v", err)
 	}
 }
 

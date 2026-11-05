@@ -375,7 +375,7 @@
         },
         {
           "path": "bug/skills/litefactory-rules/litefactory.md",
-          "sha256": "047b2d691218ac721cfc56fdf4f849571f0f7d91803570a4c5d80a6e64adde05"
+          "sha256": "46cc4104acb1f83062bdde434176c311ec4b1aa455c3289b68ce8731658f7bae"
         },
         {
           "path": "implement/implement.dot",
@@ -399,7 +399,7 @@
         },
         {
           "path": "implement/skills/litefactory-rules/litefactory.md",
-          "sha256": "047b2d691218ac721cfc56fdf4f849571f0f7d91803570a4c5d80a6e64adde05"
+          "sha256": "46cc4104acb1f83062bdde434176c311ec4b1aa455c3289b68ce8731658f7bae"
         },
         {
           "path": "implement/story-worker.md",
@@ -579,7 +579,7 @@
         },
         {
           "path": "validate/skills/litefactory-rules/litefactory.md",
-          "sha256": "047b2d691218ac721cfc56fdf4f849571f0f7d91803570a4c5d80a6e64adde05"
+          "sha256": "46cc4104acb1f83062bdde434176c311ec4b1aa455c3289b68ce8731658f7bae"
         },
         {
           "path": "validate/skills/validate-repair-report/SKILL.md",
