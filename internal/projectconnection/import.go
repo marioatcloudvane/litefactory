@@ -65,7 +65,13 @@ func Initialize(ctx context.Context, db *store.DB, cfg config.Config, factory *F
 				} else if !errors.Is(err, store.ErrNotFound) {
 					return err
 				}
-				if err := reconcileSession(ctx, db, factory, session, code, tickets); err != nil {
+				sessionCode := code
+				if pinned, pinErr := db.LegacyBasePin(ctx, session.ID); pinErr == nil {
+					sessionCode.BaseBranch = pinned
+				} else if !errors.Is(pinErr, store.ErrNotFound) {
+					return pinErr
+				}
+				if err := reconcileSession(ctx, db, factory, session, sessionCode, tickets); err != nil {
 					reason = importReason(err)
 					break
 				}

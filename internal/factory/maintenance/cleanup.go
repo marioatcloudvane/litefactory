@@ -45,7 +45,7 @@ func (s *Service) CleanTask(ctx context.Context, request contracts.CleanTaskRequ
 		result.State = contracts.CleanTaskNoWorktree
 		return result, nil
 	}
-	repo, err := s.db.GetRepo(ctx, session.RepoID)
+	repo, err := s.db.SessionRepository(ctx, session)
 	if err != nil {
 		return result, err
 	}

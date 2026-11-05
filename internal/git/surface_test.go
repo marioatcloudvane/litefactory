@@ -36,6 +36,7 @@ func TestCloneMethodSetIsTheAllowlist(t *testing.T) {
 		// Stack admission reads one bounded regular override blob at an exact
 		// commit. It writes no index, worktree, object or ref.
 		"ReadStackOverrides",
+		"RemoteBranchExists",
 		"RemoteURL",
 		"RevParse",
 		"ShowRef",
