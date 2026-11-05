@@ -12,12 +12,12 @@ unsafe paths, symlinks, missing resources, incomplete closures and invalid graph
 or catalogue metadata before replacing output. Publication failures restore prior
 files; failed restoration retains backups and reports their location.
 
-Only the owner releases and links team versions. Fixes and features change the
-canonical sources only; they never change `release.json`'s version, run
-`go run ./cmd/teamrelease` to publish, or link a repository. The owner chooses
-the version, generates it with `go run ./cmd/teamrelease` and links it. Published
-release bytes stay immutable, so a published version is never regenerated with
-changed content.
+Any change to this source or to `teams/source/base-team` regenerates
+`teams/*/v1.0.0` and `teams/teams.json` in the same change with the all-teams
+`go run ./cmd/teamrelease` command in `teams/README.md`. Teams stay at 1.0.0:
+regenerate in place, never change `release.json`'s version. Then run
+`go test ./internal/teamrelease`, which fails when a release differs from its
+source. Only the owner links repositories.
 
 The generated release has a sorted SHA-256 inventory and inventory checksum. It
 uses the existing schema-1 installer, local clone and installed-only selection
