@@ -47,14 +47,14 @@ func (r connectorOverviewReader) OverviewHealth(ctx context.Context) (store.Heal
 	}
 	return r.Reader.OverviewHealth(ctx)
 }
-func (r connectorOverviewReader) ListOverviewActivity(ctx context.Context) ([]store.OverviewActivity, bool, error) {
+func (r connectorOverviewReader) ListOverviewActivity(ctx context.Context, now time.Time) ([]store.OverviewActivity, bool, []string, error) {
 	if r.failAll {
-		return nil, false, errConnectorSource
+		return nil, false, nil, errConnectorSource
 	}
 	if r.activity != nil {
-		return r.activity, false, nil
+		return r.activity, false, nil, nil
 	}
-	return r.Reader.ListOverviewActivity(ctx)
+	return r.Reader.ListOverviewActivity(ctx, now)
 }
 func (r connectorOverviewReader) ListOverviewWaits(ctx context.Context) (store.OverviewWaits, error) {
 	if r.failAll || r.failWaits {
@@ -237,5 +237,42 @@ func TestComposedOverviewLargeRequestIDFitsEnvelope(t *testing.T) {
 	mustOverview(t, json.Unmarshal(result.Result.StructuredContent, &structured))
 	if !reflect.DeepEqual(text, structured) {
 		t.Fatal("large id response representations differ")
+	}
+}
+
+func TestComposedOverviewListsEveryInFlightSlot(t *testing.T) {
+	t.Parallel()
+	db := connectorOverviewDB(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: filepath.Join(t.TempDir(), "repo"), Forge: "github", Owner: "owner", Name: "repo", RemoteURL: "https://github.com/owner/repo", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: filepath.Join(t.TempDir(), "worktrees")})
+	mustOverview(t, err)
+	session, err := db.GetOrCreateSession(ctx, repo, 1408)
+	mustOverview(t, err)
+	// The slot is held before any run, graph step or session lock exists; a
+	// second slot names a session that no longer resolves.
+	mustOverview(t, db.ReplaceHealthSnapshot(ctx, store.ListenerStatus{WrittenAt: now, DaemonStartedAt: now.Add(-time.Hour), LastHeartbeatStartedAt: now, RunsInFlight: 2, InFlightSessions: []int64{session.ID, 999999}, InFlightLabels: map[int64]string{session.ID: "due_schedule"}, SlotsUsed: 2, SlotsTotal: 5}, nil))
+	provider := overview.New(connectorOverviewReader{Reader: db}, redact.New(redact.Options{Environ: []string{}}), func() time.Time { return now })
+	handler, token, resource := overviewConnector(t, db, provider, now)
+	response := invokeConnectorOverview(ctx, t, handler, token, resource)
+	var result struct {
+		Result connector.ToolResult `json:"result"`
+	}
+	mustOverview(t, json.Unmarshal(response.Body.Bytes(), &result))
+	var value overview.Result
+	mustOverview(t, json.Unmarshal(result.Result.StructuredContent, &value))
+	if response.Code != http.StatusOK || result.Result.IsError || len(value.Activity.Items) != 1 {
+		t.Fatalf("in-flight slot missing from activity: %d %+v", response.Code, value.Activity)
+	}
+	item := value.Activity.Items[0]
+	if item["activity_id"] != fmt.Sprintf("inflight:%d", session.ID) || item["kind"] != "in_flight" || item["task"] != session.TaskRef || item["stage"] != "due_schedule" || item["state"] != "working" {
+		t.Fatalf("in-flight slot identity: %+v", item)
+	}
+	found := false
+	for _, w := range value.Activity.Warnings {
+		found = found || w == "unidentified_in_flight_work"
+	}
+	if !found || value.Coverage.Sources["activity"].Status == "complete" {
+		t.Fatalf("unidentified slot claimed complete coverage: %+v %+v", value.Activity.Warnings, value.Coverage.Sources["activity"])
 	}
 }

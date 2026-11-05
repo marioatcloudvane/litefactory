@@ -489,3 +489,122 @@ func TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory(t *testing.T) {
 		t.Fatal("waiting for background history settlement: ", ctx.Err())
 	}
 }
+
+// TestDiscoveryHTTP_FullFirstPageGainsCommentOneHundredOne is #1402 through the
+// daemon: a story whose comment history is exactly one full page, cached
+// without a next link, then gains comment 101 on page 2 while page 1 answers
+// 304. Comment 101 must be admitted once, and a failed page 2 must neither
+// admit it nor move the cursor (C1, C2, C3).
+func TestDiscoveryHTTP_FullFirstPageGainsCommentOneHundredOne(t *testing.T) {
+	for _, tailFails := range []bool{false, true} {
+		t.Run(fmt.Sprintf("tail_fails=%t", tailFails), func(t *testing.T) {
+			f := newDiscoveryHTTPFixture(t)
+			var (
+				mu        sync.Mutex
+				tail      bool
+				failTail  bool
+				revalided int
+			)
+			boundary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/repos/acme/a/issues/200/comments" {
+					f.serve(w, r)
+					return
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				comment := func(id int64, actor int64) map[string]any {
+					return map[string]any{"id": id, "body": "offline owner refinement", "user": map[string]any{"id": actor, "login": "u"}}
+				}
+				items := []map[string]any{}
+				switch r.URL.Query().Get("page") {
+				case "", "1":
+					// No Link header, ever: the page is full, and GitHub
+					// omits the header when nothing follows it.
+					w.Header().Set("ETag", `"full"`)
+					if r.Header.Get("If-None-Match") == `"full"` {
+						revalided++
+						w.WriteHeader(http.StatusNotModified)
+						return
+					}
+					for id := int64(1); id <= 100; id++ {
+						items = append(items, comment(id, 7))
+					}
+				case "2":
+					if failTail {
+						w.WriteHeader(http.StatusInternalServerError)
+						_, _ = w.Write([]byte(`{"message":"fixture failure"}`))
+						return
+					}
+					if tail {
+						items = append(items, comment(101, f.actorID))
+					}
+				default:
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(items)
+			}))
+			defer boundary.Close()
+			client, err := github.New(github.Options{APIBase: boundary.URL, Token: secrets.NewToken("offline-full-page")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.d.forge = client
+			a, sa := f.task(t, "a")
+			tick := func(minute int) error {
+				f.d.discovery.tick(f.now.Add(time.Duration(minute) * time.Minute))
+				return f.d.discoverStoryComments(f.d.discoveryContext(t.Context()), a, client, sa, nil)
+			}
+			pending := func() int {
+				p, err := f.d.db.ListPendingStoryRefinements(t.Context(), a.session.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return len(p)
+			}
+
+			if err := tick(1); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.cursor(t, a, 200); got != 100 || pending() != 0 {
+				t.Fatalf("first page: cursor=%d pending=%d, want 100/0", got, pending())
+			}
+
+			mu.Lock()
+			tail, failTail = true, tailFails
+			mu.Unlock()
+			minute := 2
+			if tailFails {
+				if err := tick(minute); err == nil {
+					t.Fatal("failed page 2 returned success")
+				}
+				if got := f.cursor(t, a, 200); got != 100 || pending() != 0 {
+					t.Fatalf("after failed page 2: cursor=%d pending=%d, want 100/0", got, pending())
+				}
+				mu.Lock()
+				failTail = false
+				mu.Unlock()
+				minute++
+			}
+			if err := tick(minute); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.cursor(t, a, 200); got != 101 || pending() != 1 {
+				t.Fatalf("comment 101: cursor=%d pending=%d, want 101/1", got, pending())
+			}
+			// A replayed poll with nothing new admits nothing twice.
+			if err := tick(minute + 1); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.cursor(t, a, 200); got != 101 || pending() != 1 {
+				t.Fatalf("replay: cursor=%d pending=%d, want 101/1", got, pending())
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if revalided == 0 {
+				t.Fatal("page 1 was never revalidated with a 304")
+			}
+		})
+	}
+}

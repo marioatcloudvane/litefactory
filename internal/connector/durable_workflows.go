@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
@@ -49,58 +50,71 @@ func workflowFields(name string) ([]string, []string) {
 }
 func parseWorkflowArguments(name string, raw json.RawMessage) (workflowArguments, error) {
 	var a workflowArguments
-	invalid := errors.New("invalid workflow arguments")
 	if !isWorkflowTool(name) || len(raw) == 0 || len(raw) > 65536 || !utf8.Valid(raw) || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
-	if uniqueJSONObject(d) != nil {
-		return a, invalid
+	if e := uniqueJSONObject(d); e != nil {
+		return a, uniqueArgumentsError(e)
 	}
 	if _, e := d.Token(); e != io.EOF {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d = json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
-	if d.Decode(&a) != nil {
-		return a, invalid
+	if e := d.Decode(&a); e != nil {
+		return a, decodeArgumentError(e)
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	allowed, required := workflowFields(name)
-	for k, v := range fields {
-		if !slices.Contains(allowed, k) || bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
-			return a, invalid
-		}
+	if e := checkArgumentFields(fields, allowed, required); e != nil {
+		return a, e
 	}
 	for _, k := range required {
-		v, ok := fields[k]
-		if !ok || bytes.Equal(v, []byte(`""`)) {
-			return a, invalid
+		if bytes.Equal(fields[k], []byte(`""`)) {
+			return a, invalidArgument(k, "must not be empty")
 		}
 	}
-	if len(a.WorkflowRef) > 128 || len(a.Version) > 128 || len(a.Project) > 1024 || len(a.ClientRequestKey) > 128 || len(a.Job) > 128 || len(a.Cursor) > 4096 || a.Limit < 0 || a.Limit > 50 || len(a.Inputs) > 64 {
-		return a, invalid
+	for _, bound := range []struct {
+		name string
+		size int
+		max  int
+	}{
+		{"workflow_ref", len(a.WorkflowRef), 128}, {"version", len(a.Version), 128}, {"project", len(a.Project), 1024}, {"client_request_key", len(a.ClientRequestKey), 128}, {"job", len(a.Job), 128}, {"cursor", len(a.Cursor), 4096},
+	} {
+		if bound.size > bound.max {
+			return a, invalidArgument(bound.name, fmt.Sprintf("is longer than %d bytes", bound.max))
+		}
+	}
+	if a.Limit < 0 || a.Limit > 50 {
+		return a, invalidArgument("limit", "must be between 1 and 50")
+	}
+	if len(a.Inputs) > 64 {
+		return a, invalidArgument("inputs", "has more than 64 entries")
 	}
 	for _, field := range []struct{ name, value string }{
 		{"workflow_ref", a.WorkflowRef}, {"version", a.Version}, {"project", a.Project}, {"client_request_key", a.ClientRequestKey}, {"job", a.Job}, {"cursor", a.Cursor},
 	} {
 		if _, present := fields[field.name]; present && strings.TrimSpace(field.value) == "" {
-			return a, invalid
+			return a, invalidArgument(field.name, "must not be empty")
 		}
 	}
 	for question, answer := range a.Answers {
 		if strings.TrimSpace(question) == "" || len(question) > 128 || strings.TrimSpace(answer) == "" || len(answer) > 8192 {
-			return a, invalid
+			return a, invalidArgument("answers", "needs non-empty question keys of at most 128 bytes and non-empty answers of at most 8192 bytes")
 		}
 	}
-	if name == "workflow_continue_propose" && (a.SessionRevision < 1 || len(a.Answers) < 1 || len(a.Answers) > 50) {
-		return a, invalid
+	if name == "workflow_continue_propose" && a.SessionRevision < 1 {
+		return a, invalidArgument("session_revision", "must be at least 1")
+	}
+	if name == "workflow_continue_propose" && (len(a.Answers) < 1 || len(a.Answers) > 50) {
+		return a, invalidArgument("answers", "must hold between 1 and 50 answers")
 	}
 	if _, ok := fields["limit"]; ok && a.Limit == 0 {
-		return a, invalid
+		return a, invalidArgument("limit", "must be between 1 and 50")
 	}
 	if a.Limit == 0 {
 		a.Limit = 25

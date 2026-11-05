@@ -23,6 +23,10 @@ const EvidencePageBytes = 64 << 10
 
 var errEvidenceChanged = errors.New("evidence changed; restart without cursor")
 
+// errEvidenceCursor refuses a cursor that does not continue this grant's
+// task section; the client restarts the section without one.
+var errEvidenceCursor = errors.New("invalid cursor; restart without cursor")
+
 var evidenceSections = []string{"status", "results", "questions", "research", "plan", "approvals"}
 
 type evidenceArguments struct {
@@ -48,40 +52,56 @@ func parseEvidenceArguments(raw json.RawMessage) (evidenceArguments, error) {
 	d := json.NewDecoder(bytes.NewReader(raw))
 	t, err := d.Token()
 	if err != nil || t != json.Delim('{') {
-		return a, errors.New("invalid arguments")
+		return a, argumentsShapeError()
 	}
 	seen := map[string]bool{}
 	for d.More() {
 		t, err = d.Token()
 		if err != nil {
-			return a, errors.New("invalid arguments")
+			return a, argumentsShapeError()
 		}
 		key, ok := t.(string)
 		if !ok || seen[key] {
-			return a, errors.New("duplicate argument")
+			return a, duplicateArgument()
 		}
 		if !slices.Contains([]string{"task_ref", "section", "cursor", "limit"}, key) {
-			return a, errors.New("unknown argument")
+			return a, unknownArgument(key)
 		}
 		seen[key] = true
 		var discard json.RawMessage
-		if err = d.Decode(&discard); err != nil || bytes.Equal(bytes.TrimSpace(discard), []byte("null")) {
-			return a, errors.New("invalid arguments")
+		if err = d.Decode(&discard); err != nil {
+			return a, argumentsShapeError()
+		}
+		if bytes.Equal(bytes.TrimSpace(discard), []byte("null")) {
+			return a, nullArgument(key)
 		}
 	}
 	if _, err = d.Token(); err != nil {
-		return a, errors.New("invalid arguments")
+		return a, argumentsShapeError()
 	}
 	if _, err = d.Token(); err != io.EOF {
-		return a, errors.New("trailing arguments")
+		return a, argumentsShapeError()
 	}
 	d = json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
-	if err = d.Decode(&a); err != nil || a.TaskRef == "" || len(a.TaskRef) > 512 || !slices.Contains(evidenceSections, a.Section) || a.Limit < 0 || a.Limit > 50 || len(a.Cursor) > 4096 {
-		return a, errors.New("invalid arguments")
+	if err = d.Decode(&a); err != nil {
+		return a, decodeArgumentError(err)
 	}
-	if seen["limit"] && a.Limit == 0 {
-		return a, errors.New("invalid limit")
+	switch {
+	case !seen["task_ref"]:
+		return a, missingArgument("task_ref")
+	case a.TaskRef == "":
+		return a, invalidArgument("task_ref", "must not be empty")
+	case len(a.TaskRef) > 512:
+		return a, invalidArgument("task_ref", "is longer than 512 bytes")
+	case !seen["section"]:
+		return a, missingArgument("section")
+	case !slices.Contains(evidenceSections, a.Section):
+		return a, invalidArgument("section", "must be one of "+strings.Join(evidenceSections, ", "))
+	case a.Limit < 0 || a.Limit > 50 || seen["limit"] && a.Limit == 0:
+		return a, invalidArgument("limit", "must be between 1 and 50")
+	case len(a.Cursor) > 4096:
+		return a, invalidArgument("cursor", "is longer than 4096 bytes")
 	}
 	if a.Limit == 0 {
 		a.Limit = 50
@@ -148,7 +168,7 @@ func (s *Server) readEvidence(ctx context.Context, credential string, a evidence
 	if a.Cursor != "" {
 		cursor, err = s.openCursor(a.Cursor)
 		if err != nil || cursor.Grant != grant.ID || cursor.Task != target.TaskRef || cursor.Session != target.SessionID || cursor.Section != a.Section {
-			return ToolResult{}, errors.New("invalid continuation")
+			return ToolResult{}, errEvidenceCursor
 		}
 		position = cursor.Offset
 	}
@@ -286,6 +306,25 @@ func DiscussionResult(summary string, evidence any) (ToolResult, error) {
 		return ToolResult{}, errors.New("discussion response unavailable")
 	}
 	return result, nil
+}
+
+// missingScopes names, in consent order, each known scope the grant lacks whose
+// addition alone would list more tools on this server. A scope whose service
+// this server does not run is never named. Nothing is granted.
+func (s *Server) missingScopes(grant connectorstate.ConnectorGrant) []string {
+	have := len(s.availableTools(grant))
+	missing := []string{}
+	for _, k := range KnownScopes {
+		if connectorstate.ConnectorScopeHas(grant.Scope, k.Name) {
+			continue
+		}
+		wider := grant
+		wider.Scope = strings.TrimSpace(grant.Scope + " " + k.Name)
+		if len(s.availableTools(wider)) > have {
+			missing = append(missing, k.Name)
+		}
+	}
+	return missing
 }
 
 func (s *Server) availableTools(grant connectorstate.ConnectorGrant) []string {

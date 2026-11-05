@@ -17,7 +17,7 @@ const (
 	MaxRequestBytes  = 64 << 10
 	MaxResponseBytes = 256 << 10
 	MaxHandlers      = 32
-	MaxToolReads     = 4
+	MaxToolReads     = 8
 	RequestTimeout   = 20 * time.Second
 	ToolTimeout      = 15 * time.Second
 )
@@ -79,7 +79,14 @@ func (t *transportState) admit(ip string, now time.Time) bool {
 		b = &bucket{}
 		t.sources[ip] = b
 	}
-	return b.take(now, 2, 10)
+	return b.take(now, 5, 20)
+}
+
+// refuseRetryLater writes a 429 that says in plain words it is a temporary
+// limit and when to retry, matching its Retry-After header.
+func refuseRetryLater(w http.ResponseWriter, limit string) {
+	w.Header().Set("Retry-After", "1")
+	http.Error(w, "Too Many Requests: refused by a temporary "+limit+" limit; retry in 1 s.", http.StatusTooManyRequests)
 }
 
 type correlationKey struct{}
@@ -97,7 +104,7 @@ func (s *Server) audit(r *http.Request, event, outcome, reason, tool string, sta
 }
 
 func (s *Server) auditDetail(r *http.Request, event, outcome, reason, detail, tool string, start time.Time) {
-	if tool != "factory_overview" && tool != "task_evidence_read" && tool != "unavailable" {
+	if tool != "unavailable" && !isKnownTool(tool) {
 		tool = "unknown"
 	}
 	attrs := []any{slog.String("event", event), slog.String("outcome", outcome), slog.String("reason", reason)}
@@ -140,6 +147,14 @@ func (s *Server) Handler() http.Handler {
 				event = "connection"
 			}
 			s.audit(r, event, "refusal", reason, "unavailable", start)
+			if status == http.StatusTooManyRequests {
+				limit := "rate"
+				if reason == "capacity" {
+					limit = "concurrency"
+				}
+				refuseRetryLater(w, limit)
+				return
+			}
 			http.Error(w, http.StatusText(status), status)
 		}
 		if r.Host != issuer.Host {
@@ -156,7 +171,6 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		if !s.transport.admit(source, s.now()) {
-			w.Header().Set("Retry-After", "1")
 			refuse(429, "rate")
 			return
 		}
@@ -164,7 +178,6 @@ func (s *Server) Handler() http.Handler {
 		case s.transport.handlers <- struct{}{}:
 			defer func() { <-s.transport.handlers }()
 		default:
-			w.Header().Set("Retry-After", "1")
 			refuse(429, "capacity")
 			return
 		}

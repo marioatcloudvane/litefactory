@@ -88,83 +88,122 @@ func parseCodeArguments(name string, raw json.RawMessage) (codeArguments, error)
 	d := json.NewDecoder(bytes.NewReader(raw))
 	t, e := d.Token()
 	if e != nil || t != json.Delim('{') {
-		return a, errors.New("invalid arguments")
+		return a, argumentsShapeError()
 	}
 	seen := map[string]bool{}
 	props := codeProperties(name)
 	for d.More() {
 		t, e = d.Token()
 		if e != nil {
-			return a, e
+			return a, argumentsShapeError()
 		}
 		k, ok := t.(string)
-		if !ok || seen[k] || props[k] == nil {
-			return a, errors.New("unknown or duplicate selector")
+		if !ok || seen[k] {
+			return a, duplicateArgument()
+		}
+		if props[k] == nil {
+			return a, unknownArgument(k)
 		}
 		seen[k] = true
 		var value json.RawMessage
-		if e = d.Decode(&value); e != nil || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return a, errors.New("invalid selector")
+		if e = d.Decode(&value); e != nil {
+			return a, argumentsShapeError()
+		}
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return a, nullArgument(k)
 		}
 	}
 	if _, e = d.Token(); e != nil {
-		return a, e
+		return a, argumentsShapeError()
 	}
 	if _, e = d.Token(); !errors.Is(e, io.EOF) {
-		return a, errors.New("trailing arguments")
+		return a, argumentsShapeError()
 	}
 	if e = json.Unmarshal(raw, &a); e != nil {
-		return a, e
+		return a, decodeArgumentError(e)
 	}
 	if a.Cursor != "" {
-		if len(seen) != 1 || len(a.Cursor) > 16384 {
-			return a, errors.New("continuation conflicts with selectors")
+		if len(seen) != 1 {
+			return a, invalidArgument("cursor", "cannot be combined with other arguments; send it alone to continue, or drop it to start over")
+		}
+		if len(a.Cursor) > 16384 {
+			return a, invalidArgument("cursor", "is longer than 16384 bytes")
 		}
 		return a, nil
 	}
-	if a.TaskRef == "" || len(a.TaskRef) > 512 || seen["cursor"] || len(a.ViewToken) > 8192 || a.Limit < 0 || a.Limit > 50 || seen["limit"] && a.Limit == 0 {
-		return a, errors.New("invalid selector")
+	switch {
+	case !seen["task_ref"]:
+		return a, missingArgument("task_ref")
+	case a.TaskRef == "":
+		return a, invalidArgument("task_ref", "must not be empty")
+	case len(a.TaskRef) > 512:
+		return a, invalidArgument("task_ref", "is longer than 512 bytes")
+	case seen["cursor"]:
+		return a, invalidArgument("cursor", "must not be empty")
+	case len(a.ViewToken) > 8192:
+		return a, invalidArgument("view_token", "is longer than 8192 bytes")
+	case a.Limit < 0 || a.Limit > 50 || seen["limit"] && a.Limit == 0:
+		return a, invalidArgument("limit", "must be between 1 and 50")
 	}
 	if a.Branch == "" {
 		a.Branch = "task"
 	}
 	if a.Branch != "task" && a.Branch != "base" {
-		return a, errors.New("invalid branch")
+		return a, invalidArgument("branch", "must be task or base")
 	}
-	if len(a.Path) > 500 || len(a.Pattern) > 500 || len(a.Query) > 200 || len(a.Role) > 200 || a.StartLine < 0 || a.StartLine > 100000000 || a.Lines < 0 || a.Lines > 400 || seen["start_line"] && a.StartLine == 0 || seen["lines"] && a.Lines == 0 || len(a.Categories) > 50 {
-		return a, errors.New("invalid selector")
+	switch {
+	case len(a.Path) > 500:
+		return a, invalidArgument("path", "is longer than 500 bytes")
+	case len(a.Pattern) > 500:
+		return a, invalidArgument("pattern", "is longer than 500 bytes")
+	case len(a.Query) > 200:
+		return a, invalidArgument("query", "is longer than 200 bytes")
+	case len(a.Role) > 200:
+		return a, invalidArgument("role", "is longer than 200 bytes")
+	case a.StartLine < 0 || a.StartLine > 100000000 || seen["start_line"] && a.StartLine == 0:
+		return a, invalidArgument("start_line", "must be between 1 and 100000000")
+	case a.Lines < 0 || a.Lines > 400 || seen["lines"] && a.Lines == 0:
+		return a, invalidArgument("lines", "must be between 1 and 400")
+	case len(a.Categories) > 50:
+		return a, invalidArgument("categories", "has more than 50 entries")
 	}
 	if a.Path != "" {
 		if strings.HasPrefix(a.Path, "/") || strings.HasPrefix(a.Path, "-") || strings.HasPrefix(a.Path, ":") || strings.Contains(a.Path, "\\") {
-			return a, errors.New("unsafe path")
+			return a, invalidArgument("path", "must be a relative repository path without a leading /, - or : and without backslashes")
 		}
 		for _, p := range strings.Split(a.Path, "/") {
 			if p == "" || p == "." || p == ".." {
-				return a, errors.New("unsafe path")
+				return a, invalidArgument("path", "must not hold empty, . or .. segments")
 			}
 		}
 	}
-	for _, v := range []string{a.TaskRef, a.Path, a.Pattern, a.Query, a.Role} {
-		if strings.ContainsFunc(v, unicode.IsControl) {
-			return a, errors.New("control character")
+	for _, v := range []struct{ field, value string }{{"task_ref", a.TaskRef}, {"path", a.Path}, {"pattern", a.Pattern}, {"query", a.Query}, {"role", a.Role}} {
+		if strings.ContainsFunc(v.value, unicode.IsControl) {
+			return a, invalidArgument(v.field, "must not hold control characters")
 		}
 	}
 	cats := map[string]bool{}
 	for _, c := range a.Categories {
 		if c == "" || len(c) > 200 || cats[c] || strings.ContainsFunc(c, unicode.IsControl) {
-			return a, errors.New("invalid category")
+			return a, invalidArgument("categories", "must hold distinct non-empty names of at most 200 bytes without control characters")
 		}
 		cats[c] = true
 	}
 	if name == "repo_grep" && a.Pattern == "" {
-		return a, errors.New("pattern required")
+		return a, missingArgument("pattern")
 	}
 	if name == "repo_diff" {
 		if a.Mode != "base_to_task" && a.Mode != "commit" {
-			return a, errors.New("diff mode required")
+			if !seen["mode"] {
+				return a, missingArgument("mode")
+			}
+			return a, invalidArgument("mode", "must be base_to_task or commit")
 		}
-		if a.Mode == "commit" && !fullCodeCommit(a.Commit) || a.Mode == "base_to_task" && a.Commit != "" {
-			return a, errors.New("invalid diff commit")
+		if a.Mode == "commit" && !fullCodeCommit(a.Commit) {
+			return a, invalidArgument("commit", "must be a full commit hash for mode commit")
+		}
+		if a.Mode == "base_to_task" && a.Commit != "" {
+			return a, invalidArgument("commit", "is not allowed with mode base_to_task")
 		}
 	}
 	if a.Limit == 0 {

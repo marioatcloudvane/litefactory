@@ -24,7 +24,7 @@ import (
 type Reader interface {
 	OverviewRepositories(context.Context) ([]store.OverviewRepository, bool, error)
 	OverviewHealth(context.Context) (store.HealthSnapshot, error)
-	ListOverviewActivity(context.Context) ([]store.OverviewActivity, bool, error)
+	ListOverviewActivity(context.Context, time.Time) ([]store.OverviewActivity, bool, []string, error)
 	ListOverviewWaits(context.Context) (store.OverviewWaits, error)
 	ListOverviewPublications(context.Context, time.Time, time.Time) (store.OverviewPublications, error)
 }
@@ -145,9 +145,6 @@ func (s *Service) Build(ctx context.Context) (Result, error) {
 			if repo.ObservedAt.IsZero() || repo.ObservedAt.After(now) {
 				repoStatus = "unknown"
 				repoReasons = append(repoReasons, "connection_observation_unknown")
-			} else if now.Sub(repo.ObservedAt) > 5*time.Minute {
-				repoStatus = "stale"
-				repoReasons = append(repoReasons, "connection_observation_stale")
 			}
 			if repo.ConnectionStatus == "missing_connection" || repo.ConnectionStatus == "disabled_connection" {
 				repoStatus = "unavailable"
@@ -191,10 +188,11 @@ func (s *Service) Build(ctx context.Context) (Result, error) {
 	if err != nil {
 		r.Health["status"] = "unavailable"
 	}
-	activity, more, err := s.reader.ListOverviewActivity(ctx)
+	activity, more, activityWarnings, err := s.reader.ListOverviewActivity(ctx, now)
 	source("activity", err, nil, "complete")
 	if err == nil {
 		r.Activity.HasMore = more
+		r.Activity.Warnings = append(r.Activity.Warnings, activityWarnings...)
 		for _, a := range activity {
 			r.Activity.Items = append(r.Activity.Items, map[string]any{"activity_id": a.ID, "kind": a.Kind, "repository_id": a.RepoID, "repository": a.Repository, "session_id": a.SessionID, "run_id": a.RunID, "task": a.TaskRef, "task_url": nullable(a.TaskURL), "workflow": a.Workflow, "stage": a.Stage, "state": a.State, "started_at": optional(a.StartedAt), "ticket": a.Ticket})
 		}
