@@ -1,0 +1,173 @@
+import json
+
+intent = {
+    "key": "story-001",
+    "name": "Change a registered repository's base branch",
+    "user_story": {
+        "actor": "repository owner",
+        "want": "to change the base branch of an already registered repository with one command",
+        "benefit": "new work starts from and lands on the branch I now use, without removing and re-registering the repository",
+        "notes": [
+            "Covers: O-01, O-02, O-03, O-04, O-05, O-06, O-07, O-08",
+            "Assumption a1: the command refuses while work is executing; it never queues the change for later.",
+            "Assumption a2: the repository is named by its project id (as shown in the repository list) or by its registered clone path; an unknown one is refused plainly.",
+            "Assumption a4: if the remote cannot be reached, the command refuses with a clear message instead of guessing.",
+            "Assumption a3: checking for executing work and saving the change happen together, so work starting at the same moment either sees the old base or counts as open.",
+            "Owner direction 1 (reviewer, O-04): the repository record and a new current code-connection revision change together or not at all; earlier revisions are kept.",
+            "Owner direction 2 (set review): issues started without a pinned settings copy keep their original base. No Ruling: nothing is narrowed. Sizing note: this adds a resume regression test and the work to protect those issues; the supplied size M is factory-owned and not changed here, so the set review should re-estimate.",
+            "Owner direction 3 (set review): 'no change' applies only when the repository record and the connection copy agree; if they disagree, they are reconciled under the normal safety checks, proven by an existing-data regression test in this story.",
+        ],
+    },
+    "problem": "Today a repository's base branch is fixed when it is registered. If the team moves to a different branch (for example, lisisite now delivers to a branch called stage), the owner has no safe way to switch. New work keeps being cut from and delivered to the old branch. Registering again does not help, because it should not silently change the base. The owner needs one clear command that switches the base only when it is safe: the branch exists on the remote and nothing is executing right now. Work that has already started must keep the base it started with, including older issues that never saved a settings copy of their own. Today the base lives in two places, the repository record and its code connection; they must never be left disagreeing.",
+    "in_scope": [
+        "A command `repo base <id|path> <branch>` that changes the stored base branch of a registered repository.",
+        "The repository list shows the new base after the change.",
+        "Refuse with a plain message if the branch does not exist on the remote, or if the remote cannot be reached.",
+        "Refuse while work is executing (an agent run in progress or a workflow step queued or running); the message names what is open and nothing is changed. Issues paused waiting for an owner reply do not block.",
+        "One successful command updates the repository record and creates a new current code-connection revision in one all-or-nothing step; earlier revisions are kept. If either part fails, neither is changed.",
+        "New work started after the change pins the new connection revision: new branches are cut from the new base and new pull requests go to it.",
+        "A check that new work pins the new revision while a paused issue keeps the revision it had.",
+        "Issues already started keep the base they started with, including their pull request target.",
+        "Older issues started without a pinned settings copy also keep their original base after the change, with a resume regression test proving it.",
+        "On success, print the repository with the old and new base.",
+        "Asking for the base it already has says 'no change' and writes nothing only when the repository record and the connection copy agree. If they disagree, the command reconciles them under the same safety checks (remote branch exists, nothing executing), with an existing-data regression test.",
+        "Registering an already registered repository with a different base is refused and points to `repo base`; nothing is changed.",
+        "First use: `repo base 3 stage` moves lisisite to `stage`.",
+        "Documentation of the new command and its refusals.",
+    ],
+    "not_in_scope": [
+        "N-01 — No unregister command and no retargeting of open PRs.",
+        "N-02 — No change to the global `default_base_branch` setting, no per-issue base override, no automatic creation of the branch on the remote.",
+        "N-03 — No edits to deployment or GitHub Actions in lisisite; the stage-only deploy rule is the owner's existing setup.",
+        "N-04 — No moving of already-started issues to the new base and no rebasing of their branches.",
+        "K-01 — Existing repositories with base `main` behave exactly as before; nothing changes unless the owner runs the command. First-time `repo add` and re-adding with the same or no `--base` are unchanged.",
+        "K-02 — An issue's pinned settings are never rewritten; paused or finished issues keep the base they recorded.",
+        "K-03 — Branch prefix, worktree root, clone path and remote of the repository stay as they are; only the base changes.",
+    ],
+    "dependencies": {"story_keys": [], "issue_refs": []},
+    "frontend": False,
+}
+
+def g(area, decision, rationale):
+    return {"area": area, "decision": decision, "rationale": rationale}
+
+general = [
+    g("Work mode (S-01: feature+change)",
+      "Before: the base is set only by `repo add`. Re-adding with --base silently overwrites the repository record and leaves the code connection stale (f1, f3). After: `repo base` is the only way to change a registered base, and `repo add` refuses a base change. Compatible: first-time `repo add`, re-add with the same or no --base, `repo list`, the global default_base_branch and every repository that never runs the command (K-01).",
+      "A change-mode story must state before, after and what stays compatible. The only behaviour that goes away is the silent base overwrite in `repo add`, which the owner asked to remove (O-08, A-03)."),
+    g("Reuse: existing layers",
+      "Reuse the existing chain: the CLI `repo` command group → localprojects.Administration → store, with the git package as the only place that runs git. Add `repo base` next to `repo add`/`repo list` in the CLI command table and add one Administration method (e.g. ChangeBase). Do not add a second registration path, and do not run git from the CLI or from localprojects directly.",
+      "cmd_repo.go keeps git out of the CLI on purpose, so the S-6 git allowlist stays a single chokepoint. Administration already owns Register and List, so the new action belongs next to them."),
+    g("Naming the repository (a2)",
+      "An all-digit argument is a project id (GetRepo). Anything else is a path, cleaned the same way `repo add` does and looked up with GetRepoByPath. Not found → plain refusal naming the argument and pointing to `repo list`. Validate the branch name with the existing branch-name check used at registration (repos validation / git checkName) before any network call.",
+      "Same identifiers the owner sees in `repo list` (first use: `repo base 3 stage`). Reusing the existing name check means a malformed name is refused locally, with the same rules as `repo add --base`."),
+    g("Remote check (O-02, a4): external guarantee",
+      "Add one git-package function, e.g. RemoteBranchExists(ctx, clone, branch), that runs the already-allowlisted `git ls-remote --refs -- origin refs/heads/<branch>` with the existing fetch timeout, against the registered clone's origin and its existing credentials. Empty output → refuse 'branch not on remote'. Command error or timeout → refuse 'remote unreachable', showing the git error without credentials. Run it before the database transaction and never inside it.",
+      "git ls-remote documents that it lists matching refs and prints nothing when none match (the exit code is non-zero only with --exit-code). A failure to connect is a non-zero exit. The same call already exists in the retirement code. Limit: the check only holds at that moment. If the branch is deleted later, new work fails at worktree time; that is accepted and not handled here (N-02: no branch creation). Network inside the transaction would hold the write lock for up to the fetch timeout."),
+    g("Atomic change (O-03, O-04, a3)",
+      "One store method (e.g. ChangeRepoBase) runs one store transaction. The store's connector already starts every transaction with BEGIN IMMEDIATE. Inside it, in order: (1) the open-work check; (2) the old-base pins for unpinned sessions (see Older issues); (3) update repos.base_branch; (4) when the current code connection's base differs, copy the current code-connection version with only base_branch changed and move the current pointer through the existing setConnection, using the revision read in this transaction as the expected revision. Any error rolls everything back, so either all of it happens or none of it does. Earlier revisions are never edited.",
+      "BEGIN IMMEDIATE takes the write lock up front, so this change and session creation run one after the other. Session creation already re-reads the current code revision inside its own transaction and fails with ErrConnectionConflict if it moved. A session started at the same moment therefore pins either the old revision (and its work then counts as open) or the new one, never a mix. setConnection already keeps earlier versions and moves only the pointer (owner direction 1)."),
+    g("Open-work rule (O-03, A-01)",
+      "Work counts as executing for repository R when any session of R (sessions.repo_id) has a run with status prelaunch or running, a graph_node_attempt with status pending or running, or a graph_dispatch with status pending, reserved or running. A graph instance that is merely 'running' while it waits for an owner reply does not count. The refusal lists every open item by issue reference and kind (run, step, queued step), and nothing is written.",
+      "These are the same status sets the store already treats as live (graph_capacity.go, graph_dispatches.go, graph_comments.go). Graph instances stay 'running' during an owner wait (f11), so counting instances would block paused issues, which A-01 rules out. Assumption: a waiting issue has no pending attempt or dispatch; the paused-issue test proves it."),
+    g("Older issues without a pinned copy (owner direction 2, K-02)",
+      "Sessions without an execution snapshot fall back to the live repos row in two places: executionRepository at runtime, and the legacy import in projectconnection.Initialize, which builds the code version from the live row when it pins the session. Without protection, both would hand the new base to old issues. Decision: in the same transaction, the command writes one 'legacy base pin' (session id plus the base it used until now) for every session of R that has neither a snapshot nor a pin. executionRepository's fallback then uses the pinned base. Initialize uses the pinned base when it builds that session's code version, and that version is kept as history through RetainConnectionVersion, which does not move the current pointer. A pin is never rewritten.",
+      "Option considered and rejected: no table, and instead derive the old base from the connection revision that was current when the session was created. That avoids a migration, but it is wrong when the record and the connection already disagree (f3), and it would change how today's unpinned sessions behave even when nobody runs the command (K-01). An explicit pin captures exactly what the issue used. Cost: one additive migration, against the set entry's 'no migration'. Flagged for re-estimation."),
+    g("Readers that must use the issue's base",
+      "Every reader of an issue's base resolves it through the execution path: the snapshot, else the legacy pin, else the live row. The builder switches the base reads in store.retirement_owners (owner.Repo from GetRepo, used for the retirement base guard), and checks the other live-row readers found (feature_delivery fallback, daemon stage_decision_boundary, doctor files, maintenance cleanup, doctor repair effects) and switches any that read BaseBranch for a session. Owner-level readers with no session (repo list, feature drafts, owner actions) keep using the live row.",
+      "Research a9 asks for this audit. Retirement compares the base and would otherwise check an old issue against the new branch. The readers listed were found by searching for GetRepo(…RepoID); the BaseBranch use of each one is unverified, so the builder confirms them."),
+    g("Same base and disagreement (O-06, owner direction 3)",
+      "Target X is the requested branch. If repos.base_branch == X and the current code-connection base == X → print 'no change', with no remote check, no open-work check and no write. Otherwise run the full checks and write only the side that differs. A new connection revision is created only when the connection base differs from X. If no current code connection exists, create the first one from the updated record in the same transaction, the way SeedRegistration does.",
+      "Owner direction 3: reconcile only under the normal safety checks. Writing only the side that differs keeps the connection history free of identical revisions. The missing-connection case is an assumption: SeedRegistration normally creates the connection, but an import conflict may leave it absent."),
+    g("repo add guard (O-08, K-01)",
+      "In Administration.Register: when the path is already registered and a non-empty --base differs from the stored base, refuse before Resolve, UpsertRepo and SeedRegistration, with a message pointing to `litefactory repo base <id> <branch>`. Re-adding with the same or no --base is unchanged.",
+      "Refusing before any write means nothing changes on refusal. This also closes the existing gap where re-add moved the record but not the connection (f3)."),
+    g("Output and errors",
+      "On success, print the repository reference and id with 'base <old> -> <new>', where old is the previous record base. When reconciling, also name the side that was stale. Refusals return the CLI's existing precondition error type, so exit codes and stderr behave like other `repo` refusals. Every store and git error is wrapped with what was being attempted. The context is passed to git and the store, so Ctrl-C cancels cleanly before commit.",
+      "This matches how `repo add` reports, and it gives the owner the before and after state that O-06 asks for."),
+    g("Daemon pickup (a6, a7)",
+      "No daemon restart and no daemon messaging. The CLI writes the same database the daemon reads, as `repo add` does. New sessions pin the current revision at creation. Assumption: the daemon's regular fetch brings origin/<new base> in before the first new worktree. If the builder finds otherwise, worktree creation fetches that one branch, using the existing fetch path.",
+      "The research findings point this way; the end-to-end test of new work proves it."),
+    g("Shared places edited",
+      "The CLI command table (repo group), store migrations (one new additive migration), store/execution_connections, projectconnection import, localprojects registration, and the docs pages docs/cli/command-reference.md and docs/cli/repositories.md (plus docs/project-connections.md if it describes base fallback). The story set holds only this story, so no merge conflict with a sibling story is possible and no dependency is proposed.",
+      "Required shared-place check. Re-check this if the set later grows."),
+    g("Tests and standards",
+      "Tests sit at the store and CLI/Administration level against a real temporary database and a local bare git remote: missing branch, unreachable remote, executing work refused (run, pending step, queued dispatch), paused issue not blocking and keeping its revision, new session pinning the new revision, all-or-nothing rollback when the second write fails, same-base no-op, existing-data disagreement reconcile, `repo add` base-change refusal, and an old unpinned issue resumed after the change (runtime fallback and Initialize) keeping its old base. The docs are markdown: they are reviewed for consistency, with no tests that pin their wording.",
+      "Required by the testing standard (no wording pins on markdown) and the agent-guidance standard (no agent instruction prose in Go; this story adds none). The acceptance stage owns the actual criteria and tasks."),
+]
+
+data_model = [
+    {"entity": "repos (existing)",
+     "definition": "Registered repository record; base_branch is updated in place by `repo base`.",
+     "constraints": "Only base_branch changes (K-03). It changes only in the same transaction as the code-connection update."},
+    {"entity": "project_connection_versions / project_connections (existing)",
+     "definition": "Revisioned code-connection settings and the current pointer per (repo, role).",
+     "constraints": "The new revision is a copy of the current code version with only base_branch changed, at MAX(revision)+1. The pointer is moved through setConnection with the expected revision. Earlier rows are never updated or deleted."},
+    {"entity": "session_execution_snapshots (existing)",
+     "definition": "Per-session pin of the code version used for its whole life.",
+     "constraints": "Never written or rewritten by this story (K-02)."},
+    {"entity": "legacy base pin (new table, e.g. session_legacy_base_pins)",
+     "definition": "session_id (primary key, references sessions with ON DELETE CASCADE), repo_id, base_branch, created_at. Records the base an issue without an execution snapshot used before a base change.",
+     "constraints": "Additive migration and no backfill, so behaviour is unchanged until `repo base` runs (K-01). Rows are inserted only by `repo base`, only for sessions without a snapshot, never updated (first pin wins), and read only by the snapshot fallback paths."},
+]
+
+service_design = [
+    {"component": "cli repo base command",
+     "responsibility": "Parses <id|path> <branch>, calls Administration.ChangeBase, and prints the old and new base or the refusal.",
+     "access": "No git and no direct store queries; goes through localprojects only."},
+    {"component": "localprojects.Administration.ChangeBase",
+     "responsibility": "Resolves the repository, validates the name, short-circuits the same-base case, runs the remote check through the git package, then calls the store's atomic change. Register gains the base-change refusal.",
+     "access": "Store and git package; no network inside the store transaction."},
+    {"component": "git.RemoteBranchExists",
+     "responsibility": "Single ls-remote probe of origin for refs/heads/<branch>, with the fetch timeout.",
+     "access": "The existing runner and allowlist only."},
+    {"component": "store.ChangeRepoBase",
+     "responsibility": "One BEGIN IMMEDIATE transaction: open-work query, legacy base pins, repos update, new current code-connection revision. Returns the old and new values, or a typed refusal that lists the open work.",
+     "access": "SQLite only; reuses setConnection and the existing status sets."},
+    {"component": "turn.executionRepository and projectconnection.Initialize",
+     "responsibility": "For sessions without a snapshot, use the legacy base pin when one exists.",
+     "access": "Read the pin from the store; no behaviour change when no pin exists."},
+]
+
+solution_design = [
+    {"element": "Refusal types",
+     "contract": "Distinct, testable errors: unknown repository, invalid branch name, branch not on remote, remote unreachable, open work (carrying the list of open items), base change via `repo add`. The CLI maps them to precondition errors with plain messages.",
+     "rationale": "Each refusal in scope then has one observable shape for the acceptance tests, and messages stay in the CLI layer."},
+    {"element": "Base resolution for a session",
+     "contract": "base(session) = snapshot code version base, else legacy pin base, else live repos.base_branch. All per-session readers use this one resolution, through executionRepository.",
+     "rationale": "One rule instead of a check at every reader. This is what keeps already-started issues on their base (O-05, K-02)."},
+]
+
+draft = dict(intent)
+draft["architecture"] = {"general": general, "data_model": data_model,
+                         "service_design": service_design, "solution_design": solution_design}
+draft["guidance"] = ["go"]
+
+comment = """The architecture for story-001 is ready for your review. It is a draft, not approved.
+
+What this means for your work: `repo base 3 stage` will move lisisite to `stage`. Issues already running or paused keep `main`. That includes older issues that never saved a settings copy.
+
+One finding changes the size. Older issues without a pinned copy read the live repository record today, so they would silently switch to the new base. They could also get pinned to it the next time the daemon starts. To prevent that, the command saves each of those issues' current base in a small new table before it switches. That means one additive migration, but the set entry says "no migration". I picked a table over guessing the old base from timestamps, because guessing can be wrong when the record and the connection already disagree. Please weigh this when you re-estimate the M size.
+
+```mermaid
+sequenceDiagram
+  Owner->>CLI: repo base 3 stage
+  CLI->>Remote: does refs/heads/stage exist?
+  Remote-->>CLI: yes
+  CLI->>Store: one transaction: check open work, save old base of unpinned issues, update record + new connection revision
+  Store-->>CLI: committed, or refused with nothing written
+  CLI-->>Owner: lisisite: main -> stage
+```
+
+Other decisions: the remote check runs before the transaction, never inside it. "Executing" means a run, a pending or running step, or a queued step. An issue waiting for your reply does not count. Retirement and similar readers must read the issue's own base. Assumption: a repository with no code connection gets its first one in the same step.
+
+Next: if you agree, approve this candidate. Otherwise tell me what to change, for example "no migration, use the timestamp rule"."""
+
+result = {"result": {"outcome": "completed", "comment": comment, "payload": {"plan": {"storyrequest": {
+    "operation": "update",
+    "expected_revision": "f3c99cdd6d4330a7f14cfaa62199443c3007f7c1d4fa26014f8cd2231d044a42",
+    "changed_sections": ["architecture", "guidance"],
+    "draft": draft}}}}}
+with open("result.json", "w") as f:
+    json.dump(result, f, ensure_ascii=False)
+print(len(json.dumps(result)))

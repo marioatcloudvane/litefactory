@@ -114,7 +114,7 @@ Registers the git clone at `<path>`. Owner, name and default branch are read fro
 | `--prefix name` | First part of every task branch name. Overrides `settings.feature_prefix`. Default `lf`. |
 | `--worktrees dir` | Folder to create this repository's task worktrees under. Overrides `settings.worktree_root`. Default is `.lf-worktrees/<clone-folder-name>` next to the clone. |
 
-On a repeat registration, a flag you leave out keeps the value stored before, not the global default. Exit `3` for a path that does not exist, is not a git clone, is bare, has no usable GitHub `origin`, an unknown base branch, or a worktree folder already used by another repository. Exit `2` for an invalid base branch or prefix. See [Repositories](repositories.md).
+On a repeat registration, a flag you leave out keeps the value stored before, not the global default. Repeating it with a different `--base` for an already registered repository is refused and points to [`repo base`](#repo-base); the same `--base`, or none, changes nothing. Exit `3` for a path that does not exist, is not a git clone, is bare, has no usable GitHub `origin`, an unknown base branch, or a worktree folder already used by another repository. Exit `2` for an invalid base branch or prefix. See [Repositories](repositories.md).
 
 ### `repo list`
 
@@ -123,6 +123,28 @@ litefactory repo list
 ```
 
 Prints a table of every registered repository: `PATH`, `REMOTE` (as `forge:owner/name`), `BASE`, `WORKTREES` and `LAST FETCH` (UTC, or `never`). With nothing registered it says so and exits `0`. No flags.
+
+### `repo base`
+
+```text
+litefactory repo base <id|path> <branch>
+```
+
+Changes the stored base branch of an already registered repository. `<id|path>` is the project id shown by `repo list` (all digits) or the registered clone path. It prints the repository with `base <old> -> <new>`.
+
+The command refuses with a plain message, and nothing changes, when:
+
+- the repository is unknown (the message points to `repo list`);
+- `<branch>` is not a valid branch name;
+- `<branch>` does not exist on the remote `origin` (checked with `git ls-remote`);
+- the remote cannot be reached;
+- work is executing now: an agent run that is prelaunch or running, a workflow step that is pending or running, or a queued step. The message names the open items. Issues paused waiting for the owner's reply do not block.
+
+On success a single all-or-nothing step updates the repository record and adds a new current code-connection revision; earlier revisions are kept. Work started afterwards is cut from and delivered to the new base. Issues already started, including old ones with no saved settings copy, keep the base they started with and their PR target.
+
+Asking for the base the repository already has prints `no change` and writes nothing, but only if the repository record and its connection copy agree. If they disagree, they are reconciled under the same checks.
+
+It does not change the global `settings.default_base_branch`, create the branch on the remote, retarget open pull requests or rebase issues that already started. See [Repositories](repositories.md#change-the-base-branch).
 
 ### `repo webhook`
 

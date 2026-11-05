@@ -240,9 +240,9 @@ var archiveRetained = map[string]ArchiveClass{
 	"standards_graph_invocations": ArchiveClassSkeleton, "standards_story_invocations": ArchiveClassSkeleton,
 	"watermarks": ArchiveClassSkeleton, "retirement_intents": ArchiveClassSkeleton,
 	"session_ticket_identities": ArchiveClassSkeleton, "ticket_effect_identities": ArchiveClassSkeleton,
-	"session_execution_snapshots": ArchiveClassSkeleton,
-	"ticket_effect_preparations":  ArchiveClassSkeleton,
-	"delivery_code_authorities":   ArchiveClassSkeleton, "delivery_control_sources": ArchiveClassSkeleton,
+	"session_execution_snapshots": ArchiveClassSkeleton, "session_legacy_base_pins": ArchiveClassSkeleton,
+	"ticket_effect_preparations": ArchiveClassSkeleton,
+	"delivery_code_authorities":  ArchiveClassSkeleton, "delivery_control_sources": ArchiveClassSkeleton,
 	"managed_features": ArchiveClassSkeleton, "managed_stories": ArchiveClassSkeleton,
 	"managed_parent_closures": ArchiveClassSkeleton, "approved_story_revisions": ArchiveClassSkeleton,
 	// Publication provenance shares the frozen approval lifetime, including

@@ -829,7 +829,7 @@ func (p *StoryProgress) deliveryCodeRepository(ctx context.Context, parent strin
 	if !errors.Is(err, store.ErrNotFound) {
 		return github.Repo{}, err
 	}
-	registered, err := p.db.GetRepo(ctx, session.RepoID)
+	registered, err := p.db.SessionRepository(ctx, session)
 	if err != nil {
 		return github.Repo{}, err
 	}

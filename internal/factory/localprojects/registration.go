@@ -48,11 +48,15 @@ func (a *Administration) Register(ctx context.Context, request contracts.Registe
 		}
 		return &contracts.ProjectRegistrationFailure{Err: &repos.CheckError{Check: check, Path: request.Path, Err: err}}
 	}
+	explicitBase := request.BaseBranch != ""
 	previous, previousErr := a.db.GetRepoByPath(ctx, clone.Path())
 	if previousErr != nil && !errors.Is(previousErr, store.ErrNotFound) {
 		return previousErr
 	}
 	if previousErr == nil {
+		if explicitBase && request.BaseBranch != previous.BaseBranch {
+			return errBaseChangeViaAdd(previous.BaseBranch, request.BaseBranch)
+		}
 		if request.BaseBranch == "" {
 			request.BaseBranch = previous.BaseBranch
 		}
@@ -101,9 +105,17 @@ func (a *Administration) Register(ctx context.Context, request contracts.Registe
 	}
 	existed := err == nil
 
-	stored, err := a.db.UpsertRepo(ctx, registration.StoreRepo())
+	stored, err := a.db.RegisterRepo(ctx, registration.StoreRepo(), explicitBase)
+	if errors.Is(err, store.ErrBaseChangeViaAdd) {
+		return errBaseChangeViaAdd("", request.BaseBranch)
+	}
 	if err != nil {
 		return err
+	}
+	if stored.BaseBranch != registration.BaseBranch {
+		// A base change committed after the earlier read; report what is stored.
+		registration.BaseBranch = stored.BaseBranch
+		registration.BaseBranchSource = repos.SourceFlag
 	}
 
 	if err := projectconnection.SeedRegistration(ctx, a.db, stored, *a.cfg); err != nil {
