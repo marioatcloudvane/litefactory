@@ -732,6 +732,46 @@ func uniqueArgumentsError(err error) error {
 	return argumentsShapeError()
 }
 
+// withoutUnsupplied drops each top-level member that is an allowed, not
+// required argument sent as exactly null, "" or 0, so hosted clients that fill
+// every optional schema field read as having left it out. Input that is not
+// one well-formed object, or that repeats a top-level key, is returned
+// unchanged so the caller's own refusals still apply.
+func withoutUnsupplied(raw json.RawMessage, allowed, required []string) json.RawMessage {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := d.Token(); err != nil || t != json.Delim('{') {
+		return raw
+	}
+	var kept [][]byte
+	seen := map[string]bool{}
+	dropped := false
+	for d.More() {
+		start := d.InputOffset()
+		t, err := d.Token()
+		key, ok := t.(string)
+		if err != nil || !ok || seen[key] {
+			return raw
+		}
+		seen[key] = true
+		var value json.RawMessage
+		if d.Decode(&value) != nil {
+			return raw
+		}
+		if slices.Contains(allowed, key) && !slices.Contains(required, key) && (bytes.Equal(value, []byte("null")) || bytes.Equal(value, []byte(`""`)) || bytes.Equal(value, []byte("0"))) {
+			dropped = true
+			continue
+		}
+		kept = append(kept, bytes.TrimLeft(raw[start:d.InputOffset()], " \t\r\n,"))
+	}
+	if _, err := d.Token(); err != nil {
+		return raw
+	}
+	if _, err := d.Token(); err != io.EOF || !dropped {
+		return raw
+	}
+	return slices.Concat([]byte("{"), bytes.Join(kept, []byte(",")), []byte("}"))
+}
+
 // checkArgumentFields refuses, in key order, a key outside allowed or a null
 // value, then a missing required key.
 func checkArgumentFields(fields map[string]json.RawMessage, allowed, required []string) error {

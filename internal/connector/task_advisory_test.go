@@ -35,7 +35,7 @@ func TestTaskAdvisoryArgumentBoundary(t *testing.T) {
 		{"discussion_summary_publish", `{"task_ref":"a","conversation_ref":"c","conclusion_id":"one","summary":` + strings.Replace(summary, `"question":"Why?"`, `"question":"Why?","question":"Again?"`, 1) + `}`},
 		{"discussion_summary_publish", `{"task_ref":"a","conversation_ref":"c","conclusion_id":"one","summary":` + strings.Replace(summary, `"attribution":"Agent recommendation."`, `"attribution":"Agent recommendation.","approval":true`, 1) + `}`},
 		{"discussion_summary_publish", `{"task_ref":"a","conversation_ref":"c","conclusion_id":"one","summary":` + strings.Replace(summary, `"evidence_basis":"Saved review."`, `"evidence_basis":""`, 1) + `}`},
-		{"discussion_summary_get", `{"publication_ref":"one","cancel_pending":null}`},
+		{"discussion_summary_get", `{"publication_ref":null,"cancel_pending":true}`},
 		{"advisory_job_cancel", `{"job_ref":"one","cancel_pending":true}`},
 		{"advisory_job_get", `{"job_ref":"one"} {}`},
 	} {

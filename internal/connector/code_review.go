@@ -9,6 +9,7 @@ import (
 	"errors"
 	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -73,7 +74,7 @@ func codeProperties(name string) map[string]any {
 	}
 	return p
 }
-func codeInputSchema(name string) map[string]any {
+func codeRequiredFields(name string) []string {
 	required := []string{"task_ref"}
 	if name == "repo_grep" {
 		required = append(required, "pattern")
@@ -81,17 +82,30 @@ func codeInputSchema(name string) map[string]any {
 	if name == "repo_diff" {
 		required = append(required, "mode")
 	}
+	return required
+}
+func codeInputSchema(name string) map[string]any {
+	required := codeRequiredFields(name)
 	return map[string]any{"type": "object", "additionalProperties": false, "properties": codeProperties(name), "oneOf": []any{map[string]any{"required": required, "not": map[string]any{"required": []string{"cursor"}}}, map[string]any{"required": []string{"cursor"}, "maxProperties": 1}}}
 }
 func parseCodeArguments(name string, raw json.RawMessage) (codeArguments, error) {
 	var a codeArguments
+	props := codeProperties(name)
+	// A non-empty cursor alone continues a page, so then nothing is required.
+	required := codeRequiredFields(name)
+	var probe struct {
+		Cursor string `json:"cursor"`
+	}
+	if json.Unmarshal(raw, &probe) == nil && probe.Cursor != "" {
+		required = nil
+	}
+	raw = withoutUnsupplied(raw, slices.Collect(maps.Keys(props)), required)
 	d := json.NewDecoder(bytes.NewReader(raw))
 	t, e := d.Token()
 	if e != nil || t != json.Delim('{') {
 		return a, argumentsShapeError()
 	}
 	seen := map[string]bool{}
-	props := codeProperties(name)
 	for d.More() {
 		t, e = d.Token()
 		if e != nil {

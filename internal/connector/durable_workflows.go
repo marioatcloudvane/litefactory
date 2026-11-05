@@ -53,6 +53,8 @@ func parseWorkflowArguments(name string, raw json.RawMessage) (workflowArguments
 	if !isWorkflowTool(name) || len(raw) == 0 || len(raw) > 65536 || !utf8.Valid(raw) || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
 		return a, argumentsShapeError()
 	}
+	allowed, required := workflowFields(name)
+	raw = withoutUnsupplied(raw, allowed, required)
 	d := json.NewDecoder(bytes.NewReader(raw))
 	if e := uniqueJSONObject(d); e != nil {
 		return a, uniqueArgumentsError(e)
@@ -69,7 +71,6 @@ func parseWorkflowArguments(name string, raw json.RawMessage) (workflowArguments
 	if json.Unmarshal(raw, &fields) != nil {
 		return a, argumentsShapeError()
 	}
-	allowed, required := workflowFields(name)
 	if e := checkArgumentFields(fields, allowed, required); e != nil {
 		return a, e
 	}
