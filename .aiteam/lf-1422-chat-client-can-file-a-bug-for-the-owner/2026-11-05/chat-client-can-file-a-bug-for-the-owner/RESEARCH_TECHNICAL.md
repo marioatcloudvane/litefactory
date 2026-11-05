@@ -119,13 +119,14 @@ Evidence:
 
 ## f13
 
-Existing Bug filing (log analysis) is GitHub only: it looks for an issue with the marker, creates one if absent, then adds the bug label. Linear filing is not supported, and Validate follow-ups on Linear get no bug label.
+Existing Bug filing (log analysis) is GitHub only: it looks for an issue with the marker, creates one if absent, then adds the bug label. Log-analysis filing on Linear is refused, and Validate follow-ups on Linear get no bug label. The Bug docs list Linear filing and label writing as outside the earlier Bug change. Linear is now in scope for this tool (see O-08, A-01).
 
 Evidence:
 
 - `internal/loganalysis/trackers.go:88`
 - `internal/loganalysis/trackers.go:115`
 - `internal/turn/validate_remote.go:186`
+- `docs/workflow/bug-runtime.md:17`
 
 ## f14
 
@@ -143,3 +144,42 @@ Evidence:
 
 - `docs/workflow/bug-runtime.md:15`
 - `docs/workflow/bug-runtime.md:21`
+
+## f16
+
+Linear can create an issue idempotently (observed): the adapter refuses creation without a durable creation UUID and creates the issue with that UUID as its Linear id, in the connection's own team and project, then checks the returned id and scope. A replay with the same UUID can therefore find the same issue instead of making a second one.
+
+Evidence:
+
+- `internal/linear/tickets.go:457`
+- `internal/linear/tickets.go:467`
+
+## f17
+
+Linear labels are written only through explicit mappings (observed): a Linear connection stores label IDs for the five modes (research, plan, implement, validate, spike), and the adapter adds or removes only a mapped mode label, keeping other labels. There is no bug mapping today. The stored mapping accepts other keys (up to 32), so a bug entry may fit without a schema change (inferred, not confirmed).
+
+Evidence:
+
+- `internal/linear/tickets.go:611`
+- `internal/linear/tickets.go:684`
+- `internal/store/linear_connections.go:22`
+- `docs/project-connections.md:250`
+
+## f18
+
+Bug recognition is by label name (observed): a task with no mode label and no mode command becomes a Bug when its labels contain exactly 'bug'. For a Linear task, labels are read by name, and only mapped mode labels are renamed. So a Linear label named 'Bug' (capital B) is not recognised as a Bug today; only one named exactly 'bug' would be (inferred from the code, not checked live).
+
+Evidence:
+
+- `internal/daemon/workflow.go:42`
+- `internal/daemon/ticket_reads.go:26`
+- `internal/linear/tickets.go:110`
+
+## f19
+
+Impact of adding Linear: the Linear adapter (label write, label recognition), the Linear connection settings and their setup docs, the connector check of which repositories can file, and the automatic start, which must also work for a Linear task. Whether the brainstorm-style start already works for Linear tasks was not checked in this pass.
+
+Evidence:
+
+- `internal/projectconnection/linear.go:52`
+- `internal/daemon/brainstorm_launch.go:262`
