@@ -41,7 +41,12 @@ type pageFunc[T any] func(ctx context.Context, page int) ([]T, *gogithub.Respons
 //
 // A response with no next page ends the walk: one page is the normal shape of a
 // small repository's issue list, and GitHub omits the Link header entirely in
-// that case.
+// that case. A full page (perPage items) without a next link does not: the
+// following page is requested, and only a short or empty page ends the walk. A
+// revalidated (304) page is rebuilt from the headers cached when it was last
+// fetched, so a page that was the last one when cached keeps saying "no next
+// page" after items are appended behind it (#1402). Every caller requests
+// perPage items per page.
 func fetchPages[T any](ctx context.Context, c *Client, fetch pageFunc[T]) ([]T, int, error) {
 	// A client [New] did not build has nothing to call. Falling through the
 	// loop would report "no pages" — an empty issue list from a client that
@@ -72,9 +77,13 @@ func fetchPages[T any](ctx context.Context, c *Client, fetch pageFunc[T]) ([]T, 
 			return nil, requests, err
 		}
 		all = append(all, items...)
-		if resp == nil || resp.NextPage == 0 {
+		switch {
+		case resp != nil && resp.NextPage != 0:
+			page = resp.NextPage
+		case len(items) == perPage:
+			page = max(page, 1) + 1
+		default:
 			return all, requests, nil
 		}
-		page = resp.NextPage
 	}
 }
