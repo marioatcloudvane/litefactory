@@ -21,6 +21,7 @@ type fakeReader struct {
 	waits                                                 store.OverviewWaits
 	pubs                                                  []store.OverviewPublication
 	failures                                              map[string]error
+	activityWarnings                                      []string
 	activityMore, waitsMore, pubsMore, reposMore, undated bool
 	from, to                                              time.Time
 	cancel                                                context.CancelFunc
@@ -32,8 +33,8 @@ func (f *fakeReader) OverviewRepositories(ctx context.Context) ([]store.Overview
 func (f *fakeReader) OverviewHealth(ctx context.Context) (store.HealthSnapshot, error) {
 	return f.health, f.failures["health"]
 }
-func (f *fakeReader) ListOverviewActivity(ctx context.Context) ([]store.OverviewActivity, bool, error) {
-	return f.activity, f.activityMore, f.failures["activity"]
+func (f *fakeReader) ListOverviewActivity(ctx context.Context, now time.Time) ([]store.OverviewActivity, bool, []string, error) {
+	return f.activity, f.activityMore, f.activityWarnings, f.failures["activity"]
 }
 func (f *fakeReader) ListOverviewWaits(ctx context.Context) (store.OverviewWaits, error) {
 	f.waits.HasMore = f.waitsMore

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -150,24 +151,104 @@ type OverviewActivity struct {
 	StartedAt                                                      time.Time
 }
 
-// ListOverviewActivity includes active agent runs, current graph work and
-// worker-only occupancy. The UNION is sorted before applying its sentinel cap.
-func (db *DB) ListOverviewActivity(ctx context.Context) ([]OverviewActivity, bool, error) {
+// ListOverviewActivity includes active agent runs, current graph work,
+// worker-only occupancy and slots the daemon's fresh snapshot (at most five
+// minutes old at now) reports in flight with no other entry. The UNION is
+// sorted before applying its sentinel cap. Warnings disclose in-flight work
+// that could not be identified.
+func (db *DB) ListOverviewActivity(ctx context.Context, now time.Time) ([]OverviewActivity, bool, []string, error) {
 	var out []OverviewActivity
 	var more bool
-	err := db.withTx(ctx, func(tx *sql.Tx) error { var err error; out, more, err = listOverviewActivity(ctx, tx); return err })
-	return out, more, err
+	var warnings []string
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		out, more, warnings, err = listOverviewActivity(ctx, tx, now)
+		return err
+	})
+	return out, more, warnings, err
 }
-func listOverviewActivity(ctx context.Context, q inboxQuery) ([]OverviewActivity, bool, error) {
+
+// overviewInFlight reads the snapshot's in-flight sessions as a JSON array of
+// {"id","label"} objects. A missing or stale snapshot contributes nothing; an
+// undecodable or oversized list is reported as unidentified.
+func overviewInFlight(ctx context.Context, q inboxQuery, now time.Time) (string, time.Time, bool, error) {
+	var written string
+	var raw sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT written_at,CASE WHEN length(CAST(in_flight_sessions AS BLOB))<=65536 THEN in_flight_sessions ELSE NULL END FROM daemon_listener_status WHERE id=1`).Scan(&written, &raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "[]", time.Time{}, false, nil
+	}
+	if err != nil {
+		return "", time.Time{}, false, err
+	}
+	at, err := ParseTime(written)
+	if err != nil {
+		return "", time.Time{}, false, err
+	}
+	if at.IsZero() || at.After(now) || now.Sub(at) > 5*time.Minute {
+		return "[]", time.Time{}, false, nil
+	}
+	ids, labels, ok := decodeOverviewInFlight(raw)
+	if !ok {
+		return "[]", at, true, nil
+	}
+	type entry struct {
+		ID    int64  `json:"id"`
+		Label string `json:"label"`
+	}
+	seen := map[int64]bool{}
+	entries := []entry{}
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		label := labels[id]
+		if label == "" {
+			label = "checking_for_input"
+		}
+		entries = append(entries, entry{id, label})
+	}
+	b, err := json.Marshal(entries)
+	return string(b), at, false, err
+}
+
+// decodeOverviewInFlight reports false for an omitted or malformed list.
+func decodeOverviewInFlight(raw sql.NullString) ([]int64, map[int64]string, bool) {
+	if !raw.Valid {
+		return nil, nil, false
+	}
+	ids, labels, err := splitIDs(raw.String)
+	return ids, labels, err == nil
+}
+
+func listOverviewActivity(ctx context.Context, q inboxQuery, now time.Time) ([]OverviewActivity, bool, []string, error) {
+	inFlight, inFlightAt, unidentified, err := overviewInFlight(ctx, q, now)
+	if err != nil {
+		return nil, false, nil, err
+	}
+	if !unidentified {
+		var missing bool
+		if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM json_each(?) j WHERE NOT EXISTS(SELECT 1 FROM sessions s JOIN repos r ON r.id=s.repo_id WHERE s.id=json_extract(j.value,'$.id')))`, inFlight).Scan(&missing); err != nil {
+			return nil, false, nil, err
+		}
+		unidentified = missing
+	}
+	warnings := []string{}
+	if unidentified {
+		warnings = append(warnings, "unidentified_in_flight_work")
+	}
 	rows, err := q.QueryContext(ctx, `WITH active AS (
  SELECT 'run:'||x.id id,'agent' kind,s.repo_id,s.id session_id,x.id run_id,s.task_ref,COALESCE(NULLIF(x.workflow,''),x.mode) workflow,COALESCE((SELECT a.node FROM graph_node_attempts a WHERE a.run_id=x.id ORDER BY a.id DESC LIMIT 1),'') stage,x.status state,x.started_at FROM runs x JOIN sessions s ON s.id=x.session_id WHERE x.status IN ('running','prelaunch')
  UNION ALL
  SELECT 'graph:'||i.id,'graph',s.repo_id,s.id,NULL,s.task_ref,COALESCE(NULLIF(g.workflow,''),g.mode),i.current_node,CASE WHEN EXISTS(SELECT 1 FROM graph_owner_waits w WHERE w.instance_id=i.id AND w.state='waiting') THEN 'waiting_for_owner' ELSE 'working' END,i.started_at FROM graph_instances i JOIN sessions s ON s.id=i.session_id JOIN graph_definitions g ON g.id=i.definition_id WHERE i.status='running' AND i.id=(SELECT MAX(z.id) FROM graph_instances z WHERE z.session_id=s.id) AND NOT EXISTS(SELECT 1 FROM runs x WHERE x.session_id=s.id AND x.status IN ('running','prelaunch'))
  UNION ALL
  SELECT 'worker:'||s.id,'worker',s.repo_id,s.id,NULL,s.task_ref,'','', 'working',s.lock_acquired_at FROM sessions s WHERE s.lock_owner<>'' AND s.lock_acquired_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM runs x WHERE x.session_id=s.id AND x.status IN ('running','prelaunch')) AND NOT EXISTS(SELECT 1 FROM graph_instances i WHERE i.session_id=s.id AND i.status='running')
- ) SELECT a.id,a.kind,a.repo_id,a.session_id,a.run_id,substr(r.owner||'/'||r.name,1,512),substr(a.task_ref,1,1024),substr(a.workflow,1,128),substr(a.stage,1,128),a.state,a.started_at FROM active a JOIN repos r ON r.id=a.repo_id ORDER BY a.started_at DESC,a.id LIMIT 51`)
+ ), inflight AS (
+ SELECT 'inflight:'||s.id id,'in_flight' kind,s.repo_id,s.id session_id,NULL run_id,s.task_ref,'' workflow,CAST(json_extract(j.value,'$.label') AS TEXT) stage,'working' state,? started_at FROM json_each(?) j JOIN sessions s ON s.id=json_extract(j.value,'$.id') WHERE s.id NOT IN (SELECT session_id FROM active)
+ ) SELECT a.id,a.kind,a.repo_id,a.session_id,a.run_id,substr(r.owner||'/'||r.name,1,512),substr(a.task_ref,1,1024),substr(a.workflow,1,128),substr(a.stage,1,128),a.state,a.started_at FROM (SELECT * FROM active UNION ALL SELECT * FROM inflight) a JOIN repos r ON r.id=a.repo_id ORDER BY a.started_at DESC,a.id LIMIT 51`, FormatTime(inFlightAt), inFlight)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	defer rows.Close()
 	out := []OverviewActivity{}
@@ -175,24 +256,24 @@ func listOverviewActivity(ctx context.Context, q inboxQuery) ([]OverviewActivity
 		var a OverviewActivity
 		var at string
 		if err = rows.Scan(&a.ID, &a.Kind, &a.RepoID, &a.SessionID, &a.RunID, &a.Repository, &a.TaskRef, &a.Workflow, &a.Stage, &a.State, &at); err != nil {
-			return nil, false, err
+			return nil, false, nil, err
 		}
 		a.StartedAt, err = ParseTime(at)
 		if err != nil {
-			return nil, false, err
+			return nil, false, nil, err
 		}
 		out = append(out, a)
 	}
 	if err = rows.Err(); err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	if err = rows.Close(); err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	for i := range out {
 		out[i].Ticket, err = overviewIdentity(ctx, q, out[i].SessionID)
 		if err != nil {
-			return nil, false, err
+			return nil, false, nil, err
 		}
 		out[i].TaskURL = out[i].Ticket.TaskURL
 	}
@@ -200,7 +281,7 @@ func listOverviewActivity(ctx context.Context, q inboxQuery) ([]OverviewActivity
 	if more {
 		out = out[:OverviewLimit]
 	}
-	return out, more, nil
+	return out, more, warnings, nil
 }
 
 // OverviewPublication is verified owner-facing delivery, not workflow approval.
