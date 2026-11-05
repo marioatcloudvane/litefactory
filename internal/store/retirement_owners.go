@@ -104,7 +104,7 @@ func (db *DB) GetRetirementOwner(ctx context.Context, id int64) (RetirementOwner
 	if err != nil {
 		return owner, err
 	}
-	owner.Repo, err = db.GetRepo(ctx, owner.Session.RepoID)
+	owner.Repo, err = db.SessionRepository(ctx, owner.Session)
 	if err != nil {
 		return owner, err
 	}

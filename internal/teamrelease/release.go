@@ -45,7 +45,8 @@ func Generate(ctx context.Context, repo string, check bool) error {
 }
 
 // GenerateSources publishes a combined catalogue from explicit repository-relative
-// canonical directories. Existing release identities and bytes stay immutable.
+// canonical directories. A source whose slug and version are already catalogued
+// replaces that release in place; other catalogued releases are kept unchanged.
 func GenerateSources(ctx context.Context, repo string, check bool, sources []string) error {
 	root, err := os.OpenRoot(repo)
 	if err != nil {
@@ -86,11 +87,12 @@ func GenerateSources(ctx context.Context, repo string, check bool, sources []str
 		found := false
 		for i, old := range catalogueData.Releases {
 			if old.Slug == release.Slug && old.Version == release.Version {
-				if old.Checksum != release.Checksum || old.Download != release.Download {
-					return fmt.Errorf("%s: published release is immutable; use a new version", source)
-				}
+				// A changed source regenerates its release in place at the same
+				// version; check mode reports the difference as drift.
 				found = true
-				catalogueData.Releases[i] = old
+				if old.Checksum != release.Checksum || old.Download != release.Download {
+					catalogueData.Releases[i] = release
+				}
 			}
 		}
 		if !found {

@@ -58,17 +58,12 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 				}
 				delivery, err := o.DB.GetReportDelivery(ctx, intent.Key)
 				if err == nil {
+					var dispatchErr error
 					if !delivery.Completed {
-						if _, err = o.ResearchReporter.dispatchDelivery(ctx, delivery); err != nil {
-							return err
-						}
+						_, dispatchErr = o.ResearchReporter.dispatchDelivery(ctx, delivery)
 					}
-					delivery, err = o.DB.GetReportDelivery(ctx, intent.Key)
-					if err != nil {
-						return err
-					}
-					if err = retainRecoveredPlanDisplay(ctx, o, intent, delivery); err != nil {
-						return err
+					if err = retainPlanDisplayAfterDelivery(ctx, o, intent); err != nil || dispatchErr != nil {
+						return errors.Join(dispatchErr, err)
 					}
 					continue
 				}
@@ -83,15 +78,9 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 				if err != nil {
 					return err
 				}
-				if _, err = o.ResearchReporter.deliverFullText(ctx, retained.Intent, text); err != nil {
-					return err
-				}
-				delivery, err = o.DB.GetReportDelivery(ctx, intent.Key)
-				if err != nil {
-					return err
-				}
-				if err = retainRecoveredPlanDisplay(ctx, o, intent, delivery); err != nil {
-					return err
+				_, deliverErr := o.ResearchReporter.deliverFullText(ctx, retained.Intent, text)
+				if err = retainPlanDisplayAfterDelivery(ctx, o, intent); err != nil || deliverErr != nil {
+					return errors.Join(deliverErr, err)
 				}
 			}
 			if len(page) < 100 {
@@ -106,6 +95,21 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 		instance.ID = prior
 	}
 	return nil
+}
+
+// retainPlanDisplayAfterDelivery runs whether or not delivery returned an
+// error: a post confirmed despite caller cancellation is completed without
+// cancellation, so its decision display is retained the same way.
+func retainPlanDisplayAfterDelivery(ctx context.Context, o Options, intent store.GraphCommentIntent) error {
+	ctx = context.WithoutCancel(ctx)
+	delivery, err := o.DB.GetReportDelivery(ctx, intent.Key)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return retainRecoveredPlanDisplay(ctx, o, intent, delivery)
 }
 
 func retainRecoveredPlanDisplay(ctx context.Context, o Options, intent store.GraphCommentIntent, delivery store.ReportDelivery) error {

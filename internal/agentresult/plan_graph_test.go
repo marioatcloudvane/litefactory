@@ -425,3 +425,93 @@ func TestPlanGraph_DiscussionAnswerOnly(t *testing.T) {
 		t.Fatal("automatic drafting accepted answer-only")
 	}
 }
+
+// A parallel member never asks free text: a contribution or draft question, or
+// a result question without choices, would reach the owner with no options.
+func TestPlanMember_RefusesQuestionsWithoutOwnerChoices(t *testing.T) {
+	ctx := graphContext()
+	ctx.PlanGraph.Member = &ar.PlanMemberBinding{Group: "g", Role: "technical", AttemptID: 7, Basis: "basis"}
+	asked := func(question string) []byte {
+		return []byte(`{"result":{"outcome":"incomplete","comment":"Asked.","reason":"Owner decision.","questions":[` + question + `],"payload":{"plan":{"contribution":{"draft":{}}}}}}`)
+	}
+	cases := []struct {
+		name string
+		data []byte
+		path string
+	}{
+		{"contribution question", graphDone(`{"contribution":{"draft":{},"questions":["The supplied combined proposal has empty intent and no architecture."]}}`), "$.result.payload.plan.contribution.questions"},
+		{"draft question", graphDone(`{"contribution":{"draft":{"questions":["Where is the assembled intent?"]}}}`), "$.result.payload.plan.contribution.draft.questions"},
+		{"question without options", asked(`{"id":"q1","audience":"technical","text":"Inspect the assembled proposal?"}`), "$.result.questions[0].options"},
+		{"question without recommendation", asked(`{"id":"q1","audience":"technical","text":"Which retention?","options":[{"id":"a","text":"Bounded"},{"id":"b","text":"All"}]}`), "$.result.questions[0].recommended_option"},
+		{"owner decision", asked(`{"id":"q1","audience":"technical","text":"Which retention?","options":[{"id":"a","text":"Bounded"},{"id":"b","text":"All"}],"recommended_option":"a"}`), ""},
+		{"first pass contribution", graphDone(`{"contribution":{"draft":{"architecture":{"general":[{"area":"Planning","decision":"Reuse effects","rationale":"Keep guards"}]}}}}`), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, d := ar.Create(tc.data, ctx)
+			if tc.path == "" {
+				if !d.Valid {
+					t.Fatalf("refused: %v", diagnosticCodes(d))
+				}
+				return
+			}
+			if d.Valid || !slices.ContainsFunc(d.Diagnostics, func(f ar.Diagnostic) bool { return f.Path == tc.path }) {
+				t.Fatalf("want refusal at %s, got %v", tc.path, diagnosticCodes(d))
+			}
+		})
+	}
+	// Only member results gain the rule: a sequential graph Plan ask keeps
+	// accepting a question without options.
+	sequential := []byte(`{"result":{"outcome":"incomplete","comment":"Asked.","reason":"Owner decision.","questions":[{"id":"q1","audience":"technical","text":"Which owner?"}],"payload":{"plan":{}}}}`)
+	if _, d := ar.Create(sequential, graphContext()); !d.Valid {
+		t.Fatalf("non-member question without options refused: %v", diagnosticCodes(d))
+	}
+}
+
+// A member's criteria get the same checks assembly applies, at submission, so
+// a malformed ID such as AC-01 is corrected in the member's own run instead of
+// failing the whole Plan step at assembly.
+func TestPlanMember_RefusesNonCanonicalCriteria(t *testing.T) {
+	ctx := graphContext()
+	ctx.PlanGraph.Member = &ar.PlanMemberBinding{Group: "g", Role: "acceptance", AttemptID: 7, Basis: "basis"}
+	member := func(criteria string) []byte {
+		return graphDone(`{"contribution":{"draft":{"criteria":` + criteria + `,"tasks":[{"id":"T1","description":"Do it.","owner_role":"engineer","criterion_ids":["AC-01"],"depends_on":[]}]}}}`)
+	}
+	base := "$.result.payload.plan.contribution.draft.criteria"
+	_, d := ar.Create(member(`[{"id":"AC-01","text":"One.","proof_method":"Test."},{"id":"AC-02","text":"Two.","proof_method":"Test."}]`), ctx)
+	if d.Valid {
+		t.Fatal("member criteria AC-01/AC-02 accepted")
+	}
+	for _, path := range []string{base + "[0].id", base + "[1].id"} {
+		if !slices.ContainsFunc(d.Diagnostics, func(f ar.Diagnostic) bool {
+			return f.Path == path && strings.Contains(f.Expected, "AC-001")
+		}) {
+			t.Fatalf("want AC-001 format diagnostic at %s, got %v", path, d.Diagnostics)
+		}
+	}
+	cases := []struct {
+		name     string
+		criteria string
+		path     string
+	}{
+		{"duplicate", `[{"id":"AC-001","text":"One.","proof_method":"Test."},{"id":"AC-001","text":"Two.","proof_method":"Test."}]`, base + "[1].id"},
+		{"blank text", `[{"id":"AC-001","text":" ","proof_method":"Test."}]`, base + "[0].text"},
+		{"blank proof method", `[{"id":"AC-001","text":"One.","proof_method":""}]`, base + "[0].proof_method"},
+		{"canonical", `[{"id":"AC-001","text":"One.","proof_method":"Test."}]`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := []byte(strings.ReplaceAll(string(member(tc.criteria)), `"criterion_ids":["AC-01"]`, `"criterion_ids":["AC-001"]`))
+			_, d := ar.Create(data, ctx)
+			if tc.path == "" {
+				if !d.Valid || slices.ContainsFunc(d.Diagnostics, func(f ar.Diagnostic) bool { return strings.HasPrefix(f.Path, base) }) {
+					t.Fatalf("canonical criteria refused: %v", d.Diagnostics)
+				}
+				return
+			}
+			if d.Valid || !slices.ContainsFunc(d.Diagnostics, func(f ar.Diagnostic) bool { return f.Path == tc.path }) {
+				t.Fatalf("want refusal at %s, got %v", tc.path, d.Diagnostics)
+			}
+		})
+	}
+}

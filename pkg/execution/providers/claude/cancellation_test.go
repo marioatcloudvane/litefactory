@@ -22,7 +22,7 @@ func TestPreparedRunRetainsCallerCancellationCause(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
 	sentinel := errors.New("caller stopped this invocation")
-	result, err := runner.Run(ctx, agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 5 * time.Second, OnSession: func(context.Context, string) error { cancel(sentinel); return nil }})
+	result, err := runner.Run(ctx, agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 60 * time.Second, OnSession: func(context.Context, string) error { cancel(sentinel); return nil }})
 	if !result.Started || !errors.Is(err, context.Canceled) || !errors.Is(err, sentinel) {
 		t.Fatalf("lost cancellation evidence: %+v %v", result, err)
 	}

@@ -309,3 +309,55 @@ func migratedImportDB(t *testing.T) *store.DB {
 	}
 	return db
 }
+
+func TestLegacyImportKeepsLegacyBasePinForUnpinnedSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user":
+			_, _ = w.Write([]byte(`{"id":7,"login":"worker"}`))
+		case "/repos/owner/original":
+			_, _ = w.Write([]byte(`{"id":91,"full_name":"owner/original","has_issues":true}`))
+		case "/repos/owner/original/issues/9":
+			_, _ = fmt.Fprintf(w, `{"id":909,"number":9,"url":"http://%s/repos/owner/original/issues/9","title":"Original","state":"open"}`, r.Host)
+		default:
+			t.Errorf("unexpected import request %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	db := migratedImportDB(t)
+	repo, err := db.UpsertRepo(t.Context(), store.Repo{Path: "/original", Forge: "github", Owner: "owner", Name: "original", RemoteURL: "git@github.com:owner/original.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: "/worktrees"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := db.GetOrCreateSession(t.Context(), repo, 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: ticket.Origin(server.URL), Destination: "owner/original", CredentialSource: "env", CredentialEnv: "TOKEN", Enabled: true, Provenance: "legacy", ClonePath: repo.Path, RemoteURL: repo.RemoteURL, BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: repo.WorktreeRoot}
+	if _, err = db.SetConnection(t.Context(), code, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ChangeRepoBase(t.Context(), repo.ID, "develop"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults()
+	cfg.Providers.GitHub.APIBase = server.URL
+	cfg.Providers.GitHub.TokenEnv = "TOKEN"
+	cfg.Providers.GitHub.TokenKeychain = config.Keychain{}
+	factory := projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 7, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "opaque-import-token", true }}})
+	if err = projectconnection.Initialize(t.Context(), db, cfg, factory); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := db.GetExecutionSnapshot(t.Context(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attached, err := db.GetConnectionVersion(t.Context(), snapshot.CodeVersionID)
+	if err != nil || attached.BaseBranch != "main" || snapshot.CodeTarget.BaseBranch != "main" {
+		t.Fatalf("attached code base=%q target=%q err=%v, want legacy pin main", attached.BaseBranch, snapshot.CodeTarget.BaseBranch, err)
+	}
+	if live, err := db.GetRepo(t.Context(), repo.ID); err != nil || live.BaseBranch != "develop" {
+		t.Fatalf("live base %q %v", live.BaseBranch, err)
+	}
+}

@@ -48,11 +48,15 @@ func (a *Administration) Register(ctx context.Context, request contracts.Registe
 		}
 		return &contracts.ProjectRegistrationFailure{Err: &repos.CheckError{Check: check, Path: request.Path, Err: err}}
 	}
+	explicitBase := request.BaseBranch != ""
 	previous, previousErr := a.db.GetRepoByPath(ctx, clone.Path())
 	if previousErr != nil && !errors.Is(previousErr, store.ErrNotFound) {
 		return previousErr
 	}
 	if previousErr == nil {
+		if explicitBase && request.BaseBranch != previous.BaseBranch {
+			return errBaseChangeViaAdd(previous.BaseBranch, request.BaseBranch)
+		}
 		if request.BaseBranch == "" {
 			request.BaseBranch = previous.BaseBranch
 		}
@@ -101,9 +105,14 @@ func (a *Administration) Register(ctx context.Context, request contracts.Registe
 	}
 	existed := err == nil
 
-	stored, err := a.db.UpsertRepo(ctx, registration.StoreRepo())
+	stored, err := a.db.RegisterRepo(ctx, registration.StoreRepo(), explicitBase)
 	if err != nil {
-		return err
+		return registerRefusal(err, request.BaseBranch)
+	}
+	if stored.BaseBranch != registration.BaseBranch {
+		// A base change committed after the earlier read; report what is
+		// stored. The source label stays as resolved.
+		registration.BaseBranch = stored.BaseBranch
 	}
 
 	if err := projectconnection.SeedRegistration(ctx, a.db, stored, *a.cfg); err != nil {
@@ -125,4 +134,15 @@ func (a *Administration) List(ctx context.Context) ([]contracts.RepositoryView, 
 		out = append(out, repositoryView(row))
 	}
 	return out, err
+}
+
+// registerRefusal maps a guarded registration write error. A base-change
+// refusal names the base the store found at write time, which can differ from
+// the earlier read when a `repo base` committed in between.
+func registerRefusal(err error, requested string) error {
+	var refusal *store.BaseChangeViaAddError
+	if errors.As(err, &refusal) {
+		return errBaseChangeViaAdd(refusal.Stored, requested)
+	}
+	return err
 }
