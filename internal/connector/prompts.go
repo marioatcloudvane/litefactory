@@ -51,8 +51,9 @@ func readBrainstormGuide(files fs.FS) (string, error) {
 	return readGuidanceFile(files, "guidance/overview/brainstorm.md")
 }
 
-// composeInstructions: overview, brainstorm guide, then per-tool guidance.
-func composeInstructions(files fs.FS, tools []string) (string, error) {
+// composeInstructions: overview, brainstorm guide, per-tool guidance, then the
+// notice naming consent scopes the grant lacks, when there are any.
+func composeInstructions(files fs.FS, tools, missingScopes []string) (string, error) {
 	overview, err := readOverview(files)
 	if err != nil {
 		return "", err
@@ -65,9 +66,16 @@ func composeInstructions(files fs.FS, tools []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	notice, err := readGuidanceFile(files, "guidance/overview/missing_scopes.md")
+	if err != nil || !strings.Contains(notice, "{{scopes}}") {
+		return "", errGuidanceUnavailable
+	}
 	parts := []string{overview, brainstorm}
 	if toolText != "" {
 		parts = append(parts, toolText)
+	}
+	if len(missingScopes) > 0 {
+		parts = append(parts, strings.ReplaceAll(notice, "{{scopes}}", strings.Join(missingScopes, ", ")))
 	}
 	return strings.Join(parts, "\n\n"), nil
 }

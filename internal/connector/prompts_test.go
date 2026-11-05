@@ -10,6 +10,7 @@ func guideFS(guide string) fstest.MapFS {
 	return fstest.MapFS{
 		"guidance/overview/factory.md":           {Data: []byte("OVERVIEW")},
 		"guidance/overview/brainstorm.md":        {Data: []byte(guide)},
+		"guidance/overview/missing_scopes.md":    {Data: []byte("MISSING {{scopes}}")},
 		"guidance/usage_read.md":                 {Data: []byte("USAGE")},
 		"guidance/prompts/brainstorm_feature.md": {Data: []byte("title: B\ndescription: d\n\nBSPECIFIC")},
 		"guidance/prompts/whats_waiting.md":      {Data: []byte("title: W\ndescription: d\n\nWBODY")},
@@ -21,9 +22,13 @@ func TestCompositionOrderAndGuideReachesAllSurfaces(t *testing.T) {
 	t.Parallel()
 	for _, guide := range []string{"GUIDE-ONE", "GUIDE-TWO"} {
 		files := guideFS(guide)
-		ins, err := composeInstructions(files, []string{"usage_read"})
+		ins, err := composeInstructions(files, []string{"usage_read"}, nil)
 		if err != nil || ins != "OVERVIEW\n\n"+guide+"\n\nUSAGE" {
 			t.Fatalf("instructions: %q %v", ins, err)
+		}
+		ins, err = composeInstructions(files, []string{"usage_read"}, []string{"a:b", "c:d"})
+		if err != nil || ins != "OVERVIEW\n\n"+guide+"\n\nUSAGE\n\nMISSING a:b, c:d" {
+			t.Fatalf("instructions with missing scopes: %q %v", ins, err)
 		}
 		_, text, err := promptText(files, promptSpecs[0], "")
 		if err != nil || text != guide+"\n\nBSPECIFIC" {
@@ -41,7 +46,7 @@ func TestSharedGuideFailsClosed(t *testing.T) {
 	bad := map[string]fstest.MapFS{"empty": guideFS("  \n"), "oversized": guideFS(strings.Repeat("x", 8193)), "missing": guideFS("x")}
 	delete(bad["missing"], "guidance/overview/brainstorm.md")
 	for name, files := range bad {
-		if _, err := composeInstructions(files, nil); err == nil {
+		if _, err := composeInstructions(files, nil, nil); err == nil {
 			t.Errorf("%s: instructions answered", name)
 		}
 		if _, _, err := promptText(files, promptSpecs[0], ""); err == nil {
