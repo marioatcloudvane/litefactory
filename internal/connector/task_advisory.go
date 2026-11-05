@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
@@ -59,36 +60,28 @@ func advisoryFields(name string) (allowed, required []string) {
 
 func parseAdvisoryArguments(name string, raw json.RawMessage) (advisoryArguments, error) {
 	var a advisoryArguments
-	invalid := errors.New("invalid task discussion arguments")
 	if !isAdvisoryTool(name) || len(raw) == 0 || len(raw) > 65536 || !utf8.Valid(raw) || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
-	if uniqueJSONObject(d) != nil {
-		return a, invalid
+	if err := uniqueJSONObject(d); err != nil {
+		return a, uniqueArgumentsError(err)
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d = json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
-	if d.Decode(&a) != nil {
-		return a, invalid
+	if err := d.Decode(&a); err != nil {
+		return a, decodeArgumentError(err)
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	allowed, required := advisoryFields(name)
-	for key, value := range fields {
-		if !slices.Contains(allowed, key) || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return a, invalid
-		}
-	}
-	for _, key := range required {
-		if _, ok := fields[key]; !ok {
-			return a, invalid
-		}
+	if err := checkArgumentFields(fields, allowed, required); err != nil {
+		return a, err
 	}
 	for _, f := range []struct {
 		name, value string
@@ -96,27 +89,30 @@ func parseAdvisoryArguments(name string, raw json.RawMessage) (advisoryArguments
 	}{
 		{"task_ref", a.TaskRef, 512}, {"question", a.Question, 32768}, {"focus", a.Focus, 32768}, {"client_request_key", a.ClientRequestKey, 128}, {"conversation_ref", a.ConversationRef, 128}, {"job_ref", a.JobRef, 128}, {"cursor", a.Cursor, 4096}, {"conclusion_id", a.ConclusionID, 128}, {"source_job_ref", a.SourceJobRef, 128}, {"publication_ref", a.PublicationRef, 128},
 	} {
-		if _, present := fields[f.name]; present && (strings.TrimSpace(f.value) == "" || len(f.value) > f.max) {
-			return a, invalid
+		if _, present := fields[f.name]; present && strings.TrimSpace(f.value) == "" {
+			return a, invalidArgument(f.name, "must not be empty")
+		}
+		if _, present := fields[f.name]; present && len(f.value) > f.max {
+			return a, invalidArgument(f.name, fmt.Sprintf("is longer than %d bytes", f.max))
 		}
 	}
 	if _, present := fields["conversation_revision"]; present && a.ConversationRevision < 0 {
-		return a, invalid
+		return a, invalidArgument("conversation_revision", "must not be negative")
 	}
 	if a.ConversationRef == "" {
 		if _, present := fields["conversation_revision"]; present {
-			return a, invalid
+			return a, invalidArgument("conversation_revision", "is allowed only with conversation_ref")
 		}
 	}
 	if name == "discussion_summary_publish" {
 		var summaryFields map[string]json.RawMessage
 		if json.Unmarshal(fields["summary"], &summaryFields) != nil || len(summaryFields) != 5 {
-			return a, invalid
+			return a, invalidArgument("summary", "must be an object with exactly question, conclusion, alternatives_or_uncertainty, evidence_basis and attribution")
 		}
 		for _, key := range []string{"question", "conclusion", "alternatives_or_uncertainty", "evidence_basis", "attribution"} {
 			var value string
 			if json.Unmarshal(summaryFields[key], &value) != nil || strings.TrimSpace(value) == "" || len(value) > 8192 {
-				return a, invalid
+				return a, invalidArgument("summary", "member "+key+" must be a non-empty string of at most 8192 bytes")
 			}
 		}
 	}

@@ -5,11 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
+	"maps"
 	"mime"
 	"net/http"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -97,17 +101,45 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		var params struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(req.Params, &params) == nil && (params.Name == "factory_overview" || params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name) || isBrainstormTool(params.Name)) {
+		if json.Unmarshal(req.Params, &params) == nil && isKnownTool(params.Name) {
 			tool = params.Name
 		}
 	}
-	refuseRPC := func(code int, msg, reason string) {
+	writeRefusal := func(rpcErr map[string]any) {
 		if tool == "usage_read" || isCodeTool(tool) || isActionTool(tool) || isWorkflowTool(tool) || isAdvisoryTool(tool) || isBrainstormTool(tool) {
-			s.writeDiscussionValue(w, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": code, "message": msg}})
+			s.writeDiscussionValue(w, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": rpcErr})
 		} else {
-			s.rpcError(w, req.ID, code, msg)
+			id := req.ID
+			if len(id) == 0 {
+				id = json.RawMessage("null")
+			}
+			s.writeRPC(w, map[string]any{"jsonrpc": "2.0", "id": id, "error": rpcErr})
 		}
+	}
+	refuseRPC := func(code int, msg, reason string) {
+		writeRefusal(map[string]any{"code": code, "message": msg})
 		s.audit(r, event, "refusal", reason, tool, start)
+	}
+	// refuseParams names the known tool, the argument and the problem; it
+	// never repeats a supplied value.
+	refuseParams := func(err error) {
+		problem, detail := "the arguments are not valid for this tool", "invalid_value"
+		data := map[string]any{}
+		var argErr *argumentError
+		if errors.As(err, &argErr) {
+			problem, detail = argErr.Problem, argErr.Code
+			if argErr.Argument != "" {
+				data["argument"] = argErr.Argument
+			}
+		}
+		data["problem"] = problem
+		message := "Invalid params: " + problem
+		if isKnownTool(tool) {
+			message = "Invalid params: " + tool + ": " + problem
+			data["tool"] = tool
+		}
+		writeRefusal(map[string]any{"code": -32602, "message": message, "data": data})
+		s.auditDetail(r, event, "refusal", "params", detail, tool, start)
 	}
 	version := r.Header.Get("MCP-Protocol-Version")
 	if len(r.Header.Values("MCP-Protocol-Version")) > 1 || req.Method != "initialize" && !supportedVersion(version) || req.Method == "initialize" && version != "" && !supportedVersion(version) {
@@ -254,36 +286,36 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			Arguments json.RawMessage `json:"arguments"`
 		}
 		if json.Unmarshal(req.Params, &params) != nil {
-			refuseRPC(-32602, "Invalid params", "params")
+			refuseParams(errToolCallEnvelope)
 			return
 		}
 		if isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name) || isBrainstormTool(params.Name) {
 			d := json.NewDecoder(bytes.NewReader(body))
 			if err := uniqueJSONObject(d); err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(uniqueArgumentsError(err))
 				return
 			}
 			var envelopeFields, callFields map[string]json.RawMessage
 			if json.Unmarshal(body, &envelopeFields) != nil || json.Unmarshal(req.Params, &callFields) != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(errToolCallEnvelope)
 				return
 			}
 			for key := range envelopeFields {
 				if !slices.Contains([]string{"jsonrpc", "id", "method", "params"}, key) {
-					refuseRPC(-32602, "Invalid params", "params")
+					refuseParams(errToolCallEnvelope)
 					return
 				}
 			}
 			for key := range callFields {
 				if key != "name" && key != "arguments" {
-					refuseRPC(-32602, "Invalid params", "params")
+					refuseParams(errToolCallEnvelope)
 					return
 				}
 			}
 			d = json.NewDecoder(bytes.NewReader(req.Params))
 			d.DisallowUnknownFields()
 			if err := d.Decode(&params); err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(errToolCallEnvelope)
 				return
 			}
 		}
@@ -321,18 +353,18 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !slices.Contains(s.availableTools(grant), params.Name) {
-			refuseRPC(-32602, "Unknown tool", "tool")
+			refuseRPC(-32602, "Unknown tool; call tools/list for the tools this grant can use", "tool")
 			return
 		}
 		if params.Name == "factory_overview" && !emptyArguments(params.Arguments) {
-			refuseRPC(-32602, "Invalid params", "params")
+			refuseParams(errNoArguments)
 			return
 		}
 		var evidenceArgs evidenceArguments
 		if params.Name == "task_evidence_read" {
 			evidenceArgs, err = parseEvidenceArguments(params.Arguments)
 			if err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(err)
 				return
 			}
 		}
@@ -340,7 +372,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		if params.Name == "usage_read" {
 			usageArgs, err = parseUsageArguments(params.Arguments)
 			if err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(err)
 				return
 			}
 			if _, _, err = s.usageAccess(r.Context(), credential, usageArgs); err != nil {
@@ -357,7 +389,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		if isCodeTool(params.Name) {
 			codeArgs, err = parseCodeArguments(params.Name, params.Arguments)
 			if err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(err)
 				return
 			}
 		}
@@ -366,7 +398,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		if isWorkflowTool(params.Name) {
 			workflowArgs, err = parseWorkflowArguments(params.Name, params.Arguments)
 			if err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(err)
 				return
 			}
 		}
@@ -375,7 +407,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		if isAdvisoryTool(params.Name) {
 			advisoryArgs, err = parseAdvisoryArguments(params.Name, params.Arguments)
 			if err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(err)
 				return
 			}
 		}
@@ -383,7 +415,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		if isBrainstormTool(params.Name) {
 			brainstormArgs, err = parseBrainstormArguments(params.Name, params.Arguments)
 			if err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(err)
 				return
 			}
 		}
@@ -391,7 +423,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		if isDecisionTool(params.Name) {
 			decisionArgs, err = parseDecisionArguments(params.Name, params.Arguments)
 			if err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(err)
 				return
 			}
 		}
@@ -399,7 +431,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		if isActionTool(params.Name) {
 			actionArgs, err = parseActionArguments(params.Name, params.Arguments)
 			if err != nil {
-				refuseRPC(-32602, "Invalid params", "params")
+				refuseParams(err)
 				return
 			}
 		}
@@ -450,6 +482,10 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				if errors.Is(callErr, errEvidenceChanged) {
 					gap = "revision_changed_restart_required"
 					summary = "Task evidence changed. Restart this section without a cursor."
+				}
+				if errors.Is(callErr, errEvidenceCursor) {
+					gap = "invalid_cursor_restart_required"
+					summary = "Task evidence is unavailable: the cursor is not valid for this task section. Restart this section without a cursor."
 				}
 				if refused != "" {
 					gap, summary = "access_refused", refused
@@ -595,3 +631,129 @@ func (s *Server) writeDiscussionValue(w http.ResponseWriter, value map[string]an
 	_, _ = w.Write(body)
 	return true
 }
+
+// isKnownTool reports whether name is a tool this connector dispatches; the
+// outcome log and argument refusals name only such tools.
+func isKnownTool(name string) bool {
+	return name == "factory_overview" || name == "task_evidence_read" || name == "usage_read" || isCodeTool(name) || isActionTool(name) || isWorkflowTool(name) || isAdvisoryTool(name) || isDecisionTool(name) || isBrainstormTool(name)
+}
+
+// argumentError is a refused tool argument in plain words. Argument is a
+// known field or a short safe key, else empty; Problem never carries a value;
+// Code is a fixed short code for the outcome log.
+type argumentError struct {
+	Argument, Problem, Code string
+}
+
+func (e *argumentError) Error() string { return e.Problem }
+
+// safeArgumentName reports whether a client-supplied key may be repeated in a
+// refusal: at most 64 characters from [a-z0-9_].
+func safeArgumentName(key string) bool {
+	if key == "" || len(key) > 64 {
+		return false
+	}
+	for _, c := range key {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func namedArgument(name, problem, code string) error {
+	if !safeArgumentName(name) {
+		return &argumentError{Problem: "an argument " + problem, Code: code}
+	}
+	return &argumentError{Argument: name, Problem: `"` + name + `" ` + problem, Code: code}
+}
+
+func missingArgument(name string) error { return namedArgument(name, "is required", "missing") }
+
+func invalidArgument(name, problem string) error {
+	return namedArgument(name, problem, "invalid_value")
+}
+
+func unknownArgument(key string) error {
+	if !safeArgumentName(key) {
+		return &argumentError{Problem: "an unknown argument was supplied; it is not an argument of this tool", Code: "unknown_argument"}
+	}
+	return &argumentError{Argument: key, Problem: `"` + key + `" is not an argument of this tool`, Code: "unknown_argument"}
+}
+
+func nullArgument(name string) error { return invalidArgument(name, "must not be null") }
+
+func duplicateArgument() error {
+	return &argumentError{Problem: "an argument is supplied more than once", Code: "invalid_value"}
+}
+
+func argumentsShapeError() error {
+	return &argumentError{Problem: "arguments must be a single JSON object", Code: "wrong_type"}
+}
+
+// decodeArgumentError names the argument a strict json decode refused,
+// without the refused value; other failures become argumentsShapeError.
+func decodeArgumentError(err error) error {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) && typeErr.Field != "" {
+		name, _, _ := strings.Cut(typeErr.Field, ".")
+		want := "a different type"
+		switch typeErr.Type.Kind() {
+		case reflect.String:
+			want = "a string"
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			want = "an integer"
+		case reflect.Bool:
+			want = "a boolean"
+		case reflect.Map, reflect.Struct:
+			want = "an object"
+		case reflect.Slice, reflect.Array:
+			want = "an array"
+		}
+		if name != typeErr.Field {
+			return namedArgument(name, "has a member that must be "+want, "wrong_type")
+		}
+		return namedArgument(name, "must be "+want, "wrong_type")
+	}
+	if key, ok := strings.CutPrefix(fmt.Sprint(err), "json: unknown field "); ok {
+		if unquoted, uerr := strconv.Unquote(key); uerr == nil {
+			return unknownArgument(unquoted)
+		}
+		return unknownArgument("")
+	}
+	return argumentsShapeError()
+}
+
+// uniqueArgumentsError maps a uniqueJSONObject failure to a plain refusal.
+func uniqueArgumentsError(err error) error {
+	var argErr *argumentError
+	if errors.As(err, &argErr) {
+		return err
+	}
+	return argumentsShapeError()
+}
+
+// checkArgumentFields refuses, in key order, a key outside allowed or a null
+// value, then a missing required key.
+func checkArgumentFields(fields map[string]json.RawMessage, allowed, required []string) error {
+	for _, key := range slices.Sorted(maps.Keys(fields)) {
+		if !slices.Contains(allowed, key) {
+			return unknownArgument(key)
+		}
+		if bytes.Equal(bytes.TrimSpace(fields[key]), []byte("null")) {
+			return nullArgument(key)
+		}
+	}
+	for _, key := range required {
+		if _, ok := fields[key]; !ok {
+			return missingArgument(key)
+		}
+	}
+	return nil
+}
+
+// errToolCallEnvelope refuses a tools/call whose request or params carry
+// anything beyond the JSON-RPC fields, "name" and "arguments".
+var errToolCallEnvelope error = &argumentError{Problem: `params must be one JSON object with only "name" and "arguments"`, Code: "invalid_value"}
+
+var errNoArguments error = &argumentError{Problem: "this tool takes no arguments; send an empty object", Code: "unknown_argument"}

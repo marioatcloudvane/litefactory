@@ -53,7 +53,7 @@ func uniqueJSONObject(d *json.Decoder) error {
 			}
 			name, ok := key.(string)
 			if !ok || seen[name] {
-				return errors.New("duplicate argument")
+				return duplicateArgument()
 			}
 			seen[name] = true
 			if err = uniqueJSONObject(d); err != nil {
@@ -75,25 +75,24 @@ func uniqueJSONObject(d *json.Decoder) error {
 
 func parseActionArguments(name string, raw json.RawMessage) (actionArguments, error) {
 	var a actionArguments
-	invalid := errors.New("invalid action arguments")
 	if !isActionTool(name) || len(raw) == 0 || len(raw) > 64<<10 || !utf8.Valid(raw) || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	if err := uniqueJSONObject(d); err != nil {
-		return a, invalid
+		return a, uniqueArgumentsError(err)
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d = json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&a); err != nil {
-		return a, invalid
+		return a, decodeArgumentError(err)
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	allowed := []string{"proposal_id"}
 	switch name {
@@ -102,54 +101,85 @@ func parseActionArguments(name string, raw json.RawMessage) (actionArguments, er
 	case "action_history":
 		allowed = []string{"filters", "cursor", "limit"}
 	}
-	for key, value := range fields {
-		if !slices.Contains(allowed, key) || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return a, invalid
-		}
+	if err := checkArgumentFields(fields, allowed, nil); err != nil {
+		return a, err
 	}
 	switch name {
 	case "action_propose":
-		if strings.TrimSpace(a.Action) == "" || len(a.Action) > 128 || strings.TrimSpace(a.ClientRequestKey) == "" || len(a.ClientRequestKey) > 128 || len(a.DiscordChannelID) > 128 || a.Arguments == nil || len(a.Arguments) > 64 {
-			return a, invalid
+		for _, f := range []struct{ field, value string }{{"action", a.Action}, {"client_request_key", a.ClientRequestKey}} {
+			if _, ok := fields[f.field]; !ok {
+				return a, missingArgument(f.field)
+			}
+			if strings.TrimSpace(f.value) == "" {
+				return a, invalidArgument(f.field, "must not be empty")
+			}
+		}
+		if a.Arguments == nil {
+			return a, missingArgument("arguments")
+		}
+		if len(a.Action) > 128 || len(a.ClientRequestKey) > 128 || len(a.DiscordChannelID) > 128 {
+			field := "action"
+			if len(a.ClientRequestKey) > 128 {
+				field = "client_request_key"
+			}
+			if len(a.DiscordChannelID) > 128 {
+				field = "discord_channel_id"
+			}
+			return a, invalidArgument(field, "is longer than 128 bytes")
+		}
+		if len(a.Arguments) > 64 {
+			return a, invalidArgument("arguments", "has more than 64 entries")
 		}
 		var argumentFields map[string]json.RawMessage
 		if err := json.Unmarshal(fields["arguments"], &argumentFields); err != nil {
-			return a, invalid
+			return a, invalidArgument("arguments", "must be an object of string values")
 		}
 		for _, value := range argumentFields {
 			if len(value) == 0 || bytes.TrimSpace(value)[0] != '"' {
-				return a, invalid
+				return a, invalidArgument("arguments", "must be an object of string values")
 			}
 		}
 		for key, value := range a.Arguments {
 			if key == "" || len(key) > 128 || len(value) > 8192 {
-				return a, invalid
+				return a, invalidArgument("arguments", "needs non-empty keys of at most 128 bytes and values of at most 8192 bytes")
 			}
 		}
 	case "action_history":
-		if len(a.Filters.Action) > 128 || len(a.Filters.Repository) > 1024 || len(a.Filters.State) > 64 || len(a.Cursor) > 4096 || a.Limit < 0 || a.Limit > 50 {
-			return a, invalid
+		if len(a.Filters.Action) > 128 || len(a.Filters.Repository) > 1024 || len(a.Filters.State) > 64 {
+			return a, invalidArgument("filters", "has a filter longer than its bound")
+		}
+		if len(a.Cursor) > 4096 {
+			return a, invalidArgument("cursor", "is longer than 4096 bytes")
+		}
+		if a.Limit < 0 || a.Limit > 50 {
+			return a, invalidArgument("limit", "must be between 1 and 50")
 		}
 		if rawFilters, ok := fields["filters"]; ok {
 			var filterFields map[string]json.RawMessage
 			if err := json.Unmarshal(rawFilters, &filterFields); err != nil {
-				return a, invalid
+				return a, invalidArgument("filters", "must be an object")
 			}
 			for key, value := range filterFields {
 				if !slices.Contains([]string{"action", "repository", "state"}, key) || len(value) == 0 || bytes.TrimSpace(value)[0] != '"' {
-					return a, invalid
+					return a, invalidArgument("filters", "may hold only string action, repository and state filters")
 				}
 			}
 		}
 		if _, ok := fields["limit"]; ok && a.Limit == 0 {
-			return a, invalid
+			return a, invalidArgument("limit", "must be between 1 and 50")
 		}
 		if a.Limit == 0 {
 			a.Limit = 50
 		}
 	default:
-		if a.ProposalID == "" || len(a.ProposalID) > 128 {
-			return a, invalid
+		if _, ok := fields["proposal_id"]; !ok {
+			return a, missingArgument("proposal_id")
+		}
+		if a.ProposalID == "" {
+			return a, invalidArgument("proposal_id", "must not be empty")
+		}
+		if len(a.ProposalID) > 128 {
+			return a, invalidArgument("proposal_id", "is longer than 128 bytes")
 		}
 	}
 	return a, nil

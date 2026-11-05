@@ -97,7 +97,7 @@ func (s *Server) audit(r *http.Request, event, outcome, reason, tool string, sta
 }
 
 func (s *Server) auditDetail(r *http.Request, event, outcome, reason, detail, tool string, start time.Time) {
-	if tool != "factory_overview" && tool != "task_evidence_read" && tool != "unavailable" {
+	if tool != "unavailable" && !isKnownTool(tool) {
 		tool = "unknown"
 	}
 	attrs := []any{slog.String("event", event), slog.String("outcome", outcome), slog.String("reason", reason)}
