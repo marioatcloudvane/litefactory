@@ -112,7 +112,7 @@ func TestPythonFastAPICaptureForBothProvidersAndReplay(t *testing.T) {
 				t.Fatal("exact linked selection lost release identity or integrity")
 			}
 			for _, f := range selected.Release.Files {
-				if f.Path == "GENERATED.md" {
+				if f.Path == "GENERATED.md" || outOfGraphPath(f.Path) {
 					continue
 				}
 				raw, err := fs.ReadFile(files, f.Path)

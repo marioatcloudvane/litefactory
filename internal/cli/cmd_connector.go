@@ -219,3 +219,21 @@ func writeConnectorGrantSummaries(env *Env, home string, snapshot time.Time, gra
 	_, err := io.WriteString(env.Stdout, out.String())
 	return err
 }
+
+// newConnectorTemplateCommand prints the owner's project template, composed from
+// the same embedded guidance the connector tells clients. It needs no database.
+func newConnectorTemplateCommand() *Command {
+	cmd := &Command{Name: "connector template", Usage: "connector template", Short: "Print the project template for chat clients"}
+	cmd.Long = "Prints a markdown project template built from the same guidance the connector sends to clients. Needs no grant, database or network."
+	cmd.New = func(flags *flag.FlagSet) Handler {
+		return func(ctx context.Context, env *Env, args []string) error {
+			text, err := connector.ComposeTemplate()
+			if err != nil {
+				return errors.New("cannot compose the project template: the built-in guidance is missing, empty or too large")
+			}
+			_, err = io.WriteString(env.Stdout, text)
+			return err
+		}
+	}
+	return cmd
+}

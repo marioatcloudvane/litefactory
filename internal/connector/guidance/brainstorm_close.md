@@ -1,0 +1,1 @@
+Use brainstorm_close only when the owner says the brainstorm is finished. Pass the current revision and a request_key. A closed brainstorm stays readable; a later brainstorm_open starts a new one. Do not close a brainstorm while its questions are still waiting or running unless the owner says so.

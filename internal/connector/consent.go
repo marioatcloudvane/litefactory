@@ -121,6 +121,9 @@ func consentCoverage(form url.Values, scope string) (connectorstate.ConnectorCov
 		if connectorstate.ConnectorScopeHas(scope, AdvisoryScope) || connectorstate.ConnectorScopeHas(scope, DiscussionPublishScope) {
 			return connectorstate.ConnectorCoverage{}, "untick all repositories and explicitly choose repositories for advisory execution or discussion publication", "all_repositories_not_allowed"
 		}
+		if connectorstate.ConnectorScopeHas(scope, BrainstormScope) {
+			return connectorstate.ConnectorCoverage{}, "untick all repositories and explicitly choose repositories for brainstorms; each question there starts a paid agent run", "all_repositories_not_allowed"
+		}
 		return connectorstate.ConnectorCoverage{All: true}, "", ""
 	case "":
 	default:
@@ -135,7 +138,7 @@ func consentCoverage(form url.Values, scope string) (connectorstate.ConnectorCov
 	}
 	if len(coverage.Repositories) == 0 {
 		var needs []string
-		for _, s := range []string{DiscussionScope, CodeReviewScope, RepositoryUsageScope, TaskUsageScope, AdvisoryScope, DiscussionPublishScope} {
+		for _, s := range []string{DiscussionScope, CodeReviewScope, RepositoryUsageScope, TaskUsageScope, AdvisoryScope, DiscussionPublishScope, BrainstormScope} {
 			if connectorstate.ConnectorScopeHas(scope, s) {
 				needs = append(needs, s)
 			}
@@ -255,7 +258,7 @@ var consentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 {{end}}</fieldset>
 <p class="callout">If ticked, <code>factory:overview</code> covers <strong>all registered repositories</strong>, including private repositories and repositories registered in the future.</p>
 <p class="callout">If ticked, <code>factory:usage</code> covers all recorded factory work, including work without a repository.</p>
-<fieldset><legend>Repositories for <code>task:advisory</code>, <code>task:discussion-publish</code>, <code>task:discussion</code>, <code>task:code-review</code>, <code>repository:usage</code> and <code>task:usage</code></legend>
+<fieldset><legend>Repositories for <code>task:advisory</code>, <code>task:discussion-publish</code>, <code>repository:brainstorm</code>, <code>task:discussion</code>, <code>task:code-review</code>, <code>repository:usage</code> and <code>task:usage</code></legend>
 <label class="option"><input type="checkbox" name="repositories" value="all" id="all-repositories" checked><span>All repositories (including ones registered later)<span class="note">Untick to choose individual repositories below.</span></span></label>
 {{range .Repositories}}<label class="option"><input type="checkbox" name="repository" value="{{.}}"><span><code>{{.}}</code></span></label>
 {{else}}<p class="note">No repositories are registered yet.</p>
@@ -264,6 +267,7 @@ var consentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 {{range .Repositories}}<label class="option"><input type="checkbox" name="action_repository" value="{{.}}"><span><code>{{.}}</code></span></label>
 {{else}}<p class="note">No repositories are registered yet.</p>{{end}}</fieldset>
 <p class="note">Advisory execution may incur provider costs. Advisory and discussion-publication scopes each require explicit repository selection; neither includes all or future repositories. Publication can post a useful conclusion without another confirmation. Action access never includes all or future repositories automatically. Standards management changes the shared installation-wide book and requires its separate scope.</p>
+<p class="note">Brainstorm access requires explicit repository selection and never includes all or future repositories. Each factual question asked in a brainstorm starts a paid agent run without another confirmation; the run only reads the repository.</p>
 <p class="note">The client names the task or repository on each call. Every call is checked: the task must exist and belong to a covered repository; code review reads the task's own retained code repository. The selection is used only for the scopes above you tick. Task usage includes the task's recorded report family: linked and retired story history and later persisted links.</p>
 </section>
 <section class="card"><h2>How long</h2>

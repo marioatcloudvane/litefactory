@@ -247,6 +247,10 @@ func TestDiscussionMigrationPreservesLegacyJobAndProposal(t *testing.T) {
 	if err = db.applyMigration(t.Context(), addition); err != nil {
 		t.Fatal(err)
 	}
+	// Current accessors require the complete current schema after the legacy migration.
+	if err = db.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	afterJob, err := db.ReadWorkflowJob(t.Context(), r.JobID)
 	if err != nil || !reflect.DeepEqual(beforeJob, afterJob) {
 		t.Fatalf("changed job: %+v %+v %v", beforeJob, afterJob, err)

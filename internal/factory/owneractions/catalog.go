@@ -11,6 +11,8 @@ import (
 type Availability struct {
 	Features, Research, Standards    bool
 	Draft, Confirm, Answer, Diagnose bool
+	// Brainstorm enables brainstorm_create_tasks and brainstorm_task_recreate.
+	Brainstorm bool
 }
 
 // Allows reports availability of an existing changing command.
@@ -24,6 +26,8 @@ func (a Availability) Allows(command string) bool {
 		return a.Research || a.Answer
 	case "diagnose":
 		return a.Research || a.Diagnose
+	case BrainstormCreateTasks, BrainstormTaskRecreate:
+		return a.Brainstorm
 	default:
 		return a.Standards && StandardsCommand(command) && command != "standards"
 	}
@@ -45,6 +49,17 @@ func ChangeDefinition(command string) (CommandDefinition, bool) {
 		return CommandDefinition{Name: "diagnose", NaturalLanguage: true, Effect: ChangeEffect, Description: "Explain what is wrong or stuck", Arguments: append(append([]Argument(nil), base...), project, Argument{Name: "note", Type: TextArgument, Description: "Optional diagnosis context"})}, true
 	case "answer":
 		return CommandDefinition{Name: "answer", NaturalLanguage: true, Effect: ChangeEffect, Description: "Answer the current research question", Arguments: append(append([]Argument(nil), base...), Argument{Name: "revision", Type: TextArgument, Required: true, Description: "Current 12-character question token"}, Argument{Name: "text", Type: TextArgument, Required: true, Description: "Answer, up to 65536 bytes"}, project)}, true
+	case BrainstormCreateTasks:
+		return CommandDefinition{Name: command, NaturalLanguage: true, Effect: ChangeEffect, Description: "Create GitHub issues from kept brainstorm drafts and start Plan for each, or continue the batch that already holds them", Arguments: []Argument{
+			{Name: "brainstorm", Type: TextArgument, Required: true, Description: "Brainstorm id"},
+			{Name: "draft_set", Type: TextArgument, Required: true, Description: "Draft set id"},
+			{Name: "drafts", Type: TextArgument, Required: true, Description: "Comma-separated kept draft keys"},
+		}}, true
+	case BrainstormTaskRecreate:
+		return CommandDefinition{Name: command, NaturalLanguage: true, Effect: ChangeEffect, Description: "Create a second issue for a draft whose first create stayed uncertain; the first issue may still appear", Arguments: []Argument{
+			{Name: "batch", Type: TextArgument, Required: true, Description: "Brainstorm task batch id"},
+			{Name: "draft", Type: TextArgument, Required: true, Description: "Draft key in that batch"},
+		}}, true
 	default:
 		if command != "standards" && StandardsCommand(command) {
 			return StandardsDefinition(command)
@@ -102,7 +117,7 @@ func (a Availability) ValidateChange(in owneraction.Invocation) (owneraction.Inv
 // ActionCatalog derives action discovery from the same fixed schemas as validation.
 func (a Availability) ActionCatalog() []owneraction.ActionDefinition {
 	var out []owneraction.ActionDefinition
-	names := []string{"draft", "confirm", "diagnose", "answer", "standards-author", "standards-proposal", "standards-exception", "standards-analysis"}
+	names := []string{"draft", "confirm", "diagnose", "answer", BrainstormCreateTasks, BrainstormTaskRecreate, "standards-author", "standards-proposal", "standards-exception", "standards-analysis"}
 	sort.Strings(names)
 	for _, name := range names {
 		if !a.Allows(name) {

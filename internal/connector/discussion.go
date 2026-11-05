@@ -303,6 +303,13 @@ func (s *Server) availableTools(grant connectorstate.ConnectorGrant) []string {
 			}
 		}
 	}
+	if s.brainstorms.Load() != nil {
+		for _, name := range brainstormToolNames {
+			if brainstormToolAllowed(grant, name) {
+				names = append(names, name)
+			}
+		}
+	}
 	if s.overview != nil && connectorstate.ConnectorScopeHas(grant.Scope, Scope) {
 		names = append(names, "factory_overview")
 	}

@@ -120,8 +120,15 @@ func (db *DB) appliedVersions(ctx context.Context) (map[int]bool, error) {
 }
 
 func (db *DB) applyMigration(ctx context.Context, m migration) error {
-	if strings.HasPrefix(m.sql, "-- litefactory:rebuild-sessions\n") {
-		return db.applySessionRebuild(ctx, m)
+	if strings.HasPrefix(m.sql, sessionRebuildMarker) {
+		return db.applyTableRebuild(ctx, m, []string{"sessions"})
+	}
+	if strings.HasPrefix(m.sql, tableRebuildMarker) {
+		tables, err := rebuildTables(m.sql)
+		if err != nil {
+			return fmt.Errorf("store: migration %04d_%s: %w", m.version, m.name, err)
+		}
+		return db.applyTableRebuild(ctx, m, tables)
 	}
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		if m.version == 79 {
@@ -242,10 +249,65 @@ func preservePreArchiveBugHistory(ctx context.Context, tx *sql.Tx, body string) 
 	return nil
 }
 
-// applySessionRebuild implements SQLite's documented table-rebuild procedure
-// on an exclusively held connection. Foreign keys are restored on every exit;
-// validation occurs before committing, so history cannot be cascaded away.
-func (db *DB) applySessionRebuild(ctx context.Context, m migration) (err error) {
+// sessionRebuildMarker is the original first-line marker of a sessions-only
+// rebuild; tableRebuildMarker names the rebuilt tables after it.
+const (
+	sessionRebuildMarker = "-- litefactory:rebuild-sessions\n"
+	tableRebuildMarker   = "-- litefactory:rebuild-tables "
+)
+
+// rebuildableTables is the complete list of tables a migration may rebuild
+// through the protected procedure. Adding a table here is a reviewed decision.
+var rebuildableTables = map[string]bool{
+	"sessions":                  true,
+	"durable_workflow_jobs":     true,
+	"durable_workflow_attempts": true,
+	"meter_attempts":            true,
+}
+
+// ErrRebuildTableRefused identifies a rebuild marker naming a table outside
+// rebuildableTables.
+var ErrRebuildTableRefused = errors.New("table is not rebuildable")
+
+// rebuildTables reads the table names from a rebuild-tables marker line and
+// refuses any name that is not on the allow-list, before anything runs.
+func rebuildTables(body string) ([]string, error) {
+	line, _, _ := strings.Cut(strings.TrimPrefix(body, tableRebuildMarker), "\n")
+	tables := strings.Fields(line)
+	if len(tables) == 0 {
+		return nil, errors.New("rebuild marker names no table")
+	}
+	seen := make(map[string]bool, len(tables))
+	for _, table := range tables {
+		if !rebuildableTables[table] {
+			return nil, fmt.Errorf("rebuild of %q refused: %w", table, ErrRebuildTableRefused)
+		}
+		if seen[table] {
+			return nil, fmt.Errorf("rebuild marker names %q twice", table)
+		}
+		seen[table] = true
+	}
+	return tables, nil
+}
+
+// applyTableRebuild implements SQLite's documented table-rebuild procedure for
+// tables on an exclusively held connection. Foreign keys are off so dropping a
+// parent cascades nothing, and legacy_alter_table keeps child references naming
+// the same table across the rename. Before committing it restores the captured
+// indexes and triggers and refuses on any foreign key violation or any change
+// in the row count of a rebuilt table or a table referencing one, so history
+// cannot be lost silently. Pragmas are restored on every exit.
+func (db *DB) applyTableRebuild(ctx context.Context, m migration, tables []string) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("store: migration %04d_%s: %w", m.version, m.name, err)
+		}
+	}()
+	for _, table := range tables {
+		if !rebuildableTables[table] {
+			return fmt.Errorf("rebuild of %q refused: %w", table, ErrRebuildTableRefused)
+		}
+	}
 	conn, err := db.sql.Conn(ctx)
 	if err != nil {
 		return err
@@ -267,30 +329,27 @@ func (db *DB) applySessionRebuild(ctx context.Context, m migration) (err error) 
 			err = errors.Join(err, tx.Rollback())
 		}
 	}()
-	rows, err := tx.QueryContext(ctx, `SELECT sql FROM sqlite_master WHERE tbl_name='sessions' AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name`)
+	retainedSchema, err := rebuildRetainedSchema(ctx, tx, tables)
 	if err != nil {
 		return err
 	}
-	var retainedSchema []string
-	for rows.Next() {
-		var statement string
-		if err := rows.Scan(&statement); err != nil {
-			return errors.Join(err, rows.Close())
-		}
-		retainedSchema = append(retainedSchema, statement)
+	counted, err := rebuildCountedTables(ctx, tx, tables)
+	if err != nil {
+		return err
 	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+	before, err := rebuildRowCounts(ctx, tx, counted)
+	if err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, m.sql); err != nil {
-		return fmt.Errorf("rebuild sessions: %w", err)
+		return fmt.Errorf("rebuild %s: %w", strings.Join(tables, ", "), err)
 	}
 	for _, statement := range retainedSchema {
 		if _, err = tx.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("restore session index or trigger: %w", err)
+			return fmt.Errorf("restore index or trigger of rebuilt table: %w", err)
 		}
 	}
-	rows, err = tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
 		return err
 	}
@@ -300,10 +359,85 @@ func (db *DB) applySessionRebuild(ctx context.Context, m migration) (err error) 
 		return err
 	}
 	if invalid {
-		return errors.New("store: session rebuild violates retained foreign keys")
+		return fmt.Errorf("rebuild of %s violates retained foreign keys", strings.Join(tables, ", "))
+	}
+	after, err := rebuildRowCounts(ctx, tx, counted)
+	if err != nil {
+		return err
+	}
+	for _, table := range counted {
+		if before[table] != after[table] {
+			return fmt.Errorf("rebuild changed the row count of %s from %d to %d", table, before[table], after[table])
+		}
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,applied_at) VALUES(?,?,?)`, m.version, m.name, FormatTime(nowUTC())); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// rebuildRetainedSchema returns the explicit index and trigger SQL of tables,
+// which dropping them removes and the rebuild restores.
+func rebuildRetainedSchema(ctx context.Context, tx *sql.Tx, tables []string) ([]string, error) {
+	var retained []string
+	for _, table := range tables {
+		rows, err := tx.QueryContext(ctx, `SELECT sql FROM sqlite_master WHERE tbl_name=? AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name`, table)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var statement string
+			if err := rows.Scan(&statement); err != nil {
+				return nil, errors.Join(err, rows.Close())
+			}
+			retained = append(retained, statement)
+		}
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+			return nil, err
+		}
+	}
+	return retained, nil
+}
+
+// rebuildCountedTables returns tables plus every existing table holding a
+// foreign key to one of them.
+func rebuildCountedTables(ctx context.Context, tx *sql.Tx, tables []string) ([]string, error) {
+	rebuilt := make(map[string]bool, len(tables))
+	counted := append([]string(nil), tables...)
+	for _, table := range tables {
+		rebuilt[table] = true
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT m.name, lower(f."table") FROM sqlite_master m, pragma_foreign_key_list(m.name) f WHERE m.type='table' ORDER BY m.name`)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool)
+	for rows.Next() {
+		var child, parent string
+		if err := rows.Scan(&child, &parent); err != nil {
+			return nil, errors.Join(err, rows.Close())
+		}
+		if rebuilt[parent] && !rebuilt[child] && !seen[child] {
+			seen[child] = true
+			counted = append(counted, child)
+		}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+	return counted, nil
+}
+
+// rebuildRowCounts counts the rows of each table. Names come from
+// sqlite_master or the allow-list, never from user input.
+func rebuildRowCounts(ctx context.Context, tx *sql.Tx, tables []string) (map[string]int64, error) {
+	counts := make(map[string]int64, len(tables))
+	for _, table := range tables {
+		var n int64
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM "`+strings.ReplaceAll(table, `"`, `""`)+`"`).Scan(&n); err != nil {
+			return nil, fmt.Errorf("count rows of %s: %w", table, err)
+		}
+		counts[table] = n
+	}
+	return counts, nil
 }

@@ -144,7 +144,7 @@ const (
 	connectorTaskUsageScope       = "task:usage"
 )
 
-var connectorRepositoryScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, connectorRepositoryUsageScope, connectorTaskUsageScope, "task:advisory", "task:discussion-publish"}
+var connectorRepositoryScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, connectorRepositoryUsageScope, connectorTaskUsageScope, "task:advisory", "task:discussion-publish", "repository:brainstorm"}
 
 // ConnectorRepositoryScoped reports whether scope includes a task-level or
 // repository-level scope and therefore needs repository coverage.
@@ -232,7 +232,7 @@ func ConnectorScopeSubset(sub, super string) bool {
 // connectorKnownScopes is every scope a grant may carry. It mirrors
 // connector.KnownScopes (a connector test keeps the two in step); the store
 // refuses a grant naming anything else.
-var connectorKnownScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, "factory:overview", connectorFactoryUsageScope, connectorRepositoryUsageScope, connectorTaskUsageScope, "repository:actions", "standards:management", "task:advisory", "task:discussion-publish"}
+var connectorKnownScopes = []string{connectorDiscussionScope, connectorCodeReviewScope, "factory:overview", connectorFactoryUsageScope, connectorRepositoryUsageScope, connectorTaskUsageScope, "repository:actions", "standards:management", "task:advisory", "task:discussion-publish", "repository:brainstorm"}
 
 // ConnectorKnownScopes returns the scopes the store accepts on a grant.
 func ConnectorKnownScopes() []string { return slices.Clone(connectorKnownScopes) }

@@ -45,7 +45,9 @@ func (d *Daemon) prepareTaskDiscussion(ctx context.Context, judge *turn.JudgeSer
 	if err != nil {
 		return err
 	}
-	d.remoteConnector.actions.workflows.BindAdvisory(service)
+	if err = d.remoteConnector.actions.workflows.Register(service); err != nil {
+		return err
+	}
 	d.remoteConnector.actions.discussions = service
 	d.remoteConnector.server.SetTaskDiscussion(service)
 	return nil

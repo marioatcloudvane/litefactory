@@ -1,0 +1,1 @@
+Use brainstorm_get to refresh one brainstorm: its state, current revision, how many entries of each kind it keeps, how many questions are in each state, and the newest entries and questions. Read it again before a write when you are unsure of the current revision. The newest page is not the whole brainstorm; page brainstorm_entries and brainstorm_scans for the rest.
