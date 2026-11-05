@@ -302,9 +302,20 @@ remote hook matches the configured callback URL. An arbitrary hook is not
 adopted automatically. Zero or multiple exact matches block legacy recovery;
 inspect the hooks and retained subscription before changing anything.
 
-To make a hook by hand, use content type `application/json`, the three events
-above, the owned subscription's full callback URL including
-`?subscription=<subscription-id>`, and the secret from its Keychain item.
+This `OWNER/REPO` adoption applies only while litefactory has no owned
+subscription for the ticket connection. Once one exists, the `OWNER/REPO` item is
+never read and a hook at the bare callback URL gets a `401`. That includes a
+create the bot was refused: on a personal repository the bot has at most write
+access, so `repo add` or `repo webhook OWNER/REPO` saves the subscription, records
+`hook_access_denied` and keeps polling.
+
+In that case, make the hook by hand as the repository owner. Use content type
+`application/json`, the three events above, the owned subscription's full
+callback URL including `?subscription=<subscription-id>`, and the secret from
+Keychain service `litefactory-webhook`, account `subscription/<subscription-id>`.
+The refusal message and `repo webhook status <project-id>` print the exact URL
+and account (never the secret); read the secret with
+`security find-generic-password -s litefactory-webhook -a subscription/<subscription-id> -w`.
 
 ### Inspect and manage a subscription
 

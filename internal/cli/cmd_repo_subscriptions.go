@@ -65,7 +65,12 @@ func runRepoSubscription(ctx context.Context, env *Env, cmd *Command, action str
 func subscriptionPresentation(env *Env) contracts.ProjectSubscriptionPresentation {
 	return contracts.ProjectSubscriptionPresentation{
 		Subscription: func(s contracts.ProjectSubscriptionView) error {
-			_, err := fmt.Fprintf(env.Stdout, "project %d subscription %s revision %d source-version %d %s %s %s desired-enabled=%t observed=%s hook=%s\n  checked=%s valid-delivery=%s reason=%s; remedy: inspect provider access and repair using the current revision; signing secret cannot be read back\n", s.RepoID, s.ID, s.Revision, s.ConnectionVersionID, s.Provider, s.Origin, s.Container, s.DesiredEnabled, s.ObservedState, s.RemoteHookID, s.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), s.DeliveredAt.UTC().Format("2006-01-02T15:04:05Z"), s.Failure)
+			_, err := fmt.Fprintf(env.Stdout, "project %d subscription %s revision %d source-version %d %s %s %s desired-enabled=%t observed=%s hook=%s\n  checked=%s valid-delivery=%s reason=%s; remedy: inspect provider access and repair using the current revision; GitHub never returns the signing secret\n", s.RepoID, s.ID, s.Revision, s.ConnectionVersionID, s.Provider, s.Origin, s.Container, s.DesiredEnabled, s.ObservedState, s.RemoteHookID, s.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), s.DeliveredAt.UTC().Format("2006-01-02T15:04:05Z"), s.Failure)
+			if err != nil || s.Failure != "hook_access_denied" || s.CallbackURL == "" || s.SecretAccount == "" {
+				return err
+			}
+			// The bot was refused; name the values a hook made by hand needs.
+			_, err = fmt.Fprintf(env.Stdout, "  hand-made hook: payload URL %s, content type application/json, events issues, issue_comment and sub_issues, secret from Keychain service %s account %s\n", s.CallbackURL, s.SecretService, s.SecretAccount)
 			return err
 		},
 		Recovery: func(p contracts.ProjectRecoveryView) error {
