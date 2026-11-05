@@ -120,6 +120,17 @@ type RepositoryView struct {
 	LastFetchAt                                 time.Time
 }
 
+// RepositoryBaseChangeView reports one `repo base` outcome. Stale names the
+// side that disagreed and was reconciled: "record", "connection" or both.
+type RepositoryBaseChangeView struct {
+	Repository         RepositoryView
+	OldBase            string
+	NewBase            string
+	NoChange           bool
+	Stale              []string
+	KeptByStartedIssue int
+}
+
 // ProjectWebhookView contains safe webhook registration outcome and warnings.
 type ProjectWebhookView struct {
 	Description, Reason           string
