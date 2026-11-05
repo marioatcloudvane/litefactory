@@ -26,14 +26,14 @@ func TestPromptsMainPath(t *testing.T) {
 		return r.Code, out
 	}
 	_, init := call(1, "initialize", map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "1"}})
-	res := init["result"].(map[string]any)
-	if _, ok := res["capabilities"].(map[string]any)["prompts"]; !ok || res["instructions"] == "" {
+	res := promptsAs[map[string]any](t, init["result"])
+	if _, ok := promptsAs[map[string]any](t, res["capabilities"])["prompts"]; !ok || res["instructions"] == "" {
 		t.Fatalf("initialize: %v", init)
 	}
 	_, listed := call(2, "prompts/list", nil)
 	names := map[string]bool{}
-	for _, p := range listed["result"].(map[string]any)["prompts"].([]any) {
-		names[p.(map[string]any)["name"].(string)] = true
+	for _, p := range promptsAs[[]any](t, promptsAs[map[string]any](t, listed["result"])["prompts"]) {
+		names[promptsAs[string](t, promptsAs[map[string]any](t, p)["name"])] = true
 	}
 	if !names["brainstorm_feature"] || !names["whats_waiting"] || names["review_task"] {
 		t.Fatalf("prompts must follow the grant's tools: %v", names)
@@ -44,7 +44,7 @@ func TestPromptsMainPath(t *testing.T) {
 		if code != http.StatusOK || len(msgs) != 1 {
 			t.Fatalf("%s: %v", name, got)
 		}
-		text := msgs[0].(map[string]any)["content"].(map[string]any)["text"].(string)
+		text := promptsAs[string](t, promptsAs[map[string]any](t, promptsAs[map[string]any](t, msgs[0])["content"])["text"])
 		if name == "brainstorm_feature" {
 			guide, err := readBrainstormGuide(guidanceFiles)
 			if err != nil || !strings.HasPrefix(text, guide) || len(text) <= len(guide) {
@@ -53,7 +53,17 @@ func TestPromptsMainPath(t *testing.T) {
 		}
 	}
 	_, refused := call(4, "prompts/get", map[string]any{"name": "review_task", "arguments": map[string]any{"task": "7"}})
-	if refused["error"].(map[string]any)["code"].(float64) != -32602 {
+	if promptsAs[float64](t, promptsAs[map[string]any](t, refused["error"])["code"]) != -32602 {
 		t.Fatalf("unlisted prompt must be refused: %v", refused)
 	}
+}
+
+// promptsAs asserts that v has type T and fails the test otherwise.
+func promptsAs[T any](t *testing.T, v any) T {
+	t.Helper()
+	out, ok := v.(T)
+	if !ok {
+		t.Fatalf("unexpected value %#v (%T)", v, v)
+	}
+	return out
 }
