@@ -467,3 +467,51 @@ func TestPlanMember_RefusesQuestionsWithoutOwnerChoices(t *testing.T) {
 		t.Fatalf("non-member question without options refused: %v", diagnosticCodes(d))
 	}
 }
+
+// A member's criteria get the same checks assembly applies, at submission, so
+// a malformed ID such as AC-01 is corrected in the member's own run instead of
+// failing the whole Plan step at assembly.
+func TestPlanMember_RefusesNonCanonicalCriteria(t *testing.T) {
+	ctx := graphContext()
+	ctx.PlanGraph.Member = &ar.PlanMemberBinding{Group: "g", Role: "acceptance", AttemptID: 7, Basis: "basis"}
+	member := func(criteria string) []byte {
+		return graphDone(`{"contribution":{"draft":{"criteria":` + criteria + `,"tasks":[{"id":"T1","description":"Do it.","owner_role":"engineer","criterion_ids":["AC-01"],"depends_on":[]}]}}}`)
+	}
+	base := "$.result.payload.plan.contribution.draft.criteria"
+	_, d := ar.Create(member(`[{"id":"AC-01","text":"One.","proof_method":"Test."},{"id":"AC-02","text":"Two.","proof_method":"Test."}]`), ctx)
+	if d.Valid {
+		t.Fatal("member criteria AC-01/AC-02 accepted")
+	}
+	for _, path := range []string{base + "[0].id", base + "[1].id"} {
+		if !slices.ContainsFunc(d.Diagnostics, func(f ar.Diagnostic) bool {
+			return f.Path == path && strings.Contains(f.Expected, "AC-001")
+		}) {
+			t.Fatalf("want AC-001 format diagnostic at %s, got %v", path, d.Diagnostics)
+		}
+	}
+	cases := []struct {
+		name     string
+		criteria string
+		path     string
+	}{
+		{"duplicate", `[{"id":"AC-001","text":"One.","proof_method":"Test."},{"id":"AC-001","text":"Two.","proof_method":"Test."}]`, base + "[1].id"},
+		{"blank text", `[{"id":"AC-001","text":" ","proof_method":"Test."}]`, base + "[0].text"},
+		{"blank proof method", `[{"id":"AC-001","text":"One.","proof_method":""}]`, base + "[0].proof_method"},
+		{"canonical", `[{"id":"AC-001","text":"One.","proof_method":"Test."}]`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := []byte(strings.ReplaceAll(string(member(tc.criteria)), `"criterion_ids":["AC-01"]`, `"criterion_ids":["AC-001"]`))
+			_, d := ar.Create(data, ctx)
+			if tc.path == "" {
+				if !d.Valid || slices.ContainsFunc(d.Diagnostics, func(f ar.Diagnostic) bool { return strings.HasPrefix(f.Path, base) }) {
+					t.Fatalf("canonical criteria refused: %v", d.Diagnostics)
+				}
+				return
+			}
+			if d.Valid || !slices.ContainsFunc(d.Diagnostics, func(f ar.Diagnostic) bool { return f.Path == tc.path }) {
+				t.Fatalf("want refusal at %s, got %v", tc.path, d.Diagnostics)
+			}
+		})
+	}
+}
