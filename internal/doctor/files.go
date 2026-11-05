@@ -321,7 +321,7 @@ func (s *Service) collectBranchInputs(ctx context.Context, ref naming.Ref, sourc
 		e.Gaps = append(e.Gaps, "Branch synchronization session unavailable")
 		return
 	}
-	repo, err := s.DB.GetRepo(ctx, session.RepoID)
+	repo, err := s.DB.SessionRepository(ctx, session)
 	if err != nil {
 		e.Gaps = append(e.Gaps, "Branch synchronization repository unavailable")
 		return

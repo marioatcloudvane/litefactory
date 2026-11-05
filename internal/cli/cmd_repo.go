@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -81,6 +82,56 @@ func newRepoListCommand() *Command {
 			}
 		},
 	}
+}
+
+// newRepoBaseCommand declares "litefactory repo base <id|path> <branch>".
+func newRepoBaseCommand() *Command {
+	cmd := &Command{
+		Name:  "repo base",
+		Usage: "repo base <id|path> <branch>",
+		Short: "Change the base branch of a registered repository",
+		Long: "Move a registered repository to another base branch. The repository is named\n" +
+			"by its id from `repo list` or by its registered clone path. The branch must\n" +
+			"exist on the remote and nothing may be executing. Issues already started keep\n" +
+			"the base they started with. Nothing changes when the command is refused.",
+		Args: ArgSpec{Names: []string{"id|path", "branch"}, Min: 2},
+	}
+	cmd.New = func(*flag.FlagSet) Handler {
+		return func(ctx context.Context, env *Env, args []string) error {
+			return runRepoBase(ctx, env, args[0], args[1])
+		}
+	}
+	return cmd
+}
+
+func runRepoBase(ctx context.Context, env *Env, reference, branch string) (err error) {
+	rt, err := openRepoRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, rt.close()) }()
+
+	view, err := projectAdministration(rt, env).ChangeBase(ctx, reference, branch)
+	if err != nil {
+		var unavailable *contracts.ProjectUnavailable
+		if errors.As(err, &unavailable) {
+			return Precondition(err)
+		}
+		return err
+	}
+	r := view.Repository
+	if view.NoChange {
+		fmt.Fprintf(env.Stdout, "no change: %s (id %d) already uses base %s\n", r.Slug, r.ID, view.NewBase)
+		return nil
+	}
+	fmt.Fprintf(env.Stdout, "%s (id %d): base %s -> %s\n", r.Slug, r.ID, view.OldBase, view.NewBase)
+	if len(view.Stale) > 0 {
+		fmt.Fprintf(env.Stdout, "  reconciled stale %s\n", strings.Join(view.Stale, " and "))
+	}
+	if view.KeptByStartedIssue > 0 {
+		fmt.Fprintf(env.Stdout, "  %d started issue(s) keep base %s\n", view.KeptByStartedIssue, view.OldBase)
+	}
+	return nil
 }
 
 // runRepoAdd registers the clone at path.

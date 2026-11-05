@@ -102,7 +102,7 @@ func (f *FactoryDoctorRepairEffects) syncOptions(ctx context.Context, target nam
 	if e != nil {
 		return out, e
 	}
-	repo, e := f.DB.GetRepo(ctx, session.RepoID)
+	repo, e := f.DB.SessionRepository(ctx, session)
 	if e != nil {
 		return out, e
 	}

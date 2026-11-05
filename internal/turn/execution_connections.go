@@ -12,14 +12,7 @@ import (
 // executionRepository returns the original version for admitted work. Legacy
 // callers remain supported until factory initialization attaches snapshots.
 func executionRepository(ctx context.Context, db *store.DB, session store.Session) (store.Repo, error) {
-	saved, err := db.GetExecutionSnapshot(ctx, session.ID)
-	if err == nil {
-		return saved.CodeTarget, nil
-	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return store.Repo{}, err
-	}
-	return db.GetRepo(ctx, session.RepoID)
+	return db.SessionRepository(ctx, session)
 }
 
 func verifyExecutionClone(ctx context.Context, opts Options, session store.Session, clone *git.Clone) error {
