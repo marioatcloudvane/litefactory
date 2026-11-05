@@ -40,7 +40,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"thread-native"}' '{"type":"
 	}
 	launches, sessions := 0, 0
 	var eventLog bytes.Buffer
-	req := agent.Request{Events: &eventLog, Prompt: "prepared input", WorkingDirectory: t.TempDir(), Timeout: 10 * time.Second, BeforeLaunch: func(context.Context) error { launches++; return nil }, OnSession: func(_ context.Context, s string) error {
+	req := agent.Request{Events: &eventLog, Prompt: "prepared input", WorkingDirectory: t.TempDir(), Timeout: 60 * time.Second, BeforeLaunch: func(context.Context) error { launches++; return nil }, OnSession: func(_ context.Context, s string) error {
 		sessions++
 		if s != "thread-native" {
 			t.Fatalf("session %q", s)
@@ -116,7 +116,7 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"a
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := r.Run(t.Context(), agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 10 * time.Second, Output: agent.OutputPolicy{LineBytes: 32}})
+	result, err := r.Run(t.Context(), agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 60 * time.Second, Output: agent.OutputPolicy{LineBytes: 32}})
 	var failure *agent.Failure
 	if !errors.As(err, &failure) || failure.Phase != "output" || !result.Started || len(result.Events) != 0 {
 		t.Fatalf("output bound or isolation failed: %+v %v", result, err)

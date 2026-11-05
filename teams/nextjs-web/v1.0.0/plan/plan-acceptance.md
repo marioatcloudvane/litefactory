@@ -98,7 +98,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 
 - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options.
 - Write each criterion as something an outsider can observe, with a proof method that names how it will be shown. Keep IDs stable and readable. No internal jargon without a short explanation.
-- Open the assembled review with one plain first sentence that states the result. Where it helps, add one small Mermaid flowchart of the task order, or a stateDiagram for state logic; your judgment.
+- Open the assembled review with one plain first sentence that states the result. Where it helps, add one small Mermaid flowchart of the task order, or a stateDiagram-v2 for state logic; your judgment.
 - Make each task's description say what is delivered, and link it to the criteria it serves.
 - Do not claim anything is approved, tested or published. Say what you proposed and what you assumed.
 
