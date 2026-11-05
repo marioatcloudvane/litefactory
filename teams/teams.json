@@ -90,7 +90,7 @@
         },
         {
           "path": "plan/plan-acceptance.md",
-          "sha256": "16f29059ccdd80eb5dfac2d0abdc7ca0098214e3e59881e363ac79a34cdcd05d"
+          "sha256": "8810cbbe9caf62649a6ea369567f34ae3aaea14592308f7ca694a5641853dfdd"
         },
         {
           "path": "plan/plan-set.md",
@@ -102,7 +102,7 @@
         },
         {
           "path": "plan/plan-technical.md",
-          "sha256": "11e733dad8fb2326721ff8b23d64691116fdea566ce42aedd8897407913efaff"
+          "sha256": "374280f783a8f39c239a0670d4354d7d67f89dc599de8b950b83623aa9841678"
         },
         {
           "path": "plan/plan.dot",
@@ -126,7 +126,7 @@
         },
         {
           "path": "plan/skills/owner-report/SKILL.md",
-          "sha256": "c647e85062085e7abac045efc4de83b864dd8bc3c357f76f319eb18b42a4179b"
+          "sha256": "c3f459a47d39da90a4cdc4b641446d581060e336977dd92521f842d50c7bffd5"
         },
         {
           "path": "plan/skills/owner-report/examples.md",
@@ -158,11 +158,11 @@
         },
         {
           "path": "plan/skills/plan-evidence/SKILL.md",
-          "sha256": "0109a4016fc0982ba7d18efba5e24ca7faf6eb7d917fa8ba54985261a3a520ff"
+          "sha256": "af0ae61e10b9fe80f5c34ce6ebdd0c27d3d831c3f1a28fe2e4d5161699ba1c10"
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "5b25599996098ca6f70862132a88e87132983718447505db94a0e9d322ae1ef1"
+          "sha256": "82923c9fa54dcd0649be6a0dee17e03c8548a9c65241bd9a6658b91f32faeb72"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -321,7 +321,7 @@
           "sha256": "9a6ba7e0799bb32144fb36d0414da07b2596e72ac4b9fe06d96fa663ef1068a4"
         }
       ],
-      "checksum": "f59535a80e260a4b42401973af6af60d0ddb2bcc2e1eef8bde2cba9f7a50b011"
+      "checksum": "d6161a360ad2d4db0680f6b754a19cbd04f78d876070d4bda714b1130060c6b2"
     },
     {
       "name": "Go development",
@@ -375,7 +375,7 @@
         },
         {
           "path": "bug/skills/litefactory-rules/litefactory.md",
-          "sha256": "047b2d691218ac721cfc56fdf4f849571f0f7d91803570a4c5d80a6e64adde05"
+          "sha256": "46cc4104acb1f83062bdde434176c311ec4b1aa455c3289b68ce8731658f7bae"
         },
         {
           "path": "implement/implement.dot",
@@ -399,7 +399,7 @@
         },
         {
           "path": "implement/skills/litefactory-rules/litefactory.md",
-          "sha256": "047b2d691218ac721cfc56fdf4f849571f0f7d91803570a4c5d80a6e64adde05"
+          "sha256": "46cc4104acb1f83062bdde434176c311ec4b1aa455c3289b68ce8731658f7bae"
         },
         {
           "path": "implement/story-worker.md",
@@ -411,7 +411,7 @@
         },
         {
           "path": "plan/plan-acceptance.md",
-          "sha256": "16f29059ccdd80eb5dfac2d0abdc7ca0098214e3e59881e363ac79a34cdcd05d"
+          "sha256": "8810cbbe9caf62649a6ea369567f34ae3aaea14592308f7ca694a5641853dfdd"
         },
         {
           "path": "plan/plan-set.md",
@@ -423,7 +423,7 @@
         },
         {
           "path": "plan/plan-technical.md",
-          "sha256": "11e733dad8fb2326721ff8b23d64691116fdea566ce42aedd8897407913efaff"
+          "sha256": "374280f783a8f39c239a0670d4354d7d67f89dc599de8b950b83623aa9841678"
         },
         {
           "path": "plan/plan.dot",
@@ -431,7 +431,7 @@
         },
         {
           "path": "plan/skills/owner-report/SKILL.md",
-          "sha256": "c647e85062085e7abac045efc4de83b864dd8bc3c357f76f319eb18b42a4179b"
+          "sha256": "c3f459a47d39da90a4cdc4b641446d581060e336977dd92521f842d50c7bffd5"
         },
         {
           "path": "plan/skills/owner-report/examples.md",
@@ -463,11 +463,11 @@
         },
         {
           "path": "plan/skills/plan-evidence/SKILL.md",
-          "sha256": "0109a4016fc0982ba7d18efba5e24ca7faf6eb7d917fa8ba54985261a3a520ff"
+          "sha256": "af0ae61e10b9fe80f5c34ce6ebdd0c27d3d831c3f1a28fe2e4d5161699ba1c10"
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "9128b8a158393352a828a6f5d20d115c276712540bcdef11ffe6de82b874462b"
+          "sha256": "4a9da4e600a151df8f0d3b42aee8d4c8c58da90074f069195ef55aa9c3ca6154"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -579,7 +579,7 @@
         },
         {
           "path": "validate/skills/litefactory-rules/litefactory.md",
-          "sha256": "047b2d691218ac721cfc56fdf4f849571f0f7d91803570a4c5d80a6e64adde05"
+          "sha256": "46cc4104acb1f83062bdde434176c311ec4b1aa455c3289b68ce8731658f7bae"
         },
         {
           "path": "validate/skills/validate-repair-report/SKILL.md",
@@ -630,7 +630,7 @@
           "sha256": "d9c551060371eea9631495bee0f3f33b73ceb6f113d82c0bb9f4f8c476e97275"
         }
       ],
-      "checksum": "698c9e91ccaf205b8f0ee5a56a81be62ee1278670938289f314c6a553b38372e"
+      "checksum": "a77ba6d0889ced9650b79dd7595a01fd5cd947ca3ab279ed545cc7f993e1b15f"
     },
     {
       "name": "Next.js web",
@@ -715,7 +715,7 @@
         },
         {
           "path": "plan/plan-acceptance.md",
-          "sha256": "16f29059ccdd80eb5dfac2d0abdc7ca0098214e3e59881e363ac79a34cdcd05d"
+          "sha256": "8810cbbe9caf62649a6ea369567f34ae3aaea14592308f7ca694a5641853dfdd"
         },
         {
           "path": "plan/plan-set.md",
@@ -727,7 +727,7 @@
         },
         {
           "path": "plan/plan-technical.md",
-          "sha256": "11e733dad8fb2326721ff8b23d64691116fdea566ce42aedd8897407913efaff"
+          "sha256": "374280f783a8f39c239a0670d4354d7d67f89dc599de8b950b83623aa9841678"
         },
         {
           "path": "plan/plan.dot",
@@ -735,7 +735,7 @@
         },
         {
           "path": "plan/skills/owner-report/SKILL.md",
-          "sha256": "c647e85062085e7abac045efc4de83b864dd8bc3c357f76f319eb18b42a4179b"
+          "sha256": "c3f459a47d39da90a4cdc4b641446d581060e336977dd92521f842d50c7bffd5"
         },
         {
           "path": "plan/skills/owner-report/examples.md",
@@ -767,11 +767,11 @@
         },
         {
           "path": "plan/skills/plan-evidence/SKILL.md",
-          "sha256": "0109a4016fc0982ba7d18efba5e24ca7faf6eb7d917fa8ba54985261a3a520ff"
+          "sha256": "af0ae61e10b9fe80f5c34ce6ebdd0c27d3d831c3f1a28fe2e4d5161699ba1c10"
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "41fc5ec70cc1b57359a149cdb2b49e75208bddeff3612986783fbe5c51b0d510"
+          "sha256": "a7e19a158806554fd701ce19dfa3d6003b8aff6a55a930ebcae75213b10a2ed1"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -934,7 +934,7 @@
           "sha256": "2d0a021babc675ec615314d6d8d522097eb685e6a5d7310fd4a566ed3bfbcc90"
         }
       ],
-      "checksum": "bd7e52567c93730c3dcdf7d49c71683e22f136f4a821cf37aa8cb5aba5724256"
+      "checksum": "43a0be0f05a804c5e8c940e6405fb9aaeb037efd90ff6edb7244338259be6975"
     },
     {
       "name": "Python FastAPI with React",
@@ -1036,7 +1036,7 @@
         },
         {
           "path": "plan/plan-acceptance.md",
-          "sha256": "16f29059ccdd80eb5dfac2d0abdc7ca0098214e3e59881e363ac79a34cdcd05d"
+          "sha256": "8810cbbe9caf62649a6ea369567f34ae3aaea14592308f7ca694a5641853dfdd"
         },
         {
           "path": "plan/plan-set.md",
@@ -1048,7 +1048,7 @@
         },
         {
           "path": "plan/plan-technical.md",
-          "sha256": "11e733dad8fb2326721ff8b23d64691116fdea566ce42aedd8897407913efaff"
+          "sha256": "374280f783a8f39c239a0670d4354d7d67f89dc599de8b950b83623aa9841678"
         },
         {
           "path": "plan/plan.dot",
@@ -1056,7 +1056,7 @@
         },
         {
           "path": "plan/skills/owner-report/SKILL.md",
-          "sha256": "c647e85062085e7abac045efc4de83b864dd8bc3c357f76f319eb18b42a4179b"
+          "sha256": "c3f459a47d39da90a4cdc4b641446d581060e336977dd92521f842d50c7bffd5"
         },
         {
           "path": "plan/skills/owner-report/examples.md",
@@ -1088,11 +1088,11 @@
         },
         {
           "path": "plan/skills/plan-evidence/SKILL.md",
-          "sha256": "0109a4016fc0982ba7d18efba5e24ca7faf6eb7d917fa8ba54985261a3a520ff"
+          "sha256": "af0ae61e10b9fe80f5c34ce6ebdd0c27d3d831c3f1a28fe2e4d5161699ba1c10"
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "e5990afee216ebebb1a9c16f5c0ba89a30598766269b6d7445a19b004bc682c9"
+          "sha256": "71793b7ee6ce39ddc562a6aefecc7db03b4b088e5bc4b9593140a02df3dbaa32"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -1271,7 +1271,7 @@
           "sha256": "c604353cd21fd5422feab496f3cd7027798450bff552bc7a8583bf3ef94c69af"
         }
       ],
-      "checksum": "8f69fc9ca330ca4ecc96abcdfc4961f168dafeaf2ad43c237c2f48f1236e5c66"
+      "checksum": "4be302c2b7684eedec2b5a08a50e43d41a164f632ec92260fa3aaba86dd7d4cd"
     },
     {
       "name": "Swift iOS",
@@ -1354,7 +1354,7 @@
         },
         {
           "path": "plan/plan-acceptance.md",
-          "sha256": "16f29059ccdd80eb5dfac2d0abdc7ca0098214e3e59881e363ac79a34cdcd05d"
+          "sha256": "8810cbbe9caf62649a6ea369567f34ae3aaea14592308f7ca694a5641853dfdd"
         },
         {
           "path": "plan/plan-set.md",
@@ -1366,7 +1366,7 @@
         },
         {
           "path": "plan/plan-technical.md",
-          "sha256": "11e733dad8fb2326721ff8b23d64691116fdea566ce42aedd8897407913efaff"
+          "sha256": "374280f783a8f39c239a0670d4354d7d67f89dc599de8b950b83623aa9841678"
         },
         {
           "path": "plan/plan.dot",
@@ -1374,7 +1374,7 @@
         },
         {
           "path": "plan/skills/owner-report/SKILL.md",
-          "sha256": "c647e85062085e7abac045efc4de83b864dd8bc3c357f76f319eb18b42a4179b"
+          "sha256": "c3f459a47d39da90a4cdc4b641446d581060e336977dd92521f842d50c7bffd5"
         },
         {
           "path": "plan/skills/owner-report/examples.md",
@@ -1406,11 +1406,11 @@
         },
         {
           "path": "plan/skills/plan-evidence/SKILL.md",
-          "sha256": "0109a4016fc0982ba7d18efba5e24ca7faf6eb7d917fa8ba54985261a3a520ff"
+          "sha256": "af0ae61e10b9fe80f5c34ce6ebdd0c27d3d831c3f1a28fe2e4d5161699ba1c10"
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "c235c59626961ef0aee5e244ab22d973207fc263bff56543df1c191b0d1ed1a8"
+          "sha256": "3cea96081a8645b7792d0e9f3c4584de96760f8e53af0ef7141bc1ce36cf8203"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -1573,7 +1573,7 @@
           "sha256": "9dc5249b2fc879a70ba1c68d07cbf3289b62b958eb6f14a0f53bfc92fce7f7ea"
         }
       ],
-      "checksum": "9ec6c9429d6c35e7f719f643ce810315ed7f02735b1fa7874d782a37b890a21f"
+      "checksum": "c994b53c0b97cbc0c5e75bb4ed7e1298aaa31e9966a47faf371449e7e71e29a7"
     }
   ]
 }

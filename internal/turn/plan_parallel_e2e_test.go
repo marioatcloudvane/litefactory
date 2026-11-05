@@ -48,6 +48,14 @@ func TestPlanParallelEndToEnd_DurableSignalsAndRestart(t *testing.T) {
 // A starved shared pool (total 4) must still start the group on its minimum
 // and reach the same sealed, guarded result, running at most as many members
 // at once as it holds slots, and returning every borrowed slot.
+// On the first pass a member sees no assembled proposal (empty
+// proposal_digest). A member that asks about it, as on MAR-95, is refused at
+// submission and corrects itself; the owner never sees an option-less question
+// and the group still seals with the contributed architecture.
+func TestPlanParallelEndToEnd_FirstPassQuestionIsRefusedAndCorrected(t *testing.T) {
+	runParallelMainPath(t, false, "emptyproposal")
+}
+
 func TestPlanParallelEndToEnd_MeteredPoolRunsMembersWithinFreeSlots(t *testing.T) {
 	for _, free := range []int{1, 2} {
 		t.Run(fmt.Sprintf("free_%d", free), func(t *testing.T) {
@@ -98,7 +106,9 @@ func runParallelMain(t *testing.T, mixed bool, signal string, capacity *slotStor
 	active, peak := 0, 0
 	dependency := signal == "dependency"
 	recovery := signal == "uncertain"
-	if dependency || recovery {
+	emptyProposal := signal == "emptyproposal"
+	refusedFirstPass := false
+	if dependency || recovery || emptyProposal {
 		signal = ""
 	}
 	entries := []planbrief.PlanStorySetEntry{{ID: "small", Name: "Small plan", Intent: "Retain a coherent plan", Size: "S", SizeReason: "One local change; no migration or unknowns."}}
@@ -281,6 +291,14 @@ func runParallelMain(t *testing.T, mixed bool, signal string, capacity *slotStor
 			result.Outcome = "incomplete"
 			result.Reason = "The retention boundary needs an owner decision."
 			result.Questions = []ar.Question{{ID: "q1", Audience: "technical", Text: "Which retention boundary does the owner want?", RecommendedOption: "a", Options: []ar.Option{{ID: "a", Text: "Use bounded local retention"}, {ID: "b", Text: "Keep every revision"}}}}
+		}
+		if emptyProposal && facts.Role == "technical" && facts.ProposalDigest == "" {
+			if err := assertFirstPassQuestionRefused(ctx, f, req, facts.Proposal.Key, contribution); err != nil {
+				return nil, err
+			}
+			mu.Lock()
+			refusedFirstPass = true
+			mu.Unlock()
 		}
 		data := submitBytes(t, result)
 		client := submission.Client{DescriptorPath: req.MCPLaunch.DescriptorPath()}
@@ -536,6 +554,26 @@ func runParallelMain(t *testing.T, mixed bool, signal string, capacity *slotStor
 	}
 	if creates != len(entries) || patches < 2*smallCount {
 		t.Fatalf("ordered stage effects: creates=%d patches=%d", creates, patches)
+	}
+	if emptyProposal {
+		mu.Lock()
+		refused := refusedFirstPass
+		mu.Unlock()
+		if !refused {
+			t.Fatal("first-pass question was never submitted")
+		}
+		for _, post := range forge.all() {
+			if strings.Contains(post.body, "Planning needs an owner answer") || strings.Contains(post.body, "combined proposal") {
+				t.Fatalf("factory-internal first-pass state reached the owner: %s", post.body)
+			}
+		}
+		story := state.Stories[0]
+		if story.Draft.Architecture == nil || len(story.Draft.Architecture.General) != 1 || story.Draft.Architecture.General[0].Decision != "Reuse existing effects" {
+			t.Fatalf("technical stage lost the contributed architecture: %+v", story.Draft.Architecture)
+		}
+		if story.Parallel.Members["technical"].Contribution.Questions != nil {
+			t.Fatalf("refused question was retained: %+v", story.Parallel.Members["technical"])
+		}
 	}
 	runParent(t, f, base)
 	state = graphPlanState(t, f)
@@ -924,6 +962,99 @@ func assertUnboundRoleRefused(ctx context.Context, req agent.Request, contributi
 	}
 	if diagnostics.Valid || !strings.Contains(diagnosticPaths(diagnostics), "tasks[0].owner_role") {
 		return fmt.Errorf("unknown task owner role was not refused at submission: %s", diagnosticPaths(diagnostics))
+	}
+	return nil
+}
+
+// firstPassQuestion is the MAR-95 text a member raised about the empty
+// first-pass proposal.
+const firstPassQuestion = "The supplied combined proposal has empty intent and no architecture. Inspect the assembled intent and architecture on the next bounded continuation before confirming its exact digest."
+
+// assertFirstPassQuestionRefused submits, through preflight and submit, the two
+// ways a member could raise the empty first-pass proposal: a free-text
+// contribution question and a result question without options. Each must be
+// refused at its own path, leave no accepted receipt, and leave the retained
+// technical member and the group's blockers unchanged.
+func assertFirstPassQuestionRefused(ctx context.Context, f *fixture, req agent.Request, story string, contribution planbrief.PlanParallelContribution) error {
+	free := contribution
+	free.Questions = []string{firstPassQuestion}
+	asked := contribution
+	cases := []struct {
+		path   string
+		result ar.Result
+	}{
+		{"$.result.payload.plan.contribution.questions", ar.Result{Outcome: "completed", Comment: "Retained role-owned contribution.", Payload: ar.Payload{Plan: &ar.Plan{Contribution: &free}}}},
+		{"$.result.questions[0].options", ar.Result{Outcome: "incomplete", Comment: "Planning needs an answer.", Reason: "The proposal is empty.", Questions: []ar.Question{{ID: "q1", Audience: "technical", Text: firstPassQuestion}}, Payload: ar.Payload{Plan: &ar.Plan{Contribution: &asked}}}},
+	}
+	group := func() (string, error) {
+		state, _, err := f.db.GetPlanWorkflowState(ctx, f.ref().String())
+		if err != nil {
+			return "", err
+		}
+		for _, item := range state.Stories {
+			if item.Key == story {
+				if item.Parallel == nil {
+					return "", nil
+				}
+				// Sibling members contribute concurrently; only this member's
+				// record and the group's blockers must stay unchanged.
+				member, ok := item.Parallel.Members["technical"]
+				raw, err := json.Marshal(struct {
+					Member   any
+					Present  bool
+					Blockers any
+				}{member, ok, item.Parallel.Blockers})
+				return string(raw), err
+			}
+		}
+		return "", nil
+	}
+	client := submission.Client{DescriptorPath: req.MCPLaunch.DescriptorPath()}
+	for _, tc := range cases {
+		raw, err := json.Marshal(tc.result)
+		if err != nil {
+			return err
+		}
+		data := append(append([]byte(`{"result":`), raw...), '}')
+		pre, err := client.Call(ctx, "communication_preflight", data)
+		if err != nil {
+			return fmt.Errorf("preflight first-pass question: %w", err)
+		}
+		if pre.Error != "" {
+			return fmt.Errorf("preflight first-pass question: %s", pre.Error)
+		}
+		var diagnostics ar.UpdateDiagnostics
+		if err = json.Unmarshal(pre.Result, &diagnostics); err != nil {
+			return err
+		}
+		if diagnostics.Valid || !strings.Contains(diagnosticPaths(diagnostics), tc.path) {
+			return fmt.Errorf("first-pass question was not refused at %s by preflight: %s", tc.path, diagnosticPaths(diagnostics))
+		}
+		before, err := group()
+		if err != nil {
+			return err
+		}
+		submitted, err := client.Call(ctx, "communication_submit", data)
+		if err != nil {
+			return fmt.Errorf("submit first-pass question: %w", err)
+		}
+		if submitted.Error != "" {
+			return fmt.Errorf("submit first-pass question: %s", submitted.Error)
+		}
+		var refused AgentResultSubmission
+		if err = json.Unmarshal(submitted.Result, &refused); err != nil {
+			return err
+		}
+		if refused.Validation.Valid || (refused.Receipt != nil && refused.Receipt.InputState == "accepted") {
+			return fmt.Errorf("first-pass question was accepted at submit: %+v", refused)
+		}
+		after, err := group()
+		if err != nil {
+			return err
+		}
+		if before != after {
+			return fmt.Errorf("refused submit changed the group: %s -> %s", before, after)
+		}
 	}
 	return nil
 }
