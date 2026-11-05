@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/brainstorm"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
 
 const refusalSentinel = "SECRET-SENTINEL-1410"
@@ -252,4 +255,221 @@ func must[T any](v T, err error) T {
 		panic(err)
 	}
 	return v
+}
+
+// refusalActions counts history reads; any other method panics through the nil
+// embedded interface.
+type refusalActions struct {
+	OwnerActions
+	calls *atomic.Int64
+}
+
+func (a refusalActions) HistoryFiltered(context.Context, owneraction.Principal, owneraction.Filters, string, int) (owneraction.Page, error) {
+	a.calls.Add(1)
+	return owneraction.Page{}, nil
+}
+
+// refusalDiscussion counts advisory job reads; any other method panics through
+// the nil embedded interface.
+type refusalDiscussion struct {
+	TaskDiscussion
+	calls *atomic.Int64
+}
+
+func (d refusalDiscussion) Get(context.Context, owneraction.Principal, string, string) (taskdiscussion.JobView, error) {
+	d.calls.Add(1)
+	return taskdiscussion.JobView{}, nil
+}
+
+func (refusalDiscussion) PublicationAvailable() bool { return false }
+
+// refusalWorkflows makes the workflow tools available; refused calls never
+// reach it, so every method panics through the nil embedded interface.
+type refusalWorkflows struct{ Workflows }
+
+// #1421 C2, C5, C6: hosted clients send every optional schema field, empty;
+// such a call parses exactly like the call that leaves those fields out.
+func TestEmptyOptionalArgumentsParseAsOmitted(t *testing.T) {
+	t.Parallel()
+	summary := `{"question":"Why?","conclusion":"Because.","alternatives_or_uncertainty":"None.","evidence_basis":"Saved review.","attribution":"Agent recommendation."}`
+	type parsed func(name string, raw json.RawMessage) (any, error)
+	families := map[string]parsed{
+		"workflows":  func(n string, r json.RawMessage) (any, error) { return parseWorkflowArguments(n, r) },
+		"evidence":   func(_ string, r json.RawMessage) (any, error) { return parseEvidenceArguments(r) },
+		"usage":      func(_ string, r json.RawMessage) (any, error) { return parseUsageArguments(r) },
+		"code":       func(n string, r json.RawMessage) (any, error) { return parseCodeArguments(n, r) },
+		"advisory":   func(n string, r json.RawMessage) (any, error) { return parseAdvisoryArguments(n, r) },
+		"brainstorm": func(n string, r json.RawMessage) (any, error) { return parseBrainstormArguments(n, r) },
+		"decisions":  func(n string, r json.RawMessage) (any, error) { return parseDecisionArguments(n, r) },
+		"actions":    func(n string, r json.RawMessage) (any, error) { return parseActionArguments(n, r) },
+	}
+	for _, tc := range []struct{ family, tool, empty, omitted string }{
+		{"workflows", "workflows_list", `{"project":"","cursor":"","limit":0}`, `{}`},
+		{"workflows", "workflows_list", `{"project":null,"cursor":null,"limit":null}`, `{}`},
+		{"workflows", "workflow_describe", `{"workflow_ref":"w","version":"1","project":""}`, `{"workflow_ref":"w","version":"1"}`},
+		{"workflows", "workflow_propose", `{"workflow_ref":"w","version":"1","project":null,"inputs":{},"client_request_key":"k"}`, `{"workflow_ref":"w","version":"1","inputs":{},"client_request_key":"k"}`},
+		{"workflows", "workflow_job_get", `{"job":"j","cursor":"","limit":0}`, `{"job":"j"}`},
+		{"evidence", "task_evidence_read", `{"task_ref":"t","section":"status","cursor":"","limit":0}`, `{"task_ref":"t","section":"status"}`},
+		{"evidence", "task_evidence_read", `{"task_ref":"t","section":"status","cursor":null,"limit":null}`, `{"task_ref":"t","section":"status"}`},
+		{"usage", "usage_read", `{"scope":"factory","repository":"","issue":0,"period":"","from":"","to":"","mode":"","agent":"","model":"","view":"","by":null,"limit":0,"cursor":""}`, `{"scope":"factory"}`},
+		{"usage", "usage_read", `{"scope":"task","repository":"github:acme/api","issue":7,"period":null,"view":null,"limit":null}`, `{"scope":"task","repository":"github:acme/api","issue":7}`},
+		{"code", "repo_read", `{"task_ref":"t","branch":"","path":"","start_line":0,"lines":0,"limit":0,"view_token":"","cursor":""}`, `{"task_ref":"t"}`},
+		{"code", "repo_grep", `{"task_ref":"t","pattern":"x","path":null,"ignore_case":null,"cursor":null}`, `{"task_ref":"t","pattern":"x"}`},
+		{"code", "repo_diff", `{"task_ref":"t","mode":"base_to_task","commit":"","path":""}`, `{"task_ref":"t","mode":"base_to_task"}`},
+		{"code", "standards_read", `{"task_ref":"t","role":"","categories":null,"limit":0}`, `{"task_ref":"t"}`},
+		{"code", "repo_read", `{"cursor":"opaque","task_ref":"","limit":0}`, `{"cursor":"opaque"}`},
+		{"code", "repo_read", `{"cursor":"opaque","task_ref":null,"branch":null,"start_line":0}`, `{"cursor":"opaque"}`},
+		{"advisory", "ask_task_agent", `{"task_ref":"t","question":"q","client_request_key":"k","conversation_ref":"","conversation_revision":0}`, `{"task_ref":"t","question":"q","client_request_key":"k"}`},
+		{"advisory", "judge_task", `{"task_ref":"t","focus":"","client_request_key":"k","conversation_ref":null,"conversation_revision":null}`, `{"task_ref":"t","client_request_key":"k"}`},
+		{"advisory", "ask_task_agent", `{"task_ref":"t","question":"q","client_request_key":"k","conversation_ref":"c","conversation_revision":0}`, `{"task_ref":"t","question":"q","client_request_key":"k","conversation_ref":"c"}`},
+		{"advisory", "advisory_job_get", `{"job_ref":"j","cursor":""}`, `{"job_ref":"j"}`},
+		{"advisory", "discussion_summary_publish", `{"task_ref":"t","conversation_ref":"c","conclusion_id":"one","summary":` + summary + `,"source_job_ref":""}`, `{"task_ref":"t","conversation_ref":"c","conclusion_id":"one","summary":` + summary + `}`},
+		{"advisory", "discussion_summary_get", `{"publication_ref":"p","cancel_pending":null}`, `{"publication_ref":"p"}`},
+		{"brainstorm", "brainstorm_entries", `{"brainstorm":"b","kind":"","cursor":"","limit":0}`, `{"brainstorm":"b"}`},
+		{"brainstorm", "brainstorm_list", `{"repository":"github:acme/api","cursor":null,"limit":null}`, `{"repository":"github:acme/api"}`},
+		{"brainstorm", "brainstorm_add", `{"brainstorm":"b","kind":"idea","text":"t","document_name":"","issue_reference":"","request_key":"k","expected_revision":0}`, `{"brainstorm":"b","kind":"idea","text":"t","request_key":"k","expected_revision":0}`},
+		{"brainstorm", "issue_search", `{"repository":"github:acme/api","text":"voice","limit":0}`, `{"repository":"github:acme/api","text":"voice"}`},
+		{"brainstorm", "brainstorm_draft", `{"brainstorm":"b","request_key":"k","note":""}`, `{"brainstorm":"b","request_key":"k"}`},
+		{"brainstorm", "brainstorm_scan_get", `{"scan":"s","cursor":"","limit":0}`, `{"scan":"s"}`},
+		{"decisions", "approve_stage", `{"task_ref":"t","stage":"plan","client_request_key":"k","summary":` + summary + `,"conversation_ref":"","conclusion_ref":"","discord_channel_id":""}`, `{"task_ref":"t","stage":"plan","client_request_key":"k","summary":` + summary + `}`},
+		{"decisions", "revise_task", `{"task_ref":"t","stage":"plan","change":"c","client_request_key":"k","summary":` + summary + `,"conversation_ref":null,"conclusion_ref":null,"discord_channel_id":null}`, `{"task_ref":"t","stage":"plan","change":"c","client_request_key":"k","summary":` + summary + `}`},
+		{"actions", "action_propose", `{"action":"diagnose","arguments":{},"client_request_key":"k","discord_channel_id":""}`, `{"action":"diagnose","arguments":{},"client_request_key":"k"}`},
+		{"actions", "action_history", `{"filters":null,"cursor":"","limit":0}`, `{}`},
+		{"actions", "action_history", `{"filters":{"state":"failed"},"cursor":null,"limit":null}`, `{"filters":{"state":"failed"}}`},
+	} {
+		t.Run(tc.tool+tc.empty, func(t *testing.T) {
+			parse := families[tc.family]
+			want, err := parse(tc.tool, json.RawMessage(tc.omitted))
+			if err != nil {
+				t.Fatalf("omitted form refused: %v", err)
+			}
+			got, err := parse(tc.tool, json.RawMessage(tc.empty))
+			if err != nil {
+				t.Fatalf("empty optional members refused: %v", err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("empty form parsed to %+v, want omitted form %+v", got, want)
+			}
+		})
+	}
+}
+
+// #1421 C4: emptiness never hides a malformed call, a repeated or unknown key,
+// whitespace or an out-of-range value; required members stay strict.
+func TestEmptyOptionalArgumentsKeepStrictRefusals(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ tool, raw string }{
+		{"workflows_list", `{"project":"","project":"x"}`},
+		{"workflows_list", `{"project":"x","project":""}`},
+		{"workflows_list", `{"project":""} {}`},
+		{"workflows_list", `[]`},
+		{"workflows_list", `{"cursor":" "}`},
+		{"workflows_list", `{"limit":51}`},
+		{"workflows_list", `{"limit":-1}`},
+		{"workflows_list", `{"owner_id":""}`},
+		{"workflows_list", `{"Project":""}`},
+		{"workflow_describe", `{"workflow_ref":"","version":"1"}`},
+		{"workflow_continue_propose", `{"job":"j","session_revision":0,"answers":{"q":"a"},"client_request_key":"k"}`},
+	} {
+		if _, err := parseWorkflowArguments(tc.tool, json.RawMessage(tc.raw)); err == nil {
+			t.Errorf("%s accepted %s", tc.tool, tc.raw)
+		}
+	}
+	for _, raw := range []string{`{"task_ref":"t","section":"status","limit":0,"limit":1}`, `{"task_ref":"","section":"status"}`, `{"task_ref":"t","section":""}`, `{"task_ref":"t","section":"status","owner":""}`} {
+		if _, err := parseEvidenceArguments(json.RawMessage(raw)); err == nil {
+			t.Errorf("evidence accepted %s", raw)
+		}
+	}
+	for _, raw := range []string{`{"scope":""}`, `{"scope":null}`, `{"scope":"factory","period":" "}`, `{"scope":"factory","limit":-1}`} {
+		if _, err := parseUsageArguments(json.RawMessage(raw)); err == nil {
+			t.Errorf("usage accepted %s", raw)
+		}
+	}
+	for _, tc := range []struct{ tool, raw string }{{"repo_read", `{"task_ref":""}`}, {"repo_grep", `{"task_ref":"t","pattern":""}`}, {"repo_diff", `{"task_ref":"t","mode":""}`}, {"repo_read", `{"cursor":"opaque","task_ref":"t"}`}, {"repo_read", `{"cursor":"","task_ref":""}`}} {
+		if _, err := parseCodeArguments(tc.tool, json.RawMessage(tc.raw)); err == nil {
+			t.Errorf("%s accepted %s", tc.tool, tc.raw)
+		}
+	}
+	for _, tc := range []struct{ tool, raw string }{{"brainstorm_add", `{"brainstorm":"b","kind":"idea","text":"t","request_key":"k","expected_revision":null}`}, {"brainstorm_get", `{"brainstorm":""}`}} {
+		if _, err := parseBrainstormArguments(tc.tool, json.RawMessage(tc.raw)); err == nil {
+			t.Errorf("%s accepted %s", tc.tool, tc.raw)
+		}
+	}
+	for _, tc := range []struct{ tool, raw string }{{"action_propose", `{"action":"diagnose","arguments":{},"client_request_key":""}`}, {"action_inspect", `{"proposal_id":""}`}, {"action_history", `{"filters":{"state":null}}`}} {
+		if _, err := parseActionArguments(tc.tool, json.RawMessage(tc.raw)); err == nil {
+			t.Errorf("%s accepted %s", tc.tool, tc.raw)
+		}
+	}
+}
+
+// #1421 C2, C3, C4: through the handler, read-only tools given empty optional
+// members reach their provider once; an empty required member is refused by
+// name without reaching any provider.
+func TestEmptyOptionalArgumentsReachProvidersThroughHandler(t *testing.T) {
+	t.Parallel()
+	r := newRefusalFixture(t)
+	server, err := New(t.Context(), r.f.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetBrainstorm(refusalBrainstorms{calls: &r.calls})
+	server.SetActions(refusalActions{calls: &r.calls})
+	server.SetTaskDiscussion(refusalDiscussion{calls: &r.calls})
+	server.SetWorkflows(refusalWorkflows{})
+	r.handler = server.Handler()
+	brainstormToken := r.token(t, r.target, BrainstormScope)
+	usageToken := r.token(t, store.ConnectorGrantTarget{}, FactoryUsageScope)
+	evidenceToken := r.token(t, r.target, DiscussionScope)
+	codeToken := r.token(t, r.target, DiscussionScope+" "+CodeReviewScope)
+	actionToken := r.token(t, store.ConnectorGrantTarget{}, StandardsManagementScope)
+	// repo_read needs a recorded code target, which seeds its own repository.
+	code := &refusalFixture{f: newConnectorFixture(t, nil)}
+	codeTarget := seedCodeProtocolTarget(t, code.f.db)
+	code.f.options.CodeEvidence = codeProtocolProvider(func(context.Context, store.ConnectorCodeTarget, CodeEvidenceRequest) (CodeEvidencePage, error) {
+		r.calls.Add(1)
+		return CodeEvidencePage{}, nil
+	})
+	code.handler = code.f.server(t)
+	codeReadToken, _ := issueCodeProtocolTokens(t, code.f, registerConnectorClient(t, code.handler, "code client", "none"), codeTarget, code.f.now.Add(time.Hour))
+	advisoryToken := r.token(t, r.target, AdvisoryScope)
+
+	before := r.calls.Load()
+	body, reply, log, _ := code.call(t, codeReadToken, "repo_read", `{"task_ref":"`+codeTarget.TaskRef+`","branch":"","path":"","start_line":0,"lines":0,"limit":0,"view_token":"","cursor":""}`)
+	if reply.Error != nil || log.Outcome == "refusal" || r.calls.Load()-before != 1 {
+		t.Fatalf("repo_read with empty optional members: %s log %+v calls %d", body, log, r.calls.Load()-before)
+	}
+	for _, tc := range []struct{ token, tool, args string }{
+		{evidenceToken, "task_evidence_read", `{"task_ref":"` + r.target.TaskRef + `","section":"status","cursor":"","limit":0}`},
+		{usageToken, "usage_read", `{"scope":"factory","repository":"","issue":0,"period":"","from":"","to":"","mode":"","agent":"","model":"","view":"","by":null,"limit":0,"cursor":""}`},
+		{brainstormToken, "issue_search", `{"repository":"github:acme/api","text":"voice","limit":0}`},
+		{actionToken, "action_history", `{"filters":null,"cursor":"","limit":0}`},
+		{advisoryToken, "advisory_job_get", `{"job_ref":"job","cursor":""}`},
+	} {
+		before := r.calls.Load()
+		body, reply, log, _ = r.call(t, tc.token, tc.tool, tc.args)
+		if reply.Error != nil || log.Outcome == "refusal" {
+			t.Fatalf("%s refused empty optional members: %s log %+v", tc.tool, body, log)
+		}
+		if n := r.calls.Load() - before; n != 1 {
+			t.Fatalf("%s reached its provider %d times, want once: %s", tc.tool, n, body)
+		}
+	}
+
+	before = r.calls.Load()
+	for _, tc := range []struct{ token, tool, args, argument string }{
+		{brainstormToken, "brainstorm_get", `{"brainstorm":""}`, "brainstorm"},
+		{codeToken, "repo_read", `{"task_ref":null}`, "task_ref"},
+		{actionToken, "workflow_describe", `{"workflow_ref":"","version":"1"}`, "workflow_ref"},
+		{usageToken, "usage_read", `{"scope":""}`, "scope"},
+		{evidenceToken, "task_evidence_read", `{"task_ref":"","section":"status"}`, "task_ref"},
+		{actionToken, "action_propose", `{"action":"diagnose","arguments":{},"client_request_key":""}`, "client_request_key"},
+		{actionToken, "workflows_list", `{"cursor":" "}`, "cursor"},
+		{actionToken, "workflows_list", `{"limit":51}`, "limit"},
+	} {
+		body, reply, log, line := r.call(t, tc.token, tc.tool, tc.args)
+		refused(t, tc.tool+" "+tc.args, body, reply, log, line, tc.tool, tc.argument)
+	}
+	if n := r.calls.Load() - before; n != 0 {
+		t.Fatalf("refused calls reached providers %d times", n)
+	}
 }

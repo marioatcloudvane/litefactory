@@ -113,9 +113,9 @@ func usageTimePointer(t time.Time) *time.Time { return &t }
 
 func TestUsageArgumentsRejectAmbiguousOrUntrustedSelectors(t *testing.T) {
 	for _, raw := range []string{
-		`{"scope":"factory","scope":"task"}`, `{"scope":"factory","period":null}`, `{"scope":"factory","period":"today","from":"2026-01-01T00:00:00Z"}`,
+		`{"scope":"factory","scope":"task"}`, `{"scope":null,"period":"today"}`, `{"scope":"factory","period":"today","from":"2026-01-01T00:00:00Z"}`,
 		`{"scope":"factory","period":"yesterday"}`, `{"scope":"factory","repository":"github:acme/api"}`, `{"scope":"repository","repository":"/host/private"}`,
-		`{"scope":"task","repository":"github:acme/api"}`, `{"scope":"factory","limit":0}`, `{"scope":"factory","limit":51}`, `{"scope":"factory","unknown":true}`,
+		`{"scope":"task","repository":"github:acme/api"}`, `{"scope":"factory","limit":-1}`, `{"scope":"factory","limit":51}`, `{"scope":"factory","unknown":true}`,
 		`{"scope":"factory","from":"2026-01-01T00:00:00","to":"2026-01-02T00:00:00Z"}`, `{"scope":"factory","from":"2026-01-01T00:00:00Z","to":"2026-01-01T00:00:00Z"}`,
 		`{"scope":"factory","from":"2026-01-02T00:00:00Z","to":"2026-01-01T00:00:00Z"}`, `{"scope":"factory","view":"details","by":["run"]}`,
 	} {

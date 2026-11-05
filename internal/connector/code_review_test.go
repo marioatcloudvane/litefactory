@@ -70,7 +70,7 @@ func issueCodeProtocolTokens(t *testing.T, f *connectorFixture, client connector
 }
 
 func TestCodeReviewStrictArguments(t *testing.T) {
-	for _, raw := range []string{`{}`, `null`, `[]`, `{"task_ref":"a","task_ref":"b"}`, `{"task_ref":null}`, `{"task_ref":"a","owner_id":42}`, `{"task_ref":"a","path":"../x"}`, `{"task_ref":"a","path":"/x"}`, `{"task_ref":"a","path":":(glob)*"}`, `{"task_ref":"a","path":"a\\b"}`, `{"task_ref":"a","path":"a\tb"}`, `{"task_ref":"a","branch":"HEAD"}`, `{"task_ref":"a","limit":0}`, `{"task_ref":"a","limit":51}`, `{"task_ref":"a","start_line":0}`, `{"task_ref":"a","lines":401}`, `{"task_ref":"a","cursor":"x"}`, `{"task_ref":"a"} {}`, `{"cursor":""}`, `{"cursor":null}`} {
+	for _, raw := range []string{`{}`, `null`, `[]`, `{"task_ref":"a","task_ref":"b"}`, `{"task_ref":null}`, `{"task_ref":"a","owner_id":42}`, `{"task_ref":"a","path":"../x"}`, `{"task_ref":"a","path":"/x"}`, `{"task_ref":"a","path":":(glob)*"}`, `{"task_ref":"a","path":"a\\b"}`, `{"task_ref":"a","path":"a\tb"}`, `{"task_ref":"a","branch":"HEAD"}`, `{"task_ref":"a","limit":-1}`, `{"task_ref":"a","limit":51}`, `{"task_ref":"a","start_line":-1}`, `{"task_ref":"a","lines":401}`, `{"task_ref":"a","cursor":"x"}`, `{"task_ref":"a"} {}`, `{"cursor":""}`, `{"cursor":null}`} {
 		if _, err := parseCodeArguments("repo_read", json.RawMessage(raw)); err == nil {
 			t.Errorf("accepted %s", raw)
 		}

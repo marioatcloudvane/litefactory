@@ -49,7 +49,7 @@ func TestBrainstormArgumentBoundary(t *testing.T) {
 		{"brainstorm_open", `{"repository":"a"} {}`},
 		{"brainstorm_get", `{"brainstorm":"b","owner":"42"}`},
 		{"brainstorm_entries", `{"brainstorm":"b","kind":"secret"}`},
-		{"brainstorm_entries", `{"brainstorm":"b","limit":0}`},
+		{"brainstorm_entries", `{"brainstorm":"b","limit":-1}`},
 		{"brainstorm_scans", `{"brainstorm":"b","limit":51}`},
 		{"brainstorm_scans", `{"brainstorm":"b","state":"waiting"}`},
 		{"brainstorm_list", `{"repository":"a","cursor":"` + strings.Repeat("c", 4097) + `"}`},
