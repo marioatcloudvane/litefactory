@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/cloudvane/litefactory/internal/connectorstate"
 	"io"
 	"slices"
@@ -54,36 +55,28 @@ func decisionFields(name string) (allowed, required []string) {
 
 func parseDecisionArguments(name string, raw json.RawMessage) (decisionArguments, error) {
 	var a decisionArguments
-	invalid := errors.New("invalid stage decision arguments")
 	if !isDecisionTool(name) || len(raw) == 0 || len(raw) > 65536 || !utf8.Valid(raw) || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
-	if uniqueJSONObject(d) != nil {
-		return a, invalid
+	if err := uniqueJSONObject(d); err != nil {
+		return a, uniqueArgumentsError(err)
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d = json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
-	if d.Decode(&a) != nil {
-		return a, invalid
+	if err := d.Decode(&a); err != nil {
+		return a, decodeArgumentError(err)
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	allowed, required := decisionFields(name)
-	for key, value := range fields {
-		if !slices.Contains(allowed, key) || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return a, invalid
-		}
-	}
-	for _, key := range required {
-		if _, ok := fields[key]; !ok {
-			return a, invalid
-		}
+	if err := checkArgumentFields(fields, allowed, required); err != nil {
+		return a, err
 	}
 	for _, f := range []struct {
 		name, value string
@@ -91,22 +84,25 @@ func parseDecisionArguments(name string, raw json.RawMessage) (decisionArguments
 	}{
 		{"task_ref", a.TaskRef, 512}, {"stage", a.Stage, 64}, {"change", a.Change, 8192}, {"client_request_key", a.ClientRequestKey, 128}, {"conversation_ref", a.ConversationRef, 128}, {"conclusion_ref", a.ConclusionRef, 128}, {"discord_channel_id", a.DiscordChannelID, 128}, {"decision_ref", a.DecisionRef, 128}, {"target", a.Target, 16},
 	} {
-		if _, ok := fields[f.name]; ok && (strings.TrimSpace(f.value) == "" || len(f.value) > f.max) {
-			return a, invalid
+		if _, present := fields[f.name]; present && strings.TrimSpace(f.value) == "" {
+			return a, invalidArgument(f.name, "must not be empty")
+		}
+		if _, present := fields[f.name]; present && len(f.value) > f.max {
+			return a, invalidArgument(f.name, fmt.Sprintf("is longer than %d bytes", f.max))
 		}
 	}
 	if name == "decision_cancel" && a.Target != "proposal" && a.Target != "summary" {
-		return a, invalid
+		return a, invalidArgument("target", "must be proposal or summary")
 	}
 	if name == "revise_task" || name == "approve_stage" {
 		var summary map[string]json.RawMessage
 		if json.Unmarshal(fields["summary"], &summary) != nil || len(summary) != 5 {
-			return a, invalid
+			return a, invalidArgument("summary", "must be an object with exactly question, conclusion, alternatives_or_uncertainty, evidence_basis and attribution")
 		}
 		for _, key := range []string{"question", "conclusion", "alternatives_or_uncertainty", "evidence_basis", "attribution"} {
 			var value string
 			if json.Unmarshal(summary[key], &value) != nil || strings.TrimSpace(value) == "" || len(value) > 8192 {
-				return a, invalid
+				return a, invalidArgument("summary", "member "+key+" must be a non-empty string of at most 8192 bytes")
 			}
 		}
 	}

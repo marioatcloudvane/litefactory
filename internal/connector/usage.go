@@ -64,66 +64,96 @@ func parseUsageArguments(raw json.RawMessage) (usageArguments, error) {
 	d := json.NewDecoder(bytes.NewReader(raw))
 	t, e := d.Token()
 	if e != nil || t != json.Delim('{') {
-		return a, errors.New("invalid usage arguments")
+		return a, argumentsShapeError()
 	}
 	seen := map[string]bool{}
 	for d.More() {
 		t, e = d.Token()
 		if e != nil {
-			return a, e
+			return a, argumentsShapeError()
 		}
 		k, ok := t.(string)
-		if !ok || seen[k] || !slices.Contains([]string{"scope", "repository", "issue", "period", "from", "to", "mode", "agent", "model", "view", "by", "limit", "cursor"}, k) {
-			return a, errors.New("duplicate argument")
+		if !ok || seen[k] {
+			return a, duplicateArgument()
+		}
+		if !slices.Contains([]string{"scope", "repository", "issue", "period", "from", "to", "mode", "agent", "model", "view", "by", "limit", "cursor"}, k) {
+			return a, unknownArgument(k)
 		}
 		seen[k] = true
 		var v json.RawMessage
-		if e = d.Decode(&v); e != nil || bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
-			return a, errors.New("invalid usage argument")
+		if e = d.Decode(&v); e != nil {
+			return a, argumentsShapeError()
+		}
+		if bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
+			return a, nullArgument(k)
 		}
 	}
 	if _, e = d.Token(); e != nil {
-		return a, e
+		return a, argumentsShapeError()
 	}
 	if _, e = d.Token(); !errors.Is(e, io.EOF) {
-		return a, errors.New("trailing arguments")
+		return a, argumentsShapeError()
 	}
 	d = json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if e = d.Decode(&a); e != nil {
-		return a, e
+		return a, decodeArgumentError(e)
 	}
-	if seen["period"] && a.Period == "" || seen["from"] && a.From == "" || seen["to"] && a.To == "" || seen["view"] && a.View == "" {
-		return a, errors.New("invalid empty selector")
+	for _, k := range []string{"period", "from", "to", "view"} {
+		if seen[k] && map[string]string{"period": a.Period, "from": a.From, "to": a.To, "view": a.View}[k] == "" {
+			return a, invalidArgument(k, "must not be empty")
+		}
 	}
-	if !slices.Contains([]string{"factory", "repository", "task"}, a.Scope) || len(a.Repository) > 512 || a.Issue < 0 || a.Limit < 0 || a.Limit > 50 || seen["limit"] && a.Limit == 0 || len(a.Cursor) > 4096 {
-		return a, errors.New("invalid usage selector")
+	if !seen["scope"] {
+		return a, missingArgument("scope")
 	}
-	if a.Scope == "factory" && (a.Repository != "" || a.Issue != 0) || a.Scope == "repository" && (a.Repository == "" || a.Issue != 0) || a.Scope == "task" && (a.Repository == "" || a.Issue <= 0) {
-		return a, errors.New("invalid scope selector")
+	if !slices.Contains([]string{"factory", "repository", "task"}, a.Scope) {
+		return a, invalidArgument("scope", "must be factory, repository or task")
+	}
+	if len(a.Repository) > 512 {
+		return a, invalidArgument("repository", "is longer than 512 bytes")
+	}
+	if a.Issue < 0 {
+		return a, invalidArgument("issue", "must be a positive integer")
+	}
+	if a.Limit < 0 || a.Limit > 50 || seen["limit"] && a.Limit == 0 {
+		return a, invalidArgument("limit", "must be between 1 and 50")
+	}
+	if len(a.Cursor) > 4096 {
+		return a, invalidArgument("cursor", "is longer than 4096 bytes")
+	}
+	switch {
+	case a.Scope == "factory" && a.Repository != "":
+		return a, invalidArgument("repository", "is not allowed with scope factory")
+	case a.Scope != "task" && a.Issue != 0:
+		return a, invalidArgument("issue", "is allowed only with scope task")
+	case a.Scope != "factory" && a.Repository == "":
+		return a, missingArgument("repository")
+	case a.Scope == "task" && a.Issue <= 0:
+		return a, missingArgument("issue")
 	}
 	if a.Repository != "" && !canonicalUsageRepository(a.Repository) {
-		return a, errors.New("invalid repository")
+		return a, invalidArgument("repository", "must be a repository reference such as github:owner/name")
 	}
 	if a.Period != "" && (a.From != "" || a.To != "") {
-		return a, errors.New("mixed periods")
+		return a, invalidArgument("period", `cannot be combined with "from" or "to"`)
 	}
 	if a.Period != "" && !slices.Contains([]string{"today", "rolling_7_days", "rolling_30_days", "all_history"}, a.Period) {
-		return a, errors.New("invalid period")
+		return a, invalidArgument("period", "must be today, rolling_7_days, rolling_30_days or all_history")
 	}
 	if a.View == "" {
 		a.View = "summary"
 	}
 	if !slices.Contains([]string{"summary", "breakdown", "details"}, a.View) {
-		return a, errors.New("invalid view")
+		return a, invalidArgument("view", "must be summary, breakdown or details")
 	}
 	if len(a.By) > 4 || a.View != "breakdown" && len(a.By) > 0 {
-		return a, errors.New("invalid dimensions")
+		return a, invalidArgument("by", "takes at most 4 dimensions and only with view breakdown")
 	}
 	dims := map[string]bool{}
 	for _, v := range a.By {
 		if !slices.Contains(meterview.BreakdownDimensions, v) || dims[v] {
-			return a, errors.New("invalid dimension")
+			return a, invalidArgument("by", "must list distinct dimensions from "+strings.Join(meterview.BreakdownDimensions, ", "))
 		}
 		dims[v] = true
 	}
@@ -134,7 +164,33 @@ func parseUsageArguments(raw json.RawMessage) (usageArguments, error) {
 		a.Limit = 50
 	}
 	_, e = meterview.Validate(meterview.Request{Project: a.Repository, Task: a.Issue, Mode: a.Mode, Agent: a.Agent, Model: a.Model, From: a.From, To: a.To}, false)
-	return a, e
+	return a, usageSelectorError(e)
+}
+
+// usageSelectorError names the selector a meter view check refused; its
+// fixed messages never carry the supplied value.
+func usageSelectorError(err error) error {
+	var view *meterview.Error
+	if err == nil || !errors.As(err, &view) {
+		return err
+	}
+	switch view.Message {
+	case "invalid mode":
+		return invalidArgument("mode", "must be research, plan, implement, spike or advisory")
+	case "invalid coding agent":
+		return invalidArgument("agent", "must be claude or codex")
+	case "invalid model":
+		return invalidArgument("model", "is longer than 256 bytes or holds control characters")
+	case "issue must be positive":
+		return invalidArgument("issue", "must be a positive integer")
+	case "task requires a project":
+		return missingArgument("repository")
+	case "time bounds must be timezone-aware RFC3339":
+		return &argumentError{Problem: `"from" and "to" must be timezone-aware RFC3339 times`, Code: "invalid_value"}
+	case "time_from must precede time_to":
+		return invalidArgument("from", `must be before "to"`)
+	}
+	return err
 }
 func canonicalUsageRepository(v string) bool {
 	forge, slug, ok := strings.Cut(v, ":")
