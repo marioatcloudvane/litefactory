@@ -1,0 +1,13 @@
+{
+  "name": "Next.js web",
+  "slug": "nextjs-web",
+  "version": "1.0.0",
+  "description": "Next.js App Router and TypeScript web workflows with captured stack guidance and npm check recipes.",
+  "tags": [
+    "nextjs",
+    "react",
+    "typescript",
+    "tailwind"
+  ],
+  "download": "nextjs-web/v1.0.0"
+}

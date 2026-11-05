@@ -1,0 +1,10 @@
+{
+  "base": "base-team",
+  "variables": {
+    "stack_skill": "nextjs-web-stack",
+    "guidance_id": "nextjs-web",
+    "example_check": "npm run lint",
+    "example_file": "lib/search.ts",
+    "example_test_file": "app/search/page.tsx"
+  }
+}
