@@ -93,7 +93,7 @@ Read and use the owner-report skill, including its declared mode guidance and ex
 
 - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options. However, you must always provide all options to the user so that the user can judge. A question without options is not allowed
 - Write each decision with its area, the decision and the reason, so the owner can challenge the reason and not only the outcome.
-- Where a picture is faster, add one small Mermaid flowchart or sequenceDiagram of the change, or a stateDiagram for state logic; your judgment.
+- Where a picture is faster, add one small Mermaid flowchart or sequenceDiagram of the change, or a stateDiagram-v2 for state logic; your judgment.
 - Keep the architecture technology-neutral in its reasoning. Name concrete technology only where an applicable guidance skill or an existing decision requires it.
 - Do not claim anything is approved, tested or published. Say what you decided and what you assumed.
 
