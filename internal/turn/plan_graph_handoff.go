@@ -126,7 +126,7 @@ func (r *planGraphRuntime) assembledComment(ctx context.Context, s planbrief.Pla
 	}
 	if display != nil {
 		display.PublicationID = posted.CommentID
-		return r.opts.DB.PutOwnerDecisionDisplay(ctx, *display)
+		return r.opts.DB.PutOwnerDecisionDisplay(context.WithoutCancel(ctx), *display)
 	}
 	return nil
 }
