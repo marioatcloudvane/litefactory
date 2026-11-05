@@ -969,22 +969,34 @@ func TestPlanPublicationRecoveryPartialProgress(t *testing.T) {
 	forge.mu.Lock()
 	forge.afterPost = nil
 	forge.mu.Unlock()
+	// Every confirmed publication must keep its display. Both records share one
+	// decision action, so the earlier retained display may resolve as replaced;
+	// either way its reference must still find that display.
+	retainedDisplay := func(record store.GraphCommentIntent, d store.ReportDelivery) {
+		t.Helper()
+		var p planPublication
+		mustProgress(t, json.Unmarshal(record.Candidate, &p))
+		reference := store.OwnerDecisionReference(p.Display.TaskRef, p.Display.Action, p.Display.Target, p.Display.Revision)
+		shown, e := f.db.ResolveOwnerDecisionDisplay(ctx, p.Display.TaskRef, p.Display.Action, reference, 0)
+		if e != nil && !strings.Contains(e.Error(), "display was replaced") {
+			t.Fatal(e)
+		}
+		if shown.Reference != reference || shown.PublicationID != d.CommentID {
+			t.Fatalf("publication display missing: %+v", shown)
+		}
+	}
 	confirmed := 0
 	for _, record := range records {
 		d, e := f.db.GetReportDelivery(ctx, record.Key)
 		mustProgress(t, e)
 		if d.Completed {
 			confirmed++
-			var p planPublication
-			mustProgress(t, json.Unmarshal(record.Candidate, &p))
-			shown, e := f.db.ResolveOwnerDecisionDisplay(ctx, p.Display.TaskRef, p.Display.Action, store.OwnerDecisionReference(p.Display.TaskRef, p.Display.Action, p.Display.Target, p.Display.Revision), 0)
-			mustProgress(t, e)
-			if shown.PublicationID != d.CommentID {
-				t.Fatal("first publication display missing")
-			}
+			retainedDisplay(record, d)
 		}
 	}
-	if confirmed != 1 {
+	// The cancel races the forge's response to the second post: either outcome
+	// is legitimate, but every confirmed publication must keep its display.
+	if confirmed < 1 {
 		t.Fatalf("confirmed before retry=%d", confirmed)
 	}
 	count := len(forge.all())
@@ -999,6 +1011,7 @@ func TestPlanPublicationRecoveryPartialProgress(t *testing.T) {
 		if !d.Completed {
 			t.Fatal("partial recovery did not finish")
 		}
+		retainedDisplay(record, d)
 		saved, e := f.db.GetGraphComment(ctx, record.Key)
 		mustProgress(t, e)
 		if string(saved.Candidate) != string(record.Candidate) {
