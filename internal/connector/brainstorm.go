@@ -122,42 +122,37 @@ func brainstormStringMax(field string) int {
 
 func parseBrainstormArguments(name string, raw json.RawMessage) (brainstormArguments, error) {
 	var a brainstormArguments
-	invalid := errors.New("invalid brainstorm arguments")
 	if !isBrainstormTool(name) || len(raw) == 0 || len(raw) > 65536 || !utf8.Valid(raw) || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
-	if uniqueJSONObject(d) != nil {
-		return a, invalid
+	if err := uniqueJSONObject(d); err != nil {
+		return a, uniqueArgumentsError(err)
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	d = json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
-	if d.Decode(&a) != nil {
-		return a, invalid
+	if err := d.Decode(&a); err != nil {
+		return a, decodeArgumentError(err)
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil {
-		return a, invalid
+		return a, argumentsShapeError()
 	}
 	allowed, required := brainstormFields(name)
-	for key, value := range fields {
-		if !slices.Contains(allowed, key) || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return a, invalid
-		}
-	}
-	for _, key := range required {
-		if _, ok := fields[key]; !ok {
-			return a, invalid
-		}
+	if err := checkArgumentFields(fields, allowed, required); err != nil {
+		return a, err
 	}
 	for _, f := range []struct{ name, value string }{
 		{"repository", a.Repository}, {"brainstorm", a.Brainstorm}, {"scan", a.Scan}, {"kind", a.Kind}, {"text", a.Text}, {"document_name", a.DocumentName}, {"issue_reference", a.IssueReference}, {"question", a.Question}, {"request_key", a.RequestKey}, {"cursor", a.Cursor}, {"note", a.Note}, {"batch", a.Batch},
 	} {
-		if _, present := fields[f.name]; present && (strings.TrimSpace(f.value) == "" || len(f.value) > brainstormStringMax(f.name)) {
-			return a, invalid
+		if _, present := fields[f.name]; present && strings.TrimSpace(f.value) == "" {
+			return a, invalidArgument(f.name, "must not be empty")
+		}
+		if _, present := fields[f.name]; present && len(f.value) > brainstormStringMax(f.name) {
+			return a, invalidArgument(f.name, fmt.Sprintf("is longer than %d bytes", brainstormStringMax(f.name)))
 		}
 	}
 	if _, present := fields["limit"]; present {
@@ -166,31 +161,34 @@ func parseBrainstormArguments(name string, raw json.RawMessage) (brainstormArgum
 			maximum = brainstorm.MaxIssueSearchLimit
 		}
 		if a.Limit < 1 || a.Limit > maximum {
-			return a, invalid
+			return a, invalidArgument("limit", fmt.Sprintf("must be between 1 and %d", maximum))
 		}
 	}
 	if _, present := fields["expected_revision"]; present && a.ExpectedRevision < 0 {
-		return a, invalid
+		return a, invalidArgument("expected_revision", "must not be negative")
 	}
 	switch name {
 	case "brainstorm_entries":
 		if _, present := fields["kind"]; present && !slices.Contains(brainstormEntryKinds, a.Kind) {
-			return a, invalid
+			return a, invalidArgument("kind", "must be one of "+strings.Join(brainstormEntryKinds, ", "))
 		}
 	case "brainstorm_add":
 		if !slices.Contains(brainstormOwnerKinds, a.Kind) {
-			return a, invalid
+			return a, invalidArgument("kind", "must be one of "+strings.Join(brainstormOwnerKinds, ", "))
 		}
 		// A document note names its document; no other kind carries one.
-		if (a.Kind == brainstorm.KindDocumentNote) != (a.DocumentName != "") {
-			return a, invalid
+		if a.Kind == brainstorm.KindDocumentNote && a.DocumentName == "" {
+			return a, missingArgument("document_name")
+		}
+		if a.Kind != brainstorm.KindDocumentNote && a.DocumentName != "" {
+			return a, invalidArgument("document_name", "is allowed only with kind "+brainstorm.KindDocumentNote)
 		}
 		if a.Kind != brainstorm.KindDocumentNote && len(a.Text) > brainstorm.MaxEntryBytes {
-			return a, invalid
+			return a, invalidArgument("text", fmt.Sprintf("is longer than %d bytes", brainstorm.MaxEntryBytes))
 		}
 	case "issue_search":
 		if utf8.RuneCountInString(a.Text) > brainstorm.MaxIssueSearchText {
-			return a, invalid
+			return a, invalidArgument("text", fmt.Sprintf("is longer than %d characters", brainstorm.MaxIssueSearchText))
 		}
 	}
 	return a, nil
