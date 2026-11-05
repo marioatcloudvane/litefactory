@@ -262,3 +262,29 @@ func TestMalformedLinkHeaderEndsTheWalk(t *testing.T) {
 		t.Errorf("made %d requests, want 1", got)
 	}
 }
+
+// TestListIssuesFullPageWithoutLinkProbesTheNextPage covers C5: every listing
+// that goes through the page walker continues past a full page that carries no
+// next link, including one revalidated with a 304 that restores cached headers.
+func TestListIssuesFullPageWithoutLinkProbesTheNextPage(t *testing.T) {
+	t.Parallel()
+
+	s := &fullFirstPage{issues: true}
+	f := newFixture(t, s.serve)
+	issues, err := f.Client.ListIssues(t.Context(), testRepo, time.Time{})
+	if err != nil || len(issues) != 100 {
+		t.Fatalf("ListIssues: %d issues, %v; want 100", len(issues), err)
+	}
+	if got := len(f.Requests()); got != 2 {
+		t.Fatalf("made %d requests, want 2: page 1 and one empty page 2 probe", got)
+	}
+
+	s.set([]int64{101}, 0)
+	issues, err = f.Client.ListIssues(t.Context(), testRepo, time.Time{})
+	if err != nil || len(issues) != 101 || issues[100].Number != 101 {
+		t.Fatalf("ListIssues after issue 101: %d issues, %v; want 101", len(issues), err)
+	}
+	if _, statuses := s.traffic(); statuses[2] != http.StatusNotModified {
+		t.Fatalf("page 1 was not revalidated: %v", statuses)
+	}
+}
