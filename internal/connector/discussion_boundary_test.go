@@ -48,7 +48,7 @@ func TestDiscussionAuthorizedCapabilities(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}}
+			server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/overview/missing_scopes.md": {Data: []byte("missing {{scopes}}")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}}
 			handler := server.Handler()
 			client := registerConnectorClient(t, handler, "boundary", "none")
 			token, _ := issueDiscussionTokens(t, fixture, client, target, tc.scope)
@@ -116,7 +116,7 @@ func TestDiscussionInitializationDoesNotCacheGrantAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}}
+	server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/overview/missing_scopes.md": {Data: []byte("missing {{scopes}}")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}}
 	handler := server.Handler()
 	client := registerConnectorClient(t, handler, "client", "none")
 	overview, _ := issueDiscussionTokens(t, fixture, client, target, Scope)
@@ -154,7 +154,7 @@ func TestDiscussionContinuationGrantRevisionAndExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}}
+	server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/overview/missing_scopes.md": {Data: []byte("missing {{scopes}}")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}}
 	handler := server.Handler()
 	client := registerConnectorClient(t, handler, "client", "none")
 	firstToken, _ := issueDiscussionTokens(t, fixture, client, target, DiscussionScope)
