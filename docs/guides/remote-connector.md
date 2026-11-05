@@ -108,7 +108,7 @@ budgets. Expose only these exact connector locations:
 
 ```nginx
 # In http {}, once:
-limit_req_zone $binary_remote_addr zone=connector_source:10m rate=2r/s;
+limit_req_zone $binary_remote_addr zone=connector_source:10m rate=5r/s;
 limit_req_zone $server_name zone=connector_global:1m rate=10r/s;
 
 # Install this connector-only snippet as connector-proxy.conf. Replace the
@@ -128,7 +128,7 @@ proxy_request_buffering off;
 proxy_read_timeout 30s;
 proxy_send_timeout 30s;
 client_max_body_size 64k;
-limit_req zone=connector_source burst=10 nodelay;
+limit_req zone=connector_source burst=20 nodelay;
 limit_req zone=connector_global burst=30 nodelay;
 limit_req_status 429;
 # Neither URI queries nor response headers may reach a log. OAuth codes and
