@@ -145,9 +145,6 @@ func (s *Service) Build(ctx context.Context) (Result, error) {
 			if repo.ObservedAt.IsZero() || repo.ObservedAt.After(now) {
 				repoStatus = "unknown"
 				repoReasons = append(repoReasons, "connection_observation_unknown")
-			} else if now.Sub(repo.ObservedAt) > 5*time.Minute {
-				repoStatus = "stale"
-				repoReasons = append(repoReasons, "connection_observation_stale")
 			}
 			if repo.ConnectionStatus == "missing_connection" || repo.ConnectionStatus == "disabled_connection" {
 				repoStatus = "unavailable"

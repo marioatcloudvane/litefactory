@@ -137,7 +137,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		} else {
 			version = protocolLatest
 		}
-		instructions, guidanceErr := composeInstructions(s.guidance, s.availableTools(grant))
+		instructions, guidanceErr := composeInstructions(s.guidance, s.availableTools(grant), s.missingScopes(grant))
 		if guidanceErr != nil {
 			refuseRPC(-32603, "Tool guidance unavailable", "guidance")
 			return
@@ -408,8 +408,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		case s.transport.tools <- struct{}{}:
 			defer func() { <-s.transport.tools }()
 		default:
-			w.Header().Set("Retry-After", "1")
-			w.WriteHeader(http.StatusTooManyRequests)
+			refuseRetryLater(w, "concurrency")
 			s.audit(r, event, "refusal", "capacity", tool, start)
 			return
 		}

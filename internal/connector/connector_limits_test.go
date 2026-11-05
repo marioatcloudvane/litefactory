@@ -126,18 +126,21 @@ func TestRequestSizeAndRateLimits(t *testing.T) {
 	t.Run("source burst and refill", func(t *testing.T) {
 		fixture := newConnectorFixture(t, nil)
 		server := fixture.server(t)
-		for i := range 11 {
+		for i := range 21 {
 			response := connectorRequest(t, server, http.MethodGet, "https://cloudvane.at/.well-known/oauth-protected-resource/litefactory/mcp", "", "", nil)
 			want := 200
-			if i == 10 {
+			if i == 20 {
 				want = 429
 			}
 			if response.Code != want {
 				t.Fatalf("request %d: HTTP %d, want %d", i, response.Code, want)
 			}
-			if want == 429 && response.Header().Get("Retry-After") == "" {
-				t.Fatal("overload omitted retry guidance")
+			if want == 429 {
+				assertRetryHint(t, response)
 			}
+		}
+		if !strings.Contains(fixture.logs.String(), `"reason":"rate"`) {
+			t.Fatal("rate refusal was not audited with reason=rate")
 		}
 		fixture.now = fixture.now.Add(time.Second)
 		response := connectorRequest(t, server, http.MethodGet, "https://cloudvane.at/.well-known/oauth-protected-resource/litefactory/mcp", "", "", nil)
@@ -211,8 +214,9 @@ func TestToolConcurrencyCancellationAndBounds(t *testing.T) {
 	}
 	overflow := connectorRequest(t, server, http.MethodPost, fixture.options.Config.ResourceURL, "application/json", requestBody, http.Header{"Authorization": {"Bearer " + tokens.AccessToken}, "MCP-Protocol-Version": {"2025-11-25"}, "Accept": {"application/json"}})
 	if overflow.Code != 429 || calls.Load() != MaxToolReads {
-		t.Fatalf("fifth tool was not refused before execution: HTTP %d, calls %d", overflow.Code, calls.Load())
+		t.Fatalf("tool beyond MaxToolReads was not refused before execution: HTTP %d, calls %d", overflow.Code, calls.Load())
 	}
+	assertRetryHint(t, overflow)
 	cancel()
 	for range MaxToolReads {
 		select {
@@ -225,6 +229,124 @@ func TestToolConcurrencyCancellationAndBounds(t *testing.T) {
 		}
 	}
 	close(release)
+}
+
+// assertRetryHint requires a refusal that names a temporary limit and states
+// when to retry, both as Retry-After and in plain words in the body.
+func assertRetryHint(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
+	retry := response.Header().Get("Retry-After")
+	if retry == "" {
+		t.Fatal("overload omitted Retry-After")
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "temporary") || !strings.Contains(body, "retry in "+retry+" s") {
+		t.Fatalf("refusal body lacks a plain-words retry hint: %q", body)
+	}
+}
+
+// A model making several tool calls at once sends a burst of parallel
+// tools/call requests per turn, over consecutive turns a few seconds apart.
+func TestParallelToolCallTurnsAreAdmitted(t *testing.T) {
+	t.Parallel()
+	const perTurn = 8
+	if MaxToolReads < perTurn {
+		t.Fatalf("MaxToolReads %d is below a turn of %d parallel calls", MaxToolReads, perTurn)
+	}
+	var calls atomic.Int32
+	entered := make(chan struct{}, perTurn)
+	release := make(chan struct{})
+	provider := connectorFixtureOverview(func(context.Context, json.RawMessage) (ToolResult, error) {
+		calls.Add(1)
+		entered <- struct{}{}
+		<-release
+		return ToolResult{Content: []TextContent{{Type: "text", Text: "ok"}}}, nil
+	})
+	fixture := newConnectorFixture(t, provider)
+	server := fixture.server(t)
+	client := registerConnectorClient(t, server, "Client", "none")
+	tokens, _ := fixture.issueTokens(t, server, client)
+	// Setup requests share the source; start the turns from a refilled bucket.
+	fixture.now = fixture.now.Add(time.Minute)
+	logStart := len(fixture.logs.String())
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"factory_overview","arguments":{}}}`
+	headers := http.Header{"Authorization": {"Bearer " + tokens.AccessToken}, "MCP-Protocol-Version": {"2025-11-25"}, "Accept": {"application/json"}}
+	call := func() *httptest.ResponseRecorder {
+		return connectorRequest(t, server, http.MethodPost, fixture.options.Config.ResourceURL, "application/json", body, headers)
+	}
+	for turn := range 2 {
+		if turn > 0 {
+			fixture.now = fixture.now.Add(2 * time.Second)
+		}
+		// Admission runs on the test goroutine so the fixture clock is not
+		// read concurrently; each call then blocks in the provider until all
+		// calls of the turn run at the same time.
+		done := make(chan *httptest.ResponseRecorder, perTurn)
+		for range perTurn {
+			go func() { done <- call() }()
+			select {
+			case <-entered:
+			case response := <-done:
+				close(release)
+				t.Fatalf("turn %d: parallel call refused: HTTP %d %s", turn, response.Code, response.Body.String())
+			case <-time.After(5 * time.Second):
+				close(release)
+				t.Fatalf("turn %d: provider did not enter", turn)
+			}
+		}
+		for range perTurn {
+			release <- struct{}{}
+		}
+		for range perTurn {
+			response := <-done
+			if response.Code != 200 || !strings.Contains(response.Body.String(), `"result"`) || strings.Contains(response.Body.String(), `"isError":true`) {
+				t.Fatalf("turn %d: HTTP %d %s", turn, response.Code, response.Body.String())
+			}
+		}
+	}
+	if calls.Load() != 2*perTurn {
+		t.Fatalf("provider ran %d times, want %d", calls.Load(), 2*perTurn)
+	}
+	if strings.Contains(fixture.logs.String()[logStart:], `"reason":"rate"`) {
+		t.Fatal("a normal burst was refused by the rate limit")
+	}
+	close(release)
+
+	// Beyond the budget a tools/call is refused with a retry hint and never
+	// reaches the provider; retrying after the hinted wait runs it once.
+	var refused *httptest.ResponseRecorder
+	for range 64 {
+		before := calls.Load()
+		response := call()
+		if response.Code == 429 {
+			if calls.Load() != before {
+				t.Fatal("rate-refused tool call reached the provider")
+			}
+			refused = response
+			break
+		}
+		<-entered
+	}
+	if refused == nil {
+		t.Fatal("source budget never refused")
+	}
+	assertRetryHint(t, refused)
+	if !strings.Contains(fixture.logs.String(), `"reason":"rate"`) {
+		t.Fatal("rate refusal was not audited with reason=rate")
+	}
+	seconds, err := time.ParseDuration(refused.Header().Get("Retry-After") + "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.now = fixture.now.Add(seconds)
+	before := calls.Load()
+	if response := call(); response.Code != 200 || !strings.Contains(response.Body.String(), `"result"`) {
+		t.Fatalf("retry after hinted wait: HTTP %d %s", response.Code, response.Body.String())
+	}
+	<-entered
+	if calls.Load() != before+1 {
+		t.Fatalf("retry ran the provider %d times, want 1", calls.Load()-before)
+	}
 }
 
 func TestOversizeToolOutputIsRejectedBeforeWrite(t *testing.T) {
