@@ -2,6 +2,7 @@ package github_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -306,5 +308,137 @@ func TestStalledBodyTimeoutComparison(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+// fullFirstPage serves a listing whose first page holds exactly 100 items and,
+// as GitHub does when there is nothing after it, no Link header. Page 1 keeps
+// one ETag throughout and is answered 304, again without a Link header, when
+// the client revalidates it: appending item 101 lands on page 2 and leaves
+// page 1's body, and so its validator, unchanged (#1402). tail answers page 2.
+type fullFirstPage struct {
+	mu       sync.Mutex
+	issues   bool // serve issue payloads rather than comments
+	tail     []int64
+	tailFail int // non-zero: page 2 answers this status
+	pages    []string
+	statuses []int
+}
+
+func (s *fullFirstPage) item(id int64) map[string]any {
+	if s.issues {
+		return map[string]any{"id": id, "number": id, "title": "offline"}
+	}
+	return map[string]any{"id": id, "body": "offline"}
+}
+
+func (s *fullFirstPage) serve(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	page := r.URL.Query().Get("page")
+	s.pages = append(s.pages, page)
+	status := http.StatusOK
+	defer func() { s.statuses = append(s.statuses, status) }()
+	w.Header().Set("Content-Type", "application/json")
+	var items []map[string]any
+	switch page {
+	case "", "1":
+		w.Header().Set("ETag", `"first"`)
+		if r.Header.Get("If-None-Match") == `"first"` {
+			status = http.StatusNotModified
+			w.WriteHeader(status)
+			return
+		}
+		for id := int64(1); id <= 100; id++ {
+			items = append(items, s.item(id))
+		}
+	case "2":
+		if s.tailFail != 0 {
+			status = s.tailFail
+			w.WriteHeader(status)
+			_, _ = fmt.Fprint(w, `{"message":"tail failed"}`)
+			return
+		}
+		items = []map[string]any{}
+		for _, id := range s.tail {
+			items = append(items, s.item(id))
+		}
+	default:
+		status = http.StatusNotFound
+		w.WriteHeader(status)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(items)
+}
+
+func (s *fullFirstPage) set(tail []int64, fail int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tail, s.tailFail = tail, fail
+}
+
+func (s *fullFirstPage) traffic() ([]string, []int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pages, statuses := s.pages, s.statuses
+	s.pages, s.statuses = nil, nil
+	return pages, statuses
+}
+
+// TestPollingCacheHTTPFullFirstPageGainsSecondPage is #1402 at the client: a
+// cached full page 1 without a next link must not hide comment 101 behind a
+// 304 that restores the old "no next page" headers (C1, C4).
+func TestPollingCacheHTTPFullFirstPageGainsSecondPage(t *testing.T) {
+	s := &fullFirstPage{}
+	f := newFixture(t, s.serve)
+
+	for round := range 2 {
+		comments, err := f.Client.ListCommentsAfter(t.Context(), testRepo, 7, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(comments) != 100 || comments[0].ID != 1 || comments[99].ID != 100 {
+			t.Fatalf("round %d: %d comments, want 1..100", round, len(comments))
+		}
+		pages, _ := s.traffic()
+		if !reflect.DeepEqual(pages, []string{"", "2"}) {
+			t.Fatalf("round %d: pages %q, want page 1 then one page 2 probe", round, pages)
+		}
+	}
+
+	s.set([]int64{101}, 0)
+	for round := range 2 {
+		comments, err := f.Client.ListCommentsAfter(t.Context(), testRepo, 7, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(comments) != 1 || comments[0].ID != 101 {
+			t.Fatalf("round %d: comments %v, want only comment 101", round, comments)
+		}
+		pages, statuses := s.traffic()
+		if !reflect.DeepEqual(pages, []string{"", "2"}) || statuses[0] != http.StatusNotModified {
+			t.Fatalf("round %d: pages %q statuses %v, want a 304 page 1 then page 2", round, pages, statuses)
+		}
+	}
+}
+
+// TestPollingCacheHTTPFullFirstPageTailFailureRefusesTheRead covers C3: a
+// failed page 2 probe behind a cached full page 1 is an error, never a
+// successful read of page 1 alone.
+func TestPollingCacheHTTPFullFirstPageTailFailureRefusesTheRead(t *testing.T) {
+	s := &fullFirstPage{}
+	f := newFixture(t, s.serve)
+	if _, err := f.Client.ListCommentsAfter(t.Context(), testRepo, 7, 0); err != nil {
+		t.Fatal(err)
+	}
+	s.set([]int64{101}, http.StatusInternalServerError)
+	comments, err := f.Client.ListCommentsAfter(t.Context(), testRepo, 7, 100)
+	if err == nil || comments != nil {
+		t.Fatalf("partial success: %v, %v", comments, err)
+	}
+	s.set([]int64{101}, 0)
+	comments, err = f.Client.ListCommentsAfter(t.Context(), testRepo, 7, 100)
+	if err != nil || len(comments) != 1 || comments[0].ID != 101 {
+		t.Fatalf("after recovery: %v, %v", comments, err)
 	}
 }
