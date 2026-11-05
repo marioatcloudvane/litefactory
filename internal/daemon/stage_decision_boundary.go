@@ -83,7 +83,7 @@ func (b stageDecisionBoundary) checkAvailability(ctx context.Context, target sto
 	if session.TaskRef != target.TaskRef || session.RepoID != target.RepositoryID {
 		return store.ErrStageDecisionTarget
 	}
-	repo, err := d.db.GetRepo(ctx, session.RepoID)
+	repo, err := d.db.SessionRepository(ctx, session)
 	if err != nil {
 		return err
 	}

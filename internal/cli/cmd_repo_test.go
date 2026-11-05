@@ -142,7 +142,7 @@ func TestRepoAddIsIdempotent(t *testing.T) {
 
 	code := router.Run(t.Context(), []string{
 		"repo", "add", repo.Dir,
-		"--base", "develop", "--worktrees", "/srv/worktrees", "--prefix", "bots",
+		"--base", "main", "--worktrees", "/srv/worktrees", "--prefix", "bots",
 	})
 	if code != ExitOK {
 		t.Fatalf("second add exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
@@ -156,8 +156,8 @@ func TestRepoAddIsIdempotent(t *testing.T) {
 	switch {
 	case got.ID != first[0].ID:
 		t.Errorf("row id changed from %d to %d; the upsert replaced rather than updated", first[0].ID, got.ID)
-	case got.BaseBranch != "develop":
-		t.Errorf("base branch = %q, want %q", got.BaseBranch, "develop")
+	case got.BaseBranch != "main":
+		t.Errorf("base branch = %q, want %q", got.BaseBranch, "main")
 	case got.WorktreeRoot != "/srv/worktrees":
 		t.Errorf("worktree root = %q, want %q", got.WorktreeRoot, "/srv/worktrees")
 	case got.FeaturePrefix != "bots":

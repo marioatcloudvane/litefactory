@@ -72,6 +72,7 @@ func Commands() []*Command {
 		newMCPLogsCommand(),
 		newRepoAddCommand(),
 		newRepoListCommand(),
+		newRepoBaseCommand(),
 		newRepoDeliveryCommand(),
 		newRepoApproverCommand("inspect"),
 		newRepoApproverCommand("set"),

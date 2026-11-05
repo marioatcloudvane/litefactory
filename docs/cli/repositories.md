@@ -27,7 +27,23 @@ For a first registration, the first value that exists wins:
 
 A relative worktree folder becomes absolute using the folder you ran the command from. Each task gets its own folder under it, named `task-<issue-number>`. Two repositories cannot share a worktree folder.
 
-Running `repo add` again for the same clone updates it. A flag you leave out keeps the value saved earlier, so editing `config.yaml` later does not change an existing registration. Pass the flag to change it. See the [command reference](command-reference.md#initialization-and-repositories) for every flag and the exit codes, and [config.yaml](../configuration/config-yaml.md) for the settings.
+Running `repo add` again for the same clone updates it. A flag you leave out keeps the value saved earlier, so editing `config.yaml` later does not change an existing registration. Pass the flag to change it, except `--base`: a different `--base` for an already registered repository is refused and points to `repo base` (see below). See the [command reference](command-reference.md#initialization-and-repositories) for every flag and the exit codes, and [config.yaml](../configuration/config-yaml.md) for the settings.
+
+## Change the base branch
+
+```sh
+litefactory repo base <id|path> <branch>
+```
+
+Use the project id from `repo list` (all digits) or the registered clone path. The command prints the repository with `base <old> -> <new>`.
+
+- New work started afterwards is cut from and delivered to the new base.
+- Issues already started keep the base they started with and their PR target, including old ones with no saved settings copy.
+- One all-or-nothing step updates the repository record and adds a new current code-connection revision. Earlier revisions are kept.
+- Asking for the base it already has prints `no change` and writes nothing, only if the record and the connection copy agree. If they disagree they are reconciled under the same checks.
+- It does not change `settings.default_base_branch`, create the branch on the remote, retarget open pull requests or rebase issues already started.
+
+It refuses, with a plain message and no change, for an unknown repository (run `repo list`), an invalid branch name, a branch that is not on the remote `origin`, a remote that cannot be reached, or work executing now (a running or prelaunch agent run, a pending or running workflow step, or a queued step; the message names them). Issues paused waiting for the owner's reply do not block. Wait for the work to finish, then run it again. See the [command reference](command-reference.md#repo-base).
 
 ## Choosing a team
 
@@ -40,6 +56,8 @@ Registration does not choose a team. Without a choice, the repository uses the b
 | Not initialized, or no database | Run `litefactory init`. |
 | Missing or unsupported `origin`, or a bare repository | Register the working clone that has a GitHub `origin`. |
 | Unknown base branch | Pass `--base`, for example when `origin/HEAD` is not cached. |
+| `repo add --base` refused for a registered repository | Use `litefactory repo base <id\|path> <branch>`. |
+| `repo base` names open work | Let that work finish (or be answered by the owner), then run it again. |
 | Worktree folder already used | Give each repository a different `--worktrees` folder. |
 | Webhook warning | Check `webhook.public_url` and the bot token, then run `litefactory repo webhook OWNER/REPO`. |
 

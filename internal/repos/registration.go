@@ -337,3 +337,7 @@ func validateBranchName(name string) error {
 	}
 	return nil
 }
+
+// ValidateBranchName applies the registration branch-name rules to a branch
+// the owner names later, for example in `repo base`.
+func ValidateBranchName(name string) error { return validateBranchName(name) }
