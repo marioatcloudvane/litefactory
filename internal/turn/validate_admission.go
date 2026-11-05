@@ -461,10 +461,10 @@ func (rt *validateRuntimeState) handbackRoundFinished(ctx context.Context, inst 
 }
 
 // endWaitingSameCommit cancels a run on this commit that only waits for the
-// owner after a passed suite (an assessed outcome), whatever its reviews
-// found. A new run on the same commit then reuses the passed suite and only
-// the reviews run again. A run with a node still in progress, or any other
-// run, is left alone and false is returned.
+// owner after it saved an outcome, whatever its suite or reviews found. A new
+// run on the same commit then reuses a passed suite and only the reviews run
+// again; a failed suite runs again. A run with a node still in progress, or
+// any other run, is left alone and false is returned.
 func (rt *validateRuntimeState) endWaitingSameCommit(ctx context.Context, entry store.ValidateEntry, now time.Time) (bool, error) {
 	db := rt.opts.DB
 	wait, err := db.GetGraphOwnerWait(ctx, entry.InstanceID)
@@ -478,15 +478,10 @@ func (rt *validateRuntimeState) endWaitingSameCommit(ctx context.Context, entry 
 	if !open {
 		return false, nil
 	}
-	outcome, err := db.GetValidateOutcome(ctx, entry.InstanceID, entry.Commit)
-	if errors.Is(err, store.ErrNotFound) {
+	if _, err := db.GetValidateOutcome(ctx, entry.InstanceID, entry.Commit); errors.Is(err, store.ErrNotFound) {
 		return false, nil
-	}
-	if err != nil {
+	} else if err != nil {
 		return false, err
-	}
-	if outcome.Outcome != store.ValidateAssessed && rt.req.Command.Text != "full" {
-		return false, nil
 	}
 	gate, err := ValidateEntryGate(ctx, db, rt.session)
 	if err != nil || !gate.Open {
