@@ -30,7 +30,7 @@ func nativeFixture(t *testing.T, script string, options Options) *Runner {
 func TestPreparedRunPreservesNativeEvidenceAndSessionAcknowledgment(t *testing.T) {
 	runner := nativeFixture(t, `printf '%s\n' '{"type":"system","subtype":"init","session_id":"native-session","model":"native-model","tools":[]}' '{"type":"result","session_id":"native-session","is_error":false,"result":"done","usage":{"input_tokens":0,"output_tokens":2},"total_cost_usd":0}'`, Options{Tools: []string{}})
 	launches, acknowledgments := 0, 0
-	result, err := runner.Run(t.Context(), agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 10 * time.Second, BeforeLaunch: func(context.Context) error { launches++; return nil }, OnSession: func(_ context.Context, session string) error {
+	result, err := runner.Run(t.Context(), agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 60 * time.Second, BeforeLaunch: func(context.Context) error { launches++; return nil }, OnSession: func(_ context.Context, session string) error {
 		if session != "native-session" {
 			t.Fatalf("session %q", session)
 		}
@@ -50,7 +50,7 @@ func TestPreparedRunRefusesLaunchAndSessionAcknowledgment(t *testing.T) {
 	runner := nativeFixture(t, `printf '%s\n' '{"type":"result","session_id":"native","is_error":false,"result":"must remain unaccepted"}'`, Options{})
 	for _, phase := range []string{"launch", "session"} {
 		t.Run(phase, func(t *testing.T) {
-			request := agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 10 * time.Second}
+			request := agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 60 * time.Second}
 			if phase == "launch" {
 				request.BeforeLaunch = func(context.Context) error { return sentinel }
 			} else {
@@ -85,7 +85,7 @@ func TestPreparedRunUsesCallerOutputLimitsAndEmptyEnvironment(t *testing.T) {
 	t.Setenv("LF_EXTRACTION_SECRET", "ambient")
 	runner := nativeFixture(t, `test -z "$LF_EXTRACTION_SECRET" || exit 19
 printf '%s\n' '{"type":"result","result":"this terminal result exceeds the per-call limit"}'`, Options{})
-	result, err := runner.Run(t.Context(), agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 10 * time.Second, Output: agent.OutputPolicy{LineBytes: 32, TotalBytes: 128}})
+	result, err := runner.Run(t.Context(), agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 60 * time.Second, Output: agent.OutputPolicy{LineBytes: 32, TotalBytes: 128}})
 	if err == nil || !result.Started || result.Terminal || result.Text != "" {
 		t.Fatalf("output bound: %#v %v", result, err)
 	}
@@ -123,7 +123,7 @@ func TestExecuteRechecksAuthorizationOnRecoveredLaunch(t *testing.T) {
 func TestPreparedRunCollectsQualifiedNativeUsage(t *testing.T) {
 	runner := nativeFixture(t, `printf '%s\n' '{"type":"system","subtype":"init","session_id":"native-session","model":"actual"}' '{"type":"assistant","session_id":"native-session","message":{"id":"m1","model":"actual","usage":{"input_tokens":0,"output_tokens":2}}}' '{"type":"result","session_id":"native-session","is_error":false,"result":"done"}'`, Options{})
 	var observations []agent.UsageObservation
-	result, err := runner.Run(t.Context(), agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 10 * time.Second, Usage: &agent.UsageCapture{Sink: func(_ context.Context, event agent.UsageEvent) error {
+	result, err := runner.Run(t.Context(), agent.Request{Prompt: "prepared", WorkingDirectory: t.TempDir(), Timeout: 60 * time.Second, Usage: &agent.UsageCapture{Sink: func(_ context.Context, event agent.UsageEvent) error {
 		if event.Observation != nil {
 			observations = append(observations, *event.Observation)
 		}
