@@ -123,6 +123,15 @@ proposal when present and its digest. Do not author group, attempt, basis or rol
 identities. Deliver through the same preflight, submit and matching receipt route;
 keep the 1 MiB Plan node limit and exact retry identity.
 
+An empty proposal digest means the first pass. The supplied proposal is then only
+the starting basis and may hold no intent, architecture, criteria or tasks. That is
+normal: contribute your own sections, omit agreement, and raise no question,
+failure or conflict about the missing assembly. The factory assembles every
+member's sections and invokes you again with the combined proposal and its digest.
+Ask the owner only a decision the owner must make, in `result.questions` with
+options and a recommended option; free-text contribution or draft questions are
+refused at submission.
+
 Own only your sections: story owns intent and proposed dependencies; technical
 owns architecture, applicable guidance and design references; acceptance owns tasks
 and criteria. Keep unchanged sections from the basis. Do not use a whole-story

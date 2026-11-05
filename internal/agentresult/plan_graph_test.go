@@ -425,3 +425,45 @@ func TestPlanGraph_DiscussionAnswerOnly(t *testing.T) {
 		t.Fatal("automatic drafting accepted answer-only")
 	}
 }
+
+// A parallel member never asks free text: a contribution or draft question, or
+// a result question without choices, would reach the owner with no options.
+func TestPlanMember_RefusesQuestionsWithoutOwnerChoices(t *testing.T) {
+	ctx := graphContext()
+	ctx.PlanGraph.Member = &ar.PlanMemberBinding{Group: "g", Role: "technical", AttemptID: 7, Basis: "basis"}
+	asked := func(question string) []byte {
+		return []byte(`{"result":{"outcome":"incomplete","comment":"Asked.","reason":"Owner decision.","questions":[` + question + `],"payload":{"plan":{"contribution":{"draft":{}}}}}}`)
+	}
+	cases := []struct {
+		name string
+		data []byte
+		path string
+	}{
+		{"contribution question", graphDone(`{"contribution":{"draft":{},"questions":["The supplied combined proposal has empty intent and no architecture."]}}`), "$.result.payload.plan.contribution.questions"},
+		{"draft question", graphDone(`{"contribution":{"draft":{"questions":["Where is the assembled intent?"]}}}`), "$.result.payload.plan.contribution.draft.questions"},
+		{"question without options", asked(`{"id":"q1","audience":"technical","text":"Inspect the assembled proposal?"}`), "$.result.questions[0].options"},
+		{"question without recommendation", asked(`{"id":"q1","audience":"technical","text":"Which retention?","options":[{"id":"a","text":"Bounded"},{"id":"b","text":"All"}]}`), "$.result.questions[0].recommended_option"},
+		{"owner decision", asked(`{"id":"q1","audience":"technical","text":"Which retention?","options":[{"id":"a","text":"Bounded"},{"id":"b","text":"All"}],"recommended_option":"a"}`), ""},
+		{"first pass contribution", graphDone(`{"contribution":{"draft":{"architecture":{"general":[{"area":"Planning","decision":"Reuse effects","rationale":"Keep guards"}]}}}}`), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, d := ar.Create(tc.data, ctx)
+			if tc.path == "" {
+				if !d.Valid {
+					t.Fatalf("refused: %v", diagnosticCodes(d))
+				}
+				return
+			}
+			if d.Valid || !slices.ContainsFunc(d.Diagnostics, func(f ar.Diagnostic) bool { return f.Path == tc.path }) {
+				t.Fatalf("want refusal at %s, got %v", tc.path, diagnosticCodes(d))
+			}
+		})
+	}
+	// Only member results gain the rule: a sequential graph Plan ask keeps
+	// accepting a question without options.
+	sequential := []byte(`{"result":{"outcome":"incomplete","comment":"Asked.","reason":"Owner decision.","questions":[{"id":"q1","audience":"technical","text":"Which owner?"}],"payload":{"plan":{}}}}`)
+	if _, d := ar.Create(sequential, graphContext()); !d.Valid {
+		t.Fatalf("non-member question without options refused: %v", diagnosticCodes(d))
+	}
+}
