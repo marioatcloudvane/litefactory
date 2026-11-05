@@ -174,8 +174,9 @@ carries the complete current draft; changed_sections selects what replaces prior
 content. Stage story omits architecture, design, guidance, tasks and criteria
 entirely. Technical supplies architecture and applicable guidance/design, never
 tasks or criteria. Acceptance adds criteria [{id,text,proof_method}] and tasks
-[{id,description,owner_role,criterion_ids,depends_on}]. IDs remain stable and every
-criterion must be linked to a task. Authorized roles and issue references come
+[{id,description,owner_role,criterion_ids,depends_on}]. A criterion id is `AC-`
+followed by at least three digits (AC-001, AC-002, …); AC-01 or AC-1 is refused.
+IDs remain stable and every criterion must be linked to a task. Authorized roles and issue references come
 only from factory scope. Do not invent task ownership or dependency authority.
 
 Architecture is {general:[{area,decision,rationale}],

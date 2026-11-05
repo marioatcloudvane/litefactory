@@ -523,7 +523,16 @@ func validatePlanMember(p *Plan, outcome string, questions []Question, ctx Conte
 // its own run instead of the join stopping the whole group later.
 func validateMemberTasks(draft planbrief.PlanDraft, scope planbrief.ContentScope, base string, d *Diagnostics) {
 	criteria := map[string]bool{}
-	for _, c := range draft.Criteria {
+	for i, c := range draft.Criteria {
+		path := fmt.Sprintf("%s.criteria[%d]", base, i)
+		if !planbrief.ValidCriterionID(c.ID) {
+			add(d, path+".id", "identity", "canonical criterion ID such as AC-001", "invalid ID", "Use AC-001 style IDs: AC- followed by at least three digits.")
+		}
+		if criteria[c.ID] {
+			add(d, path+".id", "duplicate", "unused criterion ID", "duplicate ID", "Give each criterion its own ID.")
+		}
+		required(d, path+".text", c.Text)
+		required(d, path+".proof_method", c.ProofMethod)
 		criteria[c.ID] = true
 	}
 	for i, t := range draft.Tasks {

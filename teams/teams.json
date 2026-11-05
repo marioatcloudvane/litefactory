@@ -138,7 +138,7 @@
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
-          "sha256": "f48f58a16ebc2d311b441e8477c49c7c9382f5ec9167283543aafb1fe3f7b981"
+          "sha256": "813873ab9744e650d02202a69d79f5caf14b638a3b86069c532fe35febfbacaf"
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/implementation-engineer.md",
@@ -162,7 +162,7 @@
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "82923c9fa54dcd0649be6a0dee17e03c8548a9c65241bd9a6658b91f32faeb72"
+          "sha256": "9f67c1002c2bc8c3d51ca3553a3ad8630c6909b8e1d6ca466a19233d38ff57ed"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -321,7 +321,7 @@
           "sha256": "9a6ba7e0799bb32144fb36d0414da07b2596e72ac4b9fe06d96fa663ef1068a4"
         }
       ],
-      "checksum": "d6161a360ad2d4db0680f6b754a19cbd04f78d876070d4bda714b1130060c6b2"
+      "checksum": "afac2799ec81932f8b832bef85b7572dd95d133992e28b49ca395aff5f7029b0"
     },
     {
       "name": "Go development",
@@ -443,7 +443,7 @@
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
-          "sha256": "f48f58a16ebc2d311b441e8477c49c7c9382f5ec9167283543aafb1fe3f7b981"
+          "sha256": "813873ab9744e650d02202a69d79f5caf14b638a3b86069c532fe35febfbacaf"
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/implementation-engineer.md",
@@ -467,7 +467,7 @@
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "4a9da4e600a151df8f0d3b42aee8d4c8c58da90074f069195ef55aa9c3ca6154"
+          "sha256": "a36e9d614d96e7363c7a2a27b62e2a436b60ccda5093f41bd7cd19e35ee4381b"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -630,7 +630,7 @@
           "sha256": "d9c551060371eea9631495bee0f3f33b73ceb6f113d82c0bb9f4f8c476e97275"
         }
       ],
-      "checksum": "a77ba6d0889ced9650b79dd7595a01fd5cd947ca3ab279ed545cc7f993e1b15f"
+      "checksum": "5bc6f62954f340179de2f84a146d1a834890881c094635a830b78571310271cc"
     },
     {
       "name": "Next.js web",
@@ -747,7 +747,7 @@
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
-          "sha256": "f48f58a16ebc2d311b441e8477c49c7c9382f5ec9167283543aafb1fe3f7b981"
+          "sha256": "813873ab9744e650d02202a69d79f5caf14b638a3b86069c532fe35febfbacaf"
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/implementation-engineer.md",
@@ -771,7 +771,7 @@
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "a7e19a158806554fd701ce19dfa3d6003b8aff6a55a930ebcae75213b10a2ed1"
+          "sha256": "f02be6c9fe3f5899eed1648a551bb17de40bd3eb50e5345dcd5979bc659f13a5"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -934,7 +934,7 @@
           "sha256": "2d0a021babc675ec615314d6d8d522097eb685e6a5d7310fd4a566ed3bfbcc90"
         }
       ],
-      "checksum": "43a0be0f05a804c5e8c940e6405fb9aaeb037efd90ff6edb7244338259be6975"
+      "checksum": "6e56ee2d3d091276bb5fd638e30ee46c7395385f20c9e53071af0559cc8f9a31"
     },
     {
       "name": "Python FastAPI with React",
@@ -1068,7 +1068,7 @@
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
-          "sha256": "f48f58a16ebc2d311b441e8477c49c7c9382f5ec9167283543aafb1fe3f7b981"
+          "sha256": "813873ab9744e650d02202a69d79f5caf14b638a3b86069c532fe35febfbacaf"
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/implementation-engineer.md",
@@ -1092,7 +1092,7 @@
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "71793b7ee6ce39ddc562a6aefecc7db03b4b088e5bc4b9593140a02df3dbaa32"
+          "sha256": "55ba5716e681b21b78c413c99b57cadc504252ac2b8c5e4fa53db7e53583c790"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -1271,7 +1271,7 @@
           "sha256": "c604353cd21fd5422feab496f3cd7027798450bff552bc7a8583bf3ef94c69af"
         }
       ],
-      "checksum": "4be302c2b7684eedec2b5a08a50e43d41a164f632ec92260fa3aaba86dd7d4cd"
+      "checksum": "0b77365338ee1f74c096937039aefbaaacc6bf40303cee69631c724347064d3a"
     },
     {
       "name": "Swift iOS",
@@ -1386,7 +1386,7 @@
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
-          "sha256": "f48f58a16ebc2d311b441e8477c49c7c9382f5ec9167283543aafb1fe3f7b981"
+          "sha256": "813873ab9744e650d02202a69d79f5caf14b638a3b86069c532fe35febfbacaf"
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/implementation-engineer.md",
@@ -1410,7 +1410,7 @@
         },
         {
           "path": "plan/skills/plan-evidence/node-result.md",
-          "sha256": "3cea96081a8645b7792d0e9f3c4584de96760f8e53af0ef7141bc1ce36cf8203"
+          "sha256": "cea31aad3a72aa8b29e07a8a6d90666e05aaa7b83414659a7941d891c6da607e"
         },
         {
           "path": "plan/skills/plan-evidence/projection.md",
@@ -1573,7 +1573,7 @@
           "sha256": "9dc5249b2fc879a70ba1c68d07cbf3289b62b958eb6f14a0f53bfc92fce7f7ea"
         }
       ],
-      "checksum": "c994b53c0b97cbc0c5e75bb4ed7e1298aaa31e9966a47faf371449e7e71e29a7"
+      "checksum": "8f623e7ecb2d6cc56cf7a08f5fedd0fc9d2b89869fcfa03c43bea15dcb7f6097"
     }
   ]
 }
