@@ -382,3 +382,119 @@ func TestValidateSameCommitStartEndsARunClaimedByAnEarlierStart(t *testing.T) {
 		})
 	}
 }
+
+// failedSuiteWait runs Validate once on the head with one full-phase command
+// failing, and returns the run that then waits for the owner.
+func failedSuiteWait(t *testing.T, a *adoptFlow) (int64, adoptReached) {
+	t.Helper()
+	a.failOnce = "full-two"
+	if out, err := a.manual(t, 6001); err != nil {
+		t.Fatalf("%+v %v", out, err)
+	}
+	first := a.reached(t)
+	if first.Wait != "waiting" || first.Outcome == "" || first.Outcome == store.ValidateAssessed || first.Commit != validateHeadA {
+		t.Fatalf("a failed suite ends at the owner wait without an assessed outcome: %+v", first)
+	}
+	return a.entries(t)[0].InstanceID, first
+}
+
+// #1398: after a failed (flaky) suite the report recommends running Validate
+// again; the owner's /validate on the same commit ends the waiting run and a
+// fresh run runs the suite again. A replay of that comment starts nothing more.
+func TestValidateSameCommitStartAfterAFailedSuiteRunsTheSuiteAgain(t *testing.T) {
+	a := newAdoptFlow(t)
+	old, first := failedSuiteWait(t, a)
+	out, err := Execute(t.Context(), a.f.opts, a.request(6002, validateOwnerID, ValidateStartCommand))
+	if err != nil || strings.Contains(out.Reason, "already been started") {
+		t.Fatalf("the recommended rerun is admitted: %+v %v", out, err)
+	}
+	prior, err := a.f.db.GetGraphInstance(t.Context(), old)
+	mustProgress(t, err)
+	wait, err := a.f.db.GetGraphOwnerWait(t.Context(), old)
+	mustProgress(t, err)
+	if prior.Status != store.GraphCancelled || wait.State != "cancelled" {
+		t.Fatalf("the waiting run is cancelled with its wait: %s %s", prior.Status, wait.State)
+	}
+	got := a.reached(t)
+	if got.Entries != 1 || got.Commit != validateHeadA || got.Wait != "waiting" {
+		t.Fatalf("a fresh run on the same commit: %+v", got)
+	}
+	if got.FullCommands != first.FullCommands+3 {
+		t.Fatalf("the failed suite runs again: %d then %d commands", first.FullCommands, got.FullCommands)
+	}
+	entry := a.entries(t)[0]
+	fresh := entry.InstanceID
+	if fresh == old || entry.State != store.ValidateEntryAdmitted {
+		t.Fatalf("a new admitted instance: %+v", entry)
+	}
+	if pred, _, err := a.f.db.WorkflowPredecessor(t.Context(), fresh); err != nil || pred != old {
+		t.Fatalf("the fresh run links the ended one: %d %v", pred, err)
+	}
+
+	// The same comment delivered again reuses the fresh run.
+	instances := a.validateGraphInstances(t)
+	if _, err := Execute(t.Context(), a.f.opts, a.request(6002, validateOwnerID, ValidateStartCommand)); err != nil {
+		t.Fatal(err)
+	}
+	again := a.reached(t)
+	if e := a.entries(t)[0]; e.InstanceID != fresh || a.validateGraphInstances(t) != instances || again.FullCommands != got.FullCommands {
+		t.Fatalf("a replay starts no second run: %+v %+v", e, again)
+	}
+}
+
+// #1398: after a failed suite the factory's own start, a /validate while the
+// waiting run executes and a /validate while the entry gate is closed still
+// start nothing.
+func TestValidateSameCommitStartAfterAFailedSuiteKeepsItsRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, a *adoptFlow, old int64)
+		start func(t *testing.T, a *adoptFlow) (Result, error)
+	}{
+		{"automatic start", nil, func(t *testing.T, a *adoptFlow) (Result, error) { return a.auto(t) }},
+		{"executing node", func(t *testing.T, a *adoptFlow, old int64) {
+			a.claimOwnerReply(t, old, "/validate check the finished work")
+			wait, err := a.f.db.GetGraphOwnerWait(t.Context(), old)
+			mustProgress(t, err)
+			cur, err := a.f.db.GetGraphInstance(t.Context(), old)
+			mustProgress(t, err)
+			node := wait.OriginNode
+			if node == "" {
+				node = cur.CurrentNode
+			}
+			_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old, Node: node, Limit: 64, StartedAt: time.Now()})
+			mustProgress(t, err)
+		}, func(t *testing.T, a *adoptFlow) (Result, error) { return a.manual(t, 6002) }},
+		{"closed gate", func(t *testing.T, a *adoptFlow, _ int64) {
+			a.implementRan(t, store.GraphRunning, nil)
+		}, func(t *testing.T, a *adoptFlow) (Result, error) { return a.manual(t, 6002) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newAdoptFlow(t)
+			old, first := failedSuiteWait(t, a)
+			if tc.setup != nil {
+				tc.setup(t, a, old)
+			}
+			instances := a.validateGraphInstances(t)
+			out, err := tc.start(t, a)
+			if err != nil || !strings.Contains(out.Reason, "already been started") {
+				t.Fatalf("refused: %+v %v", out, err)
+			}
+			after, err := a.f.db.GetGraphInstance(t.Context(), old)
+			mustProgress(t, err)
+			if after.Status != store.GraphRunning {
+				t.Fatalf("the waiting run is untouched: %+v", after)
+			}
+			entries := a.entries(t)
+			if len(entries) != 1 || entries[0].InstanceID != old || a.validateGraphInstances(t) != instances {
+				t.Fatalf("no new instance or entry: %+v", entries)
+			}
+			a.mu.Lock()
+			ran := len(a.commands)
+			a.mu.Unlock()
+			if ran != first.FullCommands {
+				t.Fatalf("no suite command ran: %d then %d", first.FullCommands, ran)
+			}
+		})
+	}
+}

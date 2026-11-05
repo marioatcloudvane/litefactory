@@ -33,6 +33,11 @@ type adoptFlow struct {
 	// its cancel function is a restart in the middle of the suite.
 	interrupt string
 	cancel    context.CancelFunc
+	// failOnce, when set, names a command that exits 1 the first time it runs;
+	// it passes on every later run, as a flaky test does. That run's repair
+	// budget is recorded as spent, so no repair agent starts and the run goes
+	// on to its review, outcome and owner wait.
+	failOnce string
 }
 
 func newAdoptFlow(t *testing.T) *adoptFlow {
@@ -72,12 +77,27 @@ func newAdoptFlow(t *testing.T) *adoptFlow {
 				}
 				code := 0
 				res.Exit, res.Outcome = &code, "passed"
+				if a.failOnce != "" && c.Argv[0] == a.failOnce {
+					a.failOnce = ""
+					code = 1
+					res.Exit, res.Outcome = &code, "failed"
+					for range 2 {
+						round, err := v.f.db.BeginRepairRound(ctx, store.RepairRound{InstanceID: run.InstanceID, SuiteRunID: run.ID, PreCommit: run.Commit, StartedAt: time.Now()})
+						mustProgress(t, err)
+						mustProgress(t, v.f.db.FinishRepairRound(ctx, round.ID, store.RepairFinish{State: store.RepairBlocked, Reason: "no repair in this fixture", At: time.Now()}))
+					}
+				}
 				return res
 			},
 		}
 		flow := ValidateFlowBindings{
-			Worktree: func() (*git.Worktree, error) { return nil, io.ErrClosedPipe },
-			Session:  func() (string, error) { return flowSessionDir, nil },
+			Worktree: func() (*git.Worktree, error) {
+				if rounds, err := v.f.db.ListRepairRounds(context.Background(), entry.InstanceID); err == nil && len(rounds) > 0 {
+					return &git.Worktree{}, nil // only opened; a spent budget never touches it
+				}
+				return nil, io.ErrClosedPipe
+			},
+			Session: func() (string, error) { return flowSessionDir, nil },
 			KeepChange: func(context.Context, string) (string, error) {
 				return "", io.ErrClosedPipe
 			},
