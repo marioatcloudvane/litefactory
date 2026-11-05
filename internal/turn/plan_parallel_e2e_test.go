@@ -256,6 +256,9 @@ func runParallelMain(t *testing.T, mixed bool, signal string, capacity *slotStor
 				if err := assertUnboundRoleRefused(ctx, req, contribution); err != nil {
 					return nil, err
 				}
+				if err := assertNonCanonicalCriteriaRefused(ctx, f, req, facts.Proposal.Key, contribution); err != nil {
+					return nil, err
+				}
 			}
 			mu.Lock()
 			retried, check := retrying, concurrentRetry
@@ -962,6 +965,84 @@ func assertUnboundRoleRefused(ctx context.Context, req agent.Request, contributi
 	}
 	if diagnostics.Valid || !strings.Contains(diagnosticPaths(diagnostics), "tasks[0].owner_role") {
 		return fmt.Errorf("unknown task owner role was not refused at submission: %s", diagnosticPaths(diagnostics))
+	}
+	return nil
+}
+
+// assertNonCanonicalCriteriaRefused submits, through preflight and submit, the
+// MAR-95 acceptance contribution whose criteria use AC-01 style IDs. Both must
+// refuse at the criterion's id path, leave no accepted receipt and leave the
+// retained acceptance member unchanged, so the group never assembles them.
+func assertNonCanonicalCriteriaRefused(ctx context.Context, f *fixture, req agent.Request, story string, contribution planbrief.PlanParallelContribution) error {
+	wrong := contribution
+	wrong.Draft.Criteria = []planbrief.PlanCriterion{{ID: "AC-01", Text: contribution.Draft.Criteria[0].Text, ProofMethod: contribution.Draft.Criteria[0].ProofMethod}}
+	wrong.Draft.Tasks = []planbrief.TaskContent{contribution.Draft.Tasks[0]}
+	wrong.Draft.Tasks[0].CriterionIDs = []string{"AC-01"}
+	raw, err := json.Marshal(ar.Result{Outcome: "completed", Comment: "Retained role-owned contribution.", Payload: ar.Payload{Plan: &ar.Plan{Contribution: &wrong}}})
+	if err != nil {
+		return err
+	}
+	data := append(append([]byte(`{"result":`), raw...), '}')
+	const path = "$.result.payload.plan.contribution.draft.criteria[0].id"
+	member := func() (string, error) {
+		state, _, err := f.db.GetPlanWorkflowState(ctx, f.ref().String())
+		if err != nil {
+			return "", err
+		}
+		for _, item := range state.Stories {
+			if item.Key == story && item.Parallel != nil {
+				m, ok := item.Parallel.Members["acceptance"]
+				raw, err := json.Marshal(struct {
+					Member  any
+					Present bool
+				}{m, ok})
+				return string(raw), err
+			}
+		}
+		return "", nil
+	}
+	client := submission.Client{DescriptorPath: req.MCPLaunch.DescriptorPath()}
+	pre, err := client.Call(ctx, "communication_preflight", data)
+	if err != nil {
+		return fmt.Errorf("preflight non-canonical criterion: %w", err)
+	}
+	if pre.Error != "" {
+		return fmt.Errorf("preflight non-canonical criterion: %s", pre.Error)
+	}
+	var diagnostics ar.UpdateDiagnostics
+	if err = json.Unmarshal(pre.Result, &diagnostics); err != nil {
+		return err
+	}
+	if diagnostics.Valid || !strings.Contains(diagnosticPaths(diagnostics), path) {
+		return fmt.Errorf("non-canonical criterion ID was not refused at %s by preflight: %s", path, diagnosticPaths(diagnostics))
+	}
+	before, err := member()
+	if err != nil {
+		return err
+	}
+	submitted, err := client.Call(ctx, "communication_submit", data)
+	if err != nil {
+		return fmt.Errorf("submit non-canonical criterion: %w", err)
+	}
+	if submitted.Error != "" {
+		return fmt.Errorf("submit non-canonical criterion: %s", submitted.Error)
+	}
+	var refused AgentResultSubmission
+	if err = json.Unmarshal(submitted.Result, &refused); err != nil {
+		return err
+	}
+	if refused.Validation.Valid || (refused.Receipt != nil && refused.Receipt.InputState == "accepted") {
+		return fmt.Errorf("non-canonical criterion ID was accepted at submit: %+v", refused)
+	}
+	if !strings.Contains(diagnosticPaths(refused.Validation), path) {
+		return fmt.Errorf("submit did not name %s: %s", path, diagnosticPaths(refused.Validation))
+	}
+	after, err := member()
+	if err != nil {
+		return err
+	}
+	if before != after {
+		return fmt.Errorf("refused submit changed the acceptance member: %s -> %s", before, after)
 	}
 	return nil
 }
