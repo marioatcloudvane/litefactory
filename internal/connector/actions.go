@@ -78,6 +78,14 @@ func parseActionArguments(name string, raw json.RawMessage) (actionArguments, er
 	if !isActionTool(name) || len(raw) == 0 || len(raw) > 64<<10 || !utf8.Valid(raw) || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
 		return a, argumentsShapeError()
 	}
+	allowed, required := []string{"proposal_id"}, []string{"proposal_id"}
+	switch name {
+	case "action_propose":
+		allowed, required = []string{"action", "arguments", "client_request_key", "discord_channel_id"}, []string{"action", "arguments", "client_request_key"}
+	case "action_history":
+		allowed, required = []string{"filters", "cursor", "limit"}, nil
+	}
+	raw = withoutUnsupplied(raw, allowed, required)
 	d := json.NewDecoder(bytes.NewReader(raw))
 	if err := uniqueJSONObject(d); err != nil {
 		return a, uniqueArgumentsError(err)
@@ -93,13 +101,6 @@ func parseActionArguments(name string, raw json.RawMessage) (actionArguments, er
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return a, argumentsShapeError()
-	}
-	allowed := []string{"proposal_id"}
-	switch name {
-	case "action_propose":
-		allowed = []string{"action", "arguments", "client_request_key", "discord_channel_id"}
-	case "action_history":
-		allowed = []string{"filters", "cursor", "limit"}
 	}
 	if err := checkArgumentFields(fields, allowed, nil); err != nil {
 		return a, err

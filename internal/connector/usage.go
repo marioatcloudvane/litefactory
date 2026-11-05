@@ -61,6 +61,8 @@ type usageBounds struct {
 
 func parseUsageArguments(raw json.RawMessage) (usageArguments, error) {
 	var a usageArguments
+	allowed := []string{"scope", "repository", "issue", "period", "from", "to", "mode", "agent", "model", "view", "by", "limit", "cursor"}
+	raw = withoutUnsupplied(raw, allowed, []string{"scope"})
 	d := json.NewDecoder(bytes.NewReader(raw))
 	t, e := d.Token()
 	if e != nil || t != json.Delim('{') {
@@ -76,7 +78,7 @@ func parseUsageArguments(raw json.RawMessage) (usageArguments, error) {
 		if !ok || seen[k] {
 			return a, duplicateArgument()
 		}
-		if !slices.Contains([]string{"scope", "repository", "issue", "period", "from", "to", "mode", "agent", "model", "view", "by", "limit", "cursor"}, k) {
+		if !slices.Contains(allowed, k) {
 			return a, unknownArgument(k)
 		}
 		seen[k] = true

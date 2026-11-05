@@ -30,13 +30,13 @@ func TestActionArgumentsRejectAuthorityAndReplacementFacts(t *testing.T) {
 		{"action_confirm", `{"proposal_id":"one","arguments":{"repo":"other"}}`},
 		{"action_cancel", `{"proposal_id":"one","grant_id":"replacement"}`},
 		{"action_inspect", `{"proposal_id":null}`},
-		{"action_history", `{"limit":0}`},
+		{"action_history", `{"limit":-1}`},
 		{"action_history", `{"filters":{"owner":"other"}}`},
 		{"action_history", `{"filters":{"action":"one","Action":"two"}}`},
 		{"action_history", `{"filters":{"state":null}}`},
 		{"action_history", `{"filters":{"state":"failed","state":"succeeded"}}`},
 		{"action_history", `{"limit":51}`},
-		{"action_history", `{"limit":1,"cursor":null}`},
+		{"action_history", `{"limit":1,"cursor":7}`},
 		{"action_history", `{"limit":1} {}`},
 	}
 	for _, tc := range tests {

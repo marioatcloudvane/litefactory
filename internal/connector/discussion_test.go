@@ -17,7 +17,7 @@ import (
 )
 
 func TestDiscussionArguments(t *testing.T) {
-	for _, raw := range []string{`{}`, `null`, `{"task_ref":"a","task_ref":"b","section":"status"}`, `{"task_ref":"a","section":"status","owner_id":42}`, `{"task_ref":"a","section":"status","limit":0}`, `{"task_ref":"a","section":"status","limit":51}`, `{"task_ref":"a","section":"code"}`, `{"task_ref":"a","section":"status"} {}`} {
+	for _, raw := range []string{`{}`, `null`, `{"task_ref":"a","task_ref":"b","section":"status"}`, `{"task_ref":"a","section":"status","owner_id":42}`, `{"task_ref":"a","section":"status","limit":51}`, `{"task_ref":"a","section":"code"}`, `{"task_ref":"a","section":"status"} {}`} {
 		if _, err := parseEvidenceArguments(json.RawMessage(raw)); err == nil {
 			t.Errorf("accepted %s", raw)
 		}

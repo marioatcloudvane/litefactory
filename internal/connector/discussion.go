@@ -48,6 +48,8 @@ type evidenceCursor struct {
 
 func parseEvidenceArguments(raw json.RawMessage) (evidenceArguments, error) {
 	var a evidenceArguments
+	allowed := []string{"task_ref", "section", "cursor", "limit"}
+	raw = withoutUnsupplied(raw, allowed, []string{"task_ref", "section"})
 	// Decoder.DisallowUnknownFields does not reject duplicate keys.
 	d := json.NewDecoder(bytes.NewReader(raw))
 	t, err := d.Token()
@@ -64,7 +66,7 @@ func parseEvidenceArguments(raw json.RawMessage) (evidenceArguments, error) {
 		if !ok || seen[key] {
 			return a, duplicateArgument()
 		}
-		if !slices.Contains([]string{"task_ref", "section", "cursor", "limit"}, key) {
+		if !slices.Contains(allowed, key) {
 			return a, unknownArgument(key)
 		}
 		seen[key] = true

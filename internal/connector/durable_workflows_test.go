@@ -190,8 +190,8 @@ func TestWorkflowArgumentsRejectDuplicateUnknownAndReplacementFacts(t *testing.T
 		{"workflow_propose", `{"workflow_ref":"one","version":"1","inputs":{},"client_request_key":"key","grant_id":"replacement"}`},
 		{"workflow_continue_propose", `{"job":"job","session_revision":1,"answers":{"q":"one","q":"two"},"client_request_key":"key"}`},
 		{"workflow_continue_propose", `{"job":"job","session_revision":1,"answers":{"q":"one"},"client_request_key":"key","project":"other"}`},
-		{"workflow_job_get", `{"job":"job","limit":0}`},
-		{"workflow_job_get", `{"job":"job","cursor":null}`},
+		{"workflow_job_get", `{"job":"job","limit":-1}`},
+		{"workflow_job_get", `{"job":"","cursor":null}`},
 		{"workflow_job_get", `{"job":"job"} {}`},
 	} {
 		t.Run(tc.name+tc.input, func(t *testing.T) {
@@ -220,7 +220,7 @@ func TestWorkflowGuidanceResourcesLoad(t *testing.T) {
 }
 
 func TestWorkflowArgumentsEnforceStringAndAnswerBounds(t *testing.T) {
-	for _, raw := range []string{" ", "\n\t", `{"project":""}`, `{"cursor":" "}`} {
+	for _, raw := range []string{" ", "\n\t", `{"project":" "}`, `{"cursor":" "}`} {
 		if _, err := parseWorkflowArguments("workflows_list", json.RawMessage(raw)); err == nil {
 			t.Fatalf("invalid empty input accepted: %q", raw)
 		}
@@ -240,5 +240,66 @@ func TestWorkflowArgumentsEnforceStringAndAnswerBounds(t *testing.T) {
 	}
 	if _, err := parseWorkflowArguments("workflow_continue_propose", raw); err != nil {
 		t.Fatalf("valid bound refused: %v", err)
+	}
+}
+
+// listRecorder keeps the real catalogue and records each page request.
+type listRecorder struct {
+	Workflows
+	limits []int
+}
+
+func (l *listRecorder) List(ctx context.Context, p owneraction.Principal, project, cursor string, limit int) (durableworkflow.Page, error) {
+	l.limits = append(l.limits, limit)
+	return l.Workflows.List(ctx, p, project, cursor, limit)
+}
+
+// #1421 C1: a hosted client that fills every optional schema field with "",
+// null or 0 gets the same catalogue as a client that sends {}.
+func TestWorkflowsListTreatsEmptyOptionalFieldsAsOmitted(t *testing.T) {
+	f := newConnectorFixture(t, nil)
+	registry, err := durableworkflow.NewRegistry(durableworkflow.BuiltinDefinitions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := durableworkflow.New(durableworkflow.Options{DB: f.db, Registry: registry, Adapters: map[string]durableworkflow.Adapter{"log-analysis": &journeyWorkflowAdapter{}, "standards-authoring": &journeyWorkflowAdapter{}}, Now: func() time.Time { return f.now }, Protect: func(_ context.Context, s string) (string, error) { return s, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerTestRepo(t, f.db, "example", "repository")
+	recorder := &listRecorder{Workflows: svc}
+	f.options.Actions = owneraction.New(f.db, svc.WrapDomain(nil), func() time.Time { return f.now })
+	f.options.Workflows = recorder
+	j, _, csrf, cookie := consentPageFor(t, f, RepositoryActionsScope)
+	tokens := exchangeConsent(t, j, postConsentResponse(t, j, csrf, cookie, url.Values{"scope": {RepositoryActionsScope}, "duration": {"1"}, "repositories": {"all"}, "action_repository": {"github:example/repository"}}))
+	handler := f.server(t)
+	list := func(args string) string {
+		t.Helper()
+		offset := len(f.logs.String())
+		response := connectorJSON(t, handler, f.options.Config.ResourceURL, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "workflows_list", "arguments": json.RawMessage(args)}}, connectorBearer(tokens.AccessToken))
+		var out struct {
+			Error  any `json:"error"`
+			Result struct {
+				IsError bool            `json:"isError"`
+				Data    json.RawMessage `json:"structuredContent"`
+			} `json:"result"`
+		}
+		connectorDecode(t, response, &out)
+		if out.Error != nil || out.Result.IsError || len(out.Result.Data) == 0 {
+			t.Fatalf("workflows_list %s: %s", args, response.Body.String())
+		}
+		if logs := f.logs.String()[offset:]; strings.Contains(logs, `"outcome":"refusal"`) {
+			t.Fatalf("workflows_list %s logged a refusal: %s", args, logs)
+		}
+		return string(out.Result.Data)
+	}
+	want := list(`{}`)
+	for _, args := range []string{`{"project":"","cursor":"","limit":0}`, `{"project":null,"cursor":null,"limit":null}`} {
+		if got := list(args); got != want {
+			t.Fatalf("workflows_list %s listed %s, want %s", args, got, want)
+		}
+	}
+	if len(recorder.limits) != 3 || recorder.limits[0] != 25 || recorder.limits[1] != 25 || recorder.limits[2] != 25 {
+		t.Fatalf("page sizes %v, want 25 for every call", recorder.limits)
 	}
 }

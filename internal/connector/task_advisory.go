@@ -63,6 +63,8 @@ func parseAdvisoryArguments(name string, raw json.RawMessage) (advisoryArguments
 	if !isAdvisoryTool(name) || len(raw) == 0 || len(raw) > 65536 || !utf8.Valid(raw) || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
 		return a, argumentsShapeError()
 	}
+	allowed, required := advisoryFields(name)
+	raw = withoutUnsupplied(raw, allowed, required)
 	d := json.NewDecoder(bytes.NewReader(raw))
 	if err := uniqueJSONObject(d); err != nil {
 		return a, uniqueArgumentsError(err)
@@ -79,7 +81,6 @@ func parseAdvisoryArguments(name string, raw json.RawMessage) (advisoryArguments
 	if json.Unmarshal(raw, &fields) != nil {
 		return a, argumentsShapeError()
 	}
-	allowed, required := advisoryFields(name)
 	if err := checkArgumentFields(fields, allowed, required); err != nil {
 		return a, err
 	}
