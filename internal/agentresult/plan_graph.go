@@ -172,9 +172,9 @@ func unbindPlanGraph(r *Result) {
 
 // validatePlanMode judges a Plan payload under the contract the trusted context
 // selects. Both preflight and submit reach it through ValidateResult.
-func validatePlanMode(p *Plan, outcome string, questions int, ctx Context, d *Diagnostics) {
+func validatePlanMode(p *Plan, outcome string, questions []Question, ctx Context, d *Diagnostics) {
 	if ctx.PlanGraph != nil && ctx.PlanGraph.Member != nil {
-		validatePlanMember(p, outcome, ctx, d)
+		validatePlanMember(p, outcome, questions, ctx, d)
 		return
 	}
 	if p.Contribution != nil {
@@ -191,7 +191,7 @@ func validatePlanMode(p *Plan, outcome string, questions int, ctx Context, d *Di
 		validatePlan(p, outcome, ctx, d)
 		return
 	}
-	validatePlanGraph(p, outcome, questions, ctx, d)
+	validatePlanGraph(p, outcome, len(questions), ctx, d)
 }
 
 // validatePlanGraph enforces the graph Plan branch contract: done carries exactly
@@ -472,9 +472,27 @@ func comparisonBytes(r Result) []byte {
 	return data
 }
 
-func validatePlanMember(p *Plan, outcome string, ctx Context, d *Diagnostics) {
+func validatePlanMember(p *Plan, outcome string, questions []Question, ctx Context, d *Diagnostics) {
 	base := "$.result.payload.plan.contribution"
 	b := ctx.PlanGraph.Member
+	// Whatever a member asks reaches the owner, so it asks only an owner
+	// decision with choices. A first pass (empty proposal digest) is normal and
+	// never a question: the factory assembles the sections and invokes again.
+	for i, q := range questions {
+		path := fmt.Sprintf("$.result.questions[%d]", i)
+		if len(q.Options) == 0 {
+			add(d, path+".options", "owner_choice", "options for an owner decision", "absent", "Give the owner decision its options, or remove the question: an empty or unassembled proposal on the first pass is not a question, contribute your sections instead.")
+		}
+		if q.RecommendedOption == "" {
+			add(d, path+".recommended_option", "owner_choice", "recommended option", "absent", "Recommend one of the options for the owner decision.")
+		}
+	}
+	if p.Contribution != nil && len(p.Contribution.Questions) > 0 {
+		add(d, base+".questions", "owner_choice", "no free-text contribution questions", "questions present", "Remove contribution.questions: ask an owner decision in result.questions with options and a recommended option. An empty first-pass proposal is not a question.")
+	}
+	if p.Contribution != nil && len(p.Contribution.Draft.Questions) > 0 {
+		add(d, base+".draft.questions", "owner_choice", "no free-text draft questions", "questions present", "Remove draft.questions: ask an owner decision in result.questions with options and a recommended option. An empty first-pass proposal is not a question.")
+	}
 	if b.Group == "" || b.Basis == "" || b.AttemptID <= 0 {
 		add(d, base, "binding", "current group member", "invalid binding", "Invalid parallel member binding.")
 	}
