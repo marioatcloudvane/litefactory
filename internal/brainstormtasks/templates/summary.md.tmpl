@@ -1,0 +1,3 @@
+Brainstorm tasks: {{.Created}} of {{len .Lines}} drafts have an issue.
+{{range .Lines}}
+- {{.Title}}: {{if eq .Outcome "started"}}created and started in Plan ({{.Issue}}).{{else if eq .Outcome "not_started"}}created but not started ({{.Issue}}); you can type /plan on the issue.{{else if eq .Outcome "uncertain"}}uncertain: the issue is not identified yet and nothing was duplicated. Not found in search is not proof it was not created. You can wait and check the batch status, or ask to create it again, which may leave two issues.{{else if eq .Outcome "not_created"}}proven not created ({{.Reason}}); confirm again to retry.{{else if eq .Outcome "replaced"}}handled by a newer create of this draft.{{else}}not yet attempted; confirm again to continue.{{end}}{{end}}

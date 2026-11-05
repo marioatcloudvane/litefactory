@@ -134,7 +134,7 @@ func (c *Creator) Confirm(ctx context.Context, transport, channel, message, code
 	}
 	created, err := c.Forge.CreateIssue(ctx, target, titleProtected, bodyProtected)
 	if err != nil {
-		if knownCreateFailure(err) {
+		if KnownCreateFailure(err) {
 			return finish("previewed", github.Issue{}, "Could not create the issue. Try /confirm again before the preview expires.")
 		}
 		return finish("uncertain", github.Issue{}, "Creation outcome is uncertain. Send /confirm again to check the issue.")
@@ -148,7 +148,9 @@ func (c *Creator) Confirm(ctx context.Context, transport, channel, message, code
 func (c *Creator) matches(issue github.Issue, title, body string) bool {
 	return issue.Author.ID == c.BotUserID && issue.Title == title && issue.Body == body && issue.Number > 0 && issue.HTMLURL != ""
 }
-func knownCreateFailure(err error) bool {
+
+// KnownCreateFailure reports a refusal GitHub returns before any issue is written.
+func KnownCreateFailure(err error) bool {
 	return errors.Is(err, github.ErrInvalidArgument) || errors.Is(err, github.ErrUnauthorized) || errors.Is(err, github.ErrForbidden) || errors.Is(err, github.ErrNotFound) || errors.Is(err, github.ErrUnprocessable) || errors.Is(err, github.ErrRateLimited)
 }
 func (c *Creator) find(ctx context.Context, repo github.Repo, marker string) (github.Issue, bool, error) {

@@ -222,7 +222,15 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 				}
 			}
 		}
-		return tx.QueryRowContext(ctx, `INSERT INTO research_launch_definitions(session_id,trigger_id,instance_id,content_digest,topology_digest,files,provenance,files_digest) VALUES(?,?,?,?,?,?,?,?) RETURNING id`, in.SessionID, in.TriggerID, out.Instance.ID, in.ContentDigest, in.TopologyDigest, in.Files, metadata, captureBytesDigest(in.Files)).Scan(&out.LaunchID)
+		if e = tx.QueryRowContext(ctx, `INSERT INTO research_launch_definitions(session_id,trigger_id,instance_id,content_digest,topology_digest,files,provenance,files_digest) VALUES(?,?,?,?,?,?,?,?) RETURNING id`, in.SessionID, in.TriggerID, out.Instance.ID, in.ContentDigest, in.TopologyDigest, in.Files, metadata, captureBytesDigest(in.Files)).Scan(&out.LaunchID); e != nil {
+			return e
+		}
+		if in.Mode == "plan" {
+			// A brainstorm launch binds its frozen ledger to this launch in the
+			// same transaction, so no admitted launch lacks its brief seed.
+			return insertBrainstormSeedTx(ctx, tx, in.TriggerID, out.LaunchID)
+		}
+		return nil
 	})
 	if err != nil {
 		return WorkflowAdmission{}, fmt.Errorf("store: admit workflow launch: %w", err)

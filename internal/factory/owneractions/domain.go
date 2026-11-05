@@ -12,7 +12,9 @@ import (
 // participates in selecting or recovering a frozen operation.
 type Domain struct {
 	Actions, Standards, Diagnosis owneraction.Domain
-	Availability                  Availability
+	// Brainstorm owns brainstorm_create_tasks and brainstorm_task_recreate.
+	Brainstorm   owneraction.Domain
+	Availability Availability
 }
 
 func (d Domain) operation(command string) owneraction.Domain {
@@ -21,6 +23,9 @@ func (d Domain) operation(command string) owneraction.Domain {
 	}
 	if command == "diagnose" {
 		return d.Diagnosis
+	}
+	if BrainstormCommand(command) && d.Brainstorm != nil {
+		return d.Brainstorm
 	}
 	return d.Actions
 }

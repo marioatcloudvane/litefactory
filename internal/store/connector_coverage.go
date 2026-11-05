@@ -27,8 +27,8 @@ func insertConnectorCoverage(ctx context.Context, tx *sql.Conn, g ConnectorGrant
 		return nil
 	}
 	c := g.Coverage
-	if (ConnectorScopeHas(g.Scope, "task:advisory") || ConnectorScopeHas(g.Scope, "task:discussion-publish")) && (c == nil || c.All) {
-		return connectorRefusedCode(ErrConnectorScope, "all_repositories_not_allowed", "advisory execution and discussion publication require explicit repository selection")
+	if (ConnectorScopeHas(g.Scope, "task:advisory") || ConnectorScopeHas(g.Scope, "task:discussion-publish") || ConnectorScopeHas(g.Scope, "repository:brainstorm")) && (c == nil || c.All) {
+		return connectorRefusedCode(ErrConnectorScope, "all_repositories_not_allowed", "advisory execution, discussion publication and brainstorms require explicit repository selection")
 	}
 	if c == nil || !c.All && len(c.Repositories) == 0 {
 		return connectorRefusedCode(ErrConnectorInvalid, "repositories_missing", "choose all repositories or at least one registered repository for %s", strings.Join(connectorGrantRepositoryScopes(g.Scope), ", "))

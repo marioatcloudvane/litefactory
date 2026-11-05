@@ -49,6 +49,8 @@ func (r *Reporter) deliveryIntent(task, destination naming.Ref, sessionID, trigg
 		namespace = "schedule"
 	case store.IsGraphTrigger(triggerID):
 		namespace = "graph"
+	case store.IsBrainstormLaunchTrigger(triggerID):
+		namespace = "brainstorm-launch"
 	}
 	identity := struct {
 		Version                      int

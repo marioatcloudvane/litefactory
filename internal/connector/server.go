@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/brainstorm"
 	"github.com/cloudvane/litefactory/internal/config"
 )
 
@@ -48,6 +49,10 @@ const RepositoryActionsScope = "repository:actions"
 // StandardsManagementScope authorizes changes to the shared standards book.
 const StandardsManagementScope = "standards:management"
 
+// BrainstormScope grants repository brainstorms, their paid research scans and
+// issue search in explicitly selected repositories.
+const BrainstormScope = brainstorm.Scope
+
 // ScopeInfo names one scope the connector can issue and says in one plain line
 // what it allows. The consent page shows the description next to the scope.
 type ScopeInfo struct{ Name, Description string }
@@ -67,6 +72,7 @@ var KnownScopes = []ScopeInfo{
 	{Name: StandardsManagementScope, Description: "Manage the installation-wide standards book, including drafting and publication. Repository context also requires separate read coverage. Publication requires Discord approval."},
 	{Name: AdvisoryScope, Description: "Run private task consultations and independent assessments in explicitly selected repositories. Provider usage may cost money; each explicit request starts one job without another confirmation. This cannot change task stages or approvals."},
 	{Name: DiscussionPublishScope, Description: "Publish useful discussion conclusions as factory-authored ticket summaries in explicitly selected repositories. Separate from advisory execution; no full transcript or additional per-summary confirmation is required. This cannot change task stages or approvals."},
+	{Name: BrainstormScope, Description: "Keep repository brainstorms and search issues in explicitly selected repositories. Each factual question starts one paid read-only research agent run without another confirmation. This writes no code, changes no issues and approves nothing."},
 }
 
 func knownScope(name string) bool {
@@ -129,6 +135,7 @@ type Server struct {
 	stageDecisions serviceSlot[StageDecisions]
 	actions        serviceSlot[OwnerActions]
 	workflows      serviceSlot[Workflows]
+	brainstorms    serviceSlot[Brainstorms]
 	cfg            config.RemoteConnector
 	storage        connectorstate.Storage
 	access         connectorstate.Access
@@ -227,3 +234,6 @@ func (s *Server) SetTaskDiscussion(v TaskDiscussion) { s.taskDiscussion.Store(v)
 
 // SetStageDecisions publishes the ready stage decision service.
 func (s *Server) SetStageDecisions(v StageDecisions) { s.stageDecisions.Store(v) }
+
+// SetBrainstorm publishes the ready brainstorm service (a *brainstorm.Service).
+func (s *Server) SetBrainstorm(b Brainstorms) { s.brainstorms.Store(b) }

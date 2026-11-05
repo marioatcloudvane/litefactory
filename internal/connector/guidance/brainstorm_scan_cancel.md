@@ -1,0 +1,1 @@
+Use brainstorm_scan_cancel when the owner no longer wants a question answered. A waiting question is cancelled; a running one is asked to stop, and an answer that finishes first may still win. Read the returned state and tell the owner what happened.

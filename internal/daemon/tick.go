@@ -3371,7 +3371,7 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 		log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 			slog.Any("error", err))
 	}
-	if store.IsGraphTrigger(t.commentUnderWay) || t.scheduled != nil {
+	if store.IsGraphTrigger(t.commentUnderWay) || store.IsBrainstormLaunchTrigger(t.commentUnderWay) || t.scheduled != nil {
 		// Dispatches and schedules need the actual cause for accounting and
 		// bounded retry; no owner-comment drain retains their errors.
 		return err

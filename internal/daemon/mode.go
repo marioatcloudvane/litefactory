@@ -345,7 +345,7 @@ func (d *Daemon) markResearchModeApplied(ctx context.Context, t *task, selection
 func (d *Daemon) plainParentCommentRefusal(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, workflow agent.Workflow, command turn.Command) (report.ReplyKind, error) {
 	if mode != agent.ModeImplement || workflow == agent.WorkflowBug || t.continuation != nil || t.implementing ||
 		command.Kind != turn.KindFreeText || command.Name != "" || turn.ManagedReplan(command) ||
-		store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) {
+		store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) || store.IsBrainstormLaunchTrigger(trigger.CommentID) {
 		return report.ReplyInvalid, nil
 	}
 	feature, err := d.db.GetManagedFeature(ctx, t.ref.String())

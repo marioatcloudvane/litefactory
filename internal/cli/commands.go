@@ -114,6 +114,7 @@ func Commands() []*Command {
 		newConnectorGrantsCommand("inspect"),
 		newConnectorGrantsCommand("revoke"),
 		newConnectorGrantsCommand("revoke-all"),
+		newConnectorTemplateCommand(),
 		newRightsCatalogueCommand(),
 		newRightsListCommand(),
 		newRightsGrantCommand(),

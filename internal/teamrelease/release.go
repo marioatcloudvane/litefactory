@@ -21,6 +21,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/skillclosure"
 	"github.com/cloudvane/litefactory/internal/teampackage"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -30,6 +31,11 @@ import (
 const defaultSource = "teams/source/go-development"
 
 var workflows = []string{"bug", "implement", "plan", "research", "spike", "validate"}
+
+// outOfGraphSkills lists, per workflow, the skills a release carries although
+// no graph node binds them. Their full skill closure is released; any other
+// file outside the captured role closure is still refused.
+var outOfGraphSkills = map[string][]string{"research": {"brainstorm", "brainstorm-drafts"}}
 
 // Generate validates a complete candidate before replacing any generated output.
 // Check mode reports every drifted path and never writes source or release files.
@@ -231,10 +237,17 @@ func candidateSource(ctx context.Context, root *os.Root, sourceRoot string) (map
 		if err != nil {
 			return nil, release, err
 		}
+		extra, err := outOfGraphClosure(files, w)
+		if err != nil {
+			return nil, release, err
+		}
 		for name := range files {
 			if strings.HasPrefix(name, w+"/") {
 				if _, ok := definition.Files[strings.TrimPrefix(name, w+"/")]; !ok {
 					if _, selected := guidanceFiles[name]; selected {
+						continue
+					}
+					if _, listed := extra[strings.TrimPrefix(name, w+"/")]; listed {
 						continue
 					}
 					return nil, release, fmt.Errorf("%s: resource is outside the captured role closure", name)
@@ -256,6 +269,31 @@ func candidateSource(ctx context.Context, root *os.Root, sourceRoot string) (map
 	}
 	release.Checksum = hex.EncodeToString(h.Sum(nil))
 	return files, release, nil
+}
+
+// outOfGraphClosure loads the skill closure of the listed out-of-graph skills
+// present in workflow w, keyed by workflow-relative path.
+func outOfGraphClosure(files map[string][]byte, w string) (map[string][]byte, error) {
+	var selected []string
+	for _, skill := range outOfGraphSkills[w] {
+		if _, ok := files[w+"/skills/"+skill+"/SKILL.md"]; ok {
+			selected = append(selected, skill)
+		}
+	}
+	if len(selected) == 0 {
+		return nil, nil
+	}
+	_, closure, err := skillclosure.Load(selected, func(name string) ([]byte, error) {
+		raw, ok := files[w+"/"+name]
+		if !ok {
+			return nil, fmt.Errorf("%s/%s: %w", w, name, fs.ErrNotExist)
+		}
+		return raw, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s out-of-graph skills: %w", w, err)
+	}
+	return closure, nil
 }
 
 func safe(name string) bool { return teamsource.SafePath(name) }

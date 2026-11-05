@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/brainstorm"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -31,6 +32,57 @@ func projectSecrets(db *store.DB, connections *projectconnection.Factory) func(c
 			}
 		}
 		return nil
+	}
+}
+
+// brainstormIssueSelector picks the issue tracker of a brainstorm repository's
+// project by the rule log analysis uses ([loganalysis.TicketTracker]); a
+// project with no GitHub or Linear ticket connection gets [brainstorm.ErrNoTracker].
+func (d *Daemon) brainstormIssueSelector() func(context.Context, string) (loganalysis.Tracker, error) {
+	return projectTicketTracker(d.db, d.connections)
+}
+
+func projectTicketTracker(db *store.DB, connections *projectconnection.Factory) func(context.Context, string) (loganalysis.Tracker, error) {
+	return func(ctx context.Context, repositoryRef string) (loganalysis.Tracker, error) {
+		forge, slug, ok := strings.Cut(repositoryRef, ":")
+		if !ok {
+			forge, slug = store.ForgeGitHub, repositoryRef
+		}
+		owner, name, ok := strings.Cut(slug, "/")
+		if !ok || owner == "" || name == "" {
+			return nil, brainstorm.ErrInvalid
+		}
+		repo, err := db.GetRepoBySlug(ctx, forge, owner, name)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, brainstorm.ErrNotFound
+		}
+		if err != nil {
+			return nil, errors.New("project registry unavailable")
+		}
+		versions, err := db.ListConnections(ctx, repo.ID)
+		if err != nil {
+			return nil, errors.New("project credential registry unavailable")
+		}
+		var selected loganalysis.Tracker
+		for _, version := range versions {
+			if version.Role != store.TicketConnection {
+				continue
+			}
+			if connections == nil {
+				return nil, errors.New("project connections unavailable")
+			}
+			clients, e := connections.Clients(ctx, version, 0)
+			if e != nil {
+				return nil, errors.New("project ticket connection could not be loaded")
+			}
+			if tracker, ok := loganalysis.TicketTracker(clients.Linear, clients.Code, version.Destination); ok {
+				selected = tracker
+			}
+		}
+		if selected == nil {
+			return nil, brainstorm.ErrNoTracker
+		}
+		return selected, nil
 	}
 }
 
@@ -86,12 +138,8 @@ func newConversationAnalyses(s Setup, connections *projectconnection.Factory, sh
 				if version.Role != store.TicketConnection {
 					continue
 				}
-				owner, name, _ := strings.Cut(version.Destination, "/")
-				switch {
-				case clients.Linear != nil:
-					svc.Projects[id] = loganalysis.LinearTracker{Client: clients.Linear}
-				case clients.Code != nil:
-					svc.Projects[id] = loganalysis.GitHubTracker{Client: clients.Code, Repo: github.Repo{Owner: owner, Name: name}}
+				if tracker, ok := loganalysis.TicketTracker(clients.Linear, clients.Code, version.Destination); ok {
+					svc.Projects[id] = tracker
 				}
 			}
 		}
