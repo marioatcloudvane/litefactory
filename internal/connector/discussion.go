@@ -308,6 +308,25 @@ func DiscussionResult(summary string, evidence any) (ToolResult, error) {
 	return result, nil
 }
 
+// missingScopes names, in consent order, each known scope the grant lacks whose
+// addition alone would list more tools on this server. A scope whose service
+// this server does not run is never named. Nothing is granted.
+func (s *Server) missingScopes(grant connectorstate.ConnectorGrant) []string {
+	have := len(s.availableTools(grant))
+	missing := []string{}
+	for _, k := range KnownScopes {
+		if connectorstate.ConnectorScopeHas(grant.Scope, k.Name) {
+			continue
+		}
+		wider := grant
+		wider.Scope = strings.TrimSpace(grant.Scope + " " + k.Name)
+		if len(s.availableTools(wider)) > have {
+			missing = append(missing, k.Name)
+		}
+	}
+	return missing
+}
+
 func (s *Server) availableTools(grant connectorstate.ConnectorGrant) []string {
 	names := []string{}
 	if decisions := s.stageDecisions.Load(); decisions != nil && decisions.Ready() && s.actions.Load() != nil && decisionGrant(grant) {

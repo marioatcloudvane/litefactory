@@ -21,6 +21,7 @@ type fakeReader struct {
 	waits                                                 store.OverviewWaits
 	pubs                                                  []store.OverviewPublication
 	failures                                              map[string]error
+	activityWarnings                                      []string
 	activityMore, waitsMore, pubsMore, reposMore, undated bool
 	from, to                                              time.Time
 	cancel                                                context.CancelFunc
@@ -32,8 +33,8 @@ func (f *fakeReader) OverviewRepositories(ctx context.Context) ([]store.Overview
 func (f *fakeReader) OverviewHealth(ctx context.Context) (store.HealthSnapshot, error) {
 	return f.health, f.failures["health"]
 }
-func (f *fakeReader) ListOverviewActivity(ctx context.Context) ([]store.OverviewActivity, bool, error) {
-	return f.activity, f.activityMore, f.failures["activity"]
+func (f *fakeReader) ListOverviewActivity(ctx context.Context, now time.Time) ([]store.OverviewActivity, bool, []string, error) {
+	return f.activity, f.activityMore, f.activityWarnings, f.failures["activity"]
 }
 func (f *fakeReader) ListOverviewWaits(ctx context.Context) (store.OverviewWaits, error) {
 	f.waits.HasMore = f.waitsMore
@@ -93,6 +94,43 @@ func TestBuildHealthFreshnessAndUnknowns(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildRepositoryConnectionCheckIsDatedNotStale(t *testing.T) {
+	now := testNow()
+	checked := now.Add(-14 * 24 * time.Hour)
+	f := &fakeReader{repos: []store.OverviewRepository{
+		{ID: 1, Name: "old/check", ConnectionStatus: "locked_credential", ObservedAt: checked},
+		{ID: 2, Name: "never/checked"},
+		{ID: 3, Name: "missing/conn", ConnectionStatus: "missing_connection", ObservedAt: checked},
+	}}
+	r, err := fixedService(f, now).Build(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Coverage.Repositories) != 3 {
+		t.Fatalf("repositories=%+v", r.Coverage.Repositories)
+	}
+	old := r.Coverage.Repositories[0]
+	if old["status"] == "stale" || strings.Contains(fmt.Sprint(old["reasons"]), "connection_observation_stale") || old["connection_status"] != "locked_credential" || fmt.Sprint(old["observed_at"]) != checked.UTC().Format(time.RFC3339) {
+		t.Fatalf("old check=%+v", old)
+	}
+	never := r.Coverage.Repositories[1]
+	if never["status"] != "unknown" || !strings.Contains(fmt.Sprint(never["reasons"]), "connection_observation_unknown") {
+		t.Fatalf("never checked=%+v", never)
+	}
+	missing := r.Coverage.Repositories[2]
+	if missing["status"] != "unavailable" || !strings.Contains(fmt.Sprint(missing["reasons"]), "missing_connection") {
+		t.Fatalf("missing connection=%+v", missing)
+	}
+	f = &fakeReader{failures: map[string]error{"registry": errors.New("read failed")}}
+	r, err = fixedService(f, now).Build(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source := r.Coverage.Sources["registry"]; source.Status != "unavailable" || !has(source.Reasons, "source_read_failed") {
+		t.Fatalf("registry source=%+v", source)
 	}
 }
 

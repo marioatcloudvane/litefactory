@@ -108,7 +108,7 @@ budgets. Expose only these exact connector locations:
 
 ```nginx
 # In http {}, once:
-limit_req_zone $binary_remote_addr zone=connector_source:10m rate=2r/s;
+limit_req_zone $binary_remote_addr zone=connector_source:10m rate=5r/s;
 limit_req_zone $server_name zone=connector_global:1m rate=10r/s;
 
 # Install this connector-only snippet as connector-proxy.conf. Replace the
@@ -128,7 +128,7 @@ proxy_request_buffering off;
 proxy_read_timeout 30s;
 proxy_send_timeout 30s;
 client_max_body_size 64k;
-limit_req zone=connector_source burst=10 nodelay;
+limit_req zone=connector_source burst=20 nodelay;
 limit_req zone=connector_global burst=30 nodelay;
 limit_req_status 429;
 # Neither URI queries nor response headers may reach a log. OAuth codes and
@@ -301,12 +301,21 @@ after fresh consent to receive current guidance.
 
 Initialize instructions now start with a short factory overview and a brainstorm
 guide, then the per-tool guidance above. The overview and brainstorm text name no
-tool, so every grant, including a usage-only grant, receives the same words. They
+tool, so every grant, including a usage-only grant, receives the same overview
+and guide. They
 say that the factory keeps no raw documents, that brainstorming and scanning only
 read, and that a spoken yes approves no Plan stage. The brainstorm guide names
 no tool either: it says brainstorm tools exist only when the tool list has them,
 and how to use them when present. The per-tool guidance of the brainstorm tools
-(see "Repository brainstorms") is sent only to grants with `repository:brainstorm`. The connector also offers MCP prompts through `prompts/list` and
+(see "Repository brainstorms") is sent only to grants with `repository:brainstorm`.
+When a grant lacks a consent scope that would show more tools on this server,
+for example a grant approved before `repository:brainstorm` existed, the
+instructions end with a short missing-scope notice. It names the missing scope
+tokens and tells the client, when the owner asks for that capability, to say
+plainly that this connection was approved without it and that the owner must
+reconnect and tick the scope on the consent page. A scope whose service this
+server does not run is never named. The notice grants nothing; grants that hold
+every served scope get no notice. The connector also offers MCP prompts through `prompts/list` and
 `prompts/get`: `brainstorm_feature` (always), `whats_waiting` (with
 `factory_overview`) and `review_task` (with `task_evidence_read`, one required
 `task` argument). Prompts are static text and need no extra scope; a client may
