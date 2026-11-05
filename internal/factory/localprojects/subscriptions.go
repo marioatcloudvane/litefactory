@@ -185,7 +185,7 @@ func VerifySubscriptionContainer(ctx context.Context, r webhookreg.Subscriptions
 }
 
 func (a *Administration) presentSubscription(ctx context.Context, subscription store.TicketSubscription, present contracts.ProjectSubscriptionPresentation) error {
-	view := contracts.ProjectSubscriptionView{ID: subscription.ID, RepoID: subscription.RepoID, Revision: subscription.Revision, ConnectionVersionID: subscription.ConnectionVersionID, Provider: subscription.Provider, Origin: subscription.Origin, Container: subscription.Container, DesiredEnabled: subscription.DesiredEnabled, ObservedState: subscription.ObservedState, RemoteHookID: subscription.RemoteHookID, Failure: subscription.Failure, CheckedAt: subscription.CheckedAt, DeliveredAt: subscription.DeliveredAt}
+	view := contracts.ProjectSubscriptionView{ID: subscription.ID, RepoID: subscription.RepoID, Revision: subscription.Revision, ConnectionVersionID: subscription.ConnectionVersionID, Provider: subscription.Provider, Origin: subscription.Origin, Container: subscription.Container, DesiredEnabled: subscription.DesiredEnabled, ObservedState: subscription.ObservedState, RemoteHookID: subscription.RemoteHookID, Failure: subscription.Failure, CallbackURL: subscription.CallbackURL, SecretService: subscription.SecretService, SecretAccount: subscription.SecretAccount, CheckedAt: subscription.CheckedAt, DeliveredAt: subscription.DeliveredAt}
 	if err := present.Subscription(view); err != nil {
 		return err
 	}

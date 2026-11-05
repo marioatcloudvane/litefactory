@@ -141,7 +141,7 @@ func (a *Administration) ensureWebhook(ctx context.Context, repo store.Repo) web
 		}
 	}
 	if err != nil {
-		return webhookreg.Result{Outcome: webhookreg.Failed, Reason: describeSubscriptionError(repo, err)}
+		return webhookreg.Result{Outcome: webhookreg.Failed, Reason: describeSubscriptionError(repo, saved, err)}
 	}
 	if !saved.DesiredEnabled {
 		return webhookreg.Result{Outcome: webhookreg.Skipped, Reason: "webhook is explicitly disabled; polling remains active"}
@@ -150,9 +150,18 @@ func (a *Administration) ensureWebhook(ctx context.Context, repo store.Repo) web
 	return webhookreg.Result{Outcome: outcome, HookID: hookID, Insecure: strings.HasPrefix(saved.CallbackURL, "http://")}
 }
 
-func describeSubscriptionError(repo store.Repo, err error) string {
+func describeSubscriptionError(repo store.Repo, saved store.TicketSubscription, err error) string {
+	if saved.Failure == "hook_access_denied" && saved.CallbackURL != "" && saved.SecretAccount != "" {
+		return fmt.Sprintf("the bot account cannot manage webhooks on %s; check admin rights, or create the hook by hand as the repository owner: %s. The repository keeps working on polling.", repo.Slug(), handMadeHookRoute(saved.CallbackURL, saved.SecretService, saved.SecretAccount))
+	}
 	if strings.Contains(err.Error(), "webhook operation") {
 		return fmt.Sprintf("the bot account cannot manage webhooks on %s; check admin rights or unresolved operation status. The repository keeps working on polling.", repo.Slug())
 	}
 	return err.Error()
+}
+
+// handMadeHookRoute names the non-secret values a hook made by hand needs.
+// The signing secret itself is never printed.
+func handMadeHookRoute(callback, service, account string) string {
+	return fmt.Sprintf("payload URL %s, content type application/json, events issues, issue_comment and sub_issues, secret from Keychain service %s account %s", callback, service, account)
 }

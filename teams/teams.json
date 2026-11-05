@@ -186,11 +186,19 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "750c98ef3350ffd01e3a8877fe1e70483001d66b81fef0d421ad334e34733d98"
+          "sha256": "9065b678f3353b73c7a9779f4355501edbdc629525518077314875a2fc4d251f"
         },
         {
           "path": "research/shaping.md",
-          "sha256": "bb48d735f5f1d05cc0c14863f2816b9bf0864800226cb278c2fd0b269b6e9981"
+          "sha256": "026a301156a77a34a2a8c7e3a9753823cf838862bbebe0fa196ddfbd6f8ace6e"
+        },
+        {
+          "path": "research/skills/brainstorm-drafts/SKILL.md",
+          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+        },
+        {
+          "path": "research/skills/brainstorm/SKILL.md",
+          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -313,7 +321,7 @@
           "sha256": "9a6ba7e0799bb32144fb36d0414da07b2596e72ac4b9fe06d96fa663ef1068a4"
         }
       ],
-      "checksum": "2b37a16aa5007868c58c32238a95e1ea8fd88cb8e8045dee3b190e84d9aa159e"
+      "checksum": "f59535a80e260a4b42401973af6af60d0ddb2bcc2e1eef8bde2cba9f7a50b011"
     },
     {
       "name": "Go development",
@@ -487,11 +495,19 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "750c98ef3350ffd01e3a8877fe1e70483001d66b81fef0d421ad334e34733d98"
+          "sha256": "9065b678f3353b73c7a9779f4355501edbdc629525518077314875a2fc4d251f"
         },
         {
           "path": "research/shaping.md",
-          "sha256": "bb48d735f5f1d05cc0c14863f2816b9bf0864800226cb278c2fd0b269b6e9981"
+          "sha256": "026a301156a77a34a2a8c7e3a9753823cf838862bbebe0fa196ddfbd6f8ace6e"
+        },
+        {
+          "path": "research/skills/brainstorm-drafts/SKILL.md",
+          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+        },
+        {
+          "path": "research/skills/brainstorm/SKILL.md",
+          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -614,7 +630,7 @@
           "sha256": "d9c551060371eea9631495bee0f3f33b73ceb6f113d82c0bb9f4f8c476e97275"
         }
       ],
-      "checksum": "cbaacbc0fd062823350624aafb97b9b5c1e254c79b3fc294bcddadba4d494657"
+      "checksum": "698c9e91ccaf205b8f0ee5a56a81be62ee1278670938289f314c6a553b38372e"
     },
     {
       "name": "Next.js web",
@@ -787,11 +803,19 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "750c98ef3350ffd01e3a8877fe1e70483001d66b81fef0d421ad334e34733d98"
+          "sha256": "9065b678f3353b73c7a9779f4355501edbdc629525518077314875a2fc4d251f"
         },
         {
           "path": "research/shaping.md",
-          "sha256": "bb48d735f5f1d05cc0c14863f2816b9bf0864800226cb278c2fd0b269b6e9981"
+          "sha256": "026a301156a77a34a2a8c7e3a9753823cf838862bbebe0fa196ddfbd6f8ace6e"
+        },
+        {
+          "path": "research/skills/brainstorm-drafts/SKILL.md",
+          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+        },
+        {
+          "path": "research/skills/brainstorm/SKILL.md",
+          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -910,7 +934,7 @@
           "sha256": "2d0a021babc675ec615314d6d8d522097eb685e6a5d7310fd4a566ed3bfbcc90"
         }
       ],
-      "checksum": "c4a95772906234c509c988268c01cc73f45e5c89a240ce645816c52158d15686"
+      "checksum": "bd7e52567c93730c3dcdf7d49c71683e22f136f4a821cf37aa8cb5aba5724256"
     },
     {
       "name": "Python FastAPI with React",
@@ -1108,11 +1132,19 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "750c98ef3350ffd01e3a8877fe1e70483001d66b81fef0d421ad334e34733d98"
+          "sha256": "9065b678f3353b73c7a9779f4355501edbdc629525518077314875a2fc4d251f"
         },
         {
           "path": "research/shaping.md",
-          "sha256": "bb48d735f5f1d05cc0c14863f2816b9bf0864800226cb278c2fd0b269b6e9981"
+          "sha256": "026a301156a77a34a2a8c7e3a9753823cf838862bbebe0fa196ddfbd6f8ace6e"
+        },
+        {
+          "path": "research/skills/brainstorm-drafts/SKILL.md",
+          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+        },
+        {
+          "path": "research/skills/brainstorm/SKILL.md",
+          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -1239,7 +1271,7 @@
           "sha256": "c604353cd21fd5422feab496f3cd7027798450bff552bc7a8583bf3ef94c69af"
         }
       ],
-      "checksum": "6af734bd234551f2b24e67e99a2a3ea790c739f25fb0e902b8dd519138ed387d"
+      "checksum": "8f69fc9ca330ca4ecc96abcdfc4961f168dafeaf2ad43c237c2f48f1236e5c66"
     },
     {
       "name": "Swift iOS",
@@ -1410,11 +1442,19 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "750c98ef3350ffd01e3a8877fe1e70483001d66b81fef0d421ad334e34733d98"
+          "sha256": "9065b678f3353b73c7a9779f4355501edbdc629525518077314875a2fc4d251f"
         },
         {
           "path": "research/shaping.md",
-          "sha256": "bb48d735f5f1d05cc0c14863f2816b9bf0864800226cb278c2fd0b269b6e9981"
+          "sha256": "026a301156a77a34a2a8c7e3a9753823cf838862bbebe0fa196ddfbd6f8ace6e"
+        },
+        {
+          "path": "research/skills/brainstorm-drafts/SKILL.md",
+          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+        },
+        {
+          "path": "research/skills/brainstorm/SKILL.md",
+          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -1533,7 +1573,7 @@
           "sha256": "9dc5249b2fc879a70ba1c68d07cbf3289b62b958eb6f14a0f53bfc92fce7f7ea"
         }
       ],
-      "checksum": "f6d3e43c29b34e884e13e52dcf6c94f49048e9620a99e69cdce7c47f0772e738"
+      "checksum": "9ec6c9429d6c35e7f719f643ce810315ed7f02735b1fa7874d782a37b890a21f"
     }
   ]
 }

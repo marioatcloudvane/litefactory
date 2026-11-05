@@ -157,16 +157,18 @@ type ProjectSubscriptionRequest struct {
 	Enabled              bool
 }
 
-// ProjectSubscriptionView contains subscription health without signing secret references.
+// ProjectSubscriptionView contains subscription health. It names the callback
+// and the Keychain item of the signing secret, never the secret value.
 type ProjectSubscriptionView struct {
-	ID                                    string
-	RepoID, Revision, ConnectionVersionID int64
-	Provider                              ticket.Provider
-	Origin                                ticket.Origin
-	Container                             string
-	DesiredEnabled                        bool
-	ObservedState, RemoteHookID, Failure  string
-	CheckedAt, DeliveredAt                time.Time
+	ID                                        string
+	RepoID, Revision, ConnectionVersionID     int64
+	Provider                                  ticket.Provider
+	Origin                                    ticket.Origin
+	Container                                 string
+	DesiredEnabled                            bool
+	ObservedState, RemoteHookID, Failure      string
+	CallbackURL, SecretService, SecretAccount string
+	CheckedAt, DeliveredAt                    time.Time
 }
 
 // ProjectRecoveryView contains observed subscription recovery progress.
