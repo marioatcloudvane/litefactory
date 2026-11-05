@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -529,5 +530,95 @@ func TestRepoWebhookRecoversUnrecordedLegacyHook(t *testing.T) {
 				t.Fatalf("legacy repair: %+v posts=%d patches=%d secrets=%d", subs, w.posts, w.patches, len(w.items))
 			}
 		})
+	}
+}
+
+// A refused hook create names the manual route the owner can take: the saved
+// subscription's selector callback and its Keychain item, never the secret.
+func TestRefusedWebhookNamesTheHandMadeHookRoute(t *testing.T) {
+	w := newWebhookCLI(t, webhookTestPublicURL)
+	w.status = 403
+	repo := newRepoFixture(t)
+	if code := w.run("repo", "add", repo.Dir); code != ExitOK {
+		t.Fatalf("add exit %d: %s", code, w.stderr)
+	}
+	subscription := func() store.TicketSubscription {
+		t.Helper()
+		db, err := store.Open(t.Context(), w.paths.DBPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		repos, err := db.ListRepos(t.Context())
+		if err != nil || len(repos) != 1 {
+			t.Fatalf("repos = %v, %v", repos, err)
+		}
+		subs, err := db.ListTicketSubscriptions(t.Context(), repos[0].ID)
+		if err != nil || len(subs) != 1 {
+			t.Fatalf("subscriptions = %+v, %v", subs, err)
+		}
+		return subs[0]
+	}
+	saved := subscription()
+	secret := w.items[webhookreg.KeychainService+"/subscription/"+saved.ID]
+	if secret == "" || !strings.Contains(saved.CallbackURL, "subscription="+saved.ID) || saved.SecretAccount != "subscription/"+saved.ID {
+		t.Fatalf("saved subscription %+v secret set=%t", saved, secret != "")
+	}
+	route := func(out string) {
+		t.Helper()
+		for _, want := range []string{saved.CallbackURL, webhookreg.KeychainService, saved.SecretAccount} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output lacks %q:\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, secret) {
+			t.Error("the secret was printed")
+		}
+	}
+	route(w.stderr.String())
+
+	var first string
+	for attempt := range 2 {
+		if code := w.run("repo", "webhook", "acme/does-not-exist"); code != ExitFailure {
+			t.Fatalf("webhook exit %d: %s%s", code, w.stdout, w.stderr)
+		}
+		out := w.stdout.String() + w.stderr.String()
+		route(out)
+		if attempt == 0 {
+			first = out
+		} else if out != first {
+			t.Errorf("guidance changed between retries:\n%s\n---\n%s", first, out)
+		}
+		again := subscription()
+		if again.ID != saved.ID || again.CallbackURL != saved.CallbackURL || w.items[webhookreg.KeychainService+"/subscription/"+saved.ID] != secret || w.posts != 0 {
+			t.Fatalf("retry changed the subscription: %+v posts=%d", again, w.posts)
+		}
+	}
+
+	if code := w.run("repo", "webhook", "list", strconv.FormatInt(saved.RepoID, 10)); code != ExitOK {
+		t.Fatalf("list exit %d: %s%s", code, w.stdout, w.stderr)
+	}
+	route(w.stdout.String())
+	if !strings.Contains(w.stdout.String(), "reason=hook_access_denied") {
+		t.Errorf("list:\n%s", w.stdout)
+	}
+}
+
+// A successfully created hook prints no manual-hook guidance.
+func TestCreatedWebhookPrintsNoHandMadeHookRoute(t *testing.T) {
+	w := newWebhookCLI(t, webhookTestPublicURL)
+	repo := newRepoFixture(t)
+	if code := w.run("repo", "add", repo.Dir); code != ExitOK {
+		t.Fatalf("exit %d: %s", code, w.stderr)
+	}
+	out := w.stdout.String() + w.stderr.String()
+	if w.posts != 1 || strings.Contains(out, "subscription/") || strings.Contains(out, "?subscription=") {
+		t.Fatalf("posts=%d output:\n%s", w.posts, out)
+	}
+	if code := w.run("repo", "webhook", "list", "1"); code != ExitOK {
+		t.Fatalf("list exit %d: %s%s", code, w.stdout, w.stderr)
+	}
+	if strings.Contains(w.stdout.String(), "subscription/") || strings.Contains(w.stdout.String(), "?subscription=") || !strings.Contains(w.stdout.String(), "observed=enabled") {
+		t.Errorf("list:\n%s", w.stdout)
 	}
 }

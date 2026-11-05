@@ -331,3 +331,89 @@ func TestLegacyWebhookIdentityReadOnlyOnListingCadence(t *testing.T) {
 		t.Fatalf("listing tick identity reads=%d, want 1", got)
 	}
 }
+
+// After a refused hook create, the guidance points the owner at the saved
+// subscription's selector callback and its subscription/<id> secret. A
+// hand-made hook following it is admitted; a bare-URL hook signed with an
+// OWNER/REPO secret is not adopted while the owned subscription exists.
+func TestRefusedCreateSelectorRouteAuthenticatesHandMadeHook(t *testing.T) {
+	f := newDiscoveryHTTPFixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("daemon mutated remote hook: %s", r.Method)
+		}
+		switch r.URL.Path {
+		case "/user":
+			_, _ = w.Write([]byte(`{"id":7,"login":"bot"}`))
+		case "/repos/acme/refused":
+			_, _ = w.Write([]byte(`{"id":101,"full_name":"acme/refused","has_issues":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	repo, err := f.d.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "refused", RemoteURL: "git@github.com:acme/refused.git"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := f.d.db.SetConnection(t.Context(), store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.GitHub, Origin: ticket.Origin(server.URL), Destination: repo.Slug(), RemoteID: "101", Enabled: true, Provenance: "explicit", CredentialSource: "env", CredentialEnv: "TOKEN"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "4ff26610482b16ab61e7565820b0428d"
+	sub, err := f.d.db.PutTicketSubscription(t.Context(), store.TicketSubscription{ID: id, RepoID: repo.ID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: "101", CallbackURL: "https://callback.invalid" + webhook.Path + "?subscription=" + id, Events: []string{"issues", "issue_comment", "sub_issues"}, DesiredEnabled: true, SecretService: WebhookKeychainService, SecretAccount: "subscription/" + id, SecretVersion: "1"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err := f.d.db.ClaimSubscriptionOperation(t.Context(), sub.ID, sub.Revision, "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.d.db.FinishSubscriptionOperation(t.Context(), op, "uncertain", "", "unresolved", "hook_access_denied", f.now); err != nil {
+		t.Fatal(err)
+	}
+	f.d.connections = projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 7, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "fake-token", true }}})
+	f.d.webhook = newWebhookRuntime(WebhookOptions{PublicURL: "https://callback.invalid" + webhook.Path, Secrets: secrets.Resolver{Keychain: func(_ context.Context, service, account string) (string, error) {
+		switch {
+		case service == WebhookKeychainService && account == "subscription/"+id:
+			return "subscription-secret", nil
+		case service == WebhookKeychainService && account == repo.Slug():
+			return "owner-secret", nil
+		}
+		return "", secrets.ErrNotFound
+	}}}, f.d.log)
+	f.d.refreshWebhookSecrets(t.Context(), f.now)
+	handler, err := webhook.NewHandler(webhook.Options{Lookup: f.d.webhook, Sink: f.d.webhook, Logger: f.d.log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(target, secret, delivery string) int {
+		body := `{"action":"opened","repository":{"id":101,"full_name":"acme/refused"},"issue":{"number":7}}`
+		mac := hmac.New(sha256.New, []byte(secret))
+		_, _ = mac.Write([]byte(body))
+		req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
+		req.Header.Set("X-GitHub-Event", "issues")
+		req.Header.Set("X-GitHub-Delivery", delivery)
+		req.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+		out := httptest.NewRecorder()
+		handler.ServeHTTP(out, req)
+		return out.Code
+	}
+	if got := send(webhook.Path, "owner-secret", "bare"); got != http.StatusUnauthorized {
+		t.Fatalf("bare-URL OWNER/REPO delivery status=%d", got)
+	}
+	if hints := f.d.webhook.hints.pending(); len(hints) != 0 {
+		t.Fatalf("bare-URL delivery queued work: %+v", hints)
+	}
+	if got := send(webhook.Path+"?subscription="+id, "subscription-secret", "selector"); got < 200 || got >= 300 {
+		t.Fatalf("selector delivery rejected: %d logs=%s", got, f.logs.String())
+	}
+	hints := f.d.webhook.hints.pending()
+	if len(hints) != 1 || hints[0].selector != id || hints[0].versionID != v.ID || hints[0].repoID != repo.ID {
+		t.Fatalf("wrong routing: %+v", hints)
+	}
+	subs, err := f.d.db.ListTicketSubscriptions(t.Context(), repo.ID)
+	if err != nil || len(subs) != 1 || subs[0].ID != id || subs[0].Failure != "hook_access_denied" {
+		t.Fatalf("subscriptions changed: %+v %v", subs, err)
+	}
+}
