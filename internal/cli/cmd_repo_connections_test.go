@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
@@ -127,6 +128,57 @@ func TestConnectionSetAcceptsLabelMapFlags(t *testing.T) {
 		}
 		if strings.Contains(stderr.String(), "not defined") || !strings.Contains(stderr.String(), "apply to Linear only") {
 			t.Fatalf("%v: want service refusal, got: %s", flags, stderr)
+		}
+	}
+}
+
+// TestConfiguredLabelAgentsListsOnlyConfiguredRunners proves the label setup
+// runner list holds exactly the configured runners, so a Codex-only factory
+// plans no Claude label.
+func TestConfiguredLabelAgentsListsOnlyConfiguredRunners(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *config.Config
+		want string
+	}{
+		{"none", &config.Config{}, ""},
+		{"codex only", &config.Config{Agents: config.Agents{Codex: &config.Codex{}}}, "codex"},
+		{"claude only", &config.Config{Agents: config.Agents{Claude: &config.Claude{}}}, "claude"},
+		{"both", &config.Config{Agents: config.Agents{Claude: &config.Claude{}, Codex: &config.Codex{}}}, "claude,codex"},
+	}
+	for _, tc := range cases {
+		got := configuredLabelAgents(tc.cfg)
+		if got == nil || strings.Join(got, ",") != tc.want {
+			t.Fatalf("%s: configuredLabelAgents = %#v, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestConfirmLabelSetupGate proves the shared label setup gate writes nothing
+// on a declined answer or without a terminal and --yes, and proceeds only on
+// --yes or a y answer.
+func TestConfirmLabelSetupGate(t *testing.T) {
+	cases := []struct {
+		name     string
+		yes, tty bool
+		input    string
+		want     bool
+		wantOut  string
+	}{
+		{"declined", false, true, "n\n", false, "nothing written\n"},
+		{"empty answer", false, true, "\n", false, "nothing written\n"},
+		{"no terminal", false, false, "y\n", false, "nothing written, rerun with --yes\n"},
+		{"accepted", false, true, "Y\n", true, ""},
+		{"yes flag", true, false, "", true, ""},
+	}
+	for _, tc := range cases {
+		var out strings.Builder
+		env := &Env{Stdout: &out, Stdin: strings.NewReader(tc.input), InputIsTerminal: tc.tty}
+		if got := confirmLabelSetup(env, tc.yes, "create these labels? [y/N] "); got != tc.want {
+			t.Fatalf("%s: confirmLabelSetup = %v, want %v", tc.name, got, tc.want)
+		}
+		if !strings.HasSuffix(out.String(), tc.wantOut) {
+			t.Fatalf("%s: output %q, want suffix %q", tc.name, out.String(), tc.wantOut)
 		}
 	}
 }

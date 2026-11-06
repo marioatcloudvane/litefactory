@@ -15,11 +15,17 @@ import (
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 )
 
-// configuredLabelAgents lists the runners the factory registers: Claude is
-// built in, Codex only when configured.
+// configuredLabelAgents lists the runners the factory registers: each one
+// only when it is configured.
 func configuredLabelAgents(cfg *config.Config) []string {
-	agents := []string{"claude"}
-	if cfg != nil && cfg.Agents.Codex != nil {
+	agents := []string{}
+	if cfg == nil {
+		return agents
+	}
+	if cfg.Agents.Claude != nil {
+		agents = append(agents, "claude")
+	}
+	if cfg.Agents.Codex != nil {
 		agents = append(agents, "codex")
 	}
 	return agents
