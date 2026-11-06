@@ -65,3 +65,43 @@ Evidence:
 Impact: touched = internal/connector (mcp.go, guidance.go, prompts.go, discussion.go, new guidance files, tests) plus docs/guides. Depended on by ChatGPT/Claude clients through tools/list, and by the project template (ComposeTemplate). Superseded = nothing. Data = no migrations or stored-state change; grants are read only. Looked in internal/connector, internal/connectorstate, docs/guides.
 
 _No source reference was recorded for this finding._
+
+## f8
+
+Issue #1422 (bug_file_propose, file a bug in one confirmed step) is still open; no bug-filing tool exists at commit c6cd32e. #1414 (invisible brainstorm scope) is closed and delivered missingScopes plus the missing_scopes.md notice.
+
+Evidence:
+
+- `internal/connector/guidance/overview/missing_scopes.md:1`
+
+## f9
+
+missingScopes counts whether adding a scope lists more tools. A guide listed for every grant adds the same tool on both sides, so missing-scope output is unchanged by it.
+
+Evidence:
+
+- `internal/connector/discussion.go:316`
+
+## f10
+
+Per-tool guidance for every callable tool is appended to server instructions automatically, so a new tool with its own guidance file adds its text to instructions unless specially excluded.
+
+Evidence:
+
+- `internal/connector/prompts.go:56`
+
+## f11
+
+Actions offered through action_propose are the installation's enabled existing actions, not a fixed list in the connector, so the guide cannot promise a specific action exists; it can only describe the propose/confirm/Discord sequence.
+
+Evidence:
+
+- `internal/connector/guidance/action_propose.md:1`
+
+## f12
+
+Eleven consent scopes exist (task discussion, code review, factory overview, three usage scopes, repository actions, standards management, advisory, discussion publish, repository brainstorm), each with an owner-facing description the guide can name on reconnect.
+
+Evidence:
+
+- `internal/connector/server.go:64`
