@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -231,5 +232,29 @@ func TestBugFilingLinearMissingLabelFallsBackToIDOnlyAdd(t *testing.T) {
 	got := f.step(t)
 	if got.State != store.BugFilingLabelled || f.linear.labelWrites != 1 || f.linear.creates != 1 {
 		t.Fatalf("label: %+v writes=%d creates=%d", got, f.linear.labelWrites, f.linear.creates)
+	}
+}
+
+func TestBugFilingLinearMovedConnectionEndsLabelFailedWithLink(t *testing.T) {
+	t.Parallel()
+	f := newLinearFilingFixture(t)
+	if got := f.step(t); got.State != store.BugFilingCreated {
+		t.Fatalf("create: %+v", got)
+	}
+	cur, err := f.db.CurrentConnection(t.Context(), f.filing.RepositoryID, store.TicketConnection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur.Linear.BugLabelID = "other-label"
+	if _, err = f.db.SetConnection(t.Context(), cur, cur.Revision); err != nil {
+		t.Fatal(err)
+	}
+	var got store.BugFiling
+	for i := 0; i < bugLabelAttempts+1 && got.State != store.BugFilingLabelFailed; i++ {
+		f.now = f.now.Add(2 * bugLabelRetry)
+		got = f.step(t)
+	}
+	if got.State != store.BugFilingLabelFailed || !strings.Contains(got.Reason, got.IssueLink) || f.linear.creates != 1 || f.linear.labelWrites != 0 {
+		t.Fatalf("moved: %+v creates=%d writes=%d", got, f.linear.creates, f.linear.labelWrites)
 	}
 }
