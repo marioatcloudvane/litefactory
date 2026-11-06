@@ -155,6 +155,16 @@ func ArgumentLimit(command, name string) int {
 	if StandardsCommand(command) && protectedArgument(name) {
 		return 32768
 	}
+	if command == BugFileCommand {
+		switch name {
+		case "description":
+			return 8192
+		case "repository":
+			return 1024
+		case "title":
+			return 1024
+		}
+	}
 	switch name {
 	case "question":
 		return 8192
