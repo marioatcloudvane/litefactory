@@ -24,7 +24,7 @@ func TestRegisterRefusalNamesBaseStoredAtWriteTime(t *testing.T) {
 	}
 
 	other := errors.New("disk full")
-	if got := registerRefusal(other, "main"); got != other {
+	if got := registerRefusal(other, "main"); !errors.Is(got, other) {
 		t.Fatalf("other error mapped to %v", got)
 	}
 }
