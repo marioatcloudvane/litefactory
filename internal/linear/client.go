@@ -34,7 +34,9 @@ type Config struct {
 	ProjectID      string
 	AuthKind       string
 	ModeLabels     map[string]string
-	States         map[string]string
+	// BugLabelID is the optional existing Linear label that means bug.
+	BugLabelID string
+	States     map[string]string
 }
 
 var requestLogger atomic.Pointer[slog.Logger]

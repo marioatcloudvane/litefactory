@@ -52,7 +52,16 @@ type bugFrozen struct {
 	Title         string `json:"title"`
 	Body          string `json:"body"`
 	Marker        string `json:"marker"`
+	// The Linear fields are frozen at proposal and absent from GitHub payloads.
+	Tracker     string `json:"tracker,omitempty"`
+	LabelID     string `json:"label_id,omitempty"`
+	Destination string `json:"destination,omitempty"`
+	Nonce       string `json:"nonce,omitempty"`
 }
+
+// bugLinearTargetID is the stable target of a Linear filing: it has no marker,
+// so it derives from the frozen payload hash.
+func bugLinearTargetID(sumHex string) string { return "linear:" + sumHex[:32] }
 
 // BugMarkerLine renders the hidden marker line for a 32-hex marker.
 func BugMarkerLine(hexMarker string) string {
@@ -94,27 +103,36 @@ func (b BugFiles) target(ctx context.Context, name string) (store.Repo, error) {
 	return store.Repo{}, refuseBug("Unknown project.")
 }
 
-// fences checks consent, ticket connection and the bug label for one repository.
-func (b BugFiles) fences(ctx context.Context, p owneraction.Principal, repo store.Repo, ref string, at time.Time) error {
+const bugNoLinearLabel = "This Linear project has no bug label set. Ask the factory operator to set the connection's --bug-label to your Linear bug label ID, then propose again."
+
+// fences checks consent, ticket connection and the bug label for one
+// repository. For a Linear project it returns the connection and true.
+func (b BugFiles) fences(ctx context.Context, p owneraction.Principal, repo store.Repo, ref string, at time.Time) (store.ConnectionVersion, bool, error) {
 	actor := storePrincipal(p)
 	if err := b.DB.CheckOwnerActionAuthority(ctx, actor, store.OwnerAction{Principal: actor, Scope: "repository:actions", RepositoryID: repo.ID, RepositoryRef: ref}, at); err != nil {
-		return err
+		return store.ConnectionVersion{}, false, err
 	}
 	conn, err := b.DB.CurrentConnection(ctx, repo.ID, store.TicketConnection)
 	switch {
 	case err == nil && conn.Provider == ticket.Linear:
-		return refuseBug("Filing a bug on Linear is not supported yet")
+		if !conn.Enabled {
+			return conn, true, refuseBug("the Linear connection is disabled")
+		}
+		if conn.Linear.BugLabelID == "" {
+			return conn, true, refuseBug(bugNoLinearLabel)
+		}
+		return conn, true, nil
 	case err != nil && !errors.Is(err, store.ErrNotFound):
-		return err
+		return store.ConnectionVersion{}, false, err
 	}
 	_, found, err := b.Labels.RepoLabelNodeID(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, BugLabel)
 	if err != nil {
-		return err
+		return store.ConnectionVersion{}, false, err
 	}
 	if !found {
-		return refuseBug("the repository " + repo.Slug() + " has no label named " + BugLabel + "; add it before filing")
+		return store.ConnectionVersion{}, false, refuseBug("the repository " + repo.Slug() + " has no label named " + BugLabel + "; add it before filing")
 	}
-	return nil
+	return store.ConnectionVersion{}, false, nil
 }
 
 func (b BugFiles) checkProtected(ctx context.Context, values ...string) error {
@@ -164,14 +182,24 @@ func (b BugFiles) Resolve(ctx context.Context, p owneraction.Principal, in owner
 		return owneraction.Facts{}, err
 	}
 	ref := repo.Forge + ":" + repo.Slug()
-	if err = b.fences(ctx, p, repo, ref, at); err != nil {
-		return owneraction.Facts{}, err
-	}
-	marker, err := newBugMarker()
+	conn, isLinear, err := b.fences(ctx, p, repo, ref, at)
 	if err != nil {
 		return owneraction.Facts{}, err
 	}
-	frozen := bugFrozen{Kind: BugFileCommand, RepositoryID: repo.ID, RepositoryRef: ref, Title: title, Body: BugIssueBody(description, marker), Marker: marker}
+	var frozen bugFrozen
+	if isLinear {
+		var nonce [16]byte
+		if _, err = rand.Read(nonce[:]); err != nil {
+			return owneraction.Facts{}, err
+		}
+		frozen = bugFrozen{Kind: BugFileCommand, RepositoryID: repo.ID, RepositoryRef: ref, Title: title, Body: description + "\n\n" + bugProvenance, Tracker: store.BugTrackerLinear, LabelID: conn.Linear.BugLabelID, Destination: conn.Destination, Nonce: hex.EncodeToString(nonce[:])}
+	} else {
+		marker, markerErr := newBugMarker()
+		if markerErr != nil {
+			return owneraction.Facts{}, markerErr
+		}
+		frozen = bugFrozen{Kind: BugFileCommand, RepositoryID: repo.ID, RepositoryRef: ref, Title: title, Body: BugIssueBody(description, marker), Marker: marker}
+	}
 	if err = b.checkProtected(ctx, frozen.Title, frozen.Body); err != nil {
 		return owneraction.Facts{}, err
 	}
@@ -181,7 +209,12 @@ func (b BugFiles) Resolve(ctx context.Context, p owneraction.Principal, in owner
 	}
 	sum := sha256.Sum256(raw)
 	summary := "File a bug on " + repo.Slug() + " titled \"" + title + "\", label it " + BugLabel + " and start Bug analysis on it."
-	return owneraction.Facts{Invocation: inv, RepositoryID: repo.ID, RepositoryRef: ref, TargetKind: "bug_filing", TargetID: marker, TargetRevision: hex.EncodeToString(sum[:]), Summary: summary, Estimate: "unknown", Payload: string(raw)}, nil
+	targetID := frozen.Marker
+	if isLinear {
+		summary = "File a bug on the Linear project of " + repo.Slug() + " titled \"" + title + "\", label it " + BugLabel + " and start Bug analysis on it."
+		targetID = bugLinearTargetID(hex.EncodeToString(sum[:]))
+	}
+	return owneraction.Facts{Invocation: inv, RepositoryID: repo.ID, RepositoryRef: ref, TargetKind: "bug_filing", TargetID: targetID, TargetRevision: hex.EncodeToString(sum[:]), Summary: summary, Estimate: "unknown", Payload: string(raw)}, nil
 }
 
 func unpackBug(f owneraction.Facts) (bugFrozen, error) {
@@ -190,7 +223,20 @@ func unpackBug(f owneraction.Facts) (bugFrozen, error) {
 		return v, owneraction.ErrIntegrity
 	}
 	sum := sha256.Sum256([]byte(f.Payload))
-	if hex.EncodeToString(sum[:]) != f.TargetRevision || v.Marker != f.TargetID || v.RepositoryID != f.RepositoryID || v.RepositoryRef != f.RepositoryRef || v.Title == "" || !strings.HasSuffix(v.Body, "\n\n"+v.Marker) {
+	sumHex := hex.EncodeToString(sum[:])
+	if sumHex != f.TargetRevision || v.RepositoryID != f.RepositoryID || v.RepositoryRef != f.RepositoryRef || v.Title == "" {
+		return v, owneraction.ErrIntegrity
+	}
+	switch v.Tracker {
+	case "":
+		if v.LabelID != "" || v.Destination != "" || v.Nonce != "" || v.Marker != f.TargetID || !strings.HasSuffix(v.Body, "\n\n"+v.Marker) {
+			return v, owneraction.ErrIntegrity
+		}
+	case store.BugTrackerLinear:
+		if v.Marker != "" || v.LabelID == "" || v.Destination == "" || f.TargetID != bugLinearTargetID(sumHex) || strings.TrimSpace(v.Body) == "" {
+			return v, owneraction.ErrIntegrity
+		}
+	default:
 		return v, owneraction.ErrIntegrity
 	}
 	return v, nil
@@ -217,7 +263,14 @@ func (b BugFiles) Recheck(ctx context.Context, p owneraction.Principal, f ownera
 	if err != nil {
 		return err
 	}
-	if err = b.fences(ctx, p, repo, v.RepositoryRef, at); err != nil {
+	conn, isLinear, err := b.fences(ctx, p, repo, v.RepositoryRef, at)
+	if err == nil && isLinear != (v.Tracker == store.BugTrackerLinear) {
+		return refuseBug(bugFresh)
+	}
+	if err == nil && isLinear && (conn.Linear.BugLabelID != v.LabelID || conn.Destination != v.Destination) {
+		return refuseBug(bugFresh)
+	}
+	if err != nil {
 		var refusal owneraction.Refusal
 		if errors.As(err, &refusal) {
 			return refuseBug(refusal.Reason + "; " + bugFresh)
@@ -228,7 +281,11 @@ func (b BugFiles) Recheck(ctx context.Context, p owneraction.Principal, f ownera
 }
 
 func (b BugFiles) admit(ctx context.Context, p owneraction.Principal, v bugFrozen, key string, at time.Time) (store.BugFiling, error) {
-	f, _, err := b.DB.AdmitBugFiling(ctx, store.BugFiling{ExecutionID: key, OwnerActionID: strings.TrimPrefix(key, "owner-action:"), OwnerID: p.OwnerID, OwnerGeneration: p.OwnerGeneration, RepositoryID: v.RepositoryID, RepositoryRef: v.RepositoryRef, Title: v.Title, Body: v.Body, Marker: v.Marker}, at)
+	filing := store.BugFiling{ExecutionID: key, OwnerActionID: strings.TrimPrefix(key, "owner-action:"), OwnerID: p.OwnerID, OwnerGeneration: p.OwnerGeneration, RepositoryID: v.RepositoryID, RepositoryRef: v.RepositoryRef, Title: v.Title, Body: v.Body, Marker: v.Marker}
+	if v.Tracker == store.BugTrackerLinear {
+		filing.Tracker, filing.LabelID, filing.Destination, filing.EffectKey = v.Tracker, v.LabelID, v.Destination, "bug-filing:"+key
+	}
+	f, _, err := b.DB.AdmitBugFiling(ctx, filing, at)
 	return f, err
 }
 

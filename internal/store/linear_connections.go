@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode"
 
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
@@ -16,6 +17,8 @@ type LinearConfiguration struct {
 	AuthKind                       string
 	ModeLabelsJSON                 string
 	LifecycleStatesJSON            string
+	// BugLabelID is the optional existing Linear label ID that means bug.
+	BugLabelID string `json:",omitempty"`
 }
 
 // ModeLabels returns the explicitly configured mode-to-label mapping.
@@ -52,8 +55,19 @@ func validateLinearConnection(v ConnectionVersion) error {
 	if c.WorkspaceID == "" || c.TeamID == "" || c.ProjectID == "" || v.Destination != c.TeamID+"/"+c.ProjectID || strings.ContainsAny(c.WorkspaceID+c.TeamID+c.ProjectID, " \r\n\t\x00") || (c.AuthKind != "api_key" && c.AuthKind != "oauth") {
 		return errors.New("store: Linear workspace, team, project and authentication kind are required")
 	}
-	if _, err := c.ModeLabels(); err != nil {
+	modes, err := c.ModeLabels()
+	if err != nil {
 		return err
+	}
+	if c.BugLabelID != "" {
+		if strings.TrimSpace(c.BugLabelID) != c.BugLabelID || strings.ContainsFunc(c.BugLabelID, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+			return errors.New("store: Linear bug label ID must not contain whitespace or control characters")
+		}
+		for _, id := range modes {
+			if id == c.BugLabelID {
+				return errors.New("store: Linear bug label ID must differ from every mode label ID")
+			}
+		}
 	}
 	states, err := c.LifecycleStates()
 	if err != nil {
