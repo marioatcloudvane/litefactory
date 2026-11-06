@@ -34,7 +34,10 @@ type Config struct {
 	ProjectID      string
 	AuthKind       string
 	ModeLabels     map[string]string
-	States         map[string]string
+	// CodingAgentLabels and BugLabel are verified like mode labels; both optional.
+	CodingAgentLabels map[string]string
+	BugLabel          string
+	States            map[string]string
 }
 
 var requestLogger atomic.Pointer[slog.Logger]
@@ -61,6 +64,7 @@ func New(config Config, token secrets.Token, transport *http.Client) (*Client, e
 		return nil, failure("configure", ticket.Refused, "unsupported authentication kind")
 	}
 	config.ModeLabels = maps.Clone(config.ModeLabels)
+	config.CodingAgentLabels = maps.Clone(config.CodingAgentLabels)
 	config.States = maps.Clone(config.States)
 	if transport == nil {
 		transport = &http.Client{Timeout: 30 * time.Second}

@@ -233,6 +233,11 @@ func (b sessionSyncCheckout) DeferredHead(ctx context.Context, working string) (
 	return
 }
 
+func (b sessionSyncCheckout) ChangedSince(ctx context.Context, commit string) (paths []string, err error) {
+	err = b.withCheckout(ctx, func(c GitSyncBaseCheckout) error { var e error; paths, e = c.ChangedSince(ctx, commit); return e })
+	return
+}
+
 // PreparationFreshness observes the retained branch against the fetched selected
 // base. A healthy retained checkout needs no refresh or publication to proceed.
 func (b sessionSyncCheckout) PreparationFreshness(ctx context.Context, working, base string) (head string, behind int, err error) {
