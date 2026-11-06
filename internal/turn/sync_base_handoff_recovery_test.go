@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,5 +109,51 @@ func TestCurrentUnchangedSyncHandoffVerifiesIdentityWithoutRefresh(t *testing.T)
 	}
 	if checkout.refreshes != 0 {
 		t.Fatal("failed handoff refreshed checkout")
+	}
+}
+
+// c-foreign-refused and c-capacity-only on the deferred route: an unchanged
+// head with retained edits proceeds; a foreign commit refuses and names its paths.
+func TestDeferredSyncHandoffRefusesForeignCommitWithPaths(t *testing.T) {
+	f := newFixture(t, nil)
+	g := newSyncGit(t)
+	retained, err := git.EnsureWorktree(t.Context(), g.clone, git.EnsureWorktreeOptions{Dir: filepath.Join(t.TempDir(), "retained"), Branch: implementFeature, BaseBranch: gittest.DefaultBranch})
+	mustProgress(t, err)
+	head, err := retained.Worktree.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+	mustProgress(t, err)
+	mustProgress(t, os.WriteFile(filepath.Join(retained.Worktree.Path(), "retained.txt"), []byte("retained work\n"), 0600))
+	evidence := syncBaseOutput{Working: implementFeature, Base: gittest.DefaultBranch, Result: "deferred", Commit: head, CheckoutVerified: true}
+	profile := &graphexec.Profile{Nodes: []graphexec.Node{{Name: "sync", Action: graphexec.SyncBaseAction, Outcomes: []string{"synced", "current", "deferred"}}, {Name: "agent", Action: ResearchAgentAction}}}
+	at := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	def, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "test", Mode: "implement", ProfileVersion: 1, Path: "test/deferred.dot", Digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", CreatedAt: at})
+	mustProgress(t, err)
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, Status: store.GraphRunning, CurrentNode: "sync", StartedAt: at})
+	mustProgress(t, err)
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "sync", StartedAt: at})
+	mustProgress(t, err)
+	raw, err := json.Marshal(evidence)
+	mustProgress(t, err)
+	_, err = f.db.RecordGraphOutput(t.Context(), store.GraphOutput{NodeAttemptID: attempt.ID, Kind: store.GraphOutputJSON, Payload: raw, CreatedAt: at})
+	mustProgress(t, err)
+	mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "deferred", FinishedAt: at, InstanceStatus: store.GraphRunning, Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "sync", ToNode: "agent", OnOutcome: "deferred", At: at}}))
+	binding := SyncBaseBinding{Bind: func(context.Context, Options, ActivityRequest) (SyncBaseTarget, error) {
+		return SyncBaseTarget{Working: evidence.Working, Base: evidence.Base, Checkout: GitSyncBaseCheckout{Worktree: retained.Worktree, Author: git.Author{Name: "Test", Email: "test@example.invalid"}}, Lock: func(context.Context) (func() error, bool, error) {
+			return func() error { return nil }, true, nil
+		}}, nil
+	}}
+	for range 3 {
+		mustProgress(t, verifySyncHandoffBeforeAgent(t.Context(), f.opts, profile, instance, binding))
+	}
+	mustProgress(t, os.WriteFile(filepath.Join(retained.Worktree.Path(), "foreign.txt"), []byte("foreign\n"), 0600))
+	presyncGit(t, retained.Worktree.Path(), "add", "foreign.txt")
+	presyncGit(t, retained.Worktree.Path(), "-c", "user.name=Foreign", "-c", "user.email=foreign@example.invalid", "commit", "--quiet", "-m", "foreign change")
+	err = verifySyncHandoffBeforeAgent(t.Context(), f.opts, profile, instance, binding)
+	if err == nil || !strings.Contains(err.Error(), "retained checkout changed since preparation deferral") || !strings.Contains(err.Error(), "foreign.txt") {
+		t.Fatalf("foreign commit refusal lacks its paths: %v", err)
+	}
+	kept, readErr := os.ReadFile(filepath.Join(retained.Worktree.Path(), "retained.txt"))
+	mustProgress(t, readErr)
+	if string(kept) != "retained work\n" {
+		t.Fatal("refusal changed retained bytes")
 	}
 }
