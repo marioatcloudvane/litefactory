@@ -169,7 +169,7 @@ func TestMappedModesPreserveCanonicalWorkflowMeaning(t *testing.T) {
 	if err := json.Unmarshal([]byte(issueJSON("issue-id", "project")), &i); err != nil {
 		t.Fatal(err)
 	}
-	i.Labels.Nodes = append(i.Labels.Nodes, struct{ ID, Name string }{"plan-id", "custom provider name"}, struct{ ID, Name string }{"unrelated", "owner label"})
+	i.Labels.Nodes = append(i.Labels.Nodes, labelNode{ID: "plan-id", Name: "custom provider name"}, labelNode{ID: "unrelated", Name: "owner label"})
 	snapshot, err := c.snapshot(i)
 	if err != nil {
 		t.Fatal(err)
