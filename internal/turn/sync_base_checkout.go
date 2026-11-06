@@ -78,3 +78,11 @@ func (c GitSyncBaseCheckout) DeferredHead(ctx context.Context, working string) (
 	}
 	return head, nil
 }
+
+// ChangedSince lists the retained paths that differ from a recorded commit.
+func (c GitSyncBaseCheckout) ChangedSince(ctx context.Context, commit string) ([]string, error) {
+	if c.Worktree == nil {
+		return nil, errors.New("retained sync checkout is missing")
+	}
+	return c.Worktree.ChangedSince(ctx, commit)
+}

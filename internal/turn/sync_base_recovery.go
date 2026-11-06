@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -93,7 +94,7 @@ func verifySyncHandoffBeforeAgent(ctx context.Context, opts Options, profile *gr
 				return verifyErr
 			}
 			if head != evidence.Commit {
-				return errors.New("retained checkout changed since preparation deferral")
+				return deferredCheckoutChanged(ctx, target.Checkout, evidence.Commit)
 			}
 			return nil
 		}
@@ -103,4 +104,24 @@ func verifySyncHandoffBeforeAgent(ctx context.Context, opts Options, profile *gr
 		return nil
 	}
 	return nil
+}
+
+// deferredCheckoutChanged refuses a moved retained head and names the paths
+// that differ from the recorded deferral commit when the checkout can list them.
+func deferredCheckoutChanged(ctx context.Context, checkout SyncBaseCheckout, commit string) error {
+	const refusal = "retained checkout changed since preparation deferral"
+	lister, ok := checkout.(interface {
+		ChangedSince(context.Context, string) ([]string, error)
+	})
+	if !ok {
+		return errors.New(refusal)
+	}
+	paths, err := lister.ChangedSince(ctx, commit)
+	if err != nil {
+		return fmt.Errorf("%s (changed paths unavailable: %w)", refusal, err)
+	}
+	if len(paths) == 0 {
+		return errors.New(refusal)
+	}
+	return fmt.Errorf("%s; changed paths: %s", refusal, strings.Join(paths, ", "))
 }

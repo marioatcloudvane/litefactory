@@ -8,7 +8,8 @@ resources:
   - unit-test-engineer.md
 ---
 # Acceptance shaping
-Use stable explicit criterion IDs. Write each criterion in plain language:
+Use stable explicit criterion IDs: `AC-` followed by at least three digits
+(AC-001, AC-002, …); AC-01 or AC-1 is refused. Write each criterion in plain language:
 - `text`: one sentence from the user's point of view ("You can …", "The owner
   sees …"), ending with its marker `(Auto)` or `(Manual)`. No internal jargon
   without a short explanation.
