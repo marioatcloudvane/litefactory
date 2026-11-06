@@ -14,6 +14,7 @@ type connectionFlags struct {
 	provider, workspace, team, project, authKind, modeLabels, states string
 	revision                                                         int64
 	origin, destination, credential, remoteID                        string
+	codingAgentLabels, bugLabel                                      string
 }
 
 func newRepoConnectionCommand(action string) *Command {
@@ -72,7 +73,7 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 	case "list":
 		err = service.ListConnections(ctx, role, present)
 	case "set":
-		err = service.SetConnection(ctx, contracts.SetProjectConnectionRequest{Role: role, Provider: f.provider, Workspace: f.workspace, Team: f.team, Project: f.project, AuthKind: f.authKind, ModeLabels: f.modeLabels, States: f.states, Revision: f.revision, Origin: f.origin, Destination: f.destination, Credential: f.credential, RemoteID: f.remoteID}, present)
+		err = service.SetConnection(ctx, contracts.SetProjectConnectionRequest{Role: role, Provider: f.provider, Workspace: f.workspace, Team: f.team, Project: f.project, AuthKind: f.authKind, ModeLabels: f.modeLabels, CodingAgentLabels: f.codingAgentLabels, BugLabel: f.bugLabel, States: f.states, Revision: f.revision, Origin: f.origin, Destination: f.destination, Credential: f.credential, RemoteID: f.remoteID}, present)
 	case "disable":
 		err = service.DisableConnection(ctx, role, f.revision, present)
 	case "check":

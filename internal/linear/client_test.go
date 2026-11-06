@@ -845,3 +845,48 @@ func TestSearchIssuesStaysInTheProjectAndBounded(t *testing.T) {
 		t.Fatal("empty search accepted")
 	}
 }
+
+func TestInspectVerifiesAgentAndBugLabelsByID(t *testing.T) {
+	var lookups []string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Query     string
+			Variables map[string]string
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		switch {
+		case strings.Contains(body.Query, "viewer"):
+			_, _ = fmt.Fprint(w, `{"data":{"viewer":{"id":"bot","active":true,"organization":{"id":"workspace"}}}}`)
+		case strings.Contains(body.Query, "project(id:"):
+			_, _ = fmt.Fprint(w, `{"data":{"team":{"id":"team","organization":{"id":"workspace"}},"project":{"id":"project","teams":{"nodes":[{"id":"team"}],"pageInfo":{"hasNextPage":false}}}}}`)
+		case strings.Contains(body.Query, "issueLabel("):
+			lookups = append(lookups, body.Variables["id"])
+			org := "workspace"
+			if body.Variables["id"] == "foreign-bug" {
+				org = "other"
+			}
+			_, _ = fmt.Fprintf(w, `{"data":{"issueLabel":{"id":%q,"organization":{"id":%q},"team":{"id":"team"}}}}`, body.Variables["id"], org)
+		default:
+			_, _ = fmt.Fprint(w, `{"data":{"webhooks":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}`)
+		}
+	})
+	c.config.ModeLabels = map[string]string{"plan": "p"}
+	c.config.CodingAgentLabels = map[string]string{"codex": "agent-codex"}
+	c.config.BugLabel = "bug"
+	if _, err := c.Inspect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(lookups, ",") != "p,agent-codex,bug" {
+		t.Fatalf("lookups=%v", lookups)
+	}
+	c.config.BugLabel = "foreign-bug"
+	if _, err := c.Inspect(t.Context()); err == nil {
+		t.Fatal("bug label from another workspace accepted")
+	}
+	c.config.BugLabel = "agent-codex"
+	if _, err := c.Inspect(t.Context()); err == nil {
+		t.Fatal("duplicate label ID across fields accepted")
+	}
+}

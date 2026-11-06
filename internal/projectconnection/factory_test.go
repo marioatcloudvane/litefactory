@@ -367,3 +367,117 @@ func TestLinearMappingHealthPreservesAccessDiagnostics(t *testing.T) {
 		}
 	}
 }
+
+func linearLabelServer(t *testing.T, writes, labelLookups *[]string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Query     string
+			Variables map[string]any
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		if strings.Contains(req.Query, "mutation") || strings.Contains(req.Query, "issueLabels") {
+			*writes = append(*writes, req.Query)
+		}
+		var data any
+		switch {
+		case strings.Contains(req.Query, "viewer"):
+			data = map[string]any{"viewer": map[string]any{"id": "bot", "active": true, "name": "bot", "organization": map[string]any{"id": "workspace"}}}
+		case strings.Contains(req.Query, "team("):
+			data = map[string]any{"team": map[string]any{"id": "team", "organization": map[string]any{"id": "workspace"}}, "project": map[string]any{"id": "project", "teams": map[string]any{"nodes": []any{map[string]string{"id": "team"}}, "pageInfo": map[string]bool{"hasNextPage": false}}}}
+		case strings.Contains(req.Query, "issueLabel("):
+			*labelLookups = append(*labelLookups, fmt.Sprint(req.Variables["id"]))
+			data = map[string]any{"issueLabel": map[string]any{"id": req.Variables["id"], "organization": map[string]string{"id": "workspace"}, "team": map[string]string{"id": "team"}}}
+		case strings.Contains(req.Query, "workflowState("):
+			kind := "completed"
+			if req.Variables["id"] == "retired" {
+				kind = "canceled"
+			}
+			data = map[string]any{"workflowState": map[string]any{"id": req.Variables["id"], "type": kind, "team": map[string]string{"id": "team"}}}
+		case strings.Contains(req.Query, "webhooks("):
+			data = map[string]any{"webhooks": map[string]any{"nodes": []any{}, "pageInfo": map[string]bool{"hasNextPage": false}}}
+		case strings.Contains(req.Query, "issue("):
+			data = map[string]any{"issue": map[string]any{"id": "issue-id", "identifier": "LIN-1", "url": "https://linear.app/t/issue/LIN-1", "title": "T", "description": "B", "creator": map[string]any{"id": "owner", "active": true}, "team": map[string]string{"id": "team"}, "project": map[string]string{"id": "project"}, "state": map[string]string{"id": "open", "type": "unstarted"}, "labels": map[string]any{"nodes": []any{}, "pageInfo": map[string]bool{"hasNextPage": false}}}}
+		default:
+			t.Errorf("unexpected query: %s", req.Query)
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{"data": data}); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func linearLabelVersion(origin string, cfg store.LinearConfiguration) store.ConnectionVersion {
+	v := version(origin, 1)
+	v.Provider = ticket.Linear
+	v.Destination = "team/project"
+	cfg.WorkspaceID, cfg.TeamID, cfg.ProjectID, cfg.AuthKind = "workspace", "team", "project", "api_key"
+	cfg.LifecycleStatesJSON = `{"completed":"completed","retired":"retired"}`
+	v.Linear = cfg
+	return v
+}
+
+func TestLinearCheckRemedyByLabelSetup(t *testing.T) {
+	var writes, lookups []string
+	server := linearLabelServer(t, &writes, &lookups)
+	f := projectconnection.NewFactory(projectconnection.Options{DB: openLinearLabelDB(t), Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "test-token", true }}})
+	full := `{"research":"r","Plan":"p","implement":"i","validate":"v","Mode: Spike":"s"}`
+	for name, tc := range map[string]struct {
+		cfg     store.LinearConfiguration
+		want    []string
+		notWant []string
+		lookups int
+	}{
+		"empty":   {store.LinearConfiguration{}, []string{"Labels are not set up.", "litefactory repo labels setup <project>", "no coding agent label is mapped", "no bug label is mapped"}, []string{"Missing mode mappings"}, 0},
+		"partial": {store.LinearConfiguration{ModeLabelsJSON: `{"plan":"p","implement":"i","validate":"v"}`}, []string{"Missing mode mappings: research, spike", "litefactory repo labels setup <project>"}, []string{"Labels are not set up"}, 3},
+		"full":    {store.LinearConfiguration{ModeLabelsJSON: full}, []string{"no coding agent label is mapped", "no bug label is mapped"}, []string{"Missing mode mappings", "Labels are not set up"}, 5},
+		"cockpit flat names": {store.LinearConfiguration{ModeLabelsJSON: `{"Mode: Plan":"p","Mode: Implement":"i","Mode: Validate":"v","Mode: Research":"r","Mode: Spike":"s"}`, CodingAgentLabelsJSON: `{"codex":"a"}`, BugLabelID: "b"},
+			nil, []string{"Missing mode mappings", "Labels are not set up", "Warning"}, 7},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lookups = nil
+			o := f.Check(t.Context(), linearLabelVersion(server.URL, tc.cfg))
+			if o.Status != "usable_for_checked_capabilities" {
+				t.Fatalf("status changed: %+v", o)
+			}
+			for _, s := range tc.want {
+				if !strings.Contains(o.Remedy, s) {
+					t.Errorf("remedy lacks %q: %s", s, o.Remedy)
+				}
+			}
+			for _, s := range tc.notWant {
+				if strings.Contains(o.Remedy, s) {
+					t.Errorf("remedy has %q: %s", s, o.Remedy)
+				}
+			}
+			if len(lookups) != tc.lookups {
+				t.Errorf("per-ID label lookups = %v, want %d", lookups, tc.lookups)
+			}
+		})
+	}
+	if len(writes) != 0 {
+		t.Fatalf("check wrote or searched labels: %v", writes)
+	}
+}
+
+func openLinearLabelDB(t *testing.T) *store.DB {
+	t.Helper()
+	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "linear-labels.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := db.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
