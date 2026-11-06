@@ -77,7 +77,7 @@ Evidence:
 
 ## f9
 
-Impact analysis. Touched: pkg/execution, internal/factory/*, internal/discordcomponent, internal/connector*, internal/messaging*, internal/cli, docs/factory-core.md and scripts. Depends on it: daemon composition, the CLI, the closed #1268-#1271 stories. Superseded: direct store and daemon paths in Discord, connector and CLI (stated as retired). Data and compatibility: none found for schema changes, per the docs. Team releases: none found in this area. For this request itself (a report), nothing in the repository is touched unless the owner picks q1 option b, which adds one docs page.
+Impact analysis. Touched: pkg/execution, internal/factory/*, internal/discordcomponent, internal/connector*, internal/messaging*, internal/cli, docs/factory-core.md and scripts. Depends on it: daemon composition, the CLI, the closed #1268-#1271 stories. Superseded: direct store and daemon paths in Discord, connector and CLI (stated as retired). Data and compatibility: none found for schema changes, per the docs. Team releases: none found in this area. For this request itself (a report), nothing in the repository is touched; the owner chose an issue comment only.
 
 _No source reference was recorded for this finding._
 
@@ -99,3 +99,11 @@ Thin coverage: 12 of the 18 internal/factory service packages have no test files
 Evidence:
 
 - `internal/factory/boundary_test.go:16`
+
+## f12
+
+Package directories at 436cb605 had no pkg/execution, internal/factory, internal/discordcomponent, internal/connectoraccess, internal/connectorstorage or internal/messagingstorage; graph execution, agent and provider process code lived under internal/graphexec, internal/agent and internal/providerprocess. All of these new boundary packages exist at c05ebd29. The before diagram is based on this listing and on the docs naming the direct store and daemon paths that were retired.
+
+Evidence:
+
+- `docs/factory-core.md:1`
