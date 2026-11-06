@@ -265,7 +265,10 @@ func (p *bugFilingProcessor) labelLinear(ctx context.Context, f store.BugFiling)
 	t, err := p.linearTarget(ctx, f)
 	if err != nil {
 		if errors.Is(err, errBugLinearMoved) {
-			return p.labelLater(ctx, f, bugReasonLinearMoved+"; filed but not yet labelled", bugLabelRetry, false, nil)
+			if f.LabelRetries+1 >= bugLabelAttempts {
+				return p.labelFailed(ctx, f, "the Linear connection no longer matches this bug filing; filed as "+f.IssueLink+", not labelled; add the bug label to the issue")
+			}
+			return p.labelLater(ctx, f, bugReasonLinearMoved+"; filed but not yet labelled", bugLabelRetry, true, nil)
 		}
 		return p.labelLater(ctx, f, bugReasonLabelUnclear, bugLabelRetry, false, err)
 	}
