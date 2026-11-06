@@ -34,6 +34,8 @@ func newRepoConnectionCommand(action string) *Command {
 		fs.StringVar(&f.project, "project", "", "verified Linear project ID")
 		fs.StringVar(&f.authKind, "auth-kind", "api_key", "Linear authentication kind: api_key or oauth")
 		fs.StringVar(&f.modeLabels, "mode-labels", "", "JSON mapping from canonical mode names to Linear label IDs")
+		fs.StringVar(&f.codingAgentLabels, "coding-agent-labels", "", "JSON mapping from coding agent names to Linear label IDs")
+		fs.StringVar(&f.bugLabel, "bug-label", "", "Linear bug label ID")
 		fs.StringVar(&f.states, "states", "", "JSON mapping: completed, retired and open to Linear state IDs")
 		fs.Int64Var(&f.revision, "revision", -1, "expected current revision (0 creates a missing connection)")
 		fs.StringVar(&f.origin, "origin", "", "canonical provider API root")

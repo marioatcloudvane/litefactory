@@ -107,3 +107,26 @@ func TestConnectionBindingDiagnostics(t *testing.T) {
 		t.Fatalf("incorrect Linear diagnostic: %s", stdout)
 	}
 }
+
+// TestConnectionSetAcceptsLabelMapFlags proves connection set declares the
+// coding-agent and bug label flags and passes them to the service, which
+// refuses them for a GitHub connection instead of the parser rejecting them.
+func TestConnectionSetAcceptsLabelMapFlags(t *testing.T) {
+	paths := newRepoHome(t)
+	clone := newRepoFixture(t)
+	router, _, stderr := newTestRouter(t)
+	if code := router.Run(t.Context(), []string{"repo", "add", clone.Dir}); code != ExitOK {
+		t.Fatalf("repo add: exit %d: %s", code, stderr)
+	}
+	id := strconv.FormatInt(listRepos(t, paths)[0].ID, 10)
+	for _, flags := range [][]string{{"--coding-agent-labels", `{"Codex":"label-a"}`}, {"--bug-label", "label-b"}} {
+		stderr.Reset()
+		args := append([]string{"repo", "connection", "set", id, "ticket", "--revision", "1", "--origin", "https://api.github.com", "--destination", "acme/tasks", "--credential", "env:LABEL_TOKEN"}, flags...)
+		if code := router.Run(t.Context(), args); code == ExitOK {
+			t.Fatalf("%v: GitHub connection accepted Linear-only label flag", flags)
+		}
+		if strings.Contains(stderr.String(), "not defined") || !strings.Contains(stderr.String(), "apply to Linear only") {
+			t.Fatalf("%v: want service refusal, got: %s", flags, stderr)
+		}
+	}
+}
