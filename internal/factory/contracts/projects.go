@@ -52,8 +52,10 @@ type ConnectionPresentation struct {
 type SetProjectConnectionRequest struct {
 	Role                                                             string
 	Provider, Workspace, Team, Project, AuthKind, ModeLabels, States string
-	Revision                                                         int64
-	Origin, Destination, Credential, RemoteID                        string
+	// BugLabel is the optional existing Linear label ID that means bug (Linear only).
+	BugLabel                                  string
+	Revision                                  int64
+	Origin, Destination, Credential, RemoteID string
 }
 
 // ProjectBindingRequest describes one qualified ticket binding change.

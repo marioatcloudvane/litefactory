@@ -77,9 +77,13 @@ type bugFilingProcessor struct {
 	db        *store.DB
 	forge     bugFilingPort
 	authority func(context.Context, store.BugFiling) error
-	bot       int64
-	now       func() time.Time
-	log       *slog.Logger
+	// linear builds the Linear target for a connection version; redactor
+	// protects Linear filing text before it is sent.
+	linear   func(context.Context, store.ConnectionVersion) (bugLinearTarget, error)
+	redactor *redact.Redactor
+	bot      int64
+	now      func() time.Time
+	log      *slog.Logger
 }
 
 // stepBugFilings advances every active filing once, with at most one create
@@ -123,6 +127,8 @@ func (d *Daemon) bugFilingProcessor() *bugFilingProcessor {
 		db:        d.db,
 		forge:     &bugFilingGitHub{base: &brainstormTaskGitHub{db: d.db, forge: client, bot: bot, redactor: sanitizer}, client: client},
 		authority: d.bugFilingAuthority,
+		linear:    d.bugFilingLinear,
+		redactor:  sanitizer,
 		bot:       bot,
 		now:       d.brainstormTasks.wallNow,
 		log:       d.log,
@@ -184,6 +190,9 @@ func (p *bugFilingProcessor) matches(issue bugIssue, f store.BugFiling) bool {
 }
 
 func (p *bugFilingProcessor) create(ctx context.Context, f store.BugFiling) (bool, error) {
+	if f.Tracker == store.BugTrackerLinear {
+		return p.createLinear(ctx, f)
+	}
 	at := p.clock()
 	begun := f
 	begun.State = store.BugFilingCreating
@@ -291,6 +300,10 @@ func (p *bugFilingProcessor) check(ctx context.Context, f store.BugFiling) error
 	}
 	next := f
 	next.ChecksDone++
+	if f.Tracker == store.BugTrackerLinear {
+		p.checkLinear(ctx, f, &next)
+		return p.finishCheck(ctx, f, next, schedule)
+	}
 	since := f.CreatedAt.Add(-brainstormtasks.ListingLookback)
 	call, cancel := context.WithTimeout(ctx, time.Minute)
 	issues, err := p.forge.ListBotIssues(call, f.RepositoryRef, since)
@@ -322,6 +335,11 @@ func (p *bugFilingProcessor) check(ctx context.Context, f store.BugFiling) error
 			next.Reason = "checking whether the issue was created; not found yet"
 		}
 	}
+	return p.finishCheck(ctx, f, next, schedule)
+}
+
+// finishCheck schedules the next check or gives up, then saves.
+func (p *bugFilingProcessor) finishCheck(ctx context.Context, f, next store.BugFiling, schedule []time.Duration) error {
 	if next.State == store.BugFilingUncertain {
 		if next.ChecksDone >= len(schedule) {
 			next.State = store.BugFilingFailedUnconfirmed
@@ -331,7 +349,7 @@ func (p *bugFilingProcessor) check(ctx context.Context, f store.BugFiling) error
 			next.NextCheckAt = f.AttemptAt.Add(schedule[next.ChecksDone])
 		}
 	}
-	_, err = p.save(ctx, next, store.BugFilingUncertain)
+	_, err := p.save(ctx, next, store.BugFilingUncertain)
 	return err
 }
 
@@ -391,6 +409,9 @@ func (p *bugFilingProcessor) markLabelled(ctx context.Context, f store.BugFiling
 // it saves the durable begin and then checks authority; after a revocation it
 // only re-reads the issue. It never creates a label and never refiles.
 func (p *bugFilingProcessor) label(ctx context.Context, f store.BugFiling) error {
+	if f.Tracker == store.BugTrackerLinear {
+		return p.labelLinear(ctx, f)
+	}
 	if !f.NextCheckAt.IsZero() && p.clock().Before(f.NextCheckAt) {
 		return nil
 	}

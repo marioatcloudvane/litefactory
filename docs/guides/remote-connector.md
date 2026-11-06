@@ -687,7 +687,7 @@ the implementation contract, not evidence of live client approval or deployment.
 
 ## Filing a bug from chat
 
-With `repository:actions` coverage for a registered GitHub repository, say
+With `repository:actions` coverage for a registered GitHub or Linear project, say
 "file a bug" to the connected client. It calls `bug_file_propose` with three
 inputs and a request key:
 
@@ -709,14 +709,16 @@ unconfirmed proposal expires after fifteen minutes, and filing after that needs 
 new key.
 
 The proposal is refused, before anything is filed, for a repository that is not
-registered or not covered by the grant, a Linear project ("Filing a bug on Linear
-is not supported yet"), a blank or too long input, or a repository without a
+registered or not covered by the grant, a Linear project whose connection has no bug label set, a blank or too long input, or a repository without a
 `bug` label. Review the proposal and say yes; the client confirms it with
 `action_confirm`. It is a conversational action, so no Discord ✅ is needed.
 
 The factory files one issue with its bot account, adds the existing `bug` label
 by its id (it never creates a label), and starts the Bug analysis by itself (see
 [filing a bug from a chat client](../workflow/bug-runtime.md#filing-a-bug-from-a-chat-client)).
+On a Linear project the issue is created in the connection's team and project
+with the operator-set bug label, and you never name the team. See
+[filing on a Linear project](../workflow/bug-runtime.md#filing-on-a-linear-project).
 Ask "what happened to it?" and the client reads `action_inspect`. The outcome
 shows the issue link once it is known and one plain state: `filing`, `filed but
 not yet labelled`, `labelled but not yet started`, `labelled; Bug admitted,
@@ -751,6 +753,18 @@ Automated tests use fakes. To see the real path once:
 
 Write down the client, the issue link and what you saw. Close the test issue
 when you are done.
+
+### Owner live check on the cockpit Linear project
+
+1. Operator prerequisite: set `--bug-label <Linear label ID>` on the cockpit
+   project's Linear ticket connection (an existing label; see
+   [project connections](../project-connections.md)).
+2. From the chat client say "file a bug", give a title and description, and
+   confirm once after reading the proposal.
+3. Expect exactly one Linear issue with the bug label in cockpit's team and
+   project, a link to it in the reply, and Bug analysis starting on its own.
+   Repair still waits for your `/approve-bug`.
+4. Ask for the same request again with the same key: no second issue appears.
 
 ## Durable workflow jobs
 

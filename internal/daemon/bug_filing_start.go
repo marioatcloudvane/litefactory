@@ -142,7 +142,12 @@ func (d *Daemon) stepBugFilingStart(ctx context.Context, f store.BugFiling) erro
 		if f.IssueNumber < 1 {
 			return errors.New("labelled bug filing has no issue")
 		}
-		session, err := d.db.GetOrCreateSession(ctx, repo, f.IssueNumber)
+		var session store.Session
+		if f.Tracker == store.BugTrackerLinear {
+			session, err = d.linearBugSession(ctx, repo, f)
+		} else {
+			session, err = d.db.GetOrCreateSession(ctx, repo, f.IssueNumber)
+		}
 		if err != nil {
 			return err
 		}

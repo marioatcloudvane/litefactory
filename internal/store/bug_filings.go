@@ -81,20 +81,24 @@ type BugFiling struct {
 	RepositoryID                        int64
 	RepositoryRef                       string
 	Title, Body, Marker                 string
-	State                               string
-	IssueID                             int64
-	IssueNodeID                         string
-	IssueNumber                         int
-	IssueLink                           string
-	SessionID                           int64
-	AttemptAt                           time.Time
-	ChecksDone                          int
-	NextCheckAt                         time.Time
-	CreateRetries, LabelRetries         int
-	FailedStartAttempts                 int
-	AdmissionTrigger                    int64
-	Reason                              string
-	CreatedAt, UpdatedAt                time.Time
+	// Tracker is "github" or "linear". The Linear fields are frozen at
+	// admission: the ticket-effect key that owns the creation UUID, the mapped
+	// bug label ID and the connection destination (team/project).
+	Tracker, EffectKey, LabelID, Destination string
+	State                                    string
+	IssueID                                  int64
+	IssueNodeID                              string
+	IssueNumber                              int
+	IssueLink                                string
+	SessionID                                int64
+	AttemptAt                                time.Time
+	ChecksDone                               int
+	NextCheckAt                              time.Time
+	CreateRetries, LabelRetries              int
+	FailedStartAttempts                      int
+	AdmissionTrigger                         int64
+	Reason                                   string
+	CreatedAt, UpdatedAt                     time.Time
 }
 
 // BugFilingStartAttempt is one private Bug start hand-off for a filing.
@@ -117,12 +121,18 @@ func (a BugFilingStartAttempt) Open() bool {
 	return a.State == BugStartPending || a.State == BugStartReserved || a.State == BugStartRunning
 }
 
-const bugFilingColumns = `id,execution_id,owner_action_id,owner_id,owner_generation,repository_id,repository_ref,title,body,marker,state,issue_id,issue_node_id,issue_number,issue_link,session_id,attempt_at,checks_done,next_check_at,create_retries,label_retries,failed_start_attempts,admission_trigger,reason,created_at,updated_at`
+// Bug filing trackers.
+const (
+	BugTrackerGitHub = "github"
+	BugTrackerLinear = "linear"
+)
+
+const bugFilingColumns = `id,execution_id,owner_action_id,owner_id,owner_generation,repository_id,repository_ref,title,body,marker,tracker,effect_key,label_id,destination,state,issue_id,issue_node_id,issue_number,issue_link,session_id,attempt_at,checks_done,next_check_at,create_retries,label_retries,failed_start_attempts,admission_trigger,reason,created_at,updated_at`
 
 func scanBugFiling(row interface{ Scan(...any) error }) (BugFiling, error) {
 	var f BugFiling
 	var attempt, next, created, updated string
-	err := row.Scan(&f.ID, &f.ExecutionID, &f.OwnerActionID, &f.OwnerID, &f.OwnerGeneration, &f.RepositoryID, &f.RepositoryRef, &f.Title, &f.Body, &f.Marker, &f.State, &f.IssueID, &f.IssueNodeID, &f.IssueNumber, &f.IssueLink, &f.SessionID, &attempt, &f.ChecksDone, &next, &f.CreateRetries, &f.LabelRetries, &f.FailedStartAttempts, &f.AdmissionTrigger, &f.Reason, &created, &updated)
+	err := row.Scan(&f.ID, &f.ExecutionID, &f.OwnerActionID, &f.OwnerID, &f.OwnerGeneration, &f.RepositoryID, &f.RepositoryRef, &f.Title, &f.Body, &f.Marker, &f.Tracker, &f.EffectKey, &f.LabelID, &f.Destination, &f.State, &f.IssueID, &f.IssueNodeID, &f.IssueNumber, &f.IssueLink, &f.SessionID, &attempt, &f.ChecksDone, &next, &f.CreateRetries, &f.LabelRetries, &f.FailedStartAttempts, &f.AdmissionTrigger, &f.Reason, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return f, ErrNotFound
 	}
@@ -144,7 +154,20 @@ func scanBugFiling(row interface{ Scan(...any) error }) (BugFiling, error) {
 // returns the stored row either way. A replay never changes the frozen content.
 // created reports whether this call inserted it.
 func (db *DB) AdmitBugFiling(ctx context.Context, f BugFiling, at time.Time) (out BugFiling, created bool, err error) {
-	if f.ExecutionID == "" || f.OwnerActionID == "" || f.OwnerID == "" || f.RepositoryID < 1 || f.RepositoryRef == "" || f.Title == "" || f.Body == "" || f.Marker == "" {
+	if f.ExecutionID == "" || f.OwnerActionID == "" || f.OwnerID == "" || f.RepositoryID < 1 || f.RepositoryRef == "" || f.Title == "" || f.Body == "" {
+		return BugFiling{}, false, ErrBugFilingInvalid
+	}
+	switch f.Tracker {
+	case "", BugTrackerGitHub:
+		f.Tracker = BugTrackerGitHub
+		if f.Marker == "" {
+			return BugFiling{}, false, ErrBugFilingInvalid
+		}
+	case BugTrackerLinear:
+		if f.Marker != "" || f.EffectKey == "" || f.LabelID == "" || f.Destination == "" {
+			return BugFiling{}, false, ErrBugFilingInvalid
+		}
+	default:
 		return BugFiling{}, false, ErrBugFilingInvalid
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
@@ -157,8 +180,8 @@ func (db *DB) AdmitBugFiling(ctx context.Context, f BugFiling, at time.Time) (ou
 			return e
 		}
 		stamp := taskTime(at)
-		out, e = scanBugFiling(tx.QueryRowContext(ctx, `INSERT INTO bug_filings(execution_id,owner_action_id,owner_id,owner_generation,repository_id,repository_ref,title,body,marker,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'admitted',?,?) RETURNING `+bugFilingColumns,
-			f.ExecutionID, f.OwnerActionID, f.OwnerID, f.OwnerGeneration, f.RepositoryID, f.RepositoryRef, f.Title, f.Body, f.Marker, stamp, stamp))
+		out, e = scanBugFiling(tx.QueryRowContext(ctx, `INSERT INTO bug_filings(execution_id,owner_action_id,owner_id,owner_generation,repository_id,repository_ref,title,body,marker,tracker,effect_key,label_id,destination,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'admitted',?,?) RETURNING `+bugFilingColumns,
+			f.ExecutionID, f.OwnerActionID, f.OwnerID, f.OwnerGeneration, f.RepositoryID, f.RepositoryRef, f.Title, f.Body, f.Marker, f.Tracker, f.EffectKey, f.LabelID, f.Destination, stamp, stamp))
 		created = e == nil
 		return e
 	})

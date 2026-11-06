@@ -139,8 +139,42 @@ func TestBugFileResolveRefusals(t *testing.T) {
 	ts := store.FormatTime(f.at)
 	f.exec(t, `INSERT INTO project_connection_versions(id,repo_id,role,revision,provider,api_origin,destination,enabled,provenance,created_at) VALUES(900,?,'ticket',1,'linear','https://api.linear.app','team',1,'test',?)`, f.repoID, ts)
 	f.exec(t, `INSERT INTO project_connections(repo_id,role,version_id) VALUES(?,'ticket',900)`, f.repoID)
-	if _, err := f.bugs.Resolve(t.Context(), f.p, bugInvocation("acme/api", "t", "d"), f.at); err == nil || err.Error() != "Filing a bug on Linear is not supported yet" {
+	if _, err := f.bugs.Resolve(t.Context(), f.p, bugInvocation("acme/api", "t", "d"), f.at); err == nil || err.Error() != bugNoLinearLabel {
 		t.Fatalf("linear = %v", err)
+	}
+}
+
+func TestBugFileLinearFreezesTargetAndRechecks(t *testing.T) {
+	f := newBugFixture(t)
+	ts := store.FormatTime(f.at)
+	f.exec(t, `INSERT INTO project_connection_versions(id,repo_id,role,revision,provider,api_origin,destination,enabled,provenance,created_at,linear_configuration) VALUES(900,?,'ticket',1,'linear','https://api.linear.app','team/proj',1,'test',?,'{"BugLabelID":"lbl-1"}')`, f.repoID, ts)
+	f.exec(t, `INSERT INTO project_connections(repo_id,role,version_id) VALUES(?,'ticket',900)`, f.repoID)
+	f.labels.missing["acme/api"] = true // the GitHub label check must be skipped
+	facts, err := f.bugs.Resolve(t.Context(), f.p, bugInvocation("acme/api", "t", "d"), f.at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := frozenBug(t, facts.Payload)
+	if v.Tracker != store.BugTrackerLinear || v.LabelID != "lbl-1" || v.Destination != "team/proj" || v.Marker != "" || v.Body != "d\n\n"+bugProvenance {
+		t.Fatalf("frozen = %+v", v)
+	}
+	if err = f.bugs.Recheck(t.Context(), f.p, facts, f.at); err != nil {
+		t.Fatalf("recheck = %v", err)
+	}
+	if _, err = f.bugs.Execute(t.Context(), f.p, facts, "owner-action:p1", f.at); err != nil {
+		t.Fatal(err)
+	}
+	filing, err := f.db.BugFilingByExecution(t.Context(), "owner-action:p1")
+	if err != nil || filing.Tracker != store.BugTrackerLinear || filing.LabelID != "lbl-1" || filing.Destination != "team/proj" || filing.EffectKey != "bug-filing:owner-action:p1" || filing.Marker != "" {
+		t.Fatalf("filing = %+v %v", filing, err)
+	}
+	f.exec(t, `UPDATE project_connection_versions SET linear_configuration='{"BugLabelID":"lbl-2"}' WHERE id=900`)
+	if err = f.bugs.Recheck(t.Context(), f.p, facts, f.at); err == nil || !strings.Contains(err.Error(), "request a fresh proposal") {
+		t.Fatalf("label changed = %v", err)
+	}
+	f.exec(t, `UPDATE project_connection_versions SET linear_configuration='{"BugLabelID":"lbl-1"}', destination='other' WHERE id=900`)
+	if err = f.bugs.Recheck(t.Context(), f.p, facts, f.at); err == nil || !strings.Contains(err.Error(), "request a fresh proposal") {
+		t.Fatalf("destination changed = %v", err)
 	}
 }
 

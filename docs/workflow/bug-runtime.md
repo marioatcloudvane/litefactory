@@ -16,9 +16,19 @@ You can also ask your connected chat client to "file a bug". The client proposes
 2. adds the existing `bug` label (it never creates a label; a repository without a `bug` label is refused before anything is filed);
 3. starts the Bug task by itself, so you do not need to comment first.
 
+#### Filing on a Linear project
+
+The same request works for a project whose ticket connection is Linear; the client names no team. The factory:
+
+1. creates one Linear issue in the connection's team and project with the factory's Linear credential. The body is your description plus the line "Filed for the owner from a chat client." There is no hidden marker; the replay marker is the creation UUID Linear returns for the issue, kept in the ticket-effect ledger, so a retry finds the same issue instead of making another;
+2. applies the bug label the operator set on the connection with `--bug-label` (see [project connections](../project-connections.md)). A project without one is refused before anything is filed;
+3. admits the project ticket and its session, then binds the Bug task to it, and starts the analysis by itself.
+
+An issue carrying the mapped bug label is recognised as a Bug only when it has no earlier workflow admission, so labelling an issue that already runs another workflow does not turn it into a Bug.
+
 The start uses a private trigger. It is never posted on the issue and its id sits in a private range, so the factory can always tell it apart from a comment you wrote. Everything after that is the normal Bug flow: the analysis, your `/approve-bug` approval, repair and delivery.
 
-If the factory stops part way, it never files a second issue and never starts a second analysis. Ask the client what happened to the proposal (`action_inspect`): it shows the issue link once it is known, and a plain state such as "filed but not yet labelled" or a failure with its reason. Filing on Linear is not supported yet. Setup and a live check are in the [remote connector guide](../guides/remote-connector.md#filing-a-bug-from-chat).
+If the factory stops part way, it never files a second issue and never starts a second analysis. Ask the client what happened to the proposal (`action_inspect`): it shows the issue link once it is known, and a plain state such as "filed but not yet labelled" or a failure with its reason. Setup and a live check are in the [remote connector guide](../guides/remote-connector.md#filing-a-bug-from-chat).
 
 ## Choosing the agent
 
