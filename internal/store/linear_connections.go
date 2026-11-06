@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -60,16 +61,12 @@ func validLinearIdentity(v string) bool {
 	return strings.TrimSpace(v) == v && v != "" && !strings.ContainsAny(v, "\r\n\x00")
 }
 
+// agentLabelName is the name shape the daemon accepts after the Coding Agent
+// label prefix; it matches the daemon's agentKindName rule.
+var agentLabelName = regexp.MustCompile(`^[A-Z][A-Za-z0-9_-]{0,39}$`)
+
 func validAgentName(k string) bool {
-	if k == "" || len(k) > 64 {
-		return false
-	}
-	for _, r := range k {
-		if r < 0x20 || r == 0x7f || r == ':' {
-			return false
-		}
-	}
-	return true
+	return agentLabelName.MatchString(k)
 }
 
 // LifecycleStates returns the explicitly configured lifecycle-to-state mapping.

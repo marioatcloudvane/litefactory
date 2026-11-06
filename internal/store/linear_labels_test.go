@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLinearConnectionLabelMappings(t *testing.T) {
 	db := newTestDB(t)
@@ -25,16 +28,21 @@ func TestLinearConnectionLabelMappings(t *testing.T) {
 	}
 
 	for name, mutate := range map[string]func(*LinearConfiguration){
-		"agent reuses mode label": func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = `{"codex":"label-plan"}` },
+		"agent reuses mode label": func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = `{"Codex":"label-plan"}` },
 		"bug reuses mode label":   func(c *LinearConfiguration) { c.BugLabelID = "label-implement" },
 		"bug reuses agent label": func(c *LinearConfiguration) {
-			c.CodingAgentLabelsJSON, c.BugLabelID = `{"codex":"label-x"}`, "label-x"
+			c.CodingAgentLabelsJSON, c.BugLabelID = `{"Codex":"label-x"}`, "label-x"
 		},
-		"two agents share a label": func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = `{"a":"label-x","b":"label-x"}` },
+		"two agents share a label": func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = `{"Alpha":"label-x","Beta":"label-x"}` },
 		"empty agent key":          func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = `{"":"label-x"}` },
-		"agent key with colon":     func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = `{"a:b":"label-x"}` },
-		"agent key with newline":   func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = "{\"a\\nb\":\"label-x\"}" },
-		"bug id with whitespace":   func(c *LinearConfiguration) { c.BugLabelID = " label-bug" },
+		"agent key with colon":     func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = `{"A:b":"label-x"}` },
+		"agent key with newline":   func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = "{\"A\\nb\":\"label-x\"}" },
+		"lowercase agent key":      func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = `{"codex":"label-x"}` },
+		"agent key with space":     func(c *LinearConfiguration) { c.CodingAgentLabelsJSON = `{"Claude Code":"label-x"}` },
+		"agent key over 40": func(c *LinearConfiguration) {
+			c.CodingAgentLabelsJSON = `{"A` + strings.Repeat("b", 40) + `":"label-x"}`
+		},
+		"bug id with whitespace": func(c *LinearConfiguration) { c.BugLabelID = " label-bug" },
 	} {
 		v := base
 		mutate(&v.Linear)
@@ -44,7 +52,7 @@ func TestLinearConnectionLabelMappings(t *testing.T) {
 	}
 
 	ok := base
-	ok.Linear.CodingAgentLabelsJSON, ok.Linear.BugLabelID = `{"codex":"label-codex","claude":"label-claude"}`, "label-bug"
+	ok.Linear.CodingAgentLabelsJSON, ok.Linear.BugLabelID = `{"Codex":"label-codex","Claude":"label-claude"}`, "label-bug"
 	if _, err := db.SetConnection(t.Context(), ok, saved.Revision); err != nil {
 		t.Fatalf("distinct agent and bug labels refused: %v", err)
 	}
