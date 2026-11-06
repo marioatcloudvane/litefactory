@@ -333,6 +333,9 @@ var archiveRetained = map[string]ArchiveClass{
 	"brainstorm_task_items":           ArchiveClassGlobal,
 	"brainstorm_task_launch_attempts": ArchiveClassGlobal,
 	"brainstorm_plan_launch_seeds":    ArchiveClassGlobal,
+	// Bug filings keep the issue link of an owner action, which outlives task archives.
+	"bug_filings":               ArchiveClassGlobal,
+	"bug_filing_start_attempts": ArchiveClassGlobal,
 	// Decision receipts and possible-send evidence outlive archived task artifacts.
 	"stage_decision_receipts":       ArchiveClassGlobal,
 	"stage_decision_deliveries":     ArchiveClassGlobal,

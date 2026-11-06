@@ -743,8 +743,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		DB:          s.DB,
 		Connections: connections,
 		Forge:       ticketWorkflow,
-		Filter:      filter,
-		Tickets:     ticketIngress,
+		// Bug filing writes as the factory bot through the GitHub client
+		// itself: the routed bridge offers no label lookup or ID-only write.
+		BugFilingForge: client,
+		Filter:         filter,
+		Tickets:        ticketIngress,
 		// Schedule proposals are a separate, tool-free advisory call. They
 		// deliberately do not travel through turn.Execute, so no run is
 		// allocated and no worktree is created before owner acceptance.

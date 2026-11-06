@@ -20,7 +20,7 @@ func Classify(inv Invocation) (tier, scope string, err error) {
 		return Conversational, "repository:actions", nil
 	case "workflow-author":
 		return Conversational, "standards:management", nil
-	case "draft", "diagnose", "answer", "revise_task", "brainstorm_create_tasks", "brainstorm_task_recreate":
+	case "draft", "diagnose", "answer", "revise_task", "brainstorm_create_tasks", "brainstorm_task_recreate", "bug_file":
 		return Conversational, "repository:actions", nil
 	case "confirm", "approve_stage":
 		return Binding, "repository:actions", nil

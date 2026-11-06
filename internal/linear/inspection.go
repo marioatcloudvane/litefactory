@@ -85,6 +85,14 @@ func (c *Client) Inspect(ctx context.Context) (Inspection, error) {
 			return Inspection{}, failure("inspect label", ticket.Refused, "mode label does not belong to selected workspace/team")
 		}
 	}
+	if id := c.config.BugLabelID; id != "" {
+		if seen[id] {
+			return Inspection{}, failure("inspect mappings", ticket.Refused, "the bug label must differ from every mode label")
+		}
+		if err := c.inspectLabel(ctx, id); err != nil {
+			return Inspection{}, err
+		}
+	}
 	seen = map[string]bool{}
 	for _, name := range slices.Sorted(maps.Keys(c.config.States)) {
 		id := c.config.States[name]
@@ -150,4 +158,23 @@ func (c *Client) ContainerIdentity(ctx context.Context, container string) (ticke
 		return ticket.Identity{}, failure("inspect connection", ticket.Refused, "project is not in selected team")
 	}
 	return c.identity(data.Project.ID), nil
+}
+
+func (c *Client) inspectLabel(ctx context.Context, id string) error {
+	var label struct {
+		IssueLabel struct {
+			ID           string
+			ArchivedAt   *time.Time
+			Team         *objectID
+			Organization objectID
+			IsGroup      bool
+		}
+	}
+	if err := c.query(ctx, "inspect label", "query($id: String!) { issueLabel(id: $id) { id archivedAt isGroup team { id } organization { id } } }", map[string]string{"id": id}, false, &label); err != nil {
+		return err
+	}
+	if label.IssueLabel.ID != id || label.IssueLabel.ArchivedAt != nil || label.IssueLabel.IsGroup || label.IssueLabel.Organization.ID != c.config.WorkspaceID || (label.IssueLabel.Team != nil && label.IssueLabel.Team.ID != c.config.TeamID) {
+		return failure("inspect label", ticket.Refused, "bug label does not belong to selected workspace/team")
+	}
+	return nil
 }
