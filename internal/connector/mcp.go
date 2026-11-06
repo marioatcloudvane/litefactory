@@ -180,7 +180,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		s.rpcResult(w, req.ID, map[string]any{})
 		s.audit(r, event, "success", "ping", tool, start)
 	case "tools/list":
-		tools := []any{}
+		tools := []any{map[string]any{"name": guideTool, "description": guideToolDescription, "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"topic": map[string]any{"type": "string", "minLength": 1, "maxLength": 64, "description": "Optional. overview, workflows, tools, scopes, or the name of a tool you can call. Leave out for the whole guide."}}, "additionalProperties": false}, "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}}}
 		if slices.Contains(s.availableTools(grant), "factory_overview") {
 			tools = append(tools, map[string]any{"name": "factory_overview", "description": overviewToolDescription, "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, "outputSchema": overviewOutputSchema(), "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}})
 		}
@@ -354,6 +354,29 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 		if !slices.Contains(s.availableTools(grant), params.Name) {
 			refuseRPC(-32602, "Unknown tool; call tools/list for the tools this grant can use", "tool")
+			return
+		}
+		if params.Name == guideTool {
+			topic, err := parseGuideArguments(params.Arguments)
+			if err != nil {
+				refuseParams(err)
+				return
+			}
+			text, err := composeGuide(s.guidance, s.availableTools(grant), s.missingScopes(grant), topic)
+			if errors.Is(err, errGuideTopic) {
+				refuseParams(invalidArgument("topic", "must be overview, workflows, tools, scopes or the name of a tool in tools/list"))
+				return
+			}
+			if err != nil {
+				refuseRPC(-32603, "Tool guidance unavailable", "guidance")
+				return
+			}
+			written := s.rpcResult(w, req.ID, ToolResult{Content: []TextContent{{Type: "text", Text: text}}})
+			outcome, reason := "success", "completed"
+			if !written {
+				outcome, reason = "error", "response_size"
+			}
+			s.audit(r, event, outcome, reason, tool, start)
 			return
 		}
 		if params.Name == "factory_overview" && !emptyArguments(params.Arguments) {
@@ -608,6 +631,8 @@ func (s *Server) writeRPC(w http.ResponseWriter, value map[string]any) bool {
 
 // overviewToolDescription retains the existing overview contract. Initialization
 // guidance is loaded separately for authorized installed capabilities.
+const guideToolDescription = "Read the Litefactory guide for this connection: how the factory works, how approvals work, step-by-step workflows with the order of tool calls (check a task, discuss or revise a plan, file a feature request, file a bug, check usage, start a workflow), one paragraph per tool you can call, and the consent scopes still missing. Read-only: it files, confirms and approves nothing. Call it when unsure how to do something. Optional topic: overview, workflows, tools, scopes, or a tool name."
+
 const overviewToolDescription = "Read the owner's software factory: health, work in progress, questions and reviews waiting for the owner (oldest first, with links), and reports confirmed in the last seven days, across all registered repositories. One call answers most questions about the factory. Lead with what needs the owner, then what is running, then health only if something is wrong."
 
 func (s *Server) writeDiscussionRPC(w http.ResponseWriter, id json.RawMessage, result ToolResult) bool {
@@ -634,7 +659,7 @@ func (s *Server) writeDiscussionValue(w http.ResponseWriter, value map[string]an
 // isKnownTool reports whether name is a tool this connector dispatches; the
 // outcome log and argument refusals name only such tools.
 func isKnownTool(name string) bool {
-	return name == "factory_overview" || name == "task_evidence_read" || name == "usage_read" || isCodeTool(name) || isActionTool(name) || isWorkflowTool(name) || isAdvisoryTool(name) || isDecisionTool(name) || isBrainstormTool(name)
+	return name == guideTool || name == "factory_overview" || name == "task_evidence_read" || name == "usage_read" || isCodeTool(name) || isActionTool(name) || isWorkflowTool(name) || isAdvisoryTool(name) || isDecisionTool(name) || isBrainstormTool(name)
 }
 
 // argumentError is a refused tool argument in plain words. Argument is a

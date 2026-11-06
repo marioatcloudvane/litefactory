@@ -51,28 +51,26 @@ func readBrainstormGuide(files fs.FS) (string, error) {
 	return readGuidanceFile(files, "guidance/overview/brainstorm.md")
 }
 
-// composeInstructions: overview, brainstorm guide, per-tool guidance, then the
-// notice naming consent scopes the grant lacks, when there are any.
+// composeInstructions is the short text every client reads first: the
+// overview, the names of the tools this grant can call, then the notice naming
+// consent scopes the grant lacks, when there are any. The full guidance is
+// served by the guide tool, not repeated here.
 func composeInstructions(files fs.FS, tools, missingScopes []string) (string, error) {
 	overview, err := readOverview(files)
 	if err != nil {
 		return "", err
 	}
-	brainstorm, err := readBrainstormGuide(files)
-	if err != nil {
-		return "", err
-	}
-	toolText, err := loadGuidance(files, tools)
-	if err != nil {
+	// Every callable tool must still have readable guidance, or initialize fails.
+	if _, err := loadGuidance(files, tools); err != nil {
 		return "", err
 	}
 	notice, err := readGuidanceFile(files, "guidance/overview/missing_scopes.md")
 	if err != nil || !strings.Contains(notice, "{{scopes}}") {
 		return "", errGuidanceUnavailable
 	}
-	parts := []string{overview, brainstorm}
-	if toolText != "" {
-		parts = append(parts, toolText)
+	parts := []string{overview}
+	if len(tools) > 0 {
+		parts = append(parts, "## Tools you can call\n\n"+strings.Join(tools, ", ")+".")
 	}
 	if len(missingScopes) > 0 {
 		parts = append(parts, strings.ReplaceAll(notice, "{{scopes}}", strings.Join(missingScopes, ", ")))

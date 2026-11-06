@@ -1,0 +1,3 @@
+Use factory_guide to learn how to use the factory with this connection. It reads one markdown guide and changes nothing, files nothing and approves nothing. The guide lists only the tools this connection can call, the workflows built from them, and the consent scopes still missing.
+
+Call it with no arguments for the whole guide. For a short answer pass topic: "overview" (how the factory works), "workflows" (step by step, with tool order), "tools" (one paragraph per tool), "scopes" (what is missing and how to reconnect), or the name of a tool you can call for its full guidance. Prefer the guide over guessing a tool order. Read the guide again after the owner reconnects the connector with new scopes.

@@ -123,7 +123,7 @@ func TestGuidanceCapabilityComposition(t *testing.T) {
 				return EvidencePage{}, nil
 			})
 		}
-		got, err := loadGuidance(files, s.availableTools(store.ConnectorGrant{Scope: tc.scope}))
+		got, err := loadGuidance(files, withoutGuide(s.availableTools(store.ConnectorGrant{Scope: tc.scope})))
 		if err != nil || got != tc.want {
 			t.Fatalf("%s: %q %v", tc.scope, got, err)
 		}

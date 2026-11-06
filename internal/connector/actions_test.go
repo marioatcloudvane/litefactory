@@ -421,7 +421,7 @@ func TestActionServicePublicationIsSafeDuringDiscovery(t *testing.T) {
 	go func() {
 		defer workers.Done()
 		for range 1000 {
-			names := server.availableTools(store.ConnectorGrant{Scope: RepositoryActionsScope})
+			names := withoutGuide(server.availableTools(store.ConnectorGrant{Scope: RepositoryActionsScope}))
 			if len(names) != 0 && len(names) != len(actionToolNames) {
 				t.Errorf("partial service publication: %v", names)
 				return
@@ -434,7 +434,7 @@ func TestActionServicePublicationIsSafeDuringDiscovery(t *testing.T) {
 	}()
 	workers.Wait()
 	server.SetActions(actions)
-	if names := server.availableTools(store.ConnectorGrant{Scope: RepositoryActionsScope}); !slices.Equal(names, actionToolNames) {
+	if names := withoutGuide(server.availableTools(store.ConnectorGrant{Scope: RepositoryActionsScope})); !slices.Equal(names, actionToolNames) {
 		t.Fatalf("published actions missing: %v", names)
 	}
 }

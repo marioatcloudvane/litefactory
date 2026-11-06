@@ -220,6 +220,24 @@ func writeConnectorGrantSummaries(env *Env, home string, snapshot time.Time, gra
 	return err
 }
 
+// newConnectorSkillCommand prints a client-side skill file built from the same
+// embedded guidance. It needs no database.
+func newConnectorSkillCommand() *Command {
+	cmd := &Command{Name: "connector skill", Usage: "connector skill", Short: "Print a skill file that teaches a chat client the factory"}
+	cmd.Long = "Prints a SKILL.md built from the same guidance the connector sends to clients: the order of calls, approvals and worked workflows. Needs no grant, database or network."
+	cmd.New = func(flags *flag.FlagSet) Handler {
+		return func(ctx context.Context, env *Env, args []string) error {
+			text, err := connector.ComposeSkill()
+			if err != nil {
+				return errors.New("cannot compose the skill: the built-in guidance is missing, empty or too large")
+			}
+			_, err = io.WriteString(env.Stdout, text)
+			return err
+		}
+	}
+	return cmd
+}
+
 // newConnectorTemplateCommand prints the owner's project template, composed from
 // the same embedded guidance the connector tells clients. It needs no database.
 func newConnectorTemplateCommand() *Command {
