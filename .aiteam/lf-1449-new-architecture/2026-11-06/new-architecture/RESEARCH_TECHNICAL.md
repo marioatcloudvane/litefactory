@@ -69,7 +69,7 @@ Evidence:
 
 ## f8
 
-Compatibility: docs state no schema, migration, capture-digest, grant-generation or pending-delivery encoding changes. Compound store transactions stay as they were. Live upgrade and recovery on a deployed daemon is described as the owner's check at deploy. I did not run the test suite myself.
+Compatibility: docs state no schema, migration, capture-digest, grant-generation or pending-delivery encoding changes. Compound store transactions stay as they were. Live upgrade and recovery on a deployed daemon is described as the owner's check at deploy. Superseded in part by f10: the package tests have now been run.
 
 Evidence:
 
@@ -77,6 +77,25 @@ Evidence:
 
 ## f9
 
-Impact analysis. Touched: pkg/execution, internal/factory/*, internal/discordcomponent, internal/connector*, internal/messaging*, internal/cli, docs/factory-core.md and scripts. Depends on it: daemon composition, the CLI, the closed #1268-#1271 stories. Superseded: direct store and daemon paths in Discord, connector and CLI (stated as retired). Data and compatibility: none found for schema changes, per the docs. Team releases: none found in this area.
+Impact analysis. Touched: pkg/execution, internal/factory/*, internal/discordcomponent, internal/connector*, internal/messaging*, internal/cli, docs/factory-core.md and scripts. Depends on it: daemon composition, the CLI, the closed #1268-#1271 stories. Superseded: direct store and daemon paths in Discord, connector and CLI (stated as retired). Data and compatibility: none found for schema changes, per the docs. Team releases: none found in this area. For this request itself (a report), nothing in the repository is touched unless the owner picks q1 option b, which adds one docs page.
 
 _No source reference was recorded for this finding._
+
+## f10
+
+At commit c05ebd29, go test passed for pkg/execution/..., examples/execution/..., internal/factory/..., internal/discordcomponent/..., internal/connector/... and internal/messaging/..., including all boundary tests. The full repository suite and a live daemon upgrade were not run.
+
+Evidence:
+
+- `internal/factory/boundary_test.go:16`
+- `internal/discordcomponent/boundary_test.go:21`
+- `internal/connector/boundary_test.go:13`
+- `examples/execution/boundary_test.go:18`
+
+## f11
+
+Thin coverage: 12 of the 18 internal/factory service packages have no test files of their own (conversationdiagnosis, localadmin, localanalysis, localdoctor, localrights, localstandards, localteams, localusage, maintenance, readtargets, researchanswers, ticketbridge); the contracts package, types only, has none either. They are covered only by the shared factory boundary test and by callers' tests.
+
+Evidence:
+
+- `internal/factory/boundary_test.go:16`
