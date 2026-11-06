@@ -55,6 +55,8 @@ func (d *Daemon) startBrainstormTasks(ctx context.Context, wg *sync.WaitGroup) {
 				}
 			}
 			d.stepBrainstormLaunches(ctx)
+			d.stepBugFilings(ctx)
+			d.stepBugFilingStarts(ctx)
 			select {
 			case <-ctx.Done():
 				return

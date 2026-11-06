@@ -99,6 +99,9 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 	untouched := false
 	if e == nil && instance.Status == store.GraphRunning && req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.cfg.OwnerID {
 		untouched, e = r.untouchedGraphLaunch(ctx, instance)
+		if e == nil && !untouched && !store.IsPrivateTrigger(req.Trigger.CommentID) {
+			untouched, e = r.stoppedGraphLaunch(ctx, instance)
+		}
 		if e != nil {
 			return store.WorkflowAdmission{}, e
 		}
@@ -191,6 +194,51 @@ func (r *BugRuntime) untouchedGraphLaunch(ctx context.Context, instance store.Gr
 	transitions, err := r.opts.DB.ListGraphTransitions(ctx, instance.ID)
 	if err != nil || len(transitions) != 0 {
 		return false, err
+	}
+	comments, err := r.opts.DB.ListGraphComments(ctx, instance.ID, "", 1)
+	if err != nil || len(comments) != 0 {
+		return false, err
+	}
+	return true, nil
+}
+
+// stoppedGraphLaunch widens the untouched shape by one case: the start node
+// completed once and moved to the analyst, then every run of the session ended
+// before an analyst attempt was saved. Each run must belong to one of this
+// instance's own launches; nothing may be bound to those runs. The caller
+// admits only a forge comment outside every private range by the owner.
+func (r *BugRuntime) stoppedGraphLaunch(ctx context.Context, instance store.GraphInstance) (bool, error) {
+	start := r.definition.Profile.Start
+	analyst, _ := bugRoleNodes(r.definition.Profile)
+	if analyst == "" || analyst == start || instance.Status != store.GraphRunning || instance.CurrentNode != analyst || !instance.NextDueAt.IsZero() || !instance.FinishedAt.IsZero() {
+		return false, nil
+	}
+	if _, err := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID); !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	if _, err := r.opts.DB.LatestGraphDispatch(ctx, instance.ID); !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	attempts, err := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Node != start || attempts[0].Status != store.GraphSucceeded || attempts[0].RunID != 0 {
+		return false, err
+	}
+	transitions, err := r.opts.DB.ListGraphTransitions(ctx, instance.ID)
+	if err != nil || len(transitions) != 1 || transitions[0].FromNode != start || transitions[0].ToNode != analyst || transitions[0].OnOutcome != attempts[0].Outcome {
+		return false, err
+	}
+	runs, err := r.opts.DB.ListRuns(ctx, instance.SessionID)
+	if err != nil || len(runs) == 0 {
+		return false, err
+	}
+	for _, run := range runs {
+		if run.Status != store.RunFailed && run.Status != store.RunSucceeded && run.Status != store.RunReported {
+			return false, nil
+		}
+		launched, found, err := r.opts.DB.WorkflowLaunchInstance(ctx, instance.SessionID, run.TriggerCommentID)
+		if err != nil || !found || launched != instance.ID {
+			return false, err
+		}
 	}
 	comments, err := r.opts.DB.ListGraphComments(ctx, instance.ID, "", 1)
 	if err != nil || len(comments) != 0 {
