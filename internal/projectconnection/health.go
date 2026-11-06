@@ -76,6 +76,9 @@ func (f *Factory) Check(ctx context.Context, v store.ConnectionVersion) store.Co
 	observation.Status = "usable_for_checked_capabilities"
 	observation.Reason = "read_access_verified"
 	observation.Remedy = "Write access is unverified; ordinary operations still enforce permissions."
+	if v.Role == store.TicketConnection {
+		observation.Remedy += f.labelRemedy(ctx, clients.Code, repo, v)
+	}
 	return observation
 }
 

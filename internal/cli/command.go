@@ -69,6 +69,8 @@ type Env struct {
 	Stderr io.Writer
 	// Stdin is the process input stream.
 	Stdin io.Reader
+	// InputIsTerminal says a person can answer a prompt. The entry point sets it.
+	InputIsTerminal bool
 	// Logger is the structured logger. Never nil.
 	Logger *slog.Logger
 	// Version is the build version reported by --version.
