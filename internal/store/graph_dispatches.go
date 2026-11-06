@@ -689,7 +689,8 @@ const strandedGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInsta
 // never been attempted and nothing was ever dispatched: the run started but the
 // analyst attempt was not saved. Only the owner's fresh reply continues it. Once
 // that reply records its own launch, the instance is recoverable as before. The
-// bounds are the bug start band, bugStartTriggerBase (1<<55) up to 1<<56.
+// bounds are bugStartTriggerBase and bugStartTriggerEnd written out, because a
+// constant query cannot format them; a store test ties the two together.
 const graphInstanceBugStartReplyOnly = `AND NOT (EXISTS(SELECT 1 FROM research_launch_definitions l WHERE l.instance_id=g.id)
 AND NOT EXISTS(SELECT 1 FROM research_launch_definitions l WHERE l.instance_id=g.id AND NOT (l.trigger_id>36028797018963968 AND l.trigger_id<72057594037927936))
 AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=g.id)

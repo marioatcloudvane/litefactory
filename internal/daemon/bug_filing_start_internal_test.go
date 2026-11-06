@@ -153,10 +153,11 @@ func (fx *bugStartFixture) run(t *testing.T, sessionID, trigger int64, status st
 
 // conversationToAnalyst records the start node's completed attempt and the
 // transition to the analyst, as the Bug runtime does before the analyst run.
-func (fx *bugStartFixture) conversationToAnalyst(t *testing.T, instanceID, runID int64) {
+// The conversation runs inline, so its attempt is bound to no run.
+func (fx *bugStartFixture) conversationToAnalyst(t *testing.T, instanceID int64) {
 	t.Helper()
 	ctx := t.Context()
-	a, err := fx.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instanceID, Node: "conversation", RunID: runID, Limit: 64, StartedAt: fx.now})
+	a, err := fx.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instanceID, Node: "conversation", Limit: 64, StartedAt: fx.now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,8 +217,8 @@ func TestBugFilingStartOwnerShapeS2rThenAnalystDispatches(t *testing.T) {
 	fx := newBugStartFixture(t)
 	s := fx.session(t)
 	admitted := fx.admitBug(t, s.ID, 4242)
-	run := fx.run(t, s.ID, 4242, store.RunFailed, true)
-	fx.conversationToAnalyst(t, admitted.Instance.ID, run.ID)
+	fx.run(t, s.ID, 4242, store.RunFailed, true)
+	fx.conversationToAnalyst(t, admitted.Instance.ID)
 	f := fx.step(t)
 	if len(fx.handoff) != 0 || f.State != store.BugFilingStartAdmitted || f.Reason != bugStartRecorded || f.AdmissionTrigger != 4242 {
 		t.Fatalf("owner-binding S2r: %+v %v", f, fx.handoff)
@@ -333,8 +334,8 @@ func TestBugFilingStartAdoptsOwnerAdmissionAtAnalyst(t *testing.T) {
 	fx := newBugStartFixture(t)
 	s := fx.session(t)
 	admitted := fx.admitBug(t, s.ID, 5150)
-	run := fx.run(t, s.ID, 5150, store.RunFailed, true)
-	fx.conversationToAnalyst(t, admitted.Instance.ID, run.ID)
+	fx.run(t, s.ID, 5150, store.RunFailed, true)
+	fx.conversationToAnalyst(t, admitted.Instance.ID)
 	if _, err := fx.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "analyst", Limit: 8, StartedAt: fx.now}); err != nil {
 		t.Fatal(err)
 	}

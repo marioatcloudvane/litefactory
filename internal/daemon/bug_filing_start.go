@@ -21,7 +21,7 @@ const bugStartBatch = 100
 const bugStartWait = 15 * time.Minute
 
 // bugStartAnalystNode is the Bug graph node whose attempt proves dispatch.
-const bugStartAnalystNode = "analyst"
+const bugStartAnalystNode = store.BugStartAnalystNode
 
 // bugStartBody is the private start trigger's body: a plain sentence, never a
 // mode command and never posted on the forge.
@@ -50,8 +50,7 @@ const (
 	bugStartS0 bugStartPhase = iota
 	// bugStartS1: the runtime's untouched-launch shape, no run at all.
 	bugStartS1
-	// bugStartS2r: a run is recorded, every run is finished, nothing is live,
-	// no owner wait and no analyst attempt.
+	// bugStartS2r: the store's stopped-start state (StoppedBugLaunch).
 	bugStartS2r
 	// bugStartS2: a live run, dispatch, attempt or claimed reply, or another
 	// pre-analyst shape the Bug runtime's Reconcile owns.
@@ -60,10 +59,10 @@ const (
 	bugStartS3
 )
 
-// bugStartPhaseOf classifies the evidence. S2r covers both the bootstrap
-// failure before any node attempt and the shape where the start node's
-// attempt completed, the transition to the analyst is recorded and the
-// instance stands at the analyst with no analyst attempt.
+// bugStartPhaseOf classifies the evidence. S2r is exactly the store's
+// stopped-start rule (ev.Stopped), the state the Bug runtime's restart check
+// accepts from a fresh owner reply, so the reply text is never shown where
+// the reply would be refused.
 func bugStartPhaseOf(ev store.BugStartEvidence) bugStartPhase {
 	if !ev.Admitted {
 		return bugStartS0
@@ -76,30 +75,7 @@ func bugStartPhaseOf(ev store.BugStartEvidence) bugStartPhase {
 	if len(ev.Runs) == 0 && len(ev.Attempts) == 0 && len(ev.Transitions) == 0 && !ev.HasDispatch && !ev.HasWait && !ev.HasComment {
 		return bugStartS1
 	}
-	live := ev.HasWait && (ev.Wait.State == "waiting" || ev.Wait.State == "claimed")
-	if ev.HasDispatch {
-		switch ev.Dispatch.Status {
-		case "pending", "reserved", "running":
-			live = true
-		}
-	}
-	for _, r := range ev.Runs {
-		live = live || !r.Reportable()
-	}
-	for _, a := range ev.Attempts {
-		live = live || a.Status == store.GraphPending || a.Status == store.GraphRunning
-	}
-	if live || len(ev.Runs) == 0 {
-		return bugStartS2
-	}
-	if len(ev.Attempts) == 0 {
-		return bugStartS2r
-	}
-	toAnalyst := false
-	for _, t := range ev.Transitions {
-		toAnalyst = toAnalyst || t.ToNode == bugStartAnalystNode
-	}
-	if toAnalyst && ev.Instance.CurrentNode == bugStartAnalystNode {
+	if ev.Stopped {
 		return bugStartS2r
 	}
 	return bugStartS2
