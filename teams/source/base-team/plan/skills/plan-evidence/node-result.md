@@ -24,8 +24,11 @@ member. Sequential invocations retain the storyrequest/storyset rules below.
 A completed member result carries exactly `payload.plan.contribution` instead of
 those branches. Its fields are `draft` (only your role-owned typed sections),
 optional `agreement` (the exact supplied combined proposal digest), and optional
-`questions` (string array), `growth` (reason string), `failure` (reason string),
-and `conflicts` (string array). Omitted draft sections reuse the basis; they do not
+`growth` (reason string), `failure` (reason string) and `conflicts` (string array).
+Leave the contribution's `questions` and `draft.questions` out: submission refuses
+them. An owner decision goes in `result.questions` with options and a
+`recommended_option`, on an `incomplete` result; anything else is not an owner
+question. Omitted draft sections reuse the basis; they do not
 remove another role's sections. The contribution is retained evidence only and
 cannot publish a story or approve a stage.
 
@@ -34,6 +37,10 @@ architecture, design and guidance; acceptance members may supply criteria and
 tasks. Do not copy the entire assembled proposal into `draft`: that would write
 sections you do not own. The factory binds group, role, attempt, basis and current
 proposal reference. Never include those identities in the authored contribution.
+An empty supplied proposal digest means the first pass: the proposal is only the
+starting basis and may be empty. Contribute your sections, omit `agreement`, and
+raise no question or failure about the missing assembly; the factory assembles the
+sections and invokes you again with the combined proposal and its digest.
 Read the supplied proposal before setting `agreement`; a changed proposal needs
 fresh agreement. Retain material questions, failures, conflicts or growth instead
 of confirming a plan you cannot support. Use preflight, submit and the matching
@@ -167,8 +174,9 @@ carries the complete current draft; changed_sections selects what replaces prior
 content. Stage story omits architecture, design, guidance, tasks and criteria
 entirely. Technical supplies architecture and applicable guidance/design, never
 tasks or criteria. Acceptance adds criteria [{id,text,proof_method}] and tasks
-[{id,description,owner_role,criterion_ids,depends_on}]. IDs remain stable and every
-criterion must be linked to a task. Authorized roles and issue references come
+[{id,description,owner_role,criterion_ids,depends_on}]. A criterion id is `AC-`
+followed by at least three digits (AC-001, AC-002, …); AC-01 or AC-1 is refused.
+IDs remain stable and every criterion must be linked to a task. Authorized roles and issue references come
 only from factory scope. Do not invent task ownership or dependency authority.
 
 Architecture is {general:[{area,decision,rationale}],

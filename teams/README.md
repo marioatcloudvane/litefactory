@@ -1,8 +1,12 @@
 # Team distribution
 
 The catalogue and the `<slug>/v<version>` releases are generated from the
-canonical team sources by `go run ./cmd/teamrelease`. Do not edit them. Check drift
-with `go run ./cmd/teamrelease -check`. Only the owner releases and links versions.
+canonical team sources by `go run ./cmd/teamrelease`. Do not edit them by hand.
+Any change under `teams/source` regenerates the releases and `teams.json` in the
+same change with the all-teams command below. Teams stay at 1.0.0: regenerate in
+place, never change a `release.json` version. `go test ./internal/teamrelease`
+(part of `make check`) fails when a published release differs from its source.
+Only the owner links versions.
 
 Published releases, one per team, all at version 1.0.0:
 
@@ -12,13 +16,14 @@ Published releases, one per team, all at version 1.0.0:
 | python-fastapi | `python-fastapi/v1.0.0` |
 | dotnet-web | `dotnet-web/v1.0.0` |
 | swift-ios | `swift-ios/v1.0.0` |
+| nextjs-web | `nextjs-web/v1.0.0` |
 
 Versions stay at 1.0.0 until the owner decides otherwise.
 
-To build or check all four teams at once:
+To regenerate all five teams at once (add `-check` to report drift without writing):
 
 ```sh
-go run ./cmd/teamrelease -check -source teams/source/go-development -source teams/source/python-fastapi -source teams/source/dotnet-web -source teams/source/swift-ios
+go run ./cmd/teamrelease -source teams/source/go-development -source teams/source/python-fastapi -source teams/source/dotnet-web -source teams/source/swift-ios -source teams/source/nextjs-web
 ```
 
 Tests read team content from `teams/source` (through `teamsourcetest`), not from a
@@ -68,9 +73,9 @@ attaches that closure to every admitted workflow node, and native delivery makes
 it available to both supported providers. Reporting roles use it alongside their
 own result contracts; it changes no authority, schema or workflow gate.
 
-These source edits reach only future generated teams after a separate owner-led
-release and new captures. No release is cut here. Existing release versions,
-catalogues, saved captures and historical reports remain immutable. Cold replay
+These source edits reach installed teams after the 1.0.0 releases are
+regenerated in the same change and the owner refreshes the installed release.
+Saved captures and historical reports remain immutable. Cold replay
 uses retained resources, without falling back to mutable source. Delivery checks
 establish availability, not model compliance, publication success or useful prose;
 the scenarios need a separate semantic review.
