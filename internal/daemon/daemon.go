@@ -253,6 +253,11 @@ type Options struct {
 	// Forge is the GitHub client. Required.
 	Forge Forge
 
+	// BugFilingForge is the factory bot's own GitHub client for bug filing
+	// from a chat client. Optional: without it Forge is used when it offers
+	// the label calls, and otherwise bug filing stays unavailable.
+	BugFilingForge any
+
 	// Filter classifies and records inbound comments. Required.
 	Filter Classifier
 
@@ -452,6 +457,7 @@ type Daemon struct {
 	connections *projectconnection.Factory
 	db          *store.DB
 	forge       Forge
+	bugForge    any
 	filter      Classifier
 	tickets     TicketIngress
 	turn        Executor
@@ -592,6 +598,7 @@ func New(opts Options) (*Daemon, error) {
 		db:                       opts.DB,
 		bug:                      opts.Bug,
 		forge:                    opts.Forge,
+		bugForge:                 opts.BugFilingForge,
 		filter:                   opts.Filter,
 		tickets:                  opts.Tickets,
 		connections:              opts.Connections,

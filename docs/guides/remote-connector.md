@@ -637,7 +637,7 @@ The fixed tiers for currently enabled operations are:
 
 | Tier | Existing actions |
 | --- | --- |
-| Conversational confirmation | Current-stage revision (`revise_task`); draft preview, diagnose, research answer; standards analysis start; standards author start, answer, revise, edit, continue, validate, complete and rebase; proposal edit; exception propose. |
+| Conversational confirmation | Current-stage revision (`revise_task`); draft preview, diagnose, research answer; file a bug (`bug_file`); standards analysis start; standards author start, answer, revise, edit, continue, validate, complete and rebase; proposal edit; exception propose. |
 | Conversational confirmation and Discord ✅ | Current-stage approval (`approve_stage`); feature creation from its fixed preview (the existing action named `confirm`); standards author publish; proposal approve and publish; exception approve and revoke. |
 
 Reads require no action confirmation. Future enabled ship, merge or Bug-fix
@@ -684,6 +684,73 @@ keeps its recorded invocation and recovery identity. Existing read access remain
 read-only. Run one policy-aware daemon against the migrated store; rolling back
 to an older policy must not revive invalidated pending work. This guide describes
 the implementation contract, not evidence of live client approval or deployment.
+
+## Filing a bug from chat
+
+With `repository:actions` coverage for a registered GitHub repository, say
+"file a bug" to the connected client. It calls `bug_file_propose` with three
+inputs and a request key:
+
+| Input | Limit |
+| --- | --- |
+| `repository` | The registered `owner/name` or the project's unique name. |
+| `title` | 1 to 256 characters. |
+| `description` | 1 byte to 8 KiB. The client writes what you expected, what happened instead, the steps and any evidence. |
+| `client_request_key` | 1 to 128 bytes, made once per filing request. |
+
+`action_propose` with the action `bug_file` and the same three arguments is the
+same request: the same key and the same inputs on either tool give the same one
+proposal. A retry after a lost reply reuses the key and gets that proposal back.
+The same key with a changed repository, title or description is refused with
+"Request key already belongs to different action facts". A new key with the same
+inputs is a new filing and, once confirmed, a second issue; the client uses a new
+key only when you ask to file again. A key stays bound to its proposal: an
+unconfirmed proposal expires after fifteen minutes, and filing after that needs a
+new key.
+
+The proposal is refused, before anything is filed, for a repository that is not
+registered or not covered by the grant, a Linear project ("Filing a bug on Linear
+is not supported yet"), a blank or too long input, or a repository without a
+`bug` label. Review the proposal and say yes; the client confirms it with
+`action_confirm`. It is a conversational action, so no Discord ✅ is needed.
+
+The factory files one issue with its bot account, adds the existing `bug` label
+by its id (it never creates a label), and starts the Bug analysis by itself (see
+[filing a bug from a chat client](../workflow/bug-runtime.md#filing-a-bug-from-a-chat-client)).
+Ask "what happened to it?" and the client reads `action_inspect`. The outcome
+shows the issue link once it is known and one plain state: `filing`, `filed but
+not yet labelled`, `labelled but not yet started`, `labelled; Bug admitted,
+analysis not yet dispatched`, `labelled; Bug run recorded but not started; reply
+run it again on the issue to continue`, or `Bug analysis started` (succeeded). A
+failure keeps the link if an issue exists and gives the reason. After a stop the
+factory continues the same filing; it never files twice. If the outcome says
+"could not confirm the issue was created", check the repository before you file
+again with a new proposal.
+
+### Owner live check on a GitHub test repository
+
+Automated tests use fakes. To see the real path once:
+
+1. Pick a GitHub test repository registered with the factory and make sure it has
+   a `bug` label.
+2. Connect the chat client with fresh consent that ticks `repository:actions`
+   and selects that repository.
+3. Say "file a bug on <owner/name>" and give a short title, what you expected,
+   what happened, steps and evidence. Check that the client calls
+   `bug_file_propose` and shows a proposal for that repository.
+4. Say yes in a separate message. The client calls `action_confirm`.
+5. Ask "what happened to it?" until `action_inspect` shows `Bug analysis started`
+   with the issue link.
+6. Open the link. Check that there is exactly one new issue, filed by the
+   factory's bot account, with the `bug` label and no other new label, and that
+   its body is your description, the line "Filed for the owner from a chat
+   client." and a hidden marker. Check that the Bug analysis has started on it
+   and that no `/approve-bug` was given for you.
+7. Ask the client to send the same request again with the same key (or call the
+   tool twice): it must return the same proposal and no second issue appears.
+
+Write down the client, the issue link and what you saw. Close the test issue
+when you are done.
 
 ## Durable workflow jobs
 

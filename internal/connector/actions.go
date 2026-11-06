@@ -17,7 +17,7 @@ import (
 
 var errActionUnclassified = errors.New("action is not classified")
 
-var actionToolNames = []string{"action_propose", "action_confirm", "action_cancel", "action_inspect", "action_history"}
+var actionToolNames = []string{"action_propose", "action_confirm", "action_cancel", "action_inspect", "action_history", bugFileProposeTool}
 
 func isActionTool(name string) bool { return slices.Contains(actionToolNames, name) }
 
@@ -77,6 +77,9 @@ func parseActionArguments(name string, raw json.RawMessage) (actionArguments, er
 	var a actionArguments
 	if !isActionTool(name) || len(raw) == 0 || len(raw) > 64<<10 || !utf8.Valid(raw) || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
 		return a, argumentsShapeError()
+	}
+	if name == bugFileProposeTool {
+		return parseBugFileArguments(raw)
 	}
 	allowed, required := []string{"proposal_id"}, []string{"proposal_id"}
 	switch name {
@@ -187,6 +190,9 @@ func parseActionArguments(name string, raw json.RawMessage) (actionArguments, er
 }
 
 func actionInputSchema(name string) map[string]any {
+	if name == bugFileProposeTool {
+		return bugFileInputSchema()
+	}
 	str := func(maximum int) map[string]any {
 		return map[string]any{"type": "string", "minLength": 1, "maxLength": maximum}
 	}
@@ -211,6 +217,8 @@ func actionDescription(name string) string {
 		return "Record a separate conversational confirmation for the original client's proposal. Binding actions await the configured owner's Discord reaction."
 	case "action_cancel":
 		return "Cancel a pending proposal directly; already admitted work cannot be undone."
+	case bugFileProposeTool:
+		return bugFileDescription
 	case "action_inspect":
 		return "Read current authorized proposal facts, confirmation decisions and recorded outcome."
 	default:
@@ -230,7 +238,7 @@ func (s *Server) callAction(ctx context.Context, credential, name string, a acti
 	p := owneraction.Principal{OwnerID: strconv.FormatInt(grant.OwnerID, 10), OwnerGeneration: grant.OwnerGeneration, Transport: "mcp", ClientID: grant.ClientID, GrantID: grant.ID, ChannelID: a.DiscordChannelID}
 	var value any
 	switch name {
-	case "action_propose":
+	case "action_propose", bugFileProposeTool:
 		if _, _, classifyErr := owneraction.Classify(owneraction.Invocation{Command: a.Action, Arguments: a.Arguments}); classifyErr != nil {
 			return ToolResult{}, errActionUnclassified
 		}
@@ -288,7 +296,10 @@ func actionGrant(g connectorstate.ConnectorGrant) bool {
 
 func actionFailure(err error) ToolResult {
 	summary := "Action unavailable"
+	var refusal owneraction.Refusal
 	switch {
+	case errors.As(err, &refusal) && refusal.Reason != "":
+		summary = refusal.Reason
 	case errors.Is(err, owneraction.ErrDiscordUnavailable):
 		summary = "Discord owner approval is not configured"
 	case errors.Is(err, owneraction.ErrDiscordDestination):
