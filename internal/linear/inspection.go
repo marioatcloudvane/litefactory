@@ -62,7 +62,6 @@ func (c *Client) Inspect(ctx context.Context) (Inspection, error) {
 	if _, err := c.ContainerIdentity(ctx, c.Container()); err != nil {
 		return Inspection{}, err
 	}
-	seen := map[string]bool{}
 	var labelIDs []string
 	for _, name := range slices.Sorted(maps.Keys(c.config.ModeLabels)) {
 		labelIDs = append(labelIDs, c.config.ModeLabels[name])
@@ -73,9 +72,25 @@ func (c *Client) Inspect(ctx context.Context) (Inspection, error) {
 	if c.config.BugLabel != "" {
 		labelIDs = append(labelIDs, c.config.BugLabel)
 	}
+	if err := c.inspectLabels(ctx, labelIDs); err != nil {
+		return Inspection{}, err
+	}
+	if err := c.inspectStates(ctx); err != nil {
+		return Inspection{}, err
+	}
+	out := Inspection{WorkspaceID: c.config.WorkspaceID, TeamID: c.config.TeamID, ProjectID: c.config.ProjectID, Publisher: publisher}
+	_, err = c.ListSubscriptions(ctx, c.Container())
+	out.WebhookAdministration = err == nil
+	return out, nil
+}
+
+// inspectLabels verifies each stored label ID once: present, live, not a group,
+// in the selected workspace and either workspace level or the selected team.
+func (c *Client) inspectLabels(ctx context.Context, labelIDs []string) error {
+	seen := map[string]bool{}
 	for _, id := range labelIDs {
 		if id == "" || seen[id] {
-			return Inspection{}, failure("inspect mappings", ticket.Refused, "mode mappings are missing or ambiguous")
+			return failure("inspect mappings", ticket.Refused, "mode mappings are missing or ambiguous")
 		}
 		seen[id] = true
 		var label struct {
@@ -88,17 +103,22 @@ func (c *Client) Inspect(ctx context.Context) (Inspection, error) {
 			}
 		}
 		if err := c.query(ctx, "inspect label", "query($id: String!) { issueLabel(id: $id) { id archivedAt isGroup team { id } organization { id } } }", map[string]string{"id": id}, false, &label); err != nil {
-			return Inspection{}, err
+			return err
 		}
 		if label.IssueLabel.ID != id || label.IssueLabel.ArchivedAt != nil || label.IssueLabel.IsGroup || label.IssueLabel.Organization.ID != c.config.WorkspaceID || (label.IssueLabel.Team != nil && label.IssueLabel.Team.ID != c.config.TeamID) {
-			return Inspection{}, failure("inspect label", ticket.Refused, "mode label does not belong to selected workspace/team")
+			return failure("inspect label", ticket.Refused, "mode label does not belong to selected workspace/team")
 		}
 	}
-	seen = map[string]bool{}
+	return nil
+}
+
+// inspectStates verifies every lifecycle state mapping against the selected team.
+func (c *Client) inspectStates(ctx context.Context) error {
+	seen := map[string]bool{}
 	for _, name := range slices.Sorted(maps.Keys(c.config.States)) {
 		id := c.config.States[name]
 		if id == "" || seen[id] {
-			return Inspection{}, failure("inspect mappings", ticket.Refused, "state mappings are missing or ambiguous")
+			return failure("inspect mappings", ticket.Refused, "state mappings are missing or ambiguous")
 		}
 		seen[id] = true
 		var state struct {
@@ -109,17 +129,14 @@ func (c *Client) Inspect(ctx context.Context) (Inspection, error) {
 			}
 		}
 		if err := c.query(ctx, "inspect state", "query($id: String!) { workflowState(id: $id) { id type archivedAt team { id } } }", map[string]string{"id": id}, false, &state); err != nil {
-			return Inspection{}, err
+			return err
 		}
 		i := state.WorkflowState
 		if i.ID != id || i.Team.ID != c.config.TeamID || i.ArchivedAt != nil || (name == "completed" && i.Type != "completed") || (name == "retired" && i.Type != "canceled") || (name == "open" && (i.Type == "completed" || i.Type == "canceled")) {
-			return Inspection{}, failure("inspect state", ticket.Refused, "lifecycle state mapping is incompatible")
+			return failure("inspect state", ticket.Refused, "lifecycle state mapping is incompatible")
 		}
 	}
-	out := Inspection{WorkspaceID: c.config.WorkspaceID, TeamID: c.config.TeamID, ProjectID: c.config.ProjectID, Publisher: publisher}
-	_, err = c.ListSubscriptions(ctx, c.Container())
-	out.WebhookAdministration = err == nil
-	return out, nil
+	return nil
 }
 
 // ContainerIdentity verifies and returns the configured project identity.

@@ -194,7 +194,7 @@ func (c *Client) query(ctx context.Context, operation, query string, variables a
 		if string(value) == "null" {
 			return failure(operation, kind, "provider result missing")
 		}
-		if key == "issues" || key == "comments" || key == "webhooks" {
+		if key == "issues" || key == "comments" || key == "webhooks" || key == "issueLabels" {
 			var page struct {
 				Nodes    json.RawMessage
 				PageInfo *struct {
