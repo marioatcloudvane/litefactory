@@ -52,8 +52,10 @@ type ConnectionPresentation struct {
 type SetProjectConnectionRequest struct {
 	Role                                                             string
 	Provider, Workspace, Team, Project, AuthKind, ModeLabels, States string
-	Revision                                                         int64
-	Origin, Destination, Credential, RemoteID                        string
+	// CodingAgentLabels is JSON (agent name to label ID); BugLabel is one label ID. Linear only.
+	CodingAgentLabels, BugLabel               string
+	Revision                                  int64
+	Origin, Destination, Credential, RemoteID string
 }
 
 // ProjectBindingRequest describes one qualified ticket binding change.

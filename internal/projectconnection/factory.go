@@ -44,6 +44,9 @@ type Options struct {
 	ExpectedActorID int64
 	Launchd         bool
 	Timeout         time.Duration
+	// LabelAgents names the configured coding agents (for example "claude").
+	// Nil skips only the Coding Agent comparison in the label check.
+	LabelAgents []string
 }
 
 // Clients contains separate protocol surfaces for one version and verified actor.

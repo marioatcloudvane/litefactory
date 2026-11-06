@@ -18,6 +18,8 @@ type Options struct {
 	KeychainWrite func(context.Context, string, string, string) error
 	Logger        *slog.Logger
 	Keychain      func(context.Context, string, string) (string, error)
+	// LabelAgents names the configured coding agents for label planning.
+	LabelAgents []string
 }
 
 // Service owns bounded local administration operations.
@@ -48,7 +50,7 @@ func connectionView(v store.ConnectionVersion) contracts.ProjectConnectionView {
 	return contracts.ProjectConnectionView{ID: v.ID, RepoID: v.RepoID, Revision: v.Revision, Role: string(v.Role), Provider: v.Provider, Origin: v.Origin, Destination: v.Destination, Enabled: v.Enabled, Provenance: v.Provenance}
 }
 func (s *Service) factory(expectedActorID int64) *projectconnection.Factory {
-	return projectconnection.NewFactory(projectconnection.Options{DB: s.db, Logger: s.options.Logger, ExpectedActorID: expectedActorID, Resolver: secrets.Resolver{Keychain: s.options.Keychain}})
+	return projectconnection.NewFactory(projectconnection.Options{DB: s.db, Logger: s.options.Logger, ExpectedActorID: expectedActorID, Resolver: secrets.Resolver{Keychain: s.options.Keychain}, LabelAgents: s.options.LabelAgents})
 }
 
 func unavailableText(message string) error { return unavailable(fmt.Errorf("%s", message)) }
