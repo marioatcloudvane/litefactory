@@ -8,14 +8,18 @@ import (
 	"time"
 )
 
-// bugStartTriggerBase (below the factory work-id band at 1<<56) reserves the factory-private run identities of the Bug
-// starts a confirmed bug filing hands off. Each identity is the band plus one
-// start attempt id, so it is never a forge comment id and never another band.
-const bugStartTriggerBase int64 = 1 << 55
+// bugStartTriggerBase reserves the factory-private run identities of the Bug
+// starts a confirmed bug filing hands off, below the factory work-id band that
+// begins at bugStartTriggerEnd. Each identity is the band plus one start
+// attempt id, so it is never a forge comment id and never another band.
+const (
+	bugStartTriggerBase int64 = 1 << 55
+	bugStartTriggerEnd  int64 = 1 << 56
+)
 
 // IsBugStartTrigger reports whether an identity belongs to a bug filing start attempt.
 func IsBugStartTrigger(id int64) bool {
-	return id > bugStartTriggerBase && id < 1<<56
+	return id > bugStartTriggerBase && id < bugStartTriggerEnd
 }
 
 // BugStartTrigger returns the private run identity of one start attempt.

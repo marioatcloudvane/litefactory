@@ -25,6 +25,9 @@ type BugStartEvidence struct {
 	HasWait          bool
 	// HasComment reports any graph comment intent of the instance.
 	HasComment bool
+	// Stopped reports the stopped-start state only an owner reply continues
+	// (StoppedBugLaunch), the same rule the Bug runtime's restart check uses.
+	Stopped bool
 }
 
 // BugStartEvidence reads the start evidence of one session. Without a Bug
@@ -69,5 +72,8 @@ func (db *DB) BugStartEvidence(ctx context.Context, sessionID int64) (BugStartEv
 		return ev, err
 	}
 	ev.HasComment = len(comments) > 0
+	if ev.Stopped, err = db.StoppedBugLaunch(ctx, ev.Instance, BugStartAnalystNode); err != nil {
+		return ev, err
+	}
 	return ev, nil
 }
