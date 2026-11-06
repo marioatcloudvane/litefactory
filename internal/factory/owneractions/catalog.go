@@ -6,6 +6,9 @@ import (
 	"sort"
 )
 
+// BugFileCommand files a bug on a registered GitHub project for the owner.
+const BugFileCommand = "bug_file"
+
 // Availability contains trusted host facts about installed command families.
 // Individual flags allow optional hosts to expose only their configured effects.
 type Availability struct {
@@ -13,6 +16,8 @@ type Availability struct {
 	Draft, Confirm, Answer, Diagnose bool
 	// Brainstorm enables brainstorm_create_tasks and brainstorm_task_recreate.
 	Brainstorm bool
+	// BugFile enables bug_file.
+	BugFile bool
 }
 
 // Allows reports availability of an existing changing command.
@@ -28,6 +33,8 @@ func (a Availability) Allows(command string) bool {
 		return a.Research || a.Diagnose
 	case BrainstormCreateTasks, BrainstormTaskRecreate:
 		return a.Brainstorm
+	case BugFileCommand:
+		return a.BugFile
 	default:
 		return a.Standards && StandardsCommand(command) && command != "standards"
 	}
@@ -59,6 +66,12 @@ func ChangeDefinition(command string) (CommandDefinition, bool) {
 		return CommandDefinition{Name: command, NaturalLanguage: true, Effect: ChangeEffect, Description: "Create a second issue for a draft whose first create stayed uncertain; the first issue may still appear", Arguments: []Argument{
 			{Name: "batch", Type: TextArgument, Required: true, Description: "Brainstorm task batch id"},
 			{Name: "draft", Type: TextArgument, Required: true, Description: "Draft key in that batch"},
+		}}, true
+	case BugFileCommand:
+		return CommandDefinition{Name: command, NaturalLanguage: true, Effect: ChangeEffect, Description: "File a bug on a registered project's GitHub repository and start Bug analysis on it", Arguments: []Argument{
+			{Name: "repository", Type: TextArgument, Required: true, Description: "Registered owner/name or unique name"},
+			{Name: "title", Type: TextArgument, Required: true, Description: "Issue title, up to 256 characters"},
+			{Name: "description", Type: TextArgument, Required: true, Description: "Bug description, up to 8192 bytes"},
 		}}, true
 	default:
 		if command != "standards" && StandardsCommand(command) {
@@ -117,7 +130,7 @@ func (a Availability) ValidateChange(in owneraction.Invocation) (owneraction.Inv
 // ActionCatalog derives action discovery from the same fixed schemas as validation.
 func (a Availability) ActionCatalog() []owneraction.ActionDefinition {
 	var out []owneraction.ActionDefinition
-	names := []string{"draft", "confirm", "diagnose", "answer", BrainstormCreateTasks, BrainstormTaskRecreate, "standards-author", "standards-proposal", "standards-exception", "standards-analysis"}
+	names := []string{"draft", "confirm", "diagnose", "answer", BrainstormCreateTasks, BrainstormTaskRecreate, BugFileCommand, "standards-author", "standards-proposal", "standards-exception", "standards-analysis"}
 	sort.Strings(names)
 	for _, name := range names {
 		if !a.Allows(name) {

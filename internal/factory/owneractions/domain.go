@@ -13,7 +13,9 @@ import (
 type Domain struct {
 	Actions, Standards, Diagnosis owneraction.Domain
 	// Brainstorm owns brainstorm_create_tasks and brainstorm_task_recreate.
-	Brainstorm   owneraction.Domain
+	Brainstorm owneraction.Domain
+	// BugFile owns bug_file.
+	BugFile      owneraction.Domain
 	Availability Availability
 }
 
@@ -26,6 +28,9 @@ func (d Domain) operation(command string) owneraction.Domain {
 	}
 	if BrainstormCommand(command) && d.Brainstorm != nil {
 		return d.Brainstorm
+	}
+	if command == BugFileCommand && d.BugFile != nil {
+		return d.BugFile
 	}
 	return d.Actions
 }
