@@ -2,73 +2,48 @@
 
 ## Request
 
-Add a read-only, grant-aware MCP tool (tentatively factory_guide) that returns concise intent-based guidance (tool order, confirmation and authorization boundaries, unavailable capabilities), built from the same embedded guidance as #1382, without filing or approving anything.
+Add a read-only MCP tool (factory_guide) that returns one central, human-readable markdown guide to the factory: how it works, what each tool does, workflow examples and how to chain tools, trimmed to what this connection can call, with little code around the markdown.
 
 ## Decisions
 
-- **S-01** — mode=feature, size=small — one new read-only tool reusing the existing guidance and grant filter; no permission or storage change. (agent's call)
-- **O-01** — A read-only guide tool returns a bounded overview or one intent's guidance listing only tools in availableTools(grant), with plain unavailability and reconnect text from missingScopes. (owner said: issue #1448 acceptance criteria 1-3)
-- **O-02** — Intent text lives in embedded guidance files shared with #1382, with tests that fail on drift. (owner said: issue #1448 'same embedded guidance source')
-- **O-03** — The 'file a feature request' intent describes the brainstorm/proposal route only when those tools are granted, otherwise states the available path truthfully; it never implies the guide files issues, and keeps bug filing separate from feature filing. (owner said: issue #1448 acceptance criterion 2)
-- **O-04** — Each intent answer states when to use it, what context is needed, the tool order, the expected result, and for each step whether it reads, proposes, needs the owner's separate yes, or also needs the Discord check mark. (owner said: issue #1448 'For each supported intent')
-- **O-05** — When an intent's tools are not callable, the answer says so and names only the consent scopes whose addition would make that intent's tools callable, telling the owner to reconnect and tick them. (owner said: issue #1448 'indicate the missing permission/reconnect step')
-- **O-06** — Integration tests cover a real tools/list plus guide call, an unavailable-scope grant, separate confirmation semantics, and every scope subset never seeing an ungranted tool name in the guide. (owner said: issue #1448 acceptance criterion 4)
-- **O-07** — The connector guide in docs explains the new tool and its intents. (agent's call)
+- **S-01** — mode=feature, size=small — one new read-only tool returning one embedded markdown guide, trimmed by the existing grant filter; no permission or storage change. (agent's call)
+- **A-01** — Reply to the round-1 questions — owner: "the tool should show a human readable markdown; a full guide on how to use the factory, what tools do and some workflow examples and how to chain tools together. the markdown should be central, not much code around it. give me later the link to the markdown, i want to review it as well!" (owner said)
+- **O-01** — superseded by O-08 — A read-only guide tool returns a bounded overview or one intent's guidance listing only tools in availableTools(grant), with plain unavailability and reconnect text from missingScopes. (owner said: issue #1448 acceptance criteria 1-3)
+- **O-02** — The guide markdown lives in the same embedded guidance folder as #1382's files, with tests that fail on drift. (owner said: issue #1448 'same embedded guidance source')
+- **O-03** — The guide's feature-request example describes the brainstorm and proposal route only when those tools are callable, otherwise says plainly what is available; it never implies the guide files issues, and the bug example stays separate from it. (owner said: issue #1448 acceptance criterion 2)
+- **O-04** — Each workflow example shows when to use it, the context needed, the tools in order, the expected result, and for each step whether it reads, proposes, needs the owner's separate yes, or also needs the Discord check mark. (owner said: issue #1448 'For each supported intent'; A-01 'workflow examples and how to chain tools together')
+- **O-05** — When the guide leaves sections out, a closing note says so and names only the consent scopes that would make them callable, telling the owner to reconnect and tick them. (owner said: issue #1448 'indicate the missing permission/reconnect step')
+- **O-06** — Tests cover a real tools/list plus guide call, an unavailable-scope grant, separate confirmation wording, every catalog tool being described in the guide, every tool named in the guide existing, and no scope subset ever seeing an uncallable tool named. (owner said: issue #1448 acceptance criteria 3-4)
+- **O-07** — The connector guide in docs mentions the new tool and points to the markdown. (agent's call)
+- **O-08** — The tool returns one human-readable markdown guide to the factory: how it works, how approvals work, what each tool does, workflow examples and how to chain tools. (owner said: A-01)
+- **O-09** — The markdown is central and the code around it is minimal: load the file, drop sections whose tools are not callable, append the missing-scope note. Each section names the tools it needs inside the markdown itself. (owner said: A-01 'the markdown should be central, not much code around it')
+- **O-10** — Guide outline: what the factory is; how proposals and approvals work; tools by group; workflow examples (review a task, discuss or revise a plan, propose and confirm a change, file a feature request, file a bug, check running work, check usage, start a workflow); what this connection lacks. (agent's call, rests on A-01 and issue #1448 intent list)
+- **O-11** — The final delivery report links the guide markdown file at a fixed commit so the owner can review it. (owner said: A-01 'give me later the link to the markdown')
 - **N-01** — No mutation, auto-approval, issue creation or scope widening by the guide; no redesign of permissions. (owner said: issue #1448 'Requested scope')
 - **N-02** — No bug-filing tool is built here; that is #1422. (owner said: issue #1448 'separate bug-filing feature')
-- **N-03** — No new consent scope and no change to existing scope meanings. (agent's call, pending q3)
+- **N-03** — No new consent scope and no change to existing scope meanings. (agent's call, rests on round-1 q3 recommendation)
 - **N-04** — No client-specific behaviour for ChatGPT versus Claude; one response for all clients. (agent's call)
 - **N-05** — No new MCP prompts and no change to the three existing prompts. (agent's call)
-- **K-01** — Existing tools, MCP prompts, server instructions and project template keep current behavior. (owner said: issue #1448 acceptance criterion 5)
+- **N-06** — No intent argument or intent taxonomy; the tool takes no input and returns the whole trimmed guide. (agent's call, rests on A-01)
+- **N-07** — Existing per-tool guidance files and server instructions are not rewritten into the guide; they stay as they are. (agent's call, rests on K-01)
+- **K-01** — Existing tools, MCP prompts, server instructions and project template keep current behavior, except one added instructions line pointing to the guide (a9). (owner said: issue #1448 acceptance criterion 5)
 - **K-02** — missingScopes output and the missing-scopes notice stay as they are for every grant. (agent's call, rests on f9)
-- **K-03** — Guidance loading stays fail-closed: a missing or oversized intent file fails like other guidance files do. (agent's call, rests on f1)
+- **K-03** — Guidance loading stays fail-closed: a missing, invalid or oversized guide file fails like other guidance files do. (agent's call, rests on f1)
 
 
 ## Assumptions
 
-- **a1** — The guide is listed for every authenticated grant, needing no scope, so a fresh client always finds it. Rests on f2, f9 and the 'fresh client' acceptance criterion. (agent's call, asked as q3)
-- **a2** — Input is one optional string 'intent' from a short fixed list; omitted means the bounded overview. Unknown intents return the list, not an error. (agent's call)
-- **a3** — Intent names in the issue are examples; the final list follows what tools exist. 'start_workflow' maps to the workflow_* tools and 'check_usage' to usage_read, each only when granted. (agent's call, list asked as q2)
-- **a4** — Voice-friendly bound: the overview lists the callable intents with one line each, and one intent answer stays short (target about 1500 characters), well inside the 8192-byte guidance cap. (agent's call)
-- **a5** — The overview answers 'what can this connector do' by listing only intents with at least one callable step, plus one line on what the reconnect would add. (agent's call)
-- **a6** — A grant that can call nothing else still gets the guide, which says plainly that nothing is usable and which scopes to tick on reconnect. (agent's call)
-- **a7** — The guide is marked read-only in its tool annotations and makes no network or paid call; it only reads embedded files and the grant. (agent's call, rests on N-01)
-- **a8** — The bug intent today says no bug tool exists on this connector and points to filing on GitHub directly; when #1422 adds a tool, that tool is added to the same intent. (agent's call, asked as q1)
-- **a9** — The guide adds one short line to server instructions through its own per-tool guidance file, like every other tool. (agent's call, asked as q4, rests on f10)
-
-
-## Open questions
-
-### q1 — What should the guide say when the owner asks how to file a bug?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Say plainly that this connector has no bug-filing tool yet, that the feature-request route is not for bugs, and that the owner can file it on GitHub directly. When #1422 ships, its tool joins the same intent. (recommended: truthful today, no fake tool, matches acceptance criterion 2)  *(recommended)*
-- **b** — Leave the bug intent out until #1422 ships. Simpler, but a voice user asking about bugs gets only the generic intent list.
-- **c** — Send bugs through the brainstorm route like features. Not recommended: it blurs bug and feature filing, which the issue asks to keep apart.
-
-### q2 — Which intents should the first version cover?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Overview plus the seven from the issue: review a task, discuss or revise a plan, file a feature request, file a bug, check running work, check usage, start a workflow. (recommended: covers every acceptance criterion and maps onto tools that exist)  *(recommended)*
-- **b** — Only the three the acceptance criteria test: review/discuss/propose a change, file a feature request, check running work. Smaller, but usage and workflow questions get no guide.
-- **c** — One intent per tool family, generated automatically. Not recommended: that is the taxonomy the issue warns against.
-
-### q3 — Which connections may see and call the guide?
-
-_Asked of: Technical Questions_
-
-- **a** — Every signed-in connection, with no new scope. It only reveals what the connection already sees in its tool list and server instructions. (recommended: a fresh client always finds it)  *(recommended)*
-- **b** — Only connections with the factory overview scope. Safer on paper, but a brainstorm-only or task-discussion-only connection would never see the guide.
-- **c** — A new dedicated scope. Not recommended: every existing connection would need a reconnect, and the issue rules out permission changes.
-
-### q4 — May the server instructions gain one line telling clients the guide exists?
-
-_Asked of: Technical Questions_
-
-- **a** — Yes. Each tool's guidance text already flows into the instructions automatically; the guide adds one short line. Everything else in instructions, prompts and the project template stays byte-identical. (recommended: clients that do read instructions learn to call the guide)  *(recommended)*
-- **b** — No. Keep the instructions byte-identical and list the guide only in the tool list. Stricter reading of acceptance criterion 5, but needs a special exception in the shared composer.
+- **a1** — The guide is listed for every authenticated grant, needing no scope, so a fresh client always finds it. Rests on f2, f9 and the 'fresh client' acceptance criterion. (agent's call, round-1 q3 option a)
+- **a2** — superseded by N-06 — Input is one optional string 'intent' from a short fixed list. (agent's call)
+- **a3** — superseded by O-10 — the issue's intents become workflow examples in the guide; 'start a workflow' uses the workflow tools and 'check usage' uses usage_read, each shown only when callable. (agent's call)
+- **a4** — superseded — the guide is a full guide, not a short answer. Its file may exceed the 8192-byte cap of per-tool files; it gets its own fixed cap (about 32 KiB) and still fails closed. (agent's call, rests on A-01 'a full guide')
+- **a5** — superseded by O-10 — the guide's opening section answers 'what can this connector do'. (agent's call)
+- **a6** — A grant that can call nothing else still gets the guide's general sections, plus the note naming which scopes to tick on reconnect. (agent's call)
+- **a7** — The guide is marked read-only in its tool annotations and makes no network or paid call; it only reads the embedded file and the grant. (agent's call, rests on N-01)
+- **a8** — The bug example says this connector has no bug-filing tool yet, that the feature-request route is not for bugs, and that the owner can file on GitHub directly; when #1422 ships, its tool joins that example. (agent's call, round-1 q1 option a)
+- **a9** — Server instructions gain one short line telling clients to call the guide, through its own per-tool guidance file like every other tool. (agent's call, round-1 q4 option a, rests on f10)
+- **a10** — A workflow example whose tools are only partly callable is left out with a one-line 'not on this connection' note, rather than shown half-usable. (agent's call, rests on O-05 and AC3)
+- **a11** — The owner reviews the guide's wording at the Implement review via the O-11 link; the outline in O-10 is the shape agreed now. (agent's call, rests on A-01)
 
 ## Research documents
 
