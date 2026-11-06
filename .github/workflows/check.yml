@@ -35,6 +35,18 @@ jobs:
       - name: make check
         run: make check
 
+      - name: Close red-main issue when green
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          issue="$(gh issue list --state open --search 'in:title "main is red"' \
+            --json number,title --jq '[.[] | select(.title | contains("main is red"))][0].number // empty')"
+          if [ -n "$issue" ]; then
+            gh issue close "$issue" --comment "main is green again at ${GITHUB_SHA::7}. Run: ${RUN_URL}"
+          fi
       - name: Report red main
         if: failure()
         env:
