@@ -20,7 +20,7 @@ import (
 var creationIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 const userFields = "id displayName active app archivedAt"
-const issueFields = "id identifier url title description createdAt updatedAt creator { " + userFields + " } assignee { " + userFields + " } team { id } project { id } parent { id } state { id type } labels(first: 100) { nodes { id name } pageInfo { hasNextPage } }"
+const issueFields = "id identifier url title description createdAt updatedAt creator { " + userFields + " } assignee { " + userFields + " } team { id } project { id } parent { id } state { id type } labels(first: 100) { nodes { id name parent { id name } } pageInfo { hasNextPage } }"
 const commentFields = "id body url createdAt updatedAt parent { id issue { id } } user { " + userFields + " } issue { id team { id } project { id } }"
 
 type user struct {
@@ -38,7 +38,7 @@ type issue struct {
 	Team, Project, Parent                   *objectID
 	State                                   struct{ ID, Type string }
 	Labels                                  struct {
-		Nodes    []struct{ ID, Name string }
+		Nodes    []labelNode
 		PageInfo pageInfo
 	}
 }
@@ -107,15 +107,7 @@ func (c *Client) snapshot(i issue) (ticket.Snapshot, error) {
 	if i.Assignee != nil {
 		out.Assignees = []ticket.Actor{c.actor(i.Assignee)}
 	}
-	for _, label := range i.Labels.Nodes {
-		name := label.Name
-		for mode, id := range c.config.ModeLabels {
-			if label.ID == id {
-				name = canonicalModeLabel(mode)
-			}
-		}
-		out.Labels = append(out.Labels, name)
-	}
+	out.Labels = c.snapshotLabels(i.Labels.Nodes)
 	return out, nil
 }
 func (c *Client) rawIssue(ctx context.Context, id string) (issue, error) {
@@ -619,6 +611,14 @@ func (c *Client) RemoveLabel(ctx context.Context, ref ticket.Ref, label string) 
 }
 func (c *Client) changeLabel(ctx context.Context, ref ticket.Ref, label string, add bool) error {
 	id := c.config.ModeLabels[label]
+	if id == "" && strings.HasPrefix(label, agentLabelPrefix) {
+		kind, ok := LabelToKind(label)
+		key, found := KeyForKind(c.config.CodingAgentLabels, kind)
+		if !ok || !found || c.config.CodingAgentLabels[key] == "" {
+			return failure("label", ticket.Refused, "coding agent label mapping is required")
+		}
+		id = c.config.CodingAgentLabels[key]
+	}
 	if id == "" {
 		for mode, mapped := range c.config.ModeLabels {
 			if canonicalModeLabel(mode) == label {
