@@ -93,6 +93,8 @@ func TestHealthReadOnlyAndSafeFailures(t *testing.T) {
 					}
 				case "/repos/owner/tickets/issues":
 					_, _ = w.Write([]byte(`[]`))
+				case "/repos/owner/tickets/labels":
+					_, _ = w.Write([]byte(`[{"name":"Bug"}]`))
 				default:
 					t.Errorf("unexpected health request %s", r.URL.Path)
 					http.NotFound(w, r)
@@ -480,4 +482,34 @@ func openLinearLabelDB(t *testing.T) *store.DB {
 		t.Fatal(err)
 	}
 	return db
+}
+
+func TestHealthReportsMissingAndRefusedLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user":
+			_, _ = w.Write([]byte(`{"id":7,"login":"worker"}`))
+		case "/repos/owner/tickets":
+			_, _ = w.Write([]byte(`{"id":91,"full_name":"owner/tickets","has_issues":true}`))
+		case "/repos/owner/tickets/issues":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/owner/tickets/labels":
+			_, _ = w.Write([]byte(`[{"name":"Bug"},{"name":"Mode: Plan"}]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	factory := projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 7, LabelAgents: []string{"claude"}, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "tok", true }}})
+	v := version(server.URL, 1)
+	v.RepoID = 5
+	o := factory.Check(t.Context(), v)
+	if o.Status != "usable_for_checked_capabilities" || o.Reason != "read_access_verified" {
+		t.Fatalf("status changed: %+v", o)
+	}
+	for _, want := range []string{"missing labels", "Mode: Research", "litefactory repo labels setup 5", `label "Bug" cannot be used`} {
+		if !strings.Contains(o.Remedy, want) {
+			t.Fatalf("remedy lacks %q: %s", want, o.Remedy)
+		}
+	}
 }

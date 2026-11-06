@@ -64,7 +64,7 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		return err
 	}
 	defer func() { err = errors.Join(err, rt.close()) }()
-	service, err := localprojects.Open(ctx, rt.db, id, localprojects.Options{Logger: env.Logger, Keychain: env.Keychain})
+	service, err := localprojects.Open(ctx, rt.db, id, localprojects.Options{Logger: env.Logger, Keychain: env.Keychain, LabelAgents: configuredLabelAgents(rt.cfg)})
 	if err != nil {
 		return projectCommandError(cmd, err)
 	}
@@ -74,6 +74,9 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		err = service.ListConnections(ctx, role, present)
 	case "set":
 		err = service.SetConnection(ctx, contracts.SetProjectConnectionRequest{Role: role, Provider: f.provider, Workspace: f.workspace, Team: f.team, Project: f.project, AuthKind: f.authKind, ModeLabels: f.modeLabels, CodingAgentLabels: f.codingAgentLabels, BugLabel: f.bugLabel, States: f.states, Revision: f.revision, Origin: f.origin, Destination: f.destination, Credential: f.credential, RemoteID: f.remoteID}, present)
+		if err == nil {
+			writeLabelSetupHint(env, strconv.FormatInt(id, 10))
+		}
 	case "disable":
 		err = service.DisableConnection(ctx, role, f.revision, present)
 	case "check":

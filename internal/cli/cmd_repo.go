@@ -152,6 +152,7 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 	}, contracts.ProjectRegistrationPresentation{
 		Registration: func(registration contracts.ProjectRegistrationView, existed bool) {
 			writeRegistration(env.Stdout, registration, existed)
+			writeLabelSetupHint(env, "<id>")
 		},
 		Webhook: func(repository contracts.RepositoryView, result contracts.ProjectWebhookView) {
 			writeRepoAddWebhook(env.Stdout, env.Stderr, repository, result)

@@ -88,11 +88,12 @@ func run(args []string) int {
 	}).With(slog.String("version", version))
 
 	env := &cli.Env{
-		Stdout:  os.Stdout,
-		Stderr:  os.Stderr,
-		Stdin:   os.Stdin,
-		Logger:  logger,
-		Version: version,
+		Stdout:          os.Stdout,
+		Stderr:          os.Stderr,
+		Stdin:           os.Stdin,
+		InputIsTerminal: logging.IsTerminal(os.Stdin),
+		Logger:          logger,
+		Version:         version,
 	}
 	if sink != nil {
 		env.LogSink = sink
