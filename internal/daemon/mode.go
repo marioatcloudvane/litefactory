@@ -166,10 +166,12 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 	}
 	commandMode, commanded := command.Mode()
 	// A plain owner comment while the Validate report waits is a question for
-	// its reporter, not an Implement instruction: it continues that wait.
+	// its reporter, not an Implement instruction: it continues that wait. A
+	// factory-made trigger is never an owner comment (#1457).
 	discussion := false
 	if !commanded && command.Kind == turn.KindFreeText && command.Name == "" && featureErr == nil && feature.State != "planning" &&
-		!t.implementing && !t.refining && !t.validating && !turn.ManagedReplan(command) {
+		!t.implementing && !t.refining && !t.validating && !turn.ManagedReplan(command) &&
+		!store.IsGraphTrigger(trigger.CommentID) && !store.IsAutomaticTrigger(trigger.CommentID) && !store.IsScheduleTrigger(trigger.CommentID) && !store.IsBrainstormLaunchTrigger(trigger.CommentID) {
 		if discussion, err = turn.ValidateDiscussionOpen(ctx, d.db, t.session.ID); err != nil {
 			return "", err
 		}
