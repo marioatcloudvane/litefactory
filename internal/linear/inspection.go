@@ -63,8 +63,17 @@ func (c *Client) Inspect(ctx context.Context) (Inspection, error) {
 		return Inspection{}, err
 	}
 	seen := map[string]bool{}
+	var labelIDs []string
 	for _, name := range slices.Sorted(maps.Keys(c.config.ModeLabels)) {
-		id := c.config.ModeLabels[name]
+		labelIDs = append(labelIDs, c.config.ModeLabels[name])
+	}
+	for _, name := range slices.Sorted(maps.Keys(c.config.CodingAgentLabels)) {
+		labelIDs = append(labelIDs, c.config.CodingAgentLabels[name])
+	}
+	if c.config.BugLabel != "" {
+		labelIDs = append(labelIDs, c.config.BugLabel)
+	}
+	for _, id := range labelIDs {
 		if id == "" || seen[id] {
 			return Inspection{}, failure("inspect mappings", ticket.Refused, "mode mappings are missing or ambiguous")
 		}

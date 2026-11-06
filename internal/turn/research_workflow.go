@@ -291,6 +291,15 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			w.result.WorktreePath, w.result.Branch, w.result.SHABefore = w.prep.worktree.Path(), w.prep.session.Branch, w.prep.shaBefore
 			w.result.LogPath, w.result.MetaPath = started.LogPath, w.prep.metaPath
 		}
+		// A base sync records the checkout head as its handoff evidence. Save a
+		// finished run's work first, as finish would, so that evidence includes
+		// the factory's own commit rather than the head before it. A save a step
+		// already attempted and failed (story_done) keeps its own retry route.
+		if node.Action == graphexec.SyncBaseAction && w.result.Err == nil && w.savesAtFinish(ctx) {
+			if _, err = w.saveNow(ctx); err != nil {
+				return w.finish(ctx, err)
+			}
+		}
 		executed = true
 		runID, resumeID := w.result.Run.ID, int64(0)
 		if node.Action == graphexec.JudgeAction || node.Action == graphexec.DeliverAction {
@@ -380,6 +389,12 @@ func (w *researchWorkflow) keepsStoryMerge(ctx context.Context) bool {
 	}
 	_, err := w.prep.worktree.RevParse(ctx, "MERGE_HEAD", git.RevParseOptions{})
 	return err == nil
+}
+
+// savesAtFinish reports that a successful end of this run would save its work:
+// the conditions finish applies, without an owner stop or a failure cause.
+func (w *researchWorkflow) savesAtFinish(ctx context.Context) bool {
+	return w.prep != nil && w.process != nil && !w.saved && !w.req.graphBugPreparation && w.process.Succeeded() && !w.keepsStoryMerge(ctx) && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst")
 }
 
 func (w *researchWorkflow) saveNow(ctx context.Context) (Result, error) {
