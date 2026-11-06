@@ -13,23 +13,34 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-// LabelSetup is a read-only plan for one GitHub project. Nothing is stored.
+// LabelSetup is a read-only plan for one project. For GitHub nothing is
+// stored; for Linear, Linear holds the plan and Apply saves the found IDs.
 type LabelSetup struct {
+	Linear *LinearLabelSetup
 	Found  []string
 	Plan   agent.LabelPlan
 	repo   github.Repo
 	client *github.Client
 }
 
-// LabelSetupResult reports an apply. Empty Created and Failed means nothing was written.
+// LabelSetupResult reports an apply. Empty Created and Failed, no Refused and
+// no SavedRevision means nothing was written.
 type LabelSetupResult struct {
 	Created   []string
 	Failed    string
 	FailedWhy string
 	NotTried  []string
+	// Linear only.
+	Refused         string // refused before any write
+	AppearedAdopted []string
+	Replanned       *projectconnection.LinearLabelPlan
+	LinearCreated   []LinearCreated
+	NothingToSave   bool
+	SaveRefused     string
+	SavedRevision   int64
 }
 
-// PlanLabelSetup reads every label and plans, with zero writes. Linear, missing
+// PlanLabelSetup reads every label and plans, with zero writes. Missing
 // or disabled connections, an identity mismatch and an incomplete read refuse.
 func (s *Service) PlanLabelSetup(ctx context.Context) (*LabelSetup, error) {
 	v, err := s.db.CurrentConnection(ctx, s.repo.ID, store.TicketConnection)
@@ -40,7 +51,7 @@ func (s *Service) PlanLabelSetup(ctx context.Context) (*LabelSetup, error) {
 		return nil, unavailableText("the ticket connection is disabled; run `litefactory repo connection set` first")
 	}
 	if v.Provider == ticket.Linear {
-		return nil, unavailableText("label setup for Linear projects is not available yet; nothing was changed")
+		return s.planLinearLabelSetup(ctx, v)
 	}
 	identities, err := turn.LoadIdentities(ctx, s.db, store.ForgeGitHub)
 	if err != nil {
@@ -66,6 +77,9 @@ func (s *Service) PlanLabelSetup(ctx context.Context) (*LabelSetup, error) {
 
 // Apply creates the missing labels one at a time and stops at the first failure.
 func (l *LabelSetup) Apply(ctx context.Context) LabelSetupResult {
+	if l.Linear != nil {
+		return l.Linear.applyLinear(ctx)
+	}
 	var out LabelSetupResult
 	for i, w := range l.Plan.Create {
 		if err := l.client.CreateLabel(ctx, l.repo, w.Name, w.Color, w.Description); err != nil {

@@ -143,3 +143,7 @@ func validateLinearConnection(v ConnectionVersion) error {
 	}
 	return nil
 }
+
+// ValidateConnectionVersion runs the same validation SetConnection runs, without
+// writing, so a caller can check a candidate version before any remote write.
+func ValidateConnectionVersion(v ConnectionVersion) error { return validateConnection(v) }

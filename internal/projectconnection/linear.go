@@ -93,23 +93,14 @@ func (f *Factory) checkLinear(ctx context.Context, v store.ConnectionVersion) (o
 	ctx, cancel := context.WithTimeout(ctx, f.options.Timeout)
 	defer cancel()
 	o = store.ConnectionObservation{VersionID: v.ID, CheckedAt: time.Now().UTC()}
+	var diagnostics labelDiagnostics
 	defer func() {
-		labels, err := v.Linear.ModeLabels()
-		if err != nil {
-			return
+		head := o.Remedy + storedLabelRemedy(v, diagnostics.RunnerLines)
+		compact := head
+		if len(diagnostics.Findings) > 0 {
+			compact = strings.ReplaceAll(head, " "+labelSetupHint, "")
 		}
-		switch missing := linear.MissingModeLabels(labels); {
-		case len(labels) == 0:
-			o.Remedy += " Labels are not set up. " + labelSetupHint
-		case len(missing) > 0:
-			o.Remedy += " Missing mode mappings: " + strings.Join(missing, ", ") + ". Add label IDs to the connection's --mode-labels, or use a mapped mode. " + labelSetupHint
-		}
-		if agents, err := v.Linear.CodingAgentLabels(); err == nil && len(agents) == 0 {
-			o.Remedy += " Warning: no coding agent label is mapped. " + labelSetupHint
-		}
-		if bug, err := v.Linear.BugLabel(); err == nil && bug == "" {
-			o.Remedy += " Warning: no bug label is mapped. " + labelSetupHint
-		}
+		o.Remedy = boundRemedy(head, compact, diagnostics.Findings, diagnostics.Tail)
 	}()
 	clients, err := f.loadLinear(ctx, v, 0, true)
 	if err != nil {
@@ -121,6 +112,9 @@ func (f *Factory) checkLinear(ctx context.Context, v store.ConnectionVersion) (o
 		o.Status = "inaccessible_or_missing_destination"
 		o.Reason = "linear_configuration_unverified"
 		o.Remedy = "Verify workspace, team, project and explicit label/state mappings."
+		if linear.IsMappingFailure(err) {
+			diagnostics = f.linearLabelDiagnostics(ctx, clients.Linear, v)
+		}
 		return o
 	}
 	o.Status = "usable_for_checked_capabilities"
@@ -132,7 +126,31 @@ func (f *Factory) checkLinear(ctx context.Context, v store.ConnectionVersion) (o
 		o.Capabilities = append(o.Capabilities, "webhook_administration_unavailable")
 	}
 	o.Remedy = "Writes enforce provider permissions. Webhook administration is separate; polling remains available."
+	diagnostics = f.linearLabelDiagnostics(ctx, clients.Linear, v)
 	return o
+}
+
+// storedLabelRemedy reports gaps in the stored label maps. runnerLines drops
+// the generic coding agent warning because per-runner warnings replace it.
+func storedLabelRemedy(v store.ConnectionVersion, runnerLines bool) string {
+	labels, err := v.Linear.ModeLabels()
+	if err != nil {
+		return ""
+	}
+	var out string
+	switch missing := linear.MissingModeLabels(labels); {
+	case len(labels) == 0:
+		out += " Labels are not set up. " + labelSetupHint
+	case len(missing) > 0:
+		out += " Missing mode mappings: " + strings.Join(missing, ", ") + ". Add label IDs to the connection's --mode-labels, or use a mapped mode. " + labelSetupHint
+	}
+	if agents, err := v.Linear.CodingAgentLabels(); err == nil && len(agents) == 0 && !runnerLines {
+		out += " Warning: no coding agent label is mapped. " + labelSetupHint
+	}
+	if bug, err := v.Linear.BugLabel(); err == nil && bug == "" {
+		out += " Warning: no bug label is mapped. " + labelSetupHint
+	}
+	return out
 }
 
 func verifiedLinearAppointment(v store.ConnectionVersion, actor, publisher ticket.Actor) (store.ApproverAppointment, error) {

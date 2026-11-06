@@ -320,6 +320,8 @@ func TestLinearMappingHealthPreservesAccessDiagnostics(t *testing.T) {
 					id := req.Variables["id"]
 					var data any
 					switch {
+					case strings.Contains(req.Query, "issueLabels("):
+						data = map[string]any{"issueLabels": map[string]any{"nodes": []any{}, "pageInfo": map[string]bool{"hasNextPage": false}}}
 					case strings.Contains(req.Query, "viewer"):
 						data = map[string]any{"viewer": map[string]any{"id": "bot", "active": true, "name": "bot", "organization": map[string]any{"id": "workspace"}}}
 					case strings.Contains(req.Query, "team("):
@@ -381,11 +383,17 @@ func linearLabelServer(t *testing.T, writes, labelLookups *[]string) *httptest.S
 			t.Error(err)
 			return
 		}
-		if strings.Contains(req.Query, "mutation") || strings.Contains(req.Query, "issueLabels") {
+		if strings.Contains(req.Query, "mutation") {
 			*writes = append(*writes, req.Query)
 		}
 		var data any
 		switch {
+		case strings.Contains(req.Query, "issueLabels("):
+			var nodes []any
+			for _, l := range [][2]string{{"r", "Mode: Research"}, {"p", "Mode: Plan"}, {"i", "Mode: Implement"}, {"v", "Mode: Validate"}, {"s", "Mode: Spike"}, {"a", "Coding Agent: Codex"}, {"b", "bug"}} {
+				nodes = append(nodes, map[string]any{"id": l[0], "name": l[1], "isGroup": false, "team": map[string]string{"id": "team"}})
+			}
+			data = map[string]any{"issueLabels": map[string]any{"nodes": nodes, "pageInfo": map[string]bool{"hasNextPage": false}}}
 		case strings.Contains(req.Query, "viewer"):
 			data = map[string]any{"viewer": map[string]any{"id": "bot", "active": true, "name": "bot", "organization": map[string]any{"id": "workspace"}}}
 		case strings.Contains(req.Query, "team("):
@@ -463,7 +471,7 @@ func TestLinearCheckRemedyByLabelSetup(t *testing.T) {
 		})
 	}
 	if len(writes) != 0 {
-		t.Fatalf("check wrote or searched labels: %v", writes)
+		t.Fatalf("check wrote labels: %v", writes)
 	}
 }
 
