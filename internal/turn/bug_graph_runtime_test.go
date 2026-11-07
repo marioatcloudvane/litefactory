@@ -810,3 +810,105 @@ func TestGraphBugOwnerCommentAfterTerminalInstanceNeverBlocks(t *testing.T) {
 		finished = instance.ID
 	}
 }
+
+// Delivery's push reconciles against the remote tip: a branch already at the
+// saved head is not pushed, a rejected push that nonetheless left the branch at
+// head counts as published, and every other refusal still blocks (#1459).
+func TestGraphDeliveryPushReconcilesRemoteTip(t *testing.T) {
+	for _, variant := range []string{"raced", "already", "refused", "moved", "unobservable"} {
+		t.Run(variant, func(t *testing.T) {
+			f, h, req, forge, _ := graphFinalizationFixture(t)
+			ctx := t.Context()
+			branch := "lf/1459-push"
+			_, err := f.db.FreezeSessionSlug(ctx, f.session.ID, "push", branch)
+			mustProgress(t, err)
+			path := filepath.Join(f.storeRepo.WorktreeRoot, "push")
+			mustProgress(t, f.db.SetSessionWorktree(ctx, f.session.ID, path))
+			clone, err := f.opts.Git.Open(ctx, f.repo.Dir)
+			mustProgress(t, err)
+			_, err = git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: path, Branch: branch, BaseBranch: gittest.DefaultBranch})
+			mustProgress(t, err)
+			f.repo.GitIn(path, "push", "--quiet", "origin", "HEAD:refs/heads/"+branch)
+			before := f.repo.GitIn(f.repo.Origin, "rev-parse", branch)
+			commitInSyncDir(t, f.repo, path, "rival.txt", "rival")
+			rival := f.repo.GitIn(path, "rev-parse", "HEAD")
+			f.repo.GitIn(path, "reset", "--quiet", "--hard", before)
+			commitInSyncDir(t, f.repo, path, "fix.txt", "repair")
+			head := f.repo.GitIn(path, "rev-parse", "HEAD")
+			base := f.repo.GitIn(f.repo.Origin, "rev-parse", gittest.DefaultBranch)
+			// The hooks below move the ref themselves, so the objects must already
+			// be on origin outside push quarantine.
+			f.repo.GitIn(path, "push", "--quiet", "origin", head+":refs/heads/carrier-head", rival+":refs/heads/carrier-rival")
+			marker := filepath.Join(t.TempDir(), "pushed")
+			hook := "#!/bin/sh\nunset GIT_QUARANTINE_PATH\ntouch " + marker + "\n"
+			switch variant {
+			case "raced":
+				hook += "git update-ref refs/heads/" + branch + " " + head + "\n"
+			case "moved":
+				hook += "git update-ref refs/heads/" + branch + " " + rival + "\n"
+			case "already":
+				f.repo.GitIn(f.repo.Origin, "update-ref", "refs/heads/"+branch, head)
+			}
+			hook += "echo \"cannot lock ref 'refs/heads/" + branch + "'\" >&2\nexit 1\n"
+			mustProgress(t, os.WriteFile(filepath.Join(f.repo.Origin, "hooks", "pre-receive"), []byte(hook), 0o700))
+
+			runtime := &BugRuntime{opts: f.opts}
+			h.Operation, h.PublishSaved = "push", runtime.pushGraphDelivery
+			h.Resolve = func(context.Context, Options, ActivityRequest, GraphBugRepairEligibility) (GraphDeliveryBinding, error) {
+				b := forge.binding
+				b.Branch, b.Target = branch, gittest.DefaultBranch
+				return b, nil
+			}
+			h.Save = func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error) {
+				return head, nil
+			}
+			h.Inspect = func(context.Context, GraphDeliveryBinding) (string, string, error) { return head, base, nil }
+			h.SyncBase = func(context.Context, Options, ActivityRequest, GraphDeliveryBinding, string) (syncBaseOutput, error) {
+				return syncBaseOutput{Result: "current", Commit: head}, nil
+			}
+			forge.remote = head
+			if variant == "unobservable" {
+				mustProgress(t, os.Remove(filepath.Join(f.repo.Origin, "hooks", "pre-receive")))
+				away := f.repo.Origin + ".away"
+				mustProgress(t, os.Rename(f.repo.Origin, away))
+				out, err := h.Execute(ctx, f.opts, req)
+				mustProgress(t, err)
+				mustProgress(t, os.Rename(away, f.repo.Origin))
+				if out.Outcome != "blocked" || !strings.Contains(out.Diagnostic, "Pushing") || forge.creates != 0 {
+					t.Fatalf("unobservable remote did not block: %s %q creates=%d", out.Outcome, out.Diagnostic, forge.creates)
+				}
+				if got := f.repo.GitIn(f.repo.Origin, "rev-parse", branch); got != before {
+					t.Fatalf("unobservable remote changed: %s", got)
+				}
+			}
+			out, err := h.Execute(ctx, f.opts, req)
+			mustProgress(t, err)
+			remote := f.repo.GitIn(f.repo.Origin, "rev-parse", branch)
+			_, statErr := os.Stat(marker)
+			pushed := statErr == nil
+			switch variant {
+			case "raced", "already", "unobservable":
+				if out.Outcome != "ready" || strings.Contains(out.Diagnostic, "Pushing") || strings.Contains(out.Diagnostic, "failed") {
+					t.Fatalf("published head blocked delivery: %s %q", out.Outcome, out.Diagnostic)
+				}
+				if remote != head || forge.creates != 1 || forge.merges != 0 {
+					t.Fatalf("remote=%s head=%s creates=%d merges=%d", remote, head, forge.creates, forge.merges)
+				}
+				if variant == "already" && pushed {
+					t.Fatal("branch already at head was pushed again")
+				}
+			case "refused", "moved":
+				want := before
+				if variant == "moved" {
+					want = rival
+				}
+				if out.Outcome != "blocked" || !strings.Contains(out.Diagnostic, "Pushing "+branch+" failed") {
+					t.Fatalf("refusal did not block: %s %q", out.Outcome, out.Diagnostic)
+				}
+				if remote != want || forge.creates != 0 || forge.merges != 0 || !pushed {
+					t.Fatalf("remote=%s want=%s creates=%d merges=%d pushed=%v", remote, want, forge.creates, forge.merges, pushed)
+				}
+			}
+		})
+	}
+}
