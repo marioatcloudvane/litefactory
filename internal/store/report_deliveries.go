@@ -25,6 +25,10 @@ type ReportDelivery struct {
 	ConfirmedURL                                 string
 }
 
+// ResearchReminderNamespace names the retired Research reminder notices. It is
+// kept so journal history from before their removal still settles.
+const ResearchReminderNamespace = "research-reminder"
+
 const reportDeliveryColumns = `delivery_key,identity_version,COALESCE(session_id,0),trigger_id,COALESCE(run_id,0),task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,COALESCE(comment_id,0),completed,legacy,confirmed_at,COALESCE(confirmed_url,'')`
 
 func scanReportDelivery(row scanner) (ReportDelivery, error) {
@@ -146,20 +150,6 @@ func (db *DB) MarkReportDeliverySent(ctx context.Context, key string) (bool, err
 		if d.PossiblySent || d.Completed {
 			return nil
 		}
-		if d.TriggerNamespace == ResearchReminderNamespace {
-			waitKey, e := researchReminderKeyTx(ctx, tx, d.Key)
-			if e != nil {
-				return e
-			}
-			eligible, e := researchReminderEligibleTx(ctx, tx, waitKey)
-			if e != nil {
-				return e
-			}
-			if !eligible {
-				_, e = tx.ExecContext(ctx, `UPDATE research_wait_reminders SET suppressed=1 WHERE wait_delivery_key=?`, waitKey)
-				return e
-			}
-		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO alert_report_uncertainty(delivery_key,first_at,approximate) VALUES(?,?,0) ON CONFLICT DO NOTHING`, key, FormatTime(nowUTC())); err != nil {
 			return err
 		}
@@ -265,9 +255,7 @@ func (db *DB) CompleteReportDelivery(ctx context.Context, key string) (ReportDel
 				return err
 			}
 		case d.TriggerNamespace == ResearchReminderNamespace:
-			if _, err := researchReminderKeyTx(ctx, tx, d.Key); err != nil {
-				return err
-			}
+			// A reminder notice from before reminders were retired consumes nothing.
 		case !graph:
 			if d.RunID != 0 {
 				if _, err := completeRunReportTx(ctx, tx, d.RunID, d.CommentID); err != nil {

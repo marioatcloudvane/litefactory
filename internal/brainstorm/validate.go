@@ -33,6 +33,9 @@ func ValidateScanResult(data []byte) (RunResult, agentresult.Diagnostics) {
 	if json.Unmarshal(data, &authored) == nil {
 		d.Diagnostics = append(d.Diagnostics, AnswerDiagnostics(authored.Result.Comment)...)
 	}
+	if r.Payload.Research != nil {
+		d.Diagnostics = append(d.Diagnostics, ledgerShapeDiagnostics("$.result.payload.research", *r.Payload.Research)...)
+	}
 	d.Valid = d.Complete && len(d.Diagnostics) == 0
 	if !d.Valid {
 		return RunResult{}, d

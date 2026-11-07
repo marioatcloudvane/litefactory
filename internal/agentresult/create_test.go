@@ -103,9 +103,6 @@ func TestCreate_CommonRules(t *testing.T) {
 		{"unauthorized recommendation action", func(r *ar.Result, _ *ar.Context) {
 			r.Recommendation = &ar.Recommendation{Text: "Proceed", Action: "publish"}
 		}},
-		{"duplicate finding", func(r *ar.Result, _ *ar.Context) {
-			r.Payload.Research.Findings = append(r.Payload.Research.Findings, r.Payload.Research.Findings[0])
-		}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

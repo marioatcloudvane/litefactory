@@ -27,7 +27,6 @@ func TestNextStepCommandsStartARun(t *testing.T) {
 		t.Fatal(err)
 	}
 	steps := map[string]string{
-		"research review": researchNextStep(d.Profile, "review", "review"),
 		"spike hand-back": spikeNextStep(d.Profile, "", "final"),
 		"plan ready":      planReadyText(naming.Ref{}, nil),
 	}

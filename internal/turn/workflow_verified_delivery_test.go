@@ -189,7 +189,7 @@ func TestVerifiedDeliveryRefusalReachesWorkflowFailureReport(t *testing.T) {
 	if len(posts) != 1 {
 		t.Fatalf("failure reports=%d", len(posts))
 	}
-	for _, want := range []string{"research", "investigate", "bootstrap.md", "installed"} {
+	for _, want := range []string{"research", "bootstrap.md", "installed"} {
 		if !strings.Contains(posts[0].body, want) {
 			t.Errorf("failure report omits %q: %s", want, posts[0].body)
 		}
@@ -219,7 +219,7 @@ func TestVerifiedDeliveryRefusalReachesWorkflowFailureReport(t *testing.T) {
 	if len(posts) != 2 {
 		t.Fatalf("retry failure reports=%d", len(posts))
 	}
-	for _, want := range []string{"research", "investigate", "bootstrap.md", "installed"} {
+	for _, want := range []string{"research", "bootstrap.md", "installed"} {
 		if !strings.Contains(posts[1].body, want) {
 			t.Errorf("saved-bundle report omits %q: %s", want, posts[1].body)
 		}
@@ -308,7 +308,7 @@ func TestWorkflowColdRetryRechecksTamperedDelivery(t *testing.T) {
 	if len(posts) != 2 {
 		t.Fatalf("refusal reports=%d", len(posts))
 	}
-	for _, want := range []string{"research", "investigate", "bootstrap.md", "installed-workflow"} {
+	for _, want := range []string{"research", "bootstrap.md", "installed-workflow"} {
 		if !strings.Contains(posts[1].body, want) {
 			t.Errorf("retry refusal report omits %q: %s", want, posts[1].body)
 		}

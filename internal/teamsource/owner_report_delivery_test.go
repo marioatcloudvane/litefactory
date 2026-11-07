@@ -26,7 +26,7 @@ func TestOwnerReportSourceCaptureNativeDeliveryAndColdReplay(t *testing.T) {
 		registry func() (graphexec.Registry, error)
 		nodes    []string
 	}{
-		{agent.WorkflowResearch, turn.ResearchSpecs, []string{"investigate", "shape"}},
+		{agent.WorkflowResearch, turn.ResearchSpecs, []string{"research"}},
 		{agent.WorkflowPlan, turn.PlanSpecs, []string{"set_agent", "story_agent", "technical_agent", "acceptance_agent"}},
 		{agent.WorkflowImplement, turn.ImplementSpecs, []string{"worker_agent", "sync_start_resolve", "sync_done_resolve"}},
 		{agent.WorkflowValidate, turn.ValidateFlowSpecs, []string{"repair_agent", "review:validate-acceptance", "review:validate-code", "review:validate-architecture"}},

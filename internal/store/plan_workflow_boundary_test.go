@@ -44,7 +44,7 @@ func TestPlanWorkflowStore_AdmissionBackfillAndIsolation(t *testing.T) {
 		t.Fatalf("legacy route migrated: %q %v", path, err)
 	}
 	fresh := testSession(t, db, 363)
-	if _, err = db.AdmitResearchPath(ctx, fresh.ID, "legacy"); err != nil {
+	if _, err = db.AdmitWorkflowPath(ctx, fresh.ID, "legacy"); err != nil {
 		t.Fatal(err)
 	}
 	path, err = db.PlanExecutionPath(ctx, fresh.ID)
@@ -62,7 +62,7 @@ func TestPlanWorkflowStore_AdmissionBackfillAndIsolation(t *testing.T) {
 	if path, err = db.AdmitPlanPath(ctx, fresh.ID); err != nil || path != "graph" {
 		t.Fatal("an admitted graph route must survive admission", path, err)
 	}
-	research, err := db.AdmitResearchPath(ctx, fresh.ID, "graph")
+	research, err := db.AdmitWorkflowPath(ctx, fresh.ID, "graph")
 	if err != nil || research != "legacy" {
 		t.Fatal("Plan route changed Research", research, err)
 	}

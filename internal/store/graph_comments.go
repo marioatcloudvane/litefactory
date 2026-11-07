@@ -119,18 +119,6 @@ func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (b
 	if session != d.SessionID || run.Int64 != d.RunID {
 		return false, errors.New("store: graph report run/session mismatch")
 	}
-	if kind == "final" {
-		var reply int64
-		err := tx.QueryRowContext(ctx, `SELECT w.reply_id FROM graph_owner_waits w JOIN graph_comment_intents review ON review.delivery_key=w.delivery_key JOIN graph_comment_intents final ON final.delivery_key=? JOIN graph_instances i ON i.id=w.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE w.instance_id=final.instance_id AND w.source_attempt_id=final.source_attempt_id AND w.state='allocated' AND w.continuation_attempt_id IS NULL AND review.kind='review' AND lower(trim(w.reply_body))='done' AND d.mode='research' ORDER BY w.rowid DESC LIMIT 1`, d.Key).Scan(&reply)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return false, err
-		}
-		if err == nil {
-			if err := consumeReportSource(ctx, tx, d.SessionID, reply); err != nil {
-				return false, err
-			}
-		}
-	}
 	return true, nil
 }
 

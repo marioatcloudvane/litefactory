@@ -26,7 +26,6 @@ question -> wait [lf_on=published];report -> end [lf_on=published];oops -> stop 
 func measureRegistry(t *testing.T, measure []string) graphexec.Registry {
 	t.Helper()
 	policy := graphexec.ResearchControlPolicy()
-	policy.Generation = ""
 	policy.MeasureActions = measure
 	registry := graphexec.Registry{Policy: func(p *graphexec.Profile) error { return graphexec.ValidateControlGraph(p, policy) }}
 	for _, spec := range []graphexec.ActionSpec{

@@ -11,7 +11,7 @@ import (
 func TestRetainGraphCommentAcceptsReviewKind(t *testing.T) {
 	db := newTestDB(t)
 	session := testSession(t, db, 318)
-	if _, err := db.AdmitResearchPath(t.Context(), session.ID, "graph"); err != nil {
+	if _, err := db.AdmitWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: graphTestTime()})

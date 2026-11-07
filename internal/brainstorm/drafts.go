@@ -232,6 +232,7 @@ func ValidateDraftsResult(data []byte) (RunResult, agentresult.Diagnostics) {
 				questions = append(questions, q.Text)
 			}
 		}
+		add(ledgerShapeDiagnostics(at+".ledger", *r.Payload.Research)...)
 		add(ledgerDiagnostics(at+".ledger", *r.Payload.Research)...)
 		canonical, err := json.Marshal(r.Payload.Research)
 		if err != nil {

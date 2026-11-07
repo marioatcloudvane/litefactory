@@ -134,7 +134,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 	}
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), source.InstanceID)
 	mustProgress(t, err)
-	if len(attempts) != 3 || forge.attemptCount() != 1 {
+	if len(attempts) != 2 || forge.attemptCount() != 1 {
 		t.Fatal("restart duplicated attempt or publication")
 	}
 	// Storage may contain corrupt historical bytes; context loading enforces its

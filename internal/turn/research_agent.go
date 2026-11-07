@@ -19,18 +19,9 @@ import (
 // ResearchAgentAction names the registered private Research invocation activity.
 const ResearchAgentAction = "lf_agent"
 
-const researchNodeInstructions = "\nFactory invocation: private Research graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id (the shared result helper's preflight, submit and receipt methods are the same route). The accepted submission is this step's result, and the factory derives the step's response from it. Do not print a JSON result: terminal text is never read as a result, so end with a short plain-language note. The result is limited to 1 MiB. Submitting retains private progress only; only an explicit graph comment activity may publish it.\n"
-
-// researchNodeGuidance is what every invocation carries in its persistent
-// instruction channel, so it holds only what is fatal to get wrong: the route
-// and the two shapes the factory routes on. The worked results live in the
-// research-evidence skill, which the host loads on demand — they are needed
-// once, when the agent composes its answer, not on every resumed pass.
-func researchNodeGuidance() string {
-	return researchNodeInstructions + researchNodeHardRules
-}
-
-const researchNodeHardRules = "\nResult shapes: to ask the owner, submit result.outcome incomplete with a nonblank result.reason and a nonempty result.questions, each naming audience business or technical; when the work is done, submit result.outcome completed with no result.questions. For more investigation without an owner decision, submit incomplete with a reason, cumulative findings and payload.research.continue=true, without questions. Any other shape fails the step. Approval is the owner's reply, never something you claim. Read the research-evidence skill's node-result resource for the worked result of each shape, the artifact path rules and the correction contract, before you submit.\n"
+// researchNodeInstructions is the result route every Research invocation
+// carries. The result shapes and all behaviour live in the role's Markdown.
+const researchNodeInstructions = "\nFactory invocation: Research graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id. The accepted submission is this step's result. Do not print a JSON result: terminal text is never read as a result. Read the research-evidence skill's node-result resource before you submit.\n"
 
 // agentBudgetClock maps a declared time budget to the time the run really gets.
 // It is the identity; a test shortens it so a budget can be spent in moments.
@@ -363,7 +354,7 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	// close) does not discard it where the policy opts in; only a factory
 	// shutdown interrupts it.
 	if failed && h.Policy.AcceptAfterProcessFailure && !errors.Is(ctx.Err(), context.Canceled) {
-		if n, r, e := h.acceptRetained(evidenceCtx, invocation.Results); e == nil && n.Response != "continue" {
+		if n, r, e := h.acceptRetained(evidenceCtx, invocation.Results); e == nil {
 			node, revision, accepted, failed = n, r, true, false
 		}
 	}
@@ -392,15 +383,6 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 		if err != nil {
 			out.Outcome = "invalid"
 			out.Diagnostic = err.Error()
-			return out, err
-		}
-	}
-	if h.Policy.AuthorizeOutput != nil {
-		attempt, err := opts.DB.GetGraphNodeAttempt(evidenceCtx, a.NodeAttemptID)
-		if err != nil {
-			return out, err
-		}
-		if err := h.Policy.AuthorizeOutput(evidenceCtx, opts.DB, attempt, node); err != nil {
 			return out, err
 		}
 	}

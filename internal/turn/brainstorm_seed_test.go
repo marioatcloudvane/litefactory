@@ -3,7 +3,6 @@ package turn
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,14 +59,13 @@ func newFakeSeed(t *testing.T) *fakeSeedStore {
 	return &fakeSeedStore{seed: store.BrainstormPlanLaunchSeed{LaunchID: 5, ItemID: "item", State: store.BrainstormSeedPending, LedgerDigest: digestBytes(ledger)}, ledger: ledger}
 }
 
-func expectedSeedFiles(t *testing.T, f *fakeSeedStore) (string, string) {
+func expectedSeedBrief(t *testing.T, f *fakeSeedStore) string {
 	t.Helper()
 	var research agentresult.Research
 	if err := json.Unmarshal(f.ledger, &research); err != nil {
 		t.Fatal(err)
 	}
-	result := agentresult.Result{Payload: agentresult.Payload{Research: &research}}
-	return renderResearchTechnical(result), renderResearchBrief(seedTestDir, result)
+	return brainstormBriefMarkdown(research)
 }
 
 func readSeedTestFile(t *testing.T, root, name string) string {
@@ -86,9 +84,9 @@ func TestBrainstormSeedWritesBriefBeforeFirstAgent(t *testing.T) {
 	if err != nil || got.Dir != seedTestDir || got.Brief != ResearchBriefName || got.Existing {
 		t.Fatalf("seed: %+v %v", got, err)
 	}
-	technical, brief := expectedSeedFiles(t, f)
-	if readSeedTestFile(t, root, ResearchTechnicalName) != technical || readSeedTestFile(t, root, ResearchBriefName) != brief {
-		t.Fatal("seeded files differ from the rendered ledger")
+	brief := expectedSeedBrief(t, f)
+	if readSeedTestFile(t, root, ResearchBriefName) != brief {
+		t.Fatal("seeded brief differs from the rendered ledger")
 	}
 	if f.recorded != 1 || f.seed.State != store.BrainstormSeedComplete || f.seed.BriefDigest != digestBytes([]byte(brief)) {
 		t.Fatalf("seed not recorded then completed: %+v", f)
@@ -135,9 +133,6 @@ func TestBrainstormSeedKeepsUnrelatedBrief(t *testing.T) {
 	if readSeedTestFile(t, root, ResearchBriefName) != "the owner's brief" {
 		t.Fatal("unrelated brief overwritten")
 	}
-	if _, err := os.Stat(filepath.Join(root, seedTestDir, ResearchTechnicalName)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("technical file written next to an unrelated brief")
-	}
 }
 
 func TestBrainstormSeedDigestMismatchStops(t *testing.T) {
@@ -159,19 +154,11 @@ func TestBrainstormSeedDigestMismatchStops(t *testing.T) {
 
 func TestBrainstormSeedRecoversInterruptedWrites(t *testing.T) {
 	t.Parallel()
-	cases := map[string]func(root string, technical, brief string){
-		"technical before rename": func(root, technical, _ string) {
-			writeSeedTest(root, brainstormSeedTemp(ResearchTechnicalName, 5), technical[:len(technical)/2])
-		},
-		"technical after rename": func(root, technical, _ string) {
-			writeSeedTest(root, ResearchTechnicalName, technical)
-		},
-		"brief before rename": func(root, technical, brief string) {
-			writeSeedTest(root, ResearchTechnicalName, technical)
+	cases := map[string]func(root string, brief string){
+		"brief before rename": func(root, brief string) {
 			writeSeedTest(root, brainstormSeedTemp(ResearchBriefName, 5), brief[:1])
 		},
-		"brief after rename": func(root, technical, brief string) {
-			writeSeedTest(root, ResearchTechnicalName, technical)
+		"brief after rename": func(root, brief string) {
 			writeSeedTest(root, ResearchBriefName, brief)
 		},
 	}
@@ -179,18 +166,18 @@ func TestBrainstormSeedRecoversInterruptedWrites(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			root, f := t.TempDir(), newFakeSeed(t)
-			technical, brief := expectedSeedFiles(t, f)
-			// The crash happened after the digests were recorded.
-			if _, err := f.RecordBrainstormSeedDigests(t.Context(), 5, seedTestDir, digestBytes([]byte(brief)), digestBytes([]byte(technical))); err != nil {
+			brief := expectedSeedBrief(t, f)
+			// The crash happened after the digest was recorded.
+			if _, err := f.RecordBrainstormSeedDigests(t.Context(), 5, seedTestDir, digestBytes([]byte(brief)), ""); err != nil {
 				t.Fatal(err)
 			}
-			interrupt(root, technical, brief)
+			interrupt(root, brief)
 			got, err := seedBrainstormBrief(t.Context(), f, root, 5, seedTestDir, time.Now())
 			if err != nil || got.Existing || f.seed.State != store.BrainstormSeedComplete {
 				t.Fatalf("recovery: %+v %+v %v", got, f.seed, err)
 			}
-			if readSeedTestFile(t, root, ResearchTechnicalName) != technical || readSeedTestFile(t, root, ResearchBriefName) != brief {
-				t.Fatal("recovered files differ from their recorded digests")
+			if readSeedTestFile(t, root, ResearchBriefName) != brief {
+				t.Fatal("recovered brief differs from its recorded digest")
 			}
 		})
 	}

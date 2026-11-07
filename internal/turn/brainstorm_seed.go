@@ -47,12 +47,12 @@ func brainstormSeedTemp(name string, launchID int64) string {
 }
 
 // seedBrainstormBrief makes the brainstorm brief of an admitted Plan launch
-// present in the worktree before an agent node builds its prompt. It renders
-// both files from the item's frozen ledger, records their digests before
-// writing, writes the technical file then the brief through seed-named
-// temporary files, and marks the seed complete only after both read back
-// equal. A factory-owned partial write is finished; any other existing brief
-// is never overwritten and the seed is recorded as skipped.
+// present in the worktree before an agent node builds its prompt. It writes
+// the item's frozen ledger as Markdown, records its digest before writing,
+// writes the brief through a seed-named temporary file, and marks the seed
+// complete only after it reads back equal. A factory-owned partial write is
+// finished; any other existing brief is never overwritten and the seed is
+// recorded as skipped.
 func seedBrainstormBrief(ctx context.Context, db brainstormSeedStore, worktree string, launchID int64, defaultDir string, now time.Time) (brainstormSeedResult, error) {
 	if db == nil || launchID < 1 {
 		return brainstormSeedResult{}, nil
@@ -88,11 +88,13 @@ func seedBrainstormBrief(ctx context.Context, db brainstormSeedStore, worktree s
 	if dir == "" || !agentresult.ValidPath(dir) {
 		return brainstormSeedResult{}, errors.New("the brainstorm brief cannot be prepared: no session directory")
 	}
-	result := agentresult.Result{Payload: agentresult.Payload{Research: &research}}
-	technical := []byte(renderResearchTechnical(result))
-	brief := []byte(renderResearchBrief(dir, result))
-	techDigest, briefDigest := digestBytes(technical), digestBytes(brief)
-	if seed.State != store.BrainstormSeedPending && (seed.TechnicalDigest != techDigest || seed.BriefDigest != briefDigest) {
+	brief := []byte(brainstormBriefMarkdown(research))
+	briefDigest := digestBytes(brief)
+	if seed.State == store.BrainstormSeedComplete && seed.BriefDigest != briefDigest {
+		// Recorded in an earlier format; the finished brief belongs to Plan.
+		return brainstormSeedResult{Dir: dir, Brief: ResearchBriefName}, nil
+	}
+	if seed.State != store.BrainstormSeedPending && seed.BriefDigest != briefDigest {
 		return brainstormSeedResult{}, errors.New("the brainstorm brief cannot be prepared: its rendered files differ from the recorded digests")
 	}
 	root, err := os.OpenRoot(worktree)
@@ -104,7 +106,7 @@ func seedBrainstormBrief(ctx context.Context, db brainstormSeedStore, worktree s
 		name   string
 		body   []byte
 		digest string
-	}{{ResearchTechnicalName, technical, techDigest}, {ResearchBriefName, brief, briefDigest}}
+	}{{ResearchBriefName, brief, briefDigest}}
 	// An unrelated brief already in place is never overwritten. A target equal
 	// to its recorded digest is factory-owned.
 	for _, f := range files {
@@ -128,7 +130,7 @@ func seedBrainstormBrief(ctx context.Context, db brainstormSeedStore, worktree s
 		}
 	}
 	if seed.State == store.BrainstormSeedPending {
-		if _, err = db.RecordBrainstormSeedDigests(ctx, launchID, dir, briefDigest, techDigest); err != nil {
+		if _, err = db.RecordBrainstormSeedDigests(ctx, launchID, dir, briefDigest, ""); err != nil {
 			return brainstormSeedResult{}, err
 		}
 	}
@@ -192,7 +194,7 @@ func writeSeedFile(root *os.Root, dir, name string, launchID int64, body []byte)
 }
 
 func removeSeedTemps(root *os.Root, dir string, launchID int64) {
-	for _, name := range []string{ResearchTechnicalName, ResearchBriefName} {
+	for _, name := range []string{ResearchBriefName} {
 		_ = root.Remove(path.Join(dir, brainstormSeedTemp(name, launchID)))
 	}
 }
@@ -242,4 +244,49 @@ func (r *Reporter) ReportBrainstormLaunchNote(ctx context.Context, ref naming.Re
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
 		return r.renderer.RenderReportDelivery(ctx, "Plan started from a brainstorm brief. Your spoken yes approved only creating this issue and starting Plan; every Plan stage still waits for your usual approvals.\n", "")
 	})
+}
+
+// brainstormBriefMarkdown writes a brainstorm draft's ledger as the same
+// RESEARCH_BRIEF.md a Research agent writes: the request, the outcome ledger
+// with one heading per ID, the assumptions and the findings with their sources.
+func brainstormBriefMarkdown(r agentresult.Research) string {
+	var b strings.Builder
+	b.WriteString("# Research brief\n\n## Request\n\n")
+	if request := strings.TrimSpace(r.Request); request != "" {
+		b.WriteString(request)
+	} else {
+		b.WriteString("_The request was not recorded._")
+	}
+	b.WriteString("\n")
+	entries := func(heading string, items []agentresult.Statement) {
+		if len(items) == 0 {
+			return
+		}
+		b.WriteString("\n## " + heading + "\n")
+		for _, s := range items {
+			b.WriteString("\n### " + s.ID + " " + strings.TrimSpace(s.Text) + "\n")
+		}
+	}
+	entries("Outcome ledger", r.Decisions)
+	entries("Assumptions", r.Assumptions)
+	if len(r.Findings) > 0 {
+		b.WriteString("\n## Findings\n")
+		for _, f := range r.Findings {
+			b.WriteString("\n### " + f.ID + "\n\n" + strings.TrimSpace(f.Text) + "\n")
+			for _, e := range f.Evidence {
+				b.WriteString("\n- `" + e.Path)
+				if e.Line > 0 {
+					fmt.Fprintf(&b, ":%d", e.Line)
+				}
+				b.WriteString("`")
+				if e.Revision != "" {
+					b.WriteString(" @ `" + e.Revision + "`")
+				}
+			}
+			if len(f.Evidence) > 0 {
+				b.WriteString("\n")
+			}
+		}
+	}
+	return b.String()
 }

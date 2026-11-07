@@ -104,9 +104,6 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 		p := fmt.Sprintf("$.result.artifacts[%d]", i)
 		identity(&d, p+".id", a.ID, arts)
 		required(&d, p+".kind", a.Kind)
-		if ctx.Mode == "research" && a.Kind != "" && !slices.Contains(ResearchArtifactKinds, a.Kind) {
-			add(&d, p+".kind", "enum", "brief, technical or data", "unsupported artifact kind", "Name the document this is: the owner's brief, its technical evidence, or supporting data.")
-		}
 		if !ValidPath(a.Path) {
 			add(&d, p+".path", "path", "rooted relative path syntax", "unsafe path", "Use a clean relative path within the authorized root.")
 		}
@@ -131,28 +128,6 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 	}
 	if p := r.Payload.Research; p != nil {
 		required(&d, "$.result.payload.research.request", p.Request)
-		if p.Continue && (ctx.Mode != "research" || r.Outcome != "incomplete" || strings.TrimSpace(r.Reason) == "" || len(r.Questions) != 0 || len(p.Findings) == 0) {
-			add(&d, "$.result.payload.research.continue", "consistency", "incomplete Research with reason, findings and no questions", "invalid continuation", "Retain partial findings and a reason; ask real questions instead of continuing.")
-		}
-		seen := map[string]bool{}
-		for i, f := range p.Findings {
-			fp := fmt.Sprintf("$.result.payload.research.findings[%d]", i)
-			identity(&d, fp+".id", f.ID, seen)
-			required(&d, fp+".text", f.Text)
-			for j, e := range f.Evidence {
-				if !ValidPath(e.Path) || e.Line < 0 {
-					add(&d, fmt.Sprintf("%s.evidence[%d]", fp, j), "reference", "relative path and nonnegative line", "invalid reference", "Supply a rooted source reference.")
-				}
-			}
-		}
-		for name, items := range map[string][]Statement{"decisions": p.Decisions, "assumptions": p.Assumptions} {
-			ids := map[string]bool{}
-			for i, s := range items {
-				sp := fmt.Sprintf("$.result.payload.research.%s[%d]", name, i)
-				identity(&d, sp+".id", s.ID, ids)
-				required(&d, sp+".text", s.Text)
-			}
-		}
 	}
 	if p := r.Payload.Spike; p != nil {
 		required(&d, "$.result.payload.spike.request", p.Request)
