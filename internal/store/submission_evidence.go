@@ -218,7 +218,7 @@ func safeSubmissionPath(p string) bool {
 	}
 	for _, part := range strings.Split(p, "/") {
 		switch part {
-		case ".git", ".litefactory-story-events", ".litefactory-plan-proposal.json", ".litefactory-plan-outcome.json":
+		case ".git", ".litefactory-story-events":
 			return false
 		}
 	}

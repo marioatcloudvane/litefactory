@@ -24,8 +24,7 @@ import (
 //  2. Finish the runs row immediately, so the outcome is durable before
 //     anything slower is attempted (S-9).
 //  3. Commit and push whatever the run produced (AC-3.21, AC-3.22).
-//  4. Confirm managed Plan readiness after its publication and save gates.
-//  5. Record the commit on the row and the whole story in NNNN.meta.json.
+//  4. Record the commit on the row and the whole story in NNNN.meta.json.
 //
 // The metadata document is written from a defer, best effort, so a run that
 // panics or is killed mid-harvest still leaves one behind: a document naming a
@@ -53,9 +52,6 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	prep.validateScope = func(check context.Context) (string, error) { return validateApprovedRelationships(check, opts, prep) }
 	prep.meterDB = opts.DB
 	prep.mcpRuntime = opts.MCP
-	prep.planSubmission = func(c context.Context) (*PlanSubmissionCallbacks, error) {
-		return prepareTypedPlanSubmission(c, opts, prep)
-	}
 	prep.submissionOptions = &SubmissionSessionOptions{DB: opts.DB, Progress: opts.StoryProgress, Paths: opts.Paths, RunID: prep.run.ID, Worktree: prep.worktree.Path(), Bundle: prep.promptInput.ApprovedStories, Validation: prep.promptInput.Validation}
 	allowance := time.Duration(opts.WorkerTimeoutSeconds) * time.Second
 	if allowance <= 0 {
@@ -228,7 +224,6 @@ func harvestStopped(ctx context.Context, opts Options, prep *preparation, result
 		result.Err = describeFactoryFailure(factoryErr)
 	}
 
-	result = publishPlanHandoff(ctx, opts, prep, result, runResult, logger)
 	result = save(ctx, opts, prep, result, runResult, logger)
 	if prep.promptInput.ApprovedStories != nil && result.Succeeded() && prep.workComplete() {
 		if err := opts.DB.MarkStoryAggregateSucceeded(bookkeeping, prep.run.ID); err != nil {
@@ -252,7 +247,6 @@ func harvestStopped(ctx context.Context, opts Options, prep *preparation, result
 			result.Harness = runResult.Clone()
 		}
 	}
-	result = markManagedPlanReady(ctx, opts, prep, result, runResult)
 	return finish(bookkeeping, opts, prep, result, runResult, meta, logger)
 }
 
@@ -301,9 +295,6 @@ func runClaude(
 	// gains over a resumed one is assembled in exactly one place, in prepare.
 	cold := prep.promptInput
 	cold.Resume = false
-	if err := preparePlanAttempt(prep.worktree.Path(), prep.session.Branch, prep.run, &cold, logger); err != nil {
-		return nil, err
-	}
 	prompt, err := harness.BuildPrompt(cold)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the cold prompt for run %d of task %s: %w",
@@ -318,8 +309,6 @@ func runClaude(
 	prep.promptInput = cold
 	prep.prompt = prompt
 	prep.request.Prompt = prompt
-	prep.request.PlanAttempt = cold.PlanAttempt
-	prep.request.PlanWorkingContext = cold.PlanWorkingContext
 	prep.request.Path = agent.PathColdAfterResumeRefused
 
 	if err := checkAttemptScope(ctx, prep); err != nil {

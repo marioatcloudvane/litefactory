@@ -18,20 +18,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
-// PlanSubmissionCallbacks adapts the Plan owner to the shared broker without
-// importing publication logic into the neutral contribution package.
-type PlanSubmissionCallbacks struct {
-	Parent     string
-	Generation int
-	Existing   []store.SubmissionStoryBinding
-	Validate   func(context.Context, json.RawMessage) agent.ContributionDiagnostics
-	Submit     func(context.Context, store.SubmissionReceipt, agent.Contribution) error
-	Prompt     string
-}
-
 // SubmissionSessionOptions are factory-bound inputs for either runner adapter.
 type SubmissionSessionOptions struct {
-	Plan       *PlanSubmissionCallbacks
 	DB         *store.DB
 	Progress   *StoryProgress
 	Paths      config.Paths
@@ -67,10 +55,6 @@ func StartSubmissionSession(ctx context.Context, o SubmissionSessionOptions) (*S
 		parent = o.Validation.Parent
 		generation = o.Validation.Generation
 	}
-	if o.Plan != nil {
-		parent = o.Plan.Parent
-		generation = o.Plan.Generation
-	}
 	if parent == "" {
 		return nil, nil
 	}
@@ -88,7 +72,7 @@ func StartSubmissionSession(ctx context.Context, o SubmissionSessionOptions) (*S
 	if err != nil {
 		return nil, err
 	}
-	if o.Progress == nil && o.Plan == nil {
+	if o.Progress == nil {
 		return nil, fmt.Errorf("submission progress service missing")
 	}
 	var random [16]byte
@@ -101,12 +85,6 @@ func StartSubmissionSession(ctx context.Context, o SubmissionSessionOptions) (*S
 	}
 	if o.Validation != nil {
 		stage = "validate"
-	}
-	if o.Plan != nil {
-		stage = "plan"
-		if o.Plan.Validate == nil || o.Plan.Submit == nil {
-			return nil, fmt.Errorf("plan submission callbacks missing")
-		}
 	}
 	s := &SubmissionSession{options: o, binding: store.SubmissionAttempt{RunID: o.RunID, Attempt: hex.EncodeToString(random[:]), Parent: parent, Generation: generation, Stage: stage}, scope: agent.ContributionScope{ContractVersion: 2, WorkflowVersion: feature.WorkflowVersion, Stage: stage, Stories: map[string]agent.ContributionStory{}}, stories: map[string]agent.ApprovedStory{}}
 	var selected []agent.ApprovedStory
@@ -122,10 +100,7 @@ func StartSubmissionSession(ctx context.Context, o SubmissionSessionOptions) (*S
 			selected = append(selected, v.Story)
 		}
 	}
-	if o.Plan != nil {
-		s.binding.Stories = slices.Clone(o.Plan.Existing)
-	}
-	if len(selected) == 0 && o.Plan == nil && (o.Bundle == nil || len(o.Bundle.Stories) == 0) {
+	if len(selected) == 0 && (o.Bundle == nil || len(o.Bundle.Stories) == 0) {
 		return nil, nil
 	}
 	for _, story := range selected {
@@ -163,7 +138,7 @@ func StartSubmissionSession(ctx context.Context, o SubmissionSessionOptions) (*S
 		keys = append(keys, key)
 	}
 	slices.Sort(keys)
-	s.broker, err = submission.Start(ctx, submission.Options{Directory: dir, AuthorizedStories: keys, AllowPlan: o.Plan != nil, AllowResult: len(keys) == 0, MaxWorkers: 4, RequestTimeout: 30 * time.Second, Handler: s.handle})
+	s.broker, err = submission.Start(ctx, submission.Options{Directory: dir, AuthorizedStories: keys, AllowResult: len(keys) == 0, MaxWorkers: 4, RequestTimeout: 30 * time.Second, Handler: s.handle})
 	if err != nil {
 		endErr := o.DB.EndSubmissionAttempt(context.WithoutCancel(ctx), s.binding.RunID, s.binding.Attempt)
 		return nil, errors.Join(err, endErr)
@@ -240,9 +215,6 @@ func (s *SubmissionSession) checkpointLocked(ctx context.Context, q submission.R
 	if q.Method != "submit" {
 		return nil, fmt.Errorf("unsupported submission method")
 	}
-	if s.options.Plan != nil {
-		return s.submitPlan(ctx, q, contribution, diagnostics)
-	}
 	// Scope comes from the broker selector and frozen factory map, never a copied
 	// parent/run/issue/revision field inside contributed JSON.
 	var selector struct {
@@ -316,9 +288,6 @@ func (s *SubmissionSession) checkpointLocked(ctx context.Context, q submission.R
 
 func (s *SubmissionSession) scopeForContribution(ctx context.Context, payload json.RawMessage) agent.ContributionScope {
 	scope := s.scope
-	if s.options.Plan != nil {
-		scope.ValidatePlan = func(raw json.RawMessage) agent.ContributionDiagnostics { return s.options.Plan.Validate(ctx, raw) }
-	}
 	scope.Stories = make(map[string]agent.ContributionStory, len(s.scope.Stories))
 	for key, value := range s.scope.Stories {
 		scope.Stories[key] = value
@@ -346,40 +315,4 @@ func (s *SubmissionSession) scopeForContribution(ctx context.Context, payload js
 	}
 
 	return scope
-}
-
-func (s *SubmissionSession) submitPlan(ctx context.Context, q submission.Request, c agent.Contribution, d agent.ContributionDiagnostics) (json.RawMessage, error) {
-	encoded, err := json.Marshal(d)
-	if err != nil {
-		return nil, err
-	}
-	state := "valid"
-	if !d.Valid {
-		state = "rejected"
-	}
-	receipt, err := s.options.DB.AllocateSubmission(ctx, store.SubmissionRequest{RunID: s.binding.RunID, Attempt: s.binding.Attempt, RequestID: q.RequestID, InputState: state, Payload: q.Payload, Diagnostics: encoded})
-	if err != nil {
-		return nil, err
-	}
-	if receipt.EngineeringState != "pending" {
-		return json.Marshal(receipt)
-	}
-	decision := store.SubmissionDecision{Engineering: "not_applicable", Acceptance: "not_applicable", Effects: "not_applicable", Plan: "rejected"}
-	if d.Valid {
-		if err := s.options.Plan.Submit(ctx, receipt, c); err != nil {
-			return nil, err
-		}
-		decision.Plan = "pending"
-		if c.Outcome == "discussion" {
-			decision.Plan = "discussion"
-		}
-	}
-	if err := s.options.DB.DecideSubmission(ctx, receipt.ID, decision); err != nil {
-		return nil, err
-	}
-	receipt, err = s.options.DB.GetSubmissionReceipt(ctx, s.binding.RunID, q.RequestID)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(receipt)
 }

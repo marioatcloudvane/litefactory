@@ -471,12 +471,7 @@ func linearTicketWorkflow(t *testing.T, setApproval, implement bool) {
 		linearSetApproval(t, d, remote, adapter, parent.Ref, bridge, reporter, redactor, repo, session, ref)
 		return
 	}
-	proposal := planbrief.PlanProposal{Version: planbrief.ProposalVersion, Parent: ref.String(), Generation: 1, Stories: []planbrief.StoryProposal{{Key: "story-001", Intent: "create", Title: "Use Linear work tickets", Body: "## User Story\nOwners direct ticket work from Linear.\n## Acceptance Criteria\nQualified answers and exact approvals reach the intended ticket.\n## Tasks\nPreserve immutable provider identity.\n## Architecture\nUse the existing ledgers.\n## Dependencies\nNone.\n"}}}
-	index, err := turn.PublishPlan(ctx, turn.PublicationOptions{DB: db, Forge: bridge, Renderer: renderer, Parent: ref, Generation: 1, BotID: botSlot}, proposal)
-	linearWorkflowCheck(t, err)
-	if !strings.Contains(string(index), "https://linear.app/test/issue/LF-2") {
-		t.Fatalf("managed child index has wrong destination: %s", index)
-	}
+	seedManagedStory(ctx, t, db, bridge, renderer, ref, "story-001", "Use Linear work tickets", "## User Story\nOwners direct ticket work from Linear.\n## Acceptance Criteria\nQualified answers and exact approvals reach the intended ticket.\n## Tasks\nPreserve immutable provider identity.\n## Architecture\nUse the existing ledgers.\n## Dependencies\nNone.\n")
 	managed, err := db.ListManagedStories(ctx, ref.String(), 1)
 	linearWorkflowCheck(t, err)
 	if len(managed) != 1 {
@@ -567,11 +562,6 @@ func linearTicketWorkflow(t *testing.T, setApproval, implement bool) {
 	linearWorkflowCheck(t, err)
 	if !replayedReport.Skipped {
 		t.Fatal("restart duplicated the confirmed workflow report")
-	}
-	replayedIndex, err := turn.PublishPlan(ctx, turn.PublicationOptions{DB: db, Forge: bridge, Renderer: renderer, Parent: ref, Generation: 1, BotID: botSlot}, proposal)
-	linearWorkflowCheck(t, err)
-	if string(replayedIndex) != string(index) {
-		t.Fatal("restart changed the retained child index")
 	}
 	remote.mu.Lock()
 	if remote.posts != confirmedPosts {

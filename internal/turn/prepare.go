@@ -36,13 +36,10 @@ type preparation struct {
 	mcpRuntime     *MCPRuntime
 	stoppedRepairs []func(context.Context) error
 
-	typedPlan           *TypedPlanSubmission
-	planSubmission      func(context.Context) (*PlanSubmissionCallbacks, error)
 	submissionOptions   *SubmissionSessionOptions
 	submissionValidated bool
 	meterDB             *store.DB
 	resumeOnly          bool
-	planCompleted       bool
 
 	validateScope func(context.Context) (string, error)
 	scopeDrift    string
@@ -180,11 +177,6 @@ func prepare(
 	}
 	if err := prepareManagedReplan(ctx, opts, req, session, ref); err != nil {
 		return nil, err
-	}
-	if req.researchDefinition == nil {
-		if err := invalidatePlanReadiness(ctx, opts, ref, req.mode()); err != nil {
-			return nil, err
-		}
 	}
 
 	repo, err := executionRepository(ctx, opts.DB, session)
@@ -493,14 +485,6 @@ func prepare(
 			}
 		}
 	}
-	if req.researchDefinition == nil {
-		if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
-			return nil, err
-		}
-		if err := preparePlanAttempt(worktree.Path(), session.Branch, run, &promptInput, logger); err != nil {
-			return nil, err
-		}
-	}
 
 	if err := prepareRefinementContext(ctx, opts, req, &promptInput); err != nil {
 		return nil, err
@@ -635,13 +619,6 @@ func prepare(
 			StackCaptureDigest: stackCaptureDigest,
 			RetainedValidation: promptInput.Validation != nil,
 			Delivery:           delivery,
-			PlanProposalPath:   promptInput.PlanProposalPath,
-			PlanOutcomePath:    promptInput.PlanOutcomePath,
-			PlanGeneration:     promptInput.PlanGeneration,
-			PlanRunID:          promptInput.PlanRunID,
-			PlanAttempt:        promptInput.PlanAttempt,
-			PlanContextPath:    promptInput.PlanContextPath,
-			PlanWorkingContext: promptInput.PlanWorkingContext,
 			MayAsk:             promptInput.MayAsk,
 			PreviousMayAsk:     promptInput.PreviousMayAsk,
 			Ref:                ref,

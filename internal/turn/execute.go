@@ -775,10 +775,6 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		if errors.Is(err, store.ErrPlanNotReady) {
 			return readinessRefused(ctx, opts, result)
 		}
-		var contextRefusal *planContextRefusal
-		if errors.As(err, &contextRefusal) {
-			return prelaunchRefused(ctx, opts, result, contextRefusal.reason())
-		}
 		// Any failure after allocation is retryable preparation. Do not turn
 		// infrastructure failure into a report that acknowledges the source.
 		allocated, found, lookupErr := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)

@@ -50,7 +50,7 @@ func (w *Worktree) CheckSyncCheckout(ctx context.Context, working, commit string
 			return "retained checkout has unsupported index flags (assume-unchanged or skip-worktree)", nil
 		}
 	}
-	paths := []string{".litefactory-plan-proposal.json", ".litefactory-plan-outcome.json", ".litefactory-story-events"}
+	paths := []string{".litefactory-story-events"}
 	args := append(append([]string{}, statusArgs...), "--untracked-files=no", "--")
 	reserved, err := w.runner.run(ctx, readTimeout, append(args, paths...)...)
 	if err != nil {
