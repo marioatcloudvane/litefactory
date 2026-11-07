@@ -52,25 +52,3 @@ func withholdSnapshotContent(v *agent.ValidationContext) {
 		}
 	}
 }
-
-// retainedValidationRequest narrows the canonical read-only profile further:
-// a managed review may inspect retained facts, but cannot delegate fresh work.
-func retainedValidationRequest(req agent.Request) agent.Request {
-	if !req.RetainedValidation {
-		return req
-	}
-	old := toolSurface(req)
-	var safe ToolSurface
-	for _, tool := range old.Tools {
-		if tool == "Read" || tool == "Glob" || tool == "Grep" {
-			safe.Tools = append(safe.Tools, tool)
-		}
-	}
-	for _, rule := range old.AllowedTools {
-		if rule == "Read" || rule == "Glob" || rule == "Grep" {
-			safe.AllowedTools = append(safe.AllowedTools, rule)
-		}
-	}
-	req.Permissions.Payload = safe
-	return req
-}

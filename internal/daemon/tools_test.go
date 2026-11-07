@@ -22,11 +22,11 @@ func TestModesSelectCanonicalPermissionsForBothAgents(t *testing.T) {
 		kind                            agent.Kind
 		attachments                     bool
 	}{
-		{"Claude research", "/research inspect", "research", "", agent.ModeResearch, agent.Kind(store.AgentClaude), true},
-		{"Claude plan", "/plan design", "plan", "", agent.ModePlan, agent.Kind(store.AgentClaude), true},
-		{"Claude implement", "/implement build", "implement", "", agent.ModeImplement, agent.Kind(store.AgentClaude), false},
-		{"Claude validate", "/validate check", "validate", "", agent.ModeValidate, agent.Kind(store.AgentClaude), false},
-		{"Claude spike", "/spike experiment", "spike", "", agent.ModeSpike, agent.Kind(store.AgentClaude), false},
+		{"Claude research", "/research inspect", "research", "workspace-write", agent.ModeResearch, agent.Kind(store.AgentClaude), true},
+		{"Claude plan", "/plan design", "plan", "workspace-write", agent.ModePlan, agent.Kind(store.AgentClaude), true},
+		{"Claude implement", "/implement build", "implement", "workspace-write", agent.ModeImplement, agent.Kind(store.AgentClaude), false},
+		{"Claude validate", "/validate check", "validate", "read-only", agent.ModeValidate, agent.Kind(store.AgentClaude), false},
+		{"Claude spike", "/spike experiment", "spike", "workspace-write", agent.ModeSpike, agent.Kind(store.AgentClaude), false},
 		{"Codex research", "/research inspect", "research", "workspace-write", agent.ModeResearch, agent.Kind(store.AgentCodex), true},
 		{"Codex plan", "/plan design", "plan", "workspace-write", agent.ModePlan, agent.Kind(store.AgentCodex), true},
 		{"Codex implement", "/implement build", "implement", "workspace-write", agent.ModeImplement, agent.Kind(store.AgentCodex), false},
@@ -65,18 +65,12 @@ func TestModesSelectCanonicalPermissionsForBothAgents(t *testing.T) {
 			if req.Mode != tt.mode || req.Agent != tt.kind || req.ToolProfile != tt.profile || req.AttachmentsAllowed != tt.attachments {
 				t.Fatalf("routing = mode %q agent %q profile %q attachments %t", req.Mode, req.Agent, req.ToolProfile, req.AttachmentsAllowed)
 			}
-			// Spike's ceiling is its own explicit fixer binding, never implement.
-			source := tt.profile
-			if source == "spike" {
-				source = config.SpikeFixerProfile
+			// Every mode gets the full tool set; only the sandbox differs.
+			if tt.kind == agent.Kind(store.AgentClaude) && (!equalStringSlices(req.Tools, config.AgentTools()) || len(req.AllowedTools) != 0) {
+				t.Fatalf("Claude payload = tools %v allowed %v", req.Tools, req.AllowedTools)
 			}
-			profile := config.DefaultToolProfiles().Permissions[source]
-			if tt.kind == agent.Kind(store.AgentClaude) {
-				if !equalStringSlices(req.Tools, profile.Claude.Tools) || !equalStringSlices(req.AllowedTools, profile.Claude.AllowedTools) {
-					t.Fatalf("Claude payload = tools %v allowed %v", req.Tools, req.AllowedTools)
-				}
-			} else if req.CodexSandbox != tt.sandbox {
-				t.Fatalf("Codex sandbox = %q, want %q", req.CodexSandbox, tt.sandbox)
+			if req.CodexSandbox != tt.sandbox {
+				t.Fatalf("sandbox = %q, want %q", req.CodexSandbox, tt.sandbox)
 			}
 		})
 	}

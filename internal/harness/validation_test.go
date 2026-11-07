@@ -9,38 +9,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 )
 
-func TestValidateRunnerRejectsMutatingAndFreshCheckTools(t *testing.T) {
-	r := &Runner{}
-	for _, tools := range [][]string{nil, {"Bash"}, {"Write"}, {"Read", "Edit"}} {
-		req := agent.Request{Mode: "validate", Permissions: agent.Permissions{Payload: ToolSurface{Tools: tools}}}
-		err := r.validateRequest(req)
-		if err == nil || !strings.Contains(err.Error(), "Validate") {
-			t.Fatal("unsafe surface accepted", tools, err)
-		}
-	}
-}
-
-func TestRetainedValidationRemovesDelegationWithoutMutatingCaller(t *testing.T) {
-	tools := []string{"Read", "Task", "Glob", "Grep"}
-	allowed := []string{"Read", "Task", "Glob", "Grep"}
-	req := agent.Request{Mode: "validate", RetainedValidation: true, Permissions: agent.Permissions{Payload: ToolSurface{Tools: tools, AllowedTools: allowed}}}
-	normalized := retainedValidationRequest(req)
-	surface, ok := normalized.Permissions.Payload.(ToolSurface)
-	if !ok {
-		t.Fatal("normalized validation permissions lack a tool surface")
-	}
-	if strings.Join(surface.Tools, ",") != "Read,Glob,Grep" || strings.Join(surface.AllowedTools, ",") != "Read,Glob,Grep" {
-		t.Fatalf("retained review grants delegation: %+v", surface)
-	}
-	surface.Tools[0], surface.AllowedTools[0] = "changed", "changed"
-	if strings.Join(tools, ",") != "Read,Task,Glob,Grep" || strings.Join(allowed, ",") != "Read,Task,Glob,Grep" {
-		t.Fatal("normalization aliases caller tool authority")
-	}
-	if err := (&Runner{}).validateRequest(req); err == nil || !strings.Contains(err.Error(), "Validate") {
-		t.Fatalf("direct Task bypass accepted: %v", err)
-	}
-}
-
 func TestValidationPromptWithholdsSnapshotBodies(t *testing.T) {
 	body := []byte(strings.Repeat("package turn // retained source\n", 400))
 	context := &agent.ValidationContext{
@@ -105,29 +73,6 @@ func TestValidationPromptConfinesShellToFileReads(t *testing.T) {
 			if !strings.Contains(prompt, want) {
 				t.Fatalf("submission %d lacks %q", submission, want)
 			}
-		}
-	}
-}
-
-// The Validate repair agent is bounded by its validate-repair role surface;
-// every other Validate profile keeps the read-only check.
-func TestValidateRepairProfileGetsTheFixerSurfaceOnly(t *testing.T) {
-	r := &Runner{}
-	surface := ToolSurface{Tools: []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash"}, AllowedTools: []string{"Read", "Bash(go test:*)"}}
-	err := r.validateRequest(agent.Request{Mode: "validate", Permissions: agent.Permissions{Profile: "validate-repair", Payload: surface}})
-	if err != nil && (strings.Contains(err.Error(), "Validate") || strings.Contains(err.Error(), "validate-repair")) {
-		t.Fatalf("validate-repair surface refused: %v", err)
-	}
-	for _, tools := range [][]string{nil, {"Read", "NotebookEdit"}, {"Read", "mcp__forge__merge"}} {
-		err := r.validateRequest(agent.Request{Mode: "validate", Permissions: agent.Permissions{Profile: "validate-repair", Payload: ToolSurface{Tools: tools}}})
-		if err == nil || !strings.Contains(err.Error(), "validate-repair") {
-			t.Fatalf("validate-repair surface %v accepted: %v", tools, err)
-		}
-	}
-	for _, profile := range []string{"validate", "bug-fixer", ""} {
-		err := r.validateRequest(agent.Request{Mode: "validate", Permissions: agent.Permissions{Profile: profile, Payload: surface}})
-		if err == nil || !strings.Contains(err.Error(), "Validate cannot grant") {
-			t.Fatalf("Validate profile %q granted editing tools: %v", profile, err)
 		}
 	}
 }

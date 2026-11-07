@@ -21,7 +21,7 @@ func validateModeRequest(kind agent.Kind) Request {
 	if kind == agent.Kind(store.AgentCodex) {
 		return Request{Agent: kind, ToolProfile: "validate", CodexSandbox: "read-only"}
 	}
-	return Request{Agent: kind, ToolProfile: "validate", Tools: []string{"Read", "Glob", "Grep", "Task"}, AllowedTools: []string{"Read", "Glob", "Grep"}}
+	return Request{Agent: kind, ToolProfile: "validate", Tools: config.AgentTools(), CodexSandbox: "read-only"}
 }
 
 func validateRepairResolver(t *testing.T) func(agent.Kind, string) (BugRolePermissions, error) {
@@ -33,7 +33,7 @@ func validateRepairResolver(t *testing.T) func(agent.Kind, string) (BugRolePermi
 		if kind == agent.Kind(store.AgentCodex) {
 			return BugRolePermissions{Sandbox: "workspace-write"}, nil
 		}
-		return BugRolePermissions{Tools: []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash"}, AllowedTools: []string{"Read", "Bash(go test:*)"}}, nil
+		return BugRolePermissions{Tools: config.AgentTools(), Sandbox: "workspace-write"}, nil
 	}
 }
 
@@ -67,14 +67,11 @@ func TestValidateRepairAgentRunsUnderItsOwnWriteGrant(t *testing.T) {
 	if err == nil {
 		claudeReq, err = applyNodeAccess(policy, repair, claudeReq)
 	}
-	if err != nil || !slices.Equal(claudeReq.Tools, []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash"}) || claudeReq.ToolProfile != config.ValidateRepairProfile {
+	if err != nil || !slices.Equal(claudeReq.Tools, config.AgentTools()) || claudeReq.ToolProfile != config.ValidateRepairProfile {
 		t.Fatalf("Claude repair: %+v %v", claudeReq, err)
 	}
-	if !slices.Equal(claudeReq.AllowedTools, []string{"Read", "Bash(go test:*)"}) {
-		t.Fatalf("Claude repair allowed tools: %v", claudeReq.AllowedTools)
-	}
 	surface := requestPermissions(claudeReq)
-	if tools, ok := surface.Payload.(harness.ToolSurface); !ok || surface.Profile != config.ValidateRepairProfile || !slices.Contains(tools.Tools, "Bash") {
+	if tools, ok := surface.Payload.(harness.ToolSurface); !ok || surface.Profile != config.ValidateRepairProfile || !slices.Contains(tools.Tools, "Bash") || tools.ReadOnly {
 		t.Fatalf("Claude repair permissions: %+v", surface)
 	}
 }
@@ -91,7 +88,7 @@ func TestValidateRepairWithoutGrantIsRefused(t *testing.T) {
 	}
 }
 
-// Reviewers stay read-only on the unchanged validate profile.
+// Reviewers keep the full tool set and run in the read-only sandbox.
 func TestValidateReviewersStayReadOnly(t *testing.T) {
 	policy := ValidateWorkflowPolicy()
 	reviewer := graphexec.Node{Name: "reviewer", Action: "lf_agent", Attrs: map[string]string{graphexec.AccessAttribute: ValidateReviewAccess}}
@@ -100,70 +97,23 @@ func TestValidateReviewersStayReadOnly(t *testing.T) {
 		t.Fatalf("Codex reviewer: %+v %v", codexReq, err)
 	}
 	claudeReq, err := applyNodeAccess(policy, reviewer, validateModeRequest(agent.Kind(store.AgentClaude)))
-	if err != nil || !slices.Equal(claudeReq.Tools, []string{"Read", "Glob", "Grep"}) || claudeReq.ToolProfile != "validate" {
+	if err != nil || !slices.Equal(claudeReq.Tools, config.AgentTools()) || claudeReq.ToolProfile != "validate" {
 		t.Fatalf("Claude reviewer: %+v %v", claudeReq, err)
 	}
-}
-
-// Spike's fixer keeps its own surface: a contained shell, never delegation.
-func TestSpikeWriteAccessKeepsTheSpikeFixerSurface(t *testing.T) {
-	node := graphexec.Node{Name: "fix_agent", Attrs: map[string]string{graphexec.AccessAttribute: "write"}}
-	req, err := applyWriteAccess(node, Request{Agent: agent.Kind(store.AgentClaude), ToolProfile: config.SpikeFixerProfile, Tools: []string{"Read", "Edit", "Write", "Bash", "Task"}})
-	if err != nil || !slices.Equal(req.Tools, []string{"Read", "Edit", "Write", "Bash"}) {
-		t.Fatalf("Spike fixer surface: %+v %v", req.Tools, err)
-	}
-}
-
-// A Claude reviewer whose validate profile grants Bash keeps it, limited to the
-// fixed read-only reviewer rules, and its surface asks for the read-only shell
-// permission mode. Extra rules and editing tools in the profile are dropped.
-func TestValidateReviewerGetsOnlyTheReadOnlyShell(t *testing.T) {
-	policy := ValidateWorkflowPolicy()
-	reviewer := graphexec.Node{Name: "reviewer", Action: "lf_agent", Attrs: map[string]string{graphexec.AccessAttribute: ValidateReviewAccess}}
-	shell := config.ValidateReviewerShellRules()
-	req := Request{
-		Agent: agent.Kind(store.AgentClaude), ToolProfile: "validate",
-		Tools:        []string{"Read", "Glob", "Grep", "Task", "Bash", "Edit", "Write", "MultiEdit"},
-		AllowedTools: []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Bash(go run:*)", "Bash(git commit:*)", "Bash(git diff:*)"},
-	}
-	got, err := applyNodeAccess(policy, reviewer, req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(got.Tools, []string{"Read", "Glob", "Grep", "Bash"}) {
-		t.Fatalf("reviewer tools = %v", got.Tools)
-	}
-	if want := append([]string{"Read", "Glob", "Grep"}, shell...); !slices.Equal(got.AllowedTools, want) {
-		t.Fatalf("reviewer allowed tools = %v, want %v", got.AllowedTools, want)
-	}
-	surface, ok := requestPermissions(got).Payload.(harness.ToolSurface)
-	if !ok || !surface.ReadOnlyShell {
-		t.Fatalf("reviewer surface is not a read-only shell: %+v", surface)
+	if surface, ok := requestPermissions(claudeReq).Payload.(harness.ToolSurface); !ok || !surface.ReadOnly {
+		t.Fatalf("Claude reviewer is not in the read-only sandbox: %+v", surface)
 	}
 
-	// A Spike investigator (Spike nodes resolve under the mode's profile)
-	// holds the same read-only shell.
-	investigator := req
-	investigator.ToolProfile = string(agent.ModeSpike)
-	got, err = applyNodeAccess(SpikeWorkflowPolicy(), graphexec.Node{Name: "probe_agent", Attrs: map[string]string{graphexec.AccessAttribute: "read"}}, investigator)
-	if err != nil || !slices.Equal(got.Tools, []string{"Read", "Glob", "Grep", "Bash"}) || !slices.Equal(got.AllowedTools, append([]string{"Read", "Glob", "Grep"}, shell...)) {
-		t.Fatalf("investigator: %+v %v", got, err)
+	// A Spike investigator read node starts from the fixer's writable
+	// sandbox and narrows to read-only; its fixer write node stays writable.
+	spike := Request{Agent: agent.Kind(store.AgentClaude), ToolProfile: string(agent.ModeSpike), Tools: config.AgentTools(), CodexSandbox: "workspace-write"}
+	got, err := applyNodeAccess(SpikeWorkflowPolicy(), graphexec.Node{Name: "probe_agent", Attrs: map[string]string{graphexec.AccessAttribute: "read"}}, spike)
+	if surface, _ := requestPermissions(got).Payload.(harness.ToolSurface); err != nil || !surface.ReadOnly || !slices.Equal(surface.Tools, config.AgentTools()) {
+		t.Fatalf("investigator: %+v %v", surface, err)
 	}
-	if surface, _ := requestPermissions(got).Payload.(harness.ToolSurface); !surface.ReadOnlyShell {
-		t.Fatal("investigator is not a read-only shell")
-	}
-
-	// Other read nodes keep no shell, even when their profile grants Bash.
-	for _, profile := range []string{"research", config.SpikeInvestigatorProfile, "bug-analyst"} {
-		other := req
-		other.ToolProfile = profile
-		got, err := applyNodeAccess(policy, reviewer, other)
-		if err != nil || !slices.Equal(got.Tools, []string{"Read", "Glob", "Grep"}) || !slices.Equal(got.AllowedTools, []string{"Read", "Glob", "Grep"}) {
-			t.Fatalf("%s read node: %+v %v", profile, got, err)
-		}
-		if surface, _ := requestPermissions(got).Payload.(harness.ToolSurface); surface.ReadOnlyShell {
-			t.Fatalf("%s read node marked as read-only shell", profile)
-		}
+	got, err = applyNodeAccess(SpikeWorkflowPolicy(), graphexec.Node{Name: "fix_agent", Attrs: map[string]string{graphexec.AccessAttribute: "write"}}, spike)
+	if surface, _ := requestPermissions(got).Payload.(harness.ToolSurface); err != nil || surface.ReadOnly || !got.nodeWrite {
+		t.Fatalf("fixer: %+v %v", surface, err)
 	}
 }
 

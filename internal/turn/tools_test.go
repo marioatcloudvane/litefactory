@@ -70,8 +70,8 @@ func TestArgvCarriesNoStringOriginatingFromGitHub(t *testing.T) {
 		t.Errorf("--tools = %v, want Read,Edit", argv)
 	}
 	j := indexOf(argv, "--allowedTools")
-	if j < 0 || argv[j+1] != "Read" {
-		t.Errorf("--allowedTools = %v, want Read", argv)
+	if j < 0 || argv[j+1] != "Read,Edit" {
+		t.Errorf("--allowedTools = %v, want Read,Edit", argv)
 	}
 }
 
@@ -141,7 +141,6 @@ func TestColdRerunCarriesTheSameProfile(t *testing.T) {
 
 	req := f.request()
 	req.Tools = []string{"Read", "Bash"}
-	req.AllowedTools = []string{"Bash(ls:*)"}
 	req.ToolProfile = "research"
 
 	result := f.execute(req)
@@ -164,10 +163,6 @@ func TestColdRerunCarriesTheSameProfile(t *testing.T) {
 	secondSurface, _ := second.Permissions.Payload.(harness.ToolSurface)
 	if !equalStringSlices(firstSurface.Tools, req.Tools) || !equalStringSlices(secondSurface.Tools, req.Tools) {
 		t.Errorf("Tools = %v then %v, want the same %v on both attempts", firstSurface.Tools, secondSurface.Tools, req.Tools)
-	}
-	if !equalStringSlices(firstSurface.AllowedTools, req.AllowedTools) || !equalStringSlices(secondSurface.AllowedTools, req.AllowedTools) {
-		t.Errorf("AllowedTools = %v then %v, want the same %v on both attempts",
-			firstSurface.AllowedTools, secondSurface.AllowedTools, req.AllowedTools)
 	}
 }
 

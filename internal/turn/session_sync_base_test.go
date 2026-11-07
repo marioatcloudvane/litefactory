@@ -23,7 +23,7 @@ func TestSessionSyncBindingUsesFactoryTargetsAndRetainedCheckout(t *testing.T) {
 	_, err := f.db.AdmitWorkflow(ctx, store.TaskWorkflowAdmission{SessionID: f.session.ID, Version: 1, Family: "standalone", Workflow: "bug"})
 	mustProgress(t, err)
 	runtime, err := NewGraphBugRuntime(ctx, f.opts, BugRuntimeConfig{Forge: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
-		return BugRolePermissions{Tools: []string{"Read"}, AllowedTools: []string{"Read"}}, nil
+		return BugRolePermissions{Tools: []string{"Read"}}, nil
 	}})
 	mustProgress(t, err)
 	raw, err := os.ReadFile("testdata/bug_before_sync.profile")

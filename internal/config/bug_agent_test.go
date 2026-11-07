@@ -30,9 +30,6 @@ func TestBugAgentConfiguration(t *testing.T) {
 					}
 					cfg.ToolProfiles.Permissions[name] = profile
 				}
-				if cfg.Agents.Claude != nil {
-					cfg.Agents.Claude.ToolCeiling = DefaultClaude().ToolCeiling
-				}
 				err = cfg.Validate()
 			}
 			if tc.valid {

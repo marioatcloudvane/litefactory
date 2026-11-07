@@ -765,7 +765,7 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			if refusalKind != report.ReplyMissingModeMapping {
 				linearWorkflowCheck(t, bridge.AddIssueLabel(ctx, github.RepoFromRef(ref), ref.Issue, "Mode: Plan"))
 				d.turn = admissionRefusalExecutor{kind: refusalKind}
-				d.toolProfiles = config.DefaultToolProfiles().Permissions
+				d.toolProfiles = config.DefaultToolProfiles()
 			}
 			d.reporter = reporter
 			d.defaultAgent = agent.Kind("claude")
@@ -977,7 +977,7 @@ func linearSetApproval(t *testing.T, d *Daemon, remote *linearWorkflowServer, ad
 	}
 	d.reporter = reporter
 	d.defaultAgent = "claude"
-	d.toolProfiles = config.DefaultToolProfiles().Permissions
+	d.toolProfiles = config.DefaultToolProfiles()
 	executor := &linearApprovalExecutor{t: t, opts: opts}
 	d.turn = executor
 	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
@@ -1147,7 +1147,7 @@ func linearImplementAdmission(t *testing.T, d *Daemon, remote *linearWorkflowSer
 		definition.Origin = teamsource.WorkflowOrigin{Kind: "local", Source: "local", Slug: "fixture", Version: "1.0.0", GraphPath: "implement/implement.dot", GraphFile: "implement.dot", Team: definition.Profile.Team, TeamConfig: configBytes, ConfigDigest: hex.EncodeToString(digest[:])}
 		return definition, nil
 	}
-	d.reporter, d.defaultAgent, d.toolProfiles = reporter, "claude", config.DefaultToolProfiles().Permissions
+	d.reporter, d.defaultAgent, d.toolProfiles = reporter, "claude", config.DefaultToolProfiles()
 	executor := &linearImplementExecutor{t: t, opts: opts, missingPublisher: true}
 	d.turn = executor
 	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
