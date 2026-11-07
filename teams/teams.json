@@ -298,15 +298,15 @@
         },
         {
           "path": "validate/validate-acceptance.md",
-          "sha256": "468dfc96e931bb04ae0795c6f3c2a3792ec6c9a6af17699e5ae6d690c8135570"
+          "sha256": "8e733d57287b5c01386b87751232c0b93c56ba2307f19ab0a69eafdbea71192a"
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "9e236db1195b239470669b1698675f89f654a9e42e8406f17eda7262c09773b3"
+          "sha256": "50aad00c2215d0db1ff8c45874500d50e8fd24bca5f08a60eb8bae6766a61e91"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "7fcc180ed570b0efe86f1b7dbe4549b1048a25f6ae518d9149854ecf62c2bdaa"
+          "sha256": "c386537583bb191be4dd5a0db690c49edf7285f41ba150ec0a2cdb5b8f0df342"
         },
         {
           "path": "validate/validate-repair.md",
@@ -321,7 +321,7 @@
           "sha256": "9a6ba7e0799bb32144fb36d0414da07b2596e72ac4b9fe06d96fa663ef1068a4"
         }
       ],
-      "checksum": "afac2799ec81932f8b832bef85b7572dd95d133992e28b49ca395aff5f7029b0"
+      "checksum": "a8631191ff351b41b814f2e2d5c39196d8bf27f24995a1ef3c176b4927b8f298"
     },
     {
       "name": "Go development",
@@ -607,15 +607,15 @@
         },
         {
           "path": "validate/validate-acceptance.md",
-          "sha256": "468dfc96e931bb04ae0795c6f3c2a3792ec6c9a6af17699e5ae6d690c8135570"
+          "sha256": "8e733d57287b5c01386b87751232c0b93c56ba2307f19ab0a69eafdbea71192a"
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "9e236db1195b239470669b1698675f89f654a9e42e8406f17eda7262c09773b3"
+          "sha256": "50aad00c2215d0db1ff8c45874500d50e8fd24bca5f08a60eb8bae6766a61e91"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "7fcc180ed570b0efe86f1b7dbe4549b1048a25f6ae518d9149854ecf62c2bdaa"
+          "sha256": "c386537583bb191be4dd5a0db690c49edf7285f41ba150ec0a2cdb5b8f0df342"
         },
         {
           "path": "validate/validate-repair.md",
@@ -630,7 +630,7 @@
           "sha256": "d9c551060371eea9631495bee0f3f33b73ceb6f113d82c0bb9f4f8c476e97275"
         }
       ],
-      "checksum": "5bc6f62954f340179de2f84a146d1a834890881c094635a830b78571310271cc"
+      "checksum": "62da36ee21430afcfdd568d45c85448b29193b0ba4550002879d5f936b4a67a8"
     },
     {
       "name": "Next.js web",
@@ -911,15 +911,15 @@
         },
         {
           "path": "validate/validate-acceptance.md",
-          "sha256": "468dfc96e931bb04ae0795c6f3c2a3792ec6c9a6af17699e5ae6d690c8135570"
+          "sha256": "8e733d57287b5c01386b87751232c0b93c56ba2307f19ab0a69eafdbea71192a"
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "9e236db1195b239470669b1698675f89f654a9e42e8406f17eda7262c09773b3"
+          "sha256": "50aad00c2215d0db1ff8c45874500d50e8fd24bca5f08a60eb8bae6766a61e91"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "7fcc180ed570b0efe86f1b7dbe4549b1048a25f6ae518d9149854ecf62c2bdaa"
+          "sha256": "c386537583bb191be4dd5a0db690c49edf7285f41ba150ec0a2cdb5b8f0df342"
         },
         {
           "path": "validate/validate-repair.md",
@@ -934,7 +934,7 @@
           "sha256": "2d0a021babc675ec615314d6d8d522097eb685e6a5d7310fd4a566ed3bfbcc90"
         }
       ],
-      "checksum": "6e56ee2d3d091276bb5fd638e30ee46c7395385f20c9e53071af0559cc8f9a31"
+      "checksum": "38dc0f58ae4db8cf435e8fce5a577f66999f3d2048f3d766e14c6c1ef330cd9b"
     },
     {
       "name": "Python FastAPI with React",
@@ -1248,15 +1248,15 @@
         },
         {
           "path": "validate/validate-acceptance.md",
-          "sha256": "468dfc96e931bb04ae0795c6f3c2a3792ec6c9a6af17699e5ae6d690c8135570"
+          "sha256": "8e733d57287b5c01386b87751232c0b93c56ba2307f19ab0a69eafdbea71192a"
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "9e236db1195b239470669b1698675f89f654a9e42e8406f17eda7262c09773b3"
+          "sha256": "50aad00c2215d0db1ff8c45874500d50e8fd24bca5f08a60eb8bae6766a61e91"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "7fcc180ed570b0efe86f1b7dbe4549b1048a25f6ae518d9149854ecf62c2bdaa"
+          "sha256": "c386537583bb191be4dd5a0db690c49edf7285f41ba150ec0a2cdb5b8f0df342"
         },
         {
           "path": "validate/validate-repair.md",
@@ -1271,7 +1271,7 @@
           "sha256": "c604353cd21fd5422feab496f3cd7027798450bff552bc7a8583bf3ef94c69af"
         }
       ],
-      "checksum": "0b77365338ee1f74c096937039aefbaaacc6bf40303cee69631c724347064d3a"
+      "checksum": "991deb663a3be4f940f285b1cddbbf79aaf62cb04c977cc65e20a1fa798ea9ba"
     },
     {
       "name": "Swift iOS",
@@ -1550,15 +1550,15 @@
         },
         {
           "path": "validate/validate-acceptance.md",
-          "sha256": "468dfc96e931bb04ae0795c6f3c2a3792ec6c9a6af17699e5ae6d690c8135570"
+          "sha256": "8e733d57287b5c01386b87751232c0b93c56ba2307f19ab0a69eafdbea71192a"
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "9e236db1195b239470669b1698675f89f654a9e42e8406f17eda7262c09773b3"
+          "sha256": "50aad00c2215d0db1ff8c45874500d50e8fd24bca5f08a60eb8bae6766a61e91"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "7fcc180ed570b0efe86f1b7dbe4549b1048a25f6ae518d9149854ecf62c2bdaa"
+          "sha256": "c386537583bb191be4dd5a0db690c49edf7285f41ba150ec0a2cdb5b8f0df342"
         },
         {
           "path": "validate/validate-repair.md",
@@ -1573,7 +1573,7 @@
           "sha256": "9dc5249b2fc879a70ba1c68d07cbf3289b62b958eb6f14a0f53bfc92fce7f7ea"
         }
       ],
-      "checksum": "8f623e7ecb2d6cc56cf7a08f5fedd0fc9d2b89869fcfa03c43bea15dcb7f6097"
+      "checksum": "0708775bd0a576e32563af608a47cffbee7c94bf2bba233cecc0b160bcb65a22"
     }
   ]
 }
