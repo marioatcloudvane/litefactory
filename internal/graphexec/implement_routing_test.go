@@ -37,12 +37,9 @@ func TestImplementFactConditionsAreClosed(t *testing.T) {
 			t.Fatalf("accepted %+v", tc)
 		}
 	}
-	for _, policy := range []ControlPolicy{ResearchControlPolicy(), {Mode: agent.ModeValidate}, {Workflow: agent.WorkflowBug}} {
+	for _, policy := range []ControlPolicy{ResearchControlPolicy(), PlanControlPolicy(), {Mode: agent.ModeValidate}, {Workflow: agent.WorkflowBug}} {
 		if _, err := DecodeCondition(ResearchIfAction, map[string]string{"lf_field": "story.size", "lf_condition": "S"}, policy); err == nil {
 			t.Fatalf("cross-mode fact admitted: %s", policy.Mode)
 		}
-	}
-	if _, err := DecodeCondition(ResearchIfAction, map[string]string{"lf_field": "story.fallback", "lf_condition": "false"}, PlanControlPolicy()); err != nil {
-		t.Fatal("Plan fallback changed", err)
 	}
 }

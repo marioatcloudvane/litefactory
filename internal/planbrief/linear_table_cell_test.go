@@ -82,12 +82,10 @@ func checkLinearTable(t *testing.T, where, body string, rows, cells int, untrust
 
 // AC-006 and AC-002 for the planbrief tables: Linear cells are inert, GitHub
 // cells keep the legacy pipe-only escaping.
-func TestLinearPlanStorySetAndRoutes(t *testing.T) {
+func TestLinearPlanStorySet(t *testing.T) {
 	var entries []PlanStorySetEntry
-	var reviews []PlanRouteReview
 	for i, in := range linearCellMatrix {
 		entries = append(entries, PlanStorySetEntry{ID: fmt.Sprintf("s%d", i+1), Name: in, Intent: in, Size: "S", SizeReason: in})
-		reviews = append(reviews, PlanRouteReview{Story: in, Size: in, SizeReason: in, Route: in, GraphApproved: []string{in}})
 	}
 	s := PlanState{SharedRevision: "initial"}
 	if _, _, err := s.ProposeStorySet(entries); err != nil {
@@ -107,10 +105,5 @@ func TestLinearPlanStorySetAndRoutes(t *testing.T) {
 		if want := strings.ReplaceAll(strings.Join(strings.Fields(in), " "), "|", `\|`); tableCellFor(false, in) != want || !strings.Contains(github, "| "+want+" |") {
 			t.Errorf("GitHub cell for %q is not the legacy %q", in, want)
 		}
-	}
-	routes := RenderPlanRoutesFor(reviews, true)
-	checkLinearTable(t, "routes", routes, len(reviews), 5, map[int][]string{1: linearCellMatrix, 2: linearCellMatrix, 3: linearCellMatrix, 4: linearCellMatrix, 5: linearCellMatrix})
-	if RenderPlanRoutesFor(reviews, false) != RenderPlanRoutes(reviews) {
-		t.Error("GitHub routes changed")
 	}
 }

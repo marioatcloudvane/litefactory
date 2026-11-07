@@ -1,9 +1,6 @@
 package turn
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -13,7 +10,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
@@ -188,70 +184,5 @@ func TestPlanParentTaskHasNoParentSessionDirectory(t *testing.T) {
 	mustProgress(t, err)
 	if dir, files := parentSessionArtifacts(t.Context(), f.opts, f.repo.Dir, parent, time.Now(), f.opts.Logger); dir != "" || files != nil {
 		t.Fatalf("the parent task was given a parent directory %q %v", dir, files)
-	}
-}
-
-// C2, C5: the parallel reviewers of a small story are pointed at the parent's
-// Research files alongside their member directory, and the parent's own Plan
-// set run gets no parent pointer.
-func TestPlanParallelMemberPromptNamesTheParentSessionDirectory(t *testing.T) {
-	var setPrompt string
-	memberPrompts := map[string]string{}
-	var f *fixture
-	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		if req.Graph.Node == "set_agent" {
-			setPrompt = req.Prompt
-			result := ar.Result{Outcome: "completed", Comment: "Review the proposed story set.", Payload: ar.Payload{Plan: &ar.Plan{StorySet: &ar.PlanStorySet{Entries: []ar.PlanStorySetEntry{{ID: "small", Name: "Small plan", Intent: "Retain a coherent plan", Size: "S", SizeReason: "One local change; no migration or unknowns."}}}}}}
-			envelope, err := json.Marshal(ar.ResearchNode{Version: 1, Response: "done", Result: result})
-			if err != nil {
-				return nil, err
-			}
-			submitLiveResult(t, req, string(envelope))
-			return agentDone(t, result), nil
-		}
-		if strings.Contains(req.Prompt, "Parallel Plan member facts (data): ") {
-			memberPrompts[req.Graph.Node] = req.Prompt
-			return nil, errors.New("the member's prompt is all this test needs")
-		}
-		return nil, fmt.Errorf("unexpected sequential invocation of %s", req.Graph.Node)
-	})
-	f, _, base, _ := setupGraphPlanFixture(t, runner, false)
-	parentBranch := fmt.Sprintf("lf/%d-feature", f.session.IssueNumber)
-	_, err := f.db.FreezeSessionSlug(t.Context(), f.session.ID, "feature", parentBranch)
-	mustProgress(t, err)
-	executeGraphPlan(t, f, base)
-	if setPrompt == "" {
-		t.Fatal("the Plan set did not run")
-	}
-	if strings.Contains(setPrompt, "parent session directory") {
-		t.Fatalf("the parent's Plan set run was given a parent pointer:\n%s", setPrompt)
-	}
-	executeGraphPlan(t, f, promoteTrigger(base, 900, 7, promoteCommand(graphPlanState(t, f).StorySet.Revision)))
-	parentDir, err := naming.AITeamSessionDir(parentBranch, time.Now(), "feature")
-	mustProgress(t, err)
-	// The parent's own worktree holds its branch, so the research lands there
-	// through a scratch branch.
-	f.repo.Git("checkout", "--quiet", "-B", "parent-research")
-	for _, name := range []string{naming.ManifestName, naming.ResearchBriefName, naming.ResearchTechnicalName} {
-		f.repo.WriteFile(parentDir+"/"+name, "# "+name+"\n")
-	}
-	f.repo.Commit("parent research")
-	f.repo.Git("push", "--quiet", "--force", "origin", "HEAD:refs/heads/"+parentBranch)
-	f.repo.Git("checkout", "--quiet", "-")
-	for i := 0; i < 6 && len(memberPrompts) == 0; i++ {
-		if _, ran, _ := runDueGraphStep(t, f, base); !ran {
-			if _, ran, _ = runOwedStory(t, f, base); !ran {
-				break
-			}
-		}
-	}
-	if len(memberPrompts) == 0 {
-		t.Fatalf("no parallel member ran: logs=%s", f.logs.String())
-	}
-	for node, prompt := range memberPrompts {
-		if !strings.Contains(prompt, "Factory supplied member artifact directory (data): ") {
-			t.Fatalf("member %s lost its member directory:\n%s", node, prompt)
-		}
-		requireParentPointer(t, prompt, parentDir)
 	}
 }

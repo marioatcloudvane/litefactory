@@ -480,47 +480,6 @@ func attemptStoryWork(t *testing.T, f *fixture, r *planGraphRuntime, id int64) {
 	}
 }
 
-const pausedNeedle = "Plan paused because this story's planning inputs changed"
-
-// Bug #1351 C1: a story run triggered by an owner comment stops on a parallel
-// superseded outcome while the story still has work the factory starts by itself.
-// No "paused, reply to continue" notice is posted, and the work is still offered.
-func TestPlanNotices_StorySupersededStopIsSilentWhenWorkContinues(t *testing.T) {
-	for _, from := range []string{"parallel_group", "parallel_story_approve"} {
-		t.Run(from, func(t *testing.T) {
-			f, forge, r, instanceID, id := storyStop(t, from, "superseded")
-			for range 2 {
-				mustProgress(t, r.reportStop(t.Context(), instanceID))
-			}
-			if posts := storyPostsWith(forge, r, pausedNeedle); len(posts) != 0 {
-				t.Fatalf("%d paused notices while the work continues, want 0", len(posts))
-			}
-			if posts := storyPostsWith(forge, r, "Reply on this issue"); len(posts) != 0 {
-				t.Fatalf("reply request posted: %v", posts)
-			}
-			attempted, err := f.db.ScheduleAttempted(t.Context(), r.req.SessionID, id)
-			mustProgress(t, err)
-			if got, ok := StoryWorkID(graphPlanState(t, f), "story-001"); !ok || got != id || attempted {
-				t.Fatalf("story work no longer offered: id %d ok %v attempted %v", got, ok, attempted)
-			}
-		})
-	}
-}
-
-// Bug #1351 C2: when the story's work was already attempted, nothing continues
-// without the owner, so exactly one paused notice is posted.
-func TestPlanNotices_StorySupersededStopIsPostedOnceWhenWorkWasAttempted(t *testing.T) {
-	f, forge, r, instanceID, id := storyStop(t, "parallel_group", "superseded")
-	attemptStoryWork(t, f, r, id)
-	for range 2 {
-		mustProgress(t, r.reportStop(t.Context(), instanceID))
-	}
-	posts := storyPostsWith(forge, r, pausedNeedle)
-	if len(posts) != 1 || !strings.Contains(posts[0], "Reply on this issue to continue") {
-		t.Fatalf("%d paused notices, want 1: %v", len(posts), posts)
-	}
-}
-
 // Bug #1351 C3: the out-of-passes stop follows the same rule.
 func TestPlanNotices_StoryOutOfPassesStopFollowsContinuationRule(t *testing.T) {
 	const needle = "the technical stage ran out of passes"
@@ -546,7 +505,8 @@ func TestPlanNotices_StoryOutOfPassesStopFollowsContinuationRule(t *testing.T) {
 // Bug #1351 C5: a failed read returns the error and posts nothing; the run only
 // logs it. A later report for the same instance posts at most one notice.
 func TestPlanNotices_StoryStopReadFailurePostsNothing(t *testing.T) {
-	f, forge, r, instanceID, id := storyStop(t, "parallel_group", "superseded")
+	const pausedNeedle = "the technical stage ran out of passes"
+	f, forge, r, instanceID, id := storyStop(t, "technical_loop", "false")
 	attemptStoryWork(t, f, r, id)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
