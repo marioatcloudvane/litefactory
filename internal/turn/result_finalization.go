@@ -6,14 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
-	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
@@ -347,46 +345,6 @@ func (p *preparedMCP) projectFinalWorkflow(ctx context.Context, prep *preparatio
 			return err
 		}
 	}
-	if session != nil && session.options.Plan != nil {
-		contribution, err := resultPlanContribution(snapshot.Result)
-		if err != nil {
-			return err
-		}
-		data, err := json.Marshal(contribution)
-		if err != nil {
-			return err
-		}
-		// The Plan owner continues to retain its internal handoff and to publish
-		// only at the existing success/save boundary.
-		if prep.typedPlan != nil {
-			prep.typedPlan.mu.Lock()
-			existingID := prep.typedPlan.receiptID
-			canonical := bytes.Clone(prep.typedPlan.contribution)
-			prep.typedPlan.mu.Unlock()
-			if existingID != 0 {
-				if bytes.Equal(canonical, data) {
-					return nil
-				}
-				// The accepted shared result wins: the earlier checkpoint is dropped
-				// and the submission below replaces the contribution and transport.
-				slog.Warn("shared Plan result replaces differing retained Plan checkpoint", slog.String("attempt", session.binding.Attempt))
-				prep.typedPlan.mu.Lock()
-				prep.typedPlan.receiptID = 0
-				prep.typedPlan.mu.Unlock()
-			}
-		}
-		raw, err := session.checkpoint(ctx, submission.Request{Method: "submit", RequestID: "final-plan-" + session.binding.Attempt, Payload: data})
-		if err != nil {
-			return err
-		}
-		var receipt store.SubmissionReceipt
-		if err := json.Unmarshal(raw, &receipt); err != nil {
-			return err
-		}
-		if receipt.ID == 0 || receipt.InputState != "valid" {
-			return fmt.Errorf("plan final contribution rejected by authoritative owner")
-		}
-	}
 	if snapshot.Result.Outcome == "completed" && p.service.binding.Mode == "implement" {
 		if _, err := p.service.Observe(ctx, snapshot.Meta.RunID, snapshot.Meta.RequestID, "engineering", "recorded"); err != nil {
 			return err
@@ -396,38 +354,4 @@ func (p *preparedMCP) projectFinalWorkflow(ctx context.Context, prep *preparatio
 		return fmt.Errorf("application outcome is %s: %s", snapshot.Result.Outcome, snapshot.Result.Reason)
 	}
 	return nil
-}
-
-// resultPlanContribution only adapts values; the existing typed Plan callback
-// remains the authority for scope, completeness and internal handoff retention.
-func resultPlanContribution(r agentresult.Result) (agent.Contribution, error) {
-	p := r.Payload.Plan
-	if p == nil {
-		return agent.Contribution{}, fmt.Errorf("plan payload missing")
-	}
-	c := agent.Contribution{Stage: "plan", Outcome: "discussion", Context: p.Context}
-	if r.Outcome != "completed" {
-		return c, nil
-	}
-	c.Outcome = "completed"
-	typed := planbrief.TypedPlan{Summary: p.Summary}
-	for _, s := range p.Stories {
-		t := planbrief.TypedStory{Key: s.Key, Intent: s.Intent, Title: s.Title, UserStory: planbrief.UserStoryContent{Actor: s.UserStory.Actor, Want: s.UserStory.Want, Benefit: s.UserStory.Benefit, Notes: s.UserStory.Notes}, AcceptanceCriteria: s.AcceptanceCriteria, Tasks: s.Tasks}
-		if t.UserStory.Notes == nil {
-			t.UserStory.Notes = []string{}
-		}
-		if s.Architecture != nil {
-			t.Architecture = *s.Architecture
-		}
-		if s.Dependencies != nil {
-			t.Dependencies = *s.Dependencies
-		}
-		typed.Stories = append(typed.Stories, t)
-	}
-	data, err := json.Marshal(typed)
-	if err != nil {
-		return c, err
-	}
-	c.Plan = data
-	return c, nil
 }

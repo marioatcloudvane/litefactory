@@ -2,7 +2,6 @@ package turn
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -247,52 +246,6 @@ func TestStoryContractUpgradeRestartResumesOriginalCohort(t *testing.T) {
 				t.Fatalf("replay duplicated or widened scope: %+v", f.writes)
 			}
 		})
-	}
-}
-
-func TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency(t *testing.T) {
-	t.Parallel()
-	o, f, _ := upgradeBoundaryFixture(t)
-	old := f.issues[2]
-	p, e := PreviewStoryContractUpgrade(t.Context(), o)
-	mustProgress(t, e)
-	mustProgress(t, ApplyStoryContractUpgrade(t.Context(), o, p))
-	keys, e := historicalLegacyKeys(t.Context(), o.DB, o.Parent.String(), 2)
-	mustProgress(t, e)
-	if len(keys) != 1 || keys["US-003"].State != "completed" {
-		t.Fatalf("legacy dependencies: %+v", keys)
-	}
-	histories := map[string]planbrief.StoryProposal{}
-	bases := map[string]planbrief.StoryProposal{}
-	for i, issue := range f.issues {
-		key := fmt.Sprintf("US-%03d", i+1)
-		bases[key] = planbrief.StoryProposal{Key: key, Intent: "unchanged", IssueID: issue.ID, IssueNumber: issue.Number, Title: issue.Title, Body: issue.Body, ExpectedBase: planbrief.StoryHash(issue.Title, issue.Body), Dependencies: []string{}}
-	}
-	histories["US-003"] = bases["US-003"]
-	typed := planbrief.TypedPlan{Summary: "Keep historical dependencies", Stories: []planbrief.TypedStory{}}
-	for _, item := range p.Intent.Items {
-		var story planbrief.TypedStory
-		mustProgress(t, json.Unmarshal(item.Content, &story))
-		typed.Stories = append(typed.Stories, story)
-	}
-	existing, e := o.DB.ListManagedStories(t.Context(), o.Parent.String(), 2)
-	mustProgress(t, e)
-	raw, e := normalizeTypedUpdatesWithHistory(t.Context(), o.DB, o.Parent.String(), 2, existing, typedPlanBytes(t, typed), o.Scope, nil, histories)
-	mustProgress(t, e)
-	_, prep, _, _ := typedPlanFixture(t)
-	prep.promptInput.PlanGeneration = 2
-	proposal, content, e := buildTypedPlanProposal(t.Context(), o.Renderer, prep, o.Scope, bases, existing, raw, histories)
-	mustProgress(t, e)
-	if len(proposal.Stories) != 3 || len(content) != 2 {
-		t.Fatal("historical dependency was dropped or synthesized")
-	}
-	_, e = PublishPlan(t.Context(), PublicationOptions{DB: o.DB, Forge: f, Renderer: o.Renderer, Parent: o.Parent, Generation: 2, BotID: 9, TypedContent: content, TypedScope: o.Scope}, proposal)
-	mustProgress(t, e)
-	if !reflect.DeepEqual(f.issues[2], old) || f.writes[4] != 0 {
-		t.Fatal("typed Plan changed completed legacy issue")
-	}
-	if len(content["US-001"].Dependencies.StoryKeys) != 1 || content["US-001"].Dependencies.StoryKeys[0] != "US-003" {
-		t.Fatal("historical dependency edge lost")
 	}
 }
 

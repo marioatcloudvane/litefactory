@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -108,7 +107,7 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	}
 	// Legacy/unmanaged engineering has no checkpoint owner. It must retain the
 	// legacy tool behavior rather than inventing managed story identities.
-	if (req.Mode == "implement" || req.Mode == "validate" || (req.Mode == "plan" && prep.planSubmission != nil)) && session == nil {
+	if (req.Mode == "implement" || req.Mode == "validate") && session == nil {
 		req.Prompt += "\nCompatibility route: this unmanaged or submission-v1 scope retains its existing frozen workflow and required output. Use the supported owner story-contract upgrade/admission flow before adopting shared completion; this launch does not implicitly upgrade persisted versions.\n"
 		return runPreparedProvider(ctx, prep, req)
 	}
@@ -196,9 +195,6 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		workContext += "#" + prep.resultPass
 	}
 	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement" && !prep.reqAssessment(), Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
-	if prep.typedPlan != nil {
-		contextValue.PlanScope = prep.typedPlan.scope
-	}
 	if session != nil {
 		for key, story := range session.scope.Stories {
 			story.Criteria = slices.Clone(story.Criteria)
@@ -266,20 +262,6 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 				return d
 			}
 			return ValidateAgentResultCompletion(check, o.DB, b, prep.worktree, r, enriched, checkpoints)
-		}
-	}
-	if session != nil && session.options.Plan != nil {
-		o.ValidateCompletion = func(check context.Context, _ store.ResultBinding, r agentresult.Result, _ agentresult.Context) agentresult.Diagnostics {
-			c, err := resultPlanContribution(r)
-			if err != nil {
-				return agentresult.Diagnostics{Complete: true, Diagnostics: []agentresult.Diagnostic{{Path: "$.result.payload.plan", Code: "encoding", Message: err.Error()}}}
-			}
-			data, err := json.Marshal(c)
-			if err != nil {
-				return agentresult.Diagnostics{Complete: true, Diagnostics: []agentresult.Diagnostic{{Path: "$.result.payload.plan", Code: "encoding", Message: err.Error()}}}
-			}
-			_, d := agent.ParseContribution(data, session.scopeForContribution(check, data))
-			return d
 		}
 	}
 	service, err = BindAgentResultService(ctx, o)

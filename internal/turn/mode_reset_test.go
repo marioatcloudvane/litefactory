@@ -643,7 +643,7 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 		req    harness.Request
 	}
 
-	run := func(t *testing.T, secondMode agent.Mode, secondKind agent.Kind) secondTurn {
+	run := func(t *testing.T, firstMode, secondMode agent.Mode, secondKind agent.Kind) secondTurn {
 		t.Helper()
 
 		var f *fixture
@@ -651,10 +651,6 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 			return succeeded(req, f.paths.Home()), nil
 		})
 		f = newFixture(t, runner)
-		// Compare legacy single-run cold machinery, independent of graph dispatch.
-		if secondMode == agent.ModePlan {
-			admitLegacyPlanFixture(t, f)
-		}
 		f.opts.Runners = RunnerSet{
 			agent.Kind(store.AgentClaude): runner,
 			agent.Kind(store.AgentCodex):  runner,
@@ -662,7 +658,7 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 		f.seedThread()
 
 		first := f.request()
-		first.Mode = agent.ModeImplement
+		first.Mode = firstMode
 		first.Agent = agent.Kind(store.AgentClaude)
 		f.execute(first)
 
@@ -681,11 +677,11 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 	}
 
 	// Cold via a mode change, same agent: the reset this story adds.
-	reset := run(t, agent.ModePlan, agent.Kind(store.AgentClaude))
+	reset := run(t, agent.ModeValidate, agent.ModeImplement, agent.Kind(store.AgentClaude))
 	// Cold via an agent switch, same mode: an unrelated, already-existing
 	// reason for a turn to go cold, used here only as the "equivalent cold
 	// turn" reference.
-	switched := run(t, agent.ModeImplement, agent.Kind(store.AgentCodex))
+	switched := run(t, agent.ModeImplement, agent.ModeImplement, agent.Kind(store.AgentCodex))
 
 	// Sanity: both are genuinely cold, for their own distinct reason, and
 	// neither is a resume.
@@ -733,14 +729,5 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 	if !strings.Contains(reset.req.Prompt, firstTurnBody) || !strings.Contains(switched.req.Prompt, firstTurnBody) {
 		t.Errorf("the first turn's own comment did not carry forward as history:\nreset:\n%s\nswitched:\n%s",
 			reset.req.Prompt, switched.req.Prompt)
-	}
-
-	// Approved/frozen story context: no managed feature is configured in
-	// either sequence, so neither carries plan-handoff transport.
-	for name, req := range map[string]harness.Request{"reset": reset.req, "switched": switched.req} {
-		if req.PlanWorkingContext != "" || req.PlanProposalPath != "" || req.PlanContextPath != "" {
-			t.Errorf("%s carries approved/frozen story context nothing configured: working=%q proposal=%q context=%q",
-				name, req.PlanWorkingContext, req.PlanProposalPath, req.PlanContextPath)
-		}
 	}
 }
