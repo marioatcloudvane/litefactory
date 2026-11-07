@@ -1,4 +1,6 @@
 topic: workflows
+job: Check usage and cost
+chain: usage_read
 needs: usage_read
 
 ## Workflow: check usage and cost

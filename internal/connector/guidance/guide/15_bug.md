@@ -1,4 +1,6 @@
 topic: workflows
+job: File a bug
+chain: bug_file_propose action_confirm action_inspect
 needs: bug_file_propose action_confirm action_inspect
 
 ## Workflow: file a bug

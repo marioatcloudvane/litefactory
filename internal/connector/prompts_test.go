@@ -12,6 +12,7 @@ func guideFS(guide string) fstest.MapFS {
 		"guidance/overview/brainstorm.md":        {Data: []byte(guide)},
 		"guidance/overview/missing_scopes.md":    {Data: []byte("MISSING {{scopes}}")},
 		"guidance/usage_read.md":                 {Data: []byte("USAGE")},
+		"guidance/guide/01.md":                   {Data: []byte("topic: overview\n\nGUIDE")},
 		"guidance/prompts/brainstorm_feature.md": {Data: []byte("title: B\ndescription: d\n\nBSPECIFIC")},
 		"guidance/prompts/whats_waiting.md":      {Data: []byte("title: W\ndescription: d\n\nWBODY")},
 		"guidance/prompts/review_task.md":        {Data: []byte("title: R\ndescription: d\nargument: task\n\nReview {{task}}.")},

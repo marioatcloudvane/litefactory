@@ -1,4 +1,6 @@
 topic: workflows
+job: See what is running or waiting for the owner
+chain: factory_overview
 needs: factory_overview
 
 ## Workflow: check running work

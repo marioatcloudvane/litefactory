@@ -69,6 +69,13 @@ func composeInstructions(files fs.FS, tools, missingScopes []string) (string, er
 		return "", errGuidanceUnavailable
 	}
 	parts := []string{overview}
+	jobs, err := jobMap(files, tools)
+	if err != nil {
+		return "", err
+	}
+	if jobs != "" {
+		parts = append(parts, "## What you can help with\n\nStart with these tools, in this order. Call factory_guide for the steps.\n\n"+jobs)
+	}
 	if len(tools) > 0 {
 		parts = append(parts, "## Tools you can call\n\n"+strings.Join(tools, ", ")+".")
 	}

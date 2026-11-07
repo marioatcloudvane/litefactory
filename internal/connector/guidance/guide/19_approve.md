@@ -1,4 +1,6 @@
 topic: workflows
+job: Approve a stage
+chain: approve_stage action_confirm decision_get
 needs: approve_stage action_confirm decision_get
 
 ## Workflow: approve a stage

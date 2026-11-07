@@ -1,3 +1,5 @@
+> **Superseded in part (updated 2026-11-07).** Later owner decisions and the build changed this research: bug filing now has a tool (`bug_file_propose`, #1422 delivered); the server instructions were rewritten as a short layered text (the per-tool guidance left them and is served by `factory_guide`); `factory_guide` takes an optional `topic`; the instructions carry a job map built from the guide files; a client skill is printed by `litefactory connector skill`; and the guide has workflows for advisory, code reading, standards, publishing a conclusion, cancel and recover, and a brainstorm-only procedure. Where this document disagrees, the delivery reports on issue #1448 and the files under `internal/connector/guidance` are authoritative.
+
 # Research findings
 
 _Technical detail behind [the brief](RESEARCH_BRIEF.md). Findings carry the source they rest on._

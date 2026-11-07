@@ -1,4 +1,6 @@
 topic: workflows
+job: File a feature request
+chain: brainstorm_open brainstorm_draft brainstorm_drafts_get action_propose action_confirm brainstorm_tasks_get
 needs: brainstorm_open brainstorm_add brainstorm_ask brainstorm_scan_get brainstorm_draft brainstorm_drafts_get brainstorm_tasks_get action_propose action_confirm
 
 ## Workflow: file a feature request

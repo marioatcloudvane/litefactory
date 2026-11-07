@@ -24,6 +24,8 @@ type guideSection struct {
 	Topic   string
 	Needs   []string // shown only when every one of these tools is callable
 	Missing []string // shown only when at least one of these tools is not callable
+	Job     string   // one-line job name for the instructions' job map
+	Chain   []string // the tools to start with, in order, for that job
 	Body    string
 }
 
@@ -72,9 +74,13 @@ func readGuideSections(files fs.FS) ([]guideSection, error) {
 				g.Needs = strings.Fields(v)
 			case "missing":
 				g.Missing = strings.Fields(v)
+			case "job":
+				g.Job = strings.TrimSpace(v)
+			case "chain":
+				g.Chain = strings.Fields(v)
 			}
 		}
-		if (g.Topic != "overview" && g.Topic != "workflows") || strings.TrimSpace(body) == "" {
+		if (g.Topic != "overview" && g.Topic != "workflows") || strings.TrimSpace(body) == "" || (g.Job == "") != (len(g.Chain) == 0) {
 			return nil, errGuidanceUnavailable
 		}
 		g.Body = strings.TrimSpace(body)
@@ -86,7 +92,32 @@ func readGuideSections(files fs.FS) ([]guideSection, error) {
 	return out, nil
 }
 
-// toolReference gives each callable tool's first guidance paragraph. Tools that
+func allCallable(names, tools []string) bool {
+	for _, n := range names {
+		if !slices.Contains(tools, n) {
+			return false
+		}
+	}
+	return true
+}
+
+// jobMap lists, for the tools a grant can call, one line per job with the tools
+// to call in order. A job whose tools are not all callable is left out.
+func jobMap(files fs.FS, tools []string) (string, error) {
+	sections, err := readGuideSections(files)
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	for _, g := range sections {
+		if g.Job != "" && g.visible(tools) && allCallable(g.Chain, tools) {
+			lines = append(lines, "- "+g.Job+": "+strings.Join(g.Chain, ", then "))
+		}
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+// toolReference gives each callable tool's first guidance paragraph, cut at a sentence end. Tools that
 // share the same text are listed together.
 func toolReference(files fs.FS, tools []string) (string, error) {
 	var order []string
@@ -100,7 +131,7 @@ func toolReference(files fs.FS, tools []string) (string, error) {
 			return "", err
 		}
 		first, _, _ := strings.Cut(text, "\n\n")
-		first = strings.TrimSpace(first)
+		first = shortParagraph(first, maxToolParagraph)
 		if _, seen := names[first]; !seen {
 			order = append(order, first)
 		}
@@ -111,6 +142,32 @@ func toolReference(files fs.FS, tools []string) (string, error) {
 		lines = append(lines, "- **"+strings.Join(names[first], ", ")+"**: "+first)
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// maxToolParagraph bounds one tool's entry in the guide's tools section; the
+// full text of a tool is served by the guide's topic for that tool.
+const maxToolParagraph = 420
+
+// shortParagraph keeps whole sentences of p up to limit bytes, and at least the
+// first sentence.
+func shortParagraph(p string, limit int) string {
+	p = strings.TrimSpace(p)
+	if len(p) <= limit {
+		return p
+	}
+	cut := 0
+	for i := 0; i+1 < len(p) && i < limit; i++ {
+		if p[i] == '.' && p[i+1] == ' ' {
+			cut = i + 1
+		}
+	}
+	if cut == 0 {
+		if i := strings.Index(p, ". "); i >= 0 {
+			return p[:i+1]
+		}
+		return p
+	}
+	return p[:cut]
 }
 
 func scopesText(files fs.FS, missingScopes []string) (string, error) {

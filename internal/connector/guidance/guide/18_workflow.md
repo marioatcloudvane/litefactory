@@ -1,4 +1,6 @@
 topic: workflows
+job: Start an installed workflow
+chain: workflows_list workflow_describe workflow_propose action_confirm workflow_job_get
 needs: workflows_list workflow_describe workflow_propose workflow_continue_propose action_confirm workflow_job_get
 
 ## Workflow: start a workflow

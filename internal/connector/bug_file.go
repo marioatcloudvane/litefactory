@@ -37,7 +37,7 @@ func bugFileInputSchema() map[string]any {
 	}, "required": bugFileFields, "additionalProperties": false}
 }
 
-const bugFileDescription = "Propose filing a bug on a registered GitHub or Linear project for the owner, without filing it yet. Returns the same proposal as action_propose for the bug_file action; confirm it with action_confirm."
+const bugFileDescription = "Propose filing a bug on a registered GitHub or Linear project for the owner, without filing it yet. Returns the same proposal as action_propose for the bug_file action; confirm it with action_confirm. Use it when the owner wants to file a bug, not a feature request; show the proposal, wait for the owner's separate yes, confirm, then read action_inspect."
 
 // parseBugFileArguments bounds the four strict fields and returns the very
 // actionArguments that action_propose holds for action bug_file. The strings

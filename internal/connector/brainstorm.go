@@ -250,7 +250,7 @@ func brainstormDescription(name string) string {
 	case "brainstorm_scan_cancel":
 		return "Cancel a waiting question or ask a running one to stop. A finished answer may still win. Requires repository:brainstorm consent."
 	case "brainstorm_draft":
-		return "Ask the Shaping agent to turn this brainstorm into one to five issue drafts. Starts one paid read-only agent run and returns the scan and its state; read the drafts with brainstorm_drafts_get when it is answered. A retry with the same request key returns the same scan. Requires repository:brainstorm consent."
+		return "Ask the Shaping agent to turn this brainstorm into one to five issue drafts. Starts one paid read-only agent run and returns the scan and its state; read the drafts with brainstorm_drafts_get when it is answered. A retry with the same request key returns the same scan. Requires repository:brainstorm consent. Use it when the owner says the brainstorm is ready; it is paid and needs no yes, so say so first, then read the drafts with brainstorm_drafts_get."
 	case "brainstorm_drafts_get":
 		return "Read the latest draft set of a brainstorm: its spoken summary and each draft's title, size, impact, related issues, possible duplicates and ledger. Requires repository:brainstorm consent."
 	case "brainstorm_tasks_get":

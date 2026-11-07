@@ -1,4 +1,6 @@
 topic: workflows
+job: Check where a task stands
+chain: task_evidence_read
 needs: task_evidence_read
 
 ## Workflow: check a task

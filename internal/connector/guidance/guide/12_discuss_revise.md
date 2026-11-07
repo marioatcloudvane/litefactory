@@ -1,4 +1,6 @@
 topic: workflows
+job: Discuss or revise a plan
+chain: task_evidence_read revise_task action_confirm decision_get
 needs: task_evidence_read revise_task action_confirm decision_get
 
 ## Workflow: discuss or revise a plan

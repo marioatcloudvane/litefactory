@@ -303,8 +303,11 @@ only. Reinitialize after fresh consent to receive current guidance.
 Initialize instructions are short (about 400 words) and the same shape for every
 grant: a factory overview that names no tool except `factory_guide` (the order of
 work: look, discuss, propose, wait for the owner's separate yes, confirm,
-inspect; the common mistakes; the limits), the names of the tools this grant can
-call, and, when the grant lacks a consent scope that would show more tools on
+inspect; the common mistakes, including paid calls that start without a yes; the
+limits), a job map (one line per job this grant can really do with the tools to
+start with in order, for example `File a bug: bug_file_propose, then
+action_confirm, then action_inspect`, built from the `job:` and `chain:` header of
+each guide file), the names of the tools this grant can call, and, when the grant lacks a consent scope that would show more tools on
 this server, a short missing-scope notice. The notice names the missing scope
 tokens and tells the client, when the owner asks for that capability, to say
 plainly that this connection was approved without it and that the owner must
@@ -316,15 +319,17 @@ the instructions; it is served by the guide tool.
 `factory_guide` is a read-only tool every signed-in connection can call. With no
 arguments it returns one markdown guide cut to the tools this grant can call:
 how the factory works, how approvals work, worked workflows (check a task, check
-running work, discuss or revise a plan, approve a stage, file a feature request,
-file a bug, check usage, start a workflow), one paragraph per callable tool, and
+running work, discuss or revise a plan, approve a stage, work out an idea in a
+brainstorm, file a feature request, file a bug, check usage, start a workflow, ask
+the task agent or get an independent judgement, read or review a task's code, look
+up standards, publish a discussion conclusion, cancel or recover a proposal), one paragraph per callable tool, and
 the missing consent scopes. A workflow whose tools the grant cannot call is left
 out and replaced by a plain "not available here" note that names no tool. An
 optional `topic` returns less: `overview`, `workflows`, `tools`, `scopes`, or the
 name of a tool the grant can call (its full guidance). The guide files live in
 `internal/connector/guidance/guide`; each starts with `topic:` and optional
 `needs:` (all listed tools must be callable) or `missing:` (shown when any listed
-tool is not callable) lines, and a reply is capped at 32 KiB. The tool paragraphs
+tool is not callable) lines, and a workflow also has `job:` and `chain:`, and a reply is capped at 32 KiB. The tool paragraphs
 come from the same per-tool guidance files, so a change there reaches the guide.
 The guide files nothing: it creates, confirms and approves nothing.
 

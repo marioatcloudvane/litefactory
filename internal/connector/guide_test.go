@@ -362,3 +362,89 @@ func TestGuideClientPath(t *testing.T) {
 		}
 	}
 }
+
+// Ten realistic owner requests: the connection that can do the job is told the
+// tools to start with, in order; the guide steps name them in that order; and a
+// connection missing one of them is not told it can do the job.
+func TestOwnerRequestsMapToToolChains(t *testing.T) {
+	t.Parallel()
+	sections, err := readGuideSections(guidanceFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byJob := map[string]guideSection{}
+	for _, g := range sections {
+		if g.Job != "" {
+			byJob[g.Job] = g
+		}
+	}
+	for _, tc := range []struct{ request, job string }{
+		{"What is waiting for me?", "See what is running or waiting for the owner"},
+		{"Where does task 12 stand?", "Check where a task stands"},
+		{"I do not like the plan for task 12, change it.", "Discuss or revise a plan"},
+		{"Approve the plan for task 12.", "Approve a stage"},
+		{"Let us think through a new export feature.", "Work out an idea in a brainstorm"},
+		{"File this as a feature request.", "File a feature request"},
+		{"The export button crashes, file a bug.", "File a bug"},
+		{"What did we spend this month?", "Check usage and cost"},
+		{"Run the log analysis for yesterday.", "Start an installed workflow"},
+		{"Get me a second opinion on the plan for task 12.", "Ask why a task was done this way (for an independent judgement use judge_task instead)"},
+		{"What changed in the code of task 12?", "Read or review a task's code"},
+		{"Which standards apply to task 12?", "Look up the published standards"},
+		{"Publish what we decided about task 12.", "Publish a conclusion from a discussion"},
+		{"I lost the reply, did my proposal go through?", "Cancel or recover a proposal"},
+	} {
+		g, ok := byJob[tc.job]
+		if !ok {
+			t.Errorf("%q: no guide job %q", tc.request, tc.job)
+			continue
+		}
+		pos := -1
+		for _, tool := range g.Chain {
+			if !slices.Contains(g.Needs, tool) {
+				t.Errorf("%q: chain tool %s is not in the section's needs", tc.request, tool)
+			}
+			at := strings.Index(g.Body, tool)
+			if at < 0 || at < pos {
+				t.Errorf("%q: the steps must name %s after the earlier tools of the chain", tc.request, tool)
+			}
+			pos = at
+		}
+		line := "- " + g.Job + ": " + strings.Join(g.Chain, ", then ")
+		grant := append([]string{guideTool}, g.Needs...)
+		ins, err := composeInstructions(guidanceFiles, grant, nil)
+		if err != nil || !strings.Contains(ins, line) {
+			t.Errorf("%q: instructions lack %q: %v", tc.request, line, err)
+		}
+		for _, drop := range g.Needs {
+			short := slices.DeleteFunc(slices.Clone(grant), func(n string) bool { return n == drop })
+			ins, err := composeInstructions(guidanceFiles, short, nil)
+			if err != nil || strings.Contains(ins, line) {
+				t.Errorf("%q: job offered without %s: %v", tc.request, drop, err)
+			}
+		}
+	}
+	// A connection with only the overview is not told it can file a bug.
+	ins, err := composeInstructions(guidanceFiles, []string{guideTool, "factory_overview"}, nil)
+	if err != nil || strings.Contains(ins, "File a bug") || !strings.Contains(ins, "See what is running or waiting for the owner: factory_overview") {
+		t.Fatalf("overview-only job map: %v\n%s", err, ins)
+	}
+}
+
+// The paid calls start without a yes and the agent is told to state the cost.
+func TestPaidCallsAreFlagged(t *testing.T) {
+	t.Parallel()
+	overview, _ := readOverview(guidanceFiles)
+	if !strings.Contains(overview, "paid") || !strings.Contains(overview, "costs money") {
+		t.Fatal("the instructions must warn about paid calls")
+	}
+	text, err := composeGuide(guidanceFiles, allToolNames(t), nil, "")
+	if err != nil || !strings.Contains(text, "## Paid calls") || !strings.Contains(text, "may cost money") {
+		t.Fatalf("the guide must flag paid calls: %v", err)
+	}
+	for _, tool := range []string{"ask_task_agent", "judge_task", "brainstorm_ask", "brainstorm_draft"} {
+		if !strings.Contains(text, tool) {
+			t.Errorf("%s missing from the full guide", tool)
+		}
+	}
+}
