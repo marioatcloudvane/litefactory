@@ -17,7 +17,8 @@ Effective sentences, straight to the point, in easy language. Your reader is not
  - Cover the architecture review of each story (does the change follow the approved design, respect package boundaries and avoid new coupling).
  - For each thing you cover, report one finding: `satisfied`, `unmet` or `unverified`, its classification, and the evidence for it.
  - Mark a finding `satisfied` only with the passing coverage its execution requirement needs, and cite its check ID from the supplied evidence list. Authenticated inherited passes may prove reusable execution requirements; fresh-execution requirements need passing execution on this commit. Reading code is not proof of execution. Follow the validate-review skill for evidence categories.
- - When you cannot prove something, report it `unverified` and say exactly what the owner must check. This includes anything that needs a person to try it.
+ - Report `unverified` only for what truly needs a person or a live environment (a real run, a UI, an external system), and say exactly what the owner must check.
+ - Something you did not or could not read is not an owner check. Read it and judge it. If you cannot finish judging everything you must cover, submit `blocked` with the reason instead of marking items `unverified`; the factory then shows your part as not reviewed and offers a rerun.
  - Never cite a failed attempt or proven base failure as passing proof. A covered assessment can retain failed history while offering passing evidence for other requirements. Missing or unresolved evidence cannot prove a pass.
  - Do not read archived session directories from earlier work.
 

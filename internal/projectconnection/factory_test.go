@@ -515,9 +515,93 @@ func TestHealthReportsMissingAndRefusedLabels(t *testing.T) {
 	if o.Status != "usable_for_checked_capabilities" || o.Reason != "read_access_verified" {
 		t.Fatalf("status changed: %+v", o)
 	}
-	for _, want := range []string{"missing labels", "Mode: Research", "litefactory repo labels setup 5", `label "Bug" cannot be used`} {
+	for _, want := range []string{"missing labels", "Mode: Research", "litefactory repo labels setup 5", `name the factory cannot read: "Bug"`} {
 		if !strings.Contains(o.Remedy, want) {
 			t.Fatalf("remedy lacks %q: %s", want, o.Remedy)
+		}
+	}
+}
+
+func TestHealthSavesBoundedGitHubLabelRemedy(t *testing.T) {
+	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "labels.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := db.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := db.UpsertRepo(t.Context(), store.Repo{Path: "/labels", Forge: "github", Owner: "owner", Name: "tickets"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var labelsFail atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user":
+			_, _ = w.Write([]byte(`{"id":7,"login":"worker"}`))
+		case "/repos/owner/tickets":
+			_, _ = w.Write([]byte(`{"id":91,"full_name":"owner/tickets","has_issues":true}`))
+		case "/repos/owner/tickets/issues":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/owner/tickets/labels":
+			if labelsFail.Load() {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`[{"name":"mode: research"},{"name":"mode: plan"},{"name":"mode: implement"},{"name":"mode: validate"},{"name":"mode: spike"}]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	v := version(server.URL, 0)
+	v.RepoID = repo.ID
+	v.Provenance = "explicit"
+	v, err = db.SetConnection(t.Context(), v, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runners := []string{"claude", "codex", "gemini", "aider", "cursor", "opencode", "copilot"}
+	factory := projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 7, LabelAgents: runners, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "tok", true }}})
+	setup := projectconnection.LabelSetupCommand(repo.ID)
+
+	labelsFail.Store(true)
+	failed, err := factory.CheckAndSave(t.Context(), db, v)
+	if err != nil {
+		t.Fatalf("label read failure not saved: %v (remedy %d bytes: %s)", err, len(failed.Remedy), failed.Remedy)
+	}
+	if len(failed.Remedy) > 512 || !strings.Contains(failed.Remedy, "Labels could not be read.") {
+		t.Fatalf("read failure remedy: %q", failed.Remedy)
+	}
+
+	labelsFail.Store(false)
+	for range 2 {
+		o, err := factory.CheckAndSave(t.Context(), db, v)
+		if err != nil {
+			t.Fatalf("many warnings not saved: %v (remedy %d bytes: %s)", err, len(o.Remedy), o.Remedy)
+		}
+		if o.Status != "usable_for_checked_capabilities" {
+			t.Fatalf("status changed: %+v", o)
+		}
+		if len(o.Remedy) > 512 {
+			t.Fatalf("remedy is %d bytes", len(o.Remedy))
+		}
+		stored, err := db.GetConnectionObservation(t.Context(), v.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.Remedy != o.Remedy || stored.Status != o.Status {
+			t.Fatalf("stored %+v, checked %+v", stored, o)
+		}
+		for _, want := range []string{"missing labels", "name the factory cannot read", setup} {
+			if !strings.Contains(stored.Remedy, want) {
+				t.Fatalf("stored remedy lacks %q: %s", want, stored.Remedy)
+			}
 		}
 	}
 }
