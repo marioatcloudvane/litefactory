@@ -336,9 +336,7 @@ func validateClaude(c *Claude) []error {
 			c.TimeoutSeconds, MinClaudeTimeoutSeconds, MaxClaudeTimeoutSeconds))
 	}
 	errs = append(errs, validateAutoCompact(c)...)
-	errs = append(errs, validateTools("claude.tools", c.Tools)...)
-	errs = append(errs, validateAllowedTools("claude.allowed_tools", c.AllowedTools)...)
-	errs = append(errs, validateToolCeiling(c)...)
+	errs = append(errs, validateNoForbiddenFlag(c)...)
 	return errs
 }
 
@@ -429,18 +427,13 @@ func (c *Config) normalize() {
 		c.Agents.Claude.Binary = strings.TrimSpace(c.Agents.Claude.Binary)
 		c.Agents.Claude.SettingsPath = strings.TrimSpace(c.Agents.Claude.SettingsPath)
 		c.Agents.Claude.ModelTier = Tier(strings.TrimSpace(string(c.Agents.Claude.ModelTier)))
-		trimAll(c.Agents.Claude.Tools)
-		trimAll(c.Agents.Claude.AllowedTools)
-		trimAll(c.Agents.Claude.ToolCeiling)
 	}
-	for _, profile := range c.ToolProfiles.Permissions {
-		if profile.Claude != nil {
-			trimAll(profile.Claude.Tools)
-			trimAll(profile.Claude.AllowedTools)
-		}
+	for name, profile := range c.ToolProfiles.Permissions {
+		profile.Sandbox = strings.TrimSpace(profile.Sandbox)
 		if profile.Codex != nil {
 			profile.Codex.Sandbox = strings.TrimSpace(profile.Codex.Sandbox)
 		}
+		c.ToolProfiles.Permissions[name] = profile
 	}
 	// A ModelByTier inner map is copied by the outer range, but its value
 	// header still points at the same backing map, so trimming in place
@@ -453,11 +446,5 @@ func (c *Config) normalize() {
 	if c.Agents.Codex != nil {
 		c.Agents.Codex.Binary = strings.TrimSpace(c.Agents.Codex.Binary)
 		c.Agents.Codex.ModelTier = Tier(strings.TrimSpace(string(c.Agents.Codex.ModelTier)))
-	}
-}
-
-func trimAll(values []string) {
-	for i, v := range values {
-		values[i] = strings.TrimSpace(v)
 	}
 }

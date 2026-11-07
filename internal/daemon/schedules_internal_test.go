@@ -534,7 +534,7 @@ func TestLinearDoctorRefusalRetainsIdentityAndRecovers(t *testing.T) {
 			linearWorkflowCheck(t, err)
 			f.d.defaultAgent = agent.Kind(store.AgentClaude)
 			f.d.classifiers = map[agent.Kind]agent.Classifier{f.d.defaultAgent: explicitWorkflowClassifier{t}}
-			f.d.toolProfiles = config.DefaultToolProfiles().Permissions
+			f.d.toolProfiles = config.DefaultToolProfiles()
 			calls := 0
 			f.d.turn = scheduledExecutor(func(_ context.Context, req turn.Request) (turn.Result, error) {
 				calls++

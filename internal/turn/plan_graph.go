@@ -81,8 +81,10 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if err != nil {
 		return result, true, err
 	}
-	if route == "legacy" {
-		return result, false, nil
+	if route != "graph" {
+		// The file-handoff Plan route is retired; every Plan returns through
+		// the graph and the MCP result service (#377).
+		return result, true, fmt.Errorf("plan route %q is retired; only graph Plan runs", route)
 	}
 	if out, retired, retireErr := retireFinishedPlanLaunch(ctx, o, req, result); retired || retireErr != nil {
 		return out, true, retireErr

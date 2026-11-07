@@ -73,17 +73,9 @@ type Request struct {
 
 	// Delivery is required for supported graph invocations. Separate advisory
 	// operations may omit it; project instructions never replace graph delivery.
-	Delivery *Delivery
-	// PlanProposalPath is trusted transient transport, delivered only through the prompt.
-	PlanProposalPath   string
-	PlanOutcomePath    string
-	PlanGeneration     int
-	PlanRunID          int64
-	PlanAttempt        string
-	PlanContextPath    string
-	PlanWorkingContext string
-	MayAsk             bool
-	PreviousMayAsk     bool
+	Delivery       *Delivery
+	MayAsk         bool
+	PreviousMayAsk bool
 
 	// Ref identifies the task. It fixes the run log path and names the task
 	// on every log line the run emits.

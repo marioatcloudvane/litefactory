@@ -429,10 +429,9 @@ func TestCommitExcludesFactoryTransport(t *testing.T) {
 			if tc.ignore {
 				repo.WriteFile(filepath.Join(rel, ".gitignore"), "/.litefactory-story-events/\n")
 			}
-			const proposal = ".litefactory-plan-proposal.json"
 			const events = ".litefactory-story-events"
 			const event = events + "/0002/verified.json"
-			transport := map[string]string{proposal: "{\"version\":1}\n"}
+			transport := map[string]string{}
 			if tc.empty {
 				if err := os.MkdirAll(filepath.Join(dir, events), 0o700); err != nil {
 					t.Fatal(err)
@@ -460,7 +459,7 @@ func TestCommitExcludesFactoryTransport(t *testing.T) {
 						t.Fatalf("transport %q was not staged: %v", path, staged)
 					}
 				}
-				repo.GitIn(dir, "reset", "--quiet", "HEAD", "--", proposal, events)
+				repo.GitIn(dir, "reset", "--quiet", "HEAD", "--", events)
 				if got := repo.GitIn(dir, "diff", "--cached", "--name-only"); got != "ordinary.txt" {
 					t.Fatalf("staged after reset = %q, want ordinary.txt", got)
 				}
@@ -492,10 +491,10 @@ func TestCommitExcludesFactoryTransport(t *testing.T) {
 					t.Errorf("committed ordinary file = %q", got)
 				}
 			}
-			if got := repo.GitIn(dir, "ls-tree", "-r", "--name-only", "HEAD", "--", proposal, events); got != "" {
+			if got := repo.GitIn(dir, "ls-tree", "-r", "--name-only", "HEAD", "--", events); got != "" {
 				t.Errorf("committed transport: %s", got)
 			}
-			if got := repo.GitIn(dir, "ls-files", "--", proposal, events); got != "" {
+			if got := repo.GitIn(dir, "ls-files", "--", events); got != "" {
 				t.Errorf("transport remains in index: %s", got)
 			}
 			for path, want := range transport {

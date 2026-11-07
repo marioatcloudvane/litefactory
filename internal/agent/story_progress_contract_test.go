@@ -136,7 +136,7 @@ func TestStoryEventNonVerificationHasExplicitReason(t *testing.T) {
 
 func TestStoryEvidenceRejectsUnsafePaths(t *testing.T) {
 	t.Parallel()
-	for _, path := range []string{"", "../escape", "/absolute", "a/../escape", "a\\b", ".git/config", "nested/.git/config", agent.StoryEventsDirectory + "/1.json", ".litefactory-plan-proposal.json", "a\nb"} {
+	for _, path := range []string{"", "../escape", "/absolute", "a/../escape", "a\\b", ".git/config", "nested/.git/config", agent.StoryEventsDirectory + "/1.json", "a\nb"} {
 		t.Run(path, func(t *testing.T) {
 			e := verifiedContractEvent()
 			e.Evidence.Files[0].Path = path

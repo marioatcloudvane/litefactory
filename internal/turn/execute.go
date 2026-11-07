@@ -399,24 +399,13 @@ type Request struct {
 	// that spawns a run; a reply-only command is the caller's to handle.
 	Command Command
 
-	// Tools and AllowedTools are the tool surface the resolved mode profile
-	// grants this turn, and ToolProfile is its canonical mode-profile name.
+	// Tools is the Claude tool surface of this turn (config.AgentTools for a
+	// mode run), ToolProfile its canonical mode-profile name and CodexSandbox
+	// the sandbox the mode selected. Despite its name CodexSandbox applies to
+	// every agent: for Claude, read-only puts Bash in the OS sandbox.
+	// AllowedTools is retired; the runner allows the whole surface.
 	//
-	// Every string here is operator-authored configuration. Nothing that
-	// originated on the forge travels in these fields. The
-	// caller has already copied them out of the configuration it holds for the
-	// life of the process, because [preparation.request] is mutated in place on
-	// the cold-rerun path.
-	//
-	// The harness checks Tools against its own ceiling before it starts anything
-	// (AC-2.6). A list it refuses should be unreachable — config validation
-	// proved every profile fits under the ceiling at boot — but if it happens it
-	// is reported as a *run* failure and not returned as an error: by then the
-	// worktree and the runs row exist, and an error return would leave the
-	// comment unconsumed for a next tick that would build the same worktree and
-	// be refused in exactly the same way, for ever. It ends up as
-	// "claude did not start: …" on the runs row, a failure comment on the issue,
-	// and a consumed comment (AC-2.7).
+	// Nothing that originated on the forge travels in these fields.
 	Tools        []string
 	AllowedTools []string
 	ToolProfile  string
@@ -772,10 +761,6 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		}
 		if errors.Is(err, store.ErrPlanNotReady) {
 			return readinessRefused(ctx, opts, result)
-		}
-		var contextRefusal *planContextRefusal
-		if errors.As(err, &contextRefusal) {
-			return prelaunchRefused(ctx, opts, result, contextRefusal.reason())
 		}
 		// Any failure after allocation is retryable preparation. Do not turn
 		// infrastructure failure into a report that acknowledges the source.

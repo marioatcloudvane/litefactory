@@ -7,7 +7,7 @@ description: Research mode for changing how agents behave — roles, skills, pro
 **Signals:** "the agent should", "the report is too long", "it keeps asking", "role", "skill", "prompt", "graph"; the fix is guidance an agent reads, not product code.
 
 **Gather first:**
-- The role and skill files the affected agent actually receives, and how they reach it (graph node, skill binding, stack profile).
+- The role and skill files the affected agent actually receives, and how they reach it (graph node, skill binding, stack profile). Read them under `teams/source/` in the repository; `$LF_HOME/teams` is not readable.
 - Real transcripts, comments or briefs that show the current behaviour — the best evidence there is.
 - Earlier issues and PRs that tuned the same guidance, and what they learned.
 

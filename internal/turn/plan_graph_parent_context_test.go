@@ -94,7 +94,7 @@ func parentPointerLines(prompt string) []string {
 }
 
 // requireParentPointer checks that prompt names the parent directory once, in
-// one line that names the brief and the technical findings.
+// one line that names the brief.
 func requireParentPointer(t *testing.T, prompt, parentDir string) {
 	t.Helper()
 	lines := parentPointerLines(prompt)
@@ -103,8 +103,7 @@ func requireParentPointer(t *testing.T, prompt, parentDir string) {
 	}
 	for _, want := range []string{
 		parentPointerPrefix + parentDir + ".",
-		naming.ResearchTechnicalName + " there holds the Research findings",
-		naming.ResearchBriefName + " there holds the Research decisions and assumptions",
+		naming.ResearchBriefName + " there holds the Research ledger",
 	} {
 		if strings.Count(lines[0], want) != 1 {
 			t.Fatalf("the parent pointer does not name %q once:\n%s", want, lines[0])

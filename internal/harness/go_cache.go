@@ -1,39 +1,8 @@
 package harness
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 )
-
-// prepareMainCacheSettings preserves the operator's sandbox policy and adds only
-// the selected compiler-cache data directory to its existing write grants.
-func (r *Runner) prepareMainCacheSettings(worktree, logPath string) (string, error) {
-	if err := r.goBuildCaches.Revalidate(worktree); err != nil {
-		return "", err
-	}
-	// #nosec G304 -- validated operator-owned settings path.
-	raw, err := os.ReadFile(r.settingsPath)
-	if err != nil {
-		return "", fmt.Errorf("read claude cache settings: %w", err)
-	}
-	document := map[string]any{}
-	if err := json.Unmarshal(raw, &document); err != nil {
-		return "", err
-	}
-	if err := addCacheWriteGrant(document, r.goBuildCaches.Main); err != nil {
-		return "", err
-	}
-	encoded, err := json.Marshal(document)
-	if err != nil {
-		return "", err
-	}
-	path := logPath + ".settings.json"
-	if err := writeFileAtomic(path, encoded, settingsFileMode); err != nil {
-		return "", err
-	}
-	return path, nil
-}
 
 func addCacheWriteGrant(document map[string]any, cache string) error {
 	sandbox, err := settingsObject(document, "sandbox")

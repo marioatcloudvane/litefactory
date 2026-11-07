@@ -54,7 +54,7 @@
         },
         {
           "path": "bug/skills/dotnet-web-engineering/workflow.md",
-          "sha256": "3570f6889fa298b390e9292e6762c81520b9105f13e9145163f3951e4553632b"
+          "sha256": "1e8b08c4fde02c830344a3c1b2aa462a9f3b04793a2563084f14d52e15c66483"
         },
         {
           "path": "implement/implement.dot",
@@ -70,7 +70,7 @@
         },
         {
           "path": "implement/skills/dotnet-web-engineering/workflow.md",
-          "sha256": "3570f6889fa298b390e9292e6762c81520b9105f13e9145163f3951e4553632b"
+          "sha256": "1e8b08c4fde02c830344a3c1b2aa462a9f3b04793a2563084f14d52e15c66483"
         },
         {
           "path": "implement/skills/implement-result/SKILL.md",
@@ -186,15 +186,15 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "b787ac6c55dfb898f94ab8c7d4b444a7f84df3bed69d653e9a5d909ed0d51317"
+          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
-          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+          "sha256": "b80da2121bca66787c75cf366199f392d259f84690d2c78b8978c89a790b7bed"
         },
         {
           "path": "research/skills/brainstorm/SKILL.md",
-          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
+          "sha256": "bba28d4fb8f39a5b4e17f193c04d934573192d2bb9db440012dbebc3275723d4"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -202,19 +202,19 @@
         },
         {
           "path": "research/skills/research-evidence/evidence.md",
-          "sha256": "6a60ccc8c1dbdf69ee1988c5e850e383d4070637301fd8084449b8e05c57780f"
+          "sha256": "4f6ac1333c55496381acf37f4bbd9148ee0e6ae7ed0c2672993ca9a641a01cf9"
         },
         {
           "path": "research/skills/research-evidence/node-result.md",
-          "sha256": "e7481b2b4bec4b79b514713414d4f60e00bf1719008acd691f6fbf4336949903"
+          "sha256": "61aa2804f2ba6d9a8d748c8a721dd68d3ac7ffdaa29759b3ddd03deaf1025db8"
         },
         {
           "path": "research/skills/research-mode-agent-guidance/SKILL.md",
-          "sha256": "3b959b50e81a14fa73f6f42135707adc8197cc8b9345586eb50a1fdbee164379"
+          "sha256": "73031c21581c66627e26b473f82eefe0f94ad298462ad44d70e81b1c2b3e7f2b"
         },
         {
           "path": "research/skills/research-mode-bug/SKILL.md",
-          "sha256": "c6e3c14ee327e6de127786d420a11d22f0f40b7fc824d8b19461e96547c1966f"
+          "sha256": "428fbdd4950859a37d22a99d911b366eac744e046f595c37f4fec8209140994f"
         },
         {
           "path": "research/skills/research-mode-change/SKILL.md",
@@ -226,11 +226,11 @@
         },
         {
           "path": "research/skills/research-mode-integration/SKILL.md",
-          "sha256": "888937f84123224ea11cddb6ec73b38dc1a9618dcb75edf085cfe831c2c77dee"
+          "sha256": "2ec538e88515281b24fb7fba61330028636b43fcd4a6cccab3b7308e5a7dc3cc"
         },
         {
           "path": "research/skills/research-mode-operations/SKILL.md",
-          "sha256": "bbe08223e5cbffba068dca19ec3166b28a57c7ca9737e13a8f971a5efe13f323"
+          "sha256": "07cc25ad79d2e667581b9428ca00026a9c9fc94251fd2c2986e1bd12baf843e9"
         },
         {
           "path": "research/skills/research-mode-refactor/SKILL.md",
@@ -266,7 +266,7 @@
         },
         {
           "path": "validate/skills/dotnet-web-engineering/workflow.md",
-          "sha256": "3570f6889fa298b390e9292e6762c81520b9105f13e9145163f3951e4553632b"
+          "sha256": "1e8b08c4fde02c830344a3c1b2aa462a9f3b04793a2563084f14d52e15c66483"
         },
         {
           "path": "validate/skills/validate-repair-report/SKILL.md",
@@ -317,7 +317,7 @@
           "sha256": "5828a2bf4bdecd52e9a5fe1bc0ff329f83dcf61d8a3772c6247aa1cb407d6bfd"
         }
       ],
-      "checksum": "d3b9c5e017c58197f5a2a9e845858182b11013fe19a793821847b72d5823ec83"
+      "checksum": "3a8fc957fb55c3e1ab68f3f40e083523bee641bf3c934925d2570ee8c151b8ee"
     },
     {
       "name": "Go development",
@@ -491,15 +491,15 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "b787ac6c55dfb898f94ab8c7d4b444a7f84df3bed69d653e9a5d909ed0d51317"
+          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
-          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+          "sha256": "b80da2121bca66787c75cf366199f392d259f84690d2c78b8978c89a790b7bed"
         },
         {
           "path": "research/skills/brainstorm/SKILL.md",
-          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
+          "sha256": "bba28d4fb8f39a5b4e17f193c04d934573192d2bb9db440012dbebc3275723d4"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -507,19 +507,19 @@
         },
         {
           "path": "research/skills/research-evidence/evidence.md",
-          "sha256": "6a60ccc8c1dbdf69ee1988c5e850e383d4070637301fd8084449b8e05c57780f"
+          "sha256": "4f6ac1333c55496381acf37f4bbd9148ee0e6ae7ed0c2672993ca9a641a01cf9"
         },
         {
           "path": "research/skills/research-evidence/node-result.md",
-          "sha256": "e7481b2b4bec4b79b514713414d4f60e00bf1719008acd691f6fbf4336949903"
+          "sha256": "61aa2804f2ba6d9a8d748c8a721dd68d3ac7ffdaa29759b3ddd03deaf1025db8"
         },
         {
           "path": "research/skills/research-mode-agent-guidance/SKILL.md",
-          "sha256": "3b959b50e81a14fa73f6f42135707adc8197cc8b9345586eb50a1fdbee164379"
+          "sha256": "73031c21581c66627e26b473f82eefe0f94ad298462ad44d70e81b1c2b3e7f2b"
         },
         {
           "path": "research/skills/research-mode-bug/SKILL.md",
-          "sha256": "c6e3c14ee327e6de127786d420a11d22f0f40b7fc824d8b19461e96547c1966f"
+          "sha256": "428fbdd4950859a37d22a99d911b366eac744e046f595c37f4fec8209140994f"
         },
         {
           "path": "research/skills/research-mode-change/SKILL.md",
@@ -531,11 +531,11 @@
         },
         {
           "path": "research/skills/research-mode-integration/SKILL.md",
-          "sha256": "888937f84123224ea11cddb6ec73b38dc1a9618dcb75edf085cfe831c2c77dee"
+          "sha256": "2ec538e88515281b24fb7fba61330028636b43fcd4a6cccab3b7308e5a7dc3cc"
         },
         {
           "path": "research/skills/research-mode-operations/SKILL.md",
-          "sha256": "bbe08223e5cbffba068dca19ec3166b28a57c7ca9737e13a8f971a5efe13f323"
+          "sha256": "07cc25ad79d2e667581b9428ca00026a9c9fc94251fd2c2986e1bd12baf843e9"
         },
         {
           "path": "research/skills/research-mode-refactor/SKILL.md",
@@ -622,7 +622,7 @@
           "sha256": "a525203470db494d92a342a0ea9ba77fc1a449bf62219be0bd3385cbca78f2f5"
         }
       ],
-      "checksum": "ca386c09a0e8e63dce36f1d1bb304f175c40f06bd954e2e98c93c074f8da64de"
+      "checksum": "d4db2a50bf868d1e29460e3954fda47a87cb0d38833f8ecfc266a78097956b50"
     },
     {
       "name": "Next.js web",
@@ -795,15 +795,15 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "b787ac6c55dfb898f94ab8c7d4b444a7f84df3bed69d653e9a5d909ed0d51317"
+          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
-          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+          "sha256": "b80da2121bca66787c75cf366199f392d259f84690d2c78b8978c89a790b7bed"
         },
         {
           "path": "research/skills/brainstorm/SKILL.md",
-          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
+          "sha256": "bba28d4fb8f39a5b4e17f193c04d934573192d2bb9db440012dbebc3275723d4"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -811,19 +811,19 @@
         },
         {
           "path": "research/skills/research-evidence/evidence.md",
-          "sha256": "6a60ccc8c1dbdf69ee1988c5e850e383d4070637301fd8084449b8e05c57780f"
+          "sha256": "4f6ac1333c55496381acf37f4bbd9148ee0e6ae7ed0c2672993ca9a641a01cf9"
         },
         {
           "path": "research/skills/research-evidence/node-result.md",
-          "sha256": "e7481b2b4bec4b79b514713414d4f60e00bf1719008acd691f6fbf4336949903"
+          "sha256": "61aa2804f2ba6d9a8d748c8a721dd68d3ac7ffdaa29759b3ddd03deaf1025db8"
         },
         {
           "path": "research/skills/research-mode-agent-guidance/SKILL.md",
-          "sha256": "3b959b50e81a14fa73f6f42135707adc8197cc8b9345586eb50a1fdbee164379"
+          "sha256": "73031c21581c66627e26b473f82eefe0f94ad298462ad44d70e81b1c2b3e7f2b"
         },
         {
           "path": "research/skills/research-mode-bug/SKILL.md",
-          "sha256": "c6e3c14ee327e6de127786d420a11d22f0f40b7fc824d8b19461e96547c1966f"
+          "sha256": "428fbdd4950859a37d22a99d911b366eac744e046f595c37f4fec8209140994f"
         },
         {
           "path": "research/skills/research-mode-change/SKILL.md",
@@ -835,11 +835,11 @@
         },
         {
           "path": "research/skills/research-mode-integration/SKILL.md",
-          "sha256": "888937f84123224ea11cddb6ec73b38dc1a9618dcb75edf085cfe831c2c77dee"
+          "sha256": "2ec538e88515281b24fb7fba61330028636b43fcd4a6cccab3b7308e5a7dc3cc"
         },
         {
           "path": "research/skills/research-mode-operations/SKILL.md",
-          "sha256": "bbe08223e5cbffba068dca19ec3166b28a57c7ca9737e13a8f971a5efe13f323"
+          "sha256": "07cc25ad79d2e667581b9428ca00026a9c9fc94251fd2c2986e1bd12baf843e9"
         },
         {
           "path": "research/skills/research-mode-refactor/SKILL.md",
@@ -922,7 +922,7 @@
           "sha256": "039ffe18686496f2ba04cefb9aadef2a68222e6949a6617c9fcf4856ab5a3f13"
         }
       ],
-      "checksum": "af90a7f32d3441344b98f8def7e533c17fcf3da2fa708eab652e281a692fbb5f"
+      "checksum": "63673755df07eed1dfdfc0da6962aa18272c7a20002003e7f777e6f0c914f13e"
     },
     {
       "name": "Python FastAPI with React",
@@ -1120,15 +1120,15 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "b787ac6c55dfb898f94ab8c7d4b444a7f84df3bed69d653e9a5d909ed0d51317"
+          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
-          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+          "sha256": "b80da2121bca66787c75cf366199f392d259f84690d2c78b8978c89a790b7bed"
         },
         {
           "path": "research/skills/brainstorm/SKILL.md",
-          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
+          "sha256": "bba28d4fb8f39a5b4e17f193c04d934573192d2bb9db440012dbebc3275723d4"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -1136,19 +1136,19 @@
         },
         {
           "path": "research/skills/research-evidence/evidence.md",
-          "sha256": "6a60ccc8c1dbdf69ee1988c5e850e383d4070637301fd8084449b8e05c57780f"
+          "sha256": "4f6ac1333c55496381acf37f4bbd9148ee0e6ae7ed0c2672993ca9a641a01cf9"
         },
         {
           "path": "research/skills/research-evidence/node-result.md",
-          "sha256": "e7481b2b4bec4b79b514713414d4f60e00bf1719008acd691f6fbf4336949903"
+          "sha256": "61aa2804f2ba6d9a8d748c8a721dd68d3ac7ffdaa29759b3ddd03deaf1025db8"
         },
         {
           "path": "research/skills/research-mode-agent-guidance/SKILL.md",
-          "sha256": "3b959b50e81a14fa73f6f42135707adc8197cc8b9345586eb50a1fdbee164379"
+          "sha256": "73031c21581c66627e26b473f82eefe0f94ad298462ad44d70e81b1c2b3e7f2b"
         },
         {
           "path": "research/skills/research-mode-bug/SKILL.md",
-          "sha256": "c6e3c14ee327e6de127786d420a11d22f0f40b7fc824d8b19461e96547c1966f"
+          "sha256": "428fbdd4950859a37d22a99d911b366eac744e046f595c37f4fec8209140994f"
         },
         {
           "path": "research/skills/research-mode-change/SKILL.md",
@@ -1160,11 +1160,11 @@
         },
         {
           "path": "research/skills/research-mode-integration/SKILL.md",
-          "sha256": "888937f84123224ea11cddb6ec73b38dc1a9618dcb75edf085cfe831c2c77dee"
+          "sha256": "2ec538e88515281b24fb7fba61330028636b43fcd4a6cccab3b7308e5a7dc3cc"
         },
         {
           "path": "research/skills/research-mode-operations/SKILL.md",
-          "sha256": "bbe08223e5cbffba068dca19ec3166b28a57c7ca9737e13a8f971a5efe13f323"
+          "sha256": "07cc25ad79d2e667581b9428ca00026a9c9fc94251fd2c2986e1bd12baf843e9"
         },
         {
           "path": "research/skills/research-mode-refactor/SKILL.md",
@@ -1255,7 +1255,7 @@
           "sha256": "18222a23b5044102c6088d6e052181e415493817b5620e26556eb9a4f25de836"
         }
       ],
-      "checksum": "19b61546a8bec8f907591a1904d2131a2805d408a0966e69a4c85b97482ba78e"
+      "checksum": "0d243b8aedc05be6042fa14ef72bdb7a557f39ae109021ab8fe62e7b84b295e6"
     },
     {
       "name": "Swift iOS",
@@ -1306,7 +1306,7 @@
         },
         {
           "path": "bug/skills/swift-ios-boundaries/boundaries.md",
-          "sha256": "819a4132f274f85f924ec2aef06f6b75171f69662c41e124355cb88b27804156"
+          "sha256": "ab4af566b5bdc9cc756e374456a517259d0fb57a4bb9262dd31d9afe1de9dbfb"
         },
         {
           "path": "implement/implement.dot",
@@ -1326,7 +1326,7 @@
         },
         {
           "path": "implement/skills/swift-ios-boundaries/boundaries.md",
-          "sha256": "819a4132f274f85f924ec2aef06f6b75171f69662c41e124355cb88b27804156"
+          "sha256": "ab4af566b5bdc9cc756e374456a517259d0fb57a4bb9262dd31d9afe1de9dbfb"
         },
         {
           "path": "implement/story-worker.md",
@@ -1426,15 +1426,15 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "b787ac6c55dfb898f94ab8c7d4b444a7f84df3bed69d653e9a5d909ed0d51317"
+          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
-          "sha256": "70efcb3c56ad3289f301322406e4abb297641be01d3484e4c5bed5a4459ca63a"
+          "sha256": "b80da2121bca66787c75cf366199f392d259f84690d2c78b8978c89a790b7bed"
         },
         {
           "path": "research/skills/brainstorm/SKILL.md",
-          "sha256": "507a2f526d200ddc5b3149753ab8560688254f1be38f1985215060e464df5021"
+          "sha256": "bba28d4fb8f39a5b4e17f193c04d934573192d2bb9db440012dbebc3275723d4"
         },
         {
           "path": "research/skills/research-evidence/SKILL.md",
@@ -1442,19 +1442,19 @@
         },
         {
           "path": "research/skills/research-evidence/evidence.md",
-          "sha256": "6a60ccc8c1dbdf69ee1988c5e850e383d4070637301fd8084449b8e05c57780f"
+          "sha256": "4f6ac1333c55496381acf37f4bbd9148ee0e6ae7ed0c2672993ca9a641a01cf9"
         },
         {
           "path": "research/skills/research-evidence/node-result.md",
-          "sha256": "e7481b2b4bec4b79b514713414d4f60e00bf1719008acd691f6fbf4336949903"
+          "sha256": "61aa2804f2ba6d9a8d748c8a721dd68d3ac7ffdaa29759b3ddd03deaf1025db8"
         },
         {
           "path": "research/skills/research-mode-agent-guidance/SKILL.md",
-          "sha256": "3b959b50e81a14fa73f6f42135707adc8197cc8b9345586eb50a1fdbee164379"
+          "sha256": "73031c21581c66627e26b473f82eefe0f94ad298462ad44d70e81b1c2b3e7f2b"
         },
         {
           "path": "research/skills/research-mode-bug/SKILL.md",
-          "sha256": "c6e3c14ee327e6de127786d420a11d22f0f40b7fc824d8b19461e96547c1966f"
+          "sha256": "428fbdd4950859a37d22a99d911b366eac744e046f595c37f4fec8209140994f"
         },
         {
           "path": "research/skills/research-mode-change/SKILL.md",
@@ -1466,11 +1466,11 @@
         },
         {
           "path": "research/skills/research-mode-integration/SKILL.md",
-          "sha256": "888937f84123224ea11cddb6ec73b38dc1a9618dcb75edf085cfe831c2c77dee"
+          "sha256": "2ec538e88515281b24fb7fba61330028636b43fcd4a6cccab3b7308e5a7dc3cc"
         },
         {
           "path": "research/skills/research-mode-operations/SKILL.md",
-          "sha256": "bbe08223e5cbffba068dca19ec3166b28a57c7ca9737e13a8f971a5efe13f323"
+          "sha256": "07cc25ad79d2e667581b9428ca00026a9c9fc94251fd2c2986e1bd12baf843e9"
         },
         {
           "path": "research/skills/research-mode-refactor/SKILL.md",
@@ -1502,7 +1502,7 @@
         },
         {
           "path": "validate/skills/swift-ios-boundaries/boundaries.md",
-          "sha256": "819a4132f274f85f924ec2aef06f6b75171f69662c41e124355cb88b27804156"
+          "sha256": "ab4af566b5bdc9cc756e374456a517259d0fb57a4bb9262dd31d9afe1de9dbfb"
         },
         {
           "path": "validate/skills/validate-repair-report/SKILL.md",
@@ -1553,7 +1553,7 @@
           "sha256": "c9044bb2af5ec7e0ac7d6a1a5ed9b2747b2190f08b285817069c4d1182d3e414"
         }
       ],
-      "checksum": "7218265915ad3122de03ca77c1358f2ff30e3dbe22c9898fdb22c845d2471ea8"
+      "checksum": "eaea32ebb5a3b9e68eb5c5972e77e6eeb0cf9805943d9632f824467d9c96c6ef"
     }
   ]
 }

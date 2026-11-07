@@ -148,7 +148,7 @@ func TestClaudeVerifiedSelectionPreservesPermissions(t *testing.T) {
 		t.Fatalf("launch: %v %+v", err, result)
 	}
 	argv := f.dump(t, "argv.dump")
-	for _, want := range []string{"--setting-sources\n\n", "--agent\nlitefactory-workflow:research\n", "--permission-mode\n" + PermissionMode + "\n", "--tools\nRead,Edit\n", "--allowedTools\nRead,Edit(./**)\n", "--strict-mcp-config\n"} {
+	for _, want := range []string{"--setting-sources\n\n", "--agent\nlitefactory-workflow:research\n", "--permission-mode\n" + PermissionMode + "\n", "--tools\nRead,Edit\n", "--allowedTools\nRead,Edit\n", "--strict-mcp-config\n"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("missing permission or native selection %q: %s", want, argv)
 		}

@@ -140,7 +140,7 @@ func TestSyncBasePartialEffectsRecoverFromGit(t *testing.T) {
 func TestSyncBaseDefersIncomingReservedTransport(t *testing.T) {
 	g, wt, b := retainedSyncFixture(t)
 	before := g.remoteFeature()
-	g.advance(gittest.DefaultBranch, ".litefactory-plan-proposal.json", "incoming transport\n")
+	g.advance(gittest.DefaultBranch, ".litefactory-story-events/1/000001.json", "incoming transport\n")
 	res, out, err := executeRecoverySync(t, g, b)
 	if err != nil || res.Outcome != "conflict" || out.Result != "conflict" || len(out.Conflicts) != 0 || !strings.Contains(out.Reason, "reserved") {
 		t.Fatalf("%s %+v %v", res.Outcome, out, err)

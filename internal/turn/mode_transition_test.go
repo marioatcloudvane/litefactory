@@ -12,22 +12,18 @@ import (
 // Single-run admission chooses the effective mode; graph Research is exercised in its workflow fixtures. Verify that downstream execution uses
 // that immutable value even when the fetched issue still has another label.
 func TestAdmittedModeReachesPromptAndReportedRun(t *testing.T) {
-	for _, mode := range []agent.Mode{agent.ModePlan, agent.ModeImplement, agent.ModeValidate} {
+	for _, mode := range []agent.Mode{agent.ModeImplement, agent.ModeValidate} {
 		t.Run(string(mode), func(t *testing.T) {
 			var f *fixture
 			runner := recordingRunner(func(req harness.Request) (*harness.RunResult, error) { return succeeded(req, f.paths.Home()), nil })
 			f = newFixture(t, runner)
-			// This fixture verifies the retained single-run transport across modes.
-			if mode == agent.ModePlan {
-				admitLegacyPlanFixture(t, f)
-			}
 			req := f.request()
 			req.Mode = mode
 			req.Issue.Labels = []string{"Mode: Research"}
 			req.ToolProfile = string(mode)
-			profile := config.DefaultToolProfiles().Permissions[req.ToolProfile]
-			req.Tools = profile.Claude.Tools
-			req.AllowedTools = profile.Claude.AllowedTools
+			profile, _ := config.DefaultToolProfiles().Resolve(req.ToolProfile)
+			req.Tools = config.AgentTools()
+			req.CodexSandbox = profile.Sandbox
 			result := f.execute(req)
 			if !result.Succeeded() {
 				t.Fatalf("execution=%+v logs=%s", result, f.logs)

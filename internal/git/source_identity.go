@@ -175,7 +175,7 @@ func sourceExcluded(path string, exclusions []string) bool {
 	return false
 }
 func sourceTransport(path string) bool {
-	return path == ".litefactory-plan-proposal.json" || path == ".litefactory-plan-outcome.json" || path == ".litefactory-story-events" || strings.HasPrefix(path, ".litefactory-story-events/")
+	return path == ".litefactory-story-events" || strings.HasPrefix(path, ".litefactory-story-events/")
 }
 func observeSourceFile(root *os.Root, path string) (SourceEntry, int64, error) {
 	parts := strings.Split(path, "/")

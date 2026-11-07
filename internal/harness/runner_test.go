@@ -91,6 +91,11 @@ func newFixture(t *testing.T, script string, adjust ...func(*config.Claude)) *fi
 	if err := WriteSettings(claude.SettingsPath, f.home); err != nil {
 		t.Fatal(err)
 	}
+	// The fixture keeps a small, shell-free default surface so argv stays
+	// readable; production runners always start from config.AgentTools.
+	if len(claude.Tools) > 0 {
+		runner.tools = slices.Clone(claude.Tools)
+	}
 	f.runner = runner
 	return f
 }
@@ -303,7 +308,7 @@ func TestRunUsesTheVerifiedInvocation(t *testing.T) {
 		{"--tools", "Read,Edit"},
 		{"--settings", filepath.Join(f.home, "claude-settings.json")},
 		{"--permission-mode", PermissionMode},
-		{"--allowedTools", "Read,Edit(./**)"},
+		{"--allowedTools", "Read,Edit"},
 		{"--strict-mcp-config", ""},
 	} {
 		i := slices.Index(argv, pair[0])
@@ -944,7 +949,6 @@ func TestNewRejectsUnusableOptions(t *testing.T) {
 	}{
 		{"no logger", func(o *Options) { o.Logger = nil }},
 		{"relative home", func(o *Options) { o.Paths = config.NewPaths("relative") }},
-		{"no tool surface", func(o *Options) { o.Claude.Tools = nil }},
 		{"zero timeout", func(o *Options) { o.Claude.TimeoutSeconds = 0 }},
 		{"relative settings path", func(o *Options) { o.Claude.SettingsPath = "settings.json" }},
 	}
@@ -1290,7 +1294,7 @@ func TestRunWithNoProfileArgvIsByteIdentical(t *testing.T) {
 		"--permission-mode", PermissionMode,
 		"--model", config.DefaultClaudeModel,
 		"--autocompact", config.DefaultClaudeAutoCompact,
-		"--allowedTools", "Read,Edit(./**)",
+		"--allowedTools", "Read,Edit",
 		"--strict-mcp-config",
 	}
 	if !slices.Equal(got, want) {
@@ -1342,81 +1346,10 @@ func TestNewRejectsMissingStartupResolvedModel(t *testing.T) {
 	}
 }
 
-// TestRunUsesTheProfileSurfaceExclusively is AC-2.5's first half: a request
-// that carries a resolved profile's Tools and AllowedTools uses exactly those
-// two lists for --tools and --allowedTools — never the runner's own
-// configured surface, and never a union of the two. Granting nothing beyond
-// what the profile says is the whole point of a ceiling that bounds profiles
-// rather than merges into them.
-func TestRunUsesTheProfileSurfaceExclusively(t *testing.T) {
-	f := newFixture(t, successScript(t), func(c *config.Claude) {
-		c.ToolCeiling = []string{"Read", "Edit", "Bash"}
-	})
-
-	req := f.request()
-	req.Permissions = Permissions{
-		Profile: "research",
-		Payload: ToolSurface{Tools: []string{"Bash"}, AllowedTools: []string{"Bash(ls:*)"}},
-	}
-
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
-	defer cancel()
-	if _, err := f.runner.Run(ctx, req); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
-	i := slices.Index(argv, "--tools")
-	if i < 0 || argv[i+1] != "Bash" {
-		t.Errorf("--tools = %v, want exactly the profile's [Bash], not the runner's own configured surface", argv)
-	}
-	if slices.Contains(argv, "Read,Edit") {
-		t.Errorf("argv still carries the runner's configured --tools value: %q", argv)
-	}
-	j := slices.Index(argv, "--allowedTools")
-	if j < 0 || argv[j+1] != "Bash(ls:*)" {
-		t.Errorf("--allowedTools = %v, want exactly the profile's [Bash(ls:*)]", argv)
-	}
-}
-
-// TestRunOmitsAllowedToolsWhenTheProfileHasNone is AC-2.5's second half: a
-// profile with a granted --tools surface and no allowed_tools rules at all
-// must omit --allowedTools rather than fill it in from the runner's own
-// configured list — empty and absent are different flags to claude, and
-// --tools stays unconditional regardless.
-func TestRunOmitsAllowedToolsWhenTheProfileHasNone(t *testing.T) {
-	f := newFixture(t, successScript(t), func(c *config.Claude) {
-		c.ToolCeiling = []string{"Read", "Edit", "Bash"}
-	})
-
-	req := f.request()
-	req.Permissions = Permissions{
-		Profile: "research",
-		Payload: ToolSurface{Tools: []string{"Bash"}, AllowedTools: nil},
-	}
-
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
-	defer cancel()
-	if _, err := f.runner.Run(ctx, req); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
-	if i := slices.Index(argv, "--tools"); i < 0 || argv[i+1] != "Bash" {
-		t.Errorf("--tools = %v, want it present with value Bash", argv)
-	}
-	if slices.Contains(argv, "--allowedTools") {
-		t.Errorf("argv carries --allowedTools for a profile with no rules: %q", argv)
-	}
-}
-
-// TestRunRejectsAToolOutsideTheCeiling is AC-2.6: the ceiling is re-checked
-// here, at the moment argv is about to be built, independently of whatever
-// config validation proved about the operator's profile map at boot (D-2).
-func TestRunRejectsAToolOutsideTheCeiling(t *testing.T) {
-	f := newFixture(t, successScript(t), func(c *config.Claude) {
-		c.ToolCeiling = []string{"Read", "Edit"}
-	})
+// A request that carries its own tool list runs with exactly that list, as
+// --tools and as --allowedTools.
+func TestRunUsesTheRequestSurface(t *testing.T) {
+	f := newFixture(t, successScript(t))
 
 	req := f.request()
 	req.Permissions = Permissions{
@@ -1424,36 +1357,17 @@ func TestRunRejectsAToolOutsideTheCeiling(t *testing.T) {
 		Payload: ToolSurface{Tools: []string{"Read", "Bash"}},
 	}
 
-	_, err := f.runner.Run(t.Context(), req)
-	if err == nil {
-		t.Fatal("Run accepted a tool outside the configured ceiling")
-	}
-	if !errors.Is(err, ErrInvalidRequest) {
-		t.Fatalf("error %v does not unwrap to ErrInvalidRequest", err)
-	}
-	if !strings.Contains(err.Error(), "Bash") {
-		t.Errorf("error does not name the offending tool: %v", err)
-	}
-}
-
-// TestRunFallsBackToTheConfiguredCeilingWhenNoneWasResolved is the harness
-// half of the New doc comment: a config.Claude assembled by hand rather than
-// loaded through internal/config carries an empty ToolCeiling, and that must
-// bound every profiled request by claude.tools rather than accept anything —
-// an empty ceiling is not "no ceiling".
-func TestRunFallsBackToTheConfiguredCeilingWhenNoneWasResolved(t *testing.T) {
-	f := newFixture(t, successScript(t)) // ToolCeiling left unset by the fixture's baseline
-
-	req := f.request()
-	req.Permissions = Permissions{
-		Profile: "research",
-		// Outside claude.tools = [Read, Edit], and no ceiling was ever resolved.
-		Payload: ToolSurface{Tools: []string{"Bash"}},
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
+	defer cancel()
+	if _, err := f.runner.Run(ctx, req); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 
-	_, err := f.runner.Run(t.Context(), req)
-	if !errors.Is(err, ErrInvalidRequest) {
-		t.Fatalf("error = %v, want ErrInvalidRequest: an empty ceiling must fall back to claude.tools, not allow-all", err)
+	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
+	for _, flag := range []string{"--tools", "--allowedTools"} {
+		if i := slices.Index(argv, flag); i < 0 || argv[i+1] != "Read,Bash" {
+			t.Errorf("%s = %v, want exactly the request's Read,Bash", flag, argv)
+		}
 	}
 }
 
@@ -1484,54 +1398,42 @@ func logLineContaining(t *testing.T, logs, substr string) string {
 	return ""
 }
 
-// TestRunLogsAllowedToolsAndToolProfile is AC-4.5: the generic start line
-// carries allowed_tools and tool_profile alongside tools, and — the part that
-// actually matters — all three report the surface this run was invoked with,
-// never the runner's own configured default, once a profile has been
-// resolved for the request (runner.go:602-604).
-func TestRunLogsAllowedToolsAndToolProfile(t *testing.T) {
+// TestRunLogsToolsAndToolProfile is AC-4.5: the generic start line carries
+// tool_profile alongside tools, and both report the surface this run was
+// invoked with.
+func TestRunLogsToolsAndToolProfile(t *testing.T) {
 	tests := []struct {
-		name             string
-		reqTools         []string
-		reqAllowedTools  []string
-		reqToolProfile   string
-		wantTools        string
-		wantAllowedTools string
-		wantToolProfile  string
+		name            string
+		reqTools        []string
+		reqToolProfile  string
+		wantTools       string
+		wantToolProfile string
 	}{
 		{
-			name:             "profile resolved/reports the request's surface, not the runner's configured default",
-			reqTools:         []string{"Read", "Grep", "Bash"},
-			reqAllowedTools:  []string{"Bash(git:*)", "Grep(*)"},
-			reqToolProfile:   "research",
-			wantTools:        "tools=Read,Grep,Bash",
-			wantAllowedTools: "allowed_tools=Bash(git:*),Grep(*)",
-			wantToolProfile:  "tool_profile=research",
+			name:            "profile resolved/reports the request's surface",
+			reqTools:        []string{"Read", "Grep", "Bash"},
+			reqToolProfile:  "research",
+			wantTools:       "tools=Read,Grep,Bash",
+			wantToolProfile: "tool_profile=research",
 		},
 		{
-			name:             "no profile/reports the runner's own configured surface",
-			wantTools:        "tools=Read,Edit",
-			wantAllowedTools: "allowed_tools=Read,Edit(./**)",
-			wantToolProfile:  `tool_profile=""`,
+			name:            "no profile/reports the runner's own surface",
+			wantTools:       "tools=Read,Edit",
+			wantToolProfile: `tool_profile=""`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logs := &bytes.Buffer{}
-			f := newFixture(t, successScript(t), func(c *config.Claude) {
-				// Wide enough that a profile's tools sit inside the ceiling
-				// but still outside the runner's own configured default
-				// (Read, Edit), so the two surfaces are actually different.
-				c.ToolCeiling = []string{"Read", "Edit", "Grep", "Bash"}
-			})
+			f := newFixture(t, successScript(t))
 			f.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
 
 			req := f.request()
 			if len(tt.reqTools) > 0 || tt.reqToolProfile != "" {
 				req.Permissions = Permissions{
 					Profile: tt.reqToolProfile,
-					Payload: ToolSurface{Tools: tt.reqTools, AllowedTools: tt.reqAllowedTools},
+					Payload: ToolSurface{Tools: tt.reqTools},
 				}
 			}
 
@@ -1540,7 +1442,7 @@ func TestRunLogsAllowedToolsAndToolProfile(t *testing.T) {
 			}
 
 			line := logLineContaining(t, logs.String(), `msg="coding agent started"`)
-			for _, want := range []string{tt.wantTools, tt.wantAllowedTools, tt.wantToolProfile} {
+			for _, want := range []string{tt.wantTools, tt.wantToolProfile} {
 				if !strings.Contains(line, want) {
 					t.Errorf("coding agent start log line missing %q:\n%s", want, line)
 				}
@@ -1632,8 +1534,7 @@ func TestResumeUnusableRerunsColdOnlyWhenNothingHappened(t *testing.T) {
 func TestArgsAddSkillToolOnlyForDeliveredSkills(t *testing.T) {
 	t.Parallel()
 	tools := []string{"Read", "Glob", "Grep"}
-	allowed := []string{"Read"}
-	runner := &Runner{tools: tools, allowedTools: allowed}
+	runner := &Runner{tools: tools}
 	flag := func(args []string, name string) string {
 		for i, a := range args {
 			if a == name && i+1 < len(args) {
@@ -1654,11 +1555,11 @@ func TestArgsAddSkillToolOnlyForDeliveredSkills(t *testing.T) {
 	if got := flag(args, "--tools"); got != "Read,Glob,Grep,Skill" {
 		t.Fatalf("--tools with delivered skills = %q", got)
 	}
-	if got := flag(args, "--allowedTools"); got != "Read,Skill" {
+	if got := flag(args, "--allowedTools"); got != "Read,Glob,Grep,Skill" {
 		t.Fatalf("--allowedTools with delivered skills = %q", got)
 	}
-	if !slices.Equal(tools, []string{"Read", "Glob", "Grep"}) || !slices.Equal(allowed, []string{"Read"}) {
-		t.Fatalf("configured slices mutated: %v %v", tools, allowed)
+	if !slices.Equal(tools, []string{"Read", "Glob", "Grep"}) {
+		t.Fatalf("configured slice mutated: %v", tools)
 	}
 
 	noSkills := agent.Request{Delivery: &agent.Delivery{Root: t.TempDir(), Roles: []string{"reviewer"}}}
@@ -1671,9 +1572,9 @@ func TestArgsAddSkillToolOnlyForDeliveredSkills(t *testing.T) {
 	}
 }
 
-// A Validate reviewer's read-only shell runs in dontAsk, so anything outside
-// --allowedTools is refused; every other run keeps PermissionMode.
-func TestArgsReadOnlyShellUsesDontAsk(t *testing.T) {
+// Every run, read-only or not, runs in PermissionMode with its whole tool set
+// allowed; the read-only sandbox does not narrow the tools.
+func TestArgsReadOnlyRunKeepsTheFullSurface(t *testing.T) {
 	t.Parallel()
 	flag := func(args []string, name string) string {
 		for i, a := range args {
@@ -1683,52 +1584,21 @@ func TestArgsReadOnlyShellUsesDontAsk(t *testing.T) {
 		}
 		return ""
 	}
-	runner := &Runner{tools: []string{"Read"}, allowedTools: []string{"Read"}}
-	shell := config.ValidateReviewerShellRules()
-	surface := ToolSurface{Tools: []string{"Read", "Glob", "Grep", "Bash"}, AllowedTools: append([]string{"Read", "Glob", "Grep"}, shell...), ReadOnlyShell: true}
-	req := agent.Request{Mode: "validate", Permissions: agent.Permissions{Profile: "validate", Payload: surface},
-		Delivery: &agent.Delivery{Root: t.TempDir(), Roles: []string{"reviewer"}, Skills: []string{"validate-review"}}}
-	args := runner.args(req)
-	if got := flag(args, "--permission-mode"); got != "dontAsk" {
-		t.Fatalf("--permission-mode = %q, want dontAsk", got)
-	}
-	tools := strings.Split(flag(args, "--tools"), ",")
-	if !slices.Contains(tools, "Bash") || slices.Contains(tools, "Edit") || slices.Contains(tools, "Write") || slices.Contains(tools, "MultiEdit") {
-		t.Fatalf("--tools = %v", tools)
-	}
-	if want := strings.Join(append(append([]string{"Read", "Glob", "Grep"}, shell...), "Skill"), ","); flag(args, "--allowedTools") != want {
-		t.Fatalf("--allowedTools = %q, want %q", flag(args, "--allowedTools"), want)
-	}
-
-	normal := req
-	normal.Permissions.Payload = ToolSurface{Tools: []string{"Read", "Glob", "Grep"}, AllowedTools: []string{"Read", "Glob", "Grep"}}
-	if got := flag(runner.args(normal), "--permission-mode"); got != PermissionMode {
-		t.Fatalf("normal --permission-mode = %q, want %q", got, PermissionMode)
-	}
-}
-
-// The runner refuses a Validate shell that is not the read-only reviewer shell.
-func TestValidateRequestBoundsTheReviewerShell(t *testing.T) {
-	r := &Runner{}
-	shell := config.ValidateReviewerShellRules()
-	check := func(surface ToolSurface) error {
-		return r.validateRequest(agent.Request{Mode: "validate", Permissions: agent.Permissions{Profile: "validate", Payload: surface}})
-	}
-	ok := ToolSurface{Tools: []string{"Read", "Glob", "Grep", "Bash"}, AllowedTools: append([]string{"Read"}, shell...), ReadOnlyShell: true}
-	if err := check(ok); err != nil && strings.Contains(err.Error(), "Validate cannot grant") {
-		t.Fatalf("read-only reviewer shell refused: %v", err)
-	}
-	for name, surface := range map[string]ToolSurface{
-		"Bash without read-only shell": {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash(git diff:*)"}},
-		"rule outside the list":        {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash(go run:*)"}, ReadOnlyShell: true},
-		"bare Bash rule":               {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash"}, ReadOnlyShell: true},
-		"editing tool":                 {Tools: []string{"Read", "Bash", "Edit"}, AllowedTools: []string{"Read"}, ReadOnlyShell: true},
-	} {
-		if err := check(surface); err == nil || !strings.Contains(err.Error(), "Validate cannot grant") {
-			t.Errorf("%s: accepted: %v", name, err)
+	runner := &Runner{tools: config.AgentTools()}
+	for _, readOnly := range []bool{false, true} {
+		req := agent.Request{Mode: "validate", Permissions: agent.Permissions{Profile: "validate", Payload: ToolSurface{ReadOnly: readOnly}}}
+		args := runner.args(req)
+		if got := flag(args, "--permission-mode"); got != PermissionMode {
+			t.Fatalf("read-only=%t --permission-mode = %q", readOnly, got)
+		}
+		if got := flag(args, "--tools"); got != agentTools || flag(args, "--allowedTools") != agentTools {
+			t.Fatalf("read-only=%t surface = %q / %q", readOnly, got, flag(args, "--allowedTools"))
 		}
 	}
 }
+
+// agentTools is the comma-joined surface every unprofiled run gets.
+var agentTools = strings.Join(config.AgentTools(), ",")
 
 func TestProviderCapacityEvidence(t *testing.T) {
 	for _, tc := range []struct {

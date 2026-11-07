@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -208,16 +209,5 @@ func standaloneStackSetupAllowed(req Request) bool {
 	if req.mode() != string(agent.ModeImplement) || req.Workflow == agent.WorkflowBug {
 		return false
 	}
-	if req.Agent == agent.Kind(store.AgentCodex) {
-		return req.CodexSandbox == "workspace-write"
-	}
-	if req.ToolProfile != "implement" {
-		return false
-	}
-	for _, tool := range req.Tools {
-		if tool == "Bash" && len(req.AllowedTools) == 0 {
-			return true
-		}
-	}
-	return false
+	return req.CodexSandbox == config.SandboxWorkspaceWrite
 }
