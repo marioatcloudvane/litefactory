@@ -16,7 +16,7 @@ import (
 func researchTestRegistry(t *testing.T) graphexec.Registry {
 	t.Helper()
 	var r graphexec.Registry
-	for name, outcomes := range map[string][]string{"agent": {"success", "failed"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}, "ask": {"published"}, "research_brief": {"success", "failed"}} {
+	for name, outcomes := range map[string][]string{"agent": {"success", "failed", "ask", "done"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}, "ask": {"published"}} {
 		if err := r.Register(graphexec.ActionSpec{Name: "lf_" + name, Mode: "research", Outcomes: outcomes}); err != nil {
 			t.Fatal(err)
 		}

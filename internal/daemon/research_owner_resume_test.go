@@ -178,14 +178,14 @@ func TestRecoveredReportDeliveryResumesGraph(t *testing.T) {
 		}
 	}
 	instance, err := f.db.GetGraphInstance(t.Context(), p.instance.ID)
-	if err != nil || instance.Status != store.GraphRunning || instance.CurrentNode != "shapeloop" {
+	if err != nil || instance.Status != store.GraphRunning || instance.CurrentNode != "complete" {
 		t.Fatalf("graph did not resume at the published edge: %+v %v\n%s", instance, err, f.logs)
 	}
-	// The resume owes one dispatch at shapeloop, and the daemon carries it on
+	// The resume owes one dispatch at complete, and the daemon carries it on
 	// exactly once: the owner comment's own turn is not a second continuation.
 	dispatch, err := f.db.LatestGraphDispatch(t.Context(), p.instance.ID)
-	if err != nil || dispatch.Node != "shapeloop" || len(pendingDispatches(t, f.db, p.instance.ID)) > 1 {
-		t.Fatalf("no single shapeloop dispatch: %+v %v", dispatch, err)
+	if err != nil || dispatch.Node != "complete" || len(pendingDispatches(t, f.db, p.instance.ID)) > 1 {
+		t.Fatalf("no single complete dispatch: %+v %v", dispatch, err)
 	}
 	continuations := 0
 	for _, trigger := range f.turns.triggers() {

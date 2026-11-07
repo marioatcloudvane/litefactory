@@ -78,7 +78,7 @@ func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
 			var assets fs.FS
 			var policy graphexec.ControlPolicy
 			var check func(*graphexec.Profile) error
-			sourceNode := "investigate"
+			sourceNode, sourceEdge := "research", "done"
 			if mode == agent.ModeResearch {
 				assets = RetainedFiles(teamFiles(t, goTeam))
 				policy = graphexec.ResearchControlPolicy()
@@ -87,7 +87,7 @@ func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
 				assets = RetainedFiles(teamFiles(t, goTeam))
 				policy = graphexec.PlanControlPolicy()
 				check = graphexec.ValidatePlanControlGraph
-				sourceNode = "technical_agent"
+				sourceNode, sourceEdge = "technical_agent", "success"
 			}
 			raw, err := fs.ReadFile(assets, string(mode)+"/"+string(mode)+".dot")
 			if err != nil {
@@ -99,15 +99,13 @@ func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
 			}
 			registry := graphexec.Registry{Policy: check}
 			specs := []graphexec.ActionSpec{
-				{Name: "lf_agent", Mode: mode, Outcomes: []string{"success", "failed"}, Attributes: graphexec.AgentAttributes()},
+				{Name: "lf_agent", Mode: mode, Outcomes: []string{"success", "failed", "ask", "done"}, Attributes: graphexec.AgentAttributes()},
 				graphexec.ControlSpec("lf_loop", policy), graphexec.ControlSpec("lf_if", policy), graphexec.JudgeSpec(mode),
 				{Name: "lf_ask", Mode: mode, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}}},
 				{Name: "lf_comment", Mode: mode, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"final", "failure", "advisory"}}}},
 			}
 			if mode == agent.ModePlan {
 				specs = append(specs, graphexec.PlanStorySpec(), graphexec.PlanGateSpec(), graphexec.PlanApproveSpec(), graphexec.PlanParallelSpec())
-			} else {
-				specs = append(specs, graphexec.ActionSpec{Name: "lf_research_brief", Mode: mode, Outcomes: []string{"success", "failed"}})
 			}
 			for _, spec := range specs {
 				if err := registry.Register(spec); err != nil {
@@ -119,7 +117,7 @@ func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
 			}
 			original := ""
 			for i, e := range profile.Edges {
-				if e.From == sourceNode && e.On == "success" {
+				if e.From == sourceNode && e.On == sourceEdge {
 					original = e.To
 					profile.Edges[i].To = "challenge"
 				}
@@ -139,7 +137,7 @@ func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
 				if profile.Edges[i].From == "advice" {
 					profile.Edges[i].To = "promoted"
 					if mode == agent.ModeResearch {
-						profile.Edges[i].To = "end"
+						profile.Edges[i].To = "complete"
 					}
 				}
 			}

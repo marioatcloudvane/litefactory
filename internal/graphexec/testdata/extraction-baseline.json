@@ -20,9 +20,9 @@
     "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
   },
   "teams/dotnet-web/v1.0.0/research/research.dot": {
-    "Profile": "e7e30f6914e31a205a6af1b91c67e2d43d1797ba1f90dd82ba269e5241b34743",
-    "Semantic": "a17e0f0da473c8fcdd64bcd84e31098f7abaa744873356c920322edb485994ad",
-    "Navigation": "5ab12deaafdb6db714477d73005835a25bd1bdb8ac17e538ade4ba6446bbc231"
+    "Profile": "9ba16d8d8492967ffdb0c0056efc7768cfccc96a6e57d00f2f0175d2467ed4f5",
+    "Semantic": "85b9ef7be5494bb31f5dc9610b3310897533a62894c80c4c7590dd319b8a1da2",
+    "Navigation": "8f51329d2103476031e1036036a40444d41d6af7a7dc842b578c7879b66d89f2"
   },
   "teams/dotnet-web/v1.0.0/spike/spike.dot": {
     "Profile": "bf39f3be52a5ed158b3c79ff13facb37ce53052f7c2e7d905f0ef2442aa89491",
@@ -50,9 +50,9 @@
     "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
   },
   "teams/go-development/v1.0.0/research/research.dot": {
-    "Profile": "abcb8c06d7aba708664bd400dea77abe24b1c0d71a4d5cd10914b503553699eb",
-    "Semantic": "de1b343ad22f9e600f120925da80d726605f5e5b8502b89e07346844ebf0b431",
-    "Navigation": "5ab12deaafdb6db714477d73005835a25bd1bdb8ac17e538ade4ba6446bbc231"
+    "Profile": "135a0a5770b4e54fa99018b37a846cc5698daf79f99b9879fba69e0c304f2e85",
+    "Semantic": "4c5079b2d176939518be8021fb1256bce272102e3f17063317358625a56bf158",
+    "Navigation": "8f51329d2103476031e1036036a40444d41d6af7a7dc842b578c7879b66d89f2"
   },
   "teams/go-development/v1.0.0/spike/spike.dot": {
     "Profile": "b5890bc95fabc78fa6518d380d9ed5d6749015615082308863698b1073b32da6",
@@ -80,9 +80,9 @@
     "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
   },
   "teams/python-fastapi/v1.0.0/research/research.dot": {
-    "Profile": "c35a4b81cb23c7af0af109756178682cd444c0dea93e75557f2fd959db4177f7",
-    "Semantic": "29f1d87972a6f212ff10690b3a6fe25c4f9aa79221e2ff0952bc30d22ca39a58",
-    "Navigation": "5ab12deaafdb6db714477d73005835a25bd1bdb8ac17e538ade4ba6446bbc231"
+    "Profile": "2aced97fb70221709fc4a41aa127abd4747b91de0a9ee5d7162d7c9d9bbd88d1",
+    "Semantic": "dac993c1c49a139583fde059aa21c743ca08e74b780809695e7b5b3fd1461b24",
+    "Navigation": "8f51329d2103476031e1036036a40444d41d6af7a7dc842b578c7879b66d89f2"
   },
   "teams/python-fastapi/v1.0.0/spike/spike.dot": {
     "Profile": "b81f2e2345c5f776e9053582b346bd2cb0f731f7d0f0cc05d4fcca241866e956",
@@ -110,9 +110,9 @@
     "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
   },
   "teams/source/base-team/research/research.dot": {
-    "Profile": "d3c5e9dcb2e7645e986b3fad694c4e23193ea7732bc1274e0b7b9124b7854077",
-    "Semantic": "ca59444ae9eb2e0fbf5e13e5d27863022269a1cc6463a1f4914c66c1b4c4c2d8",
-    "Navigation": "5ab12deaafdb6db714477d73005835a25bd1bdb8ac17e538ade4ba6446bbc231"
+    "Profile": "f6944a0a25830ec916c3643b0b683e6790c02377a3648a1b493e3c971d356e8e",
+    "Semantic": "3e07d2279513e217b88c246318dc8639a0be375edfb5b61c32dedc9e8c617b7b",
+    "Navigation": "8f51329d2103476031e1036036a40444d41d6af7a7dc842b578c7879b66d89f2"
   },
   "teams/source/base-team/spike/spike.dot": {
     "Profile": "b49f03048f032d59d4a1b1552776689128d1c9d925dc5882d82a11eb55de7da4",
@@ -140,9 +140,9 @@
     "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
   },
   "teams/swift-ios/v1.0.0/research/research.dot": {
-    "Profile": "c3137bbe3a59b50c7aec2c4d032eadfc7e65a4ea5c951c389abab9e056cc4fd6",
-    "Semantic": "5b0982a4b390f46f90eaafaa9931391713fb34e093c84dc987c807b65e48f88b",
-    "Navigation": "5ab12deaafdb6db714477d73005835a25bd1bdb8ac17e538ade4ba6446bbc231"
+    "Profile": "ec85094672ddea61cf330e7a6cd08ae675b9825d521bac93258680c147bacdc6",
+    "Semantic": "81a067e6f66fdc19ce6a852896474ec228e270c1748d272ff37f0bba9c8af09c",
+    "Navigation": "8f51329d2103476031e1036036a40444d41d6af7a7dc842b578c7879b66d89f2"
   },
   "teams/swift-ios/v1.0.0/spike/spike.dot": {
     "Profile": "5bf63928d4f5e740f5997e688da373457abf0e10b316d0a5f6ae72dfb28f128e",

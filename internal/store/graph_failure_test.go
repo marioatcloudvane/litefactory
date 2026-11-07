@@ -11,7 +11,7 @@ import (
 func TestGraphFailureReportedRequiresACompletedDeliveryForTheRun(t *testing.T) {
 	db := newTestDB(t)
 	session := testSession(t, db, 380)
-	if _, err := db.AdmitResearchPath(t.Context(), session.ID, "graph"); err != nil {
+	if _, err := db.AdmitWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	run, other := testRun(t, db, session.ID, 10), testRun(t, db, session.ID, 11)

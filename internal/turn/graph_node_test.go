@@ -404,7 +404,7 @@ func TestResearchBudgetFailureBoundary(t *testing.T) {
 			t.Run(node.Name+"/"+variant, func(t *testing.T) {
 				ctx := t.Context()
 				f := newFixture(t, nil)
-				_, err := f.db.AdmitResearchPath(ctx, f.session.ID, "graph")
+				_, err := f.db.AdmitWorkflowPath(ctx, f.session.ID, "graph")
 				mustProgress(t, err)
 				pin, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research.dot", Digest: strings.Repeat("a", 64)})
 				mustProgress(t, err)
@@ -465,7 +465,7 @@ func TestResearchBudgetFailureBoundary(t *testing.T) {
 func TestResearchFailedRetryWaitsForPublicationDebt(t *testing.T) {
 	ctx := t.Context()
 	f := newFixture(t, nil)
-	_, err := f.db.AdmitResearchPath(ctx, f.session.ID, "graph")
+	_, err := f.db.AdmitWorkflowPath(ctx, f.session.ID, "graph")
 	mustProgress(t, err)
 	pin, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research.dot", Digest: strings.Repeat("a", 64)})
 	mustProgress(t, err)

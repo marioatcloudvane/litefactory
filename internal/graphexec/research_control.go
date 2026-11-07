@@ -16,7 +16,6 @@ const (
 
 // ControlPolicy is the admitted mode's closed response and owner-gate vocabulary.
 type ControlPolicy struct {
-	Generation          string
 	Mode                agent.Mode
 	Workflow            agent.Workflow
 	Responses, Defaults []string
@@ -41,9 +40,9 @@ type ControlPolicy struct {
 	FindingActions []string
 }
 
-// ResearchControlPolicy supplies Research response vocabulary and its document gate.
+// ResearchControlPolicy supplies Research's closed response vocabulary: ask or done.
 func ResearchControlPolicy() ControlPolicy {
-	return ControlPolicy{Generation: "lf_research_brief", Mode: agent.ModeResearch, Responses: ResearchResponses, Defaults: []string{"ask", "done"}, Ask: "ask", Approved: "approved"}
+	return ControlPolicy{Mode: agent.ModeResearch, Responses: ResearchResponses, Defaults: []string{"ask", "done"}, Ask: "ask"}
 }
 
 // ControlSpec declares the closed comparisons authorized by the admitted mode policy.
@@ -66,12 +65,9 @@ func ControlSpec(action string, policy ControlPolicy) ActionSpec {
 	return ActionSpec{Name: action, Mode: policy.Mode, Workflow: policy.Workflow, Outcomes: []string{"true", "false"}, Attributes: attrs}
 }
 
-// ResearchResponses are the three things a Research agent can say about its own
-// turn. "ask" and "done" are its own judgement. "approved" is not: it reports
-// that the owner said the work is good enough, so an agent may only return it
-// on a resumed pass that actually carries such a reply. That distinction is the
-// whole point — advancing a stage is the owner's decision, not the agent's.
-var ResearchResponses = []string{"ask", "done", "approved", "continue"}
+// ResearchResponses are the two things a Research agent can say about its own
+// turn: it asks the owner, or it is done.
+var ResearchResponses = []string{"ask", "done"}
 
 // ResearchResponse reports whether a value is one of the declared responses.
 func ResearchResponse(value string) bool { return slices.Contains(ResearchResponses, value) }
@@ -175,12 +171,6 @@ func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 				faults = append(faults, fmt.Errorf("review %q requires a shipping approval edge", node.Name))
 			}
 		}
-		if policy.Generation != "" && node.Action == policy.Generation {
-			source, ok := p.Node(node.Attrs["lf_source"])
-			if !ok || source.Action != "lf_agent" {
-				faults = append(faults, fmt.Errorf("generation %q requires named agent source", node.Name))
-			}
-		}
 		if slices.Contains(policy.MeasureActions, node.Action) {
 			if source, exists := p.Node(node.Attrs["lf_source"]); !exists || source.Action != "lf_agent" {
 				faults = append(faults, fmt.Errorf("measure step %q: lf_source %q does not name an agent node", node.Name, node.Attrs["lf_source"]))
@@ -232,17 +222,6 @@ func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 					continue
 				}
 				for _, response := range policy.Responses {
-					if response == "continue" {
-						declared := false
-						for _, control := range p.Nodes {
-							if control.Attrs["lf_condition"] == "continue" {
-								declared = true
-							}
-						}
-						if !declared {
-							continue
-						}
-					}
 					if routed {
 						// A result-routed agent's response is its outcome: each
 						// response starts at its own edge.
@@ -312,17 +291,6 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 	}
 	visiting[name] = true
 	defer delete(visiting, name)
-	if policy.Generation != "" && node.Action == policy.Generation {
-		if node.Attrs["lf_source"] != source {
-			return fmt.Errorf("generation %q source does not match %q", name, source)
-		}
-		next, ok := Decide(p, name, "success")
-		if !ok {
-			return fmt.Errorf("generation %q lacks success edge", name)
-		}
-		visiting["generated:"+source] = true
-		return validateResearchResponsePath(p, next, response, source, visiting, policy)
-	}
 	if node.Action == JudgeAction || (node.Action == "lf_comment" && node.Attrs["lf_kind"] == "advisory") {
 		outcomes := node.Outcomes
 		for _, outcome := range outcomes {
@@ -344,17 +312,8 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 	}
 	switch node.Action {
 	case "lf_agent":
-		if policy.Mode == agent.ModeResearch && response == "continue" && name == source && visiting["generated:"+source] {
-			return nil
-		}
 		return fmt.Errorf("response path invokes agent %q without owner authorization", name)
 	case "lf_comment", "lf_ask":
-		if response == "continue" && policy.Mode == agent.ModeResearch {
-			return errors.New("research continuation must return silently to its own stage")
-		}
-		if policy.Generation != "" && !visiting["generated:"+source] {
-			return fmt.Errorf("publication %q requires matching successful %s generation", name, policy.Generation)
-		}
 		if declared := node.Attrs["lf_source"]; declared != "" && declared != source {
 			return fmt.Errorf("publication %q source differs from current agent", name)
 		}
@@ -376,7 +335,7 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 			// agent needing an answer, a review is the agent showing finished
 			// work and waiting to be told it stands. Neither may run on
 			// unanswered, and an approved response has already been answered.
-			if response == policy.Approved {
+			if policy.Approved != "" && response == policy.Approved {
 				return fmt.Errorf("an approved response is settled and cannot end at the %s at %q", kind, name)
 			}
 			if (kind == "question") != (response == policy.Ask) {
@@ -477,7 +436,7 @@ func ResearchResponseReaches(p *Profile, name, response string) (string, error) 
 			return "", nil
 		}
 		switch node.Action {
-		case "lf_research_brief", JudgeAction:
+		case JudgeAction:
 			next, ok := Decide(p, name, "success")
 			if !ok {
 				return "", nil
@@ -491,9 +450,6 @@ func ResearchResponseReaches(p *Profile, name, response string) (string, error) 
 				}
 				name = next
 				continue
-			}
-			if response == "continue" {
-				return "", nil
 			}
 			return name, nil
 		case ResearchLoopAction, ResearchIfAction:

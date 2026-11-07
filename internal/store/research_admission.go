@@ -38,8 +38,6 @@ type WorkflowLaunch struct {
 	Provenance                           WorkflowProvenance
 	// Reply is authenticated owner input from turn admission, never node output.
 	Reply string
-	// ResearchCompatible retains the current node when its action/source still maps.
-	ResearchCompatible bool
 }
 
 // WorkflowAdmission identifies the pinned launch and any predecessor whose findings survive.
@@ -110,16 +108,19 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 		if mode != in.Mode {
 			return graphInvariant("workflow definition mode mismatch")
 		}
-		var path string
-		pathQuery := `SELECT path FROM research_execution_paths WHERE session_id=?`
-		if in.Mode == "plan" {
-			pathQuery = `SELECT path FROM plan_execution_paths WHERE session_id=?`
-		}
-		if e := tx.QueryRowContext(ctx, pathQuery, in.SessionID).Scan(&path); e != nil {
-			return e
-		}
-		if path != "graph" {
-			return graphInvariant("workflow launch requires admitted graph path")
+		// Research has only the graph path; other modes freeze theirs first.
+		if in.Mode != "research" || (in.Workflow != "" && in.Workflow != "research") {
+			var path string
+			pathQuery := `SELECT path FROM research_execution_paths WHERE session_id=?`
+			if in.Mode == "plan" {
+				pathQuery = `SELECT path FROM plan_execution_paths WHERE session_id=?`
+			}
+			if e := tx.QueryRowContext(ctx, pathQuery, in.SessionID).Scan(&path); e != nil {
+				return e
+			}
+			if path != "graph" {
+				return graphInvariant("workflow launch requires admitted graph path")
+			}
 		}
 		if dispatchID, ok := GraphTriggerDispatch(in.TriggerID); ok {
 			dispatch, e := scanGraphDispatch(tx.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE id=? AND session_id=?`, dispatchID, in.SessionID))
@@ -191,7 +192,7 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 				}
 			}
 		}
-		successor := prior.ID > 0 && ((topology != in.TopologyDigest && (in.Mode != "research" || !in.ResearchCompatible)) || prior.Status != GraphRunning)
+		successor := prior.ID > 0 && (topology != in.TopologyDigest || prior.Status != GraphRunning)
 		if successor {
 			var pending int
 			if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id LEFT JOIN report_deliveries d ON d.delivery_key=c.delivery_key WHERE i.session_id=? AND (d.delivery_key IS NULL OR d.completed=0 OR d.comment_id IS NULL)`, in.SessionID).Scan(&pending); e != nil {
@@ -255,11 +256,6 @@ type ResearchLaunch = WorkflowLaunch
 
 // ResearchAdmission is the Research adapter result of shared workflow admission.
 type ResearchAdmission = WorkflowAdmission
-
-// AdmitResearchPath freezes the selected Research execution path for a session.
-func (db *DB) AdmitResearchPath(ctx context.Context, sessionID int64, selected string) (string, error) {
-	return db.AdmitWorkflowPath(ctx, sessionID, selected)
-}
 
 // LatestResearchInstance returns the session's most recent Research graph instance.
 func (db *DB) LatestResearchInstance(ctx context.Context, sessionID int64) (GraphInstance, error) {

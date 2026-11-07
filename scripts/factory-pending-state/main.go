@@ -82,7 +82,7 @@ func create(ctx context.Context, db *store.DB) manifest {
 	must(err)
 	session, err := db.GetOrCreateSession(ctx, repo, 9516)
 	must(err)
-	_, err = db.AdmitResearchPath(ctx, session.ID, "graph")
+	_, err = db.AdmitWorkflowPath(ctx, session.ID, "graph")
 	must(err)
 	definition, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 2, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
 	must(err)
