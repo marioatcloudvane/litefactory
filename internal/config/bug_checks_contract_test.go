@@ -161,8 +161,14 @@ func TestBugRecipeContractRerun(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, err = config.ParseBugCheckRecipe(own)
-	if err != nil || r.Phases.Regression.Commands[1].Rerun == nil || r.Phases.Full.Commands[0].Rerun == nil || !slices.Contains(r.Phases.Full.Commands[0].Rerun.Argv, "-race") {
-		t.Fatalf("repository recipe lacks its test reruns: %+v %v", r, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeTest := slices.IndexFunc(r.Phases.Full.Commands, func(c config.BugCheckCommand) bool {
+		return slices.Equal(c.Argv, []string{"make", "test"})
+	})
+	if r.Phases.Regression.Commands[1].Rerun == nil || makeTest < 0 || r.Phases.Full.Commands[makeTest].Rerun == nil || !slices.Contains(r.Phases.Full.Commands[makeTest].Rerun.Argv, "-race") {
+		t.Fatalf("repository recipe lacks its test reruns: %+v", r)
 	}
 	if config.BugRecipeDigest([]byte(rerun("{failures: go-test, argv: [go, '{tests}', '{packages}']}"))) == config.BugRecipeDigest([]byte(bugRecipe("{argv: [go, test, ./...], timeout_seconds: 3600}"))) {
 		t.Fatal("rerun block did not change the recipe digest")
@@ -191,5 +197,52 @@ func TestBugRecipeContractRerun(t *testing.T) {
 				t.Fatal("invalid rerun accepted")
 			}
 		})
+	}
+}
+
+// TestRepositoryRecipeFullPhaseRunsMakeCheck keeps Validate's suite in step
+// with main's CI: every prerequisite of the Makefile's check target must run
+// as [make, <step>] in the repository recipe's full phase, in the same order.
+func TestRepositoryRecipeFullPhaseRunsMakeCheck(t *testing.T) {
+	t.Parallel()
+	makefile, err := os.ReadFile(filepath.Join("..", "..", "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var steps []string
+	for line := range strings.SplitSeq(string(makefile), "\n") {
+		if rest, ok := strings.CutPrefix(line, "check:"); ok {
+			steps = strings.Fields(rest)
+			break
+		}
+	}
+	if len(steps) == 0 {
+		t.Fatal("Makefile has no check target with prerequisites")
+	}
+	own, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(config.BugRecipePath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := config.ParseBugCheckRecipe(own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range r.Phases.Full.Commands {
+		if len(c.Argv) == 2 && c.Argv[0] == "make" {
+			got = append(got, c.Argv[1])
+		}
+	}
+	var missing []string
+	for _, step := range steps {
+		if !slices.Contains(got, step) {
+			missing = append(missing, step)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("full phase lacks make check steps %v (make check = %v, full phase runs make %v)", missing, steps, got)
+	}
+	if !slices.Equal(got, steps) {
+		t.Fatalf("full phase runs make %v, want make check's order %v", got, steps)
 	}
 }
