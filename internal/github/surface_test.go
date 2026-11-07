@@ -75,6 +75,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"UserByID",                 // GET  /user/{id}, immutable project approver verification and refresh
 		"AuthenticatedUser",        // GET  /user
 		"InspectRepository",        // GET destination identity and read-only access evidence
+		"CreateLabel",              // POST /repos/{o}/{r}/labels (no update or delete exists)
 		"CreateIssue",              // POST /repos/{o}/{r}/issues
 		"EditComment",              // PATCH /repos/{o}/{r}/issues/comments/{id}, body of a comment litefactory posted
 		// FetchAsset is not a gogithub.Client endpoint call at all — it is a
@@ -120,6 +121,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"CloseDeliveredParent",
 		"ListFollowupIssues", // GET /repos/{o}/{r}/issues?state=all for reconciliation
 		"ListIssues",         // GET  /repos/{o}/{r}/issues?since=&state=open
+		"ListLabelNames",     // GET every page of /repos/{o}/{r}/labels (read only)
 		"ListIssuesPage",     // GET one bounded /repos/{o}/{r}/issues page with explicit state
 		"ListSubIssues",      // GET  /repos/{o}/{r}/issues/{n}/sub_issues
 		"PostComment",        // POST /repos/{o}/{r}/issues/{n}/comments

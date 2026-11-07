@@ -11,9 +11,10 @@ import (
 )
 
 type connectionFlags struct {
-	provider, workspace, team, project, authKind, modeLabels, bugLabel, states string
-	revision                                                                   int64
-	origin, destination, credential, remoteID                                  string
+	provider, workspace, team, project, authKind, modeLabels, states string
+	revision                                                         int64
+	origin, destination, credential, remoteID                        string
+	codingAgentLabels, bugLabel                                      string
 }
 
 func newRepoConnectionCommand(action string) *Command {
@@ -33,6 +34,7 @@ func newRepoConnectionCommand(action string) *Command {
 		fs.StringVar(&f.project, "project", "", "verified Linear project ID")
 		fs.StringVar(&f.authKind, "auth-kind", "api_key", "Linear authentication kind: api_key or oauth")
 		fs.StringVar(&f.modeLabels, "mode-labels", "", "JSON mapping from canonical mode names to Linear label IDs")
+		fs.StringVar(&f.codingAgentLabels, "coding-agent-labels", "", "JSON mapping from coding agent names to Linear label IDs")
 		fs.StringVar(&f.bugLabel, "bug-label", "", "existing Linear label ID that means bug; empty means none")
 		fs.StringVar(&f.states, "states", "", "JSON mapping: completed, retired and open to Linear state IDs")
 		fs.Int64Var(&f.revision, "revision", -1, "expected current revision (0 creates a missing connection)")
@@ -64,7 +66,7 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		return err
 	}
 	defer func() { err = errors.Join(err, rt.close()) }()
-	service, err := localprojects.Open(ctx, rt.db, id, localprojects.Options{Logger: env.Logger, Keychain: env.Keychain})
+	service, err := localprojects.Open(ctx, rt.db, id, localprojects.Options{Logger: env.Logger, Keychain: env.Keychain, LabelAgents: configuredLabelAgents(rt.cfg)})
 	if err != nil {
 		return projectCommandError(cmd, err)
 	}
@@ -73,7 +75,10 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 	case "list":
 		err = service.ListConnections(ctx, role, present)
 	case "set":
-		err = service.SetConnection(ctx, contracts.SetProjectConnectionRequest{Role: role, Provider: f.provider, Workspace: f.workspace, Team: f.team, Project: f.project, AuthKind: f.authKind, ModeLabels: f.modeLabels, BugLabel: f.bugLabel, States: f.states, Revision: f.revision, Origin: f.origin, Destination: f.destination, Credential: f.credential, RemoteID: f.remoteID}, present)
+		err = service.SetConnection(ctx, contracts.SetProjectConnectionRequest{Role: role, Provider: f.provider, Workspace: f.workspace, Team: f.team, Project: f.project, AuthKind: f.authKind, ModeLabels: f.modeLabels, CodingAgentLabels: f.codingAgentLabels, BugLabel: f.bugLabel, States: f.states, Revision: f.revision, Origin: f.origin, Destination: f.destination, Credential: f.credential, RemoteID: f.remoteID}, present)
+		if err == nil {
+			writeLabelSetupHint(env, strconv.FormatInt(id, 10))
+		}
 	case "disable":
 		err = service.DisableConnection(ctx, role, f.revision, present)
 	case "check":

@@ -34,7 +34,10 @@ type Config struct {
 	ProjectID      string
 	AuthKind       string
 	ModeLabels     map[string]string
-	// BugLabelID is the optional existing Linear label that means bug.
+	// CodingAgentLabels is verified like mode labels; optional.
+	CodingAgentLabels map[string]string
+	// BugLabelID is the optional existing Linear label that means bug; it is
+	// verified like mode labels.
 	BugLabelID string
 	States     map[string]string
 }
@@ -63,6 +66,7 @@ func New(config Config, token secrets.Token, transport *http.Client) (*Client, e
 		return nil, failure("configure", ticket.Refused, "unsupported authentication kind")
 	}
 	config.ModeLabels = maps.Clone(config.ModeLabels)
+	config.CodingAgentLabels = maps.Clone(config.CodingAgentLabels)
 	config.States = maps.Clone(config.States)
 	if transport == nil {
 		transport = &http.Client{Timeout: 30 * time.Second}
@@ -192,7 +196,7 @@ func (c *Client) query(ctx context.Context, operation, query string, variables a
 		if string(value) == "null" {
 			return failure(operation, kind, "provider result missing")
 		}
-		if key == "issues" || key == "comments" || key == "webhooks" {
+		if key == "issues" || key == "comments" || key == "webhooks" || key == "issueLabels" {
 			var page struct {
 				Nodes    json.RawMessage
 				PageInfo *struct {

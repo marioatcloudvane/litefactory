@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -17,13 +18,58 @@ type LinearConfiguration struct {
 	AuthKind                       string
 	ModeLabelsJSON                 string
 	LifecycleStatesJSON            string
-	// BugLabelID is the optional existing Linear label ID that means bug.
+	// CodingAgentLabelsJSON maps agent names to label IDs; empty means not mapped.
+	// It is omitted when empty so unset configurations keep their stored bytes.
+	CodingAgentLabelsJSON string `json:",omitempty"`
+	// BugLabelID is the optional existing Linear label ID that means bug;
+	// empty means not mapped.
 	BugLabelID string `json:",omitempty"`
 }
 
-// ModeLabels returns the explicitly configured mode-to-label mapping.
+// ModeLabels returns the configured mode-to-label mapping; an absent map is
+// empty ("labels not set up").
 func (c LinearConfiguration) ModeLabels() (map[string]string, error) {
-	return linearMapping(c.ModeLabelsJSON)
+	return optionalLinearMapping(c.ModeLabelsJSON)
+}
+
+// CodingAgentLabels returns the configured agent-name-to-label mapping, empty when not mapped.
+func (c LinearConfiguration) CodingAgentLabels() (map[string]string, error) {
+	return optionalLinearMapping(c.CodingAgentLabelsJSON)
+}
+
+// BugLabel returns the configured bug label ID, empty when not mapped.
+func (c LinearConfiguration) BugLabel() (string, error) {
+	if c.BugLabelID != "" && !validLinearIdentity(c.BugLabelID) {
+		return "", errors.New("store: invalid Linear mapping identity")
+	}
+	return c.BugLabelID, nil
+}
+
+// NormalizeEmptyLinearMapping returns the canonical empty form ("") for an empty JSON object.
+func NormalizeEmptyLinearMapping(raw string) string {
+	if strings.TrimSpace(raw) == "{}" {
+		return ""
+	}
+	return raw
+}
+
+func optionalLinearMapping(raw string) (map[string]string, error) {
+	if raw == "" {
+		return map[string]string{}, nil
+	}
+	return linearMapping(raw)
+}
+
+func validLinearIdentity(v string) bool {
+	return strings.TrimSpace(v) == v && v != "" && !strings.ContainsAny(v, "\r\n\x00")
+}
+
+// agentLabelName is the name shape the daemon accepts after the Coding Agent
+// label prefix; it matches the daemon's agentKindName rule.
+var agentLabelName = regexp.MustCompile(`^[A-Z][A-Za-z0-9_-]{0,39}$`)
+
+func validAgentName(k string) bool {
+	return agentLabelName.MatchString(k)
 }
 
 // LifecycleStates returns the explicitly configured lifecycle-to-state mapping.
@@ -59,15 +105,37 @@ func validateLinearConnection(v ConnectionVersion) error {
 	if err != nil {
 		return err
 	}
-	if c.BugLabelID != "" {
-		if strings.TrimSpace(c.BugLabelID) != c.BugLabelID || strings.ContainsFunc(c.BugLabelID, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
-			return errors.New("store: Linear bug label ID must not contain whitespace or control characters")
+	agents, err := c.CodingAgentLabels()
+	if err != nil {
+		return err
+	}
+	for key := range agents {
+		if !validAgentName(key) {
+			return errors.New("store: invalid coding agent name")
 		}
-		for _, id := range modes {
-			if id == c.BugLabelID {
-				return errors.New("store: Linear bug label ID must differ from every mode label ID")
-			}
+	}
+	bug, err := c.BugLabel()
+	if err != nil {
+		return err
+	}
+	if bug != "" && strings.ContainsFunc(bug, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return errors.New("store: Linear bug label ID must not contain whitespace or control characters")
+	}
+	seen := map[string]bool{}
+	ids := []string{bug}
+	for _, m := range []map[string]string{modes, agents} {
+		for _, id := range m {
+			ids = append(ids, id)
 		}
+	}
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if seen[id] {
+			return errors.New("store: a Linear label ID is mapped more than once")
+		}
+		seen[id] = true
 	}
 	states, err := c.LifecycleStates()
 	if err != nil {
@@ -78,3 +146,7 @@ func validateLinearConnection(v ConnectionVersion) error {
 	}
 	return nil
 }
+
+// ValidateConnectionVersion runs the same validation SetConnection runs, without
+// writing, so a caller can check a candidate version before any remote write.
+func ValidateConnectionVersion(v ConnectionVersion) error { return validateConnection(v) }

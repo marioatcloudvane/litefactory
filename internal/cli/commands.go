@@ -82,6 +82,7 @@ func Commands() []*Command {
 		newRepoConnectionCommand("set"),
 		newRepoConnectionCommand("disable"),
 		newRepoConnectionCommand("check"),
+		newRepoLabelsSetupCommand(),
 		newRepoBindingCommand("list"),
 		newRepoBindingCommand("add"),
 		newRepoBindingCommand("correct"),

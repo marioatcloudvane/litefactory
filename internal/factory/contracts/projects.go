@@ -52,8 +52,9 @@ type ConnectionPresentation struct {
 type SetProjectConnectionRequest struct {
 	Role                                                             string
 	Provider, Workspace, Team, Project, AuthKind, ModeLabels, States string
-	// BugLabel is the optional existing Linear label ID that means bug (Linear only).
-	BugLabel                                  string
+	// CodingAgentLabels is JSON (agent name to label ID); BugLabel is the
+	// optional existing Linear label ID that means bug. Linear only.
+	CodingAgentLabels, BugLabel               string
 	Revision                                  int64
 	Origin, Destination, Credential, RemoteID string
 }

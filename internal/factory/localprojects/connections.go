@@ -35,11 +35,12 @@ func (s *Service) SetConnection(ctx context.Context, request contracts.SetProjec
 		if role != store.TicketConnection || request.Destination != request.Team+"/"+request.Project || request.Workspace == "" || request.Team == "" || request.Project == "" {
 			return usage("Linear requires ticket role and workspace/team/project IDs; destination must be team/project")
 		}
-		v.Linear = store.LinearConfiguration{WorkspaceID: request.Workspace, TeamID: request.Team, ProjectID: request.Project, AuthKind: request.AuthKind, ModeLabelsJSON: request.ModeLabels, LifecycleStatesJSON: request.States, BugLabelID: request.BugLabel}
-	} else if v.Provider == ticket.GitHub && request.BugLabel != "" {
-		return usage("--bug-label applies only to Linear connections")
+		v.Linear = store.LinearConfiguration{WorkspaceID: request.Workspace, TeamID: request.Team, ProjectID: request.Project, AuthKind: request.AuthKind, ModeLabelsJSON: store.NormalizeEmptyLinearMapping(request.ModeLabels), LifecycleStatesJSON: request.States, CodingAgentLabelsJSON: store.NormalizeEmptyLinearMapping(request.CodingAgentLabels), BugLabelID: request.BugLabel}
 	} else if v.Provider != ticket.GitHub {
 		return usage("provider must be github or linear")
+	}
+	if v.Provider != ticket.Linear && (request.CodingAgentLabels != "" || request.BugLabel != "") {
+		return usage("--coding-agent-labels and --bug-label apply to Linear only")
 	}
 	parts := strings.Split(request.Credential, ":")
 	switch {

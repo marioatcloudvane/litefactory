@@ -81,3 +81,17 @@ func (db *DB) lockParentStatus(ctx context.Context, parent, lockDir, purpose str
 		return errors.Join(syscall.Flock(int(f.Fd()), syscall.LOCK_UN), f.Close())
 	}, nil
 }
+
+// ErrLabelSetupBusy means another label setup for the same team is running.
+var ErrLabelSetupBusy = errors.New("store: another label setup for this team is running")
+
+// LockLabelSetup serializes factory label setup runs for one tracker team
+// across DB handles and processes. It does not wait: a held lock returns
+// ErrLabelSetupBusy. The lock file lives beside the database and is never unlinked.
+func (db *DB) LockLabelSetup(ctx context.Context, team string) (func() error, error) {
+	release, err := db.lockParentStatus(ctx, team, filepath.Dir(db.path), "label-setup", true)
+	if errors.Is(err, ErrStoryProgressBusy) {
+		return nil, ErrLabelSetupBusy
+	}
+	return release, err
+}
