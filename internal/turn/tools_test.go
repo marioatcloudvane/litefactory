@@ -70,8 +70,8 @@ func TestArgvCarriesNoStringOriginatingFromGitHub(t *testing.T) {
 		t.Errorf("--tools = %v, want Read,Edit", argv)
 	}
 	j := indexOf(argv, "--allowedTools")
-	if j < 0 || argv[j+1] != "Read" {
-		t.Errorf("--allowedTools = %v, want Read", argv)
+	if j < 0 || argv[j+1] != "Read,Edit" {
+		t.Errorf("--allowedTools = %v, want Read,Edit", argv)
 	}
 }
 
