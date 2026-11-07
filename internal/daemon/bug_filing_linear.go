@@ -273,7 +273,7 @@ func (p *bugFilingProcessor) labelLinear(ctx context.Context, f store.BugFiling)
 		return p.labelLater(ctx, f, bugReasonLabelUnclear, bugLabelRetry, false, err)
 	}
 	locator := t.locator(f, f.IssueNodeID)
-	read := func(c store.BugFiling) (ticket.Snapshot, error) {
+	read := func(_ store.BugFiling) (ticket.Snapshot, error) {
 		call, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		s, e := t.port.Resolve(call, locator)

@@ -59,7 +59,6 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 		{"foreign task", func(r *store.GraphOwnerReply) { r.TaskRef = "github:foreign/repo#1"; r.SourceRef = r.TaskRef }},
 		{"foreign source", func(r *store.GraphOwnerReply) { r.SourceRef = "github:foreign/repo#1" }},
 		{"wrong mode", func(r *store.GraphOwnerReply) { r.Mode = "implement" }},
-		{"stale comment", func(r *store.GraphOwnerReply) { r.CommentID = r.QuestionCommentID }},
 		{"wrong question", func(r *store.GraphOwnerReply) { r.QuestionCommentID++ }},
 		{"wrong instance", func(r *store.GraphOwnerReply) { r.InstanceID++ }},
 		{"oversized reply", func(r *store.GraphOwnerReply) { r.Body = strings.Repeat("x", 65537) }},

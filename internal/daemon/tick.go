@@ -1220,6 +1220,13 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 // owned by that worker, including sequential refinement copies. Nothing is
 // shared with another worker, so no lock is needed.
 type task struct {
+	// queue is the drain's unconsumed comments from the one being handled on,
+	// so an owner answer can take every comment written since as one batch.
+	queue []github.Comment
+	// reportDebt records a consumed comment whose report post is still owed.
+	reportDebt bool
+	// batchedThrough is the last comment a batched owner answer took in.
+	batchedThrough          int64
 	implementTimeoutResumed bool
 	discoveryReservation    *discoveryReservation
 	prepareFailureRecorded  bool
@@ -1886,6 +1893,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		// rather than a defer: a defer would fire on the error returns above too,
 		// which is exactly the stale-false the protocol forbids.
 		d.clearBacklog(ctx, t)
+		if t.reportDebt {
+			// A consumed comment's report is still owed; come back to post it.
+			d.markBacklog(ctx, t.log, t.session.ID)
+		}
 		clean = true
 		// Consecutive-failure counting ends where the backlog flag does: this
 		// task has just made progress, so whatever it was failing at is no
@@ -1946,7 +1957,7 @@ func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) bool {
 			reason = body.String()
 		}
 	}
-	state, announce := d.prepFailures.record(t.session.ID, reason, t.tickAt, d.recoveryInterval())
+	state, announce := d.prepFailures.record(t.session.ID, t.commentUnderWay, reason, t.tickAt, d.recoveryInterval())
 	if state.Attempts != prepareEscalationAttempts {
 		return announce
 	}
@@ -2203,17 +2214,36 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 		return false, fmt.Errorf("list the comments of task %s above %d: %w", t.ref, watermark, err)
 	}
 
-	for _, c := range comments {
+	// Posts owed for comments already consumed are retried first and never
+	// stop the queue (#1240).
+	if err := d.settleReportDebt(ctx, t, watermark); err != nil {
+		return false, err
+	}
+
+	for i, c := range comments {
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if err := d.handleComment(ctx, t, c); err != nil {
+		// A batched owner answer consumed this comment with an earlier one.
+		if c.ID <= t.batchedThrough {
+			continue
+		}
+		t.queue = comments[i:]
+		err := d.handleComment(ctx, t, c)
+		t.queue = nil
+		if err != nil {
 			return false, err
 		}
 
 		consumed, err := d.consumed(ctx, t.session.ID, c.ID)
 		if err != nil {
 			return false, fmt.Errorf("read the watermark of task %s: %w", t.ref, err)
+		}
+		if !consumed {
+			consumed, err = d.consumeWithReportDebt(ctx, t, c.ID)
+			if err != nil {
+				return false, fmt.Errorf("consume comment %d of task %s past its owed report: %w", c.ID, t.ref, err)
+			}
 		}
 		if !consumed {
 			t.log.DebugContext(ctx, "comment was not consumed; stopping this task's queue here so a "+
@@ -2903,24 +2933,19 @@ func (d *Daemon) run(
 		if handled, err := d.recoverGraphPublications(ctx, t, trigger, workflow); handled || err != nil {
 			return d.leave(ctx, t, log, "graph publication recovery deferred", err)
 		}
-		if err := d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
-			// A comment written before the open question was published can
-			// never answer it. Refuse it once, visibly; the reply path consumes
-			// it only after confirmed delivery, so later comments proceed.
-			if errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
-				log.InfoContext(ctx, "Research owner comment predates the open question; refusing it with a reply",
-					slog.Any("error", err))
-				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions, "")
+		// Every owner comment written since the last question answers it as one
+		// batch; comments that arrive while the workflow is busy stay queued.
+		var err error
+		if trigger, err = d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
+			if ownerInputQueued(trigger, err) {
+				log.InfoContext(ctx, "owner comment queued until the workflow asks its next question", slog.Any("reason", err))
+				return d.leave(ctx, t, log, "owner comment queued while the workflow is busy", &recoveryPending{err})
 			}
-			// A plain Research or Implement comment refused because the wait holds
-			// another reply is answered and consumed. Explicit commands keep retry.
-			if errors.Is(err, store.ErrGraphOwnerWait) && (mode == agent.ModeResearch || (mode == agent.ModeImplement && command.Name == "")) &&
-				workflow != agent.WorkflowBug && command.Kind == turn.KindFreeText {
-				log.InfoContext(ctx, "Owner comment refused while the wait holds another reply; refusing it with a reply",
-					slog.Any("error", err))
-				return d.reportOwnerInput(ctx, t, trigger.CommentID, false)
-			}
-			return d.leave(ctx, t, log, "Research owner reply admission failed", err)
+			return d.leave(ctx, t, log, "owner reply admission failed", err)
+		}
+		t.commentUnderWay = max(t.commentUnderWay, trigger.CommentID)
+		if trigger.CommentID > t.batchedThrough && !store.IsFactoryTrigger(trigger.CommentID) {
+			t.batchedThrough = trigger.CommentID
 		}
 	}
 	if t.worker != nil {
@@ -2988,12 +3013,10 @@ func (d *Daemon) run(
 		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && errors.Is(err, turn.ErrImplementReplyNotApplied) {
 			return d.refuseMode(ctx, t, trigger, report.ReplyImplementCommentNotApplied, "")
 		}
-		// A Bug owner comment written before the open review or question can
-		// never answer it; refuse it once and consume it, as for Research.
-		if workflow == agent.WorkflowBug && errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
-			log.InfoContext(ctx, "Bug owner comment predates the open review or question; refusing it with a reply",
-				slog.Any("error", err))
-			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions, "")
+		// A busy Bug workflow keeps the comment queued for its next question.
+		if workflow == agent.WorkflowBug && ownerInputQueued(trigger, err) {
+			log.InfoContext(ctx, "Bug owner comment queued until the workflow asks its next question", slog.Any("reason", err))
+			return d.leave(ctx, t, log, "owner comment queued while the workflow is busy", &recoveryPending{err})
 		}
 		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugReplyNotApplied) {
 			log.InfoContext(ctx, "Bug owner comment could not be applied at the current step; refusing it with a reply",
@@ -3067,7 +3090,7 @@ func (d *Daemon) run(
 }
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
-	if mode == agent.ModePlan && turnResult.ResearchGraph && trigger.CommentID > 0 && !store.IsPrivateTrigger(trigger.CommentID) && turn.ParseCommand(trigger.Body).Kind == turn.KindFreeText {
+	if mode == agent.ModePlan && turnResult.ResearchGraph && trigger.CommentID > 0 && !store.IsFactoryTrigger(trigger.CommentID) && turn.ParseCommand(trigger.Body).Kind == turn.KindFreeText {
 		if err := d.requirePlanDiscussionReported(ctx, turnResult); err != nil {
 			d.planReplyDeferred(ctx, t, trigger.CommentID, err.Error())
 			return &recoveryPending{err}
@@ -3369,6 +3392,13 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 		log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 			slog.Any("error", err))
 	}
+	// One failing owner comment never blocks the task for ever: after
+	// ownerDeadLetterAttempts failed turns it is answered and consumed.
+	if t.commentUnderWay > 0 && !store.IsFactoryTrigger(t.commentUnderWay) && t.scheduled == nil {
+		if row, _ := d.prepFailures.hold(t.session.ID, t.tickAt); row.Trigger == t.commentUnderWay && row.Attempts >= ownerDeadLetterAttempts {
+			d.deadLetter(ctx, t, log, err)
+		}
+	}
 	if store.IsGraphTrigger(t.commentUnderWay) || store.IsBrainstormLaunchTrigger(t.commentUnderWay) || t.scheduled != nil {
 		// Dispatches and schedules need the actual cause for accounting and
 		// bounded retry; no owner-comment drain retains their errors.
@@ -3496,7 +3526,10 @@ type candidateHold struct {
 
 func (d *Daemon) observeCandidateHold(ctx context.Context, c *candidate, at time.Time) bool {
 	var hold candidateHold
-	if row, held := d.sessionRecoveryHold(c.session.ID, at); held {
+	// A report that keeps failing stops holding the session: after
+	// reportBackgroundAttempts its post is retried in the background of the
+	// comment queue (settleReportDebt).
+	if row, held := d.sessionRecoveryHold(c.session.ID, at); held && row.Attempts < reportBackgroundAttempts {
 		hold = candidateHold{kind: "report-recovery", key: row.Key, state: row.State, nextAt: row.NextAt}
 	} else if row, held := d.prepFailures.hold(c.session.ID, at); held {
 		hold = candidateHold{kind: "preparation", reason: row.Reason, nextAt: row.NextAt}

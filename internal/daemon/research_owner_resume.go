@@ -14,12 +14,15 @@ import (
 )
 
 // claimGraphReply claims an owner reply for the admitted mode's parked question.
-func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) error {
+// The reply is a batch: the trigger and every later unconsumed owner comment in
+// the queue, oldest first ([Daemon.ownerBatch]). It returns the trigger the turn
+// runs with, which names the batch's last comment.
+func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) (turn.Trigger, error) {
 	var ownerID int64
 	if isCodeAuthorityBody(trigger.Body) {
 		c := github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
 		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
-			return err
+			return trigger, err
 		}
 		// The gate admitted exactly this author as the task's code authority.
 		ownerID = trigger.AuthorID
@@ -28,56 +31,86 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 	}
 	// Replaying an already allocated input performs report recovery only. It
 	// cannot be reinterpreted as an answer to the question that input produced.
-	run, found, err := d.db.GetRunByTrigger(ctx, t.session.ID, trigger.CommentID)
-	if err != nil {
-		return err
-	}
-	if found && run.Status != store.RunPrelaunch {
-		return nil
+	// A batch is replayed through its last comment, which carries the run.
+	for _, c := range append([]github.Comment{{ID: trigger.CommentID}}, t.queue...) {
+		if c.ID < trigger.CommentID || store.IsFactoryTrigger(c.ID) {
+			continue
+		}
+		run, found, err := d.db.GetRunByTrigger(ctx, t.session.ID, c.ID)
+		if err != nil {
+			return trigger, err
+		}
+		if !found || run.Status == store.RunPrelaunch {
+			continue
+		}
+		if c.ID == trigger.CommentID {
+			return trigger, nil
+		}
+		if batch, reached, err := d.ownerBatch(ctx, t, trigger, ownerID, c.ID); err != nil || reached {
+			return batch, err
+		}
+		break
 	}
 	workflow := graphReplyWorkflow(mode)
 	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, workflow)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil
+		return trigger, nil
 	}
 	if err != nil {
-		return err
+		return trigger, err
 	}
 	// Terminal cancellation is handled as a new authorized successor, not an
 	// expired question wait. Restart itself never comes through this path.
 	if instance.Status != store.GraphRunning {
-		return nil
+		return trigger, nil
 	}
 	wait, err := d.db.GetGraphOwnerWait(ctx, instance.ID)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil
+		return trigger, nil
 	}
 	if err != nil {
-		return err
+		return trigger, err
 	}
 	if workflow == "bug" && wait.OriginNode == "" {
-		return nil
+		return trigger, nil
 	}
 	if wait.State == "claimed" {
 		if wait.ReplySource == "chat" && store.IsGraphTrigger(trigger.CommentID) {
 			dispatch, e := d.db.LatestGraphDispatch(ctx, instance.ID)
 			if e != nil {
-				return e
+				return trigger, e
 			}
 			if dispatch.TriggerID() == trigger.CommentID && dispatch.InstanceID == wait.InstanceID && dispatch.SessionID == t.session.ID {
-				return nil
+				return trigger, nil
 			}
 		}
-		if wait.ReplyID == trigger.CommentID && wait.ReplyBody == trigger.Body && wait.ReplyAuthorID == trigger.AuthorID && wait.ReplyToCommentID == trigger.ReplyToCommentID && trigger.AuthorID == ownerID {
-			return nil
+		// The batch this comment opens may be the reply already claimed.
+		batch := trigger
+		if wait.ReplyID > trigger.CommentID {
+			var reached bool
+			if batch, reached, err = d.ownerBatch(ctx, t, trigger, ownerID, wait.ReplyID); err != nil {
+				return trigger, err
+			} else if !reached {
+				batch = trigger
+			}
 		}
-		return store.ErrGraphOwnerWait
+		if wait.ReplyID == batch.CommentID && wait.ReplyBody == batch.Body && wait.ReplyAuthorID == batch.AuthorID && wait.ReplyToCommentID == batch.ReplyToCommentID && batch.AuthorID == ownerID {
+			return batch, nil
+		}
+		return trigger, store.ErrGraphOwnerWait
 	}
 	if wait.State != "waiting" {
-		return nil
+		return trigger, nil
 	}
-	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, ownerID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
-	return err
+	batch, _, err := d.ownerBatch(ctx, t, trigger, ownerID, 0)
+	if err != nil {
+		return trigger, err
+	}
+	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, ownerID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ReplyToCommentID: batch.ReplyToCommentID, ID: batch.CommentID, Body: batch.Body, Author: github.User{ID: batch.AuthorID, Login: batch.Author}}, t.tickAt)
+	if err != nil {
+		return trigger, err
+	}
+	return batch, nil
 }
 
 // AdmitGraphOwnerReply is the graph driver's authenticated question admission
@@ -135,7 +168,7 @@ func AdmitBugOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID i
 // mode resolves to, so a Validate stopped under an Implement-labelled parent
 // resumes too. Stopped work that cannot resume is answered with the reason.
 func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (handled bool, err error) {
-	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.ticketIdentities(ctx).OwnerUserID || store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) || store.IsBrainstormLaunchTrigger(trigger.CommentID) {
+	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.ticketIdentities(ctx).OwnerUserID || store.IsFactoryTrigger(trigger.CommentID) {
 		return false, nil
 	}
 	if consumed, e := d.consumed(ctx, t.session.ID, trigger.CommentID); e != nil || consumed {

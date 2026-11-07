@@ -27,6 +27,9 @@ type prepareFailure struct {
 	// Escalated records that the threshold line has already been written, so
 	// it is written once per stuck spell rather than once per tick.
 	Escalated bool
+	// Trigger is the input the failures belong to. Attempts count failures
+	// of this one trigger; another trigger starts the count again.
+	Trigger int64
 	// Reason is the redacted explanation of the most recent failure. A change
 	// of reason is itself worth reporting: a task failing a new way is not the
 	// same event as one failing the old way again.
@@ -36,16 +39,21 @@ type prepareFailure struct {
 // record counts one failure and returns the session's state along with whether
 // this failure is the one that should be announced — the first or one that
 // fails for a new reason. Escalation is reported separately.
-func (p *prepareFailures) record(sessionID int64, reason string, at time.Time, interval time.Duration) (prepareFailure, bool) {
+func (p *prepareFailures) record(sessionID, trigger int64, reason string, at time.Time, interval time.Duration) (prepareFailure, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.items == nil {
 		p.items = make(map[int64]prepareFailure)
 	}
 	previous, existed := p.items[sessionID]
+	attempts := previous.Attempts + 1
+	if existed && previous.Trigger != trigger {
+		attempts = 1
+	}
 	current := prepareFailure{
-		Attempts:  previous.Attempts + 1,
+		Attempts:  attempts,
 		Escalated: previous.Escalated,
+		Trigger:   trigger,
 		Reason:    reason,
 	}
 	delay := interval

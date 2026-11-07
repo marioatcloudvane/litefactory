@@ -1080,3 +1080,156 @@ func TestValidateAfterAHandbackAndAMainMoveRunsOnTheSyncedHead(t *testing.T) {
 		t.Fatalf("one new run on the synced head: entry=%+v latest=%+v first=%+v", fresh, latest, first)
 	}
 }
+
+// claimNext claims the waiting instance's owner wait with a fresh comment ID,
+// as the daemon's tick does before it hands the comment to Execute.
+func (a *adoptFlow) claimNext(t *testing.T, instanceID, comment int64, body string) {
+	t.Helper()
+	wait, err := a.f.db.GetGraphOwnerWait(t.Context(), instanceID)
+	if err != nil || wait.State != "waiting" {
+		t.Fatalf("no open owner wait: %+v %v", wait, err)
+	}
+	delivery, err := a.f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+	mustProgress(t, err)
+	_, err = a.f.db.ClaimGraphOwnerReply(t.Context(), store.GraphOwnerReply{InstanceID: instanceID, OwnerID: validateOwnerID, AuthorID: validateOwnerID, CommentID: comment, QuestionCommentID: delivery.CommentID, TaskRef: a.f.session.TaskRef, SourceRef: a.f.session.TaskRef, Mode: "validate", Workflow: "validate", DeliveryKey: wait.DeliveryKey, Body: body, At: time.Now()})
+	mustProgress(t, err)
+}
+
+func (a *adoptFlow) revision(t *testing.T, instanceID int64) string {
+	t.Helper()
+	st, err := LoadValidateState(t.Context(), a.f.opts, captureValidate(t).Profile, instanceID)
+	mustProgress(t, err)
+	return st.Revision
+}
+
+// #1452 c5, c6: a Validate step that reaches its attempt limit through owner
+// replies stops the run with one plain owner comment naming the step and the
+// recovery; a later command is told the run stopped.
+func TestValidateStepLimitStopsWithOnePlainCommentAndLaterCommandsSayItStopped(t *testing.T) {
+	a := newAdoptFlow(t)
+	inst, _ := a.waitingValidate(t)
+	stop := func() []string {
+		var out []string
+		for _, c := range a.forge.bodies("Validate stopped at step") {
+			out = append(out, c.Body)
+		}
+		return out
+	}
+	comment, exhausted := int64(70000), int64(0)
+	for range 40 {
+		latest, err := a.f.db.GetGraphInstance(t.Context(), inst.ID)
+		mustProgress(t, err)
+		if latest.Status != store.GraphRunning {
+			break
+		}
+		comment++
+		body := ValidateFindingCommand + " " + a.revision(t, inst.ID) + " story-001:nothing defer"
+		a.claimNext(t, inst.ID, comment, body)
+		out, err := Execute(t.Context(), a.f.opts, a.request(comment, validateOwnerID, body))
+		if err != nil {
+			if limit := (*GraphLimitError)(nil); !errors.As(err, &limit) || limit.Node != "owner_resolve" {
+				t.Fatalf("reply %d: %+v %v", comment, out, err)
+			}
+			exhausted = comment
+		}
+	}
+	latest, err := a.f.db.GetGraphInstance(t.Context(), inst.ID)
+	mustProgress(t, err)
+	if latest.Status != store.GraphFailed || exhausted == 0 {
+		t.Fatalf("the resolve loop limit stops the run: %s (exhausted by %d)", latest.Status, exhausted)
+	}
+	bodies := stop()
+	if len(bodies) != 1 {
+		t.Fatalf("one stop comment: %q", bodies)
+	}
+	for _, fact := range []string{"`owner_resolve`", "attempt limit", "no longer waits", "`" + ValidateStartCommand + "`", "not carried over"} {
+		if !strings.Contains(bodies[0], fact) {
+			t.Fatalf("the stop comment must state %q: %s", fact, bodies[0])
+		}
+	}
+
+	// The same turn again (a redelivery) posts no second stop comment.
+	binds := a.binds
+	body := ValidateFindingCommand + " " + a.revision(t, inst.ID) + " story-001:nothing defer"
+	if _, err := Execute(t.Context(), a.f.opts, a.request(exhausted, validateOwnerID, body)); err != nil {
+		var limit *GraphLimitError
+		if !errors.As(err, &limit) {
+			t.Fatalf("replay: %v", err)
+		}
+	}
+	if n := len(stop()); n != 1 {
+		t.Fatalf("a replay posted another stop comment: %d", n)
+	}
+
+	// c6: a later command is told that the run stopped and how to recover.
+	repair := ValidateFindingCommand + " " + a.revision(t, inst.ID) + " story-001:code repair"
+	out, err := Execute(t.Context(), a.f.opts, a.request(comment+100, validateOwnerID, repair))
+	if err != nil {
+		t.Fatalf("%+v %v", out, err)
+	}
+	for _, fact := range []string{"No Validate run is waiting", "stopped and is no longer waiting", "`" + ValidateStartCommand + "`"} {
+		if !strings.Contains(out.Reason, fact) {
+			t.Fatalf("the refusal must state %q: %s", fact, out.Reason)
+		}
+	}
+	choices, err := a.f.db.ListValidateChoices(t.Context(), inst.ID, validateHeadA, true)
+	mustProgress(t, err)
+	if len(choices) != 0 || a.binds != binds || len(a.entries(t)) != 1 {
+		t.Fatalf("a refused command records and starts nothing: choices %d binds %d (was %d) entries %d", len(choices), a.binds, binds, len(a.entries(t)))
+	}
+	if after, _ := a.f.db.GetGraphInstance(t.Context(), inst.ID); after.Status != store.GraphFailed {
+		t.Fatalf("the stopped run stays stopped: %s", after.Status)
+	}
+}
+
+// #1452 c1, c3: after a failed suite has used both repair rounds, a repair
+// choice is refused through the real Execute, records nothing, and its
+// redelivery changes nothing more.
+func TestValidateSpentRepairChoiceIsRefusedThroughExecuteAndItsReplayDoesNothing(t *testing.T) {
+	a := newAdoptFlow(t)
+	a.reviewers.run = blockingReview(true)
+	inst, _ := failedSuiteWait(t, a)
+	st, err := LoadValidateState(t.Context(), a.f.opts, captureValidate(t).Profile, inst)
+	mustProgress(t, err)
+	finding := ""
+	for _, f := range st.Findings {
+		if f.needsChoice() && f.Blocking {
+			finding = f.ID
+			break
+		}
+	}
+	if finding == "" || len(st.Rounds) != 2 {
+		t.Fatalf("a blocking finding after two spent rounds: %+v rounds %d", st.Findings, len(st.Rounds))
+	}
+	outcomes := a.visits(t, inst, "outcome")
+	body := ValidateFindingCommand + " " + st.Revision + " " + finding + " repair"
+	a.claimNext(t, inst, 71001, body)
+	for i := range 2 {
+		out, err := Execute(t.Context(), a.f.opts, a.request(71001, validateOwnerID, body))
+		if err != nil {
+			t.Fatalf("delivery %d: %+v %v", i+1, out, err)
+		}
+		latest, err := a.f.db.GetGraphInstance(t.Context(), inst)
+		mustProgress(t, err)
+		wait, werr := a.f.db.GetGraphOwnerWait(t.Context(), inst)
+		if latest.Status != store.GraphRunning || werr != nil || wait.State != "waiting" {
+			t.Fatalf("delivery %d: the run keeps waiting: %s %+v %v", i+1, latest.Status, wait, werr)
+		}
+		if got := a.visits(t, inst, "outcome"); got != outcomes || a.visits(t, inst, "repair_budget") != 1 {
+			t.Fatalf("delivery %d re-entered the repair loop: outcome %d (was %d), repair_budget %d", i+1, got, outcomes, a.visits(t, inst, "repair_budget"))
+		}
+		choices, err := a.f.db.ListValidateChoices(t.Context(), inst, validateHeadA, true)
+		mustProgress(t, err)
+		if len(choices) != 0 {
+			t.Fatalf("delivery %d recorded a choice: %+v", i+1, choices)
+		}
+		report, err := a.f.db.GetValidateReport(t.Context(), inst)
+		mustProgress(t, err)
+		if !strings.Contains(report.Notice, "2 of 2") || !strings.Contains(report.Notice, "Nothing was recorded") {
+			t.Fatalf("delivery %d: the notice explains the refusal: %s", i+1, report.Notice)
+		}
+	}
+	if n := len(a.forge.bodies("**Validate report**")); n != 1 {
+		t.Fatalf("one report comment, refreshed in place: %d", n)
+	}
+}

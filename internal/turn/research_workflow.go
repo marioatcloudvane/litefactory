@@ -38,7 +38,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 	// An owner comment whose saved launch is bound to a finished instance can
 	// never reach a node again, so it is answered and set aside instead of
 	// retried. Plan retires such inputs earlier (retireFinishedPlanLaunch).
-	if req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(req.Trigger.CommentID) && req.Trigger.PlanReply == nil && policy.Mode != agent.ModePlan && admission.Instance.Status != store.GraphRunning {
+	if req.Trigger.CommentID > 0 && !store.IsFactoryTrigger(req.Trigger.CommentID) && req.Trigger.PlanReply == nil && policy.Mode != agent.ModePlan && admission.Instance.Status != store.GraphRunning {
 		return prelaunchRefused(ctx, opts, result, planAnswerNotApplied)
 	}
 	if admission.LaunchID == 0 {

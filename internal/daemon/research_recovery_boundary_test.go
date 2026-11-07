@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 type researchRecoveryFixture struct {
@@ -20,6 +21,9 @@ type researchRecoveryFixture struct {
 	attempt  store.GraphNodeAttempt
 	at       time.Time
 }
+
+// claimErr keeps only the error of claimGraphReply.
+func claimErr(_ turn.Trigger, err error) error { return err }
 
 func researchRecoveryCheck(t *testing.T, err error) {
 	t.Helper()

@@ -39,9 +39,10 @@ func NewGraphBugRuntime(ctx context.Context, opts Options, cfg BugRuntimeConfig)
 
 // bugReplyNotApplied marks a refusal of an owner comment so the daemon answers
 // and consumes it; a refused comment must never stall the issue's queue.
-// Shutdown and the existing between-questions refusal keep their own paths.
+// Shutdown keeps its own path, and a workflow that is busy (an attempt running
+// or another reply claimed) keeps the comment queued for its next question.
 func bugReplyNotApplied(e error) error {
-	if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) || errors.Is(e, store.ErrGraphReplyPredatesQuestion) {
+	if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) || errors.Is(e, store.ErrGraphAttemptRunning) || errors.Is(e, store.ErrGraphOwnerWait) {
 		return e
 	}
 	return fmt.Errorf("%w: %w", ErrBugReplyNotApplied, e)
@@ -99,7 +100,7 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 	untouched := false
 	if e == nil && instance.Status == store.GraphRunning && req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.cfg.OwnerID {
 		untouched, e = r.untouchedGraphLaunch(ctx, instance)
-		if e == nil && !untouched && !store.IsPrivateTrigger(req.Trigger.CommentID) {
+		if e == nil && !untouched && !store.IsFactoryTrigger(req.Trigger.CommentID) {
 			untouched, e = r.stoppedGraphLaunch(ctx, instance)
 		}
 		if e != nil {
@@ -648,7 +649,29 @@ func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a Activit
 	if actual != head {
 		return errors.New("task head changed after saving the repair")
 	}
-	return result.Worktree.Push(ctx, r.opts.remote())
+	// A remote already at head needs no push; a rejected push whose re-read
+	// shows the remote at head (e.g. a stale advertisement racing the run's own
+	// push) is published, as in the run's commit-and-push path.
+	remote := r.opts.remote()
+	observed, e := result.Worktree.RemoteHead(ctx, remote)
+	if e != nil {
+		return e
+	}
+	if observed == head {
+		return nil
+	}
+	pushErr := result.Worktree.Push(ctx, remote)
+	if pushErr == nil {
+		return nil
+	}
+	var pe *git.PushError
+	if errors.As(pushErr, &pe) && pe.Published {
+		return pushErr
+	}
+	if observed, e := result.Worktree.RemoteHead(ctx, remote); e == nil && observed == head {
+		return nil
+	}
+	return pushErr
 }
 
 func (r *BugRuntime) reconcileGraphBug(ctx context.Context) error {

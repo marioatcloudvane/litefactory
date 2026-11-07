@@ -36,8 +36,8 @@ func TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage(t *testing.T)
 			// Invalid external input must be rejected without consulting storage.
 			var db *DB
 			got, err := db.ClaimGraphOwnerReply(t.Context(), in)
-			if !errors.Is(err, ErrGraphInvariant) {
-				t.Fatalf("error=%v, want ErrGraphInvariant", err)
+			if !errors.Is(err, ErrGraphInvariant) && !errors.Is(err, ErrGraphReplyInput) {
+				t.Fatalf("error=%v, want ErrGraphInvariant or ErrGraphReplyInput", err)
 			}
 			if got != (GraphOwnerWait{}) {
 				t.Fatalf("invalid admission returned a claim: %+v", got)
@@ -94,25 +94,10 @@ func ownerReplyFixture(t *testing.T, complete bool, workflow, source, node, kind
 	return db, GraphOwnerReply{InstanceID: instance.ID, OwnerID: 7, AuthorID: 7, CommentID: 102, QuestionCommentID: 101, TaskRef: session.TaskRef, SourceRef: session.TaskRef, Mode: workflow, DeliveryKey: "shape-question", Body: "Use storage boundaries", At: at.Add(time.Minute)}
 }
 
-// A comment written before the open question was published (#378) is refused
-// with its own sentinel, never the generic invariant, and claims nothing.
-// Every other mismatch keeps the generic invariant.
-func TestClaimGraphOwnerReply_PredatingCommentHasItsOwnSentinel(t *testing.T) {
+// A comment written before the open question was published answers it; every
+// other mismatch keeps the generic invariant, and owner authentication holds.
+func TestClaimGraphOwnerReply_PredatingCommentAnswersQuestion(t *testing.T) {
 	db, reply := predatingReplyFixture(t, true)
-	for _, id := range []int64{100, 101} {
-		early := reply
-		early.CommentID = id
-		got, err := db.ClaimGraphOwnerReply(t.Context(), early)
-		if !errors.Is(err, ErrGraphReplyPredatesQuestion) {
-			t.Fatalf("comment %d: error=%v, want ErrGraphReplyPredatesQuestion", id, err)
-		}
-		if errors.Is(err, ErrGraphInvariant) {
-			t.Fatalf("comment %d: predating comment still reported as a generic invariant: %v", id, err)
-		}
-		if got != (GraphOwnerWait{}) {
-			t.Fatalf("comment %d: refused comment returned a claim: %+v", id, got)
-		}
-	}
 	for name, mutate := range map[string]func(*GraphOwnerReply){
 		"wrong task": func(in *GraphOwnerReply) {
 			in.TaskRef = "github:acme/research#999"
@@ -120,30 +105,35 @@ func TestClaimGraphOwnerReply_PredatingCommentHasItsOwnSentinel(t *testing.T) {
 		},
 		"wrong mode":     func(in *GraphOwnerReply) { in.Mode = "plan" },
 		"wrong question": func(in *GraphOwnerReply) { in.QuestionCommentID = 99 },
+		"not the owner":  func(in *GraphOwnerReply) { in.AuthorID = 8 },
+		"forged source":  func(in *GraphOwnerReply) { in.SourceRef = "github:acme/other#1" },
+		"private id":     func(in *GraphOwnerReply) { in.CommentID = BugStartTrigger(1) },
 	} {
-		for _, id := range []int64{100, 102} {
-			bad := reply
-			bad.CommentID = id
-			mutate(&bad)
-			if _, err := db.ClaimGraphOwnerReply(t.Context(), bad); !errors.Is(err, ErrGraphInvariant) || errors.Is(err, ErrGraphReplyPredatesQuestion) {
-				t.Fatalf("%s, comment %d: error=%v, want only ErrGraphInvariant", name, id, err)
-			}
+		bad := reply
+		bad.CommentID = 100
+		mutate(&bad)
+		if _, err := db.ClaimGraphOwnerReply(t.Context(), bad); !errors.Is(err, ErrGraphInvariant) {
+			t.Fatalf("%s: error=%v, want ErrGraphInvariant", name, err)
 		}
 	}
-	wait, err := db.GetGraphOwnerWait(t.Context(), reply.InstanceID)
+	for name, mutate := range map[string]func(*GraphOwnerReply){
+		"empty":    func(in *GraphOwnerReply) { in.Body = " " },
+		"too long": func(in *GraphOwnerReply) { in.Body = strings.Repeat("x", 65537) },
+	} {
+		bad := reply
+		mutate(&bad)
+		if _, err := db.ClaimGraphOwnerReply(t.Context(), bad); !errors.Is(err, ErrGraphReplyInput) || errors.Is(err, ErrGraphInvariant) {
+			t.Fatalf("%s: error=%v, want a plain input error", name, err)
+		}
+	}
+	early := reply
+	early.CommentID = 100
+	claimed, err := db.ClaimGraphOwnerReply(t.Context(), early)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wait.State != "waiting" || wait.ReplyID != 0 {
-		t.Fatalf("refusals changed the open question: %+v", wait)
-	}
-	// The genuine answer, newer than the question, is still admitted.
-	claimed, err := db.ClaimGraphOwnerReply(t.Context(), reply)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if claimed.State != "claimed" || claimed.ReplyID != reply.CommentID {
-		t.Fatalf("genuine reply not claimed: %+v", claimed)
+	if claimed.State != "claimed" || claimed.ReplyID != 100 {
+		t.Fatalf("predating reply not claimed: %+v", claimed)
 	}
 }
 
@@ -154,7 +144,7 @@ func TestClaimGraphOwnerReply_IncompleteQuestionKeepsGenericInvariant(t *testing
 	for _, id := range []int64{100, 102} {
 		in := reply
 		in.CommentID = id
-		if _, err := db.ClaimGraphOwnerReply(t.Context(), in); !errors.Is(err, ErrGraphInvariant) || errors.Is(err, ErrGraphReplyPredatesQuestion) {
+		if _, err := db.ClaimGraphOwnerReply(t.Context(), in); !errors.Is(err, ErrGraphInvariant) {
 			t.Fatalf("comment %d with incomplete delivery: error=%v, want only ErrGraphInvariant", id, err)
 		}
 	}
@@ -184,7 +174,6 @@ func TestValidateResolverReplyWithInheritedRun(t *testing.T) {
 			}
 			for _, mutate := range []func(*GraphOwnerReply){
 				func(r *GraphOwnerReply) { r.AuthorID++ },
-				func(r *GraphOwnerReply) { r.CommentID = r.QuestionCommentID },
 				func(r *GraphOwnerReply) { r.QuestionCommentID++ },
 				func(r *GraphOwnerReply) { r.InstanceID++ },
 			} {

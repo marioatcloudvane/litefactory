@@ -28,7 +28,7 @@ func applyGraphStageDecisionTx(ctx context.Context, tx *sql.Tx, t StageDecisionT
 	if t.Operation == "approve_stage" {
 		if t.Workflow == "bug" {
 			in.Body = "/approve-bug analysis " + strconv.FormatInt(t.DiagnosisRevision, 10)
-			if _, e := approveGraphDiagnosisTx(ctx, tx, in, t.DiagnosisRevision, true); e != nil {
+			if _, e := approveGraphDiagnosisTx(ctx, tx, in, t.DiagnosisRevision); e != nil {
 				return e
 			}
 			if _, e := tx.ExecContext(ctx, `UPDATE graph_owner_waits SET reply_source='chat' WHERE instance_id=? AND delivery_key=?`, t.InstanceID, t.WaitKey); e != nil {

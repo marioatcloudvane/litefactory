@@ -9,7 +9,7 @@ import (
 func TestWorkflowRefusalOffersObservedDestinationWithoutApproval(t *testing.T) {
 	rep := newReporter(t)
 	const link = "https://tickets.example/decision/current"
-	for _, kind := range []report.ReplyKind{report.ReplyBugCommentNotApplied, report.ReplyGraphReplyBetweenQuestions, report.ReplyGraphOwnerWaitRefused, report.ReplyValidateCommentNotApplied, report.ReplyImplementFinishedValidated} {
+	for _, kind := range []report.ReplyKind{report.ReplyBugCommentNotApplied, report.ReplyGraphOwnerWaitRefused, report.ReplyValidateCommentNotApplied, report.ReplyImplementFinishedValidated} {
 		body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: kind, DecisionURL: link})
 		if err != nil {
 			t.Fatal(err)

@@ -172,7 +172,7 @@ func TestChatResearchOwnerJourney(t *testing.T) {
 	if !ok {
 		t.Fatal("dispatch not reserved")
 	}
-	researchRecoveryCheck(t, d.claimGraphReply(ctx, task, turn.Trigger{CommentID: dispatch.TriggerID()}, "research"))
+	researchRecoveryCheck(t, claimErr(d.claimGraphReply(ctx, task, turn.Trigger{CommentID: dispatch.TriggerID()}, "research")))
 	_, err = f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: dispatch.Node, RunID: f.run.ID, Limit: 3, StartedAt: at})
 	researchRecoveryCheck(t, err)
 	wait, err = f.db.GetGraphOwnerWait(ctx, f.instance.ID)
