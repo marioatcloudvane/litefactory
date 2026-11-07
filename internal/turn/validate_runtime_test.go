@@ -169,8 +169,8 @@ func TestValidateProductionRuntimeRunsTheGraphToTheOwnerWait(t *testing.T) {
 		if call.MCPLaunch == nil || call.WorktreePath == "" || call.WorktreePath == session.WorktreePath {
 			t.Errorf("the reviewer runs on a scratch checkout with the result route: %q", call.WorktreePath)
 		}
-		if strings.Contains(strings.Join(toolSurface(call), ","), "Edit") || strings.Contains(strings.Join(toolSurface(call), ","), "Bash") {
-			t.Errorf("a reviewer only reads: %v", toolSurface(call))
+		if !strings.Contains(strings.Join(toolSurface(call), ","), `"ReadOnly":true`) {
+			t.Errorf("a reviewer runs in the read-only sandbox: %v", toolSurface(call))
 		}
 	}
 	wait, err := f.db.GetGraphOwnerWait(t.Context(), inst.ID)

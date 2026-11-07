@@ -32,7 +32,6 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
-	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -298,25 +297,10 @@ type Keychain struct {
 //	<binary> -p --output-format stream-json --verbose \
 //	  --session-id <uuid> --tools <surface> --settings <file>
 //
-// # Why there are three tool-related keys
-//
-// They are not redundant, and deleting one is a security regression.
-//
-//   - Tools is the actual boundary. It becomes --tools, which restricts the
-//     built-in tool surface claude may use at all. The init event's .tools
-//     array reflects this list (AC-3.17).
-//   - SettingsPath becomes --settings and points at a litefactory-controlled
-//     settings file. Without it claude inherits the operator's personal
-//     ~/.claude/settings.json.
-//   - AllowedTools becomes --allowedTools. Measured (SD-2): --allowedTools is
-//     *additive* to the operator's own settings — 250 ambient allow-rules
-//     leaked through and Bash executed while absent from --allowedTools. It is
-//     therefore defence in depth, not the sandbox. It is still policy-checked
-//     (a bare Bash or Bash(*) entry is rejected, AC-3.15) because a narrow
-//     allow-list is worth having even when it is not load-bearing.
-//
-// ToolCeiling is the hard upper bound every Claude stanza in the top-level
-// permission matrix is checked against at startup.
+// The tool surface is not configured here: every run gets [AgentTools]
+// inside the sandbox its mode selects, bounded by the deny rules of the
+// litefactory-controlled settings file. SettingsPath becomes --settings so a
+// run does not inherit the operator's personal ~/.claude/settings.json.
 type Claude struct {
 	// Binary is the claude executable. A launchd-started daemon has
 	// PATH=/usr/bin:/bin:/usr/sbin:/sbin and will not find a Homebrew
@@ -330,24 +314,15 @@ type Claude struct {
 	// A bounded default prevents long agent workflows from making every later
 	// tool call re-read an almost-full million-token transcript.
 	AutoCompact string `yaml:"autocompact"`
-	// Tools is the --tools surface: the real tool boundary. Must be non-empty
-	// — omitting the flag means allow-all.
+	// Tools, AllowedTools and ToolCeiling are retired. They are still
+	// accepted so an existing config.yaml loads, and ignored: every run gets
+	// [AgentTools].
 	Tools []string `yaml:"tools"`
 	// SettingsPath is the --settings file. Empty means $LF_HOME's default
 	// location, filled in by [Load].
-	SettingsPath string `yaml:"settings_path"`
-	// AllowedTools is the --allowedTools permission list. Additive to the
-	// operator's settings; defence in depth, not the boundary.
+	SettingsPath string   `yaml:"settings_path"`
 	AllowedTools []string `yaml:"allowed_tools"`
-	// ToolCeiling is the hard upper bound on every tool surface litefactory
-	// will ever pass as --tools. No profile may name a tool outside it, and it
-	// must itself contain everything in Tools.
-	//
-	// Absent (and empty, which means the same thing) it defaults to Tools —
-	// the narrowest possible default, under which no profile can widen
-	// anything at all. [Load] resolves the default once, before validation, so
-	// config validation and the harness read the same slice.
-	ToolCeiling []string `yaml:"tool_ceiling"`
+	ToolCeiling  []string `yaml:"tool_ceiling"`
 	// TimeoutSeconds is a deprecated migration input for WorkerTimeoutSeconds.
 	// Runtime attempt deadlines take precedence over this adapter fallback.
 	TimeoutSeconds int `yaml:"timeout_seconds"`
@@ -365,77 +340,38 @@ type Claude struct {
 	ForwardAnthropicEnv bool `yaml:"forward_anthropic_env"`
 }
 
-// ToolProfile is one mode's permission surface, broken into one stanza per
-// configured coding agent. The selected mode resolves the profile, which is
-// then narrowed to whichever agent the run is addressed to — Claude reads
-// [ToolProfile.Claude] and Codex reads [ToolProfile.Codex]. A missing stanza is
-// a configuration error; it never falls back to another stanza or an
-// agent-global surface. A grant written for one tool is never reinterpreted as
-// another's.
+// ToolProfile is one mode's (or graph role's) run policy: the sandbox its
+// agent works in and whether attachments are ingested. Both keys are
+// optional; see [ToolProfiles.Resolve] for the factory defaults.
 type ToolProfile struct {
-	// Claude is this profile's Claude stanza. nil means this profile has
-	// nothing to say about a Claude-routed run.
-	Claude *ToolProfileClaude `yaml:"claude"`
-	// Codex is this profile's Codex stanza. nil means this profile has
-	// nothing to say about a Codex-routed run.
-	Codex *ToolProfileCodex `yaml:"codex"`
+	// Sandbox is read-only or workspace-write, for every coding agent.
+	Sandbox string `yaml:"sandbox"`
 	// Attachments gates attachment ingestion for a run resolved to this
-	// profile (US-5): false, the default, means a turn behaves exactly as it
-	// does today — internal/attach's pre-step never runs, no fetch is
-	// attempted, no new prompt content appears. It is agent-agnostic (unlike
-	// Claude/Codex above) because it is a permission, not a capability — it
-	// grants no new tool, it only decides whether the pre-step runs before
-	// the subprocess is spawned, and that decision does not depend on which
-	// coding-agent tool the run addresses.
+	// profile (US-5): false means internal/attach's pre-step never runs. It
+	// grants no tool; it only decides whether the pre-step runs before the
+	// subprocess is spawned.
 	Attachments bool `yaml:"attachments"`
+	// Claude is the retired per-mode Claude tool lists, accepted so an
+	// existing config.yaml loads, and ignored.
+	Claude *ToolProfileClaude `yaml:"claude"`
+	// Codex is the legacy spelling of Sandbox; codex.sandbox applies when
+	// sandbox is not written.
+	Codex *ToolProfileCodex `yaml:"codex"`
 }
 
-// ToolProfiles is the complete permission matrix keyed by workflow mode.
+// ToolProfiles is the per-mode run policy keyed by mode or graph role name.
 type ToolProfiles struct {
 	Permissions map[string]ToolProfile `yaml:"permissions"`
 }
 
-// HasStanzaFor reports whether this profile carries a stanza for the named
-// coding-agent tool — "claude" or "codex", the same names the yaml keys
-// under tool_profiles.<name> are written with. Any other name reports
-// false: a profile cannot carry a stanza for an agent this type has no
-// stanza shape for at all.
-func (p ToolProfile) HasStanzaFor(agentName string) bool {
-	switch agentName {
-	case "claude":
-		return p.Claude != nil
-	case "codex":
-		return p.Codex != nil
-	default:
-		return false
-	}
-}
-
-// ToolProfileClaude is a profile's Claude stanza. It mirrors the two tool
-// keys of [Claude] and carries the same meanings: Tools is the boundary
-// that becomes --tools for a run using this profile, AllowedTools is the
-// additive permission list that becomes --allowedTools. Both are validated
-// at startup against the same policy, plus two rules that only make sense
-// for a profile: Tools must be a subset of [Claude.ToolCeiling], and every
-// AllowedTools rule must name a tool this stanza itself lists — a
-// permission rule for a tool outside the surface grants nothing and is far
-// more likely to be a mistake than an intention.
+// ToolProfileClaude is the retired Claude stanza of a profile. Its lists are
+// ignored.
 type ToolProfileClaude struct {
-	// Tools is the stanza's --tools surface. Must be non-empty, for the same
-	// reason [Claude.Tools] must be: an empty list would omit the flag, and an
-	// omitted --tools is allow-all.
-	Tools []string `yaml:"tools"`
-	// AllowedTools is the stanza's --allowedTools permission list. Optional.
+	Tools        []string `yaml:"tools"`
 	AllowedTools []string `yaml:"allowed_tools"`
 }
 
-// ToolProfileCodex is a profile's Codex stanza.
-//
-// BLOCKED-BY-US-1 (T-7.3, T-7.4): Sandbox is a plain string rather than the
-// sandbox enum a later task will add, because Codex's accepted sandbox
-// values were never measured. This package validates only that it is
-// non-empty, never that it is one of Codex's real values, and there is no
-// forbidden-value guard over it yet — see [validateToolProfileCodex].
+// ToolProfileCodex is the legacy sandbox stanza of a profile.
 type ToolProfileCodex struct {
 	Sandbox string `yaml:"sandbox"`
 }
@@ -496,9 +432,7 @@ func Defaults() Config {
 func DefaultClaude() Claude {
 	return Claude{
 		Binary: DefaultClaudeBinary, ModelTier: TierBalanced,
-		AutoCompact: DefaultClaudeAutoCompact, Tools: defaultTools(),
-		ToolCeiling:  append(defaultTools(), "WebSearch", "WebFetch"),
-		AllowedTools: defaultAllowedTools(), TimeoutSeconds: DefaultClaudeTimeoutSeconds,
+		AutoCompact: DefaultClaudeAutoCompact, TimeoutSeconds: DefaultClaudeTimeoutSeconds,
 	}
 }
 
@@ -510,53 +444,6 @@ func DefaultCodex() Codex {
 		ModelTier:      TierBalanced,
 		TimeoutSeconds: DefaultCodexTimeoutSeconds,
 	}
-}
-
-// DefaultToolProfiles returns the canonical workflow permission matrix used
-// by init. Each call owns its slices and pointers, so callers may normalize a
-// decoded configuration without mutating a later generated file.
-func DefaultToolProfiles() ToolProfiles {
-	implementTools := defaultTools()
-	implementAllowed := defaultAllowedTools()
-	artifactTools := []string{"Read", "Glob", "Grep", "Write", "Bash", "Task"}
-	artifactAllowed := []string{
-		"Read", "Glob", "Grep", "Write",
-		"Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-		"Bash(git rev-parse:*)", "Bash(git ls-tree:*)", "Bash(git merge-base:*)", "Bash(git rev-list:*)",
-		"Bash(mkdir:*)",
-	}
-	researchTools := append(slices.Clone(artifactTools), "Edit", "WebSearch", "WebFetch")
-	researchAllowed := append(slices.Clone(artifactAllowed), "Edit", "WebSearch", "WebFetch")
-	// Claude Validate gets Bash only with the fixed read-only shell rules; a
-	// reviewer holding it runs in a permission mode that refuses everything
-	// else, inside a sandbox that keeps the worktree unwritable. Codex
-	// Validate keeps its independently enforced read-only sandbox.
-	readTools := []string{"Read", "Glob", "Grep", "Task", "Bash"}
-	readAllowed := append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
-	profile := func(tools, allowed []string, sandbox string, attachments bool) ToolProfile {
-		return ToolProfile{
-			Claude:      &ToolProfileClaude{Tools: slices.Clone(tools), AllowedTools: slices.Clone(allowed)},
-			Codex:       &ToolProfileCodex{Sandbox: sandbox},
-			Attachments: attachments,
-		}
-	}
-	// The default operator ceiling does not list MultiEdit, so the default
-	// fixer grant is the role surface inside that ceiling. The fixer runs
-	// commands like an Implement engineer, with Implement's Bash rules; the
-	// investigator holds the read-only shell.
-	fixerTools := slices.DeleteFunc(BugRoleClaudeTools(SpikeFixerProfile), func(tool string) bool { return !slices.Contains(implementTools, tool) })
-	fixerAllowed := slices.DeleteFunc(slices.Clone(implementAllowed), func(rule string) bool { return !slices.Contains(fixerTools, ClaudeToolName(rule)) })
-	investigatorTools := BugRoleClaudeTools(SpikeInvestigatorProfile)
-	investigatorAllowed := append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
-	return ToolProfiles{Permissions: map[string]ToolProfile{
-		"research":  profile(researchTools, researchAllowed, "workspace-write", true),
-		"plan":      profile(artifactTools, artifactAllowed, "workspace-write", true),
-		"implement": profile(implementTools, implementAllowed, "workspace-write", false),
-		"validate":  profile(readTools, readAllowed, "read-only", false),
-		// Spike graph roles are explicit grants, never an alias of implement.
-		SpikeInvestigatorProfile: profile(investigatorTools, investigatorAllowed, "read-only", false),
-		SpikeFixerProfile:        profile(fixerTools, fixerAllowed, "workspace-write", false),
-	}}
 }
 
 // Defaults for the keys that have one. They are exported so that tests and
@@ -642,9 +529,6 @@ func Load(p Paths) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.applyPathDefaults(p)
-	if cfg.Agents.Claude != nil {
-		cfg.Agents.Claude.resolveToolCeiling()
-	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -736,8 +620,6 @@ func defaultConfiguredAgents(data []byte, cfg *Config) []Kind {
 			switch root.Content[i+1].Content[j].Value {
 			case "claude":
 				defaults := DefaultClaude()
-				// Omitted ceilings retain the operator tools as their upper bound.
-				defaults.ToolCeiling = nil
 				cfg.Agents.Claude = &defaults
 				order = append(order, KindClaude)
 			case "codex":

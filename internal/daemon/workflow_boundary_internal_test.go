@@ -87,7 +87,7 @@ func TestWorkflowBoundaryUnreadableLabelsAndCancellation(t *testing.T) {
 func TestWorkflowBoundaryBugCannotBorrowPermissions(t *testing.T) {
 	profiles := config.DefaultToolProfiles().Permissions
 	profiles["bug"] = profiles["implement"]
-	d := &Daemon{toolProfiles: profiles}
+	d := &Daemon{toolProfiles: config.ToolProfiles{Permissions: profiles}}
 	for _, kind := range []agent.Kind{agent.Kind(config.KindClaude), agent.Kind(config.KindCodex)} {
 		for _, mode := range []agent.Mode{"", agent.ModeResearch, agent.ModeImplement} {
 			got, ok := d.resolveWorkflowTools(agent.WorkflowBug, mode, kind)

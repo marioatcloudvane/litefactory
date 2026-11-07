@@ -83,9 +83,8 @@ func TestDefaultFileIsStructurallyComplete(t *testing.T) {
 		AttachmentMaxCount         *int   `yaml:"attachment_max_count"`
 	}
 	type rawProfile struct {
-		Attachments *bool              `yaml:"attachments"`
-		Claude      *ToolProfileClaude `yaml:"claude"`
-		Codex       *ToolProfileCodex  `yaml:"codex"`
+		Attachments *bool   `yaml:"attachments"`
+		Sandbox     *string `yaml:"sandbox"`
 	}
 	var raw struct {
 		Settings rawSettings `yaml:"settings"`
@@ -124,7 +123,7 @@ func TestDefaultFileIsStructurallyComplete(t *testing.T) {
 		t.Errorf("generated attachment_max_count = %d, want %d", *raw.Settings.AttachmentMaxCount, defaults.AttachmentMaxCount)
 	}
 
-	for _, name := range canonicalPermissionProfiles {
+	for _, name := range []string{"research", "plan", "implement", "validate"} {
 		profile, ok := raw.ToolProfiles.Permissions[name]
 		if !ok {
 			t.Errorf("generated permissions omit %s profile", name)
@@ -133,8 +132,8 @@ func TestDefaultFileIsStructurallyComplete(t *testing.T) {
 		if profile.Attachments == nil {
 			t.Errorf("generated %s profile omits attachments", name)
 		}
-		if profile.Claude == nil || profile.Codex == nil {
-			t.Errorf("generated %s profile must include both agent authorities", name)
+		if profile.Sandbox == nil {
+			t.Errorf("generated %s profile omits sandbox", name)
 		}
 	}
 	if _, found := raw.Agents.Codex["default_sandbox"]; found {

@@ -1267,9 +1267,6 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 		opts.DefaultAgent = overrides.DefaultAgent
 	}
 	opts.BugAgent = overrides.BugAgent
-	if overrides.ToolCeiling != nil {
-		opts.ToolCeiling = overrides.ToolCeiling
-	}
 	if overrides.Agents != nil {
 		opts.Agents = overrides.Agents
 		opts.Classifiers = make(map[agent.Kind]agent.Classifier, len(overrides.Agents))
