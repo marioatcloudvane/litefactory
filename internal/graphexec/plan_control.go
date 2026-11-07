@@ -30,5 +30,5 @@ const planReviewReady = "review_ready"
 // PlanControlPolicy includes factory-only scheduling/promotion responses. The
 // dedicated Plan node decoder admits neither stage selectors nor approved.
 func PlanControlPolicy() ControlPolicy {
-	return ControlPolicy{Mode: agent.ModePlan, Responses: []string{PlanSetCondition, "story", "technical", "acceptance", PlanCreateCondition, "ask", "answer", "discussion", planReviewReady, "approved"}, Defaults: []string{PlanSetCondition, "story", "technical", "acceptance"}, Ask: "ask", Approved: "approved"}
+	return ControlPolicy{Mode: agent.ModePlan, Responses: []string{PlanSetCondition, "story", "technical", "acceptance", PlanCreateCondition, "ask", "answer", planReviewReady, "approved"}, Defaults: []string{PlanSetCondition, "story", "technical", "acceptance"}, Ask: "ask", Approved: "approved"}
 }

@@ -27,7 +27,6 @@ type ApprovedStorySizing struct {
 	EntryID            string `json:"entry_id,omitempty"`
 	Size               string `json:"size,omitempty"`
 	SizeReason         string `json:"size_reason,omitempty"`
-	RouteVersion       *int   `json:"route_version,omitempty"`
 }
 
 // RetainPublishedStorySizing joins exact publication identities to the retained
@@ -62,6 +61,15 @@ func (db *DB) RetainPublishedStorySizing(ctx context.Context, parent string, gen
 		var old string
 		err = tx.QueryRowContext(ctx, `SELECT facts_json FROM published_story_sizing WHERE parent_task=? AND generation=? AND story_key=? AND projection_revision=?`, parent, generation, key, projectionRevision).Scan(&old)
 		if err == nil {
+			// Re-encoding the retained facts drops fields that are no longer
+			// kept (route_version of the retired parallel fast track), so an
+			// identical replay of an older publication stays harmless.
+			var retained ApprovedStorySizing
+			if e := json.Unmarshal([]byte(old), &retained); e == nil {
+				if normalized, e := json.Marshal(retained); e == nil {
+					old = string(normalized)
+				}
+			}
 			if old != string(encoded) {
 				return fmt.Errorf("store: immutable published sizing conflict")
 			}
@@ -79,7 +87,6 @@ func derivePublishedSizing(state planbrief.PlanState, facts ApprovedStorySizing,
 	facts.Available = false
 	facts.Explanation = "promoted sizing association unavailable"
 	facts.SetRevision, facts.EntryID, facts.Size, facts.SizeReason = "", "", "", ""
-	facts.RouteVersion = nil
 	set := state.StorySet
 	if set == nil || !set.Promoted || set.Revision == "" || set.Revision != set.PromotedRevision || set.Revision != planbrief.PlanStorySetRevision(set.Entries) {
 		return facts
@@ -98,10 +105,6 @@ func derivePublishedSizing(state planbrief.PlanState, facts ApprovedStorySizing,
 	for _, story := range state.Stories {
 		if story.Key == facts.Story && story.Active() {
 			stories++
-			if story.Route != nil {
-				v := story.Route.Version
-				facts.RouteVersion = &v
-			}
 		}
 	}
 	if matches == 1 && stories == 1 && association {
@@ -116,13 +119,7 @@ func derivePublishedSizing(state planbrief.PlanState, facts ApprovedStorySizing,
 
 func sizingSourceUnchanged(facts ApprovedStorySizing, state planbrief.PlanState) bool {
 	fresh := derivePublishedSizing(state, facts, true)
-	if !fresh.Available || fresh.SetRevision != facts.SetRevision || fresh.EntryID != facts.EntryID || fresh.Size != facts.Size || fresh.SizeReason != facts.SizeReason {
-		return false
-	}
-	if fresh.RouteVersion == nil || facts.RouteVersion == nil {
-		return fresh.RouteVersion == facts.RouteVersion
-	}
-	return *fresh.RouteVersion == *facts.RouteVersion
+	return fresh.Available && fresh.SetRevision == facts.SetRevision && fresh.EntryID == facts.EntryID && fresh.Size == facts.Size && fresh.SizeReason == facts.SizeReason
 }
 
 func sizingSourceComplete(facts ApprovedStorySizing) bool {

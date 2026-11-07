@@ -17,35 +17,6 @@ only, and prints no JSON result. Nothing in this document is a
 private Plan format: the result is the shared application result, checked by the
 same validator whether you preflight it or submit it.
 
-## Factory-bound parallel member result
-
-This variant applies only when the factory binds the invocation to a parallel
-member. Sequential invocations retain the storyrequest/storyset rules below.
-A completed member result carries exactly `payload.plan.contribution` instead of
-those branches. Its fields are `draft` (only your role-owned typed sections),
-optional `agreement` (the exact supplied combined proposal digest), and optional
-`growth` (reason string), `failure` (reason string) and `conflicts` (string array).
-Leave the contribution's `questions` and `draft.questions` out: submission refuses
-them. An owner decision goes in `result.questions` with options and a
-`recommended_option`, on an `incomplete` result; anything else is not an owner
-question. Omitted draft sections reuse the basis; they do not
-remove another role's sections. The contribution is retained evidence only and
-cannot publish a story or approve a stage.
-
-Story members may supply intent and dependencies; technical members may supply
-architecture, design and guidance; acceptance members may supply criteria and
-tasks. Do not copy the entire assembled proposal into `draft`: that would write
-sections you do not own. The factory binds group, role, attempt, basis and current
-proposal reference. Never include those identities in the authored contribution.
-An empty supplied proposal digest means the first pass: the proposal is only the
-starting basis and may be empty. Contribute your sections, omit `agreement`, and
-raise no question or failure about the missing assembly; the factory assembles the
-sections and invokes you again with the combined proposal and its digest.
-Read the supplied proposal before setting `agreement`; a changed proposal needs
-fresh agreement. Retain material questions, failures, conflicts or growth instead
-of confirming a plan you cannot support. Use preflight, submit and the matching
-receipt, including exact request recovery after a lost reply.
-
 ## How this document is marked
 
 Machine-readable markers let tests extract every example and run it through the
