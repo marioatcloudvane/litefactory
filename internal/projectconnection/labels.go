@@ -36,24 +36,31 @@ func VerifyDestination(ctx context.Context, code *github.Client, v store.Connect
 	return repo, nil
 }
 
-// labelRemedy reads every label and reports missing labels and reader warnings.
-func (f *Factory) labelRemedy(ctx context.Context, code *github.Client, repo github.Repo, v store.ConnectionVersion) string {
+// labelRemedy reads every label and returns the missing labels and reader
+// warnings as findings, with the setup command or read failure as the tail.
+func (f *Factory) labelRemedy(ctx context.Context, code *github.Client, repo github.Repo, v store.ConnectionVersion) ([]labelFinding, string) {
 	names, err := code.ListLabelNames(ctx, repo)
 	if err != nil {
-		return " Labels could not be read."
+		return nil, " Labels could not be read."
 	}
 	wanted := agent.WantedLabels(f.options.LabelAgents)
 	plan := agent.PlanLabels(wanted, names)
-	var out strings.Builder
+	var findings []labelFinding
+	tail := ""
 	if len(plan.Create) > 0 {
 		missing := make([]string, 0, len(plan.Create))
 		for _, w := range plan.Create {
 			missing = append(missing, w.Name)
 		}
-		fmt.Fprintf(&out, " Warning: missing labels: %s; run `%s`.", strings.Join(missing, ", "), LabelSetupCommand(v.RepoID))
+		findings = append(findings, labelFinding{Severity: "Warning", Lead: "missing labels", Noun: "labels", Items: missing})
+		tail = " Run `" + LabelSetupCommand(v.RepoID) + "`."
 	}
-	for _, w := range plan.Warnings {
-		fmt.Fprintf(&out, " Warning: label %q cannot be used by the factory: %s.", w.Label, w.Reason)
+	if len(plan.Warnings) > 0 {
+		unreadable := make([]string, 0, len(plan.Warnings))
+		for _, w := range plan.Warnings {
+			unreadable = append(unreadable, strconv.Quote(w.Label))
+		}
+		findings = append(findings, labelFinding{Severity: "Warning", Lead: "name the factory cannot read", Noun: "labels", Items: unreadable})
 	}
-	return out.String()
+	return findings, tail
 }
