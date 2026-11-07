@@ -212,15 +212,15 @@ func actionInputSchema(name string) map[string]any {
 func actionDescription(name string) string {
 	switch name {
 	case "action_propose":
-		return "Resolve an enabled existing action into immutable review facts, without executing it. Returns its identifier, target, impact tier, earliest confirmation and expiry."
+		return "Resolve an enabled existing action into immutable review facts, without executing it. Returns its identifier, target, impact tier, earliest confirmation and expiry. Use it to turn the owner's request for a change into a proposal; show it, wait for the owner's separate yes, then call action_confirm."
 	case "action_confirm":
-		return "Record a separate conversational confirmation for the original client's proposal. Binding actions await the configured owner's Discord reaction."
+		return "Record a separate conversational confirmation for the original client's proposal. Binding actions await the configured owner's Discord reaction. Call it only after the owner said yes in a separate message to the proposal you showed; then call action_inspect."
 	case "action_cancel":
 		return "Cancel a pending proposal directly; already admitted work cannot be undone."
 	case bugFileProposeTool:
 		return bugFileDescription
 	case "action_inspect":
-		return "Read current authorized proposal facts, confirmation decisions and recorded outcome."
+		return "Read current authorized proposal facts, confirmation decisions and recorded outcome. Call it after action_confirm and before you report any result."
 	default:
 		return "Read a bounded page of the current owner's authorized proposal history across clients."
 	}

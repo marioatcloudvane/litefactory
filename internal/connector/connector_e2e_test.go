@@ -128,8 +128,8 @@ func TestOwnerConsentConnection(t *testing.T) {
 		} `json:"result"`
 	}
 	connectorDecode(t, listed, &tools)
-	if listed.Code != http.StatusOK || tools.Result.Tools == nil || len(tools.Result.Tools) != 0 {
-		t.Fatalf("absent overview provider must list no tools: HTTP %d %s", listed.Code, listed.Body.String())
+	if listed.Code != http.StatusOK || tools.Result.Tools == nil || len(tools.Result.Tools) != 1 || !strings.Contains(string(tools.Result.Tools[0]), `"factory_guide"`) {
+		t.Fatalf("absent overview provider must list only the guide: HTTP %d %s", listed.Code, listed.Body.String())
 	}
 	refreshed := connectorForm(t, server, fixture.issuer+"/oauth/token", url.Values{"grant_type": {"refresh_token"}, "client_id": {client.ClientID}, "resource": {fixture.options.Config.ResourceURL}, "refresh_token": {tokens.RefreshToken}}, nil)
 	var successor connectorTestTokens

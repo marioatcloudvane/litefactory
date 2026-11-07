@@ -235,3 +235,13 @@ func TestConnectorTemplatePrintsGuidance(t *testing.T) {
 		t.Fatalf("template: %v %q", err, out.String())
 	}
 }
+
+func TestConnectorSkillPrintsSkillFile(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	cmd := newConnectorSkillCommand()
+	handler := cmd.New(flag.NewFlagSet("t", flag.ContinueOnError))
+	if err := handler(t.Context(), &Env{Stdout: &out}, nil); err != nil || !strings.HasPrefix(out.String(), "---\nname: litefactory\n") || !strings.Contains(out.String(), "## Workflow: file a bug") {
+		t.Fatalf("skill: %v %.200q", err, out.String())
+	}
+}

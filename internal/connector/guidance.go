@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-//go:embed guidance/*.md guidance/overview/*.md guidance/prompts/*.md
+//go:embed guidance/*.md guidance/overview/*.md guidance/prompts/*.md guidance/guide/*.md guidance/skill/*.md
 var guidanceFiles embed.FS
 
 // loadGuidance accepts only the stable installed tool identifiers. Bounding each
@@ -15,7 +15,7 @@ var guidanceFiles embed.FS
 func loadGuidance(files fs.FS, names []string) (string, error) {
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
-		if name != "factory_overview" && name != "task_evidence_read" && name != "usage_read" && !isCodeTool(name) && !isActionTool(name) && !isWorkflowTool(name) && !isAdvisoryTool(name) && !isDecisionTool(name) && !isBrainstormTool(name) {
+		if !isKnownTool(name) {
 			return "", fmt.Errorf("unsupported guidance capability")
 		}
 		b, err := fs.ReadFile(files, "guidance/"+name+".md")

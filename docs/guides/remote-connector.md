@@ -292,37 +292,58 @@ empty object and requires `factory:overview`. `task_evidence_read` requires
 `task:discussion` and a `task_ref` in a covered repository. `usage_read` requires
 the matching `factory:usage`, `repository:usage` or `task:usage` scope and, for
 repository and task usage, a repository the grant covers. Discovery lists only installed,
-authorized tools, and direct calls enforce the same permissions. Initialize
-instructions name only those tools and their distinct uses: overview questions
-use `factory_overview`; questions about a named task and supporting evidence use
-`task_evidence_read`; recorded usage and supported historical cost questions use
-`usage_read`. Usage-only grants receive guidance for usage only. Reinitialize
-after fresh consent to receive current guidance.
+authorized tools, and direct calls enforce the same permissions. `factory_guide`
+is listed for every signed-in connection and needs no scope. The guidance for
+each tool (overview questions use `factory_overview`; questions about a named
+task and supporting evidence use `task_evidence_read`; recorded usage and
+supported historical cost questions use `usage_read`) is served by `factory_guide`,
+cut to the tools the grant can call. Usage-only grants receive guidance for usage
+only. Reinitialize after fresh consent to receive current guidance.
 
-Initialize instructions now start with a short factory overview and a brainstorm
-guide, then the per-tool guidance above. The overview and brainstorm text name no
-tool, so every grant, including a usage-only grant, receives the same overview
-and guide. They
-say that the factory keeps no raw documents, that brainstorming and scanning only
-read, and that a spoken yes approves no Plan stage. The brainstorm guide names
-no tool either: it says brainstorm tools exist only when the tool list has them,
-and how to use them when present. The per-tool guidance of the brainstorm tools
-(see "Repository brainstorms") is sent only to grants with `repository:brainstorm`.
-When a grant lacks a consent scope that would show more tools on this server,
-for example a grant approved before `repository:brainstorm` existed, the
-instructions end with a short missing-scope notice. It names the missing scope
+Initialize instructions are short (about 400 words) and the same shape for every
+grant: a factory overview that names no tool except `factory_guide` (the order of
+work: look, discuss, propose, wait for the owner's separate yes, confirm,
+inspect; the common mistakes, including paid calls that start without a yes; the
+limits), a job map (one line per job this grant can really do with the tools to
+start with in order, for example `File a bug: bug_file_propose, then
+action_confirm, then action_inspect`, built from the `job:` and `chain:` header of
+each guide file), the names of the tools this grant can call, and, when the grant lacks a consent scope that would show more tools on
+this server, a short missing-scope notice. The notice names the missing scope
 tokens and tells the client, when the owner asks for that capability, to say
 plainly that this connection was approved without it and that the owner must
 reconnect and tick the scope on the consent page. A scope whose service this
 server does not run is never named. The notice grants nothing; grants that hold
-every served scope get no notice. The connector also offers MCP prompts through `prompts/list` and
+every served scope get no notice. The per-tool guidance is no longer repeated in
+the instructions; it is served by the guide tool.
+
+`factory_guide` is a read-only tool every signed-in connection can call. With no
+arguments it returns one markdown guide cut to the tools this grant can call:
+how the factory works, how approvals work, worked workflows (check a task, check
+running work, discuss or revise a plan, approve a stage, work out an idea in a
+brainstorm, file a feature request, file a bug, check usage, start a workflow, ask
+the task agent or get an independent judgement, read or review a task's code, look
+up standards, publish a discussion conclusion, cancel or recover a proposal), one paragraph per callable tool, and
+the missing consent scopes. A workflow whose tools the grant cannot call is left
+out and replaced by a plain "not available here" note that names no tool. An
+optional `topic` returns less: `overview`, `workflows`, `tools`, `scopes`, or the
+name of a tool the grant can call (its full guidance). The guide files live in
+`internal/connector/guidance/guide`; each starts with `topic:` and optional
+`needs:` (all listed tools must be callable) or `missing:` (shown when any listed
+tool is not callable) lines, and a workflow also has `job:` and `chain:`, and a reply is capped at 32 KiB. The tool paragraphs
+come from the same per-tool guidance files, so a change there reaches the guide.
+The guide files nothing: it creates, confirms and approves nothing.
+
+The connector also offers MCP prompts through `prompts/list` and
 `prompts/get`: `brainstorm_feature` (always), `whats_waiting` (with
 `factory_overview`) and `review_task` (with `task_evidence_read`, one required
 `task` argument). Prompts are static text and need no extra scope; a client may
 not show them. For a client that ignores instructions and prompts, run
 `litefactory connector template` and paste the output into the client's project
 instructions. It is built from the same files the connector sends, so it cannot
-drift; it needs no grant, database or network.
+drift; it needs no grant, database or network. For a client that supports skills,
+`litefactory connector skill` prints a SKILL.md built from the same files (the
+instructions, the brainstorm guide and every workflow); install it in the client
+or paste it into a project.
 No grant or initialization cache expands another grant's permissions.
 
 Task discussion supplies a deterministic factual summary of at most 1,000 Unicode
@@ -1084,7 +1105,8 @@ project with neither a GitHub nor a Linear connection is refused plainly, and
 nothing is retried. Replies use the task discussion bounds: a summary of at most
 1,000 Unicode code points and a complete response of at most 128 KiB.
 
-The initialize instructions tell the client to open or resume the brainstorm
+The guide (the file-a-feature-request workflow, the tool paragraphs and the brainstorm
+guide in the skill and template) tells the client to open or resume the brainstorm
 first, to page all entries and questions when resuming, to send every factual
 question to `brainstorm_ask` on its own without asking the owner, to use
 `issue_search` for "is there already an issue" questions, and to read the spoken

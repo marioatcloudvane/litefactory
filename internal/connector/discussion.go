@@ -330,7 +330,9 @@ func (s *Server) missingScopes(grant connectorstate.ConnectorGrant) []string {
 }
 
 func (s *Server) availableTools(grant connectorstate.ConnectorGrant) []string {
-	names := []string{}
+	// The guide is read-only and shows only what the grant can call, so every
+	// signed-in connection may use it.
+	names := []string{guideTool}
 	if decisions := s.stageDecisions.Load(); decisions != nil && decisions.Ready() && s.actions.Load() != nil && decisionGrant(grant) {
 		names = append(names, decisionToolNames...)
 	}

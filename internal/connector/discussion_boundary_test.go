@@ -48,7 +48,7 @@ func TestDiscussionAuthorizedCapabilities(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/overview/missing_scopes.md": {Data: []byte("missing {{scopes}}")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}}
+			server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/overview/missing_scopes.md": {Data: []byte("missing {{scopes}}")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}, "guidance/factory_guide.md": {Data: []byte("factory_guide")}, "guidance/guide/01.md": {Data: []byte("topic: overview\n\nguide")}}
 			handler := server.Handler()
 			client := registerConnectorClient(t, handler, "boundary", "none")
 			token, _ := issueDiscussionTokens(t, fixture, client, target, tc.scope)
@@ -78,7 +78,12 @@ func TestDiscussionAuthorizedCapabilities(t *testing.T) {
 			connectorDecode(t, listed, &list)
 			names := []string{}
 			for _, tool := range list.Result.Tools {
-				names = append(names, tool.Name)
+				if tool.Name != guideTool {
+					names = append(names, tool.Name)
+				}
+			}
+			if len(list.Result.Tools) != len(names)+1 || list.Result.Tools[0].Name != guideTool {
+				t.Fatalf("every connection lists the guide first: %+v", list.Result.Tools)
 			}
 			if !slices.Equal(names, tc.want) {
 				t.Fatalf("tools=%v want %v", names, tc.want)
@@ -116,7 +121,7 @@ func TestDiscussionInitializationDoesNotCacheGrantAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/overview/missing_scopes.md": {Data: []byte("missing {{scopes}}")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}}
+	server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/overview/missing_scopes.md": {Data: []byte("missing {{scopes}}")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}, "guidance/factory_guide.md": {Data: []byte("factory_guide")}, "guidance/guide/01.md": {Data: []byte("topic: overview\n\nguide")}}
 	handler := server.Handler()
 	client := registerConnectorClient(t, handler, "client", "none")
 	overview, _ := issueDiscussionTokens(t, fixture, client, target, Scope)
@@ -154,7 +159,7 @@ func TestDiscussionContinuationGrantRevisionAndExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/overview/missing_scopes.md": {Data: []byte("missing {{scopes}}")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}}
+	server.guidance = fstest.MapFS{"guidance/overview/factory.md": {Data: []byte("overview")}, "guidance/overview/brainstorm.md": {Data: []byte("brainstorm")}, "guidance/overview/missing_scopes.md": {Data: []byte("missing {{scopes}}")}, "guidance/factory_overview.md": {Data: []byte("factory_overview")}, "guidance/task_evidence_read.md": {Data: []byte("task_evidence_read")}, "guidance/factory_guide.md": {Data: []byte("factory_guide")}, "guidance/guide/01.md": {Data: []byte("topic: overview\n\nguide")}}
 	handler := server.Handler()
 	client := registerConnectorClient(t, handler, "client", "none")
 	firstToken, _ := issueDiscussionTokens(t, fixture, client, target, DiscussionScope)

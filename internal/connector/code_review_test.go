@@ -277,7 +277,7 @@ func TestCodeReviewGuidanceCapabilities(t *testing.T) {
 		if tc.installed {
 			s.codeEvidence = provider
 		}
-		names := s.availableTools(store.ConnectorGrant{Scope: tc.scope, Coverage: &store.ConnectorCoverage{All: true}})
+		names := withoutGuide(s.availableTools(store.ConnectorGrant{Scope: tc.scope, Coverage: &store.ConnectorCoverage{All: true}}))
 		if len(names) != tc.count {
 			t.Fatalf("scope %s capabilities %v", tc.scope, names)
 		}
@@ -288,7 +288,7 @@ func TestCodeReviewGuidanceCapabilities(t *testing.T) {
 	s := &Server{codeEvidence: provider, overview: connectorFixtureOverview(func(context.Context, json.RawMessage) (ToolResult, error) { return ToolResult{}, nil }), taskEvidence: fixtureEvidence(func(context.Context, store.ConnectorGrantTarget, EvidenceRequest) (EvidencePage, error) {
 		return EvidencePage{}, nil
 	})}
-	names := s.availableTools(store.ConnectorGrant{Scope: Scope + " " + DiscussionScope + " " + CodeReviewScope, Coverage: &store.ConnectorCoverage{All: true}})
+	names := withoutGuide(s.availableTools(store.ConnectorGrant{Scope: Scope + " " + DiscussionScope + " " + CodeReviewScope, Coverage: &store.ConnectorCoverage{All: true}}))
 	if !reflect.DeepEqual(names, append([]string{"factory_overview", "task_evidence_read"}, codeToolNames...)) {
 		t.Fatalf("combined guidance %v", names)
 	}

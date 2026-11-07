@@ -12,6 +12,7 @@ func guideFS(guide string) fstest.MapFS {
 		"guidance/overview/brainstorm.md":        {Data: []byte(guide)},
 		"guidance/overview/missing_scopes.md":    {Data: []byte("MISSING {{scopes}}")},
 		"guidance/usage_read.md":                 {Data: []byte("USAGE")},
+		"guidance/guide/01.md":                   {Data: []byte("topic: overview\n\nGUIDE")},
 		"guidance/prompts/brainstorm_feature.md": {Data: []byte("title: B\ndescription: d\n\nBSPECIFIC")},
 		"guidance/prompts/whats_waiting.md":      {Data: []byte("title: W\ndescription: d\n\nWBODY")},
 		"guidance/prompts/review_task.md":        {Data: []byte("title: R\ndescription: d\nargument: task\n\nReview {{task}}.")},
@@ -23,11 +24,11 @@ func TestCompositionOrderAndGuideReachesAllSurfaces(t *testing.T) {
 	for _, guide := range []string{"GUIDE-ONE", "GUIDE-TWO"} {
 		files := guideFS(guide)
 		ins, err := composeInstructions(files, []string{"usage_read"}, nil)
-		if err != nil || ins != "OVERVIEW\n\n"+guide+"\n\nUSAGE" {
+		if err != nil || ins != "OVERVIEW\n\n## Tools you can call\n\nusage_read." {
 			t.Fatalf("instructions: %q %v", ins, err)
 		}
 		ins, err = composeInstructions(files, []string{"usage_read"}, []string{"a:b", "c:d"})
-		if err != nil || ins != "OVERVIEW\n\n"+guide+"\n\nUSAGE\n\nMISSING a:b, c:d" {
+		if err != nil || ins != "OVERVIEW\n\n## Tools you can call\n\nusage_read.\n\nMISSING a:b, c:d" {
 			t.Fatalf("instructions with missing scopes: %q %v", ins, err)
 		}
 		_, text, err := promptText(files, promptSpecs[0], "")
@@ -46,15 +47,33 @@ func TestSharedGuideFailsClosed(t *testing.T) {
 	bad := map[string]fstest.MapFS{"empty": guideFS("  \n"), "oversized": guideFS(strings.Repeat("x", 8193)), "missing": guideFS("x")}
 	delete(bad["missing"], "guidance/overview/brainstorm.md")
 	for name, files := range bad {
-		if _, err := composeInstructions(files, nil, nil); err == nil {
-			t.Errorf("%s: instructions answered", name)
-		}
 		if _, _, err := promptText(files, promptSpecs[0], ""); err == nil {
 			t.Errorf("%s: prompt answered", name)
 		}
 		if _, err := composeTemplate(files); err == nil {
 			t.Errorf("%s: template answered", name)
 		}
+	}
+}
+
+// The short instructions fail closed when the overview is unusable.
+func TestInstructionsFailClosed(t *testing.T) {
+	t.Parallel()
+	for name, data := range map[string]string{"empty": "  \n", "oversized": strings.Repeat("x", 8193)} {
+		files := guideFS("G")
+		files["guidance/overview/factory.md"] = &fstest.MapFile{Data: []byte(data)}
+		if _, err := composeInstructions(files, nil, nil); err == nil {
+			t.Errorf("%s: instructions answered", name)
+		}
+	}
+	files := guideFS("G")
+	delete(files, "guidance/overview/factory.md")
+	if _, err := composeInstructions(files, nil, nil); err == nil {
+		t.Error("missing overview: instructions answered")
+	}
+	files = guideFS("G")
+	if _, err := composeInstructions(files, []string{"task_evidence_read"}, nil); err == nil {
+		t.Error("a callable tool without guidance: instructions answered")
 	}
 }
 

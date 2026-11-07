@@ -38,10 +38,13 @@ func TestOverviewToolContract(t *testing.T) {
 		} `json:"result"`
 	}
 	connectorDecode(t, listed, &response)
-	if listed.Code != http.StatusOK || len(response.Result.Tools) != 1 {
+	if listed.Code != http.StatusOK || len(response.Result.Tools) != 2 {
 		t.Fatalf("read tool list: %d %s", listed.Code, listed.Body.String())
 	}
-	tool := response.Result.Tools[0]
+	if response.Result.Tools[0].Name != guideTool {
+		t.Fatalf("guide must be listed: %+v", response.Result.Tools[0])
+	}
+	tool := response.Result.Tools[1]
 	if tool.Name != "factory_overview" || tool.Input.Type != "object" || tool.Input.Additional || !tool.Annotations["readOnlyHint"] || tool.Annotations["destructiveHint"] || !tool.Annotations["idempotentHint"] {
 		t.Fatalf("invalid read contract: %+v", tool)
 	}
