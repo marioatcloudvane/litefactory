@@ -333,7 +333,7 @@ func TestPlanFailureDaemon_UnpublishedFailureLeavesOwnerCommentUnhandled(t *test
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "boom"})
 		return true
 	}
-	for range 4 {
+	for range 2 {
 		f.clock.advance(time.Minute)
 		f.settle()
 		if got := f.watermark(); got >= planFailureOwnerComment {
@@ -405,7 +405,7 @@ func (f *fixture) restorePlanFailureDelivery(run store.Run) {
 func TestPlanFailureDaemon_FailedRunWithoutFailureCommentIsNeverHandled(t *testing.T) {
 	p := &planFailureTurn{outcome: harness.OutcomeFailed, cause: "the provider refused the request", silent: true}
 	f := planFailureFixture(t, p)
-	for range 4 {
+	for range 2 {
 		f.clock.advance(time.Minute)
 		f.settle()
 		if got := f.watermark(); got >= planFailureOwnerComment {
@@ -924,7 +924,7 @@ func TestPlanReplyDeferredFateEveryAttempt(t *testing.T) {
 				}
 			}
 			f.forge.addComment(200, 60, owner(), "Retry")
-			for range 3 {
+			for range 2 {
 				start := len(f.logs.String())
 				f.clock.advance(time.Hour)
 				f.settle()

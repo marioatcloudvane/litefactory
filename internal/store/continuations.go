@@ -49,15 +49,13 @@ func (c Continuation) TriggerID() int64 { return automaticTriggerBase + c.ID }
 // IsAutomaticTrigger reports whether an identity belongs to automatic recovery.
 func IsAutomaticTrigger(id int64) bool { return id > automaticTriggerBase && id < scheduleTriggerBase }
 
-// IsPrivateTrigger reports whether an identity was minted by the factory rather
-// than issued by the forge. Every such identity is larger than any comment id a
-// forge will ever produce, so treating one as a comment — above all, advancing
-// the comment watermark to it — silently deafens the task to everything the
-// owner says afterwards. Ask this rather than naming one band: a caller that
-// checks only the band it had in mind is how that happened once already.
-func IsPrivateTrigger(id int64) bool {
-	return IsBugStartTrigger(id) || IsBrainstormLaunchTrigger(id) || IsPlanMemberTrigger(id) || IsChatTrigger(id) || IsGraphTrigger(id) || IsAutomaticTrigger(id) || IsScheduleTrigger(id)
-}
+// IsFactoryTrigger reports whether an identity was minted by the factory rather
+// than issued by the forge: every synthetic band (Bug start, factory work ids,
+// brainstorm launch, Plan member, chat, graph dispatch, Validate review,
+// automatic recovery and schedule) lies above every comment id a forge will
+// ever produce. Code asking "is this a real owner comment" asks this; only code
+// that needs to know which kind of factory work names a band.
+func IsFactoryTrigger(id int64) bool { return id > bugStartTriggerBase }
 
 // FinishInterruptedRun commits evidence and its optional continuation together.
 // Replayed completion returns the immutable original decision, even after report.

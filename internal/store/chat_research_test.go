@@ -66,14 +66,14 @@ func TestChatResearchClaimAndForgeRace(t *testing.T) {
 		t.Fatal(err)
 	}
 	if winner == 0 {
-		if wait.ReplySource != "chat" || !IsChatTrigger(wait.ReplyID) || !IsPrivateTrigger(wait.ReplyID) || len(due) != 1 || due[0].Node != "shape" {
+		if wait.ReplySource != "chat" || !IsChatTrigger(wait.ReplyID) || !IsFactoryTrigger(wait.ReplyID) || len(due) != 1 || due[0].Node != "shape" {
 			t.Fatalf("chat claim and dispatch: %+v %+v", wait, due)
 		}
 	} else if wait.ReplySource != "forge" || len(due) != 0 {
 		t.Fatalf("forge claim: %+v %+v", wait, due)
 	}
 	var watermark int64
-	if err = db.sql.QueryRowContext(t.Context(), `SELECT COALESCE(MAX(last_comment_id),0) FROM watermarks`).Scan(&watermark); err != nil || IsPrivateTrigger(watermark) {
+	if err = db.sql.QueryRowContext(t.Context(), `SELECT COALESCE(MAX(last_comment_id),0) FROM watermarks`).Scan(&watermark); err != nil || IsFactoryTrigger(watermark) {
 		t.Fatalf("private watermark: %d %v", watermark, err)
 	}
 	if _, err = db.ClaimChatResearchReply(t.Context(), in); !errors.Is(err, ErrGraphOwnerWait) {

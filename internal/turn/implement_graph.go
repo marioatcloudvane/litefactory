@@ -307,7 +307,7 @@ func (rt *implementRuntime) resumeStories(ctx context.Context, reply string) (in
 			// Parent inputs reach applyReply only after the daemon's authenticated
 			// owner admission; no agent payload can supply this trigger.
 			trigger := rt.req.Trigger
-			if trigger.CommentID <= 0 || store.IsPrivateTrigger(trigger.CommentID) || trigger.AuthorID <= 0 {
+			if trigger.CommentID <= 0 || store.IsFactoryTrigger(trigger.CommentID) || trigger.AuthorID <= 0 {
 				return resumed, store.ErrImplementConflict
 			}
 			noticeAt, err := implementTimeoutNoticeTime(ctx, rt.opts, row)
@@ -403,7 +403,7 @@ func (rt *implementRuntime) applyReply(ctx context.Context, instance store.Graph
 func (rt *implementRuntime) earlyReply(instance store.GraphInstance) bool {
 	command := ParseCommand(rt.req.Trigger.Body)
 	return instance.Status == store.GraphRunning && instance.CurrentNode == graphexec.ImplementAwaitNode &&
-		rt.req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(rt.req.Trigger.CommentID) &&
+		rt.req.Trigger.CommentID > 0 && !store.IsFactoryTrigger(rt.req.Trigger.CommentID) &&
 		command.Kind == KindFreeText && command.Name == ""
 }
 

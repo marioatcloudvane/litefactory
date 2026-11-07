@@ -635,8 +635,9 @@ func TestPlanGraphBoundary_ChildAuthorityAndMixedFeedback(t *testing.T) {
 	mixed.Trigger.PlanReply.Body = mixed.Trigger.Body
 	mixed.Command.Text = mixed.Trigger.Body
 	executeGraphPlan(t, f, mixed)
-	if state := graphPlanState(t, f); state.Stories[0].Stage != "story" || len(state.Stories[0].Approvals) != 0 {
-		t.Fatal("mixed feedback promoted stage")
+	// Text after the command tokens is guidance: the approval still applies.
+	if state := graphPlanState(t, f); state.Stories[0].Stage == "story" {
+		t.Fatal("approval with trailing guidance did not promote the stage")
 	}
 }
 

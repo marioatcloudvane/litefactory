@@ -40,7 +40,7 @@ func TestPlanGroupMemberIsolationAndCompletion(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if member.ParentAttemptID != parent.ID || member.AttemptID != attempt.ID || run.SessionID != i.SessionID || attempt.RunID != run.ID || seg.ID != run.SegmentID || !IsPrivateTrigger(run.TriggerCommentID) || IsGraphTrigger(run.TriggerCommentID) {
+		if member.ParentAttemptID != parent.ID || member.AttemptID != attempt.ID || run.SessionID != i.SessionID || attempt.RunID != run.ID || seg.ID != run.SegmentID || !IsFactoryTrigger(run.TriggerCommentID) || IsGraphTrigger(run.TriggerCommentID) {
 			t.Fatalf("bad isolated identities: %+v %+v %+v", member, run, attempt)
 		}
 		runs = append(runs, run)

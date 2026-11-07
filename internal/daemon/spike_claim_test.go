@@ -30,13 +30,13 @@ func TestGraphReplyClaimIsScopedToItsWorkflow(t *testing.T) {
 	researchRecoveryCheck(t, err)
 	task := &task{session: f.session, ref: ref, tickAt: f.at.Add(time.Minute)}
 	trigger := turn.Trigger{CommentID: 102, AuthorID: 7, Body: "Continue saved findings"}
-	researchRecoveryCheck(t, d.claimGraphReply(t.Context(), task, trigger, "spike"))
+	researchRecoveryCheck(t, claimErr(d.claimGraphReply(t.Context(), task, trigger, "spike")))
 	wait, err := f.db.GetGraphOwnerWait(t.Context(), f.instance.ID)
 	researchRecoveryCheck(t, err)
 	if wait.State != "waiting" || wait.ReplyID != 0 {
 		t.Fatalf("a Spike reply claimed a Research question: %+v", wait)
 	}
-	researchRecoveryCheck(t, d.claimGraphReply(t.Context(), task, trigger, "research"))
+	researchRecoveryCheck(t, claimErr(d.claimGraphReply(t.Context(), task, trigger, "research")))
 	wait, err = f.db.GetGraphOwnerWait(t.Context(), f.instance.ID)
 	researchRecoveryCheck(t, err)
 	if wait.State != "claimed" || wait.ReplyID != 102 {
