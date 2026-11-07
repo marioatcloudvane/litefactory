@@ -1010,12 +1010,146 @@ func TestOwnerRejectedOrSpentRepairReturnsToTheReportWithItsReason(t *testing.T)
 	if !strings.Contains(joinNodes(nodes), back) || o.head() != base || !strings.Contains(report(), "round 2: handback (the repair agent reported the fix as too large or uncertain)") {
 		t.Fatalf("handback: %s\n%s", joinNodes(nodes), report())
 	}
-	nodes = o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
-	if !strings.Contains(joinNodes(nodes), "owner_resolve>repair_budget>review>outcome>reporter>owner_resolve>owner_report>owner_ask") || visits(nodes, "repair_agent") != 0 || len(o.rounds()) != 2 {
-		t.Fatalf("spent: %s", joinNodes(nodes))
+	// #1452 c1: once both rounds are used, every further repair choice is
+	// refused in the resolve step. It records nothing and never re-enters the
+	// repair budget, review or outcome, whose limits add up across replies.
+	outcomes := o.nodeAttempts("outcome")
+	var refused []int64
+	for i := range 3 {
+		var id int64
+		nodes, id = o.sayWithID(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
+		refused = append(refused, id)
+		path := joinNodes(nodes)
+		if !strings.Contains(path, "owner_resolve>owner_report>owner_ask") || visits(nodes, "repair_budget") != 0 || visits(nodes, "review") != 0 || visits(nodes, "outcome") != 0 {
+			t.Fatalf("spent repair %d must not re-enter the repair loop: %s", i+1, path)
+		}
+		o.mustWaitOn(base)
+		if got := o.nodeAttempts("outcome"); got != outcomes || len(o.rounds()) != 2 {
+			t.Fatalf("spent repair %d dispatched outcome %d times (was %d), rounds %d", i+1, got, outcomes, len(o.rounds()))
+		}
+		notice := o.notice()
+		for _, fact := range []string{"story-002:AC-002", "2 of 2", "issue", ValidateImplementCommand, "Nothing was recorded"} {
+			if !strings.Contains(notice, fact) {
+				t.Fatalf("the refusal must state %q: %s", fact, notice)
+			}
+		}
+		if !strings.Contains(report(), "2 of 2") {
+			t.Fatalf("the report shows the refusal: %s", report())
+		}
 	}
-	if inst, _ := o.db.GetGraphInstance(t.Context(), o.instance.ID); inst.Status != store.GraphRunning || o.state().Commit != base {
-		t.Fatalf("the run must wait for the owner on the tested commit: %s", inst.Status)
+	o.mustHaveNoChoiceFrom(refused...)
+
+	// #1452 c3: the same refused reply delivered again does nothing more.
+	reports := len(o.forge.bodies("**Validate report**"))
+	if _, err := o.claimAs(refused[len(refused)-1], o.command(ValidateFindingCommand, "story-002:AC-002", "repair")); err != nil {
+		t.Logf("the store refused the redelivered reply: %v", err)
+	} else {
+		nodes = o.toOwner()
+		if visits(nodes, "repair_budget") != 0 || visits(nodes, "review") != 0 || visits(nodes, "outcome") != 0 {
+			t.Fatalf("a replayed refusal re-entered the repair loop: %s", joinNodes(nodes))
+		}
+	}
+	o.mustWaitOn(base)
+	o.mustHaveNoChoiceFrom(refused...)
+	if got := o.nodeAttempts("outcome"); got != outcomes || len(o.rounds()) != 2 || len(o.forge.bodies("**Validate report**")) != reports {
+		t.Fatalf("a replay changed the run: outcome %d (was %d), rounds %d, reports %d (was %d)", got, outcomes, len(o.rounds()), len(o.forge.bodies("**Validate report**")), reports)
+	}
+
+	// #1452 c2: a choice that can still work is recorded once after the refusals.
+	nodes = o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "issue", "bug"))
+	if !strings.Contains(joinNodes(nodes), "owner_resolve>owner_issue>owner_report") || len(o.forge.issues) != 1 {
+		t.Fatalf("issue after the refusals: %s issues %d", joinNodes(nodes), len(o.forge.issues))
+	}
+	o.mustWaitOn(base)
+	choices, err := o.db.ListValidateChoices(t.Context(), o.instance.ID, base, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues := 0
+	for _, c := range choices {
+		if c.Finding == "story-002:AC-002" && c.Choice == store.ChoiceIssue {
+			issues++
+		}
+	}
+	if issues != 1 {
+		t.Fatalf("the issue choice is recorded once: %+v", choices)
+	}
+}
+
+// nodeAttempts counts the instance's dispatches of one node.
+func (o *ownerFixture) nodeAttempts(node string) int {
+	o.t.Helper()
+	attempts, err := o.db.ListGraphNodeAttempts(o.t.Context(), o.instance.ID)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	n := 0
+	for _, a := range attempts {
+		if a.Node == node {
+			n++
+		}
+	}
+	return n
+}
+
+// sayWithID replies as the owner like say and also returns the reply's comment ID.
+func (o *ownerFixture) sayWithID(body string) ([]string, int64) {
+	o.t.Helper()
+	id, err := o.claimAs(0, body)
+	if err != nil {
+		o.t.Fatalf("claim the reply: %v", err)
+	}
+	return o.toOwner(), id
+}
+
+// claimAs claims an owner reply to the open question with the given comment
+// ID, or the next fresh one for 0, as the daemon does.
+func (o *ownerFixture) claimAs(comment int64, body string) (int64, error) {
+	o.t.Helper()
+	wait, err := o.db.GetGraphOwnerWait(o.t.Context(), o.instance.ID)
+	if err != nil || wait.State != "waiting" {
+		o.t.Fatalf("no open question: %+v %v", wait, err)
+	}
+	delivery, err := o.db.GetReportDelivery(o.t.Context(), wait.DeliveryKey)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	session, err := o.db.GetSession(o.t.Context(), o.instance.SessionID)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	if comment == 0 {
+		o.nextReply++
+		comment = delivery.CommentID + o.nextReply
+	}
+	_, err = o.db.ClaimGraphOwnerReply(o.t.Context(), store.GraphOwnerReply{InstanceID: o.instance.ID, OwnerID: o.owner, AuthorID: o.owner, CommentID: comment, QuestionCommentID: delivery.CommentID, TaskRef: session.TaskRef, SourceRef: session.TaskRef, Mode: "validate", Workflow: "validate", DeliveryKey: wait.DeliveryKey, Body: body, At: o.clock})
+	return comment, err
+}
+
+// mustWaitOn checks the run still runs and waits for the owner on commit.
+func (o *ownerFixture) mustWaitOn(commit string) {
+	o.t.Helper()
+	inst, err := o.db.GetGraphInstance(o.t.Context(), o.instance.ID)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	wait, err := o.db.GetGraphOwnerWait(o.t.Context(), o.instance.ID)
+	if inst.Status != store.GraphRunning || err != nil || wait.State != "waiting" || o.state().Commit != commit {
+		o.t.Fatalf("the run must wait for the owner on %s: %s %+v %v", short(commit), inst.Status, wait, err)
+	}
+}
+
+// mustHaveNoChoiceFrom checks no choice was recorded from the given comments.
+func (o *ownerFixture) mustHaveNoChoiceFrom(comments ...int64) {
+	o.t.Helper()
+	choices, err := o.db.ListValidateChoices(o.t.Context(), o.instance.ID, o.state().Commit, true)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	for _, c := range choices {
+		if slices.Contains(comments, c.CommentID) {
+			o.t.Fatalf("a refused reply recorded a choice: %+v", c)
+		}
 	}
 }
 
@@ -1451,5 +1585,42 @@ func TestOwnerAcceptRefusals(t *testing.T) {
 				t.Fatalf("notice %q", o.notice())
 			}
 		})
+	}
+}
+
+// #1452 c5: when the outcome step reaches its attempt limit the run fails, and
+// the owner gets one plain stop comment naming the step and the recovery; a
+// repeat delivers the same one comment.
+func TestValidateOutcomeLimitStopReportsOncePlainly(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.reviewers.run = blockingReview(false)
+	o.toOwner()
+	for i := range o.profile.Nodes {
+		if o.profile.Nodes[i].Name == "outcome" {
+			o.profile.Nodes[i].Limit = o.nodeAttempts("outcome")
+		}
+	}
+	o.agent = func(int, *flowFixture) (agentresult.ValidateRepair, ActivityResult) {
+		return handbackReport("the sum needs a new type"), ActivityResult{}
+	}
+	o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
+	inst, err := o.db.GetGraphInstance(t.Context(), o.instance.ID)
+	if err != nil || inst.Status != store.GraphFailed || inst.CurrentNode != "outcome" {
+		t.Fatalf("the outcome limit stops the run: %+v %v", inst, err)
+	}
+	limit := &GraphLimitError{Node: "outcome", Diagnostic: `node "outcome" dispatch limit 1 exhausted`}
+	for range 2 {
+		if err := reportValidateExhausted(t.Context(), o.opts, o.instance.ID, limit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stops := o.forge.bodies("Validate stopped at step")
+	if len(stops) != 1 {
+		t.Fatalf("one stop comment: %d", len(stops))
+	}
+	for _, fact := range []string{"`outcome`", "attempt limit", "no longer waits", "`" + ValidateStartCommand + "`"} {
+		if !strings.Contains(stops[0].Body, fact) {
+			t.Fatalf("the stop comment must state %q: %s", fact, stops[0].Body)
+		}
 	}
 }
