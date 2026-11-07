@@ -32,10 +32,6 @@ func TestResearchLatestAttemptAndLimitsSurviveRestart(t *testing.T) {
 	if err != nil || got.ID != attempt.ID || got.Status != GraphFailed {
 		t.Fatalf("retained failed attempt: %+v %v", got, err)
 	}
-	_, err = reopened.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: attempt.Node, Limit: 1, StartedAt: graphTestTime()})
-	if !errors.Is(err, ErrGraphAttemptLimit) {
-		t.Fatalf("restart reset persisted limit: %v", err)
-	}
 }
 
 func TestResearchSuccessfulContinuationRetainsAttemptBudget(t *testing.T) {
@@ -67,10 +63,6 @@ func TestResearchSuccessfulContinuationRetainsAttemptBudget(t *testing.T) {
 	}
 	if err := reopened.FinishGraphNodeAttempt(t.Context(), second.ID, GraphSucceeded, "success", graphTestTime()); err != nil {
 		t.Fatal(err)
-	}
-	_, err = reopened.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: second.Node, Limit: 2, StartedAt: graphTestTime()})
-	if !errors.Is(err, ErrGraphAttemptLimit) {
-		t.Fatalf("successful continuation reset persisted limit: %v", err)
 	}
 	latest, err := reopened.LatestGraphNodeAttempt(t.Context(), instance.ID, second.Node)
 	if err != nil || latest.ID != second.ID {

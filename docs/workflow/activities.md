@@ -12,7 +12,7 @@ with `lf_outcomes`. Each declared outcome needs exactly one outgoing edge, chose
 with `lf_on`:
 
 ```dot
-suite [lf_action="lf_validate_suite", lf_outcomes="passed,failed,blocked,retry", lf_limit="16"];
+suite [lf_action="lf_validate_suite", lf_outcomes="passed,failed,blocked,retry"];
 suite -> repair_budget [lf_on="failed"];
 ```
 
@@ -43,7 +43,7 @@ graph checks. Bug registers only `lf_agent` and its own `lf_loop` variant.
 |---|---|---|---|---|---|
 | `lf_agent` | Runs one agent role and keeps its validated result. Publishes nothing itself. | `success, failed` (Bug: `success, failed, ask, done, approved, succeeded, reshape, blocked`) | `lf_agent_markdown` (role), optional `lf_skills`, `lf_model_tier`, `lf_task`, `lf_access`, `lf_budget`, `lf_response`, `lf_park`, `lf_stop` | 🤖 (🔀 in the worktree with write access) | all modes |
 | `lf_if` | Compares the retained response of an agent with a value. | `true, false` | `lf_field` (=response), `lf_condition`, optional `lf_source` | – | research, plan, spike |
-| `lf_loop` | Like `lf_if`, but bounded; uses `lf_default` before the first attempt. | `true, false` | `lf_field`, `lf_condition`, `lf_limit`, optional `lf_default` | – | research, plan, spike |
+| `lf_loop` | Like `lf_if`; uses `lf_default` before the first attempt. | `true, false` | `lf_field`, `lf_condition`, optional `lf_default` | – | research, plan, spike |
 | `lf_loop` (Bug owner conversation) | Publishes the Bug analysis and waits; returns `approved` only after a recorded, exact owner approval. | `analyse, approved, blocked` | `lf_contract` (=owner_conversation), optional `lf_park`, `lf_stop` | 💬 ⏸ | bug |
 | `lf_comment` | Publishes the retained result as a ticket comment. | `published` | `lf_kind` (final \| failure), optional `lf_source` | 💬 | research, plan, spike |
 | `lf_ask` | Publishes a question or review and rests at the owner wait. | `published` | `lf_kind` (question \| review), `lf_source` (required in Plan), optional `lf_rights` | 💬 ⏸ | research, plan, spike |
@@ -131,7 +131,7 @@ Spike registers no activities of its own: one result-routed `lf_agent`
 |---|---|---|---|
 | `lf_action` | node | The activity the node runs. | a registered activity |
 | `lf_outcomes` | node | Outcomes the node handles. | comma list, subset of the activity's outcomes; one edge each (none for owner-stop outcomes) |
-| `lf_limit` | node | How often the node may run. | positive integer; required on cycles, `lf_loop`, Bug and Plan nodes; Implement ≤ 256, Validate ≤ 64 |
+| `lf_step_budget` | graph | Node dispatches one instance may make since the last accepted owner reply. When spent, the instance parks for the owner with one comment; a reply continues it with a fresh budget. | integer 1–10000; default 200 |
 | `lf_terminal` | node | End node: no activity, no outcomes, no outgoing edges. | boolean |
 | `lf_on` (alias `on`) | edge | The outcome the edge follows. | one declared outcome |
 | `lf_source` | node | Node whose result this step reads, or where an owner reply resumes. | node name |

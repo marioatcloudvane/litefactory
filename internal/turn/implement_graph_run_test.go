@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"html"
 	"io/fs"
 	"os"
@@ -15,6 +14,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -1733,59 +1734,6 @@ func TestImplementCoordinatorResolverWithNothingToResolveAsksTheOwner(t *testing
 	questions := implementPostsContaining(forge, "could not settle")
 	if len(questions) != 1 || !strings.Contains(questions[0], "no merge in progress") {
 		t.Fatalf("one question says there was nothing to resolve: %q", questions)
-	}
-}
-
-// #1164: a coordinator step whose dispatch limit is exhausted stops the
-// instance and tells the owner once, on the parent, what stopped and how to
-// resume.
-func TestImplementCoordinatorExhaustedStepTellsTheOwnerOnce(t *testing.T) {
-	calls := 0
-	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		calls++
-		submitLiveResult(t, req, syncResolverIncompleteJSON)
-		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
-	})
-	f, forge, req := assembledImplementFixture(t, runner)
-	seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
-	seedMainFeatureConflict(t, f)
-
-	var failures []error
-	var last Request
-	if _, err := Execute(t.Context(), f.opts, req); err != nil {
-		failures = append(failures, err)
-	}
-	for range 20 {
-		dispatch, ok, err := f.db.NextFreshGraphDispatch(t.Context(), f.session.ID)
-		mustProgress(t, err)
-		if !ok {
-			break
-		}
-		reserved, ok, err := f.db.ReserveGraphDispatch(t.Context(), dispatch.ID, dispatch.DueAt)
-		if err != nil || !ok {
-			t.Fatal(ok, err)
-		}
-		last = req
-		last.Trigger.CommentID, last.Trigger.Body = reserved.TriggerID(), "Continue the workflow."
-		if _, err := Execute(t.Context(), f.opts, last); err != nil {
-			failures = append(failures, err)
-		}
-	}
-	var limit *GraphLimitError
-	if len(failures) != 1 || !errors.As(failures[0], &limit) || limit.Node != "sync_start_resolve" {
-		t.Fatalf("the resolver's exhausted limit stops the coordinator: %d resolver runs, %v", calls, failures)
-	}
-	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
-	mustProgress(t, err)
-	if instance.Status != store.GraphFailed {
-		t.Fatalf("the instance stops: %+v", instance)
-	}
-	// A repeat of the report finds the one retained comment.
-	rt := &implementRuntime{opts: f.opts}
-	mustProgress(t, rt.reportExhausted(t.Context(), instance.ID, limit))
-	stops := implementPostsContaining(forge, "Implement stopped at step `sync_start_resolve`")
-	if len(stops) != 1 || !strings.Contains(stops[0], "dispatch limit 3 exhausted") || !strings.Contains(stops[0], "Reply on this issue to resume") {
-		t.Fatalf("one owner comment says what stopped and how to resume: %q", stops)
 	}
 }
 

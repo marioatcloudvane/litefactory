@@ -1,11 +1,12 @@
 package turn
 
 import (
-	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"path"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
@@ -70,8 +71,8 @@ func TestValidateGraphDeclaresLoopBoundLimitsReviewAndEnds(t *testing.T) {
 		t.Fatalf("start %q", p.Start)
 	}
 	budget, agentNode, check, review := node("repair_budget"), node("repair_agent"), node("repair_check"), node("review")
-	if budget.Attrs["lf_rounds"] != "2" || agentNode.Limit != 2 {
-		t.Errorf("the repair bound is not two rounds: %v %d", budget.Attrs, agentNode.Limit)
+	if budget.Attrs["lf_rounds"] != "2" {
+		t.Errorf("the repair bound is not two rounds: %v", budget.Attrs)
 	}
 	if agentNode.Attrs["lf_access"] != "write" || agentNode.Attrs["lf_budget"] != "15" || agentNode.Attrs["lf_agent_markdown"] != "validate-repair" {
 		t.Errorf("repair agent: %v", agentNode.Attrs)

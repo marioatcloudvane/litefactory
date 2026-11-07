@@ -29,9 +29,13 @@ type GraphStopQuestion struct {
 	Reason          string                `json:"reason"`
 }
 
+// graphBudgetCause is the stop cause of an instance whose step budget ran out.
+// Any node parks on it: the budget belongs to the instance, not to a node.
+const graphBudgetCause = "step budget"
+
 func parkGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, out GraphNodeResult, cause string, succeeded bool) (GraphNodeResult, error) {
 	node, ok := req.Profile.Node(out.Node)
-	if !ok || !graphexec.ParksOutcome(node, cause) {
+	if !ok || (cause != graphBudgetCause && !graphexec.ParksOutcome(node, cause)) {
 		return out, errors.New("graph stop lacks declared owner disposition")
 	}
 	reason := strings.TrimSpace(out.Activity.Diagnostic)
@@ -42,7 +46,6 @@ func parkGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, ou
 	if len(reason) > 16<<10 {
 		reason = strings.ToValidUTF8(reason[:16<<10], "") + "\n\n[explanation shortened]"
 	}
-	var reparkReplyID int64
 	if out.AttemptID == 0 {
 		attempts, err := opts.DB.ListGraphNodeAttempts(context.WithoutCancel(ctx), out.InstanceID)
 		if err != nil {
@@ -55,19 +58,6 @@ func parkGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, ou
 			if !attempt.FinishedAt.IsZero() {
 				reason += fmt.Sprintf("\n\nLatest completed attempt: %d.", attempt.ID)
 				break
-			}
-		}
-		// An owner reply cannot renew an exhausted sync budget. Record the new
-		// refusal against that reply so the prior claim is parked again, even
-		// though no additional attempt was dispatched.
-		if node.Action == graphexec.SyncBaseAction {
-			wait, err := opts.DB.GetGraphOwnerWait(context.WithoutCancel(ctx), out.InstanceID)
-			if err != nil && !errors.Is(err, store.ErrNotFound) {
-				return out, err
-			}
-			if err == nil && wait.State == "claimed" {
-				reason += fmt.Sprintf("\n\nContinuation reply: %d.", wait.ReplyID)
-				reparkReplyID = wait.ReplyID
 			}
 		}
 	}
@@ -94,7 +84,7 @@ func parkGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, ou
 		return out, err
 	}
 	digest := sha256.Sum256(raw)
-	stop := store.GraphStop{ReparkReplyID: reparkReplyID, Key: hex.EncodeToString(digest[:]), InstanceID: out.InstanceID, SourceAttemptID: out.AttemptID, Origin: out.Node, Cause: cause, Reason: reason, Candidate: raw, At: req.At, AllowRunless: node.Action != ResearchAgentAction}
+	stop := store.GraphStop{Key: hex.EncodeToString(digest[:]), InstanceID: out.InstanceID, SourceAttemptID: out.AttemptID, Origin: out.Node, Cause: cause, Reason: reason, Candidate: raw, At: req.At, AllowRunless: node.Action != ResearchAgentAction}
 	if out.AttemptID != 0 {
 		completion := store.GraphCompletion{Status: store.GraphFailed, FinishedAt: req.At, InstanceStatus: store.GraphRunning}
 		if succeeded {

@@ -15,7 +15,7 @@ const graphAttemptColumns = `id,instance_id,node,attempt,run_id,status,outcome,s
 // running attempt refuses new work until explicitly finalized; this accessor
 // does not detect crashes or reconcile uncertain external effects.
 func (db *DB) StartGraphNodeAttempt(ctx context.Context, in GraphAttemptStart) (out GraphNodeAttempt, err error) {
-	if in.InstanceID <= 0 || in.Node == "" || in.Limit < 0 || in.RunID < 0 || in.StartedAt.IsZero() {
+	if in.InstanceID <= 0 || in.Node == "" || in.Budget < 0 || in.RunID < 0 || in.StartedAt.IsZero() {
 		return out, graphInvariant("invalid attempt reservation")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
@@ -54,61 +54,18 @@ func (db *DB) StartGraphNodeAttempt(ctx context.Context, in GraphAttemptStart) (
 		if running > 0 {
 			return ErrGraphAttemptRunning
 		}
-		if in.OwnerAllowanceSource > 0 {
-			allowed, e := graphMechanicalAllowanceTx(ctx, tx, in)
+		if in.Budget > 0 {
+			spent, e := graphStepsSinceOwnerTx(ctx, tx, in.InstanceID)
 			if e != nil {
 				return e
 			}
-			if !allowed {
-				return graphInvariant("mechanical owner allowance is unavailable or already consumed")
-			}
-		}
-		spent, resumed, e := graphAutomaticDispatchesTx(ctx, tx, in.InstanceID, in.Node)
-		if e != nil {
-			return e
-		}
-		// The declared base sync gate keeps its cumulative budget: an owner
-		// reply cannot clean a retained checkout, so it must not buy more syncs.
-		// A workflow whose graph caps its owner rounds with lf_limit keeps it too.
-		if in.LimitSpansReplies || (in.BugSyncPrerequisite != nil && in.Node == in.BugSyncPrerequisite.SyncNode) {
-			spent, resumed = maximum, false
-		}
-		// Owner input in this instance starts a fresh allowance; until then a
-		// captured Research ancestor's dispatches since its own last owner input
-		// still count, so a topology restart cannot reset a loop guard.
-		for ancestor, node := range in.ResearchPriorNodes {
-			var eligible bool
-			if e = tx.QueryRowContext(ctx, `WITH RECURSIVE history(id) AS (SELECT predecessor_id FROM research_successors WHERE instance_id=? UNION ALL SELECT r.predecessor_id FROM research_successors r JOIN history h ON r.instance_id=h.id) SELECT EXISTS(SELECT 1 FROM history h JOIN graph_instances i ON i.id=h.id JOIN graph_definitions d ON d.id=i.definition_id WHERE h.id=? AND d.mode='research')`, in.InstanceID, ancestor).Scan(&eligible); e != nil {
-				return e
-			}
-			if !eligible {
-				return graphInvariant("Research budget source is not an ancestor")
-			}
-			count, _, e := graphAutomaticDispatchesTx(ctx, tx, ancestor, node)
-			if e != nil {
-				return e
-			}
-			if !resumed {
-				spent += count
-			}
-		}
-		if in.Limit > 0 && spent >= in.Limit {
-			allowed, claimErr := graphClaimAllowsAttemptTx(ctx, tx, in)
-			if claimErr != nil {
-				return claimErr
-			}
-			if !allowed {
-				return ErrGraphAttemptLimit
+			if spent >= in.Budget {
+				return ErrGraphBudgetExhausted
 			}
 		}
 		out, e = scanGraphAttempt(tx.QueryRowContext(ctx, `INSERT INTO graph_node_attempts(instance_id,node,attempt,run_id,status,started_at,launch_id) VALUES(?,?,?,?,?,?,COALESCE(?,(SELECT id FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1))) RETURNING `+graphAttemptColumns, in.InstanceID, in.Node, maximum+1, nullID(in.RunID), GraphRunning, FormatTime(in.StartedAt), nullID(in.LaunchID), in.InstanceID))
 		if e != nil {
 			return e
-		}
-		if in.OwnerAllowanceSource > 0 {
-			if _, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET allowance_attempt_id=? WHERE instance_id=? AND continuation_attempt_id=? AND allowance_attempt_id IS NULL`, out.ID, in.InstanceID, in.OwnerAllowanceSource); e != nil {
-				return e
-			}
 		}
 		if e = graphReplyAllocationTx(ctx, tx, in, out.ID); e != nil {
 			return e

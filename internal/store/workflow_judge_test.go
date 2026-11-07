@@ -22,7 +22,7 @@ func TestWorkflowJudgePinnedBindingAndPrivatePublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	sourceRun := resultRun(t, db, session, "research", "source", 1)
-	sourceAttempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "source", RunID: sourceRun.RunID, Limit: 8, StartedAt: graphTestTime()})
+	sourceAttempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "source", RunID: sourceRun.RunID, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestWorkflowJudgePinnedBindingAndPrivatePublication(t *testing.T) {
 	if err != nil || pinned.ID != sourceAttempt.ID || source.AcceptedResultID != binding.ResultID || source.AcceptedRevision != 1 {
 		t.Fatalf("source: %+v %v", pinned, err)
 	}
-	judge, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "judge", Limit: 1, StartedAt: graphTestTime()})
+	judge, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "judge", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestWorkflowJudgePinnedBindingAndPrivatePublication(t *testing.T) {
 	if err = db.RetainGraphComment(ctx, intent); err == nil {
 		t.Fatal("publication bytes changed")
 	}
-	newer, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "source", Limit: 8, StartedAt: graphTestTime()})
+	newer, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "source", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

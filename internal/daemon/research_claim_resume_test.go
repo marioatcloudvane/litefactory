@@ -138,7 +138,7 @@ func TestResearchClaimHoldsPredatingCommentWhileAttemptRuns(t *testing.T) {
 	f := newResearchRecoveryFixture(t)
 	ctx := t.Context()
 	researchRecoveryCheck(t, f.db.CompleteGraphNodeAttempt(ctx, f.attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: f.at}))
-	if _, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", Limit: 3, StartedAt: f.at}); err != nil {
+	if _, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", StartedAt: f.at}); err != nil {
 		t.Fatal(err)
 	}
 	researchRecoveryCheck(t, f.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "original-operation", InstanceID: f.instance.ID, SourceAttemptID: f.attempt.ID, Node: "comment", Kind: "question", Candidate: []byte(`{"outcome":"incomplete"}`)}))

@@ -211,7 +211,7 @@ func TestValidateImplementReplayDoesNothingTwice(t *testing.T) {
 			t.Fatalf("%v (%s)", err, res.Activity.Diagnostic)
 		}
 	}
-	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "owner_implement", Limit: 4, StartedAt: f.clock})
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "owner_implement", StartedAt: f.clock})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestValidateImplementCarriesTheOwnerGuidance(t *testing.T) {
 			t.Fatalf("%v (%s)", err, res.Activity.Diagnostic)
 		}
 	}
-	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "owner_implement", Limit: 4, StartedAt: f.clock})
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "owner_implement", StartedAt: f.clock})
 	if err != nil {
 		t.Fatal(err)
 	}

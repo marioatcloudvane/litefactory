@@ -83,7 +83,7 @@ func (b *betweenQuestions) run(t *testing.T, trigger int64, log string) store.Ru
 
 func (b *betweenQuestions) start(t *testing.T, node string, run store.Run) store.GraphNodeAttempt {
 	t.Helper()
-	attempt, err := b.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: b.instance.ID, Node: node, RunID: run.ID, Limit: 3, StartedAt: b.at})
+	attempt, err := b.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: b.instance.ID, Node: node, RunID: run.ID, StartedAt: b.at})
 	betweenCheck(t, err)
 	return attempt
 }

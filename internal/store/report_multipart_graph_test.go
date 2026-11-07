@@ -22,7 +22,7 @@ func TestRunningGraphMultipartRequiresExactRetainedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := resultRun(t, db, session, "research", "source", 1)
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "source", RunID: run.RunID, Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "source", RunID: run.RunID, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

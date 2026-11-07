@@ -42,15 +42,9 @@ func ImplementWorkflowPolicy() WorkflowPolicy {
 }
 
 // ImplementSpecs is the closed registry the packaged Implement graph is
-// captured against: the shared actions, the Implement actions and the Implement
-// graph checker.
+// captured against: the shared actions and the Implement actions.
 func ImplementSpecs() (graphexec.Registry, error) {
-	r, err := WorkflowSpecs(ImplementWorkflowPolicy())
-	if err != nil {
-		return r, err
-	}
-	r.Policy = graphexec.ValidateImplementGraph
-	return r, nil
+	return WorkflowSpecs(ImplementWorkflowPolicy())
 }
 
 // implementRespond maps the worker's accepted result to its response: the

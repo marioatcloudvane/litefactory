@@ -57,6 +57,9 @@ func ParseProfile(data []byte) (*Profile, error) {
 			faults = append(faults, fmt.Errorf("profile_version %q: %w", value, err))
 		}
 	}
+	if _, err := stepBudget(p.Attrs); err != nil {
+		faults = append(faults, err)
+	}
 	if err := errors.Join(faults...); err != nil {
 		return nil, fmt.Errorf("decode graph profile: %w", err)
 	}
@@ -69,13 +72,6 @@ func decodeNode(name string, attrs map[string]string) (Node, error) {
 		for outcome := range strings.SplitSeq(value, ",") {
 			node.Outcomes = append(node.Outcomes, strings.TrimSpace(outcome))
 		}
-	}
-	if value, exists := attrs["lf_limit"]; exists {
-		limit, err := strconv.Atoi(value)
-		if err != nil {
-			faults = append(faults, fmt.Errorf("node %q lf_limit %q: %w", name, value, err))
-		}
-		node.Limit = limit
 	}
 	if value, exists := attrs["lf_terminal"]; exists {
 		terminal, err := strconv.ParseBool(value)

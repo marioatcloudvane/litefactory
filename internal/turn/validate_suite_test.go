@@ -753,13 +753,14 @@ func TestValidateSuiteGraphAdmissionReleasesLockOnErrors(t *testing.T) {
 			defer cancel()
 			switch failure {
 			case "limit":
-				for range 16 {
-					attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", Limit: 16, StartedAt: suiteClock})
+				req.BudgetFails = true
+				for range profile.StepBudget() {
+					attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", StartedAt: suiteClock})
 					mustProgress(t, err)
 					mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "retry", FinishedAt: suiteClock, InstanceStatus: store.GraphRunning}))
 				}
 			case "reservation":
-				_, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", Limit: 16, StartedAt: suiteClock})
+				_, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", StartedAt: suiteClock})
 				mustProgress(t, err)
 			case "execution", "cancellation":
 				suite.b.Bind = func(ctx context.Context, _ Options, _ ActivityRequest) (ValidateSuiteAuthority, error) {

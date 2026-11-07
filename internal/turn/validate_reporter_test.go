@@ -469,7 +469,7 @@ func TestReporterShipAdviceRefusedWhileAReviewIsMissing(t *testing.T) {
 	// BUG-1364-5: a replayed reporter step keeps the stored fallback.
 	r := capacitySetup(t, agentresult.ReportItem{Action: agentresult.ReportActionShip, Recommendation: "Ship it; nothing is open.", Diagnosis: agentresult.DiagnosisNone})
 	r.stepTo("reporter")
-	attempt, err := r.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: r.instance.ID, Node: "reporter", Limit: 32, StartedAt: r.clock})
+	attempt, err := r.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: r.instance.ID, Node: "reporter", StartedAt: r.clock})
 	if err != nil {
 		t.Fatal(err)
 	}

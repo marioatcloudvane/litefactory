@@ -605,7 +605,7 @@ func TestValidateNewHeadIsRefusedWhileTheOlderRunExecutes(t *testing.T) {
 	if node == "" {
 		node = cur.CurrentNode
 	}
-	_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old.ID, Node: node, Limit: 64, StartedAt: time.Now()})
+	_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old.ID, Node: node, StartedAt: time.Now()})
 	mustProgress(t, err)
 	binds := a.binds
 	a.head = validateHeadB
@@ -665,7 +665,7 @@ func TestValidateImplementReplyAfterAgentWithMixedHistory(t *testing.T) {
 	mustProgress(t, err)
 	planRun, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "plan", Agent: store.AgentClaude, TriggerCommentID: 5900, LogPath: func(int) string { return "plan.log" }})
 	mustProgress(t, err)
-	source, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: plan.ID, LaunchID: admission.LaunchID, Node: planDefinition.Profile.Start, RunID: planRun.ID, Limit: 3, StartedAt: implementClock})
+	source, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: plan.ID, LaunchID: admission.LaunchID, Node: planDefinition.Profile.Start, RunID: planRun.ID, StartedAt: implementClock})
 	mustProgress(t, err)
 	mustProgress(t, db.CompleteGraphNodeAttempt(ctx, source.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: implementClock}))
 	planDelivery := store.ReportDelivery{Key: "plan-wait", SessionID: session.ID, RunID: planRun.ID, TriggerID: 5900, Task: session.TaskRef, Destination: "acme/acme-api#123", TriggerNamespace: "issue-comment", Purpose: "plan-question", BotUserID: ownerBotID, Body: "Plan waiting", Marker: "plan-wait"}
@@ -1102,83 +1102,34 @@ func (a *adoptFlow) revision(t *testing.T, instanceID int64) string {
 	return st.Revision
 }
 
-// #1452 c5, c6: a Validate step that reaches its attempt limit through owner
-// replies stops the run with one plain owner comment naming the step and the
-// recovery; a later command is told the run stopped.
-func TestValidateStepLimitStopsWithOnePlainCommentAndLaterCommandsSayItStopped(t *testing.T) {
+// #1452: every refused owner reply is still an owner reply, so it starts a
+// fresh step budget. Forty refused triage replies keep the run waiting for the
+// owner; nothing is recorded and no stop comment is posted.
+func TestValidateRefusedOwnerRepliesKeepTheRunWaiting(t *testing.T) {
 	a := newAdoptFlow(t)
 	inst, _ := a.waitingValidate(t)
-	stop := func() []string {
-		var out []string
-		for _, c := range a.forge.bodies("Validate stopped at step") {
-			out = append(out, c.Body)
-		}
-		return out
-	}
-	comment, exhausted := int64(70000), int64(0)
+	comment := int64(70000)
 	for range 40 {
-		latest, err := a.f.db.GetGraphInstance(t.Context(), inst.ID)
-		mustProgress(t, err)
-		if latest.Status != store.GraphRunning {
-			break
-		}
 		comment++
 		body := ValidateFindingCommand + " " + a.revision(t, inst.ID) + " story-001:nothing defer"
 		a.claimNext(t, inst.ID, comment, body)
-		out, err := Execute(t.Context(), a.f.opts, a.request(comment, validateOwnerID, body))
-		if err != nil {
-			if limit := (*GraphLimitError)(nil); !errors.As(err, &limit) || limit.Node != "owner_resolve" {
-				t.Fatalf("reply %d: %+v %v", comment, out, err)
-			}
-			exhausted = comment
+		if out, err := Execute(t.Context(), a.f.opts, a.request(comment, validateOwnerID, body)); err != nil {
+			t.Fatalf("reply %d: %+v %v", comment, out, err)
 		}
 	}
 	latest, err := a.f.db.GetGraphInstance(t.Context(), inst.ID)
 	mustProgress(t, err)
-	if latest.Status != store.GraphFailed || exhausted == 0 {
-		t.Fatalf("the resolve loop limit stops the run: %s (exhausted by %d)", latest.Status, exhausted)
+	wait, werr := a.f.db.GetGraphOwnerWait(t.Context(), inst.ID)
+	if latest.Status != store.GraphRunning || werr != nil || wait.State != "waiting" {
+		t.Fatalf("the run keeps waiting for the owner: %s %+v %v", latest.Status, wait, werr)
 	}
-	bodies := stop()
-	if len(bodies) != 1 {
-		t.Fatalf("one stop comment: %q", bodies)
-	}
-	for _, fact := range []string{"`owner_resolve`", "attempt limit", "no longer waits", "`" + ValidateStartCommand + "`", "not carried over"} {
-		if !strings.Contains(bodies[0], fact) {
-			t.Fatalf("the stop comment must state %q: %s", fact, bodies[0])
-		}
-	}
-
-	// The same turn again (a redelivery) posts no second stop comment.
-	binds := a.binds
-	body := ValidateFindingCommand + " " + a.revision(t, inst.ID) + " story-001:nothing defer"
-	if _, err := Execute(t.Context(), a.f.opts, a.request(exhausted, validateOwnerID, body)); err != nil {
-		var limit *GraphLimitError
-		if !errors.As(err, &limit) {
-			t.Fatalf("replay: %v", err)
-		}
-	}
-	if n := len(stop()); n != 1 {
-		t.Fatalf("a replay posted another stop comment: %d", n)
-	}
-
-	// c6: a later command is told that the run stopped and how to recover.
-	repair := ValidateFindingCommand + " " + a.revision(t, inst.ID) + " story-001:code repair"
-	out, err := Execute(t.Context(), a.f.opts, a.request(comment+100, validateOwnerID, repair))
-	if err != nil {
-		t.Fatalf("%+v %v", out, err)
-	}
-	for _, fact := range []string{"No Validate run is waiting", "stopped and is no longer waiting", "`" + ValidateStartCommand + "`"} {
-		if !strings.Contains(out.Reason, fact) {
-			t.Fatalf("the refusal must state %q: %s", fact, out.Reason)
-		}
+	if n := len(a.forge.bodies("steps without an owner reply")); n != 0 {
+		t.Fatalf("owner replies spent the step budget: %d stop comments", n)
 	}
 	choices, err := a.f.db.ListValidateChoices(t.Context(), inst.ID, validateHeadA, true)
 	mustProgress(t, err)
-	if len(choices) != 0 || a.binds != binds || len(a.entries(t)) != 1 {
-		t.Fatalf("a refused command records and starts nothing: choices %d binds %d (was %d) entries %d", len(choices), a.binds, binds, len(a.entries(t)))
-	}
-	if after, _ := a.f.db.GetGraphInstance(t.Context(), inst.ID); after.Status != store.GraphFailed {
-		t.Fatalf("the stopped run stays stopped: %s", after.Status)
+	if len(choices) != 0 {
+		t.Fatalf("a refused command records nothing: %+v", choices)
 	}
 }
 

@@ -29,7 +29,6 @@ type ActionSpec struct {
 // The zero value is ready for registration. Both boundaries clone outcome slices.
 type Registry struct {
 	actions map[string]ActionSpec
-	Policy  func(*Profile) error
 }
 
 var capabilityPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)

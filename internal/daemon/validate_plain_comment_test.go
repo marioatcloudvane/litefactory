@@ -103,7 +103,7 @@ func (p *plainCommentParent) openValidateWait(t *testing.T, instance store.Graph
 	t.Helper()
 	ctx := t.Context()
 	at := p.f.clock.Now()
-	attempt, err := p.f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "owner", Limit: 3, StartedAt: at})
+	attempt, err := p.f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "owner", StartedAt: at})
 	mustDo(t, err)
 	mustDo(t, p.f.db.FinishGraphNodeAttempt(ctx, attempt.ID, store.GraphSucceeded, "done", at))
 	mustDo(t, p.f.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "validate-question", InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "owner", Kind: "question", Candidate: []byte("{}")}))

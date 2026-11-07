@@ -78,12 +78,34 @@ func TestParseProfilePreservesAttributes(t *testing.T) {
 
 func TestParseProfileMalformed(t *testing.T) {
 	t.Parallel()
-	for _, input := range []string{"", "digraph {", "graph { a -- b }", "digraph {} digraph {}", `digraph {profile_version="wrong"}`, `digraph {a [lf_limit="x"]}`, `digraph {a [lf_terminal="x"]}`} {
+	for _, input := range []string{"", "digraph {", "graph { a -- b }", "digraph {} digraph {}", `digraph {profile_version="wrong"}`, `digraph {lf_step_budget="x"}`, `digraph {lf_step_budget="0"}`, `digraph {a [lf_terminal="x"]}`} {
 		t.Run(input, func(t *testing.T) {
 			if _, err := graphexec.ParseProfile([]byte(input)); err == nil {
 				t.Fatal("accepted malformed profile")
 			}
 		})
+	}
+}
+
+func TestStepBudgetDefaultsAndParses(t *testing.T) {
+	t.Parallel()
+	p, err := graphexec.ParseProfile([]byte(`digraph {team=t}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.StepBudget(); got != graphexec.DefaultStepBudget {
+		t.Fatalf("default budget %d", got)
+	}
+	p, err = graphexec.ParseProfile([]byte(`digraph {team=t;lf_step_budget="7"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.StepBudget(); got != 7 {
+		t.Fatalf("declared budget %d", got)
+	}
+	// A pinned graph may still carry the retired per-node lf_limit; it is data.
+	if _, err := graphexec.ParseProfile([]byte(`digraph {a [lf_limit="x"]}`)); err != nil {
+		t.Fatalf("retired lf_limit refused: %v", err)
 	}
 }
 
@@ -104,10 +126,6 @@ func TestValidateFaults(t *testing.T) {
 		}, "unreachable node"},
 		{"unreachable terminal", func(p *graphexec.Profile) { p.Nodes = append(p.Nodes, graphexec.Node{Name: "lost", Terminal: true}) }, "unreachable terminal"},
 		{"missing terminal", func(p *graphexec.Profile) { p.Nodes = p.Nodes[:1] }, "no terminal"},
-		{"cycle without limit", func(p *graphexec.Profile) {
-			p.Nodes[0].Outcomes = append(p.Nodes[0].Outcomes, "again")
-			p.Edges = append(p.Edges, graphexec.Edge{From: "work", To: "work", On: "again"})
-		}, "cycle without"},
 		{"duplicate name", func(p *graphexec.Profile) { p.Nodes = append(p.Nodes, p.Nodes[0]) }, "duplicate node"},
 		{"undeclared target", func(p *graphexec.Profile) { p.Edges[0].To = "missing" }, "to undeclared"},
 		{"invalid tier", func(p *graphexec.Profile) { p.Nodes[0].Attrs["lf_model_tier"] = "vendor" }, "lf_model_tier"},
@@ -153,17 +171,16 @@ func TestValidateAggregatesFaults(t *testing.T) {
 	}
 }
 
-func TestBoundedCyclesAndDecide(t *testing.T) {
+func TestCyclesAndDecide(t *testing.T) {
 	t.Parallel()
 	for _, multi := range []bool{false, true} {
 		t.Run(fmt.Sprint(multi), func(t *testing.T) {
 			p := profile()
-			p.Nodes[0].Limit = 3
 			p.Nodes[0].Outcomes = append(p.Nodes[0].Outcomes, "again")
 			target := "work"
 			if multi {
 				target = "second"
-				p.Nodes = append(p.Nodes, graphexec.Node{Name: "second", Action: "lf_implement_work", Outcomes: []string{"again"}, Limit: 2})
+				p.Nodes = append(p.Nodes, graphexec.Node{Name: "second", Action: "lf_implement_work", Outcomes: []string{"again"}})
 				p.Edges = append(p.Edges, graphexec.Edge{From: "second", To: "work", On: "again"})
 			}
 			p.Edges = append(p.Edges, graphexec.Edge{From: "work", To: target, On: "again"})
@@ -185,12 +202,6 @@ func TestBoundedCyclesAndDecide(t *testing.T) {
 			}
 			if got, ok := graphexec.Decide(p, "missing", "done"); ok || got != "" {
 				t.Fatal("missing node accepted")
-			}
-			if multi {
-				p.Nodes[2].Limit = 0
-				if err := graphexec.Validate(p, registry(t)); err == nil {
-					t.Fatal("unbounded second cycle member accepted")
-				}
 			}
 		})
 	}

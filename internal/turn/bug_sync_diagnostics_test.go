@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -80,14 +82,33 @@ func TestBugSyncStopRetainsReadablePartialEffects(t *testing.T) {
 	}
 }
 
-func TestBugSyncExhaustionIncludesLastRetryReason(t *testing.T) {
+// The step budget belongs to the instance: once it is spent, the instance parks
+// for the owner with one plain comment instead of failing, and the owner's reply
+// starts a fresh budget at the same step.
+func TestStepBudgetParksForTheOwnerAndAReplyResetsIt(t *testing.T) {
 	f, profile, instance := approvedGraphSyncDiagnosticsFixture(t)
 	gate, ok := graphexec.BugFixerSyncGate(profile)
 	if !ok {
 		t.Fatal("canonical Bug lacks sync prerequisite")
 	}
+	before, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	mustProgress(t, err)
+	// The budget counts from the continuation the latest owner reply allocated.
+	spent := len(before)
+	if prior, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID); err == nil && prior.State == "allocated" {
+		spent = 0
+		for _, a := range before {
+			if a.ID >= prior.ContinuationAttemptID {
+				spent++
+			}
+		}
+	}
+	const retries = 3
+	budget := spent + retries
+	profile.Attrs = maps.Clone(profile.Attrs)
+	profile.Attrs[graphexec.StepBudgetAttribute] = strconv.Itoa(budget)
 	handler := &graphTestHandler{results: map[string][]ActivityResult{}}
-	for i := 0; i < gate.Limit; i++ {
+	for i := 0; i < 2*retries; i++ {
 		raw, err := json.Marshal(syncBaseOutput{Working: "lf/retained", Base: "main", Result: "retry", Reason: fmt.Sprintf("retained unpublished commit %d", i+1)})
 		mustProgress(t, err)
 		handler.results[gate.Name] = append(handler.results[gate.Name], ActivityResult{Outcome: "retry", Kind: store.GraphOutputJSON, Output: raw})
@@ -95,72 +116,63 @@ func TestBugSyncExhaustionIncludesLastRetryReason(t *testing.T) {
 	var activities ActivityRegistry
 	mustProgress(t, activities.Register(graphexec.SyncBaseAction, handler))
 	request := GraphNodeRequest{Profile: profile, Activities: activities, InstanceID: instance.ID, At: f.opts.MCP.Now()}
-	var latest int64
-	for i := 0; i < gate.Limit; i++ {
+	for i := 0; i < retries; i++ {
 		step, err := ExecuteNodeAction(t.Context(), f.opts, request)
 		mustProgress(t, err)
 		if step.NextNode != gate.Name || step.Status != store.GraphRunning {
 			t.Fatalf("retry escaped gate: %+v", step)
 		}
-		latest = step.AttemptID
 	}
 	step, err := ExecuteNodeAction(t.Context(), f.opts, request)
 	mustProgress(t, err)
-	if step.Status != "waiting_owner" || len(handler.calls) != gate.Limit {
+	if !step.Exhausted || step.Status != "waiting_owner" || len(handler.calls) != retries {
 		t.Fatalf("exhaustion=%+v calls=%d", step, len(handler.calls))
 	}
-	for _, part := range []string{fmt.Sprintf("retained unpublished commit %d", gate.Limit), fmt.Sprintf("synchronization attempt: %d", latest)} {
-		if !strings.Contains(step.Activity.Diagnostic, part) {
-			t.Fatalf("missing %q: %s", part, step.Activity.Diagnostic)
-		}
-	}
-	// Guidance can request another bounded continuation, but cannot replenish
-	// the cumulative synchronization budget. Each refusal must park against the
-	// new reply rather than reuse the already claimed question.
-	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	current, err := f.db.GetGraphInstance(t.Context(), instance.ID)
 	mustProgress(t, err)
-	attemptCount := len(attempts)
-	var lastReplyID int64
-	for continuation := 0; continuation < 2; continuation++ {
-		wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
-		mustProgress(t, err)
-		delivery, err := f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
-		mustProgress(t, err)
-		reply := store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: 7, AuthorID: 7,
-			CommentID: max(delivery.CommentID+1, lastReplyID+1), QuestionCommentID: delivery.CommentID,
-			TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug",
-			DeliveryKey: wait.DeliveryKey, Body: "Retry the retained synchronization",
-			At: request.At.Add(time.Duration(continuation+1) * time.Minute)}
-		claimed, err := AdmitGraphBugOwnerReply(t.Context(), f.db, reply)
-		mustProgress(t, err)
-		if claimed.State != "claimed" {
-			t.Fatalf("reply was not claimed: %+v", claimed)
-		}
-		lastReplyID = reply.CommentID
-		request.At = reply.At
+	if current.Status != store.GraphRunning || current.CurrentNode != gate.Name {
+		t.Fatalf("exhausted budget did not park at its step: %+v", current)
+	}
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	mustProgress(t, err)
+	if wait.State != "waiting" || wait.OriginNode != gate.Name {
+		t.Fatalf("no owner wait: %+v", wait)
+	}
+	intent, err := f.db.GetGraphComment(t.Context(), wait.DeliveryKey)
+	mustProgress(t, err)
+	var question GraphStopQuestion
+	mustProgress(t, json.Unmarshal(intent.Candidate, &question))
+	if question.Cause != graphBudgetCause || !strings.Contains(question.Reason, fmt.Sprintf("Stopped after %d steps without an owner reply; reply to continue.", budget)) {
+		t.Fatalf("stop comment: %+v", question)
+	}
+	// A repeat while parked posts nothing more and dispatches nothing.
+	again, err := ExecuteNodeAction(t.Context(), f.opts, request)
+	mustProgress(t, err)
+	if again.Status != "waiting_owner" || len(handler.calls) != retries {
+		t.Fatalf("parked instance moved: %+v calls=%d", again, len(handler.calls))
+	}
+	delivery, err := f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+	mustProgress(t, err)
+	reply := store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: 7, AuthorID: 7,
+		CommentID: delivery.CommentID + 1, QuestionCommentID: delivery.CommentID,
+		TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug",
+		DeliveryKey: wait.DeliveryKey, Body: "Keep going", At: request.At.Add(time.Minute)}
+	claimed, err := AdmitGraphBugOwnerReply(t.Context(), f.db, reply)
+	mustProgress(t, err)
+	if claimed.State != "claimed" {
+		t.Fatalf("reply was not claimed: %+v", claimed)
+	}
+	request.At = reply.At
+	for i := 0; i < retries; i++ {
 		step, err = ExecuteNodeAction(t.Context(), f.opts, request)
 		mustProgress(t, err)
-		reparked, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
-		mustProgress(t, err)
-		if step.Status != "waiting_owner" || reparked.State != "waiting" || reparked.DeliveryKey == wait.DeliveryKey {
-			t.Fatalf("exhausted continuation did not create a fresh wait: step=%+v old=%+v new=%+v", step, wait, reparked)
-		}
-		intent, err := f.db.GetGraphComment(t.Context(), reparked.DeliveryKey)
-		mustProgress(t, err)
-		var question GraphStopQuestion
-		mustProgress(t, json.Unmarshal(intent.Candidate, &question))
-		for _, part := range []string{fmt.Sprintf("retained unpublished commit %d", gate.Limit), fmt.Sprintf("synchronization attempt: %d", latest), fmt.Sprintf("Continuation reply: %d", reply.CommentID)} {
-			if !strings.Contains(question.Reason, part) {
-				t.Fatalf("reparked question lost %q: %s", part, question.Reason)
-			}
-		}
-		currentAttempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
-		mustProgress(t, err)
-		if len(currentAttempts) != attemptCount || len(handler.calls) != gate.Limit {
-			t.Fatalf("owner reply replenished sync: attempts=%d want=%d dispatches=%d", len(currentAttempts), attemptCount, len(handler.calls))
+		if step.Exhausted || step.Status != store.GraphRunning {
+			t.Fatalf("owner reply did not renew the budget: %+v", step)
 		}
 	}
-
+	if len(handler.calls) != 2*retries {
+		t.Fatalf("dispatches after the reply: %d", len(handler.calls))
+	}
 }
 
 func approvedGraphSyncDiagnosticsFixture(t *testing.T) (*fixture, *graphexec.Profile, store.GraphInstance) {

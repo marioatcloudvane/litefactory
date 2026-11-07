@@ -32,7 +32,7 @@ type SimplifiedBugPolicy struct {
 
 // SimplifiedBugSpecs is capture-only; registration still needs real handlers.
 func SimplifiedBugSpecs() (graphexec.Registry, error) {
-	r := graphexec.Registry{Policy: graphexec.ValidateOwnerConversationGraph}
+	var r graphexec.Registry
 	delivery := graphexec.DeliverSpec("")
 	delivery.Workflow = agent.WorkflowBug
 	if e := r.Register(delivery); e != nil {
@@ -50,9 +50,6 @@ func SimplifiedBugSpecs() (graphexec.Registry, error) {
 func (p SimplifiedBugPolicy) Register(specs *graphexec.Registry, activities *ActivityRegistry) error {
 	if specs == nil || activities == nil || p.Profile == nil || p.Analyst.Prepare == nil || nilActivityHandler(p.Fixer) || nilActivityHandler(p.Finalization) || p.Reporter == nil {
 		return errors.New("simplified Bug requires analyst, repair, finalization and factory reporter capabilities")
-	}
-	if e := graphexec.ValidateOwnerConversationGraph(p.Profile); e != nil {
-		return e
 	}
 	catalog, e := SimplifiedBugSpecs()
 	if e != nil {

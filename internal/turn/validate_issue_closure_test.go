@@ -18,7 +18,7 @@ func TestValidateOwnerStartAfterIssueClosureCancellation(t *testing.T) {
 	first := v.entries(t)[0]
 	instance, err := v.f.db.GetGraphInstance(ctx, first.InstanceID)
 	mustProgress(t, err)
-	source, err := v.f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, Limit: 3, StartedAt: instance.StartedAt})
+	source, err := v.f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, StartedAt: instance.StartedAt})
 	mustProgress(t, err)
 	mustProgress(t, v.f.db.FinishGraphNodeAttempt(ctx, source.ID, store.GraphSucceeded, "done", instance.StartedAt))
 	mustProgress(t, v.f.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "closure-review", InstanceID: instance.ID, SourceAttemptID: source.ID, Node: instance.CurrentNode, Kind: "review", Candidate: []byte("{}")}))

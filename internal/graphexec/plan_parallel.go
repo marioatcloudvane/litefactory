@@ -3,10 +3,11 @@ package graphexec
 import (
 	"errors"
 	"fmt"
-	"github.com/cloudvane/litefactory/internal/agent"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 // PlanParallelAction runs a bounded Plan contribution group.
@@ -23,6 +24,9 @@ type PlanParallel struct {
 	Rounds  int
 }
 
+// PlanParallelMaxRounds caps a parallel group's declared reconciliation rounds.
+const PlanParallelMaxRounds = 4 * PlanCreationBound
+
 // DecodePlanParallel validates references, unique ownership and a finite reconciliation bound.
 func DecodePlanParallel(p *Profile, n Node) (PlanParallel, error) {
 	out := PlanParallel{Members: map[string]string{}}
@@ -30,7 +34,7 @@ func DecodePlanParallel(p *Profile, n Node) (PlanParallel, error) {
 		return out, errors.New("parallel groups require Plan")
 	}
 	rounds, err := strconv.Atoi(n.Attrs["lf_rounds"])
-	if err != nil || rounds < 1 || rounds > PlanNodeLimitMax {
+	if err != nil || rounds < 1 || rounds > PlanParallelMaxRounds {
 		return out, errors.New("lf_rounds requires a positive bounded integer")
 	}
 	out.Rounds = rounds

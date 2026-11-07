@@ -38,7 +38,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 	if paused.Status != "waiting_owner" || paused.AttemptID != 0 {
 		t.Fatalf("wait dispatched: %+v", paused)
 	}
-	start := store.GraphAttemptStart{InstanceID: source.InstanceID, Node: source.Node, RunID: source.RunID, Limit: 3, StartedAt: source.StartedAt.Add(time.Hour)}
+	start := store.GraphAttemptStart{InstanceID: source.InstanceID, Node: source.Node, RunID: source.RunID, StartedAt: source.StartedAt.Add(time.Hour)}
 	if _, err = f.db.StartGraphNodeAttempt(t.Context(), start); !errors.Is(err, store.ErrGraphOwnerWait) {
 		t.Fatalf("unpublished wait allocated: %v", err)
 	}
