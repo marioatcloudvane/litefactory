@@ -23,6 +23,14 @@ phases:
         timeout_seconds: 1200
   full:
     commands:
+      # The full phase runs make check's steps (Makefile check: fmt vet lint
+      # test) in its order, so Validate fails on what main's CI fails on.
+      - argv: [make, fmt]
+        timeout_seconds: 900
+      - argv: [make, vet]
+        timeout_seconds: 900
+      - argv: [make, lint]
+        timeout_seconds: 1800
       # make test runs every test with race coverage where concurrency is
       # (see Makefile); the blanket -race run took over an hour on internal/turn.
       # 86400 is the recipe maximum so a slow host never cuts it off.
