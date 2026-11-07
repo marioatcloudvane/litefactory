@@ -109,7 +109,93 @@ func TestReadOnlyRunIsSandboxedOutsideTheWorktree(t *testing.T) {
 	}
 }
 
-// An ordinary writable run keeps the operator settings and uses the main cache.
+// A writable run that holds Bash is sandboxed too: it may write its worktree,
+// its git directory and its submission directory and reach the allowlisted
+// hosts, while $LF_HOME's state and every credential store stay unreadable
+// and unwritable.
+func TestWritableRunIsSandboxedWithCredentialsDenied(t *testing.T) {
+	f := newFixture(t, successScript(t))
+	f.runner.tools = config.AgentTools()
+	gitDir := filepath.Join(t.TempDir(), "gitdir")
+	if err := os.WriteFile(filepath.Join(f.worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	submissionRoot := filepath.Join(f.runner.paths.SubmissionDir(), "attempt")
+	req := f.request()
+	req.SubmissionRoot = submissionRoot
+	req.Permissions = Permissions{Profile: "implement", Payload: ToolSurface{}}
+	if result, err := f.runner.Run(t.Context(), req); err != nil || result.Outcome != OutcomeSucceeded {
+		t.Fatalf("Run: %+v %v", result, err)
+	}
+
+	argv := strings.Split(strings.TrimSpace(f.dump(t, "argv.dump")), "\n")
+	i := slices.Index(argv, "--settings")
+	if i < 0 || argv[i+1] == f.runner.settingsPath || strings.HasPrefix(argv[i+1], f.worktree) {
+		t.Fatalf("--settings is not the run's own document outside the worktree: %v", argv)
+	}
+	raw, err := os.ReadFile(argv[i+1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Permissions struct {
+			Deny []string `json:"deny"`
+		} `json:"permissions"`
+		Sandbox struct {
+			Enabled     bool `json:"enabled"`
+			Fail        bool `json:"failIfUnavailable"`
+			Unsandboxed bool `json:"allowUnsandboxedCommands"`
+			Filesystem  struct {
+				AllowWrite []string `json:"allowWrite"`
+				DenyWrite  []string `json:"denyWrite"`
+				DenyRead   []string `json:"denyRead"`
+				AllowRead  []string `json:"allowRead"`
+			} `json:"filesystem"`
+			Network struct {
+				Allowed []string `json:"allowedDomains"`
+				Sockets []string `json:"allowUnixSockets"`
+			} `json:"network"`
+		} `json:"sandbox"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	sb := doc.Sandbox
+	if !sb.Enabled || !sb.Fail || sb.Unsandboxed {
+		t.Fatalf("sandbox is not enforced: %+v", sb)
+	}
+	for _, path := range append(f.runner.paths.DoctorCredentialPaths(f.runner.osHome), f.runner.paths.LogsDir(), f.runner.paths.DBPath()) {
+		if !slices.Contains(sb.Filesystem.DenyRead, path) {
+			t.Errorf("%s is readable: %v", path, sb.Filesystem.DenyRead)
+		}
+		if path != f.runner.paths.SubmissionDir() && !slices.Contains(sb.Filesystem.DenyWrite, path) {
+			t.Errorf("%s is writable: %v", path, sb.Filesystem.DenyWrite)
+		}
+	}
+	for _, path := range []string{filepath.Join(f.runner.osHome, ".ssh"), filepath.Join(f.runner.osHome, ".config", "gh"), filepath.Join(f.home, "config.yaml")} {
+		if !slices.Contains(sb.Filesystem.DenyRead, path) {
+			t.Errorf("credential path %s is readable", path)
+		}
+	}
+	for _, path := range []string{f.worktree, gitDir, submissionRoot} {
+		if !slices.Contains(sb.Filesystem.AllowWrite, path) {
+			t.Errorf("%s is not writable: %v", path, sb.Filesystem.AllowWrite)
+		}
+	}
+	if !slices.Contains(sb.Filesystem.AllowRead, submissionRoot) || !slices.Contains(sb.Network.Sockets, filepath.Join(submissionRoot, "s")) {
+		t.Errorf("submission directory unreachable: %+v %+v", sb.Filesystem, sb.Network)
+	}
+	for _, host := range []string{"github.com", "proxy.golang.org", "registry.npmjs.org", "pypi.org"} {
+		if !slices.Contains(sb.Network.Allowed, host) {
+			t.Errorf("%s is not reachable: %v", host, sb.Network.Allowed)
+		}
+	}
+	if !slices.Contains(doc.Permissions.Deny, "Bash(git push:*)") {
+		t.Fatalf("operator deny rules lost: %v", doc.Permissions.Deny)
+	}
+}
+
+// A run without a shell keeps the operator settings and uses the main cache.
 func TestOrdinaryRunIsNotSandboxed(t *testing.T) {
 	f := newFixture(t, successScript(t))
 	f.run(t)

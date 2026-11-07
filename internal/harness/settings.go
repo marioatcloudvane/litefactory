@@ -66,9 +66,9 @@ type settingsPermissions struct {
 // selects discards it. homeRule is $LF_HOME as an absolute rule path.
 //
 // Read and Edit rules bind Claude's file tools, which is where an agent reads
-// and writes most. A Bash command is bounded by them only inside the OS
-// sandbox of a read-only run (see readOnlyShellSandboxSettings); the Bash
-// rules below refuse the commands that print a credential outright.
+// and writes most. Bash commands are kept away from the same paths by the OS
+// sandbox every shell runs in (see sandbox.go); the Bash rules below also
+// refuse the commands that print a credential outright.
 func denyRules(homeRule string) []string {
 	rules := []string{
 		// litefactory owns the commit and the push (AC-3.21). No agent makes

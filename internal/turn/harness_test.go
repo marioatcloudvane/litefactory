@@ -117,10 +117,13 @@ func realRunner(t *testing.T, f *fixture, script string) (*harness.Runner, strin
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatalf("create the fake bin directory: %v", err)
 	}
+	tmpDir := t.TempDir()
+	// A run holding Bash gets a private sandbox TMPDIR, so the fake writes
+	// into the test's directory by its literal path.
+	script = strings.ReplaceAll(script, "$TMPDIR", tmpDir)
 	if err := os.WriteFile(filepath.Join(binDir, "claude"), []byte("#!/bin/sh\n"+script), 0o700); err != nil { //nolint:gosec // a fixture executable.
 		t.Fatalf("write the fake claude: %v", err)
 	}
-	tmpDir := t.TempDir()
 
 	runner, err := harness.New(harness.Options{
 		Paths: f.paths,
@@ -128,7 +131,6 @@ func realRunner(t *testing.T, f *fixture, script string) (*harness.Runner, strin
 		Claude: config.Claude{
 			Binary:         "claude",
 			Tools:          []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"},
-			AllowedTools:   config.DefaultClaude().AllowedTools,
 			SettingsPath:   filepath.Join(f.paths.Home(), "claude-settings.json"),
 			TimeoutSeconds: 60,
 		},

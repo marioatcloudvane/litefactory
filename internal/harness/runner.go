@@ -478,15 +478,9 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 
 	args := append(r.args(req), r.thinkingArgs(ctx)...)
 	var extraEnv []string
-	if r.goBuildCaches.Main != "" && !toolSurface(req).ReadOnly && slices.Contains(r.surface(req), "Bash") {
-		settings, err := r.prepareMainCacheSettings(req.WorktreePath, logPath)
-		if err != nil {
-			return nil, err
-		}
-		args = replaceFlagValue(args, "--settings", settings)
-	}
-	if toolSurface(req).ReadOnly {
-		sandbox, err := r.prepareReadOnlySandbox(req.WorktreePath, logPath)
+	// Every shell runs inside the OS sandbox the mode selects; see sandbox.go.
+	if toolSurface(req).ReadOnly || slices.Contains(r.surface(req), "Bash") {
+		sandbox, err := r.prepareSandbox(req, logPath)
 		if err != nil {
 			return nil, err
 		}
