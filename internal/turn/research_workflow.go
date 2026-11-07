@@ -477,8 +477,7 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 // parentSessionContext names, in order, the parent session files a story worker
 // is pointed at, each with what it holds for the story's criteria.
 var parentSessionContext = []struct{ name, meaning string }{
-	{naming.ResearchTechnicalName, "holds the Research findings: the classified inventory named in this story's criteria"},
-	{naming.ResearchBriefName, "holds the Research decisions and assumptions named in this story's criteria"},
+	{naming.ResearchBriefName, "holds the Research ledger: the O-, N-, K- and A- entries named in this story's criteria"},
 	{planbrief.FileName, "holds the plan"},
 }
 
