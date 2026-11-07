@@ -78,8 +78,8 @@
 // end, across a full turn, against a deliberately dirtied fixture (AC-3.10).
 // # Managed Plan publication
 //
-// [PublishPlan] validates and publishes complete proposals through the managed
-// forge. The factory writes a link-only Story Index before the normal save,
-// and marks the Plan ready only after publication and save succeed. Discovery
-// of per-story Markdown files is not a publication route.
+// Graph Plan publishes story issues through the managed forge from results
+// returned over the MCP result service. The factory writes a link-only Story
+// Index before the normal save, and marks the Plan ready only after
+// publication and save succeed.
 package turn

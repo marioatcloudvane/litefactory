@@ -11,7 +11,7 @@ import (
 
 // AC-171-7: reserved transport must survive both safe sync and rejected collisions.
 func TestReservedTransportSynchronization(t *testing.T) {
-	for _, name := range []string{".litefactory-plan-proposal.json", ".litefactory-story-events/244/000001.json"} {
+	for _, name := range []string{".litefactory-story-events/244/000001.json"} {
 		t.Run(name, func(t *testing.T) {
 			for _, tc := range []struct {
 				name                             string

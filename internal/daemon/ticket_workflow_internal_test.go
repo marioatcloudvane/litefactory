@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -257,11 +255,7 @@ func TestNeutralTicketWorkflow(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			proposal := planbrief.PlanProposal{Version: planbrief.ProposalVersion, Parent: ref.String(), Generation: 1, Stories: []planbrief.StoryProposal{{Key: "story-001", Intent: "create", Title: "approved story", Body: "## User Story\nOwner retains the existing workflow.\n## Acceptance Criteria\nPublication is confirmed on the intended ticket.\n## Tasks\nPreserve qualified ticket identities.\n## Architecture\nUse the neutral adapter and existing durable ledgers.\n## Dependencies\nNone.\n"}}}
-			index, err := turn.PublishPlan(t.Context(), turn.PublicationOptions{DB: db, Forge: plan, Renderer: renderer, Parent: ref, Generation: 1, BotID: 99}, proposal)
-			if err != nil || !strings.Contains(string(index), "https://github.com/owner/repo/issues/8") {
-				t.Fatalf("durable Plan publication: %s %v", index, err)
-			}
+			seedManagedStory(t.Context(), t, db, plan, renderer, ref, "story-001", "approved story", "## User Story\nOwner retains the existing workflow.\n## Acceptance Criteria\nPublication is confirmed on the intended ticket.\n## Tasks\nPreserve qualified ticket identities.\n## Architecture\nUse the neutral adapter and existing durable ledgers.\n## Dependencies\nNone.\n")
 			stories, err := db.ListManagedStories(t.Context(), ref.String(), 1)
 			if err != nil || len(stories) != 1 || stories[0].IssueID != 800 || stories[0].IssueNumber != 8 {
 				t.Fatalf("durable child identity: %+v %v", stories, err)

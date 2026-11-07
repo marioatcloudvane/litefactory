@@ -2,8 +2,6 @@ package turn
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,35 +30,6 @@ func req2(f *fixture, body string) Request {
 	req.Trigger.Body = body
 	req.Command = ParseCommand(body)
 	return req
-}
-
-func lockIndex(t *testing.T, worktree string) {
-	t.Helper()
-
-	gitPath := filepath.Join(worktree, ".git")
-	info, err := os.Stat(gitPath)
-	if err != nil {
-		t.Fatalf("stat %s: %v", gitPath, err)
-	}
-
-	gitDir := gitPath
-	if !info.IsDir() {
-		contents, err := os.ReadFile(gitPath) //nolint:gosec // a test-owned path
-		if err != nil {
-			t.Fatalf("read %s: %v", gitPath, err)
-		}
-		pointer, ok := strings.CutPrefix(strings.TrimSpace(string(contents)), "gitdir:")
-		if !ok {
-			t.Fatalf("%s is a file but does not name a gitdir: %q", gitPath, contents)
-		}
-		gitDir = strings.TrimSpace(pointer)
-	}
-
-	lock := filepath.Join(gitDir, "index.lock")
-	if err := os.WriteFile(lock, nil, 0o600); err != nil {
-		t.Fatalf("take the index lock at %s: %v", lock, err)
-	}
-	t.Cleanup(func() { _ = os.Remove(lock) })
 }
 
 // A failed run's work is committed and pushed like any other (#488: git is the

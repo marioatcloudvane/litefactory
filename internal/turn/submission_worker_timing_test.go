@@ -8,46 +8,8 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/harness"
-	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
-
-func TestSubmissionWorkerTimingFollowsTypedPlanPromptBinding(t *testing.T) {
-	for _, mode := range []string{"nil options", "nil session", "typed plan"} {
-		t.Run(mode, func(t *testing.T) {
-			db, _, _ := agentResultFixture(t, "plan")
-			input := harness.PromptInput{Ref: naming.Ref{Forge: naming.ForgeGitHub, Owner: "example", Repo: "results", Issue: 263}, FeatureSlug: "263-worker-timing", Branch: "lf/263-worker-timing", Mode: "plan", RunOrdinal: 1, Instruction: "Continue the approved work"}
-			prompt, err := harness.BuildPrompt(input)
-			mustProgress(t, err)
-			timing := "\nWorker timing: effective limit 61 seconds; deadline 2026-10-25T12:00:00Z.\n"
-			seen := ""
-			prep := &preparation{promptInput: input, workerTiming: timing, runner: newStubRunner(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-				seen = req.Prompt
-				return &agent.RunResult{Outcome: agent.OutcomeSucceeded}, nil
-			})}
-			if mode != "nil options" {
-				prep.submissionOptions = &SubmissionSessionOptions{DB: db}
-			}
-			if mode == "typed plan" {
-				prep.planSubmission = func(context.Context) (*PlanSubmissionCallbacks, error) { return &PlanSubmissionCallbacks{}, nil }
-			}
-			result, err := runSubmissionBound(t.Context(), prep, agent.Request{Mode: "plan", Prompt: prompt})
-			if err != nil || result == nil || !result.Succeeded() {
-				t.Fatalf("launch failed after timing was supplied: %+v %v", result, err)
-			}
-			expected := input
-			if mode == "typed plan" {
-				expected.SubmissionVersion = 2
-			}
-			rebound, err := harness.BuildPrompt(expected)
-			mustProgress(t, err)
-			if seen != rebound+timing || strings.Count(seen, timing) != 1 || prep.prompt != seen {
-				t.Fatal("runner did not receive exactly one timing fact after the bound prompt")
-			}
-		})
-	}
-}
 
 func TestNonGraphFinalizationBoundsBlockedTransportJoin(t *testing.T) {
 	f := newRetainedFixture(t, "research")
