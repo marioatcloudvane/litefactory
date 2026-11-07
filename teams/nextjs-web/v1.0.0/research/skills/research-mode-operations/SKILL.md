@@ -9,7 +9,7 @@ description: Research mode for infrastructure, configuration, deployment and sec
 **Gather first:**
 - The current setup as recorded in the repository: config files, deploy scripts, CI workflows, runbooks, docs.
 - Recent incidents, issues and commits about the same machine, service or pipeline.
-- Which parts live outside the repository and can only be described, not read.
+- Which parts live outside the repository. You cannot reach Docker, deploy hosts or secrets: describe them from repository files and list each live check as an owner step.
 
 **Open points worth asking:**
 - The target environment and who may change it.

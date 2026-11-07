@@ -27,7 +27,7 @@ func graphOwnerInputSection(ctx context.Context, db *store.DB, attemptID int64) 
 func ownerInstructionForStep(ctx context.Context, db *store.DB, req Request, sessionID int64) (string, error) {
 	if req.researchInstance > 0 && req.Trigger.CommentID > 0 {
 		if _, err := db.GetOwnerInstruction(ctx, sessionID, req.Trigger.CommentID); err == nil {
-			return "Continue this workflow step within its retained scope and context. Current one-time owner direction is supplied only when assigned to this logical step.", nil
+			return "Resume with the owner comments supplied.", nil
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return "", err
 		}
