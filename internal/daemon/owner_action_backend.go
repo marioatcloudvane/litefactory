@@ -217,11 +217,17 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 			return messaging.RenderQuestion(ctx, q, protect, presentation.MessageLimit)
 		}
 		availability.Brainstorm = true
+		var bugFiles owneraction.Domain
+		if labels, ok := d.bugFilingForge().(owneractions.BugLabels); ok {
+			availability.BugFile = true
+			bugFiles = owneractions.BugFiles{DB: d.db, Labels: labels, Protect: protect, Availability: availability}
+		}
 		core := owneractions.Domain{
 			Actions:      owneractions.Actions{FallbackTransport: "mcp", Targets: targets, Protect: protect, Research: research, Features: independentFeatureEffects{drafter: drafter, confirmer: creator}, Answer: owneractions.AnswerAdmission{Research: research, Protect: protect, Render: render}, Availability: availability},
 			Diagnosis:    owneractions.Diagnosis{Targets: targets, Protect: protect, Effects: independentDiagnosisEffects{research: research}, Availability: availability},
 			Standards:    owneractions.Standards{Targets: targets, Protect: protect, Available: standards != nil, Frozen: standards},
 			Brainstorm:   owneractions.BrainstormTasks{DB: d.db, Drafts: &runtime.brainstormDrafts, Protect: protect, Availability: availability},
+			BugFile:      bugFiles,
 			Availability: availability,
 		}
 		domain := independentOwnerActionDomain{Domain: core, standards: standards, brainstorm: &runtime.brainstormDrafts}

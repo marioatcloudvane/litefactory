@@ -458,10 +458,35 @@ func (c *Client) CreateWithID(ctx context.Context, container, id string, title, 
 
 // CreateChildWithID creates an issue with a verified optional direct parent.
 func (c *Client) CreateChildWithID(ctx context.Context, container, id string, parent *ticket.Ref, title, body redact.Body) (ticket.Snapshot, error) {
+	return c.createWithID(ctx, container, id, parent, nil, title, body)
+}
+
+// BugLabelName is the label name a mapped bug label is shown as.
+const BugLabelName = "bug"
+
+// BugLabelID returns the configured bug label ID, or "" when none is set.
+func (c *Client) BugLabelID() string { return c.config.BugLabelID }
+
+// CreateLabelledWithID creates a top-level issue that carries the connection's
+// mapped bug label in the same mutation. The label ID must be the configured
+// one; an empty or different ID is refused before any request is sent. The
+// returned snapshot shows the labels Linear stored, so the caller can see a
+// missing label and repair it by ID with AddLabel.
+func (c *Client) CreateLabelledWithID(ctx context.Context, container, id, labelID string, title, body redact.Body) (ticket.Snapshot, error) {
+	if labelID == "" || labelID != c.config.BugLabelID {
+		return ticket.Snapshot{}, failure("create", ticket.Refused, "the mapped bug label is required")
+	}
+	return c.createWithID(ctx, container, id, nil, []string{labelID}, title, body)
+}
+
+func (c *Client) createWithID(ctx context.Context, container, id string, parent *ticket.Ref, labelIDs []string, title, body redact.Body) (ticket.Snapshot, error) {
 	if container != c.Container() || !creationIDPattern.MatchString(id) || !title.Valid() || !body.Valid() {
 		return ticket.Snapshot{}, failure("create", ticket.Refused, "scope, creation UUID and redaction required")
 	}
 	input := map[string]any{"id": id, "teamId": c.config.TeamID, "projectId": c.config.ProjectID, "title": title.String(), "description": EncodeContent(body.String())}
+	if len(labelIDs) > 0 {
+		input["labelIds"] = labelIDs
+	}
 	if parent != nil {
 		if _, err := c.Read(ctx, *parent); err != nil {
 			return ticket.Snapshot{}, err
@@ -618,6 +643,9 @@ func (c *Client) changeLabel(ctx context.Context, ref ticket.Ref, label string, 
 			return failure("label", ticket.Refused, "coding agent label mapping is required")
 		}
 		id = c.config.CodingAgentLabels[key]
+	}
+	if id == "" && label == BugLabelName && c.config.BugLabelID != "" {
+		id = c.config.BugLabelID
 	}
 	if id == "" {
 		for mode, mapped := range c.config.ModeLabels {

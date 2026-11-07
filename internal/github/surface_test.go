@@ -68,6 +68,8 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"GetActionsRun",            // Refresh retained run and rerun attempt.
 		"AddCommentReaction",       // POST …/issues/comments/{id}/reactions
 		"AddIssueLabel",            // POST …/issues/{n}/labels
+		"AddLabelsByID",            // POST configured GraphQL endpoint, addLabelsToLabelable with label node IDs only
+		"RepoLabelNodeID",          // GET /repos/{o}/{r}/labels/{name}, exact name, node ID or not found
 		"AddSubIssue",              // POST /repos/{o}/{r}/issues/{n}/sub_issues
 		"UserByLogin",              // GET  /users/{login}, numeric ID for rights grants
 		"UserByID",                 // GET  /user/{id}, immutable project approver verification and refresh

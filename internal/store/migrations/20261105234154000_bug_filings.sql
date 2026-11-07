@@ -1,0 +1,42 @@
+CREATE TABLE bug_filings (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ execution_id TEXT NOT NULL UNIQUE,
+ owner_action_id TEXT NOT NULL,
+ owner_id TEXT NOT NULL,
+ owner_generation INTEGER NOT NULL,
+ repository_id INTEGER NOT NULL,
+ repository_ref TEXT NOT NULL,
+ title TEXT NOT NULL,
+ body TEXT NOT NULL,
+ marker TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('admitted','creating','uncertain','created','labelled','start_admitted','dispatched','not_created','failed_unconfirmed','label_failed','start_failed')),
+ issue_id INTEGER NOT NULL DEFAULT 0,
+ issue_node_id TEXT NOT NULL DEFAULT '',
+ issue_number INTEGER NOT NULL DEFAULT 0,
+ issue_link TEXT NOT NULL DEFAULT '',
+ session_id INTEGER NOT NULL DEFAULT 0,
+ attempt_at TEXT NOT NULL DEFAULT '',
+ checks_done INTEGER NOT NULL DEFAULT 0,
+ next_check_at TEXT NOT NULL DEFAULT '',
+ create_retries INTEGER NOT NULL DEFAULT 0,
+ label_retries INTEGER NOT NULL DEFAULT 0,
+ failed_start_attempts INTEGER NOT NULL DEFAULT 0,
+ admission_trigger INTEGER NOT NULL DEFAULT 0,
+ reason TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+CREATE TABLE bug_filing_start_attempts (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ filing_id INTEGER NOT NULL REFERENCES bug_filings(id),
+ ordinal INTEGER NOT NULL,
+ session_id INTEGER NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('pending','reserved','running','succeeded','failed')),
+ run_id INTEGER NOT NULL DEFAULT 0,
+ outcome TEXT NOT NULL DEFAULT '' CHECK(outcome IN ('','replayed','deferred','failed','started')),
+ reason TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ UNIQUE(filing_id, ordinal)
+);
+CREATE UNIQUE INDEX bug_filing_start_attempts_one_open ON bug_filing_start_attempts(filing_id) WHERE state IN ('pending','reserved','running');

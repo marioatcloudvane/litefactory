@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
@@ -18,9 +19,11 @@ type LinearConfiguration struct {
 	ModeLabelsJSON                 string
 	LifecycleStatesJSON            string
 	// CodingAgentLabelsJSON maps agent names to label IDs; empty means not mapped.
-	CodingAgentLabelsJSON string
-	// BugLabelID is the optional bug label ID; empty means not mapped.
-	BugLabelID string
+	// It is omitted when empty so unset configurations keep their stored bytes.
+	CodingAgentLabelsJSON string `json:",omitempty"`
+	// BugLabelID is the optional existing Linear label ID that means bug;
+	// empty means not mapped.
+	BugLabelID string `json:",omitempty"`
 }
 
 // ModeLabels returns the configured mode-to-label mapping; an absent map is
@@ -114,6 +117,9 @@ func validateLinearConnection(v ConnectionVersion) error {
 	bug, err := c.BugLabel()
 	if err != nil {
 		return err
+	}
+	if bug != "" && strings.ContainsFunc(bug, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return errors.New("store: Linear bug label ID must not contain whitespace or control characters")
 	}
 	seen := map[string]bool{}
 	ids := []string{bug}

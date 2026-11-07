@@ -156,7 +156,7 @@ func TestVerifyForSaveLooksUpOnlyGivenLabels(t *testing.T) {
 	var labels, states []string
 	c := testClient(t, inspectionFake(t, &labels, &states, "workspace", ""))
 	c.config.ModeLabels = map[string]string{"plan": "stored-plan"}
-	c.config.BugLabel = "stored-bug"
+	c.config.BugLabelID = "stored-bug"
 	c.config.States = map[string]string{"open": "s-open"}
 	if err := c.VerifyForSave(t.Context(), []string{"new-a", "new-b"}); err != nil {
 		t.Fatal(err)

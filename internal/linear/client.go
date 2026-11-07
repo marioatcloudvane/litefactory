@@ -34,10 +34,12 @@ type Config struct {
 	ProjectID      string
 	AuthKind       string
 	ModeLabels     map[string]string
-	// CodingAgentLabels and BugLabel are verified like mode labels; both optional.
+	// CodingAgentLabels is verified like mode labels; optional.
 	CodingAgentLabels map[string]string
-	BugLabel          string
-	States            map[string]string
+	// BugLabelID is the optional existing Linear label that means bug; it is
+	// verified like mode labels.
+	BugLabelID string
+	States     map[string]string
 }
 
 var requestLogger atomic.Pointer[slog.Logger]

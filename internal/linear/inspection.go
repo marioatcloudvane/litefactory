@@ -69,8 +69,8 @@ func (c *Client) Inspect(ctx context.Context) (Inspection, error) {
 	for _, name := range slices.Sorted(maps.Keys(c.config.CodingAgentLabels)) {
 		labelIDs = append(labelIDs, c.config.CodingAgentLabels[name])
 	}
-	if c.config.BugLabel != "" {
-		labelIDs = append(labelIDs, c.config.BugLabel)
+	if c.config.BugLabelID != "" {
+		labelIDs = append(labelIDs, c.config.BugLabelID)
 	}
 	if err := c.inspectLabels(ctx, labelIDs); err != nil {
 		return Inspection{}, err

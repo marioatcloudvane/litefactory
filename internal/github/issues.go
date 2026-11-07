@@ -42,6 +42,8 @@ type Issue struct {
 	// Nothing outside sub-issue creation reads it; it rides on the payload
 	// every other field here comes from, so it costs no extra request.
 	ID int64
+	// NodeID is the issue's GraphQL node ID, what ID-based label writes address.
+	NodeID string
 	// Number is the issue number, the one that appears in the task ref.
 	Number int
 	// Title is the issue title. The feature slug is derived from it.
@@ -282,6 +284,7 @@ func convertIssue(payload *gogithub.Issue) Issue {
 	return Issue{
 		APIURL:      payload.GetURL(),
 		ID:          payload.GetID(),
+		NodeID:      payload.GetNodeID(),
 		Number:      payload.GetNumber(),
 		Title:       payload.GetTitle(),
 		Body:        payload.GetBody(),

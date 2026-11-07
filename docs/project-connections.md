@@ -259,6 +259,13 @@ also distinguishes read access, unknown write access and webhook administration.
 A read check does not prove writes. Every mode used, including inferred modes,
 needs its label mapping; map additional supported modes before using them.
 
+Optional `--bug-label LINEAR_LABEL_ID` on `repo connection set` names the
+existing Linear label that marks a Bug. It is never created and never guessed by
+name. It lets the factory file a Bug from a chat client on this project (see
+[filing a bug from chat](guides/remote-connector.md#filing-a-bug-from-chat)) and
+recognise a labelled issue as a Bug. Without it, filing a bug on a Linear project
+is refused with a plain reason.
+
 ### 4. Appoint and verify the human
 
 ```sh

@@ -78,6 +78,8 @@ func (c *Client) snapshotLabels(nodes []labelNode) []string {
 			}
 			return false
 		}():
+		case c.config.BugLabelID != "" && node.ID == c.config.BugLabelID:
+			e.name = BugLabelName
 		case e.grouped:
 			e.name = node.Parent.Name + ": " + node.Name
 		}

@@ -874,18 +874,18 @@ func TestInspectVerifiesAgentAndBugLabelsByID(t *testing.T) {
 	})
 	c.config.ModeLabels = map[string]string{"plan": "p"}
 	c.config.CodingAgentLabels = map[string]string{"codex": "agent-codex"}
-	c.config.BugLabel = "bug"
+	c.config.BugLabelID = "bug"
 	if _, err := c.Inspect(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(lookups, ",") != "p,agent-codex,bug" {
 		t.Fatalf("lookups=%v", lookups)
 	}
-	c.config.BugLabel = "foreign-bug"
+	c.config.BugLabelID = "foreign-bug"
 	if _, err := c.Inspect(t.Context()); err == nil {
 		t.Fatal("bug label from another workspace accepted")
 	}
-	c.config.BugLabel = "agent-codex"
+	c.config.BugLabelID = "agent-codex"
 	if _, err := c.Inspect(t.Context()); err == nil {
 		t.Fatal("duplicate label ID across fields accepted")
 	}

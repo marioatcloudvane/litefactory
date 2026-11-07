@@ -8,6 +8,28 @@ The Bug workflow fixes one bug end to end: diagnose, wait for your approval, rep
 
 Label the issue `bug` and comment as the owner. If the issue has no `Mode:` label and the comment is not a mode command, the factory treats it as a Bug task. This is fixed for the life of the task: a mode command (`/plan`, `/implement`, ...) on a Bug task is refused. Use another issue for other work. Commands are listed in [owner commands](../guides/owner-commands.md).
 
+### Filing a bug from a chat client
+
+You can also ask your connected chat client to "file a bug". The client proposes the `bug_file` action (through the `bug_file_propose` tool, or `action_propose` with the same three inputs). You check the proposal and say yes; the client then confirms it. The factory then:
+
+1. creates one GitHub issue on the chosen repository with the factory's bot account. The body is your description, the line "Filed for the owner from a chat client." and a hidden marker line;
+2. adds the existing `bug` label (it never creates a label; a repository without a `bug` label is refused before anything is filed);
+3. starts the Bug task by itself, so you do not need to comment first.
+
+#### Filing on a Linear project
+
+The same request works for a project whose ticket connection is Linear; the client names no team. The factory:
+
+1. creates one Linear issue in the connection's team and project with the factory's Linear credential. The body is your description plus the line "Filed for the owner from a chat client." There is no hidden marker; the replay marker is the creation UUID Linear returns for the issue, kept in the ticket-effect ledger, so a retry finds the same issue instead of making another;
+2. applies the bug label the operator set on the connection with `--bug-label` (see [project connections](../project-connections.md)). A project without one is refused before anything is filed;
+3. admits the project ticket and its session, then binds the Bug task to it, and starts the analysis by itself.
+
+An issue carrying the mapped bug label is recognised as a Bug only when it has no earlier workflow admission, so labelling an issue that already runs another workflow does not turn it into a Bug.
+
+The start uses a private trigger. It is never posted on the issue and its id sits in a private range, so the factory can always tell it apart from a comment you wrote. Everything after that is the normal Bug flow: the analysis, your `/approve-bug` approval, repair and delivery.
+
+If the factory stops part way, it never files a second issue and never starts a second analysis. Ask the client what happened to the proposal (`action_inspect`): it shows the issue link once it is known, and a plain state such as "filed but not yet labelled" or a failure with its reason. Setup and a live check are in the [remote connector guide](../guides/remote-connector.md#filing-a-bug-from-chat).
+
 ## Choosing the agent
 
 The selection order is the Bug's explicit `Coding Agent:` label, its immediate parent's agent, optional top-level `bug_agent`, then the first configured agent. Parent selection uses the latest recorded run, including a failed run; only when none exists does it read the parent's single valid label. A Claude parent therefore overrides `bug_agent: codex`; an explicit Codex label on the Bug overrides that parent. Parent inheritance can change selection without a configuration edit. Ambiguous, unknown or no-longer-configured choices are refused.
@@ -37,7 +59,9 @@ For the owner-run real Codex check, label a real Bug for Codex, request work, re
 
 ## When something stops
 
-Every stop (a question, a blocked step, a failure, or an exhausted attempt budget) is parked with its reason and a question for you. Your next ordinary reply resumes that step once, with your words as guidance. After exhaustion that gives one more bounded fixer run. If the branch has gone stale, the work first parks at delivery; once you reply, it is revalidated before it continues. Normal task cancellation stays available. The older special commands for Bug grants and test retries no longer exist.
+Every stop (a question, a blocked step, a failure, or an exhausted attempt budget) is parked with its reason and a question for you. Your next ordinary reply resumes that step once, with your words as guidance. After exhaustion that gives one more bounded fixer run. If the branch has gone stale, the work first parks at delivery; once you reply, it is revalidated before it continues. Normal task cancellation stays available.
+
+One stop has no parked question: the factory stopped after a Bug run was recorded but before any analysis was saved, either before the first step or before the analyst attempt. The start step and the restart check judge this state by the same rule. In that one state only a fresh owner comment on the issue, such as "run it again", restarts the same Bug task. No second task is made. The factory's automatic recovery of stopped work leaves this one state alone while only the automatic start has launched the Bug, so it never restarts the analysis by itself. A private trigger (the automatic start, a graph trigger or any other id in a private range) never restarts it. A filing from chat shows "labelled; Bug run recorded but not started; reply run it again on the issue to continue" until you reply. The restart is refused, as before, while a run is still live or when the session has a run from other work on the issue. The older special commands for Bug grants and test retries no longer exist.
 
 Before an agent starts, unfinished edits in the worktree are kept in a local checkpoint when needed, and the worktree is synced using your [sync settings](../guides/sync-and-conflicts.md).
 
