@@ -60,7 +60,9 @@ type GraphDelivery struct {
 	Inspect func(context.Context, GraphDeliveryBinding) (string, string, error)
 	// Bind supplies workflow-neutral admission instead of the legacy Bug adapter.
 	Bind func(context.Context, Options, ActivityRequest) (GraphDeliveryBinding, error)
-	// PublishSaved pushes the task branch; pushing an unchanged branch is a no-op.
+	// PublishSaved pushes the task branch. It skips the push when the remote
+	// branch is already at head, and accepts a rejected push when re-reading the
+	// remote shows the branch at head; any other failure is returned.
 	PublishSaved func(context.Context, Options, ActivityRequest, string) error
 }
 
