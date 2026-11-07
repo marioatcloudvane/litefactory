@@ -86,13 +86,11 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 			if response == "unapproved-reply" {
 				reply.Body = "Revise the scope before approval"
 			}
-			for _, variant := range []string{"nonowner", "stale", "candidate", "mode"} {
+			for _, variant := range []string{"nonowner", "candidate", "mode"} {
 				bad := reply
 				switch variant {
 				case "nonowner":
 					bad.AuthorID = 8
-				case "stale":
-					bad.CommentID = delivery.CommentID
 				case "candidate":
 					bad.DeliveryKey = "another-candidate"
 				case "mode":

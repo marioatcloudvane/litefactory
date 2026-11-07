@@ -202,12 +202,11 @@ const (
 	// ReplyCreationAccepted acknowledges durable creation consent.
 	ReplyCreationAccepted
 
-	// ReplyGraphReplyBetweenQuestions refuses an owner comment that was written
-	// while the Research workflow was working between two questions, before the
-	// question that is now open was published. It can never answer that
-	// question, so it is refused once, visibly, and consumed rather than
-	// retried forever. It is appended last so no existing kind is renumbered.
-	ReplyGraphReplyBetweenQuestions
+	// ReplyNotUsed answers an owner comment the factory could not use, with
+	// the reason ([Reply.NotUsedReason]). It is the one "not used" reply: the
+	// comment is consumed after the reply is confirmed, so later comments run.
+	// It keeps this position so no existing kind is renumbered.
+	ReplyNotUsed
 	// ReplyBugCommentNotApplied answers an owner comment the Bug workflow
 	// could not apply at its current step. It is posted and the comment is
 	// consumed, so a refused comment never stalls the issue's queue.
@@ -347,8 +346,8 @@ func (k ReplyKind) String() string {
 		return "confirm_failed"
 	case ReplyAppliesResolution:
 		return "applies_resolution"
-	case ReplyGraphReplyBetweenQuestions:
-		return "graph_reply_between_questions"
+	case ReplyNotUsed:
+		return "not_used"
 	case ReplyBugCommentNotApplied:
 		return "bug_comment_not_applied"
 	case ReplyGraphOwnerWaitRefused:
@@ -379,7 +378,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyMissingTicketPublisher, ReplyDoctorUnsupported, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
-	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused,
+	case ReplyNotUsed, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused,
 		ReplyValidateCommentNotApplied, ReplyImplementFinished, ReplyImplementFinishedAutoValidate, ReplyImplementFinishedValidated:
 		return true
 	case ReplyLegacyToolLabel:
@@ -417,10 +416,10 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // RefusesMode reports whether k is a mode-selection refusal: a workflow
 // admission refusal delivered through the daemon's refuseMode path, which
 // consumes the comment only after the reply is confirmed. That includes
-// [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
+// [ReplyNotUsed], the plain "not used: <reason>" reply.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyMissingTicketPublisher, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused,
+	case ReplyMissingTicketPublisher, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyNotUsed, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused,
 		ReplyValidateCommentNotApplied, ReplyImplementFinished, ReplyImplementFinishedAutoValidate, ReplyImplementFinishedValidated:
 		return true
 	default:
@@ -576,6 +575,10 @@ type Reply struct {
 	// reply could not resume it. Either is omitted when it is not plain text.
 	ResumeNode   string
 	ResumeReason string
+
+	// NotUsedReason is read by [ReplyNotUsed] alone: why the comment could not
+	// be used. It is sanitized and fenced before rendering.
+	NotUsedReason string
 }
 
 // ConfirmReply is the factory-owned disclosure for a /confirm control
@@ -964,10 +967,14 @@ func (r Reply) body() string {
 		b.WriteString("This user story is locked after promotion to Implement. The approved scope is retained. Comment `replan` on the parent after the active run finishes to reopen Plan for unfinished stories. Completed stories remain completed; new scope requires a successor.")
 	case ReplyStoryPlanOnly:
 		b.WriteString("Story comments refine the parent plan only. Use the parent issue for workflow commands; nothing was run.")
-	case ReplyGraphReplyBetweenQuestions:
-		b.WriteString(graphReplyBetweenQuestionsSentence)
+	case ReplyNotUsed:
+		b.WriteString("Not used: this comment could not be applied, so nothing was run for it.")
+		if reason := sanitize(r.NotUsedReason); reason != "" {
+			fence := fenceFor(reason)
+			b.WriteString("\n" + fence + "\n" + reason + "\n" + fence)
+		}
 		b.WriteString(sectionGap)
-		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Reply to the current question or review to continue this workflow; this comment did not answer it."))
+		b.WriteString("Later comments on this issue still run. Comment again to retry it.")
 	case ReplyBugCommentNotApplied:
 		b.WriteString("This comment could not be applied to the bug work at its current step, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
@@ -1234,11 +1241,6 @@ func (r Reply) body() string {
 // will act on. It is a single constant so the replies cannot drift into
 // different accounts of the active command vocabulary.
 const onlyCommandSentence = "Litefactory accepts `/research`, `/plan`, `/implement`, `/validate`, `/spike`, and `/schedule`."
-
-// graphReplyBetweenQuestionsSentence is [ReplyGraphReplyBetweenQuestions]'s
-// explanation. It is a constant so tests can find the one reply by its words.
-const graphReplyBetweenQuestionsSentence = "This comment arrived while the workflow was still working, " +
-	"before its current question or review was posted, so it was not used and nothing was run for it."
 
 // confirmationPhraseText mirrors internal/confirm.Phrase verbatim. It is a
 // literal here rather than an import of that package, the same way

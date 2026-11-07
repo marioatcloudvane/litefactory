@@ -96,7 +96,6 @@ func TestGraphStopPersistentSourceLessClaimAndBound(t *testing.T) {
 		"unauthorized":     func(r *GraphOwnerReply) { r.AuthorID = 8 },
 		"foreign workflow": func(r *GraphOwnerReply) { r.Workflow = "plan" },
 		"stale question":   func(r *GraphOwnerReply) { r.QuestionCommentID = 100 },
-		"predating":        func(r *GraphOwnerReply) { r.CommentID = 100 },
 	} {
 		bad := reply
 		mutate(&bad)

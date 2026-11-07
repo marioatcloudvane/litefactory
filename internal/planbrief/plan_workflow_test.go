@@ -121,7 +121,7 @@ func TestPlanWorkflow_ExactOwnerReply(t *testing.T) {
 		{"wrong stage", func(r *planbrief.PlanOwnerReply) { r.Stage = "technical" }, false},
 		{"wrong wait", func(r *planbrief.PlanOwnerReply) { r.WaitID = "old-wait" }, false},
 		{"ambiguous prose", func(r *planbrief.PlanOwnerReply) { r.Body = "Looks fine" }, false},
-		{"mixed change and approval", func(r *planbrief.PlanOwnerReply) { r.Body += " but change actor" }, false},
+		{"command run on into another token", func(r *planbrief.PlanOwnerReply) { r.Body += "x" }, false},
 		{"question with open questions cannot promote", func(r *planbrief.PlanOwnerReply) {}, true},
 	}
 	for _, tt := range tests {
@@ -149,12 +149,12 @@ func TestPlanWorkflow_ExactOwnerReply(t *testing.T) {
 			t.Fatalf("approval with guidance below refused: %v %v %+v", ok, err, s.Stories[0])
 		}
 	})
-	t.Run("same-line text after the command", func(t *testing.T) {
+	t.Run("same-line text after the command is guidance", func(t *testing.T) {
 		s := workflowFixture(t, "a")
 		r := workflowReply(t, &s, 0, 11)
-		r.Body += " please\nmore"
-		if ok, _ := s.ApplyOwnerReply(r); ok || len(s.Stories[0].Approvals) != 0 {
-			t.Fatal("same-line text approved")
+		r.Body += " but change the actor\nmore"
+		if ok, err := s.ApplyOwnerReply(r); err != nil || !ok || s.Stories[0].Stage != "technical" {
+			t.Fatalf("command with trailing guidance refused: %v %v", ok, err)
 		}
 	})
 	t.Run("exact reply replay", func(t *testing.T) {

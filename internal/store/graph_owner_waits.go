@@ -14,14 +14,10 @@ import (
 // ErrGraphOwnerWait prevents dispatch while an owner question has no admitted reply.
 var ErrGraphOwnerWait = errors.New("store: graph awaits an authorized owner reply")
 
-// ErrGraphReplyPredatesQuestion refuses an otherwise authenticated owner
-// comment that was written before the open question was published, for
-// example while a node was still running between two questions. Unlike a
-// running attempt it is permanent: the comment can never answer this question,
-// so the caller must refuse it visibly and consume it rather than retry it.
-// It is deliberately distinct from ErrGraphInvariant, which still covers every
-// other mismatch (task, mode, instance status or incomplete publication).
-var ErrGraphReplyPredatesQuestion = errors.New("store: owner comment predates the published graph question")
+// ErrGraphReplyInput refuses an authenticated owner reply whose content cannot
+// be used (empty, too large, a discussion summary, no question to answer). It
+// is a plain input error, not a broken invariant: the caller answers it once.
+var ErrGraphReplyInput = errors.New("store: owner reply is not usable")
 
 // ErrGraphReplyNotResumable refuses a claimed owner reply whose continuation
 // is not the step the wait rests on, or needs an agent run it does not have.
@@ -85,14 +81,25 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 }
 
 func (db *DB) claimGraphOwnerReply(ctx context.Context, in GraphOwnerReply, chat bool) (out GraphOwnerWait, err error) {
-	if commandtext.DiscussionSummary(in.Body) || in.ReplyToCommentID < 0 || in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || (in.QuestionCommentID < 1 && in.Workflow != "bug") || (strings.TrimSpace(in.Mode) == "" && in.Workflow != "bug") || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
+	// Owner authentication: only the configured owner, on this task's source.
+	if in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || in.At.IsZero() {
 		return out, graphInvariant("invalid authenticated graph reply")
+	}
+	switch {
+	case commandtext.DiscussionSummary(in.Body):
+		return out, fmt.Errorf("%w: a discussion summary is not an answer", ErrGraphReplyInput)
+	case strings.TrimSpace(in.Body) == "":
+		return out, fmt.Errorf("%w: the comment is empty", ErrGraphReplyInput)
+	case len(in.Body) > 65536:
+		return out, fmt.Errorf("%w: the comment is longer than 64 KiB", ErrGraphReplyInput)
+	case in.ReplyToCommentID < 0, (in.QuestionCommentID < 1 && in.Workflow != "bug"), (strings.TrimSpace(in.Mode) == "" && in.Workflow != "bug"):
+		return out, fmt.Errorf("%w: there is no open question for it to answer", ErrGraphReplyInput)
 	}
 	if chat {
 		if in.Mode != "research" || in.Workflow != "research" || !IsChatTrigger(in.CommentID) {
 			return out, graphInvariant("chat may answer only Research questions")
 		}
-	} else if IsPrivateTrigger(in.CommentID) {
+	} else if IsFactoryTrigger(in.CommentID) {
 		return out, graphInvariant("forge reply cannot use a private identity")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
@@ -145,12 +152,6 @@ func claimGraphOwnerReplyTx(ctx context.Context, tx *sql.Tx, in GraphOwnerReply,
 	}
 	if running != 0 {
 		return out, ErrGraphAttemptRunning
-	}
-	// The wait is open and its question is published and completed, but this
-	// comment is not newer than that question: it was written before the
-	// question existed and can never answer it.
-	if !chat && !ownerStop && in.CommentID <= question {
-		return out, ErrGraphReplyPredatesQuestion
 	}
 	if chat {
 		var ordinal int64
@@ -269,44 +270,30 @@ func validateOwnerStopReplyTx(ctx context.Context, tx *sql.Tx, wait GraphOwnerWa
 	if !ok || stop != *candidate.OwnerStop || run.FinishedAt.IsZero() {
 		return false, graphInvariant("owner stop source has not settled")
 	}
-	var created string
 	var author int64
-	var body, classification string
-	if err := tx.QueryRowContext(ctx, `SELECT created_at,author_user_id,body,classification FROM comments WHERE session_id=? AND forge_comment_id=?`, run.SessionID, in.CommentID).Scan(&created, &author, &body, &classification); err != nil {
+	var classification string
+	if err := tx.QueryRowContext(ctx, `SELECT author_user_id,classification FROM comments WHERE session_id=? AND forge_comment_id=?`, run.SessionID, in.CommentID).Scan(&author, &classification); err != nil {
 		return false, err
 	}
-	at, err := ParseTime(created)
-	if err != nil {
-		return false, err
-	}
-	if author != in.OwnerID || body != in.Body || classification != string(ClassificationInstruction) {
+	// The body may be a batch of several owner comments ending with this one,
+	// so only the source's author is bound here.
+	if author != in.OwnerID || classification != string(ClassificationInstruction) {
 		return false, graphInvariant("owner stop reply source mismatch")
 	}
-	if stop.CommandID == 0 && !at.After(stop.At) {
-		return false, ErrGraphReplyPredatesQuestion
-	}
 	if stop.CommandID != 0 {
-		var commentID int64
 		var task, state string
-		if err := tx.QueryRowContext(ctx, `SELECT comment_id,task_ref,state FROM doctor_inbox WHERE id=? AND operation='stop'`, stop.CommandID).Scan(&commentID, &task, &state); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT task_ref,state FROM doctor_inbox WHERE id=? AND operation='stop'`, stop.CommandID).Scan(&task, &state); err != nil {
 			return false, err
-		}
-		if in.CommentID <= commentID {
-			return false, ErrGraphReplyPredatesQuestion
 		}
 		if task != in.TaskRef || state != "completed" {
 			return false, graphInvariant("owner stop command has not completed")
 		}
 		var total, pending int
-		var lastDelivery int64
-		if err := tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(CASE WHEN completed=0 OR comment_id IS NULL THEN 1 ELSE 0 END),0),COALESCE(max(comment_id),0) FROM report_deliveries WHERE doctor_command_id=?`, stop.CommandID).Scan(&total, &pending, &lastDelivery); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(CASE WHEN completed=0 OR comment_id IS NULL THEN 1 ELSE 0 END),0) FROM report_deliveries WHERE doctor_command_id=?`, stop.CommandID).Scan(&total, &pending); err != nil {
 			return false, err
 		}
 		if total == 0 || pending != 0 {
 			return false, graphInvariant("owner stop acknowledgment remains owed")
-		}
-		if in.CommentID <= commentID || in.CommentID <= lastDelivery {
-			return false, ErrGraphReplyPredatesQuestion
 		}
 	}
 	return true, nil

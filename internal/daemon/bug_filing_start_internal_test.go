@@ -182,7 +182,7 @@ func TestBugFilingStartHandsOffOncePrivatelyAndReplaysAfterRestart(t *testing.T)
 		t.Fatalf("hand-offs %v", fx.handoff)
 	}
 	trigger := fx.handoff[0]
-	if !store.IsBugStartTrigger(trigger) || !store.IsPrivateTrigger(trigger) {
+	if !store.IsBugStartTrigger(trigger) || !store.IsFactoryTrigger(trigger) {
 		t.Fatalf("trigger %d is not in the private Bug start band", trigger)
 	}
 	attempts := fx.attempts(t)
