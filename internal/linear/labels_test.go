@@ -89,8 +89,8 @@ func TestGroupedReadAndInheritedAgentWrite(t *testing.T) {
 			input, _ := req.Variables["input"].(map[string]any)
 			ids, _ := input["labelIds"].([]any)
 			for _, id := range ids {
-				value, _ := id.(string)
-				written = append(written, value)
+				s, _ := id.(string)
+				written = append(written, s)
 			}
 			labels = `[{"id":"m","name":"Plan","parent":{"id":"g","name":"Mode"}},{"id":"other","name":"keep"},{"id":"codex-id","name":"x"}]`
 			_, _ = fmt.Fprintf(w, `{"data":{"issueUpdate":{"success":true,"issue":%s}}}`, withLabels(labels))
