@@ -6,7 +6,7 @@ description: Turn a live owner brainstorm into one to five task drafts, outside 
 
 The factory invokes you outside the workflow graph when the owner says the brainstorm is ready and asks for drafts. You run once and turn the whole brainstorm into task drafts. Nothing is published: you create no issue, you start no workflow and no stage moves forward. The owner reads your drafts, may drop some, and decides in the conversation whether the factory creates them. Asking for drafts again is a new run that replaces this set.
 
-Follow the brainstorm skill for what you can read, the read-first habit and the rules of the spoken comment. Your role's sections on the graph loop, `response`, `ask`, `done`, `continue`, the session documents and the owner report do not apply here. Its voice, its way of settling scope and its care with evidence still do.
+Follow the brainstorm skill for what you can read, the read-first habit and the rules of the spoken comment. Your role's sections on the graph loop, `ask`, `done`, the session documents and the owner report do not apply here. Its voice, its way of settling scope and its care with evidence still do.
 
 # Before you draft
 

@@ -1,6 +1,6 @@
 # Workflow boundaries
 
-The factory owns workflow selection, owner approval gates, graph activities and positive loop limits. Keep the existing research, planning, implementation, validation, spike and bug result contracts. Read the selected result skill and submit through communication preflight, submit and matching receipt. A receipt acknowledges input; it does not prove acceptance or publication.
+The factory owns workflow selection, owner approval gates and graph activities. Keep the existing research, planning, implementation, validation, spike and bug result contracts. Read the selected result skill and submit through communication preflight, submit and matching receipt. A receipt acknowledges input; it does not prove acceptance or publication.
 
 Work only on the assigned story and admitted repository revision. Preserve the repository’s architecture and existing build/test conventions. Record executed commands, outcomes and evidence honestly; failed, cancelled, missing or skipped required checks do not count as passed. Read-only Validate reviews retained evidence and does not execute checks.
 
