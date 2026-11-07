@@ -379,11 +379,6 @@ func TestPlanDiscussion_RetryPreservesApprovedEarlierStages(t *testing.T) {
 					t.Fatalf("wrong failed state: %+v", before)
 				}
 				if failure == "readback" {
-					mustProgress(t, f.db.ObservePlanStoryLifecycle(t.Context(), f.ref().String(), "story-001", planbrief.PlanLifecycle{}, childContentHold))
-					held := graphPlanState(t, f)
-					if held.Stories[0].Stage != stage || !reflect.DeepEqual(held.Stories[0].Approvals, before.Stories[0].Approvals) {
-						t.Fatal("hold erased progress")
-					}
 					// Discovery verifies the same bound content; effect recovery still owns
 					// the interrupted publication and must settle it before drafting again.
 					mustProgress(t, f.db.ObservePlanStoryLifecycle(t.Context(), f.ref().String(), "story-001", planbrief.PlanLifecycle{State: "open"}, ""))

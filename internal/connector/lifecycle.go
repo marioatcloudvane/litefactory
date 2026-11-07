@@ -119,8 +119,5 @@ func (r *Runtime) SetWorkflows(v Workflows) { r.server.SetWorkflows(v) }
 // SetTaskDiscussion attaches the core discussion service.
 func (r *Runtime) SetTaskDiscussion(v TaskDiscussion) { r.server.SetTaskDiscussion(v) }
 
-// SetStageDecisions attaches the core stage decision service.
-func (r *Runtime) SetStageDecisions(v StageDecisions) { r.server.SetStageDecisions(v) }
-
 // SetBrainstorm installs the repository brainstorm service.
 func (r *Runtime) SetBrainstorm(v Brainstorms) { r.server.SetBrainstorm(v) }

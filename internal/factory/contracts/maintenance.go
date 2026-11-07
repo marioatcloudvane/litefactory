@@ -65,32 +65,3 @@ type RetirementPresentation struct {
 	Start func() error
 	Owner func(RetirementPreviewView) error
 }
-
-// StoryUpgradeItemView contains a story’s observed and expected contract revisions.
-type StoryUpgradeItemView struct {
-	Story                                               string
-	IssueNumber                                         int
-	ObservedRevision, ExpectedRevision, DesiredRevision string
-}
-
-// StoryUpgradeView contains the bounded upgrade preview without saved publication intent.
-type StoryUpgradeView struct {
-	Parent                                                       string
-	SourceGeneration, TargetGeneration, FromContract, ToContract int
-	State                                                        string
-	Items                                                        []StoryUpgradeItemView
-	Conflicts                                                    []string
-}
-
-// StoryUpgradePresentation renders the preview and confirmed upgrade outcome.
-type StoryUpgradePresentation struct {
-	Preview     func(StoryUpgradeView) error
-	PreviewOnly func() error
-	Applied     func() error
-}
-
-// LocalMaintenanceUnavailable marks an existing local setup refusal.
-type LocalMaintenanceUnavailable struct{ Err error }
-
-func (e *LocalMaintenanceUnavailable) Error() string { return e.Err.Error() }
-func (e *LocalMaintenanceUnavailable) Unwrap() error { return e.Err }

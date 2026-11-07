@@ -56,10 +56,6 @@ Each poll writes an INFO line with these fields (older names remain as aliases w
 
 Two open parent issues can start two workers on every tick even when `forge_issues=0`, because registered parents are polled to catch new child input. At DEBUG, `worker dispatched` and `worker finished` name the repo, task, session and where the work came from (`forge_discovery`, `managed_registry`, `backlog`, `due_schedule` or `automatic_continuation`); `worker finished` also gives the duration and status (`completed`, `deferred`, `failed` or `cancelled`). `run prepared` means a run was prepared, not that it started or succeeded. A worker count is not a count of agent launches.
 
-## Upgrading a story contract
-
-`litefactory story-contract upgrade PARENT-REF` previews the upgrade of an unfinished legacy feature; `--apply` makes the change. See the [CLI reference](../cli/command-reference.md).
-
 Logs work while the daemon is stopped, provided the database and files exist. Output is **unredacted**, unlike outbound reports. Missing event files, missing runs and ambiguous issue numbers have distinct diagnostics; use [troubleshooting](troubleshooting.md). If startup fails, inspect app logs for invalid configuration, inaccessible credentials or unavailable binaries before starting again.
 
 [Documentation home](../README.md) · [Operations](README.md) · [Recovery](recovery.md) · [Troubleshooting](troubleshooting.md)
