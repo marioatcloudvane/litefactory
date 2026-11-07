@@ -235,11 +235,9 @@ func (rt *implementRuntime) execute(ctx context.Context, definition *teamsource.
 		return rt.result, err
 	}
 	out, err := ExecuteWorkflow(ctx, rt.opts, rt.req, rt.result, definition, admission, policy)
-	if limit := (*GraphLimitError)(nil); rt.worker == nil && errors.As(err, &limit) {
-		err = errors.Join(err, rt.reportExhausted(context.WithoutCancel(ctx), admission.Instance.ID, limit))
-	}
 	if err != nil && rt.worker != nil && ctx.Err() == nil {
-		reason, readErr := rt.workerSyncBlockage(ctx, admission.Instance.ID, true)
+		limit := (*GraphLimitError)(nil)
+		reason, readErr := rt.workerSyncBlockage(ctx, admission.Instance.ID, errors.As(err, &limit))
 		if readErr != nil {
 			return out, errors.Join(err, readErr)
 		}
@@ -266,33 +264,6 @@ func (rt *implementRuntime) execute(ctx context.Context, definition *teamsource.
 	return out, errors.Join(err, settleErr, lookupErr)
 }
 
-// reportExhausted tells the owner on the parent that the coordinator stopped
-// because a step used up its dispatch limit, and how to resume. The comment is
-// derived from the stopped instance, the step's last attempt and its text, so a
-// repeat delivers the one comment.
-func (rt *implementRuntime) reportExhausted(ctx context.Context, instanceID int64, limit *GraphLimitError) error {
-	if rt.opts.ResearchReporter == nil {
-		return nil
-	}
-	source, err := rt.opts.DB.LatestGraphNodeAttempt(ctx, instanceID, limit.Node)
-	if err != nil {
-		return fmt.Errorf("find the last attempt of the exhausted step %q: %w", limit.Node, err)
-	}
-	candidate := agentresult.Result{
-		Outcome: "incomplete",
-		Comment: fmt.Sprintf("Implement stopped at step `%s`: the step reached its limit of attempts, so the coordinator ended instead of running it again. Work already saved on the feature branch is kept.", limit.Node),
-		Reason:  "Reply on this issue to resume. Your reply starts Implement again from its base sync, with every step's limit fresh, and reaches any parked story as guidance.",
-		Payload: agentresult.Payload{Implement: &agentresult.Implement{}},
-		Questions: []agentresult.Question{{
-			ID: "q1", Audience: "technical",
-			Text: fmt.Sprintf("**Stopped at `%s`**: %s", limit.Node, sentence(limit.Diagnostic)),
-		}},
-	}
-	policy := ImplementWorkflowPolicy()
-	_, _, err = rt.opts.ResearchReporter.ReportWorkflowCandidate(ctx, source, limit.Node, "question", candidate, policy.baseContext(true), "", policy)
-	return err
-}
-
 // policy is the Implement policy with this run's activities and hooks.
 func (rt *implementRuntime) policy() (WorkflowPolicy, error) {
 	// Only the coordinator merges, starts stories and reports; a story worker needs
@@ -310,6 +281,9 @@ func (rt *implementRuntime) policy() (WorkflowPolicy, error) {
 		return rt.registerEffects(specs, activities, bindings)
 	}
 	p.Park = rt.parkHook
+	// A story worker has no owner wait of its own: an exhausted step budget
+	// fails the story, which the coordinator reports and the owner can resume.
+	p.BudgetFails = rt.worker != nil
 	p.BeforeAgent = rt.verifyWorkerSyncHandoff
 	p.AfterAgentFailure = implementAfterAgentFailure
 	p.ResultOverride = implementResultOverride
@@ -333,7 +307,7 @@ func (rt *implementRuntime) resumeStories(ctx context.Context, reply string) (in
 			// Parent inputs reach applyReply only after the daemon's authenticated
 			// owner admission; no agent payload can supply this trigger.
 			trigger := rt.req.Trigger
-			if trigger.CommentID <= 0 || store.IsPrivateTrigger(trigger.CommentID) || trigger.AuthorID <= 0 {
+			if trigger.CommentID <= 0 || store.IsFactoryTrigger(trigger.CommentID) || trigger.AuthorID <= 0 {
 				return resumed, store.ErrImplementConflict
 			}
 			noticeAt, err := implementTimeoutNoticeTime(ctx, rt.opts, row)
@@ -429,7 +403,7 @@ func (rt *implementRuntime) applyReply(ctx context.Context, instance store.Graph
 func (rt *implementRuntime) earlyReply(instance store.GraphInstance) bool {
 	command := ParseCommand(rt.req.Trigger.Body)
 	return instance.Status == store.GraphRunning && instance.CurrentNode == graphexec.ImplementAwaitNode &&
-		rt.req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(rt.req.Trigger.CommentID) &&
+		rt.req.Trigger.CommentID > 0 && !store.IsFactoryTrigger(rt.req.Trigger.CommentID) &&
 		command.Kind == KindFreeText && command.Name == ""
 }
 

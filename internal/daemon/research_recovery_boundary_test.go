@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 type researchRecoveryFixture struct {
@@ -20,6 +21,9 @@ type researchRecoveryFixture struct {
 	attempt  store.GraphNodeAttempt
 	at       time.Time
 }
+
+// claimErr keeps only the error of claimGraphReply.
+func claimErr(_ turn.Trigger, err error) error { return err }
 
 func researchRecoveryCheck(t *testing.T, err error) {
 	t.Helper()
@@ -48,7 +52,7 @@ func newResearchRecoveryFixture(t *testing.T) *researchRecoveryFixture {
 	researchRecoveryCheck(t, err)
 	f.instance, err = db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "research", StartedAt: f.at, NextDueAt: f.at})
 	researchRecoveryCheck(t, err)
-	f.attempt, err = db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", RunID: f.run.ID, Limit: 3, StartedAt: f.at})
+	f.attempt, err = db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", RunID: f.run.ID, StartedAt: f.at})
 	researchRecoveryCheck(t, err)
 	return f
 }
@@ -170,7 +174,7 @@ func TestResearchRecoveryOwnerClaimSurvivesStartupUntilAllocation(t *testing.T) 
 	}
 	run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: f.run.SegmentID, Mode: "research", Agent: store.AgentClaude, TriggerCommentID: 102, LogPath: func(int) string { return "reply.log" }})
 	researchRecoveryCheck(t, err)
-	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", RunID: run.ID, Limit: 3, StartedAt: f.at.Add(time.Hour)})
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", RunID: run.ID, StartedAt: f.at.Add(time.Hour)})
 	researchRecoveryCheck(t, err)
 	f.restart(t)
 	got, err = f.db.GetGraphOwnerWait(ctx, f.instance.ID)

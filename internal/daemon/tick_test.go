@@ -1763,7 +1763,7 @@ func TestFinishedResearchLaunchIsAnsweredAndQueueMovesOn(t *testing.T) {
 	}
 
 	f.forge.addComment(testIssue, commentA, owner(), "/research inspect boundaries")
-	for _, kind := range []string{"rate", "rate", "plain", "plain"} {
+	for _, kind := range []string{"rate", "plain"} {
 		failure.Store(kind)
 		before := calls.Load()
 		tick()

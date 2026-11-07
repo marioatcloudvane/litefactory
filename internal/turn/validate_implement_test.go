@@ -211,7 +211,7 @@ func TestValidateImplementReplayDoesNothingTwice(t *testing.T) {
 			t.Fatalf("%v (%s)", err, res.Activity.Diagnostic)
 		}
 	}
-	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "owner_implement", Limit: 4, StartedAt: f.clock})
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "owner_implement", StartedAt: f.clock})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,6 @@ func TestValidateImplementRefusalsChangeNothing(t *testing.T) {
 		"a stale revision":   {body: func(*implementBackFixture) string { return ValidateImplementCommand + " 000000000000" }, want: "current report revision"},
 		"a moved head":       {move: true, want: "branch head is now"},
 		"no blocking":        {clean: true, want: "Implement has nothing to repair"},
-		"an extra argument":  {body: func(f *implementBackFixture) string { return f.command(ValidateImplementCommand, "story-002") }, want: "takes no argument"},
 		"already handed off": {want: "already sent back"},
 	}
 	for name, c := range cases {
@@ -341,10 +340,9 @@ func TestParseValidateImplementCommand(t *testing.T) {
 	if err != nil || c.Name != ValidateImplementCommand || c.Guidance != "keep the tooltips, no legend" {
 		t.Fatalf("guidance: %+v %v", c, err)
 	}
-	for _, bad := range []string{"/validate-implement 0123456789ab story-002", "/validate-implement 0123456789ab story-002 -- why", "/validate-implement 0123456789ab -- "} {
-		if _, err := ParseValidateCommand(bad); err == nil {
-			t.Errorf("%q accepted", bad)
-		}
+	// Text after the command tokens is guidance, not a reason to refuse.
+	if c, err = ParseValidateCommand("/validate-implement 0123456789ab story-002 first"); err != nil || c.Guidance != "story-002 first" {
+		t.Fatalf("trailing guidance: %+v %v", c, err)
 	}
 	if ParseCommand("/validate-implement 0123456789ab").Kind != KindValidateControl {
 		t.Fatal("the daemon routes it to the Validate run")
@@ -460,7 +458,7 @@ func TestValidateImplementCarriesTheOwnerGuidance(t *testing.T) {
 			t.Fatalf("%v (%s)", err, res.Activity.Diagnostic)
 		}
 	}
-	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "owner_implement", Limit: 4, StartedAt: f.clock})
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "owner_implement", StartedAt: f.clock})
 	if err != nil {
 		t.Fatal(err)
 	}

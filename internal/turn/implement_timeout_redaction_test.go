@@ -16,7 +16,7 @@ func TestImplementTimeoutRedactsBeforeLedgerClipping(t *testing.T) {
 	mustProgress(t, err)
 	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, CurrentNode: "worker_agent", StartedAt: at})
 	mustProgress(t, err)
-	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "worker_agent", Limit: 1, FactoryStep: true, StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "worker_agent", FactoryStep: true, StartedAt: at})
 	mustProgress(t, err)
 	mustProgress(t, f.db.RecordAttemptTimeout(t.Context(), store.AttemptTimeout{NodeAttemptID: attempt.ID, Budget: time.Minute, TimedOutAt: at}))
 	secret := "sensitive-timeout-token-" + strings.Repeat("z", 128)

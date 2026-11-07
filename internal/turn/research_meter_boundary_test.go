@@ -26,7 +26,7 @@ func researchMeterFixture(t *testing.T) (*fixture, agent.Request) {
 	mustProgress(t, err)
 	inst, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, Status: store.GraphRunning, CurrentNode: "work", StartedAt: at, NextDueAt: at})
 	mustProgress(t, err)
-	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: inst.ID, Node: "work", RunID: run.ID, Limit: 3, StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: inst.ID, Node: "work", RunID: run.ID, StartedAt: at})
 	mustProgress(t, err)
 	ref, err := naming.ParseRef(f.session.TaskRef)
 	mustProgress(t, err)
@@ -130,7 +130,7 @@ func TestResearchMeterResumeFallbackAndMultiNodeTotals(t *testing.T) {
 	old := *req.Graph
 	at := time.Now().UTC()
 	mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), old.AttemptID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: at, InstanceStatus: store.GraphRunning, Transition: &store.GraphTransition{InstanceID: old.InstanceID, FromNode: "work", ToNode: "next", OnOutcome: "success", At: at}}))
-	next, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old.InstanceID, Node: "next", RunID: old.RunID, Limit: 3, StartedAt: at})
+	next, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old.InstanceID, Node: "next", RunID: old.RunID, StartedAt: at})
 	mustProgress(t, err)
 	req.Graph = &agent.GraphInvocation{InstanceID: old.InstanceID, AttemptID: next.ID, RunID: old.RunID, Node: "next"}
 	req.Path = agent.PathCold
@@ -219,7 +219,7 @@ func TestCapacityInvocation(t *testing.T) {
 			mustProgress(t, err)
 			inst, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, CurrentNode: "work", StartedAt: at})
 			mustProgress(t, err)
-			profile := &graphexec.Profile{Mode: f.policy.Mode, Team: "builtin", ProfileVersion: 1, Digest: def.Digest, Nodes: []graphexec.Node{{Name: "work", Action: ResearchAgentAction, Limit: 1, Attrs: map[string]string{graphexec.BudgetAttribute: "15"}}}}
+			profile := &graphexec.Profile{Mode: f.policy.Mode, Team: "builtin", ProfileVersion: 1, Digest: def.Digest, Nodes: []graphexec.Node{{Name: "work", Action: ResearchAgentAction, Attrs: map[string]string{graphexec.BudgetAttribute: "15"}}}}
 			run, err := f.db.GetRun(t.Context(), f.opts.Attempt.RunID)
 			mustProgress(t, err)
 			seg, err := f.db.GetSegment(t.Context(), run.SegmentID)

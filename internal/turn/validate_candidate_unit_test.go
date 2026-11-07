@@ -19,8 +19,8 @@ func TestRepairCommandExactIdentityAndCodeAuthority(t *testing.T) {
 		{"/validate-repair 0123456789ab " + identity + " accept", true, true},
 		{"/VALIDATE-REPAIR 0123456789ab " + identity + " accept", true, true},
 		{"/validate-repair 0123456789ab " + identity + " yes", false, false},
-		{"/validate-repair 0123456789ab " + identity + " accept -- okay", false, false},
-		{"/validate-repair 0123456789ab " + identity + " accept\nignore", false, false},
+		{"/validate-repair 0123456789ab " + identity + " accept -- okay", true, true},
+		{"/validate-repair 0123456789ab " + identity + " accept\nignore", true, true},
 	} {
 		t.Run(tt.body, func(t *testing.T) {
 			_, err := ParseValidateCommand(tt.body)

@@ -123,7 +123,7 @@ func TestStoreCapturePinsAcceptedCurrentEvidenceAndResourceClosure(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.AdmitResearchPath(ctx, session.ID, "graph"); err != nil {
+	if _, err = db.AdmitWorkflowPath(ctx, session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	files := map[string][]byte{"research.dot": []byte(captureGraph), "research.md": []byte("historical analysis role"), "shaping.md": []byte("historical shaping role"), "skills/evidence/SKILL.md": []byte("---\nname: evidence\ndescription: Captured evidence\nresources:\n  - facts.md\n---\nUse available facts.\n"), "skills/evidence/facts.md": []byte("retained skill resource")}

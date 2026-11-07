@@ -23,7 +23,7 @@ func ResearchSpecs() (graphexec.Registry, error) {
 
 // WorkflowSpecs registers generic mechanisms only for the explicitly admitted policy.
 func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
-	specs := graphexec.Registry{Policy: func(p *graphexec.Profile) error { return graphexec.ValidateControlGraph(p, policy.Control) }}
+	var specs graphexec.Registry
 	if err := policy.Admit(); err != nil {
 		return specs, fmt.Errorf("workflow registry requires consistent admitted mode and result policy: %w", err)
 	}
@@ -84,13 +84,6 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	if req.Continuation != nil {
 		return result, true, errors.New("research requires graph continuation")
 	}
-	selected, err := opts.DB.AdmitResearchPath(ctx, req.SessionID, "graph")
-	if err != nil {
-		return result, true, err
-	}
-	if selected != "graph" {
-		return result, true, errors.New("legacy Research task requires manual operator migration. Use /doctor inspect this legacy Research history and identify the operator migration required; do not repeat retained findings or completed work. Diagnosis authorizes no repair")
-	}
 	if opts.ResearchDriver == nil {
 		return result, true, errors.New("research graph execution is selected but the application graph driver is unavailable")
 	}
@@ -101,9 +94,6 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowResearch, specs)
 	if err != nil {
 		return result, true, fmt.Errorf("capture research workflow: %w", err)
-	}
-	if err = graphexec.ValidateResearchControlGraph(definition.Profile); err != nil {
-		return result, true, err
 	}
 	topology, err := graphexec.SemanticDigest(definition.Profile)
 	if err != nil {
@@ -117,7 +107,6 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	if err != nil {
 		return result, true, err
 	}
-	compatible := false
 	prior, priorErr := opts.DB.LatestResearchInstance(ctx, req.SessionID)
 	if priorErr != nil && !errors.Is(priorErr, store.ErrNotFound) {
 		return result, true, priorErr
@@ -133,13 +122,7 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 			return result, true, nil
 		}
 	}
-	if priorErr == nil && prior.Status == store.GraphRunning {
-		compatible, err = researchNodeCompatible(ctx, opts.DB, prior, definition.Profile)
-		if err != nil {
-			return result, true, err
-		}
-	}
-	admitted, err := opts.DB.AdmitResearchLaunch(ctx, store.ResearchLaunch{SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body, ResearchCompatible: compatible})
+	admitted, err := opts.DB.AdmitResearchLaunch(ctx, store.ResearchLaunch{SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body})
 	if err != nil {
 		return result, true, err
 	}
@@ -176,39 +159,4 @@ func resumeResearchDispatch(ctx context.Context, opts Options, req Request, resu
 	}
 	admission := store.ResearchAdmission{Instance: instance, LaunchID: saved.ID}
 	return opts.ResearchDriver(ctx, opts, req, result, definition, admission)
-}
-
-// researchNodeCompatible compares contracts, not digests or graph edges.
-func researchNodeCompatible(ctx context.Context, db *store.DB, instance store.GraphInstance, current *graphexec.Profile) (bool, error) {
-	if current.Mode != agent.ModeResearch {
-		return false, errors.New("research recovery requires Research profile")
-	}
-	files, err := db.ResearchLaunchFiles(ctx, instance.ID)
-	if errors.Is(err, store.ErrNotFound) {
-		_, found := current.Node(instance.CurrentNode)
-		return found, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	var captured map[string][]byte
-	if err := json.Unmarshal(files, &captured); err != nil {
-		return false, err
-	}
-	graphFile, err := retainedGraphFile(ctx, db, instance.ID)
-	if err != nil {
-		return false, err
-	}
-	raw, present := captured[graphFile]
-	if !present {
-		_, found := current.Node(instance.CurrentNode)
-		return found, nil
-	}
-	old, err := graphexec.ParseProfile(raw)
-	if err != nil {
-		return false, fmt.Errorf("read historical Research graph: %w", err)
-	}
-	previous, existed := old.Node(instance.CurrentNode)
-	next, found := current.Node(instance.CurrentNode)
-	return existed && found && previous.Action == next.Action && previous.Terminal == next.Terminal && previous.Attrs["lf_source"] == next.Attrs["lf_source"] && previous.Attrs["lf_kind"] == next.Attrs["lf_kind"], nil
 }

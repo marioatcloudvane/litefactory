@@ -176,7 +176,7 @@ func testScheduledLinearStory(t *testing.T, held bool) {
 	}
 	scheduled, _, err := db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: managed.ID, SourceCommentID: sourceID, OwnerHandle: "human-uuid", Payload: planWorkPayload, DueAt: f.now})
 	linearWorkflowCheck(t, err)
-	d.prepFailures.record(managed.ID, "previous refusal", f.now.Add(-time.Hour), time.Second)
+	d.prepFailures.record(managed.ID, 0, "previous refusal", f.now.Add(-time.Hour), time.Second)
 	if locked {
 		first := TickResult{}
 		linearWorkflowCheck(t, d.dispatchSchedules(ctx, map[int64]store.Repo{q.repo.ID: q.repo}, f.now, &first))

@@ -36,7 +36,7 @@ func TestAgentActivityExecute_AcceptAfterProcessFailure(t *testing.T) {
 				mustProgress(t, err)
 				instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, CurrentNode: "work", StartedAt: at})
 				mustProgress(t, err)
-				profile := &graphexec.Profile{Mode: f.policy.Mode, Team: "builtin", ProfileVersion: 1, Digest: def.Digest, Nodes: []graphexec.Node{{Name: "work", Action: ResearchAgentAction, Limit: 1}}}
+				profile := &graphexec.Profile{Mode: f.policy.Mode, Team: "builtin", ProfileVersion: 1, Digest: def.Digest, Nodes: []graphexec.Node{{Name: "work", Action: ResearchAgentAction}}}
 				run, err := f.db.GetRun(t.Context(), f.opts.Attempt.RunID)
 				mustProgress(t, err)
 				segment, err := f.db.GetSegment(t.Context(), run.SegmentID)

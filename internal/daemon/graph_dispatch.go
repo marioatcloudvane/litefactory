@@ -403,7 +403,7 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 			return
 		}
 	}
-	// A node limit can fail the instance before allocating a run. Such work
+	// An exhausted step budget can end the instance before allocating a run. Such work
 	// owes a stop notice, not a retry against a terminal instance.
 	if !exists || run.Status == store.RunPrelaunch {
 		cause := ""

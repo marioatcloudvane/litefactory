@@ -45,7 +45,7 @@ func TestBugStartEvidenceReadsAdmissionAndRuntimeRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "conversation", RunID: run.ID, Limit: 64, StartedAt: at})
+	a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "conversation", RunID: run.ID, StartedAt: at})
 	if err != nil {
 		t.Fatal(err)
 	}

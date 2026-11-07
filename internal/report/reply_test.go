@@ -31,14 +31,13 @@ func TestLegacyToolsRefusalIsActionableAndEchoesNoPayload(t *testing.T) {
 	}
 }
 
-// A comment written while Research worked between two questions is refused in
-// plain words: it arrived while Research was working, was not used, and should
-// be resent in reply to the open question (#378).
-func TestGraphReplyBetweenQuestionsRefusalSaysNotUsedAndResend(t *testing.T) {
+// A comment the factory set aside is answered with the reason, fenced so the
+// error text cannot become markup.
+func TestRenderReplyNotUsedCarriesTheReason(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
 
-	body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: report.ReplyGraphReplyBetweenQuestions})
+	body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: report.ReplyNotUsed, NotUsedReason: "prepare worktree: origin unreachable"})
 	if err != nil {
 		t.Fatalf("RenderReply: %v", err)
 	}
@@ -46,16 +45,9 @@ func TestGraphReplyBetweenQuestionsRefusalSaysNotUsedAndResend(t *testing.T) {
 	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) {
 		t.Errorf("reply does not begin with the reply marker:\n%s", text)
 	}
-	if strings.Contains(text, "run=") {
-		t.Error("a run-less reply carries a run attribute")
+	if !strings.Contains(text, "```\nprepare worktree: origin unreachable\n```") {
+		t.Errorf("reason not fenced in the reply:\n%s", text)
 	}
-	containsAll(t, "between-questions refusal", text,
-		"arrived while the workflow was still working",
-		"before its current question or review was posted",
-		"it was not used",
-		"nothing was run for it",
-		"this comment did not answer it",
-	)
 }
 
 // A Bug comment that cannot be applied is answered through the mode-refusal

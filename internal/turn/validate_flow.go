@@ -42,18 +42,12 @@ func ValidateWorkflowPolicy() WorkflowPolicy {
 }
 
 // ValidateFlowSpecs is the closed registry the packaged Validate graph is
-// captured against: the shared actions, the Validate actions and the Validate
-// graph checker.
+// captured against: the shared actions and the Validate actions.
 func ValidateFlowSpecs() (graphexec.Registry, error) {
 	policy := ValidateWorkflowPolicy()
 	// The suite spec is registered by the suite activity at runtime; the policy
 	// lists it so that the packaged graph resolves it.
-	r, err := WorkflowSpecs(policy)
-	if err != nil {
-		return r, err
-	}
-	r.Policy = graphexec.ValidateFlowGraph
-	return r, nil
+	return WorkflowSpecs(policy)
 }
 
 // validateRespond maps an agent's retained result to its response: the repair

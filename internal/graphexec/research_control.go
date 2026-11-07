@@ -16,34 +16,19 @@ const (
 
 // ControlPolicy is the admitted mode's closed response and owner-gate vocabulary.
 type ControlPolicy struct {
-	Generation          string
 	Mode                agent.Mode
 	Workflow            agent.Workflow
 	Responses, Defaults []string
 	Ask, Approved       string
-	// Delivery validates a workflow-owned delivery authorization contract.
-	// Nil selects the retained-result review contract.
-	Delivery func(*Profile, Node) error
 	// MeasureActions are mode-declared steps that do one measurable thing and
-	// return an outcome. They may sit on an answer path: each outcome edge is
-	// followed as that path's continuation, and a failed edge must reach the
-	// shared failure publication unless the action is also listed in
-	// FindingActions. An outcome edge may also hand off to a different agent, never to the agent
-	// whose result the step measures; that agent's own answer paths are then
-	// validated from that agent with the same rules. A response that asks may
-	// only end at a final report after crossing such a step, because the step
-	// records the outcome that replaces the owner wait. They never pick a next
-	// step themselves.
+	// return an outcome. ResponseReachesOwnerWait follows each of their outcome
+	// edges. They never pick a next step themselves.
 	MeasureActions []string
-	// FindingActions are measure actions whose failed outcome is a finding to
-	// report rather than a fault: their failed edge continues the path like any
-	// other outcome. Each must also be listed in MeasureActions.
-	FindingActions []string
 }
 
-// ResearchControlPolicy supplies Research response vocabulary and its document gate.
+// ResearchControlPolicy supplies Research's closed response vocabulary: ask or done.
 func ResearchControlPolicy() ControlPolicy {
-	return ControlPolicy{Generation: "lf_research_brief", Mode: agent.ModeResearch, Responses: ResearchResponses, Defaults: []string{"ask", "done"}, Ask: "ask", Approved: "approved"}
+	return ControlPolicy{Mode: agent.ModeResearch, Responses: ResearchResponses, Defaults: []string{"ask", "done"}, Ask: "ask"}
 }
 
 // ControlSpec declares the closed comparisons authorized by the admitted mode policy.
@@ -66,12 +51,9 @@ func ControlSpec(action string, policy ControlPolicy) ActionSpec {
 	return ActionSpec{Name: action, Mode: policy.Mode, Workflow: policy.Workflow, Outcomes: []string{"true", "false"}, Attributes: attrs}
 }
 
-// ResearchResponses are the three things a Research agent can say about its own
-// turn. "ask" and "done" are its own judgement. "approved" is not: it reports
-// that the owner said the work is good enough, so an agent may only return it
-// on a resumed pass that actually carries such a reply. That distinction is the
-// whole point — advancing a stage is the owner's decision, not the agent's.
-var ResearchResponses = []string{"ask", "done", "approved", "continue"}
+// ResearchResponses are the two things a Research agent can say about its own
+// turn: it asks the owner, or it is done.
+var ResearchResponses = []string{"ask", "done"}
 
 // ResearchResponse reports whether a value is one of the declared responses.
 func ResearchResponse(value string) bool { return slices.Contains(ResearchResponses, value) }
@@ -138,333 +120,6 @@ func (c ResearchCondition) Evaluate(response string, attempted bool) (string, er
 // result means the legacy reading: whichever agent node ran most recently.
 func ResearchSource(attrs map[string]string) string { return attrs["lf_source"] }
 
-// ValidateResearchControlGraph checks control attributes and all possible ask
-// paths before dispatch. A question publication must end at a terminal: the
-// continuation service alone can later resume the originating agent node.
-func ValidateResearchControlGraph(p *Profile) error {
-	return ValidateControlGraph(p, ResearchControlPolicy())
-}
-
-// ValidateControlGraph checks source bindings, generation prerequisites and owner-wait paths.
-func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
-	// Implement's dedicated checker owns coordinator resolver routes and
-	// explicit worker sync stops; generic control validation must retain them.
-	if policy.Mode != agent.ModeImplement {
-		var syncErr error
-		p, syncErr = withoutExplicitSync(p)
-		if syncErr != nil {
-			return syncErr
-		}
-	}
-	if p == nil {
-		return errors.New("research graph is nil")
-	}
-	var faults []error
-	for _, node := range p.Nodes {
-		if node.Action == DeliverAction {
-			if err := validateControlDelivery(p, node, policy); err != nil {
-				faults = append(faults, err)
-			}
-		}
-		if node.Attrs["lf_approve_reply"] != "" {
-			target, ok := Decide(p, node.Name, "approved")
-			ship, found := p.Node(target)
-			waiting, rests := Decide(p, node.Name, "published")
-			terminal, exists := p.Node(waiting)
-			if node.Action != "lf_ask" || node.Attrs["lf_kind"] != "review" || !ok || !found || ship.Action != DeliverAction || ship.Attrs["lf_operation"] != "merge" || !rests || !exists || !terminal.Terminal {
-				faults = append(faults, fmt.Errorf("review %q requires a shipping approval edge", node.Name))
-			}
-		}
-		if policy.Generation != "" && node.Action == policy.Generation {
-			source, ok := p.Node(node.Attrs["lf_source"])
-			if !ok || source.Action != "lf_agent" {
-				faults = append(faults, fmt.Errorf("generation %q requires named agent source", node.Name))
-			}
-		}
-		if slices.Contains(policy.MeasureActions, node.Action) {
-			if source, exists := p.Node(node.Attrs["lf_source"]); !exists || source.Action != "lf_agent" {
-				faults = append(faults, fmt.Errorf("measure step %q: lf_source %q does not name an agent node", node.Name, node.Attrs["lf_source"]))
-			}
-		}
-		switch node.Action {
-		case ResearchLoopAction, ResearchIfAction:
-			if _, err := DecodeCondition(node.Action, node.Attrs, policy); err != nil {
-				faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
-			}
-			// An unscoped control node reads whichever agent ran last, which is
-			// the single-loop behaviour. Naming a source is what lets a later
-			// loop bootstrap from its own default instead of inheriting the
-			// previous stage's response.
-			if source, scoped := node.Attrs["lf_source"]; scoped {
-				if from, exists := p.Node(source); !exists || from.Action != "lf_agent" {
-					faults = append(faults, fmt.Errorf("node %q: lf_source %q does not name an agent node", node.Name, source))
-				}
-			}
-			if len(node.Outcomes) != 2 || !slices.Contains(node.Outcomes, "true") || !slices.Contains(node.Outcomes, "false") {
-				faults = append(faults, fmt.Errorf("node %q requires exactly true and false outcomes", node.Name))
-			}
-			if node.Action == ResearchLoopAction && node.Limit <= 0 {
-				faults = append(faults, fmt.Errorf("node %q requires finite positive lf_limit", node.Name))
-			}
-		case "lf_agent":
-			if policy.Mode == agent.ModeImplement {
-				// The dedicated Implement checker owns worker and resolver answers.
-				continue
-			}
-			// Catalog-only agent graphs remain valid. Runtime control graphs must end
-			// every ask path at a question publication and durable wait boundary.
-			hasControl := false
-			for _, candidate := range p.Nodes {
-				if candidate.Action == ResearchLoopAction || candidate.Action == ResearchIfAction || candidate.Action == "lf_comment" || candidate.Action == "lf_ask" {
-					hasControl = true
-				}
-			}
-			routed := RoutesResponse(node)
-			for _, outcome := range node.Outcomes {
-				if (routed && outcome == "success") || (!routed && slices.Contains(policy.Responses, outcome)) {
-					faults = append(faults, fmt.Errorf("research agent %q outcome %q: a result-routed agent (lf_response=result) declares its responses instead of success", node.Name, outcome))
-				}
-			}
-			if hasControl {
-				next, ok := Decide(p, node.Name, "success")
-				if !ok && !routed {
-					faults = append(faults, fmt.Errorf("research agent %q has no deterministic success edge", node.Name))
-					continue
-				}
-				for _, response := range policy.Responses {
-					if response == "continue" {
-						declared := false
-						for _, control := range p.Nodes {
-							if control.Attrs["lf_condition"] == "continue" {
-								declared = true
-							}
-						}
-						if !declared {
-							continue
-						}
-					}
-					if routed {
-						// A result-routed agent's response is its outcome: each
-						// response starts at its own edge.
-						if next, ok = Decide(p, node.Name, response); !ok {
-							faults = append(faults, fmt.Errorf("research agent %q has no deterministic %q edge", node.Name, response))
-							continue
-						}
-					}
-					if err := validateResearchResponsePath(p, next, response, node.Name, map[string]bool{}, policy); err != nil {
-						faults = append(faults, fmt.Errorf("research agent %q response %q: %w", node.Name, response, err))
-					}
-				}
-				// A failure edge is optional. When declared it may only reach a
-				// failure publication that ends the graph: a failed attempt owns
-				// no response, so it can never authorize another agent.
-				if target, declared := Decide(p, node.Name, "failed"); declared {
-					if err := validateResearchFailurePath(p, target); err != nil {
-						faults = append(faults, fmt.Errorf("research agent %q failure path: %w", node.Name, err))
-					}
-				}
-			}
-		}
-	}
-	return errors.Join(faults...)
-}
-
-// validateResearchFailurePath accepts only a failure publication that ends at a
-// terminal. Publication cannot change failed process history, so the failed
-// attempt's own run outcome is untouched by whatever this node reports.
-func validateResearchFailurePath(p *Profile, name string) error {
-	node, ok := p.Node(name)
-	if !ok {
-		return fmt.Errorf("failure path references missing node %q", name)
-	}
-	if node.Action != "lf_comment" {
-		return fmt.Errorf("failure path requires a comment activity at %q", name)
-	}
-	if node.Attrs["lf_kind"] != "failure" {
-		return fmt.Errorf("failure path requires a failure comment at %q", name)
-	}
-	next, exists := Decide(p, name, "published")
-	terminal, found := p.Node(next)
-	if !exists || !found || !terminal.Terminal {
-		return fmt.Errorf("research failure comment %q must end at a terminal", name)
-	}
-	return nil
-}
-
-// validateResearchResponsePath follows one agent's response to the point where
-// that response stops governing the graph. Publication is a step, not an ending:
-// a report may advance to whatever comes next, and only an explicit terminal
-// ends the workflow. Two boundaries are not negotiable. An ask must still come
-// to rest at a durable owner wait, because nothing else stops the graph from
-// running on without the answer. And no response path may reach an agent
-// directly: crossing into a loop scoped to a different agent is what hands over,
-// and that crossing always happens after this stage has published.
-func validateResearchResponsePath(p *Profile, name, response, source string, visiting map[string]bool, policy ControlPolicy) error {
-	node, ok := p.Node(name)
-	if !ok {
-		return fmt.Errorf("response path references missing node %q", name)
-	}
-	if visiting[name] {
-		return fmt.Errorf("response path cycles at %q without owner authorization", name)
-	}
-	if node.Terminal {
-		return fmt.Errorf("response path reaches %q without required publication", name)
-	}
-	visiting[name] = true
-	defer delete(visiting, name)
-	if policy.Generation != "" && node.Action == policy.Generation {
-		if node.Attrs["lf_source"] != source {
-			return fmt.Errorf("generation %q source does not match %q", name, source)
-		}
-		next, ok := Decide(p, name, "success")
-		if !ok {
-			return fmt.Errorf("generation %q lacks success edge", name)
-		}
-		visiting["generated:"+source] = true
-		return validateResearchResponsePath(p, next, response, source, visiting, policy)
-	}
-	if node.Action == JudgeAction || (node.Action == "lf_comment" && node.Attrs["lf_kind"] == "advisory") {
-		outcomes := node.Outcomes
-		for _, outcome := range outcomes {
-			next, exists := Decide(p, name, outcome)
-			if !exists {
-				return fmt.Errorf("advisory step %q lacks %q edge", name, outcome)
-			}
-			if err := validateResearchResponsePath(p, next, response, source, visiting, policy); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if node.Action == DeliverAction {
-		if response == policy.Ask {
-			return errors.New("unanswered questions cannot authorize delivery")
-		}
-		return validateControlDelivery(p, node, policy)
-	}
-	switch node.Action {
-	case "lf_agent":
-		if policy.Mode == agent.ModeResearch && response == "continue" && name == source && visiting["generated:"+source] {
-			return nil
-		}
-		return fmt.Errorf("response path invokes agent %q without owner authorization", name)
-	case "lf_comment", "lf_ask":
-		if response == "continue" && policy.Mode == agent.ModeResearch {
-			return errors.New("research continuation must return silently to its own stage")
-		}
-		if policy.Generation != "" && !visiting["generated:"+source] {
-			return fmt.Errorf("publication %q requires matching successful %s generation", name, policy.Generation)
-		}
-		if declared := node.Attrs["lf_source"]; declared != "" && declared != source {
-			return fmt.Errorf("publication %q source differs from current agent", name)
-		}
-		kind := node.Attrs["lf_kind"]
-		next, exists := Decide(p, name, "published")
-		if !exists {
-			return fmt.Errorf("research comment %q lacks a deterministic published edge", name)
-		}
-		after, found := p.Node(next)
-		if !found {
-			return fmt.Errorf("research comment %q publishes to missing node %q", name, next)
-		}
-		switch kind {
-		case "question", "review":
-			if node.Action != "lf_ask" {
-				return fmt.Errorf("owner wait requires lf_ask at %q", name)
-			}
-			// Both rest on the owner, for different reasons: a question is the
-			// agent needing an answer, a review is the agent showing finished
-			// work and waiting to be told it stands. Neither may run on
-			// unanswered, and an approved response has already been answered.
-			if response == policy.Approved {
-				return fmt.Errorf("an approved response is settled and cannot end at the %s at %q", kind, name)
-			}
-			if (kind == "question") != (response == policy.Ask) {
-				return fmt.Errorf("response %q cannot end at a %s publication at %q", response, kind, name)
-			}
-			if !after.Terminal {
-				return fmt.Errorf("research %s %q must end at a durable owner wait", kind, name)
-			}
-			return nil
-		case "final":
-			if node.Action != "lf_comment" {
-				return fmt.Errorf("report requires lf_comment at %q", name)
-			}
-			if response == policy.Ask && !visiting["measured:"+source] {
-				return fmt.Errorf("response path requires question comment at %q", name)
-			}
-			if after.Terminal {
-				return nil
-			}
-			visiting["published:"+source] = true
-			return validateResearchResponsePath(p, next, response, source, visiting, policy)
-		default:
-			return fmt.Errorf("response path reaches %q publication at %q", kind, name)
-		}
-	case ResearchLoopAction, ResearchIfAction:
-		// A control node reading a different agent is that agent's boundary, not
-		// this one's. Its own paths are validated from its own agent's edge.
-		if scope, scoped := node.Attrs["lf_source"]; scoped && scope != source {
-			if response == policy.Ask || !visiting["published:"+source] {
-				return fmt.Errorf("stage handoff at %q bypasses required publication or wait", name)
-			}
-			return nil
-		}
-		c, err := DecodeCondition(node.Action, node.Attrs, policy)
-		if err != nil {
-			return err
-		}
-		outcome, err := c.Evaluate(response, true)
-		if err != nil {
-			return err
-		}
-		next, exists := Decide(p, name, outcome)
-		if !exists {
-			return fmt.Errorf("response path at %q lacks deterministic %q edge", name, outcome)
-		}
-		return validateResearchResponsePath(p, next, response, source, visiting, policy)
-	default:
-		if slices.Contains(policy.MeasureActions, node.Action) {
-			if declared := node.Attrs["lf_source"]; declared != source {
-				return fmt.Errorf("measure step %q source differs from current agent", name)
-			}
-			measured := "measured:" + source
-			was := visiting[measured]
-			visiting[measured] = true
-			defer func() { visiting[measured] = was }()
-			for _, outcome := range node.Outcomes {
-				next, exists := Decide(p, name, outcome)
-				if !exists {
-					return fmt.Errorf("measure step %q lacks a deterministic %q edge", name, outcome)
-				}
-				target, found := p.Node(next)
-				if !found {
-					return fmt.Errorf("measure step %q leads to missing node %q", name, next)
-				}
-				switch {
-				case target.Action == "lf_agent":
-					if next == source {
-						return fmt.Errorf("measure step %q outcome %q returns to its own source agent %q", name, outcome, source)
-					}
-					if response == policy.Ask {
-						return fmt.Errorf("measure step %q outcome %q hands an unanswered question to agent %q", name, outcome, next)
-					}
-				case outcome == "failed" && !slices.Contains(policy.FindingActions, node.Action):
-					if err := validateResearchFailurePath(p, next); err != nil {
-						return fmt.Errorf("measure step %q failure path: %w", name, err)
-					}
-				default:
-					if err := validateResearchResponsePath(p, next, response, source, visiting, policy); err != nil {
-						return err
-					}
-				}
-			}
-			return nil
-		}
-		return fmt.Errorf("response path uses unsupported activity %q", node.Action)
-	}
-}
-
 // ResearchResponseReaches returns the publication one response would reach from
 // a starting node, or empty when that response does not end in one. It exists
 // so a caller can ask the graph what a node means rather than hardcoding a
@@ -477,7 +132,7 @@ func ResearchResponseReaches(p *Profile, name, response string) (string, error) 
 			return "", nil
 		}
 		switch node.Action {
-		case "lf_research_brief", JudgeAction:
+		case JudgeAction:
 			next, ok := Decide(p, name, "success")
 			if !ok {
 				return "", nil
@@ -491,9 +146,6 @@ func ResearchResponseReaches(p *Profile, name, response string) (string, error) 
 				}
 				name = next
 				continue
-			}
-			if response == "continue" {
-				return "", nil
 			}
 			return name, nil
 		case ResearchLoopAction, ResearchIfAction:
@@ -570,11 +222,4 @@ func reachesOwnerWait(p *Profile, name string, policy ControlPolicy, seen map[st
 		}
 	}
 	return false
-}
-
-func validateControlDelivery(p *Profile, n Node, policy ControlPolicy) error {
-	if policy.Delivery != nil {
-		return policy.Delivery(p, n)
-	}
-	return validateDeliveryNode(p, n)
 }

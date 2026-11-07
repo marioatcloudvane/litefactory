@@ -33,7 +33,7 @@ func graphDiagnosisFixture(t *testing.T) (*DB, string, GraphInstance, Session, G
 	if e != nil {
 		t.Fatal(e)
 	}
-	source, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "repair", RunID: run.ID, Limit: 8, StartedAt: at})
+	source, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "repair", RunID: run.ID, StartedAt: at})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -59,7 +59,7 @@ func graphDiagnosisFixture(t *testing.T) (*DB, string, GraphInstance, Session, G
 	if e != nil {
 		t.Fatal(e)
 	}
-	conversation, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", Limit: 64, StartedAt: at})
+	conversation, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", StartedAt: at})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -124,7 +124,7 @@ func TestGraphDiagnosisPersistentApprovalAndAtomicConsumption(t *testing.T) {
 	if e != nil || !reflect.DeepEqual(repeated, a) {
 		t.Fatalf("approval replay changed: %+v %v", repeated, e)
 	}
-	continued, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", Limit: 64, StartedAt: reply.At})
+	continued, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", StartedAt: reply.At})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -142,16 +142,30 @@ func TestGraphDiagnosisPersistentApprovalAndAtomicConsumption(t *testing.T) {
 	}
 }
 
+// An approval carrying guidance after the command approves, and the guidance
+// is kept with the claimed reply for the fixer.
+func TestGraphDiagnosisApprovalKeepsTrailingGuidance(t *testing.T) {
+	db, _, inst, session, c, conversation := graphDiagnosisFixture(t)
+	r := parkGraphDiagnosisReview(t, db, inst, session, c, conversation, true)
+	r.Body = "/approve-bug analysis 1\n\nkeep the old retry path"
+	if _, e := db.ApproveGraphDiagnosis(t.Context(), r, 1); e != nil {
+		t.Fatal(e)
+	}
+	wait, e := db.GetGraphOwnerWait(t.Context(), inst.ID)
+	if e != nil || wait.State != "claimed" || wait.ReplyBody != r.Body {
+		t.Fatalf("guidance not kept with the approval: %+v %v", wait, e)
+	}
+}
+
 func TestGraphDiagnosisApprovalNegativeInputsAndRollback(t *testing.T) {
 	for name, mutate := range map[string]func(*GraphOwnerReply){
 		"unauthorized":   func(r *GraphOwnerReply) { r.AuthorID = 8 },
 		"foreign":        func(r *GraphOwnerReply) { r.SourceRef = "github:acme/repo#999" },
 		"wrong task":     func(r *GraphOwnerReply) { r.TaskRef = "github:acme/repo#999"; r.SourceRef = r.TaskRef },
 		"stale question": func(r *GraphOwnerReply) { r.QuestionCommentID = 100 },
-		"old reply":      func(r *GraphOwnerReply) { r.CommentID = 100 },
 		"free text":      func(r *GraphOwnerReply) { r.Body = "looks good" },
-		"mixed changes":  func(r *GraphOwnerReply) { r.Body = "/approve-bug analysis 1\nchange the remedy" },
 		"stale revision": func(r *GraphOwnerReply) { r.Body = "/approve-bug analysis 2" },
+		"run-on command": func(r *GraphOwnerReply) { r.Body = "/approve-bug analysis 12" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			db, _, inst, session, c, conversation := graphDiagnosisFixture(t)
@@ -220,7 +234,7 @@ func TestGraphDiagnosisReshapeSuspendsApprovalAndPreservesHistory(t *testing.T) 
 	if e != nil {
 		t.Fatal(e)
 	}
-	continued, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", Limit: 64, StartedAt: reply.At})
+	continued, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", StartedAt: reply.At})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -236,7 +250,7 @@ func TestGraphDiagnosisReshapeSuspendsApprovalAndPreservesHistory(t *testing.T) 
 	if e != nil {
 		t.Fatal(e)
 	}
-	source, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "fixer", RunID: run.ID, Limit: 3, StartedAt: reply.At})
+	source, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "fixer", RunID: run.ID, StartedAt: reply.At})
 	if e != nil {
 		t.Fatal(e)
 	}

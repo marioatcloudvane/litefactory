@@ -45,16 +45,13 @@ func ResearchReferences(attrs map[string]string) (string, []string, error) {
 }
 
 // ValidateResearchEffective checks the launch values after inheritance.
-func ValidateResearchEffective(task string, tier config.Tier, limit int) error {
+func ValidateResearchEffective(task string, tier config.Tier) error {
 	var faults []error
 	if strings.TrimSpace(task) == "" || len(task) > 65536 {
 		faults = append(faults, errors.New("effective Research task must contain 1–65536 bytes"))
 	}
 	if !tier.Valid() {
 		faults = append(faults, fmt.Errorf("invalid effective Research model tier %q", tier))
-	}
-	if limit <= 0 {
-		faults = append(faults, errors.New("research agent requires a finite positive lf_limit"))
 	}
 	return errors.Join(faults...)
 }

@@ -10,7 +10,7 @@ func TestRunningGraphMultipartRequiresExactRetainedChild(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	session := testSession(t, db, 919)
-	if _, err := db.AdmitResearchPath(ctx, session.ID, "graph"); err != nil {
+	if _, err := db.AdmitWorkflowPath(ctx, session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: graphTestTime()})
@@ -22,7 +22,7 @@ func TestRunningGraphMultipartRequiresExactRetainedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := resultRun(t, db, session, "research", "source", 1)
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "source", RunID: run.RunID, Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "source", RunID: run.RunID, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

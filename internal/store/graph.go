@@ -29,7 +29,7 @@ var (
 	ErrGraphInvariant        = errors.New("store: graph invariant violated")
 	ErrGraphAttemptRunning   = errors.New("store: graph node already has a running attempt")
 	ErrGraphAttemptTerminal  = errors.New("store: graph attempt already terminal")
-	ErrGraphAttemptLimit     = errors.New("store: graph node dispatch limit exhausted")
+	ErrGraphBudgetExhausted  = errors.New("store: graph step budget exhausted")
 	ErrGraphInstanceTerminal = errors.New("store: graph instance already terminal")
 	ErrGraphDefinitionPath   = errors.New("store: invalid graph definition path")
 )
@@ -95,33 +95,23 @@ type BugSyncPrerequisite struct {
 	AllowDeferred       bool
 }
 
-// GraphAttemptStart reserves the next attempt. Limit zero is unbounded; a
-// positive limit caps the node's automatic dispatches since the instance's most
-// recent owner reply. Owner replies are conversation and never use it up,
-// except under LimitSpansReplies and at the declared Bug base sync gate.
+// GraphAttemptStart reserves the next attempt. Budget zero is unbounded; a
+// positive budget caps the instance's node dispatches since its most recent
+// accepted owner reply. Every accepted owner reply starts a fresh budget.
 type GraphAttemptStart struct {
 	// AcceptOwnerInput is set only for a substantive agent invocation.
 	AcceptOwnerInput    bool
 	BugSyncPrerequisite *BugSyncPrerequisite
-	// ResearchPriorNodes maps captured ancestor stages to this shipped stage.
-	ResearchPriorNodes map[int64]string
-	// OwnerAllowanceSource binds a successfully allocated mechanical owner
-	// continuation to one declared substantive invocation, through its trusted
-	// sync prerequisite when present.
-	OwnerAllowanceSource int64
-	InstanceID           int64
-	LaunchID             int64
-	Node                 string
-	RunID                int64
+	InstanceID          int64
+	LaunchID            int64
+	Node                string
+	RunID               int64
 	// FactoryStep marks a node the factory runs itself, without an agent. A
 	// factory step needs no run of its own, even when an earlier attempt of it
 	// ran inside an agent's run.
 	FactoryStep bool
-	// LimitSpansReplies keeps the limit cumulative across owner replies, for a
-	// workflow whose graph uses lf_limit to cap its owner rounds.
-	LimitSpansReplies bool
-	Limit             int
-	StartedAt         time.Time
+	Budget      int
+	StartedAt   time.Time
 }
 
 // GraphCompletion commits attempt, outputs, transition and instance progress

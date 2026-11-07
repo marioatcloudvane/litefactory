@@ -428,7 +428,7 @@ func (f *flowFixture) bindings() ValidateFlowBindings { return f.b }
 // that runs it, for a test that calls the activity directly.
 func (f *flowFixture) reviewRequest() ActivityRequest {
 	f.t.Helper()
-	attempt, err := f.db.StartGraphNodeAttempt(f.t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "review", Limit: 32, StartedAt: f.clock})
+	attempt, err := f.db.StartGraphNodeAttempt(f.t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "review", StartedAt: f.clock})
 	if err != nil {
 		f.t.Fatal(err)
 	}

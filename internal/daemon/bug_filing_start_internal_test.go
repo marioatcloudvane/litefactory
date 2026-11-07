@@ -157,7 +157,7 @@ func (fx *bugStartFixture) run(t *testing.T, sessionID, trigger int64, status st
 func (fx *bugStartFixture) conversationToAnalyst(t *testing.T, instanceID int64) {
 	t.Helper()
 	ctx := t.Context()
-	a, err := fx.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instanceID, Node: "conversation", Limit: 64, StartedAt: fx.now})
+	a, err := fx.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instanceID, Node: "conversation", StartedAt: fx.now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestBugFilingStartHandsOffOncePrivatelyAndReplaysAfterRestart(t *testing.T)
 		t.Fatalf("hand-offs %v", fx.handoff)
 	}
 	trigger := fx.handoff[0]
-	if !store.IsBugStartTrigger(trigger) || !store.IsPrivateTrigger(trigger) {
+	if !store.IsBugStartTrigger(trigger) || !store.IsFactoryTrigger(trigger) {
 		t.Fatalf("trigger %d is not in the private Bug start band", trigger)
 	}
 	attempts := fx.attempts(t)
@@ -226,7 +226,7 @@ func TestBugFilingStartOwnerShapeS2rThenAnalystDispatches(t *testing.T) {
 	if len(fx.attempts(t)) != 0 {
 		t.Fatal("an attempt opened after the Bug admission")
 	}
-	if _, err := fx.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "analyst", Limit: 8, StartedAt: fx.now}); err != nil {
+	if _, err := fx.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "analyst", StartedAt: fx.now}); err != nil {
 		t.Fatal(err)
 	}
 	if f = fx.step(t); f.State != store.BugFilingDispatched || f.Reason != "" {
@@ -241,7 +241,7 @@ func TestBugFilingStartS1AndS2LeaveToRuntimeThenTimeOut(t *testing.T) {
 			s := fx.session(t)
 			admitted := fx.admitBug(t, s.ID, 777)
 			if shape == "S2" {
-				if _, err := fx.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "conversation", Limit: 64, StartedAt: fx.now}); err != nil {
+				if _, err := fx.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "conversation", StartedAt: fx.now}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -336,7 +336,7 @@ func TestBugFilingStartAdoptsOwnerAdmissionAtAnalyst(t *testing.T) {
 	admitted := fx.admitBug(t, s.ID, 5150)
 	fx.run(t, s.ID, 5150, store.RunFailed, true)
 	fx.conversationToAnalyst(t, admitted.Instance.ID)
-	if _, err := fx.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "analyst", Limit: 8, StartedAt: fx.now}); err != nil {
+	if _, err := fx.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "analyst", StartedAt: fx.now}); err != nil {
 		t.Fatal(err)
 	}
 	f := fx.step(t)

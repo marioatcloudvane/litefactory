@@ -51,7 +51,7 @@ func TestGraphStopPersistentSourceLessClaimAndBound(t *testing.T) {
 	db, path, instance, session := persistentBugStopFixture(t)
 	ctx := t.Context()
 	at := graphTestTime()
-	first, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "repair", Limit: 1, StartedAt: at})
+	first, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "repair", StartedAt: at})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestGraphStopPersistentSourceLessClaimAndBound(t *testing.T) {
 	if err != nil || wait.OriginNode != "repair" || wait.State != "waiting" {
 		t.Fatalf("wait=%+v err=%v", wait, err)
 	}
-	if _, err = db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "repair", Limit: 1, StartedAt: at}); err == nil {
+	if _, err = db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "repair", StartedAt: at}); err == nil {
 		t.Fatal("waiting budget dispatched")
 	}
 	_, err = db.EnsureReportDelivery(ctx, ReportDelivery{Key: stop.Key, SessionID: session.ID, Task: session.TaskRef, Destination: "acme/repo#457", TriggerNamespace: "issue-comment", Purpose: "bug-question", BotUserID: 99, Body: "Reply with guidance", Marker: stop.Key})
@@ -96,7 +96,6 @@ func TestGraphStopPersistentSourceLessClaimAndBound(t *testing.T) {
 		"unauthorized":     func(r *GraphOwnerReply) { r.AuthorID = 8 },
 		"foreign workflow": func(r *GraphOwnerReply) { r.Workflow = "plan" },
 		"stale question":   func(r *GraphOwnerReply) { r.QuestionCommentID = 100 },
-		"predating":        func(r *GraphOwnerReply) { r.CommentID = 100 },
 	} {
 		bad := reply
 		mutate(&bad)
@@ -111,7 +110,7 @@ func TestGraphStopPersistentSourceLessClaimAndBound(t *testing.T) {
 	if _, err = db.ClaimGraphOwnerReply(ctx, reply); !errors.Is(err, ErrGraphOwnerWait) {
 		t.Fatalf("duplicate claim: %v", err)
 	}
-	next, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "repair", Limit: 1, StartedAt: reply.At})
+	next, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "repair", StartedAt: reply.At})
 	if err != nil || next.Attempt != 2 {
 		t.Fatalf("continuation=%+v err=%v", next, err)
 	}
@@ -121,9 +120,6 @@ func TestGraphStopPersistentSourceLessClaimAndBound(t *testing.T) {
 	}
 	if err = db.FinishGraphNodeAttempt(ctx, next.ID, GraphFailed, "", reply.At); err != nil {
 		t.Fatal(err)
-	}
-	if _, err = db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "repair", Limit: 1, StartedAt: reply.At}); !errors.Is(err, ErrGraphAttemptLimit) {
-		t.Fatalf("claim released more than one invocation: %v", err)
 	}
 }
 

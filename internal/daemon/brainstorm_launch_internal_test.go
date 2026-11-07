@@ -233,7 +233,7 @@ func TestBrainstormLaunchStartedOnlyAfterSeedAndFirstAgent(t *testing.T) {
 	if item, _ = f.db.ReadBrainstormTaskItem(t.Context(), f.item.ID); item.State != store.BrainstormItemPlanStarting {
 		t.Fatalf("started before the first agent: %+v", item)
 	}
-	if _, err = f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "set_agent", Limit: 3, StartedAt: f.at}); err != nil {
+	if _, err = f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "set_agent", StartedAt: f.at}); err != nil {
 		t.Fatal(err)
 	}
 	if err = f.d.stepBrainstormLaunch(t.Context(), item); err != nil {

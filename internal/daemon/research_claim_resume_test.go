@@ -4,9 +4,11 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -29,10 +31,10 @@ func TestResearchClaimReplayResumesOnlySavedOwnerInput(t *testing.T) {
 	researchRecoveryCheck(t, err)
 	task := &task{session: f.session, ref: ref, tickAt: f.at.Add(time.Minute)}
 	trigger := turn.Trigger{CommentID: 102, AuthorID: 7, Body: "Continue saved findings"}
-	researchRecoveryCheck(t, d.claimGraphReply(t.Context(), task, trigger, "research"))
+	researchRecoveryCheck(t, claimErr(d.claimGraphReply(t.Context(), task, trigger, "research")))
 	// Repeating admission after a restart/preparation failure reuses the retained
 	// claim. It neither claims another reply nor allocates an agent attempt.
-	researchRecoveryCheck(t, d.claimGraphReply(t.Context(), task, trigger, "research"))
+	researchRecoveryCheck(t, claimErr(d.claimGraphReply(t.Context(), task, trigger, "research")))
 	wait, err := f.db.GetGraphOwnerWait(t.Context(), f.instance.ID)
 	researchRecoveryCheck(t, err)
 	if !wait.ClaimedAt.Equal(task.tickAt) {
@@ -43,12 +45,12 @@ func TestResearchClaimReplayResumesOnlySavedOwnerInput(t *testing.T) {
 	}
 	bad := trigger
 	bad.AuthorID = 8
-	if err := d.claimGraphReply(t.Context(), task, bad, "research"); err == nil {
+	if err := claimErr(d.claimGraphReply(t.Context(), task, bad, "research")); err == nil {
 		t.Fatal("foreign author reused claimed input")
 	}
 	bad = trigger
 	bad.Body = "changed content"
-	if err := d.claimGraphReply(t.Context(), task, bad, "research"); err == nil {
+	if err := claimErr(d.claimGraphReply(t.Context(), task, bad, "research")); err == nil {
 		t.Fatal("changed reply reused claimed input")
 	}
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), f.instance.ID)
@@ -79,31 +81,52 @@ func publishResearchQuestion(t *testing.T, f *researchRecoveryFixture) {
 	researchRecoveryCheck(t, err)
 }
 
-// #378: an owner comment written before the open question was published
-// surfaces the dedicated sentinel that run() turns into a visible refusal,
-// never the generic invariant it used to leave to d.leave. The question stays
-// open and a genuine later reply is still claimed.
-func TestResearchClaimReportsCommentThatPredatesQuestion(t *testing.T) {
+// An owner comment written before the open question was published answers it:
+// owner input is queued, never refused for its timing.
+func TestResearchClaimAcceptsCommentThatPredatesQuestion(t *testing.T) {
 	f := newResearchRecoveryFixture(t)
 	f.authored(t, true)
 	publishResearchQuestion(t, f)
 	d, task := researchClaimDaemon(t, f)
-	for _, id := range []int64{100, 101} {
-		err := d.claimGraphReply(t.Context(), task, turn.Trigger{CommentID: id, AuthorID: 7, Body: "written while shaping ran"}, "research")
-		if !errors.Is(err, store.ErrGraphReplyPredatesQuestion) || errors.Is(err, store.ErrGraphInvariant) {
-			t.Fatalf("comment %d: error=%v, want only ErrGraphReplyPredatesQuestion", id, err)
-		}
+	researchRecoveryCheck(t, claimErr(d.claimGraphReply(t.Context(), task, turn.Trigger{CommentID: 100, AuthorID: 7, Body: "written while shaping ran"}, "research")))
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), f.instance.ID)
+	researchRecoveryCheck(t, err)
+	if wait.State != "claimed" || wait.ReplyID != 100 || wait.ReplyBody != "written while shaping ran" {
+		t.Fatalf("predating owner comment not claimed: %+v", wait)
+	}
+}
+
+// Every unconsumed owner comment since the last question reaches the agent as
+// one batch, oldest first, each with its id; the batch is claimed under its
+// last comment, and a replay rebuilds the same claim.
+func TestResearchClaimDeliversQueuedOwnerCommentsAsOneBatch(t *testing.T) {
+	f := newResearchRecoveryFixture(t)
+	f.authored(t, true)
+	publishResearchQuestion(t, f)
+	d, task := researchClaimDaemon(t, f)
+	at := f.at
+	first := turn.Trigger{CommentID: 100, AuthorID: 7, Body: "first thought", CreatedAt: at}
+	task.queue = []github.Comment{
+		{ID: 100, Author: github.User{ID: 7}, Body: "first thought", CreatedAt: at},
+		{ID: 102, Author: github.User{ID: 99}, Body: "factory question", CreatedAt: at.Add(time.Second)},
+		{ID: 103, Author: github.User{ID: 7}, Body: "second thought", CreatedAt: at.Add(2 * time.Second)},
+		{ID: 104, Author: github.User{ID: 7}, Body: "/implement now", CreatedAt: at.Add(3 * time.Second)},
+	}
+	got, err := d.claimGraphReply(t.Context(), task, first, "research")
+	researchRecoveryCheck(t, err)
+	if got.CommentID != 103 || !strings.Contains(got.Body, "Owner comment 100") || !strings.Contains(got.Body, "Owner comment 103") ||
+		strings.Index(got.Body, "first thought") > strings.Index(got.Body, "second thought") || strings.Contains(got.Body, "factory question") || strings.Contains(got.Body, "/implement") {
+		t.Fatalf("batch = %d %q", got.CommentID, got.Body)
 	}
 	wait, err := f.db.GetGraphOwnerWait(t.Context(), f.instance.ID)
 	researchRecoveryCheck(t, err)
-	if wait.State != "waiting" || wait.ReplyID != 0 {
-		t.Fatalf("refused comment changed the open question: %+v", wait)
+	if wait.State != "claimed" || wait.ReplyID != 103 || wait.ReplyBody != got.Body {
+		t.Fatalf("batch not claimed: %+v", wait)
 	}
-	researchRecoveryCheck(t, d.claimGraphReply(t.Context(), task, turn.Trigger{CommentID: 102, AuthorID: 7, Body: "Continue saved findings"}, "research"))
-	wait, err = f.db.GetGraphOwnerWait(t.Context(), f.instance.ID)
+	again, err := d.claimGraphReply(t.Context(), task, first, "research")
 	researchRecoveryCheck(t, err)
-	if wait.State != "claimed" || wait.ReplyID != 102 {
-		t.Fatalf("genuine reply after the question not claimed: %+v", wait)
+	if again != got {
+		t.Fatalf("replay rebuilt %+v, want %+v", again, got)
 	}
 }
 
@@ -115,7 +138,7 @@ func TestResearchClaimHoldsPredatingCommentWhileAttemptRuns(t *testing.T) {
 	f := newResearchRecoveryFixture(t)
 	ctx := t.Context()
 	researchRecoveryCheck(t, f.db.CompleteGraphNodeAttempt(ctx, f.attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: f.at}))
-	if _, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", Limit: 3, StartedAt: f.at}); err != nil {
+	if _, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", StartedAt: f.at}); err != nil {
 		t.Fatal(err)
 	}
 	researchRecoveryCheck(t, f.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "original-operation", InstanceID: f.instance.ID, SourceAttemptID: f.attempt.ID, Node: "comment", Kind: "question", Candidate: []byte(`{"outcome":"incomplete"}`)}))
@@ -123,8 +146,8 @@ func TestResearchClaimHoldsPredatingCommentWhileAttemptRuns(t *testing.T) {
 	researchRecoveryCheck(t, err)
 	publishResearchQuestion(t, f)
 	d, task := researchClaimDaemon(t, f)
-	err = d.claimGraphReply(ctx, task, turn.Trigger{CommentID: 100, AuthorID: 7, Body: "written while shaping ran"}, "research")
-	if !errors.Is(err, store.ErrGraphAttemptRunning) || errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
+	err = claimErr(d.claimGraphReply(ctx, task, turn.Trigger{CommentID: 100, AuthorID: 7, Body: "written while shaping ran"}, "research"))
+	if !errors.Is(err, store.ErrGraphAttemptRunning) {
 		t.Fatalf("error=%v, want ErrGraphAttemptRunning while an attempt runs", err)
 	}
 	wait, err := f.db.GetGraphOwnerWait(ctx, f.instance.ID)

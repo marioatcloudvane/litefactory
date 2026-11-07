@@ -11,15 +11,12 @@ import (
 )
 
 // A refused owner comment is marked for a reply and consumption; shutdown and
-// the between-questions refusal keep their own handling.
+// a busy workflow (the comment stays queued) keep their own handling.
 func TestBugReplyNotAppliedMarksRefusals(t *testing.T) {
 	if e := bugReplyNotApplied(errors.New("approval revision is invalid")); !errors.Is(e, ErrBugReplyNotApplied) {
 		t.Fatalf("refusal not marked: %v", e)
 	}
-	if e := bugReplyNotApplied(store.ErrGraphOwnerWait); !errors.Is(e, ErrBugReplyNotApplied) || !errors.Is(e, store.ErrGraphOwnerWait) {
-		t.Fatalf("wait refusal lost its cause: %v", e)
-	}
-	for _, kept := range []error{context.Canceled, store.ErrGraphReplyPredatesQuestion} {
+	for _, kept := range []error{context.Canceled, store.ErrGraphOwnerWait, store.ErrGraphAttemptRunning} {
 		if e := bugReplyNotApplied(kept); errors.Is(e, ErrBugReplyNotApplied) {
 			t.Fatalf("%v was turned into a refusal", kept)
 		}
@@ -42,13 +39,14 @@ func TestGraphBugApprovalReadsFirstLine(t *testing.T) {
 	delivery, e := f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
 	mustProgress(t, e)
 	reply := store.GraphOwnerReply{InstanceID: inst.ID, OwnerID: 7, AuthorID: 7, CommentID: delivery.CommentID + 1, QuestionCommentID: delivery.CommentID, TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug", DeliveryKey: wait.DeliveryKey, At: f.opts.MCP.Now().Add(time.Minute)}
-	for _, bad := range []string{"/approve-bug 1", "/approve-bug analysis one", "/approve-bug analysis 1 now"} {
+	for _, bad := range []string{"/approve-bug 1", "/approve-bug analysis one"} {
 		reply.Body = bad
 		if _, e = AdmitGraphBugOwnerReply(t.Context(), f.db, reply); e == nil {
 			t.Fatalf("%q was admitted", bad)
 		}
 	}
-	reply.Body = "`/approve-bug analysis 1.`\r\nLooks good, go ahead."
+	// Text after the command tokens is guidance kept with the approval.
+	reply.Body = "/approve-bug analysis 1. now\r\nLooks good, go ahead."
 	_, e = AdmitGraphBugOwnerReply(t.Context(), f.db, reply)
 	mustProgress(t, e)
 	_, approval, e := f.db.CurrentGraphDiagnosis(t.Context(), inst.ID)

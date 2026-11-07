@@ -172,7 +172,7 @@ func (e *linearBugE2E) stubStart() {
 		admitted := e.start.admitBug(t, s.ID, a.TriggerID())
 		e.start.run(t, s.ID, a.TriggerID(), store.RunFailed, true)
 		e.start.conversationToAnalyst(t, admitted.Instance.ID)
-		if _, err := d.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "analyst", Limit: 8, StartedAt: e.now}); err != nil {
+		if _, err := d.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "analyst", StartedAt: e.now}); err != nil {
 			return false, err
 		}
 		return false, nil

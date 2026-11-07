@@ -32,7 +32,7 @@ type SimplifiedBugPolicy struct {
 
 // SimplifiedBugSpecs is capture-only; registration still needs real handlers.
 func SimplifiedBugSpecs() (graphexec.Registry, error) {
-	r := graphexec.Registry{Policy: graphexec.ValidateOwnerConversationGraph}
+	var r graphexec.Registry
 	delivery := graphexec.DeliverSpec("")
 	delivery.Workflow = agent.WorkflowBug
 	if e := r.Register(delivery); e != nil {
@@ -50,9 +50,6 @@ func SimplifiedBugSpecs() (graphexec.Registry, error) {
 func (p SimplifiedBugPolicy) Register(specs *graphexec.Registry, activities *ActivityRegistry) error {
 	if specs == nil || activities == nil || p.Profile == nil || p.Analyst.Prepare == nil || nilActivityHandler(p.Fixer) || nilActivityHandler(p.Finalization) || p.Reporter == nil {
 		return errors.New("simplified Bug requires analyst, repair, finalization and factory reporter capabilities")
-	}
-	if e := graphexec.ValidateOwnerConversationGraph(p.Profile); e != nil {
-		return e
 	}
 	catalog, e := SimplifiedBugSpecs()
 	if e != nil {
@@ -416,9 +413,9 @@ func graphConversationOutcome(outcome string, candidate store.GraphDiagnosis, ap
 	return ActivityResult{Outcome: outcome, Kind: store.GraphOutputJSON, Output: raw}, e
 }
 
-// AdmitGraphBugOwnerReply handles exact approval mechanically. A mixed command
-// with requested changes is guidance; malformed single-line commands are refused
-// for the daemon's existing visible refusal/consumption path.
+// AdmitGraphBugOwnerReply handles approval mechanically: the command tokens
+// approve, and any trailing text is guidance kept with the approval. Malformed
+// command tokens are refused for the daemon's visible refusal path.
 func AdmitGraphBugOwnerReply(ctx context.Context, db *store.DB, reply store.GraphOwnerReply) (store.GraphOwnerWait, error) {
 	if db == nil {
 		return store.GraphOwnerWait{}, errors.New("owner admission requires graph store")
@@ -427,19 +424,25 @@ func AdmitGraphBugOwnerReply(ctx context.Context, db *store.DB, reply store.Grap
 	if _, explicit := ParseCommand(body).Mode(); explicit {
 		return store.GraphOwnerWait{}, errors.New("explicit mode commands must be handled before Bug continuation")
 	}
-	// The approval command is read from the first line; anything after it is
-	// a note to the owner's own review and does not turn approval into guidance.
-	first := strings.TrimSpace(strings.SplitN(body, "\n", 2)[0])
+	// The approval command is its first three tokens; any text after them, on
+	// the same line or below, is guidance for the fix and travels with it.
+	first, below, _ := strings.Cut(body, "\n")
+	first = strings.TrimSpace(first)
 	if strings.HasPrefix(first, "/approve-bug") {
-		fields := strings.Fields(strings.TrimRight(first, ".!"))
-		if len(fields) != 3 || fields[0] != "/approve-bug" || fields[1] != "analysis" {
+		fields := strings.Fields(first)
+		if len(fields) < 3 || fields[0] != "/approve-bug" || fields[1] != "analysis" {
 			return store.GraphOwnerWait{}, errors.New("approval requires /approve-bug analysis <revision> on its first line")
 		}
+		fields[2] = strings.TrimRight(fields[2], ".!")
+		guidance := strings.TrimSpace(strings.Join(fields[3:], " ") + "\n" + below)
 		revision, e := strconv.ParseInt(fields[2], 10, 64)
 		if e != nil || revision < 1 {
 			return store.GraphOwnerWait{}, errors.New("approval revision is invalid")
 		}
 		reply.Body = "/approve-bug analysis " + strconv.FormatInt(revision, 10)
+		if guidance != "" {
+			reply.Body += "\n\n" + guidance
+		}
 		if _, e = db.ApproveGraphDiagnosis(ctx, reply, revision); e != nil {
 			return store.GraphOwnerWait{}, e
 		}

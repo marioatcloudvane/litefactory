@@ -3,9 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -22,6 +20,10 @@ import (
 type WorkflowPolicy struct {
 	// BeforeAgent verifies a mode-specific durable handoff before source preparation.
 	BeforeAgent func(context.Context, store.GraphInstance) error
+
+	// BudgetFails ends an instance whose step budget runs out instead of
+	// parking it for an owner reply, for an instance no owner reply reaches.
+	BudgetFails bool
 
 	// Handlers supplies a mode's own invocation preparation and node activities.
 	// It supplies no result format: every mode's application result travels the
@@ -41,11 +43,8 @@ type WorkflowPolicy struct {
 	// Bug maps its validated payload.bug.response through its Respond hook.
 	Respond func(agentresult.Result) (string, error)
 
-	AuthorizeOutput func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.ResearchNode) error
-	BeforeContinue  func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.Result, agentresult.Context, int64) error
 	Specs           []graphexec.ActionSpec
 	RegisterEffects func(*graphexec.Registry, *ActivityRegistry, *graphexec.Profile, func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), func() (string, string, error), WorkflowEnv) error
-	BeforePublish   func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.Result, agentresult.Context) error
 	Failure         func(Request, error) agentresult.Result
 	Mode            agent.Mode
 	Workflow        agent.Workflow
@@ -144,25 +143,26 @@ func (p WorkflowPolicy) baseContext(questions bool) agentresult.Context {
 	return agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(p.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: questions || p.Questions}
 }
 
-// ResearchWorkflowPolicy supplies Research contracts and scoped effects to shared mechanics.
+// ResearchWorkflowPolicy supplies Research's decoder, guidance and comment
+// texts to the shared graph mechanisms. Research is one agent: the factory
+// publishes what it submitted and, when it asked, waits for the owner and
+// resumes the same agent. Behaviour lives in the role's Markdown; the flow
+// lives in the graph file.
 func ResearchWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{Respond: researchRetainedRoute, AcceptAfterProcessFailure: true, ValidateCompletion: researchNodeSize, AuthorizeOutput: authorizeResearchOutput, BeforeContinue: requireResearchBriefContinuation, Specs: []graphexec.ActionSpec{ResearchBriefSpec()}, RegisterEffects: registerResearchBrief, BeforePublish: requireResearchBrief, Failure: researchFailureCandidate, Mode: agent.ModeResearch, Control: graphexec.ResearchControlPolicy(), Decode: agentresult.DecodeResearchNode, Guidance: researchNodeGuidance(), Contract: validateResearchComment, Render: func(r agentresult.Result, next string, ref naming.Ref, branch string) string {
+	return WorkflowPolicy{AcceptAfterProcessFailure: true, ValidateCompletion: researchNodeSize, Failure: researchFailureCandidate, Mode: agent.ModeResearch, Control: graphexec.ResearchControlPolicy(), Decode: agentresult.DecodeResearchNode, Guidance: researchNodeInstructions, Contract: validateResearchComment, Render: func(r agentresult.Result, next string, ref naming.Ref, branch string) string {
 		return renderResearchComment(r, next, researchArtifactLinks(ref, branch, r.Artifacts))
 	}, NextStep: researchNextStep, Artifacts: func(root, session string, r agentresult.Result) error {
-		return ValidateResearchArtifactDeclarations(root, session, r.Artifacts)
+		return ValidateResearchArtifacts(root, session, r.Artifacts)
 	}}
 }
 
 // researchNodeSize refuses a result whose kept encoding exceeds the 1 MiB node
 // limit, so the agent learns it at preflight and submit rather than after the
-// process ends. A done result is measured as approved, the longer kept response.
+// process ends.
 func researchNodeSize(_ context.Context, _ store.ResultBinding, r agentresult.Result, _ agentresult.Context) agentresult.Diagnostics {
-	response, err := researchRetainedRoute(r)
+	response, err := retainedRoute(r)
 	if err != nil {
 		return agentresult.Diagnostics{Valid: true, Complete: true}
-	}
-	if response == "done" {
-		response = "approved"
 	}
 	encoded, err := json.Marshal(agentresult.ResearchNode{Version: 1, Response: response, Result: r})
 	if err != nil || len(encoded) <= agentresult.MaxResearchNodeBytes {
@@ -184,7 +184,7 @@ func (p WorkflowPolicy) respond(r agentresult.Result) (string, error) {
 
 // retainedRoute is the shared Research and Plan mapping from a retained result
 // to its response. Approval is never derived here: only an authorized owner
-// reply settles the displayed Research review at the factory wait boundary.
+// reply approves a review, at the factory wait boundary.
 func retainedRoute(r agentresult.Result) (string, error) {
 	switch {
 	case r.Outcome == "incomplete" && len(r.Questions) > 0:
@@ -196,20 +196,7 @@ func retainedRoute(r agentresult.Result) (string, error) {
 }
 
 func (p WorkflowPolicy) load(ctx context.Context, db *store.DB, id int64, scope agentresult.Context) (agentresult.ResearchNode, error) {
-	node, err := loadNodeOutput(ctx, db, id, scope, p.Decode)
-	if err != nil {
-		return node, err
-	}
-	if p.AuthorizeOutput != nil {
-		attempt, err := db.GetGraphNodeAttempt(ctx, id)
-		if err != nil {
-			return node, err
-		}
-		if err := p.AuthorizeOutput(ctx, db, attempt, node); err != nil {
-			return agentresult.ResearchNode{}, err
-		}
-	}
-	return node, nil
+	return loadNodeOutput(ctx, db, id, scope, p.Decode)
 }
 
 // WorkflowHandlers separates a mode's domain activities and invocation preparation
@@ -223,14 +210,4 @@ type WorkflowHandlers struct {
 	Comment      ActivityHandler
 	BeforeSave   func(context.Context, *researchWorkflow) error
 	AfterSave    func(context.Context, *researchWorkflow, *Result) error
-}
-
-func researchRetainedRoute(r agentresult.Result) (string, error) {
-	if p := r.Payload.Research; p != nil && p.Continue {
-		if r.Outcome == "incomplete" && strings.TrimSpace(r.Reason) != "" && len(p.Findings) > 0 && len(r.Questions) == 0 {
-			return "continue", nil
-		}
-		return "", errors.New("invalid Research continuation")
-	}
-	return retainedRoute(r)
 }

@@ -38,7 +38,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 	if paused.Status != "waiting_owner" || paused.AttemptID != 0 {
 		t.Fatalf("wait dispatched: %+v", paused)
 	}
-	start := store.GraphAttemptStart{InstanceID: source.InstanceID, Node: source.Node, RunID: source.RunID, Limit: 3, StartedAt: source.StartedAt.Add(time.Hour)}
+	start := store.GraphAttemptStart{InstanceID: source.InstanceID, Node: source.Node, RunID: source.RunID, StartedAt: source.StartedAt.Add(time.Hour)}
 	if _, err = f.db.StartGraphNodeAttempt(t.Context(), start); !errors.Is(err, store.ErrGraphOwnerWait) {
 		t.Fatalf("unpublished wait allocated: %v", err)
 	}
@@ -59,7 +59,6 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 		{"foreign task", func(r *store.GraphOwnerReply) { r.TaskRef = "github:foreign/repo#1"; r.SourceRef = r.TaskRef }},
 		{"foreign source", func(r *store.GraphOwnerReply) { r.SourceRef = "github:foreign/repo#1" }},
 		{"wrong mode", func(r *store.GraphOwnerReply) { r.Mode = "implement" }},
-		{"stale comment", func(r *store.GraphOwnerReply) { r.CommentID = r.QuestionCommentID }},
 		{"wrong question", func(r *store.GraphOwnerReply) { r.QuestionCommentID++ }},
 		{"wrong instance", func(r *store.GraphOwnerReply) { r.InstanceID++ }},
 		{"oversized reply", func(r *store.GraphOwnerReply) { r.Body = strings.Repeat("x", 65537) }},
@@ -135,7 +134,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 	}
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), source.InstanceID)
 	mustProgress(t, err)
-	if len(attempts) != 3 || forge.attemptCount() != 1 {
+	if len(attempts) != 2 || forge.attemptCount() != 1 {
 		t.Fatal("restart duplicated attempt or publication")
 	}
 	// Storage may contain corrupt historical bytes; context loading enforces its

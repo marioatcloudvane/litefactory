@@ -82,7 +82,7 @@ func create(ctx context.Context, db *store.DB) manifest {
 	must(err)
 	session, err := db.GetOrCreateSession(ctx, repo, 9516)
 	must(err)
-	_, err = db.AdmitResearchPath(ctx, session.ID, "graph")
+	_, err = db.AdmitWorkflowPath(ctx, session.ID, "graph")
 	must(err)
 	definition, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 2, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
 	must(err)
@@ -90,7 +90,7 @@ func create(ctx context.Context, db *store.DB) manifest {
 	sum := sha256.Sum256(config)
 	launch, err := db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{SessionID: session.ID, TriggerID: 1, DefinitionID: definition.ID, Mode: "research", Start: "work", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte(`{"research.dot":"eA=="}`), Provenance: store.WorkflowProvenance{Kind: "fetched", Source: "https://example.test/teams/index.json", Slug: "standard", Version: "1.0.0", ReleaseDigest: strings.Repeat("d", 64), GraphPath: "research/research.dot", GraphFile: "research.dot", Team: "builtin", TeamConfig: config, ConfigDigest: hex.EncodeToString(sum[:])}})
 	must(err)
-	attempt, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: launch.Instance.ID, LaunchID: launch.LaunchID, Node: "work", Limit: 8, StartedAt: at})
+	attempt, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: launch.Instance.ID, LaunchID: launch.LaunchID, Node: "work", StartedAt: at})
 	must(err)
 	connection := store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: repo.Slug(), CredentialSource: "env", CredentialEnv: "OFFLINE_FIXTURE_TOKEN", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, RemoteURL: repo.RemoteURL, BaseBranch: repo.BaseBranch, FeaturePrefix: repo.FeaturePrefix, WorktreeRoot: repo.WorktreeRoot}
 	code, err := db.SetConnection(ctx, connection, 0)

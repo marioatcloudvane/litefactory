@@ -210,14 +210,23 @@ func (db *DB) RetainGraphDiagnosis(ctx context.Context, in GraphDiagnosisInput) 
 	return out, nil
 }
 
+// isDiagnosisApproval reports whether body starts with the approval command for
+// revision. Anything after the command tokens is the owner's guidance for the
+// fix and travels with the approval.
+func isDiagnosisApproval(body string, revision int64) bool {
+	command := "/approve-bug analysis " + strconv.FormatInt(revision, 10)
+	rest, ok := strings.CutPrefix(body, command)
+	return ok && (rest == "" || rest[0] == '\n')
+}
+
 // ApproveGraphDiagnosis consumes the exact owner command and records authority
 // atomically. Ordinary guidance uses ClaimGraphOwnerReply and never calls this.
 func (db *DB) ApproveGraphDiagnosis(ctx context.Context, in GraphOwnerReply, revision int64) (out GraphDiagnosisApproval, err error) {
-	if revision < 1 || in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || in.QuestionCommentID < 1 || in.SourceRef != in.TaskRef || in.TaskRef == "" || in.Workflow != "bug" || in.Mode != "" || in.DeliveryKey == "" || in.At.IsZero() || in.Body != "/approve-bug analysis "+strconv.FormatInt(revision, 10) {
+	if revision < 1 || in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || in.QuestionCommentID < 1 || in.SourceRef != in.TaskRef || in.TaskRef == "" || in.Workflow != "bug" || in.Mode != "" || in.DeliveryKey == "" || in.At.IsZero() || !isDiagnosisApproval(in.Body, revision) {
 		return out, graphInvariant("exact authenticated current diagnosis approval required")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		out, err = approveGraphDiagnosisTx(ctx, tx, in, revision, false)
+		out, err = approveGraphDiagnosisTx(ctx, tx, in, revision)
 		return err
 	})
 	if err != nil {
@@ -226,7 +235,7 @@ func (db *DB) ApproveGraphDiagnosis(ctx context.Context, in GraphOwnerReply, rev
 	return out, nil
 }
 
-func approveGraphDiagnosisTx(ctx context.Context, tx *sql.Tx, in GraphOwnerReply, revision int64, chat bool) (out GraphDiagnosisApproval, err error) {
+func approveGraphDiagnosisTx(ctx context.Context, tx *sql.Tx, in GraphOwnerReply, revision int64) (out GraphDiagnosisApproval, err error) {
 	inst, e := graphBugInstanceTx(ctx, tx, in.InstanceID)
 	if e != nil {
 		return out, e
@@ -265,7 +274,7 @@ func approveGraphDiagnosisTx(ctx context.Context, tx *sql.Tx, in GraphOwnerReply
 	if e != nil {
 		return out, e
 	}
-	if task != in.TaskRef || cause != "diagnosis_review" || !published || question != in.QuestionCommentID || (!chat && in.CommentID <= question) || wait.State != "waiting" || wait.OriginNode != inst.CurrentNode {
+	if task != in.TaskRef || cause != "diagnosis_review" || !published || question != in.QuestionCommentID || wait.State != "waiting" || wait.OriginNode != inst.CurrentNode {
 		return out, graphInvariant("approval does not match confirmed current review")
 	}
 	var reviewed struct {

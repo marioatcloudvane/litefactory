@@ -62,7 +62,7 @@ func TestValidateSuiteLargeAssessmentStaysReadableByNextStep(t *testing.T) {
 	}
 
 	for _, saved := range [][]byte{res.Output, oversized} {
-		attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", Limit: 16, StartedAt: suiteClock})
+		attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", StartedAt: suiteClock})
 		mustProgress(t, err)
 		mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: res.Outcome, FinishedAt: suiteClock, InstanceStatus: store.GraphRunning,
 			Outputs: []store.GraphOutput{{NodeAttemptID: attempt.ID, Kind: store.GraphOutputJSON, Payload: saved, CreatedAt: suiteClock}}}))

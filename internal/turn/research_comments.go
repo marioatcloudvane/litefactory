@@ -184,11 +184,6 @@ func (r *Reporter) ReportWorkflowCandidate(ctx context.Context, source store.Gra
 	if err := policy.Contract(source, kind, candidate, scope); err != nil {
 		return Posted{}, "", err
 	}
-	if kind != "failure" && policy.BeforePublish != nil {
-		if err := policy.BeforePublish(ctx, r.db, source, candidate, scope); err != nil {
-			return Posted{}, "", err
-		}
-	}
 	raw, err := json.Marshal(candidate)
 	if err != nil {
 		return Posted{}, "", err
@@ -349,8 +344,8 @@ var researchArtifactLabels = map[string]string{
 // researchArtifactLinks points at the branch rather than a commit, which is the
 // opposite of what a run report does and is right for a different reason. A run
 // report is a statement about one run, so it pins to that run's sha. These
-// documents are not: the factory renders them from the retained result and
-// replaces them in place, so the current branch copy is always the one the
+// documents are not: the agent rewrites them in place on every pass,
+// so the current branch copy is always the one the
 // reader wants. Pinning would hand them a superseded draft.
 //
 // It also could not pin if it wanted to. A comment is published mid-run, before
@@ -361,9 +356,12 @@ func researchArtifactLinks(ref naming.Ref, branch string, artifacts []agentresul
 	}
 	out := make([]artifactLink, 0, len(artifacts))
 	for _, a := range artifacts {
-		label, known := researchArtifactLabels[a.Kind]
-		if !known || !agentresult.ValidPath(a.Path) {
+		if !agentresult.ValidPath(a.Path) {
 			continue
+		}
+		label, known := researchArtifactLabels[a.Kind]
+		if !known {
+			label = a.Kind
 		}
 		out = append(out, artifactLink{
 			label: label,
@@ -459,10 +457,6 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 		return fmt.Sprintf("Reply `%s` to ship this exact candidate. Other feedback resumes the conversation. Nothing merges until you approve.", n.Attrs["lf_approve_reply"])
 	}
 	switch kind {
-	case "review":
-		return "more questions, want me to dig deeper, or shall we plan this out?\n" +
-			"Reply with what you want changed, say **`done`** to close this out as it stands, or comment **`/plan plan the approved scope above into stories`** to approve it and start planning straight away.\n" +
-			"Nothing moves on until you say so."
 	case "question":
 		return "reply on this issue to continue. Answer by option id, answer in your own words, or say `proceed` to let the factory assume the recommended answers. Nothing runs until you reply."
 	case "failure":
@@ -473,18 +467,9 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 			return ""
 		}
 		if after, found := profile.Node(target); found && after.Terminal {
-			return "this workflow is finished. Comment `/plan plan the agreed scope into stories` to turn it into stories."
+			return "this Research is finished. Reply on this issue to change the scope; the next Research starts from this one. Comment `/plan plan the agreed scope into stories` to turn it into stories."
 		}
 		return "the next stage starts on its own when admitted. No owner reply is needed; wait for its next report."
 	}
 	return ""
-}
-
-// researchNodeIsReview reports whether a node publishes a review gate.
-func researchNodeIsReview(profile *graphexec.Profile, node string) bool {
-	if profile == nil {
-		return false
-	}
-	n, ok := profile.Node(node)
-	return ok && n.Attrs["lf_kind"] == "review"
 }

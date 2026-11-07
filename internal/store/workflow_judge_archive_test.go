@@ -20,14 +20,14 @@ func TestWorkflowJudgeArchivePreservesFinishedBindingOnClosedIssue(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "source", Limit: 1, StartedAt: graphTestTime()})
+	source, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "source", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = db.CompleteGraphNodeAttempt(ctx, source.ID, GraphCompletion{Status: GraphSucceeded, Outcome: "success", FinishedAt: graphTestTime(), InstanceStatus: GraphRunning, Transition: &GraphTransition{InstanceID: instance.ID, FromNode: "source", ToNode: "judge", OnOutcome: "success", At: graphTestTime()}}); err != nil {
 		t.Fatal(err)
 	}
-	judge, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "judge", Limit: 1, StartedAt: graphTestTime()})
+	judge, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "judge", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

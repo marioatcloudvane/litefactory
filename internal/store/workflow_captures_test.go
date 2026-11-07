@@ -12,7 +12,7 @@ func captureFixture(t *testing.T) (*DB, WorkflowLaunch) {
 	t.Helper()
 	db := newTestDB(t)
 	session := testSession(t, db, 9516)
-	if _, err := db.AdmitResearchPath(t.Context(), session.ID, "graph"); err != nil {
+	if _, err := db.AdmitWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	pin, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 2, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: graphTestTime()})
@@ -29,7 +29,7 @@ func TestWorkflowCaptureExactReferencesAndImmutableProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, LaunchID: first.LaunchID, Node: "work", Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, LaunchID: first.LaunchID, Node: "work", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestWorkflowCaptureExactReferencesAndImmutableProvenance(t *testing.T) {
 	if err != nil || next.ID == dispatch.ID || next.LaunchID != first.LaunchID {
 		t.Fatalf("next stage substituted newer capture: %+v %v", next, err)
 	}
-	active, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, LaunchID: first.LaunchID, Node: "work", Limit: 8, StartedAt: graphTestTime()})
+	active, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, LaunchID: first.LaunchID, Node: "work", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

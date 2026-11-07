@@ -18,7 +18,6 @@ func TestImplementSlotPolicyCaptureAndRetainedReplay(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	registry.Policy = graphexec.ValidateImplementGraph
 	fresh, err := captureImplementGo(t.Context(), t, registry)
 	if err != nil {
 		t.Fatal(err)

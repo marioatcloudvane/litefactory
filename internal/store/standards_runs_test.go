@@ -117,7 +117,7 @@ func TestStandardsRootGraphRecoveryAndNewOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(fallback.ID, original.ID)
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: admitted.Instance.CurrentNode, Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: admitted.Instance.CurrentNode, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestStandardsRootPrelaunchDispatchWithoutOwnerRun(t *testing.T) {
 	first := allocate(dispatch.TriggerID())
 	// Another reserved dispatch is not needed to resolve identity: the first run's
 	// private trigger already proves its launch before StartRun attaches ownership.
-	reviewerAttempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: admitted.Instance.CurrentNode, Limit: 8, StartedAt: graphTestTime()})
+	reviewerAttempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: admitted.Instance.CurrentNode, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestStandardsRunArchiveRetainsInspectableBinding(t *testing.T) {
 	}
 	original := testRun(t, db, launch.SessionID, launch.TriggerID)
 	root := strconv.FormatInt(original.ID, 10)
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, RunID: original.ID, Node: admitted.Instance.CurrentNode, Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, RunID: original.ID, Node: admitted.Instance.CurrentNode, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +437,7 @@ func TestStandardsGraphAnchorSurvivesArchivedLaunchIDReuse(t *testing.T) {
 	if _, err = db.sql.ExecContext(ctx, `DELETE FROM standards_run_bindings WHERE root_run_id=?`, rootKey); err == nil {
 		t.Fatal("mechanical source binding allowed deletion")
 	}
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: source.Instance.ID, LaunchID: source.LaunchID, Node: source.Instance.CurrentNode, Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: source.Instance.ID, LaunchID: source.LaunchID, Node: source.Instance.CurrentNode, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +516,7 @@ func TestStandardsSharedMechanicalRootSurvivesIndependentWorkerForget(t *testing
 		children = append(children, admitted)
 	}
 	first := runs[0]
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: children[0].Instance.ID, LaunchID: children[0].LaunchID, RunID: first.ID, Node: children[0].Instance.CurrentNode, Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: children[0].Instance.ID, LaunchID: children[0].LaunchID, RunID: first.ID, Node: children[0].Instance.CurrentNode, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

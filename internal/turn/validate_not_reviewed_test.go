@@ -268,7 +268,7 @@ func TestValidateSameCommitStartIsRefusedWhileTheRunExecutes(t *testing.T) {
 	if node == "" {
 		node = cur.CurrentNode
 	}
-	_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old.ID, Node: node, Limit: 64, StartedAt: time.Now()})
+	_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old.ID, Node: node, StartedAt: time.Now()})
 	mustProgress(t, err)
 	before := a.entries(t)
 	binds := a.binds
@@ -462,7 +462,7 @@ func TestValidateSameCommitStartAfterAFailedSuiteKeepsItsRefusals(t *testing.T) 
 			if node == "" {
 				node = cur.CurrentNode
 			}
-			_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old, Node: node, Limit: 64, StartedAt: time.Now()})
+			_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old, Node: node, StartedAt: time.Now()})
 			mustProgress(t, err)
 		}, func(t *testing.T, a *adoptFlow) (Result, error) { return a.manual(t, 6002) }},
 		{"closed gate", func(t *testing.T, a *adoptFlow, _ int64) {

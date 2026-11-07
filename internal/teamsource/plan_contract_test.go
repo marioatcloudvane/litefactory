@@ -147,9 +147,6 @@ func TestPlanPackageRejectsInvalidClosure(t *testing.T) {
 		{"unsupported condition", func(f fstest.MapFS) {
 			f["plan.dot"].Data = bytes.ReplaceAll(f["plan.dot"].Data, []byte(`lf_condition="approved"`), []byte(`lf_condition="implicit_approval"`))
 		}},
-		{"zero loop bound", func(f fstest.MapFS) {
-			f["plan.dot"].Data = bytes.ReplaceAll(f["plan.dot"].Data, []byte(`lf_limit="8"`), []byte(`lf_limit="0"`))
-		}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -216,11 +213,6 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 			}
 		})
 	}
-	for _, node := range d.Profile.Nodes {
-		if !node.Terminal && node.Limit <= 0 {
-			t.Errorf("unbounded activity %s", node.Name)
-		}
-	}
 }
 
 // The set stage, its owner wait and the story creation cycle are declared in the
@@ -266,16 +258,6 @@ func TestPlanPackageDeclaresSetStageAndCreationCycle(t *testing.T) {
 	set, _ := d.Profile.Node("set_agent")
 	if _, captured := d.Nodes["set_agent"]; set.Attrs["lf_agent_markdown"] != "plan-set" || !captured {
 		t.Errorf("set stage lacks its captured role: %v", set.Attrs)
-	}
-	// Every node of the creation cycle carries the bound that covers a full set.
-	for _, name := range []string{"story_pick", "story_agent", "story_question", "story_draft", "story_review"} {
-		n, _ := d.Profile.Node(name)
-		if n.Limit < graphexec.PlanCreationBound {
-			t.Errorf("%s bound %d does not cover %d stories", name, n.Limit, planbrief.MaxPlanStorySetEntries)
-		}
-	}
-	if err := graphexec.ValidatePlanControlGraph(d.Profile); err != nil {
-		t.Fatalf("shipped graph fails the declared-structure check: %v", err)
 	}
 }
 

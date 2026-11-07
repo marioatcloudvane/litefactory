@@ -32,7 +32,7 @@ func TestWorkflowFactoryAttemptsRecoveryScopeAndPagination(t *testing.T) {
 		if tc.run {
 			runID = resultRun(t, db, session, tc.mode, "source", 1).RunID
 		}
-		attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "judge", RunID: runID, Limit: 1, StartedAt: graphTestTime()})
+		attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "judge", RunID: runID, StartedAt: graphTestTime()})
 		if err != nil {
 			t.Fatal(err)
 		}

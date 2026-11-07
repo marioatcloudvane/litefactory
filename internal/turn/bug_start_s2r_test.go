@@ -291,7 +291,7 @@ func TestBugStartS2rRestartGuards(t *testing.T) {
 		}
 		next, created, err := s.f.db.OpenBugFilingStartAttempt(ctx, s.attempt.FilingID, s.f.session.ID, time.Now())
 		mustProgress(t, err)
-		if !created || !store.IsPrivateTrigger(next.TriggerID()) {
+		if !created || !store.IsFactoryTrigger(next.TriggerID()) {
 			t.Fatalf("next start attempt=%+v", next)
 		}
 		fresh := s.req
@@ -313,7 +313,7 @@ func TestBugStartS2rRestartGuards(t *testing.T) {
 		for trigger, want := range map[int64]bool{9001: true, store.GraphDispatch{ID: 1}.TriggerID(): false, s.attempt.TriggerID(): false, store.BugStartTrigger(s.attempt.ID + 1): false} {
 			got, err := s.runtime.untouchedGraphLaunch(ctx, instance)
 			mustProgress(t, err)
-			if !got && !store.IsPrivateTrigger(trigger) {
+			if !got && !store.IsFactoryTrigger(trigger) {
 				got, err = s.runtime.stoppedGraphLaunch(ctx, instance)
 				mustProgress(t, err)
 			}
@@ -352,10 +352,10 @@ func TestBugStartS2rRestartGuards(t *testing.T) {
 }
 
 func TestBugStartS2rPrivateTriggerIdentity(t *testing.T) {
-	if !store.IsPrivateTrigger(store.BugStartTrigger(1)) || !store.IsBugStartTrigger(store.BugStartTrigger(1)) {
+	if !store.IsFactoryTrigger(store.BugStartTrigger(1)) || !store.IsBugStartTrigger(store.BugStartTrigger(1)) {
 		t.Fatal("the minted start trigger is not private")
 	}
-	if store.IsPrivateTrigger(6664969403) {
+	if store.IsFactoryTrigger(6664969403) {
 		t.Fatal("a real forge comment id is private")
 	}
 }

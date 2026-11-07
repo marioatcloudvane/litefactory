@@ -49,7 +49,7 @@ var everyReplyKind = []report.ReplyKind{
 	report.ReplyConfirmAlreadyApplied,
 	report.ReplyConfirmFailed,
 	report.ReplyAppliesResolution,
-	report.ReplyGraphReplyBetweenQuestions,
+	report.ReplyNotUsed,
 	report.ReplyBugCommentNotApplied,
 	report.ReplyGraphOwnerWaitRefused,
 	report.ReplyImplementCommentNotApplied,
@@ -60,22 +60,22 @@ var everyReplyKind = []report.ReplyKind{
 	report.ReplyImplementFinishedValidated,
 }
 
-// TestReplyGraphReplyBetweenQuestionsIsAModeRefusalOnly pins the one refusal
-// family the between-questions reply belongs to. internal/turn accepts a
+// TestReplyNotUsedIsAModeRefusalOnly pins the one refusal family the not-used
+// reply belongs to. internal/turn accepts a
 // Refusal only when one of the five predicates answers yes, and answering yes
 // to more than one would widen the request shapes it is accepted under.
-func TestReplyGraphReplyBetweenQuestionsIsAModeRefusalOnly(t *testing.T) {
+func TestReplyNotUsedIsAModeRefusalOnly(t *testing.T) {
 	t.Parallel()
 
-	kind := report.ReplyGraphReplyBetweenQuestions
-	if got := kind.String(); got != "graph_reply_between_questions" {
-		t.Errorf("String() = %q, want graph_reply_between_questions", got)
+	kind := report.ReplyNotUsed
+	if got := kind.String(); got != "not_used" {
+		t.Errorf("String() = %q, want not_used", got)
 	}
 	if !kind.RefusesMode() {
 		t.Error("RefusesMode() = false; the reply could not be delivered through the refuseMode path")
 	}
 	if kind.RefusesTools() || kind.RefusesAgent() || kind.RefusesSwitch() || kind.RefusesSync() || kind.IsConfirmationReply() {
-		t.Error("the between-questions reply answers yes to another refusal predicate too")
+		t.Error("the not-used reply answers yes to another refusal predicate too")
 	}
 }
 

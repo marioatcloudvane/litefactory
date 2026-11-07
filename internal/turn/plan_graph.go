@@ -33,12 +33,7 @@ func PlanWorkflowPolicy() WorkflowPolicy {
 
 // PlanSpecs validates the packaged Plan under Plan's own control and result policy.
 func PlanSpecs() (graphexec.Registry, error) {
-	r, err := WorkflowSpecs(PlanWorkflowPolicy())
-	if err != nil {
-		return r, err
-	}
-	r.Policy = graphexec.ValidatePlanControlGraph
-	return r, nil
+	return WorkflowSpecs(PlanWorkflowPolicy())
 }
 
 type planGraphRuntime struct {
@@ -123,7 +118,7 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if err = r.releaseParkedWithoutAgent(ctx, definition.Profile); err != nil {
 		return result, true, err
 	}
-	r.discussion = req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.ownerID && ParseCommand(req.Trigger.Body).Kind == KindFreeText
+	r.discussion = req.Trigger.CommentID > 0 && !store.IsFactoryTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.ownerID && ParseCommand(req.Trigger.Body).Kind == KindFreeText
 	continuation, retainedRevision, continuationErr := retainedStageRevision(ctx, o.DB, req.Trigger, result.Ref.String())
 	if continuationErr != nil {
 		return result, true, continuationErr
@@ -566,15 +561,17 @@ func (r *planGraphRuntime) applyReply(ctx context.Context, reply planbrief.PlanO
 		return true, nil
 	})
 	if err == nil && approved {
-		// The published decision is the command alone, without any guidance
-		// written below it.
-		command, _ := planbrief.PlanCommandLine(reply.Body)
+		// The published decision is the command tokens alone, without any
+		// guidance written after them.
+		line, _ := planbrief.PlanCommandLine(reply.Body)
+		fields := strings.Fields(line)
+		command := strings.Join(fields[:min(4, len(fields))], " ")
 		return r.opts.DB.ResolveOwnerDecisionTarget(ctx, r.parentRef.String(), "/approve-plan", command)
 	}
 	return err
 }
 
-var planStoryCommandPattern = regexp.MustCompile(`^/approve-plan (story-[0-9]{3,}) (?:story|technical|acceptance) \S+$`)
+var planStoryCommandPattern = regexp.MustCompile(`^/approve-plan (story-[0-9]{3,}) (?:story|technical|acceptance) \S+(?:\s.*)?$`)
 
 // planStoryCommandKey reports whether body is a story approval command written
 // on the parent, on its first line, and names the story it is for.
@@ -802,7 +799,7 @@ func (r *planGraphRuntime) control(ctx context.Context, _ Options, a ActivityReq
 
 // planStoryEffect is the production lf_plan_story handler. ExecuteNodeAction
 // takes the parent story-progress lock through it before reserving an attempt,
-// so a busy parent defers the step without spending node limit or budget.
+// so a busy parent defers the step without spending step budget.
 type planStoryEffect struct {
 	r      *planGraphRuntime
 	locked bool
