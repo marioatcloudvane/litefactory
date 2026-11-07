@@ -15,9 +15,9 @@
     "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
   },
   "teams/dotnet-web/v1.0.0/plan/plan.dot": {
-    "Profile": "5c239afc2fe7586be52d895ce8f7487235a0545d0220ae99d30d74db24ef0a8e",
-    "Semantic": "255388486b05bdd15a6ddf0e8bc22877d82855e14371dd24073dfabe1c65cff8",
-    "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
+    "Profile": "62dda59cb6161efc30deb6d1a1bb95c4ce2f9dea9a98a52fdf292c0574cb78ad",
+    "Semantic": "480557bfa12b70ff94774895728d6eed04706408033a692f2e087dc253096816",
+    "Navigation": "34f48b5312d35fb3a39d1a9830caa66b36f9db7a724e7e07417f0deaa293055c"
   },
   "teams/dotnet-web/v1.0.0/research/research.dot": {
     "Profile": "cd4c56151e3bca4f745195c80c9c8b97aa298e4c0c28e3bfa41336aa8c22d2e6",
@@ -45,9 +45,9 @@
     "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
   },
   "teams/go-development/v1.0.0/plan/plan.dot": {
-    "Profile": "7e922dfb881d0176be9dd2fdc195d5913d66fbcb7d7a9bf8ad06cf1605f301df",
-    "Semantic": "11fa38ce90330cd6cb5ff2a1c880b54eabdff0aea76b0cfd9832660a7e1f8a0d",
-    "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
+    "Profile": "0838aa63262c14e047e94d1c096dae920240b9037749987a771cc0b2d4010c2b",
+    "Semantic": "9ce4b9b3fd4a89eb3f0709d20d91f3b46d9f0f08a6fb70ca9781ce3f9719b906",
+    "Navigation": "34f48b5312d35fb3a39d1a9830caa66b36f9db7a724e7e07417f0deaa293055c"
   },
   "teams/go-development/v1.0.0/research/research.dot": {
     "Profile": "facb1dab02b5fc48e46ccd96436c119faf4864026af125f123085fe3032e774d",
@@ -75,9 +75,9 @@
     "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
   },
   "teams/python-fastapi/v1.0.0/plan/plan.dot": {
-    "Profile": "8c1e66c97ba4b751bb781f7898de0472907ec6c7011fa01e4012ef74bb441660",
-    "Semantic": "7cbeeafd0cbd5b78823c8e986944f92267695420227ebd2dc323a27399e29bd9",
-    "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
+    "Profile": "fe0c81840eb79a86025c4d2fa36dbfa2eca3801f3d166548676d14962a589d81",
+    "Semantic": "f3e5477deeca5ab9074e2bc795188bcb77db61f9bfafcc2701e7408f880cfd98",
+    "Navigation": "34f48b5312d35fb3a39d1a9830caa66b36f9db7a724e7e07417f0deaa293055c"
   },
   "teams/python-fastapi/v1.0.0/research/research.dot": {
     "Profile": "86b0f20fd1ea065c2aec71ab200c6053091da72736dbd74250d45f579f0a7ad8",
@@ -105,9 +105,9 @@
     "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
   },
   "teams/source/base-team/plan/plan.dot": {
-    "Profile": "15407198512c482d6f68b873a84adb89f4142394abe4b6b49f33b98c461e40df",
-    "Semantic": "0903841029e89c81f942de5336c508cb37d9a5e5bd3024fe5c06d2f2a0f3aa10",
-    "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
+    "Profile": "c03784a39e39f4d793ce8f73cd7034248627d84c401948bf3f945d711a963728",
+    "Semantic": "0f2dbc45f636e37cef31ca4b7b2aca256656927b85a8d1d264f9a4aa5d8c2c6a",
+    "Navigation": "34f48b5312d35fb3a39d1a9830caa66b36f9db7a724e7e07417f0deaa293055c"
   },
   "teams/source/base-team/research/research.dot": {
     "Profile": "01fe3230492958d6b21370fdba0f6097fd65d299e5876aa8cd2cf1661ade20ad",
@@ -135,9 +135,9 @@
     "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
   },
   "teams/swift-ios/v1.0.0/plan/plan.dot": {
-    "Profile": "234f35b273108c63cc9d02850724ddaadb8e8521219294b42174188e5ce557c1",
-    "Semantic": "53c8cadc05402e5b9f3e4dc8092b4be2c88aeed71a780eb209de8b0a664d8cb7",
-    "Navigation": "5592a8160869833a68e37151131064c9590ac51329c1e77ac67035564e04f4f4"
+    "Profile": "e76eb874b97ed67e81dcc5742efe7e366d6e98ad11d7ca95eef6fff2076e747b",
+    "Semantic": "6c00207b1c8ea87c7f0e697c053c5a7c484ad27df8218f56737a37613ee484d4",
+    "Navigation": "34f48b5312d35fb3a39d1a9830caa66b36f9db7a724e7e07417f0deaa293055c"
   },
   "teams/swift-ios/v1.0.0/research/research.dot": {
     "Profile": "121b80f37814380474a065642904217e4f9a6d6ac8600bf07d9c2066f3c18f8e",
