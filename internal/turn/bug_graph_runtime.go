@@ -648,7 +648,29 @@ func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a Activit
 	if actual != head {
 		return errors.New("task head changed after saving the repair")
 	}
-	return result.Worktree.Push(ctx, r.opts.remote())
+	// A remote already at head needs no push; a rejected push whose re-read
+	// shows the remote at head (e.g. a stale advertisement racing the run's own
+	// push) is published, as in the run's commit-and-push path.
+	remote := r.opts.remote()
+	observed, e := result.Worktree.RemoteHead(ctx, remote)
+	if e != nil {
+		return e
+	}
+	if observed == head {
+		return nil
+	}
+	pushErr := result.Worktree.Push(ctx, remote)
+	if pushErr == nil {
+		return nil
+	}
+	var pe *git.PushError
+	if errors.As(pushErr, &pe) && pe.Published {
+		return pushErr
+	}
+	if observed, e := result.Worktree.RemoteHead(ctx, remote); e == nil && observed == head {
+		return nil
+	}
+	return pushErr
 }
 
 func (r *BugRuntime) reconcileGraphBug(ctx context.Context) error {
