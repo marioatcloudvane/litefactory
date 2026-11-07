@@ -24,7 +24,6 @@ func operationValidateProfile(t *testing.T) *graphexec.Profile {
 	specs, err := ValidateFlowSpecs()
 	mustProgress(t, err)
 	mustProgress(t, graphexec.Validate(p, specs))
-	mustProgress(t, graphexec.ValidateControlGraph(p, graphexec.ValidateControlPolicy()))
 	return p
 }
 

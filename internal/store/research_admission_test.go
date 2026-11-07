@@ -84,7 +84,7 @@ func TestResearchAdmissionRefusesUncertainPredecessorPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, Node: "work", Limit: 8, StartedAt: graphTestTime()})
+	a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, Node: "work", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestWorkflowAdmissionIgnoresOpenAttemptsOfFinishedInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, Node: "budget", Limit: 8, StartedAt: graphTestTime()}); err != nil {
+	if _, err = db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, Node: "budget", StartedAt: graphTestTime()}); err != nil {
 		t.Fatal(err)
 	}
 	launch.TriggerID++

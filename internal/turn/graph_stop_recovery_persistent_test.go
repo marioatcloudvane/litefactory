@@ -26,7 +26,7 @@ func persistentStopReporterFixture(t *testing.T) (*fixture, *fakeForge, *graphex
 	f := newFixture(t, nil)
 	_, err := f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: f.session.ID, Version: 1, Family: "standalone", Workflow: "bug"})
 	mustProgress(t, err)
-	profile := &graphexec.Profile{Team: "builtin", Workflow: agent.WorkflowBug, ProfileVersion: 1, Digest: strings.Repeat("d", 64), Nodes: []graphexec.Node{{Name: "analyst", Action: ResearchAgentAction, Limit: 1, Attrs: map[string]string{"lf_park": "owner", "lf_stop": "blocked,failed,invalid,exhausted", "lf_response": "result"}}}}
+	profile := &graphexec.Profile{Team: "builtin", Workflow: agent.WorkflowBug, ProfileVersion: 1, Digest: strings.Repeat("d", 64), Nodes: []graphexec.Node{{Name: "analyst", Action: ResearchAgentAction, Attrs: map[string]string{"lf_park": "owner", "lf_stop": "blocked,failed,invalid,exhausted", "lf_response": "result"}}}}
 	def, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: profile.Team, Workflow: "bug", ProfileVersion: 1, Path: "bug.dot", Digest: profile.Digest, CreatedAt: time.Now().UTC()})
 	mustProgress(t, err)
 	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, CurrentNode: "analyst", StartedAt: time.Now().UTC(), NextDueAt: time.Now().UTC()})
@@ -138,7 +138,7 @@ func TestGraphStopPersistentOrphanRecoveryParksWithoutDispatch(t *testing.T) {
 	run, err := f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: 5, LogPath: func(int) string { return "orphan.log" }})
 	mustProgress(t, err)
 	at := time.Now().UTC()
-	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "analyst", RunID: run.ID, Limit: 1, StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "analyst", RunID: run.ID, StartedAt: at})
 	mustProgress(t, err)
 	req := GraphNodeRequest{Profile: profile, InstanceID: instance.ID, At: at}
 	if _, err = RecoverGraphStoppedExecution(t.Context(), f.opts, req, attempt.ID); err == nil {
@@ -183,7 +183,7 @@ func TestGraphStopPersistentAcceptedBugInputRoutesUnlessInterrupted(t *testing.T
 			mustProgress(t, err)
 			instance, err := db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "analyst", StartedAt: at})
 			mustProgress(t, err)
-			profile := &graphexec.Profile{Team: "builtin", Workflow: agent.WorkflowBug, ProfileVersion: 1, Digest: definition.Digest, Nodes: []graphexec.Node{{Name: "analyst", Action: ResearchAgentAction, Limit: 1, Attrs: map[string]string{"lf_park": "owner", "lf_stop": "blocked,failed,invalid,exhausted", "lf_response": "result"}}}}
+			profile := &graphexec.Profile{Team: "builtin", Workflow: agent.WorkflowBug, ProfileVersion: 1, Digest: definition.Digest, Nodes: []graphexec.Node{{Name: "analyst", Action: ResearchAgentAction, Attrs: map[string]string{"lf_park": "owner", "lf_stop": "blocked,failed,invalid,exhausted", "lf_response": "result"}}}}
 			authority, err := NewAttemptAuthority(t.Context(), db)
 			mustProgress(t, err)
 			t.Cleanup(func() { _ = authority.Close(context.WithoutCancel(t.Context())) })
@@ -260,7 +260,7 @@ func TestGraphStopPersistentAcceptedBugInputRoutesUnlessInterrupted(t *testing.T
 func TestGraphRunlessStopProgressSurvivesShorteningAndLostAcknowledgment(t *testing.T) {
 	f, forge, profile, instance := persistentStopReporterFixture(t)
 	ctx, at := t.Context(), time.Now().UTC()
-	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "analyst", Limit: 1, StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "analyst", StartedAt: at})
 	mustProgress(t, err)
 	mustProgress(t, f.db.FinishGraphNodeAttempt(ctx, attempt.ID, store.GraphSucceeded, "done", at))
 	req := GraphNodeRequest{Profile: profile, InstanceID: instance.ID, At: at}

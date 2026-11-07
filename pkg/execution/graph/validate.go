@@ -14,8 +14,6 @@ type ValidationOptions struct {
 	NodeErrors func(Node) []error
 	// NoEdge marks declared outcomes that require zero outgoing edges.
 	NoEdge func(Node, string) bool
-	// LimitName controls the diagnostic name of the caller's bound field.
-	LimitName string
 }
 
 // Validate aggregates independent structural faults in declaration order.
@@ -23,9 +21,6 @@ func Validate(p *Graph, registry Registry, options ...ValidationOptions) error {
 	var opts ValidationOptions
 	if len(options) > 0 {
 		opts = options[0]
-	}
-	if opts.LimitName == "" {
-		opts.LimitName = "limit"
 	}
 	if p == nil {
 		return errors.New("graph profile is nil")
@@ -49,7 +44,7 @@ func Validate(p *Graph, registry Registry, options ...ValidationOptions) error {
 		if opts.NodeErrors != nil {
 			faults = append(faults, opts.NodeErrors(node)...)
 		}
-		faults = append(faults, validateNode(node, registry, opts)...)
+		faults = append(faults, validateNode(node, registry)...)
 	}
 	if _, exists := nodes[p.Start]; !exists || p.Start == "" {
 		faults = append(faults, fmt.Errorf("start node %q is undeclared", p.Start))
@@ -109,20 +104,12 @@ func Validate(p *Graph, registry Registry, options ...ValidationOptions) error {
 		if len(terminals) > 0 && !canTerminate[node.Name] {
 			faults = append(faults, fmt.Errorf("node %q has no route to a terminal", node.Name))
 		}
-		// Starting at successors, rather than the node itself, detects precisely
-		// cycle membership, including self-loops, without rejecting legal cycles.
-		if node.Limit <= 0 && Walk(forward[node.Name], forward)[node.Name] {
-			faults = append(faults, fmt.Errorf("node %q is on a cycle without positive %s", node.Name, opts.LimitName))
-		}
 	}
 	return errors.Join(faults...)
 }
 
-func validateNode(node Node, registry Registry, opts ValidationOptions) []error {
+func validateNode(node Node, registry Registry) []error {
 	var faults []error
-	if node.Limit < 0 {
-		faults = append(faults, fmt.Errorf("node %q %s must be positive when supplied", node.Name, opts.LimitName))
-	}
 	if node.Terminal {
 		if node.Action != "" || len(node.Outcomes) != 0 {
 			faults = append(faults, fmt.Errorf("terminal node %q must not have action or outcomes", node.Name))

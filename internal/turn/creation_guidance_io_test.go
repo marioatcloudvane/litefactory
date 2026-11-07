@@ -23,7 +23,7 @@ func TestCreationGuidanceIOPostRun(t *testing.T) {
 				mustProgress(t, err)
 				instance, err := p.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: p.session.ID, DefinitionID: def.ID, Status: store.GraphRunning, CurrentNode: "work", StartedAt: at, NextDueAt: at})
 				mustProgress(t, err)
-				_, err = p.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "work", RunID: p.run.ID, Limit: 3, StartedAt: at})
+				_, err = p.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "work", RunID: p.run.ID, StartedAt: at})
 				mustProgress(t, err)
 			}
 			before, err := p.db.ListRuns(t.Context(), p.session.ID)

@@ -2,9 +2,10 @@ package graphexec_test
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"testing"
 )
 
 func TestBugWorkflow_RegistryNamespace(t *testing.T) {
@@ -64,12 +65,7 @@ func TestBugWorkflow_GraphOwnership(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := graphexec.Registry{Policy: func(p *graphexec.Profile) error {
-				if p.Workflow != agent.WorkflowBug || p.Mode != "" {
-					return fmt.Errorf("mismatched Bug policy owner")
-				}
-				return nil
-			}}
+			var r graphexec.Registry
 			if tt.register {
 				if err := r.Register(graphexec.ActionSpec{Name: tt.action, Workflow: tt.owner, Outcomes: []string{"done"}}); err != nil {
 					t.Fatal(err)
@@ -86,20 +82,5 @@ func TestBugWorkflow_GraphOwnership(t *testing.T) {
 				t.Fatalf("lost standalone identity: %+v", p)
 			}
 		})
-	}
-}
-
-func TestBugWorkflow_NamespaceAloneGrantsNoPolicy(t *testing.T) {
-	t.Parallel()
-	var registry graphexec.Registry
-	if err := registry.Register(graphexec.ActionSpec{Name: "lf_bug_record", Workflow: agent.WorkflowBug, Outcomes: []string{"done"}}); err != nil {
-		t.Fatal(err)
-	}
-	graph, err := graphexec.ParseProfile([]byte(`digraph {team=test;workflow=bug;profile_version=1;start=work;work [lf_action=lf_bug_record,lf_outcomes=done];end [lf_terminal=true];work -> end [on=done];}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := graphexec.Validate(graph, registry); err == nil {
-		t.Fatal("namespace registration without workflow policy granted executable graph")
 	}
 }

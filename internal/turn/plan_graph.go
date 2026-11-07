@@ -33,12 +33,7 @@ func PlanWorkflowPolicy() WorkflowPolicy {
 
 // PlanSpecs validates the packaged Plan under Plan's own control and result policy.
 func PlanSpecs() (graphexec.Registry, error) {
-	r, err := WorkflowSpecs(PlanWorkflowPolicy())
-	if err != nil {
-		return r, err
-	}
-	r.Policy = graphexec.ValidatePlanControlGraph
-	return r, nil
+	return WorkflowSpecs(PlanWorkflowPolicy())
 }
 
 type planGraphRuntime struct {
@@ -802,7 +797,7 @@ func (r *planGraphRuntime) control(ctx context.Context, _ Options, a ActivityReq
 
 // planStoryEffect is the production lf_plan_story handler. ExecuteNodeAction
 // takes the parent story-progress lock through it before reserving an attempt,
-// so a busy parent defers the step without spending node limit or budget.
+// so a busy parent defers the step without spending step budget.
 type planStoryEffect struct {
 	r      *planGraphRuntime
 	locked bool

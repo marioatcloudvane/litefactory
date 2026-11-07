@@ -70,29 +70,22 @@ func TestParseRejectsUnsupportedDOT(t *testing.T) {
 	}
 }
 
-func TestBoundedCyclesAndClosedVocabulary(t *testing.T) {
+func TestCyclesAreLegalAndVocabularyIsClosed(t *testing.T) {
 	var r Registry
 	if err := r.Register(ActionSpec{Name: "step", Outcomes: []string{"again", "done"}, Attributes: map[string]AttributeSpec{"kind": {Required: true, Values: []string{"allowed"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name  string
-		limit int
-		cycle bool
-		kind  string
-		want  []string
+		name string
+		kind string
+		want []string
 	}{
-		{name: "bounded", limit: 2, cycle: true, kind: "allowed"},
-		{name: "unbounded and unknown value", cycle: true, kind: "other", want: []string{"outside declared values", "cycle without positive limit"}},
-		{name: "negative bound outside cycle", limit: -1, kind: "allowed", want: []string{"limit must be positive when supplied"}},
+		{name: "cycle", kind: "allowed"},
+		{name: "unknown value", kind: "other", want: []string{"outside declared values"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			node := Node{Name: "a", Action: "step", Outcomes: []string{"done"}, Limit: tc.limit, Attrs: map[string]string{"kind": tc.kind}}
-			edges := []Edge{{From: "a", To: "end", On: "done"}}
-			if tc.cycle {
-				node.Outcomes = append(node.Outcomes, "again")
-				edges = append(edges, Edge{From: "a", To: "a", On: "again"})
-			}
+			node := Node{Name: "a", Action: "step", Outcomes: []string{"done", "again"}, Attrs: map[string]string{"kind": tc.kind}}
+			edges := []Edge{{From: "a", To: "end", On: "done"}, {From: "a", To: "a", On: "again"}}
 			g := &Graph{Start: "a", Nodes: []Node{node, {Name: "end", Terminal: true}}, Edges: edges}
 			err := Validate(g, r)
 			if len(tc.want) == 0 {
@@ -108,6 +101,34 @@ func TestBoundedCyclesAndClosedVocabulary(t *testing.T) {
 				if !strings.Contains(err.Error(), want) {
 					t.Fatalf("missing %q in %v", want, err)
 				}
+			}
+		})
+	}
+}
+
+func TestGenericValidationRejectsUnknownActionMissingEdgeAndUnreachableTerminal(t *testing.T) {
+	var r Registry
+	if err := r.Register(ActionSpec{Name: "step", Outcomes: []string{"done", "again"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		g    *Graph
+		want string
+	}{
+		{name: "unknown action", want: `has unknown action "mystery"`, g: &Graph{Start: "a",
+			Nodes: []Node{{Name: "a", Action: "mystery", Outcomes: []string{"done"}}, {Name: "end", Terminal: true}},
+			Edges: []Edge{{From: "a", To: "end", On: "done"}}}},
+		{name: "outcome without edge", want: `outcome "again" has 0 edges`, g: &Graph{Start: "a",
+			Nodes: []Node{{Name: "a", Action: "step", Outcomes: []string{"done", "again"}}, {Name: "end", Terminal: true}},
+			Edges: []Edge{{From: "a", To: "end", On: "done"}}}},
+		{name: "unreachable terminal", want: `node "a" has no route to a terminal`, g: &Graph{Start: "a",
+			Nodes: []Node{{Name: "a", Action: "step", Outcomes: []string{"again"}}, {Name: "end", Terminal: true}},
+			Edges: []Edge{{From: "a", To: "a", On: "again"}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := Validate(tc.g, r); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want %q, got %v", tc.want, err)
 			}
 		})
 	}

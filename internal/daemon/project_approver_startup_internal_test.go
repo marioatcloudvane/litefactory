@@ -49,7 +49,7 @@ func TestStartKeepsLegacyApproverWithOutstandingWork(t *testing.T) {
 	researchRecoveryCheck(t, err)
 	f.instance, err = db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "research", StartedAt: f.at, NextDueAt: f.at})
 	researchRecoveryCheck(t, err)
-	f.attempt, err = db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", RunID: f.run.ID, Limit: 3, StartedAt: f.at})
+	f.attempt, err = db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "research", RunID: f.run.ID, StartedAt: f.at})
 	researchRecoveryCheck(t, err)
 	f.authored(t, true)
 	_, err = f.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: repo.ID, AppointmentID: owner.ID, Revision: owner.Revision, Actor: owner.Actor, Kind: "worker", Key: "scan"})

@@ -93,7 +93,7 @@ func completeConversationAnalystWith(t *testing.T, f *fixture, inst store.GraphI
 	mustProgress(t, e)
 	run, e := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: 12 + base, StartedAt: at, LogPath: func(int) string { return "analyst.log" }})
 	mustProgress(t, e)
-	attempt, e := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: inst.ID, Node: "analyst", RunID: run.ID, Limit: 8, StartedAt: at})
+	attempt, e := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: inst.ID, Node: "analyst", RunID: run.ID, StartedAt: at})
 	mustProgress(t, e)
 	analysis := buganalysis.BugAnalysis{Expected: "Safe empty input", Actual: "Panic on empty input", Reproduction: buganalysis.BugReproduction{Environment: "Go fixture", Observation: "not_observed"}, Cause: "Unchecked index", Evidence: []string{"search.go:12 indexes empty bytes"}, Remedy: "Guard input length", Exclusions: []string{"Nonempty behavior"}, Criteria: []buganalysis.BugCriterion{{ID: "C1", Requirement: requirement, Measurement: "Call empty input"}}}
 	if edit != nil {
@@ -266,7 +266,7 @@ func TestGraphBugConversationRecoversCandidateBeforeParking(t *testing.T) {
 	_, e := ExecuteNodeAction(t.Context(), f.opts, GraphNodeRequest{Profile: p, Activities: activities, InstanceID: inst.ID, At: f.opts.MCP.Now()})
 	mustProgress(t, e)
 	source := completeConversationAnalyst(t, f, inst, "done")
-	conversation, e := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", Limit: 64, StartedAt: f.opts.MCP.Now()})
+	conversation, e := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", StartedAt: f.opts.MCP.Now()})
 	mustProgress(t, e)
 	outputs, e := f.db.ListGraphOutputsBounded(t.Context(), source.ID, 1<<20, 16)
 	mustProgress(t, e)
@@ -342,7 +342,7 @@ func TestGraphBugConversationNewestAnalystResultWins(t *testing.T) {
 	step(later)
 	completeConversationAnalystRevision(t, f, inst, "done", 1, "Return an empty result")
 	// The next conversation step is interrupted and parked as failed.
-	attempt, e := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", Limit: 64, StartedAt: later})
+	attempt, e := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", StartedAt: later})
 	mustProgress(t, e)
 	_, e = parkGraphAction(t.Context(), f.opts, GraphNodeRequest{Profile: p, InstanceID: inst.ID, At: later}, GraphNodeResult{InstanceID: inst.ID, AttemptID: attempt.ID, Node: "conversation", NextNode: "conversation", Activity: ActivityResult{Diagnostic: "interrupted"}}, "failed", false)
 	mustProgress(t, e)

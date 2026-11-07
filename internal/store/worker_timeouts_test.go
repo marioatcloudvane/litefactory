@@ -213,7 +213,7 @@ func TestRestartDowntimePreservesExpiredWorkerDeadline(t *testing.T) {
 			db := newTestDB(t)
 			instance := graphTestInstance(t, db)
 			run := testRun(t, db, instance.SessionID, 700)
-			attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, Limit: 3, StartedAt: graphTestTime()})
+			attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, StartedAt: graphTestTime()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -264,7 +264,7 @@ func TestRestartControlStepDoesNotInventHistoricalAgentTiming(t *testing.T) {
 	db := newTestDB(t)
 	instance := graphTestInstance(t, db)
 	run := testRun(t, db, instance.SessionID, 701)
-	if _, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, Limit: 3, StartedAt: graphTestTime()}); err != nil {
+	if _, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, StartedAt: graphTestTime()}); err != nil {
 		t.Fatal(err)
 	}
 	runningStory(t, db, "a")

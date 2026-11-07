@@ -162,7 +162,7 @@ func TestDoctorGraphTargetRepairCannotReachWrongReceiver(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := testRun(t, db, session.ID, 150)
-	wrong, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, AcceptOwnerInput: true, StartedAt: graphTestTime(), Limit: 3})
+	wrong, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, AcceptOwnerInput: true, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestDoctorGraphTargetRepairCannotReachWrongReceiver(t *testing.T) {
 		t.Fatal(err)
 	}
 	instance.CurrentNode = "target_worker"
-	right, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, AcceptOwnerInput: true, StartedAt: graphTestTime(), Limit: 3})
+	right, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, AcceptOwnerInput: true, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

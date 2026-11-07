@@ -8,7 +8,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/graphexec"
 )
 
 func TestWorkflowJudgeResourceCapture(t *testing.T) {
@@ -68,84 +67,6 @@ func TestWorkflowJudgeResourceCapture(t *testing.T) {
 		t.Fatal("missing retained instructions silently replaced")
 	}
 
-}
-
-// The full shipped graphs remain unchanged; authors can add report-only steps
-// while keeping their existing source decisions and owner gates.
-func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
-	for _, mode := range []agent.Mode{agent.ModeResearch, agent.ModePlan} {
-		t.Run(string(mode), func(t *testing.T) {
-			var assets fs.FS
-			var policy graphexec.ControlPolicy
-			var check func(*graphexec.Profile) error
-			sourceNode, sourceEdge := "research", "done"
-			if mode == agent.ModeResearch {
-				assets = RetainedFiles(teamFiles(t, goTeam))
-				policy = graphexec.ResearchControlPolicy()
-				check = graphexec.ValidateResearchControlGraph
-			} else {
-				assets = RetainedFiles(teamFiles(t, goTeam))
-				policy = graphexec.PlanControlPolicy()
-				check = graphexec.ValidatePlanControlGraph
-				sourceNode, sourceEdge = "technical_agent", "success"
-			}
-			raw, err := fs.ReadFile(assets, string(mode)+"/"+string(mode)+".dot")
-			if err != nil {
-				t.Fatal(err)
-			}
-			profile, err := graphexec.ParseProfile(raw)
-			if err != nil {
-				t.Fatal(err)
-			}
-			registry := graphexec.Registry{Policy: check}
-			specs := []graphexec.ActionSpec{
-				{Name: "lf_agent", Mode: mode, Outcomes: []string{"success", "failed", "ask", "done"}, Attributes: graphexec.AgentAttributes()},
-				graphexec.ControlSpec("lf_loop", policy), graphexec.ControlSpec("lf_if", policy), graphexec.JudgeSpec(mode),
-				{Name: "lf_ask", Mode: mode, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}}},
-				{Name: "lf_comment", Mode: mode, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"final", "failure", "advisory"}}}},
-			}
-			if mode == agent.ModePlan {
-				specs = append(specs, graphexec.PlanStorySpec(), graphexec.PlanGateSpec(), graphexec.PlanApproveSpec(), graphexec.PlanParallelSpec())
-			}
-			for _, spec := range specs {
-				if err := registry.Register(spec); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := graphexec.Validate(profile, registry); err != nil {
-				t.Fatalf("shipped control: %v", err)
-			}
-			original := ""
-			for i, e := range profile.Edges {
-				if e.From == sourceNode && e.On == sourceEdge {
-					original = e.To
-					profile.Edges[i].To = "challenge"
-				}
-			}
-			if original == "" {
-				t.Fatal("missing source success edge")
-			}
-			profile.Nodes = append(profile.Nodes,
-				graphexec.Node{Name: "challenge", Action: graphexec.JudgeAction, Limit: 8, Outcomes: []string{"success", "failed"}, Attrs: map[string]string{"lf_source": sourceNode, "lf_agent": "other"}},
-				graphexec.Node{Name: "advice", Action: "lf_comment", Limit: 8, Outcomes: []string{"published"}, Attrs: map[string]string{"lf_source": "challenge", "lf_kind": "advisory"}},
-			)
-			profile.Edges = append(profile.Edges, graphexec.Edge{From: "challenge", To: "advice", On: "success"}, graphexec.Edge{From: "challenge", To: "advice", On: "failed"}, graphexec.Edge{From: "advice", To: original, On: "published"})
-			if err := graphexec.Validate(profile, registry); err != nil {
-				t.Fatalf("opt-in control graph: %v", err)
-			}
-			for i := range profile.Edges {
-				if profile.Edges[i].From == "advice" {
-					profile.Edges[i].To = "promoted"
-					if mode == agent.ModeResearch {
-						profile.Edges[i].To = "complete"
-					}
-				}
-			}
-			if err := graphexec.Validate(profile, registry); err == nil {
-				t.Fatal("advisory publication bypassed required source publication or owner gate")
-			}
-		})
-	}
 }
 
 func TestFreshJudgeCaptureFromRootRetainedFiles(t *testing.T) {

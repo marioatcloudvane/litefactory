@@ -12,7 +12,7 @@ graphs use `lf_deliver`; Bug still uses its `lf_bug_finalize` compatibility entr
 | Validate | `done` | `done` | `closed,open` | Existing owner-command intents and exact commit/PR/issue set |
 
 For retained results, all delivery nodes name the same agent through
-`lf_source`. They declare a positive `lf_limit`, `lf_park="owner"` and
+`lf_source`. They declare `lf_park="owner"` and
 `lf_stop="blocked,failed,invalid,exhausted"`. `push` saves, synchronizes, pushes
 and finds/opens the PR. `ready` reaches its review ask; `unchanged` reaches its
 final comment. `revalidate` returns to its source for fresh checks.
@@ -41,7 +41,7 @@ Validate replaces only the action declarations of its remote nodes, keeping
 its existing outcomes, resolve edges and owner commands. For example:
 
 ```dot
-owner_push [lf_action="lf_deliver", lf_operation="push", lf_outcomes="done", lf_limit="16"];
+owner_push [lf_action="lf_deliver", lf_operation="push", lf_outcomes="done"];
 ```
 
 `/validate-push` still authorizes only push/PR, `/validate-merge` only the displayed

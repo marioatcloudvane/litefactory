@@ -77,7 +77,7 @@ func ownerReplyFixture(t *testing.T, complete bool, workflow, source, node, kind
 	check(err)
 	instance, err := db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: source, StartedAt: at, NextDueAt: at})
 	check(err)
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: source, RunID: run.ID, Limit: 3, StartedAt: at})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: source, RunID: run.ID, StartedAt: at})
 	check(err)
 	check(db.CompleteGraphNodeAttempt(ctx, attempt.ID, GraphCompletion{Status: GraphSucceeded, Outcome: "success", FinishedAt: at}))
 	check(db.RetainGraphComment(ctx, GraphCommentIntent{Key: "shape-question", InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: node, Kind: kind, Candidate: []byte(`{"outcome":"incomplete"}`)}))
@@ -178,7 +178,7 @@ func TestValidateResolverReplyWithInheritedRun(t *testing.T) {
 			if legacy == "waiting" {
 				oldShape()
 			}
-			start := GraphAttemptStart{InstanceID: reply.InstanceID, Node: "owner_resolve", Limit: 8, StartedAt: reply.At}
+			start := GraphAttemptStart{InstanceID: reply.InstanceID, Node: "owner_resolve", StartedAt: reply.At}
 			if _, err := db.StartGraphNodeAttempt(ctx, start); !errors.Is(err, ErrGraphOwnerWait) {
 				t.Fatalf("unclaimed reply: %v", err)
 			}
@@ -240,7 +240,7 @@ func TestValidateResolverRunlessExceptionIsNarrow(t *testing.T) {
 			if _, err := db.ClaimGraphOwnerReply(t.Context(), reply); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: reply.InstanceID, Node: tc.source, Limit: 8, StartedAt: reply.At}); !errors.Is(err, ErrGraphInvariant) {
+			if _, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: reply.InstanceID, Node: tc.source, StartedAt: reply.At}); !errors.Is(err, ErrGraphInvariant) {
 				t.Fatalf("agent-backed wait accepted runless continuation: %v", err)
 			}
 		})
@@ -277,7 +277,7 @@ func TestImplementFactoryOriginResumesRunlessDespiteInheritedRun(t *testing.T) {
 			if _, err := db.sql.ExecContext(t.Context(), `UPDATE graph_instances SET current_node=? WHERE id=?`, tc.node, reply.InstanceID); err != nil {
 				t.Fatal(err)
 			}
-			attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: reply.InstanceID, Node: tc.node, FactoryStep: tc.factory, Limit: 8, StartedAt: reply.At})
+			attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: reply.InstanceID, Node: tc.node, FactoryStep: tc.factory, StartedAt: reply.At})
 			if !tc.allowed {
 				if !errors.Is(err, ErrGraphInvariant) || !errors.Is(err, ErrGraphReplyNotResumable) {
 					t.Fatalf("mismatched continuation: %v", err)

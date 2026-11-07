@@ -2,7 +2,7 @@
 
 Research and Plan profiles can add an `lf_judge` node to challenge a saved source. Shipped graphs remain unchanged. Judging retains a private report; a separate advisory comment activity controls publication. Existing owner reviews and approval gates still apply.
 
-The judge requires an explicit `lf_source` naming an `lf_agent` node in the same captured graph instance, a positive `lf_limit`, and exactly the `success,failed` outcomes. It pins that source node's latest completed attempt. A failed, question-only, missing or otherwise ineligible latest result is explained without selecting older work or another node. Only saved substantive Research results and Plans are eligible; a saved draft need not have owner approval.
+The judge requires an explicit `lf_source` naming an `lf_agent` node in the same captured graph instance and the `success,failed` outcomes. It pins that source node's latest completed attempt. A failed, question-only, missing or otherwise ineligible latest result is explained without selecting older work or another node. Only saved substantive Research results and Plans are eligible; a saved draft need not have owner approval.
 
 Optional overrides are `lf_agent=claude|codex|other`, `lf_model`, `lf_thinking`, `lf_focus` and `lf_budget` (1–1440 minutes). These use the [shared judging settings](judge.md). `other` means the opposite of the recorded source provider. One availability fallback may use the source provider; invalid settings and isolation failures do not permit fallback. The shared total budget, any shorter node budget and cancellation cover both launches.
 
@@ -10,7 +10,7 @@ This fragment inserts judging before an existing owner review:
 
 ```dot
 source [lf_action=lf_agent, lf_outcomes=success];
-challenge [lf_action=lf_judge, lf_source=source, lf_limit=1,
+challenge [lf_action=lf_judge, lf_source=source,
            lf_agent=other, lf_focus="Check assumptions and missing evidence",
            lf_budget=10, lf_outcomes="success,failed"];
 share_advice [lf_action=lf_comment, lf_kind=advisory,

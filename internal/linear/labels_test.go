@@ -3,6 +3,7 @@ package linear
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -86,8 +87,10 @@ func TestGroupedReadAndInheritedAgentWrite(t *testing.T) {
 		}
 		if strings.Contains(req.Query, "mutation") {
 			input, _ := req.Variables["input"].(map[string]any)
-			for _, id := range input["labelIds"].([]any) {
-				written = append(written, id.(string))
+			ids, _ := input["labelIds"].([]any)
+			for _, id := range ids {
+				value, _ := id.(string)
+				written = append(written, value)
 			}
 			labels = `[{"id":"m","name":"Plan","parent":{"id":"g","name":"Mode"}},{"id":"other","name":"keep"},{"id":"codex-id","name":"x"}]`
 			_, _ = fmt.Fprintf(w, `{"data":{"issueUpdate":{"success":true,"issue":%s}}}`, withLabels(labels))
@@ -117,7 +120,8 @@ func TestAgentWriteWithoutStoredIDRefusesBeforeNetwork(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) { t.Fatal("network call") })
 	ref := ticket.Ref{Identity: c.identity("ticket"), Locator: c.locator("ticket")}
 	err := c.AddLabel(context.Background(), ref, "Coding Agent: Codex")
-	if f, ok := err.(*ticket.Failure); !ok || f.Kind != ticket.Refused {
+	var f *ticket.Failure
+	if !errors.As(err, &f) || f.Kind != ticket.Refused {
 		t.Fatalf("err=%v", err)
 	}
 }

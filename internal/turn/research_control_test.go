@@ -47,7 +47,7 @@ loop -> work [on=true];loop -> report [on=false];work -> check [on=success];chec
 			if err != nil || first.NextNode != "work" {
 				t.Fatalf("first default: %+v %v", first, err)
 			}
-			a, err := db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "work", Limit: 2, StartedAt: at})
+			a, err := db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "work", StartedAt: at})
 			if err != nil {
 				t.Fatal(err)
 			}

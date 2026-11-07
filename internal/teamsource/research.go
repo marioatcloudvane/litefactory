@@ -203,7 +203,7 @@ func capturedAgentNodes(node graphexec.Node) []graphexec.Node {
 		if skills := node.Attrs["lf_skills"]; skills != "" {
 			attrs["lf_skills"] = skills
 		}
-		out = append(out, graphexec.Node{Name: node.Name + ":" + strings.TrimSpace(role), Action: "lf_agent", Limit: node.Limit, Attrs: attrs})
+		out = append(out, graphexec.Node{Name: node.Name + ":" + strings.TrimSpace(role), Action: "lf_agent", Attrs: attrs})
 	}
 	return out
 }
@@ -242,7 +242,7 @@ func captureResearchNode(ctx context.Context, source fs.FS, node graphexec.Node,
 			}
 		}
 	}
-	faults = append(faults, graphexec.ValidateResearchEffective(result.Task, result.Tier, node.Limit))
+	faults = append(faults, graphexec.ValidateResearchEffective(result.Task, result.Tier))
 	for _, skill := range selected {
 		faults = append(faults, r.skill(skill))
 	}

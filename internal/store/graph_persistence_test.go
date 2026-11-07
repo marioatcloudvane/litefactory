@@ -36,7 +36,7 @@ func graphTestInstance(t *testing.T, db *DB) GraphInstance {
 
 func graphTestAttempt(t *testing.T, db *DB, i GraphInstance, limit int) GraphNodeAttempt {
 	t.Helper()
-	a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: i.ID, Node: i.CurrentNode, StartedAt: graphTestTime(), Limit: limit})
+	a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: i.ID, Node: i.CurrentNode, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestGraphAttemptsInvariants(t *testing.T) {
 	db := newTestDB(t)
 	i := graphTestInstance(t, db)
 	a := graphTestAttempt(t, db, i, 2)
-	in := GraphAttemptStart{InstanceID: i.ID, Node: "work", StartedAt: graphTestTime(), Limit: 2}
+	in := GraphAttemptStart{InstanceID: i.ID, Node: "work", StartedAt: graphTestTime()}
 	if _, err := db.StartGraphNodeAttempt(t.Context(), in); !errors.Is(err, ErrGraphAttemptRunning) {
 		t.Fatalf("running refusal=%v", err)
 	}
@@ -208,9 +208,6 @@ func TestGraphAttemptsInvariants(t *testing.T) {
 	}
 	if err := db.FinishGraphNodeAttempt(t.Context(), second.ID, GraphFailed, "", graphTestTime()); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := db.StartGraphNodeAttempt(t.Context(), in); !errors.Is(err, ErrGraphAttemptLimit) {
-		t.Fatalf("dispatch limit=%v", err)
 	}
 	other, err := db.CreateGraphInstance(t.Context(), GraphInstance{SessionID: i.SessionID, DefinitionID: i.DefinitionID, CurrentNode: "work", StartedAt: graphTestTime()})
 	if err != nil {

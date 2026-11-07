@@ -207,7 +207,7 @@ func TestChangeRepoBaseRefusedWhileWorkIsOpen(t *testing.T) {
 			case "run":
 				testRun(t, db, session.ID, 5)
 			case "step":
-				a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: "work", Limit: 3, StartedAt: at})
+				a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: "work", StartedAt: at})
 				if err != nil {
 					t.Fatal(err)
 				}

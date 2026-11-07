@@ -9,7 +9,9 @@ import (
 	"github.com/cloudvane/litefactory/pkg/execution/graph"
 )
 
-// Validate retains factory policy around neutral structural checks.
+// Validate applies the neutral structural checks plus attribute parsing. It
+// enforces no workflow shape: which nodes exist and how they connect is the
+// DOT's to declare.
 func Validate(p *Profile, registry Registry) error {
 	if p == nil {
 		return errors.New("graph profile is nil")
@@ -18,16 +20,12 @@ func Validate(p *Profile, registry Registry) error {
 	if _, err := slotCostAttribute(p.Attrs); err != nil {
 		faults = append(faults, fmt.Errorf("graph: %w", err))
 	}
-	faults = append(faults, ValidateJudgeGraph(p))
 	if strings.TrimSpace(p.Team) == "" {
 		faults = append(faults, errors.New("graph team is empty"))
 	}
 	workflow, bindingErr := agent.ResolveWorkflow(p.Workflow, p.Mode)
 	if bindingErr != nil {
 		faults = append(faults, bindingErr)
-	}
-	if workflow == agent.WorkflowBug && registry.Policy == nil {
-		faults = append(faults, errors.New("bug graph has no registered matching policy"))
 	}
 	if p.ProfileVersion < 1 {
 		faults = append(faults, fmt.Errorf("profile_version %d must be positive", p.ProfileVersion))
@@ -43,19 +41,13 @@ func Validate(p *Profile, registry Registry) error {
 				f = append(f, fmt.Errorf("node %q: %w", node.Name, err))
 			}
 			return append(f, validateNode(node, workflow, registry)...)
-		}, NoEdge: ParksOutcome, LimitName: "lf_limit"}))
-	if registry.Policy != nil {
-		faults = append(faults, registry.Policy(p))
-	}
+		}, NoEdge: ParksOutcome}))
 	return errors.Join(faults...)
 }
 func validateNode(node Node, mode agent.Workflow, registry Registry) []error {
 	var faults []error
-	if err := validateOwnerStop(node, mode); err != nil {
+	if err := validateOwnerStop(node); err != nil {
 		faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
-	}
-	if node.Attrs["lf_limit"] != "" && node.Limit == 0 {
-		faults = append(faults, fmt.Errorf("node %q lf_limit must be positive when supplied", node.Name))
 	}
 	faults = append(faults, validateRightsTag(node, mode)...)
 	if err := validateInvokeAttrs(node.Attrs); err != nil {

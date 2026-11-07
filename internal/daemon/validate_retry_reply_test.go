@@ -50,7 +50,7 @@ func validateOwnerWaitFixture(t *testing.T) (*fixture, store.GraphInstance, *[]t
 	instance, err := f.db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: def.ID, CurrentNode: "owner", StartedAt: at})
 	check(err)
 	instanceID = instance.ID
-	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "owner", Limit: 3, StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "owner", StartedAt: at})
 	check(err)
 	check(f.db.FinishGraphNodeAttempt(ctx, attempt.ID, store.GraphSucceeded, "done", at))
 	check(f.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "validate-question", InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "owner", Kind: "question", Candidate: []byte("{}")}))

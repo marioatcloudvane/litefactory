@@ -232,9 +232,9 @@ func limitCoordinatorFixture(t *testing.T) (*fixture, turn.GraphNodeRequest, sto
 	if _, err := f.db.AdmitWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
-	rawProfile := []byte(`digraph {team=test;mode=implement;profile_version=1;start=merge;
- merge [lf_action=lf_implement_work,lf_outcomes="next",lf_limit=1];
- await [lf_action=lf_implement_work,lf_outcomes="next",lf_limit=2];
+	rawProfile := []byte(`digraph {team=test;mode=implement;profile_version=1;start=merge;lf_step_budget=2;
+ merge [lf_action=lf_implement_work,lf_outcomes="next"];
+ await [lf_action=lf_implement_work,lf_outcomes="next"];
  merge -> await [on=next]; await -> merge [on=next];}`)
 	profile, err := graphexec.ParseProfile(rawProfile)
 	if err != nil {
@@ -262,12 +262,12 @@ func limitCoordinatorFixture(t *testing.T) (*fixture, turn.GraphNodeRequest, sto
 	return f, req, dispatch
 }
 
-func TestRunlessNodeLimitStopsAndReports(t *testing.T) {
+func TestRunlessStepBudgetStopsAndReports(t *testing.T) {
 	for _, posting := range []string{"success", "uncertain"} {
 		t.Run(posting, func(t *testing.T) {
 			f, req, dispatch := limitCoordinatorFixture(t)
 			f.turns.fn = func(ctx context.Context, _ turn.Request) (turn.Result, error) {
-				req.At = f.clock.Now()
+				req.At, req.BudgetFails = f.clock.Now(), true
 				if _, err := turn.ExecuteNodeAction(ctx, turn.Options{DB: f.db}, req); err != nil {
 					return turn.Result{}, err
 				}
@@ -292,7 +292,7 @@ func TestRunlessNodeLimitStopsAndReports(t *testing.T) {
 				t.Fatalf("terminal instance: %+v %v", instance, err)
 			}
 			stopped, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
-			if err != nil || stopped.ID != dispatch.ID || stopped.Node != "await" || stopped.Status != "cancelled" || stopped.AllocatedRunID != 0 || stopped.Attempts != 1 || !strings.Contains(stopped.CancellationReason, `node "merge" dispatch limit 1 exhausted`) {
+			if err != nil || stopped.ID != dispatch.ID || stopped.Node != "await" || stopped.Status != "cancelled" || stopped.AllocatedRunID != 0 || stopped.Attempts != 1 || !strings.Contains(stopped.CancellationReason, "Stopped after 2 steps without an owner reply.") {
 				t.Fatalf("cancelled dispatch: %+v %v\n%s", stopped, err, f.logs)
 			}
 			if strings.Contains(f.logs.String(), "requeue graph step") || strings.Contains(f.logs.String(), "CHECK constraint") {
@@ -322,7 +322,7 @@ func TestRunlessNodeLimitStopsAndReports(t *testing.T) {
 				}
 			} else {
 				posts, _, _ := f.forge.snapshot()
-				if len(posts) != 1 || !strings.Contains(posts[0], `node "merge" dispatch limit 1 exhausted`) || !strings.Contains(posts[0], "litefactory logs --all --grep") || strings.Contains(posts[0], "Reply on this open issue") {
+				if len(posts) != 1 || !strings.Contains(posts[0], "Stopped after 2 steps without an owner reply.") || !strings.Contains(posts[0], "litefactory logs --all --grep") || strings.Contains(posts[0], "Reply on this open issue") {
 					t.Fatalf("stop notice: %v", posts)
 				}
 			}

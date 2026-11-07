@@ -25,7 +25,7 @@ func researchCommentFixture(t *testing.T, failed bool) (*fixture, store.GraphNod
 	mustProgress(t, err)
 	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, Status: store.GraphRunning, CurrentNode: "work", StartedAt: at, NextDueAt: at})
 	mustProgress(t, err)
-	source, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "work", RunID: run.ID, Limit: 3, StartedAt: at})
+	source, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "work", RunID: run.ID, StartedAt: at})
 	mustProgress(t, err)
 	status, outcome := store.GraphSucceeded, "success"
 	if failed {
