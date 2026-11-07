@@ -77,7 +77,8 @@ func (f *Factory) Check(ctx context.Context, v store.ConnectionVersion) store.Co
 	observation.Reason = "read_access_verified"
 	observation.Remedy = "Write access is unverified; ordinary operations still enforce permissions."
 	if v.Role == store.TicketConnection {
-		observation.Remedy += f.labelRemedy(ctx, clients.Code, repo, v)
+		findings, tail := f.labelRemedy(ctx, clients.Code, repo, v)
+		observation.Remedy = boundRemedy(observation.Remedy, observation.Remedy, findings, tail)
 	}
 	return observation
 }
