@@ -262,10 +262,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}
 	}
 	toolProfiles := s.Config.ToolProfiles.Permissions
-	var toolCeiling []string
-	if s.Config.Agents.Claude != nil {
-		toolCeiling = s.Config.Agents.Claude.ToolCeiling
-	}
 	// Startup wants to print which claude binary was resolved and its
 	// timeout, so the concrete implementation is narrowed back out of the
 	// set built above rather than resolved a second time.
@@ -649,7 +645,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	mcpRuntime.BugChecksIsolation = isolation
 	bugRuntime, err := turn.NewGraphBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
 		Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID,
-		Permissions: bugRolePermissions(toolProfiles, toolCeiling), Isolation: isolation,
+		Permissions: bugRolePermissions(s.Config.ToolProfiles), Isolation: isolation,
 	})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
@@ -663,7 +659,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
-	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(toolProfiles, toolCeiling), FactoryBugs: factoryBugs})
+	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(s.Config.ToolProfiles), FactoryBugs: factoryBugs})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
@@ -761,11 +757,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		ConflictProposalTTL: conflictProposalTTL,
 		Reporter:            reporter,
 		DiagnosticRedactor:  sharedRedactor,
-		// The same two keys the harness was built from above, so the profile a
-		// label selects and the ceiling that bounds it are one decision made in
-		// one place — internal/config resolved the ceiling before it validated
-		// anything against it.
-		ToolProfiles: toolProfiles,
+		ToolProfiles:        toolProfiles,
 		// The same registry turn.Options.Runners was just built from above, so
 		// a Coding Agent label is judged against exactly the implementations
 		// this run could actually be dispatched to — never a second, looser
@@ -774,7 +766,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Classifiers:       classifiers,
 		BugAgent:          agent.Kind(s.Config.BugAgent),
 		DefaultAgent:      defaultAgent,
-		ToolCeiling:       toolCeiling,
 		InstanceID:        instanceID,
 		Interval:          interval,
 		DiscoveryInterval: discoveryInterval,

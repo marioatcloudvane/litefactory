@@ -51,7 +51,7 @@ func validateRepairGrant(resolve func(agent.Kind, string) (BugRolePermissions, e
 	if err != nil {
 		return req, err
 	}
-	req.Tools, req.AllowedTools, req.CodexSandbox, req.ToolProfile = permissions.Tools, permissions.AllowedTools, permissions.Sandbox, config.ValidateRepairProfile
+	req.Tools, req.CodexSandbox, req.ToolProfile = permissions.Tools, permissions.Sandbox, config.ValidateRepairProfile
 	return req, nil
 }
 

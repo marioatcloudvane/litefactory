@@ -25,9 +25,9 @@ func TestAdmittedModeReachesPromptAndReportedRun(t *testing.T) {
 			req.Mode = mode
 			req.Issue.Labels = []string{"Mode: Research"}
 			req.ToolProfile = string(mode)
-			profile := config.DefaultToolProfiles().Permissions[req.ToolProfile]
-			req.Tools = profile.Claude.Tools
-			req.AllowedTools = profile.Claude.AllowedTools
+			profile, _ := config.DefaultToolProfiles().Resolve(req.ToolProfile)
+			req.Tools = config.AgentTools()
+			req.CodexSandbox = profile.Sandbox
 			result := f.execute(req)
 			if !result.Succeeded() {
 				t.Fatalf("execution=%+v logs=%s", result, f.logs)

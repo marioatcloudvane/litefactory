@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"slices"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -12,19 +11,21 @@ import (
 const toolLabelPrefix = "lf:tools="
 
 type toolDecision struct {
-	Refusal      report.ReplyKind
-	Profile      string
-	Tools        []string
+	Refusal report.ReplyKind
+	Profile string
+	// Tools is the Claude tool surface: always [config.AgentTools].
+	Tools []string
+	// AllowedTools is retired and stays empty; the runner allows the whole
+	// surface.
 	AllowedTools []string
-	Sandbox      string
+	// Sandbox is the sandbox the mode's profile selects, for every agent.
+	Sandbox string
 	// Attachments is the agent-agnostic ingestion permission selected by mode.
 	Attachments bool
 }
 
-// resolveWorkflowTools preserves mode profiles only for a matching mode-backed
-// workflow. Standalone Bug needs factory role-specific bindings supplied by its
-// analyst/fixer increments; a label or an operator profile named bug cannot
-// substitute a mode profile or create that authority.
+// resolveWorkflowTools resolves the run policy only for a matching mode-backed
+// workflow. Standalone Bug resolves its analyst and fixer roles itself.
 func (d *Daemon) resolveWorkflowTools(workflow agent.Workflow, mode agent.Mode, kind agent.Kind) (toolDecision, bool) {
 	resolved, err := agent.ResolveWorkflow(workflow, mode)
 	if err != nil || resolved == agent.WorkflowBug {
@@ -37,71 +38,26 @@ func (d *Daemon) resolveWorkflowTools(workflow agent.Workflow, mode agent.Mode, 
 	return d.resolveTools(mapped, kind)
 }
 
-// resolveTools selects permissions from the already-resolved workflow mode and
-// coding agent. Spike borrows no other mode's authority: its graph roles have
-// their own explicit bindings.
+// resolveTools selects the run policy of the resolved workflow mode: the full
+// tool set inside the sandbox the mode's profile chooses. Spike runs under its
+// fixer's sandbox; its investigator nodes narrow to read-only per node.
 func (d *Daemon) resolveTools(mode agent.Mode, kind agent.Kind) (toolDecision, bool) {
+	if !mode.Valid() {
+		return toolDecision{}, false
+	}
+	name := string(mode)
 	if mode == agent.ModeSpike {
-		return d.resolveSpikeTools(kind)
+		name = config.SpikeFixerProfile
 	}
-	profileName := string(mode)
-	if profileName == "" || !mode.Valid() {
+	profile, ok := d.toolProfiles.Resolve(name)
+	if !ok {
 		return toolDecision{}, false
 	}
-	profile, ok := d.toolProfiles[profileName]
-	if !ok || !profile.HasStanzaFor(string(kind)) {
-		return toolDecision{}, false
-	}
-	decision := toolDecision{Profile: profileName, Attachments: profile.Attachments}
+	decision := toolDecision{Profile: string(mode), Sandbox: profile.Sandbox, Attachments: profile.Attachments && mode != agent.ModeSpike}
 	switch string(kind) {
 	case string(config.KindClaude):
-		decision.Tools = append([]string(nil), profile.Claude.Tools...)
-		decision.AllowedTools = append([]string(nil), profile.Claude.AllowedTools...)
+		decision.Tools = config.AgentTools()
 	case string(config.KindCodex):
-		decision.Sandbox = profile.Codex.Sandbox
-	default:
-		return toolDecision{}, false
-	}
-	return decision, true
-}
-
-// resolveSpikeTools builds the Spike mode ceiling from the two explicit graph
-// role bindings. The fixer grant is the ceiling each node is narrowed from; the
-// investigator grant must not exceed it, and every Claude tool must sit inside
-// the operator's tool ceiling. A missing, attachment-granting or inconsistent
-// binding refuses the mode rather than falling back to another profile.
-func (d *Daemon) resolveSpikeTools(kind agent.Kind) (toolDecision, bool) {
-	investigator, ok := d.toolProfiles[config.SpikeInvestigatorProfile]
-	if !ok || !investigator.HasStanzaFor(string(kind)) || investigator.Attachments {
-		return toolDecision{}, false
-	}
-	fixer, ok := d.toolProfiles[config.SpikeFixerProfile]
-	if !ok || !fixer.HasStanzaFor(string(kind)) || fixer.Attachments {
-		return toolDecision{}, false
-	}
-	decision := toolDecision{Profile: string(agent.ModeSpike)}
-	switch string(kind) {
-	case string(config.KindClaude):
-		if len(fixer.Claude.Tools) == 0 || len(investigator.Claude.Tools) == 0 {
-			return toolDecision{}, false
-		}
-		for _, tool := range fixer.Claude.Tools {
-			if len(d.toolCeiling) > 0 && !slices.Contains(d.toolCeiling, tool) {
-				return toolDecision{}, false
-			}
-		}
-		for _, tool := range investigator.Claude.Tools {
-			if !slices.Contains(fixer.Claude.Tools, tool) {
-				return toolDecision{}, false
-			}
-		}
-		decision.Tools = slices.Clone(fixer.Claude.Tools)
-		decision.AllowedTools = slices.Clone(fixer.Claude.AllowedTools)
-	case string(config.KindCodex):
-		if investigator.Codex.Sandbox != "read-only" || fixer.Codex.Sandbox != "workspace-write" {
-			return toolDecision{}, false
-		}
-		decision.Sandbox = fixer.Codex.Sandbox
 	default:
 		return toolDecision{}, false
 	}
@@ -118,23 +74,4 @@ func legacyToolsLabel(labels []string) bool {
 		}
 	}
 	return false
-}
-
-// cloneToolProfiles gives the daemon ownership of all nested permission slices.
-func cloneToolProfiles(profiles map[string]config.ToolProfile) map[string]config.ToolProfile {
-	cloned := make(map[string]config.ToolProfile, len(profiles))
-	for name, profile := range profiles {
-		if profile.Claude != nil {
-			claude := *profile.Claude
-			claude.Tools = append([]string(nil), profile.Claude.Tools...)
-			claude.AllowedTools = append([]string(nil), profile.Claude.AllowedTools...)
-			profile.Claude = &claude
-		}
-		if profile.Codex != nil {
-			codex := *profile.Codex
-			profile.Codex = &codex
-		}
-		cloned[name] = profile
-	}
-	return cloned
 }

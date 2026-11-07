@@ -2864,9 +2864,7 @@ func (d *Daemon) run(
 	log = log.With(slog.String("tool_profile", tools.Profile))
 	log.InfoContext(ctx, "selected the mode permission profile for this run",
 		slog.Any("tools", tools.Tools),
-		slog.Any("allowed_tools", tools.AllowedTools),
-		slog.String("codex_sandbox", tools.Sandbox),
-		slog.Any("tool_ceiling", d.toolCeiling))
+		slog.String("sandbox", tools.Sandbox))
 
 	// "Sync:" is a per-issue escape hatch, not a gate on this turn: a
 	// malformed, miscased, or duplicated label leaves syncOverride nil so

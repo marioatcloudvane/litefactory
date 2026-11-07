@@ -60,6 +60,60 @@ type settingsPermissions struct {
 	AdditionalDirectories []string `json:"additionalDirectories"`
 }
 
+// denyRules is the shared deny list of every run. It is the secret boundary
+// of a run whose tools are otherwise unrestricted: deny beats every allow
+// rule, and no permission mode short of the one config.forbiddenFlag's flag
+// selects discards it. homeRule is $LF_HOME as an absolute rule path.
+//
+// Read and Edit rules bind Claude's file tools, which is where an agent reads
+// and writes most. A Bash command is bounded by them only inside the OS
+// sandbox of a read-only run (see readOnlyShellSandboxSettings); the Bash
+// rules below refuse the commands that print a credential outright.
+func denyRules(homeRule string) []string {
+	rules := []string{
+		// litefactory owns the commit and the push (AC-3.21). No agent makes
+		// either, and work left uncommitted at the end of a run is the normal
+		// state. A deny rule is the only form of this ban that does not depend
+		// on the permission mode.
+		"Bash(git add:*)",
+		"Bash(git commit:*)",
+		"Bash(git push:*)",
+		"Bash(git stash:*)",
+		// Commands that hand out a stored credential.
+		"Bash(security:*)",
+		"Bash(gh auth:*)",
+		"Bash(git credential:*)",
+	}
+	// litefactory's own state: unredacted daemon.log and every run's raw
+	// event stream (logs/), the database, config.yaml and the
+	// credential-bearing paths config.DoctorCredentialPaths names. The rest
+	// of $LF_HOME is deliberately left readable: Validate review checkouts
+	// live in validate-scratch/ and every run reads its skills from
+	// bundles/, so a blanket //$LF_HOME/** deny refuses a run its own
+	// working directory and instructions.
+	var paths []string
+	for _, path := range []string{"logs/**", "litefactory.db*", "config.yaml", "claude-settings.json", "claude-home/**", "secrets/**", "s/**", "dc/**", "doctor/**", "teams/**", "archive/**"} {
+		paths = append(paths, homeRule+"/"+path)
+	}
+	// The credential stores an agent would reach for first, and the
+	// project's own environment files.
+	paths = append(paths,
+		"~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "~/.config/gh/**", "~/.claude/**",
+		"~/.codex/**", "~/.config/claude/**", "~/.config/codex/**",
+		"~/.netrc", "~/.git-credentials", "~/.config/git/credentials",
+		"~/Library/Keychains/**", "~/.docker/config.json", "~/.kube/**",
+		"~/.config/gcloud/**", "~/.azure/**", "~/.npmrc", "~/.pypirc",
+	)
+	for _, tool := range []string{"Read", "Edit"} {
+		for _, path := range paths {
+			rules = append(rules, tool+"("+path+")")
+		}
+	}
+	// A project's environment files may hold its secrets; reading them is
+	// refused, writing one stays ordinary project work.
+	return append(rules, "Read(./.env)", "Read(./.env.*)")
+}
+
 // DefaultSettings returns the settings document litefactory runs claude with.
 //
 // home is $LF_HOME. It is denied explicitly: daemon.log is written unredacted
@@ -84,54 +138,10 @@ func DefaultSettings(home string) ([]byte, error) {
 			// "default" did not degrade to a prompt, it degraded to a denial,
 			// and every tool the allowlist had not anticipated ended a run
 			// rather than slowing it. See PermissionMode.
-			DefaultMode: PermissionMode,
-			Allow:       []string{},
-			Ask:         []string{},
-			Deny: []string{
-				// litefactory owns the commit and the push (AC-3.21). No agent
-				// makes either, and work left uncommitted at the end of a run is
-				// the normal state.
-				//
-				// These rules are load-bearing under PermissionMode "auto" and
-				// were not needed before it. While runs were in "default" the
-				// ban was a side effect of the allowlist being the boundary: git
-				// writes were absent from allowed_tools and every absence was a
-				// refusal. Under "auto" an absence is a question put to a
-				// classifier, and a classifier reading an ordinary coding task
-				// has every reason to answer yes. A deny rule is the only form
-				// of this ban that does not depend on the permission mode.
-				"Bash(git add:*)",
-				"Bash(git commit:*)",
-				"Bash(git push:*)",
-				"Bash(git stash:*)",
-				// litefactory's own state: unredacted daemon.log and every run's
-				// raw event stream (logs/), the database, config.yaml and the
-				// credential-bearing paths config.DoctorCredentialPaths names.
-				// The rest of $LF_HOME is deliberately left readable: Validate
-				// review checkouts live in validate-scratch/ and every run reads
-				// its skills from bundles/, so a blanket //$LF_HOME/** deny
-				// refuses a run its own working directory and instructions.
-				"Read(" + homeRule + "/logs/**)",
-				"Read(" + homeRule + "/litefactory.db*)",
-				"Read(" + homeRule + "/config.yaml)",
-				"Read(" + homeRule + "/claude-settings.json)",
-				"Read(" + homeRule + "/claude-home/**)",
-				"Read(" + homeRule + "/secrets/**)",
-				"Read(" + homeRule + "/s/**)",
-				"Read(" + homeRule + "/dc/**)",
-				"Read(" + homeRule + "/doctor/**)",
-				"Read(" + homeRule + "/teams/**)",
-				"Read(" + homeRule + "/archive/**)",
-				// The credential stores an agent would reach for first.
-				"Read(~/.ssh/**)",
-				"Read(~/.aws/**)",
-				"Read(~/.gnupg/**)",
-				"Read(~/.config/gh/**)",
-				"Read(~/.claude/**)",
-				"Read(~/.netrc)",
-				"Read(./.env)",
-				"Read(./.env.*)",
-			},
+			DefaultMode:           PermissionMode,
+			Allow:                 []string{},
+			Ask:                   []string{},
+			Deny:                  denyRules(homeRule),
 			AdditionalDirectories: []string{},
 		},
 		// A run must not pick up MCP servers from the branch it is working on.

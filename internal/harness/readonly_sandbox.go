@@ -9,27 +9,23 @@ import (
 	"strings"
 )
 
-// The read-only shell's write boundary.
+// The read-only sandbox.
 //
-// A run holding the read-only shell (a Validate reviewer, a Spike
-// investigator) may run the project's checks: go test, go vet, pytest and the
-// like. Those commands are arbitrary code from the branch under review, so the
-// command allowlist alone cannot keep the worktree read-only — a test may
-// write any file it likes. The run is therefore started with Claude Code's OS
-// sandbox enabled for Bash: every command runs with the worktree and $LF_HOME
-// unwritable, the credential stores unreadable and the network closed (a
-// loopback bind stays allowed for tests that stand a local server up). Writes
-// are allowed only to a private per-run temporary directory and a shared
-// compiler cache, both outside the worktree, and the child environment points
-// TMPDIR and GOCACHE there.
+// A run whose mode selects the read-only sandbox (a Validate reviewer, a Bug
+// analyst, a Spike investigator) holds the full tool set, Bash included, with
+// no command allowlist. Its Bash commands run inside Claude Code's OS sandbox:
+// the worktree and $LF_HOME unwritable, the credential stores unreadable and
+// the network closed (a loopback bind stays allowed for tests that stand a
+// local server up). Writes are allowed only to a private per-run temporary
+// directory and a shared compiler cache, both outside the worktree, and the
+// child environment points TMPDIR and GOCACHE there.
 //
-// Measured on 2026-10-21 with claude 2.1.306 on macOS: under this stanza with
-// --permission-mode dontAsk, `go test` ran and passed with GOCACHE and
-// t.TempDir() in the private directory, a test writing into the working
-// directory got "operation not permitted", `touch` in the worktree was
-// refused, and a command outside --allowedTools was still denied.
+// Measured on 2026-10-21 with claude 2.1.306 on macOS: under this stanza
+// `go test` ran and passed with GOCACHE and t.TempDir() in the private
+// directory, a test writing into the working directory got "operation not
+// permitted", and `touch` in the worktree was refused.
 
-// readOnlyShellSandbox is what a read-only shell run needs on top of an
+// readOnlyShellSandbox is what a read-only run needs on top of an
 // ordinary run: the settings document to pass as --settings, the environment
 // overrides for the child, and a cleanup for the private directory.
 type readOnlyShellSandbox struct {
@@ -38,12 +34,12 @@ type readOnlyShellSandbox struct {
 	cleanup      func() error
 }
 
-// prepareReadOnlyShell writes the run's sandboxed settings document next to
+// prepareReadOnlySandbox writes the run's sandboxed settings document next to
 // its log and creates the private temporary directory. The document is the
 // operator's settings file with a sandbox stanza added, so its deny rules
 // still apply. It lives in the run artefact directory, which the sandbox does
 // not let the agent write, so a run cannot loosen its own sandbox.
-func (r *Runner) prepareReadOnlyShell(worktree, logPath string) (readOnlyShellSandbox, error) {
+func (r *Runner) prepareReadOnlySandbox(worktree, logPath string) (readOnlyShellSandbox, error) {
 	cacheRoot := r.paths.ReviewCacheDir()
 	goCache := filepath.Join(cacheRoot, "go-build")
 	if r.goBuildCaches.Main != "" {
@@ -97,15 +93,14 @@ func (r *Runner) prepareReadOnlyShell(worktree, logPath string) (readOnlyShellSa
 	}, nil
 }
 
-// readOnlyShellSandboxSettings is the sandbox stanza of a read-only shell run.
-// Bash commands still need an --allowedTools rule: autoAllowBashIfSandboxed is
-// off, so the command allowlist and the write boundary both hold.
+// readOnlyShellSandboxSettings is the sandbox stanza of a read-only run. No
+// command escapes it: allowUnsandboxedCommands is off and nothing is excluded.
 func readOnlyShellSandboxSettings(worktree, home, scratch, goCache string, denyRead []string) map[string]any {
 	return map[string]any{
 		"enabled":                  true,
 		"failIfUnavailable":        true,
 		"allowUnsandboxedCommands": false,
-		"autoAllowBashIfSandboxed": false,
+		"autoAllowBashIfSandboxed": true,
 		"excludedCommands":         []string{},
 		"filesystem": map[string]any{
 			"allowWrite": []string{scratch, goCache},
@@ -122,7 +117,7 @@ func readOnlyShellSandboxSettings(worktree, home, scratch, goCache string, denyR
 	}
 }
 
-// deniedReadPaths are the credential-bearing locations a read-only shell
+// deniedReadPaths are the credential-bearing locations a read-only sandboxed
 // command may not read: the same set the doctor's diagnosis shell hides, plus
 // litefactory's unredacted logs and database.
 func (r *Runner) deniedReadPaths() []string {

@@ -11,19 +11,15 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 )
 
-// A read-only shell run (here a Spike investigator) may run the project's
-// checks, so its Bash commands run in an OS sandbox in which the worktree and
-// $LF_HOME are unwritable and the network is closed. Caches and temporary
-// files go to a private directory outside both, which is removed afterwards.
-func TestReadOnlyShellRunIsSandboxedOutsideTheWorktree(t *testing.T) {
-	surfaceTools := []string{"Read", "Glob", "Grep", "Bash"}
-	f := newFixture(t, successScript(t), func(c *config.Claude) {
-		c.Tools, c.ToolCeiling, c.AllowedTools = surfaceTools, surfaceTools, []string{"Read"}
-	})
+// A read-only run (here a Spike investigator) holds the whole tool set, so
+// its Bash commands run in an OS sandbox in which the worktree and $LF_HOME
+// are unwritable and the network is closed. Caches and temporary files go to
+// a private directory outside both, which is removed afterwards.
+func TestReadOnlyRunIsSandboxedOutsideTheWorktree(t *testing.T) {
+	f := newFixture(t, successScript(t))
+	f.runner.tools = config.AgentTools()
 	req := f.request()
-	req.Permissions = Permissions{Profile: "spike", Payload: ToolSurface{
-		Tools: surfaceTools, AllowedTools: append([]string{"Read", "Glob", "Grep"}, config.ValidateReviewerShellRules()...), ReadOnlyShell: true,
-	}}
+	req.Permissions = Permissions{Profile: "spike", Payload: ToolSurface{ReadOnly: true}}
 	result, err := f.runner.Run(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -39,11 +35,11 @@ func TestReadOnlyShellRunIsSandboxedOutsideTheWorktree(t *testing.T) {
 		}
 		return ""
 	}
-	if got := value("--permission-mode"); got != ReadOnlyShellPermissionMode {
+	if got := value("--permission-mode"); got != PermissionMode {
 		t.Fatalf("--permission-mode = %q", got)
 	}
-	if !strings.Contains(value("--allowedTools"), "Bash(go test:*)") {
-		t.Fatalf("the investigator cannot run the tests: %s", value("--allowedTools"))
+	if got, want := value("--allowedTools"), strings.Join(config.AgentTools(), ","); got != want {
+		t.Fatalf("--allowedTools = %q, want %q", got, want)
 	}
 	settingsPath := value("--settings")
 	if settingsPath == f.runner.settingsPath || strings.HasPrefix(settingsPath, f.worktree) {
@@ -76,7 +72,7 @@ func TestReadOnlyShellRunIsSandboxedOutsideTheWorktree(t *testing.T) {
 		t.Fatalf("decode run settings: %v", err)
 	}
 	sb := doc.Sandbox
-	if !sb.Enabled || !sb.FailIfUnavailable || sb.Unsandboxed || sb.AutoAllow {
+	if !sb.Enabled || !sb.FailIfUnavailable || sb.Unsandboxed || !sb.AutoAllow {
 		t.Fatalf("sandbox is not enforced: %+v", sb)
 	}
 	if !slices.Contains(sb.Filesystem.DenyWrite, f.worktree) || !slices.Contains(sb.Filesystem.DenyWrite, f.home) {
@@ -113,7 +109,7 @@ func TestReadOnlyShellRunIsSandboxedOutsideTheWorktree(t *testing.T) {
 	}
 }
 
-// An ordinary non-shell run keeps the operator settings and uses the main cache.
+// An ordinary writable run keeps the operator settings and uses the main cache.
 func TestOrdinaryRunIsNotSandboxed(t *testing.T) {
 	f := newFixture(t, successScript(t))
 	f.run(t)
@@ -127,27 +123,5 @@ func TestOrdinaryRunIsNotSandboxed(t *testing.T) {
 	}
 	if strings.Contains(env, "GOCACHE="+f.runner.goBuildCaches.Reviewer+"\n") || strings.Contains(env, filepath.Join(f.runner.paths.ReviewCacheDir(), "tmp")) {
 		t.Fatal("ordinary run received reviewer cache or private temporary directory")
-	}
-	if slices.Contains(argv, "--permission-mode") {
-		i := slices.Index(argv, "--permission-mode")
-		if i+1 < len(argv) && argv[i+1] == ReadOnlyShellPermissionMode {
-			t.Fatal("ordinary run received read-only shell permissions")
-		}
-	}
-}
-
-// The runner refuses a read-only shell that edits or runs a rule outside the
-// fixed list, whatever mode carries it.
-func TestReadOnlyShellRefusesWritingSurfaces(t *testing.T) {
-	r := &Runner{}
-	for name, surface := range map[string]ToolSurface{
-		"editing tool": {Tools: []string{"Read", "Bash", "Edit"}, AllowedTools: []string{"Read"}, ReadOnlyShell: true},
-		"go run":       {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash(go run:*)"}, ReadOnlyShell: true},
-		"in-place sed": {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash(sed:*)"}, ReadOnlyShell: true},
-	} {
-		err := r.validateRequest(Request{Mode: "spike", Permissions: Permissions{Profile: "spike", Payload: surface}})
-		if err == nil || !strings.Contains(err.Error(), "read-only shell cannot grant") {
-			t.Errorf("%s: accepted: %v", name, err)
-		}
 	}
 }
