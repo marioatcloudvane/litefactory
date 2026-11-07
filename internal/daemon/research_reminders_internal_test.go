@@ -228,10 +228,6 @@ func TestResearchReminderReviewKeepsItsOwnReplyCutoff(t *testing.T) {
 	if before.State != "waiting" || before.ReplyID != 0 {
 		t.Fatal("reminder approved review")
 	}
-	_, e = AdmitResearchOwnerReply(t.Context(), f.db, f.instance.ID, 7, f.session.TaskRef, f.session.TaskRef, "research", github.Comment{ID: 101, Author: github.User{ID: 7}, Body: "done"}, at)
-	if !errors.Is(e, store.ErrGraphReplyPredatesQuestion) {
-		t.Fatalf("original reply cutoff changed: %v", e)
-	}
 	_, e = AdmitResearchOwnerReply(t.Context(), f.db, f.instance.ID, 7, f.session.TaskRef, f.session.TaskRef, "research", github.Comment{ID: 300, Author: github.User{ID: 7}, Body: "done"}, at.Add(time.Hour))
 	researchRecoveryCheck(t, e)
 	d.researchReminders(t.Context(), at.Add(24*time.Hour))

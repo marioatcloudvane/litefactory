@@ -562,7 +562,7 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	if err != nil {
 		return Result{}, fmt.Errorf("read task %d: %w", req.SessionID, err)
 	}
-	codeControl := opts.ProjectApprovers && !store.IsPrivateTrigger(req.Trigger.CommentID) && isValidateCodeControlBody(req.Trigger.Body)
+	codeControl := opts.ProjectApprovers && !store.IsFactoryTrigger(req.Trigger.CommentID) && isValidateCodeControlBody(req.Trigger.Body)
 	if codeControl {
 		if err = verifyTurnCodeAuthority(ctx, opts, session, req.Trigger); err != nil {
 			return Result{}, err
@@ -586,7 +586,7 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 			outErr = errors.Join(outErr, opts.DB.CompleteProjectAuthority(context.WithoutCancel(ctx), claim.ID))
 		}()
 	}
-	if opts.ProjectApprovers && !store.IsPrivateTrigger(req.Trigger.CommentID) && !codeControl {
+	if opts.ProjectApprovers && !store.IsFactoryTrigger(req.Trigger.CommentID) && !codeControl {
 		claim, claimErr := claimTurnAuthority(ctx, opts, req)
 		if claimErr != nil {
 			return Result{}, claimErr

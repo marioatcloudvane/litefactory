@@ -124,7 +124,7 @@ func (s *PlanState) PlanReplyReason(key, body string) string {
 			return "This story, a story it depends on, or a shared decision changed after the latest review. Wait for the updated review and use the command it shows."
 		}
 	}
-	if len(approval) == 4 && approval[0] == "/approve-plan" {
+	if len(approval) >= 4 && approval[0] == "/approve-plan" {
 		if w == nil || !approvableWait(item) || approval[1] != key || approval[2] != item.Stage || approval[3] != item.Candidate || w.Candidate != item.Candidate {
 			return s.withCurrentCommand(key, "This approval does not match the latest review of this story, so nothing was approved.")
 		}

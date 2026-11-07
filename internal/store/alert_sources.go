@@ -269,7 +269,7 @@ func (db *DB) AlertTaskSettled(ctx context.Context, kind, key string) (bool, err
 		if _, err := fmt.Sscanf(key, "%d:%d", &session, &comment); err != nil {
 			return false, err
 		}
-		if comment < 0 || IsPrivateTrigger(comment) {
+		if comment < 0 || IsFactoryTrigger(comment) {
 			return false, nil
 		}
 		var err error

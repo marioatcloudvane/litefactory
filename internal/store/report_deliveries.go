@@ -301,7 +301,7 @@ func consumeReportSource(ctx context.Context, tx *sql.Tx, sessionID, triggerID i
 	if err != nil {
 		return fmt.Errorf("consume story refinement: %w", err)
 	}
-	if !refinement && !IsPrivateTrigger(triggerID) {
+	if !refinement && !IsFactoryTrigger(triggerID) {
 		if _, err := advanceWatermark(ctx, tx, sessionID, triggerID); err != nil {
 			return fmt.Errorf("advance watermark: %w", err)
 		}
@@ -359,4 +359,24 @@ func (db *DB) IsLegacyReportRun(ctx context.Context, runID int64) (bool, error) 
 	var legacy bool
 	err := db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM report_delivery_legacy_runs WHERE run_id=?)`, runID).Scan(&legacy)
 	return legacy, err
+}
+
+// PendingCommentReportTriggers lists the forge comments at or below upTo on a
+// session whose report is still owed, oldest first. Their comments are already
+// consumed; only the post remains, and it is retried without holding the queue.
+func (db *DB) PendingCommentReportTriggers(ctx context.Context, sessionID, upTo int64) ([]int64, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT DISTINCT trigger_id FROM report_deliveries WHERE session_id=? AND completed=0 AND doctor_command_id IS NULL AND trigger_namespace='comment' AND trigger_id>0 AND trigger_id<=? AND trigger_id<=? ORDER BY trigger_id`, sessionID, upTo, bugStartTriggerBase)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }

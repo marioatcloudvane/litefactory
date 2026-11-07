@@ -111,7 +111,7 @@ func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, 
 	// cannot accept it. A refused decision command keeps its existing response.
 	if trigger.CommentID > 0 && turn.ParseCommand(trigger.Body).Kind == turn.KindFreeText {
 		switch kind {
-		case report.ReplyGraphReplyBetweenQuestions, report.ReplyGraphOwnerWaitRefused,
+		case report.ReplyGraphOwnerWaitRefused,
 			report.ReplyImplementCommentNotApplied, report.ReplyValidateCommentNotApplied,
 			report.ReplyImplementFinished, report.ReplyImplementFinishedAutoValidate, report.ReplyImplementFinishedValidated:
 			return d.reportOwnerInput(ctx, t, trigger.CommentID, false)
@@ -171,7 +171,7 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 	discussion := false
 	if !commanded && command.Kind == turn.KindFreeText && command.Name == "" && featureErr == nil && feature.State != "planning" &&
 		!t.implementing && !t.refining && !t.validating && !turn.ManagedReplan(command) &&
-		!store.IsGraphTrigger(trigger.CommentID) && !store.IsAutomaticTrigger(trigger.CommentID) && !store.IsScheduleTrigger(trigger.CommentID) && !store.IsBrainstormLaunchTrigger(trigger.CommentID) {
+		!store.IsFactoryTrigger(trigger.CommentID) {
 		if discussion, err = turn.ValidateDiscussionOpen(ctx, d.db, t.session.ID); err != nil {
 			return "", err
 		}
@@ -347,7 +347,7 @@ func (d *Daemon) markResearchModeApplied(ctx context.Context, t *task, selection
 func (d *Daemon) plainParentCommentRefusal(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, workflow agent.Workflow, command turn.Command) (report.ReplyKind, error) {
 	if mode != agent.ModeImplement || workflow == agent.WorkflowBug || t.continuation != nil || t.implementing ||
 		command.Kind != turn.KindFreeText || command.Name != "" || turn.ManagedReplan(command) ||
-		store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) || store.IsBrainstormLaunchTrigger(trigger.CommentID) {
+		store.IsFactoryTrigger(trigger.CommentID) {
 		return report.ReplyInvalid, nil
 	}
 	feature, err := d.db.GetManagedFeature(ctx, t.ref.String())

@@ -487,9 +487,18 @@ func PlanCommandLine(body string) (line, rest string) {
 	return strings.TrimSpace(line), strings.TrimSpace(rest)
 }
 
-// ApplyOwnerReply consumes exact authenticated replies once. Only a first line
-// that is exactly the command promotes; the lines below it are guidance for the
-// next stage. Questions, prose and text on the command's line remain feedback.
+// HasCommandLine reports whether body's first line is command, optionally
+// followed by guidance text. The command tokens act; everything after them,
+// on the same line or below, is guidance for the agent.
+func HasCommandLine(body, command string) bool {
+	line, _ := PlanCommandLine(body)
+	rest, ok := strings.CutPrefix(line, command)
+	return ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t')
+}
+
+// ApplyOwnerReply consumes exact authenticated replies once. A first line that
+// starts with the command promotes; any text after the command tokens is
+// guidance for the next stage. Questions and prose remain feedback.
 func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
 	if r.ID < 1 || r.OwnerID < 1 || r.ActorID != r.OwnerID {
 		return false, errors.New("plan reply is not authenticated owner evidence")
@@ -524,7 +533,7 @@ func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
 		return false, errors.New("plan reply dependencies or shared decisions changed")
 	}
 	command := "/approve-plan " + r.Key + " " + r.Stage + " " + r.Candidate
-	if line, _ := PlanCommandLine(r.Body); !approvableWait(item) || line != command {
+	if !approvableWait(item) || !HasCommandLine(r.Body, command) {
 		s.ConsumedReplies = append(s.ConsumedReplies, r.ID)
 		item.Wait = nil
 		return false, nil

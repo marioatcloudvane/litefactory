@@ -114,7 +114,9 @@ func TestImplementTransientReplyFailureIsNotRefusedOrConsumed(t *testing.T) {
 	}
 }
 
-func TestImplementClaimedQuestionConflictIsAnsweredAndConsumed(t *testing.T) {
+// A comment that arrives while the wait holds another reply stays queued for
+// the next question: not refused, not consumed, not run.
+func TestImplementClaimedQuestionConflictStaysQueued(t *testing.T) {
 	// Reuse the durable question fixture with an Implement definition and label.
 	b := newBetweenQuestions(t)
 	f := b.f
@@ -127,8 +129,12 @@ func TestImplementClaimedQuestionConflictIsAnsweredAndConsumed(t *testing.T) {
 	_, err = f.db.ClaimGraphOwnerReply(t.Context(), store.GraphOwnerReply{InstanceID: b.instance.ID, OwnerID: ownerID, AuthorID: ownerID, CommentID: 140, QuestionCommentID: betweenQuestionComment, TaskRef: b.session.TaskRef, SourceRef: b.session.TaskRef, Mode: "implement", Workflow: "implement", DeliveryKey: "shape-question", Body: "story-001: retry", At: b.at})
 	betweenCheck(t, err)
 	f.forge.addComment(testIssue, 150, owner(), "story-002: retry too")
-	if !settleUntilHandled(f, 150, 6) {
-		t.Fatalf("claimed wait refusal not consumed: %s", f.logs)
+	for range 4 {
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	if wm := f.watermark(); wm >= 150 {
+		t.Fatalf("queued comment consumed: watermark=%d\n%s", wm, f.logs)
 	}
 	if _, ran := turnFor(f, 150); ran {
 		t.Fatal("conflicting reply executed")
@@ -140,7 +146,7 @@ func TestImplementClaimedQuestionConflictIsAnsweredAndConsumed(t *testing.T) {
 			count++
 		}
 	}
-	if count != 1 {
+	if count != 0 {
 		t.Fatalf("refusal count = %d, posts=%v", count, posted)
 	}
 	input, inputErr := f.db.GetOwnerInstruction(t.Context(), f.session().ID, 150)

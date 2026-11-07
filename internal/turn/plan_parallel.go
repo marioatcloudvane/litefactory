@@ -692,7 +692,7 @@ func (r *planGraphRuntime) parallelJudgeContext(ctx context.Context, a ActivityR
 // dispatch, other authors and other commands never discard retained results.
 func (r *planGraphRuntime) ownerRetryTrigger() int64 {
 	t := r.req.Trigger
-	if r.discussion || t.CommentID <= 0 || store.IsPrivateTrigger(t.CommentID) || t.AuthorID != r.ownerID {
+	if r.discussion || t.CommentID <= 0 || store.IsFactoryTrigger(t.CommentID) || t.AuthorID != r.ownerID {
 		return 0
 	}
 	if c := ParseCommand(t.Body); c.Kind != KindSpike || c.Name != "/plan" {
