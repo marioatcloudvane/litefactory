@@ -11,7 +11,7 @@ keep the shape. Write RESEARCH_BRIEF.md before you submit either one.
 
 An incomplete result with a nonblank `reason` and at least one question. Each
 question names its audience, `business` or `technical`, and offers options with
-the one you recommend. The factory posts it and waits; the owner's reply brings
+the one you recommend. The factory posts it and waits; the owner's comments bring
 you back with this result as context.
 
 ```json
