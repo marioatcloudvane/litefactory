@@ -14,7 +14,7 @@ import (
 
 func workflowDecisionReply(kind report.ReplyKind) bool {
 	switch kind {
-	case report.ReplyImplementCommentNotApplied, report.ReplyBugCommentNotApplied, report.ReplyGraphReplyBetweenQuestions, report.ReplyGraphOwnerWaitRefused, report.ReplyValidateCommentNotApplied, report.ReplyImplementFinishedValidated:
+	case report.ReplyImplementCommentNotApplied, report.ReplyBugCommentNotApplied, report.ReplyGraphOwnerWaitRefused, report.ReplyValidateCommentNotApplied, report.ReplyImplementFinishedValidated:
 		return true
 	}
 	return false

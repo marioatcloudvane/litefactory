@@ -30,7 +30,7 @@ func TestCreationGuidanceIOPreparation(t *testing.T) {
 				if selected == "unavailable" {
 					selected = "legacy"
 				}
-				_, err := f.db.AdmitResearchPath(t.Context(), f.session.ID, selected)
+				_, err := f.db.AdmitWorkflowPath(t.Context(), f.session.ID, selected)
 				publicationMust(t, err)
 				f.d.defaultAgent = agent.Kind("claude")
 				executor, ok := f.d.turn.(turnExecutor)

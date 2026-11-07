@@ -299,6 +299,10 @@ type ReplyRequest struct {
 	// resume it. internal/report checks both before rendering.
 	ResumeNode   string
 	ResumeReason string
+
+	// NotUsedReason belongs to [report.ReplyNotUsed] alone: why the comment
+	// could not be used. internal/report sanitizes and fences it.
+	NotUsedReason string
 }
 
 // refusing reports whether this request is a tool-permission or
@@ -735,6 +739,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 			Confirm:                  req.Confirm,
 			ResumeNode:               req.ResumeNode,
 			ResumeReason:             req.ResumeReason,
+			NotUsedReason:            req.NotUsedReason,
 		})
 	})
 }
@@ -761,7 +766,7 @@ func (r *Reporter) Consume(ctx context.Context, sessionID, commentID int64) (sto
 	// The guard lives here rather than at each call site because a run's
 	// trigger is not always a comment any more, and a caller cannot be relied
 	// on to remember that — one already did not.
-	if store.IsPrivateTrigger(commentID) {
+	if store.IsFactoryTrigger(commentID) {
 		wm, _, err := r.db.GetWatermark(ctx, sessionID)
 		if err != nil {
 			return store.Watermark{}, err

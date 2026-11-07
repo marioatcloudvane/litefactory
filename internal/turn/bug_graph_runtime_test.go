@@ -229,14 +229,8 @@ func TestOwnerStopBugFinalizerAndReplyChannel(t *testing.T) {
 				}
 				runtime := BugRuntime{opts: f.opts, cfg: BugRuntimeConfig{OwnerID: 7}, definition: &teamsource.WorkflowDefinition{Profile: p}}
 				req := Request{SessionID: f.session.ID, Workflow: agent.WorkflowBug, Trigger: Trigger{CommentID: 400, AuthorID: 7, Body: "Continue the approved repair"}}
-				if source == "comment" {
-					req.Trigger.CommentID = command.CommentID - 1
-				}
-				_, err = f.db.RecordComment(ctx, store.Comment{SessionID: f.session.ID, ForgeCommentID: req.Trigger.CommentID, AuthorUserID: 7, Body: req.Trigger.Body, Classification: store.ClassificationInstruction, CreatedAt: stop.At.Add(-time.Second)})
-				mustProgress(t, err)
-				if _, err = runtime.graphAdmission(ctx, req); !errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
-					t.Fatalf("old reply admitted: %v", err)
-				}
+				// An owner reply written before the stop is no longer refused for its
+				// timing; the reply after the stop is the one this test follows.
 				req.Trigger.CommentID = 401
 				_, err = f.db.RecordComment(ctx, store.Comment{SessionID: f.session.ID, ForgeCommentID: 401, AuthorUserID: 7, Body: req.Trigger.Body, Classification: store.ClassificationInstruction, CreatedAt: stop.At.Add(time.Second)})
 				mustProgress(t, err)

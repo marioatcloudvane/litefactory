@@ -172,7 +172,7 @@ func TestCandidateHoldDiagnostics(t *testing.T) {
 	other := source
 	other.Key = "z-last"
 	d.recoveries.items[other.Key] = other
-	d.prepFailures.record(source.SessionID, "redacted preparation failure", at, time.Minute)
+	d.prepFailures.record(source.SessionID, 0, "redacted preparation failure", at, time.Minute)
 	count := 0
 	check := func(kind, key, state, reason string, due time.Time) {
 		t.Helper()
@@ -214,7 +214,7 @@ func TestCandidateHoldDiagnostics(t *testing.T) {
 	d.inflight.leave(c.session.ID)
 	check("preparation", "", "", "changed reason", at.Add(time.Minute))
 	c.session.ID++
-	d.prepFailures.record(c.session.ID, "changed reason", at, time.Minute)
+	d.prepFailures.record(c.session.ID, 0, "changed reason", at, time.Minute)
 	check("preparation", "", "", "changed reason", at.Add(time.Minute))
 	c.session.ID--
 	if !d.observeCandidateHold(t.Context(), c, at) || len(recoveryLogRows(t, logs)) != count {

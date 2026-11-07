@@ -279,7 +279,7 @@ func TestImplementStoryRelaunchesAfterARestartInterruptedItsLaunch(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.AdmitResearchPath(t.Context(), row.WorkerSession, "graph"); err != nil {
+	if _, err = db.AdmitWorkflowPath(t.Context(), row.WorkerSession, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	launch := store.WorkflowLaunch{Mode: "implement", SessionID: row.WorkerSession, TriggerID: implementWorkID(row, 0), DefinitionID: pin.ID, Start: "budget", ContentDigest: testDigest("c"), TopologyDigest: testDigest("d"), Files: []byte(`{"role":"eA=="}`)}

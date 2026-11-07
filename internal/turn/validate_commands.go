@@ -42,8 +42,12 @@ func IsValidateControlCommand(name string) bool {
 	return false
 }
 
-// validateCommandLimit bounds a whole command.
-const validateCommandLimit = 2048
+// validateCommandLimit bounds a command line; validateBodyLimit the whole
+// comment, guidance included.
+const (
+	validateCommandLimit = 2048
+	validateBodyLimit    = 65536
+)
 
 // ValidateCommand is one parsed owner command.
 type ValidateCommand struct {
@@ -77,6 +81,9 @@ var (
 	validateRevisionPattern = regexp.MustCompile(`^[0-9a-f]{12}$`)
 	validateFindingPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	validateHeadPattern     = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+	// validateRevisionLike is a mistyped revision, refused rather than read as
+	// guidance so a command never silently targets the current report instead.
+	validateRevisionLike = regexp.MustCompile(`^[0-9a-fA-F]{8,16}$`)
 )
 
 // validateChoiceAccept is the owner's acceptance of a blocking review finding
@@ -97,15 +104,22 @@ const validateChoiceAccept = "accept"
 //	/validate-implement <revision> [-- <guidance>]
 //	/validate-factory-bug <revision> <finding id or failure-N>
 //
-// The whole comment is the command. Anything else is refused and changes
-// nothing.
+// The command is the first line's tokens. Text after them, on the same line
+// or below, is kept as the owner's guidance instead of being refused.
 func ParseValidateCommand(body string) (ValidateCommand, error) {
 	body = strings.TrimSpace(commandtext.Normalize(body))
 	var c ValidateCommand
-	if body == "" || len(body) > validateCommandLimit || strings.ContainsAny(body, "\r\n\x00") {
-		return c, errors.New("a Validate command is one line of at most 2048 characters")
+	if body == "" || len(body) > validateBodyLimit || strings.ContainsRune(body, 0) {
+		return c, errors.New("a Validate command is at most 64 KiB")
 	}
-	head, evidence, hasEvidence := strings.Cut(body, " -- ")
+	// The command is the first line's tokens. Any text after them, on that line
+	// or below it, is the owner's guidance and is never a reason to refuse.
+	line, below, _ := strings.Cut(body, "\n")
+	line = strings.TrimSpace(line)
+	if len(line) > validateCommandLimit {
+		return c, errors.New("a Validate command line is at most 2048 characters")
+	}
+	head, evidence, hasEvidence := strings.Cut(line+" ", " -- ")
 	fields := strings.Fields(head)
 	if len(fields) < 1 {
 		return c, errors.New("a Validate command needs an action")
@@ -115,38 +129,52 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		return c, fmt.Errorf("%q is not a Validate command", fields[0])
 	}
 	args := fields[1:]
-	if len(args) > 0 && validateRevisionPattern.MatchString(args[0]) {
+	switch {
+	case len(args) > 0 && validateRevisionPattern.MatchString(args[0]):
 		c.Revision = args[0]
 		args = args[1:]
-	} else if len(args) > 0 && strings.HasPrefix(args[0], "d-") {
+	case len(args) > 0 && strings.HasPrefix(args[0], "d-"):
 		c.Reference = args[0]
 		args = args[1:]
+	case len(args) > 0 && validateRevisionLike.MatchString(args[0]):
+		return c, fmt.Errorf("%q is not a report revision: use the 12-character revision the report shows", args[0])
+	}
+	// extra keeps the first n arguments as the command and the rest as guidance.
+	var trailing string
+	extra := func(n int) {
+		if len(args) > n {
+			trailing = strings.Join(args[n:], " ")
+			args = args[:n]
+		}
 	}
 	evidence = strings.TrimSpace(evidence)
-	switch {
-	case c.Name == ValidateCheckCommand || c.Name == ValidateShipCommand:
-		if !hasEvidence {
-			return c, errors.New("/validate-check and /validate-ship require ` -- evidence`")
+	guidance := func(parts ...string) string {
+		var kept []string
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				kept = append(kept, p)
+			}
 		}
-	case c.Name == ValidateFindingCommand:
-		if hasEvidence != (len(args) > 1 && args[1] == validateChoiceAccept) {
-			return c, errors.New("/validate-finding takes ` -- <reason>` only with accept, and accept requires it")
-		}
-	case c.Name == ValidateImplementCommand || c.Name == ValidateReturnCommand:
-	case hasEvidence:
-		return c, errors.New("only /validate-check, /validate-ship, /validate-finding … accept and /validate-implement take ` -- text`")
+		return strings.Join(kept, "\n\n")
 	}
 	switch c.Name {
 	case ValidateRepairCommand:
+		extra(3)
 		if len(args) != 3 || !validateHeadPattern.MatchString(args[0]) || len(args[1]) != 64 || !validateHeadPattern.MatchString(args[1]) || !slices.Contains([]string{"inspect", "accept", "discard"}, args[2]) {
 			return c, errors.New("use /validate-repair <revision> <candidate id> <review digest> inspect|accept|discard")
 		}
 		c.Candidate, c.ReviewDigest, c.RepairAction = args[0], args[1], args[2]
 	case ValidateCheckCommand:
+		extra(2)
+		if !hasEvidence {
+			return c, errors.New("/validate-check and /validate-ship require ` -- evidence`")
+		}
 		if len(args) != 2 || !validateFindingPattern.MatchString(args[0]) || args[1] != store.VerdictPass && args[1] != store.VerdictFail {
 			return c, errors.New("use /validate-check <revision> <criterion or review id> pass|fail -- <evidence>")
 		}
-		c.Criterion, c.Verdict, c.Evidence = args[0], args[1], evidence
+		c.Criterion, c.Verdict, c.Evidence = args[0], args[1], guidance(trailing, evidence, below)
+		trailing, below = "", ""
+		evidence = ""
 		if c.Evidence == "" {
 			return c, errors.New("a check needs evidence after ` -- `: text or a link")
 		}
@@ -156,28 +184,35 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		}
 		c.Finding, c.Choice = args[0], args[1]
 		switch {
-		case c.Choice == validateChoiceAccept && len(args) == 2:
-			if c.Evidence = evidence; c.Evidence == "" {
+		case c.Choice == validateChoiceAccept:
+			extra(2)
+			if c.Evidence = guidance(trailing, evidence, below); c.Evidence == "" {
 				return c, errors.New("accept needs a reason after ` -- `: why the deviation is deliberate")
 			}
-		case (c.Choice == store.ChoiceRepair || c.Choice == store.ChoiceDefer) && len(args) == 2:
-		case c.Choice == store.ChoiceIssue && len(args) == 3 && (args[2] == "bug" || args[2] == "story"):
+			trailing, below = "", ""
+			evidence = ""
+		case c.Choice == store.ChoiceRepair || c.Choice == store.ChoiceDefer:
+			extra(2)
+		case c.Choice == store.ChoiceIssue && len(args) >= 3 && (args[2] == "bug" || args[2] == "story"):
+			extra(3)
 			c.IssueKind = args[2]
 		default:
 			return c, errors.New("use /validate-finding <revision> <finding id> repair|issue bug|story|defer, or accept -- <reason>")
 		}
+		if c.Choice != validateChoiceAccept {
+			c.Guidance = guidance(trailing, evidence, below)
+		}
+		return c, nil
 	case ValidatePushCommand:
-		if len(args) != 0 {
-			return c, errors.New("/validate-push takes no argument after the revision")
-		}
+		extra(0)
 	case ValidateImplementCommand, ValidateReturnCommand:
-		if len(args) != 0 {
-			return c, errors.New("/validate-implement takes no argument after the revision, only optional guidance after ` -- `")
+		extra(0)
+		if c.Guidance = guidance(evidence, trailing, below); c.Name == ValidateReturnCommand && c.Guidance == "" {
+			return c, errors.New("/return needs guidance text after the command")
 		}
-		if c.Guidance = evidence; (hasEvidence || c.Name == ValidateReturnCommand) && c.Guidance == "" {
-			return c, errors.New("/validate-implement needs guidance text after ` -- `, or no ` -- ` at all")
-		}
+		return c, nil
 	case ValidateMergeCommand:
+		extra(2)
 		if len(args) != 2 || !validateHeadPattern.MatchString(args[1]) {
 			return c, errors.New("use /validate-merge <revision> <pr number> <head sha>")
 		}
@@ -187,32 +222,37 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		}
 		c.PR, c.Head = n, args[1]
 	case ValidateShipCommand:
-		if len(args) != 0 {
-			return c, errors.New("use /validate-ship [decision reference] -- <reason>")
-		}
-		c.Evidence = evidence
+		extra(0)
+		c.Evidence = guidance(evidence, trailing, below)
+		trailing, below, evidence = "", "", ""
 		if c.Evidence == "" {
 			return c, errors.New("/validate-ship needs a reason after ` -- `")
 		}
 	case ValidateFactoryBugCommand:
+		extra(1)
 		if len(args) != 1 || !validateFindingPattern.MatchString(args[0]) && !validateFailureRefPattern.MatchString(args[0]) {
 			return c, errors.New("use /validate-factory-bug <revision> <finding id or failure-N>")
 		}
 		c.Item = args[0]
 	case ValidateCloseCommand:
-		if len(args) < 1 || len(args) > 64 {
-			return c, errors.New("use /validate-close <revision> followed by one or more issue numbers")
-		}
 		seen := map[int]bool{}
-		for _, a := range args {
+		for i, a := range args {
 			n, err := strconv.Atoi(a)
-			if err != nil || n < 1 || seen[n] {
+			if err != nil {
+				extra(i)
+				break
+			}
+			if n < 1 || seen[n] {
 				return c, errors.New("the issues are distinct positive numbers")
 			}
 			seen[n] = true
 			c.Issues = append(c.Issues, n)
 		}
+		if len(c.Issues) < 1 || len(c.Issues) > 64 {
+			return c, errors.New("use /validate-close <revision> followed by one or more issue numbers")
+		}
 	}
+	c.Guidance = guidance(evidence, trailing, below)
 	return c, nil
 }
 

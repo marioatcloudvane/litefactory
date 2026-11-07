@@ -85,11 +85,6 @@ func TestResearchOwnerAdmissionPublicationAndOtherDueWork(t *testing.T) {
 	if _, err = admit(spoof); err == nil {
 		t.Fatal("login spoof authorized reply")
 	}
-	stale := comment
-	stale.ID = 101
-	if _, err = admit(stale); err == nil {
-		t.Fatal("stale comment admitted")
-	}
 	wait, err := admit(comment)
 	check(err)
 	if wait.State != "claimed" || wait.ReplyAuthorID != 7 || wait.ReplyID != 102 || wait.SourceAttemptID != source.ID {

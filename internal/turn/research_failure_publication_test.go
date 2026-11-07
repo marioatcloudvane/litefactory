@@ -128,9 +128,9 @@ func TestShippedResearchGraphDeclaresAFailurePublication(t *testing.T) {
 	if err := graphexec.ValidateResearchControlGraph(definition.Profile); err != nil {
 		t.Fatalf("shipped graph does not validate: %v", err)
 	}
-	target, declared := graphexec.Decide(definition.Profile, "investigate", "failed")
+	target, declared := graphexec.Decide(definition.Profile, "research", "failed")
 	if !declared {
-		t.Fatal("shipped graph declares no failure edge from investigate")
+		t.Fatal("shipped graph declares no failure edge from research")
 	}
 	node, ok := definition.Profile.Node(target)
 	if !ok || node.Action != ResearchCommentAction || node.Attrs["lf_kind"] != "failure" {

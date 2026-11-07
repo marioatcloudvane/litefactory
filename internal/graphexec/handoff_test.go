@@ -38,7 +38,6 @@ question -> wait [lf_on=published];report -> end [lf_on=published];report2 -> en
 func handoffRegistry(t *testing.T, findings []string) graphexec.Registry {
 	t.Helper()
 	policy := graphexec.ResearchControlPolicy()
-	policy.Generation = ""
 	policy.MeasureActions = []string{"lf_research_measure", "lf_research_finding"}
 	policy.FindingActions = findings
 	registry := graphexec.Registry{Policy: func(p *graphexec.Profile) error { return graphexec.ValidateControlGraph(p, policy) }}
@@ -117,7 +116,6 @@ func TestFailedOutcomeIsAFindingOnlyWhereThePolicyDeclaresIt(t *testing.T) {
 
 func TestResponseReachesOwnerWaitFollowsTheEdges(t *testing.T) {
 	policy := graphexec.ResearchControlPolicy()
-	policy.Generation = ""
 	policy.MeasureActions = []string{"lf_research_measure", "lf_research_finding"}
 	profile, err := graphexec.ParseProfile([]byte(handoffDOT))
 	if err != nil {

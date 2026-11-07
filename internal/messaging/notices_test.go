@@ -601,7 +601,7 @@ func TestNoticeGraphContinuationSettlesOnce(t *testing.T) {
 				if mode == "plan" {
 					_, err = db.AdmitPlanPath(ctx, session.ID)
 				} else {
-					_, err = db.AdmitResearchPath(ctx, session.ID, "graph")
+					_, err = db.AdmitWorkflowPath(ctx, session.ID, "graph")
 				}
 				must(err)
 				at := time.Now().UTC()

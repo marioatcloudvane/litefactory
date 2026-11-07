@@ -285,7 +285,7 @@ func stageDecisionResearchFixture(t *testing.T) *researchRecoveryFixture {
 	researchRecoveryCheck(t, err)
 	f.session, err = db.GetOrCreateSession(ctx, repo, 342)
 	researchRecoveryCheck(t, err)
-	_, err = db.AdmitResearchPath(ctx, f.session.ID, "graph")
+	_, err = db.AdmitWorkflowPath(ctx, f.session.ID, "graph")
 	researchRecoveryCheck(t, err)
 	graph := `digraph research {
  graph [team="test",mode="research",profile_version="1",start="research"];

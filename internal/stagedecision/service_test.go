@@ -78,7 +78,7 @@ func newDecisionFixture(t *testing.T) *decisionFixture {
 	decisionCheck(t, err)
 	f.session, err = db.GetOrCreateSession(ctx, f.repo, 7)
 	decisionCheck(t, err)
-	_, err = db.AdmitResearchPath(ctx, f.session.ID, "graph")
+	_, err = db.AdmitWorkflowPath(ctx, f.session.ID, "graph")
 	decisionCheck(t, err)
 	graph := `digraph research {
  graph [team="test",mode="research",profile_version="1",start="shape"];

@@ -7,7 +7,7 @@ import (
 )
 
 func TestBugStartTriggersArePrivate(t *testing.T) {
-	if !IsPrivateTrigger(BugStartTrigger(1)) || IsPrivateTrigger(6664969403) {
+	if !IsFactoryTrigger(BugStartTrigger(1)) || IsFactoryTrigger(6664969403) {
 		t.Fatal("bug start triggers must be private and forge comment ids must not")
 	}
 	if IsBugStartTrigger(bugStartTriggerEnd) || IsBugStartTrigger(bugStartTriggerBase) {

@@ -5,8 +5,28 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 )
+
+// shippedResearchProfile captures the shipped Research graph and checks it
+// validates under the Research policy.
+func shippedResearchProfile(t *testing.T) *graphexec.Profile {
+	t.Helper()
+	specs, err := ResearchSpecs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := teamsourcetest.CaptureResearch(t.Context(), specs)
+	if err != nil {
+		t.Fatalf("capture shipped Research: %v", err)
+	}
+	if err := graphexec.ValidateResearchControlGraph(definition.Profile); err != nil {
+		t.Fatalf("shipped graph does not validate: %v", err)
+	}
+	return definition.Profile
+}
 
 func questionSet() agentresult.Result {
 	return agentresult.Result{
@@ -70,15 +90,12 @@ func TestRenderResearchCommentCarriesTheNextStep(t *testing.T) {
 	}
 }
 
-// Each publication kind means something different for the owner, and "final"
-// means two different things depending on whether the graph goes on.
+// Each publication kind means something different for the owner.
 func TestResearchNextStepFollowsTheGraph(t *testing.T) {
-	p := shapingProfile(t)
+	p := shippedResearchProfile(t)
 	for _, tc := range []struct{ node, kind, want string }{
 		{"ask", "question", "reply on this issue"},
-		{"clarify", "question", "reply on this issue"},
-		{"report", "final", "starts on its own"},
-		{"agreed", "final", "finished"},
+		{"report", "final", "finished"},
 		{"failed", "failure", "failed"},
 	} {
 		got := researchNextStep(p, tc.node, tc.kind)
@@ -156,8 +173,8 @@ func TestRenderResearchCommentLinksSavedDocuments(t *testing.T) {
 		{ID: "tech", Kind: "technical", Path: ".aiteam/lf-7/RESEARCH_TECHNICAL.md"},
 		{ID: "junk", Kind: "notes", Path: ".aiteam/lf-7/NOTES.md"},
 	})
-	if len(links) != 2 {
-		t.Fatalf("want the two known kinds, got %+v", links)
+	if len(links) != 3 {
+		t.Fatalf("want every safe declared document, got %+v", links)
 	}
 	body := renderResearchComment(questionSet(), "reply on this issue to continue.", links)
 	for _, want := range []string{
@@ -181,32 +198,5 @@ func TestRenderResearchCommentLinksSavedDocuments(t *testing.T) {
 	}
 	if body := renderResearchComment(questionSet(), "", nil); strings.Contains(body, "Saved documents") {
 		t.Error("no documents means no empty section")
-	}
-}
-
-// The same question activity is a clarification in one place and a review gate
-// in another. They are separate kinds now, because the difference is not only
-// wording: the publication guard demands an incomplete result with questions
-// for one and a completed result without them for the other, and overloading
-// the kind meant a review could never be published at all.
-func TestResearchNextStepDistinguishesAReviewGate(t *testing.T) {
-	p := shapingProfile(t)
-	review := researchNextStep(p, "review", "review")
-	clarify := researchNextStep(p, "clarify", "question")
-	if review == clarify {
-		t.Fatal("a review gate and a clarification must not read the same")
-	}
-	for _, want := range []string{"dig deeper", "`done`", "`/plan plan the approved scope above into stories`", "Nothing moves on until you say so"} {
-		if !strings.Contains(review, want) {
-			t.Errorf("the review gate is missing %q: %q", want, review)
-		}
-	}
-	if !researchNodeIsReview(p, "review") {
-		t.Error("the review node is not recognised as one")
-	}
-	for _, notReview := range []string{"clarify", "report", "agreed"} {
-		if researchNodeIsReview(p, notReview) {
-			t.Errorf("%q is not a review gate", notReview)
-		}
 	}
 }

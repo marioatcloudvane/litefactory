@@ -60,16 +60,16 @@ func TestWorkflowJudgeInstructionsSurvivePackageEditsAndRestore(t *testing.T) {
 			source[name] = &fstest.MapFile{Data: body}
 		}
 	}
-	const sourceEdge = "investigate -> brief       [lf_on=\"success\"];"
+	const sourceEdge = "research -> report [lf_on=\"done\"];"
 	if strings.Count(string(source["research.dot"].Data), sourceEdge) != 1 {
 		t.Fatal("fixture must replace exactly one source success edge")
 	}
 	source["research.dot"].Data = []byte(strings.Replace(string(source["research.dot"].Data),
 		sourceEdge,
-		`investigate -> captured_judge [lf_on="success"];
-  captured_judge [lf_action="lf_judge",lf_source="investigate",lf_limit="1",lf_agent="other",lf_outcomes="success,failed"];
-  captured_judge -> brief [lf_on="success"];
-  captured_judge -> brief [lf_on="failed"];`, 1))
+		`research -> captured_judge [lf_on="done"];
+  captured_judge [lf_action="lf_judge",lf_source="research",lf_limit="1",lf_agent="other",lf_outcomes="success,failed"];
+  captured_judge -> report [lf_on="success"];
+  captured_judge -> report [lf_on="failed"];`, 1))
 	fresh := func() *teamsource.WorkflowDefinition {
 		t.Helper()
 		def, captureErr := teamsource.CaptureWorkflowIdentity(ctx, source, "research.dot", base.Profile.Team, agent.WorkflowResearch, specs, paths)

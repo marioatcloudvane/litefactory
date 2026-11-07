@@ -10,7 +10,7 @@ func TestWorkflowJudgePinnedBindingAndPrivatePublication(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	session := testSession(t, db, 810)
-	if _, err := db.AdmitResearchPath(ctx, session.ID, "graph"); err != nil {
+	if _, err := db.AdmitWorkflowPath(ctx, session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: graphTestTime()})

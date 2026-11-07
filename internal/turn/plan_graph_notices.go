@@ -420,7 +420,7 @@ func (r *planGraphRuntime) storiesCreated(ctx context.Context) (applies bool, er
 // comment gets one reply naming where the owner can act.
 func (r *planGraphRuntime) waiting(ctx context.Context, s planbrief.PlanState) error {
 	trigger := r.req.Trigger
-	if trigger.PlanReply != nil || trigger.CommentID < 1 || store.IsPrivateTrigger(trigger.CommentID) {
+	if trigger.PlanReply != nil || trigger.CommentID < 1 || store.IsFactoryTrigger(trigger.CommentID) {
 		return nil
 	}
 	rows, _, err := r.planStoryRows(ctx, s)

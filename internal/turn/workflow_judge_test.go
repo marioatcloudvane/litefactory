@@ -312,17 +312,17 @@ func TestWorkflowJudgeStartupRecoveryBeforeGenericReconciliation(t *testing.T) {
 			definition, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 			mustProgress(t, err)
 			files := teamsource.RetainedFiles(definition.Files)
-			original := `investigate -> brief       [lf_on="success"];`
+			original := `research -> report [lf_on="done"];`
 			dot := string(files["research.dot"])
 			if !strings.Contains(dot, original) {
 				t.Fatal("shipped source edge missing")
 			}
-			dot = strings.Replace(dot, original, `investigate -> challenge [lf_on="success"];
-challenge [lf_action="lf_judge",lf_source="investigate",lf_limit="1",lf_agent="other",lf_outcomes="success,failed"];
+			dot = strings.Replace(dot, original, `research -> challenge [lf_on="done"];
+challenge [lf_action="lf_judge",lf_source="research",lf_limit="1",lf_agent="other",lf_outcomes="success,failed"];
 advice [lf_action="lf_comment",lf_kind="advisory",lf_source="challenge",lf_limit="1",lf_outcomes="published"];
 challenge -> advice [lf_on="success"];
 challenge -> advice [lf_on="failed"];
-advice -> brief [lf_on="published"];`, 1)
+advice -> report [lf_on="published"];`, 1)
 			files["research.dot"] = []byte(dot)
 			role, err := teamsource.JudgeInstructions()
 			mustProgress(t, err)
@@ -345,21 +345,21 @@ advice -> brief [lf_on="published"];`, 1)
 			rawFiles, err := json.Marshal(definition.Files)
 			mustProgress(t, err)
 			at := time.Now().UTC()
-			pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: definition.Profile.Team, Mode: "research", ProfileVersion: 1, Path: "research.dot", Digest: definition.Profile.Digest, CreatedAt: at})
+			pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: definition.Profile.Team, Mode: "research", ProfileVersion: definition.Profile.ProfileVersion, Path: "research.dot", Digest: definition.Profile.Digest, CreatedAt: at})
 			mustProgress(t, err)
-			_, err = f.db.AdmitResearchPath(t.Context(), f.session.ID, "graph")
+			_, err = f.db.AdmitWorkflowPath(t.Context(), f.session.ID, "graph")
 			mustProgress(t, err)
-			admitted, err := f.db.AdmitResearchLaunch(t.Context(), store.ResearchLaunch{SessionID: f.session.ID, TriggerID: 10, DefinitionID: pin.ID, Start: "investigate", ContentDigest: definition.Digest, TopologyDigest: topology, Files: rawFiles})
+			admitted, err := f.db.AdmitResearchLaunch(t.Context(), store.ResearchLaunch{SessionID: f.session.ID, TriggerID: 10, DefinitionID: pin.ID, Start: "research", ContentDigest: definition.Digest, TopologyDigest: topology, Files: rawFiles})
 			mustProgress(t, err)
 			run := agentResultRun(t, f.db, f.session, "research", "startup-source", 10)
-			source, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: "investigate", RunID: run.RunID, Limit: 8, StartedAt: at})
+			source, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: "research", RunID: run.RunID, Limit: 8, StartedAt: at})
 			mustProgress(t, err)
 			raw := []byte(`{"result":{"outcome":"completed","payload":{"research":{"request":"saved","findings":[{"id":"f1","text":"Saved conclusion"}]}}}}`)
 			binding, err := f.db.BindResultAttempt(t.Context(), run)
 			mustProgress(t, err)
 			_, err = f.db.RecordResult(t.Context(), store.ResultRecord{Binding: binding, RequestID: "startup-saved-source", ExpectedRevision: 0, Payload: []byte(`{}`), Diagnostics: []byte(`{}`), Snapshot: raw, Retired: []byte(`[]`), Accepted: true})
 			mustProgress(t, err)
-			mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), source.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: raw}}, Transition: &store.GraphTransition{InstanceID: source.InstanceID, FromNode: "investigate", ToNode: "challenge", OnOutcome: "success", At: at}}))
+			mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), source.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "done", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: raw}}, Transition: &store.GraphTransition{InstanceID: source.InstanceID, FromNode: "research", ToNode: "challenge", OnOutcome: "done", At: at}}))
 			attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: source.InstanceID, LaunchID: admitted.LaunchID, Node: "challenge", Limit: 1, StartedAt: at})
 			mustProgress(t, err)
 			if retained {

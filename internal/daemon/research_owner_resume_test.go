@@ -178,14 +178,14 @@ func TestRecoveredReportDeliveryResumesGraph(t *testing.T) {
 		}
 	}
 	instance, err := f.db.GetGraphInstance(t.Context(), p.instance.ID)
-	if err != nil || instance.Status != store.GraphRunning || instance.CurrentNode != "shapeloop" {
+	if err != nil || instance.Status != store.GraphRunning || instance.CurrentNode != "complete" {
 		t.Fatalf("graph did not resume at the published edge: %+v %v\n%s", instance, err, f.logs)
 	}
-	// The resume owes one dispatch at shapeloop, and the daemon carries it on
+	// The resume owes one dispatch at complete, and the daemon carries it on
 	// exactly once: the owner comment's own turn is not a second continuation.
 	dispatch, err := f.db.LatestGraphDispatch(t.Context(), p.instance.ID)
-	if err != nil || dispatch.Node != "shapeloop" || len(pendingDispatches(t, f.db, p.instance.ID)) > 1 {
-		t.Fatalf("no single shapeloop dispatch: %+v %v", dispatch, err)
+	if err != nil || dispatch.Node != "complete" || len(pendingDispatches(t, f.db, p.instance.ID)) > 1 {
+		t.Fatalf("no single complete dispatch: %+v %v", dispatch, err)
 	}
 	continuations := 0
 	for _, trigger := range f.turns.triggers() {
@@ -440,60 +440,33 @@ func countPosts(f *fixture, text string) int {
 
 const (
 	analysisHeading      = "Bug analysis, revision 1"
-	betweenQuestionsText = "Your instruction is retained and undelivered"
 	notAppliedText       = "could not be applied to the bug work at its current step"
 	missingDeliveryError = "read report delivery"
 )
 
-// #1283 C3, C6(a), C6(c): the next owner comment posts the parked review once,
-// is answered with the between-questions notice only after that notice is
-// delivered, and a later reply claims the wait normally.
+// #1283 C3, C6(a): the next owner comment posts the parked review once and,
+// although it was written before that review existed, answers it: owner input
+// is queued, never refused for its timing.
 func TestBugReplyRecoversUndeliveredReview(t *testing.T) {
 	f, inst, fail := parkedBugWithoutDelivery(t)
 	fail.Store(false)
-	// The notice POST (the second post: after the recovered review) fails once.
-	f.forge.mu.Lock()
-	base, failed := len(f.forge.postedBodies), false
-	f.forge.onPostComment = func(w http.ResponseWriter, call int) bool {
-		if failed || call != base+2 {
-			return false
-		}
-		failed = true
-		http.Error(w, `{"message":"validation failed"}`, http.StatusUnprocessableEntity)
-		return true
-	}
-	f.forge.mu.Unlock()
 	f.forge.addComment(testIssue, 42, owner(), "Any progress?")
-	f.settle()
-	if got := countPosts(f, analysisHeading); got != 1 {
-		t.Fatalf("recovered review posted %d times\n%s", got, f.logs)
-	}
-	if f.watermark() >= 42 && countPosts(f, betweenQuestionsText) == 0 {
-		t.Fatalf("comment consumed before its notice was delivered\n%s", f.logs)
-	}
 	if !settleUntilHandled(f, 42, 30) {
 		t.Fatalf("triggering comment never consumed\n%s", f.logs)
 	}
-	// Replays after consumption post neither the review nor the notice again.
 	for range 2 {
 		f.clock.advance(time.Minute)
 		f.settle()
 	}
-	if review, notice := countPosts(f, analysisHeading), countPosts(f, betweenQuestionsText); review != 1 || notice != 1 || countPosts(f, notAppliedText) != 0 {
-		t.Fatalf("review=%d notice=%d, want one each\n%s", review, notice, f.logs)
+	if review := countPosts(f, analysisHeading); review != 1 || countPosts(f, notAppliedText) != 0 {
+		t.Fatalf("review=%d, want one and no not-applied notice\n%s", review, f.logs)
 	}
 	if strings.Contains(f.logs.String(), missingDeliveryError) {
 		t.Fatalf("missing delivery still reported\n%s", f.logs)
 	}
-	// A reply newer than the recovered review.
-	f.forge.mu.Lock()
-	later := f.forge.nextCommentID + 100
-	f.forge.mu.Unlock()
-	f.forge.addComment(testIssue, later, owner(), "Please make the guard explicit.")
-	f.settle()
 	wait, err := f.db.GetGraphOwnerWait(t.Context(), inst.ID)
-	if err != nil || wait.ReplyID != later {
-		t.Fatalf("later reply not claimed: %+v %v\n%s", wait, err, f.logs)
+	if err != nil || wait.ReplyID != 42 {
+		t.Fatalf("queued comment did not answer the recovered review: %+v %v\n%s", wait, err, f.logs)
 	}
 }
 

@@ -42,9 +42,6 @@ func TestParseValidateCommandValid(t *testing.T) {
 		if got, err := ParseValidateCommand(wrapped); err != nil || !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("wrapped %q: %+v %v", wrapped, got, err)
 		}
-		if _, err := ParseValidateCommand(wrapped + "\r\nmore"); err == nil {
-			t.Errorf("wrapped trailing text accepted: %q", wrapped)
-		}
 		got, err := ParseValidateCommand(tc.body)
 		if err != nil {
 			t.Errorf("%q: unexpected error %v", tc.body, err)
@@ -53,6 +50,32 @@ func TestParseValidateCommandValid(t *testing.T) {
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%q: got %+v want %+v", tc.body, got, tc.want)
 		}
+	}
+}
+
+// Text after a Validate command's tokens, on the same line or below, is kept
+// as guidance instead of refusing the command.
+func TestParseValidateCommandKeepsTrailingGuidance(t *testing.T) {
+	const rev = "0123456789ab"
+	sha := strings.Repeat("a", 40)
+	cases := map[string]struct {
+		body, name, guidance string
+	}{
+		"push with words":       {"/validate-push " + rev + " now please", ValidatePushCommand, "now please"},
+		"push with lines below": {"/validate-push " + rev + "\nafter the release", ValidatePushCommand, "after the release"},
+		"merge with dashes":     {"/validate-merge " + rev + " 1 " + sha + " -- squash it", ValidateMergeCommand, "squash it"},
+		"finding with reason":   {"/validate-finding " + rev + " s1:code repair keep the API", ValidateFindingCommand, "keep the API"},
+		"implement with words":  {"/validate-implement " + rev + " story-002 first", ValidateImplementCommand, "story-002 first"},
+		"close with words":      {"/validate-close " + rev + " 4 5 then tag", ValidateCloseCommand, "then tag"},
+	}
+	for name, tc := range cases {
+		got, err := ParseValidateCommand(tc.body)
+		if err != nil || got.Name != tc.name || got.Guidance != tc.guidance {
+			t.Errorf("%s: %q parsed as %+v, %v", name, tc.body, got, err)
+		}
+	}
+	if got, err := ParseValidateCommand("/validate-check " + rev + " s1:ac1 pass -- ran it\nlogs attached"); err != nil || got.Evidence != "ran it\n\nlogs attached" {
+		t.Errorf("check evidence below the line lost: %+v %v", got, err)
 	}
 }
 
@@ -66,9 +89,6 @@ func TestParseValidateCommandMalformed(t *testing.T) {
 		"13 char revision":        "/validate-push 0123456789abc",
 		"unknown command":         "/validate-nope " + rev,
 		"validate entry":          "/validate " + rev,
-		"extra args push":         "/validate-push " + rev + " now",
-		"defer with kind":         "/validate-finding " + rev + " s1:code defer bug",
-		"repair with kind":        "/validate-finding " + rev + " s1:code repair bug",
 		"issue without kind":      "/validate-finding " + rev + " s1:code issue",
 		"issue bad kind":          "/validate-finding " + rev + " s1:code issue task",
 		"finding bad choice":      "/validate-finding " + rev + " s1:code waive",
@@ -77,12 +97,6 @@ func TestParseValidateCommandMalformed(t *testing.T) {
 		"check no evidence":       "/validate-check " + rev + " s1:ac1 pass",
 		"check empty evidence":    "/validate-check " + rev + " s1:ac1 pass -- ",
 		"check bad verdict":       "/validate-check " + rev + " s1:ac1 maybe -- x",
-		"evidence on push":        "/validate-push " + rev + " -- why",
-		"evidence on finding":     "/validate-finding " + rev + " s1:code repair -- why",
-		"evidence on merge":       "/validate-merge " + rev + " 1 " + sha + " -- why",
-		"evidence on close":       "/validate-close " + rev + " 1 -- why",
-		"multi-line":              "/validate-push " + rev + "\nmore",
-		"multi-line check":        "/validate-check " + rev + " s1:ac1 pass -- a\nb",
 		"over 2048 bytes":         "/validate-check " + rev + " s1:ac1 pass -- " + strings.Repeat("x", 2048),
 		"empty":                   "",
 		"duplicate close numbers": "/validate-close " + rev + " 1 2 1",
@@ -96,13 +110,9 @@ func TestParseValidateCommandMalformed(t *testing.T) {
 		"merge missing head":      "/validate-merge " + rev + " 1",
 		"ship without evidence":   "/validate-ship " + rev,
 		"ship empty evidence":     "/validate-ship " + rev + " -- ",
-		"ship extra argument":     "/validate-ship " + rev + " now -- checked",
 
-		"accept without reason":    "/validate-finding " + rev + " s1:architecture accept",
-		"accept empty reason":      "/validate-finding " + rev + " s1:architecture accept -- ",
-		"accept with kind":         "/validate-finding " + rev + " s1:architecture accept bug -- why",
-		"implement extra argument": "/validate-implement " + rev + " story-002",
-		"implement empty guidance": "/validate-implement " + rev + " -- ",
+		"accept without reason": "/validate-finding " + rev + " s1:architecture accept",
+		"accept empty reason":   "/validate-finding " + rev + " s1:architecture accept -- ",
 	}
 	for name, body := range cases {
 		if got, err := ParseValidateCommand(body); err == nil {

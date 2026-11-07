@@ -2,7 +2,7 @@
 
 These explanations belong inside the existing result fields. Do not add fields, change dispositions or perform another role's work. Keep the role's limits on identifiers, paths and technical detail in its owner-facing comment; put detailed evidence where its contract permits.
 
-- **Research and shaping:** explain the findings that change the owner's understanding, the recommendation and why the evidence supports it. Identify material unknowns and choices that still need an authorized owner answer. A recommendation does not authorize implementation or another mode.
+- **Research:** explain the findings that change the owner's understanding, the recommendation and why the evidence supports it. Identify material unknowns and choices that still need an authorized owner answer. A recommendation does not authorize implementation or another mode.
 - **Plan set:** explain the proposed story set, scope split and work order, including dependencies and why that division helps. Distinguish the proposed set from approved scope.
 - **Plan story:** explain the selected story's intended behavior, benefit and boundaries. Identify what is excluded and any intent decision that remains open.
 - **Plan technical:** explain the technical choices and reasons, what existing capability is reused, and material rejected alternatives with their trade-offs. Distinguish settled decisions from assumptions and owner choices.

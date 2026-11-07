@@ -102,23 +102,11 @@ func TestResearchWorkflowProductionOutcomes(t *testing.T) {
 				if err != nil || !out.Succeeded() || !out.ResearchGraph || forge.attemptCount() != 1 {
 					t.Fatalf("clear outcome %+v posts=%d err=%v", out, forge.attemptCount(), err)
 				}
-				// A clear request no longer finishes the graph. Research
-				// publishes its findings and the workflow stops at the shaping
-				// stage, because one run advances one agent and this run's is
-				// spent. The instance keeps its node and owes a dispatch; that
-				// owed run is what continues it.
+				// A clear request finishes the graph: one agent, one report.
 				instance, e := f.db.LatestResearchInstance(t.Context(), f.session.ID)
 				mustProgress(t, e)
-				if instance.Status != store.GraphRunning || instance.CurrentNode != "shape" {
-					t.Fatalf("graph did not park at the shaping stage: %+v", instance)
-				}
-				if instance.NextDueAt.IsZero() {
-					t.Fatalf("a parked instance must be due for its next stage: %+v", instance)
-				}
-				due, e := f.db.ListDueGraphDispatches(t.Context(), instance.NextDueAt, 10)
-				mustProgress(t, e)
-				if len(due) != 1 || due[0].InstanceID != instance.ID || due[0].Node != "shape" {
-					t.Fatalf("the parked stage owes exactly one dispatch: %+v", due)
+				if instance.Status != store.GraphSucceeded || instance.CurrentNode != "complete" {
+					t.Fatalf("graph did not complete: %+v", instance)
 				}
 			} else if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 1 {
 				// A failed investigate step is reported through the declared
@@ -269,17 +257,17 @@ func TestResearchCurrentInstructionsRotatePersistedSession(t *testing.T) {
 	mustProgress(t, err)
 	firstRef, err := naming.SessionRef(ref, store.FirstSegmentOrdinal)
 	mustProgress(t, err)
-	first, delivery, err := prepareWorkflowDeliveryForTest(t.Context(), f.opts, req, definition, "investigate", f.session, ref, firstRef, ResearchWorkflowPolicy())
+	first, delivery, err := prepareWorkflowDeliveryForTest(t.Context(), f.opts, req, definition, "research", f.session, ref, firstRef, ResearchWorkflowPolicy())
 	mustProgress(t, err)
-	same, _, err := prepareWorkflowDeliveryForTest(t.Context(), f.opts, req, definition, "investigate", f.session, ref, firstRef, ResearchWorkflowPolicy())
+	same, _, err := prepareWorkflowDeliveryForTest(t.Context(), f.opts, req, definition, "research", f.session, ref, firstRef, ResearchWorkflowPolicy())
 	mustProgress(t, err)
 	if first.ID != same.ID {
 		t.Fatal("unchanged instructions rotated provider session")
 	}
-	node := definition.Nodes["investigate"]
+	node := definition.Nodes["research"]
 	node.Role.Body += "\nCurrent shipped instruction update."
-	definition.Nodes["investigate"] = node
-	changed, newDelivery, err := prepareWorkflowDeliveryForTest(t.Context(), f.opts, req, definition, "investigate", f.session, ref, firstRef, ResearchWorkflowPolicy())
+	definition.Nodes["research"] = node
+	changed, newDelivery, err := prepareWorkflowDeliveryForTest(t.Context(), f.opts, req, definition, "research", f.session, ref, firstRef, ResearchWorkflowPolicy())
 	mustProgress(t, err)
 	if changed.ID == first.ID || changed.SessionRef == first.SessionRef || changed.Ordinal != first.Ordinal+1 || newDelivery.Root == delivery.Root {
 		t.Fatalf("changed instructions reused old session/bundle: %+v %+v", first, changed)
@@ -301,13 +289,10 @@ func TestResearchWorkflowPersistedLimitRefusesInvocation(t *testing.T) {
 	}))
 	f.opts.ResearchDriver = func(ctx context.Context, opts Options, request Request, result Result, definition *teamsource.ResearchDefinition, admission store.ResearchAdmission) (Result, error) {
 		at := time.Date(2026, 9, 19, 1, 0, 0, 0, time.UTC)
-		loop, err := opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admission.Instance.ID, Node: "loop", Limit: 8, StartedAt: at})
-		mustProgress(t, err)
-		mustProgress(t, opts.DB.CompleteGraphNodeAttempt(ctx, loop.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "true", FinishedAt: at, InstanceStatus: store.GraphRunning, Transition: &store.GraphTransition{InstanceID: admission.Instance.ID, FromNode: "loop", ToNode: "investigate", OnOutcome: "true", At: at}}))
 		for range 8 {
-			attempt, err := opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admission.Instance.ID, Node: "investigate", Limit: 8, StartedAt: at})
+			attempt, err := opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admission.Instance.ID, Node: "research", Limit: 8, StartedAt: at})
 			mustProgress(t, err)
-			mustProgress(t, opts.DB.CompleteGraphNodeAttempt(ctx, attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: []byte(researchDoneJSON)}}}))
+			mustProgress(t, opts.DB.CompleteGraphNodeAttempt(ctx, attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "done", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: []byte(researchDoneJSON)}}}))
 		}
 		return ExecuteResearchWorkflow(ctx, opts, request, result, definition, admission)
 	}
@@ -319,7 +304,7 @@ func TestResearchWorkflowPersistedLimitRefusesInvocation(t *testing.T) {
 	mustProgress(t, e)
 	attempts, e := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
 	mustProgress(t, e)
-	if len(attempts) != 9 || instance.Status != store.GraphFailed {
+	if len(attempts) != 8 || instance.Status != store.GraphFailed {
 		t.Fatalf("exhaustion lost counters: %+v count=%d", instance, len(attempts))
 	}
 }
@@ -341,7 +326,7 @@ func TestResearchChangedCaptureWithoutEffectsRecovers(t *testing.T) {
 	at := time.Date(2026, 9, 20, 1, 0, 0, 0, time.UTC)
 	definition, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
 	mustProgress(t, err)
-	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "investigate", StartedAt: at})
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "research", StartedAt: at})
 	mustProgress(t, err)
 	// Reopen to ensure rejection depends on the retained capture, not in-memory state.
 	mustProgress(t, f.db.Close())
@@ -372,13 +357,13 @@ func finishedOldResearchInstance(t *testing.T, f *fixture, status string, delive
 	at := time.Date(2026, 9, 20, 1, 0, 0, 0, time.UTC)
 	definition, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
 	mustProgress(t, err)
-	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "investigate", StartedAt: at})
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "research", StartedAt: at})
 	mustProgress(t, err)
-	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "investigate", StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "research", StartedAt: at})
 	mustProgress(t, err)
 	mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, FinishedAt: at.Add(time.Minute), InstanceStatus: status}))
 	key := "research-old-capture-final"
-	mustProgress(t, f.db.RetainGraphComment(t.Context(), store.GraphCommentIntent{Key: key, InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "investigate", Kind: "final", Candidate: []byte(`{"outcome":"completed","comment":"Investigation finished.","payload":{"research":{"request":"Inspect boundaries"}}}`)}))
+	mustProgress(t, f.db.RetainGraphComment(t.Context(), store.GraphCommentIntent{Key: key, InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "research", Kind: "final", Candidate: []byte(`{"outcome":"completed","comment":"Investigation finished.","payload":{"research":{"request":"Inspect boundaries"}}}`)}))
 	if delivered {
 		probe, err := sql.Open("sqlite", store.DSN(f.db.Path()))
 		mustProgress(t, err)
@@ -425,8 +410,8 @@ func TestResearchChangedCaptureStillRejectsIncompleteSource(t *testing.T) {
 	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
 	instance := finishedOldResearchInstance(t, f, store.GraphSucceeded, false)
 	err := recoverResearchPublications(t.Context(), f.opts, f.session.ID)
-	if err == nil || !strings.Contains(err.Error(), "research attempt has no node output") {
-		t.Fatalf("incomplete source recovery: %v", err)
+	if err == nil {
+		t.Fatal("a comment without a retained source was recovered")
 	}
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
 	mustProgress(t, err)
@@ -482,10 +467,10 @@ func TestResearchWorkflowSubmittedResultStandsWhateverIsPrinted(t *testing.T) {
 			}
 			instance, e := f.db.LatestResearchInstance(t.Context(), f.session.ID)
 			mustProgress(t, e)
-			if instance.CurrentNode != "shape" {
-				t.Fatalf("investigate did not hand over on its retained result: %+v", instance)
+			if instance.CurrentNode != "complete" {
+				t.Fatalf("research did not finish on its retained result: %+v", instance)
 			}
-			attempt, e := f.db.LatestGraphNodeAttempt(t.Context(), instance.ID, "investigate")
+			attempt, e := f.db.LatestGraphNodeAttempt(t.Context(), instance.ID, "research")
 			mustProgress(t, e)
 			scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "research", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
 			node, e := LoadResearchNodeOutput(t.Context(), f.db, attempt.ID, scope)
@@ -647,6 +632,8 @@ func TestResearchWorkflowIncompletePublicationStaysPending(t *testing.T) {
 	mustProgress(t, err)
 	mustProgress(t, f.db.SetGraphInstanceStatus(ctx, instance.ID, store.GraphCancelled, time.Time{}, time.Now()))
 	// Another finished instance of this session owes an undelivered comment.
+	_, err = f.db.AdmitWorkflowPath(ctx, f.session.ID, "graph")
+	mustProgress(t, err)
 	pin, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "validate", ProfileVersion: 1, Path: "validate.dot", Digest: strings.Repeat("a", 64)})
 	mustProgress(t, err)
 	other, err := f.db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: "validate", SessionID: f.session.ID, TriggerID: req.Trigger.CommentID + 100, DefinitionID: pin.ID, Start: "check", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte("{}")})
@@ -775,11 +762,11 @@ func TestResearchConfirmedReportResumesAtPublishedEdge(t *testing.T) {
 	}
 	instance, err := r.f.db.GetGraphInstance(t.Context(), r.instance.ID)
 	mustProgress(t, err)
-	if instance.Status != store.GraphRunning || instance.CurrentNode != "shapeloop" {
-		t.Fatalf("instance did not resume at shapeloop: %+v", instance)
+	if instance.Status != store.GraphRunning || instance.CurrentNode != "complete" {
+		t.Fatalf("instance did not resume at complete: %+v", instance)
 	}
-	if due := researchDispatches(t, r.f.db, r.instance.ID); len(due) != 1 || due[0].Node != "shapeloop" {
-		t.Fatalf("want one pending dispatch at shapeloop: %+v", due)
+	if due := researchDispatches(t, r.f.db, r.instance.ID); len(due) != 1 || due[0].Node != "complete" {
+		t.Fatalf("want one pending dispatch at complete: %+v", due)
 	}
 	if n := researchTransitionsFrom(t, r.f.db, r.instance.ID, "report"); n != 1 {
 		t.Fatalf("report transitions = %d, want 1", n)
@@ -823,7 +810,7 @@ func TestResearchConfirmedPublicationResumeGuards(t *testing.T) {
 			return store.GraphInstance{}
 		}},
 		{name: "newer research instance", confirm: true, mutate: func(t *testing.T, r failedReportRun) store.GraphInstance {
-			newer, err := r.f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: r.f.session.ID, DefinitionID: r.instance.DefinitionID, CurrentNode: "investigate", StartedAt: time.Now()})
+			newer, err := r.f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: r.f.session.ID, DefinitionID: r.instance.DefinitionID, CurrentNode: "research", StartedAt: time.Now()})
 			mustProgress(t, err)
 			return newer
 		}},
@@ -849,7 +836,7 @@ func TestResearchConfirmedPublicationResumeGuards(t *testing.T) {
 			due := researchDispatches(t, r.f.db, r.instance.ID)
 			moved := researchTransitionsFrom(t, r.f.db, r.instance.ID, "report")
 			if c.resumes {
-				if after.Status != store.GraphRunning || after.CurrentNode != "shapeloop" || len(due) != 1 || moved != 1 {
+				if after.Status != store.GraphRunning || after.CurrentNode != "complete" || len(due) != 1 || moved != 1 {
 					t.Fatalf("exact legacy match did not resume: %+v due=%+v transitions=%d", after, due, moved)
 				}
 				return
