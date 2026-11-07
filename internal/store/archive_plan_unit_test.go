@@ -19,7 +19,6 @@ func planSeed(t *testing.T, db *DB, parent, outcome string) {
 		`INSERT INTO plan_story_drafts(parent,story_key,ordinal) VALUES(?1,'k',1)`,
 		`INSERT INTO plan_story_candidates(parent,request_id,story_key,candidate,request_json) VALUES(?1,'r','k','c','{}')`,
 		`INSERT INTO plan_story_authorities(parent,request_id,authority_json) VALUES(?1,'r','{}')`,
-		`INSERT INTO plan_story_owner_edits(parent,story_key,observation_id,candidate,base_revision,observed_revision,observed_title,observed_body,draft_json,stage) VALUES(?1,'k','o','c','b','o','t','b','{}','story')`,
 	}
 	for _, s := range stmts {
 		if _, err := db.sql.ExecContext(ctx, s, parent); err != nil {
@@ -39,7 +38,6 @@ var planDeletes = []struct{ table, stmt string }{
 	{"plan_story_effects", `DELETE FROM plan_story_effects WHERE parent=?`},
 	{"plan_story_authorities", `DELETE FROM plan_story_authorities WHERE parent=?`},
 	{"plan_workflow_history", `DELETE FROM plan_workflow_history WHERE parent=?`},
-	{"plan_story_owner_edits", `DELETE FROM plan_story_owner_edits WHERE parent=?`},
 	{"plan_story_candidates", `DELETE FROM plan_story_candidates WHERE parent=?`},
 	{"plan_story_drafts", `DELETE FROM plan_story_drafts WHERE parent=?`},
 }
@@ -122,7 +120,6 @@ func TestPlanArchiveTriggers_UpdateStillRefusedWithGrant(t *testing.T) {
 		{"plan_story_effects", `UPDATE plan_story_effects SET detail='x' WHERE parent=?`},
 		{"plan_story_drafts", `UPDATE plan_story_drafts SET ordinal=9 WHERE parent=?`},
 		{"plan_workflow_history", `UPDATE plan_workflow_history SET state_json='x' WHERE parent=?`},
-		{"plan_story_owner_edits", `UPDATE plan_story_owner_edits SET draft_json='x' WHERE parent=?`},
 		{"plan_story_authorities", `UPDATE plan_story_authorities SET authority_json='x' WHERE parent=?`},
 	}
 	for _, u := range updates {

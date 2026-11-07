@@ -184,11 +184,6 @@ func (r *planGraphRuntime) clearSettledEffect(ctx context.Context, item planbrie
 // from the expected content, on the assumption that the owner edited it.
 const ownerEditConflict = "owner edits conflict with expected content revision"
 
-// childContentHold prefixes the lifecycle hold the child poll sets when a story
-// issue's content can be read neither as the factory's draft nor as an owner
-// edit (internal/daemon planChildContentHold).
-const childContentHold = "Child content cannot be reconciled"
-
 // releaseOwnerEditConflicts lets the owner's own retry settle a story held only
 // by owner-edit conflicts. The hold exists to protect the owner's edits; the
 // owner asking to retry says there are none to keep, so the stale requests are
@@ -196,8 +191,7 @@ const childContentHold = "Child content cannot be reconciled"
 // holds recorded before #821 can never re-verify: their content was rendered
 // before #824/#825 changed titles and markers. Any other hold is left alone.
 func (r *planGraphRuntime) releaseOwnerEditConflicts(ctx context.Context, item planbrief.PlanStoryState) error {
-	contentHold := strings.HasPrefix(item.LifecycleHold, childContentHold)
-	if item.Hold != "" || (item.LifecycleHold != "" && !contentHold) || (item.EffectHold != "" && item.EffectHold != ownerEditConflict) {
+	if item.Hold != "" || item.LifecycleHold != "" || (item.EffectHold != "" && item.EffectHold != ownerEditConflict) {
 		return nil
 	}
 	requests := map[string]bool{}
@@ -217,25 +211,10 @@ func (r *planGraphRuntime) releaseOwnerEditConflicts(ctx context.Context, item p
 	if linear, err := r.linearStory(ctx, item.Key); err != nil || !linear {
 		return err
 	}
-	if len(requests) == 0 && !contentHold {
+	if len(requests) == 0 {
 		// Blocked for another reason, such as an unknown remote outcome:
 		// nothing here is the owner's to waive.
 		return nil
-	}
-	if contentHold {
-		// The poll could not read the factory's own unrecorded write as an
-		// owner edit; the owner's retry says there is none.
-		if err := r.opts.DB.UpdatePlanWorkflowState(ctx, parent, func(s *planbrief.PlanState) (bool, error) {
-			for i := range s.Stories {
-				if s.Stories[i].Key == item.Key && strings.HasPrefix(s.Stories[i].LifecycleHold, childContentHold) {
-					s.Stories[i].LifecycleHold = ""
-					return true, nil
-				}
-			}
-			return false, nil
-		}); err != nil {
-			return err
-		}
 	}
 	for request := range requests {
 		state, revision, err := r.opts.DB.GetPlanWorkflowState(ctx, parent)

@@ -54,8 +54,6 @@ var forgetSteps = []forgetStep{
 	{"story_publications", forgetByTasks},
 	{"story_revision_operations", forgetByTasks},
 	{"managed_stories", forgetByTasks},
-	{"story_contract_upgrade_items", forgetByTasks},
-	{"story_contract_upgrades", forgetByTasks},
 	{"managed_parent_closures", forgetByTasks},
 	{"managed_features", forgetByTasks},
 	{"sessions", forgetByID},

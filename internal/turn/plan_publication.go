@@ -63,24 +63,14 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 		return nil, fmt.Errorf("plan proposal does not match supplied parent/generation")
 	}
 	contract, contractErr := o.DB.GetGenerationContract(ctx, p.Parent, p.Generation)
-	historical, historyErr := historicalLegacyKeys(ctx, o.DB, p.Parent, p.Generation)
-	if historyErr != nil {
-		return nil, historyErr
-	}
 	if contractErr != nil && !errors.Is(contractErr, store.ErrNotFound) {
 		return nil, contractErr
 	}
 	if contractErr == nil && contract.ContentVersion == 2 {
-		if len(o.TypedContent)+len(historical) != len(p.Stories) {
+		if len(o.TypedContent) != len(p.Stories) {
 			return nil, fmt.Errorf("typed generation requires complete typed content")
 		}
 		for _, story := range p.Stories {
-			if old, ok := historical[story.Key]; ok {
-				if story.Intent != "unchanged" || story.IssueID != old.IssueID || story.IssueNumber != old.IssueNumber {
-					return nil, fmt.Errorf("completed legacy dependency must remain unchanged")
-				}
-				continue
-			}
 			typed, ok := o.TypedContent[story.Key]
 			if !ok {
 				return nil, fmt.Errorf("typed story content missing")
@@ -184,10 +174,6 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 			issue, err := o.Forge.GetIssue(ctx, repo, s.IssueNumber)
 			if err != nil {
 				faults = append(faults, fmt.Errorf("story %s: %w", s.Key, err))
-				continue
-			}
-			if _, historical := historical[s.Key]; historical && (s.Title != issue.Title || s.Body != historicalBody(planbrief.StoryProposal{Key: s.Key, Body: issue.Body}, o.Parent.String())) {
-				faults = append(faults, fmt.Errorf("completed legacy dependency %s source differs", s.Key))
 				continue
 			}
 			if err := checkPublicationBase(ctx, o, parent, s, issue, planbrief.StoryHash(rendered[i].Title.String(), rendered[i].Body.String())); err != nil {

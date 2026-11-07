@@ -162,10 +162,8 @@ func claimGraphOwnerReplyTx(ctx context.Context, tx *sql.Tx, in GraphOwnerReply,
 		if !IsChatTrigger(in.CommentID) {
 			return out, graphInvariant("chat reply identity exhausted")
 		}
-		if _, stageDecision := ctx.Value(stageDecisionEffectKey{}).(StageDecisionTarget); !stageDecision {
-			if e = validateChatResearchWaitTx(ctx, tx, wait); e != nil {
-				return out, e
-			}
+		if e = validateChatResearchWaitTx(ctx, tx, wait); e != nil {
+			return out, e
 		}
 	}
 	source := "forge"

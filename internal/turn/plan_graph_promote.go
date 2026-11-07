@@ -11,7 +11,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/commandtext"
 	"github.com/cloudvane/litefactory/internal/planbrief"
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // planSetRefusal is an owner command the factory declines with an explanation.
@@ -125,5 +124,5 @@ func (r *planGraphRuntime) promoteSet(ctx context.Context, s planbrief.PlanState
 		}
 	}
 	s.ConsumedReplies = append(s.ConsumedReplies, trigger.CommentID)
-	return r.persist(store.WithPlanOwnerAdmission(ctx, r.result.Ref.String(), ""), s, revision)
+	return r.persist(ctx, s, revision)
 }

@@ -55,7 +55,6 @@ func legacyApproverOwnerIDs(ctx context.Context, q interface {
 		`SELECT p.approval_owner_id FROM bug_analyses p JOIN sessions s ON s.id=p.session_id WHERE s.repo_id=? AND p.approval_owner_id IS NOT NULL`,
 		`SELECT i.owner_id FROM mcp_creation_intents i JOIN sessions s ON s.task_ref=i.source_task WHERE s.repo_id=?`,
 		`SELECT p.owner_id FROM creation_preparations p JOIN sessions s ON s.id=p.session_id WHERE s.repo_id=?`,
-		`SELECT p.owner_id FROM story_contract_upgrades p JOIN sessions s ON s.task_ref=p.parent_task WHERE s.repo_id=?`,
 		`SELECT w.reply_author_id FROM graph_owner_waits w JOIN graph_instances g ON g.id=w.instance_id JOIN sessions s ON s.id=g.session_id WHERE s.repo_id=? AND w.reply_author_id IS NOT NULL`,
 	}
 	seen := map[int64]bool{}

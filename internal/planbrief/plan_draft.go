@@ -308,3 +308,7 @@ func MergePlanDraft(prior, next PlanDraft, changed []string) (PlanDraft, error) 
 
 // PlanAcceptanceHeading preserves the exact frozen story body protocol spelling.
 const PlanAcceptanceHeading = "# Acceptance Criterias" //nolint:misspell // Frozen renderer contract mandates these exact bytes.
+
+// PlanShortenedMarker is the hidden line a shortened story body carries; the full
+// draft then lives in numbered part comments on the same issue.
+const PlanShortenedMarker = "<!-- lf:plan-shortened -->"

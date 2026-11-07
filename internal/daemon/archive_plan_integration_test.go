@@ -22,7 +22,7 @@ import (
 
 var planITTables = []string{
 	"plan_story_drafts", "plan_story_candidates", "plan_story_effects", "plan_story_authorities",
-	"plan_story_completions", "plan_story_owner_edits", "plan_story_recovery_cursors",
+	"plan_story_completions", "plan_story_recovery_cursors",
 	"plan_story_notice_states", "plan_story_notices", "plan_reply_explanations",
 	"plan_workflow_states", "plan_workflow_history", "plan_execution_paths",
 }
@@ -49,7 +49,6 @@ func (x *archiveITFixture) seedPlan(t *testing.T) map[string]int64 {
 	x.exec(t, `INSERT INTO plan_story_effects(parent,request_id,phase,outcome,issue_id,issue_number,detail,revision) VALUES(?,?,?,?,?,?,?,?)`, p, "req-1", "apply", "applied", 2550, 255, "done", "r1")
 	x.exec(t, `INSERT INTO plan_story_authorities(parent,request_id,authority_json) VALUES(?,?,?)`, p, "req-1", `{"a":"é"}`)
 	x.exec(t, `INSERT INTO plan_story_completions(parent,request_id) VALUES(?,?)`, p, "req-1")
-	x.exec(t, `INSERT INTO plan_story_owner_edits(parent,story_key,observation_id,candidate,base_revision,observed_revision,observed_title,observed_body,draft_json,stage) VALUES(?,?,?,?,?,?,?,?,?,?)`, p, "US-001", "obs1", "c1", "b", "o", "title", "body\x00ish", "{}", "story")
 	x.exec(t, `INSERT INTO plan_story_recovery_cursors(parent,request_id) VALUES(?,?)`, p, "req-1")
 	x.exec(t, `INSERT INTO plan_story_notice_states(parent,story_key,material_json) VALUES(?,?,?)`, p, "US-001", `{"m":1}`)
 	x.exec(t, `INSERT INTO plan_story_notices(parent,story_key,material_json,delivered,attempts) VALUES(?,?,?,1,2)`, p, "US-001", `{"m":1}`)
@@ -107,7 +106,6 @@ func (x *archiveITFixture) expectProtective(t *testing.T) {
 		{"plan_story_candidates", "immutable Plan candidate"},
 		{"plan_story_effects", "immutable Plan effect"},
 		{"plan_story_authorities", "immutable Plan authority"},
-		{"plan_story_owner_edits", "immutable owner edit observation"},
 		{"plan_workflow_history", "immutable Plan workflow history"},
 	} {
 		if x.count(t, `SELECT COUNT(*) FROM `+tc.table) == 0 {
@@ -174,14 +172,9 @@ func TestArchivePlanIntegrationRoundTripDeletesAndProtects(t *testing.T) {
 	seen := map[string]bool{}
 	for _, r := range got {
 		seen[r.Table] = true
-		switch r.Table {
-		case "plan_story_drafts":
+		if r.Table == "plan_story_drafts" {
 			if c := archiveITColumn(t, r, "draft_json"); archiveITColumn(t, r, "story_key").Value == "US-001" && c.Value != planITDraftJSON {
 				t.Fatalf("draft_json changed: %#v", c.Value)
-			}
-		case "plan_story_owner_edits":
-			if c := archiveITColumn(t, r, "observed_body"); fmt.Sprint(c.Value) != "body\x00ish" {
-				t.Fatalf("observed_body changed: %#v", c.Value)
 			}
 		}
 	}

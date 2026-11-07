@@ -27,7 +27,8 @@ func TestJudgeMigrationPreservesPopulatedLedgers(t *testing.T) {
 	run := seedHistoricalRunSnapshot(t, db, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "research", Agent: AgentClaude, TriggerCommentID: 1, LogPath: func(int) string { return "/logs/result-1" }}, RunRunning)
 	a := ResultAttempt{Task: session.TaskRef, Mode: "research", WorkContext: "authorized-context", Attempt: "retained-writer", RunID: run.ID, SchemaVersion: 1, WorkflowVersion: 2, SubmissionVersion: 2}
 	var schema []string
-	rows, err := db.sql.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('index','trigger') AND sql IS NOT NULL ORDER BY name`)
+	// A later migration drops the never-used Plan feature tables and their guards.
+	rows, err := db.sql.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('index','trigger') AND sql IS NOT NULL AND tbl_name NOT IN ('plan_story_owner_edits','story_contract_upgrades','story_contract_upgrade_items') AND name NOT LIKE 'story_contract_upgrade_%' ORDER BY name`)
 	if err != nil {
 		t.Fatal(err)
 	}

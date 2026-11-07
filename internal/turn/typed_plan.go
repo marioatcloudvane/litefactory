@@ -90,27 +90,16 @@ func prepareTypedPlanSubmission(ctx context.Context, o Options, prep *preparatio
 	}
 	state := &TypedPlanSubmission{scope: scope}
 	prep.typedPlan = state
-	historicalKeys, err := historicalLegacyKeys(ctx, o.DB, prep.ref.String(), contract.Generation)
-	if err != nil {
-		return nil, err
-	}
-	history := map[string]planbrief.StoryProposal{}
-	for key := range historicalKeys {
-		if base, ok := bases[key]; ok {
-			base.Intent = "unchanged"
-			history[key] = base
-		}
-	}
 	clarifications, err := readEstablishedClarifications(ctx, o.DB, prep, existing)
 	if err != nil {
 		return nil, err
 	}
 	build := func(ctx context.Context, raw json.RawMessage) (planbrief.PlanProposal, map[string]planbrief.TypedStory, error) {
-		normalized, err := normalizeTypedUpdatesWithHistory(ctx, o.DB, prep.ref.String(), contract.Generation, existing, raw, scope, clarifications, history)
+		normalized, err := normalizeTypedUpdates(ctx, o.DB, prep.ref.String(), contract.Generation, existing, raw, scope, clarifications)
 		if err != nil {
 			return planbrief.PlanProposal{}, nil, err
 		}
-		return buildTypedPlanProposal(ctx, renderer, prep, scope, bases, existing, normalized, history)
+		return buildTypedPlanProposal(ctx, renderer, prep, scope, bases, existing, normalized)
 	}
 	callbacks.Validate = func(ctx context.Context, raw json.RawMessage) agent.ContributionDiagnostics {
 		_, _, err := build(ctx, raw)
@@ -189,27 +178,15 @@ func prepareTypedPlanSubmission(ctx context.Context, o Options, prep *preparatio
 	}
 	roles, _ := json.Marshal(scope.Roles)
 	callbacks.Prompt = "For this typed content contract, submit Plan discussion/completion through the supplied helper. The factory creates the identity envelope and transport. Supply all typed story sections, explicit criterion IDs, and arrays (including empty arrays). Task owner_role must come from this supplied implementation roster: " + string(roles) + ". Existing stories use their supplied story keys; the factory supplies issue identities and observed base revisions. Keep plan_brief.md shared context and its link-only Story Index. A completed receipt records input only: publication and readiness remain pending until terminal success and save."
-	if len(history) > 0 {
-		keys := make([]string, 0, len(history))
-		for key := range history {
-			keys = append(keys, key)
-		}
-		slices.Sort(keys)
-		callbacks.Prompt += " Completed legacy dependencies are preserved by the factory: " + strings.Join(keys, ", ") + ". Omit these keys from the typed stories array; they remain valid dependency references. Do not reconstruct their obligations."
-	}
 	return callbacks, nil
 }
 
-func buildTypedPlanProposal(ctx context.Context, renderer CompleteStoryRenderer, prep *preparation, scope planbrief.ContentScope, bases map[string]planbrief.StoryProposal, existing []store.ManagedStory, raw []byte, historical ...map[string]planbrief.StoryProposal) (planbrief.PlanProposal, map[string]planbrief.TypedStory, error) {
-	history := map[string]planbrief.StoryProposal{}
-	if len(historical) > 0 {
-		history = historical[0]
-	}
-	typed, err := parseTypedPlanWithHistory(raw, scope, history)
+func buildTypedPlanProposal(ctx context.Context, renderer CompleteStoryRenderer, prep *preparation, scope planbrief.ContentScope, bases map[string]planbrief.StoryProposal, existing []store.ManagedStory, raw []byte) (planbrief.PlanProposal, map[string]planbrief.TypedStory, error) {
+	typed, err := planbrief.ParseTypedPlan(raw, scope)
 	if err != nil {
 		return planbrief.PlanProposal{}, nil, err
 	}
-	bodies, err := renderTypedPlanWithHistory(typed, scope, history)
+	bodies, err := report.RenderTypedPlan(typed, scope)
 	if err != nil {
 		return planbrief.PlanProposal{}, nil, err
 	}
@@ -261,14 +238,6 @@ func buildTypedPlanProposal(ctx context.Context, renderer CompleteStoryRenderer,
 		content[s.Key] = s
 	}
 	for _, s := range existing {
-		if bound, ok := history[s.Key]; ok {
-			if s.State != "completed" || bound.IssueID != s.IssueID || bound.IssueNumber != s.IssueNumber {
-				return proposal, nil, fmt.Errorf("historical dependency identity changed")
-			}
-			bound.Body = historicalBody(bound, prep.ref.String())
-			proposal.Stories = append(proposal.Stories, bound)
-			continue
-		}
 		typed, exists := content[s.Key]
 		if !exists || (s.State == "completed" && typed.Intent != "unchanged") {
 			return proposal, nil, fmt.Errorf("story %s: preserve indexed and completed dependencies", s.Key)

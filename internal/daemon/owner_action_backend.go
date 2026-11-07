@@ -21,7 +21,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/redact"
-	"github.com/cloudvane/litefactory/internal/stagedecision"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
@@ -32,7 +31,6 @@ type ownerActionRuntime struct {
 	reconcileResearch func(context.Context) error
 	sanitizer         *redact.Redactor
 	adapter           atomic.Pointer[discord.Adapter]
-	decisions         *stagedecision.Service
 	discussions       *taskdiscussion.Service
 	actions           *owneraction.Service
 	workflows         *durableworkflow.Service
@@ -100,11 +98,6 @@ func (r *ownerActionRuntime) start(ctx context.Context, wg *sync.WaitGroup, logg
 			for {
 				if ctx.Err() != nil {
 					return
-				}
-				if r.decisions != nil {
-					if err := r.decisions.PublishPending(ctx); err != nil {
-						logger.WarnContext(ctx, "decision summary requires reconciliation")
-					}
 				}
 				if r.reconcileResearch != nil {
 					if err := r.reconcileResearch(ctx); err != nil {

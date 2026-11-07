@@ -64,7 +64,7 @@ func TestDiscordComponentConsumerBoundary(t *testing.T) {
 					return true
 				}
 				imported := imports[pkg.Name]
-				for _, coordinator := range []string{"/internal/owneraction", "/internal/durableworkflow", "/internal/taskdiscussion", "/internal/stagedecision"} {
+				for _, coordinator := range []string{"/internal/owneraction", "/internal/durableworkflow", "/internal/taskdiscussion"} {
 					if strings.HasSuffix(imported, coordinator) && (selected.Sel.Name == "Service" || selected.Sel.Name == "New") {
 						t.Errorf("%s acquires a full factory coordinator", path)
 					}

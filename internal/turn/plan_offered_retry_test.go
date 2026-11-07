@@ -63,7 +63,6 @@ func TestPlanFailure_OfferedRetryOnStoryIssueRerunsTheStage(t *testing.T) {
 				t.Fatalf("wrong failed state: %+v", before.Stories[0])
 			}
 			if failure == "readback" {
-				mustProgress(t, f.db.ObservePlanStoryLifecycle(t.Context(), f.ref().String(), "story-001", planbrief.PlanLifecycle{}, childContentHold))
 				mustProgress(t, f.db.ObservePlanStoryLifecycle(t.Context(), f.ref().String(), "story-001", planbrief.PlanLifecycle{State: "open"}, ""))
 				before = graphPlanState(t, f)
 			}
