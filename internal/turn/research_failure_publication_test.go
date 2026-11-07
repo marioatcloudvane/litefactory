@@ -3,17 +3,19 @@ package turn
 import (
 	"context"
 	"errors"
-	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
-	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 
-	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
+	execution "github.com/cloudvane/litefactory/pkg/execution/agent"
+
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/github"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -124,9 +126,6 @@ func TestShippedResearchGraphDeclaresAFailurePublication(t *testing.T) {
 	definition, err := teamsourcetest.CaptureResearch(t.Context(), specs)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if err := graphexec.ValidateResearchControlGraph(definition.Profile); err != nil {
-		t.Fatalf("shipped graph does not validate: %v", err)
 	}
 	target, declared := graphexec.Decide(definition.Profile, "research", "failed")
 	if !declared {

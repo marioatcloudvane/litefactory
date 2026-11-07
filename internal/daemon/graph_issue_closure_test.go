@@ -29,7 +29,7 @@ func graphClosureFixture(t *testing.T, mode string) (*fixture, *closureForge, st
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "waiting", Limit: 3, StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "waiting", StartedAt: at})
 	if err != nil {
 		t.Fatal(err)
 	}

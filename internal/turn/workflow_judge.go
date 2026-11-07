@@ -43,7 +43,7 @@ func (h JudgeActivity) Execute(ctx context.Context, opts Options, req ActivityRe
 		return ActivityResult{}, errors.New("workflow judge requires shared service and Research or Plan context")
 	}
 	node, ok := h.Profile.Node(req.Node)
-	if !ok || node.Action != graphexec.JudgeAction || node.Limit <= 0 {
+	if !ok || node.Action != graphexec.JudgeAction {
 		return ActivityResult{}, errors.New("workflow judge profile binding mismatch")
 	}
 	instance, err := opts.DB.GetGraphInstance(ctx, req.InstanceID)

@@ -22,7 +22,7 @@ func TestRetainGraphCommentAcceptsReviewKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "shape", Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "shape", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

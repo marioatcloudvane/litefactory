@@ -80,10 +80,10 @@ func failedPublicationFixture(t *testing.T, f *fixture, node, kind string) faile
 	must(err)
 	run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: s.ID, SegmentID: segment.ID, Mode: "research", Agent: store.AgentClaude, TriggerCommentID: 22, LogPath: func(int) string { return "research.log" }})
 	must(err)
-	source, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: "investigate", RunID: run.ID, Limit: 8, StartedAt: at})
+	source, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: "investigate", RunID: run.ID, StartedAt: at})
 	must(err)
 	must(f.db.CompleteGraphNodeAttempt(ctx, source.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: at, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: []byte(`{"response":"done"}`)}}, Transition: &store.GraphTransition{InstanceID: admitted.Instance.ID, FromNode: "investigate", ToNode: node, OnOutcome: "success", At: at}}))
-	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: node, RunID: run.ID, Limit: 8, StartedAt: at, FactoryStep: true})
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: node, RunID: run.ID, StartedAt: at, FactoryStep: true})
 	must(err)
 	key := "research-" + node + "-operation"
 	must(f.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: key, InstanceID: admitted.Instance.ID, SourceAttemptID: source.ID, Node: node, Kind: kind, Candidate: []byte(`{"outcome":"completed"}`)}))
@@ -391,7 +391,7 @@ func parkedBugWithoutDelivery(t *testing.T) (*fixture, store.GraphInstance, *ato
 	must(err)
 	run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: s.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: 22, StartedAt: at, LogPath: func(int) string { return "analyst.log" }})
 	must(err)
-	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: inst.ID, Node: "analyst", RunID: run.ID, Limit: 8, StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: inst.ID, Node: "analyst", RunID: run.ID, StartedAt: at})
 	must(err)
 	analysis := buganalysis.BugAnalysis{Expected: "Safe empty input", Actual: "Panic on empty input", Reproduction: buganalysis.BugReproduction{Environment: "Go fixture", Observation: "not_observed"}, Cause: "Unchecked index", Evidence: []string{"search.go:12 indexes empty bytes"}, Remedy: "Guard input length", Exclusions: []string{"Nonempty behavior"}, Criteria: []buganalysis.BugCriterion{{ID: "C1", Requirement: "No panic", Measurement: "Call empty input"}}}
 	result := agentresult.Result{Outcome: "completed", Comment: "Complete candidate", Payload: agentresult.Payload{Bug: &agentresult.Bug{Response: "done", Invocation: fmt.Sprintf("analysis:%d:%d", inst.ID, attempt.ID), Analysis: &analysis}}}

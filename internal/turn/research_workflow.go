@@ -312,7 +312,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				resumeID = prior.ID
 			}
 		}
-		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{RetainCapacity: true, ResumeAttemptID: resumeID, LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, At: opts.MCP.Now(), RetryDueAt: opts.MCP.Now().Add(opts.GraphRetryDelay)})
+		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{RetainCapacity: true, ResumeAttemptID: resumeID, LaunchID: w.admission.LaunchID, StopOnFailure: true, BudgetFails: policy.BudgetFails, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, At: opts.MCP.Now(), RetryDueAt: opts.MCP.Now().Add(opts.GraphRetryDelay)})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}
@@ -602,8 +602,7 @@ func (w *researchWorkflow) publishFailure(ctx context.Context, scope func(contex
 	if err != nil {
 		return err
 	}
-	exhausted := w.policy.Mode == agent.ModeResearch && step.AttemptID == 0 && strings.Contains(cause.Error(), "exhausted")
-	if source.Status != store.GraphFailed && !exhausted {
+	if source.Status != store.GraphFailed {
 		return nil
 	}
 	if source.RunID == 0 {
@@ -614,15 +613,6 @@ func (w *researchWorkflow) publishFailure(ctx context.Context, scope func(contex
 		return err
 	}
 	candidate := w.policy.Failure(w.req, cause)
-	if exhausted {
-		retained, err := w.policy.load(bookkeeping, w.opts.DB, source.ID, ctxScope)
-		if err != nil {
-			return err
-		}
-		candidate = retained.Result
-		candidate.Outcome, candidate.Reason, candidate.Questions = "blocked", boundedFailureReason(cause.Error()), nil
-		candidate.Comment = "Research reached its persisted stage allowance. The latest findings are retained below; no extra invocation was started."
-	}
 	_, _, err = w.opts.ResearchReporter.ReportWorkflowCandidate(bookkeeping, source, target, "failure", candidate, ctxScope, w.policy.NextStep(w.definition.Profile, target, "failure"), w.policy)
 	return err
 }

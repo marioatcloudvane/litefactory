@@ -33,7 +33,7 @@ func graphDiagnosisFixture(t *testing.T) (*DB, string, GraphInstance, Session, G
 	if e != nil {
 		t.Fatal(e)
 	}
-	source, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "repair", RunID: run.ID, Limit: 8, StartedAt: at})
+	source, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "repair", RunID: run.ID, StartedAt: at})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -59,7 +59,7 @@ func graphDiagnosisFixture(t *testing.T) (*DB, string, GraphInstance, Session, G
 	if e != nil {
 		t.Fatal(e)
 	}
-	conversation, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", Limit: 64, StartedAt: at})
+	conversation, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", StartedAt: at})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -124,7 +124,7 @@ func TestGraphDiagnosisPersistentApprovalAndAtomicConsumption(t *testing.T) {
 	if e != nil || !reflect.DeepEqual(repeated, a) {
 		t.Fatalf("approval replay changed: %+v %v", repeated, e)
 	}
-	continued, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", Limit: 64, StartedAt: reply.At})
+	continued, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", StartedAt: reply.At})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -234,7 +234,7 @@ func TestGraphDiagnosisReshapeSuspendsApprovalAndPreservesHistory(t *testing.T) 
 	if e != nil {
 		t.Fatal(e)
 	}
-	continued, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", Limit: 64, StartedAt: reply.At})
+	continued, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", StartedAt: reply.At})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -250,7 +250,7 @@ func TestGraphDiagnosisReshapeSuspendsApprovalAndPreservesHistory(t *testing.T) 
 	if e != nil {
 		t.Fatal(e)
 	}
-	source, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "fixer", RunID: run.ID, Limit: 3, StartedAt: reply.At})
+	source, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: inst.ID, Node: "fixer", RunID: run.ID, StartedAt: reply.At})
 	if e != nil {
 		t.Fatal(e)
 	}

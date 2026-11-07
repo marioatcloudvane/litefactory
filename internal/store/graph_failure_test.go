@@ -24,7 +24,7 @@ func TestGraphFailureReportedRequiresACompletedDeliveryForTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	instance := admitted.Instance.ID
-	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance, Node: "shape", RunID: run.ID, Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance, Node: "shape", RunID: run.ID, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

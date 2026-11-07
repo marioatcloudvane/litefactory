@@ -23,7 +23,7 @@ func ResearchSpecs() (graphexec.Registry, error) {
 
 // WorkflowSpecs registers generic mechanisms only for the explicitly admitted policy.
 func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
-	specs := graphexec.Registry{Policy: func(p *graphexec.Profile) error { return graphexec.ValidateControlGraph(p, policy.Control) }}
+	var specs graphexec.Registry
 	if err := policy.Admit(); err != nil {
 		return specs, fmt.Errorf("workflow registry requires consistent admitted mode and result policy: %w", err)
 	}
@@ -94,9 +94,6 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowResearch, specs)
 	if err != nil {
 		return result, true, fmt.Errorf("capture research workflow: %w", err)
-	}
-	if err = graphexec.ValidateResearchControlGraph(definition.Profile); err != nil {
-		return result, true, err
 	}
 	topology, err := graphexec.SemanticDigest(definition.Profile)
 	if err != nil {

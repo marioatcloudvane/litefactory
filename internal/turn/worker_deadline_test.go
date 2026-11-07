@@ -20,7 +20,7 @@ func workerTimingFixture(t *testing.T, prepare func(context.Context, Options, Ac
 	mustProgress(t, err)
 	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, CurrentNode: "work", StartedAt: at})
 	mustProgress(t, err)
-	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "work", RunID: f.opts.Attempt.RunID, Limit: 1, StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "work", RunID: f.opts.Attempt.RunID, StartedAt: at})
 	mustProgress(t, err)
 	return AgentActivity{Policy: f.policy, Prepare: prepare}, Options{DB: f.db, WorkerTimeoutSeconds: 61, WorkerTimeoutSource: "settings.worker_timeout_seconds"}, ActivityRequest{Mode: f.policy.Mode, Node: "work", InstanceID: instance.ID, NodeAttemptID: attempt.ID, RunID: f.opts.Attempt.RunID}
 }

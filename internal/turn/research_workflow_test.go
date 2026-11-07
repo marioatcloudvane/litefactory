@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -278,34 +279,6 @@ func TestResearchCurrentInstructionsRotatePersistedSession(t *testing.T) {
 	mustProgress(t, err)
 	if strings.Contains(string(oldBytes), "Current shipped instruction update") || !strings.Contains(string(newBytes), "Current shipped instruction update") {
 		t.Fatal("instruction update mutated old bundle or lost new role")
-	}
-}
-
-func TestResearchWorkflowPersistedLimitRefusesInvocation(t *testing.T) {
-	calls := 0
-	f, forge, req := assembledResearchFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
-		calls++
-		return nil, errors.New("exhausted graph invoked provider")
-	}))
-	f.opts.ResearchDriver = func(ctx context.Context, opts Options, request Request, result Result, definition *teamsource.ResearchDefinition, admission store.ResearchAdmission) (Result, error) {
-		at := time.Date(2026, 9, 19, 1, 0, 0, 0, time.UTC)
-		for range 8 {
-			attempt, err := opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admission.Instance.ID, Node: "research", Limit: 8, StartedAt: at})
-			mustProgress(t, err)
-			mustProgress(t, opts.DB.CompleteGraphNodeAttempt(ctx, attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "done", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: []byte(researchDoneJSON)}}}))
-		}
-		return ExecuteResearchWorkflow(ctx, opts, request, result, definition, admission)
-	}
-	out, err := Execute(t.Context(), f.opts, req)
-	if err == nil || !strings.Contains(err.Error(), "limit 8 exhausted") || out.Run.Status != store.RunFailed || calls != 0 || forge.attemptCount() != 0 {
-		t.Fatalf("limit failed: calls=%d out=%+v err=%v", calls, out, err)
-	}
-	instance, e := f.db.LatestResearchInstance(t.Context(), f.session.ID)
-	mustProgress(t, e)
-	attempts, e := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
-	mustProgress(t, e)
-	if len(attempts) != 8 || instance.Status != store.GraphFailed {
-		t.Fatalf("exhaustion lost counters: %+v count=%d", instance, len(attempts))
 	}
 }
 

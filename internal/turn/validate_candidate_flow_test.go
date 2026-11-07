@@ -351,7 +351,7 @@ func candidateRecoveryFixture(t *testing.T) (*ownerFixture, store.RepairCandidat
 func candidateReserveCurrent(t *testing.T, o *ownerFixture) ActivityRequest {
 	t.Helper()
 	node := o.currentNode()
-	attempt, err := o.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: o.instance.ID, Node: node, Limit: 64, StartedAt: o.clock})
+	attempt, err := o.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: o.instance.ID, Node: node, StartedAt: o.clock})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -552,19 +554,17 @@ func TestOwnerClosePartialFailureKeepsValidateOpen(t *testing.T) {
 	}
 }
 
-func TestOwnerLoopLimitStopsTheRunAndApprovesNothing(t *testing.T) {
+// Owner replies are the conversation: refused commands each start a fresh step
+// budget, so the run keeps waiting and approves nothing.
+func TestOwnerLoopRefusalsKeepWaitingAndApproveNothing(t *testing.T) {
 	o := newOwnerFixture(t)
 	o.mixed()
 	for range 45 {
-		inst, _ := o.db.GetGraphInstance(t.Context(), o.instance.ID)
-		if inst.Status != store.GraphRunning {
-			break
-		}
 		o.reply(o.owner, "/validate-push 000000000000")
 		o.until(func(w store.GraphOwnerWait, ok bool) bool { return ok && w.State == "waiting" })
 	}
 	inst, _ := o.db.GetGraphInstance(t.Context(), o.instance.ID)
-	if inst.Status == store.GraphRunning || len(o.forge.pushes)+len(o.forge.merges)+len(o.forge.issueCloses) != 0 {
+	if inst.Status != store.GraphRunning || len(o.forge.pushes)+len(o.forge.merges)+len(o.forge.issueCloses) != 0 {
 		t.Fatalf("%s", inst.Status)
 	}
 }
@@ -1588,39 +1588,31 @@ func TestOwnerAcceptRefusals(t *testing.T) {
 	}
 }
 
-// #1452 c5: when the outcome step reaches its attempt limit the run fails, and
-// the owner gets one plain stop comment naming the step and the recovery; a
-// repeat delivers the same one comment.
-func TestValidateOutcomeLimitStopReportsOncePlainly(t *testing.T) {
+// When the step budget runs out after an owner reply, Validate parks for the
+// owner with one plain comment instead of failing, and approves nothing.
+func TestValidateStepBudgetParksWithOnePlainComment(t *testing.T) {
 	o := newOwnerFixture(t)
 	o.reviewers.run = blockingReview(false)
 	o.toOwner()
-	for i := range o.profile.Nodes {
-		if o.profile.Nodes[i].Name == "outcome" {
-			o.profile.Nodes[i].Limit = o.nodeAttempts("outcome")
-		}
-	}
+	o.profile.Attrs = maps.Clone(o.profile.Attrs)
+	o.profile.Attrs[graphexec.StepBudgetAttribute] = "1"
 	o.agent = func(int, *flowFixture) (agentresult.ValidateRepair, ActivityResult) {
 		return handbackReport("the sum needs a new type"), ActivityResult{}
 	}
 	o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
 	inst, err := o.db.GetGraphInstance(t.Context(), o.instance.ID)
-	if err != nil || inst.Status != store.GraphFailed || inst.CurrentNode != "outcome" {
-		t.Fatalf("the outcome limit stops the run: %+v %v", inst, err)
+	if err != nil || inst.Status != store.GraphRunning {
+		t.Fatalf("the spent budget parks the run: %+v %v", inst, err)
 	}
-	limit := &GraphLimitError{Node: "outcome", Diagnostic: `node "outcome" dispatch limit 1 exhausted`}
-	for range 2 {
-		if err := reportValidateExhausted(t.Context(), o.opts, o.instance.ID, limit); err != nil {
-			t.Fatal(err)
-		}
+	wait, err := o.db.GetGraphOwnerWait(t.Context(), o.instance.ID)
+	if err != nil || wait.State != "waiting" || wait.OriginNode != inst.CurrentNode {
+		t.Fatalf("the run waits for the owner at its step: %+v %+v %v", inst, wait, err)
 	}
-	stops := o.forge.bodies("Validate stopped at step")
+	stops := o.forge.bodies("Stopped after 1 steps without an owner reply; reply to continue.")
 	if len(stops) != 1 {
 		t.Fatalf("one stop comment: %d", len(stops))
 	}
-	for _, fact := range []string{"`outcome`", "attempt limit", "no longer waits", "`" + ValidateStartCommand + "`"} {
-		if !strings.Contains(stops[0].Body, fact) {
-			t.Fatalf("the stop comment must state %q: %s", fact, stops[0].Body)
-		}
+	if len(o.forge.pushes)+len(o.forge.merges)+len(o.forge.issueCloses) != 0 {
+		t.Fatal("a stopped run delivered")
 	}
 }

@@ -20,14 +20,12 @@ type ControlActivity struct {
 	Context func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error)
 }
 
-// RegisterControl registers both closed control actions. Durable limits
-// are enforced by ExecuteNodeAction's existing atomic attempt reservation. It installs shared loop and branch activities with validated control policy.
+// RegisterControl registers both closed control actions. The step budget is
+// enforced by ExecuteNodeAction's atomic attempt reservation. It installs shared
+// loop and branch activities with the admitted control policy.
 func RegisterControl(specs *graphexec.Registry, activities *ActivityRegistry, handler ControlActivity) error {
 	if specs == nil || activities == nil || handler.Profile == nil || handler.Context == nil {
 		return errors.New("research control requires registries, pinned profile and result context")
-	}
-	if err := graphexec.ValidateControlGraph(handler.Profile, handler.Policy.Control); err != nil {
-		return err
 	}
 	for _, name := range []string{graphexec.ResearchLoopAction, graphexec.ResearchIfAction} {
 		if _, exists := specs.Resolve(name); exists {

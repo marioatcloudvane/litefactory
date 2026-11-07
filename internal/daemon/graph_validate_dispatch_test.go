@@ -145,7 +145,7 @@ func validateStrayDispatchFixture(t *testing.T, dueIn time.Duration, turnFn func
 // published and confirmed, which opens the owner wait.
 func restValidateAtOwnerAsk(ctx context.Context, f *fixture, instance store.GraphInstance) error {
 	at := f.clock.peek()
-	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", Limit: 3, StartedAt: at})
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", StartedAt: at})
 	if err != nil {
 		return err
 	}
@@ -290,7 +290,7 @@ func TestValidateReviewDeferredAfterSuiteKeepsItsDispatch(t *testing.T) {
 			return turn.Result{}, err
 		}
 		if steps == 1 {
-			suite, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", Limit: 3, StartedAt: at})
+			suite, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", StartedAt: at})
 			if err != nil {
 				return turn.Result{}, err
 			}
@@ -298,7 +298,7 @@ func TestValidateReviewDeferredAfterSuiteKeepsItsDispatch(t *testing.T) {
 				Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "suite", ToNode: "review", OnOutcome: "passed", At: at}}); err != nil {
 				return turn.Result{}, err
 			}
-			if deferred, err = f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "review", Limit: 3, StartedAt: at}); err != nil {
+			if deferred, err = f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "review", StartedAt: at}); err != nil {
 				return turn.Result{}, err
 			}
 			if err = f.db.DeferGraphNodeAttempt(ctx, deferred.ID, at); err != nil {
@@ -387,7 +387,7 @@ func TestStrandedDeferredValidateReviewIsResumedByRecovery(t *testing.T) {
 			if err != nil {
 				return turn.Result{}, err
 			}
-			suite, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, LaunchID: launch.LaunchID, Node: "suite", Limit: 16, StartedAt: at})
+			suite, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, LaunchID: launch.LaunchID, Node: "suite", StartedAt: at})
 			if err != nil {
 				return turn.Result{}, err
 			}
@@ -395,7 +395,7 @@ func TestStrandedDeferredValidateReviewIsResumedByRecovery(t *testing.T) {
 				Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "suite", ToNode: "review", OnOutcome: "passed", At: at}}); err != nil {
 				return turn.Result{}, err
 			}
-			if deferred, err = f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, LaunchID: launch.LaunchID, Node: "review", Limit: 32, StartedAt: at}); err != nil {
+			if deferred, err = f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, LaunchID: launch.LaunchID, Node: "review", StartedAt: at}); err != nil {
 				return turn.Result{}, err
 			}
 			if err = f.db.DeferGraphNodeAttempt(ctx, deferred.ID, at); err != nil {

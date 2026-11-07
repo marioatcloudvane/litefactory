@@ -25,7 +25,7 @@ func budgetRun(t *testing.T, attrs map[string]string, runner func(context.Contex
 	mustProgress(t, err)
 	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, CurrentNode: "work", StartedAt: at})
 	mustProgress(t, err)
-	profile := &graphexec.Profile{Mode: f.policy.Mode, Team: "builtin", ProfileVersion: 1, Digest: def.Digest, Nodes: []graphexec.Node{{Name: "work", Action: ResearchAgentAction, Limit: 1, Attrs: attrs}}}
+	profile := &graphexec.Profile{Mode: f.policy.Mode, Team: "builtin", ProfileVersion: 1, Digest: def.Digest, Nodes: []graphexec.Node{{Name: "work", Action: ResearchAgentAction, Attrs: attrs}}}
 	run, err := f.db.GetRun(t.Context(), f.opts.Attempt.RunID)
 	mustProgress(t, err)
 	segment, err := f.db.GetSegment(t.Context(), run.SegmentID)

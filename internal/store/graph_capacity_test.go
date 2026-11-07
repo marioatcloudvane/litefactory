@@ -38,7 +38,7 @@ func TestGraphCapacityYieldRetainsAttemptAndLimit(t *testing.T) {
 	if err != nil || len(attempts) != 1 {
 		t.Fatalf("attempts=%+v err=%v", attempts, err)
 	}
-	if _, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, StartedAt: at, Limit: 1}); !errors.Is(err, ErrGraphAttemptRunning) {
+	if _, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, StartedAt: at}); !errors.Is(err, ErrGraphAttemptRunning) {
 		t.Fatalf("concurrent start=%v", err)
 	}
 	if err := db.FinishGraphNodeAttempt(t.Context(), attempt.ID, GraphSucceeded, "done", at); err != nil {
@@ -46,9 +46,6 @@ func TestGraphCapacityYieldRetainsAttemptAndLimit(t *testing.T) {
 	}
 	if _, err := db.ResumeDeferredGraphNodeAttempt(t.Context(), instance.ID, instance.CurrentNode, at); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("completed attempt reclaimed: %v", err)
-	}
-	if _, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, StartedAt: at, Limit: 1}); !errors.Is(err, ErrGraphAttemptLimit) {
-		t.Fatalf("real attempt limit lost: %v", err)
 	}
 }
 
@@ -170,7 +167,7 @@ func TestGraphCapacityDeferralAfterAdvanceRequeuesCurrentNode(t *testing.T) {
 	if err := db.CompleteGraphNodeAttempt(t.Context(), first.ID, GraphCompletion{Status: GraphSucceeded, Outcome: "done", FinishedAt: at, Transition: &transition}); err != nil {
 		t.Fatal(err)
 	}
-	review, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "review", StartedAt: at, Limit: 1})
+	review, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "review", StartedAt: at})
 	if err != nil {
 		t.Fatal(err)
 	}

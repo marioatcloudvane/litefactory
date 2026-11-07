@@ -42,7 +42,7 @@ func TestResearchOwnerAdmissionPublicationAndOtherDueWork(t *testing.T) {
 	check(err)
 	instance, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "research", StartedAt: at, NextDueAt: at})
 	check(err)
-	source, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "research", RunID: run.ID, Limit: 3, StartedAt: at})
+	source, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "research", RunID: run.ID, StartedAt: at})
 	check(err)
 	check(db.CompleteGraphNodeAttempt(ctx, source.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: at, InstanceStatus: store.GraphRunning}))
 	check(db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "owner-question", InstanceID: instance.ID, SourceAttemptID: source.ID, Node: "question", Kind: "question", Candidate: []byte(`{"outcome":"incomplete"}`)}))

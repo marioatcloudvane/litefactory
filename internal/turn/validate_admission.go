@@ -847,43 +847,5 @@ func (rt *validateRuntimeState) execute(ctx context.Context, definition *teamsou
 		}
 		return RegisterValidateFlow(specs, activities, flow)
 	}
-	out, err := ExecuteWorkflow(ctx, rt.opts, rt.req, rt.result, definition, admission, policy)
-	if limit := (*GraphLimitError)(nil); errors.As(err, &limit) {
-		err = errors.Join(err, reportValidateExhausted(context.WithoutCancel(ctx), rt.opts, admission.Instance.ID, limit))
-	}
-	return out, err
-}
-
-// reportValidateExhausted tells the owner that Validate stopped because a step
-// used up its attempt limit, and how to recover. The comment is derived from
-// the stopped instance, the step's last attempt and its text, so a repeat
-// delivers the one comment. It is a final comment: the stopped run opens no
-// new owner wait.
-func reportValidateExhausted(ctx context.Context, opts Options, instanceID int64, limit *GraphLimitError) error {
-	if opts.ResearchReporter == nil {
-		return nil
-	}
-	source, err := opts.DB.LatestGraphNodeAttempt(ctx, instanceID, limit.Node)
-	if err != nil {
-		return fmt.Errorf("find the last attempt of the exhausted step %q: %w", limit.Node, err)
-	}
-	candidate := agentresult.Result{
-		Outcome: "incomplete",
-		Comment: fmt.Sprintf("Validate stopped at step `%s`: the step reached its attempt limit, so this Validate run ended and no longer waits for commands. Nothing was approved or delivered, and the triage recorded in this run is not carried over.", limit.Node),
-		Reason:  fmt.Sprintf("To recover, comment `%s` on this issue. It starts a fresh Validate run that tests and reviews the current head again.", ValidateStartCommand),
-		Payload: agentresult.Payload{Validate: &agentresult.Validate{}},
-		Questions: []agentresult.Question{{
-			ID: "q1", Audience: "technical",
-			Text: fmt.Sprintf("**Stopped at `%s`**: %s", limit.Node, sentence(limit.Diagnostic)),
-		}},
-	}
-	policy := ValidateWorkflowPolicy()
-	policy.Contract = func(_ store.GraphNodeAttempt, kind string, c agentresult.Result, scope agentresult.Context) error {
-		if kind != "final" || scope.Mode != string(agent.ModeValidate) || c.Outcome != "incomplete" || strings.TrimSpace(c.Comment) == "" || strings.TrimSpace(c.Reason) == "" {
-			return errors.New("a Validate stop comment is a final incomplete result with a comment and a reason")
-		}
-		return nil
-	}
-	_, _, err = opts.ResearchReporter.ReportWorkflowCandidate(ctx, source, limit.Node, "final", candidate, policy.baseContext(true), "", policy)
-	return err
+	return ExecuteWorkflow(ctx, rt.opts, rt.req, rt.result, definition, admission, policy)
 }

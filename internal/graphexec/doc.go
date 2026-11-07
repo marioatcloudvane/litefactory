@@ -7,12 +7,17 @@
 // sharing. Exported slices and maps are construction values, not concurrency-safe
 // mutation APIs. Lookup boundaries return copies of mutable values.
 //
-// Cycles are legal. Every cycle member needs a positive lf_limit: the maximum
-// dispatches of that node per instance, counting both retries and healthy loop
-// re-entry. The execution layer enforces these bounds; Decide only navigates.
+// Cycles are legal. One step budget per instance (graph attribute
+// lf_step_budget, default DefaultStepBudget) caps node dispatches since the
+// last accepted owner reply; the execution layer enforces it and parks the
+// instance for the owner when it runs out. Decide only navigates.
 //
-// Profile version 1 uses graph attributes team, mode, profile_version and start;
-// node attributes lf_action, lf_outcomes (comma-separated), lf_limit and
+// Validation is structural: every action is known, every declared outcome has
+// its edge, every node reaches a terminal from the start, and attributes parse.
+// Workflow shape belongs to the DOT, not to Go.
+//
+// Profile version 1 uses graph attributes team, mode, profile_version, start and
+// lf_step_budget; node attributes lf_action, lf_outcomes (comma-separated) and
 // lf_terminal; and edge attribute on (or lf_on). Node declarations must be
 // explicit and unique. Defaults apply to subsequent declarations. Subgraphs and
 // ports are rejected rather than partially interpreted. Arbitrary attributes are

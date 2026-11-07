@@ -50,7 +50,7 @@ func TestGraphFixerAcceptedSubmissionIsTheAnswer(t *testing.T) {
 			mustProgress(t, e)
 			run, e := f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: 120, StartedAt: at, LogPath: func(int) string { return "fixer.log" }})
 			mustProgress(t, e)
-			attempt, e := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: inst.ID, Node: "fixer", RunID: run.ID, Limit: 3, StartedAt: at})
+			attempt, e := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: inst.ID, Node: "fixer", RunID: run.ID, StartedAt: at})
 			mustProgress(t, e)
 			req := ActivityRequest{Workflow: agent.WorkflowBug, InstanceID: inst.ID, NodeAttemptID: attempt.ID, RunID: run.ID, Node: "fixer", Attrs: map[string]string{"lf_response": "result"}}
 			logRoot, e := filepath.EvalSymlinks(t.TempDir())

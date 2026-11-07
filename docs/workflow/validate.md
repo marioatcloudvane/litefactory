@@ -200,9 +200,8 @@ to the next delivery step (push, then merge, then close) until a step fails or
 delivery ends.
 
 Validate succeeds (the `delivered` terminal) only after the merge and the close
-both succeeded. The loop is bounded by the `lf_limit` of `owner_resolve`; when it
-runs out the run stops and nothing has been approved, because every remote effect
-needs a command inside the loop.
+both succeeded. Nothing is approved without a command inside the loop, and every
+owner reply starts a fresh step budget (see `lf_step_budget`).
 
 ### The report
 

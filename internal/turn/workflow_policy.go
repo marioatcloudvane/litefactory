@@ -21,6 +21,10 @@ type WorkflowPolicy struct {
 	// BeforeAgent verifies a mode-specific durable handoff before source preparation.
 	BeforeAgent func(context.Context, store.GraphInstance) error
 
+	// BudgetFails ends an instance whose step budget runs out instead of
+	// parking it for an owner reply, for an instance no owner reply reaches.
+	BudgetFails bool
+
 	// Handlers supplies a mode's own invocation preparation and node activities.
 	// It supplies no result format: every mode's application result travels the
 	// shared result route, judged by Decode, and Handlers only reads it back.

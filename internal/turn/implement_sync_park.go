@@ -47,7 +47,7 @@ func (rt *implementRuntime) workerSyncBlockage(ctx context.Context, instanceID i
 		return "", nil
 	}
 	if exhausted {
-		if instance.CurrentNode != gate.Name || count < gate.Limit {
+		if instance.CurrentNode != gate.Name {
 			return "", nil
 		}
 	} else {
@@ -79,7 +79,7 @@ func (rt *implementRuntime) workerSyncBlockage(ctx context.Context, instanceID i
 	}
 	reason := fmt.Sprintf("Base synchronization of %s with %s stopped: %s", evidence.Working, evidence.Base, evidence.Reason)
 	if exhausted {
-		reason = fmt.Sprintf("Base synchronization exhausted its cumulative limit of %d dispatches. %s", gate.Limit, reason)
+		reason = "Base synchronization ran out of the story's step budget. " + reason
 	}
 	if len(evidence.Conflicts) != 0 {
 		reason += " Conflicting paths: " + strings.Join(evidence.Conflicts, ", ") + "."
@@ -211,13 +211,7 @@ func (rt *implementRuntime) recoverWorkerSyncParking(ctx context.Context) (bool,
 	previous := rt.definition
 	rt.definition = definition
 	defer func() { rt.definition = previous }()
-	reason, err := rt.workerSyncBlockage(ctx, instance.ID, true)
-	if err != nil {
-		return false, err
-	}
-	if reason == "" {
-		reason, err = rt.workerSyncBlockage(ctx, instance.ID, false)
-	}
+	reason, err := rt.workerSyncBlockage(ctx, instance.ID, false)
 	if err != nil || reason == "" {
 		return false, err
 	}

@@ -180,7 +180,7 @@ func (r *Reporter) ReportGraphFailure(ctx context.Context, req Request, policy W
 
 // failureSource resolves the attempt a failed or stopped step is reported
 // against. The failing attempt is preferred; a step that never reserved one
-// (a stopped run between nodes, an exhausted node limit) falls back to the
+// (a stopped run between nodes, an exhausted step budget) falls back to the
 // node's latest attempt and then to the instance's latest.
 func failureSource(ctx context.Context, db *store.DB, instanceID int64, step GraphNodeResult) (store.GraphNodeAttempt, error) {
 	if step.AttemptID > 0 {

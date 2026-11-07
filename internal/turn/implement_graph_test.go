@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cloudvane/litefactory/internal/config"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/config"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -87,7 +88,7 @@ func TestImplementPolicyIsAdmittedAndRegistered(t *testing.T) {
 	}
 }
 
-func TestImplementGraphCapturesAndEveryNodeIsBounded(t *testing.T) {
+func TestImplementGraphCaptures(t *testing.T) {
 	definition, err := captureImplement(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -98,12 +99,9 @@ func TestImplementGraphCapturesAndEveryNodeIsBounded(t *testing.T) {
 	}
 	roles := map[string]int{}
 	for _, n := range profile.Nodes {
-		if !n.Terminal && n.Limit <= 0 {
-			t.Errorf("node %s has no positive lf_limit", n.Name)
-		}
 		if n.Action == "lf_agent" {
 			roles[n.Attrs["lf_agent_markdown"]]++
-			if n.Attrs["lf_skills"] != "implement-result,go-stack,litefactory-rules" || n.Limit != 3 {
+			if n.Attrs["lf_skills"] != "implement-result,go-stack,litefactory-rules" {
 				t.Errorf("agent node = %+v", n)
 			}
 		}

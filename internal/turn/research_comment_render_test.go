@@ -22,9 +22,6 @@ func shippedResearchProfile(t *testing.T) *graphexec.Profile {
 	if err != nil {
 		t.Fatalf("capture shipped Research: %v", err)
 	}
-	if err := graphexec.ValidateResearchControlGraph(definition.Profile); err != nil {
-		t.Fatalf("shipped graph does not validate: %v", err)
-	}
 	return definition.Profile
 }
 

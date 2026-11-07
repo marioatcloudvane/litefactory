@@ -14,13 +14,12 @@ type Graph struct {
 	Attrs map[string]string
 }
 
-// Node describes a bounded activity or a terminal. Zero Limit means no explicit
-// dispatch bound and is permitted only outside cycles.
+// Node describes an activity or a terminal. Cycles are legal; the caller
+// bounds execution, not the graph.
 type Node struct {
 	Name     string
 	Action   string
 	Outcomes []string
-	Limit    int
 	Terminal bool
 	Attrs    map[string]string
 }

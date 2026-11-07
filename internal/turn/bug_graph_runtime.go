@@ -216,53 +216,6 @@ func (r *BugRuntime) stoppedGraphLaunch(ctx context.Context, instance store.Grap
 	return r.opts.DB.StoppedBugLaunch(ctx, instance, analyst)
 }
 
-func graphBugExhaustionReason(ctx context.Context, db *store.DB, node graphexec.Node, attempts []store.GraphNodeAttempt) (string, error) {
-	reason := fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
-	if node.Name != "fixer" || len(attempts) == 0 {
-		return reason, nil
-	}
-	last := attempts[len(attempts)-1]
-	// A declared sync traversal can sit between delivery and its fresh check.
-	// Stop at any other activity or unsuccessful sync; evidence never grants permission.
-	for i := len(attempts) - 1; i >= 0; i-- {
-		last = attempts[i]
-		if last.Status != store.GraphSucceeded {
-			return reason, nil
-		}
-		if last.Outcome == "revalidate" {
-			break
-		}
-		outputs, err := db.ListGraphOutputs(ctx, last.ID)
-		if err != nil {
-			return "", err
-		}
-		sync := false
-		for _, output := range outputs {
-			var evidence syncBaseOutput
-			if output.Kind == store.GraphOutputJSON && json.Unmarshal(output.Payload, &evidence) == nil && evidence.Working != "" && evidence.Base != "" && evidence.Result == last.Outcome && (last.Outcome == "synced" || last.Outcome == "current" || last.Outcome == "retry") {
-				sync = true
-			}
-		}
-		if !sync || i == 0 {
-			return reason, nil
-		}
-	}
-	if last.Outcome != "revalidate" {
-		return reason, nil
-	}
-	outputs, err := db.ListGraphOutputs(ctx, last.ID)
-	if err != nil {
-		return "", err
-	}
-	for _, output := range outputs {
-		var progress graphDeliveryProgress
-		if output.Kind == store.GraphOutputJSON && json.Unmarshal(output.Payload, &progress) == nil && progress.Record == "delivery_progress" && progress.Outcome == "revalidate" {
-			return reason + ". The repair passed its prior checks. " + progress.Reason + " Reply to rerun the checks on the new head with one extra bounded fixer run.", nil
-		}
-	}
-	return reason, nil
-}
-
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {
 	if capacity := stepCapacity(ctx); capacity != nil {
 		defer capacity.Release()
@@ -393,37 +346,8 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 			if _, e = GraphBugApprovedHandoff(ctx, r.opts.DB, instance.ID); e != nil {
 				return finish(e)
 			}
-			attempts, err := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
-			if err != nil {
-				return finish(err)
-			}
-			fixer, _ := r.definition.Profile.Node(prerequisite.FixerNode)
-			spent := 0
-			for _, attempt := range attempts {
-				if attempt.Node == fixer.Name && attempt.Attempt > spent {
-					spent = attempt.Attempt
-				}
-			}
-			if fixer.Limit > 0 && spent >= fixer.Limit {
-				allowed, err := r.opts.DB.GraphBugSyncEntryAllowance(ctx, instance.ID, *prerequisite)
-				if err != nil {
-					return finish(err)
-				}
-				if !allowed {
-					reason, err := graphBugExhaustionReason(ctx, r.opts.DB, fixer, attempts)
-					if err != nil {
-						return finish(err)
-					}
-					if err = r.opts.DB.RedirectGraphBugSyncToFixerStop(ctx, instance.ID, *prerequisite, r.opts.MCP.Now()); err != nil {
-						return finish(err)
-					}
-					_, err = parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: fixer.Name, NextNode: fixer.Name, Activity: ActivityResult{Diagnostic: reason}}, "exhausted", false)
-					return finish(err)
-				}
-			}
 		}
 		runID := int64(0)
-		allowanceSource := int64(0)
 		if node.Action == ResearchAgentAction {
 			if prerequisite != nil && node.Name == prerequisite.FixerNode {
 				if _, e = GraphBugApprovedHandoff(ctx, r.opts.DB, instance.ID); e != nil {
@@ -444,28 +368,6 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 				}
 			} else if e = verifySyncHandoffBeforeAgent(ctx, r.opts, r.definition.Profile, instance, r.graphSyncBaseBinding(req.SessionID)); e != nil {
 				return finish(e)
-			}
-			allowanceSource, e = r.opts.DB.GraphBugMechanicalAllowance(ctx, instance.ID, node.Name, prerequisite)
-			if e != nil {
-				return finish(e)
-			}
-			attempts, readErr := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
-			if readErr != nil {
-				return finish(readErr)
-			}
-			maximum := 0
-			for _, attempt := range attempts {
-				if attempt.Node == node.Name && attempt.Attempt > maximum {
-					maximum = attempt.Attempt
-				}
-			}
-			if node.Limit > 0 && maximum >= node.Limit && allowanceSource == 0 && (we != nil || wait.State != "claimed" || wait.OriginNode != node.Name) {
-				diagnostic, err := graphBugExhaustionReason(ctx, r.opts.DB, node, attempts)
-				if err != nil {
-					return finish(err)
-				}
-				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: diagnostic}}, "exhausted", false)
-				return finish(parkErr)
 			}
 			admitted, diagnostic, capacityErr := admitGraphCapacity(ctx, r.opts, instance.ID, admission.LaunchID, node.Name, "bug")
 			if capacityErr != nil {
@@ -499,7 +401,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 			runID = w.prep.run.ID
 			w.result.Run, w.result.Session = w.prep.run, w.prep.session
 		}
-		step, e := ExecuteNodeAction(ctx, r.opts, GraphNodeRequest{RetainCapacity: true, LaunchID: admission.LaunchID, StopOnFailure: true, Profile: r.definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, OwnerAllowanceSource: allowanceSource, At: r.opts.MCP.Now()})
+		step, e := ExecuteNodeAction(ctx, r.opts, GraphNodeRequest{RetainCapacity: true, LaunchID: admission.LaunchID, StopOnFailure: true, Profile: r.definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, At: r.opts.MCP.Now()})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}

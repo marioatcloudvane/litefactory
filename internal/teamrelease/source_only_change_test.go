@@ -27,7 +27,7 @@ func TestSourceOnlyChangeBuildsWithoutReleaseCut(t *testing.T) {
 	}
 	changes := []struct{ file, old, new string }{
 		{"research/research.md", "Done means a scope you would defend.", "Done means a scope you can defend."},
-		{"research/research.dot", `lf_kind="failure", lf_outcomes="published", lf_limit="8"`, `lf_kind="failure", lf_outcomes="published", lf_limit="9"`},
+		{"research/research.dot", `lf_kind="failure", lf_outcomes="published"];`, `lf_kind="failure", lf_outcomes="published", lf_note="changed"];`},
 	}
 	for _, c := range changes {
 		p := filepath.Join(root, "teams/source/base-team", c.file)

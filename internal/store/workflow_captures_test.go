@@ -29,7 +29,7 @@ func TestWorkflowCaptureExactReferencesAndImmutableProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, LaunchID: first.LaunchID, Node: "work", Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, LaunchID: first.LaunchID, Node: "work", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestWorkflowCaptureExactReferencesAndImmutableProvenance(t *testing.T) {
 	if err != nil || next.ID == dispatch.ID || next.LaunchID != first.LaunchID {
 		t.Fatalf("next stage substituted newer capture: %+v %v", next, err)
 	}
-	active, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, LaunchID: first.LaunchID, Node: "work", Limit: 8, StartedAt: graphTestTime()})
+	active, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, LaunchID: first.LaunchID, Node: "work", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
