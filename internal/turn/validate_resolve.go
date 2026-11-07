@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -193,6 +194,17 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 			return h.accept(ctx, opts, req, st, now, "wait", "deviation accepted")
 		case cmd.Choice == store.ChoiceDefer && !f.Optional:
 			return refuse("wait", fmt.Sprintf("`%s` is blocking. Defer is allowed only for optional suggestions; choose repair or issue.", f.ID))
+		case cmd.Choice == store.ChoiceRepair && repairs:
+			// A repair with the round budget used up can do no work. Refuse it here:
+			// the spent budget would only re-run review and outcome, whose limits
+			// add up across owner replies, until the run stops (#1452).
+			if bound, ok := validateRepairBound(h.b.Profile); ok && len(st.Rounds) >= bound {
+				other := "Choose `issue bug` or `issue story` for it instead"
+				if st.Reimplement {
+					other += ", or send the blocking findings back to Implement with `" + ValidateImplementCommand + "`"
+				}
+				return refuse("wait", fmt.Sprintf("`%s` cannot be repaired: this Validate run's repair rounds are used up (%d of %d). %s. Nothing was recorded.", f.ID, len(st.Rounds), bound, other))
+			}
 		}
 		if _, err := opts.DB.PutValidateChoice(ctx, store.ValidateChoice{InstanceID: req.InstanceID, Commit: st.Commit, Finding: f.ID, Choice: cmd.Choice, IssueKind: cmd.IssueKind, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, CreatedAt: now}); err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, err
@@ -577,4 +589,23 @@ func validateShipSettlesTicketDecisions(st ValidateState) bool {
 		return true
 	}
 	return false
+}
+
+// validateRepairBound is the repair round bound the profile's repair budget
+// step declares, capped by the store's own limit.
+func validateRepairBound(profile *graphexec.Profile) (int, bool) {
+	if profile == nil {
+		return 0, false
+	}
+	for _, n := range profile.Nodes {
+		if n.Action != graphexec.ValidateRepairBudgetAction {
+			continue
+		}
+		bound, err := strconv.Atoi(n.Attrs["lf_rounds"])
+		if err != nil || bound < 1 {
+			return 0, false
+		}
+		return min(bound, store.MaxRepairRounds), true
+	}
+	return 0, false
 }
