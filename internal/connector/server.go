@@ -111,7 +111,6 @@ func normalizeScope(raw string) (string, bool) {
 // Options supplies dependencies resolved by trusted daemon composition.
 type Options struct {
 	TaskDiscussion TaskDiscussion
-	StageDecisions StageDecisions
 	Workflows      Workflows
 	Actions        OwnerActions
 	Config         config.RemoteConnector
@@ -132,7 +131,6 @@ type Options struct {
 // Server owns remote authentication independently of local factory authority.
 type Server struct {
 	taskDiscussion serviceSlot[TaskDiscussion]
-	stageDecisions serviceSlot[StageDecisions]
 	actions        serviceSlot[OwnerActions]
 	workflows      serviceSlot[Workflows]
 	brainstorms    serviceSlot[Brainstorms]
@@ -204,7 +202,6 @@ func newServer(ctx context.Context, opts Options, reconciled bool) (*Server, err
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
 	server := &Server{cfg: opts.Config, storage: opts.Storage, access: opts.Access, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}
 	server.taskDiscussion.Store(opts.TaskDiscussion)
-	server.stageDecisions.Store(opts.StageDecisions)
 	server.actions.Store(opts.Actions)
 	server.workflows.Store(opts.Workflows)
 	return server, nil
@@ -231,9 +228,6 @@ func (s *Server) SetWorkflows(v Workflows) { s.workflows.Store(v) }
 
 // SetTaskDiscussion publishes the ready isolated discussion service.
 func (s *Server) SetTaskDiscussion(v TaskDiscussion) { s.taskDiscussion.Store(v) }
-
-// SetStageDecisions publishes the ready stage decision service.
-func (s *Server) SetStageDecisions(v StageDecisions) { s.stageDecisions.Store(v) }
 
 // SetBrainstorm publishes the ready brainstorm service (a *brainstorm.Service).
 func (s *Server) SetBrainstorm(b Brainstorms) { s.brainstorms.Store(b) }

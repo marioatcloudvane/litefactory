@@ -3,11 +3,9 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strconv"
 
-	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -86,42 +84,6 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		state, _, err = d.db.GetPlanWorkflowState(ctx, t.ref.String())
 		if err != nil {
 			return false, err
-		}
-
-		// A story still drafting has only the short body the factory wrote, which
-		// is not a draft an owner edit could be read against.
-		if available && draft.Candidate != "" && turn.PlanIssueRevision(child.Title, child.Body) != draft.Revision {
-			scope, err := d.planContentScope(ctx, t)
-			if err != nil {
-				return false, err
-			}
-			if err = turn.ReconcilePlanChildEdit(ctx, d.db, t.ref.String(), t.issue.Number, t.issue.ID, child, scope, planParentTitleKey(t.issue, t.ref.Forge)); err != nil {
-				if !errors.Is(err, turn.ErrPlanChildEdit) {
-					return false, err
-				}
-				if err = d.db.ObservePlanStoryLifecycle(ctx, t.ref.String(), draft.Key, planbrief.PlanLifecycle{}, planChildContentHold); err != nil {
-					return false, err
-				}
-				available = false
-			}
-			state, _, err = d.db.GetPlanWorkflowState(ctx, t.ref.String())
-			if err != nil {
-				return false, err
-			}
-		}
-
-		// A restored valid revision resolves only the discovery content hold.
-		for _, item := range state.Stories {
-			if available && item.Key == draft.Key && item.LifecycleHold == planChildContentHold {
-				if err = d.db.ObservePlanStoryLifecycle(ctx, t.ref.String(), draft.Key, planbrief.PlanLifecycle{}, ""); err != nil {
-					return false, err
-				}
-				state, _, err = d.db.GetPlanWorkflowState(ctx, t.ref.String())
-				if err != nil {
-					return false, err
-				}
-				break
-			}
 		}
 
 		// A story that is a task of its own answers its own comments and runs its
@@ -293,16 +255,6 @@ func (d *Daemon) sweptPlanChild(ctx context.Context, t *task, child int, cursor 
 		return err
 	}
 	return d.db.ClearStoryDiscoveryPending(ctx, t.session.ID, child)
-}
-
-func planParentTitleKey(issue github.Issue, forge string) string {
-	if s := issue.QualifiedSnapshot; s != nil && s.DisplayKey != "" {
-		return s.DisplayKey
-	}
-	if forge == "linear" {
-		return "story"
-	}
-	return fmt.Sprint(issue.Number)
 }
 
 // planChildSessionExists reports, from the store alone, whether a graph Plan

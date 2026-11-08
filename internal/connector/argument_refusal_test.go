@@ -300,7 +300,6 @@ func TestEmptyOptionalArgumentsParseAsOmitted(t *testing.T) {
 		"code":       func(n string, r json.RawMessage) (any, error) { return parseCodeArguments(n, r) },
 		"advisory":   func(n string, r json.RawMessage) (any, error) { return parseAdvisoryArguments(n, r) },
 		"brainstorm": func(n string, r json.RawMessage) (any, error) { return parseBrainstormArguments(n, r) },
-		"decisions":  func(n string, r json.RawMessage) (any, error) { return parseDecisionArguments(n, r) },
 		"actions":    func(n string, r json.RawMessage) (any, error) { return parseActionArguments(n, r) },
 	}
 	for _, tc := range []struct{ family, tool, empty, omitted string }{
@@ -331,8 +330,6 @@ func TestEmptyOptionalArgumentsParseAsOmitted(t *testing.T) {
 		{"brainstorm", "issue_search", `{"repository":"github:acme/api","text":"voice","limit":0}`, `{"repository":"github:acme/api","text":"voice"}`},
 		{"brainstorm", "brainstorm_draft", `{"brainstorm":"b","request_key":"k","note":""}`, `{"brainstorm":"b","request_key":"k"}`},
 		{"brainstorm", "brainstorm_scan_get", `{"scan":"s","cursor":"","limit":0}`, `{"scan":"s"}`},
-		{"decisions", "approve_stage", `{"task_ref":"t","stage":"plan","client_request_key":"k","summary":` + summary + `,"conversation_ref":"","conclusion_ref":"","discord_channel_id":""}`, `{"task_ref":"t","stage":"plan","client_request_key":"k","summary":` + summary + `}`},
-		{"decisions", "revise_task", `{"task_ref":"t","stage":"plan","change":"c","client_request_key":"k","summary":` + summary + `,"conversation_ref":null,"conclusion_ref":null,"discord_channel_id":null}`, `{"task_ref":"t","stage":"plan","change":"c","client_request_key":"k","summary":` + summary + `}`},
 		{"actions", "action_propose", `{"action":"diagnose","arguments":{},"client_request_key":"k","discord_channel_id":""}`, `{"action":"diagnose","arguments":{},"client_request_key":"k"}`},
 		{"actions", "action_history", `{"filters":null,"cursor":"","limit":0}`, `{}`},
 		{"actions", "action_history", `{"filters":{"state":"failed"},"cursor":null,"limit":null}`, `{"filters":{"state":"failed"}}`},

@@ -788,9 +788,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	daemon.remoteConnector = remoteConnector
 	daemon.prepareIndependentOwnerActions(actionOpts, sharedRedactor)
 	if remoteConnector != nil {
-		if decisionErr := daemon.prepareStageDecisions(reporter, sharedRedactor, s.Now); decisionErr != nil {
-			s.Logger.WarnContext(ctx, "stage decision admission unavailable")
-		}
 		if advisoryErr := daemon.prepareTaskDiscussion(ctx, judgeService, reporter, sharedRedactor, s.Now); advisoryErr != nil {
 			s.Logger.WarnContext(ctx, "task discussion admission unavailable")
 		}

@@ -54,7 +54,7 @@ func TestRemoteConsumerCannotAcquireFactoryStoreOrExecution(t *testing.T) {
 			if strings.HasSuffix(path, "/internal/store") && !strings.HasPrefix(selector.Sel.Name, "Err") {
 				t.Errorf("%s accesses factory persistence symbol %s", entry.Name(), selector.Sel.Name)
 			}
-			if selector.Sel.Name == "Service" && (strings.HasSuffix(path, "/internal/owneraction") || strings.HasSuffix(path, "/internal/durableworkflow") || strings.HasSuffix(path, "/internal/taskdiscussion") || strings.HasSuffix(path, "/internal/stagedecision")) {
+			if selector.Sel.Name == "Service" && (strings.HasSuffix(path, "/internal/owneraction") || strings.HasSuffix(path, "/internal/durableworkflow") || strings.HasSuffix(path, "/internal/taskdiscussion")) {
 				t.Errorf("%s exposes a concrete factory coordinator", entry.Name())
 			}
 			return true

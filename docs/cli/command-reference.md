@@ -526,16 +526,6 @@ litefactory reviewer list --repo owner/name [--task REF] [--all] [--json]
 
 Lists open assignments. `--task` limits it to one task; `--all` also lists removed ones.
 
-## Story contracts
-
-### `story-contract upgrade`
-
-```text
-litefactory story-contract upgrade <parent-ref> [--preview | --apply]
-```
-
-Upgrades the unfinished stories of an older plan to the current story contract. `<parent-ref>` is the GitHub parent issue as a task ref, for example `github:acme/api#10`. The default and `--preview` only show the revisions and any conflicts; nothing changes. `--apply` records the upgrade; it refuses active or frozen work and ambiguous conversions, and can resume a half-finished publication. Finished stories and past acceptance are not changed. An upgrade still needs the next published and approved Plan before engineering continues. Give only one of `--preview` and `--apply`. It needs the bot credential, and exits `1` while conflicts remain.
-
 ## Factory-internal commands (not for everyday use)
 
 These two groups are run by the factory for a running agent. They need a descriptor file that the factory writes for each attempt, and they do nothing useful on their own. You normally never type them. They are listed here only so every registered command is documented. See [MCP](../guides/mcp.md) for the user-facing side.

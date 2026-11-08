@@ -219,11 +219,6 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				tools = append(tools, map[string]any{"name": name, "description": advisoryDescription(name), "inputSchema": advisoryInputSchema(name), "outputSchema": advisoryOutputSchema(name), "annotations": map[string]bool{"readOnlyHint": name == "advisory_job_get", "destructiveHint": false, "idempotentHint": true, "openWorldHint": true}})
 			}
 		}
-		for _, name := range decisionToolNames {
-			if slices.Contains(s.availableTools(grant), name) {
-				tools = append(tools, map[string]any{"name": name, "description": decisionDescription(name), "inputSchema": decisionInputSchema(name), "annotations": map[string]bool{"readOnlyHint": name == "decision_get", "destructiveHint": false, "idempotentHint": true, "openWorldHint": true}})
-			}
-		}
 		s.rpcResult(w, req.ID, map[string]any{"tools": tools})
 		s.audit(r, event, "success", "listed", tool, start)
 	case "prompts/list":
@@ -289,7 +284,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			refuseParams(errToolCallEnvelope)
 			return
 		}
-		if isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name) || isBrainstormTool(params.Name) {
+		if isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isBrainstormTool(params.Name) {
 			d := json.NewDecoder(bytes.NewReader(body))
 			if err := uniqueJSONObject(d); err != nil {
 				refuseParams(uniqueArgumentsError(err))
@@ -322,9 +317,6 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		requiredScope := ""
 		if (isActionTool(params.Name) || isWorkflowTool(params.Name)) && !actionGrant(grant) {
 			requiredScope = RepositoryActionsScope + " " + StandardsManagementScope
-		}
-		if isDecisionTool(params.Name) && !decisionGrant(grant) {
-			requiredScope = RepositoryActionsScope
 		}
 		if isAdvisoryTool(params.Name) && !advisoryToolAllowed(grant, params.Name) {
 			requiredScope = AdvisoryScope
@@ -442,14 +434,6 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		var decisionArgs decisionArguments
-		if isDecisionTool(params.Name) {
-			decisionArgs, err = parseDecisionArguments(params.Name, params.Arguments)
-			if err != nil {
-				refuseParams(err)
-				return
-			}
-		}
 		var actionArgs actionArguments
 		if isActionTool(params.Name) {
 			actionArgs, err = parseActionArguments(params.Name, params.Arguments)
@@ -478,8 +462,6 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			result, callErr = s.readEvidence(ctx, credential, evidenceArgs)
 		default:
 			switch {
-			case isDecisionTool(params.Name):
-				result, callErr = s.callDecision(ctx, credential, params.Name, decisionArgs)
 			case isAdvisoryTool(params.Name):
 				result, callErr = s.callAdvisory(ctx, credential, params.Name, advisoryArgs)
 			case isBrainstormTool(params.Name):
@@ -524,9 +506,6 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			if isActionTool(params.Name) || isWorkflowTool(params.Name) {
 				result = actionFailure(callErr)
 			}
-			if isDecisionTool(params.Name) {
-				result = decisionFailure(callErr)
-			}
 			if isAdvisoryTool(params.Name) {
 				result = advisoryFailure(callErr)
 			}
@@ -557,7 +536,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var written bool
-		if params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isDecisionTool(params.Name) || isBrainstormTool(params.Name) {
+		if params.Name == "task_evidence_read" || params.Name == "usage_read" || isCodeTool(params.Name) || isActionTool(params.Name) || isWorkflowTool(params.Name) || isAdvisoryTool(params.Name) || isBrainstormTool(params.Name) {
 			written = s.writeDiscussionRPC(w, req.ID, result)
 		} else {
 			written = s.rpcResult(w, req.ID, result)
@@ -659,7 +638,7 @@ func (s *Server) writeDiscussionValue(w http.ResponseWriter, value map[string]an
 // isKnownTool reports whether name is a tool this connector dispatches; the
 // outcome log and argument refusals name only such tools.
 func isKnownTool(name string) bool {
-	return name == guideTool || name == "factory_overview" || name == "task_evidence_read" || name == "usage_read" || isCodeTool(name) || isActionTool(name) || isWorkflowTool(name) || isAdvisoryTool(name) || isDecisionTool(name) || isBrainstormTool(name)
+	return name == guideTool || name == "factory_overview" || name == "task_evidence_read" || name == "usage_read" || isCodeTool(name) || isActionTool(name) || isWorkflowTool(name) || isAdvisoryTool(name) || isBrainstormTool(name)
 }
 
 // argumentError is a refused tool argument in plain words. Argument is a

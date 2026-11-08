@@ -57,20 +57,11 @@ func TestLinearPlanDisplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertLinearDisplay(t, rendered.Title, "MAR-11-001: Invoices")
-	for _, title := range []string{rendered.Title, fmt.Sprintf("%d-001: Invoices", linearParentSlot)} {
-		edit, err := planbrief.ReconcilePlanDraftEdit(draft, linearParentSlot, 1, title, rendered.Body, planbrief.ContentScope{}, pd.TitleKey)
-		if err != nil || !edit.PresentationOnly {
-			t.Fatalf("title roundtrip %q: %+v %v", title, edit, err)
-		}
-		projected, err := report.RenderRetainedPlanDraftParts(linearParentSlot, 1, edit.Draft, "story", planbrief.ContentScope{}, pd.TitleKey)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLinearDisplay(t, projected.Title, "MAR-11-001:")
+	projected, err := report.RenderRetainedPlanDraftParts(linearParentSlot, 1, draft, "story", planbrief.ContentScope{}, pd.TitleKey)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := planbrief.ReconcilePlanDraftEdit(draft, linearParentSlot, 1, "MAR-99-001: Invoices", rendered.Body, planbrief.ContentScope{}, pd.TitleKey); err == nil {
-		t.Fatal("wrong parent prefix accepted")
-	}
+	assertLinearDisplay(t, projected.Title, "MAR-11-001:")
 	link := "[MAR-12](https://linear.app/cloudvane/issue/MAR-12)"
 	summary := planSummaryText([][4]string{{draft.Name, issueLink(ref, child.Number, cd.Link()), "story", "review"}})
 	assertLinearDisplay(t, summary, link, "Plan progress")

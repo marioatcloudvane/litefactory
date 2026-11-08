@@ -204,7 +204,6 @@ var archiveRegistry = []ArchiveTable{
 	archived("plan_story_effects", byParent),
 	archived("plan_story_authorities", byParent),
 	archived("plan_story_completions", byParent),
-	archived("plan_story_owner_edits", byParent),
 	archived("plan_story_candidates", byParent),
 	archived("plan_story_notices", byParent),
 	archived("plan_story_notice_states", byParent),
@@ -249,8 +248,7 @@ var archiveRetained = map[string]ArchiveClass{
 	// after editable Plan state and its issue projections are archived.
 	"published_story_sizing": ArchiveClassSkeleton,
 	"story_publications":     ArchiveClassSkeleton, "story_revision_operations": ArchiveClassSkeleton,
-	"story_scope_notices": ArchiveClassSkeleton, "story_contract_upgrades": ArchiveClassSkeleton,
-	"story_contract_upgrade_items": ArchiveClassSkeleton, "workflow_admissions": ArchiveClassSkeleton,
+	"story_scope_notices": ArchiveClassSkeleton, "workflow_admissions": ArchiveClassSkeleton,
 	"mode_selections": ArchiveClassSkeleton, "story_refinements": ArchiveClassSkeleton,
 	"story_refinement_acks": ArchiveClassSkeleton, "story_discovery": ArchiveClassSkeleton,
 	"story_discovery_pending": ArchiveClassSkeleton, "story_discovery_rotation": ArchiveClassSkeleton,
@@ -334,11 +332,8 @@ var archiveRetained = map[string]ArchiveClass{
 	"brainstorm_task_launch_attempts": ArchiveClassGlobal,
 	"brainstorm_plan_launch_seeds":    ArchiveClassGlobal,
 	// Bug filings keep the issue link of an owner action, which outlives task archives.
-	"bug_filings":               ArchiveClassGlobal,
-	"bug_filing_start_attempts": ArchiveClassGlobal,
-	// Decision receipts and possible-send evidence outlive archived task artifacts.
-	"stage_decision_receipts":       ArchiveClassGlobal,
-	"stage_decision_deliveries":     ArchiveClassGlobal,
+	"bug_filings":                   ArchiveClassGlobal,
+	"bug_filing_start_attempts":     ArchiveClassGlobal,
 	"task_advisory_invocations":     ArchiveClassGlobal,
 	"task_advisory_result_receipts": ArchiveClassGlobal,
 	"task_advisory_usage_events":    ArchiveClassGlobal,

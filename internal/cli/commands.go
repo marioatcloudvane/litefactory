@@ -111,7 +111,6 @@ func Commands() []*Command {
 		newMeterPricesSetCommand(),
 		newTaskCleanCommand(),
 		newTaskRetireCommand(),
-		newStoryContractUpgradeCommand(),
 		newConnectorGrantsCommand("list"),
 		newConnectorGrantsCommand("inspect"),
 		newConnectorGrantsCommand("revoke"),
