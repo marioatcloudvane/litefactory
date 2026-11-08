@@ -46,7 +46,7 @@
         },
         {
           "path": "implement/skills/dotnet-web-engineering/SKILL.md",
-          "sha256": "c3cff37af8c3e18370432980d9f57f11ec7bec2ddd596857dca7bf3b0c746e62"
+          "sha256": "17011927bef50b6759b65877829a2a4fce84d3f69439d8a4bfb630135968c8f8"
         },
         {
           "path": "implement/skills/dotnet-web-engineering/engineering.md",
@@ -66,11 +66,11 @@
         },
         {
           "path": "implement/story-worker.md",
-          "sha256": "8c6a30e0fb704092e67115ea84d45fdfd934fe4279093308f2d4486215cf64ba"
+          "sha256": "9b10be119ff39d7b9af004154c688d83b0896f3744a3ab6495fe6de25d705d59"
         },
         {
           "path": "implement/sync-resolver.md",
-          "sha256": "544a75602a9c8e6f1ca04a69005f239ee2b8728397e4d85cee0c1b20ce54c227"
+          "sha256": "47b2aefe6af0078ae5d2c7df919df3422afc9e69222460daca0d29330d477167"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -170,7 +170,7 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
+          "sha256": "5c13e7aa84c4c860cf8788f512db331df35c0d09f47079126a6f50b74d188a11"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
@@ -230,7 +230,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "44a734df9e8e36cc335cba7e573354ecd0f48c0bfc5ee12e393056c083838b22"
+          "sha256": "7718146eca86d9ee6fbc4db6e842b4e815ee4119872c71dac466fcf812848efa"
         },
         {
           "path": "stack-profile.json",
@@ -301,7 +301,7 @@
           "sha256": "5828a2bf4bdecd52e9a5fe1bc0ff329f83dcf61d8a3772c6247aa1cb407d6bfd"
         }
       ],
-      "checksum": "608f14ff34f6e02c4657fa75ce4f9fd9cf06d4ef0a80045ca138c29377d46c2e"
+      "checksum": "f79cd95752a5dffb1dde5b9374c354678ebc28d4b8741b3d4909fabfabaa1e07"
     },
     {
       "name": "Go development",
@@ -347,7 +347,7 @@
         },
         {
           "path": "implement/skills/go-stack/SKILL.md",
-          "sha256": "60f99702eb23cf3c276704a2cea598ad13f50396d99d03972f8da9c7bef76f35"
+          "sha256": "886b418a348a361be461f24d62da7b043cb966942cb329b3b9bf243b2c317d69"
         },
         {
           "path": "implement/skills/implement-result/SKILL.md",
@@ -367,11 +367,11 @@
         },
         {
           "path": "implement/story-worker.md",
-          "sha256": "8c6a30e0fb704092e67115ea84d45fdfd934fe4279093308f2d4486215cf64ba"
+          "sha256": "9b10be119ff39d7b9af004154c688d83b0896f3744a3ab6495fe6de25d705d59"
         },
         {
           "path": "implement/sync-resolver.md",
-          "sha256": "544a75602a9c8e6f1ca04a69005f239ee2b8728397e4d85cee0c1b20ce54c227"
+          "sha256": "47b2aefe6af0078ae5d2c7df919df3422afc9e69222460daca0d29330d477167"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -459,7 +459,7 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
+          "sha256": "5c13e7aa84c4c860cf8788f512db331df35c0d09f47079126a6f50b74d188a11"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
@@ -519,7 +519,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "44a734df9e8e36cc335cba7e573354ecd0f48c0bfc5ee12e393056c083838b22"
+          "sha256": "7718146eca86d9ee6fbc4db6e842b4e815ee4119872c71dac466fcf812848efa"
         },
         {
           "path": "stack-profile.json",
@@ -590,7 +590,7 @@
           "sha256": "a525203470db494d92a342a0ea9ba77fc1a449bf62219be0bd3385cbca78f2f5"
         }
       ],
-      "checksum": "204aa0deed70cd9ab0369be0767c46319bf8d2978f12f82873f50c6d9b724eb2"
+      "checksum": "3a40623cbb3aaa01c07ae27a939ab380f339c0d4c5b22c16ecc2e6f94f0d069d"
     },
     {
       "name": "Next.js web",
@@ -643,7 +643,7 @@
         },
         {
           "path": "implement/skills/nextjs-web-stack/SKILL.md",
-          "sha256": "f00a2db2b481952995033f3b9dfe218996c5ef6d0afeb13c786501586eb133d5"
+          "sha256": "98873446b6cf5f0681f94aa1db25f45962d5a837473041721cdc4253288000a0"
         },
         {
           "path": "implement/skills/nextjs-web-stack/nextjs.md",
@@ -651,11 +651,11 @@
         },
         {
           "path": "implement/story-worker.md",
-          "sha256": "8c6a30e0fb704092e67115ea84d45fdfd934fe4279093308f2d4486215cf64ba"
+          "sha256": "9b10be119ff39d7b9af004154c688d83b0896f3744a3ab6495fe6de25d705d59"
         },
         {
           "path": "implement/sync-resolver.md",
-          "sha256": "544a75602a9c8e6f1ca04a69005f239ee2b8728397e4d85cee0c1b20ce54c227"
+          "sha256": "47b2aefe6af0078ae5d2c7df919df3422afc9e69222460daca0d29330d477167"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -747,7 +747,7 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
+          "sha256": "5c13e7aa84c4c860cf8788f512db331df35c0d09f47079126a6f50b74d188a11"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
@@ -807,7 +807,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "44a734df9e8e36cc335cba7e573354ecd0f48c0bfc5ee12e393056c083838b22"
+          "sha256": "7718146eca86d9ee6fbc4db6e842b4e815ee4119872c71dac466fcf812848efa"
         },
         {
           "path": "stack-profile.json",
@@ -874,7 +874,7 @@
           "sha256": "039ffe18686496f2ba04cefb9aadef2a68222e6949a6617c9fcf4856ab5a3f13"
         }
       ],
-      "checksum": "3ce46e7d466b1a5592112a9aae968484e72a69d368ad8dde8d1a9f8840ad9db4"
+      "checksum": "753b244c9a7ca59353ddfa89ec613999bc366ab8cdbb067d1fad82fe64abd867"
     },
     {
       "name": "Python FastAPI with React",
@@ -936,7 +936,7 @@
         },
         {
           "path": "implement/skills/python-fastapi-stack/SKILL.md",
-          "sha256": "e65731a2b46eb5b629b873b1a6cb8412d7ea6e7973fec778ba0ca68683943c5f"
+          "sha256": "477f0797c279005a3127edb1b69522665b0382bf4df7be10be541c743b628a1b"
         },
         {
           "path": "implement/skills/python-fastapi-stack/python-fastapi.md",
@@ -952,11 +952,11 @@
         },
         {
           "path": "implement/story-worker.md",
-          "sha256": "8c6a30e0fb704092e67115ea84d45fdfd934fe4279093308f2d4486215cf64ba"
+          "sha256": "9b10be119ff39d7b9af004154c688d83b0896f3744a3ab6495fe6de25d705d59"
         },
         {
           "path": "implement/sync-resolver.md",
-          "sha256": "544a75602a9c8e6f1ca04a69005f239ee2b8728397e4d85cee0c1b20ce54c227"
+          "sha256": "47b2aefe6af0078ae5d2c7df919df3422afc9e69222460daca0d29330d477167"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -1056,7 +1056,7 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
+          "sha256": "5c13e7aa84c4c860cf8788f512db331df35c0d09f47079126a6f50b74d188a11"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
@@ -1116,7 +1116,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "44a734df9e8e36cc335cba7e573354ecd0f48c0bfc5ee12e393056c083838b22"
+          "sha256": "7718146eca86d9ee6fbc4db6e842b4e815ee4119872c71dac466fcf812848efa"
         },
         {
           "path": "stack-profile.json",
@@ -1191,7 +1191,7 @@
           "sha256": "18222a23b5044102c6088d6e052181e415493817b5620e26556eb9a4f25de836"
         }
       ],
-      "checksum": "f66d884ec936e35dc3198d8f2cb15049a9f38720e62b52aae376ea7f063ed95e"
+      "checksum": "6102c561aeaa553f8ee6bb8525e79077111aec9cd01687742c3037a29de1681d"
     },
     {
       "name": "Swift iOS",
@@ -1242,7 +1242,7 @@
         },
         {
           "path": "implement/skills/swift-ios-boundaries/SKILL.md",
-          "sha256": "bb5ff6f73ce171dcb9a6ce967d5827293482186bb6f9dfe5d6a8548a8e8c4534"
+          "sha256": "52d5ba5847526ae183e74cffe0295e1724fc672082e1cd4dea62309820ce459a"
         },
         {
           "path": "implement/skills/swift-ios-boundaries/boundaries.md",
@@ -1250,11 +1250,11 @@
         },
         {
           "path": "implement/story-worker.md",
-          "sha256": "8c6a30e0fb704092e67115ea84d45fdfd934fe4279093308f2d4486215cf64ba"
+          "sha256": "9b10be119ff39d7b9af004154c688d83b0896f3744a3ab6495fe6de25d705d59"
         },
         {
           "path": "implement/sync-resolver.md",
-          "sha256": "544a75602a9c8e6f1ca04a69005f239ee2b8728397e4d85cee0c1b20ce54c227"
+          "sha256": "47b2aefe6af0078ae5d2c7df919df3422afc9e69222460daca0d29330d477167"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -1346,7 +1346,7 @@
         },
         {
           "path": "research/research.md",
-          "sha256": "82d744f4b539e50f8f9aba89c0016f328e633e5f5a4374f0284bbc627addfbb5"
+          "sha256": "5c13e7aa84c4c860cf8788f512db331df35c0d09f47079126a6f50b74d188a11"
         },
         {
           "path": "research/skills/brainstorm-drafts/SKILL.md",
@@ -1406,7 +1406,7 @@
         },
         {
           "path": "spike/spike.md",
-          "sha256": "44a734df9e8e36cc335cba7e573354ecd0f48c0bfc5ee12e393056c083838b22"
+          "sha256": "7718146eca86d9ee6fbc4db6e842b4e815ee4119872c71dac466fcf812848efa"
         },
         {
           "path": "stack-profile.json",
@@ -1473,7 +1473,7 @@
           "sha256": "c9044bb2af5ec7e0ac7d6a1a5ed9b2747b2190f08b285817069c4d1182d3e414"
         }
       ],
-      "checksum": "e7d8ced6025532aef09209b71fb68e822afdb05726c38d7dbdf6bb2a72f8142c"
+      "checksum": "06e671084431df80c1ee00f320ff72f58a4a7246ecedbcfc052c241e40fe22fc"
     }
   ]
 }

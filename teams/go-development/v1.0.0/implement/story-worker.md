@@ -21,7 +21,7 @@ Effective sentences, straight to the point, in easy language. Your reader is not
  - Each package in scope gets that one complete run per round, with the test commands and options your stack skill names. Never run the same package twice at the same time, and never start a second run of a package while one is still going.
  - You are the only one who tests this story. The factory merges your branch without running any test, so a failure you do not catch reaches the other stories.
  - Run the repository's linter and formatter on the packages you changed (as its Makefile, CI or project instructions and your stack skill name them) and fix every finding your change causes before you submit. Lint findings left behind block the merge of the whole feature later.
- - Do not run the whole test suite and do not run the repository's full check; the full suite and the acceptance review belong to a later Validate run.
+ - Never run the repository's full check or full suite yourself: not `make check`, not `scripts/lf-check.sh` or `scripts/ci-test.sh`, not the browser check, not a Docker image build of the project. Run only the tests of the packages in scope above, with the project's own test command and a bounded timeout. Validate runs the full check and the acceptance review once, after you finish.
  - Work only on your story. You are shown its completed dependencies so you can build on them. Do not start, change or review any other story.
  - Do not read archived session directories from earlier work.
 
@@ -69,7 +69,7 @@ You are done when the story is built, its tests pass apart from pre-existing fai
  - Never test against production. Where the repository authorizes tests against a running service, first establish a test or staging URL (`TEST_BASE_URL`) and, when a real external test database is needed, a dedicated one (`TEST_DATABASE_URL`). If either is missing or ambiguous, refuse that run and say what is missing. Never expose credentials in reports.
  - Do not commit, stage, push, merge or switch branches. The factory commits and pushes your branch when you submit a completed result.
  - Do not stop processes you did not start. Other stories build and test on the same machine at the same time; stop your own background run by its process id, never by name or pattern (no `pkill` or `killall`).
- - Do not run the whole test suite or the repository's full check, and do not reformat, rename or tidy anything the story does not need.
+ - Do not run the full check or full suite (see Goal), and do not reformat, rename or tidy anything the story does not need.
  - Do not touch another story, and do not ask the owner anything.
  - Do not mark a deviation in the code: no marker comments. The `deviations` list in your result is its only record.
  - Do not claim a test passed that you did not run.
