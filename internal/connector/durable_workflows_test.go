@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -64,6 +67,20 @@ func (*journeyWorkflowAdapter) Recover(context.Context, owneraction.Principal, o
 }
 
 func TestDurableWorkflowMCPJourney(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		meta json.RawMessage
+	}{
+		{"without_metadata", nil},
+		{"empty_metadata", json.RawMessage(`{}`)},
+		{"string_progress", json.RawMessage(`{"progressToken":"progress-one","client/extension":{"opaque":true}}`)},
+		{"number_progress", json.RawMessage(`{"progressToken":42}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) { testDurableWorkflowMCPJourney(t, tc.meta) })
+	}
+}
+
+func testDurableWorkflowMCPJourney(t *testing.T, metadata json.RawMessage) {
 	f := newConnectorFixture(t, nil)
 	repo := registerTestRepo(t, f.db, "example", "repository")
 	registry, err := durableworkflow.NewRegistry(durableworkflow.BuiltinDefinitions())
@@ -82,9 +99,47 @@ func TestDurableWorkflowMCPJourney(t *testing.T) {
 	j, _, csrf, cookie := consentPageFor(t, f, RepositoryActionsScope+" "+StandardsManagementScope+" "+DiscussionScope)
 	tokens := exchangeConsent(t, j, postConsentResponse(t, j, csrf, cookie, url.Values{"scope": {RepositoryActionsScope, StandardsManagementScope, DiscussionScope}, "duration": {"1"}, "repositories": {"all"}, "action_repository": {"github:example/repository"}}))
 	handler := f.server(t)
+	server := httptest.NewServer(handler)
+	t.Cleanup(func() { server.Close() })
+	// Send complete JSON-RPC requests through the public HTTP route. Keep the
+	// configured public Host, while connecting only to the local test listener.
+	request := func(body string, token string) []byte {
+		t.Helper()
+		// Refill admission buckets without wall-clock sleeps.
+		f.now = f.now.Add(time.Second)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/litefactory/mcp", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "cloudvane.at"
+		req.Header = connectorBearer(token)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		response, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = response.Body.Close() }()
+		data, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("HTTP %d: %s", response.StatusCode, data)
+		}
+		return data
+	}
 	call := func(name string, args map[string]any) map[string]any {
 		t.Helper()
-		response := connectorJSON(t, handler, f.options.Config.ResourceURL, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}}, connectorBearer(tokens.AccessToken))
+		params := map[string]any{"name": name, "arguments": args}
+		if metadata != nil {
+			params["_meta"] = metadata
+		}
+		body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := request(string(body), tokens.AccessToken)
 		var out struct {
 			Error  any `json:"error"`
 			Result struct {
@@ -92,11 +147,60 @@ func TestDurableWorkflowMCPJourney(t *testing.T) {
 				Data    map[string]any `json:"structuredContent"`
 			} `json:"result"`
 		}
-		connectorDecode(t, response, &out)
+		if err := json.Unmarshal(response, &out); err != nil {
+			t.Fatal(err)
+		}
 		if out.Error != nil || out.Result.IsError || out.Result.Data == nil {
-			t.Fatalf("%s: %s", name, response.Body.String())
+			t.Fatalf("%s: %s", name, response)
 		}
 		return out.Result.Data
+	}
+	for _, name := range []string{"workflows_list", "workflow_describe", "workflow_propose", "workflow_continue_propose", "workflow_job_get", "action_confirm", "ask_task_agent", "brainstorm_open"} {
+		for _, extra := range []string{`"_meta":null`, `"_meta":[]`, `"_meta":"bad"`, `"_meta":1`, `"_meta":true`, `"unknown":{}`, `"_meta":{},"unknown":{}`, `"_meta":{},"_meta":{}`} {
+			body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + name + `","arguments":{},` + extra + `}}`
+			response := request(body, tokens.AccessToken)
+			var out struct {
+				Error struct {
+					Code    int    `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(response, &out); err != nil {
+				t.Fatal(err)
+			}
+			wantProblem := errToolCallEnvelope.Error()
+			if extra == `"_meta":{},"_meta":{}` {
+				wantProblem = "an argument is supplied more than once"
+			}
+			if out.Error.Code != -32602 || !strings.Contains(out.Error.Message, wantProblem) {
+				t.Fatalf("%s %s: %s", name, extra, response)
+			}
+		}
+	}
+	for _, body := range []string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","unexpected":true,"params":{"name":"workflows_list","arguments":{},"_meta":{}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"workflows_list","arguments":{},"_meta":{}}`,
+	} {
+		response := request(body, tokens.AccessToken)
+		var out struct {
+			Error *struct {
+				Code int `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(response, &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.Error == nil || (out.Error.Code != -32602 && out.Error.Code != -32600) {
+			t.Fatalf("invalid request accepted: %s", response)
+		}
+	}
+	catalogue := call("workflows_list", map[string]any{})
+	if len(journeyValue[[]any](t, catalogue["workflows"])) != 2 {
+		t.Fatalf("empty catalogue: %+v", catalogue)
+	}
+	filtered := call("workflows_list", map[string]any{"project": "github:example/repository"})
+	if len(journeyValue[[]any](t, filtered["workflows"])) != 2 {
+		t.Fatalf("filtered catalogue: %+v", filtered)
 	}
 	page := call("workflows_list", map[string]any{"project": "github:example/repository", "limit": 1})
 	if len(journeyValue[[]any](t, page["workflows"])) != 1 || page["next_cursor"] == nil {
@@ -139,7 +243,8 @@ func TestDurableWorkflowMCPJourney(t *testing.T) {
 	}
 	job := finish(proposed)
 	// A newly composed HTTP handler models leaving the chat connection and returning.
-	handler = f.server(t)
+	server.Close()
+	server = httptest.NewServer(f.server(t))
 	saved := call("workflow_job_get", map[string]any{"job": job})
 	b, _ := json.Marshal(saved)
 	if !containsJourneyText(b, "https://github.com/example/repository/issues/7") {

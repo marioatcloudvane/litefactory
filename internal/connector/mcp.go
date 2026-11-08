@@ -279,6 +279,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		var params struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
+			Meta      json.RawMessage `json:"_meta"`
 		}
 		if json.Unmarshal(req.Params, &params) != nil {
 			refuseParams(errToolCallEnvelope)
@@ -302,10 +303,14 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			for key := range callFields {
-				if key != "name" && key != "arguments" {
+				if key != "name" && key != "arguments" && key != "_meta" {
 					refuseParams(errToolCallEnvelope)
 					return
 				}
+			}
+			if meta, present := callFields["_meta"]; present && (len(bytes.TrimSpace(meta)) == 0 || bytes.TrimSpace(meta)[0] != '{') {
+				refuseParams(errToolCallEnvelope)
+				return
 			}
 			d = json.NewDecoder(bytes.NewReader(req.Params))
 			d.DisallowUnknownFields()
@@ -796,7 +801,7 @@ func checkArgumentFields(fields map[string]json.RawMessage, allowed, required []
 }
 
 // errToolCallEnvelope refuses a tools/call whose request or params carry
-// anything beyond the JSON-RPC fields, "name" and "arguments".
-var errToolCallEnvelope error = &argumentError{Problem: `params must be one JSON object with only "name" and "arguments"`, Code: "invalid_value"}
+// anything beyond the JSON-RPC fields, "name", "arguments" and optional object "_meta".
+var errToolCallEnvelope error = &argumentError{Problem: `params must be one JSON object with only "name", "arguments" and optional object "_meta"`, Code: "invalid_value"}
 
 var errNoArguments error = &argumentError{Problem: "this tool takes no arguments; send an empty object", Code: "unknown_argument"}
