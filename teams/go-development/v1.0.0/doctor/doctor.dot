@@ -1,0 +1,47 @@
+// The Doctor is one conversational agent on one stopped task. It reads the
+// task's issue, the factory's redacted evidence bundle, its worktree and git
+// state, explains why the task is stuck and proposes or applies a repair. All
+// of that lives in the role's Markdown. The factory only guards it: the owner
+// starts and answers it, it starts only while the task has no running run and
+// no pending step, and the factory commits and pushes what it changed.
+//
+// The agent's result names its own response (lf_response="result"): "ask" or
+// "done". A question is posted and the instance waits for the owner, whose
+// reply resumes this same agent with its saved result as context. A failed
+// attempt posts why and stops.
+//
+// A finished result goes to the shared delivery activity, as Spike's does. A
+// diagnosis without branch changes is "unchanged" and posts the report. A
+// repair on the task branch is pushed, reviewed and merged only on the owner's
+// "ship".
+digraph doctor {
+ graph [team="go-development", mode="doctor", profile_version="2", start="doctor"];
+
+ doctor   [lf_action="lf_agent", lf_agent_markdown="doctor", lf_skills="doctor-result", lf_access="write", lf_response="result", lf_outcomes="ask,done,failed"];
+ prepare  [lf_action="lf_deliver", lf_operation="push", lf_source="doctor", lf_outcomes="ready,unchanged,revalidate,blocked", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
+ review   [lf_action="lf_ask", lf_kind="review", lf_source="doctor", lf_approve_reply="ship", lf_outcomes="published,approved"];
+ deliver  [lf_action="lf_deliver", lf_operation="merge", lf_source="doctor", lf_outcomes="merged,revalidate,blocked", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
+ close    [lf_action="lf_deliver", lf_operation="close", lf_source="doctor", lf_outcomes="completed,revalidate,blocked", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
+ ask      [lf_action="lf_ask", lf_kind="question", lf_outcomes="published", lf_source="doctor"];
+ report   [lf_action="lf_comment", lf_kind="final", lf_outcomes="published", lf_source="doctor"];
+ failure  [lf_action="lf_comment", lf_kind="failure", lf_outcomes="published"];
+ waiting  [lf_terminal="true"];
+ complete [lf_terminal="true"];
+ stopped  [lf_terminal="true"];
+
+ doctor  -> ask      [lf_on="ask"];
+ doctor  -> prepare  [lf_on="done"];
+ doctor  -> failure  [lf_on="failed"];
+ prepare -> review   [lf_on="ready"];
+ prepare -> report   [lf_on="unchanged"];
+ prepare -> doctor   [lf_on="revalidate"];
+ review  -> waiting  [lf_on="published"];
+ review  -> deliver  [lf_on="approved"];
+ deliver -> close    [lf_on="merged"];
+ deliver -> doctor   [lf_on="revalidate"];
+ close   -> complete [lf_on="completed"];
+ close   -> doctor   [lf_on="revalidate"];
+ ask     -> waiting  [lf_on="published"];
+ report  -> complete [lf_on="published"];
+ failure -> stopped  [lf_on="published"];
+}

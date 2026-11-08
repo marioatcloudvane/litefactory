@@ -41,6 +41,18 @@
           "sha256": "1e8b08c4fde02c830344a3c1b2aa462a9f3b04793a2563084f14d52e15c66483"
         },
         {
+          "path": "doctor/doctor.dot",
+          "sha256": "3df979f04ddb2fe7d36882eadd228bba74fde3598c914955e42fef3bfc2b856b"
+        },
+        {
+          "path": "doctor/doctor.md",
+          "sha256": "15c78e9661d40307f4573642add4754f345d52c76bf1212afc34c20265d9d935"
+        },
+        {
+          "path": "doctor/skills/doctor-result/SKILL.md",
+          "sha256": "681a639c70830616aef0b509dfc6823760e13a956aedad8450fe6b46bb2be5c0"
+        },
+        {
           "path": "implement/implement.dot",
           "sha256": "dada5f9ebb232c7b4f5e64b9805330958f797a7c712b800fed2f79e88cd95c60"
         },
@@ -238,7 +250,7 @@
         },
         {
           "path": "team.config",
-          "sha256": "b16c875d208c77742c72ea48caeaf42950b4fbb0b13fb62d93724b8ad48aec67"
+          "sha256": "9366dc0d681b9ad1824443cb60178aa9f652685bc3ec858a97d860c38349cc7a"
         },
         {
           "path": "validate/skills/dotnet-web-engineering/SKILL.md",
@@ -301,7 +313,7 @@
           "sha256": "5828a2bf4bdecd52e9a5fe1bc0ff329f83dcf61d8a3772c6247aa1cb407d6bfd"
         }
       ],
-      "checksum": "f79cd95752a5dffb1dde5b9374c354678ebc28d4b8741b3d4909fabfabaa1e07"
+      "checksum": "b8b5857c5c813e2ec3c7f45dfed8c99c3bf8716b808564c406f97b4c6fe621b7"
     },
     {
       "name": "Go development",
@@ -340,6 +352,18 @@
         {
           "path": "bug/skills/litefactory-rules/litefactory.md",
           "sha256": "46cc4104acb1f83062bdde434176c311ec4b1aa455c3289b68ce8731658f7bae"
+        },
+        {
+          "path": "doctor/doctor.dot",
+          "sha256": "2adedfdbf291995d70575bcd9c48b967a3af001e4aef0574f8f85906db722035"
+        },
+        {
+          "path": "doctor/doctor.md",
+          "sha256": "15c78e9661d40307f4573642add4754f345d52c76bf1212afc34c20265d9d935"
+        },
+        {
+          "path": "doctor/skills/doctor-result/SKILL.md",
+          "sha256": "681a639c70830616aef0b509dfc6823760e13a956aedad8450fe6b46bb2be5c0"
         },
         {
           "path": "implement/implement.dot",
@@ -527,7 +551,7 @@
         },
         {
           "path": "team.config",
-          "sha256": "b16c875d208c77742c72ea48caeaf42950b4fbb0b13fb62d93724b8ad48aec67"
+          "sha256": "9366dc0d681b9ad1824443cb60178aa9f652685bc3ec858a97d860c38349cc7a"
         },
         {
           "path": "validate/skills/go-stack/SKILL.md",
@@ -590,7 +614,7 @@
           "sha256": "a525203470db494d92a342a0ea9ba77fc1a449bf62219be0bd3385cbca78f2f5"
         }
       ],
-      "checksum": "3a40623cbb3aaa01c07ae27a939ab380f339c0d4c5b22c16ecc2e6f94f0d069d"
+      "checksum": "5e7381c4cf483902e0707cb75473eb3567d0e2c76f70922cced83234fcd53b60"
     },
     {
       "name": "Next.js web",
@@ -628,6 +652,18 @@
         {
           "path": "bug/skills/nextjs-web-stack/nextjs.md",
           "sha256": "104994b860ba9ee8c669a882cfdc5483c260c8ae6795b70d7b90918202f1a57f"
+        },
+        {
+          "path": "doctor/doctor.dot",
+          "sha256": "a60b78c862f95cedaefbae53fb0e71e1b165ab0976c92b3d712dac77c7253185"
+        },
+        {
+          "path": "doctor/doctor.md",
+          "sha256": "15c78e9661d40307f4573642add4754f345d52c76bf1212afc34c20265d9d935"
+        },
+        {
+          "path": "doctor/skills/doctor-result/SKILL.md",
+          "sha256": "681a639c70830616aef0b509dfc6823760e13a956aedad8450fe6b46bb2be5c0"
         },
         {
           "path": "implement/implement.dot",
@@ -815,7 +851,7 @@
         },
         {
           "path": "team.config",
-          "sha256": "b16c875d208c77742c72ea48caeaf42950b4fbb0b13fb62d93724b8ad48aec67"
+          "sha256": "9366dc0d681b9ad1824443cb60178aa9f652685bc3ec858a97d860c38349cc7a"
         },
         {
           "path": "validate/skills/nextjs-web-stack/SKILL.md",
@@ -874,7 +910,7 @@
           "sha256": "039ffe18686496f2ba04cefb9aadef2a68222e6949a6617c9fcf4856ab5a3f13"
         }
       ],
-      "checksum": "753b244c9a7ca59353ddfa89ec613999bc366ab8cdbb067d1fad82fe64abd867"
+      "checksum": "68dbd85d3188b9159b1e89e7f1d80c72264cb2d00b7b9cb2ec95854170aeacb9"
     },
     {
       "name": "Python FastAPI with React",
@@ -921,6 +957,18 @@
         {
           "path": "bug/skills/python-fastapi-stack/supported-versions.md",
           "sha256": "15aedb51e94e4e99fc5c5113d55c46b4511a2c72f334787f2d7f99fda960fa2e"
+        },
+        {
+          "path": "doctor/doctor.dot",
+          "sha256": "44fd6d3decbc64903520f97695c3ac093604f690621b96cd931525792733c9e3"
+        },
+        {
+          "path": "doctor/doctor.md",
+          "sha256": "15c78e9661d40307f4573642add4754f345d52c76bf1212afc34c20265d9d935"
+        },
+        {
+          "path": "doctor/skills/doctor-result/SKILL.md",
+          "sha256": "681a639c70830616aef0b509dfc6823760e13a956aedad8450fe6b46bb2be5c0"
         },
         {
           "path": "implement/implement.dot",
@@ -1124,7 +1172,7 @@
         },
         {
           "path": "team.config",
-          "sha256": "b16c875d208c77742c72ea48caeaf42950b4fbb0b13fb62d93724b8ad48aec67"
+          "sha256": "9366dc0d681b9ad1824443cb60178aa9f652685bc3ec858a97d860c38349cc7a"
         },
         {
           "path": "validate/skills/python-fastapi-stack/SKILL.md",
@@ -1191,7 +1239,7 @@
           "sha256": "18222a23b5044102c6088d6e052181e415493817b5620e26556eb9a4f25de836"
         }
       ],
-      "checksum": "6102c561aeaa553f8ee6bb8525e79077111aec9cd01687742c3037a29de1681d"
+      "checksum": "8ba473f7d136dbd4c17d8939a9e9a6dffdd5236947f9f0451e4148cc6de43aa9"
     },
     {
       "name": "Swift iOS",
@@ -1227,6 +1275,18 @@
         {
           "path": "bug/skills/swift-ios-boundaries/boundaries.md",
           "sha256": "ab4af566b5bdc9cc756e374456a517259d0fb57a4bb9262dd31d9afe1de9dbfb"
+        },
+        {
+          "path": "doctor/doctor.dot",
+          "sha256": "210fb28921d42952eed9405519b30758b42d7b1260840aaf34d737e1e8ba9004"
+        },
+        {
+          "path": "doctor/doctor.md",
+          "sha256": "15c78e9661d40307f4573642add4754f345d52c76bf1212afc34c20265d9d935"
+        },
+        {
+          "path": "doctor/skills/doctor-result/SKILL.md",
+          "sha256": "681a639c70830616aef0b509dfc6823760e13a956aedad8450fe6b46bb2be5c0"
         },
         {
           "path": "implement/implement.dot",
@@ -1414,7 +1474,7 @@
         },
         {
           "path": "team.config",
-          "sha256": "b16c875d208c77742c72ea48caeaf42950b4fbb0b13fb62d93724b8ad48aec67"
+          "sha256": "9366dc0d681b9ad1824443cb60178aa9f652685bc3ec858a97d860c38349cc7a"
         },
         {
           "path": "validate/skills/swift-ios-boundaries/SKILL.md",
@@ -1473,7 +1533,7 @@
           "sha256": "c9044bb2af5ec7e0ac7d6a1a5ed9b2747b2190f08b285817069c4d1182d3e414"
         }
       ],
-      "checksum": "06e671084431df80c1ee00f320ff72f58a4a7246ecedbcfc052c241e40fe22fc"
+      "checksum": "3436ade43e4be7f177075d52418352b5ed5a8a9e922e40c66c489ee8e549d95f"
     }
   ]
 }
