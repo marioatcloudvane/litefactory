@@ -80,7 +80,7 @@ func (c *Client) snapshotLabels(nodes []labelNode) []string {
 		}():
 		case c.config.BugLabelID != "" && node.ID == c.config.BugLabelID:
 			e.name = BugLabelName
-		case e.grouped:
+		case e.grouped && !strings.HasPrefix(node.Name, node.Parent.Name+": "):
 			e.name = node.Parent.Name + ": " + node.Name
 		}
 		entries = append(entries, e)
