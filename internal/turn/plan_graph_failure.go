@@ -451,10 +451,7 @@ func (r *planGraphRuntime) failureComment(ctx context.Context, a ActivityRequest
 }
 
 // failureSource picks the step whose recorded outcome routes to this failure
-// node. A parallel group's member attempts are created after the group's own
-// attempt, so the nearest earlier attempt can be a member that ended success;
-// the group, whose outcome the graph routed here, is the real source. Without
-// a routed match the nearest earlier attempt is kept.
+// node. Without a routed match the nearest earlier attempt is kept.
 func (r *planGraphRuntime) failureSource(attempts []store.GraphNodeAttempt, a ActivityRequest) store.GraphNodeAttempt {
 	var nearest store.GraphNodeAttempt
 	for i := len(attempts) - 1; i >= 0; i-- {

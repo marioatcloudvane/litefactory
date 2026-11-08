@@ -81,16 +81,8 @@ func TestShippedPlanGraphSkipsTheSetStageWhenTheDecisionIsFalse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, ok := graphexec.Decide(d.Profile, "select_set", "false")
-	if !ok {
+	if _, ok := graphexec.Decide(d.Profile, "select_set", "false"); !ok {
 		t.Fatal("story scope lacks set bypass")
-	}
-	for _, facts := range []map[string]string{
-		{"story.size": "S", "story.sizing_valid": "true", "story.fallback": "false"},
-		{"story.size": "L", "story.sizing_valid": "true", "story.fallback": "false"},
-		{"story.sizing_valid": "false", "story.fallback": "false"},
-	} {
-		firstStoryPlanningActivity(t, d.Profile, next, facts)
 	}
 	sel, _ := d.Profile.Node("select_set")
 	if sel.Attrs["lf_condition"] != graphexec.PlanSetCondition || sel.Attrs["lf_source"] != "" {

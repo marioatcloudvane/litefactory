@@ -67,7 +67,6 @@
                   "payload.plan.stories.dependencies",
                   "payload.plan.storyrequest",
                   "payload.plan.storyset",
-                  "payload.plan.contribution",
                   "payload.implement.stories",
                   "payload.implement.aggregate_checks",
                   "payload.implement.deviations",

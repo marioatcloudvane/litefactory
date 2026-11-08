@@ -13,10 +13,15 @@ import (
 // one launch attempt id, so a permitted retry gets its own run.
 const brainstormLaunchTriggerBase int64 = 1 << 57
 
+// brainstormLaunchTriggerEnd closes the brainstorm band. The band above it, up
+// to the chat band, held the retired Plan parallel member runs and stays
+// unused, so no new identity collides with a retained one.
+const brainstormLaunchTriggerEnd int64 = 1 << 58
+
 // IsBrainstormLaunchTrigger reports whether an identity belongs to a brainstorm
 // Plan launch attempt.
 func IsBrainstormLaunchTrigger(id int64) bool {
-	return id > brainstormLaunchTriggerBase && id < planMemberTriggerBase
+	return id > brainstormLaunchTriggerBase && id < brainstormLaunchTriggerEnd
 }
 
 // BrainstormLaunchTrigger returns the private run identity of one attempt.

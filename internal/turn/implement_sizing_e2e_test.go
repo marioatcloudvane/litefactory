@@ -319,10 +319,10 @@ func TestImplementSizingSelectedWorkerLifecycle(t *testing.T) {
 					}
 					capture, err := f.db.WorkflowCaptureForAttempt(ctx, req.Graph.AttemptID)
 					mustProgress(t, err)
-					need, err := GraphDispatchSlotNeed(ctx, f.db, store.GraphDispatch{InstanceID: req.Graph.InstanceID, LaunchID: capture.ID, Node: req.Graph.Node})
+					cost, err := GraphDispatchSlotCost(ctx, f.db, store.GraphDispatch{InstanceID: req.Graph.InstanceID, LaunchID: capture.ID, Node: req.Graph.Node})
 					mustProgress(t, err)
-					if need.Admission != 3 || need.Full != 3 {
-						t.Fatalf("selected worker capacity: %+v", need)
+					if cost != 3 {
+						t.Fatalf("selected worker capacity: %d", cost)
 					}
 					if scenario == "failed budget" {
 						return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "sized worker crashed", FinishedAt: time.Now()}, nil

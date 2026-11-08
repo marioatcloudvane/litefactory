@@ -37,10 +37,6 @@ func ControlSpec(action string, policy ControlPolicy) ActionSpec {
 		"lf_field":     {Required: true, Values: []string{"response"}},
 		"lf_condition": {Required: true, Values: policy.Responses},
 	}
-	if policy.Mode == agent.ModePlan && action == ResearchIfAction {
-		attrs["lf_field"] = AttributeSpec{Required: true, Values: []string{"response", "story.size", "story.sizing_valid", "story.fallback"}}
-		attrs["lf_condition"] = AttributeSpec{Required: true, Values: append(slices.Clone(policy.Responses), "S", "M", "L", "true", "false")}
-	}
 	if policy.Mode == agent.ModeImplement && action == ResearchIfAction {
 		attrs["lf_field"] = AttributeSpec{Required: true, Values: []string{"story.size", "story.sizing_valid"}}
 		attrs["lf_condition"] = AttributeSpec{Required: true, Values: []string{"S", "M", "L", "true", "false"}}
@@ -75,9 +71,6 @@ func DecodeCondition(action string, attrs map[string]string, policy ControlPolic
 	c := ResearchCondition{Responses: policy.Responses, Field: attrs["lf_field"], Condition: attrs["lf_condition"], Default: attrs["lf_default"]}
 	if policy.Mode == agent.ModeImplement {
 		return decodeImplementFact(action, attrs)
-	}
-	if policy.Mode == agent.ModePlan && c.Field != "response" {
-		return decodePlanFact(action, attrs)
 	}
 	var faults []error
 	if action != ResearchLoopAction && action != ResearchIfAction {
