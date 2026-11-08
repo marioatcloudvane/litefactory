@@ -31,7 +31,7 @@ type JudgeSource struct {
 }
 
 // judgeBugAnalysisMode is the judgeSubstantive kind of a saved Bug analysis:
-// a standalone Bug result whose payload carries the analyst's diagnosis.
+// a Bug result whose payload carries its findings.
 const judgeBugAnalysisMode = "bug"
 
 func judgeSubstantive(raw []byte, mode string) bool {
@@ -49,7 +49,11 @@ func judgeSubstantive(raw []byte, mode string) bool {
 		return false
 	}
 	if mode == judgeBugAnalysisMode {
-		// Only the analyst's diagnosis is judgeable; repair results carry no analysis.
+		// A Bug's findings are judgeable; an archived analysis is judged by its cause.
+		var findings []string
+		if json.Unmarshal(payload["findings"], &findings) == nil && len(findings) > 0 {
+			return true
+		}
 		var analysis struct {
 			Cause string `json:"cause"`
 		}
@@ -111,7 +115,7 @@ func finishJudgeSource(s *JudgeSource) {
 // next to research and Plan; judging one is advisory and never touches Bug work.
 func (db *DB) ListJudgeSources(ctx context.Context, task string) ([]JudgeSource, error) {
 	var out []JudgeSource
-	rows, err := db.sql.QueryContext(ctx, `SELECT a.id,r.revision,CASE WHEN a.workflow='bug' THEN 'bug' ELSE a.mode END,r.snapshot,COALESCE((SELECT coding_agent FROM meter_attempts m WHERE m.run_id=r.run_id ORDER BY ordinal DESC LIMIT 1),(SELECT agent FROM runs WHERE id=r.run_id),''),COALESCE(c.sequence,0) FROM application_result_revisions r JOIN application_results a ON a.id=r.result_id LEFT JOIN judge_source_commits c ON c.kind='result' AND c.active=1 AND c.source_id=CAST(a.id AS TEXT) AND c.revision=r.revision WHERE a.task=? AND ((a.workflow='' AND a.mode IN ('research','plan')) OR (a.workflow='bug' AND a.mode='')) ORDER BY r.request_row`, task)
+	rows, err := db.sql.QueryContext(ctx, `SELECT a.id,r.revision,CASE WHEN a.workflow='bug' THEN 'bug' ELSE a.mode END,r.snapshot,COALESCE((SELECT coding_agent FROM meter_attempts m WHERE m.run_id=r.run_id ORDER BY ordinal DESC LIMIT 1),(SELECT agent FROM runs WHERE id=r.run_id),''),COALESCE(c.sequence,0) FROM application_result_revisions r JOIN application_results a ON a.id=r.result_id LEFT JOIN judge_source_commits c ON c.kind='result' AND c.active=1 AND c.source_id=CAST(a.id AS TEXT) AND c.revision=r.revision WHERE a.task=? AND ((a.workflow='' AND a.mode IN ('research','plan','bug')) OR (a.workflow='bug' AND a.mode='')) ORDER BY r.request_row`, task)
 	if err != nil {
 		return nil, err
 	}

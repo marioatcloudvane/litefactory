@@ -1209,9 +1209,6 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 		Now:           f.clock.Now,
 		ShutdownGrace: 500 * time.Millisecond,
 	}
-	if overrides.Bug != nil {
-		opts.Bug = overrides.Bug
-	}
 	if overrides.Now != nil {
 		opts.Now = overrides.Now
 	}

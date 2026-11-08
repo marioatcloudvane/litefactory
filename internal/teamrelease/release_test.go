@@ -188,16 +188,14 @@ func TestSameVersionSourceChangeRegeneratesInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := sourceVersion(t, filepath.Join(root, "teams/source/go-development"))
-	const file, oldText, newText = "bug/bug-fixer.md", "Fix the bug, nothing more", "Fix the reported bug, nothing more"
+	// Any appended line is a source change; no role wording is assumed.
+	const file, newText = "spike/spike.md", "\nA same-version source edit.\n"
 	p := filepath.Join(root, "teams/source/base-team", file)
 	raw, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Count(raw, []byte(oldText)) != 1 {
-		t.Fatalf("%s: expected exactly one %q", file, oldText)
-	}
-	put(t, p, bytes.Replace(raw, []byte(oldText), []byte(newText), 1))
+	put(t, p, append(raw, newText...))
 	released := "teams/go-development/v" + version + "/" + file
 
 	before := snapshot(t, root)
@@ -349,7 +347,7 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 
 func registry(t *testing.T, w string) graphexec.Registry {
 	t.Helper()
-	builders := map[string]func() (graphexec.Registry, error){"research": turn.ResearchSpecs, "plan": turn.PlanSpecs, "implement": turn.ImplementSpecs, "validate": turn.ValidateFlowSpecs, "spike": turn.SpikeSpecs, "bug": turn.SimplifiedBugSpecs}
+	builders := map[string]func() (graphexec.Registry, error){"research": turn.ResearchSpecs, "plan": turn.PlanSpecs, "implement": turn.ImplementSpecs, "validate": turn.ValidateFlowSpecs, "spike": turn.SpikeSpecs, "bug": turn.BugSpecs}
 	r, err := builders[w]()
 	if err != nil {
 		t.Fatal(err)

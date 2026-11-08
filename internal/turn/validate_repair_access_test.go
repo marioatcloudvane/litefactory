@@ -24,16 +24,16 @@ func validateModeRequest(kind agent.Kind) Request {
 	return Request{Agent: kind, ToolProfile: "validate", Tools: config.AgentTools(), CodexSandbox: "read-only"}
 }
 
-func validateRepairResolver(t *testing.T) func(agent.Kind, string) (BugRolePermissions, error) {
+func validateRepairResolver(t *testing.T) func(agent.Kind, string) (RolePermissions, error) {
 	t.Helper()
-	return func(kind agent.Kind, role string) (BugRolePermissions, error) {
+	return func(kind agent.Kind, role string) (RolePermissions, error) {
 		if role != config.ValidateRepairProfile {
 			t.Fatalf("Validate asked for role %q", role)
 		}
 		if kind == agent.Kind(store.AgentCodex) {
-			return BugRolePermissions{Sandbox: "workspace-write"}, nil
+			return RolePermissions{Sandbox: "workspace-write"}, nil
 		}
-		return BugRolePermissions{Tools: config.AgentTools(), Sandbox: "workspace-write"}, nil
+		return RolePermissions{Tools: config.AgentTools(), Sandbox: "workspace-write"}, nil
 	}
 }
 
@@ -82,7 +82,7 @@ func TestValidateRepairWithoutGrantIsRefused(t *testing.T) {
 		t.Fatalf("missing resolver: %v", err)
 	}
 	missing := errors.New("missing explicit validate-repair permission profile for codex")
-	_, err := validateRepairGrant(func(agent.Kind, string) (BugRolePermissions, error) { return BugRolePermissions{}, missing }, validateModeRequest(agent.Kind(store.AgentCodex)))
+	_, err := validateRepairGrant(func(agent.Kind, string) (RolePermissions, error) { return RolePermissions{}, missing }, validateModeRequest(agent.Kind(store.AgentCodex)))
 	if !errors.Is(err, missing) {
 		t.Fatalf("missing profile: %v", err)
 	}

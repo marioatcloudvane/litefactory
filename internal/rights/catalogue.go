@@ -55,7 +55,7 @@ func (s RepositorySource) Catalogue(ctx context.Context, repo store.Repo) ([]Ent
 		specs    func() (graphexec.Registry, error)
 	}
 	list := []workflowSpecs{
-		{agent.WorkflowBug, turn.SimplifiedBugSpecs},
+		{agent.WorkflowBug, turn.BugSpecs},
 		{agent.WorkflowPlan, turn.PlanSpecs},
 		{agent.WorkflowResearch, turn.ResearchSpecs},
 		{agent.WorkflowImplement, turn.ImplementSpecs},

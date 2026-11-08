@@ -164,7 +164,7 @@ func TestDotnetWebCapturedGuidanceAndProviderReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	builders := map[agent.Workflow]func() (graphexec.Registry, error){agent.WorkflowResearch: turn.ResearchSpecs, agent.WorkflowPlan: turn.PlanSpecs, agent.WorkflowImplement: turn.ImplementSpecs, agent.WorkflowValidate: turn.ValidateFlowSpecs, agent.WorkflowSpike: turn.SpikeSpecs, agent.WorkflowBug: turn.SimplifiedBugSpecs}
+	builders := map[agent.Workflow]func() (graphexec.Registry, error){agent.WorkflowResearch: turn.ResearchSpecs, agent.WorkflowPlan: turn.PlanSpecs, agent.WorkflowImplement: turn.ImplementSpecs, agent.WorkflowValidate: turn.ValidateFlowSpecs, agent.WorkflowSpike: turn.SpikeSpecs, agent.WorkflowBug: turn.BugSpecs}
 	for mode, builder := range builders {
 		t.Run(string(mode), func(t *testing.T) {
 			registry, err := builder()

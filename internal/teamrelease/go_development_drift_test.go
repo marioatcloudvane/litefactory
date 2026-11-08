@@ -65,7 +65,7 @@ func TestPublishedReleasesMatchSource(t *testing.T) {
 		t.Fatalf("published releases differ from teams/source; regenerate them with go run ./cmd/teamrelease (see teams/README.md):\n%v", err)
 	}
 	// The same check catches a source change that was not regenerated.
-	p := filepath.Join(root, "teams/source/base-team/bug/bug-fixer.md")
+	p := filepath.Join(root, "teams/source/base-team/spike/spike.md")
 	raw, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)

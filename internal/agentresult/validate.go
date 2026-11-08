@@ -95,7 +95,7 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 	}
 	// Of the Implement agents, only the sync resolver (a coordinator agent) may
 	// ask: it offers the owner resolutions for a conflict it cannot settle.
-	questionMode := ctx.Mode == "research" || ctx.Mode == "plan" || ctx.Mode == "spike" || ctx.Workflow == agent.WorkflowBug || (ctx.Mode == "implement" && ctx.CoordinatorRole)
+	questionMode := ctx.Mode == "research" || ctx.Mode == "plan" || ctx.Mode == "spike" || ctx.Mode == "bug" || (ctx.Mode == "implement" && ctx.CoordinatorRole)
 	if len(r.Questions) > 0 && (!ctx.QuestionsAllowed || !questionMode || r.Outcome == "completed") {
 		add(&d, "$.result.questions", "authorization", "permitted questions on unfinished Research or Plan", "disallowed questions", "Follow trusted question permission and report an unfinished outcome.")
 	}
@@ -117,23 +117,23 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 	for _, m := range modes {
 		if m.present {
 			count++
-			matching = matching || m.name == ctx.Mode || (m.name == "bug" && ctx.Workflow == agent.WorkflowBug && ctx.Mode == "")
+			matching = matching || m.name == ctx.Mode
 		}
 	}
 	if count != 1 || !matching {
 		add(&d, "$.result.payload", "mode", "exactly one payload matching trusted mode", "mismatched payload", "Use only the factory-selected mode payload.")
 	}
-	if r.Payload.Bug != nil {
-		validateBug(r, ctx, &d)
-	}
 	if p := r.Payload.Research; p != nil {
 		required(&d, "$.result.payload.research.request", p.Request)
 	}
-	if p := r.Payload.Spike; p != nil {
-		required(&d, "$.result.payload.spike.request", p.Request)
+	for key, p := range map[string]*Spike{"spike": r.Payload.Spike, "bug": r.Payload.Bug} {
+		if p == nil {
+			continue
+		}
+		required(&d, "$.result.payload."+key+".request", p.Request)
 		for name, items := range map[string][]string{"work_done": p.WorkDone, "findings": p.Findings, "decisions": p.Decisions, "not_done": p.NotDone} {
 			for i, v := range items {
-				required(&d, fmt.Sprintf("$.result.payload.spike.%s[%d]", name, i), v)
+				required(&d, fmt.Sprintf("$.result.payload.%s.%s[%d]", key, name, i), v)
 			}
 		}
 	}

@@ -19,31 +19,36 @@ const (
 	ModeValidate Mode = "validate"
 	// ModeSpike is a small, time-boxed experiment or ad-hoc change.
 	ModeSpike Mode = "spike"
+	// ModeBug reproduces and fixes one reported bug. It is selected by the
+	// issue's bug label, never by a command or a mode label.
+	ModeBug Mode = "bug"
 )
 
 // Valid reports whether m belongs to litefactory's closed mode vocabulary.
 func (m Mode) Valid() bool {
 	switch m {
-	case ModeResearch, ModePlan, ModeImplement, ModeValidate, ModeSpike:
+	case ModeResearch, ModePlan, ModeImplement, ModeValidate, ModeSpike, ModeBug:
 		return true
 	default:
 		return false
 	}
 }
 
-// Label returns the canonical GitHub label for m.
+// Label returns the canonical GitHub label for m. Bug has none: the issue's
+// bug label selects it.
 func (m Mode) Label() string {
-	if !m.Valid() {
+	if !m.Valid() || m == ModeBug {
 		return ""
 	}
 	s := string(m)
 	return "Mode: " + strings.ToUpper(s[:1]) + s[1:]
 }
 
-// ParseMode accepts a mode's canonical lower-case value.
+// ParseMode accepts a selectable mode's canonical lower-case value. Bug is not
+// selectable by name.
 func ParseMode(value string) (Mode, bool) {
 	m := Mode(strings.TrimSpace(value))
-	return m, m.Valid()
+	return m, m.Valid() && m != ModeBug
 }
 
 // ParseModeLabel accepts an exact canonical GitHub label.

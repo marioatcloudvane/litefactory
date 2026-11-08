@@ -292,13 +292,13 @@ func (p *preparedMCP) consumeFinalResult(ctx context.Context, session *Submissio
 // result, whose only route is the shared result service. Bug and Validate keep
 // their terminal handling.
 func (s *AgentResultService) submittedOnly() bool {
-	return s.binding.Workflow != string(agent.WorkflowBug) && (s.binding.Mode == string(agent.ModeResearch) || s.binding.Mode == string(agent.ModePlan) || s.binding.Mode == string(agent.ModeImplement))
+	return s.binding.Mode == string(agent.ModeResearch) || s.binding.Mode == string(agent.ModePlan) || s.binding.Mode == string(agent.ModeImplement)
 }
 
 // checkedAtSubmitOnly reports whether the binding is an Implement result: it is
 // validated when submitted and never again after the agent exits.
 func (s *AgentResultService) checkedAtSubmitOnly() bool {
-	return s.binding.Workflow != string(agent.WorkflowBug) && s.binding.Mode == string(agent.ModeImplement)
+	return s.binding.Mode == string(agent.ModeImplement)
 }
 
 func resultDiagnosticError(d agentresult.Diagnostics) error {

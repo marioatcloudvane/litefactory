@@ -12,21 +12,21 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-// admitWorkflow precedes mode selection so a retained standalone workflow can
-// never enter classification, mode-label mutation or mode-switch cancellation.
+// admitWorkflow precedes mode selection so a bug-labelled task never enters
+// classification, mode-label mutation or mode-switch cancellation.
 func (d *Daemon) admitWorkflow(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (agent.Workflow, agent.Mode, error) {
 	a, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", "", err
 	}
 	if err == nil && a.Family == "standalone" {
-		if t.continuation != nil && (t.continuation.Context.Workflow != "bug" || t.continuation.Context.Mode != "") {
+		if t.continuation != nil && t.continuation.Context.Mode != string(agent.ModeBug) {
 			return "", "", fmt.Errorf("bug continuation workflow binding mismatch")
 		}
 		if _, explicit := command.Mode(); explicit {
-			return agent.WorkflowBug, "", &modeRefusal{kind: report.ReplyBugModeSwitch}
+			return agent.WorkflowBug, agent.ModeBug, &modeRefusal{kind: report.ReplyBugModeSwitch}
 		}
-		return agent.WorkflowBug, "", nil
+		return agent.WorkflowBug, agent.ModeBug, nil
 	}
 	if errors.Is(err, store.ErrNotFound) {
 		issue, readErr := d.readIssue(ctx, t.forgeRepo, t.issue.Number)
@@ -45,7 +45,7 @@ func (d *Daemon) admitWorkflow(ctx context.Context, t *task, trigger turn.Trigge
 				return "", "", err
 			}
 			if a.Family == "standalone" {
-				return agent.WorkflowBug, "", nil
+				return agent.WorkflowBug, agent.ModeBug, nil
 			}
 		}
 	}
@@ -62,7 +62,7 @@ func (d *Daemon) admitWorkflow(ctx context.Context, t *task, trigger turn.Trigge
 		return "", "", err
 	}
 	if a.Family == "standalone" {
-		return agent.WorkflowBug, "", nil
+		return agent.WorkflowBug, agent.ModeBug, nil
 	}
 	return workflow, mode, nil
 }

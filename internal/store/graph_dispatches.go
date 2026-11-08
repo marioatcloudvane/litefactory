@@ -369,12 +369,11 @@ func cancelStaleGraphDispatchTx(ctx context.Context, tx *sql.Tx, d GraphDispatch
 
 // deadGraphDispatches selects unallocated work left open on an instance that
 // finished or was superseded. Nothing can run it any more: the execution
-// fence refuses it, and recovery only revisits running instances. Bug and
-// doctor-held sessions are left to their own owners.
+// fence refuses it, and recovery only revisits running instances. Doctor-held
+// sessions are left to their owner.
 const deadGraphDispatches = `FROM graph_dispatches d JOIN graph_instances i ON i.id=d.instance_id
 WHERE d.status IN ('pending','reserved') AND d.allocated_run_id IS NULL
 AND (i.status<>'running' OR EXISTS(SELECT 1 FROM graph_instances newer WHERE newer.session_id=i.session_id AND newer.id>i.id))
-AND NOT EXISTS(SELECT 1 FROM workflow_admissions a WHERE a.session_id=d.session_id AND a.workflow='bug')
 AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=d.session_id)`
 
 // ListDeadGraphDispatches lists dispatches that can never run (#1299). It
@@ -682,19 +681,7 @@ EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','d
 // recheck. Historical allocated waits and completed attempts are not work. A
 // capacity-deferred pending attempt is paused, not in flight: it waits for a
 // dispatch to resume it, so a missing dispatch is exactly what recovery owes.
-const strandedGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInstanceCancelledLatest + "\n" + graphInstanceStrandedAttempts + "\n" + graphInstanceIdleRest + "\n" + graphInstanceBugStartReplyOnly
-
-// graphInstanceBugStartReplyOnly keeps a Bug started only by the private start
-// step of a chat-filed bug out of automatic recovery while its current node has
-// never been attempted and nothing was ever dispatched: the run started but the
-// analyst attempt was not saved. Only the owner's fresh reply continues it. Once
-// that reply records its own launch, the instance is recoverable as before. The
-// bounds are bugStartTriggerBase and bugStartTriggerEnd written out, because a
-// constant query cannot format them; a store test ties the two together.
-const graphInstanceBugStartReplyOnly = `AND NOT (EXISTS(SELECT 1 FROM research_launch_definitions l WHERE l.instance_id=g.id)
-AND NOT EXISTS(SELECT 1 FROM research_launch_definitions l WHERE l.instance_id=g.id AND NOT (l.trigger_id>36028797018963968 AND l.trigger_id<72057594037927936))
-AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=g.id)
-AND NOT EXISTS(SELECT 1 FROM graph_node_attempts a WHERE a.instance_id=g.id AND a.node=g.current_node))`
+const strandedGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInstanceCancelledLatest + "\n" + graphInstanceStrandedAttempts + "\n" + graphInstanceIdleRest
 
 // idleGraphInstancePredicate is the stranded rule without the
 // cancelled-latest-dispatch clause: nothing is owed, attempted, running,
@@ -778,7 +765,6 @@ func (db *DB) ReconcileStrandedGraphDispatch(ctx context.Context, d GraphDispatc
 const orphanedGraphPrelaunchRuns = `FROM runs r JOIN graph_dispatches d ON d.session_id=r.session_id AND d.id=r.trigger_comment_id-?
 WHERE r.status='prelaunch' AND r.trigger_comment_id>? AND r.trigger_comment_id<?
 AND d.status IN ('finished','cancelled')
-AND NOT EXISTS(SELECT 1 FROM workflow_admissions a WHERE a.session_id=r.session_id AND a.workflow='bug')
 AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=r.session_id)`
 
 // ListOrphanedGraphPrelaunchSessions lists sessions holding a prelaunch run

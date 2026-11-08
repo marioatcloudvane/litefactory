@@ -209,10 +209,6 @@ type Options struct {
 	// Doctor is the independent diagnostic service; nil disables dispatch.
 	Doctor *doctor.Service
 
-	// Bug is the complete factory-bound parent runtime. Nil retains admission
-	// but refuses execution without substituting a mode workflow.
-	Bug *turn.BugRuntime
-
 	// Retirement shares turn coordination; zero options disable automatic retirement.
 	Retirement RetirementExecutionOptions
 
@@ -437,8 +433,6 @@ type Daemon struct {
 	doctorHost        *DoctorRepairHost
 	doctor            doctorLane
 
-	bug *turn.BugRuntime
-
 	publications publicationRecovery
 	mcpClose     func() error
 	retirement   RetirementExecutionOptions
@@ -586,7 +580,6 @@ func New(opts Options) (*Daemon, error) {
 	d := &Daemon{
 		judge:                    opts.Judge,
 		db:                       opts.DB,
-		bug:                      opts.Bug,
 		forge:                    opts.Forge,
 		bugForge:                 opts.BugFilingForge,
 		filter:                   opts.Filter,
@@ -764,18 +757,6 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		}
 	}
 
-	if d.bug != nil {
-		// One Bug instance that cannot be reconciled (for example one captured
-		// before captures existed, or from an older Bug graph) must not keep
-		// the daemon from starting; its work stays where it is.
-		if err := d.bug.Reconcile(ctx); err != nil {
-			if ctx.Err() != nil {
-				return Reconciled{}, err
-			}
-			d.log.WarnContext(ctx, "some Bug instances could not be reconciled at startup; their work is preserved", slog.Any("error", err))
-		}
-	}
-
 	if recovery, ok := d.turn.(interface {
 		RecoverWorkflowJudges(context.Context, time.Time) error
 	}); ok {
@@ -798,6 +779,9 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		return Reconciled{}, err
 	}
 	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "spike", reconciliation.At); err != nil {
+		return Reconciled{}, err
+	}
+	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "bug", reconciliation.At); err != nil {
 		return Reconciled{}, err
 	}
 	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "validate", reconciliation.At); err != nil {

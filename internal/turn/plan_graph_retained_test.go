@@ -46,6 +46,8 @@ func newRetainedFixture(t *testing.T, mode string) *retainedFixture {
 		f.policy, f.result = PlanWorkflowPolicy(), retainedPlanResult
 	case "spike":
 		f.policy, f.result = SpikeWorkflowPolicy(), retainedSpikeResult
+	case "bug":
+		f.policy, f.result = BugWorkflowPolicy(), `{"outcome":"completed","comment":"Fixed.","payload":{"bug":{"request":"Saving crashes.","findings":["The cause"]}}}`
 	case "implement":
 		o.Resolve = func(context.Context) (ar.Context, error) {
 			return ar.Context{SchemaVersion: 1, WorkflowVersion: 2, Mode: "implement", Stories: map[string]agent.ContributionStory{"story-001": {Revision: strings.Repeat("ab", 32)}}, EngineeringComplete: map[string]bool{"story-001": true}}, nil
@@ -240,25 +242,6 @@ func TestWorkflowPolicy_RoutesRetainedIncludesBug(t *testing.T) {
 	for _, p := range []WorkflowPolicy{BugWorkflowPolicy(), ResearchWorkflowPolicy(), PlanWorkflowPolicy(), workflowReusePolicy()} {
 		if !p.routesRetained() {
 			t.Fatalf("%s policy does not derive its response from the retained result", p.Workflow)
-		}
-	}
-}
-
-func TestBugWorkflowPolicy_Respond(t *testing.T) {
-	t.Parallel()
-	for _, response := range []string{"ask", "done", "approved", "blocked"} {
-		t.Run(response, func(t *testing.T) {
-			t.Parallel()
-			result := ar.Result{Payload: ar.Payload{Bug: &ar.Bug{Response: response}}}
-			got, err := BugWorkflowPolicy().Respond(result)
-			if err != nil || got != response {
-				t.Fatalf("response=%q error=%v, want %q", got, err, response)
-			}
-		})
-	}
-	for _, result := range []ar.Result{{}, {Payload: ar.Payload{Bug: &ar.Bug{}}}} {
-		if got, err := BugWorkflowPolicy().Respond(result); err == nil || got != "" {
-			t.Fatalf("missing Bug response routed: %q %v", got, err)
 		}
 	}
 }

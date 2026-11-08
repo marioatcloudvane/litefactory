@@ -485,9 +485,6 @@ func save(
 		return result
 	}
 	if _, stopped := result.Run.OwnerStop(); stopped {
-		if prep.request.Permissions.Profile == "bug-analyst" {
-			return result
-		}
 		return commitAndPush(context.WithoutCancel(ctx), opts, prep, result, runResult, logger)
 	}
 

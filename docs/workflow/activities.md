@@ -138,7 +138,7 @@ Spike registers no activities of its own: one result-routed `lf_agent`
 | `lf_skills` | agent, reviewers | Skills given to the role(s). | comma list, optional `shared/` prefix |
 | `lf_model_tier` | agent | Model tier. | `flagship`, `balanced`, `fast` (node, then role frontmatter, then graph default) |
 | `lf_task` | agent | Task text. | 1–65536 bytes (node, then role, then graph default) |
-| `lf_access` | agent | Tool access. | `read`, `write` (Validate repair: write; Bug analyst: read) |
+| `lf_access` | agent | Tool access. | `read`, `write` (Validate repair and Bug: write) |
 | `lf_budget` | agent | Time budget per run in minutes. | 1–1440 |
 | `lf_response` | agent | Routes the agent's retained result as the outcome: the agent declares its responses (e.g. `ask, done`) instead of `success`. | `result` (Bug agents also need `lf_park=owner`) |
 | `lf_park` | Bug nodes | Parks at the owner instead of failing. | `owner` |

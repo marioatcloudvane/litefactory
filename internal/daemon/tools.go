@@ -24,11 +24,10 @@ type toolDecision struct {
 	Attachments bool
 }
 
-// resolveWorkflowTools resolves the run policy only for a matching mode-backed
-// workflow. Standalone Bug resolves its analyst and fixer roles itself.
+// resolveWorkflowTools resolves the run policy of a matching workflow and mode.
 func (d *Daemon) resolveWorkflowTools(workflow agent.Workflow, mode agent.Mode, kind agent.Kind) (toolDecision, bool) {
 	resolved, err := agent.ResolveWorkflow(workflow, mode)
-	if err != nil || resolved == agent.WorkflowBug {
+	if err != nil {
 		return toolDecision{}, false
 	}
 	mapped, ok := resolved.Mode()
@@ -46,8 +45,11 @@ func (d *Daemon) resolveTools(mode agent.Mode, kind agent.Kind) (toolDecision, b
 		return toolDecision{}, false
 	}
 	name := string(mode)
-	if mode == agent.ModeSpike {
+	switch mode {
+	case agent.ModeSpike:
 		name = config.SpikeFixerProfile
+	case agent.ModeBug:
+		name = config.BugProfile
 	}
 	profile, ok := d.toolProfiles.Resolve(name)
 	if !ok {

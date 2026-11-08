@@ -9,11 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/daemon"
-	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
@@ -24,15 +20,6 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 	t.Helper()
 	f := newFixture(t)
 	isBug := len(bug) > 0 && bug[0]
-	if isBug {
-		runtime, err := turn.NewGraphBugRuntime(t.Context(), turn.Options{DB: f.db, Git: new(git.Binary), CloneGate: unusedRecoveryCloneGate{}, ResearchReporter: f.reporter, MCP: &turn.MCPRuntime{Redactor: redact.New(redact.Options{Logger: f.logger}), BotID: botID}}, turn.BugRuntimeConfig{Forge: f.client, OwnerID: ownerID, Permissions: func(agent.Kind, string) (turn.BugRolePermissions, error) {
-			return turn.BugRolePermissions{}, errors.New("test must not allocate a role")
-		}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		f.daemon = f.newDaemon(daemon.Options{Bug: runtime})
-	}
 	f.plantCursor()
 	label := "Mode: Research"
 	if isBug {
@@ -47,7 +34,7 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 	var bugCapture *teamsource.WorkflowDefinition
 	definition := store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64)}
 	if isBug {
-		specs, err := turn.SimplifiedBugSpecs()
+		specs, err := turn.BugSpecs()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +45,7 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 			t.Fatal(err)
 		}
 		bugCapture = capture
-		definition = store.GraphDefinition{Team: capture.Profile.Team, Workflow: "bug", ProfileVersion: 2, Path: "bug/bug.dot", Digest: capture.Profile.Digest}
+		definition = store.GraphDefinition{Team: capture.Profile.Team, Mode: "bug", ProfileVersion: 2, Path: "bug/bug.dot", Digest: capture.Profile.Digest}
 		if _, err = f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: s.ID, Version: 1, Family: "standalone", Workflow: "bug", SourceTrigger: 22}); err != nil {
 			t.Fatal(err)
 		}
@@ -69,9 +56,8 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 	}
 	launch := store.WorkflowLaunch{Mode: "research", SessionID: s.ID, TriggerID: 22, DefinitionID: pin.ID, Start: "research", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: graphCapacityFiles(t, "research", "research")}
 	if isBug {
-		launch.Mode = ""
-		launch.Workflow = "bug"
-		launch.Start = "conversation"
+		launch.Mode = "bug"
+		launch.Start = bugCapture.Profile.Start
 		launch.ContentDigest = bugCapture.Digest
 		launch.TopologyDigest, err = graphexec.SemanticDigest(bugCapture.Profile)
 		if err != nil {

@@ -200,21 +200,15 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 
 	case req.ResumeAttemptID != 0:
 		judgeRecovery := (workflow == agent.WorkflowResearch || workflow == agent.WorkflowPlan) && node.Action == graphexec.JudgeAction
-		if (!judgeRecovery && node.Action != graphexec.DeliverAction && workflow != agent.WorkflowBug) || node.Action == ResearchAgentAction || req.RunID != 0 {
+		if (!judgeRecovery && node.Action != graphexec.DeliverAction) || node.Action == ResearchAgentAction || req.RunID != 0 {
 			return out, errors.New("only bounded factory effects may resume an attempt")
 		}
 		attempt, err = opts.DB.GetGraphNodeAttempt(ctx, req.ResumeAttemptID)
 		if err == nil && (attempt.InstanceID != instance.ID || attempt.Node != node.Name || attempt.RunID != 0 || (attempt.Status != store.GraphRunning && attempt.Status != store.GraphPending)) {
-			return out, errors.New("bug effect recovery attempt mismatch")
+			return out, errors.New("effect recovery attempt mismatch")
 		}
 	default:
-		var prerequisite *store.BugSyncPrerequisite
-		if gate, exists := graphexec.BugFixerSyncGate(req.Profile); exists {
-			if fixer, valid := graphexec.Decide(req.Profile, gate.Name, "synced"); valid {
-				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer, AllowDeferred: slices.Contains(gate.Outcomes, "deferred")}
-			}
-		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, FactoryStep: node.Action != ResearchAgentAction, Budget: req.Profile.StepBudget(), StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, FactoryStep: node.Action != ResearchAgentAction, Budget: req.Profile.StepBudget(), StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphBudgetExhausted) {
 		out.Exhausted = true
@@ -258,32 +252,6 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		}
 		out.Deferred, out.NextNode = true, node.Name
 		return out, nil
-	}
-	if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction && (dispatchErr != nil || (activity.Outcome != "synced" && activity.Outcome != "current" && activity.Outcome != "deferred")) {
-		out.Activity.Diagnostic = graphBugSyncDiagnostic(activity)
-	}
-	// Owner cancellation must park even when private result submission completed
-	// before process cleanup; a stopped run cannot enter successful delivery.
-	if workflow == agent.WorkflowBug && req.RunID != 0 {
-		run, err := opts.DB.GetRun(context.WithoutCancel(ctx), req.RunID)
-		if err != nil {
-			return out, errors.Join(dispatchErr, err)
-		}
-		if _, stopped := run.OwnerStop(); stopped {
-			out.Activity.Diagnostic = store.ReasonOwnerStop
-			finished, err := parkGraphAction(ctx, opts, req, out, "failed", false)
-			return finished, errors.Join(dispatchErr, err)
-		}
-	}
-	// Owner-conversation activities atomically complete and park themselves,
-	// because their retained review and wait belong to the same boundary.
-	if activity.Suspended && workflow == agent.WorkflowBug && node.Action == graphexec.ResearchLoopAction && node.Attrs["lf_contract"] == "owner_conversation" {
-		wait, waitErr := opts.DB.GetGraphOwnerWait(ctx, instance.ID)
-		if waitErr != nil || wait.State != "waiting" || wait.SourceAttemptID != attempt.ID || wait.OriginNode != node.Name {
-			return out, errors.Join(errors.New("conversation suspension lacks durable origin wait"), waitErr)
-		}
-		out.Status, out.NextNode = "waiting_owner", node.Name
-		return out, dispatchErr
 	}
 	// A local discovery-budget deferral inside a Plan activity is transient
 	// scheduling pressure: the failed attempt counts against the step budget,

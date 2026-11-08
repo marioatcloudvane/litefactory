@@ -32,19 +32,8 @@ func TestRegisteredWorkflowPolicies_EachRefusesTerminalOnlyCompletion(t *testing
 			}
 			var f *retainedFixture
 			switch workflow {
-			case agent.WorkflowResearch, agent.WorkflowPlan, agent.WorkflowSpike, agent.WorkflowImplement, agent.WorkflowValidate:
+			case agent.WorkflowResearch, agent.WorkflowPlan, agent.WorkflowSpike, agent.WorkflowImplement, agent.WorkflowValidate, agent.WorkflowBug:
 				f = newRetainedFixture(t, string(policy.Mode))
-			case agent.WorkflowBug:
-				if policy.Mode != "" {
-					t.Fatal("standalone Bug acquired an effective mode")
-				}
-				db, session, options, _ := bugResultBoundaryFixture(t)
-				service, bindErr := BindAgentResultService(t.Context(), options)
-				if bindErr != nil {
-					t.Fatal(bindErr)
-				}
-				result := strings.TrimSuffix(strings.TrimPrefix(string(bugResultBoundaryBlocked()), `{"result":`), "}")
-				f = &retainedFixture{db: db, session: session, opts: options, service: service, policy: policy, result: result}
 			default:
 				t.Fatalf("registered workflow %q has no result fixture in this guard; add one", workflow)
 			}

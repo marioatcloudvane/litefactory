@@ -17,32 +17,16 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "4e8fec456e7759f44fa9e723fa5c9da58d6f3af81460c0a9f35251f22fcbbb5a"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "1d23cde03bbef7bd2fd51cc08048f7ca2b1913e4cb734d68cdb561038df41576"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "7d585098aef3cd1565b178f9340aba7f5c790d64bdb0364f707c062fe13a92e4"
+          "sha256": "d540956f3d3a3e4689e36ed514326a06ae468f336a789d0b6d82530734e3b125"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "ce8d92f5e7cc817daa4f018e2732a562deefed1cf1b7f699fac9be66dc39aabb"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "87a50dddf8580d577ff66d0681edc27c3d46bf1c55b805aa029d399c9ead981b"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "168a1f7235f782a01576b8507a440c7f6c458a046f440c59803507db3591f712"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/dotnet-web-engineering/SKILL.md",
@@ -317,7 +301,7 @@
           "sha256": "5828a2bf4bdecd52e9a5fe1bc0ff329f83dcf61d8a3772c6247aa1cb407d6bfd"
         }
       ],
-      "checksum": "b58551796296f2561488803741ddc5f15753209db674b18f2041bc955fbcefbf"
+      "checksum": "f79cd95752a5dffb1dde5b9374c354678ebc28d4b8741b3d4909fabfabaa1e07"
     },
     {
       "name": "Go development",
@@ -334,36 +318,20 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "4e8fec456e7759f44fa9e723fa5c9da58d6f3af81460c0a9f35251f22fcbbb5a"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "1d23cde03bbef7bd2fd51cc08048f7ca2b1913e4cb734d68cdb561038df41576"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "be39a428442a78e31d111442ffb4a8167fff2ed935d422c146d55fcd467b7292"
+          "sha256": "55313747e8bf8c6b7085c6403a3ae57782487e8fd164005465cc92ea891791a5"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "ce8d92f5e7cc817daa4f018e2732a562deefed1cf1b7f699fac9be66dc39aabb"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "4fdb37e62fda6fd497aed82fc54f32fcb617dbf013bf7cddad54b82739eb41f9"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "cff10223c8f44565574e7c35f001cd302eafab02a0f98b9fc5e01279cec8ce41"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/go-stack/SKILL.md",
-          "sha256": "60f99702eb23cf3c276704a2cea598ad13f50396d99d03972f8da9c7bef76f35"
+          "sha256": "ddf5c5b5b3c60d16d68cd1aeb7e71eea140b84ae8f9b3dde7541d7843a4af6b9"
         },
         {
           "path": "bug/skills/litefactory-rules/SKILL.md",
@@ -622,7 +590,7 @@
           "sha256": "a525203470db494d92a342a0ea9ba77fc1a449bf62219be0bd3385cbca78f2f5"
         }
       ],
-      "checksum": "afa76b50e71f6d3fb584ae0abaccf3d52b5f0a090b0f512f05583350976230e4"
+      "checksum": "3a40623cbb3aaa01c07ae27a939ab380f339c0d4c5b22c16ecc2e6f94f0d069d"
     },
     {
       "name": "Next.js web",
@@ -642,32 +610,16 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "4e8fec456e7759f44fa9e723fa5c9da58d6f3af81460c0a9f35251f22fcbbb5a"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "1d23cde03bbef7bd2fd51cc08048f7ca2b1913e4cb734d68cdb561038df41576"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "9ff91ae92b65aa531a39ec9ff80964365dbef0af5fd0bef5a86bed9d7b12c417"
+          "sha256": "cf6e1b97cacf93dfea041319aab6cdf685a6854c3ae335916a0493b61b1b0138"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "ce8d92f5e7cc817daa4f018e2732a562deefed1cf1b7f699fac9be66dc39aabb"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "ac5494c4bc6ee2d2a62e0e2119d84f8036b858c23324dbcbf514111e9de1c3e6"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "8ffa3574aedc04aaf14eab42f8597f27ebea7808d4a099ffb148165b2e9eb93f"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/nextjs-web-stack/SKILL.md",
@@ -922,7 +874,7 @@
           "sha256": "039ffe18686496f2ba04cefb9aadef2a68222e6949a6617c9fcf4856ab5a3f13"
         }
       ],
-      "checksum": "7e2821d7483f3ecd94fad425132414372c757d44168f446b4008cbf4283e6e66"
+      "checksum": "753b244c9a7ca59353ddfa89ec613999bc366ab8cdbb067d1fad82fe64abd867"
     },
     {
       "name": "Python FastAPI with React",
@@ -943,32 +895,16 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "4e8fec456e7759f44fa9e723fa5c9da58d6f3af81460c0a9f35251f22fcbbb5a"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "1d23cde03bbef7bd2fd51cc08048f7ca2b1913e4cb734d68cdb561038df41576"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "7185b2f285abc6071e7895eee8825bea3d1c807f7b1d2eb4ec57138e8adc8f03"
+          "sha256": "f3ef54879d2cd0881cd78956cc77e4fde8cf53ab891a6e785d75e19da32f713e"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "ce8d92f5e7cc817daa4f018e2732a562deefed1cf1b7f699fac9be66dc39aabb"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "9313e9eb76edeb1b5f98f3a0dafa3eec98fb7454b1209359b07b53f66b947c32"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "67678e4acc8c10896a9aec723a9ad8ba385d564d7f2e7eee6de9880f82be6fcf"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/python-fastapi-stack/SKILL.md",
@@ -1255,7 +1191,7 @@
           "sha256": "18222a23b5044102c6088d6e052181e415493817b5620e26556eb9a4f25de836"
         }
       ],
-      "checksum": "cdaa5c23435c03c3b62355715a0dadc79aa7e103dc7da3d6dbf488f12e627a35"
+      "checksum": "6102c561aeaa553f8ee6bb8525e79077111aec9cd01687742c3037a29de1681d"
     },
     {
       "name": "Swift iOS",
@@ -1273,32 +1209,16 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "4e8fec456e7759f44fa9e723fa5c9da58d6f3af81460c0a9f35251f22fcbbb5a"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "1d23cde03bbef7bd2fd51cc08048f7ca2b1913e4cb734d68cdb561038df41576"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "f4cb242ea12e8b4c590cbee97f1a199fa5cb3036cbebfa0114a50bde41726505"
+          "sha256": "813cf1837d0319e633b4b7b4a756db946dcf9d359be5159ffeffe6533c0bbc8b"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "ce8d92f5e7cc817daa4f018e2732a562deefed1cf1b7f699fac9be66dc39aabb"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "99b9afdd4a3c2aeb0381d37f9828acde9b91b383088408666cec7b5c79118072"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "dd90e7498cc6b3524e5e23f964c3ff2ca9b3dd56f5a387478b8f1b9470d17fe5"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/swift-ios-boundaries/SKILL.md",
@@ -1553,7 +1473,7 @@
           "sha256": "c9044bb2af5ec7e0ac7d6a1a5ed9b2747b2190f08b285817069c4d1182d3e414"
         }
       ],
-      "checksum": "85b25c55c7380fde5c4c3997e4b8a1807722a0c6270b1fcfa4b5505afb796ab3"
+      "checksum": "06e671084431df80c1ee00f320ff72f58a4a7246ecedbcfc052c241e40fe22fc"
     }
   ]
 }

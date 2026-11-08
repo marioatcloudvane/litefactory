@@ -149,7 +149,7 @@ func prepare(
 	// A story worker was admitted by its parent's approval. The story issue's
 	// own Plan row (#475) neither gates it nor is approved by it.
 	storyWorker := false
-	if req.mode() == "implement" && req.Workflow != agent.WorkflowBug {
+	if req.mode() == "implement" {
 		_, err := opts.DB.ImplementStoryByWorkerSession(ctx, session.ID)
 		switch {
 		case err == nil:
@@ -215,7 +215,7 @@ func prepare(
 	// coordinator's sync resolver, which resolves the base branch's conflict in
 	// the parent's worktree (#1164). For them the factory starts the merge and
 	// leaves the conflict in the worktree; every other run only observes.
-	syncResolver := req.mode() == "implement" && req.Workflow != agent.WorkflowBug && !storyWorker && !req.preparationAssessment &&
+	syncResolver := req.mode() == "implement" && !storyWorker && !req.preparationAssessment &&
 		req.researchDefinition != nil && graphexec.ImplementSyncResolver(req.researchDefinition.Profile, req.researchNode)
 	storyMerge, err := startStoryMerge(ctx, storyWorker || syncResolver, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync, author)
 	if err != nil {
@@ -358,25 +358,23 @@ func prepare(
 	// the SetSessionState call further down relies on: every error return
 	// from this point on must leave sessions.state untouched, and that is
 	// only true if this write cannot itself be skipped by a later failure.
-	if !req.graphBugPreparation {
-		if _, err = opts.DB.RecordRunSync(ctx, run.ID, store.RunSyncOutcome{
-			Outcome:   store.SyncOutcome(sync.Outcome),
-			Behind:    sync.Behind,
-			Ahead:     sync.Ahead,
-			CommitSHA: sync.SyncCommitSHA,
-		}); err != nil {
-			return nil, fmt.Errorf("record the base-sync outcome for run %d of task %s: %w", run.Ordinal, ref, err)
-		}
-		observations := []store.SyncObservation{}
-		if sync.Task != nil {
-			observations = append(observations, observation(*sync.Task))
-		}
-		baseObservation := observation(sync)
-		baseObservation.Ref = opts.remote() + "/" + repo.BaseBranch
-		observations = append(observations, baseObservation)
-		if _, err = opts.DB.RecordRunSyncObservations(ctx, run.ID, observations); err != nil {
-			return nil, fmt.Errorf("record synchronization observations for run %d: %w", run.ID, err)
-		}
+	if _, err = opts.DB.RecordRunSync(ctx, run.ID, store.RunSyncOutcome{
+		Outcome:   store.SyncOutcome(sync.Outcome),
+		Behind:    sync.Behind,
+		Ahead:     sync.Ahead,
+		CommitSHA: sync.SyncCommitSHA,
+	}); err != nil {
+		return nil, fmt.Errorf("record the base-sync outcome for run %d of task %s: %w", run.Ordinal, ref, err)
+	}
+	observations := []store.SyncObservation{}
+	if sync.Task != nil {
+		observations = append(observations, observation(*sync.Task))
+	}
+	baseObservation := observation(sync)
+	baseObservation.Ref = opts.remote() + "/" + repo.BaseBranch
+	observations = append(observations, baseObservation)
+	if _, err = opts.DB.RecordRunSyncObservations(ctx, run.ID, observations); err != nil {
+		return nil, fmt.Errorf("record synchronization observations for run %d: %w", run.ID, err)
 	}
 
 	metaPath, err := harness.MetaPath(opts.Paths.Home(), ref, run.Ordinal)
@@ -469,7 +467,7 @@ func prepare(
 	if storyMerge != nil {
 		promptInput.DeferredSync = *storyMerge
 	}
-	if !storyWorker && !req.preparationAssessment && req.Workflow != agent.WorkflowBug {
+	if !storyWorker && !req.preparationAssessment {
 		if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
 			if errors.Is(err, store.ErrPlanNotReady) {
 				req.preparationAssessment = true
@@ -486,7 +484,7 @@ func prepare(
 	}
 	// A story worker's story comes from the Implement graph, not from a
 	// parent bundle or contract of its own story issue.
-	if !storyWorker && !req.preparationAssessment && req.Workflow != agent.WorkflowBug {
+	if !storyWorker && !req.preparationAssessment {
 		// The Validate repair agent writes under its own validate-repair
 		// grant; the managed read-only Validate context is for reviewers.
 		if req.ToolProfile != config.ValidateRepairProfile {
@@ -731,13 +729,6 @@ func prepareClone(
 	worktree, err := ensureWorktree(ctx, opts, clone, session, repo, branch, logger)
 	if err != nil {
 		return session, "", nil, syncResult{}, nil, err
-	}
-
-	if req.graphBugPreparation {
-		if req.Workflow != agent.WorkflowBug || req.Mode != "" || req.researchDefinition == nil || req.researchDefinition.Profile.ProfileVersion != 2 || confirmed != nil {
-			return session, branch, worktree, syncResult{}, nil, errors.New("invalid deferred graph Bug preparation")
-		}
-		return session, branch, worktree, syncResult{}, nil, nil
 	}
 
 	if confirmed == nil {
@@ -1859,7 +1850,6 @@ func allocateRun(
 		SessionID: session.ID,
 		SegmentID: segment.ID,
 		Mode:      req.mode(),
-		Workflow:  req.storedWorkflow(),
 		// The segment's own value, never req.Agent recomputed: by the time
 		// this is called, segment.Agent is already guaranteed to equal
 		// resolvedKind — prepareDeliverySegment reconciles an ordinary turn's

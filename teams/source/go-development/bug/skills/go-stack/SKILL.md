@@ -12,4 +12,4 @@ Roles that run tests and linters (story worker, sync resolver, bug fixer, Valida
 - A complete package run gets a finite `-timeout` sized to the package, for example `-timeout=30m` for a package that takes 15 to 20 minutes; never `-timeout=0`.
 - Each complete package run uses `-race`, except the packages the repository's own rules run without it because their race runs take far too long; Validate covers those. Never run the same package with and without `-race` at the same time.
 - Format and lint the packages you changed with the repository's tools, usually `gofmt` and `golangci-lint run` on those packages.
-- The repository's full check (for example `make check`) belongs to Validate; a story worker, sync resolver or bug fixer does not run it.
+- Never run the repository's full check or full suite yourself: not `make check`, not `scripts/lf-check.sh` or `scripts/ci-test.sh`, not the browser check, not a Docker image build of the project. Run only the tests for the files you changed (the failing test you wrote, red then green), with the project's own test command and a bounded timeout. Validate runs the full check once, after you finish.

@@ -35,12 +35,18 @@ func DecodeSpikeNode(data []byte, ctx Context) (ResearchNode, Diagnostics) {
 	return decodeNodeFor(data, ctx, nodeSpike)
 }
 
+// DecodeBugNode validates a graph Bug node exactly as a Spike node, in Bug mode.
+func DecodeBugNode(data []byte, ctx Context) (ResearchNode, Diagnostics) {
+	return decodeNodeFor(data, ctx, nodeBug)
+}
+
 type nodeVocabulary int
 
 const (
 	nodeResearch nodeVocabulary = iota
 	nodePlan
 	nodeSpike
+	nodeBug
 )
 
 // decodeNodeFor is the one envelope decoder. The vocabulary selects which mode
@@ -70,6 +76,8 @@ func decodeNodeFor(data []byte, ctx Context, vocabulary nodeVocabulary) (Researc
 		add(&d, "$", "scope", "Plan invocation", "different mode", "Use the factory-selected Plan mode.")
 	case vocabulary == nodeSpike && ctx.Mode != "spike":
 		add(&d, "$", "scope", "Spike invocation", "different mode", "Use the factory-selected Spike mode.")
+	case vocabulary == nodeBug && ctx.Mode != "bug":
+		add(&d, "$", "scope", "Bug invocation", "different mode", "Use the factory-selected Bug mode.")
 	case vocabulary == nodeResearch && ctx.Mode != "research":
 		add(&d, "$", "scope", "Research invocation", "different mode", "Use the factory-selected Research mode.")
 	}

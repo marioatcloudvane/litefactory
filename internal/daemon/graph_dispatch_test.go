@@ -140,7 +140,6 @@ func TestReconcileSettlesOrphanedGraphPrelaunchRuns(t *testing.T) {
 		{name: "live", mode: "validate", dispatch: "reserved"},
 		{name: "worker", mode: "research", dispatch: "finished", guard: "worker"},
 		{name: "task lock", mode: "research", dispatch: "finished", guard: "task lock"},
-		{name: "bug", mode: "research", dispatch: "finished", guard: "bug"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newResearchRecoveryFixture(t)

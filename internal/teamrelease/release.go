@@ -225,7 +225,7 @@ func candidateSource(ctx context.Context, root *os.Root, sourceRoot string) (map
 	if err := turn.ValidateTeamWorkflows(ctx, teamsource.RetainedFiles(files), mapping); err != nil {
 		return nil, release, fmt.Errorf("candidate workflows: %w", err)
 	}
-	builders := map[string]func() (graphexec.Registry, error){"research": turn.ResearchSpecs, "plan": turn.PlanSpecs, "implement": turn.ImplementSpecs, "validate": turn.ValidateFlowSpecs, "spike": turn.SpikeSpecs, "bug": turn.SimplifiedBugSpecs}
+	builders := map[string]func() (graphexec.Registry, error){"research": turn.ResearchSpecs, "plan": turn.PlanSpecs, "implement": turn.ImplementSpecs, "validate": turn.ValidateFlowSpecs, "spike": turn.SpikeSpecs, "bug": turn.BugSpecs}
 	for _, w := range workflows {
 		registry, err := builders[w]()
 		if err != nil {

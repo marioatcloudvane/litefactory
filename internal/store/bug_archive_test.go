@@ -237,52 +237,6 @@ func TestBugArchiveFreshAndEmptyOlderUpgrades(t *testing.T) {
 	}
 }
 
-func TestBugArchiveUnsupportedLegacyOrphanRemainsUntouched(t *testing.T) {
-	db := newTestDB(t)
-	session := testSession(t, db, 986)
-	if _, err := db.AdmitWorkflow(t.Context(), TaskWorkflowAdmission{SessionID: session.ID, Version: 1, Family: "standalone", Workflow: "bug"}); err != nil {
-		t.Fatal(err)
-	}
-	definition, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Workflow: "bug", ProfileVersion: 1, Path: "bug/bug.dot", Digest: strings.Repeat("b", 64), CreatedAt: graphTestTime()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	instance, err := db.CreateGraphInstance(t.Context(), GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "legacy", StartedAt: graphTestTime()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, 1, "legacy-bug", AgentClaude)
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := db.AllocateRun(t.Context(), AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: AgentClaude, TriggerCommentID: 500, LogPath: func(int) string { return "/retained/legacy.log" }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "legacy", RunID: run.ID, StartedAt: graphTestTime()}); err != nil {
-		t.Fatal(err)
-	}
-	if ok, err := db.AcquireSessionLock(t.Context(), session.ID, "old-owner"); err != nil || !ok {
-		t.Fatal("lock", ok, err)
-	}
-	before := map[string]string{}
-	for _, table := range []string{"sessions", "runs", "graph_instances", "graph_node_attempts"} {
-		before[table] = archiveLogicalRows(t, db, "SELECT * FROM "+table)
-	}
-	result, err := db.ReconcileOrphans(t.Context(), "replacement-owner")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.AbandonedRuns) != 0 || len(result.ReclaimedLocks) != 0 {
-		t.Fatalf("legacy orphan reclassified: %+v", result)
-	}
-	for table, want := range before {
-		if got := archiveLogicalRows(t, db, "SELECT * FROM "+table); got != want {
-			t.Fatalf("legacy %s mutated", table)
-		}
-	}
-}
-
 func TestBugArchiveCleanupKeepsTerminalHistoricalFamily(t *testing.T) {
 	db, _, migrations := archiveUpgradeDB(t, 95)
 	session := testSession(t, db, 987)

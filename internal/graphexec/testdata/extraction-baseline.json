@@ -5,9 +5,9 @@
     "Navigation": "3cfc4e4d3e1594112ff919ea77f8a136e91d6053f71e504463d3ba20b9546b38"
   },
   "teams/dotnet-web/v1.0.0/bug/bug.dot": {
-    "Profile": "4263858a34f40e4993e2164bd3956ffa912eecc8ab3bbea05758d62cfabe2288",
-    "Semantic": "f4dfafd5779eaf355df2819c43b3fc930e067182f4829a8cecabe2c87d08a3f7",
-    "Navigation": "4c1741187583804fafe8790e60da13c9e4ba09937ef56bedb330d3d64793e7ff"
+    "Profile": "964d07eb266e57b25a407e7790932eaeb39517039d56185c1a57fcee8c18ca42",
+    "Semantic": "7ee77e6df3e8c3f6977823d1bc32c0a15e7321a5211a17f10788a57f67c2f451",
+    "Navigation": "8eaef07321b83af42aa72eabf789c3542d35312c6f10ed7e55bc243c7e6c6216"
   },
   "teams/dotnet-web/v1.0.0/implement/implement.dot": {
     "Profile": "527db689853ba13810947f54d193a6e26097ee837e9205345f3530307e30e46b",
@@ -35,9 +35,9 @@
     "Navigation": "e85a4bfe4a809f3eb308b5feed90f707a4a25e1ac16b7de4fc51635ffeb531f7"
   },
   "teams/go-development/v1.0.0/bug/bug.dot": {
-    "Profile": "7cf25b2a21ce1c64114278c9df3a06efe085deac4aef2869a8963d07b85c5d73",
-    "Semantic": "02617401fab9868a55c88ec81cb0144c26ac77066177cf8ef795a58148f6a301",
-    "Navigation": "4c1741187583804fafe8790e60da13c9e4ba09937ef56bedb330d3d64793e7ff"
+    "Profile": "55f96352939c290dbb1103879ac1fc5f760f2d9b3c522623016ac45c9625fa65",
+    "Semantic": "82a7e5e42b1313634af0502b075e6182abe04a1fcf213ead4041063a5e90a293",
+    "Navigation": "8eaef07321b83af42aa72eabf789c3542d35312c6f10ed7e55bc243c7e6c6216"
   },
   "teams/go-development/v1.0.0/implement/implement.dot": {
     "Profile": "dadb3c03439ccffa2edfebb6173a1b7129c03386ea9bf50f5e699c36cfb22612",
@@ -65,9 +65,9 @@
     "Navigation": "e85a4bfe4a809f3eb308b5feed90f707a4a25e1ac16b7de4fc51635ffeb531f7"
   },
   "teams/python-fastapi/v1.0.0/bug/bug.dot": {
-    "Profile": "14ad28e41299d9bd065521ac0ed56124b7f60e9b3a1cadf14b9fa861378a1cc2",
-    "Semantic": "e3e708f1905f469f593cf763cfebc0dcf6e6bf61fa751c6f8ab98a9b8633b99d",
-    "Navigation": "4c1741187583804fafe8790e60da13c9e4ba09937ef56bedb330d3d64793e7ff"
+    "Profile": "6dadec5d4f53720e4b367b1fd48dbe9238227f0b7979a11d1a89eb6da643deb0",
+    "Semantic": "1eb73ca392e9cba837a0072d114c1d5df09829762dc720746ff80f2281fe994f",
+    "Navigation": "8eaef07321b83af42aa72eabf789c3542d35312c6f10ed7e55bc243c7e6c6216"
   },
   "teams/python-fastapi/v1.0.0/implement/implement.dot": {
     "Profile": "2517421357b2dd0935a028f25af5928ee3167b5eacce493cc539e914426594b1",
@@ -95,9 +95,9 @@
     "Navigation": "e85a4bfe4a809f3eb308b5feed90f707a4a25e1ac16b7de4fc51635ffeb531f7"
   },
   "teams/source/base-team/bug/bug.dot": {
-    "Profile": "148ac647af9e2bc4227b50c00cfa54f811e71647947d8f12e10b7d02abc10be2",
-    "Semantic": "e382aaaa9fc1d913d42e32cb8df38971f6060866bb6a24e9a5fa316d24a186c4",
-    "Navigation": "4c1741187583804fafe8790e60da13c9e4ba09937ef56bedb330d3d64793e7ff"
+    "Profile": "208f9ac01f13887c2fd2c91cd7636c17ecbdec4c11d25ccc84d605f9c5e563bf",
+    "Semantic": "4ac7b953c76bccd251b29e08aae92c3eed054066a227cc73d8796f8bf83c7aaf",
+    "Navigation": "8eaef07321b83af42aa72eabf789c3542d35312c6f10ed7e55bc243c7e6c6216"
   },
   "teams/source/base-team/implement/implement.dot": {
     "Profile": "50dfa102d65918f7dab6a76ce0c45186760a007f950bc32627ba40028d5bb5e6",
@@ -125,9 +125,9 @@
     "Navigation": "e85a4bfe4a809f3eb308b5feed90f707a4a25e1ac16b7de4fc51635ffeb531f7"
   },
   "teams/swift-ios/v1.0.0/bug/bug.dot": {
-    "Profile": "30debb2c6d1d5400a75b33664d6a5eb20abf684142822011ef21b90b8a86f135",
-    "Semantic": "ac697b13bfb47ab2296d1623a9f96fd394c0b2605a2a897b6e44cd2004e8fe68",
-    "Navigation": "4c1741187583804fafe8790e60da13c9e4ba09937ef56bedb330d3d64793e7ff"
+    "Profile": "741b7ce0eafcd2b14a1a565dea5386289f2bde06ed40bba5cfd48ac2102653fb",
+    "Semantic": "895f004c8bce968f2c6f68a86d0e74702e330d76cc752895463b9f031b28b18f",
+    "Navigation": "8eaef07321b83af42aa72eabf789c3542d35312c6f10ed7e55bc243c7e6c6216"
   },
   "teams/swift-ios/v1.0.0/implement/implement.dot": {
     "Profile": "ee9f797252b93b87e78b6d63e9821038457be9df85ebaa8faee51358dd494332",

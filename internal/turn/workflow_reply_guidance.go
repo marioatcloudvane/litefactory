@@ -30,8 +30,6 @@ func (r *Reporter) workflowDecisionURL(ctx context.Context, ref naming.Ref, sess
 		instance, err = r.db.LatestWorkflowInstance(ctx, sessionID, "validate")
 	case report.ReplyImplementCommentNotApplied:
 		instance, err = r.db.LatestWorkflowInstance(ctx, sessionID, "implement")
-	case report.ReplyBugCommentNotApplied:
-		instance, err = r.db.LatestStandaloneBugInstance(ctx, sessionID)
 	default:
 		instance, err = r.db.LatestSessionGraphInstance(ctx, sessionID)
 	}

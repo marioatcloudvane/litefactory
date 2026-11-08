@@ -127,11 +127,11 @@ func TestLinearWorkflowDisplay(t *testing.T) {
 	binding := GraphDeliveryBinding{IssueNumber: linearParentSlot, IssueReference: pd.Link()}
 	assertLinearDisplay(t, binding.displayReference(), pd.Link())
 	redactor := redact.New(redact.Options{Environ: []string{}})
-	_, bugBody, err := (GraphBugFinalization{Redactor: redactor}).presentation(t.Context(), binding)
+	_, bugBody, err := (GraphDelivery{Redactor: redactor}).presentation(t.Context(), binding)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertLinearDisplay(t, bugBody.String(), pd.Link(), "Approved diagnosis")
+	assertLinearDisplay(t, bugBody.String(), pd.Link())
 	remote := validateRemote{target: target, b: ValidateFlowBindings{Delivery: ValidateDelivery{Redactor: redactor}}}
 	_, validateBody, err := remote.issueContent(t.Context(), ValidateFinding{ID: "finding-1", Story: "story-001", Name: "Invoices"}, "<!-- fixture -->")
 	if err != nil {

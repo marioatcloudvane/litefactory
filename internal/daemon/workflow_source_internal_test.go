@@ -56,7 +56,7 @@ func TestRepositoryWorkflowSourceEditableSelectionAcrossSixWorkflows(t *testing.
 		{agent.WorkflowImplement, turn.ImplementSpecs, teamsourcetest.CaptureImplement},
 		{agent.WorkflowValidate, turn.ValidateFlowSpecs, teamsourcetest.CaptureValidate},
 		{agent.WorkflowSpike, turn.SpikeSpecs, teamsourcetest.CaptureSpike},
-		{agent.WorkflowBug, turn.SimplifiedBugSpecs, teamsourcetest.CaptureBug},
+		{agent.WorkflowBug, turn.BugSpecs, teamsourcetest.CaptureBug},
 	}
 	dir := filepath.Join(paths.TeamsInstalledDir(), "local", "custom", "1.0.0")
 	content := filepath.Join(dir, "content")

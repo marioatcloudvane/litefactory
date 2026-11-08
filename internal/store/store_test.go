@@ -1589,7 +1589,7 @@ func TestConcurrentAccessorsDoNotDeadlock(t *testing.T) {
 }
 
 func TestReconcileOrphansStaleSession(t *testing.T) {
-	for _, protection := range []string{"none", "stale lock", "current lock", "prelaunch", "doctor", "legacy bug"} {
+	for _, protection := range []string{"none", "stale lock", "current lock", "prelaunch", "doctor"} {
 		t.Run(protection, func(t *testing.T) {
 			t.Parallel()
 			db := newTestDB(t)
@@ -1627,14 +1627,6 @@ func TestReconcileOrphansStaleSession(t *testing.T) {
 			case "doctor":
 				schedule := typedSchedule(t, db, session, false)
 				typedRowApproval(t, db, session, "cancel_schedule", fmt.Sprintf("schedule:%d", schedule.ID), "pending", "failed")
-			case "legacy bug":
-				definition, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "builtin", Workflow: "bug", ProfileVersion: 1, Path: "bug/bug.dot", Digest: strings.Repeat("b", 64), CreatedAt: graphTestTime()})
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err = db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "legacy", StartedAt: graphTestTime()}); err != nil {
-					t.Fatal(err)
-				}
 			}
 			before := archiveLogicalRows(t, db, "SELECT * FROM runs")
 			for round := 0; round < 2; round++ {

@@ -214,7 +214,7 @@ Only `claude` and `codex` and the three tiers are accepted names. Every agent yo
 
 | Key | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
-| `tool_profiles.permissions.<name>` | mapping | none | `<name>` must be `research`, `plan`, `implement`, `validate` (all four required), or an optional role: `validate-repair`, `bug-analyst`, `bug-fixer`, `spike-investigator`, `spike-fixer` | One profile. Any other name is refused. A missing optional role blocks only that role's work. |
+| `tool_profiles.permissions.<name>` | mapping | none | `<name>` must be `research`, `plan`, `implement`, `validate` (all four required), or an optional role: `validate-repair`, `bug-fixer` (the Bug agent), `spike-investigator`, `spike-fixer` | One profile. The retired `bug-analyst` is accepted and ignored; any other name is refused. A missing optional role blocks only that role's work. |
 | `...<name>.attachments` | boolean | `false` | `true` or `false`; must be `false` for the optional roles | Lets runs in this mode ingest attachments. Init sets `true` for Research and Plan. |
 | `...<name>.claude.tools` | list of strings | none | non-empty; all inside `agents.claude.tool_ceiling` | Tool boundary for this profile. |
 | `...<name>.claude.allowed_tools` | list of strings | empty | same rules as `agents.claude.allowed_tools`; each rule must name a tool in this profile's `tools` | Extra approvals for this profile. |
@@ -224,7 +224,7 @@ Rules the check enforces:
 
 - Each of the four required profiles needs a `claude` cell if Claude is configured and a `codex` cell if Codex is configured, and no cell for an agent that is not configured.
 - `validate` must stay read-only: Codex sandbox `read-only`; Claude tools only `Read`, `Glob`, `Grep`, `Task` and `Bash`, where `Bash` is allowed only with the fixed read-only reviewer rules (`Bash(git diff:*)`, `git log`, `git show`, `git ls-tree`, `git grep`, `git status`, `git rev-parse`, `cat`, `head`, `ls`, `wc`, `rg`).
-- Roles: `bug-analyst` and `spike-investigator` are read-only (Claude `Read`, `Glob`, `Grep`; Codex `read-only`). `bug-fixer` and `validate-repair` need Codex `workspace-write`, with a Claude surface limited to `Read, Glob, Grep, Edit, MultiEdit, Write, Bash, Task, SendMessage, WebFetch, WebSearch`. `spike-fixer` needs `workspace-write` and only `Read, Glob, Grep, Edit, MultiEdit, Write`. A missing `spike-investigator` or `spike-fixer` blocks Spike.
+- Roles: `spike-investigator` is read-only (Claude `Read`, `Glob`, `Grep`; Codex `read-only`). `bug-fixer` and `validate-repair` need Codex `workspace-write`, with a Claude surface limited to `Read, Glob, Grep, Edit, MultiEdit, Write, Bash, Task, SendMessage, WebFetch, WebSearch`. `spike-fixer` needs `workspace-write` and only `Read, Glob, Grep, Edit, MultiEdit, Write`. A missing `spike-investigator` or `spike-fixer` blocks Spike.
 - A profile name must be lower case: letters, digits, `_`, `-`, up to 40 characters.
 - No value may contain the Claude flag that disables permission checks.
 

@@ -133,7 +133,7 @@ func EditTargets(mode string) []Target {
 	fields := []string{"outcome", "comment", "reason", "recommendation", "questions", "artifacts"}
 	switch mode {
 	case "bug":
-		fields = append(fields, "payload.bug")
+		fields = append(fields, "payload.bug.request", "payload.bug.work_done", "payload.bug.findings", "payload.bug.decisions", "payload.bug.not_done")
 	case "research":
 		fields = append(fields, "payload.research.request", "payload.research.findings", "payload.research.decisions", "payload.research.assumptions")
 	case "plan":

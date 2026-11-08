@@ -1,24 +1,51 @@
-// One conversation, a fixer, automatic factory delivery.
-// Questions and all stopping outcomes park at their origin. Owner guidance
-// resumes that origin once; only exact approval releases an unapproved repair.
+// Bug is one agent, shaped like Spike. It reproduces the reported bug with a
+// failing test, diagnoses it, and fixes it when the cause is shown and the fix
+// is small, showing the test red then green. When the fix would be a redesign,
+// the cause stays unclear or the report is not a bug, it asks the owner with
+// options and a recommendation. All of that lives in the role's Markdown.
+//
+// The agent's result names its own response (lf_response="result"): "ask" or
+// "done". A question is posted and the instance waits for the owner, whose
+// reply resumes this same agent with its saved result as context. A failed
+// attempt posts why and stops.
+//
+// A finished result goes to the factory-wide delivery activity (lf_deliver).
+// "prepare" (push) saves the task branch, synchronizes, pushes and finds or
+// opens the PR. A result without branch changes is "unchanged" and posts the
+// agent's report. A prepared candidate is "ready" and reaches "review", which
+// publishes the shipping review with the diff and the agent's red/green
+// evidence. Only an authenticated exact owner "ship" reply bound to that
+// displayed candidate releases "approved" to "deliver" (merge), then "close".
+// Other replies resume the agent. A changed source or base returns
+// "revalidate" to the agent for fresh checks and a new review.
 digraph bug {
- graph [team="{{team}}",workflow="bug",profile_version="2",start="conversation"];
- conversation [lf_action="lf_loop",lf_contract="owner_conversation",lf_outcomes="analyse,approved,blocked",lf_park="owner",lf_stop="blocked,failed,invalid,exhausted"];
- analyst [lf_action="lf_agent",lf_agent_markdown="bug-analyst",lf_skills="bug-analysis-result,{{stack_skill}}",lf_model_tier="flagship",lf_access="read",lf_response="result",lf_outcomes="ask,done,blocked",lf_park="owner",lf_stop="blocked,failed,invalid,exhausted"];
- sync_before_fixer [lf_action="lf_sync_base",lf_outcomes="synced,current,conflict,retry,deferred",lf_park="owner",lf_stop="conflict,failed,invalid,exhausted"];
- fixer [lf_action="lf_agent",lf_agent_markdown="bug-fixer",lf_skills="bug-repair-result,{{stack_skill}}",lf_response="result",lf_outcomes="succeeded,reshape,blocked",lf_park="owner",lf_stop="blocked,failed,invalid,exhausted"];
- finalization [lf_action="lf_bug_finalize",lf_owner_continuation="required",lf_outcomes="completed,revalidate,stale,blocked",lf_park="owner",lf_stop="blocked,failed,invalid,exhausted,stale"];
- completed [lf_terminal="true"];
- conversation -> analyst [lf_on="analyse"];
- conversation -> sync_before_fixer [lf_on="approved"];
- analyst -> conversation [lf_on="ask"];
- analyst -> conversation [lf_on="done"];
- fixer -> conversation [lf_on="reshape"];
- fixer -> finalization [lf_on="succeeded"];
- finalization -> sync_before_fixer [lf_on="revalidate"];
- sync_before_fixer -> fixer [lf_on="synced"];
- sync_before_fixer -> fixer [lf_on="current"];
- sync_before_fixer -> fixer [lf_on="deferred"];
- sync_before_fixer -> sync_before_fixer [lf_on="retry"];
- finalization -> completed [lf_on="completed"];
+ graph [team="{{team}}", mode="bug", profile_version="2", start="bug"];
+
+ bug      [lf_action="lf_agent", lf_agent_markdown="bug", lf_skills="bug-result,{{stack_skill}}", lf_access="write", lf_response="result", lf_outcomes="ask,done,failed"];
+ prepare  [lf_action="lf_deliver", lf_operation="push", lf_source="bug", lf_outcomes="ready,unchanged,revalidate,blocked", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
+ review   [lf_action="lf_ask", lf_kind="review", lf_source="bug", lf_approve_reply="ship", lf_outcomes="published,approved"];
+ deliver  [lf_action="lf_deliver", lf_operation="merge", lf_source="bug", lf_outcomes="merged,revalidate,blocked", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
+ close    [lf_action="lf_deliver", lf_operation="close", lf_source="bug", lf_outcomes="completed,revalidate,blocked", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];
+ ask      [lf_action="lf_ask", lf_kind="question", lf_outcomes="published", lf_source="bug"];
+ report   [lf_action="lf_comment", lf_kind="final", lf_outcomes="published", lf_source="bug"];
+ failure  [lf_action="lf_comment", lf_kind="failure", lf_outcomes="published"];
+ waiting  [lf_terminal="true"];
+ complete [lf_terminal="true"];
+ stopped  [lf_terminal="true"];
+
+ bug     -> ask      [lf_on="ask"];
+ bug     -> prepare  [lf_on="done"];
+ bug     -> failure  [lf_on="failed"];
+ prepare -> review   [lf_on="ready"];
+ prepare -> report   [lf_on="unchanged"];
+ prepare -> bug      [lf_on="revalidate"];
+ review  -> waiting  [lf_on="published"];
+ review  -> deliver  [lf_on="approved"];
+ deliver -> close    [lf_on="merged"];
+ deliver -> bug      [lf_on="revalidate"];
+ close   -> complete [lf_on="completed"];
+ close   -> bug      [lf_on="revalidate"];
+ ask     -> waiting  [lf_on="published"];
+ report  -> complete [lf_on="published"];
+ failure -> stopped  [lf_on="published"];
 }
