@@ -2,9 +2,9 @@
 
 ## Goal and state
 
-Recheck #1469 and settle the bounded repair scope for authorized ChatGPT workflow discovery. Research is complete; implementation, regression execution, deployment and live acceptance are not. Inspected commit: `dd8520545072756669ad2ec52ed2b1539199ce09`.
+Assess #1469 and retain the settled bounded repair scope for authorized ChatGPT workflow discovery. Research is complete; implementation, regression execution, deployment and live acceptance are not. Inspected commit: `dd8520545072756669ad2ec52ed2b1539199ce09`.
 
-No earlier brief or saved result for #1469 was found in this worktree. The supplied comments and the issue's fetched comments agree. The owner's substantive answer already settles scope; the previous request for another explicit go was unnecessary. Research does not itself authorize a mode transition.
+The predecessor brief and saved result were read before this assessment. The current source matches the previously inspected transport code; the intervening factory commit f2d09880 records Research artifacts only. The owner's substantive answer already settles scope; the previous request for another explicit go was unnecessary. Research does not itself authorize a mode transition.
 
 ## Outcome ledger
 
@@ -36,7 +36,23 @@ No earlier brief or saved result for #1469 was found in this worktree. The suppl
 >
 > I agree with the proposed change to accept the optional MCP `params._meta` object while preserving strict rejection of other unknown fields and keeping authorization and tool argument validation unchanged. Please extend the plan with an end-to-end regression test that sends a complete JSON-RPC `tools/call` request through the actual HTTP MCP endpoint, not just a unit test of the parser. Cover `workflows_list` with empty and project-filtered arguments, both with and without `_meta`, and verify that the other workflow tools follow the same envelope rules. After implementation, retry the original ChatGPT `workflows_list` call to confirm the reported failure is resolved. Since `_meta` is still a hypothesis, if the real client request does not contain it or the original call still fails, report the observed wire-level mismatch and stop rather than declaring the bug fixed.
 
-### A-02 Current recheck request — owner: "recheck this" (owner said: comment 6721201189)
+### A-02 Earlier recheck request — owner: "recheck this" (owner said: comment 6721201189)
+
+### A-03 Current assessment request — owner: "Assess the bug" (owner said: comment 6721247805)
+
+## Bug assessment
+
+**Verdict:** A real server-side protocol compatibility defect is established by source inspection: valid optional request metadata is refused. Whether this caused the owner's particular ChatGPT failure remains unproven. This is not evidence of a broken tool argument schema or a private adapter defect.
+
+**Impact and priority (agent's assessment):** High functional impact for clients that attach metadata because workflow discovery is the entry point to the requested proposal flow; recommend prompt repair, without treating this as a demonstrated security incident. A client omitting metadata avoids this particular refusal, but that is not proof that every such call succeeds. Current conditions also affect action, advisory and brainstorm tools. The earlier historical reference to a separate decision tool family is not supported by the current dispatcher and is not added to scope.
+
+**Failure boundary:** With valid credentials, HTTP admission and protocol headers, the public handler identifies the tool, inspects the envelope, and returns JSON-RPC -32602 before parsing workflow arguments or calling the workflow provider. Thus the defect can block both empty and project-filtered calls for the same reason. No workflow mutation occurs through that refused call, although the refusal is audited. Missing credentials and unsupported protocol versions have separate earlier rejection paths. Sources: `internal/connector/mcp.go:35–156`, `:278–315`, `:413–419`, `:465–475`.
+
+**Repair risk (agent's assessment):** The change is small but shared. Both the permitted-key check and strict decoding must agree; changing only one leaves the refusal intact. A broad removal of strict decoding would weaken unrelated guarantees and is outside scope. Main regression risks are accepting non-object metadata, accidentally accepting other unknown fields, changing duplicate-key behavior, or allowing metadata to influence authorization. The agreed negative tests directly cover these risks. No migration or provider behavior change is indicated.
+
+**Confidence:** High that this code rejects valid metadata; high that all five workflow tools share the branch; unresolved whether the original client sent metadata and whether this is the only live mismatch. No runtime reproduction, tests or build were executed in Research. The predecessor's blocked live calls are retained as a limitation, not reused as successful test evidence.
+
+**Disposition:** Ready for a bounded repair assessment handoff under the existing owner-controlled gate. Preserve O-04: do not declare the original bug fixed without the authentic retry. No additional owner decision is needed to define the repair.
 
 ## Findings and evidence
 
@@ -52,7 +68,7 @@ No earlier brief or saved result for #1469 was found in this worktree. The suppl
 
 **Prior research:** The #1108 brief documents the public HTTP connector and secret-free logs; the #1271 brief preserves the public/private boundary, tool behavior and grants. Their paths are `.aiteam/lf-1108-mcp-1-remote-mcp-endpoint-with-owner/2026-10-25/mcp-1-remote-mcp-endpoint-with-owner/RESEARCH_BRIEF.md` and `.aiteam/lf-1271-separate-remote-owner-mcp-access-from/2026-11-03/separate-remote-owner-mcp-access-from/RESEARCH_BRIEF.md`.
 
-**Authentic retry limitation:** This run discovered `mcp__codex_apps__litefactory_workflows_list` and attempted both `{}` and `{"project":"marioatcloudvane/litefactory"}`. Both returned `MCP tool call requires approval, but approval policy is never`. Neither reached a confirmed server execution. This is a session permission limitation, not a reproduction of the reported server error. No raw ChatGPT request or server-side capture was available. The earlier claim that no live tool exists is now superseded; successful execution remains unavailable.
+**Authentic retry limitation:** The predecessor run discovered `mcp__codex_apps__litefactory_workflows_list` and attempted both `{}` and `{"project":"marioatcloudvane/litefactory"}`. Both returned `MCP tool call requires approval, but approval policy is never`. Neither reached a confirmed server execution. This is a session permission limitation, not a reproduction of the reported server error. No raw ChatGPT request or server-side capture was available. The earlier claim that no live tool exists is now superseded; successful execution remains unavailable.
 
 **Inference:** Standard metadata explains the reported refusal, but a different unknown envelope member, wrong wrapping or a differing deployed build could also explain it. Do not state that ChatGPT sends metadata without a capture. Local compatibility success and reported-bug resolution are distinct acceptance claims.
 
@@ -72,7 +88,7 @@ Live acceptance remains O-04: after the changed server is available, retry both 
 
 ## Impact analysis
 
-- **Touched:** public connector envelope validation and its error text; connector HTTP workflow regression coverage and representative shared-family coverage; no team or skill change. Applicable standards inspected: `.golangci.yml`, existing connector HTTP tests, public transport bounds and supplied plan-go-guidance.
+- **Touched:** public connector envelope validation and its error text; connector HTTP workflow regression coverage and representative shared-family coverage; no team or skill change. Applicable standards inspected: `.litefactory/bug-checks.yaml` (declared future Bug checks, not executed here), `.golangci.yml`, existing connector HTTP tests, public transport bounds and supplied plan-go-guidance.
 - **Depends on it:** ChatGPT and other remote MCP clients, workflow discovery/proposals/job reads, action/advisory/brainstorm callers through the strict branch; factory authorization and workflow providers retain their existing ownership.
 - **Superseded:** the two-field-only restriction is replaced by acceptance of optional metadata; no service, endpoint or persisted format is retired.
 - **Data and compatibility:** no migration, stored grant rewrite, new scope or team release is needed based on inspected connector and submission contracts; existing requests without metadata remain equivalent, and metadata cannot confer authority.
