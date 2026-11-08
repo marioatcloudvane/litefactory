@@ -34,13 +34,15 @@ type PlanState struct {
 
 // PlanStoryState retains one story's current stage, candidate and owner gates.
 type PlanStoryState struct {
-	Route     *PlanRouteState    `json:"route,omitempty"`
-	Parallel  *PlanParallelGroup `json:"parallel,omitempty"`
-	Key       string             `json:"key"`
-	Stage     string             `json:"stage"`
-	Candidate string             `json:"candidate"`
-	Draft     PlanDraft          `json:"draft"`
-	Approvals map[string]string  `json:"approvals"`
+	// Route is the opaque route record the retired parallel fast track kept. It
+	// is carried unchanged only because PlanSetRevision hashes it, so a plan
+	// approved before the fast track was removed keeps its approved revision.
+	Route     json.RawMessage   `json:"route,omitempty"`
+	Key       string            `json:"key"`
+	Stage     string            `json:"stage"`
+	Candidate string            `json:"candidate"`
+	Draft     PlanDraft         `json:"draft"`
+	Approvals map[string]string `json:"approvals"`
 	// ApprovedBy records who gave the current approval of a stage: owner or graph.
 	// A missing entry reads as owner, which holds for every earlier saved state.
 	ApprovedBy    map[string]string `json:"approved_by,omitempty"`
@@ -584,84 +586,6 @@ func approve(item *PlanStoryState, stage, ref, source string) {
 	}
 }
 
-// GraphApproval is the outcome of ApproveByGraph: approved, review, superseded or
-// blocked, with a short factual reason for the last three.
-type GraphApproval struct {
-	Outcome string
-	Reason  string
-}
-
-// ApproveByGraph records a stage approval given by an ungated graph stage. It
-// is tied to the identity the run applied (stage, candidate, effect request) and
-// must run inside one saved-state update, so every guard is read at the moment
-// of recording. Only a new approval, or moving on a story that a re-run moved
-// back to an approved stage, writes anything.
-func (s *PlanState) ApproveByGraph(key, stage, candidate, request string) (GraphApproval, error) {
-	if !slices.Contains(planStages, stage) {
-		return GraphApproval{}, errors.New("invalid Plan approval stage")
-	}
-	item, err := s.story(key)
-	if err != nil {
-		return GraphApproval{}, err
-	}
-	same := item.Candidate == candidate && item.EffectRequest == request
-	ref, refErr := s.ReviewRevision(key, stage)
-	// (a) Replay of an approval that already stands for this exact applied draft.
-	// A re-run that lowered the stage keeps the approval; the story moves on
-	// again, as approve() does, without rewriting the approval or its source.
-	if same && refErr == nil && item.Approvals[stage] == ref {
-		if n := slices.Index(planStages, stage); n < 2 && stage == item.Stage {
-			item.Stage = planStages[n+1]
-		}
-		return GraphApproval{Outcome: "approved"}, nil
-	}
-	// (b) The saved story is no longer the one this run applied.
-	if item.Stage != stage || !same {
-		return GraphApproval{Outcome: "superseded", Reason: "the story's stage, candidate or effect request changed since this draft was applied"}, nil
-	}
-	// (c) Held, blocked or without a computable revision.
-	if !item.Active() || item.Blocked() {
-		return GraphApproval{Outcome: "blocked", Reason: "the story is held or its stage result is not applied"}, nil
-	}
-	if blocked, ok := blockedApproval("the review revision cannot be computed: ", refErr); ok {
-		return blocked, nil
-	}
-	// (d) An earlier stage's approval no longer matches.
-	for _, up := range planStages[:slices.Index(planStages, stage)] {
-		upRef, e := s.ReviewRevision(key, up)
-		if blocked, ok := blockedApproval("the review revision of the "+up+" stage cannot be computed: ", e); ok {
-			return blocked, nil
-		}
-		if item.Approvals[up] != upRef {
-			return GraphApproval{Outcome: "superseded", Reason: "the " + up + " stage approval is no longer current"}, nil
-		}
-	}
-	// (e) Anything else that needs the owner.
-	switch {
-	case !s.UpstreamApproved(key, stage):
-		return GraphApproval{Outcome: "review", Reason: "an upstream story is not approved at this stage"}, nil
-	case item.Wait != nil:
-		return GraphApproval{Outcome: "review", Reason: "a wait is already open"}, nil
-	case len(item.Draft.Questions) > 0:
-		return GraphApproval{Outcome: "review", Reason: "the draft has open questions"}, nil
-	}
-	if blocked, ok := blockedApproval("", s.approvalChecks(item)); ok {
-		return blocked, nil
-	}
-	approve(item, stage, ref, ApprovalByGraph)
-	return GraphApproval{Outcome: "approved"}, nil
-}
-
-// blockedApproval turns a fault that stops a graph approval into the "blocked"
-// outcome. A blocked approval is a valid result for the graph to route on, not
-// a failure of ApproveByGraph, so the caller returns it with a nil error.
-func blockedApproval(prefix string, fault error) (GraphApproval, bool) {
-	if fault == nil {
-		return GraphApproval{}, false
-	}
-	return GraphApproval{Outcome: "blocked", Reason: prefix + fault.Error()}, true
-}
-
 // GraphApprovedStage names one stage of one story whose current approval came
 // from the graph.
 type GraphApprovedStage struct{ Key, Stage string }
@@ -735,17 +659,16 @@ func (s *PlanState) PlanSetRevision() string {
 			refs[item.Key] = item.Draft.Revision()
 		}
 	}
-	routes := map[string]*PlanRouteState{}
-	for i := range s.Stories {
-		item := &s.Stories[i]
-		if item.Active() && item.Route != nil {
+	routes := map[string]json.RawMessage{}
+	for _, item := range s.Stories {
+		if item.Active() && len(item.Route) > 0 && string(item.Route) != "null" {
 			routes[item.Key] = item.Route
 		}
 	}
 	return planHash(struct {
 		Shared  string
 		Stories map[string]string
-		Routes  map[string]*PlanRouteState `json:",omitempty"`
+		Routes  map[string]json.RawMessage `json:",omitempty"`
 	}{s.SharedRevision, refs, routes})
 }
 

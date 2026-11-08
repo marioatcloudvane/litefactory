@@ -128,14 +128,15 @@ func TestPlanAdmission_NewSessionsGetGraphAndExistingRoutesAreKept(t *testing.T)
 			t.Fatalf("route changed to %q %v", route, err)
 		}
 	})
-	t.Run("an admitted legacy session cannot be moved by a later graph selection", func(t *testing.T) {
+	t.Run("a session pinned to the retired legacy route is refused", func(t *testing.T) {
 		t.Parallel()
 		f := newFixtureWithoutRun(t)
 		if route, err := f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "legacy"); err != nil || route != "legacy" {
 			t.Fatalf("setup: %q %v", route, err)
 		}
-		if route, err := f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "graph"); err != nil || route != "legacy" {
-			t.Fatalf("a later selection moved a frozen legacy route: %q %v", route, err)
+		_, handled, err := admitPlanExecution(t.Context(), f.opts, planRequest(f), Result{Ref: f.ref(), Session: f.session, SessionID: f.session.ID})
+		if !handled || err == nil || !strings.Contains(err.Error(), "retired") {
+			t.Fatalf("a legacy session was not refused: handled=%v err=%v", handled, err)
 		}
 	})
 }

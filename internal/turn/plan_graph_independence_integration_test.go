@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
@@ -283,68 +282,5 @@ func TestPlanIndependence_ApprovalCannotSkipAStageOrBorrowAnotherStoryWait(t *te
 	}
 	if item := indepStory(t, f, "story-002"); item.Stage != "acceptance" || len(item.Approvals) != 2 {
 		t.Fatalf("an outdated command advanced story-002: %+v", item)
-	}
-}
-
-// Independence does not let a dependant keep an approval that was given against
-// dependency content which has since changed. story-001 (which depends on
-// story-002) is approved at its story review and moves to its technical review;
-// then the owner edits story-002's sub-issue in substance. Story-002 goes back to
-// its story review and story-001, and story-003 which also depends on it, lose the
-// approvals and waits built on the old content, so their old commands are refused;
-// there is no path by which the earlier independent progress carries over.
-func TestPlanIndependence_DependencyChangeOutdatesTheDependantsProgressAndWaits(t *testing.T) {
-	f, remote, base, _, _ := indepFixture(t)
-	dependant := indepStory(t, f, "story-001")
-	if dependant.Stage != "technical" || dependant.Wait != nil || len(dependant.Approvals) != 1 {
-		t.Fatalf("story-001 after its first approval: %+v", dependant)
-	}
-	stale := graphPlanApproveKey(t, f, base, "story-003", 951)
-	third := indepStory(t, f, "story-003")
-	if third.Wait == nil || third.Wait.Stage != "story" {
-		t.Fatalf("story-003 should wait at its story review: %+v", third)
-	}
-
-	// The owner changes the substance of story-002's sub-issue.
-	binding, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-002")
-	mustProgress(t, err)
-	remote.mu.Lock()
-	body, _ := remote.children[binding.IssueNumber]["body"].(string)
-	if !strings.Contains(body, "I want shape intent") {
-		remote.mu.Unlock()
-		t.Fatalf("the fixture's sub-issue lacks the expected intent: %q", body)
-	}
-	remote.children[binding.IssueNumber]["body"] = strings.Replace(body, "I want shape intent", "I want a different intent", 1)
-	remote.mu.Unlock()
-	client, ok := f.opts.SubIssueCreator.(PlanStoryForge)
-	if !ok {
-		t.Fatal("fixture requires PlanStoryForge")
-	}
-	issue, err := client.GetIssue(t.Context(), github.Repo{Owner: "acme", Name: "acme-api"}, binding.IssueNumber)
-	mustProgress(t, err)
-	mustProgress(t, ReconcilePlanChildEdit(t.Context(), f.db, f.ref().String(), 123, 1230, issue, planbrief.ContentScope{Roles: []string{"go-implementation-engineer"}}))
-
-	changed := indepStory(t, f, "story-002")
-	if changed.Stage != "story" || changed.Wait != nil || len(changed.Approvals) != 0 {
-		t.Fatalf("the edited story was not reopened at its story review: %+v", changed)
-	}
-	for _, key := range []string{"story-001", "story-003"} {
-		item := indepStory(t, f, key)
-		if item.Stage != "story" || item.Wait != nil || len(item.Approvals) != 0 {
-			t.Fatalf("%s kept progress or a wait built on the old dependency content: %+v", key, item)
-		}
-	}
-	// The command story-001 was waiting for is refused and moves nothing.
-	before, _ := json.Marshal(graphPlanState(t, f))
-	out, err := Execute(t.Context(), f.opts, stale)
-	if err == nil || !strings.Contains(err.Error(), "stale or wrong-story Plan reply") {
-		t.Fatalf("the outdated approval was not refused as stale: err=%v out=%+v", err, out.Err)
-	}
-	after, _ := json.Marshal(graphPlanState(t, f))
-	if string(before) != string(after) {
-		t.Fatalf("an outdated approval changed state:\n%s\n%s", before, after)
-	}
-	if item := indepStory(t, f, "story-003"); item.Stage != "story" || len(item.Approvals) != 0 {
-		t.Fatalf("an approval given against replaced dependency content advanced story-003: %+v", item)
 	}
 }

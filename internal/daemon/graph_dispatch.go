@@ -148,11 +148,10 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 // falls back to the run pool; an agent stage, a step that cannot be classified,
 // and every other dispatch use the run pool only.
 func (d *Daemon) graphStepSlot(ctx context.Context, dispatch store.GraphDispatch) (*stepReservation, string, error) {
-	need, err := turn.GraphDispatchSlotNeed(ctx, d.db, dispatch)
+	cost, err := turn.GraphDispatchSlotCost(ctx, d.db, dispatch)
 	if err != nil {
 		return nil, "", err
 	}
-	cost := need.Admission
 	if d.coordinator != nil {
 		coordinator, err := d.implementCoordinatorDispatch(ctx, dispatch)
 		if err != nil {
@@ -166,7 +165,7 @@ func (d *Daemon) graphStepSlot(ctx context.Context, dispatch store.GraphDispatch
 		return &stepReservation{pool: d.pool, cost: cost}, "", nil
 	}
 	used, total := d.pool.capacity()
-	return nil, fmt.Sprintf("%s: pool=shared workflow_instance=%d node=%s requested=%d used=%d available=%d total=%d", need.Deferral(total), dispatch.InstanceID, dispatch.Node, cost, used, total-used, total), nil
+	return nil, fmt.Sprintf("%s: pool=shared workflow_instance=%d node=%s requested=%d used=%d available=%d total=%d", slotDeferral(cost, total), dispatch.InstanceID, dispatch.Node, cost, used, total-used, total), nil
 }
 
 // graphStepRunsAgent classifies a dispatch by its node in the retained graph. A
@@ -323,23 +322,6 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		}
 	}
 	trigger, command := graphStepRequest(dispatch, d.ticketIdentities(ctx).OwnerHandle)
-	continuation, found, continuationErr := d.db.StageDecisionForDispatch(ctx, dispatch.ID)
-	if continuationErr != nil {
-		if errors.Is(continuationErr, store.ErrStageDecisionTarget) {
-			if cancelErr := d.db.CancelGraphDispatch(ctx, dispatch.ID, "confirmed revision target was superseded before continuation", t.tickAt.UTC()); cancelErr != nil {
-				t.recordWorkerError(cancelErr)
-				return
-			}
-		}
-		t.recordWorkerError(continuationErr)
-		return
-	}
-	if found && continuation.Operation == "revise_task" {
-		trigger.StageDecisionRef = continuation.ExecutionID
-		trigger.Body = continuation.Change
-		trigger.AuthorID = continuation.OwnerID
-		command.Text = continuation.Change
-	}
 	previousTrigger := t.commentUnderWay
 	t.commentUnderWay = trigger.CommentID
 	err := d.run(ctx, t, trigger, command, t.log)

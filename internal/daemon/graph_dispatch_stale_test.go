@@ -11,7 +11,7 @@ import (
 )
 
 // staleDispatchOnFinishedInstance reproduces #1299: a Plan instance parked at
-// parallel_group, a worker reserved the owed dispatch, and the instance then
+// an agent node, a worker reserved the owed dispatch, and the instance then
 // finished on another path, leaving the dispatch reserved on a succeeded
 // instance.
 func staleDispatchOnFinishedInstance(t *testing.T) (*researchRecoveryFixture, store.GraphDispatch) {
@@ -23,9 +23,9 @@ func staleDispatchOnFinishedInstance(t *testing.T) (*researchRecoveryFixture, st
 	researchRecoveryCheck(t, err)
 	definition, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "plan", ProfileVersion: 1, Path: "plan.dot", Digest: strings.Repeat("d", 64), CreatedAt: f.at})
 	researchRecoveryCheck(t, err)
-	f.instance, err = f.db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "parallel_group", StartedAt: f.at, NextDueAt: f.at})
+	f.instance, err = f.db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "story_agent", StartedAt: f.at, NextDueAt: f.at})
 	researchRecoveryCheck(t, err)
-	parked, err := f.db.ParkGraphInstance(ctx, f.instance.ID, "parallel_group", f.at, f.at)
+	parked, err := f.db.ParkGraphInstance(ctx, f.instance.ID, "story_agent", f.at, f.at)
 	researchRecoveryCheck(t, err)
 	reserved, ok, err := f.db.ReserveGraphDispatch(ctx, parked.ID, f.at)
 	if err != nil || !ok {

@@ -179,10 +179,9 @@ agents:
     # model_tier selects one centrally configured value under tiers below.
     model_tier: %q
     autocompact: %q
-%s%s%s    # tools is the hard --tools boundary. allowed_tools becomes
-    # --allowedTools and is defence in depth, NOT the boundary. --settings
-    # prevents ambient permissions from the operator's personal settings.
-    # An omitted tool_ceiling defaults to exactly tools.
+    # Every run gets the full tool set inside its mode's sandbox; --settings
+    # carries the shared deny rules and keeps the operator's personal
+    # settings out of the run.
     settings_path: %q # empty means $LF_HOME/claude-settings.json
     forward_anthropic_env: %t
 
@@ -197,10 +196,9 @@ agents:
 # literal vendor model names live here so selection cannot conflict.
 tiers:
 %s
-# Permissions are selected automatically from the resolved workflow mode.
-# research, plan and implement may write their required artifacts/source;
-# validate is read-only. Spike graph roles have their own grants below; an
-# absent spike-investigator or spike-fixer blocks Spike, and no mode supplies it.
+# The sandbox each mode's agent works in (read-only or workspace-write) and
+# whether it ingests attachments, for modes and graph roles alike. Every entry
+# is optional; an omitted one uses the factory default shown here.
 tool_profiles:
   permissions:
 `,
@@ -232,31 +230,15 @@ tool_profiles:
 		d.Settings.ThinkingLogs,
 		d.Providers.GitHub.APIBase,
 		claude.Binary, claude.ModelTier, claude.AutoCompact,
-		yamlList(4, "tools", claude.Tools), yamlList(4, "allowed_tools", claude.AllowedTools), yamlList(4, "tool_ceiling", claude.ToolCeiling),
 		claude.SettingsPath, claude.ForwardAnthropicEnv,
 		codex.Binary, codex.ModelTier,
 		renderModelByTier(d.Tiers.ModelByTier),
 	)
-	for _, name := range canonicalPermissionProfiles {
-		renderToolProfile(&b, name, profiles.Permissions[name])
-	}
-	for _, name := range []string{SpikeInvestigatorProfile, SpikeFixerProfile} {
-		renderToolProfile(&b, name, profiles.Permissions[name])
+	for _, name := range []string{"research", "plan", "implement", "validate", ValidateRepairProfile, "bug-analyst", "bug-fixer", SpikeInvestigatorProfile, SpikeFixerProfile} {
+		profile := profiles.Permissions[name]
+		fmt.Fprintf(&b, "    %s: {sandbox: %s, attachments: %t}\n", name, profile.Sandbox, profile.Attachments)
 	}
 	b.WriteString(`
-# Optional independent Bug role grants go under tool_profiles.permissions:
-#   bug-analyst:
-#     codex: {sandbox: read-only}
-#   bug-fixer:
-#     codex: {sandbox: workspace-write}
-#     # claude: {tools: [Read, Glob, Grep, Edit, Write, Bash, Task], allowed_tools: [...]}
-#     # The fixer builds and tests its own work; the factory's check is the final gate.
-# An absent role blocks that Bug agent. Existing modes never supply its grant.
-# Optional Validate repair grant (only the repair agent writes; reviewers stay read-only):
-#   validate-repair:
-#     codex: {sandbox: workspace-write}
-#     # claude: {tools: [Read, Glob, Grep, Edit, Write, Bash, Task], allowed_tools: [...]}
-# Without it only the Validate repair agent is refused.
 # Optional check sandbox ceiling (macOS or Linux); no unisolated fallback exists.
 # Checks run under the Codex sandbox: everything readable except deny_read and
 # $LF_HOME, writes only to the worktree, a private temp dir and writable_roots,
@@ -272,16 +254,6 @@ tool_profiles:
 	return []byte(b.String())
 }
 
-func yamlList(indent int, key string, values []string) string {
-	pad := strings.Repeat(" ", indent)
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s%s:\n", pad, key)
-	for _, value := range values {
-		fmt.Fprintf(&b, "%s  - %q\n", pad, value)
-	}
-	return b.String()
-}
-
 func renderModelByTier(models map[Kind]map[Tier]string) string {
 	var b strings.Builder
 	b.WriteString("  model_by_tier:\n")
@@ -292,19 +264,6 @@ func renderModelByTier(models map[Kind]map[Tier]string) string {
 		}
 	}
 	return b.String()
-}
-
-func renderToolProfile(b *strings.Builder, name string, profile ToolProfile) {
-	fmt.Fprintf(b, "    %s:\n", name)
-	fmt.Fprintf(b, "      attachments: %t\n", profile.Attachments)
-	if profile.Claude != nil {
-		b.WriteString("      claude:\n")
-		b.WriteString(yamlList(8, "tools", profile.Claude.Tools))
-		b.WriteString(yamlList(8, "allowed_tools", profile.Claude.AllowedTools))
-	}
-	if profile.Codex != nil {
-		fmt.Fprintf(b, "      codex:\n        sandbox: %q\n", profile.Codex.Sandbox)
-	}
 }
 
 // WriteDefault creates config.yaml atomically with respect to other init

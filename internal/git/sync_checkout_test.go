@@ -10,6 +10,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/gittest"
 )
 
+// reservedEvent is a factory-owned story event path inside the task checkout.
+const reservedEvent = ".litefactory-story-events/1/000001.json"
+
 func TestCheckSyncCheckoutPreservesRetainedState(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"clean", "unpublished", "dirty", "transport", "reserved target", "detached", "wrong branch", "merge"} {
@@ -29,13 +32,19 @@ func TestCheckSyncCheckoutPreservesRetainedState(t *testing.T) {
 				}
 				want = "untracked"
 			case "transport":
-				if err := os.WriteFile(filepath.Join(dir, ".litefactory-plan-proposal.json"), []byte("retained bytes"), 0o600); err != nil {
+				if err := os.MkdirAll(filepath.Join(dir, ".litefactory-story-events", "1"), 0o700); err != nil {
 					t.Fatal(err)
 				}
-				repo.GitIn(dir, "add", ".litefactory-plan-proposal.json")
+				if err := os.WriteFile(filepath.Join(dir, reservedEvent), []byte("retained bytes"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				repo.GitIn(dir, "add", "--force", reservedEvent)
 				want = "reserved transport"
 			case "reserved target":
-				commitInDir(t, repo, repo.Dir, ".litefactory-plan-proposal.json", "incoming transport")
+				if err := os.MkdirAll(filepath.Join(repo.Dir, ".litefactory-story-events", "1"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				commitInDir(t, repo, repo.Dir, reservedEvent, "incoming transport")
 				target = repo.Git("rev-parse", "HEAD")
 				want = "reserved factory transport"
 			case "detached":
@@ -72,7 +81,7 @@ func TestCheckSyncCheckoutPreservesRetainedState(t *testing.T) {
 			if kind == "dirty" || kind == "transport" {
 				name := "owner.txt"
 				if kind == "transport" {
-					name = ".litefactory-plan-proposal.json"
+					name = reservedEvent
 				}
 				got, err := os.ReadFile(filepath.Join(dir, name))
 				if err != nil || string(got) != "retained bytes" {

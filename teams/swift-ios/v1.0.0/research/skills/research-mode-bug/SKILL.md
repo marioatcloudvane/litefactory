@@ -7,7 +7,7 @@ description: Research mode for a bug or regression that arrived in Research inst
 **Signals:** "broken", "fails", "regression", "since version …", an error message or log; documented or earlier behaviour differs from what happens now.
 
 **Gather first:**
-- The reproduction: steps, input, logs, run IDs the owner gave. Try it with read tools where you can.
+- The reproduction: steps, input, logs, run IDs the owner gave. Describe how to reproduce it; the Bug workflow and Validate run it.
 - Recent commits and merged PRs in the affected area — a regression usually has a cause there.
 - Existing Bug issues for the same symptom, open or closed.
 

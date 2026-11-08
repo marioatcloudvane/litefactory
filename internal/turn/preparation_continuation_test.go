@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/planbrief"
 
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -117,65 +115,6 @@ func TestPreparationCaveatsContinueOriginalRequest(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("unavailable context with both sync phases and pending refinement", func(t *testing.T) {
-		var f *fixture
-		var unavailable string
-		const oldBytes = "{ malformed owner context; do not admit these bytes"
-		runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
-			if req.PlanWorkingContext != "" || strings.Contains(req.Prompt, oldBytes) || !strings.Contains(req.Prompt, "Optional planning context is unavailable") {
-				t.Fatal("optional context was admitted or not explained")
-			}
-			if req.PlanContextPath == unavailable {
-				t.Fatal("fresh result would overwrite unavailable context")
-			}
-			t.Logf("Plan invocation ref=%s run=%d attempt=%s fresh_context=%s profile=%s; unavailable source omitted from prompt", req.Ref, req.PlanRunID, req.PlanAttempt, req.PlanContextPath, req.Permissions.Profile)
-			writePlanOutcome(t, req, "discussion")
-			writePlanContext(t, f, req)
-			return succeeded(req, f.paths.Home()), nil
-		})
-		f = newFixture(t, runner)
-		setupOutcomeForge(t, f)
-		f.opts.AutoSyncBase, f.opts.AutoSyncMaxBehind = true, 1
-		dir := seedTaskWorktree(t, f)
-		contextDir, err := naming.AITeamSessionDir(testBranch, time.Now().Add(-24*time.Hour), testSlug)
-		mustProgress(t, err)
-		unavailable = filepath.ToSlash(filepath.Join(contextDir, planbrief.ContextFileName))
-		mustProgress(t, os.MkdirAll(filepath.Join(dir, contextDir), 0700))
-		mustProgress(t, os.WriteFile(filepath.Join(dir, unavailable), []byte(oldBytes), 0600))
-		f.repo.GitIn(dir, "add", "--all")
-		f.repo.GitIn(dir, "commit", "--quiet", "-m", "retain unavailable optional context")
-		initial := f.repo.GitIn(dir, "rev-parse", "HEAD")
-		remote := taskOperator(t, f.repo, testBranch, initial, "remote-task.txt", "remote task work")
-		taskOperator(t, f.repo, testBranch, remote, "remote-task-two.txt", "more remote task work")
-		advanceSyncBase(t, f.repo, 2)
-		pending := store.StoryRefinement{SessionID: f.session.ID, CommentID: 8080, ChildNumber: 200, ChildID: 2000, Generation: 1, ActorID: 42, Body: "Unapproved proposed scope must remain pending"}
-		mustProgress(t, f.db.AdmitStoryRefinement(t.Context(), pending))
-		req := planRequest(f)
-		result := f.execute(req)
-		if runner.callCount() != 1 || result.Harness == nil || result.Run.Status != store.RunSucceeded {
-			t.Fatalf("same request did not finish current-attempt discussion: %+v logs=%s", result, f.logs)
-		}
-		if result.Err != nil && !strings.Contains(result.Err.Error(), "push") {
-			t.Fatalf("current-attempt finalization rejected valid discussion: %v", result.Err)
-		}
-		if data, err := os.ReadFile(filepath.Join(dir, unavailable)); err != nil || string(data) != oldBytes {
-			t.Fatalf("unavailable source changed: %q %v", data, err)
-		}
-		remaining, err := f.db.ListPendingStoryRefinements(t.Context(), f.session.ID)
-		mustProgress(t, err)
-		if !reflect.DeepEqual(remaining, []store.StoryRefinement{pending}) {
-			t.Fatalf("preparation consumed or changed pending scope: %+v", remaining)
-		}
-		forge := newFakeForge(t)
-		_, err = newReporter(t, f, forge, nil).ReportTurn(t.Context(), result)
-		mustProgress(t, err)
-		body := forge.only(t).body
-		t.Logf("unavailable source retained path=%s bytes=%q; pending refinement=%+v; normal result:\n%s", unavailable, oldBytes, remaining, body)
-		if strings.Count(body, "Preparation caveat") != 1 || !strings.Contains(strings.ToLower(body), "context") || !strings.Contains(strings.ToLower(body), "refinement") {
-			t.Fatalf("normal result lost combined caveats: %s", body)
-		}
-	})
 
 	t.Run("canonical managed worker reaches approved work through deferred sync", func(t *testing.T) {
 		var f *fixture

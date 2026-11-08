@@ -58,10 +58,10 @@ type BugRuntimeConfig struct {
 	OwnerID     int64
 }
 
-// BugRolePermissions carries factory-selected tool ceilings and sandbox policy.
+// BugRolePermissions carries a graph role's tool surface and sandbox.
 type BugRolePermissions struct {
-	Tools, AllowedTools []string
-	Sandbox             string
+	Tools   []string
+	Sandbox string
 }
 
 // BugRuntime supports only the pinned simplified graph contract.

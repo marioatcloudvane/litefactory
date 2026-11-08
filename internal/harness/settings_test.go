@@ -47,6 +47,14 @@ func TestDefaultSettingsIsValidJSONAndDeniesTheObviousTargets(t *testing.T) {
 			t.Errorf("%s is not denied:\n%s", want, deny)
 		}
 	}
+	// With the whole tool set allowed, the deny list is the secret boundary:
+	// credential stores are neither readable nor writable through the file
+	// tools, and the commands that print a stored credential are refused.
+	for _, want := range []string{"Read(~/Library/Keychains/**)", "Edit(~/.ssh/**)", "Read(~/.git-credentials)", "Bash(security:*)", "Bash(gh auth:*)"} {
+		if !slices.Contains(settings.Permissions.Deny, want) {
+			t.Errorf("%s is not denied:\n%s", want, deny)
+		}
+	}
 	// litefactory makes the commit and the push; no agent does. Under
 	// PermissionMode "auto" an absent allow-rule is a question for a classifier
 	// rather than a refusal, so this ban only holds if it is written as a deny.

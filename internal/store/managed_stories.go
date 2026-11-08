@@ -38,19 +38,6 @@ type ManagedStory struct {
 	State               string
 }
 
-// StoryPublication is recorded before any network mutation. A pending operation
-// is reconciled before another create may be attempted.
-type StoryPublication struct {
-	ParentTask   string
-	Generation   int
-	Key          string
-	OperationKey string
-	DesiredHash  string
-	IssueNumber  int
-	IssueID      int64
-	Delivered    bool
-}
-
 // GetManagedFeature loads the durable generation and lifecycle state for a parent.
 func (db *DB) GetManagedFeature(ctx context.Context, parent string) (ManagedFeature, error) {
 	var f ManagedFeature
@@ -147,93 +134,6 @@ func (db *DB) CompareManagedStory(ctx context.Context, s ManagedStory, expectedS
 	}
 	if n != 1 {
 		return fmt.Errorf("store: managed story changed")
-	}
-	return nil
-}
-
-// GetStoryPublication loads the durable publication record used to reconcile retries.
-func (db *DB) GetStoryPublication(ctx context.Context, parent string, generation int, key string) (StoryPublication, error) {
-	var p StoryPublication
-	err := db.sql.QueryRowContext(ctx, `SELECT parent_task,generation,story_key,operation_key,desired_hash,issue_number,issue_id,delivered FROM story_publications WHERE parent_task=? AND generation=? AND story_key=?`, parent, generation, key).Scan(&p.ParentTask, &p.Generation, &p.Key, &p.OperationKey, &p.DesiredHash, &p.IssueNumber, &p.IssueID, &p.Delivered)
-	if errors.Is(err, sql.ErrNoRows) {
-		return p, ErrNotFound
-	}
-	if err != nil {
-		return p, fmt.Errorf("store: get story publication: %w", err)
-	}
-	return p, nil
-}
-
-// BeginStoryPublication records intent before the caller attempts a forge mutation.
-func (db *DB) BeginStoryPublication(ctx context.Context, p StoryPublication) error {
-	_, err := db.sql.ExecContext(ctx, `INSERT INTO story_publications(parent_task,generation,story_key,operation_key,desired_hash) VALUES(?,?,?,?,?)`, p.ParentTask, p.Generation, p.Key, p.OperationKey, p.DesiredHash)
-	if err != nil {
-		return fmt.Errorf("store: begin story publication: %w", err)
-	}
-	return nil
-}
-
-// SaveStoryPublication records the discovered issue and delivery state only for the authorized content hash.
-func (db *DB) SaveStoryPublication(ctx context.Context, p StoryPublication) error {
-	res, err := db.sql.ExecContext(ctx, `UPDATE story_publications SET issue_number=?,issue_id=?,delivered=? WHERE operation_key=? AND desired_hash=?`, p.IssueNumber, p.IssueID, p.Delivered, p.OperationKey, p.DesiredHash)
-	if err != nil {
-		return fmt.Errorf("store: save story publication: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n != 1 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// StoryRevisionOperation binds a current-base authorization to one complete edit.
-type StoryRevisionOperation struct {
-	OperationKey string
-	ParentTask   string
-	Generation   int
-	Key          string
-	ExpectedBase string
-	DesiredHash  string
-	Delivered    bool
-}
-
-// GetStoryRevisionOperation loads the recorded authorization for a replayable story edit.
-func (db *DB) GetStoryRevisionOperation(ctx context.Context, key string) (StoryRevisionOperation, error) {
-	var op StoryRevisionOperation
-	err := db.sql.QueryRowContext(ctx, `SELECT operation_key,parent_task,generation,story_key,expected_base,desired_hash,delivered FROM story_revision_operations WHERE operation_key=?`, key).Scan(&op.OperationKey, &op.ParentTask, &op.Generation, &op.Key, &op.ExpectedBase, &op.DesiredHash, &op.Delivered)
-	if errors.Is(err, sql.ErrNoRows) {
-		return op, ErrNotFound
-	}
-	if err != nil {
-		return op, fmt.Errorf("store: get story revision operation: %w", err)
-	}
-	return op, nil
-}
-
-// BeginStoryRevisionOperation persists the expected base and desired hash before editing the forge.
-func (db *DB) BeginStoryRevisionOperation(ctx context.Context, op StoryRevisionOperation) error {
-	_, err := db.sql.ExecContext(ctx, `INSERT INTO story_revision_operations(operation_key,parent_task,generation,story_key,expected_base,desired_hash) VALUES(?,?,?,?,?,?)`, op.OperationKey, op.ParentTask, op.Generation, op.Key, op.ExpectedBase, op.DesiredHash)
-	if err != nil {
-		return fmt.Errorf("store: begin story revision: %w", err)
-	}
-	return nil
-}
-
-// DeliverStoryRevisionOperation marks a reconciled story edit delivered without changing its authorization.
-func (db *DB) DeliverStoryRevisionOperation(ctx context.Context, key string) error {
-	res, err := db.sql.ExecContext(ctx, `UPDATE story_revision_operations SET delivered=1 WHERE operation_key=?`, key)
-	if err != nil {
-		return fmt.Errorf("store: deliver story revision: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n != 1 {
-		return ErrNotFound
 	}
 	return nil
 }

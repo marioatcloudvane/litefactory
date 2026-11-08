@@ -10,8 +10,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-const planChildContentHold = "Child content cannot be reconciled; restore valid story content and provenance."
-
 // observePlanChild separates story-local discovery conflicts from shared service
 // failures. Only a verified binding may adopt closure; failed reads retain facts.
 func (d *Daemon) observePlanChild(ctx context.Context, t *task, draft store.PlanStoryDraft, relation storyRelationForge) (github.Issue, bool, error) {
@@ -46,22 +44,10 @@ func (d *Daemon) observePlanChild(ctx context.Context, t *task, draft store.Plan
 			observed = planbrief.PlanLifecycle{State: child.State, Reason: child.StateReason, Revision: turn.PlanIssueRevision(child.Title, child.Body)}
 		}
 	}
-	if hold == "" {
-		current, _, loadErr := d.db.GetPlanWorkflowState(ctx, t.ref.String())
-		if loadErr != nil {
-			return child, false, loadErr
-		}
-		for _, st := range current.Stories {
-			if st.Key == draft.Key && st.LifecycleHold == planChildContentHold {
-				hold = planChildContentHold
-				break
-			}
-		}
-	}
 	if err = d.db.ObservePlanStoryLifecycle(ctx, t.ref.String(), draft.Key, observed, hold); err != nil {
 		return child, false, err
 	}
-	if (hold != "" && hold != planChildContentHold) || child.State != github.StateOpen || draft.Retired {
+	if hold != "" || child.State != github.StateOpen || draft.Retired {
 		return child, false, nil
 	}
 	feature, err := d.db.GetManagedFeature(ctx, t.ref.String())

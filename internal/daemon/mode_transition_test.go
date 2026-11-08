@@ -204,7 +204,7 @@ func TestModeTransitionConfirmedRetryPinsModeAndPreservesLaterOwnerEdit(t *testi
 		t.Fatalf("calls=%+v logs=%s", calls, f.logs)
 	}
 	for _, req := range calls {
-		if req.Mode != agent.ModeImplement || req.ToolProfile != "implement" || !equalStringSlices(req.Tools, config.DefaultToolProfiles().Permissions["implement"].Claude.Tools) {
+		if req.Mode != agent.ModeImplement || req.ToolProfile != "implement" || !equalStringSlices(req.Tools, config.AgentTools()) {
 			t.Fatalf("retry changed permissions=%+v", req)
 		}
 	}

@@ -293,19 +293,10 @@ type Options struct {
 	// the same as the turn-side field.
 	ConflictProposalTTL time.Duration
 
-	// ToolProfiles are the canonical mode permission surfaces.
-	//
-	// It is read-only for the life of the daemon and never written to. Whatever
-	// a resolution takes out of it is copied first — see [Daemon.resolveTools].
+	// ToolProfiles are the operator's per-mode sandbox and attachment
+	// overrides; an absent mode uses the factory default. It is copied at
+	// construction — see [Daemon.resolveTools].
 	ToolProfiles map[string]config.ToolProfile
-
-	// ToolCeiling is the hard upper bound every profile was checked against at
-	// startup, carried here so the daemon can record which boundary was in
-	// force when it resolved a profile. Nothing is decided by it: the ceiling
-	// is enforced by config validation at boot and again by the harness at the
-	// moment argv is built (D-2), and a daemon that made a third, subtly
-	// different decision about it would be the one nobody could reason about.
-	ToolCeiling []string
 
 	// Agents is the set of coding-agent-tool implementations this daemon has
 	// built, keyed by the [agent.Kind] a resolved Coding Agent label names.
@@ -477,10 +468,9 @@ type Daemon struct {
 	cacheSampler             *cacheSampler
 	validateAutoStart        bool
 	validateHead             func(ctx context.Context, session store.Session) (string, error)
-	// toolProfiles and toolCeiling are the operator's tool configuration as it
-	// stood at startup. Read-only after New; see [Options.ToolProfiles].
-	toolProfiles map[string]config.ToolProfile
-	toolCeiling  []string
+	// toolProfiles is the operator's run policy as it stood at startup.
+	// Read-only after New; see [Options.ToolProfiles].
+	toolProfiles config.ToolProfiles
 	// agents is the set of coding-agent-tool Kinds this daemon has a
 	// [agent.Runner] registered for, as it stood at startup. Read-only after
 	// New; see [Options.Agents] and [Daemon.resolveAgent].
@@ -622,8 +612,7 @@ func New(opts Options) (*Daemon, error) {
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may
 		// reach back into the configuration the process is running on.
-		toolProfiles: cloneToolProfiles(opts.ToolProfiles),
-		toolCeiling:  append([]string(nil), opts.ToolCeiling...),
+		toolProfiles: cloneToolProfiles(config.ToolProfiles{Permissions: opts.ToolProfiles}),
 		// Copied like every other tool/agent registry that crosses this
 		// boundary: the caller keeps its own map, and nothing here may reach
 		// back into the registry the process was built with.

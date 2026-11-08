@@ -49,7 +49,6 @@ func TestGuideNeverNamesUncallableTool(t *testing.T) {
 		{"overview", []string{guideTool, "factory_overview"}},
 		{"discussion", []string{guideTool, "task_evidence_read"}},
 		{"actions", append([]string{guideTool}, actionToolNames...)},
-		{"decisions", append(append([]string{guideTool}, actionToolNames...), decisionToolNames...)},
 		{"workflows", append(append([]string{guideTool}, actionToolNames...), workflowToolNames...)},
 		{"brainstorm", append([]string{guideTool}, brainstormToolNames...)},
 		{"brainstorm and actions", append(append([]string{guideTool}, actionToolNames...), brainstormToolNames...)},
@@ -155,7 +154,7 @@ func TestGuideKeepsConfirmationSeparate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, workflow := range []string{"discuss or revise a plan", "file a feature request", "file a bug", "start a workflow", "approve a stage"} {
+	for _, workflow := range []string{"file a feature request", "file a bug", "start a workflow"} {
 		_, rest, ok := strings.Cut(text, "## Workflow: "+workflow)
 		if !ok {
 			t.Fatalf("missing workflow %q", workflow)
@@ -381,8 +380,6 @@ func TestOwnerRequestsMapToToolChains(t *testing.T) {
 	for _, tc := range []struct{ request, job string }{
 		{"What is waiting for me?", "See what is running or waiting for the owner"},
 		{"Where does task 12 stand?", "Check where a task stands"},
-		{"I do not like the plan for task 12, change it.", "Discuss or revise a plan"},
-		{"Approve the plan for task 12.", "Approve a stage"},
 		{"Let us think through a new export feature.", "Work out an idea in a brainstorm"},
 		{"File this as a feature request.", "File a feature request"},
 		{"The export button crashes, file a bug.", "File a bug"},

@@ -637,7 +637,7 @@ func TestLinearTicketOwnerDeliveryCommands(t *testing.T) {
 	reporter, err := turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: logger, BotUserID: 99})
 	linearWorkflowCheck(t, err)
 	executor := &linearDeliveryExecutor{}
-	d.reporter, d.turn, d.defaultAgent, d.toolProfiles = reporter, executor, "claude", config.DefaultToolProfiles().Permissions
+	d.reporter, d.turn, d.defaultAgent, d.toolProfiles = reporter, executor, "claude", config.DefaultToolProfiles()
 	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
 	linearWorkflowCheck(t, err)
 	task := &task{repo: repo, session: session, ref: ref, forgeRepo: github.RepoFromRef(ref), issue: issue, log: logger, tickAt: time.Now()}

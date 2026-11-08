@@ -78,18 +78,8 @@ type PlanStorySetEntry struct {
 	SizeReason string   `json:"size_reason,omitempty"`
 }
 
-// PlanMemberBinding is the immutable factory authority of one group member.
-type PlanMemberBinding struct {
-	Group          string
-	Role           string
-	AttemptID      int64
-	Basis          string
-	ProposalDigest string
-}
-
 // PlanGraphBinding holds factory values resolved afresh at preflight and submit.
 type PlanGraphBinding struct {
-	Member *PlanMemberBinding
 	// Discussion permits a completed answer without a draft effect.
 	Discussion bool
 	// Story is the factory-selected story key the draft must carry.
@@ -121,10 +111,6 @@ func (b *PlanGraphBinding) Clone() *PlanGraphBinding {
 		return nil
 	}
 	c := *b
-	if b.Member != nil {
-		m := *b.Member
-		c.Member = &m
-	}
 	c.Upstream = slices.Clone(b.Upstream)
 	c.PromotedDependencies = slices.Clone(b.PromotedDependencies)
 	return &c
@@ -136,7 +122,7 @@ func (b *PlanGraphBinding) Clone() *PlanGraphBinding {
 // Each is edited whole; the set's entries have no target of their own because a
 // grant that names an absent nested collection cannot be read back as a baseline.
 func PlanGraphEditTargets() []Target {
-	return []Target{{Field: "payload.plan.storyrequest"}, {Field: "payload.plan.storyset"}, {Field: "payload.plan.contribution"}}
+	return []Target{{Field: "payload.plan.storyrequest"}, {Field: "payload.plan.storyset"}}
 }
 
 // maximumTargets is every field an edit could ever name for a mode.
@@ -173,13 +159,6 @@ func unbindPlanGraph(r *Result) {
 // validatePlanMode judges a Plan payload under the contract the trusted context
 // selects. Both preflight and submit reach it through ValidateResult.
 func validatePlanMode(p *Plan, outcome string, questions []Question, ctx Context, d *Diagnostics) {
-	if ctx.PlanGraph != nil && ctx.PlanGraph.Member != nil {
-		validatePlanMember(p, outcome, questions, ctx, d)
-		return
-	}
-	if p.Contribution != nil {
-		add(d, "$.result.payload.plan.contribution", "scope", "factory-bound parallel member", "contribution", "Parallel contribution requires a member binding.")
-	}
 	if ctx.PlanGraph == nil {
 		base := "$.result.payload.plan"
 		if p.StoryRequest != nil {
@@ -470,86 +449,4 @@ func comparisonBytes(r Result) []byte {
 		return nil
 	}
 	return data
-}
-
-func validatePlanMember(p *Plan, outcome string, questions []Question, ctx Context, d *Diagnostics) {
-	base := "$.result.payload.plan.contribution"
-	b := ctx.PlanGraph.Member
-	// Whatever a member asks reaches the owner, so it asks only an owner
-	// decision with choices. A first pass (empty proposal digest) is normal and
-	// never a question: the factory assembles the sections and invokes again.
-	for i, q := range questions {
-		path := fmt.Sprintf("$.result.questions[%d]", i)
-		if len(q.Options) == 0 {
-			add(d, path+".options", "owner_choice", "options for an owner decision", "absent", "Give the owner decision its options, or remove the question: an empty or unassembled proposal on the first pass is not a question, contribute your sections instead.")
-		}
-		if q.RecommendedOption == "" {
-			add(d, path+".recommended_option", "owner_choice", "recommended option", "absent", "Recommend one of the options for the owner decision.")
-		}
-	}
-	if p.Contribution != nil && len(p.Contribution.Questions) > 0 {
-		add(d, base+".questions", "owner_choice", "no free-text contribution questions", "questions present", "Remove contribution.questions: ask an owner decision in result.questions with options and a recommended option. An empty first-pass proposal is not a question.")
-	}
-	if p.Contribution != nil && len(p.Contribution.Draft.Questions) > 0 {
-		add(d, base+".draft.questions", "owner_choice", "no free-text draft questions", "questions present", "Remove draft.questions: ask an owner decision in result.questions with options and a recommended option. An empty first-pass proposal is not a question.")
-	}
-	if b.Group == "" || b.Basis == "" || b.AttemptID <= 0 {
-		add(d, base, "binding", "current group member", "invalid binding", "Invalid parallel member binding.")
-	}
-	if p.StoryRequest != nil || p.StorySet != nil || p.Summary != "" || p.Context != nil || len(p.Stories) > 0 {
-		add(d, base, "branch", "contribution only", "other plan fields", "Parallel members retain contributions only.")
-	}
-	if p.Contribution == nil {
-		if outcome == "completed" {
-			add(d, base, "required", "contribution", "absent", "Completed member requires contribution.")
-		}
-		return
-	}
-	c := *p.Contribution
-	if err := planbrief.ValidateParallelContribution(b.Role, c); err != nil {
-		add(d, base, "ownership", "role-owned sections", "invalid", err.Error())
-	}
-	if c.Draft.Key != "" && c.Draft.Key != ctx.PlanGraph.Story {
-		add(d, base+".draft.key", "binding", "selected story", "other story", "Contribution cannot change selected story.")
-	}
-	if c.Agreement != "" && (b.ProposalDigest == "" || c.Agreement != b.ProposalDigest) {
-		add(d, base+".agreement", "stale_binding", "current proposal digest", "different proposal", "Agreement must reference the current complete proposal.")
-	}
-	validateMemberTasks(c.Draft, ctx.PlanScope, base+".draft", d)
-}
-
-// validateMemberTasks checks contributed tasks against the factory scope at
-// submission, so a member corrects an unknown owner role or a missing link in
-// its own run instead of the join stopping the whole group later.
-func validateMemberTasks(draft planbrief.PlanDraft, scope planbrief.ContentScope, base string, d *Diagnostics) {
-	criteria := map[string]bool{}
-	for i, c := range draft.Criteria {
-		path := fmt.Sprintf("%s.criteria[%d]", base, i)
-		if !planbrief.ValidCriterionID(c.ID) {
-			add(d, path+".id", "identity", "canonical criterion ID such as AC-001", "invalid ID", "Use AC-001 style IDs: AC- followed by at least three digits.")
-		}
-		if criteria[c.ID] {
-			add(d, path+".id", "duplicate", "unused criterion ID", "duplicate ID", "Give each criterion its own ID.")
-		}
-		required(d, path+".text", c.Text)
-		required(d, path+".proof_method", c.ProofMethod)
-		criteria[c.ID] = true
-	}
-	for i, t := range draft.Tasks {
-		path := fmt.Sprintf("%s.tasks[%d]", base, i)
-		if !scope.AdmitsRole(t.OwnerRole) {
-			add(d, path+".owner_role", "authorization", "authorized task owner role", "unknown role", "Assign one of the authorized task owner roles: "+strings.Join(scope.Roles, ", ")+".")
-		}
-		if len(t.CriterionIDs) == 0 {
-			add(d, path+".criterion_ids", "required", "criterion links", "absent", "Link the task to the criteria it delivers.")
-		}
-		if draft.Criteria == nil {
-			continue
-		}
-		for _, id := range t.CriterionIDs {
-			if !criteria[id] {
-				add(d, path+".criterion_ids", "reference", "contributed criterion", "unresolved", "Link only criteria in this contribution.")
-			}
-		}
-	}
 }

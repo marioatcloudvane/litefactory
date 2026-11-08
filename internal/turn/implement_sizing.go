@@ -70,7 +70,7 @@ func implementSizingFacts(sizing *store.ApprovedStorySizing) (map[string]string,
 	if !sizing.Available {
 		return facts, sizing.Explanation
 	}
-	valid, explanation := planbrief.ValidateStorySizing(sizing.Size, sizing.SizeReason, sizing.RouteVersion)
+	valid, explanation := planbrief.ValidateStorySizing(sizing.Size, sizing.SizeReason)
 	facts["story.sizing_valid"] = fmt.Sprint(valid)
 	return facts, explanation
 }

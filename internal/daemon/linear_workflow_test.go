@@ -471,12 +471,7 @@ func linearTicketWorkflow(t *testing.T, setApproval, implement bool) {
 		linearSetApproval(t, d, remote, adapter, parent.Ref, bridge, reporter, redactor, repo, session, ref)
 		return
 	}
-	proposal := planbrief.PlanProposal{Version: planbrief.ProposalVersion, Parent: ref.String(), Generation: 1, Stories: []planbrief.StoryProposal{{Key: "story-001", Intent: "create", Title: "Use Linear work tickets", Body: "## User Story\nOwners direct ticket work from Linear.\n## Acceptance Criteria\nQualified answers and exact approvals reach the intended ticket.\n## Tasks\nPreserve immutable provider identity.\n## Architecture\nUse the existing ledgers.\n## Dependencies\nNone.\n"}}}
-	index, err := turn.PublishPlan(ctx, turn.PublicationOptions{DB: db, Forge: bridge, Renderer: renderer, Parent: ref, Generation: 1, BotID: botSlot}, proposal)
-	linearWorkflowCheck(t, err)
-	if !strings.Contains(string(index), "https://linear.app/test/issue/LF-2") {
-		t.Fatalf("managed child index has wrong destination: %s", index)
-	}
+	seedManagedStory(ctx, t, db, bridge, renderer, ref, "story-001", "Use Linear work tickets", "## User Story\nOwners direct ticket work from Linear.\n## Acceptance Criteria\nQualified answers and exact approvals reach the intended ticket.\n## Tasks\nPreserve immutable provider identity.\n## Architecture\nUse the existing ledgers.\n## Dependencies\nNone.\n")
 	managed, err := db.ListManagedStories(ctx, ref.String(), 1)
 	linearWorkflowCheck(t, err)
 	if len(managed) != 1 {
@@ -567,11 +562,6 @@ func linearTicketWorkflow(t *testing.T, setApproval, implement bool) {
 	linearWorkflowCheck(t, err)
 	if !replayedReport.Skipped {
 		t.Fatal("restart duplicated the confirmed workflow report")
-	}
-	replayedIndex, err := turn.PublishPlan(ctx, turn.PublicationOptions{DB: db, Forge: bridge, Renderer: renderer, Parent: ref, Generation: 1, BotID: botSlot}, proposal)
-	linearWorkflowCheck(t, err)
-	if string(replayedIndex) != string(index) {
-		t.Fatal("restart changed the retained child index")
 	}
 	remote.mu.Lock()
 	if remote.posts != confirmedPosts {
@@ -775,7 +765,7 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			if refusalKind != report.ReplyMissingModeMapping {
 				linearWorkflowCheck(t, bridge.AddIssueLabel(ctx, github.RepoFromRef(ref), ref.Issue, "Mode: Plan"))
 				d.turn = admissionRefusalExecutor{kind: refusalKind}
-				d.toolProfiles = config.DefaultToolProfiles().Permissions
+				d.toolProfiles = config.DefaultToolProfiles()
 			}
 			d.reporter = reporter
 			d.defaultAgent = agent.Kind("claude")
@@ -987,7 +977,7 @@ func linearSetApproval(t *testing.T, d *Daemon, remote *linearWorkflowServer, ad
 	}
 	d.reporter = reporter
 	d.defaultAgent = "claude"
-	d.toolProfiles = config.DefaultToolProfiles().Permissions
+	d.toolProfiles = config.DefaultToolProfiles()
 	executor := &linearApprovalExecutor{t: t, opts: opts}
 	d.turn = executor
 	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
@@ -1157,7 +1147,7 @@ func linearImplementAdmission(t *testing.T, d *Daemon, remote *linearWorkflowSer
 		definition.Origin = teamsource.WorkflowOrigin{Kind: "local", Source: "local", Slug: "fixture", Version: "1.0.0", GraphPath: "implement/implement.dot", GraphFile: "implement.dot", Team: definition.Profile.Team, TeamConfig: configBytes, ConfigDigest: hex.EncodeToString(digest[:])}
 		return definition, nil
 	}
-	d.reporter, d.defaultAgent, d.toolProfiles = reporter, "claude", config.DefaultToolProfiles().Permissions
+	d.reporter, d.defaultAgent, d.toolProfiles = reporter, "claude", config.DefaultToolProfiles()
 	executor := &linearImplementExecutor{t: t, opts: opts, missingPublisher: true}
 	d.turn = executor
 	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)

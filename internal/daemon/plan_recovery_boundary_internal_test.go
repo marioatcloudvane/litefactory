@@ -561,14 +561,8 @@ func TestLinearPlanAssemblyEligibilityBoundaries(t *testing.T) {
 					publicationMust(t, state.ApproveAssembled(7, 7, 500, "/approve-plan-set "+state.AssembledWait, scope))
 				}
 			case "graph-approved":
-				state = approvedPlanState(t, "go-implementation-engineer", false)
-				for _, stage := range []string{"story", "technical", "acceptance"} {
-					approval, e := state.ApproveByGraph("story-a", stage, "candidate", "")
-					publicationMust(t, e)
-					if approval.Outcome != "approved" {
-						t.Fatalf("graph approval: %+v", approval)
-					}
-				}
+				// A retained approval the retired graph approval gave still counts.
+				state.Stories[0].ApprovedBy = map[string]string{"story": planbrief.ApprovalByGraph, "technical": planbrief.ApprovalByGraph, "acceptance": planbrief.ApprovalByGraph}
 				want = true
 			case "multiple":
 				other := approvedPlanState(t, "go-implementation-engineer", true).Stories[0]
