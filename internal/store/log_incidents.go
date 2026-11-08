@@ -430,28 +430,6 @@ func (db *DB) bugIncidents(ctx context.Context, add func(int64, string, LogIncid
 	if err != nil {
 		return err
 	}
-	legacy := map[int64]bug{}
-	err = db.incidentRows(ctx, `SELECT b.session_id,b.ordinal,b.run_id,CAST(b.content AS TEXT),COALESCE(r.finished_at,r.started_at)
- FROM bug_analyses b JOIN runs r ON r.id=b.run_id WHERE b.state='succeeded' AND b.content IS NOT NULL ORDER BY b.session_id DESC LIMIT ?`, []any{incidentRowsPerKind}, func(rows *sql.Rows) error {
-		var session, ordinal, run int64
-		var content, at string
-		if e := rows.Scan(&session, &ordinal, &run, &content, &at); e != nil {
-			return e
-		}
-		b := bug{in: LogIncident{ID: fmt.Sprintf("bug-legacy-%d-%d", session, ordinal), Kind: IncidentBug, FoundBy: "bug-analyst", RunIDs: []int64{run}, Detail: bugAnalysis(content), Rounds: int(ordinal)}, session: session, at: at, order: ordinal}
-		if old, ok := legacy[session]; b.in.Detail != "" && (!ok || old.order < b.order) {
-			legacy[session] = b
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	for session, b := range legacy {
-		if _, ok := latest[session]; !ok {
-			latest[session] = b
-		}
-	}
 	for _, b := range latest {
 		add(b.session, b.at, b.in)
 	}

@@ -39,4 +39,6 @@ Advisory [`/judge`](../guides/judge.md) is separate from the Bug graph; the Bug'
 
 Bug tasks started under the earlier analyst/fixer graph are not restarted or converted; open a new issue for the same bug.
 
+The six read-only tables of the first Bug version (`bug_tasks`, `bug_analyses`, `bug_repairs`, `bug_checks`, `bug_delivery`, `bug_events`) are kept. Only the daily archive and the project approver migration still read them: a task with that history is never archived away, and its approvals stay attributed. Nothing else reads or writes them.
+
 The repository check recipe used by [Validate](validate.md) and [Spike](spike.md) is described in [Bug checks](../bug-checks.md).
