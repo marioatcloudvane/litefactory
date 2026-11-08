@@ -12,6 +12,7 @@ const (
 	WorkflowImplement Workflow = "implement"
 	WorkflowValidate  Workflow = "validate"
 	WorkflowSpike     Workflow = "spike"
+	WorkflowDoctor    Workflow = "doctor"
 	WorkflowBug       Workflow = "bug"
 )
 
@@ -30,6 +31,8 @@ func WorkflowForMode(m Mode) (Workflow, bool) {
 		return WorkflowSpike, true
 	case ModeBug:
 		return WorkflowBug, true
+	case ModeDoctor:
+		return WorkflowDoctor, true
 	default:
 		return "", false
 	}
@@ -50,6 +53,8 @@ func (w Workflow) Mode() (Mode, bool) {
 		return ModeSpike, true
 	case WorkflowBug:
 		return ModeBug, true
+	case WorkflowDoctor:
+		return ModeDoctor, true
 	default:
 		return "", false
 	}

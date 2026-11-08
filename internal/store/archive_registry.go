@@ -266,8 +266,9 @@ var archiveRetained = map[string]ArchiveClass{
 	// can span validation generations, so task archival must retain requests,
 	// raw artifacts, assessments and the suite rows they cite together.
 	"validation_requests": ArchiveClassSkeleton, "validation_evidence": ArchiveClassSkeleton,
-	// Not keyed by one task family. The doctor journal has delete triggers and
-	// holds; a family with doctor references is kept by the pending check.
+	// Not keyed by one task family. The retired Doctor runtime's journal is
+	// history with delete triggers; a family it references is kept by the
+	// pending check.
 	"repos": ArchiveClassGlobal, "identities": ArchiveClassGlobal, "poll_cursor": ArchiveClassGlobal, "repo_poll_cursors": ArchiveClassGlobal, "repo_webhooks": ArchiveClassGlobal,
 	"chat_issue_previews":     ArchiveClassGlobal,
 	"chat_inbox":              ArchiveClassGlobal,
@@ -394,9 +395,8 @@ var archiveRetained = map[string]ArchiveClass{
 	"doctor_instruction_captures": ArchiveClassGlobal,
 	"doctor_inbox":                ArchiveClassGlobal, "doctor_local_presentations": ArchiveClassGlobal,
 	"doctor_presentations": ArchiveClassGlobal, "doctor_proposals": ArchiveClassGlobal,
-	"doctor_repair_holds": ArchiveClassGlobal, "doctor_repair_steps": ArchiveClassGlobal,
-	"doctor_repair_write_permits": ArchiveClassGlobal, "doctor_repairs": ArchiveClassGlobal,
-	"doctor_restarts": ArchiveClassGlobal, "doctor_scans": ArchiveClassGlobal,
+	"doctor_repair_steps": ArchiveClassGlobal, "doctor_repairs": ArchiveClassGlobal,
+	"doctor_restarts": ArchiveClassGlobal,
 }
 
 // archiveGuardedReferences are retained tables that may reference archived

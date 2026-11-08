@@ -91,9 +91,6 @@ func (d *Daemon) managedParentDue(ctx context.Context, q *repoQueue, s store.Ses
 // cannot be overtaken by a promotion read in the same tick. All execution still
 // goes through Execute's parent session lock and the existing inflight slot.
 func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
-	if held, e := d.doctorHeldSession(ctx, t.session.ID); e != nil || held {
-		return false, e
-	}
 	f, err := d.db.GetManagedFeature(ctx, t.ref.String())
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -338,10 +335,8 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 			}
 			continue
 		}
-		routed, err := d.admitDoctor(withoutContainerChecks(ctx), t.repo, child, c)
-		if err != nil {
-			return err
-		}
+		// The Doctor runs on a task's own issue, never through a story's parent.
+		routed := turn.ParseCommand(c.Body).Kind == turn.KindDoctor
 		eligible, authorityErr := d.eligibleProjectComment(ctx, t.session.ID, c)
 		if authorityErr != nil {
 			return authorityErr

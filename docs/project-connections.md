@@ -79,9 +79,7 @@ Credential rotation at the original reference must resolve to the same actor.
 If the original clone, destination or actor is unavailable or has changed, saved
 work blocks; replacing current configuration does not redirect it. Publication
 receipts and prepared delivery contents retain their existing recovery rules.
-Local doctor operations also load retained project credentials when the former
-global credential is unavailable, including after current connections are
-disabled. Each remote operation still selects the original session destination.
+Each remote operation still selects the original session destination.
 
 ## Ticket approver
 
@@ -120,10 +118,8 @@ approver instructs work. Assignment cannot grant or suppress authority. Code
 owner delivery and exact pull request/head/target approvals retain their separate
 permissions, as do trusted local operations and the publishing credential.
 
-Remote Doctor diagnosis and stop instructions use the project approver and the
-same fresh-reply boundary. Doctor repair approval keeps its separate code
-authority. Queued Doctor instructions retain their original ticket connection
-and publisher, including when a result must be reconciled after a restart.
+A `/doctor` comment is an ordinary owner instruction and follows the same
+owner admission as every other task comment.
 
 When the ticket approver and code owner differ, acceptance checks and finding
 choices must be settled before the code owner's combined Validate shipping

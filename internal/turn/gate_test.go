@@ -194,10 +194,6 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"sessionSyncCheckout.withCheckout":           {},
 		"graphSyncRuntime.syncBaseBranch":            {},
 		"commitAndPush":                              {},
-		// Standalone doctor sync releases its snapshot section before advisory work,
-		// then revalidates and performs merge, publication and rollback in one section.
-		"prepareDoctorSync": {},
-		"applyDoctorSync":   {},
 		// Graph delivery publishes the saved head and reads its checkout.
 		"graphSyncRuntime.pushGraphDelivery": {},
 		"DeliveryActivity.checkout":          {},
@@ -247,12 +243,12 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// shape syncBase already has, and for the same reason: there is no
 		// claude run between ensureWorktree and this step for the agentless
 		// apply turn, so nothing needs the gate released and retaken.
-		"WriteResolvedFiles": {"prepareClone", "applyDoctorSync"},
-		"StageResolvedFiles": {"prepareClone", "applyDoctorSync"},
-		"CompleteMerge":      {"prepareClone", "applyDoctorSync"},
+		"WriteResolvedFiles": {"prepareClone"},
+		"StageResolvedFiles": {"prepareClone"},
+		"CompleteMerge":      {"prepareClone"},
 		// Confirmed proposal application also pushes inside prepareClone's
 		// existing acquisition.
-		"Push": {"commitAndPush", "prepareClone", "graphSyncRuntime.pushGraphDelivery", "applyDoctorSync", "implementRuntime.prepareWorkerSyncCheckout"},
+		"Push": {"commitAndPush", "prepareClone", "graphSyncRuntime.pushGraphDelivery", "implementRuntime.prepareWorkerSyncCheckout"},
 	}
 
 	funcs := packageFuncs(t)

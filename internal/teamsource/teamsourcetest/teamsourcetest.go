@@ -118,6 +118,11 @@ func CaptureSpike(ctx context.Context, registry graphexec.Registry) (*teamsource
 	return CaptureGo(ctx, agent.WorkflowSpike, registry)
 }
 
+// CaptureDoctor captures the go team's Doctor workflow.
+func CaptureDoctor(ctx context.Context, registry graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+	return CaptureGo(ctx, agent.WorkflowDoctor, registry)
+}
+
 // CaptureValidate captures the go team's Validate workflow.
 func CaptureValidate(ctx context.Context, registry graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 	return CaptureGo(ctx, agent.WorkflowValidate, registry)

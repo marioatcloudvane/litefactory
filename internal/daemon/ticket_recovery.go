@@ -253,8 +253,6 @@ func githubRepo(container string) github.Repo {
 }
 func mustTicketNumber(key string) int { n, _ := strconv.Atoi(key); return n }
 
-var errRecoveryDoctorHeld = errors.New("ticket recovery deferred by Doctor repair hold")
-
 // drainTicketObservations converts durable qualified signals into the existing
 // session backlog and child discovery records. Clearing follows that handoff;
 // generation checks keep observations received during the read pending.
@@ -340,9 +338,6 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 				return ctx.Err()
 			}
 			// A hold defers this observation, not every ticket from its source.
-			if errors.Is(err, errRecoveryDoctorHeld) || store.IsDoctorRepairHold(err) {
-				continue
-			}
 			failedSources[observation.ConnectionVersionID] = true
 			q.log.WarnContext(ctx, "child ticket observation remains pending", slog.Any("error", err))
 			continue
@@ -380,13 +375,6 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		switch {
 		case sessionErr == nil:
 			if d.prepFailures.held(session.ID, recoveryTime(ctx)) || d.sessionRecoveryHeld(session.ID, recoveryTime(ctx)) {
-				continue
-			}
-			held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
-			if err != nil {
-				return err
-			}
-			if held {
 				continue
 			}
 			snapshot, err := d.db.GetExecutionSnapshot(ctx, session.ID)
@@ -510,11 +498,6 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				// The hold may have started after the lookup. The durable
-				// observation still owns retry; no backlog handoff succeeded.
-				if store.IsDoctorRepairHold(err) {
-					continue
-				}
 				return err
 			}
 			d.queueObservation(q, seen, c, observation)
@@ -554,19 +537,9 @@ func (d *Daemon) recoverRetainedSessions(ctx context.Context, q *repoQueue) erro
 		if current.Enabled && snapshot.TicketVersionID == current.ID {
 			continue
 		}
-		held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
-		if err != nil {
-			return err
-		}
-		if held {
-			continue
-		}
 		if err := d.db.SetSessionNeedsPoll(ctx, session.ID); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
-			}
-			if store.IsDoctorRepairHold(err) {
-				continue
 			}
 			return err
 		}
@@ -642,13 +615,6 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 		if err := d.db.CheckTicketBindingSource(ctx, store.TicketBinding{RepoID: q.repo.ID, ConnectionVersionID: observation.ConnectionVersionID, Ref: ref}, version); err != nil {
 			return nil, err
 		}
-	}
-	held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
-	if err != nil {
-		return nil, err
-	}
-	if held {
-		return nil, errRecoveryDoctorHeld
 	}
 	// A live graph Plan story that is a task of its own answers its own
 	// comments. Its observation goes straight to the child's session; the

@@ -482,83 +482,6 @@ func TestRecoveryLinearTicketWithInaccessibleGitHubCode(t *testing.T) {
 	}
 }
 
-func TestRecoveryDoctorHoldDefersOnlyAffectedObservation(t *testing.T) {
-	for _, parent := range []bool{false, true} {
-		for _, race := range []bool{false, true} {
-			t.Run(fmt.Sprintf("parent=%t/race=%t", parent, race), func(t *testing.T) {
-				f, v, q, sessions, onRead := recoveryHoldFixture(t)
-				ctx := t.Context()
-				observed := 7
-				if parent {
-					observed = 6
-					if _, err := f.d.db.AdmitPlanWorkflowPath(ctx, sessions[0].ID, "graph"); err != nil {
-						t.Fatal(err)
-					}
-					if _, err := f.d.db.ReservePlanStory(ctx, sessions[0].TaskRef, "child"); err != nil {
-						t.Fatal(err)
-					}
-					if err := f.d.db.BindPlanStoryIssue(ctx, sessions[0].TaskRef, "child", 60, observed); err != nil {
-						t.Fatal(err)
-					}
-					if err := f.d.db.AdvanceStoryDiscovery(ctx, sessions[0].ID, observed, 0); err != nil {
-						t.Fatal(err)
-					}
-				}
-				hold := func() {
-					approveEffect(t, f.d.db, sessions[0], store.DoctorRepairStep{Kind: "poll_flag", Target: fmt.Sprintf("session:%d", sessions[0].ID), Before: "0", After: "1"}, store.DoctorEvidence{TaskRef: sessions[0].TaskRef})
-				}
-				if race {
-					*onRead = func(r *http.Request) {
-						if strings.HasSuffix(r.URL.Path, fmt.Sprintf("/issues/%d", observed)) {
-							*onRead = nil
-							hold()
-						}
-					}
-				} else {
-					hold()
-				}
-				for _, n := range []int{observed, 8} {
-					handoffRecoveryHold(t, f.d.db, v, n)
-				}
-				for range 2 {
-					seen := map[int64]*candidate{}
-					q.candidates = nil
-					if err := f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{q.repo.ID: q}, seen); err != nil {
-						t.Fatal(err)
-					}
-					if len(seen) != 1 || seen[sessions[1].ID] == nil {
-						t.Fatalf("unrelated same-source observation blocked: %+v", seen)
-					}
-					pending, err := f.d.db.ListPendingTicketObservations(ctx, v.ID)
-					if err != nil || len(pending) != 2 || pending[0].Generation != 1 || pending[1].Generation != 1 {
-						t.Fatalf("lost durable generation: %+v %v", pending, err)
-					}
-					held, err := f.d.db.GetSession(ctx, sessions[0].ID)
-					if err != nil || held.NeedsPoll {
-						t.Fatalf("held backlog changed: %+v %v", held, err)
-					}
-					if parent {
-						owed, err := f.d.db.StoryDiscoveryOwed(ctx, sessions[0].ID, observed)
-						if err != nil || owed {
-							t.Fatalf("held parent discovery changed: %t %v", owed, err)
-						}
-					}
-				}
-				if err := f.d.db.StopDoctorRepair(ctx, sessions[0].TaskRef, "release fixture hold"); err != nil {
-					t.Fatal(err)
-				}
-				seen := map[int64]*candidate{}
-				if err := f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{q.repo.ID: q}, seen); err != nil {
-					t.Fatal(err)
-				}
-				if len(seen) != 2 {
-					t.Fatalf("release did not retry: %+v", seen)
-				}
-			})
-		}
-	}
-}
-
 // A graph Plan story that is a task of its own receives its observations
 // directly. The parent keeps only its lifecycle debt; it is not woken, made a
 // candidate or asked to resolve the child. A story without its own session is
@@ -659,40 +582,6 @@ func TestRecoveryPlanStoryObservationRouting(t *testing.T) {
 	}
 }
 
-func TestRecoveryDoctorHeldRetainedSession(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprintf("replacement-enabled=%t", enabled), func(t *testing.T) {
-			f, v, q, sessions, _ := recoveryHoldFixture(t)
-			v.Enabled = enabled
-			if _, err := f.d.db.SetConnection(t.Context(), v, v.Revision); err != nil {
-				t.Fatal(err)
-			}
-			approveEffect(t, f.d.db, sessions[0], store.DoctorRepairStep{Kind: "poll_flag", Target: fmt.Sprintf("session:%d", sessions[0].ID), Before: "0", After: "1"}, store.DoctorEvidence{TaskRef: sessions[0].TaskRef})
-			for range 2 {
-				if err := f.d.recoverRetainedSessions(t.Context(), q); err != nil {
-					t.Fatal(err)
-				}
-				for i, s := range sessions {
-					got, err := f.d.db.GetSession(t.Context(), s.ID)
-					if err != nil || got.NeedsPoll != (i == 1) {
-						t.Fatalf("retained backlog: %+v %v", got, err)
-					}
-				}
-			}
-			if err := f.d.db.StopDoctorRepair(t.Context(), sessions[0].TaskRef, "release fixture"); err != nil {
-				t.Fatal(err)
-			}
-			if err := f.d.recoverRetainedSessions(t.Context(), q); err != nil {
-				t.Fatal(err)
-			}
-			got, err := f.d.db.GetSession(t.Context(), sessions[0].ID)
-			if err != nil || !got.NeedsPoll {
-				t.Fatalf("retained scan failed to retry: %+v %v", got, err)
-			}
-		})
-	}
-}
-
 // The transport callback runs synchronously after the hold lookup and before
 // the provider read returns, placing a real hold in the lookup/write window.
 func recoveryHoldFixture(t *testing.T) (*discoveryHTTPFixture, store.ConnectionVersion, *repoQueue, []store.Session, *func(*http.Request)) {
@@ -774,37 +663,6 @@ func handoffRecoveryHold(t *testing.T, db *store.DB, v store.ConnectionVersion, 
 	}
 }
 
-func TestRecoveryDoctorDeferralPreservesOtherFailures(t *testing.T) {
-	for _, mode := range []string{"store", "cancel"} {
-		t.Run(mode, func(t *testing.T) {
-			f, v, q, _, onRead := recoveryHoldFixture(t)
-			for _, n := range []int{7, 8} {
-				handoffRecoveryHold(t, f.d.db, v, n)
-			}
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			*onRead = func(r *http.Request) {
-				if !strings.HasSuffix(r.URL.Path, "/issues/7") {
-					return
-				}
-				*onRead = nil
-				if mode == "cancel" {
-					cancel()
-				} else if err := f.d.db.Close(); err != nil {
-					t.Fatal(err)
-				}
-			}
-			err := f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{q.repo.ID: q}, map[int64]*candidate{})
-			if err == nil || store.IsDoctorRepairHold(err) {
-				t.Fatalf("non-hold failure hidden: %v", err)
-			}
-			if mode == "cancel" && !errors.Is(err, context.Canceled) {
-				t.Fatalf("cancellation lost: %v", err)
-			}
-		})
-	}
-}
-
 // Dispatch is the boundary under test; leave execution locked so this fixture
 // does not pretend to run an agent or publish a report.
 type recoveryHoldExecutor struct{ requests chan turn.Request }
@@ -813,8 +671,6 @@ func (e recoveryHoldExecutor) Execute(_ context.Context, req turn.Request) (turn
 	e.requests <- req
 	return turn.Result{Disposition: turn.DispositionLocked}, nil
 }
-
-func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) { recoveryMixedTick(t, "doctor") }
 
 func TestConnectionQuotaTickIsolation(t *testing.T) {
 	for _, ordering := range []string{"linear-first", "github-first"} {
@@ -905,7 +761,7 @@ func recoveryMixedTick(t *testing.T, mode string) {
 	// the hold after the lookup. The mixed factory delegates to it for loopback.
 	var quotaRequests atomic.Int64
 	var refuse atomic.Bool
-	refuse.Store(mode != "doctor")
+	refuse.Store(true)
 	factory = projectconnection.NewFactory(projectconnection.Options{DB: f.d.db, Logger: f.d.log, HTTPClient: &http.Client{Transport: discoveryUnitTransport(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host == strings.TrimPrefix(remote.server.URL, "http://") {
 			quotaRequests.Add(1)
@@ -924,10 +780,6 @@ func recoveryMixedTick(t *testing.T, mode string) {
 		return "offline-token", true
 	}}})
 	*onRead = func(r *http.Request) {
-		if mode == "doctor" && strings.HasSuffix(r.URL.Path, "/issues/7") {
-			*onRead = nil
-			approveEffect(t, f.d.db, sessions[0], store.DoctorRepairStep{Kind: "poll_flag", Target: fmt.Sprintf("session:%d", sessions[0].ID), Before: "0", After: "1"}, store.DoctorEvidence{TaskRef: sessions[0].TaskRef})
-		}
 	}
 	for _, n := range []int{7, 8} {
 		handoffRecoveryHold(t, f.d.db, v, n)
@@ -952,85 +804,61 @@ func recoveryMixedTick(t *testing.T, mode string) {
 	if err := d.Quiesce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if mode != "doctor" {
-		if quotaRequests.Load() != 1 {
-			t.Fatalf("requests escaped first refusal: %d", quotaRequests.Load())
-		}
-		pending, e := d.db.ListPendingTicketObservations(ctx, linearSource.ID)
-		if e != nil || len(pending) != 1 || pending[0].Generation != 1 {
-			t.Fatalf("pending work changed: %+v %v", pending, e)
-		}
-		dispatched := map[int64]bool{}
-		for len(requests) > 0 {
-			dispatched[(<-requests).SessionID] = true
-		}
-		for _, session := range sessions {
-			if !dispatched[session.ID] {
-				t.Fatalf("healthy GitHub session %d did not dispatch", session.ID)
-			}
-		}
-		now = now.Add(time.Minute)
-		result, e := d.Tick(ctx)
-		if e != nil || result.Skipped {
-			t.Fatalf("factory stopped for one scope: %+v %v", result, e)
-		}
-		if e := d.Quiesce(ctx); e != nil {
-			t.Fatal(e)
-		}
-		if quotaRequests.Load() != 1 {
-			t.Fatal("held connection was called again")
-		}
-		pending, e = d.db.ListPendingTicketObservations(ctx, linearSource.ID)
-		if e != nil || len(pending) != 1 || pending[0].Generation != 1 {
-			t.Fatalf("pending work changed during hold: %+v %v", pending, e)
-		}
-		if d.pause.snapshot().Paused {
-			t.Fatal("healthy discovery described as globally paused")
-		}
-		refuse.Store(false)
-		now = now.Add(time.Minute)
-		if _, e := d.Tick(ctx); e != nil {
-			t.Fatal(e)
-		}
-		if e := d.Quiesce(ctx); e != nil {
-			t.Fatal(e)
-		}
-		found := false
-		for len(requests) > 0 {
-			req := <-requests
-			if req.SessionID == linearSession.ID {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatal("deferred Linear work did not resume")
-		}
-		pending, e = d.db.ListPendingTicketObservations(ctx, linearSource.ID)
-		if e != nil || len(pending) != 1 {
-			t.Fatalf("locked executor must retain observation: %+v %v", pending, e)
-		}
-		return
+	if quotaRequests.Load() != 1 {
+		t.Fatalf("requests escaped first refusal: %d", quotaRequests.Load())
 	}
-	close(requests)
-	seen := map[int64]bool{}
-	for req := range requests {
-		seen[req.SessionID] = true
+	pending, e := d.db.ListPendingTicketObservations(ctx, linearSource.ID)
+	if e != nil || len(pending) != 1 || pending[0].Generation != 1 {
+		t.Fatalf("pending work changed: %+v %v", pending, e)
 	}
-	if len(seen) != 2 || !seen[sessions[1].ID] || !seen[linearSession.ID] {
-		t.Fatalf("mixed-provider dispatch blocked: %v\n%s", seen, f.logs.String())
+	dispatched := map[int64]bool{}
+	for len(requests) > 0 {
+		dispatched[(<-requests).SessionID] = true
 	}
-	pending, err := f.d.db.ListPendingTicketObservations(ctx, v.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var retained bool
-	for _, p := range pending {
-		if p.TicketID == "70" {
-			retained = p.Generation == 1
+	for _, session := range sessions {
+		if !dispatched[session.ID] {
+			t.Fatalf("healthy GitHub session %d did not dispatch", session.ID)
 		}
 	}
-	if !retained {
-		t.Fatalf("hold race lost intent: %+v", pending)
+	now = now.Add(time.Minute)
+	result, e := d.Tick(ctx)
+	if e != nil || result.Skipped {
+		t.Fatalf("factory stopped for one scope: %+v %v", result, e)
+	}
+	if e := d.Quiesce(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if quotaRequests.Load() != 1 {
+		t.Fatal("held connection was called again")
+	}
+	pending, e = d.db.ListPendingTicketObservations(ctx, linearSource.ID)
+	if e != nil || len(pending) != 1 || pending[0].Generation != 1 {
+		t.Fatalf("pending work changed during hold: %+v %v", pending, e)
+	}
+	if d.pause.snapshot().Paused {
+		t.Fatal("healthy discovery described as globally paused")
+	}
+	refuse.Store(false)
+	now = now.Add(time.Minute)
+	if _, e := d.Tick(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if e := d.Quiesce(ctx); e != nil {
+		t.Fatal(e)
+	}
+	found := false
+	for len(requests) > 0 {
+		req := <-requests
+		if req.SessionID == linearSession.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("deferred Linear work did not resume")
+	}
+	pending, e = d.db.ListPendingTicketObservations(ctx, linearSource.ID)
+	if e != nil || len(pending) != 1 {
+		t.Fatalf("locked executor must retain observation: %+v %v", pending, e)
 	}
 }
 

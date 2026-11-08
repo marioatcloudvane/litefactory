@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -89,7 +88,7 @@ func (d *Daemon) ownerBatch(ctx context.Context, t *task, trigger turn.Trigger, 
 
 // batchable reports a comment that is plain owner input rather than a command.
 func batchable(body string) bool {
-	if _, isDoctor := doctor.ParseCommand(body); isDoctor || isCodeAuthorityBody(body) {
+	if turn.ParseCommand(body).Kind == turn.KindDoctor || isCodeAuthorityBody(body) {
 		return false
 	}
 	command := turn.ParseCommand(body)

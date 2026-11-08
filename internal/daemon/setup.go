@@ -25,7 +25,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/codeevidence"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/connector"
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -78,8 +77,6 @@ type Setup struct {
 	// Launchd limits project credentials to the keychain for background operation.
 	Launchd bool
 
-	// DoctorHost installs factory-owned local lifecycle control; nil keeps it unavailable.
-	DoctorHost *DoctorHostOptions
 	// Paths is the resolved $LF_HOME layout. Required.
 	Paths config.Paths
 	// Config is the validated config.yaml. Required.
@@ -374,20 +371,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
-	var lock *Lock
-	if s.DoctorHost != nil && s.DoctorHost.Recovery != nil {
-		lock, err = WaitDoctorRecoveryLock(ctx, s.DB, s.Paths, *s.DoctorHost.Recovery)
-	} else {
-		lock, err = AcquireLock(s.Paths.LockPath())
-	}
+	lock, err := AcquireLock(s.Paths.LockPath())
 	if err != nil {
 		return nil, Startup{}, err
 	}
 
 	// The webhook listener is bound right after the lock: a port that is taken
-	// fails start-up here, before any work exists, and gives the lock back. A
-	// doctor repair host never reaches this: it is a helper process that does
-	// not call Open.
+	// fails start-up here, before any work exists, and gives the lock back.
 	var webhookOpts *WebhookOptions
 	handedOver := false
 	if addr := s.Config.Webhook.Listen; addr != "" {
@@ -703,7 +693,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	daemon, err := New(Options{
 		Paths:      s.Paths,
-		Doctor:     &doctor.Service{BuildVersion: s.BuildVersion, FactorySource: s.FactorySource, Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
 			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,
@@ -803,20 +792,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}
 	}
 	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
-	daemon.doctorHostOptions = s.DoctorHost
 	daemon.judge = judgeService
-	diagnosisProviders := make(map[string]agent.DoctorRunner)
-	repairProviders := make(map[string]agent.DoctorRepairRunner)
-	for kind, runner := range runners {
-		if native, ok := runner.(agent.DoctorRunner); ok {
-			diagnosisProviders[string(kind)] = native
-		}
-		if native, ok := runner.(agent.DoctorRepairRunner); ok {
-			repairProviders[string(kind)] = native
-		}
-	}
-	daemon.doctor.service.Runner = &doctor.Adapters{Providers: diagnosisProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
-	daemon.doctor.service.Comments = ticketWorkflow
 	// CI uses the configured factory credential and existing quota accounting.
 	// Its durable server wait is additional and local to this input.
 	ciOrigin, ciOriginErr := ticket.CanonicalOrigin(s.Config.Providers.GitHub.APIBase)
@@ -831,23 +807,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		daemon.ciMonitor = &cimonitor.Observer{Reader: ciClient, Engine: daemon.alerts, Target: s.Config.Alerts.CI, Origin: string(ciOrigin), Now: daemon.alertClock, Gate: &cimonitor.Gate{Store: s.DB, Key: "ci:" + string(ciOrigin), Now: daemon.alertClock}}
 	} else {
 		daemon.ciMonitor = &cimonitor.Observer{Engine: daemon.alerts, Target: s.Config.Alerts.CI, Origin: string(ciOrigin), Now: daemon.alertClock, Gate: &cimonitor.Gate{Store: s.DB, Key: "ci:" + string(ciOrigin), Now: daemon.alertClock}}
-	}
-	daemon.doctor.service.CIProbe = daemon.ciMonitor
-	daemon.doctor.service.CIRepository = s.Config.Alerts.CI.Repository
-
-	daemon.doctor.service.RepairRunner = &doctor.RepairAdapters{Providers: repairProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
-	advisors := make(map[string]turn.ConflictAdvisor)
-	for kind, runner := range runners {
-		if advisor, ok := runner.(turn.ConflictAdvisor); ok {
-			advisors[string(kind)] = advisor
-		}
-	}
-	daemon.doctor.service.RepairEffects = &FactoryDoctorRepairEffects{DB: s.DB, Git: gitBinary, CloneGate: sharedCloneGate, Author: turnOpts.Author, Advisors: advisors, Comments: ticketWorkflow, BotID: identities.BotUserID, Redactor: daemon.doctor.service.Redactor}
-	daemon.doctor.service.RepairEnvironment = &DoctorRepairEnvironment{DB: s.DB, Paths: s.Paths, Live: daemon}
-
-	if s.DoctorHost != nil {
-		daemon.doctor.service.RepairEnvironment = &DoctorRepairEnvironment{DB: s.DB, Paths: s.Paths, Live: daemon, Replacement: s.DoctorHost.Replacement}
-		daemon.doctor.service.RestartRoute = &DoctorHostRestart{DB: s.DB, Paths: s.Paths, Live: &DoctorLocalControl{Paths: s.Paths}, Replacement: s.DoctorHost.Replacement}
 	}
 
 	startup := Startup{

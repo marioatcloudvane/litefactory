@@ -48,7 +48,7 @@ NOTE: litefactory is experimental. Contact me if you want to use it!
 | **Teams** | Immutable, versioned team packages (roles, skills, graphs, stack profiles) for Go, Python/FastAPI, Swift/iOS and .NET. Install, clone, link per repository. |
 | **Two agents** | Claude Code and Codex side by side, per-mode model tiers, permission profiles, and read-only sandboxes for reviewers. |
 | **Meter** | Tokens and cost per project, task, mode, agent and model, against an immutable price catalogue, with CSV export. Unknown coverage is shown as unknown, never guessed. |
-| **Doctor** | `/doctor` explains why an issue is stuck and proposes typed repairs (release, resume, park, stop, requeue, sync) that you apply with a backup and a recheck. |
+| **Doctor** | `/doctor [what to look at]` on a stopped task: one agent reads the task's issue, its redacted run logs and recorded state and its worktree, explains why it is stuck and repairs the task branch only after your go. The factory commits and ships the repair like a Spike. |
 | **Recovery** | Startup recovery of interrupted work, automatic resume after provider session limits, deploys that wait for idle, worktree retention and cleanup. |
 | **Chat** | Discord: health, status, project questions with sourced answers, meter reports, diagnoses, answering Research questions and drafting new feature issues from a conversation. Owner-only, signature-verified. |
 | **Fast triggers** | GitHub webhooks wake the daemon within seconds; polling stays on as a safety net. |
@@ -76,7 +76,8 @@ Requirements: macOS, Go, git, the GitHub CLI and at least one of Claude Code or 
 ```sh
 litefactory logs <issue> -f          # follow one issue's local log
 litefactory meter <repo> <issue>     # what did this cost?
-litefactory doctor <repo> <issue> "why is this stuck?"
+litefactory doctor <task-ref>         # where the Doctor stands on a task
+litefactory doctor stop <task-ref>    # stop a task's running work so the Doctor can start
 ```
 
 On the issue: `/approve-plan …`, `/approve-plan-set …`, `/implement <instructions>`,

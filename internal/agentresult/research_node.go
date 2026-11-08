@@ -40,6 +40,12 @@ func DecodeBugNode(data []byte, ctx Context) (ResearchNode, Diagnostics) {
 	return decodeNodeFor(data, ctx, nodeBug)
 }
 
+// DecodeDoctorNode validates a graph Doctor node over the same envelope and the
+// same application result. A Doctor role answers ask or done.
+func DecodeDoctorNode(data []byte, ctx Context) (ResearchNode, Diagnostics) {
+	return decodeNodeFor(data, ctx, nodeDoctor)
+}
+
 type nodeVocabulary int
 
 const (
@@ -47,6 +53,7 @@ const (
 	nodePlan
 	nodeSpike
 	nodeBug
+	nodeDoctor
 )
 
 // decodeNodeFor is the one envelope decoder. The vocabulary selects which mode
@@ -78,6 +85,8 @@ func decodeNodeFor(data []byte, ctx Context, vocabulary nodeVocabulary) (Researc
 		add(&d, "$", "scope", "Spike invocation", "different mode", "Use the factory-selected Spike mode.")
 	case vocabulary == nodeBug && ctx.Mode != "bug":
 		add(&d, "$", "scope", "Bug invocation", "different mode", "Use the factory-selected Bug mode.")
+	case vocabulary == nodeDoctor && ctx.Mode != "doctor":
+		add(&d, "$", "scope", "Doctor invocation", "different mode", "Use the factory-selected Doctor mode.")
 	case vocabulary == nodeResearch && ctx.Mode != "research":
 		add(&d, "$", "scope", "Research invocation", "different mode", "Use the factory-selected Research mode.")
 	}

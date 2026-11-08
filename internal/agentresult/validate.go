@@ -95,7 +95,7 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 	}
 	// Of the Implement agents, only the sync resolver (a coordinator agent) may
 	// ask: it offers the owner resolutions for a conflict it cannot settle.
-	questionMode := ctx.Mode == "research" || ctx.Mode == "plan" || ctx.Mode == "spike" || ctx.Mode == "bug" || (ctx.Mode == "implement" && ctx.CoordinatorRole)
+	questionMode := ctx.Mode == "research" || ctx.Mode == "plan" || ctx.Mode == "spike" || ctx.Mode == "bug" || ctx.Mode == "doctor" || (ctx.Mode == "implement" && ctx.CoordinatorRole)
 	if len(r.Questions) > 0 && (!ctx.QuestionsAllowed || !questionMode || r.Outcome == "completed") {
 		add(&d, "$.result.questions", "authorization", "permitted questions on unfinished Research or Plan", "disallowed questions", "Follow trusted question permission and report an unfinished outcome.")
 	}
@@ -111,7 +111,7 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 	modes := []struct {
 		name    string
 		present bool
-	}{{"research", r.Payload.Research != nil}, {"plan", r.Payload.Plan != nil}, {"implement", r.Payload.Implement != nil}, {"validate", r.Payload.Validate != nil}, {"spike", r.Payload.Spike != nil}, {"bug", r.Payload.Bug != nil}}
+	}{{"research", r.Payload.Research != nil}, {"plan", r.Payload.Plan != nil}, {"implement", r.Payload.Implement != nil}, {"validate", r.Payload.Validate != nil}, {"spike", r.Payload.Spike != nil}, {"doctor", r.Payload.Doctor != nil}, {"bug", r.Payload.Bug != nil}}
 	count := 0
 	matching := false
 	for _, m := range modes {
@@ -126,7 +126,7 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 	if p := r.Payload.Research; p != nil {
 		required(&d, "$.result.payload.research.request", p.Request)
 	}
-	for key, p := range map[string]*Spike{"spike": r.Payload.Spike, "bug": r.Payload.Bug} {
+	for key, p := range map[string]*Spike{"spike": r.Payload.Spike, "bug": r.Payload.Bug, "doctor": r.Payload.Doctor} {
 		if p == nil {
 			continue
 		}

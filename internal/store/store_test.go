@@ -1589,7 +1589,7 @@ func TestConcurrentAccessorsDoNotDeadlock(t *testing.T) {
 }
 
 func TestReconcileOrphansStaleSession(t *testing.T) {
-	for _, protection := range []string{"none", "stale lock", "current lock", "prelaunch", "doctor"} {
+	for _, protection := range []string{"none", "stale lock", "current lock", "prelaunch"} {
 		t.Run(protection, func(t *testing.T) {
 			t.Parallel()
 			db := newTestDB(t)
@@ -1624,9 +1624,6 @@ func TestReconcileOrphansStaleSession(t *testing.T) {
 				if _, err = db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: ModeSpike, Agent: AgentClaude, TriggerCommentID: 6, Prelaunch: true, LogPath: func(int) string { return "/prelaunch.log" }}); err != nil {
 					t.Fatal(err)
 				}
-			case "doctor":
-				schedule := typedSchedule(t, db, session, false)
-				typedRowApproval(t, db, session, "cancel_schedule", fmt.Sprintf("schedule:%d", schedule.ID), "pending", "failed")
 			}
 			before := archiveLogicalRows(t, db, "SELECT * FROM runs")
 			for round := 0; round < 2; round++ {

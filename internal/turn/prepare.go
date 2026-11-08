@@ -13,7 +13,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -1284,7 +1283,7 @@ func commentHistory(
 	var previousTriggerBody string
 	history := make([]harness.HistoryEntry, 0, len(comments))
 	for _, comment := range comments {
-		if _, ok := doctor.ParseCommand(comment.Body); ok {
+		if ParseCommand(comment.Body).Kind == KindDoctor {
 			continue
 		}
 		// Matched before the trigger is skipped, not after. The two ids are

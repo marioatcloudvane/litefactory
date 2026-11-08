@@ -28,7 +28,7 @@ On start, the daemon checks that `git` and the configured agent executables are 
 - **Validate.** The owner starts Validate with `/validate` after Implement finishes (see [owner commands](../guides/owner-commands.md)). Set `validate.auto_start: true` to have the factory start it itself.
 - **Quota recovery.** Off by default; see [recovery](recovery.md).
 - **Daily housekeeping.** Old worktrees, logs, archives and database backups are cleaned up; see [cleanup](cleanup.md).
-- **Health check.** `litefactory doctor` inspects the installation; see [doctor](doctor.md). Usage and cost data is in the [meter](../meter.md).
+- **Stuck tasks.** `/doctor` on a stopped task's issue starts the Doctor; see [doctor](doctor.md). Usage and cost data is in the [meter](../meter.md).
 
 For foreground diagnosis, stop the managed instance first, then use `litefactory daemon run --level debug`. It runs until interrupted; a second instance refuses the exclusive daemon lock. `--level` on `run` or `start` overrides configured logging for that invocation without editing YAML.
 

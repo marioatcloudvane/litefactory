@@ -28,6 +28,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 	sharedEntries := map[string]struct{ file, policy string }{
 		"ExecuteResearchWorkflow": {"research_workflow.go", "ResearchWorkflowPolicy"},
 		"ExecuteSpikeWorkflow":    {"spike_admission.go", "SpikeWorkflowPolicy"},
+		"ExecuteDoctorWorkflow":   {"doctor_workflow.go", "DoctorWorkflowPolicy"},
 		"ExecuteBugWorkflow":      {"bug_workflow.go", "BugWorkflowPolicy"},
 	}
 	for _, root := range []string{"../", "../../cmd"} {

@@ -70,7 +70,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		}
 		// The session guard and the slot come first, so a step that waits for
 		// a busy session or for capacity costs no issue read.
-		if !d.enterDoctorGuarded(ctx, session.ID) {
+		if !d.enterSession(ctx, session.ID) {
 			log.DebugContext(ctx, "graph step waits for this task's in-flight turn")
 			continue
 		}
@@ -131,7 +131,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		d.inflight.label(session.ID, "graph_step")
 		t.workerLog = log.With(slog.Any("dispatch_sources", []string{"graph_step"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")
-		go d.runDoctorGuardedWorker(sessionContext(workerCtx, dispatch.SessionID), t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })
+		go d.runGuardedWorker(sessionContext(workerCtx, dispatch.SessionID), t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })
 		result.Dispatched++
 	}
 	return nil
@@ -281,6 +281,12 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		return
 	}
 	t.validating = validating
+	doctoring, doctorErr := d.dispatchMode(ctx, dispatch, string(agent.ModeDoctor))
+	if doctorErr != nil {
+		t.recordWorkerError(doctorErr)
+		return
+	}
+	t.doctoring = doctoring
 	// A Validate dispatch whose node is no longer where the instance rests
 	// (it moved on, finished, or was replaced) is stale. Drop it quietly:
 	// running it would offer its synthetic trigger to the open owner wait.
@@ -475,6 +481,11 @@ func (d *Daemon) reportGraphDispatchStop(ctx context.Context, stopped store.Grap
 // validateDispatch reports whether a dispatch belongs to a Validate instance, so
 // its step runs in Validate whatever mode the issue's labels name.
 func (d *Daemon) validateDispatch(ctx context.Context, dispatch store.GraphDispatch) (bool, error) {
+	return d.dispatchMode(ctx, dispatch, string(agent.ModeValidate))
+}
+
+// dispatchMode reports whether a dispatch belongs to an instance of mode.
+func (d *Daemon) dispatchMode(ctx context.Context, dispatch store.GraphDispatch, mode string) (bool, error) {
 	instance, err := d.db.GetGraphInstance(ctx, dispatch.InstanceID)
 	if err != nil {
 		return false, err
@@ -483,7 +494,7 @@ func (d *Daemon) validateDispatch(ctx context.Context, dispatch store.GraphDispa
 	if err != nil {
 		return false, err
 	}
-	return definition.Mode == string(agent.ModeValidate), nil
+	return definition.Mode == mode, nil
 }
 
 // implementCoordinatorDispatch reports whether a dispatch belongs to an Implement
@@ -521,7 +532,7 @@ func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) err
 	}
 	var faults error
 	for _, sessionID := range orphaned {
-		if !d.enterDoctorGuarded(ctx, sessionID) {
+		if !d.enterSession(ctx, sessionID) {
 			continue
 		}
 		err := d.settleOrphanedGraphPrelaunch(ctx, sessionID, at)
@@ -533,7 +544,7 @@ func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) err
 		return errors.Join(faults, err)
 	}
 	for _, dispatch := range interrupted {
-		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
+		if !d.enterSession(ctx, dispatch.SessionID) {
 			continue
 		}
 		err := d.reconcileGraphDispatch(ctx, dispatch, at)
@@ -549,7 +560,7 @@ func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) err
 	}
 	for _, dispatch := range dead {
 		d.alertDeadDispatch(ctx, dispatch, at)
-		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
+		if !d.enterSession(ctx, dispatch.SessionID) {
 			continue
 		}
 		err := d.cancelDeadGraphDispatch(ctx, dispatch, at)
@@ -561,7 +572,7 @@ func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) err
 		return errors.Join(faults, err)
 	}
 	for _, dispatch := range stranded {
-		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
+		if !d.enterSession(ctx, dispatch.SessionID) {
 			continue
 		}
 		err := d.reconcileGraphDispatch(ctx, dispatch, at)

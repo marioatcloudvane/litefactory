@@ -301,7 +301,7 @@ func parseConfig(raw []byte) (map[string]string, error) {
 	if len(n.Content) != 1 || n.Content[0].Kind != yaml.MappingNode || n.Content[0].Tag != "!!map" || len(n.Content[0].Content) == 0 || n.Content[0].Anchor != "" {
 		return nil, fmt.Errorf("%w: team.config must be a nonempty mode mapping", ErrInvalidPackage)
 	}
-	allowed := map[string]bool{"research": true, "plan": true, "implement": true, "validate": true, "spike": true, "bug": true}
+	allowed := map[string]bool{"research": true, "plan": true, "implement": true, "validate": true, "spike": true, "doctor": true, "bug": true}
 	result := map[string]string{}
 	var faults []error
 	nodes := n.Content[0].Content

@@ -308,7 +308,7 @@ func (d *Daemon) archiveOwner(ctx context.Context, ownerID int64, now time.Time,
 			return v, err
 		}
 	}
-	if !d.enterDoctorGuarded(ctx, ownerID) {
+	if !d.enterSession(ctx, ownerID) {
 		return kept("active_or_uncertain_owner")
 	}
 	defer d.inflight.leave(ownerID)

@@ -32,7 +32,7 @@ func TestRegisteredWorkflowPolicies_EachRefusesTerminalOnlyCompletion(t *testing
 			}
 			var f *retainedFixture
 			switch workflow {
-			case agent.WorkflowResearch, agent.WorkflowPlan, agent.WorkflowSpike, agent.WorkflowImplement, agent.WorkflowValidate, agent.WorkflowBug:
+			case agent.WorkflowResearch, agent.WorkflowPlan, agent.WorkflowSpike, agent.WorkflowDoctor, agent.WorkflowImplement, agent.WorkflowValidate, agent.WorkflowBug:
 				f = newRetainedFixture(t, string(policy.Mode))
 			default:
 				t.Fatalf("registered workflow %q has no result fixture in this guard; add one", workflow)

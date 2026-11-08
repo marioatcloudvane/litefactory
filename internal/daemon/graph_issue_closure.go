@@ -69,7 +69,7 @@ func (d *Daemon) linearOffListing(ctx context.Context, q *repoQueue, repoID int6
 	return linear, nil
 }
 
-// offer already owns in-process exclusion and the doctor guard. The durable
+// offer already owns in-process exclusion. The durable
 // session lock also excludes workers in other processes during cancellation.
 func (d *Daemon) cancelClosedIssueGraphs(ctx context.Context, sessionID int64, at time.Time) (cleared bool, err error) {
 	acquired, err := d.db.AcquireSessionLock(ctx, sessionID, d.instanceID)

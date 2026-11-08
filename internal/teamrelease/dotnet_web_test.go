@@ -129,8 +129,8 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if installed.Identity.Slug != "dotnet-web" || installed.Identity.Version != version || len(installed.Workflows) != 6 {
-		t.Fatal("exact identity or six workflows missing")
+	if installed.Identity.Slug != "dotnet-web" || installed.Identity.Version != version || len(installed.Workflows) != 7 {
+		t.Fatal("exact identity or seven workflows missing")
 	}
 	for _, path := range []string{"team.config", "stack-profile.json", "plan/skills/blazor-guidance/compatibility.md", "plan/skills/blazor-guidance/practices.md"} {
 		found := false
@@ -164,7 +164,7 @@ func TestDotnetWebCapturedGuidanceAndProviderReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	builders := map[agent.Workflow]func() (graphexec.Registry, error){agent.WorkflowResearch: turn.ResearchSpecs, agent.WorkflowPlan: turn.PlanSpecs, agent.WorkflowImplement: turn.ImplementSpecs, agent.WorkflowValidate: turn.ValidateFlowSpecs, agent.WorkflowSpike: turn.SpikeSpecs, agent.WorkflowBug: turn.BugSpecs}
+	builders := map[agent.Workflow]func() (graphexec.Registry, error){agent.WorkflowResearch: turn.ResearchSpecs, agent.WorkflowPlan: turn.PlanSpecs, agent.WorkflowImplement: turn.ImplementSpecs, agent.WorkflowValidate: turn.ValidateFlowSpecs, agent.WorkflowSpike: turn.SpikeSpecs, agent.WorkflowDoctor: turn.DoctorSpecs, agent.WorkflowBug: turn.BugSpecs}
 	for mode, builder := range builders {
 		t.Run(string(mode), func(t *testing.T) {
 			registry, err := builder()

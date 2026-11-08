@@ -301,7 +301,7 @@ func TestBugReportRecoveryOwnership(t *testing.T) {
 		{"bug-question", false, 0},
 	} {
 		t.Run(fmt.Sprintf("%s/run=%t", tc.purpose, tc.run), func(t *testing.T) {
-			d, _, repo := doctorDaemonFixture(t)
+			d, _, repo := daemonFixture(t)
 			ctx := t.Context()
 			check := func(err error) {
 				t.Helper()

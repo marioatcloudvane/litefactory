@@ -46,6 +46,8 @@ func newRetainedFixture(t *testing.T, mode string) *retainedFixture {
 		f.policy, f.result = PlanWorkflowPolicy(), retainedPlanResult
 	case "spike":
 		f.policy, f.result = SpikeWorkflowPolicy(), retainedSpikeResult
+	case "doctor":
+		f.policy, f.result = DoctorWorkflowPolicy(), `{"outcome":"completed","comment":"The check timed out.","payload":{"doctor":{"request":"Why is it stuck?"}}}`
 	case "bug":
 		f.policy, f.result = BugWorkflowPolicy(), `{"outcome":"completed","comment":"Fixed.","payload":{"bug":{"request":"Saving crashes.","findings":["The cause"]}}}`
 	case "implement":

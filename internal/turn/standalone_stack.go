@@ -41,6 +41,8 @@ func standaloneStackSpecs(workflow agent.Workflow) (graphexec.Registry, error) {
 		return ValidateFlowSpecs()
 	case agent.WorkflowSpike:
 		return SpikeSpecs()
+	case agent.WorkflowDoctor:
+		return DoctorSpecs()
 	}
 	return graphexec.Registry{}, errors.New("stack.workflow: unsupported standalone workflow")
 }

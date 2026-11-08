@@ -51,7 +51,7 @@ func (d *Daemon) replayContinuationCancellation(ctx context.Context, notice stor
 	if !allowed {
 		return &recoveryPending{}
 	}
-	if !d.enterDoctorGuarded(ctx, session.ID) {
+	if !d.enterSession(ctx, session.ID) {
 		return nil
 	}
 	defer d.inflight.leave(session.ID)

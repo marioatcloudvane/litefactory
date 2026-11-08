@@ -35,7 +35,7 @@ provider may still be required. Existing approval gates apply independently.
 | `repo webhook` | `list/status/create/repair/update/disable` | Local; owned provider subscription operations (distinct from bare legacy `repo webhook`) | `cmd_repo_subscriptions_test.go` |
 | `daemon` | `run/start/stop/status` | Local lifecycle composition; `run` becomes the daemon, `start` installs/starts service, `stop` stops it, `status` observes it | `cmd_daemon_test.go`, `cmd_daemon_agent_test.go`, `cmd_daemon_run_test.go`, `cmd_daemon_health_test.go` |
 | `logs` | bare | Local; application/run log inspection; following is explicit | `cmd_logs_test.go`, `cmd_logs_app_test.go`, `cmd_logs_tail_test.go`, `cmd_logs_app_follow_test.go` |
-| `doctor` | bare; `status/stop/apply` | Local diagnosis and explicit recovery lifecycle; preserve repair handoff fences | `doctor_unit_test.go`, `cmd_daemon_recovery_test.go` |
+| `doctor` | bare; `stop` | Doctor state of a task; stop a task's running invocation | `maintenance.DoctorState`, `maintenance.StopTask` |
 | `meter` | bare; `export/recover/prices`; `prices list/set` | Local; measured/unknown usage, CSV export, explicit recovery apply and immutable price revisions | `meter_test.go`, `meter_endtoend_test.go`, `meter_recovery_test.go`, `meter_prices_test.go`, `research_meter_csv_test.go` |
 | `task` | `clean/retire` | Local; clean Git worktree/state or explicit task retirement; retain dirty/missing/no-op refusals | `cmd_task_test.go`, `retirement_preview_unit_test.go` |
 | `connector grants` | `list/inspect/revoke/revoke-all` | Local, including with connector disabled; safe summaries and durable grant revocation | `cmd_connector_test.go`, `connector_e2e_test.go` |

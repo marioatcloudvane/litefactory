@@ -112,7 +112,7 @@ func DecodeUpdate(data []byte) (UpdateInput, Diagnostics) {
 				add(&d, path, "operation", "valid operation members", "invalid shape", err.Error())
 			}
 			known := false
-			for _, mode := range []string{"research", "plan", "implement", "validate", "spike", "bug"} {
+			for _, mode := range []string{"research", "plan", "implement", "validate", "spike", "doctor", "bug"} {
 				if allowed(op.Target, maximumTargets(mode), mode) {
 					known = true
 					break
@@ -142,8 +142,8 @@ func EditTargets(mode string) []Target {
 		fields = append(fields, "payload.implement.stories", "payload.implement.aggregate_checks", "payload.implement.deviations", "payload.implement.return_allocation")
 	case "validate":
 		fields = append(fields, "payload.validate.stories")
-	case "spike":
-		fields = append(fields, "payload.spike.request", "payload.spike.work_done", "payload.spike.findings", "payload.spike.decisions", "payload.spike.not_done")
+	case "spike", "doctor":
+		fields = append(fields, "payload."+mode+".request", "payload."+mode+".work_done", "payload."+mode+".findings", "payload."+mode+".decisions", "payload."+mode+".not_done")
 	default:
 		return nil
 	}

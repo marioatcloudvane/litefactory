@@ -46,7 +46,7 @@ func wireSchema(t reflect.Type) map[string]interface{} {
 		if t == reflect.TypeFor[Metadata]() {
 			props["schema_version"] = map[string]interface{}{"type": "integer", "const": SchemaVersion}
 			props["result_revision"] = map[string]interface{}{"type": "integer", "minimum": 1}
-			props["mode"] = map[string]interface{}{"type": "string", "enum": []string{"", "research", "plan", "implement", "validate", "spike", "bug"}}
+			props["mode"] = map[string]interface{}{"type": "string", "enum": []string{"", "research", "plan", "implement", "validate", "spike", "bug", "doctor"}}
 		}
 		if t == reflect.TypeFor[Payload]() {
 			s["minProperties"] = 1

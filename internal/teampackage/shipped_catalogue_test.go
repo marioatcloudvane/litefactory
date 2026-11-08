@@ -77,7 +77,7 @@ func TestShippedTeamInstallsFromTheCatalogueFile(t *testing.T) {
 	if err != nil || already || !got.Integrity || got.Identity.Source != "file://"+filepath.ToSlash(catalogue) {
 		t.Fatalf("install: %+v already=%v %v", got.Identity, already, err)
 	}
-	if len(got.Workflows) != 6 {
+	if len(got.Workflows) != 7 {
 		t.Fatalf("workflows: %v", got.Workflows)
 	}
 	if _, again, err := m.Install(t.Context(), "file://"+filepath.ToSlash(catalogue), "go-development", got.Identity.Version); err != nil || !again {

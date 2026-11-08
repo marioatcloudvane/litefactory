@@ -169,7 +169,9 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	ctx = context.WithValue(ctx, recoveryTickKey{}, startedAt)
 	ctx, checks := withContainerChecks(ctx)
 	defer checks.close()
-	d.doctorTick(ctx, startedAt)
+	if err := d.tickPhase(ctx, d.ownerStops); err != nil {
+		d.log.ErrorContext(ctx, "owner stop requests remain pending", slog.Any("error", err))
+	}
 	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.refreshRecoveries(ctx, startedAt); return nil })
 	// Stopped execution debt is independent of discovery/storage availability.
 	stoppedDispatched := d.retryStoppedResults(ctx, startedAt)
@@ -1259,6 +1261,9 @@ type task struct {
 	// validating marks a graph step of a Validate instance. The issue still
 	// carries its Implement label, so without it the step would run Implement.
 	validating bool
+	// doctoring routes a graph step of the task's Doctor instance to the
+	// Doctor, whatever the task's own workflow is.
+	doctoring bool
 	// hinted is set when a webhook named this task's issue. Its comment
 	// listing then takes the operational lane, so an owner's comment does not
 	// wait behind background discovery.
@@ -1490,7 +1495,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	if d.observeCandidateHold(ctx, c, tickAt) {
 		return offerSkipped
 	}
-	if !d.enterDoctorGuarded(ctx, c.session.ID) {
+	if !d.enterSession(ctx, c.session.ID) {
 		// AC-PAR-5.3: a session this daemon is already running a turn for is
 		// skipped, and skipping it posts nothing and moves no watermark. Its
 		// backlog flag is standing — the tick that dispatched it set it, and
@@ -1753,11 +1758,11 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 }
 
 // taskComments lists a task's comments after a watermark. A webhook-hinted task
-// reads through the operational lane ([doctorCall]); every other task reads
+// reads through the operational lane ([operationalCall]); every other task reads
 // through background discovery.
 func (d *Daemon) taskComments(ctx context.Context, t *task, after int64) ([]github.Comment, error) {
 	if t.hinted {
-		return doctorCall(ctx, d, func(ctx context.Context) ([]github.Comment, error) {
+		return operationalCall(ctx, d, func(ctx context.Context) ([]github.Comment, error) {
 			return d.readComments(ctx, t.forgeRepo, t.issue.Number, after)
 		})
 	}
@@ -2385,21 +2390,6 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	if err != nil {
 		return err
 	}
-	if held, e := d.doctorHeldSession(ctx, t.session.ID); e != nil {
-		return e
-	} else if held {
-		return errors.New("issue held for doctor repair")
-	}
-	if routed, err := d.refuseUnsupportedDoctor(ctx, t, c, qualifiedReply); routed {
-		return err
-	}
-	if routed, err := d.admitDoctor(ctx, t.repo, t.issue, c); routed {
-		if err != nil {
-			return err
-		}
-		_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
-		return err
-	}
 	log := t.log.With(
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),
@@ -2892,7 +2882,7 @@ func (d *Daemon) run(
 	// A /validate start goes to Validate admission only: the owner wait can
 	// never apply it, and a refused start must leave the wait open.
 	validateStart := mode == agent.ModeValidate && command.Name == "/validate"
-	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeImplement || mode == agent.ModeValidate || mode == agent.ModeBug) && t.continuation == nil && !validateStart {
+	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeDoctor || mode == agent.ModeImplement || mode == agent.ModeValidate || mode == agent.ModeBug) && t.continuation == nil && !validateStart {
 		// A confirmed uncertain publication resumes its graph first, so the
 		// reply that triggered recovery can answer the question it confirmed.
 		if handled, err := d.recoverGraphPublications(ctx, t, trigger); handled || err != nil {

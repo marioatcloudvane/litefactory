@@ -33,7 +33,6 @@ func sessionContext(ctx context.Context, id int64) context.Context {
 // A saved session wins over mutable current settings, even when disabled.
 func selectTicketConnection(ctx context.Context, db *store.DB, factory *projectconnection.Factory, repo github.Repo, number int, sessionID int64) (projectconnection.TicketClient, int64, error) {
 	scope, _ := ctx.Value(connectionScopeKey{}).(connectionScope)
-	doctorSource, doctorBound := ctx.Value(doctorSourceContextKey{}).(store.DoctorCommandSource)
 	if scoped := turn.ExecutionSessionID(ctx); scoped > 0 {
 		scope.sessionID = scoped
 		scope.projectID = 0
@@ -41,7 +40,7 @@ func selectTicketConnection(ctx context.Context, db *store.DB, factory *projectc
 	if sessionID == 0 {
 		sessionID = scope.sessionID
 	}
-	if sessionID == 0 && number > 0 && scope.projectID == 0 && !doctorBound {
+	if sessionID == 0 && number > 0 && scope.projectID == 0 {
 		projects, e := db.ListRepos(ctx)
 		if e != nil {
 			return nil, 0, e
@@ -78,13 +77,6 @@ func selectTicketConnection(ctx context.Context, db *store.DB, factory *projectc
 	var retainedRemote string
 	var err error
 	switch {
-	case doctorBound:
-		version, err = db.GetConnectionVersion(ctx, doctorSource.ConnectionVersionID)
-		actor = doctorSource.PublisherID
-		retainedRemote = version.RemoteID
-		if err == nil && (version.Provider != doctorSource.Ticket.Identity.Provider || version.Origin != doctorSource.Ticket.Identity.Origin || version.Destination != doctorSource.Ticket.Locator.Container) {
-			return nil, 0, store.ErrTicketIdentityConflict
-		}
 	case sessionID > 0:
 		snapshot, e := db.GetExecutionSnapshot(ctx, sessionID)
 		if e != nil {

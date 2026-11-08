@@ -34,7 +34,6 @@ type ChatOptions struct {
 	Instructions           prompts.Resolver
 	InstructionDiagnostics prompts.Sink
 	// Answers supplies read-only context and response-only model wiring.
-	Diagnoser     ChatDiagnoser
 	Answers       *ask.Service
 	Conversations *messaging.ConversationOptions
 	Standards     *ConversationStandards
@@ -56,10 +55,7 @@ type chatRuntime struct {
 	service          *messaging.Service
 	adapter          *discord.Adapter
 	collector        *messaging.NoticeCollector
-	diagnoser        ChatDiagnoser
 	redactor         *redact.Redactor
-	mu               sync.Mutex
-	notes            map[string]string
 	analyses         *ConversationAnalyses
 }
 
@@ -149,7 +145,7 @@ func (d *Daemon) configureChat(o *ChatOptions, s *messaging.Service, a *discord.
 
 	writer, _ := d.forge.(ChatIssueForge)
 	s.EnableFeatures(&feature.Drafter{Instructions: answers.Instructions, InstructionDiagnostics: answers.InstructionDiagnostics, Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
-	d.chat = &chatRuntime{service: s, adapter: a, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}
+	d.chat = &chatRuntime{service: s, adapter: a, redactor: sanitizer}
 	if o.Conversations != nil {
 		options := *o.Conversations
 		options.Bindings = append([]messaging.ConversationBinding(nil), options.Bindings...)
@@ -220,16 +216,8 @@ func (d *Daemon) configureChat(o *ChatOptions, s *messaging.Service, a *discord.
 			if err := d.db.RecoverChatAnswers(ctx, "discord", at); err != nil {
 				d.log.WarnContext(ctx, "chat answer recovery failed; waiting rows retain their leases")
 			}
-			if err := d.db.RecoverChatDiagnoses(ctx, "discord", at); err != nil {
-				d.log.WarnContext(ctx, "chat diagnosis recovery failed")
-			}
 		},
-		Reconcile: func(ctx context.Context, at time.Time) {
-			if err := d.chatDiagnosisResults(ctx, at); err != nil {
-				d.log.WarnContext(ctx, "chat diagnosis result remains unposted; retrying on the next pass")
-			}
-		},
-		Dispatch: d.dispatchChatDiagnosis, Reaction: d.ownerReaction,
+		Reaction: d.ownerReaction,
 	}
 	if d.chat.collector != nil {
 		hooks.Collect = d.chat.collector.Collect

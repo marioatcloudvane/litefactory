@@ -16,7 +16,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/cimonitor"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/discordcomponent"
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
@@ -206,8 +205,6 @@ type Options struct {
 
 	// Tickets qualifies authenticated legacy ingress before authority decisions.
 	Tickets TicketIngress
-	// Doctor is the independent diagnostic service; nil disables dispatch.
-	Doctor *doctor.Service
 
 	// Retirement shares turn coordination; zero options disable automatic retirement.
 	Retirement RetirementExecutionOptions
@@ -429,10 +426,6 @@ type Daemon struct {
 	judge            *turn.JudgeService
 	tickPhaseTimeout time.Duration // zero uses the internal 30-second bound
 
-	doctorHostOptions *DoctorHostOptions
-	doctorHost        *DoctorRepairHost
-	doctor            doctorLane
-
 	publications publicationRecovery
 	mcpClose     func() error
 	retirement   RetirementExecutionOptions
@@ -588,7 +581,6 @@ func New(opts Options) (*Daemon, error) {
 		turn:                     opts.Turn,
 		reporter:                 opts.Reporter,
 		diagnosticRedactor:       opts.DiagnosticRedactor,
-		doctor:                   doctorLane{service: opts.Doctor, pool: newPool(1)},
 		proposals:                opts.ProposalGenerator,
 		confirmer:                opts.Confirmer,
 		conflictProposalTTL:      opts.ConflictProposalTTL,
@@ -679,14 +671,10 @@ func (d *Daemon) Close() error {
 	if d.mcpClose != nil {
 		authorityErr = d.mcpClose()
 	}
-	var hostErr error
-	if d.doctorHost != nil {
-		hostErr = d.doctorHost.Close()
-	}
 	// The listener goes before the lock: a replacement daemon that wins the
 	// lock must find the port free.
 	webhookErr := d.closeWebhook()
-	return errors.Join(authorityErr, hostErr, webhookErr, d.closeRemoteConnector(), d.lock.Close())
+	return errors.Join(authorityErr, webhookErr, d.closeRemoteConnector(), d.lock.Close())
 }
 
 // Reconciled is what the startup reconciliation repaired (D-B, AC-2.21).
@@ -728,9 +716,6 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		if err := submission.RemoveStale(ctx, dir, time.Now()); err != nil {
 			d.log.WarnContext(ctx, "could not remove leftover submission folders", slog.Any("error", err))
 		}
-	}
-	if err := d.recoverDoctor(ctx); err != nil {
-		return Reconciled{}, err
 	}
 	reconciliation, err := d.db.ReconcileOrphans(ctx, d.instanceID)
 	if err != nil {
@@ -830,24 +815,6 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 			slog.Int("abandoned_runs", result.AbandonedRuns),
 			slog.Int("failure_comments_posted", result.Reported),
 			slog.Int("reclaimed_locks", result.ReclaimedLocks))
-	}
-	if d.doctorHostOptions != nil {
-		host, err := d.startDoctorRepairHost(ctx, *d.doctorHostOptions)
-		if err != nil {
-			if d.doctorHostOptions.Recovery != nil {
-				return result, err
-			}
-			if d.doctor.service != nil {
-				d.doctor.service.RepairEnvironment = nil
-				d.doctor.service.RestartRoute = nil
-			}
-			d.log.WarnContext(ctx, "doctor local host control unavailable", slog.Any("error", err))
-			return result, nil
-		}
-		d.doctorHost = host
-		if err = host.prepare(ctx); err != nil {
-			return result, err
-		}
 	}
 	return result, nil
 }
@@ -1068,7 +1035,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 // whole shutdown — N runs included — without a line of Run changing.
 func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time, immediate bool) {
 	defer d.pool.wait()
-	defer d.doctor.pool.wait()
 	if d.coordinator != nil {
 		defer d.coordinator.wait()
 	}

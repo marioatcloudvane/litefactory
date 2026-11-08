@@ -49,10 +49,10 @@ For the latest cancelled, unallocated graph dispatch with a saved launch, ordina
 
 Retired single-agent Spike needs a fresh graph Spike task through `/spike`. Unsupported legacy Bug needs a new issue for the same bug through ordinary Bug intake. Copy the prepared historical context, retain the source link on the new task, and reply on the old task with the new link. Old guidance and approvals are evidence, not automatically active authority on another issue. Keep old history and edits intact.
 
-Legacy Research requiring migration needs operator inspection. Use `/doctor inspect this legacy Research history and identify the operator migration required`. A missing report alone never justifies repeating work. If Doctor is unavailable, inspect the task's recorded run and result using the logs commands above; restore the required diagnosis capability before requesting a repair.
+Legacy Research requiring migration needs operator inspection. Ask the Doctor: `/doctor inspect this legacy Research history and identify the operator migration required`. A missing report alone never justifies repeating work. If Doctor is unavailable, inspect the task's recorded run and result using the logs commands above; restore the required diagnosis capability before requesting a repair.
 
 ## Bounded repair and outcomes
 
-When stale rows block supported continuation, ask `/doctor inspect the latest stopped step and identify the stale row blocking supported continuation`. Diagnosis is read only and authorizes no repair. The four graph transitions and their exact approval and rollback safeguards are described in [Doctor](doctor.md).
+When stale rows block supported continuation, ask `/doctor inspect the latest stopped step and identify the stale row blocking supported continuation`. The Doctor changes the task branch only after your go and never changes factory state. The four graph transitions and their exact approval and rollback safeguards are described in [Doctor](doctor.md).
 
 A verified repair removes only its approved blocker. Re-read the current recommendation afterwards: a cancelled allocated dispatch or failed instance can still require a supported successor, and a missing launch remains missing. Continue only through an existing reply, Research resume or successor route. Explanation improved, blocker removed, continuation admitted and confirmed completion are separate outcomes. Uncertain effects remain uncertain; completed work stays settled.

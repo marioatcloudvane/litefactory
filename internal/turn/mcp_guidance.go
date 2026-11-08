@@ -77,7 +77,7 @@ func mcpGuidance(ctx context.Context, spec *agent.MCPLaunchSpec, service *AgentR
 	switch service.binding.Mode {
 	case "validate":
 		b.WriteString("\nValidate uses supplied snapshots and retained evidence only: no shell, edits, fresh checks or delegation escapes. Keep the required final findings.\n")
-	case "research", "spike", "bug":
+	case "research", "spike", "bug", "doctor":
 		b.WriteString("\nRecommendations remain advisory; report findings and limitations without selecting a new mode.\n")
 	case "implement":
 		b.WriteString("\nImplement records engineering only. Preserve acceptance for Validate and report only checks actually executed against the captured snapshot.\n")
@@ -161,6 +161,8 @@ func mcpApplicationExample(ctx context.Context, service *AgentResultService) (co
 		r.Payload.Spike = &agentresult.Spike{Request: "Describe the bounded exploration."}
 	case "bug":
 		r.Payload.Bug = &agentresult.Spike{Request: "Describe the reported bug."}
+	case "doctor":
+		r.Payload.Doctor = &agentresult.Spike{Request: "Describe the stuck task and what the owner asked."}
 	case "plan":
 		// A graph Plan asks with questions and no story branch. The done shape
 		// (storyrequest or storyset) is in the node-result contract.
