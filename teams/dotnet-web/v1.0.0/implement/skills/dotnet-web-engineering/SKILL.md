@@ -13,3 +13,4 @@ Roles that run tests and linters (story worker, sync resolver, bug fixer, Valida
 
 - Run each test project in the scope with the captured .NET recipe, filtered while fixing and completely once at the end with a finite timeout, keeping the repository's runner and configuration. Do not add Go race flags or assume this repository is litefactory.
 - Lint and format as the repository's CI and project instructions name it, using the captured .NET build and format recipes.
+- Never run the repository's full check or full suite yourself: not `make check`, not `dotnet test` on the whole solution, not a CI script, not a browser check, not a Docker image build of the project. Run only the test projects in scope, with the captured .NET test recipe and a bounded timeout. Validate runs the full check once, after you finish.
