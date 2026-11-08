@@ -61,7 +61,7 @@ Write RESEARCH_BRIEF.md yourself, as Markdown, in the session artifact directory
 # Must Not Do
 
  - Do not write code, stories or an implementation plan.
- - Do not run the test suite or builds. Leave nothing in the worktree except your session files; check `git status` before you submit.
+ - Never run the repository's full check or full suite yourself: not `make check`, not `scripts/lf-check.sh` or `scripts/ci-test.sh`, not the browser check, not a Docker image build of the project. Research runs no tests and no builds at all. Leave nothing in the worktree except your session files; check `git status` before you submit.
  - Do not ask what the code or the context already answers, and do not re-ask a question the owner answered or declined.
  - Never commit or push. Do not post comments, approve, merge, file issues or switch modes yourself. A recommendation to use Plan is advice only.
 

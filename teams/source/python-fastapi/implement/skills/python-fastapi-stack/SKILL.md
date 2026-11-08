@@ -14,3 +14,4 @@ Roles that run tests and linters (story worker, sync resolver, bug fixer, Valida
 
 - Run the captured backend and frontend check recipes from the stack profile on the scope (changed components, and their consumers when you changed something they rely on), filtered while fixing and completely once at the end with a finite timeout. Do not use successful no-test skips.
 - Lint and format with the captured Ruff and frontend lint/format recipes and the repository's instructions.
+- Never run the repository's full check or full suite yourself: not `make check`, not `pytest` over the whole repository, not `scripts/lf-check.sh` or `scripts/ci-test.sh`, not the browser check, not a Docker image build of the project. Run only the tests for the files you changed, with the project's own test command and a bounded timeout. Validate runs the full check once, after you finish.

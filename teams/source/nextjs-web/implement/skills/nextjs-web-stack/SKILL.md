@@ -13,3 +13,4 @@ Roles that run tests and linters (story worker, sync resolver, bug fixer, Valida
 - Install dependencies with `npm ci` from the committed package-lock.json. Do not switch package managers or edit the lock file unless the story changes dependencies.
 - Run `npm run lint` and `npm run build` with a finite timeout; failures must propagate. `next build` also type checks, so a type error fails the build.
 - Run `npm test` only when package.json declares a `test` script. Do not add a test framework, test script or other tooling the story does not ask for.
+- Never run the repository's full check or full suite yourself: not `make check`, not a CI or check script (for example `scripts/ci-test.sh`), not the browser or end-to-end suite, not a Docker image build of the project. `npm run lint`, `npm run build` and the tests for the files you changed, with a bounded timeout, are your checks. Validate runs the full check once, after you finish.
