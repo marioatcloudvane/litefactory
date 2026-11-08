@@ -50,7 +50,7 @@ func TestGraphBugConcreteHostAnalystContinuationLeavesWorktreeAlone(t *testing.T
 	req.Trigger.AuthorID = 42
 	_, e := f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: f.session.ID, Version: 1, Family: "standalone", Workflow: "bug"})
 	mustProgress(t, e)
-	runtime, e := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Forge: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
+	runtime, e := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Code: bugRuntimeJourneyForge{forge.client}, Tickets: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
 		return BugRolePermissions{Tools: []string{"Read", "Glob", "Grep"}}, nil
 	}})
 	mustProgress(t, e)
@@ -122,7 +122,7 @@ func TestGraphBugConcreteHostRefusesLegacyPinWithoutDispatchOrMutation(t *testin
 	mustProgress(t, err)
 	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "record", StartedAt: time.Now()})
 	mustProgress(t, err)
-	runtime, err := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Forge: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
+	runtime, err := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Code: bugRuntimeJourneyForge{forge.client}, Tickets: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
 		return BugRolePermissions{Tools: []string{"Read"}}, nil
 	}})
 	mustProgress(t, err)
@@ -332,7 +332,7 @@ func bugBootstrapFixture(t *testing.T, runner Runner) (*fixture, *BugRuntime, Re
 	req.Command = ParseCommand(req.Trigger.Body)
 	_, err := f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: f.session.ID, Version: 1, Family: "standalone", Workflow: "bug"})
 	mustProgress(t, err)
-	runtime, err := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Forge: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
+	runtime, err := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Code: bugRuntimeJourneyForge{forge.client}, Tickets: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
 		return BugRolePermissions{Tools: []string{"Read"}}, nil
 	}})
 	mustProgress(t, err)

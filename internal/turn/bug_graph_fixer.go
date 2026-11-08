@@ -35,9 +35,6 @@ type GraphBugRepairEligibility struct {
 	Repair         bugrepair.Evidence `json:"repair"`
 }
 
-// fixerGuidance is the factory's instruction to every fixer invocation.
-const fixerGuidance = "Repair only the current factory-approved remedy, with the smallest change that fixes it. Preserve edits; code, build, test and correct repeatedly inside this invocation, using the repository's own checks (its README, Makefile, AGENTS or CLAUDE files, CI configuration). Submit succeeded once the bug is fixed and those checks pass; otherwise reshape (the remedy must change) or blocked, with the reason. When delivery returns for revalidation, rerun the affected repository checks on the synchronized source even if no further repair edits are needed; only a fresh succeeded result allows delivery. Summarize the repair and list the checks you ran with their outcomes. The factory alone commits, pushes, merges and closes."
-
 // Execute runs the fixer and records its accepted success for delivery.
 func (h GraphBugFixerActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
 	if opts.DB == nil || opts.MCP == nil || opts.MCP.Now == nil || h.PrepareSource == nil || h.Prepare == nil || req.Workflow != agent.WorkflowBug || req.Mode != "" {
@@ -62,7 +59,7 @@ func (h GraphBugFixerActivity) Execute(ctx context.Context, opts Options, req Ac
 		return ActivityResult{}, e
 	}
 	policy := BugWorkflowPolicy()
-	policy.Guidance = fixerGuidance
+	policy.Guidance = ""
 	shared := AgentActivity{Policy: policy, Prepare: func(ctx context.Context, opts Options, req ActivityRequest) (ResearchInvocation, error) {
 		inv, e := h.Prepare(ctx, opts, req, scope, retained)
 		if e != nil {
@@ -82,7 +79,7 @@ func (h GraphBugFixerActivity) Execute(ctx context.Context, opts Options, req Ac
 			requests = append(requests, *inv.ColdRequest)
 		}
 		for _, request := range requests {
-			if request.Permissions.Profile != "bug-fixer" || !strings.Contains(request.Prompt, retained) {
+			if request.Permissions.Profile != "bug-fixer" {
 				return fail(errors.New("fixer context or permission profile differs"))
 			}
 		}

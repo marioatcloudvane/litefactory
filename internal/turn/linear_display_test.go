@@ -127,7 +127,7 @@ func TestLinearWorkflowDisplay(t *testing.T) {
 	binding := GraphDeliveryBinding{IssueNumber: linearParentSlot, IssueReference: pd.Link()}
 	assertLinearDisplay(t, binding.displayReference(), pd.Link())
 	redactor := redact.New(redact.Options{Environ: []string{}})
-	_, bugBody, err := (GraphBugFinalization{Redactor: redactor}).presentation(t.Context(), binding)
+	_, bugBody, err := (GraphDelivery{Redactor: redactor}).presentation(t.Context(), binding)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -66,9 +66,6 @@ type GraphDelivery struct {
 	PublishSaved func(context.Context, Options, ActivityRequest, string) error
 }
 
-// GraphBugFinalization preserves the legacy Bug entry point and its admission.
-type GraphBugFinalization = GraphDelivery
-
 type graphDeliveryProgress struct {
 	Record              string `json:"record"`
 	Outcome, Reason     string

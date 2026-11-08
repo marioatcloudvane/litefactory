@@ -6,4 +6,4 @@ resources:
 ---
 # Bug analysis result
 
-Follow the factory-bound result schema and the complete contract in result.md. No terminal-only submission is supported. Factory context, permissions, counters and approvals are immutable inputs.
+Follow the result contract in result.md. Terminal text is never read as a result.

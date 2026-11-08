@@ -346,7 +346,7 @@ func parkedBugWithoutDelivery(t *testing.T) (*fixture, store.GraphInstance, *ato
 	binary, err := git.Resolve(ctx)
 	must(err)
 	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "undeliverable-review", Logger: f.logger, CloneGate: unusedRecoveryCloneGate{}, Runners: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, ResearchReporter: reporter, MCP: &turn.MCPRuntime{Redactor: redact.New(redact.Options{Logger: f.logger}), BotID: botID, Now: f.clock.Now}}
-	runtime, err := turn.NewGraphBugRuntime(ctx, opts, turn.BugRuntimeConfig{Forge: f.client, OwnerID: ownerID, Permissions: func(agent.Kind, string) (turn.BugRolePermissions, error) {
+	runtime, err := turn.NewGraphBugRuntime(ctx, opts, turn.BugRuntimeConfig{Code: f.client, Tickets: f.client, OwnerID: ownerID, Permissions: func(agent.Kind, string) (turn.BugRolePermissions, error) {
 		return turn.BugRolePermissions{}, errors.New("test must not allocate a role")
 	}})
 	must(err)

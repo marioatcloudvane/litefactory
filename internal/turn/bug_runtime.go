@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -41,20 +40,11 @@ type BugCodeForge interface {
 	BugMergeForge
 }
 
-// BugRuntimeForge is the explicit legacy combined dependency.
-type BugRuntimeForge interface {
-	BugPRForge
-	BugMergeForge
-	BugCloseForge
-}
-
-// BugRuntimeConfig supplies operator-selected identity, permissions and isolation.
+// BugRuntimeConfig supplies operator-selected identity, permissions and forges.
 type BugRuntimeConfig struct {
-	Forge       BugRuntimeForge
 	Code        BugCodeForge
 	Tickets     BugCloseForge
 	Permissions func(agent.Kind, string) (BugRolePermissions, error)
-	Isolation   bugchecks.Isolation
 	OwnerID     int64
 }
 

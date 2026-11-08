@@ -80,7 +80,7 @@ func TestCodexBugAgentMainPath(t *testing.T) {
 	runners := turn.RunnerSet{"codex": runner, "claude": bugPathUnexpectedRunner{}}
 	opts := turn.Options{DB: f.db, Git: binary, Runners: runners, CloneGate: &bugPathGate{}, Paths: paths, InstanceID: "daemon-instance-test", Author: git.Author{Name: "Fixture", Email: "fixture@example.invalid"}, Logger: f.logger, ResearchReporter: f.reporter, Judge: service, ConflictContentMaxBytes: 65536, Tiers: cfg.Tiers,
 		MCP: &turn.MCPRuntime{Authority: authority, Paths: paths, Executable: "/usr/bin/false", Now: time.Now, Comments: f.client, BotID: botID, Redactor: redact.New(redact.Options{Logger: f.logger})}, WorkflowSource: bugPathWorkflowSource}
-	runtime, err := turn.NewGraphBugRuntime(ctx, opts, turn.BugRuntimeConfig{Forge: code, OwnerID: ownerID, Permissions: func(kind agent.Kind, role string) (turn.BugRolePermissions, error) {
+	runtime, err := turn.NewGraphBugRuntime(ctx, opts, turn.BugRuntimeConfig{Code: code, Tickets: code, OwnerID: ownerID, Permissions: func(kind agent.Kind, role string) (turn.BugRolePermissions, error) {
 		if kind != "codex" {
 			return turn.BugRolePermissions{}, fmt.Errorf("unexpected provider %s", kind)
 		}

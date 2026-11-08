@@ -29,7 +29,7 @@ func BugWorkflowPolicy() WorkflowPolicy {
 		Control:  graphexec.ControlPolicy{Workflow: agent.WorkflowBug, Responses: []string{"ask", "done", "approved", "blocked"}, Defaults: []string{"ask"}, Ask: "ask", Approved: "approved"},
 		Decode:   agentresult.DecodeBugNode,
 		Retain:   RetainBugNode,
-		Guidance: "Bug analyst results use the version-1 shared result helper and service: preflight, correct diagnostics, submit and read the matching receipt. Lost replies retain request identity and identical bytes; corrected content needs a new request. Terminal text never determines application response; end with a short plain-language note. Only factory-authenticated exact owner approval authorizes repair.",
+		Guidance: "",
 	}
 }
 

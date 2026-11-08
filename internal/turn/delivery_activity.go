@@ -20,7 +20,7 @@ import (
 type DeliveryActivity struct {
 	w        *researchWorkflow
 	profile  *graphexec.Profile
-	bug      *GraphBugFinalization
+	bug      *GraphDelivery
 	validate *ValidateFlowBindings
 	// operation is set only by legacy compatibility wrappers.
 	operation string

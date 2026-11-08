@@ -67,7 +67,7 @@ func (p SimplifiedBugPolicy) Register(specs *graphexec.Registry, activities *Act
 	}
 	for _, node := range p.Profile.Nodes {
 		if node.Action == graphexec.DeliverAction {
-			binding, ok := p.Finalization.(GraphBugFinalization)
+			binding, ok := p.Finalization.(GraphDelivery)
 			if !ok {
 				return errors.New("global delivery requires trusted Bug bindings")
 			}
@@ -155,9 +155,6 @@ func (h GraphBugAnalystActivity) Execute(ctx context.Context, opts Options, req 
 				cause = errors.Join(cause, inv.Release())
 			}
 			return ResearchInvocation{}, cause
-		}
-		if !strings.Contains(inv.Request.Prompt, retained) || (inv.ColdRequest != nil && !strings.Contains(inv.ColdRequest.Prompt, retained)) {
-			return fail(errors.New("analyst warm/cold retained conversation differs"))
 		}
 		if inv.Request.Permissions.Profile != "bug-analyst" || (inv.ColdRequest != nil && inv.ColdRequest.Permissions.Profile != "bug-analyst") {
 			return fail(errors.New("graph analyst cannot use a repair permission profile"))

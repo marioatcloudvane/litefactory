@@ -42,7 +42,7 @@ func TestFinishedBugSessionAcceptsReplacementApproverWithoutRewritingHistory(t *
 	mustProgress(t, err)
 	_, err = f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: session.ID, Version: 1, Family: "standalone", Workflow: "bug"})
 	mustProgress(t, err)
-	runtime, err := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Forge: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) { return BugRolePermissions{}, nil }})
+	runtime, err := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Code: bugRuntimeJourneyForge{forge.client}, Tickets: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) { return BugRolePermissions{}, nil }})
 	mustProgress(t, err)
 	original, err := runtime.graphAdmission(t.Context(), req)
 	mustProgress(t, err)

@@ -101,7 +101,7 @@ func (f *graphDeliveryForge) CloseDeliveredParent(_ context.Context, repo github
 	return nil
 }
 
-func graphFinalizationFixture(t *testing.T) (*fixture, GraphBugFinalization, ActivityRequest, *graphDeliveryForge, string) {
+func graphFinalizationFixture(t *testing.T) (*fixture, GraphDelivery, ActivityRequest, *graphDeliveryForge, string) {
 	t.Helper()
 	f, _, instance := approvedGraphRepairFixture(t)
 	ctx := t.Context()
@@ -131,7 +131,7 @@ func graphFinalizationFixture(t *testing.T) (*fixture, GraphBugFinalization, Act
 	req := ActivityRequest{Workflow: agent.WorkflowBug, InstanceID: instance.ID, NodeAttemptID: final.ID, Node: "finalization"}
 	binding := GraphDeliveryBinding{Record: "delivery_binding", InstanceID: instance.ID, SessionID: f.session.ID, IssueID: 123, BotID: 99, IssueNumber: f.session.IssueNumber, Repository: github.Repo{Owner: "acme", Name: "acme-api"}, Branch: "lf/repair", Target: "main", Marker: "<!-- lf:bug-delivery exact -->", Eligibility: eligibility}
 	forge := &graphDeliveryForge{binding: binding, main: strings.Repeat("c", 40), remote: strings.Repeat("0", 40), issue: github.Issue{ID: 123, Number: f.session.IssueNumber, State: "open"}}
-	handler := GraphBugFinalization{SyncBase: func(context.Context, Options, ActivityRequest, GraphDeliveryBinding, string) (syncBaseOutput, error) {
+	handler := GraphDelivery{SyncBase: func(context.Context, Options, ActivityRequest, GraphDeliveryBinding, string) (syncBaseOutput, error) {
 		return syncBaseOutput{Result: "current", Commit: head}, nil
 	}, Forge: forge, Redactor: redact.New(redact.Options{Environ: []string{}}), Resolve: func(context.Context, Options, ActivityRequest, GraphBugRepairEligibility) (GraphDeliveryBinding, error) {
 		return binding, nil

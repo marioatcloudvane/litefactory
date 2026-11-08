@@ -645,7 +645,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	mcpRuntime.BugChecksIsolation = isolation
 	bugRuntime, err := turn.NewGraphBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
 		Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID,
-		Permissions: bugRolePermissions(s.Config.ToolProfiles), Isolation: isolation,
+		Permissions: bugRolePermissions(s.Config.ToolProfiles),
 	})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
