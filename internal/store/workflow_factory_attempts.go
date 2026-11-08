@@ -13,7 +13,7 @@ func (db *DB) ListWorkflowFactoryAttempts(ctx context.Context, afterID int64, li
 	if afterID < 0 || limit < 1 || limit > 100 {
 		return nil, graphInvariant("invalid workflow factory attempt page")
 	}
-	rows, err := db.sql.QueryContext(ctx, `SELECT a.id,a.instance_id,a.node,a.attempt,a.run_id,a.status,a.outcome,a.started_at,a.finished_at,a.launch_id FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.id>? AND a.run_id IS NULL AND a.status IN ('pending','running') AND i.status='running' AND i.current_node=a.node AND d.mode IN ('research','plan') AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=i.session_id) ORDER BY a.id LIMIT ?`, afterID, limit)
+	rows, err := db.sql.QueryContext(ctx, `SELECT a.id,a.instance_id,a.node,a.attempt,a.run_id,a.status,a.outcome,a.started_at,a.finished_at,a.launch_id FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.id>? AND a.run_id IS NULL AND a.status IN ('pending','running') AND i.status='running' AND i.current_node=a.node AND d.mode IN ('research','plan') ORDER BY a.id LIMIT ?`, afterID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: list workflow factory attempts: %w", err)
 	}

@@ -263,6 +263,7 @@ var rebuildableTables = map[string]bool{
 	"durable_workflow_jobs":     true,
 	"durable_workflow_attempts": true,
 	"meter_attempts":            true,
+	"application_results":       true,
 }
 
 // ErrRebuildTableRefused identifies a rebuild marker naming a table outside

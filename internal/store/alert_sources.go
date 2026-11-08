@@ -29,7 +29,6 @@ func (db *DB) AlertTaskSources(ctx context.Context, at time.Time) (out []AlertTa
 	complete = true
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `SELECT s.task_ref,s.id,
- EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=s.id) OR
  EXISTS(SELECT 1 FROM graph_owner_waits w JOIN graph_instances g ON g.id=w.instance_id WHERE g.session_id=s.id AND g.status='running' AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND w.state IN ('waiting','claimed')) OR
  EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.status='running' AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND g.next_due_at>?),
  EXISTS(SELECT 1 FROM graph_dispatches d JOIN graph_instances g ON g.id=d.instance_id WHERE d.session_id=s.id AND d.status='pending' AND d.due_at<=? AND g.status='running' AND g.current_node=d.node AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id)),
@@ -43,7 +42,7 @@ func (db *DB) AlertTaskSources(ctx context.Context, at time.Time) (out []AlertTa
  EXISTS(SELECT 1 FROM automatic_continuations c WHERE c.session_id=s.id AND c.status='pending'),
  max(s.created_at,COALESCE((SELECT max(started_at) FROM runs r WHERE r.session_id=s.id),s.created_at),COALESCE((SELECT max(finished_at) FROM runs r WHERE r.session_id=s.id),s.created_at),COALESCE((SELECT max(t.at) FROM graph_transitions t JOIN graph_instances g ON g.id=t.instance_id WHERE g.session_id=s.id),s.created_at),COALESCE((SELECT max(o.created_at) FROM graph_outputs o JOIN graph_node_attempts a ON a.id=o.node_attempt_id JOIN graph_instances g ON g.id=a.instance_id WHERE g.session_id=s.id),s.created_at)),
  COALESCE((SELECT g.current_node FROM graph_instances g WHERE g.session_id=s.id ORDER BY g.id DESC LIMIT 1),'')||':result:'||COALESCE((SELECT sum(a.revision) FROM application_results a WHERE a.task=s.task_ref AND a.workflow NOT IN ('doctor','judge')),0)
- FROM sessions s WHERE NOT (`+alertTaskTerminalSQL+`) AND (s.state='running' OR s.needs_poll=1 OR EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.status='running') OR EXISTS(SELECT 1 FROM schedules p WHERE p.session_id=s.id AND p.status='pending') OR EXISTS(SELECT 1 FROM owner_instruction_inputs o WHERE o.session_id=s.id AND o.assigned_attempt_id IS NULL) OR EXISTS(SELECT 1 FROM automatic_continuations c WHERE c.session_id=s.id AND c.status='pending') OR EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=s.id)) ORDER BY s.id LIMIT 1001`, FormatTime(at), FormatTime(at), FormatTime(at), FormatTime(at), FormatTime(at))
+ FROM sessions s WHERE NOT (`+alertTaskTerminalSQL+`) AND (s.state='running' OR s.needs_poll=1 OR EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.status='running') OR EXISTS(SELECT 1 FROM schedules p WHERE p.session_id=s.id AND p.status='pending') OR EXISTS(SELECT 1 FROM owner_instruction_inputs o WHERE o.session_id=s.id AND o.assigned_attempt_id IS NULL) OR EXISTS(SELECT 1 FROM automatic_continuations c WHERE c.session_id=s.id AND c.status='pending')) ORDER BY s.id LIMIT 1001`, FormatTime(at), FormatTime(at), FormatTime(at), FormatTime(at), FormatTime(at))
 		if err != nil {
 			return err
 		}

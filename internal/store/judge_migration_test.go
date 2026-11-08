@@ -27,8 +27,9 @@ func TestJudgeMigrationPreservesPopulatedLedgers(t *testing.T) {
 	run := seedHistoricalRunSnapshot(t, db, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "research", Agent: AgentClaude, TriggerCommentID: 1, LogPath: func(int) string { return "/logs/result-1" }}, RunRunning)
 	a := ResultAttempt{Task: session.TaskRef, Mode: "research", WorkContext: "authorized-context", Attempt: "retained-writer", RunID: run.ID, SchemaVersion: 1, WorkflowVersion: 2, SubmissionVersion: 2}
 	var schema []string
-	// A later migration drops the never-used Plan feature tables and their guards.
-	rows, err := db.sql.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('index','trigger') AND sql IS NOT NULL AND tbl_name NOT IN ('plan_story_owner_edits','story_contract_upgrades','story_contract_upgrade_items') AND name NOT LIKE 'story_contract_upgrade_%' ORDER BY name`)
+	// Later migrations drop the never-used Plan feature tables and their guards,
+	// and the Doctor's hold and graph-progress triggers.
+	rows, err := db.sql.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('index','trigger') AND sql IS NOT NULL AND tbl_name NOT IN ('plan_story_owner_edits','story_contract_upgrades','story_contract_upgrade_items','doctor_repair_holds','doctor_repair_write_permits','doctor_scans') AND name NOT LIKE 'story_contract_upgrade_%' AND name NOT LIKE 'doctor_hold_%' AND name NOT LIKE 'doctor_graph_%' ORDER BY name`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,23 +61,6 @@ func TestJudgeMigrationPreservesPopulatedLedgers(t *testing.T) {
 		t.Fatal(err)
 	}
 	meter, err := db.StartMeterAttempt(ctx, a.RunID, "claude")
-	if err != nil {
-		t.Fatal(err)
-	}
-	doctorAttempt := doctorIOAttempt("upgrade-doctor")
-	doctorAttempt.Provider = "claude"
-	doctor, err := db.BeginDoctorAttempt(ctx, session.TaskRef, doctorAttempt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doctor.ID == 0 {
-		t.Fatal("missing doctor conversation")
-	}
-	doctorAttempt.Evidence = "retained evidence"
-	if err = db.PrepareDoctorAttempt(ctx, doctorAttempt); err != nil {
-		t.Fatal(err)
-	}
-	dm, err := db.StartDoctorMeterAttempt(ctx, "upgrade-doctor", "claude")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,10 +98,6 @@ func TestJudgeMigrationPreservesPopulatedLedgers(t *testing.T) {
 	got, err := db.GetMeterAttempt(ctx, meter.ID)
 	if err != nil || got.RunID != a.RunID {
 		t.Fatalf("run meter lost: %+v %v", got, err)
-	}
-	got, err = db.GetMeterAttempt(ctx, dm.ID)
-	if err != nil || got.DoctorAttemptID != "upgrade-doctor" {
-		t.Fatalf("doctor meter lost: %+v %v", got, err)
 	}
 	b := ResultBinding{ResultID: 1, RunID: a.RunID, Task: session.TaskRef, Mode: "research", WorkContext: "retained", ContextHash: "hash", Attempt: a.Attempt, SchemaVersion: 1, WorkflowVersion: 2, SubmissionVersion: 2}
 	if err = db.CheckResultWriter(ctx, b); err != nil {
