@@ -50,6 +50,8 @@ func TestSnapshotLabelsFlatBehaviourUnchangedAndGroupedMerge(t *testing.T) {
 		{"flat only", []labelNode{flat("1", "Mode: Plan"), flat("2", "Coding Agent: Codex"), flat("3", "x")}, []string{"Mode: Plan", "Coding Agent: Codex", "x"}},
 		{"two flat twins kept", []labelNode{flat("1", "Mode: Plan"), flat("2", "Mode: Plan")}, []string{"Mode: Plan", "Mode: Plan"}},
 		{"grouped read", []labelNode{grouped("1", "Mode", "Plan"), grouped("2", "Coding Agent", "Codex")}, []string{"Mode: Plan", "Coding Agent: Codex"}},
+		{"grouped child already named with its group", []labelNode{grouped("1", "Coding Agent", "Coding Agent: Codex"), grouped("2", "Mode", "Mode: Plan")}, []string{"Coding Agent: Codex", "Mode: Plan"}},
+		{"prefixed grouped child plus flat twin is one", []labelNode{grouped("1", "Coding Agent", "Coding Agent: Codex"), flat("2", "Coding Agent: Codex")}, []string{"Coding Agent: Codex"}},
 		{"grouped plus flat twin is one", []labelNode{grouped("1", "Mode", "Plan"), flat("2", "Mode: Plan")}, []string{"Mode: Plan"}},
 		{"mapped grouped plus flat twin is one", []labelNode{grouped("plan-id", "Mode", "Whatever"), flat("2", "Mode: Plan")}, []string{"Mode: Plan"}},
 		{"two grouped plus flat keeps two", []labelNode{grouped("1", "Mode", "Plan"), grouped("2", "Mode", "Plan"), flat("3", "Mode: Plan")}, []string{"Mode: Plan", "Mode: Plan"}},
