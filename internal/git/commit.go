@@ -159,7 +159,7 @@ func (w *Worktree) Commit(ctx context.Context, opts CommitOptions) (CommitResult
 	}
 
 	// Factory transport must be unstaged even when it is the only change.
-	if _, err := w.runner.run(ctx, commitTimeout, "reset", "--quiet", "HEAD", "--", ".litefactory-plan-proposal.json", ".litefactory-plan-outcome.json", ".litefactory-story-events"); err != nil {
+	if _, err := w.runner.run(ctx, commitTimeout, "reset", "--quiet", "HEAD", "--", ".litefactory-story-events"); err != nil {
 		return CommitResult{}, fmt.Errorf("exclude factory transport: %w", err)
 	}
 	files, err := w.Status(ctx)
@@ -173,8 +173,8 @@ func (w *Worktree) Commit(ctx context.Context, opts CommitOptions) (CommitResult
 			return CommitResult{}, fmt.Errorf("stage changes in %s: %w", w.path, err)
 		}
 		// Transport is excluded even if the agent staged it before returning.
-		if _, err := w.runner.run(ctx, commitTimeout, "reset", "--quiet", "HEAD", "--", ".litefactory-plan-proposal.json", ".litefactory-plan-outcome.json", ".litefactory-story-events"); err != nil {
-			return CommitResult{}, fmt.Errorf("exclude plan transport: %w", err)
+		if _, err := w.runner.run(ctx, commitTimeout, "reset", "--quiet", "HEAD", "--", ".litefactory-story-events"); err != nil {
+			return CommitResult{}, fmt.Errorf("exclude factory transport: %w", err)
 		}
 		staged, err := w.hasStagedChanges(ctx)
 		if err != nil {

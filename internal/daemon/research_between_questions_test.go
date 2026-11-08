@@ -21,7 +21,8 @@ const (
 	betweenGenuineReply    = int64(140) // a real answer to the open question
 )
 
-// betweenRefusalText identifies the one diagnostic reply.
+// betweenRefusalText identifies the old "retained and undelivered" reply, which
+// a queued owner comment no longer draws.
 const betweenRefusalText = "Your instruction is retained and undelivered"
 
 type betweenQuestions struct {
@@ -82,7 +83,7 @@ func (b *betweenQuestions) run(t *testing.T, trigger int64, log string) store.Ru
 
 func (b *betweenQuestions) start(t *testing.T, node string, run store.Run) store.GraphNodeAttempt {
 	t.Helper()
-	attempt, err := b.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: b.instance.ID, Node: node, RunID: run.ID, Limit: 3, StartedAt: b.at})
+	attempt, err := b.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: b.instance.ID, Node: node, RunID: run.ID, StartedAt: b.at})
 	betweenCheck(t, err)
 	return attempt
 }
@@ -142,108 +143,83 @@ func turnFor(f *fixture, commentID int64) (agent.Mode, bool) {
 	return "", false
 }
 
-// C1, C2, C3: the comment written while shaping ran is refused with exactly one
-// reply and consumed once the question is published; it never reaches d.leave,
-// and the /plan behind it is processed without operator intervention.
-func TestResearchBetweenQuestions_RefusedOnceThenPlanProceeds(t *testing.T) {
+// The comment written while shaping ran stays queued and, once the question is
+// published, answers it: it reaches a Research turn, claims the open wait, and
+// draws no refusal reply.
+func TestResearchBetweenQuestions_QueuedCommentAnswersQuestion(t *testing.T) {
 	b := newBetweenQuestions(t)
 	f := b.f
-	// While shaping runs the session is busy, so the comment is only processed
-	// after shaping has published its question (the #367 timeline).
 	f.forge.addComment(testIssue, betweenOwnerComment, owner(), "Please also cover the readiness probe")
 	b.shapeAsks(t)
-
-	if !settleUntilHandled(f, betweenOwnerComment, 6) {
-		t.Fatalf("comment written between questions was never consumed: watermark=%d\nlogs:\n%s", f.watermark(), f.logs)
-	}
-	if got := betweenRefusals(f); got != 1 {
-		t.Fatalf("diagnostic replies = %d, want exactly 1\nlogs:\n%s", got, f.logs)
-	}
-	if strings.Contains(f.logs.String(), "Research owner reply admission failed") {
-		t.Fatalf("the between-questions comment went through d.leave:\n%s", f.logs)
-	}
-	if _, ran := turnFor(f, betweenOwnerComment); ran {
-		t.Fatal("the refused comment was handed to an agent")
-	}
-	wait, err := f.db.GetGraphOwnerWait(t.Context(), b.instance.ID)
-	betweenCheck(t, err)
-	if wait.State != "waiting" || wait.ReplyID != 0 {
-		t.Fatalf("refusal changed the open question: %+v", wait)
-	}
-
-	// Repeated ticks post no second reply for the same comment (C3).
-	for range 3 {
-		f.clock.advance(time.Minute)
-		f.settle()
-	}
-	if got := betweenRefusals(f); got != 1 {
-		t.Fatalf("diagnostic replies after repeated ticks = %d, want 1", got)
-	}
-
-	// The /plan queued behind it proceeds (C2).
-	f.forge.addComment(testIssue, betweenPlanComment, owner(), "/plan this out")
 	for range 6 {
-		if _, ran := turnFor(f, betweenPlanComment); ran {
+		if _, ran := turnFor(f, betweenOwnerComment); ran {
 			break
 		}
 		f.clock.advance(time.Minute)
 		f.settle()
 	}
-	mode, ran := turnFor(f, betweenPlanComment)
-	if !ran || mode != agent.ModePlan {
-		t.Fatalf("/plan was not started as a plan run: ran=%v mode=%q\nlogs:\n%s", ran, mode, f.logs)
-	}
-	if got := betweenRefusals(f); got != 1 {
-		t.Fatalf("diagnostic replies after /plan = %d, want 1", got)
-	}
-}
-
-// After the refusal, a genuine answer written after the question is still
-// admitted against the open wait and handed to a Research turn.
-func TestResearchBetweenQuestions_GenuineReplyStillClaimed(t *testing.T) {
-	b := newBetweenQuestions(t)
-	f := b.f
-	f.forge.addComment(testIssue, betweenOwnerComment, owner(), "Please also cover the readiness probe")
-	b.shapeAsks(t)
-	if !settleUntilHandled(f, betweenOwnerComment, 6) {
-		t.Fatalf("comment written between questions was never consumed:\n%s", f.logs)
-	}
-
-	f.forge.addComment(testIssue, betweenGenuineReply, owner(), "Yes, cover the readiness probe too")
-	for range 6 {
-		if _, ran := turnFor(f, betweenGenuineReply); ran {
-			break
-		}
-		f.clock.advance(time.Minute)
-		f.settle()
-	}
-	mode, ran := turnFor(f, betweenGenuineReply)
+	mode, ran := turnFor(f, betweenOwnerComment)
 	if !ran || mode != agent.ModeResearch {
-		t.Fatalf("genuine reply did not reach a Research turn: ran=%v mode=%q\nlogs:\n%s", ran, mode, f.logs)
+		t.Fatalf("queued comment did not reach a Research turn: ran=%v mode=%q\nlogs:\n%s", ran, mode, f.logs)
 	}
 	wait, err := f.db.GetGraphOwnerWait(t.Context(), b.instance.ID)
 	betweenCheck(t, err)
-	if wait.ReplyID != betweenGenuineReply || (wait.State != "claimed" && wait.State != "allocated") {
-		t.Fatalf("genuine reply not bound to the open question: %+v", wait)
+	if wait.ReplyID != betweenOwnerComment || (wait.State != "claimed" && wait.State != "allocated") {
+		t.Fatalf("queued comment not bound to the open question: %+v", wait)
 	}
-	if got := betweenRefusals(f); got != 1 {
-		t.Fatalf("diagnostic replies = %d, want 1", got)
+	if got := betweenRefusals(f); got != 0 {
+		t.Fatalf("refusal replies = %d, want none", got)
 	}
 }
 
-// C4: while an attempt of the instance is still running, a comment that
-// predates the open question is held exactly as before: no diagnostic reply
-// and not consumed. Once nothing runs, it is refused once and consumed.
-// The running attempt is started before the question's wait is retained so the
-// store permits both at once; this reaches the ErrGraphAttemptRunning path.
+// Several owner comments written while the workflow worked reach the agent as
+// one batch, oldest first, claimed under the last of them.
+func TestResearchBetweenQuestions_QueuedCommentsArriveAsOneBatch(t *testing.T) {
+	b := newBetweenQuestions(t)
+	f := b.f
+	const later = betweenOwnerComment + 5
+	f.forge.addComment(testIssue, betweenOwnerComment, owner(), "Please also cover the readiness probe")
+	f.forge.addComment(testIssue, later, owner(), "And the liveness probe")
+	b.shapeAsks(t)
+	for range 6 {
+		if _, ran := turnFor(f, later); ran {
+			break
+		}
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	var body string
+	for _, req := range f.turns.calls() {
+		if req.Trigger.CommentID == betweenOwnerComment {
+			t.Fatal("the first comment ran on its own instead of in the batch")
+		}
+		if req.Trigger.CommentID == later {
+			body = req.Trigger.Body
+		}
+	}
+	first, second := strings.Index(body, "readiness probe"), strings.Index(body, "liveness probe")
+	if first < 0 || second < first {
+		t.Fatalf("batch body = %q\nlogs:\n%s", body, f.logs)
+	}
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), b.instance.ID)
+	betweenCheck(t, err)
+	if wait.ReplyID != later || wait.ReplyBody != body {
+		t.Fatalf("batch not claimed: %+v", wait)
+	}
+	if wm := f.watermark(); wm < later {
+		t.Fatalf("batch not consumed: watermark=%d", wm)
+	}
+}
+
+// While an attempt of the instance is still running, an owner comment stays
+// queued: no reply, not consumed, no agent. Once nothing runs it answers the
+// open question.
 func TestResearchBetweenQuestions_HeldWhileAttemptRuns(t *testing.T) {
 	b := newBetweenQuestions(t)
 	f := b.f
 	ctx := t.Context()
 	shapeRun := b.run(t, 21, "shape.log")
 	shape := b.start(t, "shape", shapeRun)
-	// Retain a question from the already finished investigate attempt while
-	// shape runs.
 	attempts, err := f.db.ListGraphNodeAttempts(ctx, b.instance.ID)
 	betweenCheck(t, err)
 	investigate := attempts[0]
@@ -252,12 +228,12 @@ func TestResearchBetweenQuestions_HeldWhileAttemptRuns(t *testing.T) {
 	b.publish(t, "held-question", investigate, investigateRun, "question", betweenQuestionComment)
 
 	f.forge.addComment(testIssue, betweenOwnerComment, owner(), "Please also cover the readiness probe")
-	for range 3 {
+	for range 4 {
 		f.clock.advance(time.Minute)
 		f.settle()
 	}
 	if got := betweenRefusals(f); got != 0 {
-		t.Fatalf("diagnostic reply posted while an attempt was still running: %d", got)
+		t.Fatalf("reply posted while an attempt was still running: %d", got)
 	}
 	if wm := f.watermark(); wm >= betweenOwnerComment {
 		t.Fatalf("comment consumed while an attempt was still running: watermark=%d", wm)
@@ -268,19 +244,25 @@ func TestResearchBetweenQuestions_HeldWhileAttemptRuns(t *testing.T) {
 
 	betweenCheck(t, f.db.CompleteGraphNodeAttempt(ctx, shape.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: b.at}))
 	b.finish(t, shapeRun)
-	if !settleUntilHandled(f, betweenOwnerComment, 6) {
-		t.Fatalf("comment not consumed once nothing runs: watermark=%d\nlogs:\n%s", f.watermark(), f.logs)
+	for range 6 {
+		if _, ran := turnFor(f, betweenOwnerComment); ran {
+			break
+		}
+		f.clock.advance(time.Minute)
+		f.settle()
 	}
-	if got := betweenRefusals(f); got != 1 {
-		t.Fatalf("diagnostic replies = %d, want exactly 1", got)
+	if _, ran := turnFor(f, betweenOwnerComment); !ran {
+		t.Fatalf("queued comment never answered the question once nothing ran\nlogs:\n%s", f.logs)
+	}
+	if got := betweenRefusals(f); got != 0 {
+		t.Fatalf("refusal replies = %d, want none", got)
 	}
 }
 
-// An ordinary comment that arrives while the wait already holds a claimed reply
-// is answered once and consumed, instead of retrying forever; the open claim is
-// untouched.
-func TestResearchOwnerWaitRefusalIsAnsweredOnceAndConsumed(t *testing.T) {
-	const ownerWaitText = "Your instruction is retained and undelivered"
+// A comment that arrives while the wait already holds a claimed reply stays
+// queued for the next question: it is neither refused nor consumed, and it
+// starts no separate agent.
+func TestResearchOwnerWaitHoldsLaterCommentQueued(t *testing.T) {
 	b := newBetweenQuestions(t)
 	f := b.f
 	b.shapeAsks(t)
@@ -297,43 +279,17 @@ func TestResearchOwnerWaitRefusalIsAnsweredOnceAndConsumed(t *testing.T) {
 	}
 	const second = int64(150)
 	f.forge.addComment(testIssue, second, owner(), "Also, one more thought")
-	if !settleUntilHandled(f, second, 6) {
-		t.Fatalf("comment refused by the owner wait was never consumed: watermark=%d\nlogs:\n%s", f.watermark(), f.logs)
-	}
-	count := func() int {
-		posted, _, _ := f.forge.snapshot()
-		n := 0
-		for _, body := range posted {
-			if strings.Contains(body, ownerWaitText) {
-				n++
-			}
-		}
-		return n
-	}
-	if got := count(); got != 1 {
-		t.Fatalf("refusal replies = %d, want 1\nlogs:\n%s", got, f.logs)
-	}
-	if _, ran := turnFor(f, second); ran {
-		t.Fatal("the pending comment started a separate agent")
-	}
-	pending, err := f.db.ListOwnerInstructions(t.Context(), f.sessionOf(testIssue).ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, input := range pending {
-		if input.CommentID == second && input.Body == "Also, one more thought" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("occupied-wait input was lost: %+v", pending)
-	}
-	for range 3 {
+	for range 5 {
 		f.clock.advance(time.Minute)
 		f.settle()
 	}
-	if got := count(); got != 1 {
-		t.Fatalf("refusal replies after repeated ticks = %d, want 1", got)
+	if wm := f.watermark(); wm >= second {
+		t.Fatalf("queued comment consumed while the wait held another reply: watermark=%d", wm)
+	}
+	if got := betweenRefusals(f); got != 0 {
+		t.Fatalf("refusal replies = %d, want none\nlogs:\n%s", got, f.logs)
+	}
+	if _, ran := turnFor(f, second); ran {
+		t.Fatal("the queued comment started a separate agent")
 	}
 }

@@ -2,7 +2,6 @@ package turn
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -30,27 +29,29 @@ type GraphNodeRequest struct {
 	InstanceID, RunID int64
 	LaunchID          int64
 	// ResumeAttemptID is factory-owned recovery of a Bug bookkeeping effect.
-	ResumeAttemptID      int64
-	OwnerAllowanceSource int64
-	ResumeRef            string
-	At, NextDueAt        time.Time
-	RetryDueAt           time.Time
+	ResumeAttemptID int64
+	// BudgetFails ends the instance instead of parking it for the owner when its
+	// step budget runs out, for an instance no owner reply can reach.
+	BudgetFails   bool
+	ResumeRef     string
+	At, NextDueAt time.Time
+	RetryDueAt    time.Time
 }
 
 // GraphNodeResult describes the recorded step. AttemptID is zero for terminals
-// and exhausted limits. Status is the instance status, not the activity outcome.
+// and an exhausted step budget. Status is the instance status, not the activity outcome.
 type GraphNodeResult struct {
 	// Deferred means admission is waiting. AttemptID is zero if no work began.
 	Deferred bool
-	// Exhausted means the node's dispatch limit was spent before it could run.
+	// Exhausted means the instance's step budget was spent before the node could run.
 	Exhausted              bool
 	InstanceID, AttemptID  int64
 	Node, NextNode, Status string
 	Activity               ActivityResult
 }
 
-// GraphLimitError is the cause of a graph run that stopped because a node's
-// dispatch limit was exhausted. Its text is the step's diagnostic.
+// GraphLimitError is the cause of a graph run that ended because its step
+// budget was exhausted under BudgetFails. Its text is the step's diagnostic.
 type GraphLimitError struct {
 	Node       string
 	Diagnostic string
@@ -150,7 +151,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	}
 	// A busy Plan parent is temporary contention: take its story-progress lock
 	// before reserving, so waiting spends no node attempt or revision budget.
-	if serialized, ok := handler.(parentSerializedActivity); ok && workflow == agent.WorkflowPlan && (node.Action == graphexec.PlanStoryAction || node.Action == graphexec.PlanApproveAction) {
+	if serialized, ok := handler.(parentSerializedActivity); ok && workflow == agent.WorkflowPlan && node.Action == graphexec.PlanStoryAction {
 		unlock, lockErr := serialized.lockParent(ctx)
 		if errors.Is(lockErr, store.ErrStoryProgressBusy) {
 			out.Deferred = true
@@ -207,35 +208,24 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 			return out, errors.New("bug effect recovery attempt mismatch")
 		}
 	default:
-		var ancestors map[int64]string
-		if workflow == agent.WorkflowResearch {
-			ancestors, err = researchBudgetAncestors(ctx, opts.DB, instance.ID, node)
-			if err != nil {
-				return out, err
-			}
-		}
 		var prerequisite *store.BugSyncPrerequisite
 		if gate, exists := graphexec.BugFixerSyncGate(req.Profile); exists {
 			if fixer, valid := graphexec.Decide(req.Profile, gate.Name, "synced"); valid {
 				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer, AllowDeferred: slices.Contains(gate.Outcomes, "deferred")}
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, FactoryStep: node.Action != ResearchAgentAction, LimitSpansReplies: limitSpansReplies(workflow), OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{AcceptOwnerInput: node.Action == ResearchAgentAction && req.RunID > 0, BugSyncPrerequisite: prerequisite, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, FactoryStep: node.Action != ResearchAgentAction, Budget: req.Profile.StepBudget(), StartedAt: req.At})
 	}
-	if errors.Is(err, store.ErrGraphAttemptLimit) {
+	if errors.Is(err, store.ErrGraphBudgetExhausted) {
 		out.Exhausted = true
-		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
-		if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction {
-			out.Activity.Diagnostic, err = graphBugSyncExhaustionDiagnostic(context.WithoutCancel(ctx), opts.DB, instance.ID, node.Name, out.Activity.Diagnostic)
-			if err != nil {
-				return out, err
-			}
+		budget := req.Profile.StepBudget()
+		out.Activity.Diagnostic = fmt.Sprintf("Stopped after %d steps without an owner reply; reply to continue.", budget)
+		if !req.BudgetFails {
+			return parkGraphAction(ctx, opts, req, out, graphBudgetCause, false)
 		}
-		if graphexec.ParksOutcome(node, "exhausted") {
-			return parkGraphAction(ctx, opts, req, out, "exhausted", false)
-		}
+		out.Activity.Diagnostic = fmt.Sprintf("Stopped after %d steps without an owner reply.", budget)
 		if err := opts.DB.SetGraphInstanceStatus(ctx, instance.ID, store.GraphFailed, time.Time{}, req.At); err != nil {
-			return out, fmt.Errorf("record exhausted graph limit: %w", err)
+			return out, fmt.Errorf("record exhausted step budget: %w", err)
 		}
 		out.Status = store.GraphFailed
 		return out, nil
@@ -296,7 +286,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		return out, dispatchErr
 	}
 	// A local discovery-budget deferral inside a Plan activity is transient
-	// scheduling pressure: the failed attempt stays bounded by the node limit,
+	// scheduling pressure: the failed attempt counts against the step budget,
 	// and the instance stays at the node for a later retry instead of failing.
 	if dispatchErr != nil && workflow == agent.WorkflowPlan && errors.Is(dispatchErr, ticket.ErrDiscoveryDeferred) {
 		if out.Activity.Diagnostic == "" {
@@ -434,69 +424,4 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 		return out, fmt.Errorf("complete graph activity: %w", err)
 	}
 	return out, nil
-}
-
-// researchAncestorLimit bounds the successor walk; real chains are a handful long.
-const researchAncestorLimit = 64
-
-// researchBudgetAncestors carries the existing per-stage allowance across graph
-// successors. Renamed agent nodes match their captured role; effects match names.
-// A failed or completed predecessor starts a fresh owner attempt, ending
-// allowance inheritance.
-// limitSpansReplies names the workflows whose graphs document lf_limit as the
-// cap on their owner rounds: Validate's resolve loop stops when its limit runs
-// out so nothing is approved. Every other workflow gives each owner reply a
-// fresh allowance (#984).
-func limitSpansReplies(workflow agent.Workflow) bool {
-	return workflow == agent.WorkflowValidate
-}
-
-func researchBudgetAncestors(ctx context.Context, db *store.DB, instance int64, node graphexec.Node) (map[int64]string, error) {
-	out := make(map[int64]string)
-	for range researchAncestorLimit { // bounded walk, not a retry loop
-		prior, _, err := db.WorkflowPredecessor(ctx, instance)
-		if err != nil || prior == 0 {
-			return out, err
-		}
-		if _, cycle := out[prior]; cycle {
-			return nil, errors.New("research successor cycle")
-		}
-		predecessor, err := db.GetGraphInstance(ctx, prior)
-		if err != nil {
-			return nil, err
-		}
-		if predecessor.Status == store.GraphFailed || predecessor.Status == store.GraphSucceeded {
-			return out, nil
-		}
-		name := node.Name
-		raw, err := db.ResearchLaunchFiles(ctx, prior)
-		if err != nil {
-			return nil, err
-		}
-		var files map[string][]byte
-		if err := json.Unmarshal(raw, &files); err != nil {
-			return nil, err
-		}
-		graphFile, err := retainedGraphFile(ctx, db, prior)
-		if err != nil {
-			return nil, err
-		}
-		if dot, found := files[graphFile]; found {
-			profile, err := graphexec.ParseProfile(dot)
-			if err != nil {
-				return nil, err
-			}
-			if node.Action == ResearchAgentAction {
-				for _, old := range profile.Nodes {
-					if old.Action == node.Action && old.Attrs["lf_agent_markdown"] == node.Attrs["lf_agent_markdown"] {
-						name = old.Name
-						break
-					}
-				}
-			}
-		}
-		out[prior] = name
-		instance = prior
-	}
-	return nil, errors.New("research successor chain exceeds its bound")
 }

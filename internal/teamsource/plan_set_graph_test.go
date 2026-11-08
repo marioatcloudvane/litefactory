@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
 // Story-003 T-022 and T-023 gap tests (AC-022, AC-024, AC-025, AC-029, AC-030,
@@ -74,101 +71,6 @@ func TestPlanSetAgentNodeCapturesTheShippedRoleAndSkill(t *testing.T) {
 	}
 }
 
-// mutatedShippedPlan captures the shipped package with its graph text changed by f
-// and runs the same structure check the factory applies before dispatch.
-func mutatedShippedPlan(t *testing.T, f func(string) string) error {
-	t.Helper()
-	fixture := planPackageFixture(t)
-	before := string(fixture["plan.dot"].Data)
-	after := f(before)
-	if after == before {
-		t.Fatal("mutation changed nothing")
-	}
-	fixture["plan.dot"].Data = []byte(after)
-	d, err := CaptureWorkflow(t.Context(), fixture, "plan.dot", "go-development", agent.ModePlan, planPackageRegistry(t))
-	if err != nil {
-		return err
-	}
-	return graphexec.ValidatePlanControlGraph(d.Profile)
-}
-
-// The declared structure is judged, not names or a Go list: a shipped graph with
-// sound renames still validates, and structurally broken variants of the same file
-// are refused.
-func TestShippedPlanGraphIsJudgedByItsDeclaredStructure(t *testing.T) {
-	t.Parallel()
-	// The graph aligns its columns for readers, so a single space in old matches
-	// any run of whitespace.
-	replace := func(old, next string) func(string) string {
-		pattern := regexp.MustCompile(strings.ReplaceAll(regexp.QuoteMeta(old), " ", `\s+`))
-		return func(g string) string {
-			loc := pattern.FindStringIndex(g)
-			if loc == nil {
-				t.Errorf("shipped graph lacks %q", old)
-				return g
-			}
-			return g[:loc[0]] + next + g[loc[1]:]
-		}
-	}
-	rename := func(old, next string) func(string) string {
-		return func(g string) string { return strings.ReplaceAll(g, old, next) }
-	}
-	cases := []struct {
-		name    string
-		mutate  func(string) string
-		wantErr bool
-	}{
-		{"cycle selector renamed/validates", rename("story_pick", "next_story"), false},
-		{"set nodes renamed/validates", rename("set_", "proposal_"), false},
-		{"wait terminal renamed/validates", rename("waiting", "owner_wait"), false},
-		{"extra terminal/validates", func(g string) string {
-			g = replace(` waiting [lf_terminal="true"];`, " waiting [lf_terminal=\"true\"];\n parked [lf_terminal=\"true\"];")(g)
-			return replace(`select_acceptance -> stopped`, `select_acceptance -> parked`)(g)
-		}, false},
-		{"set effect promotes/refused", replace(`set_draft -> failed [lf_on="uncertain"]`, `set_draft -> promoted [lf_on="uncertain"]`), true},
-		{"set review reaches an agent/refused", replace(`set_review -> waiting`, `set_review -> story_agent`), true},
-		{"creation cycle bound lowered/refused", replace(fmt.Sprintf(`lf_condition="create", lf_limit="%d"`, graphexec.PlanCreationBound), `lf_condition="create", lf_limit="8"`), true},
-		{"cycle without its loop/refused", replace(`story_review -> story_pick`, `story_review -> story_agent`), true},
-		{"start is not a decision/refused", replace(`start="select_set"`, `start="set_loop"`), true},
-		{"set gate reads the agent/refused", replace(`set_gate [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved"`, `set_gate [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_source="set_agent"`), true},
-	}
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := mutatedShippedPlan(t, tt.mutate)
-			if tt.wantErr && err == nil {
-				t.Fatal("a structurally broken graph was accepted")
-			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("a structurally sound graph was refused: %v", err)
-			}
-		})
-	}
-}
-
-// AC-043: the shipped cycle nodes carry exactly the constant's bound, so a change
-// of the set limit moves both together.
-func TestShippedCreationCycleBoundIsTheConstant(t *testing.T) {
-	t.Parallel()
-	if graphexec.PlanCreationBound != planbrief.MaxPlanStorySetEntries+1 {
-		t.Fatalf("bound %d is not the set limit %d plus one revision pass", graphexec.PlanCreationBound, planbrief.MaxPlanStorySetEntries)
-	}
-	d, err := capturePlan(t.Context(), t, planPackageRegistry(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"story_pick", "story_agent", "story_question", "story_draft", "story_review"} {
-		n, ok := d.Profile.Node(name)
-		if !ok || n.Limit != graphexec.PlanCreationBound {
-			t.Errorf("%s limit %d, want %d", name, n.Limit, graphexec.PlanCreationBound)
-		}
-	}
-	// The graph comment that explains the bound must state the same number.
-	if dot := planEmbeddedText(t, "plan.dot"); !strings.Contains(dot, fmt.Sprintf(`lf_limit="%d"`, graphexec.PlanCreationBound)) {
-		t.Errorf("plan.dot declares no lf_limit of %d", graphexec.PlanCreationBound)
-	}
-}
-
 // AC-029: the definition alone says a session that already has stories skips the
 // set stage: the set decision's false outcome selects story reasoning, and the
 // stage that follows the set is only reachable through the owner's promotion, not
@@ -179,16 +81,8 @@ func TestShippedPlanGraphSkipsTheSetStageWhenTheDecisionIsFalse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, ok := graphexec.Decide(d.Profile, "select_set", "false")
-	if !ok {
+	if _, ok := graphexec.Decide(d.Profile, "select_set", "false"); !ok {
 		t.Fatal("story scope lacks set bypass")
-	}
-	for _, facts := range []map[string]string{
-		{"story.size": "S", "story.sizing_valid": "true", "story.fallback": "false"},
-		{"story.size": "L", "story.sizing_valid": "true", "story.fallback": "false"},
-		{"story.sizing_valid": "false", "story.fallback": "false"},
-	} {
-		firstStoryPlanningActivity(t, d.Profile, next, facts)
 	}
 	sel, _ := d.Profile.Node("select_set")
 	if sel.Attrs["lf_condition"] != graphexec.PlanSetCondition || sel.Attrs["lf_source"] != "" {

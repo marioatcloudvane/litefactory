@@ -2,7 +2,6 @@ package graphexec_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -83,31 +82,6 @@ func TestSharedControlsUseAdmittedVocabularyAndInitialDefault(t *testing.T) {
 			got, err := condition.Evaluate(tc.response, tc.attempted)
 			if got != tc.want || (err != nil) != (tc.want == "") {
 				t.Fatalf("Evaluate = %q, %v; want %q", got, err, tc.want)
-			}
-		})
-	}
-	for _, tc := range []struct{ name, from, to string }{
-		{"valid vocabulary", "", ""},
-		{"owner wait bypass", "question -> wait [on=published]", "question -> work [on=published]"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			raw := strings.ReplaceAll(controlDOT, "mode=research", "mode=plan")
-			raw = strings.ReplaceAll(raw, "brief [lf_action=lf_research_brief,lf_source=work,lf_outcomes=success,lf_limit=3];", "")
-			raw = strings.ReplaceAll(raw, "work -> brief [on=success];brief -> check [on=success];", "work -> check [on=success];")
-			raw = strings.ReplaceAll(raw, "=ask", "=question")
-			if tc.from != "" {
-				raw = strings.Replace(raw, tc.from, tc.to, 1)
-			}
-			p, err := graphexec.ParseProfile([]byte(raw))
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = graphexec.ValidateControlGraph(p, policy)
-			if (err == nil) != (tc.from == "") {
-				t.Fatalf("ValidateControlGraph = %v", err)
-			}
-			if tc.from != "" && !strings.Contains(err.Error(), "durable owner wait") {
-				t.Fatalf("lost owner-wait diagnostic: %v", err)
 			}
 		})
 	}

@@ -277,9 +277,6 @@ func selectPlanAdvisoryTarget(s store.TaskAdvisorySnapshot, p *graphexec.Profile
 			if story.Retired || story.Candidate == "" || story.Draft.Name == "" || story.Hold != "" || story.LifecycleHold != "" || story.EffectHold != "" || len(story.EffectHolds) > 0 || story.Effect == "pending" {
 				return graphexec.Node{}, "", nil, nil, ErrTargetUnavailable
 			}
-			if story.Parallel != nil && !story.Parallel.Sealed {
-				return graphexec.Node{}, "", nil, nil, ErrTargetUnavailable
-			}
 			stage = story.Stage
 			if story.Wait == nil || story.Wait.Stage != stage || story.Wait.Candidate != story.Candidate {
 				return graphexec.Node{}, "", nil, nil, ErrTargetUnavailable

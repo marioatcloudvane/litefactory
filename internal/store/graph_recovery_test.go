@@ -401,7 +401,7 @@ func TestCancelIdleValidateInstanceRequiresNothingInFlight(t *testing.T) {
 			}
 			switch guard {
 			case "running attempt", "waiting", "intent effect", "dispatched effect", "uncertain effect":
-				a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, LaunchID: admitted.LaunchID, Node: instance.CurrentNode, Limit: 3, StartedAt: at})
+				a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, LaunchID: admitted.LaunchID, Node: instance.CurrentNode, StartedAt: at})
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -370,7 +370,7 @@ func TestTaskEvidencePlanAskSourceAndMappedReplyRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "story_agent", RunID: run.RunID, Limit: 3, StartedAt: at})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "story_agent", RunID: run.RunID, StartedAt: at})
 	if err != nil {
 		t.Fatal(err)
 	}

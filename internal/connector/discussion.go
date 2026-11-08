@@ -333,9 +333,6 @@ func (s *Server) availableTools(grant connectorstate.ConnectorGrant) []string {
 	// The guide is read-only and shows only what the grant can call, so every
 	// signed-in connection may use it.
 	names := []string{guideTool}
-	if decisions := s.stageDecisions.Load(); decisions != nil && decisions.Ready() && s.actions.Load() != nil && decisionGrant(grant) {
-		names = append(names, decisionToolNames...)
-	}
 	if discussion := s.taskDiscussion.Load(); discussion != nil {
 		for _, name := range advisoryToolNames {
 			if (name == "discussion_summary_publish" || name == "discussion_summary_get") && !discussion.PublicationAvailable() {

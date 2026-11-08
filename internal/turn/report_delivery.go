@@ -161,15 +161,6 @@ func (r *Reporter) dispatchDeliveryBody(ctx context.Context, delivery store.Repo
 	if strings.HasPrefix(delivery.Purpose, validateIndexPurpose) && !delivery.Completed {
 		return r.dispatchValidateIndex(ctx, delivery)
 	}
-	if delivery.TriggerNamespace == store.ResearchReminderNamespace && !delivery.PossiblySent {
-		reminder, readErr := r.db.ResearchReminderForDelivery(ctx, delivery.Key)
-		if readErr != nil {
-			return Posted{}, readErr
-		}
-		if reminder.Suppressed {
-			return Posted{Skipped: true}, nil
-		}
-	}
 	if delivery.Completed {
 		if err := r.finishValidatePart(ctx, delivery); err != nil {
 			return Posted{}, err

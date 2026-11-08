@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,10 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
-	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
@@ -557,11 +553,8 @@ func TestSharedManagedRunnerModesAndPermissions(t *testing.T) {
 }
 
 func TestSharedRunnerExplicitCompatibility(t *testing.T) {
-	for _, mode := range []string{"implement", "validate", "plan"} {
+	for _, mode := range []string{"implement", "validate"} {
 		prep, _ := lifecycleMCPPreparation(t, mode)
-		if mode == "plan" {
-			prep.planSubmission = func(context.Context) (*PlanSubmissionCallbacks, error) { return nil, nil }
-		}
 		runner := &mcpGateRunner{supported: true, result: &agent.RunResult{ResultText: "legacy required output"}}
 		prep.runner = runner
 		got, err := runMCPBound(t.Context(), prep, agent.Request{Mode: mode}, nil)
@@ -569,91 +562,6 @@ func TestSharedRunnerExplicitCompatibility(t *testing.T) {
 		if got != runner.result || runner.request.MCPLaunch != nil || !strings.Contains(runner.request.Prompt, "Compatibility route:") || !strings.Contains(runner.request.Prompt, "does not implicitly upgrade persisted versions") {
 			t.Fatalf("legacy route changed: request=%+v result=%+v", runner.request, got)
 		}
-	}
-}
-
-func TestSharedPlanFinalizationUsesPublicationOwner(t *testing.T) {
-	for _, scenario := range []string{"terminal", "duplicate_checkpoint", "conflicting_checkpoint", "failed_process"} {
-		t.Run(scenario, func(t *testing.T) {
-			f := newFixture(t, nil)
-			mustProgress(t, f.db.PutManagedFeature(t.Context(), store.ManagedFeature{WorkflowVersion: store.WorkflowSeparated, ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}))
-			mustProgress(t, f.db.BindFeatureContract(t.Context(), store.FeatureContract{Parent: f.session.TaskRef, Generation: 1, ContentVersion: 2, SubmissionVersion: 2}))
-			typed, prep, renderer, _ := typedPlanFixture(t)
-			ref, err := naming.ParseRef(f.session.TaskRef)
-			mustProgress(t, err)
-			prep.ref = ref
-			prep.session = f.session
-			prep.worktree = newSyncWorktree(t, f.repo, 78, "shared plan")
-			run := agentResultRun(t, f.db, f.session, "plan", "plan-attempt", 1)
-			prep.run = store.Run{ID: run.RunID, Mode: "plan"}
-			prep.promptInput = harness.PromptInput{PlanGeneration: 1, PlanProposalPath: planbrief.ProposalFileName, PlanContextPath: ".aiteam/test/PLAN_CONTEXT.json"}
-			forge := &typedPlanForge{}
-			callbacks, err := prepareTypedPlanSubmission(t.Context(), Options{DB: f.db, SubIssueCreator: forge, SubIssueRenderer: renderer}, prep)
-			mustProgress(t, err)
-			s, err := StartSubmissionSession(t.Context(), SubmissionSessionOptions{DB: f.db, Paths: config.NewPaths(launchFixtureDirectory(t)), RunID: run.RunID, Worktree: prep.worktree.Path(), Plan: callbacks})
-			mustProgress(t, err)
-			t.Cleanup(func() { mustProgress(t, s.Close(context.WithoutCancel(t.Context()))) })
-			managed := sharedManagedPreparation(t, f, s)
-			prep.mcpRuntime = managed.mcpRuntime
-			var plan agentresult.Plan
-			mustProgress(t, json.Unmarshal(typedPlanBytes(t, typed), &plan))
-			result := agentresult.Result{Outcome: "completed", Comment: "Plan retained", Payload: agentresult.Payload{Plan: &plan}}
-			if scenario == "duplicate_checkpoint" || scenario == "conflicting_checkpoint" {
-				c, err := resultPlanContribution(result)
-				mustProgress(t, err)
-				callContribution(t, s, "submit", c)
-				if scenario == "conflicting_checkpoint" {
-					result.Payload.Plan.Summary = "Different approved proposal"
-				}
-			}
-			before, err := f.db.GetManagedFeature(t.Context(), f.session.TaskRef)
-			mustProgress(t, err)
-			p, _, err := prepareMCP(t.Context(), prep, agent.Request{Mode: "plan"}, s)
-			mustProgress(t, err)
-			defer func() { mustProgress(t, p.close(context.WithoutCancel(t.Context()))) }()
-			raw, err := json.Marshal(agentresult.CreateInput{Result: result})
-			mustProgress(t, err)
-			// A Plan result travels only the shared result route (#410): it is
-			// submitted, and the printed copy below is never read.
-			submitted, err := p.service.Submit(t.Context(), "live-plan", raw)
-			mustProgress(t, err)
-			if !submitted.Validation.Valid || submitted.Snapshot == nil {
-				t.Fatalf("Plan submission refused: %+v", submitted.Validation)
-			}
-			outcome := agent.OutcomeSucceeded
-			if scenario == "failed_process" {
-				outcome = agent.OutcomeFailed
-			}
-			got, err := p.finalize(t.Context(), prep, s, &agent.RunResult{Outcome: outcome, Reason: "process cause", ResultText: string(raw)}, nil)
-			mustProgress(t, err)
-			if got.Succeeded() != (scenario != "failed_process") {
-				t.Fatalf("wrong Plan finalization: %+v", got)
-			}
-			if scenario == "failed_process" {
-				if prep.typedPlan.receiptID != 0 {
-					t.Fatal("failed process forwarded Plan")
-				}
-			} else {
-				retained, err := os.ReadFile(filepath.Join(prep.worktree.Path(), planbrief.OutcomeFileName))
-				mustProgress(t, err)
-				var handoff planbrief.PlanOutcome
-				mustProgress(t, json.Unmarshal(retained, &handoff))
-				if handoff.RunID != run.RunID || handoff.Attempt != s.binding.Attempt || handoff.Outcome != "completed" {
-					t.Fatalf("unbound internal handoff: %+v", handoff)
-				}
-			}
-			if scenario == "conflicting_checkpoint" {
-				// The shared result wins: the retained contribution is the submitted one.
-				if !strings.Contains(string(prep.typedPlan.contribution), "Different approved proposal") {
-					t.Fatalf("shared result did not replace the differing checkpoint: %s", prep.typedPlan.contribution)
-				}
-			}
-			after, err := f.db.GetManagedFeature(t.Context(), f.session.TaskRef)
-			mustProgress(t, err)
-			if !reflect.DeepEqual(before, after) || forge.creates != 0 || forge.updates != 0 {
-				t.Fatal("result receipt published or changed readiness")
-			}
-		})
 	}
 }
 

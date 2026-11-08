@@ -274,7 +274,7 @@ func TestGraphReplyRecoveryAtomicallyConsumesInput(t *testing.T) {
 	if err != nil || wm.LastCommentID != 10 {
 		t.Fatalf("failed park consumed input: %+v %v", wm, err)
 	}
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, Limit: 1, StartedAt: at})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, StartedAt: at})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,9 +309,6 @@ func TestGraphReplyRecoveryAtomicallyConsumesInput(t *testing.T) {
 	retained, err := db.LatestGraphRecord(ctx, instance.ID, "retained_findings")
 	if err != nil || string(retained) != string(findings) {
 		t.Fatalf("lost findings: %s %v", retained, err)
-	}
-	if _, err = db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, Limit: 1, StartedAt: at}); !errors.Is(err, ErrGraphAttemptLimit) {
-		t.Fatalf("recovery granted node budget: %v", err)
 	}
 	reserved, ok, err := db.ReserveGraphDispatch(ctx, due[0].ID, at)
 	if err != nil || !ok {
@@ -462,7 +459,7 @@ func TestReconcileGraphDispatchGuardsAndRollback(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "attempt", "effect", "waiting", "claimed":
-				attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, Limit: 3, StartedAt: at})
+				attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, StartedAt: at})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -568,7 +565,7 @@ func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
 				status := map[string]string{"pending dispatch": "pending", "reserved dispatch": "reserved", "running dispatch": "running", "cancelled": "cancelled"}[guard]
 				exec(`INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id) VALUES(?,?,?,?,?,?,?)`, d.InstanceID, d.SessionID, d.Node, FormatTime(at), status, FormatTime(at), d.LaunchID)
 			case "pending attempt", "running attempt", "effect", "waiting", "claimed", "allocated":
-				a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, Limit: 3, StartedAt: at})
+				a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, StartedAt: at})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -704,7 +701,7 @@ func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
 func strandDeferredAttempt(t *testing.T, db *DB, d GraphDispatch, at time.Time) GraphNodeAttempt {
 	t.Helper()
 	ctx := t.Context()
-	a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, Limit: 3, StartedAt: at})
+	a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, StartedAt: at})
 	if err != nil {
 		t.Fatal(err)
 	}

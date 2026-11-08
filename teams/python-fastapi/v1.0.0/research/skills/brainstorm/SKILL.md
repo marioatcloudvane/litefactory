@@ -6,7 +6,7 @@ description: Answer one factual question for a live owner brainstorm, outside th
 
 The factory invokes you outside the workflow graph while the owner is in a live conversation, often by voice. You answer exactly one factual question per run. There is no ask or done loop: nothing is published, no stage moves forward and you are not invoked again for the same question. The next question is a new run.
 
-Your role's sections on the graph loop, `response`, `ask`, `done`, `continue`, the session documents and the owner report do not apply here. Its voice, its read-first habit and its care with evidence still do.
+Your role's sections on the graph loop, `ask`, `done`, the session documents and the owner report do not apply here. Its voice, its read-first habit and its care with evidence still do.
 
 # What you can read
 

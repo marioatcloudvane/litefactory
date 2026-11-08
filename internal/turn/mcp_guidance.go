@@ -77,8 +77,6 @@ func mcpGuidance(ctx context.Context, spec *agent.MCPLaunchSpec, service *AgentR
 	switch service.binding.Mode {
 	case "validate":
 		b.WriteString("\nValidate uses supplied snapshots and retained evidence only: no shell, edits, fresh checks or delegation escapes. Keep the required final findings.\n")
-	case "plan":
-		b.WriteString("\nPlan application results may contain discussion or completed typed stories. The shared adapter reuses the existing Plan owner; input acknowledgment alone cannot publish, freeze or establish readiness. Preserve the supplied checkpoint path and required final result.\n")
 	case "research", "spike":
 		b.WriteString("\nRecommendations remain advisory; report findings and limitations without selecting a new mode.\n")
 	case "implement":
@@ -175,16 +173,10 @@ func mcpApplicationExample(ctx context.Context, service *AgentResultService) (co
 	case "spike":
 		r.Payload.Spike = &agentresult.Spike{Request: "Describe the bounded exploration."}
 	case "plan":
-		// An unreadable context falls back to the legacy example: the example is
-		// illustrative, and authority is judged where the result is submitted.
-		if c, contextErr := service.trustedContext(ctx); contextErr == nil && c.PlanGraph != nil {
-			// A graph Plan asks with questions and no story branch. The done shape
-			// (storyrequest or storyset) is in the node-result contract.
-			r.Payload.Plan = &agentresult.Plan{}
-			r.Questions = []agentresult.Question{{ID: "q-1", Audience: "business", Text: "Replace with the question that blocks the story."}}
-		} else {
-			r.Payload.Plan = &agentresult.Plan{Summary: "Describe current planning discussion."}
-		}
+		// A graph Plan asks with questions and no story branch. The done shape
+		// (storyrequest or storyset) is in the node-result contract.
+		r.Payload.Plan = &agentresult.Plan{}
+		r.Questions = []agentresult.Question{{ID: "q-1", Audience: "business", Text: "Replace with the question that blocks the story."}}
 	case "implement":
 		r.Payload.Implement = &agentresult.Implement{}
 	case "validate":

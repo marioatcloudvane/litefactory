@@ -1,10 +1,7 @@
 package store
 
 import (
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -44,7 +41,7 @@ func TestPlanWorkflowStore_AdmissionBackfillAndIsolation(t *testing.T) {
 		t.Fatalf("legacy route migrated: %q %v", path, err)
 	}
 	fresh := testSession(t, db, 363)
-	if _, err = db.AdmitResearchPath(ctx, fresh.ID, "legacy"); err != nil {
+	if _, err = db.AdmitWorkflowPath(ctx, fresh.ID, "legacy"); err != nil {
 		t.Fatal(err)
 	}
 	path, err = db.PlanExecutionPath(ctx, fresh.ID)
@@ -62,7 +59,7 @@ func TestPlanWorkflowStore_AdmissionBackfillAndIsolation(t *testing.T) {
 	if path, err = db.AdmitPlanPath(ctx, fresh.ID); err != nil || path != "graph" {
 		t.Fatal("an admitted graph route must survive admission", path, err)
 	}
-	research, err := db.AdmitResearchPath(ctx, fresh.ID, "graph")
+	research, err := db.AdmitWorkflowPath(ctx, fresh.ID, "graph")
 	if err != nil || research != "legacy" {
 		t.Fatal("Plan route changed Research", research, err)
 	}
@@ -128,79 +125,6 @@ func TestPlanWorkflowStore_CASHistoryAndRestart(t *testing.T) {
 	foreign, rev, err := db.GetPlanWorkflowState(ctx, "github:other/repo#362")
 	if err != nil || rev != 0 || foreign.SharedRevision != "" {
 		t.Fatal("parent isolation failed")
-	}
-}
-
-func TestPlanWorkflowStore_OwnerEditCASAndUncertainty(t *testing.T) {
-	for _, variant := range []string{"applied", "stale", "uncertain", "changed replay"} {
-		t.Run(variant, func(t *testing.T) {
-			db := newTestDB(t)
-			ctx := t.Context()
-			parent := "github:acme/api#362"
-			d, err := db.ReservePlanStory(ctx, parent, "story")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err = db.BindPlanStoryIssue(ctx, parent, d.Key, 4000, 400); err != nil {
-				t.Fatal(err)
-			}
-			request := PlanStoryCandidate{Parent: parent, Key: d.Key, RequestID: "create", Candidate: "initial", RequestJSON: `{"operation":"create"}`}
-			if err = db.PutPlanStoryCandidate(ctx, request); err != nil {
-				t.Fatal(err)
-			}
-			draft := planbrief.PlanDraft{Key: d.Key, Name: "Story"}
-			raw, _ := json.Marshal(draft)
-			d.IssueID = 4000
-			d.IssueNumber = 400
-			d.Candidate = "initial"
-			d.Stage = "story"
-			d.DraftJSON = string(raw)
-			d.Revision = strings.Repeat("a", 64)
-			if err = db.ApplyPlanStoryDraft(ctx, d, "", PlanStoryEffect{Parent: parent, RequestID: "create", Phase: "attach", Outcome: "applied", IssueID: 4000, IssueNumber: 400, Revision: d.Revision}); err != nil {
-				t.Fatal(err)
-			}
-			if variant == "uncertain" {
-				request.RequestID = "update"
-				request.Candidate = "next"
-				if err = db.PutPlanStoryCandidate(ctx, request); err != nil {
-					t.Fatal(err)
-				}
-			}
-			title, body := "362-001: Changed", "Owner visible bytes\n"
-			observed := fmt.Sprintf("%x", sha256.Sum256([]byte(title+"\x00"+body)))
-			expected := d.Revision
-			if variant == "stale" {
-				expected = strings.Repeat("b", 64)
-			}
-			err = db.ReconcilePlanStoryDraft(ctx, parent, d.Key, expected, observed, "owner-edit", d.Stage, draft, title, body)
-			if variant == "stale" || variant == "uncertain" {
-				if err == nil {
-					t.Fatal("unsafe owner edit accepted")
-				}
-				after, getErr := db.GetPlanStoryDraft(ctx, parent, d.Key)
-				if getErr != nil || after.Revision != d.Revision {
-					t.Fatal("rejected edit mutated binding")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			after, getErr := db.GetPlanStoryDraft(ctx, parent, d.Key)
-			if getErr != nil || after.Revision != observed || after.Candidate != "owner-edit" {
-				t.Fatal("owner edit did not update the draft row", after, getErr)
-			}
-			var rows int
-			if err = db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM plan_story_owner_edits WHERE parent=?`, parent).Scan(&rows); err != nil || rows != 0 {
-				t.Fatal("owner edit must not add a body copy", rows, err)
-			}
-			if variant == "changed replay" {
-				draft.Name = "Changed replay"
-			}
-			if err = db.ReconcilePlanStoryDraft(ctx, parent, d.Key, expected, observed, "owner-edit", d.Stage, draft, title, body); err == nil {
-				t.Fatal("replay against a moved base revision was accepted")
-			}
-		})
 	}
 }
 

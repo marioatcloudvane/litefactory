@@ -5,9 +5,8 @@ import (
 	"unicode/utf8"
 )
 
-// ValidateStorySizing validates saved facts independently of routing or fallback.
-// Missing route metadata remains compatible with earlier saved plans.
-func ValidateStorySizing(size, reason string, routeVersion *int) (bool, string) {
+// ValidateStorySizing validates saved facts independently of routing.
+func ValidateStorySizing(size, reason string) (bool, string) {
 	if size != "S" && size != "M" && size != "L" {
 		return false, "size must be exactly S, M or L"
 	}
@@ -23,9 +22,6 @@ func ValidateStorySizing(size, reason string, routeVersion *int) (bool, string) 
 	}
 	if utf8.RuneCountInString(trimmed) > 280 {
 		return false, "size reason exceeds 280 characters"
-	}
-	if routeVersion != nil && *routeVersion != PlanParallelVersion {
-		return false, "unsupported Plan route version"
 	}
 	return true, ""
 }

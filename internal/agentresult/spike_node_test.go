@@ -41,10 +41,10 @@ func TestDecodeSpikeNodeAcceptsAskAndDoneOnly(t *testing.T) {
 	}
 }
 
-func TestSpikeDecoderLeavesResearchAndPlanVocabularyUnchanged(t *testing.T) {
+func TestNodeDecodersRefuseApproved(t *testing.T) {
 	research := `{"version":1,"response":"approved","result":{"outcome":"completed","comment":"ok","payload":{"research":{"request":"r"}}}}`
-	if _, d := DecodeResearchNode([]byte(research), Context{SchemaVersion: SchemaVersion, Mode: "research", WorkflowVersion: 2}); !d.Valid {
-		t.Fatalf("Research approved regressed: %+v", d)
+	if _, d := DecodeResearchNode([]byte(research), Context{SchemaVersion: SchemaVersion, Mode: "research", WorkflowVersion: 2}); d.Valid {
+		t.Fatalf("Research accepted approved as a role response: %+v", d)
 	}
 	plan := strings.Replace(research, `"research":{"request":"r"}`, `"plan":{}`, 1)
 	_, d := DecodePlanNode([]byte(plan), Context{SchemaVersion: SchemaVersion, Mode: "plan", WorkflowVersion: 2})

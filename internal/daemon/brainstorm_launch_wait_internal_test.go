@@ -54,7 +54,7 @@ func TestBrainstormLaunchInFlightStartsOnceSeededAndAgentDispatched(t *testing.T
 	if err := f.db.FinishBrainstormSeed(t.Context(), admitted.LaunchID, store.BrainstormSeedComplete, "", f.at); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "set_agent", Limit: 3, StartedAt: f.at}); err != nil {
+	if _, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "set_agent", StartedAt: f.at}); err != nil {
 		t.Fatal(err)
 	}
 	settled, err := f.d.boundOpenBrainstormAttempt(t.Context(), f.item, a, f.now)

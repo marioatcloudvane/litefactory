@@ -2,11 +2,8 @@ package graphexec
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
-
-	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 // OwnerStopAttributes declares a shared opt-in contract, not workflow topology.
@@ -34,12 +31,10 @@ func ParksOutcome(node Node, outcome string) bool {
 	return false
 }
 
-func validateOwnerStop(node Node, workflow agent.Workflow) error {
+func validateOwnerStop(node Node) error {
 	var faults []error
-	// Bug agents park at their origin; other workflows route a result-routed
-	// agent's response straight to the edges its DOT declares.
-	if node.Attrs["lf_response"] != "" && (node.Action != "lf_agent" || node.Attrs["lf_response"] != "result" || (workflow == agent.WorkflowBug && !ParksOwner(node))) {
-		faults = append(faults, errors.New("result response requires an agent, and a Bug agent must park at its origin"))
+	if node.Attrs["lf_response"] != "" && (node.Action != "lf_agent" || node.Attrs["lf_response"] != "result") {
+		faults = append(faults, errors.New("result response requires an agent"))
 	}
 	if !ParksOwner(node) {
 		if node.Attrs["lf_park"] != "" || node.Attrs["lf_stop"] != "" {
@@ -47,25 +42,11 @@ func validateOwnerStop(node Node, workflow agent.Workflow) error {
 		}
 		return errors.Join(faults...)
 	}
-	if (workflow != agent.WorkflowBug && node.Action != DeliverAction) || node.Terminal || node.Limit <= 0 {
-		faults = append(faults, errors.New("owner parking requires a bounded admitted activity"))
-	}
 	values := OwnerStopAttributes()["lf_stop"].Values
 	if node.Action == SyncBaseAction {
 		values = append(values, "conflict", "retry")
 	}
 	faults = append(faults, validateListAttribute(node.Name, "lf_stop", node.Attrs["lf_stop"], values)...)
-	required := []string{"blocked", "failed", "invalid", "exhausted"}
-	// Sync retry can be routed through a bounded gate instead of parking.
-	// Outcome edge validation and the workflow policy check that route.
-	if node.Action == SyncBaseAction {
-		required = []string{"conflict", "failed", "invalid", "exhausted"}
-	}
-	for _, outcome := range required {
-		if !ParksOutcome(node, outcome) {
-			faults = append(faults, fmt.Errorf("owner parking must declare %q stop", outcome))
-		}
-	}
 	return errors.Join(faults...)
 }
 

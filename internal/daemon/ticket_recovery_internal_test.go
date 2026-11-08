@@ -1837,7 +1837,7 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 				f.d.reporter = stubReporter{}
 				f.d.defaultAgent = agent.Kind(store.AgentClaude)
 				f.d.agents = turn.RunnerSet{agent.Kind(store.AgentClaude): nil}
-				f.d.toolProfiles = config.DefaultToolProfiles().Permissions
+				f.d.toolProfiles = config.DefaultToolProfiles()
 				f.d.classifiers = map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}
 				f.now = f.now.Add(3 * time.Minute)
 				f.d.quotas.tick(f.now)

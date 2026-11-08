@@ -180,7 +180,7 @@ func (r *Reporter) ReportGraphFailure(ctx context.Context, req Request, policy W
 
 // failureSource resolves the attempt a failed or stopped step is reported
 // against. The failing attempt is preferred; a step that never reserved one
-// (a stopped run between nodes, an exhausted node limit) falls back to the
+// (a stopped run between nodes, an exhausted step budget) falls back to the
 // node's latest attempt and then to the instance's latest.
 func failureSource(ctx context.Context, db *store.DB, instanceID int64, step GraphNodeResult) (store.GraphNodeAttempt, error) {
 	if step.AttemptID > 0 {
@@ -451,10 +451,7 @@ func (r *planGraphRuntime) failureComment(ctx context.Context, a ActivityRequest
 }
 
 // failureSource picks the step whose recorded outcome routes to this failure
-// node. A parallel group's member attempts are created after the group's own
-// attempt, so the nearest earlier attempt can be a member that ended success;
-// the group, whose outcome the graph routed here, is the real source. Without
-// a routed match the nearest earlier attempt is kept.
+// node. Without a routed match the nearest earlier attempt is kept.
 func (r *planGraphRuntime) failureSource(attempts []store.GraphNodeAttempt, a ActivityRequest) store.GraphNodeAttempt {
 	var nearest store.GraphNodeAttempt
 	for i := len(attempts) - 1; i >= 0; i-- {

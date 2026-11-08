@@ -22,7 +22,7 @@ import (
 
 func TestResearchNativeBundleFilesystem(t *testing.T) {
 	var registry graphexec.Registry
-	for name, outcomes := range map[string][]string{"agent": {"success", "failed"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}, "ask": {"published"}, "research_brief": {"success", "failed"}} {
+	for name, outcomes := range map[string][]string{"agent": {"success", "failed", "ask", "done"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}, "ask": {"published"}} {
 		if err := registry.Register(graphexec.ActionSpec{Name: "lf_" + name, Mode: agent.ModeResearch, Outcomes: outcomes}); err != nil {
 			t.Fatal(err)
 		}
@@ -244,7 +244,7 @@ func TestResearchAgentRealStorePrivateRetention(t *testing.T) {
 			if len(outputs) != 1 || len(transitions) != 1 || attempt.Status != store.GraphSucceeded || transitions[0].ToNode != "end" {
 				t.Fatalf("non-atomic retention: %+v %+v %+v", outputs, transitions, attempt)
 			}
-			for _, name := range []string{ResearchBriefName, ResearchTechnicalName} {
+			for _, name := range []string{ResearchBriefName} {
 				if _, err := os.Stat(filepath.Join(worktree, ".aiteam/session", name)); !os.IsNotExist(err) {
 					t.Fatalf("generic agent generated scoped document %s: %v", name, err)
 				}

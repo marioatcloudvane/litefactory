@@ -1,11 +1,11 @@
 package teamsource
 
 import (
-	"fmt"
-	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/graphexec"
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 )
 
 func TestBugWorkflow_CaptureOwnership(t *testing.T) {
@@ -26,12 +26,7 @@ func TestBugWorkflow_CaptureOwnership(t *testing.T) {
 			t.Parallel()
 			source := researchTestSource()
 			source["research.dot"].Data = []byte(strings.ReplaceAll(string(source["research.dot"].Data), `mode="research"`, tt.declaration))
-			r := graphexec.Registry{Policy: func(p *graphexec.Profile) error {
-				if p.Workflow != agent.WorkflowBug || p.Mode != "" {
-					return fmt.Errorf("mismatched Bug policy owner")
-				}
-				return nil
-			}}
+			var r graphexec.Registry
 			if err := r.Register(graphexec.ActionSpec{Name: "lf_agent", Workflow: agent.WorkflowBug, Outcomes: []string{"success"}}); err != nil {
 				t.Fatal(err)
 			}

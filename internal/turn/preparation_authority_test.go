@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +18,7 @@ func TestManagedNoScopePreparationAssessmentRemainsReadOnly(t *testing.T) {
 	var before retainedSnapshot
 	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
 		surface, ok := req.Permissions.Payload.(harness.ToolSurface)
-		if !ok || req.Mode != string(agent.ModeImplement) || req.Permissions.Profile != "validate" || !reflect.DeepEqual(surface.Tools, []string{"Read", "Glob", "Grep"}) || slices.Contains(surface.AllowedTools, "Write") {
+		if !ok || req.Mode != string(agent.ModeImplement) || req.Permissions.Profile != "validate" || !surface.ReadOnly {
 			t.Fatalf("managed assessment gained write authority or changed mode: %+v", req)
 		}
 		if !strings.Contains(req.Prompt, "limited to preparation and reading") || strings.Contains(req.Prompt, "UNAPPROVED SCOPE TEXT") {
@@ -150,17 +149,17 @@ func TestGraphPreparationCaveatSettlesOnlyObservedFreshness(t *testing.T) {
 				{Phase: "base", Ref: "origin/main", LocalSHA: "local", RemoteSHA: "base", Outcome: "blocked", Behind: 1, Reason: "base remains unresolved"},
 			})
 			mustProgress(t, err)
-			source, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "sync", RunID: run.ID, StartedAt: at, Limit: 8})
+			source, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "sync", RunID: run.ID, StartedAt: at})
 			mustProgress(t, err)
 			mustProgress(t, f.db.FinishGraphNodeAttempt(t.Context(), source.ID, store.GraphSucceeded, "done", at))
-			final, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "sync", RunID: run.ID, StartedAt: at, Limit: 8})
+			final, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "sync", RunID: run.ID, StartedAt: at})
 			mustProgress(t, err)
 			raw, err := json.Marshal(syncBaseOutput{Working: testBranch, Base: "main", Result: outcome, Reason: "final observation"})
 			mustProgress(t, err)
 			_, err = f.db.RecordGraphOutput(t.Context(), store.GraphOutput{NodeAttemptID: final.ID, Kind: store.GraphOutputJSON, Payload: raw, CreatedAt: at})
 			mustProgress(t, err)
 			mustProgress(t, f.db.FinishGraphNodeAttempt(t.Context(), final.ID, store.GraphSucceeded, outcome, at))
-			reportAttempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "sync", RunID: run.ID, StartedAt: at, Limit: 8})
+			reportAttempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "sync", RunID: run.ID, StartedAt: at})
 			mustProgress(t, err)
 			mustProgress(t, f.db.FinishGraphNodeAttempt(t.Context(), reportAttempt.ID, store.GraphSucceeded, "published", at))
 			caveat, err := graphPreparationCaveat(t.Context(), f.db, instance.ID)

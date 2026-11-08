@@ -127,15 +127,6 @@ type Recommendation struct {
 	Action string `json:"action,omitempty"`
 }
 
-// ResearchArtifactKinds are the kinds a Research result may declare. Closing the
-// set is what lets a later stage select the document it needs instead of
-// guessing from a file name: "brief" is the owner's document, "technical" is the
-// evidence a claim rests on, and "data" is structured reference material a later
-// stage consumes verbatim — a data model, a schema, an interface table — rather
-// than reads as argument. Other modes keep an open vocabulary; only Research
-// renders its own documents.
-var ResearchArtifactKinds = []string{"brief", "technical", "data"}
-
 // Artifact references a rooted artifact without proving retained bytes.
 type Artifact struct {
 	ID          string `json:"id"`
@@ -155,9 +146,10 @@ type Payload struct {
 	Spike     *Spike     `json:"spike,omitempty"`
 }
 
-// Research records research claims and their source references.
+// Research holds a Research agent's private notes. Only the request is
+// required; the agent's deliverable is the RESEARCH_BRIEF.md it writes. The
+// brainstorm ledger reuses this shape for its findings and decisions.
 type Research struct {
-	Continue    bool        `json:"continue,omitempty"`
 	Request     string      `json:"request"`
 	Findings    []Finding   `json:"findings,omitempty"`
 	Decisions   []Statement `json:"decisions,omitempty"`
@@ -207,12 +199,11 @@ var SpikeFixChangeKinds = []string{"package", "dependency", "schema", "api"}
 // is decided by the trusted Context (PlanGraph), never by the payload, so a
 // legacy Plan can never be turned into a graph Plan by what it sends.
 type Plan struct {
-	Contribution *planbrief.PlanParallelContribution `json:"contribution,omitempty"`
-	Summary      string                              `json:"summary,omitempty"`
-	Context      *agent.PlanningDiscussion           `json:"context,omitempty"`
-	Stories      []PlanStory                         `json:"stories,omitempty"`
-	StoryRequest *PlanStoryRequest                   `json:"storyrequest,omitempty"`
-	StorySet     *PlanStorySet                       `json:"storyset,omitempty"`
+	Summary      string                    `json:"summary,omitempty"`
+	Context      *agent.PlanningDiscussion `json:"context,omitempty"`
+	Stories      []PlanStory               `json:"stories,omitempty"`
+	StoryRequest *PlanStoryRequest         `json:"storyrequest,omitempty"`
+	StorySet     *PlanStorySet             `json:"storyset,omitempty"`
 }
 
 // PlanStory retains stable identity while draft detail is enriched.

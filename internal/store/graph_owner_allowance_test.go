@@ -5,23 +5,11 @@ import (
 	"testing"
 )
 
-// A workflow whose graph caps its owner rounds keeps the limit across replies.
-func TestGraphLimitSpansRepliesKeepsOwnerRoundsCapped(t *testing.T) {
-	db := newTestDB(t)
-	instance := graphTestInstance(t, db)
-	ownerAllowanceRun(t, db, instance.ID, "work", 2, 2)
-	ownerAllowanceClaim(t, db, instance, "capped", 100)
-	_, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "work", Limit: 2, LimitSpansReplies: true, StartedAt: graphTestTime()})
-	if !errors.Is(err, ErrGraphAttemptLimit) {
-		t.Fatalf("capped owner round passed its limit: %v", err)
-	}
-}
-
-// ownerAllowanceRun dispatches node n times, finishing each attempt.
-func ownerAllowanceRun(t *testing.T, db *DB, instanceID int64, node string, limit, n int) {
+// budgetRun dispatches node n times under budget, finishing each attempt.
+func budgetRun(t *testing.T, db *DB, instanceID int64, node string, budget, n int) {
 	t.Helper()
 	for range n {
-		a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instanceID, Node: node, Limit: limit, StartedAt: graphTestTime()})
+		a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instanceID, Node: node, Budget: budget, StartedAt: graphTestTime()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,15 +35,31 @@ func ownerAllowanceClaim(t *testing.T, db *DB, instance GraphInstance, key strin
 	}
 }
 
-func TestGraphOwnerRepliesStartFreshNodeAllowance(t *testing.T) {
+// The step budget counts every dispatch of the instance, whatever the node, and
+// stops the next one once it is spent.
+func TestGraphStepBudgetCountsEveryDispatchOfTheInstance(t *testing.T) {
 	db := newTestDB(t)
 	instance := graphTestInstance(t, db)
-	const limit = 3
-	ownerAllowanceRun(t, db, instance.ID, "work", limit, limit)
-	// Owner rounds well beyond the limit each resume the node.
-	for round := range 3 * limit {
+	const budget = 3
+	budgetRun(t, db, instance.ID, "work", budget, budget)
+	_, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "work", Budget: budget, StartedAt: graphTestTime()})
+	if !errors.Is(err, ErrGraphBudgetExhausted) {
+		t.Fatalf("dispatch past the step budget: %v", err)
+	}
+	// Zero budget is unbounded.
+	budgetRun(t, db, instance.ID, "work", 0, 1)
+}
+
+// Every accepted owner reply starts a fresh budget, counted from the
+// continuation it allocated.
+func TestGraphOwnerReplyResetsTheStepBudget(t *testing.T) {
+	db := newTestDB(t)
+	instance := graphTestInstance(t, db)
+	const budget = 3
+	budgetRun(t, db, instance.ID, "work", budget, budget)
+	for round := range 3 * budget {
 		ownerAllowanceClaim(t, db, instance, "round-"+string(rune('a'+round)), int64(100+round))
-		continuation, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "work", Limit: limit, StartedAt: graphTestTime()})
+		continuation, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "work", Budget: budget, StartedAt: graphTestTime()})
 		if err != nil {
 			t.Fatalf("owner round %d: %v", round+1, err)
 		}
@@ -67,15 +71,14 @@ func TestGraphOwnerRepliesStartFreshNodeAllowance(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Without owner input the loop guard still holds: the latest reply bought
-	// one fresh allowance, of which its continuation used one dispatch.
-	ownerAllowanceRun(t, db, instance.ID, "work", limit, limit-1)
-	_, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "work", Limit: limit, StartedAt: graphTestTime()})
-	if !errors.Is(err, ErrGraphAttemptLimit) {
-		t.Fatalf("automatic loop after an owner reply passed its limit: %v", err)
+	// The latest reply's continuation used one step of its fresh budget.
+	budgetRun(t, db, instance.ID, "work", budget, budget-1)
+	_, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "work", Budget: budget, StartedAt: graphTestTime()})
+	if !errors.Is(err, ErrGraphBudgetExhausted) {
+		t.Fatalf("automatic loop after an owner reply passed its budget: %v", err)
 	}
 	attempts, err := db.ListGraphNodeAttempts(t.Context(), instance.ID)
-	if err != nil || len(attempts) != limit+3*limit+limit-1 {
+	if err != nil || len(attempts) != budget+3*budget+budget-1 {
 		t.Fatalf("attempt accounting: %d %v", len(attempts), err)
 	}
 }

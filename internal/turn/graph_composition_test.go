@@ -131,16 +131,17 @@ func TestGraphCompositionTraversal(t *testing.T) {
 	}
 }
 
-func TestGraphCompositionBoundedLoop(t *testing.T) {
+func TestGraphCompositionStepBudget(t *testing.T) {
 	f := newFixture(t, nil)
 	h := &graphTestHandler{results: map[string][]ActivityResult{
 		"first":  {{Outcome: "again"}, {Outcome: "again"}},
 		"second": {{Outcome: "again"}, {Outcome: "again"}},
 	}}
-	req := f.graphRequest(`digraph {team=test;mode=implement;profile_version=1;start=first;
- first [lf_action=lf_implement_work,lf_outcomes="again,done",lf_limit=2];
- second [lf_action=lf_implement_work,lf_outcomes=again,lf_limit=3];
+	req := f.graphRequest(`digraph {team=test;mode=implement;profile_version=1;start=first;lf_step_budget=4;
+ first [lf_action=lf_implement_work,lf_outcomes="again,done"];
+ second [lf_action=lf_implement_work,lf_outcomes=again];
  end [lf_terminal=true];first -> second [on=again];second -> first [on=again];first -> end [on=done];}`, h)
+	req.BudgetFails = true
 	start := req.At
 	var previous graphCompositionState
 	for i, node := range []string{"first", "second", "first", "second"} {
@@ -176,7 +177,7 @@ func TestGraphCompositionBoundedLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	final := readGraphCompositionState(t, f.db, req.InstanceID)
-	if result.Status != store.GraphFailed || result.AttemptID != 0 || !strings.Contains(result.Activity.Diagnostic, "limit 2 exhausted") || len(h.calls) != 4 {
+	if result.Status != store.GraphFailed || result.AttemptID != 0 || !strings.Contains(result.Activity.Diagnostic, "Stopped after 4 steps") || len(h.calls) != 4 {
 		t.Fatalf("exhaustion result: %+v dispatches=%d", result, len(h.calls))
 	}
 	if final.instance.Status != store.GraphFailed || final.instance.CurrentNode != "first" || !final.instance.NextDueAt.IsZero() || !final.instance.FinishedAt.Equal(req.At) {

@@ -2,54 +2,45 @@ package daemon
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-// bugRolePermissions captures operator configuration once. Neither an issue
-// label nor the mode profile map can substitute authority for a missing role.
-// The Validate repair agent's validate-repair grant is resolved the same way.
-func bugRolePermissions(profiles map[string]config.ToolProfile, ceiling []string) func(agent.Kind, string) (turn.BugRolePermissions, error) {
+// bugRolePermissions resolves a graph role's run policy from the operator's
+// profiles once: the full tool set inside the role's sandbox. The Bug analyst
+// and fixer and the Validate repair agent resolve this way.
+func bugRolePermissions(profiles config.ToolProfiles) func(agent.Kind, string) (turn.BugRolePermissions, error) {
 	profiles = cloneToolProfiles(profiles)
-	ceiling = slices.Clone(ceiling)
 	return func(kind agent.Kind, role string) (turn.BugRolePermissions, error) {
 		var out turn.BugRolePermissions
 		if role != "bug-analyst" && role != "bug-fixer" && role != config.ValidateRepairProfile {
 			return out, fmt.Errorf("unknown Bug role %q", role)
 		}
-		profile, ok := profiles[role]
-		if !ok || !profile.HasStanzaFor(string(kind)) || profile.Attachments {
-			return out, fmt.Errorf("missing explicit %s permission profile for %s", role, kind)
-		}
+		profile, _ := profiles.Resolve(role)
+		out.Sandbox = profile.Sandbox
 		switch kind {
 		case agent.Kind(config.KindCodex):
-			want := "read-only"
-			if role == "bug-fixer" || role == config.ValidateRepairProfile {
-				want = "workspace-write"
-			}
-			if profile.Codex.Sandbox != want {
-				return out, fmt.Errorf("%s requires %s sandbox", role, want)
-			}
-			out.Sandbox = want
 		case agent.Kind(config.KindClaude):
-			if len(profile.Claude.Tools) == 0 {
-				return out, fmt.Errorf("%s requires explicit Claude tools", role)
-			}
-			allowed := config.BugRoleClaudeTools(role)
-			for _, tool := range append(slices.Clone(profile.Claude.Tools), profile.Claude.AllowedTools...) {
-				name := config.ClaudeToolName(tool)
-				if !slices.Contains(allowed, name) || !slices.Contains(ceiling, name) {
-					return out, fmt.Errorf("%s tool %q is outside the role surface or the operator ceiling", role, tool)
-				}
-			}
-			out.Tools = slices.Clone(profile.Claude.Tools)
-			out.AllowedTools = slices.Clone(profile.Claude.AllowedTools)
+			out.Tools = config.AgentTools()
 		default:
 			return out, fmt.Errorf("unsupported Bug agent %s", kind)
 		}
 		return out, nil
 	}
+}
+
+// cloneToolProfiles gives the daemon its own copy of the operator's profiles.
+func cloneToolProfiles(profiles config.ToolProfiles) config.ToolProfiles {
+	cloned := config.ToolProfiles{Permissions: make(map[string]config.ToolProfile, len(profiles.Permissions))}
+	for name, profile := range profiles.Permissions {
+		if profile.Codex != nil {
+			codex := *profile.Codex
+			profile.Codex = &codex
+		}
+		profile.Claude = nil
+		cloned.Permissions[name] = profile
+	}
+	return cloned
 }

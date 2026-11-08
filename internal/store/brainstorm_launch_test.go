@@ -23,10 +23,10 @@ func brainstormLaunchTestItem(t *testing.T, db *DB, itemID, ledger string) {
 func TestBrainstormLaunchTriggerBandIsPrivate(t *testing.T) {
 	t.Parallel()
 	id := BrainstormLaunchTrigger(7)
-	if !IsBrainstormLaunchTrigger(id) || !IsPrivateTrigger(id) || IsPlanMemberTrigger(id) || IsChatTrigger(id) {
+	if !IsBrainstormLaunchTrigger(id) || !IsFactoryTrigger(id) || IsChatTrigger(id) {
 		t.Fatalf("launch trigger %d is not in its own private band", id)
 	}
-	if IsBrainstormLaunchTrigger(planMemberTriggerBase+1) || IsBrainstormLaunchTrigger(12345) {
+	if IsBrainstormLaunchTrigger(brainstormLaunchTriggerEnd+1) || IsBrainstormLaunchTrigger(12345) {
 		t.Fatal("band overlaps a neighbour or forge comments")
 	}
 	if got, ok := BrainstormLaunchAttemptID(id); !ok || got != 7 {

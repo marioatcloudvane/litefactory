@@ -35,12 +35,12 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"id":%d,"full_name":"o/r","has_issues":true}`, f.repoID)
 	case r.URL.Path == "/repos/o/r/labels" && r.Method == http.MethodGet:
 		if f.listFail {
-			http.Error(w, "boom", 500)
+			http.Error(w, "boom", http.StatusInternalServerError)
 			return
 		}
 		const size = 100
 		page := 1
-		fmt.Sscanf(r.URL.Query().Get("page"), "%d", &page)
+		_, _ = fmt.Sscanf(r.URL.Query().Get("page"), "%d", &page)
 		lo, hi := (page-1)*size, min(page*size, len(f.labels))
 		if lo > len(f.labels) {
 			lo = len(f.labels)
@@ -57,12 +57,12 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Name string }
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if body.Name == f.failOn {
-			http.Error(w, `{"message":"forbidden"}`, 403)
+			http.Error(w, `{"message":"forbidden"}`, http.StatusForbidden)
 			return
 		}
 		f.creates = append(f.creates, body.Name)
 		f.labels = append(f.labels, body.Name)
-		w.WriteHeader(201)
+		w.WriteHeader(http.StatusCreated)
 		fmt.Fprint(w, `{"name":"x"}`)
 	default:
 		http.NotFound(w, r)

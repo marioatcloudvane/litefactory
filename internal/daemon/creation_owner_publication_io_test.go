@@ -32,7 +32,7 @@ func TestOwnerApprovalPublishesInAnyModeAndPath(t *testing.T) {
 				task.issue.Labels = []string{tc.label}
 			}
 			if tc.path != "" {
-				_, err := f.db.AdmitResearchPath(t.Context(), f.session.ID, tc.path)
+				_, err := f.db.AdmitWorkflowPath(t.Context(), f.session.ID, tc.path)
 				publicationMust(t, err)
 			}
 			prepared, err := f.runtime.PrepareCreationProposal(t.Context(), successfulPreparationControl(t, f, 60, "Graph dispatch never gets bound"))

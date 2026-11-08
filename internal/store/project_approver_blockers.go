@@ -71,7 +71,6 @@ func approverBlockers(ctx context.Context, q interface {
 		{"story_revision", `SELECT w.operation_key FROM story_revision_operations w JOIN sessions s ON s.task_ref=w.parent_task WHERE s.repo_id=? AND w.delivered=0`},
 		{"plan_effect", `SELECT CAST(w.id AS TEXT) FROM plan_story_effects w JOIN sessions s ON s.task_ref=w.parent WHERE s.repo_id=? AND w.outcome IN ('pending','uncertain') AND NOT EXISTS(SELECT 1 FROM plan_story_completions c WHERE c.parent=w.parent AND c.request_id=w.request_id)`},
 		{"plan_recovery", `SELECT w.parent FROM plan_story_authorities w JOIN sessions s ON s.task_ref=w.parent WHERE s.repo_id=? AND NOT EXISTS(SELECT 1 FROM plan_story_completions c WHERE c.parent=w.parent AND c.request_id=w.request_id)`},
-		{"contract_upgrade", `SELECT w.parent_task FROM story_contract_upgrades w JOIN sessions s ON s.task_ref=w.parent_task WHERE s.repo_id=? AND w.state='pending'`},
 		{"mode_transition", `SELECT CAST(w.trigger_comment_id AS TEXT) FROM mode_selections w JOIN sessions s ON s.id=w.session_id WHERE s.repo_id=? AND (w.cleanup_pending=1 OR (w.label<>'' AND w.label_applied=0))`},
 		{"retirement", `SELECT CAST(w.id AS TEXT) FROM retirement_intents w JOIN sessions s ON s.id=w.session_id WHERE s.repo_id=? AND w.outcome IN ('unknown','uncertain')`},
 	}

@@ -30,14 +30,14 @@ func newPublicationResumeFixture(t *testing.T, node, kind string) publicationRes
 		t.Fatal(err)
 	}
 	run := testRun(t, db, session.ID, 22)
-	source, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "investigate", RunID: run.ID, Limit: 8, StartedAt: at})
+	source, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "investigate", RunID: run.ID, StartedAt: at})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = db.CompleteGraphNodeAttempt(ctx, source.ID, GraphCompletion{Status: GraphSucceeded, Outcome: "success", FinishedAt: at, Transition: &GraphTransition{InstanceID: instance.ID, FromNode: "investigate", ToNode: node, OnOutcome: "success", At: at}}); err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: node, RunID: run.ID, Limit: 8, StartedAt: at, FactoryStep: true})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: node, RunID: run.ID, StartedAt: at, FactoryStep: true})
 	if err != nil {
 		t.Fatal(err)
 	}

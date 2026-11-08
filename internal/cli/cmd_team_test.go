@@ -236,7 +236,7 @@ func TestTeamWorkflowValidationRefusesUnknownActionAndMissingResource(t *testing
 			}
 			switch mutation {
 			case "action":
-				local["research/research.dot"] = bytes.ReplaceAll(local["research/research.dot"], []byte("lf_research_"), []byte("unsupported_"))
+				local["research/research.dot"] = bytes.ReplaceAll(local["research/research.dot"], []byte(`"lf_comment"`), []byte(`"unsupported_comment"`))
 			case "missing":
 				for p := range local {
 					if strings.HasSuffix(p, "SKILL.md") {

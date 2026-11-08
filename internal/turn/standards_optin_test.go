@@ -269,7 +269,7 @@ func TestStandardsGrantFollowsPinnedNode(t *testing.T) {
 	for mode, nodes := range map[string]map[string]bool{
 		"implement": {"worker_agent": true, "sync_start_resolve": false, "sync_done_resolve": false},
 		"plan":      {"technical_agent": true, "set_agent": false, "story_agent": false, "acceptance_agent": false},
-		"research":  {"investigate": false, "shape": false},
+		"research":  {"research": false},
 		"bug":       {"analyst": false, "fixer": false},
 	} {
 		w := &researchWorkflow{definition: &teamsource.ResearchDefinition{Profile: profileOf(mode)}}

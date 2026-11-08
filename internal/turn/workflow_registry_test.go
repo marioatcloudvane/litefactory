@@ -96,7 +96,7 @@ func TestWorkflowRegistry_AdmissionRefusesUnboundPolicy(t *testing.T) {
 // accepted shared result the runtime fails the attempt with its cause, retains
 // nothing, and no downstream effect follows.
 func TestWorkflowRegistry_NominalDecoderCannotCompleteFromTerminalOutputAlone(t *testing.T) {
-	var decoded, retained, authorized, artifacts int
+	var decoded, retained, artifacts int
 	policy := workflowReusePolicy()
 	policy.Decode = func(raw []byte, _ agentresult.Context) (agentresult.ResearchNode, agentresult.Diagnostics) {
 		decoded++
@@ -109,10 +109,6 @@ func TestWorkflowRegistry_NominalDecoderCannotCompleteFromTerminalOutputAlone(t 
 	policy.Retain = func(store.ResultBinding, int64, agentresult.ResearchNode) ([]byte, error) {
 		retained++
 		return []byte(`{}`), nil
-	}
-	policy.AuthorizeOutput = func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.ResearchNode) error {
-		authorized++
-		return nil
 	}
 	policy.Artifacts = func(string, string, agentresult.Result) error { artifacts++; return nil }
 	specs, err := WorkflowSpecs(policy)
@@ -152,8 +148,8 @@ func TestWorkflowRegistry_NominalDecoderCannotCompleteFromTerminalOutputAlone(t 
 	if err == nil || out.Succeeded() || !strings.Contains(err.Error(), "no accepted shared result") {
 		t.Fatalf("terminal-only completion was accepted or lost its cause: succeeded=%v err=%v", out.Succeeded(), err)
 	}
-	if calls != 1 || retained != 0 || authorized != 0 || artifacts != 0 {
-		t.Fatalf("a downstream step ran on unaccepted output: calls=%d retain=%d authorize=%d artifacts=%d decode=%d", calls, retained, authorized, artifacts, decoded)
+	if calls != 1 || retained != 0 || artifacts != 0 {
+		t.Fatalf("a downstream step ran on unaccepted output: calls=%d retain=%d artifacts=%d decode=%d", calls, retained, artifacts, decoded)
 	}
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), admission.Instance.ID)
 	mustProgress(t, err)

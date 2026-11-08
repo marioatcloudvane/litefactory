@@ -16,7 +16,7 @@ import (
 func researchTestRegistry(t *testing.T) graphexec.Registry {
 	t.Helper()
 	var r graphexec.Registry
-	for name, outcomes := range map[string][]string{"agent": {"success", "failed"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}, "ask": {"published"}, "research_brief": {"success", "failed"}} {
+	for name, outcomes := range map[string][]string{"agent": {"success", "failed", "ask", "done"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}, "ask": {"published"}} {
 		if err := r.Register(graphexec.ActionSpec{Name: "lf_" + name, Mode: "research", Outcomes: outcomes}); err != nil {
 			t.Fatal(err)
 		}
@@ -81,8 +81,6 @@ func TestCaptureResearchValidation(t *testing.T) {
 		{"symlink resource", func(f fstest.MapFS) { f["skills/reader/guide.md"].Mode = fs.ModeSymlink }, "guide.md"},
 		{"resource bounds", func(f fstest.MapFS) { f["skills/reader/guide.md"].Data = make([]byte, MaxSourceBytes+1) }, "at most"},
 		{"invalid tier", func(f fstest.MapFS) { replaceResearchFixture(f, "research.md", "tier: balanced", "tier: vendor-model") }, "tier"},
-		{"infinite limit", func(f fstest.MapFS) { replaceResearchFixture(f, "research.dot", `lf_limit="2"`, `lf_limit="Inf"`) }, "limit"},
-		{"zero limit", func(f fstest.MapFS) { replaceResearchFixture(f, "research.dot", `lf_limit="2"`, `lf_limit="0"`) }, "limit"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

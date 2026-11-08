@@ -7,7 +7,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/owneraction"
-	"github.com/cloudvane/litefactory/internal/stagedecision"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
 
@@ -30,14 +29,6 @@ type Workflows interface {
 	Propose(context.Context, owneraction.Principal, string, string, string, map[string]any, string) (durableworkflow.Proposal, error)
 	Continue(context.Context, owneraction.Principal, durableworkflow.Continuation, string) (durableworkflow.Proposal, error)
 	Get(context.Context, owneraction.Principal, string, string, int) (durableworkflow.JobView, error)
-}
-
-// StageDecisions exposes reviewed stage proposals and their durable status.
-type StageDecisions interface {
-	Ready() bool
-	Propose(context.Context, owneraction.Principal, string, stagedecision.Request) (owneraction.Proposal, error)
-	Get(context.Context, owneraction.Principal, string) (stagedecision.View, error)
-	Cancel(context.Context, owneraction.Principal, string, string) (stagedecision.View, error)
 }
 
 // TaskDiscussion exposes separately consented advisory and publication requests.

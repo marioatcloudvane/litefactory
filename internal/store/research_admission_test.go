@@ -10,16 +10,16 @@ import (
 func TestResearchAdmissionImmutablePathAndDefinitionBoundaries(t *testing.T) {
 	db := newTestDB(t)
 	session := testSession(t, db, 343)
-	selected, err := db.AdmitResearchPath(t.Context(), session.ID, "legacy")
+	selected, err := db.AdmitWorkflowPath(t.Context(), session.ID, "legacy")
 	if err != nil || selected != "legacy" {
 		t.Fatalf("legacy: %s %v", selected, err)
 	}
-	selected, err = db.AdmitResearchPath(t.Context(), session.ID, "graph")
+	selected, err = db.AdmitWorkflowPath(t.Context(), session.ID, "graph")
 	if err != nil || selected != "legacy" {
 		t.Fatalf("legacy migrated: %s %v", selected, err)
 	}
 	session = testSession(t, db, 344)
-	selected, err = db.AdmitResearchPath(t.Context(), session.ID, "graph")
+	selected, err = db.AdmitWorkflowPath(t.Context(), session.ID, "graph")
 	if err != nil || selected != "graph" {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestResearchAdmissionImmutablePathAndDefinitionBoundaries(t *testing.T) {
 func TestResearchAdmissionRefusesUncertainPredecessorPublication(t *testing.T) {
 	db := newTestDB(t)
 	session := testSession(t, db, 346)
-	if _, err := db.AdmitResearchPath(t.Context(), session.ID, "graph"); err != nil {
+	if _, err := db.AdmitWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research.dot", Digest: strings.Repeat("a", 64), CreatedAt: graphTestTime()})
@@ -84,7 +84,7 @@ func TestResearchAdmissionRefusesUncertainPredecessorPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, Node: "work", Limit: 8, StartedAt: graphTestTime()})
+	a, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, Node: "work", StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestResearchAdmissionRefusesUncertainPredecessorPublication(t *testing.T) {
 func TestWorkflowAdmissionIgnoresOpenAttemptsOfFinishedInstances(t *testing.T) {
 	db := newTestDB(t)
 	session := testSession(t, db, 587)
-	if _, err := db.AdmitResearchPath(t.Context(), session.ID, "graph"); err != nil {
+	if _, err := db.AdmitWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), CreatedAt: graphTestTime()})
@@ -125,7 +125,7 @@ func TestWorkflowAdmissionIgnoresOpenAttemptsOfFinishedInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, Node: "budget", Limit: 8, StartedAt: graphTestTime()}); err != nil {
+	if _, err = db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, Node: "budget", StartedAt: graphTestTime()}); err != nil {
 		t.Fatal(err)
 	}
 	launch.TriggerID++

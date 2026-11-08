@@ -28,7 +28,7 @@ func planPackageRegistry(t *testing.T) graphexec.Registry {
 		{Name: "lf_ask", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}}},
 		{Name: "lf_comment", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"failure", "final", "advisory"}}}}, graphexec.PlanStorySpec(), graphexec.PlanGateSpec(),
 		// The shipped Plan graph carries judge nodes, as production registers.
-		graphexec.JudgeSpec(agent.ModePlan), graphexec.PlanParallelSpec(), graphexec.PlanApproveSpec(),
+		graphexec.JudgeSpec(agent.ModePlan),
 	}
 	for _, s := range specs {
 		if err := r.Register(s); err != nil {
@@ -147,9 +147,6 @@ func TestPlanPackageRejectsInvalidClosure(t *testing.T) {
 		{"unsupported condition", func(f fstest.MapFS) {
 			f["plan.dot"].Data = bytes.ReplaceAll(f["plan.dot"].Data, []byte(`lf_condition="approved"`), []byte(`lf_condition="implicit_approval"`))
 		}},
-		{"zero loop bound", func(f fstest.MapFS) {
-			f["plan.dot"].Data = bytes.ReplaceAll(f["plan.dot"].Data, []byte(`lf_limit="8"`), []byte(`lf_limit="0"`))
-		}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -178,12 +175,11 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 			if stage == "story" {
 				afterReview = "story_pick"
 			}
-			// The owner is asked after the advisory judge: check, then advice.
-			draftTarget := stage + "_check"
+			draftTarget := stage + "_review"
 			if stage == "set" {
 				draftTarget = "set_gate"
 			}
-			cases := []struct{ node, outcome, want string }{{stage + "_check", "success", stage + "_advice"}, {stage + "_check", "failed", stage + "_advice"}, {stage + "_advice", "published", stage + "_review"}, {stage + "_loop", "false", "stopped"}, {stage + "_question", "true", stage + "_ask"}, {stage + "_draft", "applied", draftTarget}, {stage + "_draft", "uncertain", "failed"}, {stage + "_draft", "conflict", "failed"}, {stage + "_draft", "failed", "failed"}, {stage + "_agent", "failed", "failed"}, {stage + "_review", "published", afterReview}, {stage + "_ask", "published", "waiting"}}
+			cases := []struct{ node, outcome, want string }{{stage + "_loop", "false", "stopped"}, {stage + "_question", "true", stage + "_ask"}, {stage + "_draft", "applied", draftTarget}, {stage + "_draft", "uncertain", "failed"}, {stage + "_draft", "conflict", "failed"}, {stage + "_draft", "failed", "failed"}, {stage + "_agent", "failed", "failed"}, {stage + "_review", "published", afterReview}, {stage + "_ask", "published", "waiting"}}
 			for _, tt := range cases {
 				got, ok := graphexec.Decide(d.Profile, tt.node, tt.outcome)
 				if !ok || got != tt.want {
@@ -191,7 +187,7 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 				}
 			}
 			if stage == "set" {
-				for _, c := range []struct{ outcome, want string }{{"false", "set_check"}, {"true", "promoted"}} {
+				for _, c := range []struct{ outcome, want string }{{"false", "set_review"}, {"true", "promoted"}} {
 					if got, ok := graphexec.Decide(d.Profile, "set_gate", c.outcome); !ok || got != c.want {
 						t.Errorf("set_gate/%s=%q,%v want %s", c.outcome, got, ok, c.want)
 					}
@@ -215,11 +211,6 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 				t.Fatalf("%s_review is not the generic gate: %v", stage, review.Attrs)
 			}
 		})
-	}
-	for _, node := range d.Profile.Nodes {
-		if !node.Terminal && node.Limit <= 0 {
-			t.Errorf("unbounded activity %s", node.Name)
-		}
 	}
 }
 
@@ -246,18 +237,6 @@ func TestPlanPackageDeclaresSetStageAndCreationCycle(t *testing.T) {
 		}
 	}
 
-	for _, entry := range []struct{ node, outcome string }{{"select_set", "false"}, {"story_pick", "true"}} {
-		start, ok := graphexec.Decide(d.Profile, entry.node, entry.outcome)
-		if !ok {
-			t.Fatalf("%s/%s has no route", entry.node, entry.outcome)
-		}
-		for _, tc := range []struct{ size, action string }{{"S", graphexec.PlanParallelAction}, {"M", "lf_agent"}, {"L", "lf_agent"}} {
-			activity := firstStoryPlanningActivity(t, d.Profile, start, map[string]string{"story.size": tc.size, "story.sizing_valid": "true", "story.fallback": "false"})
-			if activity.Action != tc.action {
-				t.Errorf("%s/%s size %s reaches %s", entry.node, entry.outcome, tc.size, activity.Action)
-			}
-		}
-	}
 	for _, name := range []string{"select_set", "set_loop", "set_agent", "set_question", "set_draft", "set_gate", "set_ask", "set_review", "story_pick"} {
 		if _, ok := d.Profile.Node(name); !ok {
 			t.Errorf("node %s is not declared", name)
@@ -266,16 +245,6 @@ func TestPlanPackageDeclaresSetStageAndCreationCycle(t *testing.T) {
 	set, _ := d.Profile.Node("set_agent")
 	if _, captured := d.Nodes["set_agent"]; set.Attrs["lf_agent_markdown"] != "plan-set" || !captured {
 		t.Errorf("set stage lacks its captured role: %v", set.Attrs)
-	}
-	// Every node of the creation cycle carries the bound that covers a full set.
-	for _, name := range []string{"story_pick", "story_agent", "story_question", "story_draft", "story_review"} {
-		n, _ := d.Profile.Node(name)
-		if n.Limit < graphexec.PlanCreationBound {
-			t.Errorf("%s bound %d does not cover %d stories", name, n.Limit, planbrief.MaxPlanStorySetEntries)
-		}
-	}
-	if err := graphexec.ValidatePlanControlGraph(d.Profile); err != nil {
-		t.Fatalf("shipped graph fails the declared-structure check: %v", err)
 	}
 }
 
@@ -382,48 +351,4 @@ func TestNeutralPlanGraphDoesNotRequireUnselectedStackGuidance(t *testing.T) {
 	if _, err := CaptureWorkflow(t.Context(), fixture, "plan.dot", "go-development", agent.ModePlan, planPackageRegistry(t)); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// firstStoryPlanningActivity follows the declared selection controls until actual
-// reasoning starts; route comparisons may be added without pinning direct edges.
-func firstStoryPlanningActivity(t *testing.T, p *graphexec.Profile, start string, facts map[string]string) graphexec.Node {
-	t.Helper()
-	current := start
-	for steps := 0; steps < len(p.Nodes); steps++ {
-		node, ok := p.Node(current)
-		if !ok || node.Terminal {
-			t.Fatalf("story route ended before reasoning at %q", current)
-		}
-		if node.Action == graphexec.PlanParallelAction {
-			return node
-		}
-		if node.Action == "lf_agent" {
-			if node.Attrs["lf_agent_markdown"] != "plan-story" {
-				t.Fatalf("story route reached unrelated role %q", node.Attrs["lf_agent_markdown"])
-			}
-			return node
-		}
-		condition, err := graphexec.DecodeCondition(node.Action, node.Attrs, graphexec.PlanControlPolicy())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if condition.Field == "response" && condition.Condition == graphexec.PlanSetCondition {
-			t.Fatalf("story route reentered set selection at %s", node.Name)
-		}
-		var outcome string
-		if condition.Field == "response" {
-			outcome, err = condition.Evaluate("story", true)
-		} else {
-			outcome, err = condition.EvaluatePlanFacts(facts)
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		current, ok = graphexec.Decide(p, node.Name, outcome)
-		if !ok {
-			t.Fatalf("missing selection edge %s/%s", node.Name, outcome)
-		}
-	}
-	t.Fatal("story selection did not reach a bounded reasoning activity")
-	return graphexec.Node{}
 }

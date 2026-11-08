@@ -49,9 +49,6 @@ func retainPreparationCaveats(ctx context.Context, opts Options, req Request, ru
 	if req.preparationAssessment {
 		caveats = append(caveats, assessmentPreparation)
 	}
-	if in.PlanContextUnavailable != "" {
-		caveats = append(caveats, in.PlanContextUnavailable)
-	}
 	if len(caveats) > 0 {
 		*run, err = opts.DB.RecordPreparationCaveats(ctx, run.ID, caveats)
 		if err != nil {

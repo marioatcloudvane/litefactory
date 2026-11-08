@@ -11,7 +11,7 @@ import (
 func TestGraphFailureReportedRequiresACompletedDeliveryForTheRun(t *testing.T) {
 	db := newTestDB(t)
 	session := testSession(t, db, 380)
-	if _, err := db.AdmitResearchPath(t.Context(), session.ID, "graph"); err != nil {
+	if _, err := db.AdmitWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	run, other := testRun(t, db, session.ID, 10), testRun(t, db, session.ID, 11)
@@ -24,7 +24,7 @@ func TestGraphFailureReportedRequiresACompletedDeliveryForTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	instance := admitted.Instance.ID
-	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance, Node: "shape", RunID: run.ID, Limit: 8, StartedAt: graphTestTime()})
+	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance, Node: "shape", RunID: run.ID, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

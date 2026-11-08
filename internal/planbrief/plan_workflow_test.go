@@ -121,7 +121,7 @@ func TestPlanWorkflow_ExactOwnerReply(t *testing.T) {
 		{"wrong stage", func(r *planbrief.PlanOwnerReply) { r.Stage = "technical" }, false},
 		{"wrong wait", func(r *planbrief.PlanOwnerReply) { r.WaitID = "old-wait" }, false},
 		{"ambiguous prose", func(r *planbrief.PlanOwnerReply) { r.Body = "Looks fine" }, false},
-		{"mixed change and approval", func(r *planbrief.PlanOwnerReply) { r.Body += " but change actor" }, false},
+		{"command run on into another token", func(r *planbrief.PlanOwnerReply) { r.Body += "x" }, false},
 		{"question with open questions cannot promote", func(r *planbrief.PlanOwnerReply) {}, true},
 	}
 	for _, tt := range tests {
@@ -149,12 +149,12 @@ func TestPlanWorkflow_ExactOwnerReply(t *testing.T) {
 			t.Fatalf("approval with guidance below refused: %v %v %+v", ok, err, s.Stories[0])
 		}
 	})
-	t.Run("same-line text after the command", func(t *testing.T) {
+	t.Run("same-line text after the command is guidance", func(t *testing.T) {
 		s := workflowFixture(t, "a")
 		r := workflowReply(t, &s, 0, 11)
-		r.Body += " please\nmore"
-		if ok, _ := s.ApplyOwnerReply(r); ok || len(s.Stories[0].Approvals) != 0 {
-			t.Fatal("same-line text approved")
+		r.Body += " but change the actor\nmore"
+		if ok, err := s.ApplyOwnerReply(r); err != nil || !ok || s.Stories[0].Stage != "technical" {
+			t.Fatalf("command with trailing guidance refused: %v %v", ok, err)
 		}
 	})
 	t.Run("exact reply replay", func(t *testing.T) {
@@ -849,59 +849,6 @@ func TestPlanWorkflow_EarlierStageRefusalNamesTheWorkingCommand(t *testing.T) {
 	got = s.PlanReplyReason("story-002", "/approve-plan story-002 technical "+wait.Candidate)
 	if !strings.Contains(got, "Nothing on this story is waiting for your approval right now; its next review will show the command to use.") {
 		t.Fatalf("repaired reply explanation = %q", got)
-	}
-}
-
-// An unchanged story re-run lowers the stage but keeps the current story
-// approval. The graph's story approval must move the story on again, so the
-// technical approval that follows is recorded and the story reaches acceptance.
-func TestPlanWorkflow_GraphApprovalAfterUnchangedStoryRerunReachesAcceptance(t *testing.T) {
-	t.Parallel()
-	s := workflowFixture(t, "a")
-	st := s.Stories[0]
-	if got, err := s.ApproveByGraph("a", "story", st.Candidate, st.EffectRequest); err != nil || got.Outcome != "approved" {
-		t.Fatalf("first story approval: %+v %v", got, err)
-	}
-	storyRef := s.Stories[0].Approvals["story"]
-	if s.Stories[0].Stage != "technical" || storyRef == "" {
-		t.Fatalf("story not approved: %+v", s.Stories[0])
-	}
-	if err := s.PutCandidate(s.Stories[0].Draft, "story", "a-rerun"); err != nil {
-		t.Fatal(err)
-	}
-	st = s.Stories[0]
-	if st.Stage != "story" || st.Approvals["story"] != storyRef {
-		t.Fatalf("rerun did not lower the stage while keeping the approval: %+v", st)
-	}
-	if got, err := s.ApproveByGraph("a", "story", st.Candidate, st.EffectRequest); err != nil || got.Outcome != "approved" {
-		t.Fatalf("story approval after rerun: %+v %v", got, err)
-	}
-	st = s.Stories[0]
-	if st.Stage != "technical" || st.Approvals["story"] != storyRef || st.ApprovedBy["story"] != planbrief.ApprovalByGraph {
-		t.Fatalf("story approval after rerun did not move the stage or rewrote the approval: %+v", st)
-	}
-	before := cloneWorkflow(t, s)
-	if got, err := s.ApproveByGraph("a", "story", st.Candidate, st.EffectRequest); err != nil || got.Outcome != "approved" {
-		t.Fatalf("story replay: %+v %v", got, err)
-	}
-	if !reflect.DeepEqual(before, cloneWorkflow(t, s)) {
-		t.Fatal("story replay past its stage changed the state")
-	}
-	if err := s.PutCandidate(s.Stories[0].Draft, "technical", "a-technical"); err != nil {
-		t.Fatal(err)
-	}
-	st = s.Stories[0]
-	got, err := s.ApproveByGraph("a", "technical", st.Candidate, st.EffectRequest)
-	if err != nil || got.Outcome != "approved" {
-		t.Fatalf("technical approval: %+v %v", got, err)
-	}
-	want, err := s.ReviewRevision("a", "technical")
-	if err != nil {
-		t.Fatal(err)
-	}
-	st = s.Stories[0]
-	if st.Stage != "acceptance" || st.Approvals["technical"] != want || st.Approvals["story"] != storyRef {
-		t.Fatalf("technical approval not recorded or stage not acceptance: %+v", st)
 	}
 }
 

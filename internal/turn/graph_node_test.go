@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cloudvane/litefactory/internal/testutil"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/testutil"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
@@ -364,13 +365,15 @@ func TestGraphNodeRejectsMismatchedPins(t *testing.T) {
 	}
 }
 
-func TestGraphNodeDispatchLimit(t *testing.T) {
+// An instance no owner reply reaches ends when its step budget runs out.
+func TestGraphNodeStepBudgetFailsWhenNoOwnerCanReply(t *testing.T) {
 	f := newFixture(t, nil)
 	h := &graphTestHandler{results: map[string][]ActivityResult{"work": {{Outcome: "again"}, {Outcome: "again"}}}}
-	dot := `digraph {team=test;mode=implement;profile_version=1;start=work;
- work [lf_action=lf_implement_work,lf_outcomes="again,done",lf_limit=1];
+	dot := `digraph {team=test;mode=implement;profile_version=1;start=work;lf_step_budget=1;
+ work [lf_action=lf_implement_work,lf_outcomes="again,done"];
  end [lf_terminal=true];work -> work [on=again];work -> end [on=done];}`
 	req := f.graphRequest(dot, h)
+	req.BudgetFails = true
 	if _, err := ExecuteNodeAction(t.Context(), f.opts, req); err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +381,7 @@ func TestGraphNodeDispatchLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != store.GraphFailed || result.AttemptID != 0 || !strings.Contains(result.Activity.Diagnostic, "limit 1 exhausted") || len(h.calls) != 1 {
+	if result.Status != store.GraphFailed || !result.Exhausted || result.AttemptID != 0 || !strings.Contains(result.Activity.Diagnostic, "Stopped after 1 steps") || len(h.calls) != 1 {
 		t.Fatalf("limit result: %+v calls=%d", result, len(h.calls))
 	}
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), req.InstanceID)
@@ -394,78 +397,10 @@ func TestGraphNodeDispatchLimit(t *testing.T) {
 	}
 }
 
-// Failed owner attempts renew allowances; topology changes within an attempt do not.
-func TestResearchBudgetFailureBoundary(t *testing.T) {
-	for _, node := range []graphexec.Node{
-		{Name: "report", Action: ResearchCommentAction},
-		{Name: "investigate", Action: ResearchAgentAction, Attrs: map[string]string{"lf_agent_markdown": "research.md"}},
-	} {
-		for _, variant := range []string{"failed", "failed then topology", "topology only", "succeeded"} {
-			t.Run(node.Name+"/"+variant, func(t *testing.T) {
-				ctx := t.Context()
-				f := newFixture(t, nil)
-				_, err := f.db.AdmitResearchPath(ctx, f.session.ID, "graph")
-				mustProgress(t, err)
-				pin, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research.dot", Digest: strings.Repeat("a", 64)})
-				mustProgress(t, err)
-				launch := store.ResearchLaunch{SessionID: f.session.ID, TriggerID: 10, DefinitionID: pin.ID, Start: node.Name, ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte("{}")}
-				first, err := f.db.AdmitResearchLaunch(ctx, launch)
-				mustProgress(t, err)
-				at := time.Now()
-				spent, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: first.Instance.ID, Node: node.Name, Limit: 1, StartedAt: at})
-				mustProgress(t, err)
-				status := store.GraphFailed
-				switch variant {
-				case "topology only":
-					status = store.GraphRunning
-				case "succeeded":
-					status = store.GraphSucceeded
-				}
-				mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, spent.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: at, InstanceStatus: status}))
-				before, err := f.db.ListGraphNodeAttempts(ctx, first.Instance.ID)
-				mustProgress(t, err)
-				launch.TriggerID++
-				launch.TopologyDigest = strings.Repeat("d", 64)
-				next, err := f.db.AdmitResearchLaunch(ctx, launch)
-				mustProgress(t, err)
-				if next.PredecessorID != first.Instance.ID {
-					t.Fatal("missing predecessor")
-				}
-				if variant == "failed then topology" {
-					launch.TriggerID++
-					launch.TopologyDigest = strings.Repeat("e", 64)
-					next, err = f.db.AdmitResearchLaunch(ctx, launch)
-					mustProgress(t, err)
-				}
-				ancestors, err := researchBudgetAncestors(ctx, f.db, next.Instance.ID, node)
-				mustProgress(t, err)
-				start := store.GraphAttemptStart{InstanceID: next.Instance.ID, Node: node.Name, Limit: 1, StartedAt: at, ResearchPriorNodes: ancestors}
-				attempt, err := f.db.StartGraphNodeAttempt(ctx, start)
-				if variant == "topology only" {
-					if !errors.Is(err, store.ErrGraphAttemptLimit) {
-						t.Fatalf("topology renewed exhausted allowance: %v", err)
-					}
-				} else {
-					mustProgress(t, err)
-					mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: at, InstanceStatus: store.GraphRunning}))
-					if _, err = f.db.StartGraphNodeAttempt(ctx, start); !errors.Is(err, store.ErrGraphAttemptLimit) {
-						t.Fatalf("fresh attempt lost its own limit: %v", err)
-					}
-				}
-				after, err := f.db.ListGraphNodeAttempts(ctx, first.Instance.ID)
-				mustProgress(t, err)
-				if !reflect.DeepEqual(before, after) {
-					t.Fatal("historical dispatch evidence changed")
-				}
-			})
-		}
-	}
-}
-
 func TestResearchFailedRetryWaitsForPublicationDebt(t *testing.T) {
 	ctx := t.Context()
 	f := newFixture(t, nil)
-	_, err := f.db.AdmitResearchPath(ctx, f.session.ID, "graph")
+	_, err := f.db.AdmitWorkflowPath(ctx, f.session.ID, "graph")
 	mustProgress(t, err)
 	pin, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research.dot", Digest: strings.Repeat("a", 64)})
 	mustProgress(t, err)

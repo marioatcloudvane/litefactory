@@ -60,7 +60,7 @@ func TestDoctorStopJoinedGraphAndSessionSettlement(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := testRun(t, db, session.ID, 1)
-	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, StartedAt: graphTestTime(), Limit: 1})
+	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, RunID: run.ID, StartedAt: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -48,7 +48,7 @@ func seedStoppedLaunch(t *testing.T, withRun, finished, started bool) *stoppedLa
 		rows.run = rows.addRun(t, trigger, finished)
 	}
 	if started {
-		rows.attempt, err = db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "conversation", Limit: 64, StartedAt: at})
+		rows.attempt, err = db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "conversation", StartedAt: at})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -147,7 +147,7 @@ func TestStoppedBugLaunch(t *testing.T) {
 			}
 		}},
 		{name: "analyst attempt", withRun: true, finished: true, start: true, mutate: func(t *testing.T, r *stoppedLaunchRows) {
-			a, err := r.db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: r.instance.ID, Node: "analyst", Limit: 64, StartedAt: graphTestTime()})
+			a, err := r.db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: r.instance.ID, Node: "analyst", StartedAt: graphTestTime()})
 			if err != nil {
 				t.Fatal(err)
 			}

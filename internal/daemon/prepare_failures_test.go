@@ -21,7 +21,7 @@ func TestPrepareFailuresEscalateOnceAndOnChange(t *testing.T) {
 	var p prepareFailures
 
 	for attempt := 1; attempt < prepareEscalationAttempts; attempt++ {
-		state, announce := p.record(7, "origin unreachable", time.Time{}, DefaultInterval)
+		state, announce := p.record(7, 0, "origin unreachable", time.Time{}, DefaultInterval)
 		if state.Attempts != attempt || state.Escalated {
 			t.Fatalf("attempt %d: %+v", attempt, state)
 		}
@@ -30,29 +30,29 @@ func TestPrepareFailuresEscalateOnceAndOnChange(t *testing.T) {
 		}
 	}
 
-	state, announce := p.record(7, "origin unreachable", time.Time{}, DefaultInterval)
+	state, announce := p.record(7, 0, "origin unreachable", time.Time{}, DefaultInterval)
 	if announce || !state.Escalated || state.Attempts != prepareEscalationAttempts {
 		t.Fatalf("threshold did not escalate: %+v announce=%v", state, announce)
 	}
 
 	// Still failing the same way: already said.
-	if state, announce = p.record(7, "origin unreachable", time.Time{}, DefaultInterval); announce || state.Attempts != prepareEscalationAttempts+1 {
+	if state, announce = p.record(7, 0, "origin unreachable", time.Time{}, DefaultInterval); announce || state.Attempts != prepareEscalationAttempts+1 {
 		t.Fatalf("repeat re-announced: %+v announce=%v", state, announce)
 	}
 
 	// Failing a new way is a new fact.
-	if _, announce = p.record(7, "worktree is dirty", time.Time{}, DefaultInterval); !announce {
+	if _, announce = p.record(7, 0, "worktree is dirty", time.Time{}, DefaultInterval); !announce {
 		t.Fatal("new reason not announced")
 	}
 
 	// Sessions do not share a count.
-	if state, _ = p.record(8, "origin unreachable", time.Time{}, DefaultInterval); state.Attempts != 1 {
+	if state, _ = p.record(8, 0, "origin unreachable", time.Time{}, DefaultInterval); state.Attempts != 1 {
 		t.Fatalf("session 8 inherited a count: %+v", state)
 	}
 
 	// Progress resets the spell, including the escalation.
 	p.clear(7)
-	if state, announce = p.record(7, "origin unreachable", time.Time{}, DefaultInterval); state.Attempts != 1 || state.Escalated || !announce {
+	if state, announce = p.record(7, 0, "origin unreachable", time.Time{}, DefaultInterval); state.Attempts != 1 || state.Escalated || !announce {
 		t.Fatalf("clear did not reset: %+v announce=%v", state, announce)
 	}
 }
@@ -62,7 +62,7 @@ func TestPrepareFailureDueTimesAreCappedAndIndependent(t *testing.T) {
 	at := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
 	delay := DefaultInterval
 	for attempt := 1; attempt <= 20; attempt++ {
-		state, _ := p.record(7, "temporary", at, DefaultInterval)
+		state, _ := p.record(7, 0, "temporary", at, DefaultInterval)
 		if !state.NextAt.Equal(at.Add(delay)) || state.Attempts != attempt {
 			t.Fatalf("attempt %d: %+v, delay %s", attempt, state, delay)
 		}
@@ -79,7 +79,7 @@ func TestPrepareFailureDueTimesAreCappedAndIndependent(t *testing.T) {
 	if p.held(7, at) {
 		t.Fatal("progress retained hold")
 	}
-	state, _ := p.record(7, "temporary", at, DefaultInterval)
+	state, _ := p.record(7, 0, "temporary", at, DefaultInterval)
 	if state.Attempts != 1 || !state.NextAt.Equal(at.Add(DefaultInterval)) {
 		t.Fatalf("reset: %+v", state)
 	}

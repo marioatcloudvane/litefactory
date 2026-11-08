@@ -163,7 +163,6 @@ func (r *planGraphRuntime) setReviewText(s planbrief.PlanState, node planRetaine
 	if err != nil {
 		return "", err
 	}
-	rendered += "\n\n" + planbrief.RenderPlanRoutesFor(r.setRouteReviews(set), r.result.Ref.Forge == "linear")
 	if comment == "" {
 		return rendered, nil
 	}

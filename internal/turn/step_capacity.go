@@ -17,15 +17,6 @@ type StepCapacity interface {
 	Capacity() (used, total int)
 }
 
-// StepCapacityGrower is an optional StepCapacity extension. TryGrow takes
-// extra slots of the reservation's pool without waiting and without touching
-// the grant already held; refusal leaves the reservation unchanged. The
-// returned release is idempotent, and releasing the whole reservation also
-// returns every extra slot still held, so a worker that unwinds cannot leak.
-type StepCapacityGrower interface {
-	TryGrow(context.Context, int) (release func(), ok bool, err error)
-}
-
 type stepCapacityKey struct{}
 
 // WithStepCapacity attaches the factory-owned reservation to a worker.
@@ -54,46 +45,14 @@ func capacityDiagnostic(pool, workflow, node string, cost, used, total int) stri
 }
 
 // GraphDispatchSlotCost is the capacity a dispatch must hold to start: the
-// admission cost of its retained node. A Plan parallel group starts on one
-// member lane and grows from there (see [graphexec.AdmissionSlotCost]).
-func GraphDispatchSlotCost(ctx context.Context, db *store.DB, dispatch store.GraphDispatch) (int, error) {
-	need, err := GraphDispatchSlotNeed(ctx, db, dispatch)
-	return need.Admission, err
-}
-
-// SlotNeed is a node's admission cost and the full cost it may grow to.
-type SlotNeed struct {
-	Admission, Full int
-}
-
-// Deferral names a refused admission plainly. A parallel group that cannot
-// get even its minimum says so, because it no longer waits for its full cost.
-func (n SlotNeed) Deferral(total int) string {
-	if n.Admission > total {
-		return "impossible capacity fit"
-	}
-	if n.Admission < n.Full {
-		return fmt.Sprintf("temporary capacity deferral (parallel group cannot get even its minimum of %d slot(s) to run its members one at a time; it would use up to %d)", n.Admission, n.Full)
-	}
-	return "temporary capacity deferral"
-}
-
-// GraphDispatchSlotNeed reads the retained definition, never a mutable team
+// slot cost of its node in the retained definition, never a mutable team
 // workflow. A missing or unreadable retained graph refuses admission.
-func GraphDispatchSlotNeed(ctx context.Context, db *store.DB, dispatch store.GraphDispatch) (SlotNeed, error) {
+func GraphDispatchSlotCost(ctx context.Context, db *store.DB, dispatch store.GraphDispatch) (int, error) {
 	profile, err := retainedDispatchProfile(ctx, db, dispatch)
 	if err != nil {
-		return SlotNeed{}, err
+		return 0, err
 	}
-	full, err := graphexec.SlotCost(profile, dispatch.Node)
-	if err != nil {
-		return SlotNeed{}, err
-	}
-	admission, err := graphexec.AdmissionSlotCost(profile, dispatch.Node)
-	if err != nil {
-		return SlotNeed{}, err
-	}
-	return SlotNeed{Admission: admission, Full: full}, nil
+	return graphexec.SlotCost(profile, dispatch.Node)
 }
 
 func retainedDispatchProfile(ctx context.Context, db *store.DB, dispatch store.GraphDispatch) (*graphexec.Profile, error) {
@@ -147,11 +106,10 @@ func admitGraphCapacity(ctx context.Context, opts Options, instance, launch int6
 	if capacity == nil {
 		return true, "", nil
 	}
-	need, err := GraphDispatchSlotNeed(ctx, opts.DB, store.GraphDispatch{InstanceID: instance, LaunchID: launch, Node: node})
+	cost, err := GraphDispatchSlotCost(ctx, opts.DB, store.GraphDispatch{InstanceID: instance, LaunchID: launch, Node: node})
 	if err != nil {
 		return false, "", fmt.Errorf("read pinned node slot cost: %w", err)
 	}
-	cost := need.Admission
 	admitted, err := capacity.Replace(ctx, cost)
 	if err != nil {
 		return false, "", err
@@ -160,7 +118,7 @@ func admitGraphCapacity(ctx context.Context, opts Options, instance, launch int6
 		return true, "", nil
 	}
 	used, total := capacity.Capacity()
-	return false, fmt.Sprintf("%s: pool=shared workflow=%s node=%s requested=%d used=%d available=%d total=%d", need.Deferral(total), workflow, node, cost, used, total-used, total), nil
+	return false, capacityDiagnostic("shared", workflow, node, cost, used, total), nil
 }
 
 func parkCapacityDeferred(ctx context.Context, opts Options, req Request, instance int64, node string, launch int64) error {

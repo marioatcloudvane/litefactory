@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -36,13 +35,10 @@ type preparation struct {
 	mcpRuntime     *MCPRuntime
 	stoppedRepairs []func(context.Context) error
 
-	typedPlan           *TypedPlanSubmission
-	planSubmission      func(context.Context) (*PlanSubmissionCallbacks, error)
 	submissionOptions   *SubmissionSessionOptions
 	submissionValidated bool
 	meterDB             *store.DB
 	resumeOnly          bool
-	planCompleted       bool
 
 	validateScope func(context.Context) (string, error)
 	scopeDrift    string
@@ -165,10 +161,8 @@ func prepare(
 			if err := opts.DB.CheckManagedReadiness(ctx, ref.String()); err != nil {
 				if errors.Is(err, store.ErrPlanNotReady) {
 					req.preparationAssessment = true
-					req.Tools = []string{"Read", "Glob", "Grep"}
-					req.AllowedTools = nil
 					req.ToolProfile = "validate"
-					req.CodexSandbox = "read-only"
+					req.CodexSandbox = config.SandboxReadOnly
 				} else {
 					return nil, err
 				}
@@ -180,11 +174,6 @@ func prepare(
 	}
 	if err := prepareManagedReplan(ctx, opts, req, session, ref); err != nil {
 		return nil, err
-	}
-	if req.researchDefinition == nil {
-		if err := invalidatePlanReadiness(ctx, opts, ref, req.mode()); err != nil {
-			return nil, err
-		}
 	}
 
 	repo, err := executionRepository(ctx, opts.DB, session)
@@ -484,21 +473,11 @@ func prepare(
 		if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
 			if errors.Is(err, store.ErrPlanNotReady) {
 				req.preparationAssessment = true
-				req.Tools = []string{"Read", "Glob", "Grep"}
-				req.AllowedTools = nil
 				req.ToolProfile = "validate"
-				req.CodexSandbox = "read-only"
+				req.CodexSandbox = config.SandboxReadOnly
 			} else {
 				return nil, err
 			}
-		}
-	}
-	if req.researchDefinition == nil {
-		if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
-			return nil, err
-		}
-		if err := preparePlanAttempt(worktree.Path(), session.Branch, run, &promptInput, logger); err != nil {
-			return nil, err
 		}
 	}
 
@@ -635,13 +614,6 @@ func prepare(
 			StackCaptureDigest: stackCaptureDigest,
 			RetainedValidation: promptInput.Validation != nil,
 			Delivery:           delivery,
-			PlanProposalPath:   promptInput.PlanProposalPath,
-			PlanOutcomePath:    promptInput.PlanOutcomePath,
-			PlanGeneration:     promptInput.PlanGeneration,
-			PlanRunID:          promptInput.PlanRunID,
-			PlanAttempt:        promptInput.PlanAttempt,
-			PlanContextPath:    promptInput.PlanContextPath,
-			PlanWorkingContext: promptInput.PlanWorkingContext,
 			MayAsk:             promptInput.MayAsk,
 			PreviousMayAsk:     promptInput.PreviousMayAsk,
 			Ref:                ref,
@@ -1918,23 +1890,16 @@ func allocateRun(
 	return run, nil
 }
 
-// requestPermissions narrows the resolved tool surface of a request into the
-// provider-neutral permissions a runner receives.
+// requestPermissions turns the resolved sandbox and tool surface of a request
+// into the provider-neutral permissions a runner receives.
 func requestPermissions(req Request) agent.Permissions {
 	if req.Agent == agent.Kind(store.AgentCodex) && req.CodexSandbox != "" {
 		return agent.Permissions{Profile: req.ToolProfile, Payload: codex.Sandbox{Mode: req.CodexSandbox}}
 	}
-	if len(req.Tools) > 0 || req.ToolProfile != "" {
+	if len(req.Tools) > 0 || req.ToolProfile != "" || req.CodexSandbox != "" {
 		return agent.Permissions{
 			Profile: req.ToolProfile,
-			Payload: harness.ToolSurface{
-				Tools: req.Tools, AllowedTools: req.AllowedTools,
-				// A validate surface holding Bash is a reviewer's read-only
-				// shell, and so is a Spike read node's: the runner refuses
-				// everything AllowedTools does not name and keeps the worktree
-				// unwritable. A Spike write node (the fixer) is not one.
-				ReadOnlyShell: slices.Contains(req.Tools, "Bash") && (req.ToolProfile == "validate" || (req.ToolProfile == string(agent.ModeSpike) && !req.nodeWrite)),
-			},
+			Payload: harness.ToolSurface{Tools: req.Tools, ReadOnly: req.CodexSandbox == config.SandboxReadOnly},
 		}
 	}
 	return agent.Permissions{}

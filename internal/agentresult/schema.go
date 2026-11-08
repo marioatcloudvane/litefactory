@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"strings"
-
-	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
 // JSONSchema returns the structural schema generated from the same concrete wire
@@ -60,11 +58,6 @@ func wireSchema(t reflect.Type) map[string]interface{} {
 		}
 		if t == reflect.TypeFor[Recommendation]() {
 			props["action"] = map[string]interface{}{"type": "string", "const": "action.moveto.planmode"}
-		}
-		if t == reflect.TypeFor[planbrief.PlanParallelContribution]() {
-			if draft, ok := props["draft"].(map[string]interface{}); ok {
-				delete(draft, "required")
-			}
 		}
 	case reflect.Slice:
 		s["type"] = "array"

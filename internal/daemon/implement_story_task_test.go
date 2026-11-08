@@ -279,7 +279,7 @@ func TestImplementStoryRelaunchesAfterARestartInterruptedItsLaunch(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.AdmitResearchPath(t.Context(), row.WorkerSession, "graph"); err != nil {
+	if _, err = db.AdmitWorkflowPath(t.Context(), row.WorkerSession, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	launch := store.WorkflowLaunch{Mode: "implement", SessionID: row.WorkerSession, TriggerID: implementWorkID(row, 0), DefinitionID: pin.ID, Start: "budget", ContentDigest: testDigest("c"), TopologyDigest: testDigest("d"), Files: []byte(`{"role":"eA=="}`)}
@@ -287,7 +287,7 @@ func TestImplementStoryRelaunchesAfterARestartInterruptedItsLaunch(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: first.Instance.ID, Node: "budget", Limit: 8, StartedAt: implementDaemonClock})
+	attempt, err := db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: first.Instance.ID, Node: "budget", StartedAt: implementDaemonClock})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestImplementStoryRestartsDoNotCountAsInfrastructureFailures(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "budget", Limit: 8, StartedAt: started}); err != nil {
+		if _, err = db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "budget", StartedAt: started}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err = db.ReconcileWorkflowGraphs(t.Context(), "implement", started.Add(time.Second)); err != nil {
