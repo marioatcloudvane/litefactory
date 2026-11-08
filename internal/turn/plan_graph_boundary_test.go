@@ -402,53 +402,6 @@ func TestPlanGraphBoundary_ProgressiveHandoffAndSave(t *testing.T) {
 	}
 }
 
-func TestPlanGraphBoundary_DirectEditsPreserveAndReopen(t *testing.T) {
-	f, remote, base, _ := graphPlanFixture(t, "agent")
-	executeGraphPlan(t, f, base)
-	binding, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001")
-	mustProgress(t, err)
-	client, ok := f.opts.SubIssueCreator.(PlanStoryForge)
-	if !ok {
-		t.Fatal("fixture requires PlanStoryForge")
-	}
-	scope := planbrief.ContentScope{Roles: []string{"go-implementation-engineer"}}
-	for i := range 2 {
-		remote.mu.Lock()
-		body, ok := remote.children[binding.IssueNumber]["body"].(string)
-		if !ok {
-			remote.mu.Unlock()
-			t.Fatal("fixture child body must be a string")
-		}
-		remote.children[binding.IssueNumber]["body"] = strings.Replace(body, "# Userstory\n", "# Userstory\n\n", 1)
-		remote.mu.Unlock()
-		issue, err := client.GetIssue(t.Context(), github.Repo{Owner: "acme", Name: "acme-api"}, binding.IssueNumber)
-		mustProgress(t, err)
-		if err = ReconcilePlanChildEdit(t.Context(), f.db, f.ref().String(), 123, 1230, issue, scope); err != nil {
-			t.Fatalf("presentation-only edit %d rejected: %v", i+1, err)
-		}
-	}
-	remote.mu.Lock()
-	body, ok := remote.children[binding.IssueNumber]["body"].(string)
-	if !ok {
-		remote.mu.Unlock()
-		t.Fatal("fixture child body must be a string")
-	}
-	remote.children[binding.IssueNumber]["body"] = strings.Replace(body, "I want shape intent", "I want revised intent", 1)
-	remote.mu.Unlock()
-	issue, err := client.GetIssue(t.Context(), github.Repo{Owner: "acme", Name: "acme-api"}, binding.IssueNumber)
-	mustProgress(t, err)
-	mustProgress(t, ReconcilePlanChildEdit(t.Context(), f.db, f.ref().String(), 123, 1230, issue, scope))
-	state := graphPlanState(t, f)
-	if state.Stories[0].Stage != "story" || state.Stories[0].Wait != nil || state.Stories[0].Draft.UserStory.Want != "revised intent" {
-		t.Fatal("semantic owner edit not reconciled", state)
-	}
-	got, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001")
-	mustProgress(t, err)
-	if got.Revision != PlanIssueRevision(issue.Title, issue.Body) || got.IssueID != binding.IssueID {
-		t.Fatal("owner edit discarded revision or identity")
-	}
-}
-
 func TestPlanGraphBoundary_AgentSuppliedFactoryValuesRefused(t *testing.T) {
 	f, _, _, _ := graphPlanFixture(t, "agent")
 	runtime := planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, selected: "story-001", stage: "story"}

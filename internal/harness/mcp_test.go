@@ -128,10 +128,10 @@ func TestRunMCPNativeSurfaceAndLifetime(t *testing.T) {
 			if tc.enabled {
 				req.MCPLaunch = mcpTestSpec(t, f.home)
 			}
-			wantNative, wantAllowed := "Read,Edit", "Read,Edit(./**)"
+			wantNative, wantAllowed := "Read,Edit", "Read,Edit"
 			if tc.validate {
 				req.Mode = "validate"
-				req.Permissions = Permissions{Profile: "validate", Payload: ToolSurface{Tools: []string{"Read"}, AllowedTools: []string{"Read"}}}
+				req.Permissions = Permissions{Profile: "validate", Payload: ToolSurface{Tools: []string{"Read"}}}
 				wantNative, wantAllowed = "Read", "Read"
 			}
 			// Ambient MCP configuration must never enter the generated registration.

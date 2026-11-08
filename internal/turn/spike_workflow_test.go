@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -75,7 +74,7 @@ func TestSpikeDonePostsTheReportAndCompletes(t *testing.T) {
 		t.Fatalf("the agent's comment was not posted: %q", spikeLastBody(forge))
 	}
 	surface, ok := seen.Permissions.Payload.(harness.ToolSurface)
-	if !ok || !slices.Contains(surface.Tools, "Edit") || surface.ReadOnlyShell {
+	if !ok || surface.ReadOnly {
 		t.Fatalf("Spike does not run with write access: %+v", seen.Permissions)
 	}
 	if instance := spikeInstance(t, f); instance.Status != store.GraphSucceeded || instance.CurrentNode != "complete" {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +18,7 @@ func TestManagedNoScopePreparationAssessmentRemainsReadOnly(t *testing.T) {
 	var before retainedSnapshot
 	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
 		surface, ok := req.Permissions.Payload.(harness.ToolSurface)
-		if !ok || req.Mode != string(agent.ModeImplement) || req.Permissions.Profile != "validate" || !reflect.DeepEqual(surface.Tools, []string{"Read", "Glob", "Grep"}) || slices.Contains(surface.AllowedTools, "Write") {
+		if !ok || req.Mode != string(agent.ModeImplement) || req.Permissions.Profile != "validate" || !surface.ReadOnly {
 			t.Fatalf("managed assessment gained write authority or changed mode: %+v", req)
 		}
 		if !strings.Contains(req.Prompt, "limited to preparation and reading") || strings.Contains(req.Prompt, "UNAPPROVED SCOPE TEXT") {

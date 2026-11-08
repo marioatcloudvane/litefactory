@@ -41,7 +41,7 @@ the factory-declared shared result helper descriptor, permitted communication to
 or structured terminal output even with MCP disabled. The story checkpoint
 descriptor is separate; a checkpoint alone does not finish the application result.
 Read Application serialization below near submission. Research follows its neutral
-research-evidence contract instead; no role gains tools from this guidance.
+research-evidence contract instead.
 
 Cold starts receive an explicit empty baseline; resumed, restarted and fallback
 attempts receive authorized prior fields, stable IDs, retired IDs and observed

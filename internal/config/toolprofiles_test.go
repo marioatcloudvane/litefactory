@@ -1,9 +1,6 @@
 package config
 
 import (
-	"reflect"
-	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -19,262 +16,115 @@ func canonicalConfig(t *testing.T) *Config {
 	return &cfg
 }
 
-func TestValidateProfileIsExactlyReadOnly(t *testing.T) {
-	cfg := canonicalConfig(t)
-	profile := cfg.ToolProfiles.Permissions["validate"]
-	wantTools := []string{"Read", "Glob", "Grep", "Task", "Bash"}
-	wantAllowed := append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
-	if !reflect.DeepEqual(profile.Claude.Tools, wantTools) {
-		t.Fatalf("Claude Validate tools = %v, want %v", profile.Claude.Tools, wantTools)
+func TestProfileResolveDefaultsAndOverrides(t *testing.T) {
+	var empty ToolProfiles
+	for name, want := range map[string]ToolProfile{
+		"research":               {Sandbox: SandboxWorkspaceWrite, Attachments: true},
+		"plan":                   {Sandbox: SandboxWorkspaceWrite, Attachments: true},
+		"implement":              {Sandbox: SandboxWorkspaceWrite},
+		"validate":               {Sandbox: SandboxReadOnly},
+		ValidateRepairProfile:    {Sandbox: SandboxWorkspaceWrite},
+		"bug-analyst":            {Sandbox: SandboxReadOnly},
+		"bug-fixer":              {Sandbox: SandboxWorkspaceWrite},
+		SpikeInvestigatorProfile: {Sandbox: SandboxReadOnly},
+		SpikeFixerProfile:        {Sandbox: SandboxWorkspaceWrite},
+	} {
+		got, ok := empty.Resolve(name)
+		if !ok || got.Sandbox != want.Sandbox || got.Attachments != want.Attachments {
+			t.Errorf("Resolve(%q) = %+v, %t; want %+v", name, got, ok, want)
+		}
 	}
-	if !reflect.DeepEqual(profile.Claude.AllowedTools, wantAllowed) {
-		t.Fatalf("Claude Validate allowed_tools = %v, want %v", profile.Claude.AllowedTools, wantAllowed)
+	if _, ok := empty.Resolve("spike"); ok {
+		t.Error("an unknown profile name resolved")
 	}
-	if profile.Codex.Sandbox != "read-only" {
-		t.Fatalf("Codex Validate sandbox = %q, want read-only", profile.Codex.Sandbox)
+
+	configured := ToolProfiles{Permissions: map[string]ToolProfile{
+		"validate":  {Sandbox: SandboxWorkspaceWrite, Attachments: true},
+		"implement": {Codex: &ToolProfileCodex{Sandbox: SandboxReadOnly}},
+		"plan":      {Sandbox: SandboxReadOnly, Codex: &ToolProfileCodex{Sandbox: SandboxWorkspaceWrite}},
+		"research":  {Claude: &ToolProfileClaude{Tools: []string{"Read"}}},
+	}}
+	for name, want := range map[string]ToolProfile{
+		"validate":  {Sandbox: SandboxWorkspaceWrite, Attachments: true},
+		"implement": {Sandbox: SandboxReadOnly},
+		"plan":      {Sandbox: SandboxReadOnly},
+		"research":  {Sandbox: SandboxWorkspaceWrite},
+	} {
+		got, _ := configured.Resolve(name)
+		if got.Sandbox != want.Sandbox || got.Attachments != want.Attachments {
+			t.Errorf("configured Resolve(%q) = %+v, want %+v", name, got, want)
+		}
 	}
 }
 
-func TestValidateProfileRejectsMutatingAuthority(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*ToolProfile)
-		want   []string
-	}{
-		{"Claude MultiEdit surface", func(p *ToolProfile) { p.Claude.Tools = []string{"Read", "Glob", "Grep", "Task", "Bash", "MultiEdit"} }, []string{`permissions["validate"].claude.tools`, `"MultiEdit"`, "read-only"}},
-		{"Claude Edit surface", func(p *ToolProfile) { p.Claude.Tools = []string{"Read", "Glob", "Grep", "Task", "Edit"} }, []string{`permissions["validate"].claude.tools`, `"Edit"`, "read-only"}},
-		{"Claude Write surface", func(p *ToolProfile) { p.Claude.Tools = []string{"Read", "Glob", "Grep", "Task", "Write"} }, []string{`permissions["validate"].claude.tools`, `"Write"`, "read-only"}},
-		{"Claude bare Bash permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash"} }, []string{`permissions["validate"].claude.allowed_tools`, `"Bash"`, "read-only"}},
-		{"Claude go run permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(go run:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(go run:*)", "read-only"}},
-		{"Claude in-place sed permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(sed:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(sed:*)", "read-only"}},
-		{"Claude git write permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(git commit:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(git commit:*)", "read-only"}},
-		{"Claude Edit permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Edit"} }, []string{`permissions["validate"].claude.allowed_tools`, `"Edit"`, "read-only"}},
-		{"Claude Write permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Write"} }, []string{`permissions["validate"].claude.allowed_tools`, `"Write"`, "read-only"}},
-		{"Codex workspace write", func(p *ToolProfile) { p.Codex.Sandbox = "workspace-write" }, []string{`permissions["validate"].codex.sandbox`, "read-only"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+func TestPermissionProfilesRejectUnknownNamesAndSandboxes(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"custom": func(c *Config) { c.ToolProfiles.Permissions["custom"] = ToolProfile{} },
+		"sandbox": func(c *Config) {
+			c.ToolProfiles.Permissions["plan"] = ToolProfile{Sandbox: "danger-full-access"}
+		},
+		"codex.sandbox": func(c *Config) {
+			c.ToolProfiles.Permissions["plan"] = ToolProfile{Codex: &ToolProfileCodex{Sandbox: "danger-full-access"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
 			cfg := canonicalConfig(t)
-			profile := cfg.ToolProfiles.Permissions["validate"]
-			tt.mutate(&profile)
-			cfg.ToolProfiles.Permissions["validate"] = profile
+			mutate(cfg)
 			err := cfg.Validate()
-			if err == nil {
-				t.Fatal("Validate accepted mutating authority")
-			}
-			for _, want := range tt.want {
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("error %q does not contain %q", err, want)
-				}
+			if err == nil || !strings.Contains(err.Error(), name) {
+				t.Fatalf("error=%v want %q", err, name)
 			}
 		})
 	}
-}
-
-func TestValidateProfileAcceptsReadOnlyReviewerShell(t *testing.T) {
 	cfg := canonicalConfig(t)
-	profile := cfg.ToolProfiles.Permissions["validate"]
-	profile.Claude.Tools = []string{"Read", "Glob", "Grep", "Bash"}
-	profile.Claude.AllowedTools = append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
-	cfg.ToolProfiles.Permissions["validate"] = profile
+	cfg.ToolProfiles = ToolProfiles{}
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("read-only reviewer shell rejected: %v", err)
-	}
-	for _, want := range []string{"Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(rg:*)"} {
-		if !slices.Contains(ValidateReviewerShellRules(), want) {
-			t.Errorf("reviewer shell rules lack %q", want)
-		}
+		t.Fatalf("a configuration without tool_profiles is refused: %v", err)
 	}
 }
 
-// A reviewer checks a claim by running the code: the read-only shell holds the
-// everyday read tools and every shipped stack's build and test commands, and
-// nothing that writes, installs, deletes or reaches the forge.
-func TestReadOnlyShellRunsChecksAndNothingMutating(t *testing.T) {
-	rules := ValidateReviewerShellRules()
-	for _, want := range []string{
-		"Bash(go test:*)", "Bash(go vet:*)", "Bash(go build:*)", "Bash(sed -n:*)", "Bash(tail:*)",
-		"Bash(find:*)", "Bash(git blame:*)", "Bash(git log:*)", "Bash(diff:*)",
-		"Bash(pytest:*)", "Bash(swift test:*)", "Bash(dotnet test:*)",
-	} {
-		if !slices.Contains(rules, want) {
-			t.Errorf("read-only shell lacks %s", want)
-		}
+// A config.yaml written before the sandbox became the boundary still loads:
+// the retired tool lists, ceilings and per-mode Claude stanzas are accepted
+// and ignored, and codex.sandbox still selects the sandbox.
+func TestRetiredToolKeysStillLoad(t *testing.T) {
+	body := `agents:
+  claude:
+    binary: "/usr/local/bin/claude"
+    tools: ["Read", "Bash"]
+    allowed_tools: ["Read", "Bash(git status:*)"]
+    tool_ceiling: ["Read", "Bash", "WebFetch"]
+  codex:
+    binary: "/usr/local/bin/codex"
+tool_profiles:
+  permissions:
+    validate:
+      attachments: false
+      claude:
+        tools: ["Read", "Glob", "Grep", "Task", "Bash"]
+        allowed_tools: ["Read", "Bash(rg:*)"]
+      codex:
+        sandbox: "read-only"
+    implement:
+      attachments: false
+      claude:
+        tools: ["Read", "Edit"]
+        allowed_tools: ["Bash"]
+      codex:
+        sandbox: "workspace-write"
+    bug-analyst:
+      claude:
+        tools: ["Read"]
+      codex:
+        sandbox: "read-only"
+`
+	cfg, err := Decode(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
 	}
-	for _, rule := range rules {
-		assertNoMutatingRule(t, "read-only shell", rule)
-		for _, writer := range []string{"Bash(sed:", "Bash(go run", "Bash(go generate", "Bash(gofmt:", "Bash(mkdir", "Bash(make:"} {
-			if strings.HasPrefix(rule, writer) {
-				t.Errorf("read-only shell grants writing rule %s", rule)
-			}
-		}
-	}
-}
-
-// Implement keeps its Go tooling and gains the common read set, still without
-// network, package-install, destructive or forge-writing commands.
-func TestImplementAllowlistReadsWithoutMutatingTheForge(t *testing.T) {
-	rules := defaultAllowedTools()
-	for _, want := range []string{
-		"Bash(go test:*)", "Bash(go vet:*)", "Bash(go build:*)",
-		"Bash(ls:*)", "Bash(find:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(sed -n:*)",
-		"Bash(wc:*)", "Bash(diff:*)", "Bash(git blame:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(golangci-lint:*)",
-	} {
-		if !slices.Contains(rules, want) {
-			t.Errorf("implement allowlist lacks %s", want)
-		}
-	}
-	for _, rule := range rules {
-		assertNoMutatingRule(t, "implement", rule)
-	}
-}
-
-func assertNoMutatingRule(t *testing.T, surface, rule string) {
-	t.Helper()
-	if rule == "Bash" || rule == "Bash(*)" {
-		t.Errorf("%s grants an unqualified shell", surface)
-	}
-	for _, banned := range []string{
-		"Bash(rm", "Bash(curl", "Bash(wget", "Bash(ssh", "Bash(gh", "Bash(npm", "Bash(pip", "Bash(brew",
-		"Bash(go get", "Bash(go install", "Bash(go mod", "Bash(git push", "Bash(git commit", "Bash(git add",
-		"Bash(git reset", "Bash(git checkout", "Bash(git stash", "Bash(git clean", "Bash(sudo", "Bash(chmod",
-	} {
-		if strings.HasPrefix(rule, banned) {
-			t.Errorf("%s grants %s", surface, rule)
-		}
-	}
-}
-
-func TestCanonicalPermissionMatrix(t *testing.T) {
-	cfg := canonicalConfig(t)
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("defaults invalid: %v", err)
+		t.Fatalf("Validate: %v", err)
 	}
-	for _, name := range []string{"research", "plan", "implement", "validate"} {
-		p, ok := cfg.ToolProfiles.Permissions[name]
-		if !ok || p.Claude == nil || p.Codex == nil {
-			t.Errorf("profile %q incomplete", name)
-		}
-	}
-	for _, name := range []string{"research", "plan", "implement", "validate"} {
-		p := cfg.ToolProfiles.Permissions[name]
-		for _, tool := range []string{"WebSearch", "WebFetch"} {
-			want := name == "research"
-			if slices.Contains(p.Claude.Tools, tool) != want || slices.Contains(p.Claude.AllowedTools, tool) != want {
-				t.Errorf("%s direct web permission for %s, want %t", name, tool, want)
-			}
-		}
-	}
-	validate := cfg.ToolProfiles.Permissions["validate"]
-	for _, tool := range validate.Claude.Tools {
-		if tool == "Write" || tool == "Edit" || tool == "MultiEdit" {
-			t.Errorf("validate exposes mutating Claude tool %q", tool)
-		}
-	}
-	for _, rule := range validate.Claude.AllowedTools {
-		if ClaudeToolName(rule) == "Bash" && !slices.Contains(ValidateReviewerShellRules(), rule) {
-			t.Errorf("validate grants Bash rule %q outside the read-only reviewer list", rule)
-		}
-	}
-	if validate.Codex.Sandbox != "read-only" {
-		t.Errorf("validate sandbox=%q", validate.Codex.Sandbox)
-	}
-	for _, explicit := range []bool{false, true} {
-		t.Run("legacy ceiling explicit="+strconv.FormatBool(explicit), func(t *testing.T) {
-			body := string(DefaultFileContents())
-			ceiling := ""
-			if explicit {
-				ceiling = yamlList(4, "tool_ceiling", defaultTools())
-			}
-			body = strings.Replace(body, yamlList(4, "tool_ceiling", DefaultClaude().ToolCeiling), ceiling, 1)
-			for _, tool := range []string{"WebSearch", "WebFetch"} {
-				body = strings.ReplaceAll(body, "          - "+strconv.Quote(tool)+"\n", "")
-			}
-			legacy, err := Decode(strings.NewReader(body))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := legacy.Validate(); err != nil {
-				t.Fatalf("persisted non-web profiles rejected: %v", err)
-			}
-			if !slices.Equal(effectiveToolCeiling(legacy.Agents.Claude), defaultTools()) {
-				t.Fatal("legacy ceiling widened")
-			}
-		})
-	}
-
-}
-
-func TestCanonicalAttachmentPermissionsAndOverrides(t *testing.T) {
-	tests := []struct {
-		name        string
-		profile     string
-		wantDefault bool
-	}{
-		{"research/default enabled", "research", true},
-		{"plan/default enabled", "plan", true},
-		{"implement/default disabled", "implement", false},
-		{"validate/default disabled", "validate", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defaults := DefaultToolProfiles()
-			if got := defaults.Permissions[tt.profile].Attachments; got != tt.wantDefault {
-				t.Fatalf("%s attachments = %t, want %t", tt.profile, got, tt.wantDefault)
-			}
-
-			body := strings.Replace(string(DefaultFileContents()),
-				"    "+tt.profile+":\n      attachments: "+strconv.FormatBool(tt.wantDefault),
-				"    "+tt.profile+":\n      attachments: "+strconv.FormatBool(!tt.wantDefault), 1)
-			cfg, err := Decode(strings.NewReader(body))
-			if err != nil {
-				t.Fatalf("Decode override: %v", err)
-			}
-			if err := cfg.Validate(); err != nil {
-				t.Fatalf("Validate override: %v", err)
-			}
-			if got := cfg.ToolProfiles.Permissions[tt.profile].Attachments; got == tt.wantDefault {
-				t.Fatalf("%s explicit attachment override was not retained", tt.profile)
-			}
-		})
-	}
-}
-
-func TestPermissionMatrixRejectsMissingExtraAndAgentMismatch(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*Config)
-		want   string
-	}{
-		{"missing mode", func(c *Config) { delete(c.ToolProfiles.Permissions, "plan") }, "plan"},
-		{"extra mode", func(c *Config) { c.ToolProfiles.Permissions["custom"] = c.ToolProfiles.Permissions["plan"] }, "custom"},
-		{"missing agent stanza", func(c *Config) {
-			p := c.ToolProfiles.Permissions["research"]
-			p.Codex = nil
-			c.ToolProfiles.Permissions["research"] = p
-		}, "codex"},
-		{"claude widens ceiling", func(c *Config) {
-			c.Agents.Claude.ToolCeiling = defaultTools()
-			p := c.ToolProfiles.Permissions["validate"]
-			p.Claude.Tools = []string{"Read", "WebFetch"}
-			c.ToolProfiles.Permissions["validate"] = p
-		}, "tool_ceiling"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := canonicalConfig(t)
-			tt.mutate(cfg)
-			err := cfg.Validate()
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("error=%v want %q", err, tt.want)
-			}
-		})
-	}
-}
-
-func TestProfileStanzasDoNotCrossDerive(t *testing.T) {
-	p := ToolProfile{Claude: &ToolProfileClaude{Tools: []string{"Read"}}}
-	if !p.HasStanzaFor("claude") || p.HasStanzaFor("codex") || p.HasStanzaFor("other") {
-		t.Fatalf("unexpected stanza routing")
+	if got, _ := cfg.ToolProfiles.Resolve("validate"); got.Sandbox != SandboxReadOnly {
+		t.Fatalf("validate sandbox = %q", got.Sandbox)
 	}
 }

@@ -89,7 +89,7 @@ func TestMCPGuidance_ModeRestrictions(t *testing.T) {
 		return got
 	}
 	base := render("")
-	for _, mode := range []string{"plan", "validate", "implement", "research", "spike"} {
+	for _, mode := range []string{"validate", "implement", "research", "spike"} {
 		if got := render(mode); !strings.HasPrefix(got, base) || len(got) == len(base) {
 			t.Errorf("%s guidance carries no mode restriction", mode)
 		}

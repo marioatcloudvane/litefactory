@@ -169,19 +169,12 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 // none under auto, and an rm the agent had been refused eight times went
 // through.
 //
-// The settings document's deny rules remain the boundary. "bypassPermissions"
-// is what discards them and is the moral equivalent of config.forbiddenFlag's
-// flag; it must never be set here.
+// Every run also passes its whole tool set as --allowedTools, so no tool and
+// no shell command is put to the classifier: the sandbox the mode selects and
+// the settings document's deny rules are the boundary. "bypassPermissions" is
+// what discards those deny rules and is the moral equivalent of
+// config.forbiddenFlag's flag; it must never be set here.
 const PermissionMode = "auto"
-
-// ReadOnlyShellPermissionMode is the --permission-mode of a run whose surface
-// is the read-only shell ([ToolSurface.ReadOnlyShell]) of a Validate reviewer
-// or Spike investigator. dontAsk refuses every action --allowedTools does not
-// pre-approve, which is what makes the fixed read-only Bash rules a boundary
-// rather than a fast path. The rules include the project's checks, which run
-// branch code; the run's OS sandbox (see prepareReadOnlyShell) is what keeps
-// the worktree unwritable while they do.
-const ReadOnlyShellPermissionMode = "dontAsk"
 
 // runLogFileMode is 0600 and runArtefactDirMode is 0700, matching S-1: the run
 // log is unredacted and may contain anything claude read.
@@ -204,10 +197,8 @@ type Options struct {
 	Paths         config.Paths
 	GoBuildCaches config.GoBuildCaches
 
-	// Claude is the validated claude configuration block. Validation (a
-	// non-empty --tools surface, no bare Bash in allowed_tools, no
-	// skip-permissions flag) has already happened in internal/config; this
-	// package re-checks only what it would otherwise crash on.
+	// Claude is the validated claude configuration block. Its retired tool
+	// lists are ignored: every run gets [config.AgentTools].
 	Claude config.Claude
 
 	// Model is the concrete model resolved once by startup configuration.
@@ -240,13 +231,8 @@ type Runner struct {
 	goBuildCaches    config.GoBuildCaches
 	binary           config.Executable
 	home             string
-	tools            []string
-	allowedTools     []string
-	// ceiling is the hard upper bound on any tool surface a request may carry.
-	// It bounds the profile-supplied lists only: r.tools is the operator's own
-	// configured surface and config validation has already established the
-	// ceiling contains it.
-	ceiling      []string
+	// tools is the --tools surface of a run that carries none of its own.
+	tools        []string
 	settingsPath string
 	// claudeConfigDir is the CLAUDE_CONFIG_DIR the child runs under, so that it
 	// reads litefactory's configuration and not the operator's ~/.claude.
@@ -278,12 +264,6 @@ func New(opts Options) (*Runner, error) {
 	home := opts.Paths.Home()
 	if home == "" || !filepath.IsAbs(home) {
 		return nil, invalidOptions("$LF_HOME %q must be an absolute path", home)
-	}
-	if len(opts.Claude.Tools) == 0 {
-		// --tools is the actual tool boundary (SD-2). Omitting the flag means
-		// allow-all, so an empty surface is not "no restriction configured", it
-		// is "no restriction at all".
-		return nil, invalidOptions("claude.tools must not be empty; it is the tool boundary")
 	}
 	if opts.Claude.TimeoutSeconds <= 0 {
 		return nil, invalidOptions("claude.timeout_seconds must be positive, got %d", opts.Claude.TimeoutSeconds)
@@ -329,24 +309,6 @@ func New(opts Options) (*Runner, error) {
 		return nil, fmt.Errorf("resolve claude binary: %w", err)
 	}
 
-	// The ceiling is resolved once, in config.Load, which defaults it to
-	// claude.tools before validation runs — so it arrives non-empty on any
-	// configuration that came from there and is read exactly as given. Deriving
-	// it a second time here is precisely how two definitions of the one boundary
-	// that must not drift would drift apart.
-	//
-	// It can still be empty on a config.Claude assembled by hand rather than
-	// loaded, which is what a test or an embedder does. Empty is not "no
-	// ceiling" and must not be treated as one: a runner with an empty ceiling
-	// rejects every request that carries a profile. It falls back to the tools
-	// surface — the same narrowest default Load would have applied, never a
-	// wider one — so an unloaded configuration is bounded by exactly what it
-	// already grants every unprofiled run.
-	ceiling := opts.Claude.ToolCeiling
-	if len(ceiling) == 0 {
-		ceiling = opts.Claude.Tools
-	}
-
 	caches := opts.GoBuildCaches
 	if caches.Main == "" {
 		var err error
@@ -365,9 +327,7 @@ func New(opts Options) (*Runner, error) {
 	return &Runner{instructions: opts.Instructions, paths: opts.Paths, goBuildCaches: caches,
 		binary:       binary,
 		home:         home,
-		tools:        append([]string(nil), opts.Claude.Tools...),
-		allowedTools: append([]string(nil), opts.Claude.AllowedTools...),
-		ceiling:      append([]string(nil), ceiling...),
+		tools:        config.AgentTools(),
 		settingsPath: settingsPath,
 
 		claudeConfigDir: claudeConfigDir,
@@ -395,19 +355,8 @@ func (r *Runner) Timeout() time.Duration { return r.timeout }
 // than a confusing one.
 //
 // It runs req's own generic checks first ([agent.Request.Validate]) and then
-// this package's Claude-specific ones: a canonical session id, an absolute
-// worktree directory that actually exists, and the tool-ceiling re-check
-// (AC-2.6). The ceiling check is deliberately not a duplicate of the one
-// config validation runs at boot: that one proves the operator's profile map
-// is sound, this one proves that the []string which travelled
-// daemon → turn → harness as a value — copied at the resolution boundary,
-// carried on a struct, rewritten in place on the cold-rerun path — is still
-// within the ceiling at the moment argv is about to be built from it. It is
-// what keeps the #nosec justification on the exec below honest.
-//
-// Only Tools is checked against the ceiling. AllowedTools grants nothing that
-// Tools does not already allow, so a rule outside the ceiling there cannot
-// widen this run past it.
+// this package's Claude-specific ones: a canonical session id and an absolute
+// worktree directory that actually exists.
 func (r *Runner) validateRequest(req agent.Request) error {
 	model := req.Model
 	if model == "" && req.Delivery != nil {
@@ -423,74 +372,9 @@ func (r *Runner) validateRequest(req agent.Request) error {
 	if err := config.ValidateThinking(config.KindClaude, model, thinking); err != nil {
 		return err
 	}
-	if req.Workflow == agent.WorkflowBug {
-		role := req.Permissions.Profile
-		allowed := config.BugRoleClaudeTools(role)
-		if allowed == nil {
-			return invalidRequest("unknown Bug role %q", role)
-		}
-		ts := toolSurface(req)
-		if len(ts.Tools) == 0 {
-			return invalidRequest("%s requires explicit tools", role)
-		}
-		for _, tool := range append(append([]string{}, ts.Tools...), ts.AllowedTools...) {
-			if !slices.Contains(allowed, config.ClaudeToolName(tool)) {
-				return invalidRequest("%s cannot grant tool %q", role, tool)
-			}
-		}
-	}
-
 	if req.MCPLaunch != nil {
 		if err := req.MCPLaunch.Validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
-		}
-	}
-	if req.Mode == "validate" && req.Workflow != agent.WorkflowBug && req.Permissions.Profile == config.ValidateRepairProfile {
-		// The Validate repair agent is bounded by its own role surface; every
-		// other Validate run keeps the read-only check below.
-		ts := toolSurface(req)
-		if len(ts.Tools) == 0 {
-			return invalidRequest("%s requires explicit tools", config.ValidateRepairProfile)
-		}
-		allowed := config.BugRoleClaudeTools(config.ValidateRepairProfile)
-		for _, tool := range append(append([]string{}, ts.Tools...), ts.AllowedTools...) {
-			if !slices.Contains(allowed, config.ClaudeToolName(tool)) {
-				return invalidRequest("%s cannot grant tool %q", config.ValidateRepairProfile, tool)
-			}
-		}
-	} else if req.Mode == "validate" {
-		ts := toolSurface(req)
-		if len(ts.Tools) == 0 {
-			return fmt.Errorf("%w: Validate requires explicit read-only tools", ErrInvalidRequest)
-		}
-		for _, tool := range ts.Tools {
-			if tool == "Bash" && ts.ReadOnlyShell && !req.RetainedValidation {
-				continue
-			}
-			if tool != "Read" && tool != "Glob" && tool != "Grep" && (tool != "Task" || req.RetainedValidation) {
-				return fmt.Errorf("%w: Validate cannot grant %s", ErrInvalidRequest, tool)
-			}
-		}
-		shellRules := config.ValidateReviewerShellRules()
-		for _, rule := range ts.AllowedTools {
-			if config.ClaudeToolName(rule) == "Bash" && (!ts.ReadOnlyShell || !slices.Contains(shellRules, rule)) {
-				return fmt.Errorf("%w: Validate cannot grant %s", ErrInvalidRequest, rule)
-			}
-		}
-	}
-	if ts := toolSurface(req); ts.ReadOnlyShell {
-		// Whatever mode holds it, the read-only shell edits nothing and runs
-		// only the fixed read-only rules.
-		shellRules := config.ValidateReviewerShellRules()
-		for _, tool := range ts.Tools {
-			if tool == "Edit" || tool == "Write" || tool == "MultiEdit" || tool == "NotebookEdit" {
-				return invalidRequest("the read-only shell cannot grant %s", tool)
-			}
-		}
-		for _, rule := range ts.AllowedTools {
-			if config.ClaudeToolName(rule) == "Bash" && !slices.Contains(shellRules, rule) {
-				return invalidRequest("the read-only shell cannot grant %s", rule)
-			}
 		}
 	}
 	if err := req.Validate(); err != nil {
@@ -512,12 +396,6 @@ func (r *Runner) validateRequest(req agent.Request) error {
 	}
 	if !info.IsDir() {
 		return invalidRequest("worktree %s is not a directory", req.WorktreePath)
-	}
-	for _, tool := range toolSurface(req).Tools {
-		if !slices.Contains(r.ceiling, tool) {
-			return invalidRequest("tool %q is outside the configured ceiling [%s]",
-				tool, strings.Join(r.ceiling, ", "))
-		}
 	}
 	return nil
 }
@@ -548,7 +426,6 @@ func (r *Runner) validateRequest(req agent.Request) error {
 //     detection, because a stale credential makes claude retry internally and
 //     then hang emitting nothing at all (SD-3).
 func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult, runErr error) {
-	req = retainedValidationRequest(req)
 	defer func() { r.providerObserver.Observe(ctx, req, result, runErr) }()
 	if err := r.validateRequest(req); err != nil {
 		return nil, err
@@ -601,16 +478,9 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 
 	args := append(r.args(req), r.thinkingArgs(ctx)...)
 	var extraEnv []string
-	tools, _ := r.surface(req)
-	if r.goBuildCaches.Main != "" && !toolSurface(req).ReadOnlyShell && slices.Contains(tools, "Bash") {
-		settings, err := r.prepareMainCacheSettings(req.WorktreePath, logPath)
-		if err != nil {
-			return nil, err
-		}
-		args = replaceFlagValue(args, "--settings", settings)
-	}
-	if toolSurface(req).ReadOnlyShell {
-		sandbox, err := r.prepareReadOnlyShell(req.WorktreePath, logPath)
+	// Every shell runs inside the OS sandbox the mode selects; see sandbox.go.
+	if toolSurface(req).ReadOnly || slices.Contains(r.surface(req), "Bash") {
+		sandbox, err := r.prepareSandbox(req, logPath)
 		if err != nil {
 			return nil, err
 		}
@@ -662,18 +532,13 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 //     claude's --continue fails *open* — with nothing to continue it silently
 //     starts a fresh conversation and exits 0, indistinguishable from having
 //     resumed — so it is never constructed here or anywhere else.
-//   - --tools is the real tool boundary (SD-2).
+//   - --tools and --allowedTools both carry the run's whole tool set, so no
+//     tool or shell command is refused or put to the classifier.
 //   - --settings points at the litefactory-controlled file, so a run does not
-//     inherit the operator's personal permissions.
+//     inherit the operator's personal permissions and does get the shared
+//     deny rules. A read-only run's file adds the OS sandbox around Bash.
 //   - --permission-mode decides everything the rules do not name. See
 //     PermissionMode.
-//   - --allowedTools is the narrower permission list, additive to the
-//     operator's settings. Under --permission-mode auto it is a fast path: an
-//     action it names is permitted without consulting the classifier, and one
-//     it does not name is judged rather than refused outright. That is a
-//     change from the behaviour this comment used to describe — while runs
-//     were in "default" the list was the effective boundary, because anything
-//     outside it needed a prompt that a headless run could not answer.
 //   - --strict-mcp-config makes claude ignore every MCP configuration except
 //     the ones passed with --mcp-config. Only the attempt registration is
 //     reachable; a .mcp.json committed on the branch is excluded.
@@ -683,15 +548,14 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 // review invariant enforced by a repository-wide test, which is also why the
 // flag is not written out as a literal in this comment.
 //
-// Native tool lists are the request's when it carries mode-selected permissions
-// and the runner's configured ones otherwise — see [Runner.surface]. MCP rules
-// come separately from the validated installed catalog. GitHub supplies neither.
+// MCP rules come separately from the validated installed catalog. GitHub
+// supplies neither.
 func (r *Runner) args(req agent.Request) []string {
 	// The session flag is the only difference between the two paths. Everything
 	// after it — and the tool boundary in particular — is identical, because a
 	// resumed session takes its surface from this argv and does not inherit a
 	// wider one from the transcript it is continuing.
-	tools, allowedTools := r.surface(req)
+	tools := r.surface(req)
 	// Delivered skills are loadable only through claude's Skill tool; the
 	// bundle itself stays unreadable under the $LF_HOME deny. Skill loads the
 	// run's own plugin skills and grants no file, shell or network access.
@@ -699,21 +563,12 @@ func (r *Runner) args(req agent.Request) []string {
 		if !slices.Contains(tools, "Skill") {
 			tools = append(slices.Clone(tools), "Skill")
 		}
-		if len(allowedTools) > 0 && !slices.Contains(allowedTools, "Skill") {
-			allowedTools = append(slices.Clone(allowedTools), "Skill")
-		}
 	}
+	allowedTools := slices.Clone(tools)
 	if req.MCPLaunch != nil {
-		allowedTools = slices.Clone(allowedTools)
 		for _, name := range req.MCPLaunch.PermittedTools() {
 			allowedTools = append(allowedTools, "mcp__"+mcpServerName+"__"+name)
 		}
-	}
-	// A Validate reviewer's read-only shell refuses everything --allowedTools
-	// does not name; every other run keeps PermissionMode.
-	permissionMode := PermissionMode
-	if toolSurface(req).ReadOnlyShell {
-		permissionMode = ReadOnlyShellPermissionMode
 	}
 	model := r.model
 	if req.Delivery != nil && req.Delivery.MainRole != "" {
@@ -726,7 +581,7 @@ func (r *Runner) args(req agent.Request) []string {
 	if thinking == "" && req.Delivery != nil {
 		thinking = req.Delivery.MainThinking
 	}
-	args := native.Arguments(native.Options{Tools: append([]string{}, tools...), AllowedTools: allowedTools, SettingsPath: r.settingsPath, PermissionMode: permissionMode, Model: model, AutoCompact: r.autoCompact, Effort: string(thinking), Resume: req.Path.Resuming()}, req.Session.Ref)
+	args := native.Arguments(native.Options{Tools: append([]string{}, tools...), AllowedTools: allowedTools, SettingsPath: r.settingsPath, PermissionMode: PermissionMode, Model: model, AutoCompact: r.autoCompact, Effort: string(thinking), Resume: req.Path.Resuming()}, req.Session.Ref)
 	if req.Delivery != nil {
 		args = append(args, "--setting-sources", "", "--plugin-dir", filepath.Join(req.Delivery.Root, "plugin"), "--append-system-prompt-file", filepath.Join(req.Delivery.Root, "bootstrap.md"))
 	}
@@ -743,27 +598,14 @@ func (r *Runner) args(req agent.Request) []string {
 // model settings change. Remote team content cannot override this value.
 func (r *Runner) InstructionIdentity() string { return r.model + "/" + r.autoCompact }
 
-// surface picks the pair of tool lists one run is invoked with. It is the only
-// place the native surface is chosen, shared by argv and native-tool logging.
-//
-// A request carrying tools is a request a profile was resolved for: its lists
-// are used exactly as they arrive, AllowedTools verbatim. Empty AllowedTools
-// there is a profile that genuinely has no permission rules — the flag is
-// omitted rather than backfilled from the configured list, because empty and
-// absent mean different things to claude.
-//
-// A request with no tools is every run that has no profile, and takes the
-// runner's configured lists unchanged. That is what keeps an unprofiled argv
-// byte-identical to the one litefactory built before profiles existed (AC-2.3).
-//
-// Tools is the discriminator rather than the profile name because Tools is
-// what argv is built from: a profile name with an empty surface behind it
-// would otherwise omit --tools, and an omitted --tools grants everything.
-func (r *Runner) surface(req agent.Request) (tools, allowedTools []string) {
+// surface is the --tools list of one run: the request's when it carries one
+// and [config.AgentTools] otherwise. It is shared by argv and native-tool
+// logging.
+func (r *Runner) surface(req agent.Request) []string {
 	if ts := toolSurface(req); len(ts.Tools) > 0 {
-		return ts.Tools, ts.AllowedTools
+		return ts.Tools
 	}
-	return r.tools, r.allowedTools
+	return r.tools
 }
 
 // exec starts the process, streams it, and classifies how it ended.
@@ -789,7 +631,7 @@ func (r *Runner) exec(
 			return nil, err
 		}
 		cache := r.goBuildCaches.Main
-		if toolSurface(req).ReadOnlyShell {
+		if toolSurface(req).ReadOnly {
 			cache = r.goBuildCaches.Reviewer
 		}
 		if err := config.ValidateGoCacheEnvironment(stackEnv); err != nil {
@@ -806,8 +648,7 @@ func (r *Runner) exec(
 		Binary: r.binary.Path, Arguments: args, Environment: stackEnv, Directory: req.WorktreePath, Prompt: req.Prompt, Logger: logger,
 		BeforeLaunch: func(ctx context.Context) error { return agent.VerifyRequestDelivery(ctx, req) }, Consume: stream.consume,
 		OnStarted: func(cmd *exec.Cmd) {
-			tools, allowedTools := r.surface(req)
-			logger.Info("coding agent started", slog.String("agent", "claude"), slog.String("binary", r.binary.Path), slog.Int("pid", cmd.Process.Pid), slog.String("worktree", req.WorktreePath), slog.String("tools", strings.Join(tools, ",")), slog.String("allowed_tools", strings.Join(allowedTools, ",")), slog.String("tool_profile", req.Permissions.Profile), slog.String("settings", r.settingsPath), slog.Int("env_vars", len(cmd.Env)), slog.String("timeout", r.timeout.String()))
+			logger.Info("coding agent started", slog.String("agent", "claude"), slog.String("binary", r.binary.Path), slog.Int("pid", cmd.Process.Pid), slog.String("worktree", req.WorktreePath), slog.String("tools", strings.Join(r.surface(req), ",")), slog.Bool("read_only_sandbox", toolSurface(req).ReadOnly), slog.String("tool_profile", req.Permissions.Profile), slog.String("settings", r.settingsPath), slog.Int("env_vars", len(cmd.Env)), slog.String("timeout", r.timeout.String()))
 		},
 	})
 	if err != nil {

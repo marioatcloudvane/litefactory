@@ -38,7 +38,6 @@ provider may still be required. Existing approval gates apply independently.
 | `doctor` | bare; `status/stop/apply` | Local diagnosis and explicit recovery lifecycle; preserve repair handoff fences | `doctor_unit_test.go`, `cmd_daemon_recovery_test.go` |
 | `meter` | bare; `export/recover/prices`; `prices list/set` | Local; measured/unknown usage, CSV export, explicit recovery apply and immutable price revisions | `meter_test.go`, `meter_endtoend_test.go`, `meter_recovery_test.go`, `meter_prices_test.go`, `research_meter_csv_test.go` |
 | `task` | `clean/retire` | Local; clean Git worktree/state or explicit task retirement; retain dirty/missing/no-op refusals | `cmd_task_test.go`, `retirement_preview_unit_test.go` |
-| `story-contract upgrade` | bare | Local; default preview, explicit resumable apply; preserves active/frozen scope restrictions | `cmd_story_contract_args_test.go`, `cmd_story_contract_boundary_test.go` |
 | `connector grants` | `list/inspect/revoke/revoke-all` | Local, including with connector disabled; safe summaries and durable grant revocation | `cmd_connector_test.go`, `connector_e2e_test.go` |
 | `rights` | `catalogue/list/grant/revoke/history` | Local; exact repository rights, retained revocation/history; table or explicit JSON | `cmd_rights_test.go` |
 | `reviewer` | `assign/remove/list` | Local; reviewer assignments and retained removal/history | `cmd_rights_test.go` |

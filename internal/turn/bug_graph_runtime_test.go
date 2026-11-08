@@ -51,7 +51,7 @@ func TestGraphBugConcreteHostAnalystContinuationLeavesWorktreeAlone(t *testing.T
 	_, e := f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: f.session.ID, Version: 1, Family: "standalone", Workflow: "bug"})
 	mustProgress(t, e)
 	runtime, e := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Forge: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
-		return BugRolePermissions{Tools: []string{"Read", "Glob", "Grep"}, AllowedTools: []string{"Read", "Glob", "Grep"}}, nil
+		return BugRolePermissions{Tools: []string{"Read", "Glob", "Grep"}}, nil
 	}})
 	mustProgress(t, e)
 	f.opts.Bug = runtime
@@ -123,7 +123,7 @@ func TestGraphBugConcreteHostRefusesLegacyPinWithoutDispatchOrMutation(t *testin
 	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "record", StartedAt: time.Now()})
 	mustProgress(t, err)
 	runtime, err := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Forge: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
-		return BugRolePermissions{Tools: []string{"Read"}, AllowedTools: []string{"Read"}}, nil
+		return BugRolePermissions{Tools: []string{"Read"}}, nil
 	}})
 	mustProgress(t, err)
 	beforeSession, err := f.db.GetSession(t.Context(), f.session.ID)
@@ -333,7 +333,7 @@ func bugBootstrapFixture(t *testing.T, runner Runner) (*fixture, *BugRuntime, Re
 	_, err := f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: f.session.ID, Version: 1, Family: "standalone", Workflow: "bug"})
 	mustProgress(t, err)
 	runtime, err := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Forge: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
-		return BugRolePermissions{Tools: []string{"Read"}, AllowedTools: []string{"Read"}}, nil
+		return BugRolePermissions{Tools: []string{"Read"}}, nil
 	}})
 	mustProgress(t, err)
 	f.opts.Bug = runtime

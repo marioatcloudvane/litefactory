@@ -200,9 +200,6 @@ func (db *DB) SavePlanWorkflowState(ctx context.Context, parent string, expected
 }
 
 func savePlanWorkflowStateTx(ctx context.Context, tx *sql.Tx, parent string, expected int64, state planbrief.PlanState, raw []byte) error {
-	if err := planOwnerAdmissionTx(ctx, tx); err != nil {
-		return err
-	}
 	revision := expected + 1
 	var result sql.Result
 	var e error

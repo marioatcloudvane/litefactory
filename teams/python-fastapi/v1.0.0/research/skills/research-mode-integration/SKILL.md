@@ -7,7 +7,7 @@ description: Research mode for work with an external system, API or protocol. Lo
 **Signals:** a product or protocol name (GitHub, Linear, Slack, OAuth, MCP …), "connect", "sync", "webhook", "import from"; behaviour depends on a system outside this repository.
 
 **Gather first:**
-- The external system's official documentation for the parts used: endpoints, events, auth, versions. Cite the doc page.
+- The external system's official documentation for the parts used: endpoints, events, auth, versions. Cite the doc page. WebFetch and WebSearch reach documentation sites; the shell reaches only the forge and package hosts.
 - How this repository already talks to it or to similar systems, and the client code it would reuse.
 - Earlier issues about limits, outages or surprises with that system.
 

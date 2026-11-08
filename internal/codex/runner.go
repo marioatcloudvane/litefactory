@@ -247,18 +247,8 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *agent.RunR
 		return nil, fmt.Errorf("%w: codex permissions require a sandbox", agent.ErrInvalidRequest)
 	}
 	sandbox := p.Mode
-	if req.Workflow == agent.WorkflowBug && req.Permissions.Profile == "bug-fixer" && sandbox != "workspace-write" {
-		return nil, fmt.Errorf("%w: Bug fixer requires contained workspace-write sandbox", agent.ErrInvalidRequest)
-	}
-	// Only the Validate repair agent writes, through its own validate-repair
-	// grant; every other Validate run stays read-only.
-	validateRepair := req.Mode == "validate" && req.Workflow != agent.WorkflowBug && req.Permissions.Profile == config.ValidateRepairProfile
-	if validateRepair && sandbox != "workspace-write" {
-		return nil, fmt.Errorf("%w: Validate repair requires contained workspace-write sandbox", agent.ErrInvalidRequest)
-	}
-	if ((req.Mode == "validate" && !validateRepair) || (req.Workflow == agent.WorkflowBug && req.Permissions.Profile != "bug-fixer")) && sandbox != "read-only" {
-		return nil, fmt.Errorf("%w: Validate requires read-only sandbox", agent.ErrInvalidRequest)
-	}
+	// The mode's profile chose the sandbox; the runner only refuses a value
+	// Codex does not know.
 	if sandbox != "read-only" && sandbox != "workspace-write" {
 		return nil, fmt.Errorf("%w: unsupported codex sandbox %q", agent.ErrInvalidRequest, sandbox)
 	}

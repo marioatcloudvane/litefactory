@@ -14,7 +14,6 @@ type remoteConnectorServices interface {
 	SetActions(connector.OwnerActions)
 	SetWorkflows(connector.Workflows)
 	SetTaskDiscussion(connector.TaskDiscussion)
-	SetStageDecisions(connector.StageDecisions)
 	SetBrainstorm(connector.Brainstorms)
 }
 

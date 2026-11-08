@@ -135,7 +135,7 @@ func TestMetaToolsRequestedAndToolProfileComeFromDifferentSources(t *testing.T) 
 	req := metaRequest("/w/task-123")
 	req.Permissions = Permissions{
 		Profile: "research",
-		Payload: ToolSurface{Tools: []string{"Read", "Write"}, AllowedTools: []string{"Read"}},
+		Payload: ToolSurface{Tools: []string{"Read", "Write"}},
 	}
 
 	meta := NewMeta(req, testPrompt, &RunResult{

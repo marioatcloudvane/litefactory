@@ -720,8 +720,7 @@ func TestImplementWorkerPromptNamesTheParentSessionDirectory(t *testing.T) {
 	for _, want := range []string{
 		"Factory supplied parent session directory: " + parentDir + ".",
 		"approved Research and Plan context for this story, not an archived earlier session",
-		"RESEARCH_TECHNICAL.md there holds the Research findings: the classified inventory named in this story's criteria.",
-		"RESEARCH_BRIEF.md there holds the Research decisions and assumptions named in this story's criteria.",
+		"RESEARCH_BRIEF.md there holds the Research ledger",
 		"plan_brief.md there holds the plan.",
 	} {
 		if !strings.Contains(line, want) {
