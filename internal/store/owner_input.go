@@ -85,7 +85,7 @@ func (db *DB) RetainOwnerInstruction(ctx context.Context, sessionID, commentID, 
 	return out, err
 }
 
-// retainOwnerInstructionTx shares the authenticated handoff with atomic Doctor repair.
+// retainOwnerInstructionTx retains one authenticated owner instruction handoff.
 func retainOwnerInstructionTx(ctx context.Context, tx *sql.Tx, sessionID, commentID, ownerID int64, body string, target OwnerInputTarget) (OwnerInstruction, error) {
 	c, e := scanComment(tx.QueryRowContext(ctx, `SELECT `+commentColumns+` FROM comments WHERE session_id=? AND forge_comment_id=?`, sessionID, commentID))
 	if e != nil {

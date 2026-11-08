@@ -160,7 +160,8 @@ func checkResultAccess(ctx context.Context, tx *sql.Tx, b ResultBinding, write b
 		return checkJudgeResultWriter(ctx, tx, b)
 	}
 	if write && b.DoctorAttemptID != "" {
-		return checkDoctorResultWriter(ctx, tx, b)
+		// The retired Doctor runtime's attempts are history; nothing writes them.
+		return ErrResultAuthority
 	}
 	if write {
 		var n int
@@ -225,7 +226,7 @@ func validResultWorkflow(workflow, mode string) bool {
 	if workflow == "bug" {
 		return mode == ""
 	}
-	return workflow == "" && submissionState(mode, "research", "plan", "implement", "validate", "spike", "bug")
+	return workflow == "" && submissionState(mode, "research", "plan", "implement", "validate", "spike", "bug", "doctor")
 }
 
 // Bug results are stored as the table's historical workflow 'bug' with an

@@ -194,7 +194,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	} else if prep.resultPass != "" {
 		workContext += "#" + prep.resultPass
 	}
-	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "bug" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement" && !prep.reqAssessment(), Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
+	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "bug" || req.Mode == "doctor" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement" && !prep.reqAssessment(), Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if session != nil {
 		for key, story := range session.scope.Stories {
 			story.Criteria = slices.Clone(story.Criteria)

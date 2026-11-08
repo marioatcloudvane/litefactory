@@ -121,7 +121,7 @@ func (d *Daemon) executeRetirement(ctx context.Context, sweepID string, ownerID 
 	if owner.Canonical && !owner.Active && owner.Pending {
 		return d.retirementKept(ctx, sweepID, evaluation, "pending_effects"), nil
 	}
-	if !owner.Canonical || owner.Active || owner.Pending || !d.enterDoctorGuarded(ctx, ownerID) {
+	if !owner.Canonical || owner.Active || owner.Pending || !d.enterSession(ctx, ownerID) {
 		return d.retirementKept(ctx, sweepID, evaluation, "active_or_uncertain_owner"), nil
 	}
 	defer d.inflight.leave(ownerID)

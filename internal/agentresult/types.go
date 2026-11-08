@@ -143,6 +143,8 @@ type Payload struct {
 	Implement *Implement `json:"implement,omitempty"`
 	Validate  *Validate  `json:"validate,omitempty"`
 	Spike     *Spike     `json:"spike,omitempty"`
+	// Doctor carries the Doctor's private notes in the Spike shape.
+	Doctor *Spike `json:"doctor,omitempty"`
 }
 
 // Research holds a Research agent's private notes. Only the request is

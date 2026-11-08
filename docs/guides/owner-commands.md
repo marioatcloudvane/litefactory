@@ -185,13 +185,16 @@ The issue must be in Research mode and creation must be switched on in
 
 | Syntax | What it causes |
 | --- | --- |
-| `/doctor <instructions>` | Starts or continues a diagnosis of this issue. Each turn needs the prefix. |
-| `/doctor stop` | Ends the current doctor conversation and keeps its history. |
-| `/doctor apply` | Approves the current repair proposal. If repair is not set up, it says so and changes nothing. See [Doctor](../operations/doctor.md). |
+| `/doctor [what to look at]` | Starts the Doctor on this task. The text is your guidance. |
 
-Doctor only reads and explains. Comments from anyone but the owner are ignored.
-`/doctor` with nothing after it, or extra words after `stop` or `apply`, gets a
-usage reminder. See [doctor](../operations/doctor.md).
+The Doctor is one agent. It reads the issue, the factory's redacted evidence for
+the task (its latest runs, their logs and its workflow steps) and the worktree,
+explains why the task is stuck, and asks for your go before it changes the task
+branch. A plain reply while it waits answers it. It starts only while nothing of
+the task runs; stop running work with `litefactory doctor stop <task-ref>`. A
+repair is shipped like a Spike: the factory commits and pushes, and merges on
+your `ship`. Comments from anyone but the owner are ignored. See
+[Doctor](../operations/doctor.md).
 
 ## Judge
 
@@ -236,6 +239,6 @@ raw details for a conversation answer. See [Discord](../discord.md).
 
 For stopped work, follow the single recommendation in its retained stop notice. Pending automatic recovery needs no command: wait until admission can start the existing action. Ordinary owner guidance resumes a supported current Bug or Research question once. It can also resume the latest cancelled unallocated graph dispatch from its saved launch, including Validate on an Implement issue without a question wait. A missing saved launch retains refusal; it never falls back to ordinary Implement.
 
-For a stale blocker, `/doctor <concrete inspection question>` is diagnosis only. `/doctor apply` approves exactly the displayed proposal. The four bounded graph transitions are dispatch cancellation, wait cancellation, attempt cancellation and instance failure. A whole dependent graph repair, its guidance handoff, verification and numbered journal commit together or all abort. Rollback needs a separate exact inverse proposal and approval and is refused after related progress. Repair does not itself authorize continuation or prove completion. See [Recovery](../operations/recovery.md) and [Doctor](../operations/doctor.md).
+For a stale blocker, stop the task's running work if needed and comment `/doctor <what to look at>`. The Doctor explains the cause and repairs the task branch after your go; factory state it cannot change, it names for you to act on. See [Recovery](../operations/recovery.md) and [Doctor](../operations/doctor.md).
 
 Retired single-agent Spike uses a fresh graph task with `/spike`; unsupported legacy Bug uses a new issue for the same bug. Carry the prepared historical context and source link to the new task and post the new link on the old one. Legacy Research needing migration requires operator inspection. Existing history, edits and completed effects remain intact.

@@ -30,7 +30,7 @@ func (d *Daemon) handoffOpaqueWebhook(ctx context.Context, hint hintKey, q *repo
 	if err != nil {
 		return err
 	}
-	snapshot, err := doctorCall(ctx, d, func(ctx context.Context) (ticket.Snapshot, error) {
+	snapshot, err := operationalCall(ctx, d, func(ctx context.Context) (ticket.Snapshot, error) {
 		return clients.Tickets.Resolve(ctx, ticket.Locator{Provider: version.Provider, Origin: version.Origin, Container: version.Destination, Key: hint.ticketKey})
 	})
 	if err != nil {

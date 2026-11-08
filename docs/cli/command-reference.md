@@ -252,7 +252,7 @@ Runs the poll loop in this process, in the foreground, until it gets SIGINT or S
 | --- | --- |
 | `--level level` | Log level for this run only: `debug`, `info`, `warn` or `error`. Overrides `settings.log_level`; the config file is not changed. |
 
-`--doctor-repair` and `--doctor-token` also appear in `--help`. The factory uses them when it restarts the daemon during a doctor repair. Do not set them yourself. Exit `3` if there is no database or no bot token.
+Exit `3` if there is no database or no bot token.
 
 ### `daemon start`
 
@@ -322,36 +322,20 @@ litefactory logs 123 --raw             # the JSONL, byte for byte
 ### `doctor`
 
 ```text
-litefactory doctor <repository> <issue> <instructions>
+litefactory doctor <task-ref>
 ```
 
-Starts a read-only diagnosis of one issue, independent of its workflow. `<repository>` is `owner/name`, `<issue>` is the issue number, and `<instructions>` is what you want checked (quote it). It prints the saved conversation: findings with evidence and uncertainty, any questions, and any proposed repair steps. Needs an initialized database. A provider whose isolation cannot be verified refuses to launch. See [Doctor live diagnosis](../operations/doctor.md).
-
-### `doctor status`
-
-```text
-litefactory doctor status <repository> <issue>
-```
-
-Shows the saved doctor conversation for the issue without starting anything.
+Shows where the Doctor stands on a task, for example `github:owner/repo#12`: whether the task is stopped (the Doctor may start) and the steps of its latest Doctor run. It starts nothing. Start the Doctor with `/doctor` on the task's issue, or from a chat client. See [Doctor](../operations/doctor.md).
 
 ### `doctor stop`
 
 ```text
-litefactory doctor stop <repository> <issue>
+litefactory doctor stop <task-ref>
 ```
 
-Stops the doctor conversation for the issue. No issue comment is posted. If a doctor run is still running, it says the stop is requested and finishes when the daemon settles it.
+Asks the daemon to stop the task's running invocation; its work so far is saved as usual. Once nothing of the task runs, `/doctor` can start.
 
-### `doctor apply`
-
-```text
-litefactory doctor apply <repository> <issue>
-```
-
-Applies the repair proposal that doctor proposed. It only works after you have seen the current proposal in full (run `doctor status` first); otherwise it refuses. If the repair needs a restart, it asks the daemon to restart. See [Doctor owner repairs](../operations/doctor.md).
-
-`doctor`, `status`, `stop` and `apply` have no flags. A repository that is not `owner/name` or an issue that is not a positive number exits `1`.
+Both commands have no flags. A value that is not a task ref exits `1`.
 
 ## Usage and costs
 

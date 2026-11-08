@@ -18,7 +18,7 @@
 | Team | An installed, versioned package of roles, skills, graphs and a stack profile (for example `go-development`). |
 | Stack profile | A team's description of its technology: guidance, host requirements, setup and checks. See [stack profiles](stack-profiles.md). |
 | Recipe | The `.litefactory/bug-checks.yaml` file that tells the factory how to test a repository. See [project checks](bug-checks.md). |
-| Doctor | The read-only diagnosis of a stuck issue, with owner-approved repairs. See [Doctor](operations/doctor.md). |
+| Doctor | One agent the owner starts on a stopped task with `/doctor`: it explains why the task is stuck and repairs the task branch after the owner's go. See [Doctor](operations/doctor.md). |
 | Meter | The record of tokens and estimated cost per run. See [usage meter](meter.md). |
 
 See [workflow](guides/workflow.md) and [validation and delivery](guides/validation-and-delivery.md) for the full journey.

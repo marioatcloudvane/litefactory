@@ -253,7 +253,7 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 	return files, nil
 }
 
-var sourceWorkflows = []string{"bug", "implement", "plan", "research", "spike", "validate"}
+var sourceWorkflows = []string{"bug", "doctor", "implement", "plan", "research", "spike", "validate"}
 
 // SafePath reports whether name is a clean, relative, portable path.
 func SafePath(name string) bool { return safePath(name) }

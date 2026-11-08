@@ -347,7 +347,7 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 
 func registry(t *testing.T, w string) graphexec.Registry {
 	t.Helper()
-	builders := map[string]func() (graphexec.Registry, error){"research": turn.ResearchSpecs, "plan": turn.PlanSpecs, "implement": turn.ImplementSpecs, "validate": turn.ValidateFlowSpecs, "spike": turn.SpikeSpecs, "bug": turn.BugSpecs}
+	builders := map[string]func() (graphexec.Registry, error){"research": turn.ResearchSpecs, "plan": turn.PlanSpecs, "implement": turn.ImplementSpecs, "validate": turn.ValidateFlowSpecs, "spike": turn.SpikeSpecs, "doctor": turn.DoctorSpecs, "bug": turn.BugSpecs}
 	r, err := builders[w]()
 	if err != nil {
 		t.Fatal(err)
@@ -399,7 +399,7 @@ func TestInstallationCaptureAndNativeDelivery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !installed.Integrity || len(installed.Workflows) != 6 {
+		if !installed.Integrity || len(installed.Workflows) != 7 {
 			t.Fatal("incomplete installed release")
 		}
 		clone, err := m.Clone(t.Context(), source, "go-development", version, "custom", "2.0.0")

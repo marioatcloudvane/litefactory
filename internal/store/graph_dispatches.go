@@ -753,7 +753,7 @@ func (db *DB) ReconcileStrandedGraphDispatch(ctx context.Context, d GraphDispatc
 }
 
 // orphanedGraphPrelaunchRuns selects prelaunch runs allocated under a graph
-// dispatch that is no longer live, outside Bug and doctor-held sessions. While
+// dispatch that is no longer live, outside Bug sessions. While
 // its dispatch is pending, reserved or running a prelaunch run is that
 // dispatch's retry handle; once the dispatch is finished or cancelled nothing
 // can resume it, and it would otherwise block recovery for the whole session.

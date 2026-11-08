@@ -26,7 +26,7 @@ func admitSpikeExecution(ctx context.Context, opts Options, req Request, result 
 		return result, false, nil
 	}
 	if store.IsGraphTrigger(req.Trigger.CommentID) {
-		out, err := resumeSpikeDispatch(ctx, opts, req, result)
+		out, err := resumeWorkflowDispatch(ctx, opts, req, result, agent.WorkflowSpike, SpikeWorkflowPolicy(), ExecuteSpikeWorkflow)
 		return out, true, err
 	}
 	if req.Continuation != nil {
@@ -55,7 +55,7 @@ func admitSpikeExecution(ctx context.Context, opts Options, req Request, result 
 	if err != nil {
 		return result, true, err
 	}
-	out, err := launchSpikeGraph(ctx, opts, req, result, definition)
+	out, err := launchWorkflowGraph(ctx, opts, req, result, definition, string(agent.ModeSpike), ExecuteSpikeWorkflow)
 	return out, true, err
 }
 
@@ -65,10 +65,10 @@ func ExecuteSpikeWorkflow(ctx context.Context, opts Options, req Request, result
 	return ExecuteWorkflow(ctx, opts, req, result, definition, admission, SpikeWorkflowPolicy())
 }
 
-// launchSpikeGraph pins a captured definition, admits the launch under the
-// owner's authority and drives the shared workflow. The definition is always the
-// one the caller captured; nothing here reads the flow.
-func launchSpikeGraph(ctx context.Context, opts Options, req Request, result Result, definition *teamsource.WorkflowDefinition) (Result, error) {
+// launchWorkflowGraph pins a captured definition, admits the launch under the
+// owner's authority and drives the shared workflow with the policy's mode. The
+// definition is always the one the caller captured; nothing here reads the flow.
+func launchWorkflowGraph(ctx context.Context, opts Options, req Request, result Result, definition *teamsource.WorkflowDefinition, mode string, execute workflowEntry) (Result, error) {
 	topology, err := graphexec.SemanticDigest(definition.Profile)
 	if err != nil {
 		return result, err
@@ -77,11 +77,11 @@ func launchSpikeGraph(ctx context.Context, opts Options, req Request, result Res
 	if err != nil {
 		return result, err
 	}
-	pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: definition.Profile.Team, Mode: string(agent.ModeSpike), ProfileVersion: definition.Profile.ProfileVersion, Path: workflowGraphPath(definition), Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: definition.Profile.Team, Mode: mode, ProfileVersion: definition.Profile.ProfileVersion, Path: workflowGraphPath(definition), Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	if err != nil {
 		return result, err
 	}
-	admitted, err := opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeSpike), SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body})
+	admitted, err := opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: mode, SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body})
 	if err != nil {
 		return result, err
 	}
@@ -92,36 +92,40 @@ func launchSpikeGraph(ctx context.Context, opts Options, req Request, result Res
 		return result, err
 	}
 	definition.Profile.Digest = actualPin.Digest
-	return ExecuteSpikeWorkflow(ctx, opts, req, result, definition, admitted)
+	return execute(ctx, opts, req, result, definition, admitted)
 }
 
-// resumeSpikeDispatch enters the workflow at an instance's current node with the
-// definition it was admitted under. Nothing here is a fresh admission.
-func resumeSpikeDispatch(ctx context.Context, opts Options, req Request, result Result) (Result, error) {
-	instance, err := opts.DB.LatestWorkflowInstance(ctx, req.SessionID, string(agent.ModeSpike))
+// resumeWorkflowDispatch enters the workflow at an instance's current node with
+// the definition it was admitted under. Nothing here is a fresh admission.
+func resumeWorkflowDispatch(ctx context.Context, opts Options, req Request, result Result, workflow agent.Workflow, policy WorkflowPolicy, execute workflowEntry) (Result, error) {
+	mode := string(policy.Mode)
+	instance, err := opts.DB.LatestWorkflowInstance(ctx, req.SessionID, mode)
 	if err != nil {
-		return result, fmt.Errorf("resume spike dispatch: %w", err)
+		return result, fmt.Errorf("resume %s dispatch: %w", mode, err)
 	}
 	if instance.Status != store.GraphRunning {
-		return result, errors.New("spike graph dispatch targets an instance that is no longer running")
+		return result, fmt.Errorf("%s graph dispatch targets an instance that is no longer running", mode)
 	}
 	pin, err := opts.DB.GetGraphDefinition(ctx, instance.DefinitionID)
 	if err != nil {
 		return result, err
 	}
-	specs, err := SpikeSpecs()
+	specs, err := WorkflowSpecs(policy)
 	if err != nil {
 		return result, err
 	}
-	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowSpike, specs)
+	definition, err := capturedWorkflow(ctx, opts, req, workflow, specs)
 	if err != nil {
 		return result, err
 	}
 	if definition.Profile.Digest != pin.Digest {
-		return result, errors.New("retained spike graph does not match the running instance; the parked stage cannot resume")
+		return result, fmt.Errorf("retained %s graph does not match the running instance; the parked stage cannot resume", mode)
 	}
-	return ExecuteSpikeWorkflow(ctx, opts, req, result, definition, retainedAdmission(ctx, opts.DB, req, instance, "spike"))
+	return execute(ctx, opts, req, result, definition, retainedAdmission(ctx, opts.DB, req, instance, mode))
 }
+
+// workflowEntry is a mode's own entry into the shared driver with its policy.
+type workflowEntry func(context.Context, Options, Request, Result, *teamsource.WorkflowDefinition, store.WorkflowAdmission) (Result, error)
 
 func refuseLegacySpike(ctx context.Context, opts Options, req Request, result Result) (Result, error) {
 	passage, err := legacyRecoveryContext(ctx, opts.DB, req)

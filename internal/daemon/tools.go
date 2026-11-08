@@ -46,7 +46,7 @@ func (d *Daemon) resolveTools(mode agent.Mode, kind agent.Kind) (toolDecision, b
 	}
 	name := string(mode)
 	switch mode {
-	case agent.ModeSpike:
+	case agent.ModeSpike, agent.ModeDoctor:
 		name = config.SpikeFixerProfile
 	case agent.ModeBug:
 		name = config.BugProfile
@@ -55,7 +55,7 @@ func (d *Daemon) resolveTools(mode agent.Mode, kind agent.Kind) (toolDecision, b
 	if !ok {
 		return toolDecision{}, false
 	}
-	decision := toolDecision{Profile: string(mode), Sandbox: profile.Sandbox, Attachments: profile.Attachments && mode != agent.ModeSpike}
+	decision := toolDecision{Profile: string(mode), Sandbox: profile.Sandbox, Attachments: profile.Attachments && mode != agent.ModeSpike && mode != agent.ModeDoctor}
 	switch string(kind) {
 	case string(config.KindClaude):
 		decision.Tools = config.AgentTools()

@@ -22,12 +22,15 @@ const (
 	// ModeBug reproduces and fixes one reported bug. It is selected by the
 	// issue's bug label, never by a command or a mode label.
 	ModeBug Mode = "bug"
+	// ModeDoctor diagnoses and repairs one stopped task. Only the owner's
+	// /doctor command selects it; no label or classifier does.
+	ModeDoctor Mode = "doctor"
 )
 
 // Valid reports whether m belongs to litefactory's closed mode vocabulary.
 func (m Mode) Valid() bool {
 	switch m {
-	case ModeResearch, ModePlan, ModeImplement, ModeValidate, ModeSpike, ModeBug:
+	case ModeResearch, ModePlan, ModeImplement, ModeValidate, ModeSpike, ModeBug, ModeDoctor:
 		return true
 	default:
 		return false

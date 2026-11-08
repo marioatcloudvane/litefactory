@@ -138,7 +138,7 @@ func TestDotAgentRolesComeFromGraphAttributesNotNames(t *testing.T) {
 	}
 }
 
-// Every shipped team covers the six workflows, so a workflow cannot ship
+// Every shipped team covers the seven workflows, so a workflow cannot ship
 // outside the guard.
 func TestShippedTeamsCoverEveryWorkflow(t *testing.T) {
 	t.Parallel()

@@ -99,13 +99,6 @@ func TestResearchCommandResolutionAndPrivateInput(t *testing.T) {
 	}
 }
 
-func TestDiagnosisSummaryKeepsEverySection(t *testing.T) {
-	text := messaging.RenderDiagnosis(messaging.DiagnosisSummary{Findings: []string{strings.Repeat("Long finding 🐧 ", 400)}, CoverageGaps: []string{"Missing deployment evidence."}, OpenQuestions: []string{"Which boundary?"}, RepairProposed: true}, 1872)
-	if len(utf16.Encode([]rune(text))) > 1872 || !strings.Contains(text, "Missing deployment evidence.") || !strings.Contains(text, "Which boundary?") || !strings.Contains(text, "only be reviewed on the issue") || !strings.Contains(text, "[shortened]") {
-		t.Fatalf("summary: %q", text)
-	}
-}
-
 // TestQuestionOutcomeStatus checks that the question reader assesses the status
 // for the current research question: refusal when none is open.
 func TestQuestionOutcomeStatus(t *testing.T) {

@@ -96,8 +96,4 @@ func TestOwnerActionDiagnosisRejectsReplacementSessionBeforeEffects(t *testing.T
 	if err = db.CheckOwnerActionEffect(ctx); !errors.Is(err, ErrDoctorFenced) {
 		t.Fatalf("replacement session authorized: %v", err)
 	}
-	attempt := DoctorAttempt{ID: "must-not-start", SourceID: p.ExecutionID, OwnerText: "exact", PromptVersion: "v1", GuideVersion: "v1"}
-	if _, err = db.BeginDoctorAttempt(ctx, session.TaskRef, attempt); !errors.Is(err, ErrDoctorFenced) {
-		t.Fatalf("replacement diagnosis admitted: %v", err)
-	}
 }

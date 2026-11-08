@@ -446,6 +446,13 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 	if e != nil {
 		return ResearchInvocation{}, route.abort(ctx, e)
 	}
+	if w.policy.Evidence != nil {
+		evidence, evidenceErr := w.policy.Evidence(ctx, w, a)
+		if evidenceErr != nil {
+			return ResearchInvocation{}, route.abort(ctx, evidenceErr)
+		}
+		state += evidence
+	}
 	return w.finishRoute(ctx, route, &req, state+sessionDirectoryContext(sessionPath, prep.parentSessionDir, prep.parentSessionFiles)+saved+predecessor+handoff, sessionPath)
 }
 
@@ -790,7 +797,7 @@ func RecoverWorkflowPublications(ctx context.Context, opts Options, sessionID in
 // runs under the session lock before owner input is matched to the graph; it
 // never invokes an agent or publishes anything new.
 func RecoverGraphPublications(ctx context.Context, opts Options, sessionID int64, at time.Time) error {
-	for _, policy := range []WorkflowPolicy{ResearchWorkflowPolicy(), SpikeWorkflowPolicy(), ImplementWorkflowPolicy()} {
+	for _, policy := range []WorkflowPolicy{ResearchWorkflowPolicy(), SpikeWorkflowPolicy(), DoctorWorkflowPolicy(), ImplementWorkflowPolicy()} {
 		if err := RecoverWorkflowPublications(ctx, opts, sessionID, policy); err != nil {
 			return err
 		}

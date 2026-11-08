@@ -8,7 +8,6 @@ import (
 // ListWorkflowFactoryAttempts pages unsettled factory activities in the current
 // Research or Plan node. It grants no dispatch authority: the caller must read
 // the captured profile and decide whether the reserved activity is recoverable.
-// Doctor-held sessions remain owned by their repair coordinator.
 func (db *DB) ListWorkflowFactoryAttempts(ctx context.Context, afterID int64, limit int) ([]GraphNodeAttempt, error) {
 	if afterID < 0 || limit < 1 || limit > 100 {
 		return nil, graphInvariant("invalid workflow factory attempt page")

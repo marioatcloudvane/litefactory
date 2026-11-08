@@ -92,10 +92,10 @@ history and access failures cannot establish green CI. Recovery needs two
 complete scheduled observations of qualifying newer success; restart supplies
 no clean evidence. Readiness can recover while the current CI result remains red.
 
-The overview never invokes the explicit doctor access probe. It displays saved
+The overview never probes CI access itself. It displays saved
 CI-local retry bounds, including GitHub waits longer than one hour retained
-across restart. Installed access must be checked separately through
-[doctor](../operations/doctor.md#ci-access-check). Observation continues when
+across restart. Installed access must be checked separately, for example with
+`gh api repos/<owner>/<name>/actions/workflows`. Observation continues when
 Discord delivery is unavailable; a healthy CI read does not prove notification
 delivery. Project CI and production deploy monitoring are outside this target.
 

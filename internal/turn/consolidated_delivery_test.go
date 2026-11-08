@@ -17,8 +17,8 @@ import (
 )
 
 func TestConsolidatedWorkflowVerifiedLaunchDelivery(t *testing.T) {
-	captures := map[agent.Workflow]func(context.Context, graphexec.Registry) (*teamsource.WorkflowDefinition, error){agent.WorkflowResearch: teamsourcetest.CaptureResearch, agent.WorkflowPlan: teamsourcetest.CapturePlan, agent.WorkflowImplement: teamsourcetest.CaptureImplement, agent.WorkflowValidate: teamsourcetest.CaptureValidate, agent.WorkflowSpike: teamsourcetest.CaptureSpike, agent.WorkflowBug: teamsourcetest.CaptureBug}
-	builders := map[agent.Workflow]func() (graphexec.Registry, error){agent.WorkflowResearch: ResearchSpecs, agent.WorkflowPlan: PlanSpecs, agent.WorkflowImplement: ImplementSpecs, agent.WorkflowValidate: ValidateFlowSpecs, agent.WorkflowSpike: SpikeSpecs, agent.WorkflowBug: BugSpecs}
+	captures := map[agent.Workflow]func(context.Context, graphexec.Registry) (*teamsource.WorkflowDefinition, error){agent.WorkflowResearch: teamsourcetest.CaptureResearch, agent.WorkflowPlan: teamsourcetest.CapturePlan, agent.WorkflowImplement: teamsourcetest.CaptureImplement, agent.WorkflowValidate: teamsourcetest.CaptureValidate, agent.WorkflowSpike: teamsourcetest.CaptureSpike, agent.WorkflowDoctor: teamsourcetest.CaptureDoctor, agent.WorkflowBug: teamsourcetest.CaptureBug}
+	builders := map[agent.Workflow]func() (graphexec.Registry, error){agent.WorkflowResearch: ResearchSpecs, agent.WorkflowPlan: PlanSpecs, agent.WorkflowImplement: ImplementSpecs, agent.WorkflowValidate: ValidateFlowSpecs, agent.WorkflowSpike: SpikeSpecs, agent.WorkflowDoctor: DoctorSpecs, agent.WorkflowBug: BugSpecs}
 	for _, policy := range RegisteredWorkflowPolicies() {
 		w, err := agent.ResolveWorkflow(policy.Workflow, policy.Mode)
 		if err != nil {

@@ -10,14 +10,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
-	"github.com/cloudvane/litefactory/internal/doctor"
-	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
-	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 // TestProjectConnectionsMainPath runs owner management, provider reads and
@@ -215,28 +211,6 @@ func TestProjectConnectionsMainPath(t *testing.T) {
 	resumed, err := daemon.AdmitProjectTicket(t.Context(), db, factory, project, ref)
 	if err != nil || resumed.ID != session.ID || resumed.TaskRef != session.TaskRef {
 		t.Fatalf("disabled replacement blocked or redirected saved session: %+v, %v", resumed, err)
-	}
-	// Local doctor recovery must also load retained project credentials when
-	// the former global credential is unavailable and current routing is disabled.
-	cfg := config.Defaults()
-	cfg.Providers.GitHub.TokenKeychain.Service = ""
-	cfg.Providers.GitHub.TokenKeychain.Account = ""
-	cfg.Providers.GitHub.TokenEnv = "LF_E2E_UNAVAILABLE_GLOBAL_TOKEN"
-	t.Setenv(cfg.Providers.GitHub.TokenEnv, "")
-	if _, err := db.UpsertIdentity(t.Context(), store.Identity{Forge: store.ForgeGitHub, Role: store.RoleBot, UserID: 99, Handle: "factory-bot", Source: store.SourceForgeAPI}); err != nil {
-		t.Fatal(err)
-	}
-	service := doctor.Service{DB: db, Config: &cfg}
-	if err := configureDoctorTicketWorkflow(t.Context(), &service, &Env{}, nil); err != nil || service.Comments == nil {
-		t.Fatalf("doctor lost retained project coverage: %v", err)
-	}
-	workflow, ok := service.Comments.(*turn.TicketWorkflowBridge)
-	if !ok {
-		t.Fatalf("doctor configured unexpected ticket reader %T", service.Comments)
-	}
-	issue, err := workflow.GetIssue(t.Context(), github.Repo{Owner: "acme", Name: "tasks"}, 42)
-	if err != nil || issue.ID != 700 {
-		t.Fatalf("doctor redirected retained ticket read: %+v, %v", issue, err)
 	}
 	newRef := ref
 	newRef.Identity.RemoteID = "701"

@@ -16,10 +16,6 @@ func selectedSkills(role string) []string {
 	switch role {
 	case "task-advisory":
 		return []string{"task-advisory"}
-	case "doctor-diagnosis":
-		return []string{"doctor-field-guide"}
-	case "doctor-repair":
-		return []string{"doctor-field-guide", "doctor-repair-authority"}
 	case "conversation-factory":
 		return []string{StandardsAuthoringSkill}
 	default:

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -114,7 +113,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 // question identity comes from durable wait/publication records, not reply text.
 // A claimed reply survives process exit before allocation, with no held worker.
 func AdmitGraphOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID int64, taskRef, sourceRef, mode string, comment github.Comment, at time.Time) (store.GraphOwnerWait, error) {
-	if _, ok := doctor.ParseCommand(comment.Body); ok {
+	if turn.ParseCommand(comment.Body).Kind == turn.KindDoctor {
 		return store.GraphOwnerWait{}, store.ErrGraphOwnerWait
 	}
 	if db == nil {

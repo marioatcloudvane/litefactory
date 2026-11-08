@@ -60,6 +60,7 @@ func (s RepositorySource) Catalogue(ctx context.Context, repo store.Repo) ([]Ent
 		{agent.WorkflowResearch, turn.ResearchSpecs},
 		{agent.WorkflowImplement, turn.ImplementSpecs},
 		{agent.WorkflowSpike, func() (graphexec.Registry, error) { return turn.WorkflowSpecs(turn.SpikeWorkflowPolicy()) }},
+		{agent.WorkflowDoctor, turn.DoctorSpecs},
 	}
 	var profiles []*graphexec.Profile
 	for _, w := range list {

@@ -15,6 +15,14 @@ import (
 // admitWorkflow precedes mode selection so a bug-labelled task never enters
 // classification, mode-label mutation or mode-switch cancellation.
 func (d *Daemon) admitWorkflow(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (agent.Workflow, agent.Mode, error) {
+	// The Doctor runs beside the task's own workflow: it changes no mode
+	// selection or label and never touches the task's admission.
+	if t.doctoring {
+		return agent.WorkflowDoctor, agent.ModeDoctor, nil
+	}
+	if doctor, err := d.doctorRoute(ctx, t, trigger, command); err != nil || doctor {
+		return agent.WorkflowDoctor, agent.ModeDoctor, err
+	}
 	a, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", "", err

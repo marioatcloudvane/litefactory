@@ -200,7 +200,7 @@ A concealed-access **404** can mean missing repository selection, an unaccepted
 invitation, installation access or organization authorization. Check those
 before concluding the repository or workflow was deleted.
 
-Use the explicit [doctor CI access check](../operations/doctor.md#ci-access-check)
+Use `gh api repos/<owner>/<name>/actions/workflows` with the factory's credential
 to verify installed repository and active-workflow access. A disabled workflow,
 wrong path, missing credentials, incomplete run history or denied request makes
 monitoring unavailable. A retained red result stays visible separately; a read

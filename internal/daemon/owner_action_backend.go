@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/brainstorm"
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/factory"
 	"github.com/cloudvane/litefactory/internal/factory/featuredraft"
@@ -147,14 +146,8 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 			protected, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
 			return protected.String(), err
 		}
-		var diagnosis ChatDiagnoser
-		if options.Diagnoser != nil {
-			diagnosis = options.Diagnoser
-		} else if d.doctor.service != nil {
-			diagnosis = d.doctor.service
-		}
-		research := ownerActionResearch{daemon: d, sanitizer: sanitizer, diagnoser: diagnosis, replyLimit: presentation.MessageLimit}
-		availability := owneractions.Availability{Answer: d.forge != nil, Diagnose: diagnosis != nil}
+		research := ownerActionResearch{daemon: d, sanitizer: sanitizer}
+		availability := owneractions.Availability{Answer: d.forge != nil, Diagnose: d.forge != nil}
 		answers := ask.Service{Repositories: factory.NewMessaging(d.db), Collector: ask.Collector{Factory: factory.NewTaskFacts(d.db)}, Redactor: sanitizer}
 		if options.Answers != nil {
 			answers = *options.Answers
@@ -217,7 +210,7 @@ func (d *Daemon) prepareIndependentOwnerActions(options *ChatOptions, sanitizer 
 		}
 		core := owneractions.Domain{
 			Actions:      owneractions.Actions{FallbackTransport: "mcp", Targets: targets, Protect: protect, Research: research, Features: independentFeatureEffects{drafter: drafter, confirmer: creator}, Answer: owneractions.AnswerAdmission{Research: research, Protect: protect, Render: render}, Availability: availability},
-			Diagnosis:    owneractions.Diagnosis{Targets: targets, Protect: protect, Effects: independentDiagnosisEffects{research: research}, Availability: availability},
+			Diagnosis:    owneractions.Diagnosis{Targets: targets, Protect: protect, Effects: doctorStartEffects{daemon: d}, Availability: availability},
 			Standards:    owneractions.Standards{Targets: targets, Protect: protect, Available: standards != nil, Frozen: standards},
 			Brainstorm:   owneractions.BrainstormTasks{DB: d.db, Drafts: &runtime.brainstormDrafts, Protect: protect, Availability: availability},
 			BugFile:      bugFiles,
@@ -349,10 +342,8 @@ func (d independentOwnerActionDomain) ActionCatalog() []owneraction.ActionDefini
 }
 
 type ownerActionResearch struct {
-	daemon     *Daemon
-	sanitizer  *redact.Redactor
-	diagnoser  ChatDiagnoser
-	replyLimit int
+	daemon    *Daemon
+	sanitizer *redact.Redactor
 }
 
 func (a ownerActionResearch) Current(ctx context.Context, ref string) (messaging.Question, error) {
@@ -362,28 +353,30 @@ func (a ownerActionResearch) Answer(ctx context.Context, ref, revision, text str
 	return (chatResearch{a.daemon}).answerProtected(ctx, ref, revision, text, at, a.sanitizer)
 }
 func (ownerActionResearch) Queue(context.Context, messaging.DiagnosisRequest) error {
-	return errors.New("owner action diagnosis requires its execution journal")
-}
-func (a ownerActionResearch) OwnerActionDiagnosis(ctx context.Context, target, note, key string) (string, error) {
-	return runOwnerActionDiagnosis(ctx, a.daemon, a.diagnoser, a.sanitizer, a.replyLimit, target, note, key)
-}
-func (a ownerActionResearch) RecoverOwnerActionDiagnosis(ctx context.Context, target, key string) (owneraction.Result, bool, error) {
-	return recoverOwnerActionDiagnosis(ctx, a.daemon.db, target, key, func(ctx context.Context, c doctor.Conversation) (string, error) {
-		return renderOwnerActionDiagnosis(ctx, c, a.sanitizer, a.replyLimit)
-	})
+	return errors.New("an owner action starts the Doctor through its own effect")
 }
 
-// independentDiagnosisEffects binds the existing execution and receipt host.
-type independentDiagnosisEffects struct{ research ownerActionResearch }
+// doctorStartEffects starts the Doctor on the reviewed task. The action's
+// execution key names the start, so a replay finds the same Doctor run.
+type doctorStartEffects struct{ daemon *Daemon }
 
-func (e independentDiagnosisEffects) DiagnosisAvailable() bool { return e.research.diagnoser != nil }
-func (e independentDiagnosisEffects) Diagnose(ctx context.Context, task, note, key string) (owneraction.Result, error) {
-	work, assessment := presentation.WithAssessment(ctx)
-	summary, err := e.research.OwnerActionDiagnosis(work, task, note, key)
-	return independentAssessedResult(assessment, summary), err
+func (e doctorStartEffects) DiagnosisAvailable() bool { return e.daemon.forge != nil }
+func (e doctorStartEffects) Diagnose(ctx context.Context, task, note, key string) (owneraction.Result, error) {
+	if err := e.daemon.startDoctor(ctx, task, note, key); err != nil {
+		var refused *doctorRefusal
+		if errors.As(err, &refused) {
+			return owneraction.Result{State: "failed", Summary: refused.Error()}, nil
+		}
+		return owneraction.Result{}, err
+	}
+	return owneraction.Result{State: "succeeded", Summary: doctorStartedSummary(task)}, nil
 }
-func (e independentDiagnosisEffects) RecoverDiagnosis(ctx context.Context, task, key string) (owneraction.Result, bool, error) {
-	return e.research.RecoverOwnerActionDiagnosis(ctx, task, key)
+func (e doctorStartEffects) RecoverDiagnosis(ctx context.Context, task, key string) (owneraction.Result, bool, error) {
+	started, err := e.daemon.doctorStarted(ctx, task, key)
+	if err != nil || !started {
+		return owneraction.Result{}, false, err
+	}
+	return owneraction.Result{State: "succeeded", Summary: doctorStartedSummary(task)}, true, nil
 }
 
 type independentFeatureEffects struct {

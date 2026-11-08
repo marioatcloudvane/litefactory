@@ -24,7 +24,7 @@ type ToolProfile struct {
 
 // NewToolProfile assigns only explicitly supported modes a server-local tool profile.
 func NewToolProfile(mode string) (ToolProfile, error) {
-	if !slices.Contains([]string{"research", "spike", "bug", "plan", "implement", "validate"}, mode) {
+	if !slices.Contains([]string{"research", "spike", "bug", "doctor", "plan", "implement", "validate"}, mode) {
 		return ToolProfile{}, errors.New("submission: unassigned MCP mode")
 	}
 	return ToolProfile{mode: mode}, nil

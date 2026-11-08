@@ -40,6 +40,8 @@ func fixtureWorkflowSource(ctx context.Context, _ store.Repo, w agent.Workflow, 
 		capture = teamsourcetest.CaptureValidate
 	case agent.WorkflowSpike:
 		capture = teamsourcetest.CaptureSpike
+	case agent.WorkflowDoctor:
+		capture = teamsourcetest.CaptureDoctor
 	case agent.WorkflowBug:
 		capture = teamsourcetest.CaptureBug
 	default:

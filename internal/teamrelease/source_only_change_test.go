@@ -94,7 +94,7 @@ func TestSourceOnlyChangeBuildsWithoutReleaseCut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if installed.Identity.Slug != "go-development" || installed.Identity.Version != version || len(installed.Workflows) != 6 {
-		t.Fatal("changed source did not install all six workflows")
+	if installed.Identity.Slug != "go-development" || installed.Identity.Version != version || len(installed.Workflows) != 7 {
+		t.Fatal("changed source did not install all seven workflows")
 	}
 }

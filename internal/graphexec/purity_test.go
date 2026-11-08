@@ -66,7 +66,7 @@ func TestGraphShippedDOTScope(t *testing.T) {
 	// One frozen test fixture: the pre-worker-sync Implement graph that saved
 	// instances may still run. It is test data, never a release or a source.
 	allowed := map[string]bool{"../../internal/turn/testdata/implement-v1.0.2/implement.dot": true}
-	workflows := []string{"research", "plan", "implement", "validate", "spike", "bug"}
+	workflows := []string{"research", "plan", "implement", "validate", "spike", "doctor", "bug"}
 	for _, workflow := range workflows {
 		allowed["../../teams/"+release.Download+"/"+workflow+"/"+workflow+".dot"] = true
 	}
@@ -97,7 +97,7 @@ func TestGraphShippedDOTScope(t *testing.T) {
 			}
 		}
 	}
-	// The shared base-team holds the same six graphs with a {{team}} placeholder.
+	// The shared base-team holds the same seven graphs with a {{team}} placeholder.
 	for _, workflow := range workflows {
 		allowed["../../teams/source/base-team/"+workflow+"/"+workflow+".dot"] = true
 	}

@@ -695,6 +695,9 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	if err := RecoverWorkflowPublications(ctx, opts, session.ID, BugWorkflowPolicy()); err != nil {
 		return result, err
 	}
+	if err := RecoverWorkflowPublications(ctx, opts, session.ID, DoctorWorkflowPolicy()); err != nil {
+		return result, err
+	}
 	if err := RecoverWorkflowPublications(ctx, opts, session.ID, ImplementWorkflowPolicy()); err != nil {
 		return result, err
 	}
@@ -729,6 +732,9 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		return graphResult, workflowRequestError(ctx, opts, req, session, graphErr)
 	}
 	if graphResult, handled, graphErr := admitBugExecution(ctx, opts, req, result); handled {
+		return graphResult, workflowRequestError(ctx, opts, req, session, graphErr)
+	}
+	if graphResult, handled, graphErr := admitDoctorExecution(ctx, opts, req, result); handled {
 		return graphResult, workflowRequestError(ctx, opts, req, session, graphErr)
 	}
 	if graphResult, handled, graphErr := admitImplementExecution(ctx, opts, req, result); handled {

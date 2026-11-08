@@ -230,25 +230,6 @@ func TestClosedIssueOwnerWaitProtectsRunsAndAllocatedDispatch(t *testing.T) {
 	}
 }
 
-func TestClosedIssueOwnerWaitDoctorHold(t *testing.T) {
-	db, instance, _ := closureWaitFixture(t, "validate", "waiting")
-	session, err := db.GetSession(t.Context(), instance.SessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, presentation := retainedPollProposal(t, db, session)
-	if _, err = db.ReserveDoctorRepair(t.Context(), DoctorApproval{ID: "closure-hold", SourceID: "closure-approval", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
-		t.Fatal(err)
-	}
-	if err = db.CancelClosedIssueGraphs(t.Context(), instance.SessionID, graphTestTime()); err != nil {
-		t.Fatal(err)
-	}
-	got, err := db.GetGraphInstance(t.Context(), instance.ID)
-	if err != nil || !reflect.DeepEqual(instance, got) {
-		t.Fatalf("held graph changed: %+v %v", got, err)
-	}
-}
-
 // #577: an idle wait is cancelled when it is open, or when it is claimed by
 // exactly the named reply; any other claim keeps the instance running.
 func TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim(t *testing.T) {
@@ -351,7 +332,7 @@ func TestReconcileWorkflowGraphsCancelsAttemptsOfFinishedInstances(t *testing.T)
 // Orphaned prelaunch runs are settled first; a retry-capped instance may be
 // restarted; one that never had a dispatch is kept for its own start replay.
 func TestCancelIdleValidateInstanceRequiresNothingInFlight(t *testing.T) {
-	for _, guard := range []string{"orphaned prelaunch", "retry capped", "no dispatch", "not validate", "pending dispatch", "running attempt", "waiting", "running run", "live prelaunch", "intent effect", "dispatched effect", "uncertain effect", "doctor", "pending schedule", "running schedule"} {
+	for _, guard := range []string{"orphaned prelaunch", "retry capped", "no dispatch", "not validate", "pending dispatch", "running attempt", "waiting", "running run", "live prelaunch", "intent effect", "dispatched effect", "uncertain effect", "pending schedule", "running schedule"} {
 		t.Run(guard, func(t *testing.T) {
 			db, launch := captureFixture(t)
 			ctx, at := t.Context(), graphTestTime()
@@ -422,15 +403,6 @@ func TestCancelIdleValidateInstanceRequiresNothingInFlight(t *testing.T) {
 				exec(`INSERT INTO graph_effects(operation,instance_id,source_attempt_id,kind,binding,state,created_at,updated_at) VALUES('pending',?,?,'test',X'',?,?,?)`, instance.ID, a.ID, state, FormatTime(at), FormatTime(at))
 			case "running run":
 				allocate(10, false)
-			case "doctor":
-				session, err := db.GetSession(ctx, instance.SessionID)
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, presentation := retainedPollProposal(t, db, session)
-				if _, err := db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "idle-hold", SourceID: "idle-input", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
-					t.Fatal(err)
-				}
 			case "pending schedule", "running schedule":
 				exec(`INSERT INTO schedules(session_id,source_comment_id,owner_handle,payload,status,created_at,updated_at) VALUES(?,1,'owner','test',?,?,?)`, instance.SessionID, strings.TrimSuffix(guard, " schedule"), FormatTime(at), FormatTime(at))
 			}
@@ -454,9 +426,8 @@ func TestCancelIdleValidateInstanceRequiresNothingInFlight(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				// A doctor hold keeps the session's runs untouched.
-				if wantRun := map[bool]RunStatus{true: RunPrelaunch, false: RunFailed}[guard == "doctor"]; run.Status != wantRun {
-					t.Fatalf("orphaned run status=%s want %s", run.Status, wantRun)
+				if run.Status != RunFailed {
+					t.Fatalf("orphaned run status=%s want %s", run.Status, RunFailed)
 				}
 			}
 		})

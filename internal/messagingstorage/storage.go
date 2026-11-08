@@ -23,7 +23,6 @@ type Port interface {
 	ClaimChatReply(ctx context.Context, transport string, at time.Time) (messagingstate.ChatReply, error)
 	ClaimConversationReply(ctx context.Context, transport string, at time.Time) (messagingstate.ChatReply, error)
 	ClaimConversationTurn(ctx context.Context, id, worker string, at time.Time, lease time.Duration) (messagingstate.ConversationTurn, error)
-	CompleteChatDiagnosisResult(ctx context.Context, transport, id string, attempt int, text string, at time.Time, status string) error
 	CompleteConversationAnswer(ctx context.Context, t messagingstate.ConversationTurn, state string, a messagingstate.ConversationAnswer, parts []messagingstate.ConversationAnswerPart, at time.Time) error
 	CompleteConversationFreshAnswer(ctx context.Context, t messagingstate.ConversationTurn, a messagingstate.ConversationAnswer, parts []messagingstate.ConversationAnswerPart, at time.Time) error
 	CompleteConversationFreshTurn(ctx context.Context, t messagingstate.ConversationTurn, reply string, at time.Time) error
@@ -35,7 +34,6 @@ type Port interface {
 	ConversationDetailsSelection(ctx context.Context, r messagingstate.ChatReply) (string, error)
 	ConversationReplyAnswer(ctx context.Context, r messagingstate.ChatReply) (messagingstate.ConversationAnswer, int, error)
 	CurrentChatIssuePreview(ctx context.Context, transport, channel string) (messagingstate.ChatIssuePreview, error)
-	DeferChatDiagnosisRepository(ctx context.Context, transport, id, target string, at time.Time, repoID int64) error
 	DeferConversationTurn(ctx context.Context, turn messagingstate.ConversationTurn) error
 	EnsureConversationWithCapture(ctx context.Context, c messagingstate.Conversation, capture []byte, at time.Time) (messagingstate.Conversation, error)
 	FinishAlertControlMessage(ctx context.Context, channel, source string) error
@@ -66,7 +64,6 @@ type Port interface {
 	PurgeConversationBodies(ctx context.Context, at time.Time) error
 	PurgeConversationEvidence(ctx context.Context, at time.Time) error
 	PurgeNaturalChat(ctx context.Context, at time.Time) error
-	PushConversationDiagnosis(ctx context.Context, r messagingstate.ChatReply, notices []messagingstate.ChatNotice, at time.Time) error
 	QueueChatNotices(ctx context.Context, transport string, notices []messagingstate.ChatNotice) error
 	ReadAlertControlScan(ctx context.Context, channel string) (messagingstate.AlertControlScan, bool, error)
 	ReadAskReplies(ctx context.Context, transport, channel string, limit int) ([]messagingstate.ChatReply, error)
@@ -139,9 +136,6 @@ func (persistence *adapter) ClaimConversationReply(ctx context.Context, transpor
 func (persistence *adapter) ClaimConversationTurn(ctx context.Context, id, worker string, at time.Time, lease time.Duration) (messagingstate.ConversationTurn, error) {
 	return persistence.db.ClaimConversationTurn(ctx, id, worker, at, lease)
 }
-func (persistence *adapter) CompleteChatDiagnosisResult(ctx context.Context, transport, id string, attempt int, text string, at time.Time, status string) error {
-	return persistence.db.CompleteChatDiagnosisResult(ctx, transport, id, attempt, text, at, status)
-}
 func (persistence *adapter) CompleteConversationAnswer(ctx context.Context, t messagingstate.ConversationTurn, state string, a messagingstate.ConversationAnswer, parts []messagingstate.ConversationAnswerPart, at time.Time) error {
 	return persistence.db.CompleteConversationAnswer(ctx, t, state, a, parts, at)
 }
@@ -174,9 +168,6 @@ func (persistence *adapter) ConversationReplyAnswer(ctx context.Context, r messa
 }
 func (persistence *adapter) CurrentChatIssuePreview(ctx context.Context, transport, channel string) (messagingstate.ChatIssuePreview, error) {
 	return persistence.db.CurrentChatIssuePreview(ctx, transport, channel)
-}
-func (persistence *adapter) DeferChatDiagnosisRepository(ctx context.Context, transport, id, target string, at time.Time, repoID int64) error {
-	return persistence.db.DeferChatDiagnosisRepository(ctx, transport, id, target, at, repoID)
 }
 func (persistence *adapter) DeferConversationTurn(ctx context.Context, turn messagingstate.ConversationTurn) error {
 	return persistence.db.DeferConversationTurn(ctx, turn)
@@ -267,9 +258,6 @@ func (persistence *adapter) PurgeConversationEvidence(ctx context.Context, at ti
 }
 func (persistence *adapter) PurgeNaturalChat(ctx context.Context, at time.Time) error {
 	return persistence.db.PurgeNaturalChat(ctx, at)
-}
-func (persistence *adapter) PushConversationDiagnosis(ctx context.Context, r messagingstate.ChatReply, notices []messagingstate.ChatNotice, at time.Time) error {
-	return persistence.db.PushConversationDiagnosis(ctx, r, notices, at)
 }
 func (persistence *adapter) QueueChatNotices(ctx context.Context, transport string, notices []messagingstate.ChatNotice) error {
 	return persistence.db.QueueChatNotices(ctx, transport, notices)

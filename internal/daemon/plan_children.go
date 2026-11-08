@@ -163,11 +163,8 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 				}
 				continue
 			}
-			routed, routeErr := d.admitDoctor(ctx, t.repo, child, comment)
-			if routeErr != nil {
-				return false, routeErr
-			}
-			if routed {
+			// The Doctor runs on a task's own issue, never through a story's parent.
+			if turn.ParseCommand(comment.Body).Kind == turn.KindDoctor {
 				if err := d.db.AdvanceStoryDiscovery(ctx, t.session.ID, draft.IssueNumber, comment.ID); err != nil {
 					return false, err
 				}
