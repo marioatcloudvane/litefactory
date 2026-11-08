@@ -32,7 +32,6 @@ const (
 	bugReasonUnclear          = "no clear answer from the create; checking whether the issue was created"
 	bugReasonMismatch         = "the reply did not match the bug; checking whether the issue was created"
 	bugReasonRateLimited      = "rate limited; retrying after the provider's wait"
-	bugReasonRateLimitedDone  = "rate limited; retries used; nothing was filed"
 	bugReasonUnconfirmed      = "could not confirm the issue was created; nothing was filed again"
 	bugReasonLabelMissing     = "filed but not yet labelled: the bug label is missing; create the bug label first"
 	bugReasonLabelUnclear     = "filed but not yet labelled; retrying the label"
@@ -155,13 +154,14 @@ func (p *bugFilingProcessor) step(ctx context.Context) error {
 	for i := range active {
 		f := active[i]
 		var e error
-		switch f.State {
-		case store.BugFilingCreating:
+		linear := f.Tracker == store.BugTrackerLinear
+		switch {
+		case f.State == store.BugFilingCreating && linear:
 			// One loop drives filings, so a begun create seen here was cut off.
 			e = p.toUncertain(ctx, f, bugReasonRestart)
-		case store.BugFilingUncertain:
+		case f.State == store.BugFilingUncertain && linear:
 			e = p.check(ctx, f)
-		case store.BugFilingAdmitted:
+		case f.State == store.BugFilingAdmitted || f.State == store.BugFilingCreating || f.State == store.BugFilingUncertain:
 			if created || !lastCreate.IsZero() && p.clock().Before(lastCreate.Add(brainstormtasks.CreateSpacing)) {
 				continue
 			}
@@ -171,7 +171,7 @@ func (p *bugFilingProcessor) step(ctx context.Context) error {
 			var did bool
 			did, e = p.create(ctx, f)
 			created = created || did
-		case store.BugFilingCreated:
+		case f.State == store.BugFilingCreated:
 			e = p.label(ctx, f)
 		}
 		if e != nil {
@@ -189,36 +189,57 @@ func (p *bugFilingProcessor) matches(issue bugIssue, f store.BugFiling) bool {
 	return p.bot > 0 && issue.AuthorID == p.bot && issue.Title == f.Title && issue.Body == f.Body && issue.Number > 0 && issue.ID > 0
 }
 
+// bugVisibilityWait is how long an earlier create is given to show up in the
+// bot's issue listing before the filing creates again.
+const bugVisibilityWait = 2 * time.Minute
+
+// create files the bug on GitHub idempotently: an earlier attempt is first
+// looked up by the filing's marker, and only a filing with none found after
+// the listing had time to show it creates again. A duplicate is never filed.
 func (p *bugFilingProcessor) create(ctx context.Context, f store.BugFiling) (bool, error) {
 	if f.Tracker == store.BugTrackerLinear {
 		return p.createLinear(ctx, f)
 	}
-	at := p.clock()
-	begun := f
-	begun.State = store.BugFilingCreating
-	begun.AttemptAt = at
-	begun.ChecksDone = 0
-	begun.NextCheckAt = time.Time{}
-	begun.Reason = ""
-	saved, err := p.save(ctx, begun, store.BugFilingAdmitted)
-	if err != nil || !saved {
+	if !f.AttemptAt.IsZero() {
+		found, reason, err := p.findByMarker(ctx, f)
+		if err != nil {
+			return false, err
+		}
+		next := f
+		switch {
+		case found != nil:
+			next.State = store.BugFilingCreated
+			next.IssueID, next.IssueNodeID, next.IssueNumber, next.IssueLink = found.ID, found.NodeID, found.Number, found.Link
+			next.Reason, next.NextCheckAt = "", time.Time{}
+			_, err = p.save(ctx, next, f.State)
+			return false, err
+		case reason != "":
+			next.State = store.BugFilingNotCreated
+			next.Reason = reason
+			_, err = p.save(ctx, next, f.State)
+			return false, err
+		case p.clock().Before(f.AttemptAt.Add(bugVisibilityWait)):
+			return false, nil
+		}
+	}
+	if err := p.authority(ctx, f); err != nil {
+		if errors.Is(err, errBugFilingRevoked) {
+			next := f
+			next.State = store.BugFilingNotCreated
+			next.Reason = bugReasonRevokedNothing
+			_, e := p.save(ctx, next, f.State)
+			return false, e
+		}
 		return false, err
 	}
-	// The authority check follows the durable begin: a refusal here proves
-	// no write was sent.
-	if err = p.authority(ctx, begun); err != nil {
-		back := begun
-		if errors.Is(err, errBugFilingRevoked) {
-			back.State = store.BugFilingNotCreated
-			back.Reason = bugReasonRevokedNothing
-			_, e := p.save(ctx, back, store.BugFilingCreating)
-			return true, e
-		}
-		back.State = store.BugFilingAdmitted
-		back.AttemptAt = f.AttemptAt
-		back.Reason = f.Reason
-		_, e := p.save(ctx, back, store.BugFilingCreating)
-		return true, errors.Join(err, e)
+	// The durable begin: a restart after it looks the issue up first.
+	begun := f
+	begun.State = store.BugFilingAdmitted
+	begun.AttemptAt = p.clock()
+	begun.NextCheckAt = time.Time{}
+	saved, err := p.save(ctx, begun, f.State)
+	if err != nil || !saved {
+		return false, err
 	}
 	call, cancel := context.WithTimeout(ctx, 30*time.Second)
 	issue, createErr := p.forge.CreateIssue(call, f.RepositoryRef, f.Title, f.Body)
@@ -228,30 +249,52 @@ func (p *bugFilingProcessor) create(ctx context.Context, f store.BugFiling) (boo
 	case createErr == nil && p.matches(issue, f):
 		next.State = store.BugFilingCreated
 		next.IssueID, next.IssueNodeID, next.IssueNumber, next.IssueLink = issue.ID, issue.NodeID, issue.Number, issue.Link
-	case createErr == nil:
-		next.State = store.BugFilingUncertain
-		next.Reason = bugReasonMismatch
-		next.NextCheckAt = at.Add(brainstormtasks.CheckSchedule[0])
+		next.Reason = ""
 	case errors.Is(createErr, github.ErrRateLimited):
-		if f.CreateRetries < brainstormtasks.MaxRateLimitRetries {
-			next.State = store.BugFilingAdmitted
-			next.CreateRetries++
-			next.NextCheckAt = p.clock().Add(retryAfter(createErr))
-			next.Reason = bugReasonRateLimited
-		} else {
-			next.State = store.BugFilingNotCreated
-			next.Reason = bugReasonRateLimitedDone
-		}
-	case featuredraft.KnownCreateFailure(createErr):
+		// Refused before any write: nothing needs looking up first.
+		next.AttemptAt = f.AttemptAt
+		next.NextCheckAt = p.clock().Add(retryAfter(createErr))
+		next.Reason = bugReasonRateLimited
+	case createErr != nil && featuredraft.KnownCreateFailure(createErr):
 		next.State = store.BugFilingNotCreated
 		next.Reason = "refused before any write (" + bugRefusal(createErr) + "); nothing was filed"
 	default:
-		next.State = store.BugFilingUncertain
 		next.Reason = bugReasonUnclear
-		next.NextCheckAt = at.Add(brainstormtasks.CheckSchedule[0])
 	}
-	_, err = p.save(ctx, next, store.BugFilingCreating)
+	_, err = p.save(ctx, next, store.BugFilingAdmitted)
 	return true, err
+}
+
+// findByMarker looks for the issue an earlier create may have filed. It
+// returns the one matching issue, or a reason when issues carry the marker but
+// cannot be adopted, or neither when nothing carries it yet.
+func (p *bugFilingProcessor) findByMarker(ctx context.Context, f store.BugFiling) (*bugIssue, string, error) {
+	since := f.CreatedAt.Add(-brainstormtasks.ListingLookback)
+	call, cancel := context.WithTimeout(ctx, time.Minute)
+	issues, err := p.forge.ListBotIssues(call, f.RepositoryRef, since)
+	cancel()
+	if err != nil {
+		return nil, "", err
+	}
+	var found []bugIssue
+	for _, issue := range issues {
+		if (issue.CreatedAt.IsZero() || !issue.CreatedAt.Before(since)) && bugMarkerLine(issue.Body, f.Marker) {
+			found = append(found, issue)
+		}
+	}
+	switch {
+	case len(found) == 1 && p.matches(found[0], f):
+		return &found[0], "", nil
+	case len(found) == 1:
+		return nil, fmt.Sprintf("an issue carries this bug's marker but differs: #%d", found[0].Number), nil
+	case len(found) > 1:
+		numbers := make([]string, len(found))
+		for i, m := range found {
+			numbers[i] = fmt.Sprintf("#%d", m.Number)
+		}
+		return nil, "several issues carry this bug's marker: " + strings.Join(numbers, ", "), nil
+	}
+	return nil, "", nil
 }
 
 func retryAfter(err error) time.Duration {
@@ -287,8 +330,8 @@ func (p *bugFilingProcessor) toUncertain(ctx context.Context, f store.BugFiling,
 	return err
 }
 
-// check runs one due delayed-visibility check. It only reads, so it runs
-// after a revocation too, and it never creates.
+// check runs one due delayed-visibility check of a Linear create. It only
+// reads, so it runs after a revocation too, and it never creates.
 func (p *bugFilingProcessor) check(ctx context.Context, f store.BugFiling) error {
 	schedule := brainstormtasks.CheckSchedule
 	due := f.NextCheckAt
@@ -300,41 +343,7 @@ func (p *bugFilingProcessor) check(ctx context.Context, f store.BugFiling) error
 	}
 	next := f
 	next.ChecksDone++
-	if f.Tracker == store.BugTrackerLinear {
-		p.checkLinear(ctx, f, &next)
-		return p.finishCheck(ctx, f, next, schedule)
-	}
-	since := f.CreatedAt.Add(-brainstormtasks.ListingLookback)
-	call, cancel := context.WithTimeout(ctx, time.Minute)
-	issues, err := p.forge.ListBotIssues(call, f.RepositoryRef, since)
-	cancel()
-	if err != nil {
-		next.Reason = "the check could not list issues; nothing was filed again"
-	} else {
-		var found []bugIssue
-		for _, issue := range issues {
-			if (issue.CreatedAt.IsZero() || !issue.CreatedAt.Before(since)) && bugMarkerLine(issue.Body, f.Marker) {
-				found = append(found, issue)
-			}
-		}
-		switch {
-		case len(found) == 1 && p.matches(found[0], f):
-			next.State = store.BugFilingCreated
-			next.IssueID, next.IssueNodeID, next.IssueNumber, next.IssueLink = found[0].ID, found[0].NodeID, found[0].Number, found[0].Link
-			next.Reason = ""
-			next.NextCheckAt = time.Time{}
-		case len(found) == 1:
-			next.Reason = fmt.Sprintf("an issue carries this bug's marker but differs: #%d", found[0].Number)
-		case len(found) > 1:
-			numbers := make([]string, len(found))
-			for i, m := range found {
-				numbers[i] = fmt.Sprintf("#%d", m.Number)
-			}
-			next.Reason = "several issues carry this bug's marker: " + strings.Join(numbers, ", ")
-		default:
-			next.Reason = "checking whether the issue was created; not found yet"
-		}
-	}
+	p.checkLinear(ctx, f, &next)
 	return p.finishCheck(ctx, f, next, schedule)
 }
 

@@ -107,7 +107,7 @@ func TestClaimGraphOwnerReply_PredatingCommentAnswersQuestion(t *testing.T) {
 		"wrong question": func(in *GraphOwnerReply) { in.QuestionCommentID = 99 },
 		"not the owner":  func(in *GraphOwnerReply) { in.AuthorID = 8 },
 		"forged source":  func(in *GraphOwnerReply) { in.SourceRef = "github:acme/other#1" },
-		"private id":     func(in *GraphOwnerReply) { in.CommentID = BugStartTrigger(1) },
+		"private id":     func(in *GraphOwnerReply) { in.CommentID = factoryTriggerFloor + 1 },
 	} {
 		bad := reply
 		bad.CommentID = 100

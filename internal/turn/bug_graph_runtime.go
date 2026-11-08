@@ -94,9 +94,6 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 	untouched := false
 	if e == nil && instance.Status == store.GraphRunning && req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.cfg.OwnerID {
 		untouched, e = r.untouchedGraphLaunch(ctx, instance)
-		if e == nil && !untouched && !store.IsFactoryTrigger(req.Trigger.CommentID) {
-			untouched, e = r.stoppedGraphLaunch(ctx, instance)
-		}
 		if e != nil {
 			return store.WorkflowAdmission{}, e
 		}
@@ -195,19 +192,6 @@ func (r *BugRuntime) untouchedGraphLaunch(ctx context.Context, instance store.Gr
 		return false, err
 	}
 	return true, nil
-}
-
-// stoppedGraphLaunch widens the untouched shape by the stopped-start state
-// the store judges for the bug filing start step too: every run ended before
-// any analyst work was recorded, each run launched for this instance. The
-// caller admits only a forge comment outside every private range by the owner.
-func (r *BugRuntime) stoppedGraphLaunch(ctx context.Context, instance store.GraphInstance) (bool, error) {
-	start := r.definition.Profile.Start
-	analyst, _ := bugRoleNodes(r.definition.Profile)
-	if analyst == "" || analyst == start || (instance.CurrentNode != start && instance.CurrentNode != analyst) {
-		return false, nil
-	}
-	return r.opts.DB.StoppedBugLaunch(ctx, instance, analyst)
 }
 
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {

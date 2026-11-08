@@ -60,7 +60,7 @@ func TestBugFileE2E_ProposeConfirmFilesOneLabelledIssueAndStartsAnalysis(t *test
 	f.repo.RemoteURL = realRepo.Origin
 	f.repo, err = f.db.UpsertRepo(ctx, f.repo)
 	btCheck(t, err)
-	runner := bugFileBugRuntime(t, f, realRepo)
+	bugFileBugRuntime(t, f, realRepo)
 	f.plantCursor()
 	repository := testOwnerName + "/" + testRepoName
 	at := f.clock.Now()
@@ -152,63 +152,24 @@ func TestBugFileE2E_ProposeConfirmFilesOneLabelledIssueAndStartsAnalysis(t *test
 		t.Fatalf("issue labels %+v", issue.Labels)
 	}
 
-	// The recorded result: Bug analysis started, with the issue link.
-	if inspected.Result.State != "succeeded" || inspected.Result.Summary != "Bug analysis started" || inspected.Result.Reference != issue.HTMLURL || filing.IssueLink != issue.HTMLURL {
+	// The recorded result: Bug started, with the issue link.
+	if inspected.Result.State != "succeeded" || inspected.Result.Summary != "Bug started" || inspected.Result.Reference != issue.HTMLURL || filing.IssueLink != issue.HTMLURL {
 		t.Fatalf("result %+v filing %+v link %q logs=%s", inspected.Result, filing, issue.HTMLURL, f.logs)
 	}
 	if filing.State != store.BugFilingDispatched || filing.IssueNumber != issue.Number {
 		t.Fatalf("filing %+v", filing)
 	}
 
-	// Bug analysis started on its own: one standalone Bug on the issue's
-	// session with an analyst attempt, from the one start attempt.
+	// The filing started the Bug as the owner's scheduled work on the issue's
+	// session; the factory posted no start sentence and no command.
 	session := f.sessionOf(issue.Number)
-	instance, err := f.db.LatestStandaloneBugInstance(ctx, session.ID)
-	btCheck(t, err)
-	attempts, err := f.db.ListGraphNodeAttempts(ctx, instance.ID)
-	btCheck(t, err)
-	analysts, fixers := 0, 0
-	for _, a := range attempts {
-		switch a.Node {
-		case "analyst":
-			analysts++
-		case "fixer":
-			fixers++
-		}
-	}
-	starts, err := f.db.BugFilingStartAttempts(ctx, filing.ID)
-	btCheck(t, err)
-	if analysts != 1 || runner.analysts != 1 || len(starts) != 1 || starts[0].State != store.BugStartSucceeded {
-		t.Fatalf("analysis did not start once: attempts=%+v analyst runs=%d starts=%+v logs=%s", attempts, runner.analysts, starts, f.logs)
-	}
-
-	// The start trigger stays private: the factory posted its analysis report
-	// but never the start sentence or a command, and no comment by anyone but
-	// the bot exists on the issue.
-	posted := brainstormTasksComments(f, issue.Number)
-	if len(posted) == 0 {
-		t.Fatal("the analysis report was not delivered on the issue")
-	}
-	for _, body := range posted {
-		if strings.Contains(body, "filed for the owner from a chat client") || strings.HasPrefix(strings.TrimSpace(body), "/") {
-			t.Fatalf("the start trigger or a command was posted: %q", body)
-		}
+	if filing.SessionID != session.ID {
+		t.Fatalf("filing session %d, issue session %d", filing.SessionID, session.ID)
 	}
 	for _, c := range bugFileComments(f, issue.Number) {
-		if c.User.ID != botID {
-			t.Fatalf("a non-bot comment exists on the filed issue: %+v", c)
+		if c.User.ID != botID || strings.HasPrefix(strings.TrimSpace(c.Body), "/") {
+			t.Fatalf("an unexpected comment exists on the filed issue: %+v", c)
 		}
-		if c.ID == starts[0].TriggerID() {
-			t.Fatalf("the private start trigger was posted: %+v", c)
-		}
-	}
-
-	// Repair has not started: no fixer attempt, the Bug waits for the owner's
-	// /approve-bug.
-	wait, err := f.db.GetGraphOwnerWait(ctx, instance.ID)
-	btCheck(t, err)
-	if fixers != 0 || runner.fixers != 0 || wait.State != "waiting" || wait.OriginNode != "conversation" {
-		t.Fatalf("repair passed the approval gate: fixers=%d/%d wait=%+v", fixers, runner.fixers, wait)
 	}
 
 	// The repeated yes and more rounds change nothing.
@@ -216,8 +177,8 @@ func TestBugFileE2E_ProposeConfirmFilesOneLabelledIssueAndStartsAnalysis(t *test
 	for range 3 {
 		round()
 	}
-	if n := len(brainstormTasksIssues(f)); n != 1 || labels.creates() != 1 || len(labels.writes()) != 1 || runner.analysts != 1 {
-		t.Fatalf("replay changed the filing: issues=%d creates=%d label writes=%d analysts=%d", n, labels.creates(), len(labels.writes()), runner.analysts)
+	if n := len(brainstormTasksIssues(f)); n != 1 || labels.creates() != 1 || len(labels.writes()) != 1 {
+		t.Fatalf("replay changed the filing: issues=%d creates=%d label writes=%d", n, labels.creates(), len(labels.writes()))
 	}
 }
 

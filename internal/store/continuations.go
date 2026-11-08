@@ -55,7 +55,11 @@ func IsAutomaticTrigger(id int64) bool { return id > automaticTriggerBase && id 
 // automatic recovery and schedule) lies above every comment id a forge will
 // ever produce. Code asking "is this a real owner comment" asks this; only code
 // that needs to know which kind of factory work names a band.
-func IsFactoryTrigger(id int64) bool { return id > bugStartTriggerBase }
+func IsFactoryTrigger(id int64) bool { return id > factoryTriggerFloor }
+
+// factoryTriggerFloor is the lowest synthetic band ever minted, the retired
+// Bug start band, whose historical rows still name factory work.
+const factoryTriggerFloor int64 = 1 << 55
 
 // FinishInterruptedRun commits evidence and its optional continuation together.
 // Replayed completion returns the immutable original decision, even after report.

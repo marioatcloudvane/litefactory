@@ -353,7 +353,7 @@ func (db *DB) IsLegacyReportRun(ctx context.Context, runID int64) (bool, error) 
 // session whose report is still owed, oldest first. Their comments are already
 // consumed; only the post remains, and it is retried without holding the queue.
 func (db *DB) PendingCommentReportTriggers(ctx context.Context, sessionID, upTo int64) ([]int64, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT DISTINCT trigger_id FROM report_deliveries WHERE session_id=? AND completed=0 AND doctor_command_id IS NULL AND trigger_namespace='comment' AND trigger_id>0 AND trigger_id<=? AND trigger_id<=? ORDER BY trigger_id`, sessionID, upTo, bugStartTriggerBase)
+	rows, err := db.sql.QueryContext(ctx, `SELECT DISTINCT trigger_id FROM report_deliveries WHERE session_id=? AND completed=0 AND doctor_command_id IS NULL AND trigger_namespace='comment' AND trigger_id>0 AND trigger_id<=? AND trigger_id<=? ORDER BY trigger_id`, sessionID, upTo, factoryTriggerFloor)
 	if err != nil {
 		return nil, err
 	}
