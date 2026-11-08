@@ -149,14 +149,11 @@ func (req Request) Validate() error {
 		}
 	}
 
-	if err := req.ValidateBugAnalyst(); err != nil {
-		return err
-	}
 	if req.Invocation != "" && req.Invocation != InvocationResearchNode {
 		return invalidRequest("unsupported invocation kind")
 	}
 	if req.Invocation == InvocationResearchNode {
-		if (!Mode(req.Mode).Valid() && (req.Workflow != WorkflowBug || req.Mode != "")) || req.Graph == nil || req.Graph.InstanceID < 1 || req.Graph.AttemptID < 1 || req.Graph.RunID < 1 || req.Graph.Node == "" {
+		if !Mode(req.Mode).Valid() || req.Graph == nil || req.Graph.InstanceID < 1 || req.Graph.AttemptID < 1 || req.Graph.RunID < 1 || req.Graph.Node == "" {
 			return invalidRequest("graph node requires factory graph identity and valid mode")
 		}
 	} else if req.Graph != nil {
@@ -200,7 +197,7 @@ func (req Request) Validate() error {
 	if req.Session.Ref == "" {
 		return invalidRequest("session ref is empty")
 	}
-	if strings.TrimSpace(req.Mode) == "" && req.Workflow != WorkflowBug {
+	if strings.TrimSpace(req.Mode) == "" {
 		return invalidRequest("mode is empty")
 	}
 	switch req.Path {

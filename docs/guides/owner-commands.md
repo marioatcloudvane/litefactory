@@ -79,7 +79,6 @@ comment shows the exact text to copy.
 | `/approve-plan <story-key> <stage> <candidate>` | Approves one stage (`story`, `technical` or `acceptance`) of one story. Post it on the story's sub-issue or on the parent. The command must be the whole first line; lines below it are guidance for the next stage. | Does not approve a stage that was changed since the review. |
 | `/approve-plan-set <ref>` | Approves the final assembled plan, once every story has all three stages approved. | Does not start Implement. |
 | `/plan-new-story` | Reserves one more story key. Exact text, nothing else in the comment. | Does not write the story; Plan does that next. |
-| `/approve-bug analysis <revision>` | On a Bug task, approves the posted analysis so the fix starts. | Does not work on a task that is not a Bug task. |
 
 A displayed Plan stage also accepts `/approve-plan` or `/approve-plan d-…`;
 the assembled plan accepts `/approve-plan-set` or `/approve-plan-set d-…`.

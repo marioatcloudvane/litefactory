@@ -2,7 +2,6 @@ package daemon_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -17,17 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/connector"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
-	"github.com/cloudvane/litefactory/internal/daemon"
-	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/owneraction"
-	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 // AC-001 main path: the owner's bug is proposed through bug_file_propose, the
@@ -60,7 +54,6 @@ func TestBugFileE2E_ProposeConfirmFilesOneLabelledIssueAndStartsAnalysis(t *test
 	f.repo.RemoteURL = realRepo.Origin
 	f.repo, err = f.db.UpsertRepo(ctx, f.repo)
 	btCheck(t, err)
-	bugFileBugRuntime(t, f, realRepo)
 	f.plantCursor()
 	repository := testOwnerName + "/" + testRepoName
 	at := f.clock.Now()
@@ -180,43 +173,6 @@ func TestBugFileE2E_ProposeConfirmFilesOneLabelledIssueAndStartsAnalysis(t *test
 	if n := len(brainstormTasksIssues(f)); n != 1 || labels.creates() != 1 || len(labels.writes()) != 1 {
 		t.Fatalf("replay changed the filing: issues=%d creates=%d label writes=%d", n, labels.creates(), len(labels.writes()))
 	}
-}
-
-// bugFileBugRuntime installs the real Bug graph runtime with the controlled
-// Codex runner on the fixture's daemon, as TestCodexBugAgentMainPath does.
-func bugFileBugRuntime(t *testing.T, f *fixture, repo *gittest.Repo) *bugPathRunner {
-	t.Helper()
-	ctx := t.Context()
-	binary, err := git.Resolve(ctx)
-	btCheck(t, err)
-	home, err := os.MkdirTemp("/tmp", "lf-bug-file-")
-	btCheck(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	home, err = filepath.EvalSymlinks(home)
-	btCheck(t, err)
-	paths := config.NewPaths(home)
-	authority, err := turn.NewAttemptAuthority(ctx, f.db)
-	btCheck(t, err)
-	t.Cleanup(func() { _ = authority.Close(context.WithoutCancel(ctx)) })
-	cfg := config.Defaults()
-	claude, codexConfig := config.DefaultClaude(), config.DefaultCodex()
-	cfg.Agents = config.Agents{Claude: &claude, Codex: &codexConfig}
-	judge := &turn.JudgeService{DB: f.db, Config: &cfg, Providers: map[agent.Kind]agent.JudgeRunner{"codex": &bugPathJudge{controlledJudge: &controlledJudge{}}}, Paths: paths, Executable: "/usr/bin/false", Git: binary, Redactor: redact.New(redact.Options{Logger: f.logger})}
-	runner := &bugPathRunner{repo: repo}
-	runners := turn.RunnerSet{"codex": runner, "claude": bugPathUnexpectedRunner{}}
-	opts := turn.Options{DB: f.db, Git: binary, Runners: runners, CloneGate: &bugPathGate{}, Paths: paths, InstanceID: "daemon-instance-test", Author: git.Author{Name: "Fixture", Email: "fixture@example.invalid"}, Logger: f.logger, ResearchReporter: f.reporter, Judge: judge, ConflictContentMaxBytes: 65536, Tiers: cfg.Tiers,
-		MCP: &turn.MCPRuntime{Authority: authority, Paths: paths, Executable: "/usr/bin/false", Now: time.Now, Comments: f.client, BotID: botID, Redactor: redact.New(redact.Options{Logger: f.logger})}, WorkflowSource: bugPathWorkflowSource}
-	runtime, err := turn.NewGraphBugRuntime(ctx, opts, turn.BugRuntimeConfig{Code: &bugPathForge{f: f, repo: repo}, Tickets: &bugPathForge{f: f, repo: repo}, OwnerID: ownerID, Permissions: func(_ agent.Kind, role string) (turn.BugRolePermissions, error) {
-		if role == "bug-fixer" {
-			return turn.BugRolePermissions{Sandbox: "workspace-write"}, nil
-		}
-		return turn.BugRolePermissions{Sandbox: "read-only"}, nil
-	}})
-	btCheck(t, err)
-	opts.Bug = runtime
-	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) { return turn.Execute(ctx, opts, req) })
-	f.daemon = f.newDaemon(daemon.Options{Bug: runtime, BugAgent: "codex", Agents: runners, Judge: judge})
-	return runner
 }
 
 func bugFileComments(f *fixture, issue int) []fakeComment {

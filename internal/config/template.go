@@ -234,7 +234,7 @@ tool_profiles:
 		codex.Binary, codex.ModelTier,
 		renderModelByTier(d.Tiers.ModelByTier),
 	)
-	for _, name := range []string{"research", "plan", "implement", "validate", ValidateRepairProfile, "bug-analyst", "bug-fixer", SpikeInvestigatorProfile, SpikeFixerProfile} {
+	for _, name := range []string{"research", "plan", "implement", "validate", ValidateRepairProfile, BugProfile, SpikeInvestigatorProfile, SpikeFixerProfile} {
 		profile := profiles.Permissions[name]
 		fmt.Fprintf(&b, "    %s: {sandbox: %s, attachments: %t}\n", name, profile.Sandbox, profile.Attachments)
 	}

@@ -2,10 +2,10 @@ package agent
 
 import "fmt"
 
-// Workflow is the closed execution identity. Bug is standalone, not a Mode.
+// Workflow is the closed execution identity; each maps to one Mode.
 type Workflow string
 
-// Supported workflow identities include the five modes and standalone Bug.
+// Supported workflow identities, one per mode.
 const (
 	WorkflowResearch  Workflow = "research"
 	WorkflowPlan      Workflow = "plan"
@@ -15,7 +15,7 @@ const (
 	WorkflowBug       Workflow = "bug"
 )
 
-// WorkflowForMode maps only the five supported modes.
+// WorkflowForMode maps each supported mode.
 func WorkflowForMode(m Mode) (Workflow, bool) {
 	switch m {
 	case ModeResearch:
@@ -28,12 +28,14 @@ func WorkflowForMode(m Mode) (Workflow, bool) {
 		return WorkflowValidate, true
 	case ModeSpike:
 		return WorkflowSpike, true
+	case ModeBug:
+		return WorkflowBug, true
 	default:
 		return "", false
 	}
 }
 
-// Mode returns the compatibility mode; standalone workflows have none.
+// Mode returns the workflow's mode.
 func (w Workflow) Mode() (Mode, bool) {
 	switch w {
 	case WorkflowResearch:
@@ -46,13 +48,15 @@ func (w Workflow) Mode() (Mode, bool) {
 		return ModeValidate, true
 	case WorkflowSpike:
 		return ModeSpike, true
+	case WorkflowBug:
+		return ModeBug, true
 	default:
 		return "", false
 	}
 }
 
 // Valid rejects unknown workflow identities.
-func (w Workflow) Valid() bool { _, ok := w.Mode(); return ok || w == WorkflowBug }
+func (w Workflow) Valid() bool { _, ok := w.Mode(); return ok }
 
 // ResolveWorkflow validates an explicit binding or maps a historical mode.
 func ResolveWorkflow(w Workflow, m Mode) (Workflow, error) {

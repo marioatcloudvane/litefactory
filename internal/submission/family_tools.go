@@ -28,7 +28,7 @@ func NewFamilyToolProfile(mode string, installed []string) (ToolProfile, error) 
 
 func familyAllowed(mode string, name string) bool {
 	if name == "standards_read" || name == "standards_categories" {
-		return slices.Contains([]string{"research", "spike", "plan", "implement", "validate"}, mode)
+		return slices.Contains([]string{"research", "spike", "bug", "plan", "implement", "validate"}, mode)
 	}
 	if mode != "research" && mode != "implement" && mode != "validate" {
 		return false

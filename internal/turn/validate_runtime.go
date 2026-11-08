@@ -26,13 +26,13 @@ import (
 // the run-slot pool the reviewers take their slots from.
 type ValidateRuntimeConfig struct {
 	Forge   ValidateForge
-	Code    BugCodeForge
+	Code    DeliveryCodeForge
 	Tickets ValidateTickets
 	OwnerID int64
 	Slots   ValidateSlots
 	// Permissions resolves the operator's validate-repair grant for the one
 	// Validate node that writes. Nil refuses that node; reviewers never use it.
-	Permissions func(agent.Kind, string) (BugRolePermissions, error)
+	Permissions func(agent.Kind, string) (RolePermissions, error)
 	// FactoryBugs files owner-confirmed upstream factory Bugs through the
 	// log-analysis filing path. Nil leaves each confirmation failed with why.
 	FactoryBugs ValidateFactoryBugFiler

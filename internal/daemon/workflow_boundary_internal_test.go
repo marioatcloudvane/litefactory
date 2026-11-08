@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -81,23 +79,6 @@ func TestWorkflowBoundaryUnreadableLabelsAndCancellation(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestWorkflowBoundaryBugCannotBorrowPermissions(t *testing.T) {
-	profiles := config.DefaultToolProfiles().Permissions
-	profiles["bug"] = profiles["implement"]
-	d := &Daemon{toolProfiles: config.ToolProfiles{Permissions: profiles}}
-	for _, kind := range []agent.Kind{agent.Kind(config.KindClaude), agent.Kind(config.KindCodex)} {
-		for _, mode := range []agent.Mode{"", agent.ModeResearch, agent.ModeImplement} {
-			got, ok := d.resolveWorkflowTools(agent.WorkflowBug, mode, kind)
-			if ok || got.Profile != "" || len(got.Tools) != 0 || len(got.AllowedTools) != 0 || got.Sandbox != "" || got.Attachments {
-				t.Fatalf("Bug borrowed %s/%s permissions: %+v %v", mode, kind, got, ok)
-			}
-		}
-		if _, ok := d.resolveWorkflowTools(agent.WorkflowResearch, agent.ModeResearch, kind); !ok {
-			t.Fatalf("compatible research permissions refused for %s", kind)
-		}
 	}
 }
 

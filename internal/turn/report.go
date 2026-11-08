@@ -895,7 +895,7 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 	if err != nil {
 		return report.Run{}, err
 	}
-	executions, err := r.executionRunEvidence(ctx, result.Run, 0)
+	executions, err := r.executionRunEvidence(ctx, result.Run)
 	if err != nil {
 		return report.Run{}, err
 	}

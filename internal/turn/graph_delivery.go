@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -18,9 +17,9 @@ import (
 // DeliveryOperations are workflow-neutral remote operations. Admission remains
 // in the workflow adapter; these gateways confer no approval of their own.
 type DeliveryOperations interface {
-	BugPRForge
-	BugMergeForge
-	BugCloseForge
+	DeliveryPRForge
+	DeliveryMergeForge
+	DeliveryCloseForge
 }
 
 // GraphDeliveryBinding names the issue, branch and target a repair is delivered to.
@@ -35,7 +34,6 @@ type GraphDeliveryBinding struct {
 	Summary                               string
 	RunID, SourceAttemptID                int64
 	BaseCommit                            string
-	Eligibility                           GraphBugRepairEligibility
 }
 
 // GraphDelivery delivers an authorized candidate by reconciling against git
@@ -45,10 +43,9 @@ type GraphDeliveryBinding struct {
 // reply re-runs this step from the top.
 type GraphDelivery struct {
 	Forge    DeliveryOperations
-	Code     BugCodeForge
-	Tickets  BugCloseForge
+	Code     DeliveryCodeForge
+	Tickets  DeliveryCloseForge
 	Redactor *redact.Redactor
-	Resolve  func(context.Context, Options, ActivityRequest, GraphBugRepairEligibility) (GraphDeliveryBinding, error)
 	// Save commits the worktree (a no-op when clean) and returns HEAD.
 	Save func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error)
 	// SyncBase synchronizes the saved head; any changed source requires revalidation.
@@ -56,9 +53,7 @@ type GraphDelivery struct {
 	// Operation limits effects; empty retains the legacy all-in-one Bug wrapper.
 	Operation  string
 	ExpectedPR int
-	// Inspect reads the saved candidate and current remote base without saving.
-	Inspect func(context.Context, GraphDeliveryBinding) (string, string, error)
-	// Bind supplies workflow-neutral admission instead of the legacy Bug adapter.
+	// Bind supplies the workflow-neutral delivery binding.
 	Bind func(context.Context, Options, ActivityRequest) (GraphDeliveryBinding, error)
 	// PublishSaved pushes the task branch. It skips the push when the remote
 	// branch is already at head, and accepts a rejected push when re-reading the
@@ -99,20 +94,10 @@ func (h GraphDelivery) Execute(ctx context.Context, opts Options, req ActivityRe
 		}
 		return ActivityResult{Outcome: outcome, Diagnostic: diagnostic, Kind: store.GraphOutputJSON, Output: raw}, e
 	}
-	if opts.DB == nil || (h.Code == nil || h.Tickets == nil) || h.Redactor == nil || (h.Resolve == nil && h.Bind == nil) || h.Save == nil || h.PublishSaved == nil || h.SyncBase == nil || (h.Bind == nil && (req.Workflow != agent.WorkflowBug || req.Mode != "")) {
+	if opts.DB == nil || (h.Code == nil || h.Tickets == nil) || h.Redactor == nil || h.Bind == nil || h.Save == nil || h.PublishSaved == nil || h.SyncBase == nil {
 		return ActivityResult{}, errors.New("incomplete graph finalization factory bindings")
 	}
-	var binding GraphDeliveryBinding
-	var e error
-	if h.Bind != nil {
-		binding, e = h.Bind(ctx, opts, req)
-	} else {
-		var eligibility GraphBugRepairEligibility
-		eligibility, e = CurrentGraphBugRepairEligibility(ctx, opts.DB, req.InstanceID)
-		if e == nil {
-			binding, e = h.Resolve(ctx, opts, req, eligibility)
-		}
-	}
+	binding, e := h.Bind(ctx, opts, req)
 	if e != nil {
 		return finish("blocked", "Resolving authorized delivery failed: "+e.Error())
 	}
@@ -122,52 +107,7 @@ func (h GraphDelivery) Execute(ctx context.Context, opts Options, req ActivityRe
 	if h.Operation != "" && h.Operation != "push" && h.Operation != "merge" && h.Operation != "close" {
 		return ActivityResult{}, errors.New("invalid delivery operation")
 	}
-	var head string
-	if h.Operation != "" && h.Bind == nil {
-		if h.Inspect == nil {
-			return finish("blocked", "Delivery requires read-only candidate inspection")
-		}
-		if h.Operation == "push" {
-			if _, err := h.Save(ctx, opts, req, binding); err != nil {
-				return finish("blocked", err.Error())
-			}
-		}
-		actual, base, err := h.Inspect(ctx, binding)
-		if err != nil {
-			return finish("blocked", err.Error())
-		}
-		if h.Operation == "push" {
-			head = actual
-			binding.BaseCommit = base
-		} else {
-			var prepared graphDeliveryProgress
-			raw, err := opts.DB.LatestGraphRecord(ctx, req.InstanceID, "delivery_prepared")
-			if err == nil {
-				err = json.Unmarshal(raw, &prepared)
-			}
-			if err != nil {
-				return finish("blocked", "No prepared delivery: "+err.Error())
-			}
-			prior := prepared.Binding
-			if prior.SessionID != binding.SessionID || prior.Repository != binding.Repository || prior.TicketRepository != binding.TicketRepository || prior.IssueID != binding.IssueID || prior.Branch != binding.Branch || prior.Target != binding.Target || prior.Eligibility.AttemptID != binding.Eligibility.AttemptID || prepared.Commit != actual {
-				return finish("revalidate", "The checked delivery candidate changed")
-			}
-			binding.BaseCommit = prior.BaseCommit
-			// A merged candidate can be reconciled even after its base advances.
-			remote, err := h.Code.GetDeliveryPR(ctx, binding.Repository, prepared.PR.Number)
-			if err != nil {
-				return finish("blocked", err.Error())
-			}
-			if remote.Head != actual || remote.Branch != binding.Branch || remote.Target != binding.Target || (!remote.Merged && base != binding.BaseCommit) {
-				return finish("revalidate", "The checked pull request or base changed")
-			}
-			head = actual
-			h.ExpectedPR = prepared.PR.Number
-		}
-		out.Binding = binding
-	} else {
-		head, e = h.Save(ctx, opts, req, binding)
-	}
+	head, e := h.Save(ctx, opts, req, binding)
 	if e != nil {
 		return finish("blocked", "Saving the repair failed: "+e.Error())
 	}
@@ -314,12 +254,6 @@ func (h GraphDelivery) findPR(ctx context.Context, b GraphDeliveryBinding, head 
 func (h GraphDelivery) presentation(ctx context.Context, b GraphDeliveryBinding) (redact.Body, redact.Body, error) {
 	summary := b.Summary
 	prefix := "Change: "
-	contextLine := ""
-	if summary == "" {
-		summary = b.Eligibility.Repair.Summary
-		prefix = "Bug repair: "
-		contextLine = " Approved diagnosis: " + b.Eligibility.Handoff.Candidate.Digest
-	}
 	// Neutralize automatic closure phrases in untrusted summaries. The factory
 	// closes the issue itself after the merge, never through a PR keyword.
 	summary = regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b`).ReplaceAllString(summary, "address")
@@ -329,7 +263,7 @@ func (h GraphDelivery) presentation(ctx context.Context, b GraphDeliveryBinding)
 	if e != nil {
 		return redact.Body{}, redact.Body{}, e
 	}
-	body, e := h.Redactor.Apply(ctx, fmt.Sprintf("%s\n\nIssue %s.%s\n\n%s", summary, b.displayReference(), contextLine, b.Marker), 65536)
+	body, e := h.Redactor.Apply(ctx, fmt.Sprintf("%s\n\nIssue %s.\n\n%s", summary, b.displayReference(), b.Marker), 65536)
 	return title, body, e
 }
 
@@ -363,7 +297,7 @@ func (b GraphDeliveryBinding) displayReference() string {
 
 // reconcileDeliveryMerge observes a sent merge even when its reply is lost.
 // Callers retain their workflow's retry/uncertainty policy and authorization.
-func reconcileDeliveryMerge(ctx context.Context, code BugCodeForge, repo github.Repo, number int, head string) (github.DeliveryPR, error, error) {
+func reconcileDeliveryMerge(ctx context.Context, code DeliveryCodeForge, repo github.Repo, number int, head string) (github.DeliveryPR, error, error) {
 	mergeErr := code.MergeDeliveryPR(ctx, repo, number, head)
 	observed, readErr := code.GetDeliveryPR(ctx, repo, number)
 	return observed, mergeErr, readErr

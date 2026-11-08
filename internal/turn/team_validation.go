@@ -14,7 +14,7 @@ import (
 )
 
 func validateMappedWorkflows(ctx context.Context, source fs.FS, workflows map[string]string) error {
-	builders := map[string]func() (graphexec.Registry, error){"research": ResearchSpecs, "plan": PlanSpecs, "implement": ImplementSpecs, "validate": ValidateFlowSpecs, "spike": SpikeSpecs, "bug": SimplifiedBugSpecs}
+	builders := map[string]func() (graphexec.Registry, error){"research": ResearchSpecs, "plan": PlanSpecs, "implement": ImplementSpecs, "validate": ValidateFlowSpecs, "spike": SpikeSpecs, "bug": BugSpecs}
 	modes := make([]string, 0, len(workflows))
 	for mode := range workflows {
 		modes = append(modes, mode)

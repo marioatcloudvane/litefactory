@@ -51,8 +51,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 		}
 		break
 	}
-	workflow := graphReplyWorkflow(mode)
-	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, workflow)
+	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, mode)
 	if errors.Is(err, store.ErrNotFound) {
 		return trigger, nil
 	}
@@ -70,9 +69,6 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 	}
 	if err != nil {
 		return trigger, err
-	}
-	if workflow == "bug" && wait.OriginNode == "" {
-		return trigger, nil
 	}
 	if wait.State == "claimed" {
 		if wait.ReplySource == "chat" && store.IsGraphTrigger(trigger.CommentID) {
@@ -132,7 +128,7 @@ func AdmitGraphOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID
 	if err != nil {
 		return wait, err
 	}
-	return db.ClaimGraphOwnerReply(ctx, store.GraphOwnerReply{InstanceID: instanceID, OwnerID: ownerID, AuthorID: comment.Author.ID, CommentID: comment.ID, ReplyToCommentID: comment.ReplyToCommentID, QuestionCommentID: delivery.CommentID, TaskRef: taskRef, SourceRef: sourceRef, Mode: mode, Workflow: graphReplyWorkflow(mode), DeliveryKey: wait.DeliveryKey, Body: comment.Body, At: at})
+	return db.ClaimGraphOwnerReply(ctx, store.GraphOwnerReply{InstanceID: instanceID, OwnerID: ownerID, AuthorID: comment.Author.ID, CommentID: comment.ID, ReplyToCommentID: comment.ReplyToCommentID, QuestionCommentID: delivery.CommentID, TaskRef: taskRef, SourceRef: sourceRef, Mode: mode, Workflow: mode, DeliveryKey: wait.DeliveryKey, Body: comment.Body, At: at})
 }
 
 // AdmitResearchOwnerReply supplies the production Research mode fence.
@@ -141,25 +137,6 @@ func AdmitResearchOwnerReply(ctx context.Context, db *store.DB, instanceID, owne
 		return store.GraphOwnerWait{}, errors.New("research owner admission mode mismatch")
 	}
 	return AdmitGraphOwnerReply(ctx, db, instanceID, ownerID, taskRef, sourceRef, mode, comment, at)
-}
-
-// graphReplyWorkflow binds standalone Bug's empty effective mode without
-// treating empty mode as a generic continuation grant.
-func graphReplyWorkflow(mode string) string {
-	if mode == "" {
-		return "bug"
-	}
-	return mode
-}
-
-// AdmitBugOwnerReply resumes the published current stop only; it creates no
-// diagnosis approval. Command precedence is enforced before ordinary admission.
-func AdmitBugOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID int64, taskRef, sourceRef string, comment github.Comment, at time.Time) (store.GraphOwnerWait, error) {
-	command := turn.ParseCommand(comment.Body)
-	if command.Name != "" {
-		return store.GraphOwnerWait{}, store.ErrGraphOwnerWait
-	}
-	return AdmitGraphOwnerReply(ctx, db, instanceID, ownerID, taskRef, sourceRef, "", comment, at)
 }
 
 // recoverGraphReply is a fallback for a cancelled scheduling intent, after
@@ -245,7 +222,7 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 // when the trigger is not the claimed reply, such as a scheduled dispatch.
 func (d *Daemon) refuseUnresumableReply(ctx context.Context, t *task, trigger turn.Trigger, mode string, cause error) (bool, error) {
 	bookkeeping := context.WithoutCancel(ctx)
-	instance, err := d.db.LatestWorkflowInstance(bookkeeping, t.session.ID, graphReplyWorkflow(mode))
+	instance, err := d.db.LatestWorkflowInstance(bookkeeping, t.session.ID, mode)
 	if err != nil {
 		return false, errors.Join(cause, err)
 	}

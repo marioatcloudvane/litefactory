@@ -206,7 +206,7 @@ func standaloneStackGuidance(d *teamsource.WorkflowDefinition) (string, error) {
 }
 
 func standaloneStackSetupAllowed(req Request) bool {
-	if req.mode() != string(agent.ModeImplement) || req.Workflow == agent.WorkflowBug {
+	if req.mode() != string(agent.ModeImplement) {
 		return false
 	}
 	return req.CodexSandbox == config.SandboxWorkspaceWrite

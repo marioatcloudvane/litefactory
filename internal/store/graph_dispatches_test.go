@@ -817,7 +817,6 @@ func TestOrphanedGraphPrelaunchRunsAreSettled(t *testing.T) {
 		{status: "reserved"},
 		{status: "running"},
 		{status: "finished", guard: "doctor"},
-		{status: "finished", guard: "bug"},
 	} {
 		t.Run(tc.status+tc.guard, func(t *testing.T) {
 			db, launch := captureFixture(t)

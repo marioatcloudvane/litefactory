@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/cloudvane/litefactory/internal/buganalysis"
 )
 
 // LogIncidentQuery is launcher-owned authority. Empty repositories deny all access.
@@ -351,28 +349,38 @@ func (db *DB) judgeIncidents(ctx context.Context, add func(int64, string, LogInc
 	})
 }
 
-// bugAnalysis reads the cause from both the archived and the current Bug shape.
+// bugAnalysis reads what a Bug found: the request and findings of the
+// current shape, or the expected, actual and cause of the archived analysis.
 func bugAnalysis(snapshot string) string {
-	var a struct {
-		Expected string `json:"expected"`
-		Actual   string `json:"actual"`
-		Cause    string `json:"cause"`
-		// Prevention is the analyst's note on what rule would have prevented
-		// the bug; the log analyst aggregates these against the book.
-		Prevention *buganalysis.BugPrevention `json:"prevention"`
-	}
 	var current struct {
 		Result struct {
 			Payload struct {
 				Bug struct {
+					Request  string          `json:"request"`
+					Findings []string        `json:"findings"`
 					Analysis json.RawMessage `json:"analysis"`
 				} `json:"bug"`
 			} `json:"payload"`
 		} `json:"result"`
 	}
 	raw := []byte(snapshot)
-	if json.Unmarshal(raw, &current) == nil && len(current.Result.Payload.Bug.Analysis) > 0 {
-		raw = current.Result.Payload.Bug.Analysis
+	if json.Unmarshal(raw, &current) == nil {
+		bug := current.Result.Payload.Bug
+		if bug.Request != "" {
+			return strings.TrimSpace("Bug: " + bug.Request + "\nFindings: " + strings.Join(bug.Findings, "; "))
+		}
+		if len(bug.Analysis) > 0 {
+			raw = bug.Analysis
+		}
+	}
+	var a struct {
+		Expected   string `json:"expected"`
+		Actual     string `json:"actual"`
+		Cause      string `json:"cause"`
+		Prevention *struct {
+			Kind string `json:"kind"`
+			Note string `json:"note"`
+		} `json:"prevention"`
 	}
 	if json.Unmarshal(raw, &a) != nil || a.Cause == "" && a.Actual == "" {
 		return ""
@@ -404,10 +412,10 @@ func (db *DB) bugIncidents(ctx context.Context, add func(int64, string, LogIncid
 	}
 	err := db.incidentRows(ctx, `SELECT ar.id,ar.task,rv.run_id,CAST(rv.snapshot AS TEXT),rv.revision,COALESCE(r.finished_at,r.started_at)
  FROM application_results ar JOIN application_result_revisions rv ON rv.result_id=ar.id AND rv.revision=(SELECT MAX(x.revision) FROM application_result_revisions x WHERE x.result_id=ar.id)
- JOIN runs r ON r.id=rv.run_id WHERE ar.workflow='bug' ORDER BY ar.id DESC LIMIT ?`, []any{incidentRowsPerKind}, func(rows *sql.Rows) error {
+ JOIN runs r ON r.id=rv.run_id WHERE ar.workflow='bug' OR ar.mode='bug' ORDER BY ar.id DESC LIMIT ?`, []any{incidentRowsPerKind}, func(rows *sql.Rows) error {
 		var id, run int64
 		var task, snapshot, at string
-		b := bug{in: LogIncident{Kind: IncidentBug, FoundBy: "bug-analyst"}}
+		b := bug{in: LogIncident{Kind: IncidentBug, FoundBy: "bug"}}
 		if e := rows.Scan(&id, &task, &run, &snapshot, &b.in.Rounds, &at); e != nil {
 			return e
 		}

@@ -17,32 +17,16 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "338318bca2304fde5f8710cc3f0a7de06e499a22ecb53b90d972ce55ddade9a8"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "cfd56a4ac10313a51dd14e3e199dec15e44084280f04fbfd2d45e184bdfa0a6e"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "7d585098aef3cd1565b178f9340aba7f5c790d64bdb0364f707c062fe13a92e4"
+          "sha256": "d540956f3d3a3e4689e36ed514326a06ae468f336a789d0b6d82530734e3b125"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "62395319b93684b221f9f29bfddca37cb4972b022c3e21933ae457442e4f2df5"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "4c4b282e7f21320de3bb7216c9db5f7b7f242d681a60b99c4bbfa3cbe41bbc80"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "518069206c340408eb583ecf4f57c4a2e3b0b5d8648aad9c0580bfd5fc23034c"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/dotnet-web-engineering/SKILL.md",
@@ -317,7 +301,7 @@
           "sha256": "5828a2bf4bdecd52e9a5fe1bc0ff329f83dcf61d8a3772c6247aa1cb407d6bfd"
         }
       ],
-      "checksum": "9b1bdf9a80c612cf4dc7732297cd5338b0381fa22a182fd1f664824ef694f317"
+      "checksum": "608f14ff34f6e02c4657fa75ce4f9fd9cf06d4ef0a80045ca138c29377d46c2e"
     },
     {
       "name": "Go development",
@@ -334,32 +318,16 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "338318bca2304fde5f8710cc3f0a7de06e499a22ecb53b90d972ce55ddade9a8"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "cfd56a4ac10313a51dd14e3e199dec15e44084280f04fbfd2d45e184bdfa0a6e"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "be39a428442a78e31d111442ffb4a8167fff2ed935d422c146d55fcd467b7292"
+          "sha256": "55313747e8bf8c6b7085c6403a3ae57782487e8fd164005465cc92ea891791a5"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "62395319b93684b221f9f29bfddca37cb4972b022c3e21933ae457442e4f2df5"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "3066c3f433b5b05f93b21ca2bb442cb98d44bfb6851e6daa3b8cd8571ed964c3"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "8b5b83e0d2646f1eb27cb5037753a4952720d4107a9be15d747d5a26eedb30fb"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/go-stack/SKILL.md",
@@ -622,7 +590,7 @@
           "sha256": "a525203470db494d92a342a0ea9ba77fc1a449bf62219be0bd3385cbca78f2f5"
         }
       ],
-      "checksum": "3a95d085ed7f07014bbc4b2e88393f78e829305284e65fa5a44a141721e9bb53"
+      "checksum": "204aa0deed70cd9ab0369be0767c46319bf8d2978f12f82873f50c6d9b724eb2"
     },
     {
       "name": "Next.js web",
@@ -642,32 +610,16 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "338318bca2304fde5f8710cc3f0a7de06e499a22ecb53b90d972ce55ddade9a8"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "cfd56a4ac10313a51dd14e3e199dec15e44084280f04fbfd2d45e184bdfa0a6e"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "9ff91ae92b65aa531a39ec9ff80964365dbef0af5fd0bef5a86bed9d7b12c417"
+          "sha256": "cf6e1b97cacf93dfea041319aab6cdf685a6854c3ae335916a0493b61b1b0138"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "62395319b93684b221f9f29bfddca37cb4972b022c3e21933ae457442e4f2df5"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "3b4d0550b85196c74e3ea64d90c7395014315e1a39288b61832f0efe7d439c62"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "600211fe97394d44b46c068c314603cffbcf6c8f56bad0f46720cbb053ee1985"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/nextjs-web-stack/SKILL.md",
@@ -922,7 +874,7 @@
           "sha256": "039ffe18686496f2ba04cefb9aadef2a68222e6949a6617c9fcf4856ab5a3f13"
         }
       ],
-      "checksum": "c615cd8e220e7c7ad0ca2252e8e0afdd81573928fd17cd456d97fef74f1c16c2"
+      "checksum": "3ce46e7d466b1a5592112a9aae968484e72a69d368ad8dde8d1a9f8840ad9db4"
     },
     {
       "name": "Python FastAPI with React",
@@ -943,32 +895,16 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "338318bca2304fde5f8710cc3f0a7de06e499a22ecb53b90d972ce55ddade9a8"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "cfd56a4ac10313a51dd14e3e199dec15e44084280f04fbfd2d45e184bdfa0a6e"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "7185b2f285abc6071e7895eee8825bea3d1c807f7b1d2eb4ec57138e8adc8f03"
+          "sha256": "f3ef54879d2cd0881cd78956cc77e4fde8cf53ab891a6e785d75e19da32f713e"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "62395319b93684b221f9f29bfddca37cb4972b022c3e21933ae457442e4f2df5"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "056ac2fa2abe71d2410932bf879d3dfc287377180a0b61ebcb74ac8ec48e1b10"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "e4b37386f105d32cd8f6f33a0cd8c20a5c104feb3a4b12cc28826a613905ab06"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/python-fastapi-stack/SKILL.md",
@@ -1255,7 +1191,7 @@
           "sha256": "18222a23b5044102c6088d6e052181e415493817b5620e26556eb9a4f25de836"
         }
       ],
-      "checksum": "6d75155d538290090f8a8328a2b9f69c4ca86dce2cd213a136150eaeeb8700a1"
+      "checksum": "f66d884ec936e35dc3198d8f2cb15049a9f38720e62b52aae376ea7f063ed95e"
     },
     {
       "name": "Swift iOS",
@@ -1273,32 +1209,16 @@
           "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
         },
         {
-          "path": "bug/bug-analyst.md",
-          "sha256": "338318bca2304fde5f8710cc3f0a7de06e499a22ecb53b90d972ce55ddade9a8"
-        },
-        {
-          "path": "bug/bug-fixer.md",
-          "sha256": "cfd56a4ac10313a51dd14e3e199dec15e44084280f04fbfd2d45e184bdfa0a6e"
-        },
-        {
           "path": "bug/bug.dot",
-          "sha256": "f4cb242ea12e8b4c590cbee97f1a199fa5cb3036cbebfa0114a50bde41726505"
+          "sha256": "813cf1837d0319e633b4b7b4a756db946dcf9d359be5159ffeffe6533c0bbc8b"
         },
         {
-          "path": "bug/skills/bug-analysis-result/SKILL.md",
-          "sha256": "62395319b93684b221f9f29bfddca37cb4972b022c3e21933ae457442e4f2df5"
+          "path": "bug/bug.md",
+          "sha256": "ae5860270a33b44626d685baf24ac21086d0b729a66f69751460d955c26afa18"
         },
         {
-          "path": "bug/skills/bug-analysis-result/result.md",
-          "sha256": "b8f31047e6fc778b4b29fb284297571ad55f32fa1db693439ce2653f7f2f2971"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
-        },
-        {
-          "path": "bug/skills/bug-repair-result/result.md",
-          "sha256": "28f2fd108c1b5394a2dbecc9be008bcf0b8c067320f881e5e8ab5f42528abc23"
+          "path": "bug/skills/bug-result/SKILL.md",
+          "sha256": "e34182bf7d60028e0b14b3c72a7e5f4de064a07a9b4c420a485f17693bd08212"
         },
         {
           "path": "bug/skills/swift-ios-boundaries/SKILL.md",
@@ -1553,7 +1473,7 @@
           "sha256": "c9044bb2af5ec7e0ac7d6a1a5ed9b2747b2190f08b285817069c4d1182d3e414"
         }
       ],
-      "checksum": "9539b6af6eae081736759b4eda2f9b1ef4c6fffa5ace53a6fbe6db513a3cbaab"
+      "checksum": "e7d8ced6025532aef09209b71fb68e822afdb05726c38d7dbdf6bb2a72f8142c"
     }
   ]
 }

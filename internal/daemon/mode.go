@@ -117,7 +117,7 @@ func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, 
 			return d.reportOwnerInput(ctx, t, trigger.CommentID, false)
 		}
 	}
-	if trigger.CommentID == 0 && kind != report.ReplyBugUnavailable && kind != report.ReplyMissingModeMapping && kind != report.ReplyMissingTeam && kind != report.ReplyUnsupportedWorkflow {
+	if trigger.CommentID == 0 && kind != report.ReplyMissingModeMapping && kind != report.ReplyMissingTeam && kind != report.ReplyUnsupportedWorkflow {
 		t.log.InfoContext(ctx, "refusing issue-body mode selection; there is no comment to answer")
 		return nil
 	}
@@ -344,8 +344,8 @@ func (d *Daemon) markResearchModeApplied(ctx context.Context, t *task, selection
 // generation merged, a new Implement run would only post its completion note
 // again. Zero means the comment continues into Implement as before. Stopped
 // Validate work never reaches here: recoverGraphReply handles it first.
-func (d *Daemon) plainParentCommentRefusal(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, workflow agent.Workflow, command turn.Command) (report.ReplyKind, error) {
-	if mode != agent.ModeImplement || workflow == agent.WorkflowBug || t.continuation != nil || t.implementing ||
+func (d *Daemon) plainParentCommentRefusal(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, command turn.Command) (report.ReplyKind, error) {
+	if mode != agent.ModeImplement || t.continuation != nil || t.implementing ||
 		command.Kind != turn.KindFreeText || command.Name != "" || turn.ManagedReplan(command) ||
 		store.IsFactoryTrigger(trigger.CommentID) {
 		return report.ReplyInvalid, nil

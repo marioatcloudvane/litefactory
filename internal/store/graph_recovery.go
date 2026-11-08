@@ -230,7 +230,7 @@ ORDER BY id`, sessionID)
 				return err
 			}
 		}
-		for _, mode := range []string{"research", "spike"} {
+		for _, mode := range []string{"research", "spike", "bug"} {
 			if err = cancelWorkflowGraphsFilteredTx(ctx, tx, sessionID, mode, "issue closed", at, true); err != nil {
 				return err
 			}

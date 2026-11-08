@@ -246,7 +246,7 @@ func TestPreWorkCurrentRetainedCheckoutStaysQuietAndUnchanged(t *testing.T) {
 			mustProgress(t, err)
 			mustProgress(t, clone.Fetch(t.Context(), "origin"))
 			beforeRemote := f.repo.Git("ls-remote", "origin", "refs/heads/"+testBranch)
-			checkout := sessionSyncCheckout{runtime: &BugRuntime{opts: f.opts}, session: session}
+			checkout := sessionSyncCheckout{runtime: &graphSyncRuntime{opts: f.opts}, session: session}
 			target := SyncBaseTarget{Working: testBranch, Base: gittest.DefaultBranch, Checkout: checkout, Lock: func(context.Context) (func() error, bool, error) { return func() error { return nil }, true, nil }}
 			if scenario == "absent remote current" {
 				target.PreparationReason = "retained working branch has unpublished history; preserve it before retrying base synchronization"

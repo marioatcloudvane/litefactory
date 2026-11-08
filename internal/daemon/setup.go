@@ -643,14 +643,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	isolation.MinFreeBytes = s.Config.Settings.MinFreeDiskBytes()
 	// Spike checks retain the configured operator sandbox.
 	mcpRuntime.BugChecksIsolation = isolation
-	bugRuntime, err := turn.NewGraphBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
-		Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID,
-		Permissions: bugRolePermissions(s.Config.ToolProfiles),
-	})
-	if err != nil {
-		return nil, Startup{}, errors.Join(err, lock.Close())
-	}
-	turnOpts.Bug = bugRuntime
+	turnOpts.DeliveryCode, turnOpts.DeliveryTickets = codeDelivery, ticketWorkflow
 	// The Validate graph's host bindings. Its reviewers take their run slots
 	// from the daemon's own pool, which exists only once the daemon is built
 	// below, so the slots are bound to it then.
@@ -659,7 +652,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
-	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(s.Config.ToolProfiles), FactoryBugs: factoryBugs})
+	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: rolePermissions(s.Config.ToolProfiles), FactoryBugs: factoryBugs})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
@@ -711,7 +704,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	daemon, err := New(Options{
 		Paths:      s.Paths,
 		Doctor:     &doctor.Service{BuildVersion: s.BuildVersion, FactorySource: s.FactorySource, Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
-		Bug:        bugRuntime,
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
 			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,

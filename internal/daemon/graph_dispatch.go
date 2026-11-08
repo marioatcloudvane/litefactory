@@ -45,12 +45,6 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		}
 		seen[dispatch.ID] = true
 		ctx := sessionContext(ctx, dispatch.SessionID)
-		if d.bug != nil {
-			if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
-				d.log.ErrorContext(ctx, "graph dispatch refused; retained work unchanged", slog.Int64("dispatch_id", dispatch.ID), slog.Any("error", err))
-				continue
-			}
-		}
 
 		session, err := d.db.GetSession(ctx, dispatch.SessionID)
 		if err != nil {
@@ -280,12 +274,6 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 // recovery and manual schedules do; without one it could not exist beside the
 // comment-triggered run that parked it.
 func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.GraphDispatch) {
-	if d.bug != nil {
-		if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
-			t.recordWorkerError(err)
-			return
-		}
-	}
 
 	validating, modeErr := d.validateDispatch(ctx, dispatch)
 	if modeErr != nil {
@@ -332,32 +320,6 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 	}
 	if err != nil {
 		t.recordWorkerError(err)
-	}
-	admission, admissionErr := d.db.GetTaskWorkflowAdmission(ctx, dispatch.SessionID)
-	if admissionErr != nil && !errors.Is(admissionErr, store.ErrNotFound) {
-		t.recordWorkerError(admissionErr)
-		return
-	}
-	if admissionErr == nil && admission.Workflow == "bug" && d.bug != nil {
-		// A step refused before the Bug runtime took it (locked task, or an
-		// admission error) still holds its reservation; requeue it so the
-		// owed step is retried instead of staying reserved for good. The
-		// store only requeues an unallocated reservation, so a step the
-		// runtime already closed is untouched.
-		if t.bugDispatchLocked || err != nil {
-			cause := "Bug parent waits for task ownership"
-			if !t.bugDispatchLocked {
-				cause = err.Error()
-			}
-			_, retryErr := d.requeueGraphStep(ctx, dispatch, t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts)), cause)
-			if retryErr != nil {
-				t.recordWorkerError(retryErr)
-			}
-		}
-		// The Bug runtime closes the exact dispatch as part of its persisted
-		// transition/suspension. Factory-only nodes deliberately have no agent
-		// run, so the mode driver must not interpret that absence as nonexecution.
-		return
 	}
 	run, exists, lookupErr := d.db.GetRunByTrigger(ctx, dispatch.SessionID, dispatch.TriggerID())
 	if lookupErr != nil {

@@ -114,7 +114,7 @@ func TestShippedWorkflowRolesHaveShippedFiles(t *testing.T) {
 			roleCount[w.Name+"/"+role]++
 		}
 	}
-	for _, want := range []string{"research/research", "plan/plan-story", "plan/plan-technical", "plan/plan-acceptance", "bug/bug-analyst", "bug/bug-fixer", "spike/spike", "implement/story-worker", "validate/validate-repair", "validate/validate-acceptance", "validate/validate-code", "validate/validate-architecture"} {
+	for _, want := range []string{"research/research", "plan/plan-story", "plan/plan-technical", "plan/plan-acceptance", "bug/bug", "spike/spike", "implement/story-worker", "validate/validate-repair", "validate/validate-acceptance", "validate/validate-code", "validate/validate-architecture"} {
 		if roleCount[goTeam+"/"+want] == 0 {
 			t.Errorf("shipped graphs no longer name role %s", want)
 		}

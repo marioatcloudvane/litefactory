@@ -192,27 +192,15 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// checkout under one clone acquisition before reusable synchronization.
 		"implementRuntime.prepareWorkerSyncCheckout": {},
 		"sessionSyncCheckout.withCheckout":           {},
-		"BugRuntime.syncBaseBranch":                  {},
-		// Observe an unpublished Bug branch before opening its base scratch,
-		// releasing this section before the scratch takes its own gate.
-		"sessionGraphSyncRepo.initialBugSyncBranch": {},
-		"commitAndPush": {},
+		"graphSyncRuntime.syncBaseBranch":            {},
+		"commitAndPush":                              {},
 		// Standalone doctor sync releases its snapshot section before advisory work,
 		// then revalidates and performs merge, publication and rollback in one section.
 		"prepareDoctorSync": {},
 		"applyDoctorSync":   {},
-		// Bug delivery snapshots and applies validated advice in disposable scratch.
-		"prepareBugDeliveryConflict": {},
-		"applyBugDeliveryConflict":   {},
-		// A repair attempt merges fetched main into the idle task worktree,
-		// and a Bug check adds and later removes the detached target
-		// worktree its failing tests rerun on; each is one acquisition.
-		// Simplified Bug observes synchronization without committing retained
-		// edits, releasing this section before invocation.
-		"PrepareGraphBugSource":        {},
-		"BugRuntime.saveGraphDelivery": {},
-		"BugRuntime.pushGraphDelivery": {},
-		"DeliveryActivity.checkout":    {},
+		// Graph delivery publishes the saved head and reads its checkout.
+		"graphSyncRuntime.pushGraphDelivery": {},
+		"DeliveryActivity.checkout":          {},
 		// The Implement merge builds, publishes and removes its scratch tree
 		// on the shared clone; each is one acquisition.
 		"beginImplementScratch": {},
@@ -249,9 +237,9 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// after ensureWorktree, and takes no acquisition of its own — but
 		// only for an ordinary turn. It does not run at all when a confirmed
 		// proposal is being applied (CR-B-003): see WriteResolvedFiles below.
-		"syncBase": {"prepareClone", "PrepareGraphBugSource"},
-		"syncTask": {"prepareClone", "PrepareGraphBugSource"},
-		"Commit":   {"commitAndPush", "BugRuntime.saveGraphDelivery", "validateHost.keepChange"},
+		"syncBase": {"prepareClone"},
+		"syncTask": {"prepareClone"},
+		"Commit":   {"commitAndPush", "validateHost.keepChange"},
 		// WriteResolvedFiles, StageResolvedFiles and CompleteMerge are US-12's
 		// three new git.Worktree mutators. They run as prepareClone's fourth
 		// step, in place of syncBase (which this turn shape never calls),
@@ -259,12 +247,12 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// shape syncBase already has, and for the same reason: there is no
 		// claude run between ensureWorktree and this step for the agentless
 		// apply turn, so nothing needs the gate released and retaken.
-		"WriteResolvedFiles": {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
-		"StageResolvedFiles": {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
-		"CompleteMerge":      {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
+		"WriteResolvedFiles": {"prepareClone", "applyDoctorSync"},
+		"StageResolvedFiles": {"prepareClone", "applyDoctorSync"},
+		"CompleteMerge":      {"prepareClone", "applyDoctorSync"},
 		// Confirmed proposal application also pushes inside prepareClone's
 		// existing acquisition.
-		"Push": {"commitAndPush", "prepareClone", "BugRuntime.pushGraphDelivery", "applyDoctorSync", "implementRuntime.prepareWorkerSyncCheckout"},
+		"Push": {"commitAndPush", "prepareClone", "graphSyncRuntime.pushGraphDelivery", "applyDoctorSync", "implementRuntime.prepareWorkerSyncCheckout"},
 	}
 
 	funcs := packageFuncs(t)

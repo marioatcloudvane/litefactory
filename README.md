@@ -81,7 +81,7 @@ litefactory doctor <repo> <issue> "why is this stuck?"
 
 On the issue: `/approve-plan …`, `/approve-plan-set …`, `/implement <instructions>`,
 `/validate <instructions>`, `/validate-finding …`, `/validate-check …`,
-`/validate-ship …`, `/approve-bug analysis N`, `/doctor …`. Each command is
+`/validate-ship …`, `/doctor …`. Each command is
 explained by the reply that asks for it.
 
 ## Documentation

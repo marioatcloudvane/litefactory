@@ -131,7 +131,7 @@ func TestLinearWorkflowDisplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertLinearDisplay(t, bugBody.String(), pd.Link(), "Approved diagnosis")
+	assertLinearDisplay(t, bugBody.String(), pd.Link())
 	remote := validateRemote{target: target, b: ValidateFlowBindings{Delivery: ValidateDelivery{Redactor: redactor}}}
 	_, validateBody, err := remote.issueContent(t.Context(), ValidateFinding{ID: "finding-1", Story: "story-001", Name: "Invoices"}, "<!-- fixture -->")
 	if err != nil {

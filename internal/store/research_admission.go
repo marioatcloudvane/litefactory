@@ -98,7 +98,7 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 		if in.Workflow == "bug" && (admissionErr != nil || admission.Family != "standalone") {
 			return graphInvariant("Bug launch requires retained standalone admission")
 		}
-		if admissionErr == nil && admission.Family == "standalone" && in.Workflow != "bug" {
+		if admissionErr == nil && admission.Family == "standalone" && in.Workflow != "bug" && in.Mode != "bug" {
 			return graphInvariant("mode launch conflicts with standalone admission")
 		}
 		var mode string
@@ -269,9 +269,4 @@ func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (Resea
 	}
 	in.Mode = "research"
 	return db.AdmitWorkflowLaunch(ctx, in)
-}
-
-// LatestStandaloneBugInstance recovers only the admitted standalone graph pins.
-func (db *DB) LatestStandaloneBugInstance(ctx context.Context, sessionID int64) (GraphInstance, error) {
-	return scanGraphInstance(db.sql.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? AND definition_id IN (SELECT id FROM graph_definitions WHERE workflow='bug' AND mode=?) ORDER BY id DESC LIMIT 1`, sessionID, standaloneGraphStorageKey))
 }

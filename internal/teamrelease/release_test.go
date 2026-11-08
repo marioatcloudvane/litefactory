@@ -347,7 +347,7 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 
 func registry(t *testing.T, w string) graphexec.Registry {
 	t.Helper()
-	builders := map[string]func() (graphexec.Registry, error){"research": turn.ResearchSpecs, "plan": turn.PlanSpecs, "implement": turn.ImplementSpecs, "validate": turn.ValidateFlowSpecs, "spike": turn.SpikeSpecs, "bug": turn.SimplifiedBugSpecs}
+	builders := map[string]func() (graphexec.Registry, error){"research": turn.ResearchSpecs, "plan": turn.PlanSpecs, "implement": turn.ImplementSpecs, "validate": turn.ValidateFlowSpecs, "spike": turn.SpikeSpecs, "bug": turn.BugSpecs}
 	r, err := builders[w]()
 	if err != nil {
 		t.Fatal(err)

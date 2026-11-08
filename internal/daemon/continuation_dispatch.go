@@ -169,10 +169,7 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 	if err == nil {
 		workflow = agent.Workflow(admission.Workflow)
 	}
-	choice, _, err := d.effectiveAgent(ctx, t, workflow)
-	if err != nil {
-		return false, err
-	}
+	choice, _ := d.effectiveAgent(t, workflow)
 	selected := choice.Agent
 	if choice.refused() || selected != c.Context.Agent {
 		return cancel("coding agent changed")

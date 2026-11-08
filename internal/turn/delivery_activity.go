@@ -19,8 +19,6 @@ import (
 // Review authority is read from factory records, never from the agent's prose.
 type DeliveryActivity struct {
 	w        *researchWorkflow
-	profile  *graphexec.Profile
-	bug      *GraphDelivery
 	validate *ValidateFlowBindings
 	// operation is set only by legacy compatibility wrappers.
 	operation string
@@ -106,15 +104,6 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 			return ActivityResult{}, errors.New("invalid delivery operation")
 		}
 	}
-	if h.bug != nil {
-		node, ok := h.profile.Node(req.Node)
-		if !ok || node.Action != graphexec.DeliverAction {
-			return ActivityResult{}, errors.New("delivery node differs from pinned graph")
-		}
-		handler := *h.bug
-		handler.Operation = node.Attrs["lf_operation"]
-		return handler.Execute(ctx, opts, req)
-	}
 	w := h.w
 	node, ok := w.definition.Profile.Node(req.Node)
 	if !ok || node.Action != graphexec.DeliverAction {
@@ -168,15 +157,13 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 	binding := GraphDeliveryBinding{Record: "delivery_binding", InstanceID: instance.ID, SessionID: session.ID, IssueNumber: session.IssueNumber, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, TicketRepository: ticketRepo, Branch: session.Branch, Target: repo.BaseBranch, Summary: result.Result.Comment, RunID: source.RunID, SourceAttemptID: source.ID, Marker: fmt.Sprintf("<!-- lf:delivery instance=%d -->", instance.ID)}
 	binding.IssueReference = session.TaskRef
 	operation := node.Attrs["lf_operation"]
-	code, _ := opts.MCP.Comments.(BugCodeForge)
-	tickets, _ := opts.ResearchReporter.forge.(BugCloseForge)
-	if opts.Bug != nil {
-		if opts.Bug.cfg.Code != nil {
-			code = opts.Bug.cfg.Code
-		}
-		if opts.Bug.cfg.Tickets != nil {
-			tickets = opts.Bug.cfg.Tickets
-		}
+	code, _ := opts.MCP.Comments.(DeliveryCodeForge)
+	tickets, _ := opts.ResearchReporter.forge.(DeliveryCloseForge)
+	if opts.DeliveryCode != nil {
+		code = opts.DeliveryCode
+	}
+	if opts.DeliveryTickets != nil {
+		tickets = opts.DeliveryTickets
 	}
 	var head string
 	expectedPR := 0
@@ -298,7 +285,7 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 		return finish("blocked", "Delivery issue identity mismatch")
 	}
 	binding.IssueID = issue.ID
-	runtime := &BugRuntime{opts: opts, definition: w.definition}
+	runtime := &graphSyncRuntime{opts: opts, definition: w.definition}
 	handler := GraphDelivery{ExpectedPR: expectedPR, Operation: operation, Code: code, Tickets: tickets, Redactor: opts.MCP.Redactor, Bind: func(context.Context, Options, ActivityRequest) (GraphDeliveryBinding, error) { return binding, nil }, Save: func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error) {
 		return head, nil
 	}, PublishSaved: runtime.pushGraphDelivery, SyncBase: func(ctx context.Context, o Options, a ActivityRequest, b GraphDeliveryBinding, head string) (syncBaseOutput, error) {

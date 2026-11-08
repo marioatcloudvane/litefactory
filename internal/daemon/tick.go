@@ -1246,7 +1246,6 @@ type task struct {
 	scheduled          *store.Schedule
 	continuation       *store.Continuation
 	continuationLocked bool
-	bugDispatchLocked  bool
 
 	// commentUnderWay is the owner comment [Daemon.handleComment] is dealing
 	// with, so that [Daemon.leave] can say why it was deferred. Zero otherwise.
@@ -2536,21 +2535,6 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "successful creation intake recovery pending", err)
 	}
 	command := turn.ParseCommand(c.Body)
-	if d.bug != nil && isBugControlCommand(command.Name) {
-		admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return d.leave(ctx, t, log, "could not read Bug control admission", err)
-		}
-		if err == nil && admission.Workflow == string(agent.WorkflowBug) {
-			// The runtime authenticates and parses the exact original body against
-			// its published wait. This only routes an existing task's control.
-			trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
-			if triggerErr != nil {
-				return triggerErr
-			}
-			return d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
-		}
-	}
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)
 	}
@@ -2805,12 +2789,6 @@ func (d *Daemon) run(
 	if t.capacity != nil {
 		ctx = turn.WithStepCapacity(ctx, t.capacity)
 	}
-	if d.bug != nil {
-		if err := d.bug.CheckExistingAdmission(ctx, t.session.ID); err != nil {
-			return d.leave(ctx, t, log, "unsupported pinned Bug work preserved", err)
-		}
-	}
-
 	// A graph Plan story issue only ever runs Plan, whatever its labels say, and
 	// so does Plan work the factory started itself.
 	workerRun := t.scheduled != nil && t.scheduled.Payload == implementWorkPayload
@@ -2844,9 +2822,6 @@ func (d *Daemon) run(
 		}
 		return d.leave(ctx, t, log, "mode selection was refused", err)
 	}
-	if workflow == agent.WorkflowBug && d.bug == nil {
-		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable, "")
-	}
 	// A story issue without its own agent label takes its parent's.
 	if workflow != agent.WorkflowBug {
 		if err := d.inheritParentAgent(ctx, t); err != nil {
@@ -2855,10 +2830,7 @@ func (d *Daemon) run(
 	}
 	// Resolve the agent-selection label before checking for an obsolete
 	// permission label and before anything is locked, fetched, or written.
-	agentChoice, selectionSource, err := d.effectiveAgent(ctx, t, workflow)
-	if err != nil {
-		return d.leave(ctx, t, log, "could not resolve the Bug agent", err)
-	}
+	agentChoice, selectionSource := d.effectiveAgent(t, workflow)
 	if agentChoice.refused() {
 		return d.refuseAgent(ctx, t, trigger, agentChoice, log)
 	}
@@ -2878,11 +2850,6 @@ func (d *Daemon) run(
 	// are known. A missing entry is an invariant violation, never a reason to
 	// fall back to a potentially broader agent-global surface.
 	tools, ok := d.resolveWorkflowTools(workflow, mode, agent.Kind(selectedAgent))
-	if workflow == agent.WorkflowBug && d.bug != nil {
-		// This carries identity only. The runtime resolves the particular
-		// analyst/fixer grant when dispatching that role, including resumes.
-		tools, ok = toolDecision{Profile: "bug"}, true
-	}
 	if !ok {
 		return d.leave(ctx, t, log, "could not select permissions for the resolved mode and agent",
 			fmt.Errorf("no permission profile for mode %q and agent %q", mode, selectedAgent))
@@ -2909,7 +2876,7 @@ func (d *Daemon) run(
 	}
 	// A plain parent comment the pinned Implement mode cannot use — Validate is
 	// running, or Implement already finished — is answered, not run (#1123).
-	if kind, err := d.plainParentCommentRefusal(ctx, t, trigger, mode, workflow, command); err != nil {
+	if kind, err := d.plainParentCommentRefusal(ctx, t, trigger, mode, command); err != nil {
 		return d.leave(ctx, t, log, "could not tell which workflow a plain parent comment belongs to", err)
 	} else if kind != report.ReplyInvalid {
 		log.InfoContext(ctx, "plain parent comment has no Implement work to continue; refusing it with a reply",
@@ -2925,10 +2892,10 @@ func (d *Daemon) run(
 	// A /validate start goes to Validate admission only: the owner wait can
 	// never apply it, and a refused start must leave the wait open.
 	validateStart := mode == agent.ModeValidate && command.Name == "/validate"
-	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeImplement || mode == agent.ModeValidate || workflow == agent.WorkflowBug) && t.continuation == nil && !validateStart {
+	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeImplement || mode == agent.ModeValidate || mode == agent.ModeBug) && t.continuation == nil && !validateStart {
 		// A confirmed uncertain publication resumes its graph first, so the
 		// reply that triggered recovery can answer the question it confirmed.
-		if handled, err := d.recoverGraphPublications(ctx, t, trigger, workflow); handled || err != nil {
+		if handled, err := d.recoverGraphPublications(ctx, t, trigger); handled || err != nil {
 			return d.leave(ctx, t, log, "graph publication recovery deferred", err)
 		}
 		// Every owner comment written since the last question answers it as one
@@ -3001,29 +2968,15 @@ func (d *Daemon) run(
 		if trigger.PlanReply != nil && errors.As(err, &planRefusal) {
 			return err
 		}
-		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && errors.Is(err, turn.ErrRequiredTicketPublisher) {
+		if mode == agent.ModeImplement && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && errors.Is(err, turn.ErrRequiredTicketPublisher) {
 			return d.refuseMode(ctx, t, trigger, report.ReplyMissingTicketPublisher, "")
 		}
 		var refusal *workflowRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind, mode)
 		}
-		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && errors.Is(err, turn.ErrImplementReplyNotApplied) {
+		if mode == agent.ModeImplement && errors.Is(err, turn.ErrImplementReplyNotApplied) {
 			return d.refuseMode(ctx, t, trigger, report.ReplyImplementCommentNotApplied, "")
-		}
-		// A busy Bug workflow keeps the comment queued for its next question.
-		if workflow == agent.WorkflowBug && ownerInputQueued(trigger, err) {
-			log.InfoContext(ctx, "Bug owner comment queued until the workflow asks its next question", slog.Any("reason", err))
-			return d.leave(ctx, t, log, "owner comment queued while the workflow is busy", &recoveryPending{err})
-		}
-		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugReplyNotApplied) {
-			log.InfoContext(ctx, "Bug owner comment could not be applied at the current step; refusing it with a reply",
-				slog.Any("error", err))
-			return d.refuseMode(ctx, t, trigger, report.ReplyBugCommentNotApplied, "")
-		}
-		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugCommentRefused) {
-			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
-			return nil
 		}
 		// A claimed owner reply the open wait can never allocate is refused once,
 		// visibly, and its claim released, instead of holding admission forever (#1169).
@@ -3047,7 +3000,6 @@ func (d *Daemon) run(
 		d.commentFate(ctx, t, trigger.CommentID, fateQueued, "queued behind the run already in progress on this issue")
 		t.recordWorkerStatus(workerDeferred)
 		t.continuationLocked = t.continuation != nil
-		t.bugDispatchLocked = workflow == agent.WorkflowBug
 		// RD-4: a lock lost to a second process is promoted from a drop to a
 		// marker-set. The dispatch above has already set the flag and the drain's
 		// deferral keeps it, but this is the one disposition whose entire meaning
@@ -3071,12 +3023,6 @@ func (d *Daemon) run(
 
 	if turnResult.Run.ID != 0 {
 		d.commentFate(ctx, t, trigger.CommentID, fateDispatched, fmt.Sprintf("dispatched as run %d", turnResult.Run.ID))
-	}
-	if workflow == agent.WorkflowBug {
-		// Bug owns durable notices, review publication and input consumption.
-		// Generic mode reporting would duplicate them and could consume a reply
-		// before its publication or domain operation has been confirmed.
-		return nil
 	}
 	err = d.completeTurn(ctx, t, trigger, mode, turnResult, log)
 	if err == nil && turnResult.Err == nil && mode == agent.ModeImplement &&
@@ -3553,11 +3499,11 @@ type graphPublicationRecovery interface {
 }
 
 // recoverGraphPublications runs publication recovery under the session lock
-// before an owner reply is claimed. Bug runs keep their own recovery. A busy
-// lock defers the comment, as stopped-graph reply recovery does.
-func (d *Daemon) recoverGraphPublications(ctx context.Context, t *task, trigger turn.Trigger, workflow agent.Workflow) (handled bool, err error) {
+// before an owner reply is claimed. A busy lock defers the comment, as
+// stopped-graph reply recovery does.
+func (d *Daemon) recoverGraphPublications(ctx context.Context, t *task, trigger turn.Trigger) (handled bool, err error) {
 	recovery, ok := d.turn.(graphPublicationRecovery)
-	if !ok || workflow == agent.WorkflowBug {
+	if !ok {
 		return false, nil
 	}
 	acquired, err := d.db.AcquireSessionLock(ctx, t.session.ID, d.instanceID)

@@ -28,6 +28,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 	sharedEntries := map[string]struct{ file, policy string }{
 		"ExecuteResearchWorkflow": {"research_workflow.go", "ResearchWorkflowPolicy"},
 		"ExecuteSpikeWorkflow":    {"spike_admission.go", "SpikeWorkflowPolicy"},
+		"ExecuteBugWorkflow":      {"bug_workflow.go", "BugWorkflowPolicy"},
 	}
 	for _, root := range []string{"../", "../../cmd"} {
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -54,13 +55,6 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 				}
 				judgeRecoveryEntry := filepath.Clean(path) == filepath.Join("..", "turn", "workflow_judge_recovery.go") && fn.Name.Name == "recoverWorkflowJudgeAttempt" && fn.Recv == nil
 				planEntry := filepath.Clean(path) == filepath.Join("..", "turn", "plan_graph.go") && fn.Name.Name == "admitPlanExecution"
-				bugParentEntry := false
-				if filepath.Clean(path) == filepath.Join("..", "turn", "bug_graph_runtime.go") && fn.Name.Name == "executeGraph" && fn.Recv != nil && len(fn.Recv.List) == 1 {
-					if pointer, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
-						name, ok := pointer.X.(*ast.Ident)
-						bugParentEntry = ok && name.Name == "BugRuntime"
-					}
-				}
 				// Implement enters the shared driver from its runtime's execute, with
 				// the run's own Implement policy.
 				implementEntry := false
@@ -82,7 +76,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 				shared, sharedEntry := sharedEntries[fn.Name.Name]
 				sharedEntry = sharedEntry && filepath.Clean(path) == filepath.Join("..", "turn", shared.file)
 				researchFile := filepath.Clean(path) == filepath.Join("..", "turn", "research_workflow.go")
-				if !judgeRecoveryEntry && !bugParentEntry && !implementEntry && !validateEntry && ((!planEntry && !sharedEntry && !researchFile) || fn.Recv != nil) {
+				if !judgeRecoveryEntry && !implementEntry && !validateEntry && ((!planEntry && !sharedEntry && !researchFile) || fn.Recv != nil) {
 					continue
 				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -98,7 +92,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 						return true
 					}
 					sharedDispatch := (sharedEntry || planEntry || implementEntry || validateEntry) && id.Name == "ExecuteWorkflow"
-					if owners[id.Name] != fn.Name.Name && !sharedDispatch && ((!bugParentEntry && !judgeRecoveryEntry) || id.Name != "ExecuteNodeAction") {
+					if owners[id.Name] != fn.Name.Name && !sharedDispatch && (!judgeRecoveryEntry || id.Name != "ExecuteNodeAction") {
 						return true
 					}
 					if judgeRecoveryEntry {

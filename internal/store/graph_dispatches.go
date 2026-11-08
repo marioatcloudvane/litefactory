@@ -369,12 +369,11 @@ func cancelStaleGraphDispatchTx(ctx context.Context, tx *sql.Tx, d GraphDispatch
 
 // deadGraphDispatches selects unallocated work left open on an instance that
 // finished or was superseded. Nothing can run it any more: the execution
-// fence refuses it, and recovery only revisits running instances. Bug and
-// doctor-held sessions are left to their own owners.
+// fence refuses it, and recovery only revisits running instances. Doctor-held
+// sessions are left to their owner.
 const deadGraphDispatches = `FROM graph_dispatches d JOIN graph_instances i ON i.id=d.instance_id
 WHERE d.status IN ('pending','reserved') AND d.allocated_run_id IS NULL
 AND (i.status<>'running' OR EXISTS(SELECT 1 FROM graph_instances newer WHERE newer.session_id=i.session_id AND newer.id>i.id))
-AND NOT EXISTS(SELECT 1 FROM workflow_admissions a WHERE a.session_id=d.session_id AND a.workflow='bug')
 AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=d.session_id)`
 
 // ListDeadGraphDispatches lists dispatches that can never run (#1299). It
@@ -766,7 +765,6 @@ func (db *DB) ReconcileStrandedGraphDispatch(ctx context.Context, d GraphDispatc
 const orphanedGraphPrelaunchRuns = `FROM runs r JOIN graph_dispatches d ON d.session_id=r.session_id AND d.id=r.trigger_comment_id-?
 WHERE r.status='prelaunch' AND r.trigger_comment_id>? AND r.trigger_comment_id<?
 AND d.status IN ('finished','cancelled')
-AND NOT EXISTS(SELECT 1 FROM workflow_admissions a WHERE a.session_id=r.session_id AND a.workflow='bug')
 AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=r.session_id)`
 
 // ListOrphanedGraphPrelaunchSessions lists sessions holding a prelaunch run
