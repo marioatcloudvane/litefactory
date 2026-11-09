@@ -2,76 +2,13 @@ package daemon
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
-
-func TestUnavailableDoctorApplyReportsRetainedRepair(t *testing.T) {
-	for _, state := range []string{"absent", "active", "settled"} {
-		t.Run(state, func(t *testing.T) {
-			d, forge, repo := doctorDaemonFixture(t)
-			ctx := t.Context()
-			session, err := d.db.GetOrCreateSession(ctx, repo, 406)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var repair store.DoctorRepair
-			if state != "absent" {
-				ref, err := naming.ParseRef(session.TaskRef)
-				if err != nil {
-					t.Fatal(err)
-				}
-				evidence, err := d.db.ReadDoctorEvidence(ctx, ref)
-				if err != nil {
-					t.Fatal(err)
-				}
-				approveEffect(t, d.db, session, store.DoctorRepairStep{Number: 1, Kind: "poll_flag", Target: "session:" + strconv.FormatInt(session.ID, 10), Before: "0", After: "1"}, evidence)
-				if state == "settled" {
-					if err := d.db.StopDoctorRepair(ctx, session.TaskRef, "Fixture repair stopped"); err != nil {
-						t.Fatal(err)
-					}
-				}
-				repair, err = d.db.ReadDoctorRepair(ctx, session.TaskRef)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			if _, err := d.db.AdmitDoctorCommand(ctx, store.DoctorCommand{RepoID: repo.ID, TaskRef: session.TaskRef, IssueID: 10406, IssueNumber: 406, CommentID: 200, ActorID: 7, CreatedAt: d.now(), Operation: "apply"}); err != nil {
-				t.Fatal(err)
-			}
-			if err := d.doctorControls(ctx); err != nil {
-				t.Fatal(err)
-			}
-			if err := d.publishDoctor(ctx); err != nil {
-				t.Fatal(err)
-			}
-			if len(forge.posts) != 1 {
-				t.Fatalf("posts=%d", len(forge.posts))
-			}
-			body := forge.posts[0].Body
-			if !strings.Contains(body, "did not approve or perform a repair") || strings.Count(body, "litefactory logs") != 1 || !strings.Contains(body, report.TaskInspectionCommand(session.TaskRef)) || strings.Contains(body, "/doctor <instructions>") {
-				t.Fatalf("unusable apply report: %s", body)
-			}
-			if state != "absent" {
-				if !strings.Contains(body, repair.ID) || !strings.Contains(body, repair.State) {
-					t.Fatalf("missing retained repair: %s", body)
-				}
-				after, err := d.db.ReadDoctorRepair(ctx, session.TaskRef)
-				if err != nil || after.State != repair.State {
-					t.Fatalf("report changed repair: %+v %v", after, err)
-				}
-			}
-			t.Log(body)
-		})
-	}
-}
 
 func TestReportRecoveryLostResponseNamesRetainedExecution(t *testing.T) {
 	db, _, session := recoveryDatabase(t)

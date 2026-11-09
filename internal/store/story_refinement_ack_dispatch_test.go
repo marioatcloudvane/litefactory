@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -77,7 +78,7 @@ func TestStoryRefinementACKMigrationPreservesLegacyConfirmedReceipt(t *testing.T
 	}
 	var prior []migration
 	for _, m := range migrations {
-		if m.name != "story_ack_dispatch" {
+		if m.name != "story_ack_dispatch" && !strings.Contains(m.name, "doctor_holds") && !strings.Contains(m.name, "doctor_result_mode") {
 			prior = append(prior, m)
 		}
 	}

@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudvane/litefactory/internal/bugrepair"
 	"github.com/cloudvane/litefactory/internal/redact"
 )
 
@@ -26,8 +25,8 @@ func TestGraphDeliveryTitleStaysOneLineWithinBudget(t *testing.T) {
 // multi-line truncation notice there.
 func TestGraphDeliveryTitleSurvivesRedaction(t *testing.T) {
 	summary := strings.Repeat("The fake agent blocks until the test has seen the init event on disk. ", 4)
-	h := GraphBugFinalization{Redactor: redact.New(redact.Options{Environ: []string{}})}
-	title, _, e := h.presentation(t.Context(), GraphDeliveryBinding{Eligibility: GraphBugRepairEligibility{Repair: bugrepair.Evidence{Summary: summary}}})
+	h := GraphDelivery{Redactor: redact.New(redact.Options{Environ: []string{}})}
+	title, _, e := h.presentation(t.Context(), GraphDeliveryBinding{Summary: summary})
 	mustProgress(t, e)
 	if strings.ContainsAny(title.String(), "\r\n") || title.Len() > 256 || title.Len() == 0 {
 		t.Fatalf("title %q (%d bytes)", title.String(), title.Len())

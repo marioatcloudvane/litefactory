@@ -359,7 +359,7 @@ func (d *Daemon) refreshWebhookSecrets(ctx context.Context, now time.Time) {
 
 // webhookHints turns pending hints into candidates beside the other discovery
 // sources. Each hinted issue is read fresh through the operational lane
-// ([doctorCall]); the webhook payload was never state. A read that fails or is
+// ([operationalCall]); the webhook payload was never state. A read that fails or is
 // deferred leaves its hint pending for the next heartbeat.
 func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate, result *TickResult) error {
 	if d.webhook == nil {
@@ -440,7 +440,7 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 		// An owner's comment must not wait behind background discovery, so the
 		// hinted read takes the operational lane: a token and real quota left,
 		// not the discovery share, floor or head-of-line queue.
-		issue, err := doctorCall(readCtx, d, func(ctx context.Context) (github.Issue, error) {
+		issue, err := operationalCall(readCtx, d, func(ctx context.Context) (github.Issue, error) {
 			return d.readIssue(ctx, q.forgeRepo, hint.number)
 		})
 		switch {
@@ -462,15 +462,6 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 					slog.Int("issue", hint.number))
 			}
 			continue
-		}
-		if err := d.admitHintedDoctor(readCtx, q, issue); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			// The repository-comment scan picks the comment up from the next tick.
-			q.log.WarnContext(ctx, "webhook-hinted doctor admission deferred to the repository scan",
-				slog.Int("issue", hint.number), slog.Any("error", err))
-			d.oweDoctorScan(q.repo.ID)
 		}
 		if hint.versionID != 0 {
 			if err := d.handoffWebhookIssue(readCtx, hint, q, issue); err != nil {

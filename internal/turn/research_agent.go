@@ -77,11 +77,8 @@ func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, hand
 // agentOutcomes is the agent action's outcome vocabulary under a policy:
 // success and failed, plus the policy's own responses, which only a
 // result-routed agent (lf_response=result) declares so its DOT can route each
-// response directly. Bug keeps its owner-stop vocabulary.
+// response directly.
 func agentOutcomes(policy WorkflowPolicy) []string {
-	if policy.Workflow == agent.WorkflowBug {
-		return graphexec.OwnerStopAgentOutcomes()
-	}
 	outcomes := []string{"success", "failed"}
 	for _, response := range policy.Control.Responses {
 		if !slices.Contains(outcomes, response) {
@@ -134,7 +131,7 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	if err != nil {
 		return out, err
 	}
-	if run.Status != store.RunRunning || run.Mode != string(h.Policy.Mode) || (workflow == agent.WorkflowBug && run.Workflow != "bug") || (workflow != agent.WorkflowBug && run.Workflow != "") {
+	if run.Status != store.RunRunning || run.Mode != string(h.Policy.Mode) || run.Workflow != "" {
 		return out, errors.New("research agent run is not active Research")
 	}
 
@@ -253,7 +250,7 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 			returnedErr = errors.Join(returnedErr, closeInvocation(runCtx, invocation.Close))
 		}
 	}()
-	if invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != string(h.Policy.Mode) || (workflow == agent.WorkflowBug && invocation.Results.binding.Workflow != "bug") {
+	if invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != string(h.Policy.Mode) {
 		return out, errors.New("research invocation lacks matching application-result authority")
 	}
 	req := invocation.Request
@@ -365,7 +362,7 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 			failureErr = errors.Join(runErr, closeErr, ctx.Err())
 			out.Diagnostic = runErr.Error()
 		}
-		if h.Policy.Workflow == agent.WorkflowBug || h.Policy.Mode == agent.ModeResearch {
+		if h.Policy.Mode == agent.ModeResearch {
 			retained, retainErr := h.retainFailedSubmission(evidenceCtx, invocation.Results)
 			out.Kind, out.Output = retained.Kind, retained.Output
 			if retained.Diagnostic != "" {
@@ -552,7 +549,7 @@ const implementDelegationRequest = "\nThe owner explicitly asks you to delegate 
 // budget. Runtime supplies the persisted effective allowance; compatibility
 // callers may supply a node override and a runner fallback.
 func implementAttemptGuidance(req agent.Request, attrs map[string]string, runner any) (string, error) {
-	if req.Mode != string(agent.ModeImplement) || req.Workflow == agent.WorkflowBug {
+	if req.Mode != string(agent.ModeImplement) {
 		return "", nil
 	}
 	var b strings.Builder

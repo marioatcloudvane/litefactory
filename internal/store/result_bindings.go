@@ -83,6 +83,7 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 	if err != nil {
 		return b, err
 	}
+	storedMode, storedWorkflow := resultStorage(a.Workflow, a.Mode)
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runs r JOIN sessions s ON s.id=r.session_id WHERE r.id=? AND r.mode=? AND r.workflow=? AND r.status='running' AND s.task_ref=?`, a.RunID, a.Mode, a.Workflow, a.Task).Scan(&n); err != nil {
@@ -105,11 +106,11 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 		if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO application_results(task,mode,work_context,context_hash,schema_version,workflow_version,submission_version,workflow) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(task,mode,context_hash) DO NOTHING`, a.Task, a.Mode, a.WorkContext, hash, a.SchemaVersion, a.WorkflowVersion, a.SubmissionVersion, a.Workflow); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO application_results(task,mode,work_context,context_hash,schema_version,workflow_version,submission_version,workflow) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(task,mode,context_hash) DO NOTHING`, a.Task, storedMode, a.WorkContext, hash, a.SchemaVersion, a.WorkflowVersion, a.SubmissionVersion, storedWorkflow); err != nil {
 			return err
 		}
 		var id int64
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM application_results WHERE task=? AND mode=? AND context_hash=? AND workflow=?`, a.Task, a.Mode, hash, a.Workflow).Scan(&id); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM application_results WHERE task=? AND mode=? AND context_hash=? AND workflow=?`, a.Task, storedMode, hash, storedWorkflow).Scan(&id); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE result_id IN (SELECT id FROM application_results WHERE task=? AND workflow NOT IN ('doctor','judge'))`, a.Task); err != nil {
@@ -125,7 +126,7 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 }
 func readResultBinding(ctx context.Context, tx *sql.Tx, runID int64, attempt string, active bool) (ResultBinding, error) {
 	var b ResultBinding
-	query := `SELECT r.id,COALESCE(a.run_id,0),r.task,r.mode,r.work_context,r.context_hash,a.attempt,r.schema_version,r.workflow_version,r.submission_version,r.workflow,COALESCE(a.doctor_attempt_id,''),COALESCE(a.judge_attempt_id,'') FROM application_results r JOIN application_result_attempts a ON a.result_id=r.id WHERE COALESCE(a.run_id,0)=? AND a.attempt=?`
+	query := `SELECT r.id,COALESCE(a.run_id,0),r.task,` + resultModeColumn + `,r.work_context,r.context_hash,a.attempt,r.schema_version,r.workflow_version,r.submission_version,` + resultWorkflowColumn + `,COALESCE(a.doctor_attempt_id,''),COALESCE(a.judge_attempt_id,'') FROM application_results r JOIN application_result_attempts a ON a.result_id=r.id WHERE COALESCE(a.run_id,0)=? AND a.attempt=?`
 	if active {
 		query += ` AND a.active=1`
 	}
@@ -159,7 +160,8 @@ func checkResultAccess(ctx context.Context, tx *sql.Tx, b ResultBinding, write b
 		return checkJudgeResultWriter(ctx, tx, b)
 	}
 	if write && b.DoctorAttemptID != "" {
-		return checkDoctorResultWriter(ctx, tx, b)
+		// The retired Doctor runtime's attempts are history; nothing writes them.
+		return ErrResultAuthority
 	}
 	if write {
 		var n int
@@ -224,5 +226,19 @@ func validResultWorkflow(workflow, mode string) bool {
 	if workflow == "bug" {
 		return mode == ""
 	}
-	return workflow == "" && submissionState(mode, "research", "plan", "implement", "validate", "spike")
+	return workflow == "" && submissionState(mode, "research", "plan", "implement", "validate", "spike", "bug", "doctor")
 }
+
+// Bug results are stored as the table's historical workflow 'bug' with an
+// empty mode, which its CHECK admits, and read back as mode "bug".
+func resultStorage(workflow, mode string) (storedMode, storedWorkflow string) {
+	if workflow == "" && mode == "bug" {
+		return "", "bug"
+	}
+	return mode, workflow
+}
+
+const (
+	resultModeColumn     = `CASE WHEN r.workflow='bug' THEN 'bug' ELSE r.mode END`
+	resultWorkflowColumn = `CASE WHEN r.workflow='bug' THEN '' ELSE r.workflow END`
+)

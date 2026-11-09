@@ -31,7 +31,7 @@ func (h workerSyncActivity) Execute(ctx context.Context, opts Options, a Activit
 
 // workerSyncBaseBinding uses the ledger and pinned factory session, never graph refs.
 func (rt *implementRuntime) workerSyncBaseBinding() SyncBaseBinding {
-	runtime := &BugRuntime{opts: rt.opts, definition: rt.definition}
+	runtime := &graphSyncRuntime{opts: rt.opts, definition: rt.definition}
 	binding := runtime.graphSyncBaseBinding(rt.req.SessionID)
 	original := binding.Bind
 	binding.Bind = func(ctx context.Context, opts Options, a ActivityRequest) (SyncBaseTarget, error) {

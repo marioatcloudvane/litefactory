@@ -109,14 +109,15 @@ historical releases, tasks, approvals or result identities.
 
 ## Releases and compatibility
 
-Generate the canonical Go release with `go run ./cmd/teamrelease`. To generate
-several teams into one catalogue, repeat `-source` with each canonical source
-root. Each source supplies its own `release.json`, `team.config`, workflows and
-package-root profile. `-check` verifies the generated result without publishing.
-All candidates are validated before publication. Existing exact versions are
-immutable. Only the owner chooses, generates and links a release; fixes and
-features change the canonical sources only. Catalogue entries for other releases
-and historical download bytes are preserved.
+Teams are installed straight from `teams/source` with
+`litefactory team install NAME --source /absolute/path/to/teams/source`. Each
+source supplies its own `release.json`, workflows and package-root profile; the
+install generates `team.config`, the file inventory and the checksum, and checks
+every workflow before it writes anything. Reinstalling the same version with
+changed sources replaces the installed copy in place and moves linked
+repositories to it; saved captures keep running tasks on the bytes they started
+with. Only the owner installs and links teams; fixes and features change the
+canonical sources only.
 
 The current Go release is `go-development@1.0.0`. Its profile retains the supported
 Go engineering recipe, declares Go and agent-setup Plan guidance, requires the `go`

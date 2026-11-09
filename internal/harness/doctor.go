@@ -32,27 +32,6 @@ func (r *Runner) DoctorIsolation(context.Context) (string, error) {
 	return doctorIsolation, nil
 }
 
-// RunDoctor never substitutes the broader workflow runner for diagnosis.
-func (r *Runner) RunDoctor(ctx context.Context, request agent.DoctorRequest) (agent.DoctorRunResult, error) {
-	if err := request.Validate(); err != nil {
-		return agent.DoctorRunResult{}, err
-	}
-	if _, err := r.DoctorIsolation(ctx); err != nil {
-		return agent.DoctorRunResult{}, err
-	}
-	return r.runDoctorTransport(ctx, request)
-}
-
-// runDoctorTransport is deliberately private. Tests exercise transport with a
-// harmless fixture, not an installed agent; production reaches it only through
-// DoctorIsolation. Native flags alone are not a capability certificate.
-func (r *Runner) runDoctorTransport(ctx context.Context, request agent.DoctorRequest) (agent.DoctorRunResult, error) {
-	if err := request.Validate(); err != nil {
-		return agent.DoctorRunResult{}, err
-	}
-	return r.runScopedDoctorTransport(ctx, request, "")
-}
-
 func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.DoctorRequest, operation string) (_ agent.DoctorRunResult, err error) {
 
 	if err = validateScopedDoctorRequest(request, operation); err != nil {
@@ -220,10 +199,6 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	}
 	result.Usage = collector.finish()
 	return result, err
-}
-
-func doctorArguments(request agent.DoctorRequest, mcpPath, configDir string) ([]string, error) {
-	return scopedDoctorArguments(request, mcpPath, configDir, "")
 }
 
 func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, configDir, operation string) ([]string, error) {

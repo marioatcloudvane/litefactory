@@ -132,9 +132,6 @@ printf '%s\n' '{"type":"result","is_error":false}'
 	if !strings.Contains(joined, "--effort high") || !strings.Contains(joined, "--no-session-persistence") || strings.Contains(joined, "--settings") {
 		t.Fatalf("missing effort/isolation: %s", joined)
 	}
-	if _, err = runner.RunDoctorRepair(t.Context(), agent.RepairRequest{Invocation: request.Invocation, Operation: "judge"}); err == nil {
-		t.Fatal("judge accepted as repair")
-	}
 }
 
 func TestNativeRequestThinkingOption(t *testing.T) {

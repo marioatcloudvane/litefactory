@@ -25,6 +25,11 @@ type WorkflowPolicy struct {
 	// parking it for an owner reply, for an instance no owner reply reaches.
 	BudgetFails bool
 
+	// Evidence prepares factory-owned, read-only material for an agent node
+	// before it starts and returns the line that tells the agent where it is.
+	// Nil prepares nothing.
+	Evidence func(context.Context, *researchWorkflow, ActivityRequest) (string, error)
+
 	// Handlers supplies a mode's own invocation preparation and node activities.
 	// It supplies no result format: every mode's application result travels the
 	// shared result route, judged by Decode, and Handlers only reads it back.

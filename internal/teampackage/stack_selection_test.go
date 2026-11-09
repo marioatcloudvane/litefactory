@@ -100,7 +100,7 @@ func TestUnknownProfilelessReleaseRefusesWithoutGoFallback(t *testing.T) {
 	delete(fixture.files, "/teams/"+r.Download+"/"+config.StackProfilePath)
 	fixture.mu.Unlock()
 	m := fixtureManager(t, config.NewPaths(canonicalTemp(t)), server)
-	if _, _, err := m.Install(t.Context(), server.URL+"/teams/teams.json", "example", "1.0.0"); err == nil {
+	if _, _, err := testInstall(t.Context(), m, server.URL+"/teams/teams.json", "example", "1.0.0"); err == nil {
 		t.Fatal("unknown profileless release used legacy Go fallback")
 	}
 }

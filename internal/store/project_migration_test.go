@@ -146,7 +146,7 @@ func TestProjectMigrationPreservesPopulatedSessionHistory(t *testing.T) {
 
 func sessionSchemaObjects(t *testing.T, db *DB) map[string]string {
 	t.Helper()
-	rows, err := db.sql.QueryContext(t.Context(), `SELECT name,sql FROM sqlite_master WHERE tbl_name='sessions' AND type IN ('index','trigger') AND sql IS NOT NULL`)
+	rows, err := db.sql.QueryContext(t.Context(), `SELECT name,sql FROM sqlite_master WHERE tbl_name='sessions' AND type IN ('index','trigger') AND sql IS NOT NULL AND name NOT LIKE 'doctor_hold_%' AND name NOT LIKE 'doctor_graph_%'`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,93 +2,25 @@ package daemon
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/json"
 	"errors"
-	"fmt"
+	"hash/fnv"
 	"log/slog"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
 
-	"github.com/cloudvane/litefactory/internal/doctor"
-	"github.com/cloudvane/litefactory/internal/factory/localdoctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/redact"
-	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-type doctorForge interface {
-	ListRepositoryCommentsPage(context.Context, github.Repo, time.Time, int, int) (github.RepositoryCommentPage, error)
-	ListCommentsPage(context.Context, github.Repo, int, int, int) (github.CommentPage, error)
-	PostComment(context.Context, github.Repo, int, redact.Body) (github.Comment, error)
-}
+// The Doctor is an ordinary graph workflow on the task it repairs. The daemon
+// only routes to it and starts it for a chat client or an owner action; the
+// stopped-task rule and the evidence bundle live in its turn admission.
 
-// doctorLane adds exactly one reserved diagnosis worker beyond workflow capacity
-// (CONC-2). It uses the existing pool join; no provider or publication retry loops
-// run in workers. Stop is handled on the short tick/intake path independently.
-type doctorLane struct {
-	service                *doctor.Service
-	pool                   *pool
-	lastTask               string
-	lastRepo               int64
-	lastDelivery           string
-	unsupportedConnections map[int64]bool
-	// owed names the repositories whose background scan window is still open:
-	// set on a repository's listing tick, cleared once the window completes. The
-	// scan is the hourly safety net behind webhook-hinted admission.
-	owed map[int64]bool
-}
-
-func (d *Daemon) doctorTick(ctx context.Context, at time.Time) {
-	if d.doctor.service == nil {
-		return
-	}
-	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.recoverDoctorRepairs(ctx) }); err != nil {
-		d.log.ErrorContext(ctx, "doctor repair recovery remains pending", slog.Any("error", err))
-	}
-	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.recoverDoctor(ctx) }); err != nil {
-		d.log.ErrorContext(ctx, "doctor recovery remains pending", slog.Any("error", err))
-	}
-	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.doctorControls(ctx) }); err != nil {
-		d.log.ErrorContext(ctx, "doctor controls remain pending", slog.Any("error", err))
-	}
-	d.dispatchDoctor(ctx)
-	if _, held := d.connectionHold(ctx, at); held {
-		return
-	}
-	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.discoverDoctor(ctx, at) }); err != nil {
-		d.log.ErrorContext(ctx, "doctor discovery remains pending", slog.Any("error", err))
-		var rate *github.RateLimitError
-		if errors.As(err, &rate) {
-			d.rateLimited(ctx, d.log, at, err)
-		}
-	}
-	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.doctorControls(ctx) }); err != nil {
-		d.log.ErrorContext(ctx, "doctor controls remain pending", slog.Any("error", err))
-	}
-	d.dispatchDoctor(ctx)
-	if _, held := d.connectionHold(ctx, at); held {
-		return
-	}
-	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.publishDoctor(ctx) }); err != nil {
-		d.log.ErrorContext(ctx, "doctor publication remains pending", slog.Any("error", err))
-		var rate *github.RateLimitError
-		if errors.As(err, &rate) {
-			d.rateLimited(ctx, d.log, at, err)
-		}
-	}
-}
-
-// doctorCall reserves a bounded request before background discovery. It shares
-// quota observations and token accounting but uses the reserved operational
-// share so a depleted background scan cannot wedge the control lane.
-func doctorCall[T any](ctx context.Context, d *Daemon, call func(context.Context) (T, error)) (T, error) {
+// operationalCall reserves a bounded request before background discovery. It
+// shares quota observations and token accounting but uses the reserved
+// operational share so a depleted background scan cannot wedge the control
+// lane.
+func operationalCall[T any](ctx context.Context, d *Daemon, call func(context.Context) (T, error)) (T, error) {
 	b, err := d.quotaBudget(ctx)
 	if err != nil {
 		var zero T
@@ -111,773 +43,139 @@ func doctorCall[T any](ctx context.Context, d *Daemon, call func(context.Context
 	return call(github.WithRequestObserver(ctx, r.observe))
 }
 
-func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
-	forge, _ := d.forge.(doctorForge)
-	if forge == nil && d.connections == nil {
-		return errors.New("doctor forge transport unavailable")
-	}
-	repos, err := d.db.ListRepos(ctx)
-	if err != nil {
-		return err
-	}
-	if len(repos) == 0 {
-		return nil
-	}
-	sort.Slice(repos, func(i, j int) bool { return repos[i].ID < repos[j].ID })
-	// Webhook hints admit /doctor comments directly; the repository-comment
-	// scan only runs as the listing's safety net. A repository is owed a scan
-	// from its listing tick until its scan window completes.
-	for _, repo := range repos {
-		if d.schedule == nil || d.schedule.Due(repo.ID, at) {
-			d.oweDoctorScan(repo.ID)
-		}
-	}
-	start := 0
-	for start < len(repos) && repos[start].ID <= d.doctor.lastRepo {
-		start++
-	}
-	if start == len(repos) {
-		start = 0
-	}
-	// Visit each local repository at most once, retaining one remote page per tick.
-	var repo store.Repo
-	var connection store.ConnectionVersion
-	eligible := false
-	for offset := 0; offset < len(repos); offset++ {
-		repo = repos[(start+offset)%len(repos)]
-		if !d.doctor.owed[repo.ID] {
-			continue
-		}
-		// Advance before fallible work so a failing project cannot starve its peers.
-		d.doctor.lastRepo = repo.ID
-		if d.connections != nil {
-			connection, err = d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
-			if err != nil {
-				return err
-			}
-			if !connection.Enabled {
-				delete(d.doctor.owed, repo.ID)
-				continue
-			}
-			if connection.Provider != ticket.GitHub {
-				if d.doctor.unsupportedConnections == nil {
-					d.doctor.unsupportedConnections = make(map[int64]bool)
-				}
-				if !d.doctor.unsupportedConnections[connection.ID] {
-					d.log.InfoContext(ctx, "background doctor discovery unsupported; skipped", "project", repo.Slug(), "provider", connection.Provider, "connection_version", connection.ID)
-					d.doctor.unsupportedConnections[connection.ID] = true
-				}
-				delete(d.doctor.owed, repo.ID)
-				continue
-			}
-		}
-		eligible = true
-		break
-	}
-	if !eligible {
-		return nil
-	}
-	ctx = projectContext(ctx, repo.ID)
-	scan, err := d.db.DoctorScanWindow(ctx, repo.ID, at)
-	if err != nil {
-		return err
-	}
-	if !scan.WindowEnd.After(scan.CompletedAt) {
-		delete(d.doctor.owed, repo.ID)
-		return nil
-	}
-	fr := github.Repo{Owner: repo.Owner, Name: repo.Name}
-	if d.connections != nil {
-		clients, err := d.connections.Clients(ctx, connection, 0)
-		if err != nil {
-			return err
-		}
-		forge = clients.Code
-		owner, name, valid := strings.Cut(connection.Destination, "/")
-		if !valid {
-			return errors.New("doctor ticket destination is invalid")
-		}
-		fr = github.Repo{Owner: owner, Name: name}
-	}
-	since := scan.CompletedAt.Add(-time.Minute)
-	if since.Before(scan.ActivatedAt) {
-		since = scan.ActivatedAt
-	}
-	page, err := doctorCall(ctx, d, func(ctx context.Context) (github.RepositoryCommentPage, error) {
-		return forge.ListRepositoryCommentsPage(ctx, fr, since, scan.Page, 12)
-	})
-	if err != nil {
-		return err
-	}
-	ended := false
-	for _, entry := range page.Comments {
-		c := entry.Comment
-		if c.UpdatedAt.After(scan.WindowEnd) {
-			ended = true
-			continue
-		}
-		if c.CreatedAt.Before(scan.ActivatedAt) {
-			continue
-		}
-		if _, ok := doctor.ParseCommand(c.Body); !ok {
-			continue
-		}
-		if c.Author.ID <= 0 || c.Author.IsBot || turn.HasMarker(c.Body) {
-			continue
-		}
-		issue, err := doctorCall(ctx, d, func(ctx context.Context) (github.Issue, error) {
-			return d.readIssue(projectContext(ctx, repo.ID), fr, entry.IssueNumber)
-		})
-		if err != nil {
-			return err
-		}
-		if issue.Number != entry.IssueNumber || issue.ID <= 0 {
-			return errors.New("doctor target is not a verified issue")
-		}
-		if _, err := d.admitDoctor(ctx, repo, issue, c); err != nil {
-			return fmt.Errorf("doctor command on issue #%d, comment %d: %w", entry.IssueNumber, c.ID, err)
-		}
-	}
-	next := page.NextPage
-	if ended {
-		next = 0
-	}
-	if err := d.db.AdvanceDoctorScan(ctx, scan, next); err != nil {
-		return err
-	}
-	if next == 0 {
-		delete(d.doctor.owed, repo.ID)
-	}
-	return nil
-}
-
-// oweDoctorScan makes repo's repository-comment scan run from the next tick
-// until its window completes.
-func (d *Daemon) oweDoctorScan(repo int64) {
-	if d.doctor.owed == nil {
-		d.doctor.owed = make(map[int64]bool)
-	}
-	d.doctor.owed[repo] = true
-}
-
-// admitHintedDoctor is the webhook path for /doctor on a session whose worker
-// is in flight. A busy session's candidate is not dispatched, so its ordered
-// consumer cannot see the comment until the run ends, and a `/doctor stop`
-// must not wait for that. The unconsumed comments are read once on the
-// operational lane and every /doctor command among them is admitted; the
-// ordered consumer later finds them already admitted and only consumes them.
-// Sessions that are not in flight are left to that consumer.
-func (d *Daemon) admitHintedDoctor(ctx context.Context, q *repoQueue, issue github.Issue) error {
-	if d.doctor.service == nil {
-		return nil
-	}
-	var session store.Session
-	for _, id := range d.inflight.list() {
-		s, err := d.db.GetSession(ctx, id)
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if s.RepoID == q.repo.ID && s.IssueNumber == issue.Number {
-			session = s
-			break
-		}
-	}
-	if session.ID == 0 {
-		return nil
-	}
-	ctx = sessionContext(ctx, session.ID)
-	mark, _, err := d.db.GetWatermark(ctx, session.ID)
-	if err != nil {
-		return err
-	}
-	comments, err := doctorCall(ctx, d, func(ctx context.Context) ([]github.Comment, error) {
-		return d.readComments(ctx, q.forgeRepo, issue.Number, mark.LastCommentID)
-	})
-	if err != nil {
-		return err
-	}
-	for _, c := range comments {
-		if _, ok := doctor.ParseCommand(c.Body); !ok {
-			continue
-		}
-		if _, err := d.admitDoctor(ctx, q.repo, issue, c); err != nil {
-			return fmt.Errorf("doctor command on busy issue #%d, comment %d: %w", issue.Number, c.ID, err)
-		}
-	}
-	return nil
-}
-
-// refuseUnsupportedDoctor uses the qualified retained ticket before the GitHub-only
-// Doctor authority path can interpret a Linear compatibility slot as a remote ID.
-func (d *Daemon) refuseUnsupportedDoctor(ctx context.Context, t *task, c github.Comment, reply *ticket.Reply) (bool, error) {
-	if reply == nil || reply.Ticket.Identity.Provider != ticket.Linear {
-		return false, nil
-	}
-	if _, ok := doctor.ParseCommand(c.Body); !ok {
-		return false, nil
-	}
-	admission, err := d.admitReply(ctx, t.session.ID, c, reply)
-	if err != nil {
-		return true, err
-	}
-	if !admission.Triggers() {
-		_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
-		return true, err
-	}
-	_, err = d.reportReply(ctx, turn.ReplyRequest{
-		Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID,
-		Refusal: report.ReplyDoctorUnsupported,
-	})
-	return true, err
-}
-
-// admitDoctor is shared by priority discovery and normal ordered consumers.
-// Only authenticated diagnostic text is retained; source edits are deduplicated.
-func (d *Daemon) admitDoctor(ctx context.Context, repo store.Repo, issue github.Issue, c github.Comment) (bool, error) {
-	command, ok := doctor.ParseCommand(c.Body)
-	if !ok {
-		return false, nil
-	}
-	if c.Author.ID <= 0 || c.Author.IsBot || turn.HasMarker(c.Body) {
-		return true, nil
-	}
-	if d.doctor.service == nil {
-		return true, errors.New("doctor service unavailable")
-	}
-	if issue.ID <= 0 || issue.Number <= 0 {
-		return true, errors.New("doctor issue identity unavailable")
-	}
-	ref, claim, source, err := d.admitDoctorAuthority(ctx, repo, issue, c, command.Operation)
-	if errors.Is(err, store.ErrApproverUnauthorized) || errors.Is(err, store.ErrApproverReplay) {
-		return true, nil
-	}
-	if err != nil {
-		return true, err
-	}
-	if claim.ID != 0 {
-		defer func() {
-			if err := d.db.CompleteProjectAuthority(context.WithoutCancel(ctx), claim.ID); err != nil {
-				d.log.ErrorContext(ctx, "release doctor admission authority", "error", err)
-			}
-		}()
-	}
-	if source != nil {
-		ctx = context.WithValue(ctx, doctorSourceContextKey{}, *source)
-	}
-	safe, err := d.doctor.service.Redactor.Apply(ctx, command.Text, 32768)
-	if err != nil {
-		return true, err
-	}
-	if safe.Truncated() {
-		return true, errors.New("doctor instruction exceeded redaction budget")
-	}
-	repairApprovalID := ""
-	if command.Operation == "apply" && d.doctor.service.CheckRepairCapability(ctx, ref) == nil {
-		repairApprovalID = rand.Text()
-	}
-	retained, err := d.db.AdmitDoctorCommand(ctx, store.DoctorCommand{Source: source, RepairApprovalID: repairApprovalID, RepoID: repo.ID, TaskRef: ref.String(), IssueID: issue.ID, IssueNumber: issue.Number, CommentID: c.ID, ActorID: c.Author.ID, CreatedAt: c.CreatedAt, Operation: command.Operation, Instructions: safe.String()})
-	if err != nil {
-		return true, err
-	}
-	if command.Operation == "stop" && retained.State == "queued" {
-		if err := d.doctor.service.CancelStopped(ctx, ref); err != nil {
-			return true, err
-		}
-	}
-	return true, nil
-}
-
-// admitDoctorAuthority binds priority and ordered intake to the actual ticket
-// source. A short durable claim serializes inbox admission with replacement.
-// Repair apply retains the separate code authority and requires a saved task.
-func (d *Daemon) admitDoctorAuthority(ctx context.Context, repo store.Repo, issue github.Issue, c github.Comment, operation string) (naming.Ref, store.AuthorityClaim, *store.DoctorCommandSource, error) {
-	ref := naming.Ref{Forge: naming.ForgeGitHub, Owner: strings.ToLower(repo.Owner), Repo: strings.ToLower(repo.Name), Issue: issue.Number}
-	if d.connections == nil {
-		ids := d.filter.Identities()
-		if c.Author.ID != ids.OwnerUserID || c.Author.ID == ids.BotUserID {
-			return ref, store.AuthorityClaim{}, nil, store.ErrApproverUnauthorized
-		}
-		return ref, store.AuthorityClaim{}, nil, nil
-	}
-	target, err := d.doctorTicketTarget(ctx, repo, issue)
-	if err != nil {
-		return ref, store.AuthorityClaim{}, nil, err
-	}
-	ref, session, connection, locator := target.ref, target.session, target.connection, target.locator
-	clients, err := d.connections.Clients(ctx, connection, target.publisherID)
-	if err != nil {
-		return ref, store.AuthorityClaim{}, nil, err
-	}
-	if c.Author.ID == clients.Actor.ID {
-		return ref, store.AuthorityClaim{}, nil, store.ErrApproverUnauthorized
-	}
-	qualified, err := clients.Tickets.QualifyReply(ticket.Ref{Locator: locator, Identity: ticket.Identity{Provider: locator.Provider, Origin: locator.Origin, RemoteID: strconv.FormatInt(issue.ID, 10)}}, c)
-	if err != nil {
-		return ref, store.AuthorityClaim{}, nil, err
-	}
-	source := &store.DoctorCommandSource{ConnectionVersionID: connection.ID, PublisherID: clients.Actor.ID, Ticket: qualified.Ticket}
-	if operation == "apply" {
-		if session.ID == 0 {
-			return ref, store.AuthorityClaim{}, nil, store.ErrApproverUnauthorized
-		}
-		if err := d.authorizeCodeControl(ctx, session.ID, c); err != nil {
-			return ref, store.AuthorityClaim{}, nil, store.ErrApproverUnauthorized
-		}
-		claim, err := d.claimCodeControl(ctx, session.ID, c)
-		return ref, claim, source, err
-	}
-	appointment, err := d.db.CurrentApprover(ctx, repo.ID)
-	if err != nil {
-		return ref, store.AuthorityClaim{}, nil, err
-	}
-	claim, err := d.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: repo.ID, AppointmentID: appointment.ID, Revision: appointment.Revision, Actor: qualified.Author.Identity, Source: qualified.Identity, CreatedAt: qualified.CreatedAt, Kind: "doctor-instruction", Key: qualified.Identity.RemoteID})
-	return ref, claim, source, err
-}
-
-// doctorTicket is the project ticket connection, saved task and publishing
-// identity that a doctor command on an issue is routed through.
-type doctorTicket struct {
-	ref         naming.Ref
-	session     store.Session
-	connection  store.ConnectionVersion
-	locator     ticket.Locator
-	publisherID int64
-}
-
-// doctorTicketTarget resolves the issue to its ticket connection: the saved
-// task's own connection version and actor when one exists, otherwise the
-// project's current ticket connection.
-func (d *Daemon) doctorTicketTarget(ctx context.Context, repo store.Repo, issue github.Issue) (doctorTicket, error) {
-	scope, _ := ctx.Value(connectionScopeKey{}).(connectionScope)
-	target, err := localdoctor.ResolveTicketTarget(ctx, d.db, repo, issue, scope.sessionID)
-	return doctorTicket{ref: target.Ref, session: target.Session, connection: target.Connection, locator: target.Locator, publisherID: target.PublisherID}, err
-}
-
-type doctorSourceContextKey struct{}
-
-func (d *Daemon) doctorCommandContext(ctx context.Context, commandID int64) (context.Context, error) {
-	if d.connections == nil {
-		return ctx, nil
-	}
-	source, err := d.db.GetDoctorCommandSource(ctx, commandID)
-	if errors.Is(err, store.ErrNotFound) {
-		return ctx, nil
-	}
-	if err != nil {
-		return ctx, err
-	}
-	if _, err := d.doctorSourceClient(ctx, source); err != nil {
-		return ctx, err
-	}
-	return context.WithValue(ctx, doctorSourceContextKey{}, source), nil
-}
-
-// doctorApplyHeld reports the rate-limit hold of the command's source
-// connection. It is checked before the source is read, which the hold refuses.
-func (d *Daemon) doctorApplyHeld(ctx context.Context, commandID int64) (bool, error) {
-	if d.connections != nil {
-		source, err := d.db.GetDoctorCommandSource(ctx, commandID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return false, err
-		}
-		if err == nil {
-			ctx = context.WithValue(ctx, doctorSourceContextKey{}, source)
-		}
-	}
-	_, held := d.connectionHold(ctx, d.quotaNow(ctx))
-	return held, nil
-}
-
-func (d *Daemon) doctorSourceClient(ctx context.Context, source store.DoctorCommandSource) (*github.Client, error) {
-	if source.ConnectionVersionID <= 0 || source.PublisherID <= 0 {
-		return nil, errors.New("doctor source lacks a verified publishing identity")
-	}
-	connection, err := d.db.GetConnectionVersion(ctx, source.ConnectionVersionID)
-	if err != nil {
-		return nil, err
-	}
-	if connection.Provider != source.Ticket.Identity.Provider || connection.Origin != source.Ticket.Identity.Origin || connection.Destination != source.Ticket.Locator.Container {
-		return nil, errors.New("doctor source differs from retained connection")
-	}
-	clients, err := d.connections.Clients(ctx, connection, source.PublisherID)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := clients.Tickets.Read(ctx, source.Ticket); err != nil {
-		return nil, err
-	}
-	return clients.Code, nil
-}
-
-func (d *Daemon) doctorControls(ctx context.Context) error {
+// ownerStops cancels the workers of runs the owner asked to stop from the
+// factory host (`litefactory doctor stop`). Stopping is how an owner makes a
+// task ready for the Doctor.
+func (d *Daemon) ownerStops(ctx context.Context) error {
 	runs, err := d.db.OwnerStopsRunning(ctx)
 	if err != nil {
 		return err
 	}
 	for _, run := range runs {
-		d.inflight.cancel(run.SessionID, run.Status == store.RunRunning)
-	}
-
-	for range 16 {
-		c, err := d.db.ClaimDoctorCommand(ctx, "", true, d.instanceID)
-		if errors.Is(err, store.ErrNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		body := "Use `/doctor <instructions>` to diagnose this issue, or `/doctor stop` to end the conversation."
-		switch c.Operation {
-		case "stop":
-			var stop store.OwnerStop
-			if err := json.Unmarshal([]byte(c.ResultBody), &stop); err != nil {
-				return err
-			}
-			if stop.RunID != 0 {
-				run, err := d.db.GetRun(ctx, stop.RunID)
-				if err != nil {
-					return err
-				}
-				if d.inflight.cancel(run.SessionID, run.Status == store.RunRunning) || run.Status == store.RunRunning {
-					return d.db.RequeueDoctorBusy(ctx, c.ID)
-				}
-			}
-			body = doctor.StopSummary(stop)
-			if stop.RunID != 0 {
-				run, err := d.db.GetRun(ctx, stop.RunID)
-				if err != nil {
-					return err
-				}
-				body += " " + doctor.StopRunSummary(run)
-			}
-			if stop.RunID != 0 || stop.Conversation {
-				body += " Reply on this issue to resume; this does not approve a repair."
-			}
-		case "apply":
-			body = "Doctor apply is unavailable. This command did not approve or perform a repair."
-			if blocking, err := d.db.ReadDoctorRepair(ctx, c.TaskRef); err == nil {
-				body += " Retained repair " + blocking.ID + " for this task is in state " + blocking.State + "; this command did not change it."
-			} else if !errors.Is(err, store.ErrNotFound) {
-				return err
-			} else {
-				body += " No retained repair was found for this task."
-			}
-			body += "\n\nAsk the factory operator to inspect this task on the factory host: `" + report.TaskInspectionCommand(c.TaskRef) + "`."
-		}
-		if c.Operation != "stop" && c.Operation != "apply" {
-			body += "\n\nContinue with `/doctor <instructions>`."
-		}
-		safe, err := d.doctor.service.Redactor.Apply(ctx, body, 262144)
-		if err != nil {
-			return err
-		}
-		if safe.Truncated() {
-			return errors.New("doctor stop result exceeds publication bound")
-		}
-		if err := d.db.CompleteDoctorCommand(ctx, c.ID, safe.String(), 0); err != nil {
-			return err
-		}
+		d.inflight.cancel(run.SessionID, true)
 	}
 	return nil
 }
-func (d *Daemon) dispatchDoctor(ctx context.Context) {
-	workerCtx := ctx
-	ctx, cancel := d.tickPhaseContext(ctx)
-	defer cancel()
-	if !d.doctor.pool.try() {
-		return
+
+// doctorRefusal is an owner-facing reason the Doctor did not start. Nothing
+// was changed.
+type doctorRefusal struct{ reason string }
+
+func (e *doctorRefusal) Error() string { return e.reason }
+
+func doctorStartedSummary(task string) string {
+	return "The Doctor started on " + task + ". It reports on the task's issue and asks there when it needs you."
+}
+
+// doctorStartTrigger is the factory-private trigger of a Doctor start asked
+// for outside the issue. It is a pure function of the request key in the
+// factory work-id band, so a replayed request names the same start.
+func doctorStartTrigger(key string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("doctor-start\x00" + key))
+	return int64(h.Sum64()&(1<<56-1)) | 1<<56
+}
+
+// doctorRoute reports whether an owner comment belongs to the Doctor: an
+// explicit /doctor, or any plain reply while the task's Doctor waits for the
+// owner.
+func (d *Daemon) doctorRoute(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (bool, error) {
+	if command.Kind == turn.KindDoctor {
+		return true, nil
 	}
-	c, err := d.db.ClaimDoctorCommand(ctx, d.doctor.lastTask, false, d.instanceID)
+	if command.Kind != turn.KindFreeText || command.Name != "" || t.continuation != nil || t.scheduled != nil ||
+		t.implementing || t.refining || t.validating || store.IsFactoryTrigger(trigger.CommentID) || store.IsGraphTrigger(trigger.CommentID) {
+		return false, nil
+	}
+	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, "doctor")
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
 	if err != nil {
-		d.doctor.pool.done()
-		if !errors.Is(err, store.ErrNotFound) {
-			d.log.ErrorContext(ctx, "doctor claim failed", slog.Any("error", err))
-		}
-		return
+		return false, err
 	}
-	d.doctor.lastTask = c.TaskRef
-	// Bounded by one reserved slot; provider context and Quiesce/shutdown join own
-	// this goroutine's lifetime. It never waits for a workflow worker.
-	go func() {
-		defer d.doctor.pool.done()
-		if err := d.runDoctor(workerCtx, c); err != nil {
-			d.log.ErrorContext(ctx, "doctor outcome remains pending", slog.Int64("command_id", c.ID), slog.Any("error", err))
+	return instance.Status == store.GraphRunning, nil
+}
+
+// startDoctor starts the Doctor on a task for an authenticated chat client or
+// owner action. It refuses, with an owner-facing reason, a task that is not
+// stopped or a factory without capacity.
+func (d *Daemon) startDoctor(ctx context.Context, taskRef, note, key string) error {
+	session, err := d.db.GetSessionByTaskRef(ctx, taskRef)
+	if errors.Is(err, store.ErrNotFound) {
+		return &doctorRefusal{"The Doctor did not start: " + taskRef + " has no factory work to diagnose."}
+	}
+	if err != nil {
+		return err
+	}
+	if err := d.db.CheckTaskStopped(ctx, session.ID); err != nil {
+		if errors.Is(err, store.ErrTaskNotStopped) {
+			return &doctorRefusal{"The Doctor did not start: " + taskRef + " still has work in flight. Wait until it stops, then ask again."}
+		}
+		return err
+	}
+	repo, err := d.db.GetRepo(ctx, session.RepoID)
+	if err != nil {
+		return err
+	}
+	ref, err := naming.ParseRef(session.TaskRef)
+	if err != nil {
+		return err
+	}
+	if !d.enterSession(ctx, session.ID) {
+		return &doctorRefusal{"The Doctor did not start: " + taskRef + " is busy right now. Ask again in a moment."}
+	}
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			d.inflight.leave(session.ID)
 		}
 	}()
-}
-func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
-	if c.Operation == "apply" {
-		// An approved repair posts through the command's connection; it waits in
-		// the inbox, without spending an attempt, while that hold stands.
-		held, err := d.doctorApplyHeld(ctx, c.ID)
-		if err != nil {
-			return err
-		}
-		if held {
-			return d.db.RequeueDoctorBusy(context.WithoutCancel(ctx), c.ID)
-		}
+	reservation, reason := d.reserveInput()
+	if reservation == nil {
+		return &doctorRefusal{"The Doctor did not start: the factory is at capacity (" + reason + "). Ask again later."}
 	}
-	ctx, err := d.doctorCommandContext(ctx, c.ID)
+	tickAt := d.brainstormNow()
+	log := d.log.With(slog.String("task", ref.String()), slog.Int64("session_id", session.ID), slog.String("dispatch_source", "doctor_start"))
+	t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: log, tickAt: tickAt}
+	t.workerLog = log.With(slog.Any("dispatch_sources", []string{"doctor_start"}), slog.Time("tick_at", tickAt))
+	issue, err := d.readScheduledIssue(ctx, t)
 	if err != nil {
+		reservation.abandon()
 		return err
 	}
-	ref, err := naming.ParseRef(c.TaskRef)
-	if err != nil {
-		return err
+	if issue.State != github.StateOpen {
+		reservation.abandon()
+		return &doctorRefusal{"The Doctor did not start: the issue of " + taskRef + " is closed."}
 	}
-	var conversation doctor.Conversation
-	var runErr error
-	if c.Operation == "apply" {
-		operation, readErr := d.db.DoctorCommandRepair(ctx, c.ID)
-		if readErr != nil {
-			return readErr
+	t.capacity = reservation
+	t.issue = issue
+	ids := d.ticketIdentities(ctx)
+	body := turn.DoctorCommand
+	if note != "" {
+		body += " " + note
+	}
+	trigger := turn.Trigger{CommentID: doctorStartTrigger(key), Body: body, Author: ids.OwnerHandle, AuthorID: ids.OwnerUserID}
+	d.inflight.label(session.ID, "doctor_start")
+	handedOff = true
+	go d.runGuardedWorker(sessionContext(context.WithoutCancel(ctx), session.ID), t, func(ctx context.Context) {
+		t.commentUnderWay = trigger.CommentID
+		if err := d.run(ctx, t, trigger, turn.ParseCommand(trigger.Body), t.log); err != nil {
+			t.recordWorkerError(err)
 		}
-		source := "github-doctor-apply:" + strconv.FormatInt(c.ID, 10)
-		if operation.SourceID != source {
-			return errors.New("doctor approved operation source mismatch")
-		}
-		operation, runErr = d.doctor.service.Apply(ctx, doctor.ApplyRequest{Target: ref, SourceID: source, Principal: "github-owner:" + strconv.FormatInt(c.ActorID, 10), InboxID: c.ID, ReservedID: operation.ID})
-		if runErr == nil && operation.State == "restart_pending" {
-			_, runErr = d.doctor.service.DispatchRepairRestart(ctx, ref)
-		}
-		if errors.Is(runErr, store.ErrDoctorBusy) {
-			return d.db.RequeueDoctorBusy(context.WithoutCancel(ctx), c.ID)
-		}
-		return d.finishDoctorApply(context.WithoutCancel(ctx), c, runErr)
-	}
-	conversation, runErr = d.doctor.service.Diagnose(ctx, doctor.DiagnoseRequest{Target: ref, Instructions: c.Instructions, SourceID: c.SourceID()})
-	if errors.Is(runErr, store.ErrDoctorBusy) {
-		return d.db.RequeueDoctorBusy(context.WithoutCancel(ctx), c.ID)
-	}
-	if runErr != nil {
-		attrs := []any{slog.Int64("command_id", c.ID), slog.String("task", c.TaskRef), slog.String("operation", c.Operation)}
-		if safeErr, redactErr := d.doctor.service.Redactor.Apply(context.WithoutCancel(ctx), runErr.Error(), 4096); redactErr == nil {
-			attrs = append(attrs, slog.String("error", safeErr.String()))
-		}
-		if n := len(conversation.Attempts); n > 0 {
-			attrs = append(attrs, slog.String("attempt_id", conversation.Attempts[n-1].ID), slog.String("provider", conversation.Attempts[n-1].Provider))
-		}
-		d.log.WarnContext(ctx, "doctor request failed", attrs...)
-	}
-	body := doctor.RenderConversation(conversation)
-	if runErr != nil {
-		body = "Doctor request did not complete: " + runErr.Error() + "\n\n" + body
-	}
-	safe, err := d.doctor.service.Redactor.ApplyReviewJSONDisplay(context.WithoutCancel(ctx), body, 262144)
-	if err != nil {
-		return err
-	}
-	if safe.Truncated() {
-		return errors.New("doctor result exceeds publication bound")
-	}
-	err = d.db.CompleteDoctorCommand(context.WithoutCancel(ctx), c.ID, safe.String(), conversation.Conversation.ID)
-	if errors.Is(err, store.ErrDoctorFenced) {
-		return nil
-	}
-	return err
+		t.commentUnderWay = 0
+	})
+	return nil
 }
 
-func (d *Daemon) recoverDoctor(ctx context.Context) error {
-	if d.doctor.service == nil {
-		return nil
+// doctorStarted reports whether the start a request key names was admitted.
+func (d *Daemon) doctorStarted(ctx context.Context, taskRef, key string) (bool, error) {
+	session, err := d.db.GetSessionByTaskRef(ctx, taskRef)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
 	}
-	commands, err := d.db.RecoverDoctorCommands(ctx, d.instanceID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	var failures []error
-	for _, c := range commands {
-		commandCtx, err := d.doctorCommandContext(ctx, c.ID)
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		ref, err := naming.ParseRef(c.TaskRef)
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		if c.Operation == "apply" {
-			operation, readErr := d.db.DoctorCommandRepair(commandCtx, c.ID)
-			if errors.Is(readErr, store.ErrNotFound) {
-				failures = append(failures, d.finishDoctorApply(ctx, c, nil))
-				continue
-			}
-			if readErr != nil {
-				failures = append(failures, readErr)
-				continue
-			}
-			// Only unfinished originating operations need observation; never replay a writer.
-			if operation.State != "completed" && operation.State != "failed" && operation.State != "recovered" && operation.State != "restart_pending" && operation.State != "stopped" && operation.State != "needs_review" {
-				if _, err = d.doctor.service.ReconcileRepair(commandCtx, ref, operation.ID); err != nil {
-					failures = append(failures, err)
-					continue
-				}
-			}
-			failures = append(failures, d.finishDoctorApply(ctx, c, nil))
-			continue
-		}
-		conversation, err := d.doctor.service.RecoverSource(commandCtx, ref, c.SourceID())
-		if errors.Is(err, store.ErrDoctorBusy) {
-			continue
-		}
-		if err == nil {
-			body := doctor.RenderConversation(conversation)
-			safe, redactErr := d.doctor.service.Redactor.ApplyReviewJSONDisplay(ctx, body, 262144)
-			if redactErr != nil {
-				failures = append(failures, redactErr)
-				continue
-			}
-			failures = append(failures, d.db.CompleteDoctorCommand(ctx, c.ID, safe.String(), conversation.Conversation.ID))
-			continue
-		}
-		if !errors.Is(err, store.ErrNotFound) {
-			failures = append(failures, err)
-			continue
-		}
-		if c.Attempts < 2 {
-			failures = append(failures, d.db.RetryDoctorCommand(ctx, c.ID))
-		} else {
-			failures = append(failures, d.db.CompleteDoctorCommand(ctx, c.ID, "Doctor diagnosis was interrupted twice. Saved findings remain; send a new `/doctor <instructions>` command to continue.", 0))
-		}
-	}
-	return errors.Join(failures...)
+	return d.db.WorkflowLaunched(ctx, session.ID, doctorStartTrigger(key))
 }
-
-func (d *Daemon) publishDoctor(ctx context.Context) error {
-	forge, _ := d.forge.(doctorForge)
-	if forge == nil && d.connections == nil {
-		return errors.New("doctor publication unavailable")
-	}
-	commands, err := d.db.DoctorCommandsNeedingReports(ctx)
-	if err != nil {
-		return err
-	}
-	for _, c := range commands {
-		parts, err := doctor.PresentationParts(c.ResultBody)
-		if err != nil {
-			return err
-		}
-		publisher := d.filter.Identities().BotUserID
-		if d.connections != nil {
-			source, err := d.db.GetDoctorCommandSource(ctx, c.ID)
-			if err != nil && !errors.Is(err, store.ErrNotFound) {
-				return err
-			}
-			if err == nil {
-				publisher = source.PublisherID
-			}
-		}
-		if err := d.db.EnsureDoctorDeliveries(ctx, c, parts, publisher); err != nil {
-			return err
-		}
-	}
-	deliveries, err := d.db.PendingDoctorDeliveries(ctx, d.doctor.lastDelivery)
-	if err != nil {
-		return err
-	}
-	var failures []error
-	for _, delivery := range deliveries[:min(len(deliveries), 4)] {
-		d.doctor.lastDelivery = delivery.Key
-		failures = append(failures, d.deliverDoctor(ctx, forge, delivery))
-	}
-	return errors.Join(failures...)
-}
-func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery store.ReportDelivery) error {
-	prepared, ready, err := d.db.PrepareDoctorDelivery(ctx, delivery.Key)
-	if err != nil || !ready {
-		return err
-	}
-	delivery = prepared
-	if d.connections != nil {
-		source, err := d.db.GetDoctorDeliverySource(ctx, delivery.Key)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return err
-		}
-		if err == nil {
-			if source.PublisherID != delivery.BotUserID {
-				return errors.New("doctor publisher differs from retained intent")
-			}
-			client, err := d.doctorSourceClient(ctx, source)
-			if err != nil {
-				return err
-			}
-			forge = client
-		}
-	}
-	if forge == nil {
-		return errors.New("doctor publication unavailable")
-	}
-	ref, err := naming.ParseRef(delivery.Destination)
-	if err != nil {
-		return err
-	}
-	repo := github.Repo{Owner: ref.Owner, Name: ref.Repo}
-	if delivery.CommentID > 0 {
-		return d.db.CompleteDoctorDelivery(ctx, delivery.Key)
-	}
-	if delivery.PossiblySent {
-		probe, err := d.db.DoctorDeliveryProbe(ctx, delivery.Key)
-		if err != nil {
-			return err
-		}
-		page, err := doctorCall(ctx, d, func(ctx context.Context) (github.CommentPage, error) {
-			return forge.ListCommentsPage(ctx, repo, ref.Issue, probe, 100)
-		})
-		if err != nil {
-			return err
-		}
-		var confirmed int64
-		var confirmedURL string
-		for _, c := range page.Comments {
-			if c.Author.ID != delivery.BotUserID || !strings.Contains(c.Body, delivery.Marker) {
-				continue
-			}
-			if c.Body != delivery.Body || !doctorCommentAtDestination(c, ref) {
-				return errors.New("doctor delivery receipt conflicts with retained intent")
-			}
-			if confirmed == 0 || c.ID < confirmed {
-				confirmed = c.ID
-				confirmedURL = c.HTMLURL
-			}
-		}
-		if confirmed != 0 {
-			if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, confirmed, confirmedURL); err != nil {
-				return err
-			}
-			return d.db.CompleteDoctorDelivery(ctx, delivery.Key)
-		}
-		return d.db.AdvanceDoctorDeliveryProbe(ctx, delivery.Key, page.NextPage) // Absence is not proof to repost; debt stays uncertain.
-	}
-	safe, err := d.doctor.service.Redactor.ApplyReviewDisplay(ctx, delivery.Body, 65536)
-	if err != nil {
-		return err
-	}
-	if safe.Truncated() || safe.String() != delivery.Body {
-		return errors.New("retained doctor publication requires renewed redaction")
-	}
-	claimed, err := d.db.MarkReportDeliverySent(ctx, delivery.Key)
-	if err != nil || !claimed {
-		return err
-	}
-	comment, err := forge.PostComment(ctx, repo, ref.Issue, safe)
-	if err != nil {
-		if errors.Is(err, github.ErrRateLimited) {
-			return errors.Join(err, d.db.UnmarkReportDeliverySent(context.WithoutCancel(ctx), delivery.Key))
-		}
-		return err
-	}
-	if comment.ID <= 0 || comment.Author.ID != delivery.BotUserID {
-		return fmt.Errorf("doctor post receipt lacks trusted bot identity")
-	}
-	if _, err := d.db.ConfirmReportDelivery(ctx, delivery.Key, comment.ID, comment.HTMLURL); err != nil {
-		return err
-	}
-	return d.db.CompleteDoctorDelivery(ctx, delivery.Key)
-}
-
-// doctorRepairSettled mirrors the terminal states excluded by the store's
-// one-active-repair-per-task index.

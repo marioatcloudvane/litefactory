@@ -2,7 +2,7 @@
 
 [Documentation home](../README.md) · [Operations](README.md)
 
-Start on the initialized host with the intended `LF_HOME` (see [environment variables](../configuration/config-yaml.md#environment-variables)). For a broader health check run `litefactory doctor`; see [doctor](doctor.md). Use the full task ref when issue numbers overlap:
+Start on the initialized host with the intended `LF_HOME` (see [environment variables](../configuration/config-yaml.md#environment-variables)). For a stuck task, comment `/doctor` on its issue; see [doctor](doctor.md). Use the full task ref when issue numbers overlap:
 
 ```sh
 litefactory daemon status

@@ -255,7 +255,7 @@ func worktreeGitDir(worktree string) string {
 // litefactory's unredacted logs and database.
 func (r *Runner) deniedReadPaths() []string {
 	denied := []string{r.paths.LogsDir(), r.paths.DBPath()}
-	for _, path := range r.paths.DoctorCredentialPaths(r.osHome) {
+	for _, path := range r.paths.CredentialPaths(r.osHome) {
 		if filepath.IsAbs(path) {
 			denied = append(denied, path)
 		}

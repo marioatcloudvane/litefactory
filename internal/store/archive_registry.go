@@ -266,8 +266,9 @@ var archiveRetained = map[string]ArchiveClass{
 	// can span validation generations, so task archival must retain requests,
 	// raw artifacts, assessments and the suite rows they cite together.
 	"validation_requests": ArchiveClassSkeleton, "validation_evidence": ArchiveClassSkeleton,
-	// Not keyed by one task family. The doctor journal has delete triggers and
-	// holds; a family with doctor references is kept by the pending check.
+	// Not keyed by one task family. The retired Doctor runtime's journal is
+	// history with delete triggers; a family it references is kept by the
+	// pending check.
 	"repos": ArchiveClassGlobal, "identities": ArchiveClassGlobal, "poll_cursor": ArchiveClassGlobal, "repo_poll_cursors": ArchiveClassGlobal, "repo_webhooks": ArchiveClassGlobal,
 	"chat_issue_previews":     ArchiveClassGlobal,
 	"chat_inbox":              ArchiveClassGlobal,
@@ -365,8 +366,8 @@ var archiveRetained = map[string]ArchiveClass{
 	"schema_migrations":              ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
 	"retirement_sweep": ArchiveClassGlobal, "archive_sweep": ArchiveClassGlobal,
 	planArchiveGrantsTable: ArchiveClassGlobal,
-	// Rights are keyed by repository, never archived or deleted.
-	"rights_grants": ArchiveClassGlobal, "reviewer_assignments": ArchiveClassGlobal, "rights_history": ArchiveClassGlobal,
+	// Access grants and access decisions are keyed by repository, never archived or deleted.
+	"project_access_grants": ArchiveClassGlobal, "project_access_decisions": ArchiveClassGlobal,
 	"meter_price_revisions": ArchiveClassGlobal, "meter_price_rates": ArchiveClassGlobal,
 	// The standards book and its immutable proposals span every task family.
 	"standards_book": ArchiveClassGlobal, "standards_revisions": ArchiveClassGlobal,
@@ -394,9 +395,8 @@ var archiveRetained = map[string]ArchiveClass{
 	"doctor_instruction_captures": ArchiveClassGlobal,
 	"doctor_inbox":                ArchiveClassGlobal, "doctor_local_presentations": ArchiveClassGlobal,
 	"doctor_presentations": ArchiveClassGlobal, "doctor_proposals": ArchiveClassGlobal,
-	"doctor_repair_holds": ArchiveClassGlobal, "doctor_repair_steps": ArchiveClassGlobal,
-	"doctor_repair_write_permits": ArchiveClassGlobal, "doctor_repairs": ArchiveClassGlobal,
-	"doctor_restarts": ArchiveClassGlobal, "doctor_scans": ArchiveClassGlobal,
+	"doctor_repair_steps": ArchiveClassGlobal, "doctor_repairs": ArchiveClassGlobal,
+	"doctor_restarts": ArchiveClassGlobal,
 }
 
 // archiveGuardedReferences are retained tables that may reference archived

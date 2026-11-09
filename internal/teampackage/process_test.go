@@ -4,16 +4,11 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,19 +24,7 @@ func TestTeamSubprocessHelper(t *testing.T) {
 	if mode == "" {
 		return
 	}
-	roots := x509.NewCertPool()
-	cert, err := base64.StdEncoding.DecodeString(os.Getenv("LF_TEST_TEAM_CERT"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed, err := x509.ParseCertificate(cert)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots.AddCert(parsed)
-	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}
-	defer transport.CloseIdleConnections()
-	m, err := New(Options{Paths: config.NewPaths(os.Getenv("LF_TEST_TEAM_HOME")), Transport: transport, Validate: func(context.Context, fs.FS, map[string]string) error { return nil }})
+	m, err := New(Options{Paths: config.NewPaths(os.Getenv("LF_TEST_TEAM_HOME")), Validate: func(context.Context, fs.FS, map[string]string) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +72,7 @@ func TestTeamSubprocessHelper(t *testing.T) {
 		}
 	case "staged":
 		m.validate = func(context.Context, fs.FS, map[string]string) error { ready(); return nil }
-		if _, _, err := m.Install(t.Context(), source, "example", "2.0.0"); err != nil {
+		if _, _, err := testInstall(t.Context(), m, source, "example", "2.0.0"); err != nil {
 			t.Fatal(err)
 		}
 	case "published", "detached":
@@ -101,7 +84,7 @@ func TestTeamSubprocessHelper(t *testing.T) {
 			return nil
 		}
 		if mode == "published" {
-			if _, _, err := m.Install(t.Context(), source, "example", "2.0.0"); err != nil {
+			if _, _, err := testInstall(t.Context(), m, source, "example", "2.0.0"); err != nil {
 				t.Fatal(err)
 			}
 		} else {
@@ -113,10 +96,10 @@ func TestTeamSubprocessHelper(t *testing.T) {
 		t.Fatal("invalid subprocess mode")
 	}
 }
-func startTeamChild(t *testing.T, mode string, p config.Paths, server *httptest.Server) (*exec.Cmd, io.WriteCloser) {
+func startTeamChild(t *testing.T, mode string, p config.Paths, server *fixtureServer) (*exec.Cmd, io.WriteCloser) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestTeamSubprocessHelper$")
-	cmd.Env = append(os.Environ(), "LF_TEST_TEAM_MODE="+mode, "LF_TEST_TEAM_HOME="+p.Home(), "LF_TEST_TEAM_SOURCE="+server.URL+"/teams/teams.json", "LF_TEST_TEAM_CERT="+base64.StdEncoding.EncodeToString(server.Certificate().Raw))
+	cmd.Env = append(os.Environ(), "LF_TEST_TEAM_MODE="+mode, "LF_TEST_TEAM_HOME="+p.Home(), "LF_TEST_TEAM_SOURCE="+server.URL+"/teams/teams.json")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -254,14 +237,21 @@ func TestCompetingProcessCannotOverwriteRelease(t *testing.T) {
 	if _, err := stdin.Write([]byte("x")); err != nil {
 		t.Fatal(err)
 	}
-	if err := child.Wait(); err == nil {
-		t.Fatal("competing changed checksum overwrote release")
+	// The later install replaces the earlier one whole, under the lock: a
+	// reinstall is how changed source reaches an installed version.
+	if err := child.Wait(); err != nil {
+		t.Fatalf("competing reinstall failed: %v", err)
 	}
-	after := snapshot(t, filepath.Dir(newer.Path))
-	for p, raw := range before {
-		if string(after[p]) != string(raw) {
-			t.Fatal("winner overwritten")
-		}
+	entry, err := m.Inspect(t.Context(), source, "example", "2.0.0")
+	if err != nil {
+		t.Fatalf("replaced release does not verify: %v", err)
+	}
+	original, _ := fixtureRelease("2.0.0")
+	if entry.Identity.Digest != original.Checksum || entry.Identity.Digest == newer.Identity.Digest {
+		t.Fatalf("replaced digest=%s want %s", entry.Identity.Digest, original.Checksum)
+	}
+	if after := snapshot(t, filepath.Dir(newer.Path)); len(after) != len(before) {
+		t.Fatalf("replacement left %d files, want %d", len(after), len(before))
 	}
 }
 func TestRemoveFaultsAreHonest(t *testing.T) {
@@ -327,7 +317,7 @@ func TestCloneProcessLockAndInterruptedPublication(t *testing.T) {
 			}
 			cancel()
 			ctx, cancel = context.WithTimeout(t.Context(), 100*time.Millisecond)
-			if _, _, err := m.Install(ctx, source, "example", "1.0.0"); !errors.Is(err, context.DeadlineExceeded) {
+			if _, _, err := testInstall(ctx, m, source, "example", "1.0.0"); !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatal(err)
 			}
 			cancel()

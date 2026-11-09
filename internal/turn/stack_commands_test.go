@@ -18,7 +18,6 @@ func TestStackSetupOnlyAdmittedWriteImplementEngineers(t *testing.T) {
 		{"legacy engineer", "implement", "implement", "go-implementation-engineer", "write", true},
 		{"validate", "validate", "validate", "implementation-engineer", "read", false},
 		{"spike", "spike", "spike", "implementation-engineer", "write", false},
-		{"bug with implement mode", "implement", "bug", "implementation-engineer", "write", false},
 		{"read implement", "implement", "implement", "story-worker", "read", false},
 		{"foreign role", "implement", "implement", "foreign", "write", false},
 	} {

@@ -18,6 +18,23 @@ type TeamEntryView struct {
 	Workflows []string
 	Editable  bool
 	Origin    *TeamOriginView
+	Build     *TeamBuildView
+}
+
+// TeamBuildView names the source checkout an installed team was built from.
+type TeamBuildView struct {
+	SourceHead  string
+	SourceDirty bool
+}
+
+// TeamInstallView reports one install from a source folder.
+type TeamInstallView struct {
+	Entry TeamEntryView
+	// Outcome is "installed", "unchanged" or "replaced".
+	Outcome string
+	// Rebound lists the registered clones whose stored digest a replacement
+	// moved to the new bytes.
+	Rebound []string
 }
 
 // TeamBindingRequest selects a registered clone and installed team version.

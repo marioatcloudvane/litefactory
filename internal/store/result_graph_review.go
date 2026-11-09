@@ -49,7 +49,7 @@ func (db *DB) GraphResultReviewBinding(ctx context.Context, source GraphNodeAtte
 			switch mode {
 			case "plan", "implement":
 				suffix = fmt.Sprintf("#graph-%d#attempt-%d", source.InstanceID, source.ID)
-			case "research", "validate", "spike":
+			case "research", "validate", "spike", "bug", "doctor":
 				var latest int64
 				if err = tx.QueryRowContext(ctx, `SELECT MAX(id) FROM graph_node_attempts WHERE instance_id=? AND run_id=? AND node=?`, source.InstanceID, source.RunID, source.Node).Scan(&latest); err != nil {
 					return err

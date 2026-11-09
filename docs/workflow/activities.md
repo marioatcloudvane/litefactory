@@ -46,7 +46,7 @@ graph checks. Bug registers only `lf_agent` and its own `lf_loop` variant.
 | `lf_loop` | Like `lf_if`; uses `lf_default` before the first attempt. | `true, false` | `lf_field`, `lf_condition`, optional `lf_default` | – | research, plan, spike |
 | `lf_loop` (Bug owner conversation) | Publishes the Bug analysis and waits; returns `approved` only after a recorded, exact owner approval. | `analyse, approved, blocked` | `lf_contract` (=owner_conversation), optional `lf_park`, `lf_stop` | 💬 ⏸ | bug |
 | `lf_comment` | Publishes the retained result as a ticket comment. | `published` | `lf_kind` (final \| failure), optional `lf_source` | 💬 | research, plan, spike |
-| `lf_ask` | Publishes a question or review and rests at the owner wait. | `published` | `lf_kind` (question \| review), `lf_source` (required in Plan), optional `lf_rights` | 💬 ⏸ | research, plan, spike |
+| `lf_ask` | Publishes a question or review and rests at the owner wait. | `published` | `lf_kind` (question \| review), `lf_source` (required in Plan) | 💬 ⏸ | research, plan, spike |
 | `lf_gate` | Publishes the reviewed draft with the owner command named on the node and rests at the owner wait. Replaces the `lf_if approved` and `lf_ask review` pair after a story effect; not allowed after the set stage. | `published` | `lf_command` (`/approve-plan`), `lf_args` (`story,stage,candidate`), `lf_source` (required) | 💬 ⏸ | plan |
 | `lf_sync_base` | Merges the base branch into the working branch in a scratch worktree. | `synced, current, conflict, retry` | – | 🔀 | implement |
 
@@ -138,7 +138,7 @@ Spike registers no activities of its own: one result-routed `lf_agent`
 | `lf_skills` | agent, reviewers | Skills given to the role(s). | comma list, optional `shared/` prefix |
 | `lf_model_tier` | agent | Model tier. | `flagship`, `balanced`, `fast` (node, then role frontmatter, then graph default) |
 | `lf_task` | agent | Task text. | 1–65536 bytes (node, then role, then graph default) |
-| `lf_access` | agent | Tool access. | `read`, `write` (Validate repair: write; Bug analyst: read) |
+| `lf_access` | agent | Tool access. | `read`, `write` (Validate repair and Bug: write) |
 | `lf_budget` | agent | Time budget per run in minutes. | 1–1440 |
 | `lf_response` | agent | Routes the agent's retained result as the outcome: the agent declares its responses (e.g. `ask, done`) instead of `success`. | `result` (Bug agents also need `lf_park=owner`) |
 | `lf_park` | Bug nodes | Parks at the owner instead of failing. | `owner` |
@@ -149,7 +149,6 @@ Spike registers no activities of its own: one result-routed `lf_agent`
 | `lf_condition` | `lf_if`, `lf_loop` | Value to compare with. | research: ask, done, approved, continue · plan: set, story, technical, acceptance, create, ask, answer, approved · spike: ask, done |
 | `lf_default` | `lf_loop` | Value before the first attempt. | research/spike: ask, done · plan: set, story, technical, acceptance |
 | `lf_kind` | `lf_comment`, `lf_ask` | Publication kind. | comment: final, failure · ask: question, review |
-| `lf_rights` | `lf_ask` | Human actions that may be delegated. | answer, request_changes, approve (not in Implement; unused in shipped graphs) |
 | `lf_command` | `lf_gate` | The owner command the gate posts and waits for. Plan only. | `/approve-plan` |
 | `lf_args` | `lf_gate` | Ordered parameters of that command, filled from saved Plan state. Plan only. | `story,stage,candidate` (exactly this order) |
 | `lf_suite` | Validate nodes | Names the suite node. | node with `lf_validate_suite` |

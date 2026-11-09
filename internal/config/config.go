@@ -109,7 +109,9 @@ type Providers struct {
 type Settings struct {
 	// WorkerTimeoutSeconds is the default allowance for one logical worker attempt.
 	WorkerTimeoutSeconds int `yaml:"worker_timeout_seconds"`
-	// TeamSource is an anonymous HTTPS catalogue; empty uses DefaultTeamSource.
+	// TeamSource is the absolute path of the teams/source folder that
+	// "team install" uses when --source is left out. Empty means --source is
+	// required. An old catalogue URL still loads but cannot be installed from.
 	TeamSource string `yaml:"team_source"`
 	// PollIntervalMinutes is the fallback discovery poll interval: how often
 	// the forge is listed when no webhook has asked for it sooner.
@@ -387,7 +389,6 @@ func Defaults() Config {
 		RemoteConnector: DefaultRemoteConnector(),
 		Settings: Settings{
 			WorkerTimeoutSeconds: DefaultWorkerTimeoutSeconds,
-			TeamSource:           DefaultTeamSource,
 			PollIntervalMinutes:  DefaultPollIntervalMinutes,
 			MaxConcurrentRuns:    DefaultMaxConcurrentRuns,
 			DefaultBaseBranch:    "",

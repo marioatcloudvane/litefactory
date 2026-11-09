@@ -331,7 +331,7 @@ func ValidateGraphDispatchRecovery(ctx context.Context, db *store.DB, dispatch s
 	if err != nil {
 		return err
 	}
-	builders := map[agent.Workflow]func() (graphexec.Registry, error){agent.WorkflowResearch: ResearchSpecs, agent.WorkflowPlan: PlanSpecs, agent.WorkflowImplement: ImplementSpecs, agent.WorkflowValidate: ValidateFlowSpecs, agent.WorkflowSpike: SpikeSpecs, agent.WorkflowBug: SimplifiedBugSpecs}
+	builders := map[agent.Workflow]func() (graphexec.Registry, error){agent.WorkflowResearch: ResearchSpecs, agent.WorkflowPlan: PlanSpecs, agent.WorkflowImplement: ImplementSpecs, agent.WorkflowValidate: ValidateFlowSpecs, agent.WorkflowSpike: SpikeSpecs, agent.WorkflowDoctor: DoctorSpecs, agent.WorkflowBug: BugSpecs}
 	builder, ok := builders[workflow]
 	if !ok {
 		return errors.New("dispatch recovery workflow is unsupported")

@@ -191,7 +191,7 @@ func (d *Daemon) driveBrainstormAttempt(ctx context.Context, repo store.Repo, it
 	if err != nil {
 		return err
 	}
-	if !d.enterDoctorGuarded(ctx, session.ID) {
+	if !d.enterSession(ctx, session.ID) {
 		// The task's turn, possibly this attempt's own run, is under way.
 		return nil
 	}
@@ -250,7 +250,7 @@ func (d *Daemon) driveBrainstormAttempt(ctx context.Context, repo store.Repo, it
 	t.issue = issue
 	d.inflight.label(session.ID, "brainstorm_launch")
 	handedOff = true
-	go d.runDoctorGuardedWorker(sessionContext(context.WithoutCancel(ctx), session.ID), t, func(ctx context.Context) {
+	go d.runGuardedWorker(sessionContext(context.WithoutCancel(ctx), session.ID), t, func(ctx context.Context) {
 		d.runBrainstormLaunch(ctx, t, it, a)
 	})
 	return nil

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 func newDiagnostics() Diagnostics {
@@ -260,4 +262,14 @@ func Assemble(r Result, meta Metadata, ctx Context) (Snapshot, Diagnostics) {
 	}
 	bindPlanGraph(&cloned, ctx)
 	return Snapshot{Meta: meta, Result: cloned}, d
+}
+
+// resultWorkflowMatches compares the workflow a snapshot and a scope resolve to.
+func resultWorkflowMatches(meta Metadata, ctx Context) bool {
+	left, err := agent.ResolveWorkflow(meta.Workflow, agent.Mode(meta.Mode))
+	if err != nil {
+		return false
+	}
+	right, err := agent.ResolveWorkflow(ctx.Workflow, agent.Mode(ctx.Mode))
+	return err == nil && left == right
 }

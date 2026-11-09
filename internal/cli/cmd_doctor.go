@@ -1,183 +1,122 @@
 package cli
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"strconv"
-	"strings"
 
-	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/doctor"
-	"github.com/cloudvane/litefactory/internal/factory/localdoctor"
+	"github.com/cloudvane/litefactory/internal/factory/maintenance"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/redact"
-	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func newDoctorCommand(operation string) *Command {
-	name := "doctor"
-	names := []string{"repository", "issue", "instructions"}
-	short := "Diagnose one issue independently of its workflow (unverified providers refuse launch)"
-	if operation != "" {
-		name += " " + operation
-		names = names[:2]
-		short = "Read or stop the saved doctor conversation"
+// newDoctorCommand declares "litefactory doctor <task-ref>": the state of the
+// task's Doctor. The Doctor itself starts from the task's issue (`/doctor`) or
+// a chat client; this command only reads.
+func newDoctorCommand() *Command {
+	cmd := &Command{
+		Name:  "doctor",
+		Usage: "doctor <task-ref>",
+		Short: "Show the state of a task's Doctor",
+		Long: "Show whether the Doctor ran on a task and where it stands.\n\n" +
+			"Start the Doctor by commenting `/doctor [what to look at]` on the task's\n" +
+			"issue, or from a chat client. It starts only while the task is stopped.",
+		Args: ArgSpec{Names: []string{"task-ref"}, Min: 1},
 	}
-	return &Command{Name: name, Usage: name + " <repository> <issue>" + doctorInstructionUsage(operation), Short: short, Args: ArgSpec{Names: names, Min: len(names)}, New: func(*flag.FlagSet) Handler {
-		return func(ctx context.Context, env *Env, args []string) error { return runDoctor(ctx, env, operation, args) }
-	}}
-}
-func doctorInstructionUsage(operation string) string {
-	if operation == "" {
-		return " <instructions>"
-	}
-	return ""
-}
-
-func runDoctor(ctx context.Context, env *Env, operation string, args []string) (err error) {
-	issue, err := strconv.Atoi(args[1])
-	if err != nil {
-		return fmt.Errorf("doctor issue must be a positive integer: %w", err)
-	}
-	ref, err := doctor.Target(args[0], issue)
-	if err != nil {
-		return err
-	}
-	paths, err := config.Locate()
-	if err != nil {
-		return err
-	}
-	cfg, err := config.Load(paths)
-	if err != nil {
-		return err
-	}
-	// Open never migrates, but SQLite can create a missing file. Refuse it first.
-	info, err := os.Lstat(paths.DBPath())
-	if err != nil {
-		return fmt.Errorf("doctor requires an existing initialized database: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return errors.New("doctor database must be a regular file")
-	}
-	db, err := store.Open(ctx, paths.DBPath())
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, db.Close()) }()
-	service := doctor.Service{Logger: env.Logger, DB: db, Paths: paths, Config: cfg, Redactor: redact.New(redact.Options{Logger: env.Logger, Environ: os.Environ()})}
-	if operation == "apply" || operation == "" {
-		if err = configureDoctorNative(ctx, &service, env); err != nil {
-			return err
+	cmd.New = func(*flag.FlagSet) Handler {
+		return func(ctx context.Context, env *Env, args []string) error {
+			return runDoctorStatus(ctx, env, cmd, args[0])
 		}
 	}
-	if operation == "apply" {
-		return applyDoctorCLI(ctx, &service, env, doctor.ApplyRequest{Target: ref, SourceID: "cli-apply:" + rand.Text(), Principal: "local-owner"})
-	}
+	return cmd
+}
 
-	if operation == "stop" {
-		stop, err := localdoctor.StopIssue(ctx, &service, ref)
-		if err != nil {
-			return err
-		}
-		if stop.RunID != 0 {
-			run, err := localdoctor.StopRun(ctx, &service, stop.RunID)
+// newDoctorStopCommand declares "litefactory doctor stop <task-ref>": stop the
+// task's running invocation so the task is stopped and the Doctor may start.
+func newDoctorStopCommand() *Command {
+	cmd := &Command{
+		Name:  "doctor stop",
+		Usage: "doctor stop <task-ref>",
+		Short: "Stop a task's running work so the Doctor can look at it",
+		Long: "Ask the daemon to stop the task's running invocation. Its work so far is\n" +
+			"saved as usual. Once nothing of the task runs, `/doctor` can start.",
+		Args: ArgSpec{Names: []string{"task-ref"}, Min: 1},
+	}
+	cmd.New = func(*flag.FlagSet) Handler {
+		return func(ctx context.Context, env *Env, args []string) (err error) {
+			ref, err := naming.ParseRef(args[0])
+			if err != nil {
+				return Usagef(cmd, "%q is not a task ref such as github:owner/repo#12: %v", args[0], err)
+			}
+			rt, err := openRepoRuntime(ctx)
 			if err != nil {
 				return err
 			}
-			if run.Running {
-				_, err = fmt.Fprintf(env.Stdout, "Stop requested for workflow run %d; cancellation and saving are pending daemon settlement. Doctor conversation stopped: %t. No issue comment will be posted. Wait for cancellation and saving to settle; no owner action is needed.\n", run.Ordinal, stop.Conversation)
+			defer func() { err = errors.Join(err, rt.close()) }()
+			runID, err := maintenance.New(rt.db).StopTask(ctx, ref.String())
+			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(env.Stdout, stop.Summary+" "+run.Summary+" Inspect on the factory host: `"+report.RunInspectionCommand(ref, run.Ordinal)+"`.")
+			if runID == 0 {
+				_, err = fmt.Fprintf(env.Stdout, "%s has no running run; nothing to stop.\n", ref)
+				return err
+			}
+			_, err = fmt.Fprintf(env.Stdout, "Stop requested for run %d of %s; the daemon cancels it on its next tick and saves its work.\n", runID, ref)
 			return err
 		}
-		_, err = fmt.Fprintln(env.Stdout, stop.Summary+" No owner action is needed.")
-		return err
 	}
-
-	var result localdoctor.Conversation
-	if operation == "status" {
-		result, err = localdoctor.ReadConversation(ctx, &service, ref)
-	} else {
-		result, err = localdoctor.Diagnose(ctx, &service, doctor.DiagnoseRequest{Target: ref, Instructions: args[2]})
-	}
-	if result.Conversation.ID != 0 {
-		displayErr := renderDoctor(env.Stdout, result)
-		err = errors.Join(err, displayErr)
-		if displayErr == nil {
-			_, presentationErr := localdoctor.RecordPresentation(ctx, &service, ref, result)
-			err = errors.Join(err, presentationErr)
-		}
-	}
-	return err
+	return cmd
 }
 
-func renderDoctor(w io.Writer, result localdoctor.Conversation) error {
-	var text bytes.Buffer
-	text.WriteString(result.AlertsText)
-	text.WriteString(result.ReviewText)
-	fmt.Fprintf(&text, "Doctor conversation %d · %s · generation %d\n", result.Conversation.ID, result.Conversation.State, result.Conversation.Generation)
-	if len(result.Attempts) > 0 {
-		last := result.Attempts[len(result.Attempts)-1]
-		fmt.Fprintf(&text, "Last attempt: %s\n", last.State)
-		if last.Failure != "" {
-			fmt.Fprintf(&text, "%s\n", last.Failure)
+func runDoctorStatus(ctx context.Context, env *Env, cmd *Command, arg string) (err error) {
+	ref, err := naming.ParseRef(arg)
+	if err != nil {
+		return Usagef(cmd, "%q is not a task ref such as github:owner/repo#12: %v", arg, err)
+	}
+	rt, err := openRepoRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, rt.close()) }()
+	return renderDoctorStatus(ctx, env.Stdout, rt.db, ref.String())
+}
+
+func renderDoctorStatus(ctx context.Context, w io.Writer, db *store.DB, task string) error {
+	state, err := maintenance.New(db).DoctorState(ctx, task)
+	if err != nil {
+		return err
+	}
+	if !state.Known {
+		_, err = fmt.Fprintf(w, "%s has no factory work; there is nothing for the Doctor to look at.\n", task)
+		return err
+	}
+	stopped := "stopped: the Doctor may start"
+	if !state.Stopped {
+		stopped = "busy: work is in flight; stop it with `litefactory doctor stop " + task + "` or wait"
+	}
+	if _, err := fmt.Fprintf(w, "%s is %s.\n", task, stopped); err != nil {
+		return err
+	}
+	if !state.Ran {
+		_, err = fmt.Fprintln(w, "The Doctor has not run on this task. Comment `/doctor` on its issue to start it.")
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "Doctor instance %d: %s at %s, started %s.\n", state.InstanceID, state.Status, state.Node, state.StartedAt); err != nil {
+		return err
+	}
+	for _, a := range state.Attempts {
+		line := fmt.Sprintf("  %s attempt %d: %s", a.Node, a.Attempt, a.Status)
+		if a.Outcome != "" {
+			line += " (" + a.Outcome + ")"
+		}
+		if a.RunID != 0 {
+			line += fmt.Sprintf(", run %d", a.RunID)
+		}
+		if _, err := fmt.Fprintln(w, line); err != nil {
+			return err
 		}
 	}
-	if result.Diagnosis != nil {
-		for _, f := range result.Diagnosis.Findings {
-			fmt.Fprintf(&text, "\n%s\nEvidence: %s\nUncertainty: %s\n", f.Explanation, strings.Join(f.Evidence, ", "), f.Uncertainty)
-		}
-		for _, gap := range result.Diagnosis.CoverageGaps {
-			fmt.Fprintf(&text, "Coverage gap: %s\n", gap)
-		}
-		for _, question := range result.Diagnosis.Questions {
-			fmt.Fprintf(&text, "Question: %s\n", question)
-		}
-	} else {
-		text.WriteString("No accepted diagnosis is saved yet.\n")
-	}
-	for _, step := range result.CurrentProposal {
-		fmt.Fprintf(&text, "\n%d. %s\nPrecondition: %s\nChange: %s\nReason: %s\nReversibility: %s\nRollback: %s\n", step.Number, step.Target, step.Precondition, step.Change, step.Reason, step.Reversibility, step.Rollback)
-		if step.Action != nil {
-			fmt.Fprintf(&text, "Exact operation: %s\nBefore: %s\nAfter: %s\n", step.Action.Kind, step.Action.Before, step.Action.After)
-		}
-	}
-	if result.Repair != nil {
-		fmt.Fprintf(&text, "\nRepair %s: %s\n", result.Repair.ID, result.Repair.State)
-		if result.Repair.Failure != "" {
-			fmt.Fprintf(&text, "%s\n", doctor.RepairFailureExplanation(result.Repair.Failure))
-		}
-		for _, step := range result.RepairSteps {
-			fmt.Fprintf(&text, "Step %d: %s; backup: %s\n", step.Number, step.State, step.BackupReference)
-		}
-		if result.Restart != nil {
-			fmt.Fprintf(&text, "Restart: %s\n%s\n", result.Restart.State, result.Restart.Report)
-		}
-	}
-	switch {
-	case result.Repair != nil:
-		text.WriteString("\n" + result.RepairGuidance + "\n")
-	case len(result.Attempts) > 0 && result.Attempts[len(result.Attempts)-1].State == "running":
-		text.WriteString("\nDiagnosis is running. Wait; no owner action is needed.\n")
-	case !result.ApplyAvailable:
-		text.WriteString("\nApply capability was not verified for this readout. This diagnosis performed no repair or restart. Inspect the retained diagnosis on the factory host: `" + report.TaskInspectionCommand(result.Conversation.TaskRef) + "`.\n")
-	case len(result.CurrentProposal) == 0:
-		text.WriteString("\nNo current repair proposal is available. Inspect the retained diagnosis on the factory host: `" + report.TaskInspectionCommand(result.Conversation.TaskRef) + "`.\n")
-	default:
-		command := "litefactory doctor apply <repository> <issue>"
-		if ref, err := naming.ParseRef(result.Conversation.TaskRef); err == nil {
-			command = fmt.Sprintf("litefactory doctor apply %s/%s %d", ref.Owner, ref.Repo, ref.Issue)
-		}
-		text.WriteString("\nReview the current proposal before applying it with `" + command + "` on the factory host. Applying authorizes only that displayed proposal.\n")
-	}
-	_, err := w.Write(text.Bytes())
-	return err
+	return nil
 }

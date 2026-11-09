@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -19,8 +18,8 @@ import (
 // runs with, which names the batch's last comment.
 func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) (turn.Trigger, error) {
 	var ownerID int64
+	c := github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
 	if isCodeAuthorityBody(trigger.Body) {
-		c := github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
 		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
 			return trigger, err
 		}
@@ -28,6 +27,16 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 		ownerID = trigger.AuthorID
 	} else {
 		ownerID = d.ticketIdentities(ctx).OwnerUserID
+		if trigger.AuthorID != ownerID && trigger.CommentID > 0 && !store.IsFactoryTrigger(trigger.CommentID) {
+			instructed, err := d.mayInstruct(ctx, t.session.ID, c)
+			if err != nil {
+				return trigger, err
+			}
+			if instructed {
+				// The access gate allowed exactly this author's comment.
+				ownerID = trigger.AuthorID
+			}
+		}
 	}
 	// Replaying an already allocated input performs report recovery only. It
 	// cannot be reinterpreted as an answer to the question that input produced.
@@ -51,8 +60,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 		}
 		break
 	}
-	workflow := graphReplyWorkflow(mode)
-	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, workflow)
+	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, mode)
 	if errors.Is(err, store.ErrNotFound) {
 		return trigger, nil
 	}
@@ -70,9 +78,6 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 	}
 	if err != nil {
 		return trigger, err
-	}
-	if workflow == "bug" && wait.OriginNode == "" {
-		return trigger, nil
 	}
 	if wait.State == "claimed" {
 		if wait.ReplySource == "chat" && store.IsGraphTrigger(trigger.CommentID) {
@@ -118,7 +123,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 // question identity comes from durable wait/publication records, not reply text.
 // A claimed reply survives process exit before allocation, with no held worker.
 func AdmitGraphOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID int64, taskRef, sourceRef, mode string, comment github.Comment, at time.Time) (store.GraphOwnerWait, error) {
-	if _, ok := doctor.ParseCommand(comment.Body); ok {
+	if turn.ParseCommand(comment.Body).Kind == turn.KindDoctor {
 		return store.GraphOwnerWait{}, store.ErrGraphOwnerWait
 	}
 	if db == nil {
@@ -132,7 +137,7 @@ func AdmitGraphOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID
 	if err != nil {
 		return wait, err
 	}
-	return db.ClaimGraphOwnerReply(ctx, store.GraphOwnerReply{InstanceID: instanceID, OwnerID: ownerID, AuthorID: comment.Author.ID, CommentID: comment.ID, ReplyToCommentID: comment.ReplyToCommentID, QuestionCommentID: delivery.CommentID, TaskRef: taskRef, SourceRef: sourceRef, Mode: mode, Workflow: graphReplyWorkflow(mode), DeliveryKey: wait.DeliveryKey, Body: comment.Body, At: at})
+	return db.ClaimGraphOwnerReply(ctx, store.GraphOwnerReply{InstanceID: instanceID, OwnerID: ownerID, AuthorID: comment.Author.ID, CommentID: comment.ID, ReplyToCommentID: comment.ReplyToCommentID, QuestionCommentID: delivery.CommentID, TaskRef: taskRef, SourceRef: sourceRef, Mode: mode, Workflow: mode, DeliveryKey: wait.DeliveryKey, Body: comment.Body, At: at})
 }
 
 // AdmitResearchOwnerReply supplies the production Research mode fence.
@@ -143,32 +148,13 @@ func AdmitResearchOwnerReply(ctx context.Context, db *store.DB, instanceID, owne
 	return AdmitGraphOwnerReply(ctx, db, instanceID, ownerID, taskRef, sourceRef, mode, comment, at)
 }
 
-// graphReplyWorkflow binds standalone Bug's empty effective mode without
-// treating empty mode as a generic continuation grant.
-func graphReplyWorkflow(mode string) string {
-	if mode == "" {
-		return "bug"
-	}
-	return mode
-}
-
-// AdmitBugOwnerReply resumes the published current stop only; it creates no
-// diagnosis approval. Command precedence is enforced before ordinary admission.
-func AdmitBugOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID int64, taskRef, sourceRef string, comment github.Comment, at time.Time) (store.GraphOwnerWait, error) {
-	command := turn.ParseCommand(comment.Body)
-	if command.Name != "" {
-		return store.GraphOwnerWait{}, store.ErrGraphOwnerWait
-	}
-	return AdmitGraphOwnerReply(ctx, db, instanceID, ownerID, taskRef, sourceRef, "", comment, at)
-}
-
 // recoverGraphReply is a fallback for a cancelled scheduling intent, after
 // command and admission checks. Published waits retain their normal handlers.
 // The target is the session's latest instance whatever workflow the reply's
 // mode resolves to, so a Validate stopped under an Implement-labelled parent
 // resumes too. Stopped work that cannot resume is answered with the reason.
 func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (handled bool, err error) {
-	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.ticketIdentities(ctx).OwnerUserID || store.IsFactoryTrigger(trigger.CommentID) {
+	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || (trigger.AuthorID != d.ticketIdentities(ctx).OwnerUserID && trigger.Grantee == nil) || store.IsFactoryTrigger(trigger.CommentID) {
 		return false, nil
 	}
 	if consumed, e := d.consumed(ctx, t.session.ID, trigger.CommentID); e != nil || consumed {
@@ -245,7 +231,7 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 // when the trigger is not the claimed reply, such as a scheduled dispatch.
 func (d *Daemon) refuseUnresumableReply(ctx context.Context, t *task, trigger turn.Trigger, mode string, cause error) (bool, error) {
 	bookkeeping := context.WithoutCancel(ctx)
-	instance, err := d.db.LatestWorkflowInstance(bookkeeping, t.session.ID, graphReplyWorkflow(mode))
+	instance, err := d.db.LatestWorkflowInstance(bookkeeping, t.session.ID, mode)
 	if err != nil {
 		return false, errors.Join(cause, err)
 	}

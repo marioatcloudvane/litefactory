@@ -74,7 +74,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 	if d.observeCandidateHold(ctx, &candidate{session: session, ref: ref}, tickAt) {
 		return true
 	}
-	if !d.enterDoctorGuarded(ctx, session.ID) {
+	if !d.enterSession(ctx, session.ID) {
 		log.DebugContext(ctx, "scheduled work waits for this task's in-flight turn")
 		return true
 	}
@@ -124,7 +124,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 	d.inflight.label(session.ID, "due_schedule")
 	t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"due_schedule"}), slog.Time("tick_at", tickAt))
 	t.workerLog.DebugContext(ctx, "worker dispatched")
-	go d.runDoctorGuardedWorker(sessionContext(workerCtx, scheduled.SessionID), t, func(ctx context.Context) { d.runScheduled(ctx, t, reserved) })
+	go d.runGuardedWorker(sessionContext(workerCtx, scheduled.SessionID), t, func(ctx context.Context) { d.runScheduled(ctx, t, reserved) })
 	result.Dispatched++
 	return true
 }

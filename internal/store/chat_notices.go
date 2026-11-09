@@ -9,8 +9,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"strconv"
 	"time"
-
-	"github.com/cloudvane/litefactory/internal/buganalysis"
 )
 
 // NoticePosition keeps unresolved mutable records as well as the allocation
@@ -248,8 +246,7 @@ func (db *DB) readNoticeRecord(ctx context.Context, source string, id int64) (No
 			if r.Ready && r.Run.Succeeded() {
 				var waits bool
 				err = db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.run_id=? AND (
- (COALESCE(NULLIF(d.workflow,''),d.mode)='bug' AND a.outcome IN ('ask','done','reshape'))
- OR EXISTS(SELECT 1 FROM graph_owner_waits w JOIN graph_comment_intents c ON c.delivery_key=w.delivery_key WHERE w.source_attempt_id=a.id AND c.kind IN ('question','review'))
+ EXISTS(SELECT 1 FROM graph_owner_waits w JOIN graph_comment_intents c ON c.delivery_key=w.delivery_key WHERE w.source_attempt_id=a.id AND c.kind IN ('question','review'))
  OR EXISTS(SELECT 1 FROM graph_dispatches next WHERE next.instance_id=a.instance_id AND next.launch_id=a.launch_id AND next.id>COALESCE((SELECT MAX(prior.id) FROM graph_dispatches prior WHERE prior.allocated_run_id=a.run_id),0) AND COALESCE(next.allocated_run_id,0)<>a.run_id)
 ))`, id).Scan(&waits)
 				if err != nil {
@@ -279,33 +276,10 @@ func (db *DB) readNoticeRecord(ctx context.Context, source string, id int64) (No
 			return r, err
 		}
 	}
-	if source == "owner_waits" && r.StopCause == "diagnosis_question" {
-		r.Candidate, err = db.noticeDiagnosisQuestions(ctx, r.Key)
-		if err != nil {
-			return r, err
-		}
-	}
 	if source == "transitions" || source == "owner_waits" {
 		r.At, err = scanTime(at)
 	}
 	return r, err
-}
-
-// A Bug question's reporting intent contains an analysis summary. Read only the
-// actual questions from the exact immutable diagnosis revision it references.
-func (db *DB) noticeDiagnosisQuestions(ctx context.Context, key string) ([]byte, error) {
-	var raw []byte
-	err := db.sql.QueryRowContext(ctx, `SELECT o.payload FROM graph_comment_intents c JOIN graph_node_attempts a ON a.instance_id=c.instance_id JOIN graph_outputs o ON o.node_attempt_id=a.id WHERE c.delivery_key=? AND o.kind='json' AND json_valid(CAST(o.payload AS TEXT)) AND json_extract(CAST(o.payload AS TEXT),'$.record')='diagnosis' AND json_extract(CAST(o.payload AS TEXT),'$.revision')=json_extract(CAST(c.candidate AS TEXT),'$.diagnosis.revision') AND json_extract(CAST(o.payload AS TEXT),'$.digest')=json_extract(CAST(c.candidate AS TEXT),'$.diagnosis.digest') ORDER BY o.id DESC LIMIT 1`, key).Scan(&raw)
-	if err != nil {
-		return nil, err
-	}
-	var diagnosis GraphDiagnosis
-	if err := json.Unmarshal(raw, &diagnosis); err != nil {
-		return nil, err
-	}
-	return json.Marshal(struct {
-		Questions []buganalysis.BugQuestion `json:"questions"`
-	}{Questions: diagnosis.Analysis.Questions})
 }
 
 // AdmitNotices commits deduplicated rows and the source position together.

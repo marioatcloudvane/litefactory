@@ -113,8 +113,8 @@ func (m *Manager) inspectLocal(ctx context.Context, dir string, raw []byte) (Ins
 		return Installed{}, fmt.Errorf("%w: local receipt: %w", ErrInvalidPackage, err)
 	}
 	source, err := normalizeSelector(rec.Origin.Source)
-	_, versionErr := version(rec.Version)
-	_, originVersionErr := version(rec.Origin.Version)
+	versionErr := version(rec.Version)
+	originVersionErr := version(rec.Origin.Version)
 	if err != nil || source != rec.Origin.Source || rec.Schema != 1 || rec.Kind != "local" || !slugPattern.MatchString(rec.Slug) || versionErr != nil || !slugPattern.MatchString(rec.Origin.Slug) || originVersionErr != nil || !hashPattern.MatchString(rec.Origin.Checksum) || rec.Origin.ClonedAt.IsZero() || m.destination("local", rec.Slug, rec.Version) != dir {
 		return Installed{}, fmt.Errorf("%w: invalid local receipt identity or origin", ErrInvalidPackage)
 	}
@@ -159,7 +159,7 @@ func (m *Manager) Clone(ctx context.Context, source, slug, ver, newSlug, newVers
 	if !slugPattern.MatchString(newSlug) {
 		return Installed{}, fmt.Errorf("%w: invalid destination slug", ErrInvalidPackage)
 	}
-	if _, err := version(newVersion); err != nil {
+	if err := version(newVersion); err != nil {
 		return Installed{}, err
 	}
 	unlock, err := m.lock(ctx)

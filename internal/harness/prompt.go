@@ -420,7 +420,7 @@ func BuildPrompt(in PromptInput) (string, error) {
 			return "", fmt.Errorf("%w: prompt workflow: %w", ErrInvalidPrompt, err)
 		}
 	}
-	if strings.TrimSpace(in.Mode) == "" && in.Workflow != agent.WorkflowBug {
+	if strings.TrimSpace(in.Mode) == "" {
 		return "", fmt.Errorf("%w: mode is empty", ErrInvalidPrompt)
 	}
 	if in.RunOrdinal < 1 {
@@ -657,11 +657,7 @@ func writeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	// internal/harness/prompt_body_test.go pin the Go string as written
 	// today, but those tests protect only this side of the contract — they
 	// do not, and cannot, protect the CLAUDE.md prose that reads it (AC-11).
-	if in.Workflow == agent.WorkflowBug {
-		fmt.Fprintln(b, "- Workflow: bug")
-	} else {
-		fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
-	}
+	fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
 	fmt.Fprintf(b, "- Feature slug: %s\n", in.FeatureSlug)
 	if in.Branch != "" {
 		fmt.Fprintf(b, "- Branch: %s\n", in.Branch)
@@ -799,11 +795,7 @@ func writeResumeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	// re-classifying. See writeHeader's comment for the mechanism and what a
 	// format drift breaks; no test here protects the CLAUDE.md side either
 	// (AC-11) — only the Go string is pinned.
-	if in.Workflow == agent.WorkflowBug {
-		fmt.Fprintln(b, "- Workflow: bug")
-	} else {
-		fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
-	}
+	fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
 	fmt.Fprintf(b, "- Feature slug: %s\n", in.FeatureSlug)
 
 	// AC-5.1/AC-5.2: stated right after the run's own identifying lines and

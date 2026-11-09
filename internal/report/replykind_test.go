@@ -58,6 +58,10 @@ var everyReplyKind = []report.ReplyKind{
 	report.ReplyImplementFinished,
 	report.ReplyImplementFinishedAutoValidate,
 	report.ReplyImplementFinishedValidated,
+	report.ReplyAccessDenied,
+	report.ReplyAccessOwnerOnly,
+	report.ReplyAccessUnchecked,
+	report.ReplyAccessLimited,
 }
 
 // TestReplyNotUsedIsAModeRefusalOnly pins the one refusal family the not-used

@@ -53,8 +53,6 @@ type Snapshot struct {
 // Context is factory input, never decoded from authored JSON. AggregateValidator
 // resolves retained aggregate facts; absence cannot establish aggregate proof.
 type Context struct {
-	Bug *BugBinding
-
 	Workflow         agent.Workflow
 	SchemaVersion    int
 	Mode             string
@@ -135,15 +133,18 @@ type Artifact struct {
 	Description string `json:"description,omitempty"`
 }
 
-// Payload selects one of the five factory-bound work modes.
+// Payload selects one of the factory-bound work modes.
 type Payload struct {
-	Bug *Bug `json:"bug,omitempty"`
+	// Bug carries a Bug agent's notes, in the same shape as Spike's.
+	Bug *Spike `json:"bug,omitempty"`
 
 	Research  *Research  `json:"research,omitempty"`
 	Plan      *Plan      `json:"plan,omitempty"`
 	Implement *Implement `json:"implement,omitempty"`
 	Validate  *Validate  `json:"validate,omitempty"`
 	Spike     *Spike     `json:"spike,omitempty"`
+	// Doctor carries the Doctor's private notes in the Spike shape.
+	Doctor *Spike `json:"doctor,omitempty"`
 }
 
 // Research holds a Research agent's private notes. Only the request is

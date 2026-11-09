@@ -17,7 +17,4 @@ func (f *inflight) label(id int64, source string)                  { f.owner.Lab
 func (f *inflight) listLabels() map[int64]string                   { return f.owner.ListLabels() }
 func (f *inflight) peak() int                                      { return f.owner.Peak() }
 func (f *inflight) bindCancel(id int64, cancel context.CancelFunc) { f.owner.BindCancel(id, cancel) }
-func (f *inflight) drain(ctx context.Context, id int64, interrupt bool) error {
-	return f.owner.Drain(ctx, id, interrupt)
-}
-func (f *inflight) cancel(id int64, interrupt bool) bool { return f.owner.Cancel(id, interrupt) }
+func (f *inflight) cancel(id int64, interrupt bool) bool           { return f.owner.Cancel(id, interrupt) }

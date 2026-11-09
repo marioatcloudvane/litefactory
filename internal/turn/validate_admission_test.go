@@ -342,7 +342,7 @@ func TestValidateAdmissionLeavesLegacyWorkOnTheLegacyPath(t *testing.T) {
 		opts func(*Options)
 	}{
 		"another mode":     {req: func() Request { r := req; r.Mode = agent.ModePlan; return r }()},
-		"bug":              {req: func() Request { r := req; r.Workflow = agent.WorkflowBug; return r }()},
+		"bug":              {req: func() Request { r := req; r.Mode, r.Workflow = agent.ModeBug, agent.WorkflowBug; return r }()},
 		"no host bindings": {req: req, opts: func(o *Options) { o.Validate = nil }},
 		"no reporter":      {req: req, opts: func(o *Options) { o.ResearchReporter = nil }},
 	} {

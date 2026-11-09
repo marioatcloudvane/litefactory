@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/access"
 	"log/slog"
 	"maps"
 	"path/filepath"
@@ -16,7 +17,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/cimonitor"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/discordcomponent"
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
@@ -192,6 +192,13 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Access is the grantee access gate; nil keeps every non-owner silent, as
+	// before grants existed. Tests inject one with a fake checker here.
+	Access *access.Gate
+	// AccessWorkflows reads a waiting node's installed definition so the gate
+	// knows its approve reply; nil refuses a grantee answer as unchecked.
+	AccessWorkflows access.WorkflowSource
+
 	// Paths locates the owner instruction package.
 	Paths         config.Paths
 	GoBuildCaches config.GoBuildCaches
@@ -206,12 +213,6 @@ type Options struct {
 
 	// Tickets qualifies authenticated legacy ingress before authority decisions.
 	Tickets TicketIngress
-	// Doctor is the independent diagnostic service; nil disables dispatch.
-	Doctor *doctor.Service
-
-	// Bug is the complete factory-bound parent runtime. Nil retains admission
-	// but refuses execution without substituting a mode workflow.
-	Bug *turn.BugRuntime
 
 	// Retirement shares turn coordination; zero options disable automatic retirement.
 	Retirement RetirementExecutionOptions
@@ -421,6 +422,9 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	access          *access.Gate
+	accessWorkflows access.WorkflowSource
+
 	ciMonitor                *cimonitor.Observer
 	alerts                   *alerts.Engine
 	alertClock               func() time.Time
@@ -432,12 +436,6 @@ type Daemon struct {
 
 	judge            *turn.JudgeService
 	tickPhaseTimeout time.Duration // zero uses the internal 30-second bound
-
-	doctorHostOptions *DoctorHostOptions
-	doctorHost        *DoctorRepairHost
-	doctor            doctorLane
-
-	bug *turn.BugRuntime
 
 	publications publicationRecovery
 	mcpClose     func() error
@@ -586,7 +584,6 @@ func New(opts Options) (*Daemon, error) {
 	d := &Daemon{
 		judge:                    opts.Judge,
 		db:                       opts.DB,
-		bug:                      opts.Bug,
 		forge:                    opts.Forge,
 		bugForge:                 opts.BugFilingForge,
 		filter:                   opts.Filter,
@@ -595,7 +592,6 @@ func New(opts Options) (*Daemon, error) {
 		turn:                     opts.Turn,
 		reporter:                 opts.Reporter,
 		diagnosticRedactor:       opts.DiagnosticRedactor,
-		doctor:                   doctorLane{service: opts.Doctor, pool: newPool(1)},
 		proposals:                opts.ProposalGenerator,
 		confirmer:                opts.Confirmer,
 		conflictProposalTTL:      opts.ConflictProposalTTL,
@@ -618,6 +614,8 @@ func New(opts Options) (*Daemon, error) {
 		// back into the registry the process was built with.
 		agents:           maps.Clone(opts.Agents),
 		classifiers:      maps.Clone(opts.Classifiers),
+		access:           opts.Access,
+		accessWorkflows:  opts.AccessWorkflows,
 		instructionPaths: opts.Paths,
 		instructions:     opts.Instructions,
 		bugAgent:         opts.BugAgent,
@@ -686,14 +684,10 @@ func (d *Daemon) Close() error {
 	if d.mcpClose != nil {
 		authorityErr = d.mcpClose()
 	}
-	var hostErr error
-	if d.doctorHost != nil {
-		hostErr = d.doctorHost.Close()
-	}
 	// The listener goes before the lock: a replacement daemon that wins the
 	// lock must find the port free.
 	webhookErr := d.closeWebhook()
-	return errors.Join(authorityErr, hostErr, webhookErr, d.closeRemoteConnector(), d.lock.Close())
+	return errors.Join(authorityErr, webhookErr, d.closeRemoteConnector(), d.lock.Close())
 }
 
 // Reconciled is what the startup reconciliation repaired (D-B, AC-2.21).
@@ -736,9 +730,6 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 			d.log.WarnContext(ctx, "could not remove leftover submission folders", slog.Any("error", err))
 		}
 	}
-	if err := d.recoverDoctor(ctx); err != nil {
-		return Reconciled{}, err
-	}
 	reconciliation, err := d.db.ReconcileOrphans(ctx, d.instanceID)
 	if err != nil {
 		return Reconciled{}, fmt.Errorf("reconcile what a previous daemon left behind: %w", err)
@@ -764,18 +755,6 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		}
 	}
 
-	if d.bug != nil {
-		// One Bug instance that cannot be reconciled (for example one captured
-		// before captures existed, or from an older Bug graph) must not keep
-		// the daemon from starting; its work stays where it is.
-		if err := d.bug.Reconcile(ctx); err != nil {
-			if ctx.Err() != nil {
-				return Reconciled{}, err
-			}
-			d.log.WarnContext(ctx, "some Bug instances could not be reconciled at startup; their work is preserved", slog.Any("error", err))
-		}
-	}
-
 	if recovery, ok := d.turn.(interface {
 		RecoverWorkflowJudges(context.Context, time.Time) error
 	}); ok {
@@ -798,6 +777,9 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		return Reconciled{}, err
 	}
 	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "spike", reconciliation.At); err != nil {
+		return Reconciled{}, err
+	}
+	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "bug", reconciliation.At); err != nil {
 		return Reconciled{}, err
 	}
 	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "validate", reconciliation.At); err != nil {
@@ -846,24 +828,6 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 			slog.Int("abandoned_runs", result.AbandonedRuns),
 			slog.Int("failure_comments_posted", result.Reported),
 			slog.Int("reclaimed_locks", result.ReclaimedLocks))
-	}
-	if d.doctorHostOptions != nil {
-		host, err := d.startDoctorRepairHost(ctx, *d.doctorHostOptions)
-		if err != nil {
-			if d.doctorHostOptions.Recovery != nil {
-				return result, err
-			}
-			if d.doctor.service != nil {
-				d.doctor.service.RepairEnvironment = nil
-				d.doctor.service.RestartRoute = nil
-			}
-			d.log.WarnContext(ctx, "doctor local host control unavailable", slog.Any("error", err))
-			return result, nil
-		}
-		d.doctorHost = host
-		if err = host.prepare(ctx); err != nil {
-			return result, err
-		}
 	}
 	return result, nil
 }
@@ -1084,7 +1048,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 // whole shutdown — N runs included — without a line of Run changing.
 func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time, immediate bool) {
 	defer d.pool.wait()
-	defer d.doctor.pool.wait()
 	if d.coordinator != nil {
 		defer d.coordinator.wait()
 	}
