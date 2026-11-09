@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/factory/contracts"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -59,7 +59,7 @@ func authorSession(v standards.AuthoringSession) AuthorSession {
 
 // AuthorDependencies supplies local provider and instruction composition only.
 type AuthorDependencies struct {
-	Instructions *instructionpackage.Package
+	Instructions factorylib.Source
 	Runner       standards.AuthoringRunner
 	Projects     interface {
 		Pin(context.Context, int64) (projectread.Project, error)

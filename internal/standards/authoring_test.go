@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -35,7 +36,7 @@ func authorFixture(t *testing.T) (*standards.Authoring, *store.DB) {
 	if _, e = book.Publish(t.Context(), p.ProposalID, p.Version, p.ChangeDigest); e != nil {
 		t.Fatal(e)
 	}
-	return &standards.Authoring{Store: db, Book: book}, db
+	return &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book}, db
 }
 func authorStart(t *testing.T, a *standards.Authoring) standards.AuthoringSession {
 	t.Helper()
@@ -221,7 +222,7 @@ func TestAuthoringRebaseRetainsWorkAndCompletionRetry(t *testing.T) {
 func TestAuthoringContextAndProviderBoundaries(t *testing.T) {
 	t.Parallel()
 	book, _, db := publicationServices(t)
-	a := &standards.Authoring{Store: db, Book: book}
+	a := &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book}
 	v, e := a.Start(t.Context(), standards.AuthoringStart{Mode: "create", Intent: "Begin without categories"})
 	if e != nil || v.BaseRevision != 0 || len(v.Base.Categories) != 0 {
 		t.Fatalf("no-book start: %+v %v", v, e)
@@ -518,7 +519,7 @@ func TestAuthoringKeepsOwnerAnswersAndValidatesDraftsStructurally(t *testing.T) 
 func TestAuthoringProposesANewCategoryForAnEmptyBook(t *testing.T) {
 	t.Parallel()
 	book, _, db := publicationServices(t)
-	a := &standards.Authoring{Store: db, Book: book}
+	a := &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book}
 	v, e := a.Start(t.Context(), standards.AuthoringStart{Mode: "create", Intent: "No stubs for planned capabilities"})
 	if e != nil {
 		t.Fatal(e)
@@ -541,7 +542,7 @@ func TestAuthoringProposesANewCategoryForAnEmptyBook(t *testing.T) {
 func TestAuthoringAcceptsADraftWithNoQuestionsLeft(t *testing.T) {
 	t.Parallel()
 	book, _, db := publicationServices(t)
-	a := &standards.Authoring{Store: db, Book: book}
+	a := &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book}
 	v, e := a.Start(t.Context(), standards.AuthoringStart{Mode: "create", Intent: "No stubs for planned capabilities"})
 	if e != nil {
 		t.Fatal(e)

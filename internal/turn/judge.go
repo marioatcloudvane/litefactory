@@ -14,8 +14,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/git"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -38,6 +38,9 @@ type JudgeService struct {
 	Executable string
 	Git        *git.Binary
 	Redactor   *redact.Redactor
+	// Library is the factory library the judge role is captured from; nil
+	// reads the one installed in Paths.
+	Library factorylib.Source
 }
 
 // JudgeRequest is factory-authenticated command context. It grants no workflow writes.
@@ -54,7 +57,7 @@ type JudgeRequest struct {
 	GraphInstanceID, JudgeNodeAttemptID, SourceNodeAttemptID int64
 	SourceNode                                               string
 	PinnedSource                                             *store.JudgeSource
-	Instructions                                             *instructionpackage.RoleCapture
+	Instructions                                             *factorylib.Capture
 	Budget                                                   time.Duration
 	RecoverOnly                                              bool
 }

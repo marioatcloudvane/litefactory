@@ -26,7 +26,7 @@ func (c *retentionClassifier) Classify(context.Context, agent.Classification) (a
 func retentionDaemon(t *testing.T, f *fixture, classifier agent.Classifier) *daemon.Daemon {
 	t.Helper()
 	classifiers := map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): classifier}
-	d, err := daemon.New(daemon.Options{DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: classifiers, ToolProfiles: config.DefaultToolProfiles().Permissions, DB: f.db, Forge: f.client, Filter: f.filter, Turn: f.turns, Reporter: f.reporter, InstanceID: "retention", Interval: testInterval, Logger: f.logger, Now: f.clock.Now})
+	d, err := daemon.New(daemon.Options{ModeRole: baseTeamModeRole, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: classifiers, ToolProfiles: config.DefaultToolProfiles().Permissions, DB: f.db, Forge: f.client, Filter: f.filter, Turn: f.turns, Reporter: f.reporter, InstanceID: "retention", Interval: testInterval, Logger: f.logger, Now: f.clock.Now})
 	if err != nil {
 		t.Fatal(err)
 	}

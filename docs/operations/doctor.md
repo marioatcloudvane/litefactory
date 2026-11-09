@@ -2,7 +2,9 @@
 
 The Doctor is one agent that looks at one stuck factory task. It is a graph
 workflow like Spike: everything it does is written in its role,
-`teams/source/base-team/doctor/doctor.md`, and its flow in `doctor.dot`.
+`teams/source/factory/doctor/doctor.md`, and its flow in `doctor.dot`. It is a
+factory library workflow, not team content: every repository uses the same
+Doctor whatever team it links (`litefactory factory install` installs it).
 
 ## Starting it
 

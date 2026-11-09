@@ -163,8 +163,6 @@ func (p Paths) ReviewCacheDir() string { return p.home + "-review-cache" }
 // ImplementScratchDir holds merge checkouts outside the denied factory home.
 func (p Paths) ImplementScratchDir() string { return p.home + "-implement" }
 
-// InternalInstructionsDir contains optional owner instruction overrides, separate
-// from the embedded shipped package. Package updates never write this directory.
-func (p Paths) InternalInstructionsDir() string {
-	return filepath.Join(p.home, "internal-instructions")
-}
+// FactoryLibraryDir holds the installed factory library: one directory per
+// installed digest and the "current" file naming the one the daemon reads.
+func (p Paths) FactoryLibraryDir() string { return filepath.Join(p.home, "factory") }

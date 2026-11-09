@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -42,6 +43,7 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 	if err != nil {
 		return nil, err
 	}
+	library := factorylib.NewInstalled(paths)
 	return func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (definition *teamsource.WorkflowDefinition, err error) {
 		err = manager.WithCatalogue(ctx, func(access *teampackage.CatalogueAccess) error {
 			binding, e := db.GetRepositoryTeamBinding(ctx, repo.ID)
@@ -56,6 +58,20 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 					return fmt.Errorf("repository %s linked release digest changed", repo.Path)
 				}
 				graph, ok := entry.Workflows[string(workflow)]
+				root := source
+				if workflow == agent.WorkflowDoctor {
+					// The Doctor is a factory library workflow, not team content:
+					// its graph and role come from the installed library, while
+					// the linked team still supplies team.config and the stack.
+					lib, e := library.Library(ctx)
+					if e != nil {
+						return e
+					}
+					if root, e = lib.FS(factorylib.DoctorDir); e != nil {
+						return e
+					}
+					graph, ok = factorylib.DoctorDir+"/"+factorylib.DoctorGraph, true
+				}
 				if !ok {
 					available := make([]string, 0, len(entry.Workflows))
 					for mode := range entry.Workflows {
@@ -64,7 +80,13 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 					slices.Sort(available)
 					return &workflowRefusal{kind: report.ReplyUnsupportedWorkflow, cause: fmt.Errorf("repository %s: team %s %s from %s lacks requested workflow %s; available workflows: %s", repo.Path, binding.Slug, binding.Version, binding.Source, workflow, strings.Join(available, ", "))}
 				}
-				raw, e := fs.ReadFile(source, graph)
+				if workflow != agent.WorkflowDoctor {
+					var e error
+					if root, e = fs.Sub(source, path.Dir(graph)); e != nil {
+						return e
+					}
+				}
+				raw, e := fs.ReadFile(root, path.Base(graph))
 				if e != nil {
 					return e
 				}
@@ -72,14 +94,10 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 				if e != nil {
 					return e
 				}
-				root, e := fs.Sub(source, path.Dir(graph))
-				if e != nil {
-					return e
-				}
 				// An installed snapshot is fresh input even when a root-level graph
 				// makes fs.Sub preserve its RetainedFiles representation. Only saved
 				// workflow reconstruction may select the retained capture path.
-				definition, e = teamsource.CaptureWorkflowIdentity(ctx, struct{ fs.FS }{root}, path.Base(graph), profile.Team, workflow, specs, paths)
+				definition, e = teamsource.CaptureWorkflowIdentity(ctx, struct{ fs.FS }{root}, path.Base(graph), profile.Team, workflow, specs, library)
 				if e != nil {
 					return e
 				}
@@ -128,4 +146,45 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 		}
 		return definition, nil
 	}, nil
+}
+
+// repositoryModeClassifier reads the mode classifier role from the team linked
+// to the repository. The role is team content (base-team/mode), so a team may
+// replace it; there is no fallback text when no team is linked.
+func repositoryModeClassifier(paths config.Paths, db *store.DB) func(context.Context, store.Repo) ([]byte, error) {
+	return func(ctx context.Context, repo store.Repo) (role []byte, err error) {
+		if db == nil {
+			return nil, errors.New("mode classifier: team bindings unavailable")
+		}
+		manager, err := teampackage.New(teampackage.Options{Paths: paths, Validate: turn.ValidateTeamWorkflows, InUse: func(ctx context.Context, id teampackage.Identity) ([]string, error) {
+			return db.RepositoryTeamUses(ctx, id.Source, id.Slug, id.Version)
+		}})
+		if err != nil {
+			return nil, err
+		}
+		err = manager.WithCatalogue(ctx, func(access *teampackage.CatalogueAccess) error {
+			binding, e := db.GetRepositoryTeamBinding(ctx, repo.ID)
+			if e != nil {
+				if errors.Is(e, store.ErrNotFound) {
+					return &workflowRefusal{kind: report.ReplyMissingTeam, cause: fmt.Errorf("repository %s has no linked installed team; link a team so its mode classifier can run: %w", repo.Path, e)}
+				}
+				return e
+			}
+			return access.WithSelected(ctx, binding.Source, binding.Slug, binding.Version, func(_ teampackage.Installed, source fs.FS) error {
+				raw, e := fs.ReadFile(source, teamsource.ModeClassifierPath)
+				if e != nil {
+					return fmt.Errorf("team %s %s lacks %s; refresh and reinstall the team: %w", binding.Slug, binding.Version, teamsource.ModeClassifierPath, e)
+				}
+				if len(strings.TrimSpace(string(raw))) == 0 {
+					return fmt.Errorf("team %s %s: %s is blank", binding.Slug, binding.Version, teamsource.ModeClassifierPath)
+				}
+				role = raw
+				return nil
+			})
+		})
+		if err != nil {
+			return nil, fmt.Errorf("repository %s mode classifier: %w", repo.Path, err)
+		}
+		return role, nil
+	}
 }

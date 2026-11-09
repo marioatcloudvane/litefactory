@@ -9,28 +9,16 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 )
 
 // ErrHistoricalJudgeCapture identifies a role-only capture usable for saved reports.
 var ErrHistoricalJudgeCapture = errors.New("historical judge capture is incomplete; new provider launch refused")
 
+// The judge is a factory library role, not team content. A workflow with a
+// judge step retains its capture under these keys of the workflow capture.
 const judgeCapturePath = "judge/instructions.json"
 const judgeLegacyRolePath = "judge/challenger.md"
-
-// JudgeInstructions returns shipped advisory role bytes for compatibility.
-func JudgeInstructions() ([]byte, error) {
-	p, err := instructionpackage.LoadShipped(context.TODO(), "")
-	if err != nil {
-		return nil, err
-	}
-	c, _, err := p.Capture(context.TODO(), instructionpackage.ChallengerRole)
-	if err != nil {
-		return nil, err
-	}
-	return c.Instructions(), nil
-}
 
 // WorkflowJudgeInstructions reads the role pinned by workflow capture.
 func WorkflowJudgeInstructions(definition *WorkflowDefinition) ([]byte, error) {
@@ -44,8 +32,8 @@ func WorkflowJudgeInstructions(definition *WorkflowDefinition) ([]byte, error) {
 	return slices.Clone(role), nil
 }
 
-// WorkflowJudgeCapture restores the complete closure without consulting live files.
-func WorkflowJudgeCapture(definition *WorkflowDefinition) (*instructionpackage.RoleCapture, error) {
+// WorkflowJudgeCapture restores the retained judge capture without consulting live files.
+func WorkflowJudgeCapture(definition *WorkflowDefinition) (*factorylib.Capture, error) {
 	if definition == nil {
 		return nil, errors.New("judge workflow definition is missing")
 	}
@@ -53,39 +41,20 @@ func WorkflowJudgeCapture(definition *WorkflowDefinition) (*instructionpackage.R
 	if len(raw) == 0 {
 		return nil, ErrHistoricalJudgeCapture
 	}
-	c, err := instructionpackage.Restore(raw)
+	c, err := factorylib.Restore(raw)
 	if err != nil {
 		return nil, fmt.Errorf("captured judge instructions: %w", err)
 	}
-	if c.Role() != instructionpackage.ChallengerRole {
+	if c.Role() != factorylib.Judge {
 		return nil, errors.New("captured judge role differs")
 	}
 	if !bytes.Equal(c.Instructions(), definition.Files[judgeLegacyRolePath]) {
 		return nil, errors.New("captured judge role differs from retained resource")
 	}
-	expected := map[string]bool{judgeCapturePath: true, judgeLegacyRolePath: true}
-	for _, f := range c.Snapshot().Files {
-		expected["judge/"+f.Path] = true
-	}
-	names := make([]string, 0, len(definition.Files))
-	for name := range definition.Files {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	for _, name := range names {
-		if strings.HasPrefix(name, "judge/") && !expected[name] {
-			return nil, fmt.Errorf("unexpected captured judge resource %s", name)
-		}
-	}
-	for _, f := range c.Snapshot().Files {
-		if !bytes.Equal(f.Content, definition.Files["judge/"+f.Path]) {
-			return nil, fmt.Errorf("captured judge resource %s differs", f.Path)
-		}
-	}
 	return c, nil
 }
 
-func captureWorkflowJudge(ctx context.Context, source fs.FS, result *WorkflowDefinition, total *int, paths []config.Paths) error {
+func captureWorkflowJudge(ctx context.Context, source fs.FS, result *WorkflowDefinition, total *int, libraries []factorylib.Source) error {
 	if retained, ok := source.(RetainedFiles); ok {
 		if _, exists := retained[judgeCapturePath]; !exists {
 			role := retained[judgeLegacyRolePath]
@@ -112,17 +81,12 @@ func captureWorkflowJudge(ctx context.Context, source fs.FS, result *WorkflowDef
 		_, err := WorkflowJudgeCapture(result)
 		return err
 	}
-	var p *instructionpackage.Package
-	var err error
-	if len(paths) > 0 {
-		p, err = instructionpackage.New(ctx, paths[0])
-	} else {
-		p, err = instructionpackage.LoadShipped(ctx, "")
+	if len(libraries) == 0 || libraries[0] == nil {
+		// Validation-only callers (team releases, team checks) capture no
+		// factory role; admission always passes the installed library.
+		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("load judge package: %w", err)
-	}
-	capture, _, err := p.Capture(ctx, instructionpackage.ChallengerRole)
+	capture, err := factorylib.CaptureRole(ctx, libraries[0], factorylib.Judge)
 	if err != nil {
 		return fmt.Errorf("capture judge instructions: %w", err)
 	}
@@ -131,15 +95,7 @@ func captureWorkflowJudge(ctx context.Context, source fs.FS, result *WorkflowDef
 		return err
 	}
 	files := map[string][]byte{judgeCapturePath: raw, judgeLegacyRolePath: capture.Instructions()}
-	for _, file := range capture.Snapshot().Files {
-		files["judge/"+file.Path] = file.Content
-	}
-	names := make([]string, 0, len(files))
-	for name := range files {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	for _, name := range names {
+	for _, name := range []string{judgeCapturePath, judgeLegacyRolePath} {
 		content := files[name]
 		if _, err := fs.Stat(source, name); err == nil || !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("workflow package collides with factory judge resource %s", name)

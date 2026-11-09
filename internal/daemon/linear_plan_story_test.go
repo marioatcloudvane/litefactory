@@ -679,7 +679,7 @@ func TestLinearPlanAssemblyRestartAndApprovalReplay(t *testing.T) {
 	ctx := t.Context()
 	previous := w.d
 	var err error
-	w.d, err = New(Options{DB: previous.db, Forge: w.f.client, Filter: previous.filter, Connections: previous.connections, Turn: turnExecutor{opts: opts}, Reporter: opts.ResearchReporter, InstanceID: "assembly-restart", Logger: previous.log, Now: func() time.Time { return w.now }, DiscoveryInterval: MaxDiscoveryInterval, MaxConcurrentRuns: 4, DefaultAgent: "claude", Agents: opts.Runners, Classifiers: map[agent.Kind]agent.Classifier{"claude": explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
+	w.d, err = New(Options{ModeRole: testModeRole, DB: previous.db, Forge: w.f.client, Filter: previous.filter, Connections: previous.connections, Turn: turnExecutor{opts: opts}, Reporter: opts.ResearchReporter, InstanceID: "assembly-restart", Logger: previous.log, Now: func() time.Time { return w.now }, DiscoveryInterval: MaxDiscoveryInterval, MaxConcurrentRuns: 4, DefaultAgent: "claude", Agents: opts.Runners, Classifiers: map[agent.Kind]agent.Classifier{"claude": explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
 	linearWorkflowCheck(t, err)
 	w.d.schedule.ListingFinished(w.q.repo.ID, w.now)
 	for range 2 {

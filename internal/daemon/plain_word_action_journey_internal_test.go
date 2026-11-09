@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"io"
 	"log/slog"
@@ -194,17 +195,17 @@ func TestPlainWordActionJourney(t *testing.T) {
 	chat := messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "7", []string{"3"}, adapter, factory.NewHealth(db))
 	chat.Protect = func(_ context.Context, s string) (string, error) { return s, nil }
 	author := &plainJourneyAuthor{}
-	sharedStandards := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: author}, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
+	sharedStandards := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: author}, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 	chat.EnableStandards(sharedStandards)
 	core := &Daemon{db: db, filter: independentActionFilter{}, log: slog.New(slog.DiscardHandler), chat: &chatRuntime{service: chat, adapter: adapter}}
-	core.prepareIndependentOwnerActions(&ChatOptions{Settings: config.DiscordChat{OwnerID: "7", ChannelIDs: []string{"3"}}, Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3"}}}, Standards: sharedStandards, Now: func() time.Time { return at }}, nil)
+	core.prepareIndependentOwnerActions(&ChatOptions{Settings: config.DiscordChat{OwnerID: "7", ChannelIDs: []string{"3"}}, Conversations: &messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3"}}}, Standards: sharedStandards, Now: func() time.Time { return at }}, nil)
 	core.configureOwnerActions(chat, "7", []string{"3"}, adapter)
 	actions := core.ownerActions.actions
 	actions.SetDiscord("7", []string{"3"})
 	actions.SetDelivery(actionApprovalDelivery{adapter})
 	discordPrincipal := owneraction.Principal{OwnerID: "42", OwnerGeneration: current.Generation, Transport: "discord", DiscordOwnerID: "7", ChannelID: "3"}
 	chat.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return discordPrincipal, nil })
-	if err = chat.EnableConversations(ctx, messaging.ConversationOptions{Factory: true, Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}}, StateRoot: t.TempDir(), Providers: map[string]messaging.ConversationProvider{"claude": plainJourneyProvider{}}, CheckAccess: func(context.Context, string) error { return nil }}, at); err != nil {
+	if err = chat.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Factory: true, Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}}, StateRoot: t.TempDir(), Providers: map[string]messaging.ConversationProvider{"claude": plainJourneyProvider{}}, CheckAccess: func(context.Context, string) error { return nil }}, at); err != nil {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -218,7 +219,7 @@ func TestPlainWordActionJourney(t *testing.T) {
 	cfg.GitHubClientID = "fixture"
 	cfg.GitHubSecretRef.Env = "TEST_GITHUB_SECRET"
 	cfg.CookieSecretRef.Env = "TEST_COOKIE_SECRET"
-	server, err := connector.New(ctx, connector.Options{Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: logger, LocalControl: local, GitHubSecret: "fixture-secret", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }, Actions: actions})
+	server, err := connector.New(ctx, connector.Options{Guidance: factorylibtest.Connector(), Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: logger, LocalControl: local, GitHubSecret: "fixture-secret", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }, Actions: actions})
 	if err != nil {
 		t.Fatal(err)
 	}

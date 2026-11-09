@@ -96,6 +96,13 @@ func (a *CatalogueAccess) withSelected(ctx context.Context, source, slug, versio
 			return fmt.Errorf("%w: stack-profile.guidance: %w", ErrInvalidPackage, err)
 		}
 	}
+	// The mode classifier is a team role outside every workflow; a release
+	// that ships it hands it to the caller with the same integrity check.
+	if _, ok := files.expected[teamsource.ModeClassifierPath]; ok || entry.Editable {
+		if _, err := fs.ReadFile(files, teamsource.ModeClassifierPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
 	mapped := entry.Workflows
 	if workflow != "" {
 		mapped = map[string]string{}

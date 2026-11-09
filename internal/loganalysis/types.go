@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/logevidence"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -177,6 +178,8 @@ type Service struct {
 	Runner     agent.LogAnalystRunner
 	Model      string
 	DisableMCP bool
+	// Library is the factory library the analyst role is captured from.
+	Library factorylib.Source
 	// Git reads the analysed repositories at their pinned base commits; nil
 	// leaves the repository tools unavailable.
 	Git *git.Binary

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -210,7 +211,7 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 			actions := owneraction.New(db, factoryJourneyDomain{repo: repo, answers: effects}, func() time.Time { return at })
 			actions.SetDiscord("7", []string{"3"})
 			service.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })
-			if err = service.EnableConversations(ctx, messaging.ConversationOptions{
+			if err = service.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t),
 				Bindings:    []messaging.ConversationBinding{{Channel: "3", Name: "factory-work", Provider: provider, Model: "fixture"}},
 				StateRoot:   filepath.Join(root, "conversations"),
 				Providers:   map[string]messaging.ConversationProvider{provider: conversationAdapter(t, provider, executable, root)},

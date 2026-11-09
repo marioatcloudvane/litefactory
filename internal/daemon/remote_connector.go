@@ -1,12 +1,15 @@
 package daemon
 
 import (
+	"io/fs"
+
 	"context"
 	"sync"
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/connector"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
 
@@ -30,7 +33,7 @@ func prepareRemoteConnector(ctx context.Context, s Setup) (*remoteConnectorRunti
 
 func prepareRemoteConnectorWithControl(ctx context.Context, s Setup, control connector.GrantControl) (*remoteConnectorRuntime, error) {
 	runtime, err := connector.Prepare(ctx, connector.LifecycleOptions{
-		Options:      connector.Options{Config: s.Config.RemoteConnector, Storage: connectorstorage.New(s.DB), Access: connectorstorage.New(s.DB), Logger: s.Logger, LocalControl: s.ConnectorControl, Overview: s.ConnectorOverview, TaskEvidence: s.ConnectorTaskEvidence, Usage: s.ConnectorUsage, CodeEvidence: s.ConnectorCodeEvidence},
+		Options:      connector.Options{Guidance: connectorGuidance(s.Library), Config: s.Config.RemoteConnector, Storage: connectorstorage.New(s.DB), Access: connectorstorage.New(s.DB), Logger: s.Logger, LocalControl: s.ConnectorControl, Overview: s.ConnectorOverview, TaskEvidence: s.ConnectorTaskEvidence, Usage: s.ConnectorUsage, CodeEvidence: s.ConnectorCodeEvidence},
 		GrantControl: control,
 		Launchd:      s.Launchd,
 		ResolveSecret: func(ctx context.Context, ref config.ConnectorSecretRef) (string, error) {
@@ -68,4 +71,12 @@ func (d *Daemon) closeRemoteConnector() error {
 		return nil
 	}
 	return d.remoteConnector.lifecycle.Close()
+}
+
+// connectorGuidance reads the connector guidance of the factory library.
+func connectorGuidance(library factorylib.Source) fs.FS {
+	if library == nil {
+		return nil
+	}
+	return factorylib.DirFS(library, factorylib.ConnectorDir)
 }

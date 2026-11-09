@@ -1,21 +1,16 @@
 package agent
 
 import (
+	"os"
 	"testing"
-
-	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 )
 
+// shippedRoleText reads a factory library role from the repository source.
 func shippedRoleText(t *testing.T, role string) string {
 	t.Helper()
-	pkg, err := instructionpackage.New(t.Context(), config.NewPaths(t.TempDir()))
+	raw, err := os.ReadFile("../../teams/source/factory/roles/" + role + ".md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture, _, err := pkg.Capture(t.Context(), role)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(capture.Instructions())
+	return string(raw)
 }

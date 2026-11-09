@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"net/http"
 	"os"
@@ -769,7 +770,7 @@ func TestPlanFailureDaemon_OwnerReplyRunsFreshStoryDraft(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			opts.Judge = &turn.JudgeService{DB: f.db, Config: judgeConfig, Providers: map[agent.Kind]agent.JudgeRunner{}, Paths: mcpPaths, Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{})}
+			opts.Judge = &turn.JudgeService{Library: factorylibtest.Library(t), DB: f.db, Config: judgeConfig, Providers: map[agent.Kind]agent.JudgeRunner{}, Paths: mcpPaths, Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{})}
 			opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 				def, err := teamsourcetest.CapturePlan(ctx, specs)
 				if err != nil {

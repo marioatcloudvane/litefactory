@@ -17,7 +17,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/naming"
 	native "github.com/cloudvane/litefactory/pkg/execution/providers/claude"
 )
@@ -64,7 +64,7 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 // no session id, run ordinal, or worktree and therefore cannot become an
 // ordinary coding workflow or create its run artefacts.
 func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposalRequest) (agent.ScheduleProposal, error) {
-	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "schedule-proposal-advisor")
+	capture, err := factorylib.CaptureRole(ctx, factorylib.Or(r.instructions, r.paths), factorylib.ScheduleProposalAdvisor)
 	if err != nil {
 		return agent.ScheduleProposal{}, err
 	}
@@ -110,7 +110,7 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 // budget already in play for this turn (see internal/turn's
 // attemptConflictSuggestion, which passes ctx through unbounded on purpose).
 func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
-	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "merge-conflict-advisor")
+	capture, err := factorylib.CaptureRole(ctx, factorylib.Or(r.instructions, r.paths), factorylib.MergeConflictAdvisor)
 	if err != nil {
 		return agent.ConflictResolution{}, err
 	}
@@ -190,8 +190,8 @@ const (
 // the environment in particular, because a test that could not choose the
 // parent environment could not assert the boundary that AC-3.13 is about.
 type Options struct {
-	// Instructions supplies per-invocation role captures; nil uses the shared package.
-	Instructions instructionpackage.CaptureSource
+	// Instructions is the factory library roles are captured from; nil reads the installed one.
+	Instructions factorylib.Source
 	// Paths is the resolved $LF_HOME layout. Run artefacts are written beneath
 	// it and the default claude settings file lives in it.
 	Paths         config.Paths
@@ -226,7 +226,7 @@ type Options struct {
 // own point of consumption.
 type Runner struct {
 	providerObserver agent.ProviderObserver
-	instructions     instructionpackage.CaptureSource
+	instructions     factorylib.Source
 	paths            config.Paths
 	goBuildCaches    config.GoBuildCaches
 	binary           config.Executable

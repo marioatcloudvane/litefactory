@@ -203,7 +203,7 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 	}
 	run("team", "remove", "second", "3.0.0", "--source", "local")
 	inspected := run("team", "inspect", "go-development", "1.0.0", "--source", identity)
-	for _, want := range []string{"Integrity: verified", "Source: " + identity, "Checksum:", "Path:", "bug, doctor, implement, plan, research, spike, validate", "Source commit:"} {
+	for _, want := range []string{"Integrity: verified", "Source: " + identity, "Checksum:", "Path:", "bug, implement, plan, research, spike, validate", "Source commit:"} {
 		if !strings.Contains(inspected, want) {
 			t.Fatalf("inspect missing %q: %s", want, inspected)
 		}

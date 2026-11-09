@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -149,6 +150,7 @@ func TestTaskAdvisoryRunnerBoundBrokerAndLostReplyRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture.WriteFile("README.md", "Later dirty bytes must stay private to the source checkout.\n")
+	factorylibtest.Install(t, config.NewPaths(root))
 	runner := &TaskAdvisoryRunner{DB: db, Paths: config.NewPaths(root), Executable: "/usr/bin/false", Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("codex"): provider}, Git: binary, Provider: agent.Kind("codex"), Model: "captured-model", Thinking: "high", Deadline: time.Minute}
 	guidance, err := runner.CaptureGuidance(t.Context(), "Captured current analysis", fixture.Dir)
 	if err != nil {

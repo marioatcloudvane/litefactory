@@ -1198,6 +1198,7 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 		ToolProfiles:  config.DefaultToolProfiles().Permissions,
 		Agents:        turn.RunnerSet{agent.Kind(store.AgentClaude): nil},
 		Classifiers:   map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}},
+		ModeRole:      baseTeamModeRole,
 		DB:            f.db,
 		Forge:         f.client,
 		Filter:        f.filter,
@@ -1285,6 +1286,9 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 		opts.ConflictProposalTTL = overrides.ConflictProposalTTL
 	}
 
+	if overrides.ModeRole != nil {
+		opts.ModeRole = overrides.ModeRole
+	}
 	d, err := daemon.New(opts)
 	if err != nil {
 		f.t.Fatalf("build the daemon: %v", err)
@@ -1742,4 +1746,9 @@ func (f *fixture) bootstrapIssues(repo store.Repo, issues ...int) {
 		f.settle()
 	}
 	f.t.Fatalf("bootstrap did not complete for %s/%s issues%v\n%s", repo.Owner, repo.Name, issues, f.logs)
+}
+
+// baseTeamModeRole reads the base team's mode classifier, as a linked team would supply it.
+func baseTeamModeRole(context.Context, store.Repo) ([]byte, error) {
+	return os.ReadFile("../../teams/source/base-team/mode/mode-classifier.md")
 }

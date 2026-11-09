@@ -131,7 +131,7 @@ func TestBrokerReceiptUsesDurableTransportIdentity(t *testing.T) {
 		}
 		return observed, nil
 	}}
-	s.Runner = &Provider{Runner: runner, Model: "fixture-model", Directory: "/tmp", Executable: executable}
+	s.Runner = &Provider{Runner: runner, Model: "fixture-model", Directory: "/tmp", Executable: executable, Role: []byte("Fixture drift analyst role.\n")}
 	a, err := s.Start(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)

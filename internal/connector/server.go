@@ -110,6 +110,8 @@ func normalizeScope(raw string) (string, bool) {
 
 // Options supplies dependencies resolved by trusted daemon composition.
 type Options struct {
+	// Guidance is the factory library's connector directory (guidance/...).
+	Guidance       fs.FS
 	TaskDiscussion TaskDiscussion
 	Workflows      Workflows
 	Actions        OwnerActions
@@ -166,6 +168,9 @@ func newServer(ctx context.Context, opts Options, reconciled bool) (*Server, err
 	if opts.Storage == nil || opts.Access == nil || opts.Logger == nil || opts.LocalControl == nil {
 		return nil, errors.New("connector: required dependency unavailable")
 	}
+	if opts.Guidance == nil {
+		return nil, errors.New("connector: guidance unavailable: install the factory library")
+	}
 	if !opts.Access.SameStore(opts.Storage) {
 		return nil, errors.New("connector: access and authentication backends differ")
 	}
@@ -200,7 +205,7 @@ func newServer(ctx context.Context, opts Options, reconciled bool) (*Server, err
 		github = &GitHubProvider{ClientID: opts.Config.GitHubClientID, ClientSecret: opts.GitHubSecret}
 	}
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
-	server := &Server{cfg: opts.Config, storage: opts.Storage, access: opts.Access, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}
+	server := &Server{cfg: opts.Config, storage: opts.Storage, access: opts.Access, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: opts.Guidance, github: github, cookie: aead, transport: newTransportState()}
 	server.taskDiscussion.Store(opts.TaskDiscussion)
 	server.actions.Store(opts.Actions)
 	server.workflows.Store(opts.Workflows)

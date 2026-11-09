@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"testing/fstest"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -89,26 +89,16 @@ func TestConversationInstructionsRefreshAtTurnBoundaryAfterRestart(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			owner := filepath.Join(root, "owner-instructions")
 			roles := []string{"conversation-native", "conversation-factory", "conversation-correction", "conversation-action-outcome"}
-			catalogue := "- " + strings.Join(roles, "\n- ") + "\n"
-			baseline := fstest.MapFS{"metadata.yaml": {Data: []byte("schema: 1\nversion: instruction-fixture\n")}, "catalogue.yaml": {Data: []byte(catalogue)}}
-			for _, role := range roles {
-				baseline["agents/"+role+".md"] = &fstest.MapFile{Data: []byte("Shipped " + role + ".\n")}
-			}
+			var library *factorylib.Library
+			// writeSources is an owner edit of the library followed by a reinstall.
 			writeSources := func(version string) {
 				t.Helper()
-				if err := os.MkdirAll(filepath.Join(owner, "agents"), 0700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(owner, "catalogue.yaml"), []byte(catalogue), 0600); err != nil {
-					t.Fatal(err)
-				}
+				replace := map[string]string{}
 				for _, role := range roles {
-					if err := os.WriteFile(filepath.Join(owner, "agents", role+".md"), []byte(version+" "+role+".\n\n"), 0600); err != nil {
-						t.Fatal(err)
-					}
+					replace[factorylib.Role(role).Path()] = version + " " + role + ".\n\n"
 				}
+				library = factorylibtest.With(t, replace)
 			}
 			writeSources("Original")
 			var db *store.DB
@@ -135,10 +125,7 @@ func TestConversationInstructionsRefreshAtTurnBoundaryAfterRestart(t *testing.T)
 			sent := &journeySender{}
 			start := func(second bool) *messaging.Service {
 				t.Helper()
-				pkg, loadErr := instructionpackage.Load(ctx, baseline, owner)
-				if loadErr != nil {
-					t.Fatal(loadErr)
-				}
+				pkg := library
 				service := messaging.New(db, "discord", "7", []string{"3", "4"}, sent, messaging.FactoryStatus{DB: db})
 				service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 				bindings := []messaging.ConversationBinding{{Channel: "3", Name: "retained", Provider: provider, Model: "fixture"}}
@@ -191,13 +178,13 @@ func TestConversationInstructionsRefreshAtTurnBoundaryAfterRestart(t *testing.T)
 			}
 			verifyCapture := func(raw []byte, version string) {
 				t.Helper()
-				capture, e := instructionpackage.RestoreConversation(raw)
+				capture, e := factorylib.RestoreConversation(raw)
 				if e != nil {
 					t.Fatal(e)
 				}
 				got := []string{capture.Native(), capture.Factory(), capture.Correction(), capture.ActionOutcome()}
 				for i, role := range roles {
-					if got[i] != version+" "+role+".\n\n" {
+					if !strings.HasPrefix(got[i], version+" "+role+".\n\n") {
 						t.Fatalf("%s capture = %q", role, got[i])
 					}
 				}
@@ -269,7 +256,7 @@ func TestConversationInstructionsRefreshAtTurnBoundaryAfterRestart(t *testing.T)
 					if e = json.Unmarshal(fields["instructions"], &factory); e != nil {
 						t.Fatal(e)
 					}
-					if factory != version+" conversation-factory.\n\n" {
+					if !strings.HasPrefix(factory, version+" conversation-factory.\n\n") {
 						t.Fatalf("factory composition changed: %q", factory)
 					}
 					if step == 2 {

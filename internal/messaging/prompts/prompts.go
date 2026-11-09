@@ -11,31 +11,25 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 )
 
-// Chat role names select only registered instruction-package roles.
+// Chat role names select only registered factory library roles.
 const (
 	// Draft selects the feature draft role.
-	Draft = "chat-draft"
+	Draft = string(factorylib.ChatDraft)
 	// MainMarker begins the main section in draft files.
 	MainMarker = "<!-- main -->"
 	// CorrectionMarker begins the correction section in draft files.
 	CorrectionMarker = "<!-- correction -->"
 )
 
-// Resolver retains baseline access so invalid owner formatting can fall back as
-// one complete role, without reading another live owner file.
-type Resolver interface {
-	Capture(context.Context, string) (*instructionpackage.RoleCapture, []instructionpackage.Diagnostic, error)
-	CaptureShipped(context.Context, string) (*instructionpackage.RoleCapture, error)
-}
+// Resolver is the factory library chat roles are captured from.
+type Resolver = factorylib.Source
 
-// Diagnostic contains only source identity and failure category, never wording.
+// Diagnostic contains only role identity and failure category, never wording.
 type Diagnostic struct {
 	Role     string
-	Source   instructionpackage.Source
 	Digest   string
 	Category string
 }
@@ -46,85 +40,27 @@ type Sink func(context.Context, Diagnostic)
 // Role holds both sections selected and validated before any provider call.
 type Role struct{ Main, Correction string }
 
-// Load captures once and validates the whole selected role. A nil resolver uses
-// the shipped package; daemon consumers normally inject their configured one.
+// Load captures once and validates the whole selected role. There is no
+// fallback text: a library role in the wrong format fails the call.
 func Load(ctx context.Context, resolver Resolver, role string, sink Sink) (Role, error) {
 	if err := ctx.Err(); err != nil {
 		return Role{}, err
 	}
-	shippedOnly := resolver == nil
-	if resolver == nil {
-		var err error
-		resolver, err = instructionpackage.New(ctx, config.Paths{})
-		if err != nil {
-			return Role{}, err
-		}
-	}
-	var capture *instructionpackage.RoleCapture
-	var diagnostics []instructionpackage.Diagnostic
-	var err error
-	if shippedOnly {
-		capture, err = resolver.CaptureShipped(ctx, role)
-	} else {
-		capture, diagnostics, err = resolver.Capture(ctx, role)
-	}
+	capture, err := factorylib.CaptureRole(ctx, resolver, factorylib.Role(role))
 	if err != nil {
 		return Role{}, err
-	}
-	if capture == nil {
-		return Role{}, errors.New("chat instructions: missing capture")
-	}
-	for _, diagnostic := range diagnostics {
-		emit(ctx, sink, capture, diagnostic.Category)
 	}
 	parsed, err := parse(role, string(capture.Instructions()))
-	if err == nil {
-		if err := ctx.Err(); err != nil {
-			return Role{}, err
+	if err != nil {
+		if sink != nil {
+			sink(ctx, Diagnostic{Role: role, Digest: capture.Digest(), Category: "format"})
 		}
-		return parsed, nil
-	}
-	if err := ctx.Err(); err != nil {
-		return Role{}, err
-	}
-	if source(capture) != instructionpackage.SourceOwner {
-		emit(ctx, sink, capture, "format")
-		return Role{}, fmt.Errorf("chat instructions %s: invalid shipped format", role)
-	}
-	emit(ctx, sink, capture, "format")
-	capture, err = resolver.CaptureShipped(ctx, role)
-	if err != nil {
-		return Role{}, err
-	}
-	if capture == nil {
-		return Role{}, errors.New("chat instructions: missing shipped capture")
-	}
-	parsed, err = parse(role, string(capture.Instructions()))
-	if err != nil {
-		emit(ctx, sink, capture, "format")
-		return Role{}, fmt.Errorf("chat instructions %s: invalid shipped format", role)
+		return Role{}, fmt.Errorf("chat instructions %s: invalid format: %w", role, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return Role{}, err
 	}
 	return parsed, nil
-}
-
-func source(capture *instructionpackage.RoleCapture) instructionpackage.Source {
-	snapshot := capture.Snapshot()
-	for _, file := range snapshot.Files {
-		if file.Path == "agents/"+snapshot.Role+".md" {
-			return file.Source
-		}
-	}
-	return instructionpackage.SourceShipped
-}
-
-func emit(ctx context.Context, sink Sink, capture *instructionpackage.RoleCapture, category string) {
-	if sink != nil {
-		snapshot := capture.Snapshot()
-		sink(ctx, Diagnostic{Role: snapshot.Role, Source: source(capture), Digest: snapshot.EffectiveDigest, Category: category})
-	}
 }
 
 func parse(role, text string) (Role, error) {

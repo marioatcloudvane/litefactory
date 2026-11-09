@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -38,7 +39,7 @@ func TestConversationStandardsAnswerReceiptSurvivesRestartAndStaleVersion(t *tes
 	if _, err = book.Publish(ctx, p.ProposalID, p.Version, p.ChangeDigest); err != nil {
 		t.Fatal(err)
 	}
-	author := &standards.Authoring{Store: db, Book: book, Runner: &standardsJourneyAuthor{}}
+	author := &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: &standardsJourneyAuthor{}}
 	draft, err := author.Start(ctx, standards.AuthoringStart{ID: "receipt-draft", Mode: "create", Intent: "Relevant checks", CategoryIDs: []string{"quality"}})
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +75,7 @@ func TestConversationStandardsAnswerReceiptSurvivesRestartAndStaleVersion(t *tes
 		t.Fatal(err)
 	}
 	book = &standards.Service{Store: db, OwnerID: 71}
-	author = &standards.Authoring{Store: db, Book: book}
+	author = &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book}
 	adapter = &ConversationStandards{DB: db, Book: book, Authoring: author, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 	recovered, err := adapter.Execute(ctx, request)
 	if err != nil {

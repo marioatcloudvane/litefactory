@@ -201,7 +201,7 @@ func composeTemplate(files fs.FS) (string, error) {
 }
 
 // ComposeTemplate returns the project template built from the embedded guidance.
-func ComposeTemplate() (string, error) { return composeTemplate(guidanceFiles) }
+func ComposeTemplate(guidance fs.FS) (string, error) { return composeTemplate(guidance) }
 
 // strictParams decodes with unknown fields and duplicate keys refused.
 func strictParams(raw json.RawMessage, v any) bool {

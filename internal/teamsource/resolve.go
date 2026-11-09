@@ -217,7 +217,7 @@ func inResolution(p string) bool {
 		return true
 	}
 	first, rest, ok := strings.Cut(p, "/")
-	return ok && rest != "" && slices.Contains(sourceWorkflows, first)
+	return ok && rest != "" && (slices.Contains(sourceWorkflows, first) || first == ModeFolder)
 }
 
 // ownFiles reads stack-profile.json and the workflow folders of one folder.
@@ -233,11 +233,11 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 	case !errors.Is(err, fs.ErrNotExist):
 		return nil, err
 	}
-	for _, w := range sourceWorkflows {
+	for _, w := range append(slices.Clone(sourceWorkflows), ModeFolder) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if !strict {
+		if !strict || w == ModeFolder {
 			if _, err := root.Lstat(dir + "/" + w); errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
@@ -253,7 +253,13 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 	return files, nil
 }
 
-var sourceWorkflows = []string{"bug", "doctor", "implement", "plan", "research", "spike", "validate"}
+var sourceWorkflows = []string{"bug", "implement", "plan", "research", "spike", "validate"}
+
+// ModeFolder holds team roles outside any workflow; today the mode classifier.
+const ModeFolder = "mode"
+
+// ModeClassifierPath is the team role that picks an issue's workflow mode.
+const ModeClassifierPath = ModeFolder + "/mode-classifier.md"
 
 // SafePath reports whether name is a clean, relative, portable path.
 func SafePath(name string) bool { return safePath(name) }
