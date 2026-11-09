@@ -436,7 +436,7 @@ Shows, without deleting anything, what automatic cleanup would keep or remove fo
 
 ## Repository access grants
 
-Access grants record, as plain text, what a person may do in a project. The text is stored exactly as you write it and is not interpreted. Nothing reads grants yet; a later change will. Only the owner can run these commands from the local CLI. `<project-id>` is the id shown by `repo list`. The person must be a GitHub or Linear user matching the project's ticket connection.
+Access grants record, as plain text, what a person may do in a project. The text is stored exactly as you write it. Each request from the person is checked against it before anything runs; see [Grantee access](../project-connections.md#grantee-access). Only the owner can run these commands from the local CLI. `<project-id>` is the id shown by `repo list`. The person must be a GitHub or Linear user matching the project's ticket connection.
 
 ### `repo access grant`
 

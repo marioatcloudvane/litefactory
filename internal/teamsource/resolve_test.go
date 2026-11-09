@@ -110,3 +110,39 @@ func TestResolveRejectsUnknownManifestFields(t *testing.T) {
 		t.Fatal("unknown field accepted")
 	}
 }
+
+func TestResolveCarriesTeamFilesOutsideWorkflows(t *testing.T) {
+	root := resolveRoot(t, `{"base":"base-x","variables":{"lang":"go"}}`, nil)
+	resolvePut(t, filepath.Join(root.Name(), "teams/source/base-x", teamsource.AccessClassifierPath), []byte("base access {{lang}}"))
+	resolvePut(t, filepath.Join(root.Name(), "teams/source/base-x/access/other.md"), []byte("not a team file"))
+	got, err := teamsource.ResolveSource(t.Context(), root, "teams/source/kid", "kid-team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got[teamsource.AccessClassifierPath]) != "base access go" {
+		t.Fatalf("inherited access role %q", got[teamsource.AccessClassifierPath])
+	}
+	if _, ok := got["access/other.md"]; ok {
+		t.Fatal("unlisted file outside the workflow folders was carried")
+	}
+
+	root = resolveRoot(t, `{"base":"base-x","replace":["access/access-classifier.md"],"variables":{"lang":"go"}}`,
+		map[string]string{teamsource.AccessClassifierPath: "team access"})
+	resolvePut(t, filepath.Join(root.Name(), "teams/source/base-x", teamsource.AccessClassifierPath), []byte("base access"))
+	got, err = teamsource.ResolveSource(t.Context(), root, "teams/source/kid", "kid-team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got[teamsource.AccessClassifierPath]) != "team access" {
+		t.Fatalf("replaced access role %q", got[teamsource.AccessClassifierPath])
+	}
+
+	root = resolveRoot(t, `{"base":"base-x","variables":{"lang":"go"}}`, nil)
+	got, err = teamsource.ResolveSource(t.Context(), root, "teams/source/kid", "kid-team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got[teamsource.AccessClassifierPath]; ok {
+		t.Fatal("absent access role was invented")
+	}
+}
