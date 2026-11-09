@@ -1,7 +1,6 @@
 package graphexec_test
 
 import (
-	"encoding/json"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -48,58 +47,25 @@ func TestGraphPackagePurity(t *testing.T) {
 }
 
 func TestGraphShippedDOTScope(t *testing.T) {
-	// The current distribution path has one author: canonical release metadata.
-	// Admit only its six existing workflows, never a general graph namespace.
-	raw, err := os.ReadFile("../../teams/source/go-development/release.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var release struct {
-		Download string `json:"download"`
-	}
-	if err := json.Unmarshal(raw, &release); err != nil {
-		t.Fatal(err)
-	}
-	if !fs.ValidPath(release.Download) || !strings.HasPrefix(release.Download, "go-development/") {
-		t.Fatal("unsafe current release path")
-	}
+	// Graphs live only in teams/source: the shared base-team holds the seven
+	// workflow graphs with a {{team}} placeholder, and a team folder may replace
+	// one of its own. Teams are installed from there; no generated release
+	// folders exist. Only these exact paths are admitted.
 	// One frozen test fixture: the pre-worker-sync Implement graph that saved
 	// instances may still run. It is test data, never a release or a source.
 	allowed := map[string]bool{"../../internal/turn/testdata/implement-v1.0.2/implement.dot": true}
 	workflows := []string{"research", "plan", "implement", "validate", "spike", "doctor", "bug"}
-	for _, workflow := range workflows {
-		allowed["../../teams/"+release.Download+"/"+workflow+"/"+workflow+".dot"] = true
-	}
-	// Every release the catalogue ships carries the same six workflows, and each
-	// stack team keeps its editable source in its own directory. Only these
-	// exact paths are admitted; no general graph namespace.
-	rawCatalogue, err := os.ReadFile("../../teams/teams.json")
+	teams, err := os.ReadDir("../../teams/source")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var catalogue struct {
-		Releases []struct {
-			Slug     string `json:"slug"`
-			Download string `json:"download"`
-		} `json:"releases"`
-	}
-	if err := json.Unmarshal(rawCatalogue, &catalogue); err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range catalogue.Releases {
-		if !fs.ValidPath(r.Download) || !fs.ValidPath(r.Slug) || strings.Contains(r.Slug, "/") {
-			t.Fatalf("unsafe catalogue release %q %q", r.Slug, r.Download)
+	for _, team := range teams {
+		if !team.IsDir() || !fs.ValidPath(team.Name()) {
+			continue
 		}
 		for _, workflow := range workflows {
-			allowed["../../teams/"+r.Download+"/"+workflow+"/"+workflow+".dot"] = true
-			if r.Slug != "go-development" {
-				allowed["../../teams/source/"+r.Slug+"/"+workflow+"/"+workflow+".dot"] = true
-			}
+			allowed["../../teams/source/"+team.Name()+"/"+workflow+"/"+workflow+".dot"] = true
 		}
-	}
-	// The shared base-team holds the same seven graphs with a {{team}} placeholder.
-	for _, workflow := range workflows {
-		allowed["../../teams/source/base-team/"+workflow+"/"+workflow+".dot"] = true
 	}
 	err = filepath.WalkDir(filepath.Join("..", ".."), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
