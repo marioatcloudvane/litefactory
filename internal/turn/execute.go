@@ -334,6 +334,9 @@ type Trigger struct {
 	CreatedAt     time.Time
 	// PlanReply is correlated by authenticated child discovery, never role output.
 	PlanReply *planbrief.PlanOwnerReply
+	// Grantee is set only for a non-owner's input the access gate allowed. Such
+	// a turn is verified against its decision, never the claims ledger.
+	Grantee *GranteeAuthority
 
 	// AuthorID is the authenticated forge identity, used for graph reply claims.
 	AuthorID int64
@@ -558,7 +561,11 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 			outErr = errors.Join(outErr, opts.DB.CompleteProjectAuthority(context.WithoutCancel(ctx), claim.ID))
 		}()
 	}
-	if opts.ProjectApprovers && !store.IsFactoryTrigger(req.Trigger.CommentID) && !codeControl {
+	if opts.ProjectApprovers && !store.IsFactoryTrigger(req.Trigger.CommentID) && !codeControl && req.Trigger.Grantee != nil {
+		if err := verifyGranteeAuthority(ctx, opts, session, req); err != nil {
+			return Result{}, err
+		}
+	} else if opts.ProjectApprovers && !store.IsFactoryTrigger(req.Trigger.CommentID) && !codeControl {
 		claim, claimErr := claimTurnAuthority(ctx, opts, req)
 		if claimErr != nil {
 			return Result{}, claimErr

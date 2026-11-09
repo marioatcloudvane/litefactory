@@ -35,15 +35,23 @@ func (d *Daemon) retainOrdinaryOwnerInput(ctx context.Context, t *task, c github
 	if turn.ParseCommand(source.Body).Kind != turn.KindFreeText {
 		return false, nil
 	}
-	owner := d.ticketIdentities(ctx).OwnerUserID
-	if owner < 1 || c.Author.ID != owner {
-		return false, errors.New("ordinary instruction requires numeric owner identity")
+	allowed, err := d.mayInstruct(ctx, t.session.ID, c)
+	if err != nil {
+		return false, err
+	}
+	if !allowed {
+		return false, errors.New("ordinary instruction requires an authorized numeric identity")
+	}
+	if !d.isOwnerComment(ctx, c) {
+		// The retained ledger keeps the owner's instructions; a grantee's
+		// allowed comment is authorized by its access decision instead.
+		return false, nil
 	}
 	target, err := ownerInputTarget(c.Body)
 	if err != nil {
 		return false, err
 	}
-	_, err = d.db.RetainOwnerInstruction(ctx, t.session.ID, c.ID, owner, c.Body, target)
+	_, err = d.db.RetainOwnerInstruction(ctx, t.session.ID, c.ID, c.Author.ID, c.Body, target)
 	return err == nil, err
 }
 
@@ -54,16 +62,19 @@ func ownerInputTarget(body string) (store.OwnerInputTarget, error) {
 }
 
 func (d *Daemon) handleOwnerGuide(ctx context.Context, t *task, c github.Comment) error {
-	owner := d.ticketIdentities(ctx).OwnerUserID
-	if owner < 1 || c.Author.ID != owner {
-		return errors.New("standing guidance requires numeric owner identity")
+	allowed, err := d.mayInstruct(ctx, t.session.ID, c)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return errors.New("standing guidance requires an authorized numeric identity")
 	}
 	body := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(c.Body), "/guide"))
 	if body != "" {
 		if body == "clear" {
 			body = ""
 		}
-		if _, err := d.db.SetOwnerGuidance(ctx, t.session.ID, c.ID, owner, body); err != nil {
+		if _, err := d.db.SetOwnerGuidance(ctx, t.session.ID, c.ID, c.Author.ID, body); err != nil {
 			return err
 		}
 	}

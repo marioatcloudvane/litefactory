@@ -341,7 +341,13 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 		if authorityErr != nil {
 			return authorityErr
 		}
-		if eligible && !routed && ids.OwnerUserID > 0 && c.Author.ID == ids.OwnerUserID && c.Author.ID != ids.BotUserID && !c.Author.IsBot && !turn.HasMarker(c.Body) {
+		instructed := false
+		if eligible && !routed {
+			if instructed, authorityErr = d.mayInstruct(ctx, t.session.ID, c); authorityErr != nil {
+				return authorityErr
+			}
+		}
+		if instructed && c.Author.ID != ids.BotUserID && !c.Author.IsBot && !turn.HasMarker(c.Body) {
 			if err := d.db.AdmitStoryRefinement(ctx, store.StoryRefinement{SessionID: t.session.ID, CommentID: c.ID, ChildNumber: s.IssueNumber, ChildID: s.IssueID, Generation: s.Generation, ActorID: c.Author.ID, ActorHandle: c.Author.Login, Body: c.Body}); err != nil {
 				return err
 			}

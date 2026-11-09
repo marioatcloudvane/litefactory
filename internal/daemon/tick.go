@@ -1252,6 +1252,9 @@ type task struct {
 	// commentUnderWay is the owner comment [Daemon.handleComment] is dealing
 	// with, so that [Daemon.leave] can say why it was deferred. Zero otherwise.
 	commentUnderWay int64
+	// accessPicked is the mode the picker chose for a grantee's free text
+	// before the access gate ran, so the run uses the workflow that was checked.
+	accessPicked *pickedMode
 
 	refining bool
 	// implementing marks a run the factory started for an Implement story worker.
@@ -2118,11 +2121,21 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		}
 	}
 	var refusal string
+	granteeBody := false
 	switch {
 	case !t.enrollmentAt.IsZero() && t.issue.UpdatedAt.Before(t.enrollmentAt):
 		refusal = "its retained body predates ticket source enrollment"
 	case t.issue.Author.ID != d.ticketIdentities(ctx).OwnerUserID || t.issue.Author.IsBot || turn.HasMarker(t.issue.Body):
 		refusal = "its author is not the verified ticket approver"
+		if strings.TrimSpace(t.issue.Body) != "" && len(comments) == 0 && d.access != nil && !d.selfComment(ctx, t.issue.Author, t.issue.Body) {
+			granted, err := d.issueGrantee(ctx, t)
+			if err != nil {
+				return err
+			}
+			if granted {
+				refusal, granteeBody = "", true
+			}
+		}
 	case strings.TrimSpace(t.issue.Body) == "":
 		refusal = "its body is empty"
 	case len(comments) != 0:
@@ -2165,10 +2178,27 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		return nil
 	}
 
+	var grantee *turn.GranteeAuthority
+	if granteeBody {
+		var err error
+		if grantee, err = d.admitGranteeBody(ctx, t, command, log); err != nil || grantee == nil {
+			return err
+		}
+	}
+
 	log.InfoContext(ctx, "running the issue body as the task's first instruction",
 		slog.String("command", command.Name),
 		slog.String("kind", command.Kind.String()))
 	trigger := turn.Trigger{CommentID: 0, Body: "", Author: t.issue.Author.Login, AuthorID: t.issue.Author.ID, CreatedAt: t.issue.CreatedAt}
+	if grantee != nil {
+		_, source, err := d.issueIdentities(ctx, t)
+		if err != nil {
+			return err
+		}
+		trigger.Grantee, trigger.Actor, trigger.Source = grantee, grantee.Actor, source
+		defer func() { t.accessPicked = nil }()
+		return d.run(ctx, t, trigger, command, log)
+	}
 	if d.connections != nil {
 		mapping, err := d.db.GetSessionTicket(ctx, t.session.ID)
 		if err != nil {
@@ -2447,10 +2477,25 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	}
 
 	if !admission.Triggers() {
-		// litefactory's own comment, or a third party's: recorded and tagged,
-		// nothing runs, the comment is consumed (AC-2.14, AC-2.15).
-		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
-		return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
+		// A third party holding a grant is asked through the access gate; an
+		// allowed request continues as an instruction, a refused one is
+		// answered once.
+		grantee := granteeNone
+		if !admission.Verdict.IsSelf() && d.access != nil {
+			if grantee, err = d.admitGranteeComment(ctx, t, c, log); err != nil {
+				return err
+			}
+		}
+		switch grantee {
+		case granteeRefused:
+			return nil
+		case granteeNone:
+			// litefactory's own comment, or a third party's: recorded and
+			// tagged, nothing runs, the comment is consumed (AC-2.14, AC-2.15).
+			_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
+			return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
+		}
+		defer func() { t.accessPicked = nil }()
 	}
 
 	// Retain ordinary owner bytes before routing, acknowledging ingestion or
