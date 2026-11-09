@@ -7,27 +7,37 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/config"
 )
 
+// fixture holds built releases the way a teams/source build hands them to
+// InstallBuilt: an inventory plus the files keyed /teams/<download>/<path>.
 type fixture struct {
 	mu        sync.Mutex
-	catalogue Catalogue
+	catalogue struct{ Releases []Release }
 	files     map[string][]byte
-	requests  int
-	fail      string
 }
+
+// fixtureServer names the source identity of one fixture. Nothing is served.
+type fixtureServer struct{ URL string }
+
+func (*fixtureServer) Close() {}
+
+var (
+	fixtures     sync.Map
+	fixtureCount atomic.Int64
+)
 
 func canonicalTemp(t *testing.T) string {
 	t.Helper()
@@ -47,9 +57,10 @@ func fixtureRelease(ver string) (Release, map[string][]byte) {
 	r.Checksum = digest(r.Files)
 	return r, files
 }
-func newFixture(t *testing.T, versions ...string) (*fixture, *httptest.Server) {
+func newFixture(t *testing.T, versions ...string) (*fixture, *fixtureServer) {
 	t.Helper()
-	f := &fixture{catalogue: Catalogue{Schema: 1, Releases: []Release{}}, files: map[string][]byte{}}
+	f := &fixture{files: map[string][]byte{}}
+	f.catalogue.Releases = []Release{}
 	for _, ver := range versions {
 		r, files := fixtureRelease(ver)
 		f.catalogue.Releases = append(f.catalogue.Releases, r)
@@ -57,39 +68,48 @@ func newFixture(t *testing.T, versions ...string) (*fixture, *httptest.Server) {
 			f.files["/teams/"+r.Download+"/"+p] = raw
 		}
 	}
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		f.requests++
-		if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
-			t.Error("credentials sent")
-		}
-		if f.fail == r.URL.Path {
-			http.Error(w, "failure", http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Set-Cookie", "secret=ignored")
-		if r.URL.Path == "/teams/teams.json" {
-			if err := json.NewEncoder(w).Encode(f.catalogue); err != nil {
-				t.Error(err)
-			}
-			return
-		}
-		raw, ok := f.files[r.URL.Path]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		if _, err := w.Write(raw); err != nil {
-			t.Error(err)
-		}
-	}))
-	t.Cleanup(server.Close)
+	server := &fixtureServer{URL: fmt.Sprintf("file:///fixture-%d", fixtureCount.Add(1))}
+	fixtures.Store(server.URL+"/teams/teams.json", f)
 	return f, server
 }
-func fixtureManager(t *testing.T, p config.Paths, server *httptest.Server) *Manager {
+
+// testInstall installs one fixture release with InstallBuilt. A source with
+// no registered fixture (a child process) rebuilds the deterministic release.
+func testInstall(ctx context.Context, m *Manager, source, slug, ver string) (Installed, bool, error) {
+	var r Release
+	files := map[string][]byte{}
+	if v, ok := fixtures.Load(source); ok {
+		f, ok := v.(*fixture)
+		if !ok {
+			return Installed{}, false, errors.New("fixture registry holds another type")
+		}
+		f.mu.Lock()
+		found := false
+		for _, candidate := range f.catalogue.Releases {
+			if candidate.Slug == slug && candidate.Version == ver {
+				r, found = candidate, true
+			}
+		}
+		if found {
+			for _, file := range r.Files {
+				if raw, ok := f.files["/teams/"+r.Download+"/"+file.Path]; ok {
+					files[file.Path] = raw
+				}
+			}
+		}
+		f.mu.Unlock()
+		if !found {
+			return Installed{}, false, fmt.Errorf("%w: %s %s", ErrNotFound, slug, ver)
+		}
+	} else {
+		r, files = fixtureRelease(ver)
+	}
+	entry, result, err := m.InstallBuilt(ctx, source, files, r, BuildInfo{SourceHead: strings.Repeat("c", 40)})
+	return entry, result == InstallUnchanged, err
+}
+func fixtureManager(t *testing.T, p config.Paths, _ *fixtureServer) *Manager {
 	t.Helper()
-	m, err := New(Options{Paths: p, Transport: server.Client().Transport, Validate: func(ctx context.Context, source fs.FS, workflows map[string]string) error {
+	m, err := New(Options{Paths: p, Validate: func(ctx context.Context, source fs.FS, workflows map[string]string) error {
 		for _, graph := range workflows {
 			if _, err := fs.ReadFile(source, graph); err != nil {
 				return err
@@ -104,7 +124,7 @@ func fixtureManager(t *testing.T, p config.Paths, server *httptest.Server) *Mana
 }
 func installFixture(t *testing.T, m *Manager, source, ver string) Installed {
 	t.Helper()
-	entry, _, err := m.Install(t.Context(), source, "example", ver)
+	entry, _, err := testInstall(t.Context(), m, source, "example", ver)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,51 +154,51 @@ func snapshot(t *testing.T, root string) map[string][]byte {
 	}
 	return result
 }
-func TestInstallSelectUpdateConflictAndOffline(t *testing.T) {
+
+// changeFixture gives the fixture release of ver other team.config bytes.
+func changeFixture(f *fixture, ver string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.catalogue.Releases {
+		r := &f.catalogue.Releases[i]
+		if r.Version != ver {
+			continue
+		}
+		raw := []byte("research: research/flow.dot\n# changed\n")
+		for j := range r.Files {
+			if r.Files[j].Path == "team.config" {
+				r.Files[j].SHA256 = hashBytes(raw)
+			}
+		}
+		r.Checksum = digest(r.Files)
+		f.files["/teams/example/"+ver+"/team.config"] = raw
+	}
+}
+
+func TestInstallBuiltSelectReinstallAndOffline(t *testing.T) {
 	t.Parallel()
-	f, server := newFixture(t, "1.0.0", "1.2.1", "2.0.0-rc.1")
+	_, server := newFixture(t, "1.0.0", "1.2.1", "2.0.0-rc.1")
 	p := config.NewPaths(canonicalTemp(t))
 	m := fixtureManager(t, p, server)
 	source := server.URL + "/teams/teams.json"
-	latest := installFixture(t, m, source, "")
-	if latest.Identity.Version != "1.2.1" || !latest.Integrity {
-		t.Fatalf("selected %+v", latest)
+	latest := installFixture(t, m, source, "1.2.1")
+	if latest.Identity.Version != "1.2.1" || !latest.Integrity || latest.Build == nil || latest.Build.SourceHead != strings.Repeat("c", 40) {
+		t.Fatalf("installed %+v", latest)
 	}
 	old := installFixture(t, m, source, "1.0.0")
-	before := snapshot(t, filepath.Dir(old.Path))
 	prerelease := installFixture(t, m, source, "2.0.0-rc.1")
 	if prerelease.Identity.Version != "2.0.0-rc.1" {
 		t.Fatal("explicit prerelease lost")
 	}
-	if _, already, err := m.Install(t.Context(), source, "example", "1.0.0"); err != nil || !already {
+	if _, already, err := testInstall(t.Context(), m, source, "example", "1.0.0"); err != nil || !already {
 		t.Fatalf("idempotent=%v %v", already, err)
 	}
-	if _, updated, err := m.Update(t.Context(), source, "example"); err != nil || updated {
-		t.Fatalf("no update=%v %v", updated, err)
-	}
-	f.mu.Lock()
-	r, files := fixtureRelease("1.3.0")
-	f.catalogue.Releases = append(f.catalogue.Releases, r)
-	for p, raw := range files {
-		f.files["/teams/"+r.Download+"/"+p] = raw
-	}
-	f.mu.Unlock()
-	if entry, updated, err := m.Update(t.Context(), source, "example"); err != nil || !updated || entry.Identity.Version != "1.3.0" {
-		t.Fatalf("update=%+v %v %v", entry, updated, err)
-	}
-	if !reflect.DeepEqual(before, snapshot(t, filepath.Dir(old.Path))) {
-		t.Fatal("update changed old release")
-	}
-	f.mu.Lock()
-	requests := f.requests
-	f.mu.Unlock()
-	server.Close()
 	all, err := m.List(t.Context())
-	if err != nil || len(all) != 4 {
+	if err != nil || len(all) != 3 {
 		t.Fatalf("list=%d %v", len(all), err)
 	}
 	inspected, err := m.Inspect(t.Context(), "", "example", "1.0.0")
-	if err != nil || inspected.Identity != old.Identity || !reflect.DeepEqual(inspected.Workflows, old.Workflows) {
+	if err != nil || inspected.Identity != old.Identity || !reflect.DeepEqual(inspected.Workflows, old.Workflows) || inspected.Build == nil {
 		t.Fatalf("inspect=%+v %v", inspected, err)
 	}
 	if err := m.WithExact(t.Context(), old.Identity, func(entry Installed, source fs.FS) error {
@@ -201,61 +221,127 @@ func TestInstallSelectUpdateConflictAndOffline(t *testing.T) {
 	if _, err := m.Inspect(t.Context(), source, "example", "1.2.1"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestReinstallReplacesInPlaceAndRebinds covers the one way installed bytes
+// change: the same source, name and version built again from changed files.
+func TestReinstallReplacesInPlaceAndRebinds(t *testing.T) {
+	t.Parallel()
+	f, server := newFixture(t, "1.0.0", "2.0.0")
+	p := config.NewPaths(canonicalTemp(t))
+	m := fixtureManager(t, p, server)
+	source := server.URL + "/teams/teams.json"
+	before := installFixture(t, m, source, "1.0.0")
+	other := installFixture(t, m, source, "2.0.0")
+	otherBytes := snapshot(t, filepath.Dir(other.Path))
+	changeFixture(f, "1.0.0")
+	var calls []string
+	m.rebind = func(_ context.Context, previous, next Identity, swap func() error) error {
+		calls = append(calls, previous.Digest+">"+next.Digest)
+		if previous != before.Identity || next.Digest == before.Identity.Digest || next.Version != "1.0.0" {
+			t.Errorf("rebind identities %+v -> %+v", previous, next)
+		}
+		return swap()
+	}
+	entry, result, err := m.InstallBuilt(t.Context(), source, fixtureFiles(f, "1.0.0"), fixtureEntry(f, "1.0.0"), BuildInfo{SourceHead: strings.Repeat("d", 40), SourceDirty: true})
+	if err != nil || result != InstallReplaced || entry.Path != before.Path || len(calls) != 1 {
+		t.Fatalf("replace=%+v %v %v calls=%v", entry, result, err, calls)
+	}
+	got, err := m.Inspect(t.Context(), source, "example", "1.0.0")
+	if err != nil || got.Identity.Digest != entry.Identity.Digest || got.Build == nil || !got.Build.SourceDirty {
+		t.Fatalf("replaced inspect=%+v %v", got, err)
+	}
+	if !reflect.DeepEqual(otherBytes, snapshot(t, filepath.Dir(other.Path))) {
+		t.Fatal("replacement changed another version")
+	}
+	if trash, err := os.ReadDir(p.TeamsTrashDir()); err != nil || len(trash) != 0 {
+		t.Fatalf("replacement left trash: %d %v", len(trash), err)
+	}
+	// A failing rebind after the swap restores the previous bytes.
+	changeFixture(f, "1.0.0")
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.requests != requests {
-		t.Fatal("offline operation fetched")
+	f.files["/teams/example/1.0.0/research/flow.dot"] = []byte("verified graph data\n")
+	f.mu.Unlock()
+	replaced := snapshot(t, filepath.Dir(entry.Path))
+	r := fixtureEntry(f, "1.0.0")
+	files := fixtureFiles(f, "1.0.0")
+	files["team.config"] = []byte("research: research/flow.dot\n# again\n")
+	for i := range r.Files {
+		if r.Files[i].Path == "team.config" {
+			r.Files[i].SHA256 = hashBytes(files["team.config"])
+		}
+	}
+	r.Checksum = digest(r.Files)
+	for _, failure := range []string{"before swap", "after swap"} {
+		m.rebind = func(_ context.Context, _, _ Identity, swap func() error) error {
+			if failure == "after swap" {
+				if err := swap(); err != nil {
+					return err
+				}
+			}
+			return errors.New("injected binding failure")
+		}
+		if _, _, err := m.InstallBuilt(t.Context(), source, files, r, BuildInfo{}); err == nil || !strings.Contains(err.Error(), "injected binding failure") {
+			t.Fatalf("%s: failure accepted: %v", failure, err)
+		}
+		if !reflect.DeepEqual(replaced, snapshot(t, filepath.Dir(entry.Path))) {
+			t.Fatalf("%s: failed rebind changed the installed release", failure)
+		}
 	}
 }
-func TestInstallFailurePreservesPublishedReleases(t *testing.T) {
+
+func fixtureEntry(f *fixture, ver string) Release {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.catalogue.Releases {
+		if r.Version == ver {
+			return r
+		}
+	}
+	return Release{}
+}
+func fixtureFiles(f *fixture, ver string) map[string][]byte {
+	r := fixtureEntry(f, ver)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	files := map[string][]byte{}
+	for _, file := range r.Files {
+		files[file.Path] = f.files["/teams/"+r.Download+"/"+file.Path]
+	}
+	return files
+}
+
+func TestInstallFailurePreservesInstalledReleases(t *testing.T) {
 	t.Parallel()
-	for _, failure := range []string{"fetch", "checksum", "validation", "cancel", "local drift", "remote collision"} {
+	for _, failure := range []string{"checksum", "missing file", "validation", "cancel"} {
 		t.Run(failure, func(t *testing.T) {
 			t.Parallel()
 			f, server := newFixture(t, "1.0.0", "2.0.0")
 			p := config.NewPaths(canonicalTemp(t))
 			m := fixtureManager(t, p, server)
 			source := server.URL + "/teams/teams.json"
-			entry := installFixture(t, m, source, "1.0.0")
-			ver := "2.0.0"
+			installFixture(t, m, source, "1.0.0")
 			ctx := t.Context()
 			f.mu.Lock()
 			switch failure {
-			case "fetch":
-				f.fail = "/teams/example/2.0.0/team.config"
 			case "checksum":
 				f.files["/teams/example/2.0.0/team.config"] = []byte("bad")
+			case "missing file":
+				delete(f.files, "/teams/example/2.0.0/team.config")
 			case "validation":
 				m.validate = func(context.Context, fs.FS, map[string]string) error { return errors.New("incompatible action") }
 			case "cancel":
 				cancelled, cancel := context.WithCancel(ctx)
 				cancel()
 				ctx = cancelled
-			case "local drift":
-				ver = "1.0.0"
-				if err := os.WriteFile(filepath.Join(entry.Path, "team.config"), []byte("drift"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			case "remote collision":
-				ver = "1.0.0"
-				r := &f.catalogue.Releases[0]
-				raw := []byte("research: research/flow.dot\n# changed\n")
-				sum := sha256.Sum256(raw)
-				for i := range r.Files {
-					if r.Files[i].Path == "team.config" {
-						r.Files[i].SHA256 = hex.EncodeToString(sum[:])
-					}
-				}
-				r.Checksum = digest(r.Files)
-				f.files["/teams/example/1.0.0/team.config"] = raw
 			}
 			f.mu.Unlock()
 			before := snapshot(t, p.TeamsInstalledDir())
-			if _, _, err := m.Install(ctx, source, "example", ver); err == nil {
+			if _, _, err := testInstall(ctx, m, source, "example", "2.0.0"); err == nil {
 				t.Fatal("failure accepted")
 			}
 			if !reflect.DeepEqual(before, snapshot(t, p.TeamsInstalledDir())) {
-				t.Fatal("failed install changed published releases")
+				t.Fatal("failed install changed installed releases")
 			}
 			stages, err := os.ReadDir(p.TeamsStagingDir())
 			if err != nil {
@@ -275,11 +361,8 @@ func TestOfflineSourceAmbiguityAndUnsafeContent(t *testing.T) {
 	m := fixtureManager(t, p, one)
 	sourceOne := one.URL + "/teams/teams.json"
 	entry := installFixture(t, m, sourceOne, "1.0.0")
-	m.client.Transport = two.Client().Transport
 	sourceTwo := two.URL + "/teams/teams.json"
 	other := installFixture(t, m, sourceTwo, "1.0.0")
-	one.Close()
-	two.Close()
 	if _, err := m.Inspect(t.Context(), "", "example", "1.0.0"); err == nil || !strings.Contains(err.Error(), sourceOne) || !strings.Contains(err.Error(), sourceTwo) {
 		t.Fatalf("ambiguity=%v", err)
 	}
@@ -314,14 +397,34 @@ func TestOfflineSourceAmbiguityAndUnsafeContent(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestUpdateRequiresStableBaseline(t *testing.T) {
+
+// TestCatalogueReceiptsStayReadable keeps teams that earlier versions installed
+// from a remote catalogue listable and removable after the move to source folders.
+func TestCatalogueReceiptsStayReadable(t *testing.T) {
 	t.Parallel()
-	_, server := newFixture(t, "1.0.0-rc.1", "2.0.0")
-	m := fixtureManager(t, config.NewPaths(canonicalTemp(t)), server)
-	source := server.URL + "/teams/teams.json"
-	installFixture(t, m, source, "1.0.0-rc.1")
-	if _, _, err := m.Update(t.Context(), source, "example"); err == nil || !strings.Contains(err.Error(), "explicit version") {
-		t.Fatalf("missing baseline=%v", err)
+	_, server := newFixture(t, "1.0.0")
+	p := config.NewPaths(canonicalTemp(t))
+	m := fixtureManager(t, p, server)
+	legacy := "https://raw.githubusercontent.com/example/repo/main/teams/teams.json"
+	r, files := fixtureRelease("1.0.0")
+	entry, _, err := m.InstallBuilt(t.Context(), legacy, files, r, BuildInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Join(filepath.Dir(entry.Path), "receipt.json")
+	raw, err := json.Marshal(receipt{Schema: 1, Source: legacy, Release: r, Checksum: r.Checksum})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.Inspect(t.Context(), legacy, "example", "1.0.0")
+	if err != nil || got.Identity != entry.Identity || got.Build != nil {
+		t.Fatalf("legacy inspect=%+v %v", got, err)
+	}
+	if removed, err := m.Remove(t.Context(), legacy, "example", "1.0.0"); err != nil || !removed {
+		t.Fatalf("legacy remove=%v %v", removed, err)
 	}
 }
 
@@ -339,7 +442,7 @@ func TestPublicationFailureAndCorruptReceipts(t *testing.T) {
 			case "publication":
 				before := snapshot(t, p.TeamsInstalledDir())
 				m.rename = func(string, string) error { return errors.New("injected publication failure") }
-				if _, _, err := m.Install(t.Context(), source, "example", "2.0.0"); err == nil {
+				if _, _, err := testInstall(t.Context(), m, source, "example", "2.0.0"); err == nil {
 					t.Fatal("publication failure accepted")
 				}
 				if !reflect.DeepEqual(before, snapshot(t, p.TeamsInstalledDir())) {
@@ -352,7 +455,7 @@ func TestPublicationFailureAndCorruptReceipts(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				raw = bytes.Replace(raw, []byte(`"schema":1`), []byte(`"schema":1,"schema":1`), 1)
+				raw = bytes.Replace(raw, []byte(`"schema":2`), []byte(`"schema":2,"schema":2`), 1)
 				if err := os.WriteFile(name, raw, 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -429,7 +532,7 @@ func TestStagedFilesystemAliasesAndValidationDriftCannotPublish(t *testing.T) {
 				f.files["/teams/example/2.0.0/"+name] = raw
 				f.mu.Unlock()
 			}
-			if _, _, err := m.Install(t.Context(), source, "example", "2.0.0"); !errors.Is(err, ErrInvalidPackage) {
+			if _, _, err := testInstall(t.Context(), m, source, "example", "2.0.0"); !errors.Is(err, ErrInvalidPackage) {
 				t.Fatalf("unsafe staging accepted: %v", err)
 			}
 			if !reflect.DeepEqual(before, snapshot(t, filepath.Dir(old.Path))) {

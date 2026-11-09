@@ -65,9 +65,6 @@ func TestCloneIndependentOriginAndLocalLifecycle(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, filepath.Dir(original.Path))) {
 		t.Fatal("source changed")
 	}
-	if _, _, err := m.Update(t.Context(), "local", "custom"); err == nil {
-		t.Fatal("updated local")
-	}
 	if removed, err := m.Remove(t.Context(), source, "example", "1.0.0"); !removed || err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +101,6 @@ func TestCloneRefusalsAndExactSelection(t *testing.T) {
 				want = ErrNotFound
 			case "ambiguous":
 				_, other := newFixture(t, "1.0.0")
-				m.client.Transport = other.Client().Transport
 				installFixture(t, m, other.URL+"/teams/teams.json", "1.0.0")
 				if _, err := m.Clone(t.Context(), source, slug, ver, "exact", "1.0.0"); err != nil {
 					t.Fatal(err)
