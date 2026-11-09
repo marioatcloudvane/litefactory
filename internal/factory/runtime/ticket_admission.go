@@ -138,6 +138,9 @@ func (a *TicketAdmission) EligibleComment(ctx context.Context, sessionID int64, 
 		if err != nil || !allowed {
 			return false, err
 		}
+		// The access decision row is the grantee's only proof; the approver's
+		// claims ledger is never written for another person.
+		return true, nil
 	}
 	claim, err := a.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: session.RepoID, AppointmentID: appointment.ID, Revision: appointment.Revision, Actor: appointment.Actor, Source: source, CreatedAt: c.CreatedAt, Kind: "child-instruction", Key: source.RemoteID})
 	if err != nil {
