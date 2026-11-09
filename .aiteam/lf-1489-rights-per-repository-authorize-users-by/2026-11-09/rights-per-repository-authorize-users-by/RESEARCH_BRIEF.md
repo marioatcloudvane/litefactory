@@ -4,7 +4,7 @@ Follow-up of #1267. Commit read: `d0257178541dd24f9f87e4561ec3a9bd76329fd7`.
 Permalink base: `https://github.com/marioatcloudvane/litefactory/blob/d0257178541dd24f9f87e4561ec3a9bd76329fd7/`.
 Data model and interface sketch: [ACCESS_MODEL.md](ACCESS_MODEL.md).
 
-Status: scope drafted; five owner questions open (q1–q5). The recommended answers are already written in as `O-` entries marked "pending q…". If the owner says "yes to all", they stand as written.
+Status: scope complete. The owner replied "proceed" to q1–q5 (A-01), so each recommended option stands as written. Plan should split the work as described under O-13.
 
 ## Outcome ledger
 
@@ -34,7 +34,7 @@ Inputs:
 The target's facts are read from the repository's installed team graph: the node name, `lf_kind`, `lf_action` and `lf_access` (read or write) of the target node and of the agent nodes it could reach. The read/write facts let the classifier judge grants like "read-only runs only". No Go code names a workflow, node or stage in the decision.
 
 ### O-05 The classifier returns a strict structured decision; anything else is a refusal (owner said: "deny by default")
-The output is `{"decision":"allow"|"deny","reason":"<one plain sentence>"}`, parsed exactly. All of these count as deny: malformed output, a timeout, a provider error, a missing team graph, or an input over the size cap. Nothing is retried automatically. The route for this output is pending q5.
+The output is `{"decision":"allow"|"deny","reason":"<one plain sentence>"}`, parsed exactly. All of these count as deny: malformed output, a timeout, a provider error, a missing team graph, or an input over the size cap. Nothing is retried automatically. The output comes back through the no-tools classify path, not through MCP (q5, A-01).
 
 ### O-06 A refusal is visible on the issue in plain words (owner said: "a refusal must be visible on the issue in plain words")
 The factory posts one marked comment that names the person, says the request was not run, and gives the classifier's reason. A classifier failure gets its own wording ("could not be checked, so it was not run; the owner can repeat it"). The owner can always repeat or approve the request themselves.
@@ -42,7 +42,7 @@ The factory posts one marked comment that names the person, says the request was
 ### O-07 Every decision is recorded once and never reused for another request (agent's call)
 A decision ledger stores one row per request (provider comment or issue id). The row holds the actor, the grant id and revision, the target, the decision, the reason, the model and the time. It makes the check idempotent across retries and gives the owner an audit trail. Decisions are not cached across requests. A grant change takes effect from the next request on (forward-only, matching #495 d18). Already admitted inputs and running work are not revoked. The next wait reply of a running task is a new request and is checked against the current grant.
 
-### O-08 Hard owner-only floor, enforced in Go before the classifier (pending q1; recommended)
+### O-08 Hard owner-only floor, enforced in Go before the classifier (owner said: "proceed" — recommended option of q1 taken, see A-01)
 No grant text can unlock these:
 - code-control commands (`/deliver`, `/merge`, `/validate-ship|push|merge|close`);
 - a reply that equals a node's `lf_approve_reply` (today `ship` on review nodes; this is a generic graph attribute, not a workflow name);
@@ -54,16 +54,16 @@ A floor hit is refused without calling the classifier. The refusal comment says 
 ### O-09 Grantee input flows through the existing owner pipeline (agent's call)
 The single-owner equality checks move behind one helper: "is this input an authorized instruction, and from whom". The callers include owner input, follow-ups, owner exceptions, plan children, plan story task, story refinements, implement timeout reply, the research resume, owner batching, Linear delivery and the in-turn approver claim. Owner batching (#1466) keeps its rule: one author per batch, and a different author ends it. Each grantee batch is classified once, as a whole.
 
-### O-10 The permission classifier is a Markdown role with a factory default (pending q4; recommended: team content with factory fallback)
+### O-10 The permission classifier is a Markdown role with a factory default (owner said: "proceed" — recommended option of q4 taken, see A-01)
 The role text lives in the team source, as `teams/source/base-team/access/access-classifier.md`, so a team can tune it. If an installed team has none, the factory uses its embedded default. The Go side only assembles inputs, runs it with no tools and no session, and parses the output.
 
 ### O-11 Cost is bounded (agent's call)
 Only people with an active grant ever reach the classifier. Strangers stay silent as today: no call, no comment. The input is capped at 64 KiB, the same as owner batches; above that the request is refused. The classifier runs with no tools and no session through the existing classify path. A per-grantee cap of 30 checks per project per hour applies; over the cap the request is refused with a "too many requests, try later" note. Plan may tune the number.
 
-### O-12 The old fixed-catalogue rights system is retired (pending q2; recommended)
+### O-12 The old fixed-catalogue rights system is retired (owner said: "proceed" — recommended option of q2 taken, see A-01)
 Removed: `internal/rights`, `internal/factory/localrights`, the `litefactory rights …` CLI, the `lf_rights` graph attribute and its validation, and the `rights_grants`, `reviewer_assignments` and `rights_history` tables. A migration drops the tables. Before that, any existing rows are listed in the migration notice. They are not converted, because fixed workflow/stage/action triples do not map to plain text.
 
-### O-13 First slice, deliverable on its own (pending q3; recommended: slice A)
+### O-13 First slice, deliverable on its own (owner said: "proceed" — recommended option of q3 taken, see A-01)
 Slice A:
 - grant table, CLI and history (O-01, O-02);
 - the classifier and its decision ledger (O-04, O-05, O-07);
@@ -105,13 +105,8 @@ Picking a mode for a grantee's free text still uses the mode classifier, after t
 
 ### K-06 No Go code names a workflow, node or stage in the permission decision
 
-## Owner questions (open)
-
-- q1 (business) Owner-only floor: recommended (a) a fixed floor of code control, delivering approvals and admin; (b) the grant text decides everything.
-- q2 (business) Old fixed-catalogue rights system: recommended (a) retire it and drop its tables; (b) keep both.
-- q3 (business) First slice: recommended (a) run starts plus stage answers and approvals; (b) run starts only.
-- q4 (technical) Home of the classifier role: recommended (a) team content with an embedded factory default; (b) factory-embedded only, like the mode classifier.
-- q5 (technical) Result route: recommended (a) strict JSON on stdout from a no-tools run; (b) MCP `communication_*` tools.
+### A-01 q1–q5 answered together (owner said: "proceed")
+q1 "Should some actions stay owner-only no matter what a grant says?", q2 "What happens to the old fixed rights system from #1267?", q3 "What should the first slice cover?", q4 "Where should the permission classifier's role text live?", q5 "How should the classifier hand back its decision?" — owner: "proceed". Read as accepting the recommended option (a) of each (agent's call on the reading); this settles O-05, O-08, O-10, O-12 and O-13.
 
 ## Findings (observed unless marked)
 
@@ -168,14 +163,14 @@ Picking a mode for a grantee's free text still uses the mode classifier, after t
 - **Touched:**
   - `internal/store`: new migration and queries.
   - `internal/projectconnection`: identity resolution reuse.
-  - `internal/cli`: the new `repo access` commands; `cmd_rights.go` removed under q2.
+  - `internal/cli`: the new `repo access` commands; `cmd_rights.go` removed (O-12).
   - `internal/turn`: `ticket_classify.go` admission and the `project_approver.go` claim.
   - `internal/daemon`: tick body path, comment handling, and the ~12 owner checks behind one helper.
   - `internal/agent`/`internal/harness`/`internal/codex`: a classifier call with a new parser.
   - `internal/instructionpackage`: the embedded default role.
-  - `internal/teamsource`/`teambuild`: an optional new team role file under q4.
+  - `internal/teamsource`/`teambuild`: an optional new team role file (O-10).
   - `teams/source/base-team`: the new access classifier role.
-  - `internal/graphexec`: `lf_rights` removed under q2.
+  - `internal/graphexec`: `lf_rights` removed (O-12).
   - Docs: the rights and approver docs (looked in `docs/`; Plan to list).
 - **Depends on it:**
   - every ticket input path, for GitHub and Linear;
@@ -183,11 +178,11 @@ Picking a mode for a grantee's free text still uses the mode classifier, after t
   - Research, Plan and Spike resumes at waiting nodes;
   - Plan control commands;
   - the code-control refusal path, unchanged.
-- **Superseded:** `internal/rights`, `localrights`, `litefactory rights` and `lf_rights` (O-12, pending q2). Until removal they stay inert; nothing calls them.
+- **Superseded:** `internal/rights`, `localrights`, `litefactory rights` and `lf_rights` (O-12). Until removal they stay inert; nothing calls them.
 - **Data and compatibility:**
   - New tables (see ACCESS_MODEL.md).
-  - Old rights tables are dropped under q2. There may be rows on existing installations; the migration must list them before dropping them.
-  - Installed teams without the new role use the factory default (q4).
+  - Old rights tables are dropped (O-12). There may be rows on existing installations; the migration must list them before dropping them.
+  - Installed teams without the new role use the factory default (O-10).
   - No team release format change beyond one optional role file.
 
 ## Edge cases and how the owner tells it works
@@ -204,5 +199,6 @@ Picking a mode for a grantee's free text still uses the mode classifier, after t
 - An owner comment and a grantee comment are interleaved → batches split by author, and each grantee batch is classified on its own.
 
 ## Private notes for the next turn
+- Run 0002: owner comment 6747862352 said "proceed"; recommended options taken; finished report submitted.
 - Prior research for the old system: `.aiteam/lf-495-rights-system/2026-10-06/rights-system/RESEARCH_BRIEF.md` (decisions d1–d19). Forward-only revocation and "repository roles grant nothing" carried over.
 - #1267's issue summary could not be fetched (the MCP request did not complete); I relied on the instruction text and the git history.
