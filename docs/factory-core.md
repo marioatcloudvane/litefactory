@@ -18,7 +18,7 @@ exit mapping; local services remain callable with the daemon stopped.
 | Discovery cadence and in-flight sessions | Factory runtime | Atomic admission, cancellation, settlement and due-time observations |
 | Initialization and service lifecycle | Factory local administration | Local bootstrap/start/stop/status operations and safe results |
 | Worktree cleanup | Factory maintenance | Exact task selector, removal result and typed refusal |
-| Rights and reviewers | Factory local rights | Opaque local repository scope with bounded operations |
+| Access grants | Factory local projects | Plain-text per-person grants, revisions and revocation |
 | Teams and repository bindings | Factory local teams | Package operations and locked binding updates |
 | Project connections and approvers | Factory local projects | Immutable connection versions, bindings and owner appointments |
 | Reviewed owner actions | Factory owner-action domains | Resolve, recheck, execute and receipt recovery using verified principals |
@@ -42,7 +42,7 @@ control must bind to the same backing store. Independent adapter instances for
 that same store remain compatible.
 
 The registered CLI handlers now delegate factory decisions and durable effects
-to the local administration, project, team, rights, usage, standards, analysis,
+to the local administration, project, team, access grants, usage, standards, analysis,
 diagnosis and maintenance services. Parsing, output and dependency composition
 remain in the CLI. Daemon discovery and in-flight wrappers call factory runtime
 operations, including verified project ticket admission and owner-authority claims;
