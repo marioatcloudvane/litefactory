@@ -82,25 +82,29 @@ func TestLegacyToolsLabel(t *testing.T) {
 	}
 }
 
-func TestBugRolePermissionsResolveSandboxPerRole(t *testing.T) {
-	resolve := bugRolePermissions(config.ToolProfiles{Permissions: map[string]config.ToolProfile{
-		"bug-analyst": {Codex: &config.ToolProfileCodex{Sandbox: config.SandboxWorkspaceWrite}},
-	}})
-	for role, want := range map[string]string{"bug-analyst": config.SandboxWorkspaceWrite, "bug-fixer": config.SandboxWorkspaceWrite, config.ValidateRepairProfile: config.SandboxWorkspaceWrite} {
-		for _, kind := range []agent.Kind{agent.Kind(config.KindClaude), agent.Kind(config.KindCodex)} {
-			got, err := resolve(kind, role)
-			if err != nil || got.Sandbox != want {
-				t.Fatalf("%s/%s = %+v %v", role, kind, got, err)
-			}
-			if wantTools := kind == agent.Kind(config.KindClaude); wantTools != slices.Equal(got.Tools, config.AgentTools()) {
-				t.Fatalf("%s/%s tools = %v", role, kind, got.Tools)
-			}
+func TestRolePermissionsResolveTheRepairSandbox(t *testing.T) {
+	resolve := rolePermissions(config.ToolProfiles{})
+	for _, kind := range []agent.Kind{agent.Kind(config.KindClaude), agent.Kind(config.KindCodex)} {
+		got, err := resolve(kind, config.ValidateRepairProfile)
+		if err != nil || got.Sandbox != config.SandboxWorkspaceWrite {
+			t.Fatalf("%s = %+v %v", kind, got, err)
+		}
+		if wantTools := kind == agent.Kind(config.KindClaude); wantTools != slices.Equal(got.Tools, config.AgentTools()) {
+			t.Fatalf("%s tools = %v", kind, got.Tools)
 		}
 	}
-	if got, _ := bugRolePermissions(config.ToolProfiles{})(agent.Kind(config.KindClaude), "bug-analyst"); got.Sandbox != config.SandboxReadOnly {
-		t.Fatalf("default analyst sandbox = %q", got.Sandbox)
-	}
 	if _, err := resolve(agent.Kind(config.KindClaude), "implement"); err == nil {
-		t.Fatal("a mode resolved as a Bug role")
+		t.Fatal("a mode resolved as a graph role")
+	}
+}
+
+// Bug runs under its own write profile, which an operator may override.
+func TestResolveToolsGivesBugItsWriteProfile(t *testing.T) {
+	if got, ok := (&Daemon{}).resolveTools(agent.ModeBug, agent.Kind(config.KindClaude)); !ok || got.Sandbox != config.SandboxWorkspaceWrite || got.Profile != "bug" {
+		t.Fatalf("default bug tools = %+v %v", got, ok)
+	}
+	d := &Daemon{toolProfiles: config.ToolProfiles{Permissions: map[string]config.ToolProfile{config.BugProfile: {Sandbox: config.SandboxReadOnly}}}}
+	if got, _ := d.resolveTools(agent.ModeBug, agent.Kind(config.KindCodex)); got.Sandbox != config.SandboxReadOnly {
+		t.Fatalf("configured bug sandbox = %q", got.Sandbox)
 	}
 }

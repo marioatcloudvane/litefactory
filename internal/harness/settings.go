@@ -86,7 +86,7 @@ func denyRules(homeRule string) []string {
 	}
 	// litefactory's own state: unredacted daemon.log and every run's raw
 	// event stream (logs/), the database, config.yaml and the
-	// credential-bearing paths config.DoctorCredentialPaths names. The rest
+	// credential-bearing paths config.CredentialPaths names. The rest
 	// of $LF_HOME is deliberately left readable: Validate review checkouts
 	// live in validate-scratch/ and every run reads its skills from
 	// bundles/, so a blanket //$LF_HOME/** deny refuses a run its own

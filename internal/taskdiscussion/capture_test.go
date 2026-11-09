@@ -44,19 +44,15 @@ func TestCaptureCurrentResearchAndBugRoleBindings(t *testing.T) {
 	if _, err = currentAnalysisNode(profile, "waiting", map[string]bool{}); !errors.Is(err, ErrTargetUnavailable) {
 		t.Fatalf("ambiguous target: %v", err)
 	}
-	bug, err := graphexec.ParseProfile([]byte(`digraph bug { graph [team="test",workflow="bug",profile_version="2",start="conversation"]; conversation [lf_action="lf_loop",lf_outcomes="analyse,approved"]; analyst [lf_action="lf_agent",lf_agent_markdown="bug-analyst",lf_outcomes="done"]; fixer [lf_action="lf_agent",lf_agent_markdown="bug-fixer",lf_outcomes="reshape"]; analyst -> conversation [lf_on="done"]; fixer -> conversation [lf_on="reshape"]; conversation -> analyst [lf_on="analyse"]; conversation -> fixer [lf_on="approved"]; }`))
+	bug, err := graphexec.ParseProfile([]byte(`digraph bug { graph [team="test",mode="bug",profile_version="2",start="bug"]; bug [lf_action="lf_agent",lf_agent_markdown="bug",lf_outcomes="ask,done"]; ask [lf_action="lf_ask",lf_source="bug",lf_outcomes="published"]; waiting [lf_terminal="true"]; bug -> ask [lf_on="ask"]; ask -> waiting [lf_on="published"]; }`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := store.AdvisorySourceOutput{AttemptID: 2, Node: "analyst", Status: store.GraphSucceeded, OutputID: 2, Payload: json.RawMessage(`{"result_id":3,"result_revision":1,"node":{"result":{"payload":{"bug":{"analysis":{"cause":"saved cause"}}}}}}`)}
-	snapshot := store.TaskAdvisorySnapshot{Definition: store.GraphDefinition{Workflow: "bug"}, Instance: store.GraphInstance{CurrentNode: "conversation"}, Outputs: []store.AdvisorySourceOutput{source}}
+	source := store.AdvisorySourceOutput{AttemptID: 2, Node: "bug", Status: store.GraphSucceeded, OutputID: 2, Payload: json.RawMessage(`{"result_id":3,"result_revision":1,"node":{"result":{"payload":{"bug":{"request":"crash","findings":["saved cause"]}}}}}`)}
+	snapshot := store.TaskAdvisorySnapshot{Definition: store.GraphDefinition{Mode: "bug"}, Instance: store.GraphInstance{CurrentNode: "waiting"}, Wait: &store.GraphOwnerWait{SourceAttemptID: 2}, Outputs: []store.AdvisorySourceOutput{source}}
 	node, stage, _, _, err := selectAdvisoryTarget(snapshot, bug)
-	if err != nil || node.Attrs["lf_agent_markdown"] != "bug-analyst" || stage != "analysis" {
+	if err != nil || node.Name != "bug" || stage != "analysis" {
 		t.Fatalf("bug: %+v %s %v", node, stage, err)
-	}
-	snapshot.Outputs = append(snapshot.Outputs, store.AdvisorySourceOutput{AttemptID: 3, Node: "fixer", Status: store.GraphSucceeded, OutputID: 3, Payload: json.RawMessage(`{"node":{"result":{"payload":{"bug":{"repair":{}}}}}}`)})
-	if _, _, _, _, err = selectAdvisoryTarget(snapshot, bug); !errors.Is(err, ErrTargetUnavailable) {
-		t.Fatalf("repair target revived old analyst: %v", err)
 	}
 }
 

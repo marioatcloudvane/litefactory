@@ -99,7 +99,8 @@ remote_connector:
 settings:
   # Default worker allowance; explicit node lf_budget minutes take precedence.
   worker_timeout_seconds: %d # valid range: 60..86400
-  # Anonymous HTTPS catalogue for machine-level team installation.
+  # Absolute path of a teams/source folder; "team install" uses it when
+  # --source is left out. Empty means --source is required.
   team_source: %q
   # Daemon scheduling, repository defaults, worktree placement and logging.
   # Fallback poll for discovery, in minutes. GitHub webhooks are recommended;
@@ -234,7 +235,7 @@ tool_profiles:
 		codex.Binary, codex.ModelTier,
 		renderModelByTier(d.Tiers.ModelByTier),
 	)
-	for _, name := range []string{"research", "plan", "implement", "validate", ValidateRepairProfile, "bug-analyst", "bug-fixer", SpikeInvestigatorProfile, SpikeFixerProfile} {
+	for _, name := range []string{"research", "plan", "implement", "validate", ValidateRepairProfile, BugProfile, SpikeInvestigatorProfile, SpikeFixerProfile} {
 		profile := profiles.Permissions[name]
 		fmt.Fprintf(&b, "    %s: {sandbox: %s, attachments: %t}\n", name, profile.Sandbox, profile.Attachments)
 	}

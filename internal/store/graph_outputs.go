@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -20,6 +21,18 @@ func (db *DB) LatestGraphRecord(ctx context.Context, instanceID int64, record st
 		return nil, fmt.Errorf("store: latest graph record: %w", err)
 	}
 	return out, nil
+}
+
+func graphRecordTx(ctx context.Context, tx *sql.Tx, instance int64, record string, out any) error {
+	var raw []byte
+	err := tx.QueryRowContext(ctx, `SELECT o.payload FROM graph_outputs o JOIN graph_node_attempts a ON a.id=o.node_attempt_id WHERE a.instance_id=? AND o.kind='json' AND json_valid(CAST(o.payload AS TEXT)) AND json_extract(CAST(o.payload AS TEXT),'$.record')=? ORDER BY o.id DESC LIMIT 1`, instance, record).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, out)
 }
 
 // MaxGraphOutputReadBytes is the largest byte bound a saved-output read may

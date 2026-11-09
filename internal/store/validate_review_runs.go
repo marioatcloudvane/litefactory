@@ -37,7 +37,7 @@ func (db *DB) NextValidateReviewTrigger(ctx context.Context, sessionID int64) (i
 // identity, newest run first. A reviewer whose reply was lost is found by its
 // attempt alone; the bindings grant historical reads only.
 func (db *DB) ResultBindingsByAttempt(ctx context.Context, attempt string) ([]ResultBinding, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT r.id,COALESCE(a.run_id,0),r.task,r.mode,r.work_context,r.context_hash,a.attempt,r.schema_version,r.workflow_version,r.submission_version,r.workflow,COALESCE(a.doctor_attempt_id,'') FROM application_results r JOIN application_result_attempts a ON a.result_id=r.id WHERE a.attempt=? ORDER BY COALESCE(a.run_id,0) DESC`, attempt)
+	rows, err := db.sql.QueryContext(ctx, `SELECT r.id,COALESCE(a.run_id,0),r.task,`+resultModeColumn+`,r.work_context,r.context_hash,a.attempt,r.schema_version,r.workflow_version,r.submission_version,`+resultWorkflowColumn+`,COALESCE(a.doctor_attempt_id,'') FROM application_results r JOIN application_result_attempts a ON a.result_id=r.id WHERE a.attempt=? ORDER BY COALESCE(a.run_id,0) DESC`, attempt)
 	if err != nil {
 		return nil, fmt.Errorf("store: read result bindings: %w", err)
 	}

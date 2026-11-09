@@ -10,10 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
-
-	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 // Call invokes one helper operation with JSON data, without subprocesses or
@@ -54,9 +51,6 @@ func Call(ctx context.Context, descriptorPath, method string, payload json.RawMe
 		call, callErr := DecodeToolCall(payload)
 		if callErr != nil {
 			return response, callErr
-		}
-		if slices.Contains(agent.TypedRepairToolKinds(), call.Name) {
-			wait = RepairToolTimeout
 		}
 		correlationPayload = call.Arguments
 		switch call.Name {

@@ -19,25 +19,20 @@ type ToolSpec struct {
 // ToolProfile is immutable, deny by default, and independent of agent.Permissions.
 type ToolProfile struct {
 	mode     string
-	workflow string
 	families []string
 }
 
 // NewToolProfile assigns only explicitly supported modes a server-local tool profile.
 func NewToolProfile(mode string) (ToolProfile, error) {
-	if !slices.Contains([]string{"research", "spike", "plan", "implement", "validate"}, mode) {
+	if !slices.Contains([]string{"research", "spike", "bug", "doctor", "plan", "implement", "validate"}, mode) {
 		return ToolProfile{}, errors.New("submission: unassigned MCP mode")
 	}
 	return ToolProfile{mode: mode}, nil
 }
 
-// NewWorkflowToolProfile preserves mode-only admission while providing the
-// standalone Bug communication-only catalog. Actual authority remains bound by
-// the service and its attempt guard, never by selecting a catalog.
+// NewWorkflowToolProfile admits a workflow binding only for its own mode.
+// Actual authority remains bound by the service and its attempt guard.
 func NewWorkflowToolProfile(workflow, mode string) (ToolProfile, error) {
-	if workflow == "bug" && mode == "" {
-		return ToolProfile{workflow: "bug"}, nil
-	}
 	if workflow != "" && workflow != mode {
 		return ToolProfile{}, errors.New("submission: conflicting workflow catalog")
 	}
@@ -46,7 +41,7 @@ func NewWorkflowToolProfile(workflow, mode string) (ToolProfile, error) {
 
 // Allows checks the same registered catalog used for discovery, denying unknown names.
 func (p ToolProfile) Allows(name string) bool {
-	if p.mode == "" && p.workflow != "bug" {
+	if p.mode == "" {
 		return false
 	}
 	for _, tool := range p.List() {
@@ -94,7 +89,7 @@ const implementResultSchema = `{"type":"object","description":"Shared result cre
 
 // List returns independent specifications for the installed, permitted catalog.
 func (p ToolProfile) List() []ToolSpec {
-	if p.mode == "" && p.workflow != "bug" {
+	if p.mode == "" {
 		return []ToolSpec{}
 	}
 	tools := []ToolSpec{

@@ -1542,15 +1542,6 @@ func TestBugIssueBodyStartsAtFirstSight(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
-			// The executor records the request; concrete runtime execution is
-			// covered by turn's Bug bootstrap fixture.
-			runtime, err := turn.NewGraphBugRuntime(t.Context(), turn.Options{DB: f.db, Git: new(git.Binary), CloneGate: unusedRecoveryCloneGate{}, ResearchReporter: f.reporter, MCP: &turn.MCPRuntime{Redactor: redact.New(redact.Options{Logger: f.logger}), BotID: botID}}, turn.BugRuntimeConfig{Forge: f.client, OwnerID: ownerID, Permissions: func(agent.Kind, string) (turn.BugRolePermissions, error) {
-				return turn.BugRolePermissions{}, nil
-			}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			f.daemon = f.newDaemon(daemon.Options{Bug: runtime})
 			f.plantCursor()
 			issue := fakeIssue{Number: testIssue, Title: "Bug bootstrap", Body: "Investigate this failure", User: owner(), Labels: []fakeLabel{{Name: "bug"}}}
 			if assigned {
@@ -1563,7 +1554,7 @@ func TestBugIssueBodyStartsAtFirstSight(t *testing.T) {
 				t.Fatalf("calls=%d logs=%s", len(calls), f.logs)
 			}
 			req := calls[0]
-			if req.Workflow != agent.WorkflowBug || req.Trigger.CommentID != 0 || req.Trigger.AuthorID != ownerID || req.Command.Text != issue.Body || req.Issue.Body != issue.Body {
+			if req.Workflow != agent.WorkflowBug || req.Mode != agent.ModeBug || req.Trigger.CommentID != 0 || req.Trigger.AuthorID != ownerID || req.Command.Text != issue.Body || req.Issue.Body != issue.Body {
 				t.Fatalf("wrong Bug body request: %+v", req)
 			}
 			if f.watermark() != 0 {

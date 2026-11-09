@@ -277,7 +277,12 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 // explained on this issue and consumed.
 func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.Comment, story store.GraphPlanStory, log *slog.Logger) error {
 	ids := d.ticketIdentities(ctx)
-	if c.Author.ID != ids.OwnerUserID || turn.HasMarker(c.Body) {
+	instructed, err := d.mayInstruct(ctx, t.session.ID, c)
+	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, "could not check whether the comment is Plan input: "+err.Error())
+		return d.leave(ctx, t, log, "could not check whether the comment is Plan input", err)
+	}
+	if !instructed || turn.HasMarker(c.Body) {
 		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, only the owner's plain comments are Plan input")
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
 		if err != nil {

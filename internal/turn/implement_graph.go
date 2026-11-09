@@ -60,7 +60,7 @@ func (rt *implementRuntime) now() time.Time { return graphNow(rt.opts) }
 // with no managed stories, keeps the legacy path, as does automatic recovery of a
 // run that began there.
 func admitImplementExecution(ctx context.Context, opts Options, req Request, result Result) (Result, bool, error) {
-	if req.mode() != string(agent.ModeImplement) || req.Workflow == agent.WorkflowBug {
+	if req.mode() != string(agent.ModeImplement) {
 		return result, false, nil
 	}
 	rt := &implementRuntime{opts: opts, req: req, result: result, parentRef: result.Ref}

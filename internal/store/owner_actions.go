@@ -43,6 +43,10 @@ type OwnerActionAttempt struct {
 
 const ownerActionColumns = `id,policy_version,owner_id,owner_generation,transport,client_id,grant_id,channel_id,discord_owner_id,request_key,request_digest,facts,payload,digest,repository_id,repository_ref,scope,tier,state,reason,created_at,available_at,confirm_not_before,expires_at,completed_at,execution_id,result,proposal_message,approval_channel,approval_message,delivery_state,delivery_retry_at,delivery_attempts`
 
+// ErrDoctorFenced means a reviewed owner action's target task changed after
+// the proposal, so the proposal no longer has authority.
+var ErrDoctorFenced = errors.New("reviewed task changed; request a fresh proposal")
+
 func scanOwnerAction(row scanner) (OwnerAction, error) {
 	var p OwnerAction
 	var created, available, notBefore, expires, completed, retry string

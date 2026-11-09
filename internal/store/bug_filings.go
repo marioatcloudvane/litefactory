@@ -8,38 +8,14 @@ import (
 	"time"
 )
 
-// bugStartTriggerBase reserves the factory-private run identities of the Bug
-// starts a confirmed bug filing hands off, below the factory work-id band that
-// begins at bugStartTriggerEnd. Each identity is the band plus one start
-// attempt id, so it is never a forge comment id and never another band.
-const (
-	bugStartTriggerBase int64 = 1 << 55
-	bugStartTriggerEnd  int64 = 1 << 56
-)
-
-// IsBugStartTrigger reports whether an identity belongs to a bug filing start attempt.
-func IsBugStartTrigger(id int64) bool {
-	return id > bugStartTriggerBase && id < bugStartTriggerEnd
-}
-
-// BugStartTrigger returns the private run identity of one start attempt.
-func BugStartTrigger(attemptID int64) int64 { return bugStartTriggerBase + attemptID }
-
-// BugStartAttemptID inverts BugStartTrigger.
-func BugStartAttemptID(trigger int64) (int64, bool) {
-	if !IsBugStartTrigger(trigger) {
-		return 0, false
-	}
-	return trigger - bugStartTriggerBase, true
-}
-
 // Bug filing states. They only move forward.
 const (
-	BugFilingAdmitted          = "admitted"
-	BugFilingCreating          = "creating"
-	BugFilingUncertain         = "uncertain"
-	BugFilingCreated           = "created"
-	BugFilingLabelled          = "labelled"
+	BugFilingAdmitted  = "admitted"
+	BugFilingCreating  = "creating"
+	BugFilingUncertain = "uncertain"
+	BugFilingCreated   = "created"
+	BugFilingLabelled  = "labelled"
+	// BugFilingStartAdmitted is a retired state: such rows are started anew.
 	BugFilingStartAdmitted     = "start_admitted"
 	BugFilingDispatched        = "dispatched"
 	BugFilingNotCreated        = "not_created"
@@ -56,23 +32,6 @@ func BugFilingFinal(state string) bool {
 	}
 	return false
 }
-
-// BugStartFailureLimit bounds failed start hand-offs before the Bug admission.
-const BugStartFailureLimit = 3
-
-// Start attempt states and outcomes reuse the brainstorm launch vocabulary.
-const (
-	BugStartPending   = BrainstormLaunchPending
-	BugStartReserved  = BrainstormLaunchReserved
-	BugStartRunning   = BrainstormLaunchRunning
-	BugStartSucceeded = BrainstormLaunchSucceeded
-	BugStartFailed    = BrainstormLaunchFailed
-
-	BugStartOutcomeReplayed = BrainstormLaunchOutcomeReplayed
-	BugStartOutcomeDeferred = BrainstormLaunchOutcomeDeferred
-	BugStartOutcomeFailed   = BrainstormLaunchOutcomeFailed
-	BugStartOutcomeStarted  = BrainstormLaunchOutcomeStarted
-)
 
 // ErrBugFilingInvalid reports malformed bug filing input.
 var ErrBugFilingInvalid = errors.New("store: invalid bug filing input")
@@ -103,26 +62,6 @@ type BugFiling struct {
 	AdmissionTrigger                         int64
 	Reason                                   string
 	CreatedAt, UpdatedAt                     time.Time
-}
-
-// BugFilingStartAttempt is one private Bug start hand-off for a filing.
-type BugFilingStartAttempt struct {
-	ID                   int64
-	FilingID             int64
-	Ordinal              int
-	SessionID            int64
-	State                string
-	RunID                int64
-	Outcome, Reason      string
-	CreatedAt, UpdatedAt time.Time
-}
-
-// TriggerID is the attempt's private run identity.
-func (a BugFilingStartAttempt) TriggerID() int64 { return BugStartTrigger(a.ID) }
-
-// Open reports whether the attempt still counts against the one-open rule.
-func (a BugFilingStartAttempt) Open() bool {
-	return a.State == BugStartPending || a.State == BugStartReserved || a.State == BugStartRunning
 }
 
 // Bug filing trackers.
@@ -242,100 +181,6 @@ func (db *DB) SaveBugFiling(ctx context.Context, f BugFiling, fromState string, 
 		f.State, f.IssueID, f.IssueNodeID, f.IssueNumber, f.IssueLink, f.SessionID, taskTime(f.AttemptAt), f.ChecksDone, taskTime(f.NextCheckAt), f.CreateRetries, f.LabelRetries, f.FailedStartAttempts, f.AdmissionTrigger, f.Reason, taskTime(at), f.ID, fromState)
 	if err != nil {
 		return false, fmt.Errorf("store: save bug filing: %w", err)
-	}
-	n, err := res.RowsAffected()
-	return n == 1, err
-}
-
-const bugStartAttemptColumns = `id,filing_id,ordinal,session_id,state,run_id,outcome,reason,created_at,updated_at`
-
-func scanBugStartAttempt(row interface{ Scan(...any) error }) (BugFilingStartAttempt, error) {
-	var a BugFilingStartAttempt
-	var created, updated string
-	err := row.Scan(&a.ID, &a.FilingID, &a.Ordinal, &a.SessionID, &a.State, &a.RunID, &a.Outcome, &a.Reason, &created, &updated)
-	if errors.Is(err, sql.ErrNoRows) {
-		return a, ErrNotFound
-	}
-	if err != nil {
-		return a, err
-	}
-	a.CreatedAt, _ = ParseTime(created)
-	a.UpdatedAt, _ = ParseTime(updated)
-	return a, nil
-}
-
-// BugFilingStartAttempts lists a filing's start attempts in ordinal order.
-func (db *DB) BugFilingStartAttempts(ctx context.Context, filingID int64) ([]BugFilingStartAttempt, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+bugStartAttemptColumns+` FROM bug_filing_start_attempts WHERE filing_id=? ORDER BY ordinal`, filingID)
-	if err != nil {
-		return nil, fmt.Errorf("store: bug start attempts: %w", err)
-	}
-	defer rows.Close()
-	var out []BugFilingStartAttempt
-	for rows.Next() {
-		a, err := scanBugStartAttempt(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
-}
-
-// ReadBugFilingStartAttempt reads one start attempt.
-func (db *DB) ReadBugFilingStartAttempt(ctx context.Context, id int64) (BugFilingStartAttempt, error) {
-	return scanBugStartAttempt(db.sql.QueryRowContext(ctx, `SELECT `+bugStartAttemptColumns+` FROM bug_filing_start_attempts WHERE id=?`, id))
-}
-
-// OpenBugFilingStartAttempt returns the filing's open attempt, or opens a new
-// pending one with the next ordinal. created is false when one was open.
-func (db *DB) OpenBugFilingStartAttempt(ctx context.Context, filingID, sessionID int64, at time.Time) (a BugFilingStartAttempt, created bool, err error) {
-	if filingID < 1 || sessionID < 1 {
-		return a, false, errors.New("store: open bug start attempt: filing and session are required")
-	}
-	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		open, e := scanBugStartAttempt(tx.QueryRowContext(ctx, `SELECT `+bugStartAttemptColumns+` FROM bug_filing_start_attempts WHERE filing_id=? AND state IN ('pending','reserved','running')`, filingID))
-		if e == nil {
-			a = open
-			return nil
-		}
-		if !errors.Is(e, ErrNotFound) {
-			return e
-		}
-		var next int
-		if e = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(ordinal),0)+1 FROM bug_filing_start_attempts WHERE filing_id=?`, filingID).Scan(&next); e != nil {
-			return e
-		}
-		stamp := FormatTime(at.UTC())
-		a, e = scanBugStartAttempt(tx.QueryRowContext(ctx, `INSERT INTO bug_filing_start_attempts(filing_id,ordinal,session_id,state,created_at,updated_at) VALUES(?,?,?,'pending',?,?) RETURNING `+bugStartAttemptColumns, filingID, next, sessionID, stamp, stamp))
-		created = e == nil
-		return e
-	})
-	if err != nil {
-		return BugFilingStartAttempt{}, false, fmt.Errorf("store: open bug start attempt: %w", err)
-	}
-	return a, created, nil
-}
-
-// MoveBugFilingStartAttempt changes an attempt's state when it is still in
-// from. Closed attempts never reopen. It reports whether the row changed.
-func (db *DB) MoveBugFilingStartAttempt(ctx context.Context, id int64, from, to, outcome string, runID int64, reason string, at time.Time) (bool, error) {
-	allowed := map[string][]string{
-		BugStartPending:  {BugStartReserved},
-		BugStartReserved: {BugStartRunning, BugStartPending, BugStartSucceeded, BugStartFailed},
-		BugStartRunning:  {BugStartPending, BugStartSucceeded, BugStartFailed},
-	}
-	ok := false
-	for _, s := range allowed[from] {
-		ok = ok || s == to
-	}
-	if !ok {
-		return false, fmt.Errorf("store: bug start attempt cannot move from %s to %s", from, to)
-	}
-	res, err := db.sql.ExecContext(ctx, `UPDATE bug_filing_start_attempts SET state=?,outcome=CASE WHEN ?='' THEN outcome ELSE ? END,run_id=CASE WHEN ?>0 THEN ? ELSE run_id END,reason=?,updated_at=? WHERE id=? AND state=?`,
-		to, outcome, outcome, runID, runID, reason, FormatTime(at.UTC()), id, from)
-	if err != nil {
-		return false, fmt.Errorf("store: move bug start attempt: %w", err)
 	}
 	n, err := res.RowsAffected()
 	return n == 1, err

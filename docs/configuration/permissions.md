@@ -33,7 +33,7 @@ Each configured agent needs a cell in the four profiles `research`, `plan`, `imp
 | Spike investigator | Read, Glob, Grep | read-only | disabled |
 | Spike fixer | Read, Glob, Grep, Edit, MultiEdit, Write | workspace-write | disabled |
 
-These are tool surfaces, not permission to exceed a mode's scope. Validate is read-only: the config check refuses any Claude tool outside Read, Glob, Grep, Task and Bash, allows Bash only with the fixed reviewer rules, and requires the Codex `read-only` sandbox. The optional `validate-repair`, `bug-analyst` and `bug-fixer` profiles grant the roles that need them; a missing optional profile blocks only that role. A missing Spike investigator or fixer blocks Spike.
+These are tool surfaces, not permission to exceed a mode's scope. Validate is read-only: the config check refuses any Claude tool outside Read, Glob, Grep, Task and Bash, allows Bash only with the fixed reviewer rules, and requires the Codex `read-only` sandbox. The optional `validate-repair` and `bug-fixer` (Bug) profiles grant the roles that need them; a missing optional profile blocks only that role. A missing Spike investigator or fixer blocks Spike.
 
 The four main profiles are mandatory and have no missing-cell fallback. The [key reference](config-yaml.md#tool_profiles) lists exact keys, defaults and validation rules. Deprecated `lf:tools=...` labels are refused; remove them and select the intended mode through current [issue controls](../guides/owner-commands.md).
 

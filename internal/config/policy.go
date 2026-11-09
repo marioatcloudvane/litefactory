@@ -56,12 +56,15 @@ const (
 	SandboxWorkspaceWrite = "workspace-write"
 )
 
-// Spike graph roles and the Validate repair agent resolve their sandbox under
-// their own profile names, like the Bug roles.
+// Spike, Bug and the Validate repair agent resolve their sandbox under their
+// own profile names. Bug keeps its fixer's historical profile name.
 const (
 	SpikeInvestigatorProfile = "spike-investigator"
 	SpikeFixerProfile        = "spike-fixer"
 	ValidateRepairProfile    = "validate-repair"
+	BugProfile               = "bug-fixer"
+
+	retiredBugAnalystProfile = "bug-analyst"
 )
 
 // defaultProfiles is the factory's sandbox choice per mode or graph role.
@@ -74,8 +77,7 @@ func defaultProfiles() map[string]ToolProfile {
 		"implement":              {Sandbox: SandboxWorkspaceWrite},
 		"validate":               {Sandbox: SandboxReadOnly},
 		ValidateRepairProfile:    {Sandbox: SandboxWorkspaceWrite},
-		"bug-analyst":            {Sandbox: SandboxReadOnly},
-		"bug-fixer":              {Sandbox: SandboxWorkspaceWrite},
+		BugProfile:               {Sandbox: SandboxWorkspaceWrite},
 		SpikeInvestigatorProfile: {Sandbox: SandboxReadOnly},
 		SpikeFixerProfile:        {Sandbox: SandboxWorkspaceWrite},
 	}
@@ -153,6 +155,9 @@ func validatePermissionProfiles(c *Config) []error {
 	known := defaultProfiles()
 	var errs []error
 	for _, name := range slices.Sorted(maps.Keys(c.ToolProfiles.Permissions)) {
+		if name == retiredBugAnalystProfile {
+			continue // retired with the Bug analyst; accepted and ignored
+		}
 		if _, ok := known[name]; !ok {
 			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use one of %s", name, strings.Join(slices.Sorted(maps.Keys(known)), ", ")))
 			continue

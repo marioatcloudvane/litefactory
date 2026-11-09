@@ -41,8 +41,8 @@ func RefuseBase(root *os.Root, source string) error {
 	return nil
 }
 
-// ResolveSource returns the files of one source (path to bytes): stack-profile.json
-// and the workflow folders. A source without inherit.json resolves to its own
+// ResolveSource returns the files of one source (path to bytes): stack-profile.json,
+// the optional team-level files and the workflow folders. A source without inherit.json resolves to its own
 // folder. It only reads files; every inheritance problem is reported together,
 // sorted, one per line.
 func ResolveSource(ctx context.Context, root *os.Root, source, slug string) (map[string][]byte, error) {
@@ -107,7 +107,7 @@ func ResolveSource(ctx context.Context, root *os.Root, source, slug string) (map
 	check := func(field string, paths []string) {
 		for _, p := range paths {
 			if !inResolution(p) {
-				fail("%s %s: path is not stack-profile.json or inside a workflow folder", field, p)
+				fail("%s %s: path is not stack-profile.json, a team file or inside a workflow folder", field, p)
 				continue
 			}
 			if prev, dup := listed[p]; dup {
@@ -213,15 +213,16 @@ func inResolution(p string) bool {
 	if !safePath(p) {
 		return false
 	}
-	if p == "stack-profile.json" {
+	if p == "stack-profile.json" || slices.Contains(TeamFiles, p) {
 		return true
 	}
 	first, rest, ok := strings.Cut(p, "/")
 	return ok && rest != "" && slices.Contains(sourceWorkflows, first)
 }
 
-// ownFiles reads stack-profile.json and the workflow folders of one folder.
-// A strict source must hold them (as before); a manifest side may lack them.
+// ownFiles reads stack-profile.json, the optional team files and the workflow
+// folders of one folder. A strict source must hold stack-profile.json and the
+// workflow folders (as before); a manifest side may lack them.
 func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	profile, err := readFile(root, dir+"/stack-profile.json")
@@ -232,6 +233,15 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 		return nil, fmt.Errorf("stack-profile.json: %w", err)
 	case !errors.Is(err, fs.ErrNotExist):
 		return nil, err
+	}
+	for _, name := range TeamFiles {
+		raw, err := readFile(root, dir+"/"+name)
+		switch {
+		case err == nil:
+			files[name] = raw
+		case !errors.Is(err, fs.ErrNotExist):
+			return nil, err
+		}
 	}
 	for _, w := range sourceWorkflows {
 		if err := ctx.Err(); err != nil {
@@ -253,7 +263,14 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 	return files, nil
 }
 
-var sourceWorkflows = []string{"bug", "implement", "plan", "research", "spike", "validate"}
+var sourceWorkflows = []string{"bug", "doctor", "implement", "plan", "research", "spike", "validate"}
+
+// TeamFiles are the optional team-level files outside the workflow folders that
+// a source may carry into its installation.
+var TeamFiles = []string{AccessClassifierPath}
+
+// AccessClassifierPath is the team's editable access-classifier role text.
+const AccessClassifierPath = "access/access-classifier.md"
 
 // SafePath reports whether name is a clean, relative, portable path.
 func SafePath(name string) bool { return safePath(name) }

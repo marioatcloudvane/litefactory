@@ -32,7 +32,7 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		if err != nil {
 			return err
 		}
-		if graph && (c.Context.Mode == "research" || c.Context.Mode == "plan" || c.Context.Mode == "spike") {
+		if graph && (c.Context.Mode == "research" || c.Context.Mode == "plan" || c.Context.Mode == "spike" || c.Context.Mode == "doctor") {
 			if err := d.db.CancelContinuation(ctx, c.ID, "Workflow graph requires explicit owner continuation", at); err != nil {
 				return err
 			}
@@ -84,7 +84,7 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		if _, held := d.connectionHold(ctx, at); held {
 			continue
 		}
-		if !d.enterDoctorGuarded(ctx, session.ID) {
+		if !d.enterSession(ctx, session.ID) {
 			t.log.DebugContext(ctx, "automatic recovery waits for this task's in-flight turn")
 			continue
 		}
@@ -111,7 +111,7 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		t.workerLog.DebugContext(ctx, "worker dispatched")
 		// This worker belongs to the same bounded pool and Quiesce lifetime as
 		// ordinary and manually scheduled turns.
-		go d.runDoctorGuardedWorker(sessionContext(workerCtx, c.SessionID), t, func(ctx context.Context) { d.runContinuation(ctx, t, reserved) })
+		go d.runGuardedWorker(sessionContext(workerCtx, c.SessionID), t, func(ctx context.Context) { d.runContinuation(ctx, t, reserved) })
 		result.Dispatched++
 	}
 	return nil
@@ -169,10 +169,7 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 	if err == nil {
 		workflow = agent.Workflow(admission.Workflow)
 	}
-	choice, _, err := d.effectiveAgent(ctx, t, workflow)
-	if err != nil {
-		return false, err
-	}
+	choice, _ := d.effectiveAgent(t, workflow)
 	selected := choice.Agent
 	if choice.refused() || selected != c.Context.Agent {
 		return cancel("coding agent changed")

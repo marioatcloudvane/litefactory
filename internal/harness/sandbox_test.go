@@ -164,7 +164,7 @@ func TestWritableRunIsSandboxedWithCredentialsDenied(t *testing.T) {
 	if !sb.Enabled || !sb.Fail || sb.Unsandboxed {
 		t.Fatalf("sandbox is not enforced: %+v", sb)
 	}
-	for _, path := range append(f.runner.paths.DoctorCredentialPaths(f.runner.osHome), f.runner.paths.LogsDir(), f.runner.paths.DBPath()) {
+	for _, path := range append(f.runner.paths.CredentialPaths(f.runner.osHome), f.runner.paths.LogsDir(), f.runner.paths.DBPath()) {
 		if !slices.Contains(sb.Filesystem.DenyRead, path) {
 			t.Errorf("%s is readable: %v", path, sb.Filesystem.DenyRead)
 		}

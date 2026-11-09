@@ -47,7 +47,7 @@ func TestImplementAttemptGuidanceAsksOnlyTheStoryWorkerToDelegateAndStatesTheLim
 			}
 		})
 	}
-	for _, req := range []agent.Request{{Mode: string(agent.ModeResearch)}, {Mode: string(agent.ModeImplement), Workflow: agent.WorkflowBug}} {
+	for _, req := range []agent.Request{{Mode: string(agent.ModeResearch)}, {Mode: string(agent.ModeBug)}} {
 		if got, err := implementAttemptGuidance(req, worker, timedRunner(time.Hour)); err != nil || got != "" {
 			t.Errorf("%+v got guidance %q %v", req, got, err)
 		}

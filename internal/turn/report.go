@@ -303,6 +303,10 @@ type ReplyRequest struct {
 	// NotUsedReason belongs to [report.ReplyNotUsed] alone: why the comment
 	// could not be used. internal/report sanitizes and fences it.
 	NotUsedReason string
+	// AccessActor and AccessReason belong to the access refusals alone: the
+	// grantee's handle and the gate's one-line reason.
+	AccessActor  string
+	AccessReason string
 }
 
 // refusing reports whether this request is a tool-permission or
@@ -339,6 +343,16 @@ func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 	return replyKind(req.Command.Kind)
 }
 
+// accessRefusal reports whether k answers a grantee's refused request; it may
+// answer an issue body as well as a comment.
+func accessRefusal(k report.ReplyKind) bool {
+	switch k {
+	case report.ReplyAccessDenied, report.ReplyAccessOwnerOnly, report.ReplyAccessUnchecked, report.ReplyAccessLimited:
+		return true
+	}
+	return false
+}
+
 func (req ReplyRequest) validate() error {
 	switch {
 	case req.CreationAcceptance != nil && (req.Creation != nil || req.refusing() || req.ScheduleKind != report.ReplyInvalid || req.ConfirmKind != report.ReplyInvalid):
@@ -348,7 +362,7 @@ func (req ReplyRequest) validate() error {
 	case req.SessionID <= 0:
 		return invalidRequest("a session id is required to reply to a comment")
 	// Only explicit owner-fixable admission refusals may answer an issue body.
-	case req.CommentID < 0 || (req.CommentID == 0 && req.Refusal != report.ReplyBugUnavailable && req.Refusal != report.ReplyMissingModeMapping && req.Refusal != report.ReplyMissingTeam && req.Refusal != report.ReplyUnsupportedWorkflow):
+	case req.CommentID < 0 || (req.CommentID == 0 && req.Refusal != report.ReplyBugUnavailable && req.Refusal != report.ReplyMissingModeMapping && req.Refusal != report.ReplyMissingTeam && req.Refusal != report.ReplyUnsupportedWorkflow && !accessRefusal(req.Refusal)):
 		return invalidRequest("a comment id is required to reply to a comment")
 	case req.refusing() && req.Refusal != report.ReplyDoctorUnsupported && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
 		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode() && !req.Refusal.RefusesSync():
@@ -740,6 +754,8 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 			ResumeNode:               req.ResumeNode,
 			ResumeReason:             req.ResumeReason,
 			NotUsedReason:            req.NotUsedReason,
+			AccessActor:              req.AccessActor,
+			AccessReason:             req.AccessReason,
 		})
 	})
 }
@@ -895,7 +911,7 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 	if err != nil {
 		return report.Run{}, err
 	}
-	executions, err := r.executionRunEvidence(ctx, result.Run, 0)
+	executions, err := r.executionRunEvidence(ctx, result.Run)
 	if err != nil {
 		return report.Run{}, err
 	}

@@ -31,7 +31,7 @@ func TestSessionSyncBaseFetchesFactoryParentBeforeSelectingStoryBase(t *testing.
 	if len(remote) != 2 || remote[0] != parentHead {
 		t.Fatalf("parent remote precondition: %v", remote)
 	}
-	runtime := BugRuntime{opts: f.opts}
+	runtime := graphSyncRuntime{opts: f.opts}
 	base, err := runtime.syncBaseBranch(ctx, f.session, f.storeRepo)
 	mustProgress(t, err)
 	if base != parentBranch {

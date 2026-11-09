@@ -496,48 +496,6 @@ func TestAlertTaskSourcesNeedsPollAloneDoesNotMeanWork(t *testing.T) {
 	}
 }
 
-func TestAlertTaskSourcesDoctorRepairHoldsIncludeParentWriters(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	ctx := t.Context()
-	parent := testSession(t, db, 1335)
-	child := testSession(t, db, 1336)
-	if _, err := db.sql.ExecContext(ctx, `INSERT INTO plan_story_drafts(parent,story_key,ordinal,issue_id,issue_number) VALUES(?,'story',1,1,?)`, parent.TaskRef, child.IssueNumber); err != nil {
-		t.Fatal(err)
-	}
-	at := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
-	for _, session := range []Session{parent, child} {
-		if _, _, err := db.CreateOrGetSchedule(ctx, CreateScheduleParams{SessionID: session.ID, SourceCommentID: 99, OwnerHandle: "owner", Payload: "work", DueAt: at}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	_, presentation := retainedPollProposal(t, db, child)
-	if _, err := db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "alert-hold", SourceID: "owner-apply", Principal: "local-owner", TaskRef: child.TaskRef, PresentationID: presentation}); err != nil {
-		t.Fatal(err)
-	}
-	rows, complete, err := db.AlertTaskSources(ctx, at)
-	if err != nil || !complete || len(rows) != 2 {
-		t.Fatalf("repair-held sources=%+v %t %v", rows, complete, err)
-	}
-	for _, source := range rows {
-		if !source.Waiting || source.Eligible {
-			t.Fatalf("owner-approved repair work counted as runnable: %+v", source)
-		}
-	}
-	if _, err = db.sql.ExecContext(ctx, `UPDATE doctor_repair_holds SET active=0 WHERE repair_id='alert-hold'`); err != nil {
-		t.Fatal(err)
-	}
-	rows, complete, err = db.AlertTaskSources(ctx, at)
-	if err != nil || !complete {
-		t.Fatal(err)
-	}
-	for _, source := range rows {
-		if source.Waiting || !source.Eligible {
-			t.Fatalf("released repair hold retained: %+v", source)
-		}
-	}
-}
-
 func TestAlertTaskSourcesFutureQuotaContinuationDoesNotHideRunningWork(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)

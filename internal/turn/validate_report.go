@@ -592,3 +592,17 @@ func deliveryText(st ValidateState, target *ValidateDeliveryTarget) string {
 	}
 	return strings.Join(parts, "; ")
 }
+
+// firstSentence keeps the lead short; the full text follows in the details.
+func firstSentence(text string) string {
+	line := oneLine(text)
+	for i := 0; i+1 < len(line); i++ {
+		if (line[i] == '.' || line[i] == '!' || line[i] == '?') && line[i+1] == ' ' && i >= 20 {
+			return line[:i+1]
+		}
+	}
+	return line
+}
+
+// oneLine keeps an agent sentence on one Markdown line.
+func oneLine(text string) string { return strings.Join(strings.Fields(text), " ") }

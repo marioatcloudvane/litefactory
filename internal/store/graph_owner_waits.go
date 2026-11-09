@@ -122,9 +122,6 @@ func claimGraphOwnerReplyTx(ctx context.Context, tx *sql.Tx, in GraphOwnerReply,
 	if e != nil {
 		return out, e
 	}
-	if in.Workflow == "bug" && wait.OriginNode == "" {
-		return out, graphInvariant("legacy Bug waits do not use shared owner continuation")
-	}
 	if wait.State != "waiting" {
 		return out, ErrGraphOwnerWait
 	}
@@ -211,26 +208,16 @@ func graphReplyAllocationTx(ctx context.Context, tx *sql.Tx, in GraphAttemptStar
 			return err
 		}
 	}
-	syncRestart := in.BugSyncPrerequisite != nil && origin == in.BugSyncPrerequisite.FixerNode && in.Node == in.BugSyncPrerequisite.SyncNode && in.RunID == 0
-	if syncRestart {
-		var bug bool
-		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_instances i JOIN graph_definitions d ON d.id=i.definition_id WHERE i.id=? AND d.workflow='bug' AND d.profile_version=2)`, in.InstanceID).Scan(&bug); err != nil {
-			return err
-		}
-		if !bug {
-			return graphInvariant("sync prerequisite requires revised Bug workflow")
-		}
-	}
 	// An Implement owner question rests on the coordinator's base sync, a
 	// factory step. When that sync last ran right after the resolver agent, in
 	// the resolver's run, the wait inherited that run and so looked agent-bound.
 	// Resuming the same factory step needs no run (#1169).
-	if !syncRestart && in.RunID < 1 && !wait.AllowRunless && in.FactoryStep && in.Node == origin {
+	if in.RunID < 1 && !wait.AllowRunless && in.FactoryStep && in.Node == origin {
 		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_instances i JOIN graph_definitions d ON d.id=i.definition_id WHERE i.id=? AND COALESCE(NULLIF(d.workflow,''),d.mode)='implement')`, in.InstanceID).Scan(&wait.AllowRunless); err != nil {
 			return err
 		}
 	}
-	if !syncRestart && (in.Node != origin || (in.RunID < 1 && !wait.AllowRunless)) {
+	if in.Node != origin || (in.RunID < 1 && !wait.AllowRunless) {
 		return fmt.Errorf("%w: %w: reply allocation must resume the admitted origin and execution kind", ErrGraphInvariant, ErrGraphReplyNotResumable)
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='allocated',continuation_attempt_id=? WHERE delivery_key=?`, attemptID, wait.DeliveryKey)

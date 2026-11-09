@@ -90,10 +90,6 @@ func (d *Daemon) quotaVersion(ctx context.Context, role store.ConnectionRole) (s
 	if v, ok := ctx.Value(quotaVersionKey{}).(store.ConnectionVersion); ok && role == store.TicketConnection {
 		return v, true, nil
 	}
-	if source, ok := ctx.Value(doctorSourceContextKey{}).(store.DoctorCommandSource); ok && role == store.TicketConnection {
-		v, err := d.db.GetConnectionVersion(ctx, source.ConnectionVersionID)
-		return v, true, err
-	}
 	scope, _ := ctx.Value(connectionScopeKey{}).(connectionScope)
 	if id := turn.ExecutionSessionID(ctx); id > 0 {
 		scope.sessionID = id

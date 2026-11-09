@@ -386,7 +386,7 @@ and have the operator investigate the interrupted request; a restart, elapsed
 time or successful unrelated request does not resolve this limitation.
 
 See [GitHub CI access](getting-started/github-setup.md#factory-main-ci-read-access)
-and [doctor's explicit access check](operations/doctor.md#ci-access-check).
+and check installed access with `gh api repos/<owner>/<name>/actions/workflows`.
 Automated fixtures do not prove that installed credentials have the required
 access; retain the separate live owner check described there.
 

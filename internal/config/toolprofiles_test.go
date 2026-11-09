@@ -24,7 +24,6 @@ func TestProfileResolveDefaultsAndOverrides(t *testing.T) {
 		"implement":              {Sandbox: SandboxWorkspaceWrite},
 		"validate":               {Sandbox: SandboxReadOnly},
 		ValidateRepairProfile:    {Sandbox: SandboxWorkspaceWrite},
-		"bug-analyst":            {Sandbox: SandboxReadOnly},
 		"bug-fixer":              {Sandbox: SandboxWorkspaceWrite},
 		SpikeInvestigatorProfile: {Sandbox: SandboxReadOnly},
 		SpikeFixerProfile:        {Sandbox: SandboxWorkspaceWrite},

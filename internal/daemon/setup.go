@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/access"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	factoryviews "github.com/cloudvane/litefactory/internal/factory"
 	"log/slog"
@@ -25,7 +26,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/codeevidence"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/connector"
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -78,8 +78,6 @@ type Setup struct {
 	// Launchd limits project credentials to the keychain for background operation.
 	Launchd bool
 
-	// DoctorHost installs factory-owned local lifecycle control; nil keeps it unavailable.
-	DoctorHost *DoctorHostOptions
 	// Paths is the resolved $LF_HOME layout. Required.
 	Paths config.Paths
 	// Config is the validated config.yaml. Required.
@@ -374,20 +372,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
-	var lock *Lock
-	if s.DoctorHost != nil && s.DoctorHost.Recovery != nil {
-		lock, err = WaitDoctorRecoveryLock(ctx, s.DB, s.Paths, *s.DoctorHost.Recovery)
-	} else {
-		lock, err = AcquireLock(s.Paths.LockPath())
-	}
+	lock, err := AcquireLock(s.Paths.LockPath())
 	if err != nil {
 		return nil, Startup{}, err
 	}
 
 	// The webhook listener is bound right after the lock: a port that is taken
-	// fails start-up here, before any work exists, and gives the lock back. A
-	// doctor repair host never reaches this: it is a helper process that does
-	// not call Open.
+	// fails start-up here, before any work exists, and gives the lock back.
 	var webhookOpts *WebhookOptions
 	handedOver := false
 	if addr := s.Config.Webhook.Listen; addr != "" {
@@ -526,6 +517,16 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
+	// The access gate asks the default agent's runner, the one the mode
+	// classifier uses; a runner without an access check refuses as unchecked.
+	accessChecker, _ := runners[defaultAgent].(agent.AccessChecker)
+	accessGate := &access.Gate{
+		Store:   s.DB,
+		Role:    repositoryAccessRole(s.Paths, s.DB),
+		Facts:   access.ResolverFacts(access.WorkflowSource(workflowSource), turn.SpecsForWorkflow),
+		Checker: accessChecker,
+		Now:     time.Now,
+	}
 	judgeProviders := make(map[agent.Kind]agent.JudgeRunner)
 	for kind, runner := range runners {
 		if native, ok := runner.(agent.JudgeRunner); ok {
@@ -643,14 +644,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	isolation.MinFreeBytes = s.Config.Settings.MinFreeDiskBytes()
 	// Spike checks retain the configured operator sandbox.
 	mcpRuntime.BugChecksIsolation = isolation
-	bugRuntime, err := turn.NewGraphBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
-		Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID,
-		Permissions: bugRolePermissions(s.Config.ToolProfiles), Isolation: isolation,
-	})
-	if err != nil {
-		return nil, Startup{}, errors.Join(err, lock.Close())
-	}
-	turnOpts.Bug = bugRuntime
+	turnOpts.DeliveryCode, turnOpts.DeliveryTickets = codeDelivery, ticketWorkflow
 	// The Validate graph's host bindings. Its reviewers take their run slots
 	// from the daemon's own pool, which exists only once the daemon is built
 	// below, so the slots are bound to it then.
@@ -659,7 +653,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
-	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(s.Config.ToolProfiles), FactoryBugs: factoryBugs})
+	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: rolePermissions(s.Config.ToolProfiles), FactoryBugs: factoryBugs})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
@@ -710,8 +704,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	daemon, err := New(Options{
 		Paths:      s.Paths,
-		Doctor:     &doctor.Service{BuildVersion: s.BuildVersion, FactorySource: s.FactorySource, Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
-		Bug:        bugRuntime,
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
 			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,
@@ -736,9 +728,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		ValidateHead: func(ctx context.Context, session store.Session) (string, error) {
 			return turn.IntegrationHead(ctx, turnOpts, session)
 		},
-		DB:          s.DB,
-		Connections: connections,
-		Forge:       ticketWorkflow,
+		DB:              s.DB,
+		Access:          accessGate,
+		AccessWorkflows: access.WorkflowSource(workflowSource),
+		Connections:     connections,
+		Forge:           ticketWorkflow,
 		// Bug filing writes as the factory bot through the GitHub client
 		// itself: the routed bridge offers no label lookup or ID-only write.
 		BugFilingForge: client,
@@ -811,20 +805,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}
 	}
 	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
-	daemon.doctorHostOptions = s.DoctorHost
 	daemon.judge = judgeService
-	diagnosisProviders := make(map[string]agent.DoctorRunner)
-	repairProviders := make(map[string]agent.DoctorRepairRunner)
-	for kind, runner := range runners {
-		if native, ok := runner.(agent.DoctorRunner); ok {
-			diagnosisProviders[string(kind)] = native
-		}
-		if native, ok := runner.(agent.DoctorRepairRunner); ok {
-			repairProviders[string(kind)] = native
-		}
-	}
-	daemon.doctor.service.Runner = &doctor.Adapters{Providers: diagnosisProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
-	daemon.doctor.service.Comments = ticketWorkflow
 	// CI uses the configured factory credential and existing quota accounting.
 	// Its durable server wait is additional and local to this input.
 	ciOrigin, ciOriginErr := ticket.CanonicalOrigin(s.Config.Providers.GitHub.APIBase)
@@ -839,23 +820,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		daemon.ciMonitor = &cimonitor.Observer{Reader: ciClient, Engine: daemon.alerts, Target: s.Config.Alerts.CI, Origin: string(ciOrigin), Now: daemon.alertClock, Gate: &cimonitor.Gate{Store: s.DB, Key: "ci:" + string(ciOrigin), Now: daemon.alertClock}}
 	} else {
 		daemon.ciMonitor = &cimonitor.Observer{Engine: daemon.alerts, Target: s.Config.Alerts.CI, Origin: string(ciOrigin), Now: daemon.alertClock, Gate: &cimonitor.Gate{Store: s.DB, Key: "ci:" + string(ciOrigin), Now: daemon.alertClock}}
-	}
-	daemon.doctor.service.CIProbe = daemon.ciMonitor
-	daemon.doctor.service.CIRepository = s.Config.Alerts.CI.Repository
-
-	daemon.doctor.service.RepairRunner = &doctor.RepairAdapters{Providers: repairProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
-	advisors := make(map[string]turn.ConflictAdvisor)
-	for kind, runner := range runners {
-		if advisor, ok := runner.(turn.ConflictAdvisor); ok {
-			advisors[string(kind)] = advisor
-		}
-	}
-	daemon.doctor.service.RepairEffects = &FactoryDoctorRepairEffects{DB: s.DB, Git: gitBinary, CloneGate: sharedCloneGate, Author: turnOpts.Author, Advisors: advisors, Comments: ticketWorkflow, BotID: identities.BotUserID, Redactor: daemon.doctor.service.Redactor}
-	daemon.doctor.service.RepairEnvironment = &DoctorRepairEnvironment{DB: s.DB, Paths: s.Paths, Live: daemon}
-
-	if s.DoctorHost != nil {
-		daemon.doctor.service.RepairEnvironment = &DoctorRepairEnvironment{DB: s.DB, Paths: s.Paths, Live: daemon, Replacement: s.DoctorHost.Replacement}
-		daemon.doctor.service.RestartRoute = &DoctorHostRestart{DB: s.DB, Paths: s.Paths, Live: &DoctorLocalControl{Paths: s.Paths}, Replacement: s.DoctorHost.Replacement}
 	}
 
 	startup := Startup{

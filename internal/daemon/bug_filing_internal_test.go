@@ -222,9 +222,6 @@ func TestBugFilingCrashDuringCreateReconcilesByMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.forge.creates = 0
-	if got := f.step(t); got.State != store.BugFilingUncertain || f.forge.creates != 0 {
-		t.Fatalf("restart: %+v creates=%d", got, f.forge.creates)
-	}
 	f.advance(brainstormtasks.CheckSchedule[0])
 	got := f.step(t)
 	if got.State != store.BugFilingCreated || got.IssueNumber != 1 || got.IssueNodeID != "I_node1" || f.forge.creates != 0 {
@@ -238,16 +235,10 @@ func TestBugFilingUnclearCreateAdoptsByMarkerNeverSecondCreate(t *testing.T) {
 	f.forge.createErr = []error{errors.New("connection reset")}
 	f.forge.createVisible = true
 	got := f.step(t)
-	if got.State != store.BugFilingUncertain || got.IssueID != 0 {
+	if got.State != store.BugFilingAdmitted || got.IssueID != 0 || got.Reason != bugReasonUnclear {
 		t.Fatalf("unclear: %+v", got)
 	}
-	// Not due yet: no listing.
-	f.advance(time.Second)
-	f.step(t)
-	if f.forge.lists != 0 {
-		t.Fatalf("checked early: %d", f.forge.lists)
-	}
-	// Revocation does not stop read-only reconciliation.
+	// Revocation does not stop the read-only lookup by marker.
 	f.revoked = true
 	f.advance(brainstormtasks.CheckSchedule[0])
 	got = f.step(t)
@@ -261,33 +252,13 @@ func TestBugFilingUnclearCreateAdoptsByMarkerNeverSecondCreate(t *testing.T) {
 	}
 }
 
-func TestBugFilingChecksExhaustedFailsUnconfirmed(t *testing.T) {
-	t.Parallel()
-	f := newBugFilingFixture(t)
-	f.forge.createErr = []error{errors.New("timeout")}
-	if got := f.step(t); got.State != store.BugFilingUncertain {
-		t.Fatalf("unclear: %+v", got)
-	}
-	var got store.BugFiling
-	for range brainstormtasks.CheckSchedule {
-		f.advance(15 * time.Minute)
-		got = f.step(t)
-	}
-	if got.State != store.BugFilingFailedUnconfirmed || got.Reason != bugReasonUnconfirmed || got.ChecksDone != len(brainstormtasks.CheckSchedule) {
-		t.Fatalf("exhausted: %+v", got)
-	}
-	if f.forge.creates != 1 || f.forge.lists != len(brainstormtasks.CheckSchedule) {
-		t.Fatalf("creates=%d lists=%d", f.forge.creates, f.forge.lists)
-	}
-}
-
-func TestBugFilingRateLimitRetriesWithinBound(t *testing.T) {
+func TestBugFilingRateLimitRetriesAfterTheWait(t *testing.T) {
 	t.Parallel()
 	f := newBugFilingFixture(t)
 	limited := &github.RateLimitError{APIError: github.APIError{StatusCode: 403, Err: github.ErrRateLimited}, RetryAfter: time.Minute}
 	f.forge.createErr = []error{limited}
 	got := f.step(t)
-	if got.State != store.BugFilingAdmitted || got.CreateRetries != 1 || got.Reason != bugReasonRateLimited {
+	if got.State != store.BugFilingAdmitted || got.Reason != bugReasonRateLimited {
 		t.Fatalf("limited: %+v", got)
 	}
 	f.advance(30 * time.Second)
@@ -299,16 +270,6 @@ func TestBugFilingRateLimitRetriesWithinBound(t *testing.T) {
 	got = f.step(t)
 	if got.State != store.BugFilingCreated || f.forge.creates != 2 || f.checks != 2 {
 		t.Fatalf("retry: %+v creates=%d checks=%d", got, f.forge.creates, f.checks)
-	}
-
-	g := newBugFilingFixture(t)
-	g.forge.createErr = []error{limited, limited, limited, limited}
-	for range brainstormtasks.MaxRateLimitRetries + 1 {
-		got = g.step(t)
-		g.advance(2 * time.Minute)
-	}
-	if got.State != store.BugFilingNotCreated || got.Reason != bugReasonRateLimitedDone || g.forge.creates != brainstormtasks.MaxRateLimitRetries+1 {
-		t.Fatalf("bound: %+v creates=%d", got, g.forge.creates)
 	}
 }
 
@@ -437,5 +398,24 @@ func TestBugFilingAuthorityRefusesForeignExecution(t *testing.T) {
 	bad.ExecutionID = "other"
 	if err := d.bugFilingAuthority(t.Context(), bad); !errors.Is(err, errBugFilingRevoked) {
 		t.Fatalf("foreign execution: %v", err)
+	}
+}
+
+// An unclear create that never shows up is created again only after the
+// listing had time to show it, and never while a lookup could still find it.
+func TestBugFilingUnclearCreateNotFoundCreatesAgainAfterTheWait(t *testing.T) {
+	t.Parallel()
+	f := newBugFilingFixture(t)
+	f.forge.createErr = []error{errors.New("connection reset")}
+	if got := f.step(t); got.State != store.BugFilingAdmitted || f.forge.creates != 1 {
+		t.Fatalf("unclear: %+v creates=%d", got, f.forge.creates)
+	}
+	f.advance(time.Minute)
+	if got := f.step(t); got.State != store.BugFilingAdmitted || f.forge.creates != 1 {
+		t.Fatalf("created again inside the wait: %+v creates=%d", got, f.forge.creates)
+	}
+	f.advance(bugVisibilityWait)
+	if got := f.step(t); got.State != store.BugFilingCreated || f.forge.creates != 2 {
+		t.Fatalf("after the wait: %+v creates=%d", got, f.forge.creates)
 	}
 }

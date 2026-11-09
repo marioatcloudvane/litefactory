@@ -88,24 +88,16 @@ type GraphTransition struct {
 	At                          time.Time
 }
 
-// BugSyncPrerequisite is supplied only by the factory after validating the pinned
-// Bug graph. It names the single declared sync gate and its fixer destination.
-type BugSyncPrerequisite struct {
-	SyncNode, FixerNode string
-	AllowDeferred       bool
-}
-
 // GraphAttemptStart reserves the next attempt. Budget zero is unbounded; a
 // positive budget caps the instance's node dispatches since its most recent
 // accepted owner reply. Every accepted owner reply starts a fresh budget.
 type GraphAttemptStart struct {
 	// AcceptOwnerInput is set only for a substantive agent invocation.
-	AcceptOwnerInput    bool
-	BugSyncPrerequisite *BugSyncPrerequisite
-	InstanceID          int64
-	LaunchID            int64
-	Node                string
-	RunID               int64
+	AcceptOwnerInput bool
+	InstanceID       int64
+	LaunchID         int64
+	Node             string
+	RunID            int64
 	// FactoryStep marks a node the factory runs itself, without an agent. A
 	// factory step needs no run of its own, even when an earlier attempt of it
 	// ran inside an agent's run.

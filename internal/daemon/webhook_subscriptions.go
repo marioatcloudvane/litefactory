@@ -200,7 +200,7 @@ func (d *Daemon) verifyWebhookSource(ctx context.Context, hint hintKey, q *repoQ
 	if err != nil {
 		return err
 	}
-	identity, err := doctorCall(ctx, d, func(ctx context.Context) (ticket.Identity, error) {
+	identity, err := operationalCall(ctx, d, func(ctx context.Context) (ticket.Identity, error) {
 		return clients.Tickets.ContainerIdentity(ctx, version.Destination)
 	})
 	if err != nil {
@@ -247,7 +247,7 @@ func (d *Daemon) verifyWebhookSource(ctx context.Context, hint hintKey, q *repoQ
 		if e != nil {
 			return e
 		}
-		actual, e := doctorCall(projectContext(ctx, auth.RepoID), d, func(ctx context.Context) (ticket.Identity, error) {
+		actual, e := operationalCall(projectContext(ctx, auth.RepoID), d, func(ctx context.Context) (ticket.Identity, error) {
 			return authClients.Tickets.ContainerIdentity(ctx, auth.Container)
 		})
 		if e != nil {

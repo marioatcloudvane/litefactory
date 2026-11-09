@@ -39,9 +39,6 @@ var ErrNotFound = errors.New("team release not found")
 // ErrIncompatibleWorkflow marks rejection by factory workflow policy.
 var ErrIncompatibleWorkflow = errors.New("incompatible workflow")
 
-// ErrTransport marks bounded anonymous fetching failures.
-var ErrTransport = errors.New("team transport failed")
-
 // File identifies the exact bytes of a package-relative ordinary file.
 type File struct {
 	Path   string `json:"path"`
@@ -60,10 +57,13 @@ type Release struct {
 	Checksum    string   `json:"checksum"`
 }
 
-// Catalogue is the versioned anonymous release discovery format.
-type Catalogue struct {
-	Schema   int       `json:"schema"`
-	Releases []Release `json:"releases"`
+// BuildInfo records the source checkout an installation was built from.
+type BuildInfo struct {
+	// SourceHead is the git HEAD commit of the repository holding the source
+	// folder, or empty when the folder is not inside a git checkout.
+	SourceHead string `json:"source_head"`
+	// SourceDirty is true when the source folder had uncommitted changes.
+	SourceDirty bool `json:"source_dirty"`
 }
 
 // Identity identifies exact verified local bytes, independent of graph team names.
@@ -83,8 +83,13 @@ type Installed struct {
 	Integrity bool
 	Editable  bool
 	Origin    *Origin
+	// Build is set for releases installed from a source folder.
+	Build *BuildInfo
 }
 
+// receipt is the manifest of a release installed from a remote catalogue,
+// which earlier versions did. It is still read so those folders can be listed,
+// inspected and removed.
 type receipt struct {
 	Schema   int     `json:"schema"`
 	Source   string  `json:"source"`
@@ -92,36 +97,69 @@ type receipt struct {
 	Checksum string  `json:"checksum"`
 }
 
+const builtReceiptSchema = 2
+
+// builtReceipt is the manifest of a release installed from a source folder.
+type builtReceipt struct {
+	Schema   int       `json:"schema"`
+	Source   string    `json:"source"`
+	Release  Release   `json:"release"`
+	Checksum string    `json:"checksum"`
+	Build    BuildInfo `json:"build"`
+}
+
+// decodeReceipt reads either receipt schema strictly.
+func decodeReceipt(raw []byte) (builtReceipt, error) {
+	var head struct {
+		Schema int `json:"schema"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return builtReceipt{}, err
+	}
+	switch head.Schema {
+	case 1:
+		var rec receipt
+		if err := strictJSON(raw, &rec); err != nil {
+			return builtReceipt{}, err
+		}
+		return builtReceipt{Schema: 1, Source: rec.Source, Release: rec.Release, Checksum: rec.Checksum}, nil
+	case builtReceiptSchema:
+		var rec builtReceipt
+		if err := strictJSON(raw, &rec); err != nil {
+			return builtReceipt{}, err
+		}
+		return rec, nil
+	default:
+		return builtReceipt{}, errors.New("unsupported receipt schema")
+	}
+}
+
+// build returns the recorded build of a source-folder receipt.
+func (r builtReceipt) build() *BuildInfo {
+	if r.Schema != builtReceiptSchema {
+		return nil
+	}
+	b := r.Build
+	return &b
+}
+
 var slugPattern = regexp.MustCompile(`^[a-z](?:[a-z0-9]*|[a-z0-9]*(?:-[a-z0-9]+)+)$`)
 var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$`)
 var hashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-func version(v string) ([]string, error) {
+func version(v string) error {
 	m := versionPattern.FindStringSubmatch(v)
 	if m == nil {
-		return nil, fmt.Errorf("%w: noncanonical SemVer", ErrInvalidPackage)
+		return fmt.Errorf("%w: noncanonical SemVer", ErrInvalidPackage)
 	}
 	for _, part := range strings.Split(m[4], ".") {
 		if len(part) > 1 && part[0] == '0' {
 			if strings.Trim(part, "0123456789") == "" {
-				return nil, fmt.Errorf("%w: prerelease leading zero", ErrInvalidPackage)
+				return fmt.Errorf("%w: prerelease leading zero", ErrInvalidPackage)
 			}
 		}
 	}
-	return m, nil
-}
-func compare(a, b string) int {
-	am, _ := version(a)
-	bm, _ := version(b)
-	for i := 1; i <= 3; i++ {
-		if len(am[i]) != len(bm[i]) {
-			return len(am[i]) - len(bm[i])
-		}
-		if c := strings.Compare(am[i], bm[i]); c != 0 {
-			return c
-		}
-	}
-	return 0 // automatic selection considers stable releases only
+	return nil
 }
 func safePath(p string) bool {
 	return p != "." && fs.ValidPath(p) && path.Clean(p) == p && !strings.ContainsAny(p, "\\:\x00\r\n%?#")
@@ -143,7 +181,7 @@ func validateRelease(r Release) error {
 	if !slugPattern.MatchString(r.Slug) {
 		faults = append(faults, errors.New("invalid slug"))
 	}
-	if _, err := version(r.Version); err != nil {
+	if err := version(r.Version); err != nil {
 		faults = append(faults, err)
 	}
 	if !safePath(r.Download) {
@@ -254,37 +292,6 @@ func strictJSON(raw []byte, dst any) error {
 	return d.Decode(dst)
 }
 
-// DecodeCatalogue validates a bounded, strict versioned release catalogue.
-func DecodeCatalogue(raw []byte) (Catalogue, error) { return parseCatalogue(raw) }
-
-func parseCatalogue(raw []byte) (Catalogue, error) {
-	var c Catalogue
-	if len(raw) > MaxCatalogueBytes {
-		return c, fmt.Errorf("%w: catalogue too large", ErrInvalidPackage)
-	}
-	if err := strictJSON(raw, &c); err != nil {
-		return c, fmt.Errorf("%w: catalogue: %w", ErrInvalidPackage, err)
-	}
-	var faults []error
-	if c.Schema != 1 || c.Releases == nil {
-		faults = append(faults, errors.New("unsupported catalogue schema"))
-	}
-	seen := map[string]bool{}
-	for _, r := range c.Releases {
-		key := r.Slug + "/" + r.Version
-		if seen[key] {
-			faults = append(faults, fmt.Errorf("duplicate release %s", key))
-		}
-		seen[key] = true
-		if err := validateRelease(r); err != nil {
-			faults = append(faults, fmt.Errorf("%s: %w", key, err))
-		}
-	}
-	if err := errors.Join(faults...); err != nil {
-		return c, fmt.Errorf("%w: %w", ErrInvalidPackage, err)
-	}
-	return c, nil
-}
 func parseConfig(raw []byte) (map[string]string, error) {
 	if len(raw) > MaxCatalogueBytes {
 		return nil, fmt.Errorf("%w: team.config too large", ErrInvalidPackage)
@@ -301,7 +308,7 @@ func parseConfig(raw []byte) (map[string]string, error) {
 	if len(n.Content) != 1 || n.Content[0].Kind != yaml.MappingNode || n.Content[0].Tag != "!!map" || len(n.Content[0].Content) == 0 || n.Content[0].Anchor != "" {
 		return nil, fmt.Errorf("%w: team.config must be a nonempty mode mapping", ErrInvalidPackage)
 	}
-	allowed := map[string]bool{"research": true, "plan": true, "implement": true, "validate": true, "spike": true, "bug": true}
+	allowed := map[string]bool{"research": true, "plan": true, "implement": true, "validate": true, "spike": true, "doctor": true, "bug": true}
 	result := map[string]string{}
 	var faults []error
 	nodes := n.Content[0].Content

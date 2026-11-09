@@ -6,6 +6,6 @@ client_request_key names one filing request. Make one new key when the owner ask
 
 Show the owner the proposal and wait for their yes in a separate message. Then confirm it with action_confirm. You never confirm for the owner.
 
-Before you tell the owner the result, read action_inspect. Report the issue link only once it is recorded there. If the outcome says the filing is still running, partial (for example filed but not labelled, or labelled but the Bug run not started) or failed, say that in plain words and do not claim the bug was filed or that analysis started. If it says to reply "run it again" on the issue, pass that on to the owner.
+Before you tell the owner the result, read action_inspect. Report the issue link only once it is recorded there. If the outcome says the filing is still running, partial (for example filed but not labelled, or labelled but the Bug run not started) or failed, say that in plain words and do not claim the bug was filed or that its Bug work started.
 
 The inputs are the same for GitHub and Linear projects. For a Linear project you never name a team, project or label; the factory uses the project's own connection. If the proposal is refused because the Linear connection has no bug label set, tell the owner in plain words that the operator must set one on the connection, and do not try another way to file.

@@ -6,11 +6,14 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/commandtext"
-	"github.com/cloudvane/litefactory/internal/doctor"
 )
 
 // SpikeCommand names the original explicit work command.
 const SpikeCommand = "/spike"
+
+// DoctorCommand starts or continues the Doctor on a stopped task. Any text
+// after it is the owner's guidance for the Doctor.
+const DoctorCommand = "/doctor"
 
 // ScheduleCommand names the factory-only scheduling control.
 const ScheduleCommand = "/schedule"
@@ -86,6 +89,10 @@ const (
 
 	// KindJudge requests an isolated advisory assessment of saved work.
 	KindJudge
+
+	// KindDoctor is "/doctor [guidance]": start the Doctor on this task. The
+	// text may be empty; the Doctor then works from the task's evidence.
+	KindDoctor
 )
 
 // String renders the kind for logs and test failures.
@@ -111,6 +118,8 @@ func (k CommandKind) String() string {
 		return "validate_control"
 	case KindJudge:
 		return "judge"
+	case KindDoctor:
+		return "doctor"
 	default:
 		return "invalid"
 	}
@@ -160,7 +169,7 @@ type Command struct {
 // Spawns reports whether this command starts a run. A Plan control spawns a
 // Plan turn only where the daemon admits it; see [KindPlanControl].
 func (c Command) Spawns() bool {
-	return c.Kind == KindSpike || c.Kind == KindFreeText || c.Kind == KindPlanControl || c.Kind == KindValidateControl
+	return c.Kind == KindSpike || c.Kind == KindFreeText || c.Kind == KindPlanControl || c.Kind == KindValidateControl || c.Kind == KindDoctor
 }
 
 // NeedsReply reports whether this command should draw a comment back. The
@@ -170,7 +179,7 @@ func (c Command) NeedsReply() bool {
 	switch c.Kind {
 	case KindSpikeEmpty, KindUnknown:
 		return true
-	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm, KindPlanControl, KindValidateControl, KindJudge:
+	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm, KindPlanControl, KindValidateControl, KindJudge, KindDoctor:
 		return false
 	default:
 		return false
@@ -229,9 +238,6 @@ func ParseCommand(body string) Command {
 		return Command{Kind: KindNone}
 	}
 	body = commandtext.Normalize(body)
-	if _, ok := doctor.ParseCommand(body); ok {
-		return Command{Kind: KindNone, Name: "/doctor"}
-	}
 	tagged := HasAskTag(body)
 	if tagged {
 		body = stripAskTag(body)
@@ -255,6 +261,8 @@ func ParseCommand(body string) Command {
 			return Command{Kind: KindSpikeEmpty, Name: name, Tagged: tagged}
 		}
 		return Command{Kind: KindSpike, Name: name, Text: text, Tagged: tagged}
+	case DoctorCommand:
+		return Command{Kind: KindDoctor, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case "/judge":
 		return Command{Kind: KindJudge, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case ScheduleCommand:
@@ -277,6 +285,9 @@ func (c Command) Mode() (agent.Mode, bool) {
 	}
 	if c.Kind == KindValidateControl {
 		return agent.ModeValidate, true
+	}
+	if c.Kind == KindDoctor {
+		return agent.ModeDoctor, true
 	}
 	if c.Kind != KindSpike || len(c.Name) < 2 {
 		return "", false

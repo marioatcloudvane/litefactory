@@ -22,13 +22,13 @@ import (
 // ValidateForge is the forge Validate's owner steps use: the delivery calls that
 // Bug finalization combines today, plus the follow-up issue calls.
 type ValidateForge interface {
-	BugCodeForge
+	DeliveryCodeForge
 	ValidateTickets
 }
 
 // ValidateTickets contains ticket lifecycle and follow-up publication only.
 type ValidateTickets interface {
-	BugCloseForge
+	DeliveryCloseForge
 	ListFollowupIssues(context.Context, github.Repo) ([]github.Issue, error)
 	CreateIssue(context.Context, github.Repo, redact.Body, redact.Body) (github.Issue, error)
 	SetStoryState(ctx context.Context, repo github.Repo, parentNumber int, parentID int64, number int, issueID int64, completed bool) error
@@ -90,7 +90,7 @@ func (t ValidateDeliveryTarget) CloseSet() []int {
 // comes from factory state, never from agent or comment text.
 type ValidateDelivery struct {
 	Forge    ValidateForge
-	Code     BugCodeForge
+	Code     DeliveryCodeForge
 	Tickets  ValidateTickets
 	Redactor *redact.Redactor
 	// Target names the repository, branch, base, parent and accepted stories.
@@ -603,7 +603,7 @@ func latestValidateAnswer(ctx context.Context, opts Options, profile *graphexec.
 	return nil, nil
 }
 
-func (d ValidateDelivery) code() BugCodeForge {
+func (d ValidateDelivery) code() DeliveryCodeForge {
 	if d.Code != nil {
 		return d.Code
 	}

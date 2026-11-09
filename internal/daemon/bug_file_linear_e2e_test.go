@@ -32,10 +32,8 @@ type linearBugE2E struct {
 	principal owneraction.Principal
 	svc       *owneraction.Service
 	linear    *fakeBugLinear
-	start     *bugStartFixture
 	d         *Daemon
 	now       time.Time
-	handoffs  int
 	bindErr   []error
 	admits    int
 }
@@ -97,7 +95,6 @@ func newLinearBugE2E(t *testing.T, bugLabel string) *linearBugE2E {
 		linear:    &fakeBugLinear{issues: map[string]ticket.Snapshot{}, withLabel: true, publisher: ticket.Identity{Provider: ticket.Linear, Origin: linearTestOrigin, RemoteID: "pub-1"}}}
 	protect := func(_ context.Context, s string) (string, error) { return s, nil }
 	e.svc = owneraction.New(db, owneractions.Domain{BugFile: owneractions.BugFiles{DB: db, Labels: noGitHubLabels{}, Protect: protect, Availability: owneractions.Availability{BugFile: true}}, Availability: owneractions.Availability{BugFile: true}}, func() time.Time { return e.now })
-	e.start = &bugStartFixture{db: db, repo: repo, now: at, admit: true}
 	e.restart()
 	e.stubStart()
 	return e
@@ -105,21 +102,23 @@ func newLinearBugE2E(t *testing.T, bugLabel string) *linearBugE2E {
 
 // restart is a fresh Daemon value over the same database.
 func (e *linearBugE2E) restart() {
-	e.d = &Daemon{db: e.db, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	filter, err := turn.NewFilter(e.db, turn.Identities{OwnerUserID: 42, OwnerHandle: "owner", BotUserID: bugFilingTestBot}, nil)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.d = &Daemon{db: e.db, filter: filter, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	e.d.brainstormTasks.clock = func() time.Time { return e.now }
 }
 
 // stubStart replaces the start step's seams: the Linear admission and binding
-// run on the real store with the fake Linear read, and the Bug hand-off leaves
-// what a started analysis leaves behind.
+// run on the real store with the fake Linear read.
 func (e *linearBugE2E) stubStart() {
 	t := e.t
-	admit, bind, handOff, authority := bugStartLinearAdmit, bugStartLinearBind, bugStartHandOff, bugStartAuthority
+	admit, bind := bugFilingLinearAdmit, bugFilingLinearBind
 	t.Cleanup(func() {
-		bugStartLinearAdmit, bugStartLinearBind, bugStartHandOff, bugStartAuthority = admit, bind, handOff, authority
+		bugFilingLinearAdmit, bugFilingLinearBind = admit, bind
 	})
-	bugStartAuthority = func(*Daemon, context.Context, store.BugFiling) error { return nil }
-	bugStartLinearAdmit = func(d *Daemon, ctx context.Context, repo store.Repo, f store.BugFiling) (store.Session, ticket.Ref, error) {
+	bugFilingLinearAdmit = func(d *Daemon, ctx context.Context, repo store.Repo, f store.BugFiling) (store.Session, ticket.Ref, error) {
 		e.admits++
 		s, err := e.linear.Resolve(ctx, ticket.Locator{Provider: ticket.Linear, Origin: linearTestOrigin, Container: linearTestDest, Key: f.IssueNodeID})
 		if err != nil {
@@ -155,7 +154,7 @@ func (e *linearBugE2E) stubStart() {
 		}
 		return session, s.Ref, err
 	}
-	bugStartLinearBind = func(d *Daemon, ctx context.Context, sessionID int64, ref ticket.Ref) error {
+	bugFilingLinearBind = func(d *Daemon, ctx context.Context, sessionID int64, ref ticket.Ref) error {
 		if len(e.bindErr) > 0 {
 			err := e.bindErr[0]
 			e.bindErr = e.bindErr[1:]
@@ -164,19 +163,22 @@ func (e *linearBugE2E) stubStart() {
 		_, err := d.db.BindSessionTicket(ctx, sessionID, ref)
 		return err
 	}
-	bugStartHandOff = func(d *Daemon, ctx context.Context, _ store.Repo, s store.Session, _ store.BugFiling, a store.BugFilingStartAttempt) (bool, error) {
-		e.handoffs++
-		if ok, err := d.db.MoveBugFilingStartAttempt(ctx, a.ID, store.BugStartPending, store.BugStartReserved, "", 0, "", e.now); err != nil || !ok {
-			return false, errors.Join(err, errors.New("attempt not reserved"))
-		}
-		admitted := e.start.admitBug(t, s.ID, a.TriggerID())
-		e.start.run(t, s.ID, a.TriggerID(), store.RunFailed, true)
-		e.start.conversationToAnalyst(t, admitted.Instance.ID)
-		if _, err := d.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admitted.Instance.ID, Node: "analyst", StartedAt: e.now}); err != nil {
-			return false, err
-		}
-		return false, nil
+}
+
+// handoffs counts the Bug starts the filings enqueued.
+func (e *linearBugE2E) handoffs() int {
+	e.t.Helper()
+	due, err := e.db.ListEligibleSchedules(e.t.Context(), e.now.Add(time.Hour), 100)
+	if err != nil {
+		e.t.Fatal(err)
 	}
+	n := 0
+	for _, s := range due {
+		if s.Payload == bugFilingWorkPayload {
+			n++
+		}
+	}
+	return n
 }
 
 func (e *linearBugE2E) processor() *bugFilingProcessor {
@@ -214,7 +216,10 @@ func (e *linearBugE2E) round(id string) owneraction.Proposal {
 		e.t.Fatal(err)
 	}
 	for _, f := range active {
-		if err = e.d.stepBugFilingStart(e.t.Context(), f); err != nil {
+		if f.State != store.BugFilingLabelled {
+			continue
+		}
+		if err = e.d.enqueueBugFiling(e.t.Context(), f); err != nil {
 			e.t.Logf("start step: %v", err)
 		}
 	}
@@ -268,7 +273,7 @@ func TestBugFileLinearE2EProposeConfirmFilesOneIssueAndStartsBug(t *testing.T) {
 
 	// The link comes back through the inspected result; the filing ended started.
 	link := "https://linear.app/t/issue/" + prep.CreationUUID
-	if inspected.Result.State != "succeeded" || inspected.Result.Summary != "Bug analysis started" || inspected.Result.Reference != link || filing.IssueLink != link {
+	if inspected.Result.State != "succeeded" || inspected.Result.Summary != "Bug started" || inspected.Result.Reference != link || filing.IssueLink != link {
 		t.Fatalf("result %+v filing %+v", inspected.Result, filing)
 	}
 	if filing.State != store.BugFilingDispatched || filing.Tracker != store.BugTrackerLinear {
@@ -291,8 +296,8 @@ func TestBugFileLinearE2EProposeConfirmFilesOneIssueAndStartsBug(t *testing.T) {
 	if session.IssueNumber < 1 || int64(session.IssueNumber) != slot || bound.RemoteID != prep.CreationUUID {
 		t.Fatalf("session %+v slot %d bound %+v", session, slot, bound)
 	}
-	if e.handoffs != 1 {
-		t.Fatalf("hand-offs %d, want 1", e.handoffs)
+	if e.handoffs() != 1 {
+		t.Fatalf("hand-offs %d, want 1", e.handoffs())
 	}
 
 	// The repeated confirmation, the repeated proposal and more rounds change nothing.
@@ -306,8 +311,8 @@ func TestBugFileLinearE2EProposeConfirmFilesOneIssueAndStartsBug(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		e.round(proposal.ID)
 	}
-	if e.linear.creates != 1 || e.handoffs != 1 || e.admits != 1 {
-		t.Fatalf("replay changed the filing: creates=%d handoffs=%d admits=%d", e.linear.creates, e.handoffs, e.admits)
+	if e.linear.creates != 1 || e.handoffs() != 1 || e.admits != 1 {
+		t.Fatalf("replay changed the filing: creates=%d handoffs=%d admits=%d", e.linear.creates, e.handoffs(), e.admits)
 	}
 	if latest, err := e.db.ReadBugFiling(ctx, filing.ID); err != nil || latest.State != store.BugFilingDispatched || latest.SessionID != session.ID {
 		t.Fatalf("filing after replay %+v %v", latest, err)
@@ -334,8 +339,8 @@ func TestBugFileLinearE2ERestartAfterCreateBeforeBindingRecoversOneSession(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e.admits != 1 || filing.SessionID != 0 || e.handoffs != 0 || e.linear.creates != 1 {
-		t.Fatalf("before restart: admits=%d handoffs=%d creates=%d filing %+v", e.admits, e.handoffs, e.linear.creates, filing)
+	if e.admits != 1 || filing.SessionID != 0 || e.handoffs() != 0 || e.linear.creates != 1 {
+		t.Fatalf("before restart: admits=%d handoffs=%d creates=%d filing %+v", e.admits, e.handoffs(), e.linear.creates, filing)
 	}
 
 	e.restart()
@@ -350,8 +355,8 @@ func TestBugFileLinearE2ERestartAfterCreateBeforeBindingRecoversOneSession(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e.linear.creates != 1 || e.handoffs != 1 || filing.SessionID == 0 || sessionAgain.ID != filing.SessionID || filing.State != store.BugFilingDispatched {
-		t.Fatalf("after restart: creates=%d handoffs=%d filing %+v session %d", e.linear.creates, e.handoffs, filing, sessionAgain.ID)
+	if e.linear.creates != 1 || e.handoffs() != 1 || filing.SessionID == 0 || sessionAgain.ID != filing.SessionID || filing.State != store.BugFilingDispatched {
+		t.Fatalf("after restart: creates=%d handoffs=%d filing %+v session %d", e.linear.creates, e.handoffs(), filing, sessionAgain.ID)
 	}
 	if bound, err := e.db.GetSessionTicket(ctx, filing.SessionID); err != nil || bound.RemoteID != filing.IssueNodeID {
 		t.Fatalf("session not bound: %+v %v", bound, err)

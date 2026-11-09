@@ -142,7 +142,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		if err != nil {
 			return result, err
 		}
-		runtime := &BugRuntime{opts: opts, definition: definition}
+		runtime := &graphSyncRuntime{opts: opts, definition: definition}
 		if err = RegisterSyncBase(&specs, &activities, policy.Mode, runtime.graphSyncBaseBinding(req.SessionID), workflow); err != nil {
 			return result, err
 		}
@@ -241,7 +241,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 					return w.finish(ctx, err)
 				}
 			}
-			syncRuntime := &BugRuntime{opts: opts, definition: definition}
+			syncRuntime := &graphSyncRuntime{opts: opts, definition: definition}
 			syncBinding := syncRuntime.graphSyncBaseBinding(req.SessionID)
 			if handler, exists := activities.Resolve(graphexec.SyncBaseAction); exists {
 				if sync, registered := handler.(SyncBaseActivity); registered {
@@ -369,7 +369,7 @@ func (w *researchWorkflow) keepsStoryMerge(ctx context.Context) bool {
 // savesAtFinish reports that a successful end of this run would save its work:
 // the conditions finish applies, without an owner stop or a failure cause.
 func (w *researchWorkflow) savesAtFinish(ctx context.Context) bool {
-	return w.prep != nil && w.process != nil && !w.saved && !w.req.graphBugPreparation && w.process.Succeeded() && !w.keepsStoryMerge(ctx) && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst")
+	return w.prep != nil && w.process != nil && !w.saved && w.process.Succeeded() && !w.keepsStoryMerge(ctx)
 }
 
 func (w *researchWorkflow) saveNow(ctx context.Context) (Result, error) {
@@ -445,6 +445,13 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 	state, e := deliveryRevalidationContext(ctx, w.opts.DB, w.definition.Profile, a)
 	if e != nil {
 		return ResearchInvocation{}, route.abort(ctx, e)
+	}
+	if w.policy.Evidence != nil {
+		evidence, evidenceErr := w.policy.Evidence(ctx, w, a)
+		if evidenceErr != nil {
+			return ResearchInvocation{}, route.abort(ctx, evidenceErr)
+		}
+		state += evidence
 	}
 	return w.finishRoute(ctx, route, &req, state+sessionDirectoryContext(sessionPath, prep.parentSessionDir, prep.parentSessionFiles)+saved+predecessor+handoff, sessionPath)
 }
@@ -667,9 +674,9 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 	if ownerStopped {
 		out.Reason = store.ReasonOwnerStop
 	}
-	if !w.saved && w.process != nil && !w.keepsStoryMerge(bookkeeping) && (ownerStopped || (!w.req.graphBugPreparation && cause == nil && w.process.Succeeded())) && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
+	if !w.saved && w.process != nil && !w.keepsStoryMerge(bookkeeping) && (ownerStopped || (cause == nil && w.process.Succeeded())) {
 		out = save(bookkeeping, w.opts, w.prep, out, w.process, w.opts.Logger)
-		if w.req.Workflow == agent.WorkflowBug || ownerStopped {
+		if ownerStopped {
 			commit := out.SHAAfter
 			if commit == "" {
 				commit = out.CommitSHA
@@ -790,7 +797,7 @@ func RecoverWorkflowPublications(ctx context.Context, opts Options, sessionID in
 // runs under the session lock before owner input is matched to the graph; it
 // never invokes an agent or publishes anything new.
 func RecoverGraphPublications(ctx context.Context, opts Options, sessionID int64, at time.Time) error {
-	for _, policy := range []WorkflowPolicy{ResearchWorkflowPolicy(), SpikeWorkflowPolicy(), ImplementWorkflowPolicy()} {
+	for _, policy := range []WorkflowPolicy{ResearchWorkflowPolicy(), SpikeWorkflowPolicy(), DoctorWorkflowPolicy(), ImplementWorkflowPolicy()} {
 		if err := RecoverWorkflowPublications(ctx, opts, sessionID, policy); err != nil {
 			return err
 		}

@@ -186,12 +186,10 @@ outside this guarantee.
 
 ## Prevention notes from Bug analyses
 
-The Bug analyst records an optional prevention note in its analysis: the rule
-that would have prevented the bug (`missing_standard`), or why the bug is a
-one-off (`one_off`). The Bug analyst does not read the book. The note appears in
-the Bug analysis comment and in the log analyst's Bug incidents; the log analyst
-reads the book, decides whether such a rule already exists and turns recurring
-gaps into proposals.
+The Bug agent's findings appear in the log analyst's Bug incidents; the log
+analyst reads the book, decides whether a rule that would have prevented the
+bug already exists and turns recurring gaps into proposals. Archived Bug
+analyses keep their prevention notes.
 
 ## Bounded drift analysis
 

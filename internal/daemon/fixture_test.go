@@ -1209,12 +1209,10 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 		Now:           f.clock.Now,
 		ShutdownGrace: 500 * time.Millisecond,
 	}
-	if overrides.Bug != nil {
-		opts.Bug = overrides.Bug
-	}
 	if overrides.Now != nil {
 		opts.Now = overrides.Now
 	}
+	opts.Access, opts.AccessWorkflows = overrides.Access, overrides.AccessWorkflows
 	if overrides.DB != nil {
 		opts.DB = overrides.DB
 	}

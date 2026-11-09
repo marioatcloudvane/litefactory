@@ -433,7 +433,7 @@ func TestReconcileGraphDispatchTerminalRuns(t *testing.T) {
 }
 
 func TestReconcileGraphDispatchGuardsAndRollback(t *testing.T) {
-	for _, guard := range []string{"live", "doctor", "attempt", "effect", "waiting", "claimed", "terminal", "superseded", "unsupported", "write failure", "read failure"} {
+	for _, guard := range []string{"live", "attempt", "effect", "waiting", "claimed", "terminal", "superseded", "unsupported", "write failure", "read failure"} {
 		t.Run(guard, func(t *testing.T) {
 			db, d, run := interruptedDispatchFixture(t)
 			ctx, at := t.Context(), graphTestTime().Add(time.Hour)
@@ -449,15 +449,6 @@ func TestReconcileGraphDispatchGuardsAndRollback(t *testing.T) {
 				}
 			}
 			switch guard {
-			case "doctor":
-				session, err := db.GetSession(ctx, d.SessionID)
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, presentation := retainedPollProposal(t, db, session)
-				if _, err = db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "dispatch-hold", SourceID: "dispatch-hold-input", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
-					t.Fatal(err)
-				}
 			case "attempt", "effect", "waiting", "claimed":
 				attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, StartedAt: at})
 				if err != nil {
@@ -540,7 +531,7 @@ func TestReconcileGraphDispatchGuardsAndRollback(t *testing.T) {
 }
 
 func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
-	for _, guard := range []string{"idle", "pending dispatch", "reserved dispatch", "running dispatch", "cancelled", "pending attempt", "running attempt", "prelaunch run", "running run", "waiting", "claimed", "allocated", "scheduled", "running schedule", "due", "doctor", "effect", "terminal", "superseded", "node changed", "capture changed", "capacity deferred attempt", "deferred capture changed"} {
+	for _, guard := range []string{"idle", "pending dispatch", "reserved dispatch", "running dispatch", "cancelled", "pending attempt", "running attempt", "prelaunch run", "running run", "waiting", "claimed", "allocated", "scheduled", "running schedule", "due", "effect", "terminal", "superseded", "node changed", "capture changed", "capacity deferred attempt", "deferred capture changed"} {
 		t.Run(guard, func(t *testing.T) {
 			db, launch := captureFixture(t)
 			ctx, at := t.Context(), graphTestTime()
@@ -606,15 +597,6 @@ func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
 				exec(`INSERT INTO schedules(session_id,source_comment_id,owner_handle,payload,status,created_at,updated_at) VALUES(?,1,'owner','test',?,?,?)`, d.SessionID, status, FormatTime(at), FormatTime(at))
 			case "due":
 				exec(`UPDATE graph_instances SET next_due_at=? WHERE id=?`, FormatTime(at.Add(time.Hour)), d.InstanceID)
-			case "doctor":
-				session, err := db.GetSession(ctx, d.SessionID)
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, presentation := retainedPollProposal(t, db, session)
-				if _, err := db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "stranded-hold", SourceID: "stranded-input", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
-					t.Fatal(err)
-				}
 			case "terminal":
 				if err := db.SetGraphInstanceStatus(ctx, d.InstanceID, GraphSucceeded, time.Time{}, at); err != nil {
 					t.Fatal(err)
@@ -816,8 +798,6 @@ func TestOrphanedGraphPrelaunchRunsAreSettled(t *testing.T) {
 		{status: "pending"},
 		{status: "reserved"},
 		{status: "running"},
-		{status: "finished", guard: "doctor"},
-		{status: "finished", guard: "bug"},
 	} {
 		t.Run(tc.status+tc.guard, func(t *testing.T) {
 			db, launch := captureFixture(t)
@@ -853,17 +833,7 @@ func TestOrphanedGraphPrelaunchRunsAreSettled(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			switch tc.guard {
-			case "doctor":
-				session, err := db.GetSession(ctx, instance.SessionID)
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, presentation := retainedPollProposal(t, db, session)
-				if _, err := db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "orphan-hold", SourceID: "orphan-input", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
-					t.Fatal(err)
-				}
-			case "bug":
+			if tc.guard == "bug" {
 				exec(`DELETE FROM workflow_admissions WHERE session_id=?`, instance.SessionID)
 				exec(`INSERT INTO workflow_admissions(session_id,version,family,workflow,source_trigger) VALUES(?,1,'standalone','bug',0)`, instance.SessionID)
 			}

@@ -144,3 +144,41 @@ func (db *DB) RepositoryTeamUses(ctx context.Context, source, slug, version stri
 	}
 	return paths, rows.Err()
 }
+
+// RebindRepositoryTeamDigest records digest on every fetched binding of the
+// exact source/name/version and runs within inside the same transaction, so a
+// reinstall swaps the installed folder and the stored digest together. An
+// error from within rolls the update back. It returns the rebound clone paths.
+// The caller holds the catalogue lock.
+func (db *DB) RebindRepositoryTeamDigest(ctx context.Context, source, slug, version, digest string, within func() error) (paths []string, err error) {
+	if within == nil {
+		return nil, errors.New("store: rebind repository team digest: missing swap")
+	}
+	if err = validateRepositoryTeamBinding(RepositoryTeamBinding{RepoID: 1, Source: source, Slug: slug, Version: version, Kind: "fetched", ReleaseDigest: digest}); err != nil {
+		return nil, err
+	}
+	err = db.withTx(ctx, func(tx *sql.Tx) error {
+		rows, e := tx.QueryContext(ctx, `SELECT r.path FROM repository_team_bindings b JOIN repos r ON r.id=b.repo_id WHERE b.source=? AND b.slug=? AND b.version=? AND b.kind='fetched' ORDER BY r.path`, source, slug, version)
+		if e != nil {
+			return e
+		}
+		for rows.Next() {
+			var path string
+			if e = rows.Scan(&path); e != nil {
+				return errors.Join(e, rows.Close())
+			}
+			paths = append(paths, path)
+		}
+		if e = errors.Join(rows.Err(), rows.Close()); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(ctx, `UPDATE repository_team_bindings SET release_digest=? WHERE source=? AND slug=? AND version=? AND kind='fetched'`, digest, source, slug, version); e != nil {
+			return e
+		}
+		return within()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: rebind repository team digest: %w", err)
+	}
+	return paths, nil
+}

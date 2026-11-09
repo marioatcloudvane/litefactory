@@ -369,13 +369,10 @@ func cancelStaleGraphDispatchTx(ctx context.Context, tx *sql.Tx, d GraphDispatch
 
 // deadGraphDispatches selects unallocated work left open on an instance that
 // finished or was superseded. Nothing can run it any more: the execution
-// fence refuses it, and recovery only revisits running instances. Bug and
-// doctor-held sessions are left to their own owners.
+// fence refuses it, and recovery only revisits running instances.
 const deadGraphDispatches = `FROM graph_dispatches d JOIN graph_instances i ON i.id=d.instance_id
 WHERE d.status IN ('pending','reserved') AND d.allocated_run_id IS NULL
-AND (i.status<>'running' OR EXISTS(SELECT 1 FROM graph_instances newer WHERE newer.session_id=i.session_id AND newer.id>i.id))
-AND NOT EXISTS(SELECT 1 FROM workflow_admissions a WHERE a.session_id=d.session_id AND a.workflow='bug')
-AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=d.session_id)`
+AND (i.status<>'running' OR EXISTS(SELECT 1 FROM graph_instances newer WHERE newer.session_id=i.session_id AND newer.id>i.id))`
 
 // ListDeadGraphDispatches lists dispatches that can never run (#1299). It
 // changes nothing; each is cancelled under its own session lock.
@@ -640,9 +637,8 @@ func (db *DB) ReconcileGraphDispatch(ctx context.Context, id int64, captureID in
 		var protected bool
 		err = tx.QueryRowContext(ctx, `SELECT
 EXISTS(SELECT 1 FROM runs WHERE (id=? OR session_id=?) AND status IN ('prelaunch','running')) OR
-EXISTS(SELECT 1 FROM doctor_held_session_owners WHERE session_id=?) OR
 EXISTS(SELECT 1 FROM graph_node_attempts a WHERE instance_id=? AND (status='running' OR (status='pending' AND NOT EXISTS(SELECT 1 FROM graph_outputs o WHERE o.node_attempt_id=a.id AND o.kind='json' AND o.payload=?)))) OR
-EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','dispatched','uncertain'))`, d.AllocatedRunID, d.SessionID, d.SessionID, d.InstanceID, []byte(graphCapacityDeferral), d.InstanceID).Scan(&protected)
+EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','dispatched','uncertain'))`, d.AllocatedRunID, d.SessionID, d.InstanceID, []byte(graphCapacityDeferral), d.InstanceID).Scan(&protected)
 		if err != nil || protected {
 			return err
 		}
@@ -682,19 +678,7 @@ EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','d
 // recheck. Historical allocated waits and completed attempts are not work. A
 // capacity-deferred pending attempt is paused, not in flight: it waits for a
 // dispatch to resume it, so a missing dispatch is exactly what recovery owes.
-const strandedGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInstanceCancelledLatest + "\n" + graphInstanceStrandedAttempts + "\n" + graphInstanceIdleRest + "\n" + graphInstanceBugStartReplyOnly
-
-// graphInstanceBugStartReplyOnly keeps a Bug started only by the private start
-// step of a chat-filed bug out of automatic recovery while its current node has
-// never been attempted and nothing was ever dispatched: the run started but the
-// analyst attempt was not saved. Only the owner's fresh reply continues it. Once
-// that reply records its own launch, the instance is recoverable as before. The
-// bounds are bugStartTriggerBase and bugStartTriggerEnd written out, because a
-// constant query cannot format them; a store test ties the two together.
-const graphInstanceBugStartReplyOnly = `AND NOT (EXISTS(SELECT 1 FROM research_launch_definitions l WHERE l.instance_id=g.id)
-AND NOT EXISTS(SELECT 1 FROM research_launch_definitions l WHERE l.instance_id=g.id AND NOT (l.trigger_id>36028797018963968 AND l.trigger_id<72057594037927936))
-AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=g.id)
-AND NOT EXISTS(SELECT 1 FROM graph_node_attempts a WHERE a.instance_id=g.id AND a.node=g.current_node))`
+const strandedGraphInstancePredicate = graphInstanceIdleHead + "\n" + graphInstanceCancelledLatest + "\n" + graphInstanceStrandedAttempts + "\n" + graphInstanceIdleRest
 
 // idleGraphInstancePredicate is the stranded rule without the
 // cancelled-latest-dispatch clause: nothing is owed, attempted, running,
@@ -721,7 +705,6 @@ const graphInstanceStrandedAttempts = `AND NOT EXISTS(SELECT 1 FROM graph_node_a
 const graphInstanceIdleRest = `AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.session_id=g.session_id AND r.status IN ('prelaunch','running'))
 AND NOT EXISTS(SELECT 1 FROM graph_owner_waits w WHERE w.instance_id=g.id AND w.state IN ('waiting','claimed'))
 AND NOT EXISTS(SELECT 1 FROM schedules s WHERE s.session_id=g.session_id AND s.status IN ('pending','running'))
-AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=g.session_id)
 AND NOT EXISTS(SELECT 1 FROM graph_effects e WHERE e.instance_id=g.id AND e.state IN ('intent','dispatched','uncertain'))`
 
 // Prefer the last step's exact capture. Historical rows without that reference
@@ -770,16 +753,14 @@ func (db *DB) ReconcileStrandedGraphDispatch(ctx context.Context, d GraphDispatc
 }
 
 // orphanedGraphPrelaunchRuns selects prelaunch runs allocated under a graph
-// dispatch that is no longer live, outside Bug and doctor-held sessions. While
+// dispatch that is no longer live, outside Bug sessions. While
 // its dispatch is pending, reserved or running a prelaunch run is that
 // dispatch's retry handle; once the dispatch is finished or cancelled nothing
 // can resume it, and it would otherwise block recovery for the whole session.
 // Bug sessions are left out: the Bug runtime owns its own dispatch closure.
 const orphanedGraphPrelaunchRuns = `FROM runs r JOIN graph_dispatches d ON d.session_id=r.session_id AND d.id=r.trigger_comment_id-?
 WHERE r.status='prelaunch' AND r.trigger_comment_id>? AND r.trigger_comment_id<?
-AND d.status IN ('finished','cancelled')
-AND NOT EXISTS(SELECT 1 FROM workflow_admissions a WHERE a.session_id=r.session_id AND a.workflow='bug')
-AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=r.session_id)`
+AND d.status IN ('finished','cancelled')`
 
 // ListOrphanedGraphPrelaunchSessions lists sessions holding a prelaunch run
 // whose own graph dispatch can no longer resume it. It changes nothing: each

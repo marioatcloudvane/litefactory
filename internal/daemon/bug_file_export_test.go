@@ -25,6 +25,6 @@ func (d *Daemon) EnableBugFilingForTest(cfg config.RemoteConnector, now func() t
 	d.brainstormTasks.clock = now
 	return BugFileHarness{Actions: d.ownerActions.actions, Step: func(ctx context.Context) {
 		d.stepBugFilings(ctx)
-		d.stepBugFilingStarts(ctx)
+		d.stepBugFilingEnqueues(ctx)
 	}}
 }

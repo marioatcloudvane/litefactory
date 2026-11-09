@@ -18,7 +18,7 @@ import (
 )
 
 func stackEngineeringRequest(req agent.Request, attrs map[string]string) bool {
-	if req.Mode != string(agent.ModeImplement) || req.Workflow == agent.WorkflowBug || attrs[graphexec.AccessAttribute] != "write" {
+	if req.Mode != string(agent.ModeImplement) || attrs[graphexec.AccessAttribute] != "write" {
 		return false
 	}
 	role := attrs["lf_agent_markdown"]

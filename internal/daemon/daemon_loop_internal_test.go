@@ -31,10 +31,9 @@ func (l *loopLog) String() string {
 
 func loopDaemon(logs *loopLog, tick func(context.Context) (TickResult, error)) *Daemon {
 	return &Daemon{
-		log:    slog.New(slog.NewJSONHandler(logs, nil)),
-		pool:   newPool(1),
-		doctor: doctorLane{pool: newPool(1)},
-		tick:   tick,
+		log:  slog.New(slog.NewJSONHandler(logs, nil)),
+		pool: newPool(1),
+		tick: tick,
 	}
 }
 

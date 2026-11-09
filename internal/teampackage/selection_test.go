@@ -2,9 +2,14 @@ package teampackage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -48,13 +53,10 @@ func TestRemovalGuardRefusesBeforeMutation(t *testing.T) {
 
 func TestCatalogueSelectionValidatesBeforeCallbackAndExpires(t *testing.T) {
 	t.Parallel()
-	fixture, server := newFixture(t, "1.0.0")
+	_, server := newFixture(t, "1.0.0")
 	m := fixtureManager(t, config.NewPaths(canonicalTemp(t)), server)
 	source := server.URL + "/teams/teams.json"
 	entry := installFixture(t, m, source, "1.0.0")
-	fixture.mu.Lock()
-	requests := fixture.requests
-	fixture.mu.Unlock()
 	var retained *CatalogueAccess
 	called := false
 	err := m.WithCatalogue(t.Context(), func(a *CatalogueAccess) error {
@@ -87,9 +89,52 @@ func TestCatalogueSelectionValidatesBeforeCallbackAndExpires(t *testing.T) {
 	if !errors.Is(err, ErrIncompatibleWorkflow) || !errors.Is(err, invalid) {
 		t.Fatal(err)
 	}
-	fixture.mu.Lock()
-	defer fixture.mu.Unlock()
-	if requests != fixture.requests {
-		t.Fatal("selection accessed network")
+}
+
+func TestReadSelectedFileReadsInventoriedTeamFiles(t *testing.T) {
+	t.Parallel()
+	m := fixtureManager(t, config.NewPaths(canonicalTemp(t)), nil)
+	r, files := fixtureRelease("1.0.0")
+	files["access/access-classifier.md"] = []byte("fixture access role\n")
+	r.Files = nil
+	for p, raw := range files {
+		sum := sha256.Sum256(raw)
+		r.Files = append(r.Files, File{Path: p, SHA256: hex.EncodeToString(sum[:])})
+	}
+	slices.SortFunc(r.Files, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
+	r.Checksum = digest(r.Files)
+	entry, _, err := m.InstallBuilt(t.Context(), "/fixture/teams/source", files, r, BuildInfo{SourceHead: strings.Repeat("c", 40)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retained *CatalogueAccess
+	err = m.WithCatalogue(t.Context(), func(a *CatalogueAccess) error {
+		retained = a
+		got, raw, err := a.ReadSelectedFile(t.Context(), "", "example", "1.0.0", "access/access-classifier.md")
+		if err != nil {
+			return err
+		}
+		if got.Identity != entry.Identity || string(raw) != "fixture access role\n" {
+			t.Fatalf("read %v %q", got.Identity, raw)
+		}
+		if _, _, err := a.ReadSelectedFile(t.Context(), "", "example", "1.0.0", "access/missing.md"); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("missing file: %v", err)
+		}
+		if _, _, err := a.ReadSelectedFile(t.Context(), "", "example", "1.0.0", "../receipt.json"); err == nil {
+			t.Fatal("escaped confined content")
+		}
+		if err := os.WriteFile(filepath.Join(entry.Path, "access", "access-classifier.md"), []byte("edited\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := a.ReadSelectedFile(t.Context(), "", "example", "1.0.0", "access/access-classifier.md"); err == nil {
+			t.Fatal("changed sealed file accepted")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := retained.ReadSelectedFile(t.Context(), "", "example", "1.0.0", "access/access-classifier.md"); err == nil {
+		t.Fatal("expired catalogue access accepted")
 	}
 }

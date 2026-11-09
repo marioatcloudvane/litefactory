@@ -141,23 +141,7 @@ func selectAdvisoryTarget(s store.TaskAdvisorySnapshot, p *graphexec.Profile) (g
 		return graphexec.Node{}, "", nil, nil, ErrTargetUnavailable
 	}
 	nodeName := s.Instance.CurrentNode
-	// Bug's owner-conversation gate can follow either analyst or fixer. Only a
-	// latest analyst source is eligible; a later repair cannot resurrect it.
-	if workflow == "bug" && nodeName == "conversation" {
-		newest := int64(0)
-		for _, output := range s.Outputs {
-			candidate, ok := p.Node(output.Node)
-			if ok && candidate.Action == "lf_agent" && output.AttemptID > newest {
-				newest = output.AttemptID
-				nodeName = candidate.Name
-			}
-		}
-		selected, ok := p.Node(nodeName)
-		if !ok || selected.Attrs["lf_agent_markdown"] != "bug-analyst" {
-			return graphexec.Node{}, "", nil, nil, ErrTargetUnavailable
-		}
-	}
-	if workflow != "bug" && s.Wait != nil && s.Wait.SourceAttemptID > 0 {
+	if s.Wait != nil && s.Wait.SourceAttemptID > 0 {
 		found := false
 		for _, o := range s.Outputs {
 			if o.AttemptID == s.Wait.SourceAttemptID {
@@ -187,7 +171,7 @@ func selectAdvisoryTarget(s store.TaskAdvisorySnapshot, p *graphexec.Profile) (g
 			return graphexec.Node{}, "", nil, nil, ErrTargetUnavailable
 		}
 	case "bug":
-		if role != "bug-analyst" {
+		if node.Action != "lf_agent" {
 			return graphexec.Node{}, "", nil, nil, ErrTargetUnavailable
 		}
 		stage = "analysis"
@@ -198,28 +182,6 @@ func selectAdvisoryTarget(s store.TaskAdvisorySnapshot, p *graphexec.Profile) (g
 		}
 		if o.Status != store.GraphSucceeded || o.OutputID == 0 || !json.Valid(o.Payload) {
 			return graphexec.Node{}, "", nil, nil, ErrTargetUnavailable
-		}
-		// A Bug repair projection must never become an analyst answer source.
-		if workflow == "bug" {
-			var envelope struct {
-				Result struct {
-					Payload struct {
-						Bug struct {
-							Analysis json.RawMessage `json:"analysis"`
-						} `json:"bug"`
-					} `json:"payload"`
-				} `json:"result"`
-			}
-			raw := o.Payload
-			var retained struct {
-				Node json.RawMessage `json:"node"`
-			}
-			if json.Unmarshal(raw, &retained) == nil && len(retained.Node) > 0 {
-				raw = retained.Node
-			}
-			if json.Unmarshal(raw, &envelope) != nil || len(envelope.Result.Payload.Bug.Analysis) == 0 {
-				return graphexec.Node{}, "", nil, nil, ErrTargetUnavailable
-			}
 		}
 		evidence, _ := json.Marshal(struct {
 			InstanceID   int64                      `json:"instance_id"`
@@ -348,16 +310,12 @@ func eligibleAdvisoryJudgment(evidence json.RawMessage, role string) bool {
 	if json.Unmarshal(raw, &envelope) != nil {
 		return false
 	}
-	if role == "bug-analyst" {
-		var bug struct {
-			Analysis struct {
-				Cause string `json:"cause"`
-			} `json:"analysis"`
-		}
-		return json.Unmarshal(envelope.Result.Payload["bug"], &bug) == nil && strings.TrimSpace(bug.Analysis.Cause) != ""
-	}
 	var research map[string]json.RawMessage
-	if json.Unmarshal(envelope.Result.Payload["research"], &research) != nil {
+	notes := envelope.Result.Payload["research"]
+	if notes == nil {
+		notes = envelope.Result.Payload["bug"]
+	}
+	if json.Unmarshal(notes, &research) != nil {
 		return false
 	}
 	for _, key := range []string{"findings", "decisions", "assumptions"} {

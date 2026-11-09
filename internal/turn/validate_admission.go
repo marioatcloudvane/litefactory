@@ -37,13 +37,13 @@ type ValidateRuntime struct {
 	Head func(ctx context.Context, opts Options, session store.Session) (string, error)
 	// Permissions resolves the operator's validate-repair grant, the only
 	// write grant a Validate node can receive. Nil refuses the repair node.
-	Permissions func(agent.Kind, string) (BugRolePermissions, error)
+	Permissions func(agent.Kind, string) (RolePermissions, error)
 }
 
 // validateRepairGrant replaces the read-only validate profile of a write node
 // with the operator's validate-repair grant, the way a Bug node receives its
 // role's grant. A missing grant refuses the node instead of widening the run.
-func validateRepairGrant(resolve func(agent.Kind, string) (BugRolePermissions, error), req Request) (Request, error) {
+func validateRepairGrant(resolve func(agent.Kind, string) (RolePermissions, error), req Request) (Request, error) {
 	if resolve == nil {
 		return req, fmt.Errorf("missing %s permission profile", config.ValidateRepairProfile)
 	}
@@ -184,7 +184,7 @@ type validateRuntimeState struct {
 // Implement ran on the graph onto the Validate graph. Anything else, such as a
 // separated (legacy) feature, keeps the legacy path.
 func admitValidateExecution(ctx context.Context, opts Options, req Request, result Result) (Result, bool, error) {
-	if req.mode() != string(agent.ModeValidate) || req.Workflow == agent.WorkflowBug || opts.Validate == nil || opts.DB == nil {
+	if req.mode() != string(agent.ModeValidate) || opts.Validate == nil || opts.DB == nil {
 		return result, false, nil
 	}
 	if _, err := opts.DB.GetManagedFeature(ctx, result.Ref.String()); errors.Is(err, store.ErrNotFound) {

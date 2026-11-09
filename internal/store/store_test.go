@@ -1589,7 +1589,7 @@ func TestConcurrentAccessorsDoNotDeadlock(t *testing.T) {
 }
 
 func TestReconcileOrphansStaleSession(t *testing.T) {
-	for _, protection := range []string{"none", "stale lock", "current lock", "prelaunch", "doctor", "legacy bug"} {
+	for _, protection := range []string{"none", "stale lock", "current lock", "prelaunch"} {
 		t.Run(protection, func(t *testing.T) {
 			t.Parallel()
 			db := newTestDB(t)
@@ -1622,17 +1622,6 @@ func TestReconcileOrphansStaleSession(t *testing.T) {
 					t.Fatal(err)
 				}
 				if _, err = db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: ModeSpike, Agent: AgentClaude, TriggerCommentID: 6, Prelaunch: true, LogPath: func(int) string { return "/prelaunch.log" }}); err != nil {
-					t.Fatal(err)
-				}
-			case "doctor":
-				schedule := typedSchedule(t, db, session, false)
-				typedRowApproval(t, db, session, "cancel_schedule", fmt.Sprintf("schedule:%d", schedule.ID), "pending", "failed")
-			case "legacy bug":
-				definition, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "builtin", Workflow: "bug", ProfileVersion: 1, Path: "bug/bug.dot", Digest: strings.Repeat("b", 64), CreatedAt: graphTestTime()})
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err = db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "legacy", StartedAt: graphTestTime()}); err != nil {
 					t.Fatal(err)
 				}
 			}

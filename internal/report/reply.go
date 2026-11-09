@@ -249,6 +249,23 @@ const (
 	// ReplyImplementFinishedValidated is [ReplyImplementFinished] when Validate
 	// has already finished on the finished Implement.
 	ReplyImplementFinishedValidated
+	// ReplyAccessDenied answers a grantee's request that the access classifier
+	// judged not covered by the person's grant ([Reply.AccessActor],
+	// [Reply.AccessReason]). Nothing runs; it is posted once and the comment is
+	// consumed.
+	ReplyAccessDenied
+	// ReplyAccessOwnerOnly answers a grantee's request for something only the
+	// owner may do, whatever the grant says. Nothing runs; it is posted once and
+	// the comment is consumed.
+	ReplyAccessOwnerOnly
+	// ReplyAccessUnchecked answers a grantee's request whose access check could
+	// not be made. Nothing runs; it is posted once, the comment is consumed and
+	// the owner may repeat the request.
+	ReplyAccessUnchecked
+	// ReplyAccessLimited answers a grantee's request refused by the size cap or
+	// the hourly request cap. Nothing runs; it is posted once and the comment is
+	// consumed.
+	ReplyAccessLimited
 )
 
 // String renders the kind for logs and test failures.
@@ -300,6 +317,14 @@ func (k ReplyKind) String() string {
 		return "doctor_unsupported"
 	case ReplyCodeControlRefused:
 		return "code_control_refused"
+	case ReplyAccessDenied:
+		return "access_denied"
+	case ReplyAccessOwnerOnly:
+		return "access_owner_only"
+	case ReplyAccessUnchecked:
+		return "access_unchecked"
+	case ReplyAccessLimited:
+		return "access_limited"
 	case ReplyValidateCommentNotApplied:
 		return "validate_comment_not_applied"
 	case ReplyImplementFinished:
@@ -379,7 +404,8 @@ func (k ReplyKind) valid() bool {
 	case ReplyMissingTicketPublisher, ReplyDoctorUnsupported, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
 	case ReplyNotUsed, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused,
-		ReplyValidateCommentNotApplied, ReplyImplementFinished, ReplyImplementFinishedAutoValidate, ReplyImplementFinishedValidated:
+		ReplyValidateCommentNotApplied, ReplyImplementFinished, ReplyImplementFinishedAutoValidate, ReplyImplementFinishedValidated,
+		ReplyAccessDenied, ReplyAccessOwnerOnly, ReplyAccessUnchecked, ReplyAccessLimited:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -420,7 +446,8 @@ func (k ReplyKind) IsConfirmationReply() bool {
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
 	case ReplyMissingTicketPublisher, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyNotUsed, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused,
-		ReplyValidateCommentNotApplied, ReplyImplementFinished, ReplyImplementFinishedAutoValidate, ReplyImplementFinishedValidated:
+		ReplyValidateCommentNotApplied, ReplyImplementFinished, ReplyImplementFinishedAutoValidate, ReplyImplementFinishedValidated,
+		ReplyAccessDenied, ReplyAccessOwnerOnly, ReplyAccessUnchecked, ReplyAccessLimited:
 		return true
 	default:
 		return false
@@ -579,6 +606,15 @@ type Reply struct {
 	// NotUsedReason is read by [ReplyNotUsed] alone: why the comment could not
 	// be used. It is sanitized and fenced before rendering.
 	NotUsedReason string
+
+	// AccessActor and AccessReason are read by the four access refusals
+	// ([ReplyAccessDenied], [ReplyAccessOwnerOnly], [ReplyAccessUnchecked],
+	// [ReplyAccessLimited]) alone: the forge handle of the person whose request
+	// was refused, and one plain line from the access classifier or the gate
+	// saying why. The handle is checked against [confirmedByPattern] and the
+	// reason is neutralized by [accessReasonLine] before rendering.
+	AccessActor  string
+	AccessReason string
 }
 
 // ConfirmReply is the factory-owned disclosure for a /confirm control
@@ -692,6 +728,66 @@ func confirmedBySpan(handle string) (string, bool) {
 		return "", false
 	}
 	return "`" + handle + "`", true
+}
+
+// maxAccessReasonRunes bounds the reason an access refusal quotes back; the
+// classifier's own reason is at most 300 characters.
+const maxAccessReasonRunes = 300
+
+// accessReasonEscaper neutralizes markup an access reason could carry into a
+// comment litefactory signs: mentions, code spans, links, HTML comments (and so
+// a second lf: marker) and emphasis.
+var accessReasonEscaper = strings.NewReplacer(
+	"\\", "\\\\", "&", "&amp;", "@", "@\u200b", "`", "'", "<", "&lt;", ">", "&gt;",
+	"[", "\\[", "]", "\\]", "*", "\\*", "_", "\\_", "#", "\\#", "|", "\\|", "~", "\\~",
+)
+
+// accessReasonLine renders an untrusted access reason as one plain, inert
+// line: control and bidirectional characters dropped, markup neutralized and
+// the length bounded. It returns "" when nothing printable remains.
+func accessReasonLine(reason string) string {
+	line := strings.Map(func(r rune) rune {
+		switch {
+		case r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069'):
+			return -1
+		default:
+			return r
+		}
+	}, oneLine(strings.ReplaceAll(reason, "\t", " ")))
+	line = strings.Join(strings.Fields(line), " ")
+	if runes := []rune(line); len(runes) > maxAccessReasonRunes {
+		line = strings.TrimSpace(string(runes[:maxAccessReasonRunes])) + "…"
+	}
+	return accessReasonEscaper.Replace(line)
+}
+
+// accessRefusal renders the four access refusals: it names the person, says
+// the request was not run and why.
+func (r Reply) accessRefusal() string {
+	who, named := confirmedBySpan(r.AccessActor)
+	var b strings.Builder
+	if named {
+		b.WriteString(who + ", your request was not run")
+	} else {
+		b.WriteString("Your request was not run")
+	}
+	switch r.Kind {
+	case ReplyAccessOwnerOnly:
+		b.WriteString(", because only the owner can do this.")
+	case ReplyAccessUnchecked:
+		b.WriteString(", because your access could not be checked. The owner can repeat the request.")
+	case ReplyAccessLimited:
+		b.WriteString(", because there were too many requests or the request was too large. Try again later.")
+	default:
+		b.WriteString(".")
+	}
+	if reason := accessReasonLine(r.AccessReason); reason != "" {
+		b.WriteString(" Reason: " + reason)
+		if !strings.HasSuffix(reason, ".") && !strings.HasSuffix(reason, "…") {
+			b.WriteString(".")
+		}
+	}
+	return b.String()
 }
 
 // maxCommandLen bounds how much of a command token is quoted back.
@@ -1000,6 +1096,8 @@ func (r Reply) body() string {
 		b.WriteString(sectionGap)
 		b.WriteString("A question that is already answered cannot accept another answer. ")
 		b.WriteString(workflowDecisionDestination(r.DecisionURL, "Use the current question or review only if it still waits for your reply. Otherwise wait for the workflow’s next update; no second answer was applied."))
+	case ReplyAccessDenied, ReplyAccessOwnerOnly, ReplyAccessUnchecked, ReplyAccessLimited:
+		b.WriteString(r.accessRefusal())
 	case ReplyCodeControlRefused:
 		b.WriteString("This delivery command was set aside and nothing was recorded, pushed, merged or closed, because only the task's owner can give it. Ask that owner to post the delivery command as a new comment on this issue.")
 	case ReplyValidateCommentNotApplied:

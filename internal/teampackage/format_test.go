@@ -1,22 +1,13 @@
 package teampackage
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 )
 
-func TestStrictCatalogueAndInventory(t *testing.T) {
+func TestStrictInventory(t *testing.T) {
 	t.Parallel()
-	r, _ := fixtureRelease("1.0.0")
-	raw, err := json.Marshal(Catalogue{Schema: 1, Releases: []Release{r}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := parseCatalogue(raw); err != nil {
-		t.Fatal(err)
-	}
 	for _, tt := range []struct {
 		name   string
 		mutate func(*Release)
@@ -48,21 +39,6 @@ func TestStrictCatalogueAndInventory(t *testing.T) {
 			}
 		})
 	}
-	for _, input := range []string{`{"schema":1,"schema":1,"releases":[]}`, `{"schema":2,"releases":[]}`, `{"schema":1,"releases":[],"extra":true}`, `{"schema":1,"releases":null}`, string(raw) + " {}", strings.Replace(string(raw), `"path":`, `"path":"duplicate","path":`, 1)} {
-		if _, err := parseCatalogue([]byte(input)); err == nil {
-			t.Errorf("invalid catalogue accepted: %s", input)
-		}
-	}
-	duplicate, err := json.Marshal(Catalogue{Schema: 1, Releases: []Release{r, r}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := parseCatalogue(duplicate); err == nil {
-		t.Fatal("duplicate releases accepted")
-	}
-	if _, err := parseCatalogue(make([]byte, MaxCatalogueBytes+1)); err == nil {
-		t.Fatal("catalogue size bound lost")
-	}
 }
 func TestStrictWorkflowMap(t *testing.T) {
 	t.Parallel()
@@ -80,7 +56,7 @@ func TestStrictWorkflowMap(t *testing.T) {
 		t.Fatal("config size bound lost")
 	}
 }
-func TestDigestAndSemVerSelection(t *testing.T) {
+func TestDigestAndSemVer(t *testing.T) {
 	t.Parallel()
 	files := []File{{Path: "z", SHA256: strings.Repeat("0", 64)}, {Path: "team.config", SHA256: strings.Repeat("1", 64)}}
 	// This fixed value comes from the specified sorted path/NUL/hash/newline bytes.
@@ -92,22 +68,13 @@ func TestDigestAndSemVerSelection(t *testing.T) {
 		t.Fatal("digest depends on input ordering")
 	}
 	for _, v := range []string{"0.0.0", "1.0.0-rc.1", "1.0.0+build.001"} {
-		if _, err := version(v); err != nil {
+		if err := version(v); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, v := range []string{"1", "1.0", "v1.0.0", "1.0.0-00", "1.0.0-000000000000000000000000000000000001", "1.0.0+", "1.0.0/../2"} {
-		if _, err := version(v); err == nil {
+		if err := version(v); err == nil {
 			t.Errorf("invalid version accepted %q", v)
 		}
-	}
-	c := Catalogue{Schema: 1}
-	for _, v := range []string{"1.9.0", "1.10.0", "2.0.0-rc.1", "1.10.0+build"} {
-		r, _ := fixtureRelease(v)
-		c.Releases = append(c.Releases, r)
-	}
-	r, err := selectRelease(c, "example", "")
-	if err != nil || r.Version != "1.10.0+build" {
-		t.Fatalf("selection=%s %v", r.Version, err)
 	}
 }

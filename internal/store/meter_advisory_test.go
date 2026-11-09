@@ -108,18 +108,6 @@ func TestAdvisoryMeterMigrationPreservesAllExistingLedgerEvidence(t *testing.T) 
 	if _, err = db.StartAuthoringMeterAttempt(t.Context(), authoring.ID, "codex", "model", "input", "authoring-meter", "token"); err != nil {
 		t.Fatal(err)
 	}
-	doctor := doctorIOAttempt("old-doctor")
-	doctor.Provider = "codex"
-	if _, err = db.BeginDoctorAttempt(t.Context(), session.TaskRef, doctor); err != nil {
-		t.Fatal(err)
-	}
-	doctor.Evidence = "retained"
-	if err = db.PrepareDoctorAttempt(t.Context(), doctor); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.StartDoctorMeterAttempt(t.Context(), doctor.ID, "codex"); err != nil {
-		t.Fatal(err)
-	}
 	sourceAttempt := resultRun(t, db, session, "research", "source", 2)
 	binding, err := db.BindResultAttempt(t.Context(), sourceAttempt)
 	if err != nil {

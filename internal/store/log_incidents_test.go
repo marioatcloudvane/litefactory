@@ -74,11 +74,9 @@ func TestLogIncidentsFromRetainedRecords(t *testing.T) {
 	failed := f.run(f.work, "implement", RunOutcome{Status: RunFailed, SemanticOutcome: "failed", Error: "tests did not pass"})
 	stopped := f.run(f.work, "implement", RunOutcome{Status: RunFailed, SemanticOutcome: "abandoned", RecoveryReason: `owner-stop:{"run_id":3}`})
 	bugRun := f.run(f.bug, "spike", RunOutcome{Status: RunSucceeded})
-	legacyRun := f.run(f.legacy, "spike", RunOutcome{Status: RunSucceeded})
 	outside := f.run(f.outer, "implement", RunOutcome{Status: RunFailed, SemanticOutcome: "timed_out"})
 
 	f.exec(`PRAGMA foreign_keys=OFF`)
-	f.exec(`DROP TRIGGER archive_bug_analyses_insert`)
 	digest := strings.Repeat("a", 64)
 	implement := f.exec(`INSERT INTO graph_definitions(team,mode,profile_version,path,digest,created_at) VALUES('go','implement',1,'implement.dot',?,?)`, digest, at)
 	validate := f.exec(`INSERT INTO graph_definitions(team,mode,profile_version,path,digest,created_at) VALUES('go','validate',1,'validate.dot',?,?)`, digest, at)
@@ -106,7 +104,6 @@ func TestLogIncidentsFromRetainedRecords(t *testing.T) {
 	source := fmt.Sprintf(`{"ID":%d,"Revision":1,"Kind":"result"}`, result)
 	f.exec(`INSERT INTO judge_requests(task,ticket_key,comment_id,session_id,trigger_comment_id,source_json,configuration,evidence,report,created_at) VALUES(?,'t','c1',?,1,?,'{}','{}',?,?)`, f.bug.TaskRef, f.bug.ID, source, report, at)
 	f.exec(`INSERT INTO judge_requests(task,ticket_key,comment_id,session_id,trigger_comment_id,source_json,configuration,evidence,report,created_at) VALUES(?,'t','c2',?,1,?,'{}','{}',?,?)`, f.bug.TaskRef, f.bug.ID, source, `{"presentation":{"Report":{"verdict":"no_material_concerns"}}}`, at)
-	f.exec(`INSERT INTO bug_analyses(session_id,invocation,input_digest,ordinal,graph_attempt_id,state,run_id,content) VALUES(?,'i',?,1,999,'succeeded',?,?)`, f.legacy.ID, digest, legacyRun, `{"expected":"save step writes the index","actual":"Plan never ready","cause":"the save step ignored errors"}`)
 	f.exec(`PRAGMA foreign_keys=ON`)
 
 	all, err := f.db.ListLogIncidents(ctx, LogIncidentQuery{RepositoryIDs: []int64{f.repo.ID}})
@@ -122,7 +119,7 @@ func TestLogIncidentsFromRetainedRecords(t *testing.T) {
 			t.Fatalf("incident outside grant or without words: %+v", in)
 		}
 	}
-	want := map[string]int{IncidentValidateReview: 2, IncidentValidateVerdict: 1, IncidentValidateRepair: 1, IncidentJudge: 1, IncidentBug: 2, IncidentOwnerReply: 2, IncidentFailedRun: 1, IncidentRepeatedNode: 1}
+	want := map[string]int{IncidentValidateReview: 2, IncidentValidateVerdict: 1, IncidentValidateRepair: 1, IncidentJudge: 1, IncidentBug: 1, IncidentOwnerReply: 2, IncidentFailedRun: 1, IncidentRepeatedNode: 1}
 	if fmt.Sprint(kinds) != fmt.Sprint(want) {
 		t.Fatalf("kinds=%v want %v", kinds, want)
 	}
@@ -163,9 +160,6 @@ func TestLogIncidentsFromRetainedRecords(t *testing.T) {
 	}
 	if !strings.Contains(bug.Detail, "Prevention: missing_standard: a rule that tickets live in the tracker, never in code repositories") {
 		t.Fatalf("bug incident lacks the prevention note: %q", bug.Detail)
-	}
-	if legacy := byID[fmt.Sprintf("bug-legacy-%d-1", f.legacy.ID)]; !strings.Contains(legacy.Detail, "ignored errors") || strings.Contains(legacy.Detail, "Prevention") {
-		t.Fatalf("legacy bug=%+v", legacy)
 	}
 
 	for _, c := range []struct {

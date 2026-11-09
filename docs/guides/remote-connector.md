@@ -762,13 +762,12 @@ Automated tests use fakes. To see the real path once:
    what happened, steps and evidence. Check that the client calls
    `bug_file_propose` and shows a proposal for that repository.
 4. Say yes in a separate message. The client calls `action_confirm`.
-5. Ask "what happened to it?" until `action_inspect` shows `Bug analysis started`
+5. Ask "what happened to it?" until `action_inspect` shows `Bug started`
    with the issue link.
 6. Open the link. Check that there is exactly one new issue, filed by the
    factory's bot account, with the `bug` label and no other new label, and that
    its body is your description, the line "Filed for the owner from a chat
-   client." and a hidden marker. Check that the Bug analysis has started on it
-   and that no `/approve-bug` was given for you.
+   client." and a hidden marker. Check that the Bug has started on it.
 7. Ask the client to send the same request again with the same key (or call the
    tool twice): it must return the same proposal and no second issue appears.
 
@@ -783,8 +782,8 @@ when you are done.
 2. From the chat client say "file a bug", give a title and description, and
    confirm once after reading the proposal.
 3. Expect exactly one Linear issue with the bug label in cockpit's team and
-   project, a link to it in the reply, and Bug analysis starting on its own.
-   Repair still waits for your `/approve-bug`.
+   project, a link to it in the reply, and the Bug starting on its own.
+   Merging still waits for your `ship` on the shipping review.
 4. Ask for the same request again with the same key: no second issue appears.
 
 ## Durable workflow jobs
