@@ -114,6 +114,22 @@ func (d *Daemon) eligibleProjectComment(ctx context.Context, sessionID int64, c 
 
 func (d *Daemon) projectTrigger(ctx context.Context, sessionID int64, c github.Comment) (turn.Trigger, error) {
 	trigger := turn.Trigger{ReplyToCommentID: c.ReplyToCommentID, CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID, CreatedAt: c.CreatedAt}
+	if d.access != nil && !d.isOwnerComment(ctx, c) {
+		// A grantee's trigger carries the decision that allowed it, keyed by the
+		// same identities the gate checked.
+		grantee, err := d.granteeAuthority(ctx, sessionID, c)
+		if err != nil {
+			return trigger, err
+		}
+		if grantee != nil {
+			_, source, err := d.commentIdentities(ctx, sessionID, c)
+			if err != nil {
+				return trigger, err
+			}
+			trigger.Grantee, trigger.Actor, trigger.Source = grantee, grantee.Actor, source
+			return trigger, nil
+		}
+	}
 	if d.connections == nil {
 		return trigger, nil
 	}

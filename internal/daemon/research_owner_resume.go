@@ -18,8 +18,8 @@ import (
 // runs with, which names the batch's last comment.
 func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) (turn.Trigger, error) {
 	var ownerID int64
+	c := github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
 	if isCodeAuthorityBody(trigger.Body) {
-		c := github.Comment{ReplyToCommentID: trigger.ReplyToCommentID, ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
 		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
 			return trigger, err
 		}
@@ -27,6 +27,16 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 		ownerID = trigger.AuthorID
 	} else {
 		ownerID = d.ticketIdentities(ctx).OwnerUserID
+		if trigger.AuthorID != ownerID && trigger.CommentID > 0 && !store.IsFactoryTrigger(trigger.CommentID) {
+			instructed, err := d.mayInstruct(ctx, t.session.ID, c)
+			if err != nil {
+				return trigger, err
+			}
+			if instructed {
+				// The access gate allowed exactly this author's comment.
+				ownerID = trigger.AuthorID
+			}
+		}
 	}
 	// Replaying an already allocated input performs report recovery only. It
 	// cannot be reinterpreted as an answer to the question that input produced.
@@ -144,7 +154,7 @@ func AdmitResearchOwnerReply(ctx context.Context, db *store.DB, instanceID, owne
 // mode resolves to, so a Validate stopped under an Implement-labelled parent
 // resumes too. Stopped work that cannot resume is answered with the reason.
 func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (handled bool, err error) {
-	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.ticketIdentities(ctx).OwnerUserID || store.IsFactoryTrigger(trigger.CommentID) {
+	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || (trigger.AuthorID != d.ticketIdentities(ctx).OwnerUserID && trigger.Grantee == nil) || store.IsFactoryTrigger(trigger.CommentID) {
 		return false, nil
 	}
 	if consumed, e := d.consumed(ctx, t.session.ID, trigger.CommentID); e != nil || consumed {

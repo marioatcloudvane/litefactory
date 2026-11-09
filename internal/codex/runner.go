@@ -182,6 +182,45 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	return proposal, nil
 }
 
+// CheckAccess performs a stateless read-only access check with the same shape
+// as [Runner.ProposeSchedule]: no run, run artefacts or worktree. It is
+// bounded by [agent.AccessCheckTimeout], not by r.timeout. A blank req.Role
+// selects the factory default access-classifier role.
+func (r *Runner) CheckAccess(ctx context.Context, req agent.AccessCheckRequest) (agent.AccessCheckResult, error) {
+	role := req.Role
+	if strings.TrimSpace(role) == "" {
+		capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, agent.DefaultAccessCheckRole)
+		if err != nil {
+			return agent.AccessCheckResult{}, err
+		}
+		role = string(capture.Instructions())
+	}
+	prompt, err := agent.AccessCheckPrompt(role, req)
+	if err != nil {
+		return agent.AccessCheckResult{}, err
+	}
+	runCtx, cancel := agent.InvocationContext(ctx, agent.AccessCheckTimeout)
+	defer cancel()
+	args := native.AdvisoryArguments(r.model, nil)
+	var stdout, stderr bytes.Buffer
+	if err := native.Buffered(runCtx, r.binary.Path, args, native.Environment(r.environ), filepath.Dir(r.binary.Path), prompt, &stdout, &stderr); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check failed: %w", err)
+	}
+	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
+	if !stream.completed || stream.failed {
+		return agent.AccessCheckResult{}, errors.New("access check returned no successful terminal result")
+	}
+	result, err := agent.ParseAccessCheck(stream.text)
+	if err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check returned invalid answer: %w", err)
+	}
+	result.Model = r.model
+	if result.Model == "" {
+		result.Model = "codex"
+	}
+	return result, nil
+}
+
 // ProposeConflictResolution performs a stateless read-only advisory
 // invocation, mirroring [Runner.ProposeSchedule]'s shape exactly (US-11): no
 // worktree and no run artefacts, so it cannot become an ordinary coding

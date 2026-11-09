@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/access"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	factoryviews "github.com/cloudvane/litefactory/internal/factory"
 	"log/slog"
@@ -516,6 +517,16 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
+	// The access gate asks the default agent's runner, the one the mode
+	// classifier uses; a runner without an access check refuses as unchecked.
+	accessChecker, _ := runners[defaultAgent].(agent.AccessChecker)
+	accessGate := &access.Gate{
+		Store:   s.DB,
+		Role:    repositoryAccessRole(s.Paths, s.DB),
+		Facts:   access.ResolverFacts(access.WorkflowSource(workflowSource), turn.SpecsForWorkflow),
+		Checker: accessChecker,
+		Now:     time.Now,
+	}
 	judgeProviders := make(map[agent.Kind]agent.JudgeRunner)
 	for kind, runner := range runners {
 		if native, ok := runner.(agent.JudgeRunner); ok {
@@ -717,9 +728,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		ValidateHead: func(ctx context.Context, session store.Session) (string, error) {
 			return turn.IntegrationHead(ctx, turnOpts, session)
 		},
-		DB:          s.DB,
-		Connections: connections,
-		Forge:       ticketWorkflow,
+		DB:              s.DB,
+		Access:          accessGate,
+		AccessWorkflows: access.WorkflowSource(workflowSource),
+		Connections:     connections,
+		Forge:           ticketWorkflow,
 		// Bug filing writes as the factory bot through the GitHub client
 		// itself: the routed bridge offers no label lookup or ID-only write.
 		BugFilingForge: client,
