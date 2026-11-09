@@ -1,11 +1,13 @@
 package turn
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -95,6 +97,9 @@ func TestResearchAskReplyDoneCompletes(t *testing.T) {
 	}
 	intents, err := f.db.ListGraphComments(t.Context(), instance.ID, "", 100)
 	mustProgress(t, err)
+	// ListGraphComments orders by delivery key (a hash), not by time; order by
+	// the attempt that produced each comment to check question-then-final.
+	slices.SortFunc(intents, func(a, b store.GraphCommentIntent) int { return cmp.Compare(a.SourceAttemptID, b.SourceAttemptID) })
 	if len(intents) != 2 || intents[0].Kind != "question" || intents[1].Kind != "final" {
 		t.Fatalf("want a question then the final report, got %+v", intents)
 	}
