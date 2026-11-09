@@ -30,7 +30,7 @@ webhook:
 
 settings:
   worker_timeout_seconds: 1800
-  team_source: "https://raw.githubusercontent.com/marioatcloudvane/litefactory/main/teams/teams.json"
+  team_source: ""
   poll_interval_minutes: 60
   max_concurrent_runs: 3
   default_base_branch: ""
@@ -112,7 +112,7 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 
 | Key | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
-| `settings.team_source` | string | `https://raw.githubusercontent.com/marioatcloudvane/litefactory/main/teams/teams.json` | absolute `https` catalogue URL, or an absolute file path (stored as `file://`); no credentials, query or fragment; no trailing slash; or empty for the default | Where `litefactory team` commands fetch the machine-level team catalogue. See [teams](../cli/teams.md). |
+| `settings.team_source` | string | `""` | the absolute path of a `teams/source` folder, or empty | The folder `litefactory team install` builds teams from when `--source` is left out. Empty means `--source` is required. An old catalogue URL still loads, but installing from it is refused with a message naming the folder form. See [teams](../cli/teams.md). |
 | `settings.worker_timeout_seconds` | integer | `1800` | 60 to 86400 | Default allowance for one worker attempt, in exact seconds. An explicit node `lf_budget` of 1–1440 whole minutes takes precedence. |
 | `settings.poll_interval_minutes` | integer | `60` | 1 to 180 | How often the daemon lists GitHub when no webhook woke it sooner. Webhooks are the fast path; this is the safety net. The old `poll_interval_seconds` is refused and is not converted. |
 | `settings.max_concurrent_runs` | integer | `3` | 1 to 16 | Shared execution capacity in slots. Each step reserves its DOT cost; omitted costs are 1. See [slot costs](../guides/workflow.md#execution-capacity). |

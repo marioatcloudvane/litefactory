@@ -60,8 +60,8 @@ Linear support is on the way, behind the same neutral ticket protocol.
 ```sh
 litefactory init                                   # config, database, identities
 litefactory repo add /absolute/path/to/your/clone  # register a repository
-litefactory team install go-development            # or python-fastapi, swift-ios, dotnet-web
-litefactory team link go-development <version> --repo /absolute/path/to/your/clone
+litefactory team install go-development --source /absolute/path/to/litefactory/teams/source  # or python-fastapi, swift-ios, dotnet-web, nextjs-web
+litefactory team link go-development 1.0.0 --repo /absolute/path/to/your/clone
 litefactory daemon start                           # launchd agent on macOS
 litefactory daemon status
 ```

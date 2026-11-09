@@ -163,31 +163,23 @@ Give exactly one of the two, otherwise exit `2`. Exit `3` if the named repositor
 
 ## Teams
 
-Teams are versioned packages of agent instructions, kept once per machine under `$LF_HOME/teams`. See [Teams](teams.md) for how they fit together. The `--source` flag names where a team comes from: the exact catalogue URL, or `local` for teams you made with `team clone`. If you leave it out, `team install` and `team update` use `settings.team_source` from `config.yaml`; the other commands find the one installed copy and ask you to add `--source` if there is more than one match.
+Teams are versioned packages of agent instructions, kept once per machine under `$LF_HOME/teams`. See [Teams](teams.md) for how they fit together. For `team install`, `--source` is the absolute path of a `teams/source` folder; if you leave it out, it uses `settings.team_source` from `config.yaml`, and fails when that is empty. On the other commands, `--source` names an installed source: a source folder, an old catalogue URL from an earlier install, or `local` for teams you made with `team clone`. If you leave it out, they find the one installed copy and ask you to add `--source` if there is more than one match.
 
 ### `team install`
 
 ```text
-litefactory team install <name> [<version>] [--source catalogue-url|local]
+litefactory team install <name> [--source /absolute/path/to/teams/source]
 ```
 
-Downloads a team from the catalogue, checks it and installs it. Without `<version>` it installs the highest stable version. Prints `Installed ...` or `Already installed ...`.
+Builds `teams/source/<name>` from the folder, checks it and installs it at the version in its `release.json`. Nothing is downloaded. Prints `Installed ...`, `Already installed ...` (same files) or `Replaced ...` (same version, changed files), then the checksum and the source commit. A replacement moves every repository linked to that version to the new files in the same step and prints `Relinked: <clone>` for each; running tasks keep the files they started with. A web URL or a `teams.json` file is refused with a message naming the folder form.
 
 ### `team clone`
 
 ```text
-litefactory team clone <name> <version> <new-name> <new-version> [--source catalogue-url|local]
+litefactory team clone <name> <version> <new-name> <new-version> [--source installed-source|local]
 ```
 
 Copies an installed team into an editable local team with a new name and version, in the `local` namespace. It prints the editable folder, and the origin it was copied from. Fails if the new name and version already exist.
-
-### `team update`
-
-```text
-litefactory team update <name> [--source catalogue-url|local]
-```
-
-Installs the newest stable version of `<name>` from the same catalogue if it is newer than the highest stable version already installed. Prints `Installed update: ...` or `No update: ...`. Local teams cannot be updated. It needs an installed stable version to start from.
 
 ### `team list`
 
@@ -200,15 +192,15 @@ Prints one line per installed team: source, name and version. It reads local fil
 ### `team inspect`
 
 ```text
-litefactory team inspect <name> <version> [--source catalogue-url|local]
+litefactory team inspect <name> <version> [--source installed-source|local]
 ```
 
-Verifies an installed team and prints its name, version, source, folder, checksum and workflows (editable local teams show their origin instead).
+Verifies an installed team and prints its name, version, source, folder, checksum, workflows and, for teams installed from a source folder, the source commit (editable local teams show their origin instead).
 
 ### `team remove`
 
 ```text
-litefactory team remove <name> <version> [--source catalogue-url|local]
+litefactory team remove <name> <version> [--source installed-source|local]
 ```
 
 Removes one installed team version. It refuses, and lists the repositories, while any registered repository is linked to it. Run `team unlink` first.
@@ -216,7 +208,7 @@ Removes one installed team version. It refuses, and lists the repositories, whil
 ### `team link`
 
 ```text
-litefactory team link <name> <version> [--repo registered-clone-path] [--source catalogue-url|local]
+litefactory team link <name> <version> [--repo registered-clone-path] [--source installed-source|local]
 ```
 
 Selects an installed team version for a registered clone, replacing any earlier choice. Prints `Linked ...` or `Already linked ...`. Without a team link, a repository uses the built-in workflows.
