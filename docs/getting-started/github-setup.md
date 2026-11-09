@@ -136,11 +136,11 @@ from `inspect`. Verify the human identity and absence of authority blockers.
 credential belongs to the intended approver; use the separate bot token.
 
 An installed team **must be linked before any mode runs**. Choose `TEAM_NAME`
-from the catalogue configured by `settings.team_source`; install its latest
-stable release, then copy `TEAM_VERSION` from `team list`:
+from the folders in `teams/source`; install it from that folder, then copy
+`TEAM_VERSION` from `team list`:
 
 ```sh
-litefactory team install TEAM_NAME
+litefactory team install TEAM_NAME --source /absolute/path/to/litefactory/teams/source
 litefactory team list
 litefactory team inspect TEAM_NAME TEAM_VERSION
 litefactory team link TEAM_NAME TEAM_VERSION --repo /absolute/path/to/project

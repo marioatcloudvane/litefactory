@@ -36,19 +36,10 @@ a long test can be killed by its host (exit 143) before the test ends. `gofmt -l
 golangci-lint v2 against a v2 `.golangci.yml`; never an unpinned or v1 linter.
 Prefer `make build` only as the operator — see the prohibition above.
 
-## Team sources and their releases
+## Team sources
 
-The daemon runs the installed release, not `teams/source`. Any change under
-`teams/source` regenerates `teams/*/v1.0.0` and `teams/teams.json` in the same
-change, with every team source:
-
-```sh
-go run ./cmd/teamrelease -source teams/source/go-development -source teams/source/python-fastapi -source teams/source/dotnet-web -source teams/source/swift-ios -source teams/source/nextjs-web
-```
-
-Teams stay at 1.0.0: regenerate in place, never change a `release.json`
-version. Then run `go test ./internal/teamrelease`; it fails when a published
-release differs from its source.
+Teams are installed from `teams/source` with `litefactory team install`; no
+generated release folders exist. Never change a `release.json` version.
 
 ## Store rules
 

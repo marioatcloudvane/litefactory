@@ -48,13 +48,10 @@ func TestRemovalGuardRefusesBeforeMutation(t *testing.T) {
 
 func TestCatalogueSelectionValidatesBeforeCallbackAndExpires(t *testing.T) {
 	t.Parallel()
-	fixture, server := newFixture(t, "1.0.0")
+	_, server := newFixture(t, "1.0.0")
 	m := fixtureManager(t, config.NewPaths(canonicalTemp(t)), server)
 	source := server.URL + "/teams/teams.json"
 	entry := installFixture(t, m, source, "1.0.0")
-	fixture.mu.Lock()
-	requests := fixture.requests
-	fixture.mu.Unlock()
 	var retained *CatalogueAccess
 	called := false
 	err := m.WithCatalogue(t.Context(), func(a *CatalogueAccess) error {
@@ -86,10 +83,5 @@ func TestCatalogueSelectionValidatesBeforeCallbackAndExpires(t *testing.T) {
 	})
 	if !errors.Is(err, ErrIncompatibleWorkflow) || !errors.Is(err, invalid) {
 		t.Fatal(err)
-	}
-	fixture.mu.Lock()
-	defer fixture.mu.Unlock()
-	if requests != fixture.requests {
-		t.Fatal("selection accessed network")
 	}
 }

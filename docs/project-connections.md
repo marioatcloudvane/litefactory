@@ -311,11 +311,11 @@ connection itself is unusable.
 ### 6. Link a compatible installed team
 
 A Linear team groups tickets; an installed litefactory team supplies workflows.
-Both are needed. Choose `TEAM_NAME` from the catalogue in `settings.team_source`;
+Both are needed. Choose `TEAM_NAME` from the folders in `teams/source`;
 install it, and copy the exact `TEAM_VERSION` from `team list`:
 
 ```sh
-litefactory team install TEAM_NAME
+litefactory team install TEAM_NAME --source /absolute/path/to/litefactory/teams/source
 litefactory team list
 litefactory team inspect TEAM_NAME TEAM_VERSION
 litefactory team link TEAM_NAME TEAM_VERSION --repo /absolute/path/to/project

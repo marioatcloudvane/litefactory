@@ -4,96 +4,6 @@
     "Semantic": "441f93064d2ab2606cab98ecec86d9d43edb34a1e3ce179f16fae3bebf8e0a01",
     "Navigation": "3cfc4e4d3e1594112ff919ea77f8a136e91d6053f71e504463d3ba20b9546b38"
   },
-  "teams/dotnet-web/v1.0.0/bug/bug.dot": {
-    "Profile": "964d07eb266e57b25a407e7790932eaeb39517039d56185c1a57fcee8c18ca42",
-    "Semantic": "7ee77e6df3e8c3f6977823d1bc32c0a15e7321a5211a17f10788a57f67c2f451",
-    "Navigation": "8eaef07321b83af42aa72eabf789c3542d35312c6f10ed7e55bc243c7e6c6216"
-  },
-  "teams/dotnet-web/v1.0.0/implement/implement.dot": {
-    "Profile": "527db689853ba13810947f54d193a6e26097ee837e9205345f3530307e30e46b",
-    "Semantic": "026e2089761f24cc378befa5cd9e8c7e279f855f4a8c84a33122b97a2a0f0d00",
-    "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
-  },
-  "teams/dotnet-web/v1.0.0/plan/plan.dot": {
-    "Profile": "e04c73b69b47fcdb3aaae3b1a6917ff09742028d69523a4bf50cb1c86f86d9e3",
-    "Semantic": "651062a4a7164db8edc9a51917f42c2d548877a80c2986e8fe86b9bee5100c7c",
-    "Navigation": "49029dfa5477f76f4397d90c7c3e3b391347786891c05a01769d61d65251af6f"
-  },
-  "teams/dotnet-web/v1.0.0/research/research.dot": {
-    "Profile": "cd4c56151e3bca4f745195c80c9c8b97aa298e4c0c28e3bfa41336aa8c22d2e6",
-    "Semantic": "dee250b2dc9f194581298a07a4f7ddd5ab722a42b59daa033365d9935d6c79fa",
-    "Navigation": "8f51329d2103476031e1036036a40444d41d6af7a7dc842b578c7879b66d89f2"
-  },
-  "teams/dotnet-web/v1.0.0/spike/spike.dot": {
-    "Profile": "2ee28eea510745c141fbe06661615db0620b626d38df974764d0253c1e93ea71",
-    "Semantic": "8daa8e16c405bcc69f6a4c3c73ebee4365dbbd38bec653913ec28fbd44a25002",
-    "Navigation": "9d87f5709cfbf4d64e4f9554660b66cb759a1bd14d5bc4cf08c236fce9c4a676"
-  },
-  "teams/dotnet-web/v1.0.0/validate/validate.dot": {
-    "Profile": "1157081f88b6a37f1f22459decf0a43c8f7af5853a6e9f507abfe2f91e6e1fbc",
-    "Semantic": "a478422174b8072537c7b1a25e0d46747c4951ab7e1fed876cb2d9748be2e798",
-    "Navigation": "e85a4bfe4a809f3eb308b5feed90f707a4a25e1ac16b7de4fc51635ffeb531f7"
-  },
-  "teams/go-development/v1.0.0/bug/bug.dot": {
-    "Profile": "55f96352939c290dbb1103879ac1fc5f760f2d9b3c522623016ac45c9625fa65",
-    "Semantic": "82a7e5e42b1313634af0502b075e6182abe04a1fcf213ead4041063a5e90a293",
-    "Navigation": "8eaef07321b83af42aa72eabf789c3542d35312c6f10ed7e55bc243c7e6c6216"
-  },
-  "teams/go-development/v1.0.0/implement/implement.dot": {
-    "Profile": "dadb3c03439ccffa2edfebb6173a1b7129c03386ea9bf50f5e699c36cfb22612",
-    "Semantic": "11feb00ae96df92fd1b8fd4f67476836187bb1b371e0cb9c4b37415a0eff18b9",
-    "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
-  },
-  "teams/go-development/v1.0.0/plan/plan.dot": {
-    "Profile": "9182033659d8fa0b3f70a43ce88f243b5685f95b758d55f01ccd243a1a3fee5a",
-    "Semantic": "18da4265c14e2ef453563ba9403fb8592ee58e5bba31d53acfd7e18954f3e244",
-    "Navigation": "49029dfa5477f76f4397d90c7c3e3b391347786891c05a01769d61d65251af6f"
-  },
-  "teams/go-development/v1.0.0/research/research.dot": {
-    "Profile": "facb1dab02b5fc48e46ccd96436c119faf4864026af125f123085fe3032e774d",
-    "Semantic": "8b23358b715efa0dea7a4c94205283c5c57e650881ac6205e27c78efe2d32576",
-    "Navigation": "8f51329d2103476031e1036036a40444d41d6af7a7dc842b578c7879b66d89f2"
-  },
-  "teams/go-development/v1.0.0/spike/spike.dot": {
-    "Profile": "601b4f6e4677047b1540b2be3219cf91e60d20cbe79929a7a2150337c2c498ec",
-    "Semantic": "2d694a7fe4129ada45045af775887133d894d217e8c6f08242d1d2c93ee64746",
-    "Navigation": "9d87f5709cfbf4d64e4f9554660b66cb759a1bd14d5bc4cf08c236fce9c4a676"
-  },
-  "teams/go-development/v1.0.0/validate/validate.dot": {
-    "Profile": "0c88d8afb8c65956331e93a3d3acf799cd12ae4eb3bc949ffd92ff9fb6a1aa54",
-    "Semantic": "f8dffd16c218a1f17217b33e34541431169b01c219a044e65cae207c4c7e07db",
-    "Navigation": "e85a4bfe4a809f3eb308b5feed90f707a4a25e1ac16b7de4fc51635ffeb531f7"
-  },
-  "teams/python-fastapi/v1.0.0/bug/bug.dot": {
-    "Profile": "6dadec5d4f53720e4b367b1fd48dbe9238227f0b7979a11d1a89eb6da643deb0",
-    "Semantic": "1eb73ca392e9cba837a0072d114c1d5df09829762dc720746ff80f2281fe994f",
-    "Navigation": "8eaef07321b83af42aa72eabf789c3542d35312c6f10ed7e55bc243c7e6c6216"
-  },
-  "teams/python-fastapi/v1.0.0/implement/implement.dot": {
-    "Profile": "2517421357b2dd0935a028f25af5928ee3167b5eacce493cc539e914426594b1",
-    "Semantic": "65f79273b8ccb03ea1fba8d1282b9405873e22107d2f5405c580dddfcf859dba",
-    "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
-  },
-  "teams/python-fastapi/v1.0.0/plan/plan.dot": {
-    "Profile": "314469d8c0d77af9653bc783bb125263e5c20f574732d9216383b7216ee35123",
-    "Semantic": "61175f55ba58b6786f49f80c8ac8de4164d04306430665e3cbb3eba4e940158b",
-    "Navigation": "49029dfa5477f76f4397d90c7c3e3b391347786891c05a01769d61d65251af6f"
-  },
-  "teams/python-fastapi/v1.0.0/research/research.dot": {
-    "Profile": "86b0f20fd1ea065c2aec71ab200c6053091da72736dbd74250d45f579f0a7ad8",
-    "Semantic": "cb9b9cd0f6d52b2908e1826122c9fe2240e7c7dee80935e44c6ffaf4b441fa9e",
-    "Navigation": "8f51329d2103476031e1036036a40444d41d6af7a7dc842b578c7879b66d89f2"
-  },
-  "teams/python-fastapi/v1.0.0/spike/spike.dot": {
-    "Profile": "794321e2ec1c2cd8ee220bae786f97f1e03ce020b4fb42f4855f0cfe0fc590cf",
-    "Semantic": "dcf3651f86232a8c7a848f12122f1ce20ab61149ca68d7d28b4eaa2d21286bb5",
-    "Navigation": "9d87f5709cfbf4d64e4f9554660b66cb759a1bd14d5bc4cf08c236fce9c4a676"
-  },
-  "teams/python-fastapi/v1.0.0/validate/validate.dot": {
-    "Profile": "4dff6ba77563687976858bcf53ea845794aaba885a1ce2cc7038a0970eff77a2",
-    "Semantic": "53bbdc3606d6a2e353d2ff867a7bc533ade8d693185d7db5916538b05213dfa1",
-    "Navigation": "e85a4bfe4a809f3eb308b5feed90f707a4a25e1ac16b7de4fc51635ffeb531f7"
-  },
   "teams/source/base-team/bug/bug.dot": {
     "Profile": "208f9ac01f13887c2fd2c91cd7636c17ecbdec4c11d25ccc84d605f9c5e563bf",
     "Semantic": "4ac7b953c76bccd251b29e08aae92c3eed054066a227cc73d8796f8bf83c7aaf",
@@ -122,36 +32,6 @@
   "teams/source/base-team/validate/validate.dot": {
     "Profile": "fc67e5a58a0622310039048976b8bb3a7636b06f14d972b85920a48fe2ec43fb",
     "Semantic": "11b2ca28447f862fd2c69240be2f6efb77e791ba9f65c67d1a1f42282b0f6f4d",
-    "Navigation": "e85a4bfe4a809f3eb308b5feed90f707a4a25e1ac16b7de4fc51635ffeb531f7"
-  },
-  "teams/swift-ios/v1.0.0/bug/bug.dot": {
-    "Profile": "741b7ce0eafcd2b14a1a565dea5386289f2bde06ed40bba5cfd48ac2102653fb",
-    "Semantic": "895f004c8bce968f2c6f68a86d0e74702e330d76cc752895463b9f031b28b18f",
-    "Navigation": "8eaef07321b83af42aa72eabf789c3542d35312c6f10ed7e55bc243c7e6c6216"
-  },
-  "teams/swift-ios/v1.0.0/implement/implement.dot": {
-    "Profile": "ee9f797252b93b87e78b6d63e9821038457be9df85ebaa8faee51358dd494332",
-    "Semantic": "40eb4c743c98e6272b722e0d787b8b872a4de92d426b7c4bca525fb6dc31d2d1",
-    "Navigation": "f9687b8dc3623704488ee545253f399c532a9b60655840ae60aa9d16262ce6d7"
-  },
-  "teams/swift-ios/v1.0.0/plan/plan.dot": {
-    "Profile": "24ff59bf60b158a83ab647123086d014a03fe517651764e1062e75f77356c407",
-    "Semantic": "9c7f6bb13de74d1b51dff5a525f3d02f5fd48d03cd016dd8b10848d9ee352fd5",
-    "Navigation": "49029dfa5477f76f4397d90c7c3e3b391347786891c05a01769d61d65251af6f"
-  },
-  "teams/swift-ios/v1.0.0/research/research.dot": {
-    "Profile": "121b80f37814380474a065642904217e4f9a6d6ac8600bf07d9c2066f3c18f8e",
-    "Semantic": "c1325984b3c369140ea453e0acf42459fe6b3fa6f1c79d3b5126a58422a710bc",
-    "Navigation": "8f51329d2103476031e1036036a40444d41d6af7a7dc842b578c7879b66d89f2"
-  },
-  "teams/swift-ios/v1.0.0/spike/spike.dot": {
-    "Profile": "7c69bbdc3483548754c681f3b2912ac9b5bd5f6826d072bed9b022672b610f91",
-    "Semantic": "3b0ae1b8e6d979ac9ebcbe2b82d5a36c31a80ddff8f1efd0fba8501407000ffc",
-    "Navigation": "9d87f5709cfbf4d64e4f9554660b66cb759a1bd14d5bc4cf08c236fce9c4a676"
-  },
-  "teams/swift-ios/v1.0.0/validate/validate.dot": {
-    "Profile": "a5e9231dc3676fe7cc37aedc4d15cee2b51b5873681b96f251d8bc59455a663f",
-    "Semantic": "799af91c332daa93e104a43962984af809196067ddaac4dc2c3ba3838f0f841f",
     "Navigation": "e85a4bfe4a809f3eb308b5feed90f707a4a25e1ac16b7de4fc51635ffeb531f7"
   }
 }

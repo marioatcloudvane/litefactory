@@ -59,7 +59,6 @@ func Commands() []*Command {
 
 		newTeamCommand("install"),
 		newTeamCommand("clone"),
-		newTeamCommand("update"),
 		newTeamCommand("list"),
 		newTeamCommand("inspect"),
 		newTeamCommand("remove"),

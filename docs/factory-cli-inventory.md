@@ -25,7 +25,7 @@ provider may still be required. Existing approval gates apply independently.
 | `standards analyze drift` | bare | Local; pinned code analysis and retained evidence | `drift_endtoend_test.go` |
 | `standards analysis` | `list/show/evidence/expire-evidence` | Local; retained analysis inspection and evidence expiration | `drift_endtoend_test.go` |
 | `standards analyze logs` | bare (constructor action `start`); `list/show/reread/recover/file` | Local; bounded log acquisition, analysis, recovery and explicitly requested ticket filing | `log_analysis_endtoend_test.go`, `log_analysis_render_test.go` |
-| `team` | `install/clone/update/list/inspect/remove/link/unlink` | Local; installed immutable team versions and repository bindings | `cmd_team_test.go`, `cmd_team_binding_test.go`, `team_binding_process_test.go`, `team_retirement_io_test.go` |
+| `team` | `install/clone/list/inspect/remove/link/unlink` | Local; team versions installed from `teams/source` and repository bindings | `cmd_team_test.go`, `cmd_team_binding_test.go`, `team_binding_process_test.go`, `team_retirement_io_test.go` |
 | `submission` | `preflight/submit/receipt` | Live attempt descriptor and broker required, rather than remote connector consent; correlation journal and durable result receipt | `cmd_submission_test.go`, `internal/submission/client_test.go`, `internal/submission/broker_test.go` |
 | `mcp` | `serve/logs` | `serve` needs live attempt capability; `logs` uses bounded local evidence; stdio protocol | `cmd_mcp_test.go`, `cmd_mcp_logs_test.go` |
 | `repo` | `add/list/delivery/webhook` | Local; repository registration, delivery settings and legacy webhook setup | `cmd_repo_test.go`, `cmd_repo_webhook_test.go` |

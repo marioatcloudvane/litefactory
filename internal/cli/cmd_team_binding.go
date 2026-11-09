@@ -17,7 +17,7 @@ func newTeamBindingCommand(operation string) *Command {
 	usage := "team unlink [--repo registered-clone-path]"
 	if operation == "link" {
 		args = ArgSpec{Names: []string{"name", "version"}, Min: 2}
-		usage = "team link <name> <version> [--repo registered-clone-path] [--source catalogue-url|local]"
+		usage = "team link <name> <version> [--repo registered-clone-path] [--source installed-source|local]"
 	}
 	cmd := &Command{Name: "team " + operation, Usage: usage, Short: "Select an installed team version for a registered clone", Args: args}
 	cmd.New = func(flags *flag.FlagSet) Handler {
@@ -40,7 +40,7 @@ func teamRemovalGuard(paths config.Paths) func(context.Context, teampackage.Iden
 }
 
 func runTeamBinding(ctx context.Context, env *Env, operation, repoPath, source string, args []string) error {
-	service, err := localteams.New(localteams.Options{Transport: env.TeamTransport})
+	service, err := localteams.New(localteams.Options{})
 	if err != nil {
 		return err
 	}
