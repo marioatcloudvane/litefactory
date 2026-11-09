@@ -66,11 +66,10 @@ func TestAttachmentsSectionCarriesThePathsAndTheirFraming(t *testing.T) {
 	if !strings.Contains(prompt, "/lf/runs/0001.attachments/01-mockup.png") {
 		t.Errorf("the prompt does not name the file the agent is meant to open:\n%s", prompt)
 	}
-	// The framing is the security-relevant half: a screenshot is third-party
-	// material like any comment, and the prompt has to say so or an image
-	// carrying instructions reads as instructions.
-	if !strings.Contains(prompt, "provided by someone else") {
-		t.Errorf("the attachments section does not frame the files as third-party material:\n%s", prompt)
+	// The section sits under its own heading, which the run-rules skill names
+	// as third-party material; the prompt states no rule of its own.
+	if !strings.Contains(prompt, "\n## Attachments\n\n- /lf/runs/0001.attachments/01-mockup.png") {
+		t.Errorf("the attachments section does not carry the files under its heading:\n%s", prompt)
 	}
 }
 

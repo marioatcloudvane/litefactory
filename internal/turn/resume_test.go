@@ -166,7 +166,7 @@ func TestResumedRunSendsTheDeltaPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "- Feature slug: "+testSlug) {
 		t.Errorf("the delta prompt dropped the feature slug, which is the run's insurance (D-3):\n%s", prompt)
 	}
-	for _, unwanted := range []string{testIssueTitle, "- Branch:", "- Working directory:", "feature name or ticket id"} {
+	for _, unwanted := range []string{testIssueTitle, "- Branch:", "- Working directory:"} {
 		if strings.Contains(prompt, unwanted) {
 			t.Errorf("the delta prompt repeats %q, which the conversation has already seen:\n%s", unwanted, prompt)
 		}

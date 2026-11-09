@@ -58,12 +58,12 @@ func seedFailedRunWithReason(
 // The fields are observed indirectly, through the prompt that actually
 // reached the recording runner and through the persisted metadata document
 // (T-5.7's other half): [harness.PromptInput] itself never leaves this
-// package, but [previousRunFailedNote] and the reason text are the only two
+// package, but the previous-run fact and the reason text are the only two
 // things its two new fields can cause to appear.
 func TestPrepareSetsPreviousFailedFields(t *testing.T) {
 	t.Parallel()
 
-	const previousFailedNoteFragment = "did not complete successfully"
+	const previousFailedNoteFragment = "- Previous run: failed"
 
 	tests := []struct {
 		name           string

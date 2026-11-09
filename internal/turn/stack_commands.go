@@ -46,7 +46,7 @@ func stackEngineeringGuidance(req agent.Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "\nAdmitted stack recipes and environment (effective digest " + req.StackProfile.EffectiveDigest + "): " + string(raw) + "\nUse these stack defaults within the assigned story's check scope and existing engineering evidence contract. Record commands actually executed and their outcomes. Existing pinned Bug/Spike recipes and read-only Validate authority remain unchanged.\n", nil
+	return "\nAdmitted stack recipes and environment (effective digest " + req.StackProfile.EffectiveDigest + "; data): " + string(raw) + "\n", nil
 }
 
 func runStackSetup(ctx context.Context, opts Options, req agent.Request, attrs map[string]string) ([]bugchecks.CommandResult, error) {

@@ -50,7 +50,7 @@ func TestStackGuidancePreservesEffectiveRecipeAndPinnedAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, term := range []string{p.EffectiveDigest, `"argv":["tool","test"]`, `"name":"CI","value":"1"`, "pinned Bug/Spike", "read-only Validate"} {
+	for _, term := range []string{p.EffectiveDigest, `"argv":["tool","test"]`, `"name":"CI","value":"1"`} {
 		if !strings.Contains(got, term) {
 			t.Fatal("missing retained contract", term)
 		}

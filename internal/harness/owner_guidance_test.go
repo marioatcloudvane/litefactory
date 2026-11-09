@@ -24,7 +24,7 @@ func TestOwnerGuidanceColdResumedAndWithdrawn(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(prompt, "Earlier standing guidance is withdrawn.") || strings.Contains(prompt, "Use ISO dates.") {
+		if !strings.Contains(prompt, "Standing owner guidance (revision 8)\n\n(cleared)") || strings.Contains(prompt, "Use ISO dates.") {
 			t.Fatalf("withdrawal missing from resume=%v prompt", resume)
 		}
 	}

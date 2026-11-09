@@ -278,7 +278,7 @@ func TestMCPRuntimeApplicationGuidanceSizes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			withoutContract, _, found := strings.Cut(rendered, "\nApplication P example:")
+			withoutContract, _, found := strings.Cut(rendered, "\nApplication P example")
 			if !found {
 				t.Fatal("application payload contract missing")
 			}

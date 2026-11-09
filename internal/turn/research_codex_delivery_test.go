@@ -21,7 +21,7 @@ func TestResearchCodexDeliveryRetainsCompleteMainInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"MAIN_ROLE", "Investigate current sources", researchNodeInstructions, "Ordinary project guidance"} {
+	for _, want := range []string{"MAIN_ROLE", "Investigate current sources", "Skills for this node: evidence"} {
 		if !strings.Contains(string(p.files["main-instructions.md"]), want) {
 			t.Errorf("retained developer instructions omit %q", want)
 		}

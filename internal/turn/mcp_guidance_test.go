@@ -35,24 +35,20 @@ func TestMCPGuidance_RegistrationRequired(t *testing.T) {
 	}
 }
 
-// Each card is rendered exactly when its tools are installed; the tool call it
-// shows is the observable part, its prose is not pinned.
-func TestMCPGuidance_InstalledCards(t *testing.T) {
+// The operation list names exactly the installed tools, and an example is
+// rendered only when its whole route is installed. What the tools are for is
+// in the result-protocol skill; nothing here pins that prose.
+func TestMCPGuidance_InstalledOperations(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name            string
 		tools           []string
 		present, absent []string
 	}{
-		{"lookup list", []string{"issues_list"}, []string{"issues_list({"}, []string{"issues_get({", "issues_comment(", "issues_create_batch(", "activity_update(", "communication_preflight(", "evidence_submit("}},
-		{"lookup get", []string{"issues_get"}, []string{"issues_get({"}, []string{"issues_list({"}},
-		{"comment without receipt", []string{"issues_comment"}, nil, []string{"issues_comment("}},
-		{"authorized comments", []string{"issues_comment", "receipts_get"}, []string{"issues_comment({", "receipts_get"}, []string{"issues_create_batch("}},
-		{"activity update", []string{"activity_update"}, []string{"activity_update({"}, []string{"activity_get({"}},
-		{"activity read", []string{"activity_get"}, []string{"activity_get({"}, []string{"activity_update({"}},
-		{"creation missing preflight", []string{"issues_create_batch", "receipts_get"}, nil, []string{"issues_create_batch("}},
-		{"partial application", []string{"communication_preflight", "communication_submit"}, nil, []string{"communication_preflight(", "```json"}},
-		{"partial checkpoint", []string{"feedback_preflight", "evidence_submit"}, nil, []string{"evidence_submit(", "```json"}},
+		{"lookup list", []string{"issues_list"}, []string{"- issues_list\n"}, []string{"- issues_get\n", "- issues_comment\n", "- communication_preflight\n", "```json"}},
+		{"authorized comments", []string{"issues_comment", "receipts_get"}, []string{"- issues_comment\n", "- receipts_get\n"}, []string{"- issues_list\n"}},
+		{"partial application", []string{"communication_preflight", "communication_submit"}, []string{"- communication_preflight\n"}, []string{"```json"}},
+		{"partial checkpoint", []string{"feedback_preflight", "evidence_submit"}, []string{"- evidence_submit\n"}, []string{"```json"}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -78,24 +74,6 @@ func TestMCPGuidance_InstalledCards(t *testing.T) {
 	}
 }
 
-// Every supported mode adds its own restriction to the shared guidance.
-func TestMCPGuidance_ModeRestrictions(t *testing.T) {
-	t.Parallel()
-	render := func(mode string) string {
-		got, err := mcpGuidance(t.Context(), guidanceSpec(t, "activity_get"), &AgentResultService{binding: store.ResultBinding{Mode: mode}}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return got
-	}
-	base := render("")
-	for _, mode := range []string{"validate", "implement", "research", "spike"} {
-		if got := render(mode); !strings.HasPrefix(got, base) || len(got) == len(base) {
-			t.Errorf("%s guidance carries no mode restriction", mode)
-		}
-	}
-}
-
 func TestMCPGuidance_CheckpointContract(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct{ mode, stage string }{{"implement", "engineering"}, {"validate", "validate"}} {
@@ -106,13 +84,8 @@ func TestMCPGuidance_CheckpointContract(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Count(got, "```json\n") != 1 || strings.Contains(got, "Application P example:") {
+			if strings.Count(got, "```json\n") != 1 || strings.Contains(got, "Application P example") {
 				t.Fatal("guidance must supply one relevant checkpoint contract")
-			}
-			for _, want := range []string{"Application results:", "communication_preflight(P) → communication_submit(P) → communication_receipt", `feedback_preflight({"kind":"checkpoint","input":C}) → evidence_submit(C) → receipts_get`, "separately from application result P", "partial live checkpoints never excuse omissions"} {
-				if !strings.Contains(got, want) {
-					t.Errorf("missing operation separation %q", want)
-				}
 			}
 			_, tail, ok := strings.Cut(got, "```json\n")
 			if !ok {

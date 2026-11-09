@@ -1,6 +1,7 @@
 ---
 name: spike-result
 description: Submit a Spike result in one of its two shapes, a question for the owner or a finished report.
+requires: [run-rules, result-protocol]
 ---
 Deliver your result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request. Do not print a JSON result; terminal text is never read as a result. The factory posts your `comment` as written, so write it for the owner.
 

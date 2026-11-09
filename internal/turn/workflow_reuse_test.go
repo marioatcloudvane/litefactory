@@ -50,7 +50,6 @@ func workflowReusePolicy() WorkflowPolicy {
 			}
 			return node, agentresult.ValidateResult(node.Result, scope)
 		},
-		Guidance: "Use the Plan application contract; private envelope responses are question and ready.",
 		Contract: func(source store.GraphNodeAttempt, kind string, r agentresult.Result, scope agentresult.Context) error {
 			d := agentresult.ValidateResult(r, scope)
 			if !d.Valid || !d.Complete {

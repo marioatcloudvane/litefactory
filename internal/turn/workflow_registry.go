@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/agent"
-	"strings"
 )
 
 // RegisteredWorkflowPolicies is the closed registry of every shipped mode policy.
@@ -38,9 +37,6 @@ func (p WorkflowPolicy) Admit() error {
 	}
 	if p.Handlers != nil && p.Handlers.Prepare == nil {
 		faults = append(faults, errors.New("policy handlers prepare no invocation, so nothing binds the shared result service"))
-	}
-	if strings.TrimSpace(p.Guidance) == "" {
-		faults = append(faults, errors.New("policy carries no agent guidance for the shared result route"))
 	}
 	if p.Handlers != nil && (p.Failure == nil || p.Render == nil) {
 		faults = append(faults, errors.New("policy with its own handlers defines no failure comment content builder and renderer, so its failures would not reach the owner"))
