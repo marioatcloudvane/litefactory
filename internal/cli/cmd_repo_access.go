@@ -71,7 +71,7 @@ func runRepoAccess(ctx context.Context, env *Env, cmd *Command, action, text, fi
 			return Usagef(cmd, "give exactly one of --text or --file")
 		}
 		if file != "" {
-			raw, e := os.ReadFile(file)
+			raw, e := os.ReadFile(file) // #nosec G304 -- the local operator explicitly selects this grant text file.
 			if e != nil {
 				return Usagef(cmd, "cannot read --file: %v", e)
 			}
