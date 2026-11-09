@@ -94,7 +94,7 @@ func (s *Service) bind(ctx context.Context, request contracts.TeamBindingRequest
 	if err != nil {
 		return err
 	}
-	manager, err := teampackage.New(teampackage.Options{Paths: s.paths, Validate: ValidatePackage, Transport: s.transport, InUse: RemovalGuard(s.paths)})
+	manager, err := s.manager(nil)
 	if err != nil {
 		return err
 	}

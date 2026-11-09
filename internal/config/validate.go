@@ -115,7 +115,7 @@ func (c *Config) Validate() error {
 	var errs []error
 	errs = append(errs, c.validateJudge()...)
 	errs = append(errs, c.Standards.validate()...)
-	if _, err := NormalizeTeamSource(c.Settings.TeamSource); err != nil {
+	if _, err := NormalizeTeamSource(c.Settings.TeamSource); c.Settings.TeamSource != "" && err != nil {
 		errs = append(errs, err)
 	}
 	errs = append(errs, c.Webhook.validate()...)
