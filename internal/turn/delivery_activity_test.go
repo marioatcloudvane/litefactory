@@ -252,6 +252,33 @@ func TestDeliveryPreparationNeverMergesOrCloses(t *testing.T) {
 	}
 }
 
+// A done result that changed nothing posts its report and opens no PR, even
+// when the base moved on while the agent ran: a branch whose head is already
+// contained in its base has nothing to deliver.
+func TestDeliveryWithoutChangesOnAMovedBaseOpensNoPR(t *testing.T) {
+	var f *fixture
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		f.repo.WriteFile("base-change.txt", "base moved while the agent ran\n")
+		f.repo.Commit("Advance base during the run")
+		f.repo.Git("push", "origin", "main")
+		submitLiveResult(t, req, spikeDoneJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, FinishedAt: time.Now()}, nil
+	})
+	fixture, _, req := assembledSpikeFixture(t, runner)
+	f = fixture
+	f.opts.WorkflowSource = deliveryWorkflowSource
+	remote := &graphDeliveryForge{issue: github.Issue{ID: 123, Number: 123, State: "open"}}
+	f.opts.DeliveryCode, f.opts.DeliveryTickets = remote, remote
+	_, err := Execute(t.Context(), f.opts, req)
+	mustProgress(t, err)
+	if remote.creates != 0 || remote.merges != 0 || remote.closes != 0 {
+		t.Fatalf("an unchanged result reached delivery: creates=%d merges=%d closes=%d", remote.creates, remote.merges, remote.closes)
+	}
+	if instance := spikeInstance(t, f); instance.Status != store.GraphSucceeded {
+		t.Fatalf("an unchanged result did not finish with its report: %+v", instance)
+	}
+}
+
 const deliveryOperationFixture = `// One conversational agent authors checked results. Generic factory delivery
 // prepares changed candidates, waits for an exact authenticated ship reply,
 // and merges/closes only the reviewed commit. Source changes return for checks.
