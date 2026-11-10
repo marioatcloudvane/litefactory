@@ -98,6 +98,9 @@ func ResolveSource(ctx context.Context, root *os.Root, source, slug string) (map
 	if err != nil {
 		return nil, err
 	}
+	if err := addSharedSkills(root, baseDir, baseFiles); err != nil {
+		return nil, err
+	}
 	childFiles, err := ownFiles(ctx, root, source, false)
 	if err != nil {
 		return nil, err
@@ -261,6 +264,42 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 		}
 	}
 	return files, nil
+}
+
+// SharedSkillsDir is the base folder whose skills every workflow receives. Each
+// shared skill exists once in teams/source; resolution copies it as it is into
+// <workflow>/skills/ of every workflow, where the workflow's own skills can
+// require it like any other skill.
+const SharedSkillsDir = "shared/skills"
+
+// addSharedSkills copies the base's shared skills into every workflow folder of
+// files. A workflow that already holds a file at a shared path is refused: the
+// shared copy must be the only source of that skill.
+func addSharedSkills(root *os.Root, baseDir string, files map[string][]byte) error {
+	dir := baseDir + "/" + SharedSkillsDir
+	if _, err := root.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	shared, err := sourceTree(root, dir)
+	if err != nil {
+		return err
+	}
+	var faults []string
+	for _, w := range sourceWorkflows {
+		for name, raw := range shared {
+			p := w + "/skills/" + name
+			if _, exists := files[p]; exists {
+				faults = append(faults, fmt.Sprintf("%s/%s: collides with shared skill file %s/%s", baseDir, p, dir, name))
+				continue
+			}
+			files[p] = raw
+		}
+	}
+	if len(faults) > 0 {
+		slices.Sort(faults)
+		return errors.New(strings.Join(faults, "\n"))
+	}
+	return nil
 }
 
 var sourceWorkflows = []string{"bug", "implement", "plan", "research", "spike", "validate"}

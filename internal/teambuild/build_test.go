@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/teampackage"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // Every shipped team builds from teams/source, and the same source always
@@ -93,7 +94,7 @@ func TestBaseIsNotATeam(t *testing.T) {
 
 // A child that only sets the base variables and adds its own stack files
 // builds the current base inventory plus those files; base metadata is not
-// installed.
+// installed, and each shared skill lands in every workflow.
 func TestBaseTeamChildBuildsCurrentBaseInventory(t *testing.T) {
 	dir := filepath.Join(canonicalTemp(t), "teams", "source")
 	base := snapshot(t, filepath.Join(repoSource(), "base-team"))
@@ -113,6 +114,13 @@ func TestBaseTeamChildBuildsCurrentBaseInventory(t *testing.T) {
 	}
 	want := map[string]bool{"team.config": true}
 	for name := range base {
+		if shared, ok := strings.CutPrefix(name, teamsource.SharedSkillsDir+"/"); ok {
+			// A shared skill is installed into every workflow, not as itself.
+			for _, w := range Workflows {
+				want[w+"/skills/"+shared] = true
+			}
+			continue
+		}
 		if name != "base.json" {
 			want[name] = true
 		}
