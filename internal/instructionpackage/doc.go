@@ -5,7 +5,8 @@
 // merge-conflict-advisor, schedule-proposal-advisor, mode-classifier, the
 // chat-draft role, and the response-only standards-author role with its
 // retained response schema. The task advisory role selects a factory-fixed
-// skill.
+// skill. The access-classifier role judges one grantee request against its
+// plain-text grant.
 // Change the shipped version whenever shipped bytes change. Agent names are
 // lowercase words joined by hyphens, without extensions, and select only
 // agents/<name>.md.

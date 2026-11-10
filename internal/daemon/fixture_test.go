@@ -1212,6 +1212,7 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.Now != nil {
 		opts.Now = overrides.Now
 	}
+	opts.Access, opts.AccessWorkflows = overrides.Access, overrides.AccessWorkflows
 	if overrides.DB != nil {
 		opts.DB = overrides.DB
 	}
