@@ -21,7 +21,7 @@ func (d *Daemon) prepareBrainstorm(judge *turn.JudgeService, sanitizer *redact.R
 	if d.remoteConnector == nil || d.remoteConnector.actions == nil || d.remoteConnector.actions.workflows == nil {
 		return nil
 	}
-	invocation, err := judge.Config.ResolveJudge(config.JudgeOptions{}, "", "")
+	invocation, err := factoryAdvisoryInvocation(judge.Config)
 	if err != nil {
 		return err
 	}
@@ -67,6 +67,28 @@ func (d *Daemon) prepareBrainstorm(judge *turn.JudgeService, sanitizer *redact.R
 	d.remoteConnector.server.SetBrainstorm(service)
 	d.remoteConnector.actions.brainstormDrafts.bind(service)
 	return nil
+}
+
+// reportBrainstormUnavailable tells the connector why brainstorm is off, so
+// clients are told the reason instead of inferring a permissions problem.
+func (d *Daemon) reportBrainstormUnavailable(ctx context.Context, cause error, sanitizer *redact.Redactor) {
+	if d.remoteConnector == nil || d.remoteConnector.server == nil || cause == nil {
+		return
+	}
+	reason := "brainstorm setup failed"
+	if b, err := sanitizer.Apply(ctx, cause.Error(), 4096); err == nil && !b.Truncated() && b.String() != "" {
+		reason = b.String()
+	}
+	d.remoteConnector.server.SetBrainstormUnavailable(reason)
+}
+
+// factoryAdvisoryInvocation resolves the agent for factory-level advisory runs
+// (brainstorm scans, task discussion) that have no task of their own. An
+// explicit judge.agent wins; without one they use the factory's default agent,
+// the one ordinary runs use.
+func factoryAdvisoryInvocation(cfg *config.Config) (config.JudgeInvocation, error) {
+	defaultAgent, _ := cfg.DefaultAgent()
+	return cfg.ResolveJudge(config.JudgeOptions{}, defaultAgent, "")
 }
 
 // brainstormConsent checks the principal's live grant holds repository:brainstorm for the repository.
