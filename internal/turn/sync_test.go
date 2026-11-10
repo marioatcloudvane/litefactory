@@ -429,3 +429,43 @@ func TestSyncBaseNeverTouchesOriginAcrossEveryOutcome(t *testing.T) {
 		})
 	}
 }
+
+// A branch has nothing to deliver when it carries no change of its own against
+// its base: still at the base tip, cut from an older base that has moved on, or
+// holding only merges of the base. Only a branch with its own change delivers.
+func TestBranchUnchangedAgainstItsBase(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		make func(*gittest.Repo, *git.Worktree)
+		want bool
+	}{
+		{"at base", func(*gittest.Repo, *git.Worktree) {}, true},
+		{"base moved on", func(r *gittest.Repo, _ *git.Worktree) { advanceSyncBase(t, r, 1) }, true},
+		{"only a base merge", func(r *gittest.Repo, w *git.Worktree) {
+			advanceSyncBase(t, r, 1)
+			r.GitIn(w.Path(), "merge", "--no-ff", "--quiet", "--no-edit", "origin/"+gittest.DefaultBranch)
+		}, true},
+		{"own change", func(r *gittest.Repo, w *git.Worktree) { commitInSyncDir(t, r, w.Path(), "fix.txt", "fix") }, false},
+		{"own change on a moved base", func(r *gittest.Repo, w *git.Worktree) {
+			commitInSyncDir(t, r, w.Path(), "fix.txt", "fix")
+			advanceSyncBase(t, r, 1)
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			repo := gittest.New(t)
+			w := newSyncWorktree(t, repo, 42, "unchanged branch")
+			tc.make(repo, w)
+			head := repo.GitIn(w.Path(), "rev-parse", "HEAD")
+			base := repo.GitIn(w.Path(), "rev-parse", "origin/"+gittest.DefaultBranch)
+			got, err := branchUnchanged(t.Context(), w, head, base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("branchUnchanged = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

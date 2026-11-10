@@ -26,6 +26,27 @@ type DeliveryActivity struct {
 
 var errDeliveryCandidateChanged = errors.New("reviewed source or base changed")
 
+// branchUnchanged reports that the saved branch head has nothing to deliver
+// against base: it is base, is already contained in base (the branch was cut
+// from an older base and made no commit) or has the same tree as base (it holds
+// only merges of base). Comparing commit identity alone would open an
+// empty pull request whenever the base moved on during the run.
+func branchUnchanged(ctx context.Context, tree *git.Worktree, head, base string) (bool, error) {
+	if head == base {
+		return true, nil
+	}
+	contained, err := tree.IsAncestor(ctx, head, base)
+	if err != nil || contained {
+		return contained, err
+	}
+	headTree, err := tree.RevParse(ctx, head+"^{tree}", git.RevParseOptions{})
+	if err != nil {
+		return false, err
+	}
+	baseTree, err := tree.RevParse(ctx, base+"^{tree}", git.RevParseOptions{})
+	return err == nil && headTree == baseTree, err
+}
+
 func registerDelivery(specs *graphexec.Registry, activities *ActivityRegistry, w *researchWorkflow) error {
 	if _, exists := activities.Resolve(graphexec.DeliverAction); exists {
 		return nil
@@ -166,6 +187,7 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 		tickets = opts.DeliveryTickets
 	}
 	var head string
+	unchanged := false
 	expectedPR := 0
 	switch operation {
 	case "push":
@@ -190,12 +212,16 @@ func (h DeliveryActivity) Execute(ctx context.Context, opts Options, req Activit
 				return e
 			}
 			binding.BaseCommit, e = tree.RevParse(ctx, "refs/remotes/"+opts.remote()+"/"+binding.Target, git.RevParseOptions{})
+			if e != nil {
+				return e
+			}
+			unchanged, e = branchUnchanged(ctx, tree, head, binding.BaseCommit)
 			return e
 		})
 		if err != nil {
 			return finish("blocked", err.Error())
 		}
-		if head == binding.BaseCommit {
+		if unchanged {
 			return finish("unchanged", "No branch changes to deliver")
 		}
 	case "merge", "close":
