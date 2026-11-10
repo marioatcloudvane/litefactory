@@ -9,6 +9,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -85,7 +86,7 @@ func TestNoticeQuestionExplainsMissingConversationBinding(t *testing.T) {
 	var logs bytes.Buffer
 	c, err := New(Options{Storage: db, Factory: factory.NewMessaging(db), Logger: slog.New(slog.NewTextHandler(&logs, nil)), AlertControls: true,
 		Credentials:   Credentials{Settings: config.DiscordChat{PublicKey: strings.Repeat("ab", 32), OwnerID: "7", ChannelIDs: []string{"3", "4"}}, Token: secrets.NewToken("private-token"), APIURL: api.URL, Client: api.Client()},
-		Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "chat", Provider: "claude", Model: "test"}}, StateRoot: t.TempDir()},
+		Conversations: &messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "chat", Provider: "claude", Model: "test"}}, StateRoot: t.TempDir()},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +190,7 @@ func TestBoundQuestionsPreserveTextAndReplay(t *testing.T) {
 				provider := &diagnosticProvider{}
 				c, err := New(Options{Storage: db, Factory: factory.NewMessaging(db), Logger: logger, AlertControls: controls,
 					Credentials:   Credentials{Settings: config.DiscordChat{PublicKey: strings.Repeat("ab", 32), OwnerID: "7", ChannelIDs: []string{"3", "4"}}, Token: secrets.NewToken("private-token"), APIURL: api.URL, Client: api.Client()},
-					Conversations: &messaging.ConversationOptions{StateRoot: t.TempDir(), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "chat", Provider: "claude", Model: "fixture"}}, Providers: map[string]messaging.ConversationProvider{"claude": provider}},
+					Conversations: &messaging.ConversationOptions{Instructions: factorylibtest.Library(t), StateRoot: t.TempDir(), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "chat", Provider: "claude", Model: "fixture"}}, Providers: map[string]messaging.ConversationProvider{"claude": provider}},
 				})
 				if err != nil {
 					t.Fatal(err)

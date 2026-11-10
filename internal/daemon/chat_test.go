@@ -18,6 +18,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -207,7 +208,7 @@ func TestChatWarnsWhenNoticesShareConversationChannel(t *testing.T) {
 			w.daemon = w.newDaemon(daemon.Options{
 				Logger:  slog.New(slog.NewJSONHandler(w.logs, nil)),
 				Webhook: &daemon.WebhookOptions{Listener: w.ln, Secrets: secrets.Resolver{Keychain: w.spy.lookup}, Now: w.clock.peek},
-				Chat:    &daemon.ChatOptions{Settings: config.DiscordChat{ApplicationID: "1", PublicKey: hex.EncodeToString(public), OwnerID: "2", ChannelIDs: []string{"3"}, NoticeChannelID: channel}, Token: secrets.NewToken("fixture-token"), Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3"}}}},
+				Chat:    &daemon.ChatOptions{Settings: config.DiscordChat{ApplicationID: "1", PublicKey: hex.EncodeToString(public), OwnerID: "2", ChannelIDs: []string{"3"}, NoticeChannelID: channel}, Token: secrets.NewToken("fixture-token"), Conversations: &messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3"}}}},
 			})
 			records := dispatchRecords(t, w.logs, "Discord notices and conversation share a channel; separate notices may interleave with replies")
 			if channel == "3" {

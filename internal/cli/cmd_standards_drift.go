@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/drift"
 	"github.com/cloudvane/litefactory/internal/factory/localstandards"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -261,7 +262,11 @@ func configureDriftCLI(ctx context.Context, service *localstandards.Drift, rt *r
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
 		runner, e := harness.New(harness.Options{Paths: rt.paths, Claude: *cfg.Agents.Claude, Model: model, Environ: os.Environ(), Logger: env.Logger, ThinkingLogs: cfg.Settings.ThinkingLogs})
 		if e == nil {
-			service.ConfigureRunner(&drift.Provider{Runner: runner, Model: model, Directory: os.TempDir(), Executable: executable}, "")
+			role, e := factorylib.CaptureRole(ctx, factorylib.NewInstalled(rt.paths), factorylib.DriftAnalyst)
+			if e != nil {
+				return e
+			}
+			service.ConfigureRunner(&drift.Provider{Runner: runner, Model: model, Directory: os.TempDir(), Executable: executable, Role: role.Instructions()}, "")
 		}
 	}
 	return nil

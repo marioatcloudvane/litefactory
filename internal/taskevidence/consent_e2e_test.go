@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"io"
 	"log/slog"
 	"net/http"
@@ -87,7 +88,7 @@ func TestOwnerConsentTaskEvidence(t *testing.T) {
 	cfg.GitHubSecretRef.Env = "TEST_GITHUB_SECRET"
 	cfg.CookieSecretRef.Env = "TEST_COOKIE_SECRET"
 	service := taskevidence.New(db, redact.New(redact.Options{Environ: []string{}}), func() time.Time { return now })
-	server, err := connector.New(ctx, connector.Options{Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return now }, LocalControl: local, TaskEvidence: service, GitHub: ownerIdentity{}, CookieKey: bytes.Repeat([]byte{8}, 32)})
+	server, err := connector.New(ctx, connector.Options{Guidance: factorylibtest.Connector(), Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return now }, LocalControl: local, TaskEvidence: service, GitHub: ownerIdentity{}, CookieKey: bytes.Repeat([]byte{8}, 32)})
 	if err != nil {
 		t.Fatal(err)
 	}

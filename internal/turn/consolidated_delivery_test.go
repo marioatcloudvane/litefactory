@@ -33,7 +33,7 @@ func TestConsolidatedWorkflowVerifiedLaunchDelivery(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if d.Profile.Team != "go-development" {
+			if want := map[bool]string{true: "factory", false: "go-development"}[w == agent.WorkflowDoctor]; d.Profile.Team != want {
 				t.Fatal("wrong current-source identity")
 			}
 			for name, node := range d.Nodes {

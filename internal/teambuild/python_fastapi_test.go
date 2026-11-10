@@ -53,7 +53,7 @@ func TestPythonFastAPICaptureForBothProvidersAndReplay(t *testing.T) {
 	retained := teamsource.RetainedFiles{}
 	err := manager.WithCatalogue(t.Context(), func(access *teampackage.CatalogueAccess) error {
 		return access.WithSelected(t.Context(), identity(source), pythonTeam, version, func(selected teampackage.Installed, files fs.FS) error {
-			if !reflect.DeepEqual(selected.Identity, installed.Identity) || !selected.Integrity || len(selected.Workflows) != 7 {
+			if !reflect.DeepEqual(selected.Identity, installed.Identity) || !selected.Integrity || len(selected.Workflows) != 6 {
 				t.Fatal("exact linked selection lost release identity or integrity")
 			}
 			for _, f := range selected.Release.Files {

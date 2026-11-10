@@ -67,6 +67,8 @@ func TestGraphShippedDOTScope(t *testing.T) {
 			allowed["../../teams/source/"+team.Name()+"/"+workflow+"/"+workflow+".dot"] = true
 		}
 	}
+	// The factory library holds the Doctor graph, which no team carries.
+	allowed["../../teams/source/factory/doctor/doctor.dot"] = true
 	err = filepath.WalkDir(filepath.Join("..", ".."), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"io"
 	"log/slog"
 	"net/http"
@@ -90,7 +91,7 @@ func TestConnectorLocalRevocationMainPath(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		server, err := connector.New(t.Context(), connector.Options{Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: logger, LocalControl: local, Now: func() time.Time { return now }, CookieKey: bytes.Repeat([]byte{7}, 32), GitHubSecret: "unused-test-secret"})
+		server, err := connector.New(t.Context(), connector.Options{Guidance: factorylibtest.Connector(), Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: logger, LocalControl: local, Now: func() time.Time { return now }, CookieKey: bytes.Repeat([]byte{7}, 32), GitHubSecret: "unused-test-secret"})
 		if err != nil {
 			t.Fatal(err)
 		}

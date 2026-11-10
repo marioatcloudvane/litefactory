@@ -1509,7 +1509,7 @@ func (f *fixture) healthListener() store.ListenerStatus {
 // newLowDiskDaemon rebuilds the fixture daemon with the free-disk guard.
 func (f *fixture) newLowDiskDaemon(minFree uint64, read func(string) (uint64, error)) *daemon.Daemon {
 	f.t.Helper()
-	d, err := daemon.New(daemon.Options{
+	d, err := daemon.New(daemon.Options{ModeRole: baseTeamModeRole,
 		DefaultAgent:     agent.Kind(store.AgentClaude),
 		ToolProfiles:     config.DefaultToolProfiles().Permissions,
 		Agents:           turn.RunnerSet{agent.Kind(store.AgentClaude): nil},

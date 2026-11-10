@@ -15,7 +15,7 @@
 // repair on the task branch is pushed, reviewed and merged only on the owner's
 // "ship".
 digraph doctor {
- graph [team="{{team}}", mode="doctor", profile_version="2", start="doctor"];
+ graph [team="factory", mode="doctor", profile_version="2", start="doctor"];
 
  doctor   [lf_action="lf_agent", lf_agent_markdown="doctor", lf_skills="doctor-result", lf_access="write", lf_response="result", lf_outcomes="ask,done,failed"];
  prepare  [lf_action="lf_deliver", lf_operation="push", lf_source="doctor", lf_outcomes="ready,unchanged,revalidate,blocked", lf_park="owner", lf_stop="blocked,failed,invalid,exhausted"];

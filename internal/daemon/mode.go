@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -99,13 +98,22 @@ func (d *Daemon) classifyMode(ctx context.Context, t *task, instruction string) 
 	if classifier == nil {
 		return "", fmt.Errorf("default agent %q has no mode classifier", d.defaultAgent)
 	}
-	capture, err := instructionpackage.CaptureRole(ctx, d.instructions, d.instructionPaths, t.log, "mode-classifier")
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	read := d.modeRole
+	if read == nil {
+		read = repositoryModeClassifier(d.instructionPaths, d.db)
+	}
+	// The role bytes are read once per invocation and held in memory until the
+	// stateless classification returns; a team reinstall reaches the next one.
+	role, err := read(ctx, t.repo)
 	if err != nil {
 		return "", err
 	}
 	return classifier.Classify(ctx, agent.Classification{
 		WorkingDirectory: t.repo.Path,
-		Prompt:           classificationPrompt(string(capture.Instructions()), t.issue.Title, t.issue.Body, instruction),
+		Prompt:           classificationPrompt(string(role), t.issue.Title, t.issue.Body, instruction),
 	})
 }
 

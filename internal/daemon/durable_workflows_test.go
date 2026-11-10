@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/loganalysis"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/owneraction"
@@ -75,7 +76,7 @@ func newDurableDaemonFixture(t *testing.T) *durableDaemonFixture {
 func (f *durableDaemonFixture) compose(t *testing.T) {
 	t.Helper()
 	book := &standards.Service{Store: f.db, OwnerID: 7}
-	f.adapter = &ConversationStandards{DB: f.db, Book: book, Authoring: &standards.Authoring{Store: f.db, Book: book, Runner: f.runner, Projects: authorPins{}}, OwnerID: "17", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
+	f.adapter = &ConversationStandards{DB: f.db, Book: book, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: f.db, Book: book, Runner: f.runner, Projects: authorPins{}}, OwnerID: "17", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 	registry, err := installedWorkflows(nil)
 	if err != nil {
 		t.Fatal(err)

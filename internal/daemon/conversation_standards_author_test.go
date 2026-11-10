@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/standards"
@@ -33,7 +34,7 @@ func TestConfirmedAuthoringIsScopedToTheProjectAndPostsItsDraft(t *testing.T) {
 	calls := authorCalls(make(chan standards.AuthoringCall, 1))
 	book := &standards.Service{Store: f.adapter.DB, OwnerID: 7}
 	f.adapter.Book = book
-	f.adapter.Authoring = &standards.Authoring{Store: f.adapter.DB, Book: book, Projects: authorPins{}, Runner: calls}
+	f.adapter.Authoring = &standards.Authoring{Instructions: factorylibtest.Library(t), Store: f.adapter.DB, Book: book, Projects: authorPins{}, Runner: calls}
 	request := func(op, message string, args map[string]string) messaging.StandardsRequest {
 		return messaging.StandardsRequest{Operation: op, Arguments: args, Transport: "discord", OwnerID: "7", ChannelID: "3", MessageID: message, OperationKey: "discord:3:nl-exec:" + message, At: time.Now().UTC()}
 	}
@@ -93,7 +94,7 @@ func newAuthorFlow(t *testing.T, db *store.DB) *authorFlow {
 	t.Cleanup(f.wg.Wait)
 	t.Cleanup(stop)
 	book := &standards.Service{Store: db, OwnerID: 7}
-	f.adapter = &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: f.author}, Analyses: analyses, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
+	f.adapter = &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: f.author}, Analyses: analyses, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 	return f
 }
 
@@ -218,7 +219,7 @@ func TestStartWithoutBackgroundClaimsNoRun(t *testing.T) {
 	db := authorDB(t)
 	book := &standards.Service{Store: db, OwnerID: 7}
 	author := gatedAuthor{calls: make(chan standards.AuthoringCall, 1), release: make(chan struct{})}
-	adapter := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: author}, Analyses: &ConversationAnalyses{DB: db}, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
+	adapter := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: author}, Analyses: &ConversationAnalyses{DB: db}, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 	out, err := adapter.Execute(t.Context(), authorRequest("author.start", "nl-exec:start", map[string]string{"action": "start", "intent": "Tests stay fast"}))
 	if err != nil || strings.Contains(out.Text, "working") || strings.Contains(out.Text, "I'll post") || !strings.Contains(out.Text, "again") {
 		t.Fatalf("start claims a run that did not start: %+v %v", out, err)

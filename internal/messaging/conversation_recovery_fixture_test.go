@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -57,7 +58,7 @@ func TestConversationUnfinishedLaunchRecovery(t *testing.T) {
 				s := messaging.New(db, "discord", "7", []string{"3"}, send, messaging.FactoryStatus{DB: db})
 				s.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 				adapter = conversationAdapter(t, provider, executable, root)
-				err := s.EnableConversations(ctx, messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "recovery", Provider: provider, Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{provider: adapter}, CheckAccess: func(context.Context, string) error { return nil }}, at)
+				err := s.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "recovery", Provider: provider, Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{provider: adapter}, CheckAccess: func(context.Context, string) error { return nil }}, at)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -241,7 +242,7 @@ func TestConversationTransientProbeCompletesOriginalTurn(t *testing.T) {
 					service := messaging.New(db, "discord", "7", []string{"3"}, sender, messaging.FactoryStatus{DB: db})
 					service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 					runner := conversationAdapter(t, provider, executable, root)
-					if err = service.EnableConversations(ctx, messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: provider, Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{provider: runner}, CheckAccess: func(context.Context, string) error { return nil }, Factory: factory}, at); err != nil {
+					if err = service.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: provider, Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{provider: runner}, CheckAccess: func(context.Context, string) error { return nil }, Factory: factory}, at); err != nil {
 						t.Fatal(err)
 					}
 					if err = os.WriteFile(executable+".armed", nil, 0600); err != nil {

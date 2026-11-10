@@ -95,8 +95,8 @@ type Store interface {
 // a "could not be checked" refusal.
 type Facts func(ctx context.Context, repo store.Repo, target Target) (TargetFacts, error)
 
-// Role returns the installed team's access-classifier role text, or "" when
-// the team has none, so the runner falls back to the factory default.
+// Role returns the installed team's access-classifier role text. An unlinked
+// repository or a team without the file is an error (no factory default).
 type Role func(ctx context.Context, repo store.Repo) (string, error)
 
 // Gate is the access check. Build it with every field set.

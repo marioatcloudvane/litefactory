@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -67,7 +68,7 @@ func TestConversationDeliveryRetryPreservesOrderAndSavedBytes(t *testing.T) {
 	sender := &orderedConversationSender{}
 	service := messaging.New(db, "discord", "7", []string{"3", "4"}, sender, messaging.FactoryStatus{DB: db})
 	service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
-	if err = service.EnableConversations(ctx, messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "first", Provider: "claude", Model: "fixture"}, {Channel: "4", Name: "second", Provider: "claude", Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }}, at); err != nil {
+	if err = service.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "first", Provider: "claude", Model: "fixture"}, {Channel: "4", Name: "second", Provider: "claude", Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }}, at); err != nil {
 		t.Fatal(err)
 	}
 	for _, channel := range []string{"3", "4"} {
@@ -147,7 +148,7 @@ func TestConversationAccessThrottleBeforeLaunchDefersInput(t *testing.T) {
 	service := messaging.New(db, "discord", "7", []string{"3", "4"}, &journeySender{}, messaging.FactoryStatus{DB: db})
 	service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 	checks := 0
-	if err = service.EnableConversations(ctx, messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "first", Provider: "claude", Model: "fixture"}, {Channel: "4", Name: "second", Provider: "claude", Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(_ context.Context, channel string) error {
+	if err = service.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "first", Provider: "claude", Model: "fixture"}, {Channel: "4", Name: "second", Provider: "claude", Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(_ context.Context, channel string) error {
 		if channel == "3" {
 			checks++
 			if checks == 3 {

@@ -142,7 +142,7 @@ func TestFactoryCoreTicketMainPathWithoutOptionalTransports(t *testing.T) {
 				filter, e := turn.NewFilter(db, turn.Identities{OwnerUserID: actorID, BotUserID: botID, TicketOrigin: origin}, logger)
 				check(e)
 				executor.db = db
-				d, e := New(Options{DB: db, Forge: codeClients.Code, Tickets: startup, Connections: factory, Filter: filter, Turn: executor, Reporter: reporter, DefaultAgent: "claude", Agents: turn.RunnerSet{"claude": nil}, Classifiers: map[agent.Kind]agent.Classifier{"claude": explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions, Logger: logger, InstanceID: "factory-core-main-path"})
+				d, e := New(Options{ModeRole: testModeRole, DB: db, Forge: codeClients.Code, Tickets: startup, Connections: factory, Filter: filter, Turn: executor, Reporter: reporter, DefaultAgent: "claude", Agents: turn.RunnerSet{"claude": nil}, Classifiers: map[agent.Kind]agent.Classifier{"claude": explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions, Logger: logger, InstanceID: "factory-core-main-path"})
 				check(e)
 				if d.chat != nil || d.remoteConnector != nil {
 					t.Fatal("ticket path constructed an optional transport")

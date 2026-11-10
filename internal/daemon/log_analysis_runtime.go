@@ -97,7 +97,7 @@ func newConversationAnalyses(s Setup, connections *projectconnection.Factory, sh
 		return nil, err
 	}
 	model, _ := s.Config.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
-	logs := &loganalysis.Service{DB: s.DB, Redactor: sharedRedactor, RunsRoot: s.Paths.RunsDir(), Executable: executable, Model: model, DisableMCP: !s.Config.Settings.MCPAutoStart, Git: gitBinary}
+	logs := &loganalysis.Service{DB: s.DB, Library: s.Library, Redactor: sharedRedactor, RunsRoot: s.Paths.RunsDir(), Executable: executable, Model: model, DisableMCP: !s.Config.Settings.MCPAutoStart, Git: gitBinary}
 	if kind, ok := s.Config.DefaultAgent(); ok && kind == config.Kind("claude") && s.Config.Agents.Claude != nil {
 		caches, e := s.Paths.ResolveGoBuildCaches(s.Config.Settings)
 		if e != nil {

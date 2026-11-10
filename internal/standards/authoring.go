@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -46,10 +46,11 @@ type AuthoringStore interface {
 
 // Authoring coordinates durable drafts without approval or publication authority.
 type Authoring struct {
-	Store        AuthoringStore
-	Book         *Service
-	Runner       AuthoringRunner
-	Instructions *instructionpackage.Package
+	Store  AuthoringStore
+	Book   *Service
+	Runner AuthoringRunner
+	// Instructions is the factory library the author role is captured from.
+	Instructions factorylib.Source
 	// Projects pins the project a session is scoped to.
 	Projects interface {
 		Pin(context.Context, int64) (projectread.Project, error)
@@ -311,14 +312,7 @@ func (s *Authoring) Start(ctx context.Context, in AuthoringStart) (AuthoringSess
 			return v, fmt.Errorf("%w: unknown edit target", store.ErrNotFound)
 		}
 	}
-	instructions := s.Instructions
-	if instructions == nil {
-		instructions, e = instructionpackage.LoadShipped(ctx, "")
-		if e != nil {
-			return v, e
-		}
-	}
-	capture, _, e := instructions.Capture(ctx, "standards-author")
+	capture, e := factorylib.CaptureRole(ctx, s.Instructions, factorylib.StandardsAuthor)
 	if e != nil {
 		return v, e
 	}
@@ -326,9 +320,8 @@ func (s *Authoring) Start(ctx context.Context, in AuthoringStart) (AuthoringSess
 	if e != nil {
 		return v, e
 	}
-	meta := capture.Snapshot()
-	v.RoleVersion = meta.ShippedVersion
-	v.RoleDigest = meta.EffectiveDigest
+	v.RoleVersion = capture.Library()
+	v.RoleDigest = capture.Digest()
 	if e = authorCategories(base, in.CategoryIDs); e != nil {
 		return v, e
 	}
@@ -754,19 +747,16 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 	}
 	ctx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
-	capture, e := instructionpackage.Restore(v.RoleCapture)
+	capture, e := factorylib.Restore(v.RoleCapture)
 	if e != nil {
 		return v, e
 	}
-	meta := capture.Snapshot()
-	if meta.Role != "standards-author" || meta.EffectiveDigest != v.RoleDigest || meta.ShippedVersion != v.RoleVersion {
+	if capture.Role() != factorylib.StandardsAuthor || capture.Digest() != v.RoleDigest || capture.Library() != v.RoleVersion {
 		return v, fmt.Errorf("%w: authoring role binding invalid", store.ErrStandardsCorrupt)
 	}
 	role := string(capture.Instructions())
-	for _, f := range meta.Files {
-		if f.Path == instructionpackage.StandardsAuthorSchemaPath {
-			role += "\n\n" + string(f.Content)
-		}
+	if schema := capture.Resource(factorylib.StandardsAuthorSchema); len(schema) > 0 {
+		role += "\n\n" + string(schema)
 	}
 	inputRecord := authorRecord(v)
 	attempt := store.StandardsAuthoringAttempt{ID: authorID("attempt-"), SessionID: id, InputVersion: expected, Token: authorID("fence-"), LeaseUntil: time.Now().UTC().Add(deadline + 5*time.Second), InputDigest: digest(v), RoleVersion: v.RoleVersion}

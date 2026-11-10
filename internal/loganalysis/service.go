@@ -222,7 +222,7 @@ func (s *Service) Start(ctx context.Context, q Request) (a store.LogAnalysis, er
 	if err != nil {
 		return a, err
 	}
-	prompt, err := analystPrompt(live, scope)
+	prompt, err := analystPrompt(live, s.Library, scope)
 	if err != nil {
 		return a, err
 	}

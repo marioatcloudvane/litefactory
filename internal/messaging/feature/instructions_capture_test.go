@@ -2,55 +2,38 @@ package feature
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
-	"github.com/cloudvane/litefactory/internal/messaging/prompts"
+	"github.com/cloudvane/litefactory/internal/factorylib"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/redact"
 )
 
 type capturedDraftModel struct {
-	t       *testing.T
-	path    string
+	current *factorylib.Library
+	edited  *factorylib.Library
 	prompts []string
 }
 
+// Answer reinstalls an edited library after the first call, mid-draft.
 func (m *capturedDraftModel) Answer(_ context.Context, _ int64, prompt string) ([]byte, error) {
 	m.prompts = append(m.prompts, prompt)
 	if len(m.prompts) == 1 {
-		if err := os.WriteFile(m.path, []byte("<!-- main -->\nedited main\n<!-- correction -->\nedited correction\n"), 0600); err != nil {
-			m.t.Fatal(err)
-		}
+		m.current = m.edited
 		return []byte(`{"title":"invalid","unknown":true}`), nil
 	}
 	return []byte(`{"needs_clarification":"Which export?"}`), nil
 }
 
 func TestDraftRetainsCapturedCorrection(t *testing.T) {
-	owner := t.TempDir()
-	if err := os.Mkdir(filepath.Join(owner, "agents"), 0700); err != nil {
-		t.Fatal(err)
+	role := factorylib.ChatDraft.Path()
+	model := &capturedDraftModel{
+		current: factorylibtest.With(t, map[string]string{role: "<!-- main -->\noriginal main\n<!-- correction -->\noriginal correction\n"}),
+		edited:  factorylibtest.With(t, map[string]string{role: "<!-- main -->\nedited main\n<!-- correction -->\nedited correction\n"}),
 	}
-	catalogue, err := os.ReadFile("../../instructionpackage/embedded/catalogue.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(owner, "catalogue.yaml"), catalogue, 0600); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(owner, "agents", prompts.Draft+".md")
-	if err = os.WriteFile(path, []byte("<!-- main -->\noriginal main\n<!-- correction -->\noriginal correction\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	resolver, err := instructionpackage.Load(t.Context(), os.DirFS("../../instructionpackage/embedded"), owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	model := &capturedDraftModel{t: t, path: path}
+	resolver := factorylibtest.SourceFunc(func(context.Context) (*factorylib.Library, error) { return model.current, nil })
 	mem := &previewMemory{}
 	d := Drafter{Instructions: resolver, Repositories: catalog{}, Model: model, Store: mem, Redactor: redact.New(redact.Options{Environ: []string{}})}
 	for _, id := range []string{"first", "second"} {

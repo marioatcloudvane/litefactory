@@ -11,6 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/access"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	factoryviews "github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"log/slog"
 	"maps"
 	"os"
@@ -29,7 +30,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
@@ -59,6 +59,9 @@ import (
 // lifetime. Saved project versions resolve their own external references once
 // when loaded; refresh explicitly verifies the same retained actor.
 type Setup struct {
+	// Library is the factory library of factory agents; nil opens the one
+	// installed in Paths and refuses to start without it.
+	Library factorylib.Source
 	// ConnectorControl may override the shared local grant service for trusted composition.
 	// Open installs the shipped service when remote serving is enabled and this is nil.
 	ConnectorControl *connector.LocalControl
@@ -188,6 +191,13 @@ type Startup struct {
 func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err := s.validate(); err != nil {
 		return nil, Startup{}, err
+	}
+	if s.Library == nil {
+		library, err := factorylib.Open(ctx, s.Paths)
+		if err != nil {
+			return nil, Startup{}, fmt.Errorf("factory library: %w", err)
+		}
+		s.Library = library
 	}
 
 	// The heartbeat is fixed internal behaviour, not configuration; the
@@ -429,13 +439,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	if actionOpts != nil {
 		actionOpts.Now = s.Now
-		instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
-		if instructionErr != nil {
-			return nil, Startup{}, errors.Join(instructionErr, lock.Close())
-		}
-		actionOpts.Instructions = instructions
+		actionOpts.Instructions = s.Library
 		actionOpts.InstructionDiagnostics = func(ctx context.Context, diagnostic prompts.Diagnostic) {
-			s.Logger.WarnContext(ctx, "chat instruction fallback", "role", diagnostic.Role, "source", diagnostic.Source, "digest", diagnostic.Digest, "category", diagnostic.Category)
+			s.Logger.WarnContext(ctx, "chat instruction fallback", "role", diagnostic.Role, "digest", diagnostic.Digest, "category", diagnostic.Category)
 		}
 		providers := make(map[string]ask.ChatRunner)
 		for kind, runner := range runners {
@@ -445,11 +451,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}
 		actionOpts.Answers = &ask.Service{Repositories: factoryviews.NewMessaging(s.DB), Collector: ask.Collector{Factory: factoryviews.NewTaskFacts(s.DB), Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: factoryviews.NewResponseMeter(s.DB)}, Redactor: sharedRedactor}
 		{
-			instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
-			if instructionErr != nil {
-				return nil, Startup{}, errors.Join(instructionErr, lock.Close())
-			}
-			options := &messaging.ConversationOptions{Instructions: instructions, Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string), Reasoners: make(map[string]messaging.ConversationReasoner)}
+			options := &messaging.ConversationOptions{Instructions: s.Library, Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string), Reasoners: make(map[string]messaging.ConversationReasoner)}
 			for kind, runner := range runners {
 				if native, ok := runner.(messaging.ConversationProvider); ok {
 					options.Providers[string(kind)] = native
@@ -533,7 +535,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			judgeProviders[kind] = native
 		}
 	}
-	judgeService := &turn.JudgeService{Logger: s.Logger, DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
+	judgeService := &turn.JudgeService{Library: s.Library, Logger: s.Logger, DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
 	for _, diagnostic := range s.Config.WorkerTimeoutDiagnostics() {
 		s.Logger.Warn(diagnostic)
 	}
@@ -679,10 +681,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
 	if actionOpts != nil && actionOpts.Conversations != nil {
-		instructions, captureErr := instructionpackage.New(ctx, s.Paths)
-		if captureErr != nil {
-			return nil, Startup{}, errors.Join(captureErr, lock.Close())
-		}
 		providers := make(map[string]response.ChatRunner)
 		for kind, runner := range runners {
 			if native, ok := runner.(response.ChatRunner); ok {
@@ -699,7 +697,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		if s.Config.Settings.MCPAutoStart {
 			reads = projectread.Session{Reader: reader, RunsRoot: s.Paths.RunsDir(), Executable: executable, Prepare: projectSecrets(s.DB, connections)}
 		}
-		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: factoryviews.NewResponseMeter(s.DB)}, Reads: reads}}
+		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: s.Library, Projects: reader, Runner: &response.Authoring{Model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: factoryviews.NewResponseMeter(s.DB)}, Reads: reads}}
 		actionOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Analyses: analyses}
 	}
 	daemon, err := New(Options{

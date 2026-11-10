@@ -22,15 +22,16 @@ const (
 	AccessDeny  = "deny"
 )
 
-// DefaultAccessCheckRole is the factory role a runner loads when an
-// [AccessCheckRequest] carries no role text.
-const DefaultAccessCheckRole = "access-classifier"
+// ErrAccessRoleMissing refuses an access check without role text. The role is
+// team content (access/access-classifier.md of the linked team); there is no
+// factory default.
+var ErrAccessRoleMissing = errors.New("access check role missing: link a team that ships access/access-classifier.md")
 
 // maxAccessCheckReasonRunes bounds the one-line reason a classifier returns.
 const maxAccessCheckReasonRunes = 300
 
-// AccessCheckRequest is data only. Role is the role text; "" means the runner
-// uses the factory default role "access-classifier". GrantText and Target are
+// AccessCheckRequest is data only. Role is the role text from the linked
+// team; "" is refused. GrantText and Target are
 // factory-held facts; IssueTitle, IssueBody, Text and Command come from the
 // requester and are delivered as untrusted data.
 type AccessCheckRequest struct {

@@ -789,7 +789,7 @@ func recoveryMixedTick(t *testing.T, mode string) {
 	}
 	requests := make(chan turn.Request, 16)
 	now := time.Now().Add(2 * time.Hour)
-	d, err := New(Options{DB: f.d.db, Forge: f.client, Filter: f.d.filter, Connections: factory, Turn: recoveryHoldExecutor{requests}, Reporter: stubReporter{}, InstanceID: "hold-mixed", Logger: f.d.log, Now: func() time.Time { return now }, MaxConcurrentRuns: 4, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
+	d, err := New(Options{ModeRole: testModeRole, DB: f.d.db, Forge: f.client, Filter: f.d.filter, Connections: factory, Turn: recoveryHoldExecutor{requests}, Reporter: stubReporter{}, InstanceID: "hold-mixed", Logger: f.d.log, Now: func() time.Time { return now }, MaxConcurrentRuns: 4, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -996,7 +996,7 @@ func TestRecoveryLinearObservationStates(t *testing.T) {
 			}
 			remote.addReply("eligible-reply", "/spike process this observation", "human-uuid")
 			requests := make(chan turn.Request, 1)
-			runner, err := New(Options{DB: f.d.db, Forge: f.client, Filter: f.d.filter, Connections: f.d.connections, Turn: recoveryHoldExecutor{requests}, Reporter: stubReporter{}, InstanceID: "linear-observation", Logger: f.d.log, Now: func() time.Time { return f.now }, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
+			runner, err := New(Options{ModeRole: testModeRole, DB: f.d.db, Forge: f.client, Filter: f.d.filter, Connections: f.d.connections, Turn: recoveryHoldExecutor{requests}, Reporter: stubReporter{}, InstanceID: "linear-observation", Logger: f.d.log, Now: func() time.Time { return f.now }, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
 			linearWorkflowCheck(t, err)
 			runner.discovery.tick(f.now)
 			runner.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: f.now.Add(time.Hour), StatusCode: http.StatusOK})

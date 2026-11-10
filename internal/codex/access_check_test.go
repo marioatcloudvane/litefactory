@@ -1,15 +1,14 @@
 package codex
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 )
 
 func accessCheckFixtureRequest(role string) agent.AccessCheckRequest {
@@ -58,33 +57,13 @@ func TestAccessCheckIsReadOnlyStatelessAndParsesTheAnswer(t *testing.T) {
 	}
 }
 
-func TestAccessCheckUsesDefaultRoleWhenBlank(t *testing.T) {
-	runner, argv := fakeRunner(t, accessCheckScript(`"{\"decision\":\"deny\",\"reason\":\"outside the grant\"}"`))
-	pkg, err := instructionpackage.Load(t.Context(), fstest.MapFS{
-		"metadata.yaml":               {Data: []byte("schema: 1\nversion: fixture\n")},
-		"catalogue.yaml":              {Data: []byte("- access-classifier\n")},
-		"agents/access-classifier.md": {Data: []byte("FIXTURE DEFAULT ACCESS ROLE\n")},
-	}, "")
-	if err != nil {
-		t.Fatal(err)
+func TestAccessCheckRefusesBlankRole(t *testing.T) {
+	runner, argv := fakeRunner(t, accessCheckScript(`"{\"decision\":\"allow\",\"reason\":\"ok\"}"`))
+	if _, err := runner.CheckAccess(t.Context(), accessCheckFixtureRequest("")); !errors.Is(err, agent.ErrAccessRoleMissing) {
+		t.Fatalf("blank role: %v", err)
 	}
-	var captured []string
-	runner.instructions = advisorCaptureFunc(func(ctx context.Context, role string) (*instructionpackage.RoleCapture, []instructionpackage.Diagnostic, error) {
-		captured = append(captured, role)
-		return pkg.Capture(ctx, role)
-	})
-	result, err := runner.CheckAccess(t.Context(), accessCheckFixtureRequest(""))
-	if err != nil {
-		t.Fatalf("CheckAccess: %v", err)
-	}
-	if result.Decision != agent.AccessDeny || result.Reason != "outside the grant" {
-		t.Fatalf("result = %+v", result)
-	}
-	if len(captured) != 1 || captured[0] != "access-classifier" {
-		t.Fatalf("captured roles = %v", captured)
-	}
-	if prompt := string(mustRead(t, filepath.Join(filepath.Dir(argv), "stdin.dump"))); !strings.HasPrefix(prompt, "FIXTURE DEFAULT ACCESS ROLE\n") {
-		t.Fatalf("prompt = %q", prompt)
+	if _, err := os.Stat(filepath.Join(filepath.Dir(argv), "stdin.dump")); err == nil {
+		t.Fatal("a blank role launched the provider")
 	}
 }
 

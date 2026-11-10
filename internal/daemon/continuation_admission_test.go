@@ -18,7 +18,7 @@ import (
 
 func recoveryDaemon(t *testing.T, f *fixture, enabled bool) *daemon.Daemon {
 	t.Helper()
-	d, err := daemon.New(daemon.Options{AutoResumeOnSessionLimit: enabled, DefaultAgent: agent.Kind(store.AgentClaude), ToolProfiles: config.DefaultToolProfiles().Permissions, Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}}, DB: f.db, Forge: f.client, Filter: f.filter, Turn: f.turns, Reporter: f.reporter, InstanceID: "recovery-test", Interval: testInterval, Logger: f.logger, Now: f.clock.Now})
+	d, err := daemon.New(daemon.Options{ModeRole: baseTeamModeRole, AutoResumeOnSessionLimit: enabled, DefaultAgent: agent.Kind(store.AgentClaude), ToolProfiles: config.DefaultToolProfiles().Permissions, Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}}, DB: f.db, Forge: f.client, Filter: f.filter, Turn: f.turns, Reporter: f.reporter, InstanceID: "recovery-test", Interval: testInterval, Logger: f.logger, Now: f.clock.Now})
 	if err != nil {
 		t.Fatal(err)
 	}

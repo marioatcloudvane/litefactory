@@ -263,11 +263,14 @@ func ownFiles(ctx context.Context, root *os.Root, dir string, strict bool) (map[
 	return files, nil
 }
 
-var sourceWorkflows = []string{"bug", "doctor", "implement", "plan", "research", "spike", "validate"}
+var sourceWorkflows = []string{"bug", "implement", "plan", "research", "spike", "validate"}
+
+// ModeClassifierPath is the team role that picks an issue's workflow mode.
+const ModeClassifierPath = "mode/mode-classifier.md"
 
 // TeamFiles are the optional team-level files outside the workflow folders that
 // a source may carry into its installation.
-var TeamFiles = []string{AccessClassifierPath}
+var TeamFiles = []string{AccessClassifierPath, ModeClassifierPath}
 
 // AccessClassifierPath is the team's editable access-classifier role text.
 const AccessClassifierPath = "access/access-classifier.md"
