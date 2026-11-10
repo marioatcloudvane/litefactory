@@ -17,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 type recoveryJudgeRunner struct {
@@ -79,7 +80,7 @@ func judgeRecoveryFixture(t *testing.T) (*JudgeService, JudgeRequest, store.Resu
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp("/tmp", "lf-jrec-")
+	root, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-jrec-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 func brainstormTestTeam() brainstorm.TeamCapture {
@@ -115,7 +116,7 @@ func strconvQuote(s string) string {
 func TestBrainstormScanRunnerReadOnlyRunAndReceiptRecovery(t *testing.T) {
 	runCtx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	root, err := os.MkdirTemp("/tmp", "lf-bscan-")
+	root, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-bscan-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,10 +12,11 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 func TestSubmissionCommandsUseStdinAndStructuredStdout(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "lf207-cli-")
+	dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf207-cli-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -392,7 +392,7 @@ func TestAggregateLifecycle_256CriterionAssessmentThroughBroker(t *testing.T) {
 	// A short, resolved, private temp home: submission.Start refuses long or
 	// symlinked directories, and t.TempDir() on macOS can resolve through a
 	// symlinked /var, so this mirrors typedProgressScope's own fixture home.
-	home, err := os.MkdirTemp("/tmp", "lf207-turn-")
+	home, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf207-turn-")
 	mustProgress(t, err)
 	home, err = filepath.EvalSymlinks(home)
 	mustProgress(t, err)

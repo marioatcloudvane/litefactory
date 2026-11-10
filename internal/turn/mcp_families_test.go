@@ -15,6 +15,7 @@ import (
 	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 func familySocketFixture(t *testing.T, db *store.DB, o FamilyDispatcherOptions) (submission.Client, *AttemptGuard, *AttemptAuthority) {
@@ -28,7 +29,7 @@ func familySocketFixture(t *testing.T, db *store.DB, o FamilyDispatcherOptions) 
 	mustProgress(t, err)
 	dispatcher, err := NewFamilyToolDispatcher(guard, o)
 	mustProgress(t, err)
-	dir, err := os.MkdirTemp("/tmp", "lf-family-")
+	dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-family-")
 	mustProgress(t, err)
 	t.Cleanup(func() { mustProgress(t, os.RemoveAll(dir)) })
 	dir, err = filepath.EvalSymlinks(dir)

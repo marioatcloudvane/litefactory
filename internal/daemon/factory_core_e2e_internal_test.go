@@ -32,6 +32,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -383,7 +384,7 @@ func (e *factoryCoreReceiptExecutor) Execute(ctx context.Context, req turn.Reque
 	if err != nil {
 		return out, err
 	}
-	directory, err := os.MkdirTemp("/tmp", "lf-core-broker-")
+	directory, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-core-broker-")
 	if err != nil {
 		return out, err
 	}

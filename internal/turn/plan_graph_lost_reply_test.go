@@ -25,6 +25,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
@@ -84,7 +85,7 @@ func newLostReplyPlan(t *testing.T) *lostReplyPlan {
 
 func lostReplyBroker(t *testing.T, handler submission.Handler) *submission.Broker {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "lf-lost-")
+	dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-lost-")
 	mustProgress(t, err)
 	dir, err = filepath.EvalSymlinks(dir)
 	mustProgress(t, err)

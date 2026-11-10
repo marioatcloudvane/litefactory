@@ -14,11 +14,12 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 func launchFixtureDirectory(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "lf-launch-")
+	dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-launch-")
 	if err != nil {
 		t.Fatal(err)
 	}
