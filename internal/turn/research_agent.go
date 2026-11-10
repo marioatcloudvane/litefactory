@@ -19,10 +19,6 @@ import (
 // ResearchAgentAction names the registered private Research invocation activity.
 const ResearchAgentAction = "lf_agent"
 
-// researchNodeInstructions is the result route every Research invocation
-// carries. The result shapes and all behaviour live in the role's Markdown.
-const researchNodeInstructions = "\nFactory invocation: Research graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id. The accepted submission is this step's result. Do not print a JSON result: terminal text is never read as a result. Read the research-evidence skill's node-result resource before you submit.\n"
-
 // agentBudgetClock maps a declared time budget to the time the run really gets.
 // It is the identity; a test shortens it so a budget can be spent in moments.
 var agentBudgetClock = func(d time.Duration) time.Duration { return d }
@@ -264,12 +260,6 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	}
 	if req.Mode != string(h.Policy.Mode) || req.RunOrdinal != run.Ordinal || req.SegmentOrdinal != segment.Ordinal || req.Session.Ref != segment.SessionRef || req.Session.Resume != segment.ResumeToken || string(invocation.Kind) != run.Agent {
 		return out, errors.New("research invocation provider/run binding mismatch")
-	}
-	// Main-role delivery retains these instructions in the host's persistent
-	// instruction channel on cold, resumed and fallback invocations. Keep the
-	// user history incremental instead of appending another copy on each pass.
-	if req.Delivery == nil || req.Delivery.MainRole == "" {
-		req.Prompt += h.Policy.Guidance
 	}
 	req.Invocation = agent.InvocationResearchNode
 	req.Graph = &agent.GraphInvocation{InstanceID: a.InstanceID, AttemptID: a.NodeAttemptID, RunID: a.RunID, Node: a.Node}
@@ -543,10 +533,9 @@ func loadNodeOutput(ctx context.Context, db *store.DB, attemptID int64, scope ag
 // note, because a host may withdraw delegation granted only in the role text.
 const implementDelegationRequest = "\nThe owner explicitly asks you to delegate this story's tasks to subagents (spawn_agent or your subagent tool) and to run them in parallel.\n"
 
-// implementAttemptGuidance is the fixed factory text an Implement agent node
-// gets in its user prompt: the story worker's delegation request, and for every
-// Implement node the attempt's wall-clock limit and that there is no other
-// budget. Runtime supplies the persisted effective allowance; compatibility
+// implementAttemptGuidance is the factory text an Implement agent node gets in
+// its user prompt: the owner's standing delegation request to the story worker,
+// and for every Implement node the attempt's wall-clock limit as a fact. Runtime supplies the persisted effective allowance; compatibility
 // callers may supply a node override and a runner fallback.
 func implementAttemptGuidance(req agent.Request, attrs map[string]string, runner any) (string, error) {
 	if req.Mode != string(agent.ModeImplement) {
@@ -574,9 +563,9 @@ func implementAttemptGuidance(req agent.Request, attrs map[string]string, runner
 		}
 	}
 	if limit > 0 {
-		fmt.Fprintf(&b, "\nThis attempt has a wall-clock limit of %g seconds; there is no other budget (no token, context or cost budget), so do not stop early for budget reasons.\n", limit.Seconds())
+		fmt.Fprintf(&b, "\nWall-clock limit: %g seconds; no token, context or cost budget.\n", limit.Seconds())
 	} else {
-		b.WriteString("\nThis attempt has a wall-clock limit; there is no other budget (no token, context or cost budget), so do not stop early for budget reasons.\n")
+		b.WriteString("\nWall-clock limit: set by the factory; no token, context or cost budget.\n")
 	}
 	return b.String(), nil
 }

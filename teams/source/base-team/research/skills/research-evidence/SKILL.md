@@ -1,6 +1,7 @@
 ---
 name: research-evidence
 description: Hold Research evidence, keep the outcome ledger (S-, O-, N-, K-, A- IDs) in RESEARCH_BRIEF.md, run the impact analysis, and submit one of the two Research result shapes.
+requires: [run-rules, result-protocol]
 resources:
   - evidence.md
   - node-result.md

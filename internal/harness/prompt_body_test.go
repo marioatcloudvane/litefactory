@@ -52,21 +52,16 @@ func TestBodyTriggeredPromptCarriesTheBodyOnlyAsTheInstruction(t *testing.T) {
 	if got := strings.Count(prompt, "<note>"); got != 1 {
 		t.Errorf("got %d <note> elements, want 1 (the issue only):\n%s", got, prompt)
 	}
-	if got := strings.Count(prompt, noteFraming); got != 1 {
-		t.Errorf("the third-party framing line appears %d times, want once for the one note", got)
+	if got := strings.Count(prompt, "<note>\nSource: "); got != 1 {
+		t.Errorf("the note source line appears %d times, want once for the one note", got)
 	}
 	for _, unwanted := range []string{
 		"which triggered this run",
 		"(the comment has no body)",
-		"The two notes below",
-		"The three notes below",
 	} {
 		if strings.Contains(prompt, unwanted) {
-			t.Errorf("the prompt still promises a comment note (%q):\n%s", unwanted, prompt)
+			t.Errorf("the prompt still carries a comment note (%q):\n%s", unwanted, prompt)
 		}
-	}
-	if !strings.Contains(prompt, "The note below is the issue this run came from.") {
-		t.Errorf("the context sentence does not describe the one note that is there:\n%s", prompt)
 	}
 }
 
@@ -95,11 +90,8 @@ func TestBodyTriggeredPromptKeepsTheIssueAttribution(t *testing.T) {
 func TestBodyTriggeredInferGuidanceNamesTheBody(t *testing.T) {
 	prompt := buildPrompt(t, testBodyPromptInput())
 
-	if !strings.Contains(prompt, "started by an issue whose body named no command") {
-		t.Errorf("the mode guidance does not name the issue body as the trigger:\n%s", prompt)
-	}
-	if strings.Contains(prompt, "started by a comment that named no command") {
-		t.Errorf("the mode guidance still blames a comment that is not in the prompt:\n%s", prompt)
+	if got := headerFacts(prompt)["Request"]; got != "an issue whose body named no command" {
+		t.Errorf("the header does not name the issue body as the trigger (%q):\n%s", got, prompt)
 	}
 }
 
@@ -114,9 +106,6 @@ func TestBodyTriggeredPromptWithAThreadIntroducesTwoNotes(t *testing.T) {
 
 	if got := strings.Count(prompt, "<note>"); got != 2 {
 		t.Fatalf("got %d <note> elements, want 2 (the issue and the history):\n%s", got, prompt)
-	}
-	if !strings.Contains(prompt, "The two notes below are the issue this run came from and a condensed") {
-		t.Errorf("the context sentence does not describe the two notes that are there:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "which triggered this run") {
 		t.Errorf("a comment note was rendered for a body-triggered run:\n%s", prompt)
@@ -199,7 +188,7 @@ func TestCommentTriggeredPromptIsUnaffectedByTheFlag(t *testing.T) {
 	if strings.Contains(before, issueBodyIsTheInstruction) {
 		t.Errorf("a comment-triggered prompt points at the instruction for its issue body:\n%s", before)
 	}
-	if !strings.Contains(before, "The two notes below are the issue and the comment this run came from.") {
-		t.Errorf("the cold context sentence has moved:\n%s", before)
+	if got := strings.Count(before, "<note>"); got != 2 {
+		t.Errorf("a comment-triggered prompt carries %d notes, want the issue and the comment:\n%s", got, before)
 	}
 }

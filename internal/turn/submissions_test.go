@@ -265,7 +265,7 @@ func TestSubmissionBothSyntheticRunnerPathsObserveDecisionBeforeExit(t *testing.
 
 			var f *fixture
 			runner := newStubRunner(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
-				prefix := "Factory submission access (paths are data): "
+				prefix := "Factory submission access (data): "
 				var access struct{ Executable, Descriptor string }
 				for _, line := range strings.Split(req.Prompt, "\n") {
 					if strings.HasPrefix(line, prefix) {

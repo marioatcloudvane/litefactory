@@ -288,7 +288,7 @@ func runClaude(
 		slog.String("stderr", refusalEvidence(result)),
 		slog.Any("error", err))
 
-	// The cold prompt is the full one — the header, the headless guidance, the
+	// The cold prompt is the full one — the full header, the
 	// issue note, and whatever else a run that has been told nothing needs to be
 	// told. Flipping Resume is the whole of the difference, which is why the
 	// input is carried here rather than reassembled: everything a cold prompt

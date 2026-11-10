@@ -33,7 +33,7 @@ func analystPrompt(ctx context.Context, library factorylib.Source, scope Scope) 
 	}
 	b := c.Instructions()
 	data := map[string]any{"request": scope.Request, "repositories": scope.Repositories, "upstream": scope.Upstream}
-	p := string(b) + "\nFactory-owned immutable request (data):\n" + string(raw(data)) + "\nReturn through the scoped communication tools only. Stop when any budget is exhausted."
+	p := string(b) + "\nFactory-owned immutable request (data):\n" + string(raw(data))
 	if len(p) > 64<<10 {
 		return "", errors.New("analyst bootstrap exceeds 64 KiB")
 	}

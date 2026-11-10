@@ -5,92 +5,32 @@ import (
 	"testing"
 )
 
-// TestResumeHeaderUnchangedWhenPredecessorSucceeded is US-5 (T-5.4, AC-5.3):
-// the resume header for a succeeded predecessor is byte-for-byte identical to
-// what [TestResumeHeaderIsPinned] and its siblings in prompt_ask_test.go
-// already pin, across the infer-guidance and ask-permission combinations —
-// and that holds even when [PromptInput.PreviousReason] carries text, because
-// [writePreviousFailedNote] must never fire on [PromptInput.PreviousFailed]
-// being false regardless of what PreviousReason says.
+// TestResumeHeaderUnchangedWhenPredecessorSucceeded is US-5 (AC-5.3): a
+// succeeded predecessor adds no previous-run fact and no reason note, even when
+// [PromptInput.PreviousReason] carries text.
 func TestResumeHeaderUnchangedWhenPredecessorSucceeded(t *testing.T) {
 	t.Parallel()
 
-	const runAndMode = `# litefactory run 0001 of github:acme/acme-api#123
+	for _, mode := range []string{"spike", InferMode, "research"} {
+		in := testPromptInput()
+		in.Mode = mode
+		in.PreviousMode = "spike"
+		in.PreviousFailed = false
+		in.PreviousReason = "this text must never appear in the header"
 
-- Mode: %s
-- Feature slug: 123-add-a-widget
-`
-
-	tests := []struct {
-		name           string
-		mode           string
-		previousMode   string
-		mayAsk         bool
-		previousMayAsk bool
-		want           string
-	}{
-		{
-			name:         "unchanged mode, no permission",
-			mode:         "spike",
-			previousMode: "spike",
-			want:         strings.Replace(runAndMode, "%s", "spike", 1),
-		},
-		{
-			name:         "mode switches to infer",
-			mode:         InferMode,
-			previousMode: "spike",
-			want: strings.Replace(runAndMode, "%s", InferMode, 1) + `
-This run was started by a comment that named no command, so working out what kind of work it is forms part of the task. If the supplied project instructions define modes, a routing scheme or a way of classifying a request, follow it and choose the one this request calls for. If it does not, simply do what is asked. Put any documents you produce under the feature slug named above, wherever this repository keeps them. Say which mode you chose in your final message.
-`,
-		},
-		{
-			name:         "permission granted",
-			mode:         "research",
-			previousMode: "research",
-			mayAsk:       true,
-			want:         strings.Replace(runAndMode, "%s", "research", 1) + "\n" + askingRule + "\n",
-		},
-		{
-			name:           "permission revoked",
-			mode:           "research",
-			previousMode:   "research",
-			previousMayAsk: true,
-			want:           strings.Replace(runAndMode, "%s", "research", 1) + "\n" + askingRevokedRule + "\n",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			in := testPromptInput()
-			in.Mode = tc.mode
-			in.PreviousMode = tc.previousMode
-			in.MayAsk = tc.mayAsk
-			in.PreviousMayAsk = tc.previousMayAsk
-			in.PreviousFailed = false
-			// A non-empty reason must be inert when PreviousFailed is false:
-			// PreviousReason's own doc comment says it is read only alongside
-			// PreviousFailed.
-			in.PreviousReason = "this text must never appear in the header"
-
-			got := resumeHeader(t, in)
-
-			if got != tc.want {
-				t.Errorf("the resume header for a succeeded predecessor changed.\n--- got ---\n%s\n--- want ---\n%s", got, tc.want)
-			}
-			if strings.Contains(got, in.PreviousReason) {
-				t.Errorf("the header carries PreviousReason even though PreviousFailed is false:\n%s", got)
-			}
-			if strings.Contains(got, "did not complete successfully") {
-				t.Errorf("the previous-failed note fired even though PreviousFailed is false:\n%s", got)
-			}
-		})
+		got := resumeHeader(t, in)
+		if _, ok := headerFacts(got)["Previous run"]; ok {
+			t.Errorf("mode %s: a previous-run fact fired although PreviousFailed is false:\n%s", mode, got)
+		}
+		if strings.Contains(got, in.PreviousReason) {
+			t.Errorf("mode %s: the header carries PreviousReason although PreviousFailed is false:\n%s", mode, got)
+		}
 	}
 }
 
 // TestColdPromptUnaffectedByPreviousFailed is US-5 (T-5.5): a cold prompt is
 // byte-for-byte identical whether or not PreviousFailed/PreviousReason carry
-// anything, because [writePreviousFailedNote] is only ever reached from
+// anything, because [writeResumeHeader] is only ever reached from
 // [writeResumeHeader]. This is what makes the cold rerun in
 // internal/turn/harvest.go's runClaude safe: it rebuilds the same
 // [PromptInput] with only Resume flipped to false, carrying whatever
@@ -113,8 +53,8 @@ func TestColdPromptUnaffectedByPreviousFailed(t *testing.T) {
 	if got != want {
 		t.Errorf("a cold prompt changed when PreviousFailed/PreviousReason were set.\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
-	if strings.Contains(got, "did not complete successfully") {
-		t.Errorf("the cold prompt carries the previous-failed note:\n%s", got)
+	if strings.Contains(got, "- Previous run:") {
+		t.Errorf("the cold prompt carries the previous-run fact:\n%s", got)
 	}
 	if strings.Contains(got, "claude exited with status 2") {
 		t.Errorf("the cold prompt carries the predecessor's reason text:\n%s", got)
@@ -126,7 +66,7 @@ func TestColdPromptUnaffectedByPreviousFailed(t *testing.T) {
 // classification path (runner.go's excerpt), and nothing here trusts it not
 // to contain a closing note tag, a forged "- Mode:" line or a forged
 // "# litefactory run" heading. The frame has to hold: the injected structure
-// must stay data inside the one <note> element [writePreviousFailedNote]
+// must stay data inside the one <note> element [writeResumeHeader]
 // opens for it, never escaping to sit beside the real header the way a
 // genuine field would.
 func TestPreviousReasonCannotForgeHeaderStructure(t *testing.T) {
@@ -185,7 +125,7 @@ func TestPreviousReasonCannotForgeHeaderStructure(t *testing.T) {
 	// The neutralised tag is inert text, not markup: the literal "</note>"
 	// byte sequence must not survive inside the reason's own note (it would
 	// otherwise be indistinguishable from the frame's real closing tag).
-	reasonNote := noteContaining(t, prompt, "the previous run's own recorded reason")
+	reasonNote := noteContaining(t, prompt, "the previous run's own recorded failure reason")
 	if strings.Contains(reasonNote, "</note>") {
 		t.Errorf("the reason's own note still contains a literal </note>:\n%s", reasonNote)
 	}
@@ -276,62 +216,27 @@ func TestBuildPromptStaysPureWithPreviousFailed(t *testing.T) {
 }
 
 // TestResumeHeaderStatesThePredecessorFailed is US-5 (AC-5.1, AC-5.2): a
-// resumed run whose predecessor failed is told so explicitly and told not to
-// repeat its claims, and the predecessor's reason is named when the store
-// carried one and cleanly omitted when it did not.
+// resumed run whose predecessor failed carries that fact, and the
+// predecessor's reason as a note when the store carried one.
 func TestResumeHeaderStatesThePredecessorFailed(t *testing.T) {
 	t.Parallel()
 
-	t.Run("with a reason", func(t *testing.T) {
-		t.Parallel()
-
+	for _, reason := range []string{"claude exited with status 2", ""} {
 		in := testPromptInput()
 		in.PreviousMode = in.Mode
 		in.PreviousFailed = true
-		in.PreviousReason = "claude exited with status 2"
+		in.PreviousReason = reason
 
 		header := resumeHeader(t, in)
-
-		for _, want := range []string{
-			"did not complete successfully",
-			"not repeat anything it reported as done",
-			"unverified",
-			"claude exited with status 2",
-		} {
-			if !strings.Contains(header, want) {
-				t.Errorf("the failed-predecessor header is missing %q:\n%s", want, header)
-			}
+		if got := headerFacts(header)["Previous run"]; got != "failed" {
+			t.Errorf("reason %q: Previous run = %q:\n%s", reason, got, header)
 		}
-		// AC-5.1/AC-5.2 placement: right after the Feature slug line, before
-		// the rest of the header.
-		const anchor = "- Feature slug: 123-add-a-widget\n"
-		idx := strings.Index(header, anchor)
-		if idx < 0 {
-			t.Fatalf("the feature slug line is missing:\n%s", header)
-		}
-		if !strings.HasPrefix(header[idx+len(anchor):], "\n"+previousRunFailedNote) {
-			t.Errorf("the failed-predecessor note is not the first thing after the feature slug line:\n%s", header)
-		}
-	})
-
-	t.Run("without a reason", func(t *testing.T) {
-		t.Parallel()
-
-		in := testPromptInput()
-		in.PreviousMode = in.Mode
-		in.PreviousFailed = true
-		in.PreviousReason = ""
-
-		header := resumeHeader(t, in)
-
-		if !strings.Contains(header, "did not complete successfully") {
-			t.Errorf("the failed-predecessor note is missing:\n%s", header)
-		}
-		if strings.Contains(header, "the previous run's own recorded reason") {
-			t.Errorf("a reason note was rendered for an empty PreviousReason:\n%s", header)
-		}
-		if strings.Count(header, "<note>") != 0 {
+		notes := strings.Count(header, "<note>")
+		if reason == "" && notes != 0 {
 			t.Errorf("an empty PreviousReason still opened a note:\n%s", header)
 		}
-	})
+		if reason != "" && (notes != 1 || !strings.Contains(noteContaining(t, header, reason), reason)) {
+			t.Errorf("the reason is not quoted in its own note:\n%s", header)
+		}
+	}
 }
