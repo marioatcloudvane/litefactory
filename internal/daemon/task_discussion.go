@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -17,7 +16,7 @@ func (d *Daemon) prepareTaskDiscussion(ctx context.Context, judge *turn.JudgeSer
 	if d.remoteConnector == nil || d.remoteConnector.actions == nil || d.remoteConnector.actions.workflows == nil {
 		return nil
 	}
-	invocation, err := judge.Config.ResolveJudge(config.JudgeOptions{}, "", "")
+	invocation, err := factoryAdvisoryInvocation(judge.Config)
 	if err != nil {
 		return err
 	}

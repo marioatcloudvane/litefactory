@@ -783,10 +783,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	daemon.prepareIndependentOwnerActions(actionOpts, sharedRedactor)
 	if remoteConnector != nil {
 		if advisoryErr := daemon.prepareTaskDiscussion(ctx, judgeService, reporter, sharedRedactor, s.Now); advisoryErr != nil {
-			s.Logger.WarnContext(ctx, "task discussion admission unavailable")
+			s.Logger.WarnContext(ctx, "task discussion admission unavailable", "error", advisoryErr)
 		}
 		if brainstormErr := daemon.prepareBrainstorm(judgeService, sharedRedactor, s.Now); brainstormErr != nil {
-			s.Logger.WarnContext(ctx, "brainstorm unavailable")
+			s.Logger.WarnContext(ctx, "brainstorm unavailable", "error", brainstormErr)
+			daemon.reportBrainstormUnavailable(ctx, brainstormErr, sharedRedactor)
 		}
 	}
 	handedOver = true
