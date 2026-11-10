@@ -23,7 +23,7 @@ import (
 
 func privateSubmissionDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "lf207-")
+	dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf207-")
 	if err != nil {
 		t.Fatal(err)
 	}

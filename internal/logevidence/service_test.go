@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 type evidenceFixture struct {
@@ -87,7 +88,7 @@ func (f *evidenceFixture) service(t *testing.T, scope Scope, budget *Budget) *Se
 }
 func evidenceBroker(t *testing.T, s *Service) *submission.Broker {
 	t.Helper()
-	directory, err := os.MkdirTemp("/tmp", "lf-evidence-")
+	directory, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-evidence-")
 	if err != nil {
 		t.Fatal(err)
 	}

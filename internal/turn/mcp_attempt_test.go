@@ -32,7 +32,7 @@ func TestMCPAttempt_PrivateSocketRevocationAndRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = authority.Close(context.Background()) })
-			dir, err := os.MkdirTemp("/tmp", "mcp-lease-")
+			dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "mcp-lease-")
 			if err != nil {
 				t.Fatal(err)
 			}

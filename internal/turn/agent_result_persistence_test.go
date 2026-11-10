@@ -16,6 +16,7 @@ import (
 	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 // These checks exercise actual temporary SQLite and Unix-socket transport.
@@ -122,7 +123,7 @@ func persistentAggregateService(t *testing.T, v aggregateTurnData) *AgentResultS
 
 func aggregateBroker(t *testing.T, service *AgentResultService) *submission.Broker {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "lf299-")
+	dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf299-")
 	mustProgress(t, err)
 	dir, err = filepath.EvalSymlinks(dir)
 	mustProgress(t, err)

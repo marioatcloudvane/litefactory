@@ -43,6 +43,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -375,7 +376,7 @@ func brainstormPlanOptions(t *testing.T, f *fixture, runner agent.Runner) turn.O
 	btCheck(t, err)
 	t.Cleanup(func() { _ = authority.Close(context.WithoutCancel(t.Context())) })
 	// The MCP socket directory stays short, as on a real host.
-	mcpDir, err := os.MkdirTemp("/tmp", "lf-bt-")
+	mcpDir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-bt-")
 	btCheck(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(mcpDir) })
 	mcpDir, err = filepath.EvalSymlinks(mcpDir)
