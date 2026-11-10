@@ -60,8 +60,10 @@ func (db *DB) RecordRetirementOutcome(ctx context.Context, id int64, outcome, re
 			if err := cancelResearchGraphsTx(ctx, tx, sessionID, "worktree retired", nowUTC()); err != nil {
 				return err
 			}
-			if err := cancelWorkflowGraphsTx(ctx, tx, sessionID, "spike", "worktree retired", nowUTC()); err != nil {
-				return err
+			for _, mode := range []string{"spike", "bug"} {
+				if err := cancelWorkflowGraphsTx(ctx, tx, sessionID, mode, "worktree retired", nowUTC()); err != nil {
+					return err
+				}
 			}
 			if kind != "worktree" {
 				return fmt.Errorf("store: only a worktree outcome can clear its path")

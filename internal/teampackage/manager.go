@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,57 +23,42 @@ import (
 // Validator validates every mapped workflow against factory-owned specifications.
 type Validator func(context.Context, fs.FS, map[string]string) error
 
-// Options supplies machine paths, a TLS transport and mandatory workflow validation.
+// Rebind records a reinstalled release's new digest on every repository bound
+// to it. It runs under the catalogue lock and calls swap, which replaces the
+// installed folder, inside its own transaction: a swap error rolls the binding
+// update back, and any error after a successful swap makes the manager restore
+// the previous folder.
+type Rebind func(ctx context.Context, previous, next Identity, swap func() error) error
+
+// Options supplies machine paths and mandatory workflow validation.
 type Options struct {
-	Paths     config.Paths
-	Transport http.RoundTripper
-	Validate  Validator
+	Paths    config.Paths
+	Validate Validator
 	// InUse is called under the catalogue lock before any removal mutation.
 	// Application composition supplies all registered clone paths using the version.
 	InUse func(context.Context, Identity) ([]string, error)
+	// Rebind is called under the catalogue lock when an install replaces an
+	// installed release with different bytes. Nil only replaces the folder.
+	Rebind Rebind
 }
 
 // Manager has no repository, runtime, credential or SQL dependency.
 type Manager struct {
 	paths      config.Paths
-	client     *http.Client
 	validate   Validator
 	inUse      func(context.Context, Identity) ([]string, error)
+	rebind     Rebind
 	rename     func(string, string) error
 	removeAll  func(string) error
 	writeClone func(string, []byte) error
 }
 
-// New constructs an anonymous bounded package manager.
+// New constructs a bounded local package manager.
 func New(o Options) (*Manager, error) {
 	if o.Paths.Home() == "." || o.Paths.Home() == "" || o.Validate == nil {
 		return nil, errors.New("team manager requires machine paths and workflow validation")
 	}
-	transport := o.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-	client := &http.Client{Transport: transport, Timeout: time.Minute, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) > 5 {
-			return errors.New("too many redirects")
-		}
-		normalized, err := config.NormalizeTeamSource(req.URL.String())
-		if err != nil {
-			return err
-		}
-		u, err := url.Parse(normalized)
-		if err != nil {
-			return err
-		}
-		if u.Host != via[0].URL.Host {
-			return errors.New("cross-origin team redirect refused")
-		}
-		if req.Header.Get("Cookie") != "" || req.Header.Get("Authorization") != "" {
-			return errors.New("credentials refused")
-		}
-		return nil
-	}}
-	return &Manager{paths: o.Paths, client: client, validate: o.Validate, inUse: o.InUse, rename: os.Rename, removeAll: os.RemoveAll, writeClone: writeStagedFile}, nil
+	return &Manager{paths: o.Paths, validate: o.Validate, inUse: o.InUse, rebind: o.Rebind, rename: os.Rename, removeAll: os.RemoveAll, writeClone: writeStagedFile}, nil
 }
 func sourceID(source string) string {
 	sum := sha256.Sum256([]byte(source))
@@ -205,246 +188,210 @@ func (m *Manager) lock(ctx context.Context) (func(), error) {
 		}
 	}
 }
-func (m *Manager) fetch(ctx context.Context, source string, limit int64) ([]byte, error) {
-	normalized, err := config.NormalizeTeamSource(source)
-	if err != nil {
-		return nil, err
-	}
-	if strings.HasPrefix(normalized, "file://") {
-		return readSourceFile(normalized, limit)
-	}
-	//nolint:gosec // Anonymous HTTPS sources are explicitly user-selected; normalization and redirect policy prohibit credentials and origin changes.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalized, nil)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid request", ErrTransport)
-	}
-	//nolint:gosec // This performs the intended anonymous fetch from the validated catalogue origin.
-	response, err := m.client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%w: %w", ErrTransport, ctx.Err())
-		}
-		return nil, fmt.Errorf("%w: request failed", ErrTransport)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: HTTP %d", ErrTransport, response.StatusCode)
-	}
-	if response.ContentLength > limit {
-		return nil, fmt.Errorf("%w: response exceeds size limit", ErrTransport)
-	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err != nil {
-		return nil, fmt.Errorf("%w: reading response failed", ErrTransport)
-	}
-	if int64(len(raw)) > limit {
-		return nil, fmt.Errorf("%w: response exceeds size limit", ErrTransport)
-	}
-	return raw, nil
-}
 
-// readSourceFile reads one catalogue or release file of a file:// source.
-func readSourceFile(normalized string, limit int64) ([]byte, error) {
-	u, err := url.Parse(normalized)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid file source", ErrTransport)
-	}
-	//nolint:gosec // The operator selects this file; normalization requires an absolute path without traversal segments.
-	f, err := os.Open(filepath.FromSlash(u.Path))
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
-	}
-	defer f.Close()
-	raw, err := io.ReadAll(io.LimitReader(f, limit+1))
-	if err != nil {
-		return nil, fmt.Errorf("%w: reading file failed", ErrTransport)
-	}
-	if int64(len(raw)) > limit {
-		return nil, fmt.Errorf("%w: file exceeds size limit", ErrTransport)
-	}
-	return raw, nil
-}
+// InstallResult says what an install did.
+type InstallResult int
 
-func (m *Manager) catalogue(ctx context.Context, source string) (Catalogue, error) {
-	raw, err := m.fetch(ctx, source, MaxCatalogueBytes)
-	if err != nil {
-		return Catalogue{}, err
-	}
-	return parseCatalogue(raw)
-}
-func selectRelease(c Catalogue, slug, ver string) (Release, error) {
-	if !slugPattern.MatchString(slug) {
-		return Release{}, fmt.Errorf("%w: invalid slug", ErrInvalidPackage)
-	}
-	if ver != "" {
-		if _, err := version(ver); err != nil {
-			return Release{}, err
-		}
-	}
-	var chosen Release
-	for _, r := range c.Releases {
-		if r.Slug != slug {
-			continue
-		}
-		if ver != "" {
-			if r.Version == ver {
-				return r, nil
-			}
-			continue
-		}
-		parts, _ := version(r.Version)
-		if parts[4] != "" {
-			continue
-		}
-		if chosen.Version == "" || compare(r.Version, chosen.Version) > 0 || (compare(r.Version, chosen.Version) == 0 && r.Version > chosen.Version) {
-			chosen = r
-		}
-	}
-	if chosen.Version == "" {
-		return chosen, fmt.Errorf("%w: %s %s", ErrNotFound, slug, ver)
-	}
-	return chosen, nil
-}
+// The outcomes of InstallBuilt.
+const (
+	// InstallNew is a release that was not installed before.
+	InstallNew InstallResult = iota
+	// InstallUnchanged is a release whose installed bytes already match.
+	InstallUnchanged
+	// InstallReplaced is a release whose installed bytes were replaced in place.
+	InstallReplaced
+)
 
-// Install verifies a complete release before publishing it beside existing versions.
-func (m *Manager) Install(ctx context.Context, source, slug, ver string) (Installed, bool, error) {
+// InstallBuilt verifies built files against their inventory and installs them
+// under source. Installing the same source, name and version again with other
+// bytes replaces the installed folder in place, under the catalogue lock, and
+// rebinds linked repositories through Options.Rebind. Saved workflow captures
+// keep in-flight work on the bytes it started with.
+func (m *Manager) InstallBuilt(ctx context.Context, source string, files map[string][]byte, r Release, build BuildInfo) (Installed, InstallResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	normalized, err := config.NormalizeTeamSource(source)
 	if err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
-	c, err := m.catalogue(ctx, normalized)
-	if err != nil {
-		return Installed{}, false, err
+	if err := validateRelease(r); err != nil {
+		return Installed{}, InstallUnchanged, err
 	}
-	r, err := selectRelease(c, slug, ver)
-	if err != nil {
-		return Installed{}, false, err
+	if len(files) != len(r.Files) {
+		return Installed{}, InstallUnchanged, fmt.Errorf("%w: built files do not match the inventory", ErrInvalidPackage)
 	}
-	return m.install(ctx, normalized, r)
+	return m.install(ctx, normalized, files, r, build)
 }
-func (m *Manager) install(ctx context.Context, source string, r Release) (Installed, bool, error) {
+
+func (m *Manager) install(ctx context.Context, source string, files map[string][]byte, r Release, build BuildInfo) (Installed, InstallResult, error) {
 	if err := ensureDir(m.paths.TeamsStagingDir()); err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	stage, err := os.MkdirTemp(m.paths.TeamsStagingDir(), "install-")
 	if err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	defer os.RemoveAll(stage)
 	content := filepath.Join(stage, "content")
 	if err := ensureDir(content); err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
-	catalogueURL, err := url.Parse(source)
-	if err != nil {
-		return Installed{}, false, err
-	}
-	base := catalogueURL.ResolveReference(&url.URL{Path: "./"})
 	total := 0
 	for _, f := range r.Files {
 		if err := ctx.Err(); err != nil {
-			return Installed{}, false, err
+			return Installed{}, InstallUnchanged, err
 		}
-		fileURL := base.ResolveReference(&url.URL{Path: r.Download + "/" + f.Path})
+		raw, ok := files[f.Path]
+		if !ok {
+			return Installed{}, InstallUnchanged, fmt.Errorf("%w: %s missing from the built files", ErrInvalidPackage, f.Path)
+		}
 		limit := teamsource.MaxSourceBytes
 		if f.Path == "team.config" {
 			limit = MaxCatalogueBytes
 		}
-		if int64(MaxReleaseBytes-total) < limit {
-			limit = int64(MaxReleaseBytes - total)
-		}
-		raw, err := m.fetch(ctx, fileURL.String(), limit)
-		if err != nil {
-			return Installed{}, false, fmt.Errorf("%s/%s %s: %w", r.Slug, r.Version, f.Path, err)
+		total += len(raw)
+		if int64(len(raw)) > limit || total > MaxReleaseBytes {
+			return Installed{}, InstallUnchanged, fmt.Errorf("%w: %s exceeds the size limit", ErrInvalidPackage, f.Path)
 		}
 		sum := sha256.Sum256(raw)
 		if hex.EncodeToString(sum[:]) != f.SHA256 {
-			return Installed{}, false, fmt.Errorf("%w: %s checksum mismatch", ErrInvalidPackage, f.Path)
+			return Installed{}, InstallUnchanged, fmt.Errorf("%w: %s checksum mismatch", ErrInvalidPackage, f.Path)
 		}
-		total += len(raw)
 		target := filepath.Join(content, filepath.FromSlash(f.Path))
 		if err := ensureDir(filepath.Dir(target)); err != nil {
-			return Installed{}, false, err
+			return Installed{}, InstallUnchanged, err
 		}
 		if err := writeStagedFile(target, raw); err != nil {
-			return Installed{}, false, err
+			return Installed{}, InstallUnchanged, err
 		}
 	}
 	raw, err := readLocal(filepath.Join(content, "team.config"), MaxCatalogueBytes)
 	if err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	workflows, err := parseConfig(raw)
 	if err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	profile, err := captureStackProfile(os.DirFS(content), Installed{Identity: Identity{Slug: r.Slug, Version: r.Version}})
 	if err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	if profile != nil {
 		if _, err := teamsource.CaptureStackGuidance(ctx, os.DirFS(content), *profile); err != nil {
-			return Installed{}, false, fmt.Errorf("%w: stack-profile.guidance: %w", ErrInvalidPackage, err)
+			return Installed{}, InstallUnchanged, fmt.Errorf("%w: stack-profile.guidance: %w", ErrInvalidPackage, err)
 		}
 	}
 	if err := m.validate(ctx, os.DirFS(content), workflows); err != nil {
-		return Installed{}, false, fmt.Errorf("%w: %w", ErrIncompatibleWorkflow, err)
+		return Installed{}, InstallUnchanged, fmt.Errorf("%w: %w", ErrIncompatibleWorkflow, err)
 	}
 	// Verify the actual filesystem representation too: case or Unicode aliases
 	// must not turn a pinned inventory into overwritten or missing local files.
 	workflows, err = verifyContent(ctx, content, r)
 	if err != nil {
-		return Installed{}, false, fmt.Errorf("%w: %w", ErrInvalidPackage, err)
+		return Installed{}, InstallUnchanged, fmt.Errorf("%w: %w", ErrInvalidPackage, err)
 	}
-	rec := receipt{Schema: 1, Source: source, Release: r, Checksum: r.Checksum}
+	rec := builtReceipt{Schema: builtReceiptSchema, Source: source, Release: r, Checksum: r.Checksum, Build: build}
 	record, err := json.Marshal(rec)
 	if err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	if len(record) > MaxCatalogueBytes {
-		return Installed{}, false, fmt.Errorf("%w: receipt too large", ErrInvalidPackage)
+		return Installed{}, InstallUnchanged, fmt.Errorf("%w: receipt too large", ErrInvalidPackage)
 	}
 	if err := os.WriteFile(filepath.Join(stage, "receipt.json"), record, 0o600); err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	unlock, err := m.lock(ctx)
 	if err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	defer unlock()
 	if err := ctx.Err(); err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	if local := m.destination("local", r.Slug, r.Version); local != m.destination(source, r.Slug, r.Version) {
 		if _, err := os.Lstat(local); err == nil {
-			return Installed{}, false, fmt.Errorf("%w: local team already exists at %s", ErrConflict, local)
+			return Installed{}, InstallUnchanged, fmt.Errorf("%w: local team already exists at %s", ErrConflict, local)
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return Installed{}, false, err
+			return Installed{}, InstallUnchanged, err
 		}
 	}
+	next := Identity{Source: source, Slug: r.Slug, Version: r.Version, Digest: r.Checksum}
+	installed := Installed{Identity: next, Release: r, Path: filepath.Join(m.destination(source, r.Slug, r.Version), "content"), Workflows: workflows, Integrity: true, Build: &build}
 	dest := m.destination(source, r.Slug, r.Version)
 	if _, err := os.Lstat(dest); err == nil {
-		installed, err := m.inspectPath(ctx, dest)
-		if err != nil {
-			return Installed{}, false, fmt.Errorf("%w: %w", ErrConflict, err)
-		}
-		if installed.Identity.Digest != r.Checksum {
-			return Installed{}, false, fmt.Errorf("%w: %s checksum changed", ErrConflict, dest)
-		}
-		return installed, true, nil
+		return m.replace(ctx, stage, dest, next, installed)
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	if err := ensureDir(filepath.Dir(dest)); err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
 	if err := m.rename(stage, dest); err != nil {
-		return Installed{}, false, err
+		return Installed{}, InstallUnchanged, err
 	}
-	installed := Installed{Identity: Identity{Source: source, Slug: r.Slug, Version: r.Version, Digest: r.Checksum}, Release: r, Path: filepath.Join(dest, "content"), Workflows: workflows, Integrity: true}
-	return installed, false, nil
+	return installed, InstallNew, nil
+}
+
+// replace swaps a staged release into an existing destination. The caller
+// holds the catalogue lock. Equal bytes leave everything as it is. An existing
+// folder that no longer verifies is replaced too, so a reinstall repairs it.
+func (m *Manager) replace(ctx context.Context, stage, dest string, next Identity, installed Installed) (Installed, InstallResult, error) {
+	if err := ordinaryComponents(dest, true); err != nil {
+		return Installed{}, InstallUnchanged, fmt.Errorf("%w: %w", ErrConflict, err)
+	}
+	previous := Identity{Source: next.Source, Slug: next.Slug, Version: next.Version}
+	if current, err := m.inspectPath(ctx, dest); err == nil {
+		if current.Identity.Digest == next.Digest {
+			return current, InstallUnchanged, nil
+		}
+		previous = current.Identity
+	}
+	if err := ensureDir(m.paths.TeamsTrashDir()); err != nil {
+		return Installed{}, InstallUnchanged, err
+	}
+	trash, err := os.MkdirTemp(m.paths.TeamsTrashDir(), "replace-")
+	if err != nil {
+		return Installed{}, InstallUnchanged, err
+	}
+	old := filepath.Join(trash, "release")
+	swapped := false
+	swap := func() error {
+		if swapped {
+			return errors.New("installed release already replaced")
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := m.rename(dest, old); err != nil {
+			return err
+		}
+		if err := m.rename(stage, dest); err != nil {
+			return errors.Join(err, m.rename(old, dest))
+		}
+		swapped = true
+		return nil
+	}
+	if m.rebind != nil {
+		err = m.rebind(ctx, previous, next, swap)
+	} else {
+		err = swap()
+	}
+	if err != nil {
+		if swapped {
+			// Put the previous release back so bindings and bytes agree again.
+			if restore := errors.Join(m.rename(dest, stage), m.rename(old, dest)); restore != nil {
+				return Installed{}, InstallUnchanged, fmt.Errorf("%w; restoring the previous release failed (kept in %s): %w", err, trash, restore)
+			}
+		}
+		_ = os.RemoveAll(trash)
+		return Installed{}, InstallUnchanged, err
+	}
+	if err := m.removeAll(trash); err != nil {
+		return installed, InstallReplaced, fmt.Errorf("replaced; cleanup remaining at %s: %w", trash, err)
+	}
+	return installed, InstallReplaced, nil
 }
 func (m *Manager) inspectPath(ctx context.Context, dir string) (Installed, error) {
 	fail := func(err error) (Installed, error) {
@@ -457,15 +404,15 @@ func (m *Manager) inspectPath(ctx context.Context, dir string) (Installed, error
 	if filepath.Base(filepath.Dir(filepath.Dir(dir))) == "local" {
 		return m.inspectLocal(ctx, dir, raw)
 	}
-	var rec receipt
-	if err := strictJSON(raw, &rec); err != nil {
+	rec, err := decodeReceipt(raw)
+	if err != nil {
 		return fail(err)
 	}
 	source, err := config.NormalizeTeamSource(rec.Source)
 	if err != nil {
 		return fail(err)
 	}
-	if rec.Source == "" || source != rec.Source || rec.Schema != 1 || rec.Checksum != rec.Release.Checksum || m.destination(source, rec.Release.Slug, rec.Release.Version) != dir {
+	if rec.Source == "" || source != rec.Source || rec.Checksum != rec.Release.Checksum || m.destination(source, rec.Release.Slug, rec.Release.Version) != dir {
 		return fail(errors.New("receipt identity does not match directory"))
 	}
 	if err := validateRelease(rec.Release); err != nil {
@@ -476,7 +423,7 @@ func (m *Manager) inspectPath(ctx context.Context, dir string) (Installed, error
 	if err != nil {
 		return fail(err)
 	}
-	return Installed{Identity: Identity{Source: source, Slug: rec.Release.Slug, Version: rec.Release.Version, Digest: rec.Checksum}, Release: rec.Release, Path: content, Workflows: workflows, Integrity: true}, nil
+	return Installed{Identity: Identity{Source: source, Slug: rec.Release.Slug, Version: rec.Release.Version, Digest: rec.Checksum}, Release: rec.Release, Path: content, Workflows: workflows, Integrity: true, Build: rec.build()}, nil
 }
 func (m *Manager) listLocked(ctx context.Context) ([]Installed, error) {
 	root := m.paths.TeamsInstalledDir()
@@ -550,7 +497,7 @@ func (m *Manager) resolve(ctx context.Context, source, slug, ver string) (Instal
 	if !slugPattern.MatchString(slug) {
 		return Installed{}, fmt.Errorf("%w: invalid slug", ErrInvalidPackage)
 	}
-	if _, err := version(ver); err != nil {
+	if err := version(ver); err != nil {
 		return Installed{}, err
 	}
 	if source != "" {
@@ -624,53 +571,6 @@ func (m *Manager) WithExact(ctx context.Context, id Identity, use func(Installed
 }
 
 // Update installs the highest newer stable version from the same source.
-func (m *Manager) Update(ctx context.Context, source, slug string) (Installed, bool, error) {
-	if source == "local" {
-		return Installed{}, false, fmt.Errorf("%w: local teams are editable and cannot be updated", ErrInvalidPackage)
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	normalized, err := config.NormalizeTeamSource(source)
-	if err != nil {
-		return Installed{}, false, err
-	}
-	all, err := m.List(ctx)
-	if err != nil {
-		return Installed{}, false, err
-	}
-	var baseline Installed
-	for _, entry := range all {
-		if entry.Identity.Source != normalized || entry.Identity.Slug != slug {
-			continue
-		}
-		parts, _ := version(entry.Identity.Version)
-		if parts[4] != "" {
-			continue
-		}
-		if baseline.Identity.Version == "" || compare(entry.Identity.Version, baseline.Identity.Version) > 0 {
-			baseline = entry
-		}
-	}
-	if baseline.Identity.Version == "" {
-		return Installed{}, false, errors.New("no installed stable baseline; use team install with an explicit version")
-	}
-	c, err := m.catalogue(ctx, normalized)
-	if err != nil {
-		return Installed{}, false, err
-	}
-	r, err := selectRelease(c, slug, "")
-	if errors.Is(err, ErrNotFound) {
-		return baseline, false, nil
-	}
-	if err != nil {
-		return Installed{}, false, err
-	}
-	if compare(r.Version, baseline.Identity.Version) <= 0 {
-		return baseline, false, nil
-	}
-	entry, _, err := m.install(ctx, normalized, r)
-	return entry, err == nil, err
-}
 
 // Remove detaches a selected release atomically, then cleans only its trash tree.
 // A true result with an error means removal occurred and cleanup remains.

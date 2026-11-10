@@ -13,9 +13,9 @@ import (
 
 func bugRecipe(command string) string {
 	return "version: 1\nphases:\n" +
-		"  regression:\n    commands: [" + command + "]\n" +
-		"  focused:\n    commands: [{argv: [focused]}]\n" +
-		"  full:\n    commands: [{argv: [full]}]\n"
+		"  regression:\n    commands: [{argv: [retired]}]\n" +
+		"  focused:\n    commands: [{argv: [retired]}]\n" +
+		"  full:\n    commands: [" + command + "]\n"
 }
 
 func TestBugRecipeContractDefaultsAndLiteralArguments(t *testing.T) {
@@ -24,7 +24,7 @@ func TestBugRecipeContractDefaultsAndLiteralArguments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"regression", "focused", "full"} {
+	for _, name := range []string{"full"} {
 		phase, err := r.Phase(name)
 		if err != nil || len(phase.Commands) != 1 {
 			t.Fatalf("%s phase = %+v, %v", name, phase, err)
@@ -34,7 +34,7 @@ func TestBugRecipeContractDefaultsAndLiteralArguments(t *testing.T) {
 			t.Fatalf("%s defaults = %+v", name, c)
 		}
 	}
-	if got := strings.Join(r.Phases.Regression.Commands[0].Argv, "|"); got != "runner|$HOME|*.go|;|$(touch x)" {
+	if got := strings.Join(r.Phases.Full.Commands[0].Argv, "|"); got != "runner|$HOME|*.go|;|$(touch x)" {
 		t.Fatalf("literal argv changed: %q", got)
 	}
 	if _, err := r.Phase("unknown"); err == nil {
@@ -66,8 +66,8 @@ func TestBugRecipeContractStrictRefusals(t *testing.T) {
 		{"empty argv", bugRecipe("{argv: []}")},
 		{"blank executable", bugRecipe("{argv: ['  ']}")},
 		{"NUL argv", bugRecipe("{argv: [runner, \"\\0\"]}")},
-		{"empty later phase", strings.Replace(valid, "commands: [{argv: [full]}]", "commands: []", 1)},
-		{"absent later phase", strings.Replace(valid, "  full:\n    commands: [{argv: [full]}]\n", "", 1)},
+		{"empty full phase", strings.Replace(valid, "commands: [{argv: [runner]}]", "commands: []", 1)},
+		{"absent full phase", strings.Replace(valid, "  full:\n    commands: [{argv: [runner]}]\n", "", 1)},
 		{"zero timeout", bugRecipe("{argv: [runner], timeout_seconds: 0}")},
 		{"negative timeout", bugRecipe("{argv: [runner], timeout_seconds: -1}")},
 		{"excess timeout", bugRecipe("{argv: [runner], timeout_seconds: 86401}")},
@@ -141,19 +141,19 @@ func TestBugRecipeContractRerun(t *testing.T) {
 		return bugRecipe("{argv: [go, test, ./...], timeout_seconds: 3600, rerun: " + block + "}")
 	}
 	plain, err := config.ParseBugCheckRecipe([]byte(bugRecipe("{argv: [go, test, ./...]}")))
-	if err != nil || plain.Phases.Regression.Commands[0].Rerun != nil {
+	if err != nil || plain.Phases.Full.Commands[0].Rerun != nil {
 		t.Fatalf("recipe without rerun gained one: %+v %v", plain, err)
 	}
 	r, err := config.ParseBugCheckRecipe([]byte(rerun("{failures: go-test, argv: [go, test, -run, '{tests}', '{packages}']}")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := r.Phases.Regression.Commands[0].Rerun
+	got := r.Phases.Full.Commands[0].Rerun
 	if got == nil || got.Failures != "go-test" || got.TimeoutSeconds != 3600 || strings.Join(got.Argv, " ") != "go test -run {tests} {packages}" {
 		t.Fatalf("rerun = %+v, want inherited 3600s timeout", got)
 	}
 	r, err = config.ParseBugCheckRecipe([]byte(rerun("{failures: go-test, argv: [go, test, -run, '{tests}', '{packages}'], timeout_seconds: 60}")))
-	if err != nil || r.Phases.Regression.Commands[0].Rerun.TimeoutSeconds != 60 {
+	if err != nil || r.Phases.Full.Commands[0].Rerun.TimeoutSeconds != 60 {
 		t.Fatalf("explicit rerun timeout lost: %+v %v", r, err)
 	}
 	own, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(config.BugRecipePath)))
@@ -167,7 +167,7 @@ func TestBugRecipeContractRerun(t *testing.T) {
 	makeTest := slices.IndexFunc(r.Phases.Full.Commands, func(c config.BugCheckCommand) bool {
 		return slices.Equal(c.Argv, []string{"make", "test"})
 	})
-	if r.Phases.Regression.Commands[1].Rerun == nil || makeTest < 0 || r.Phases.Full.Commands[makeTest].Rerun == nil || !slices.Contains(r.Phases.Full.Commands[makeTest].Rerun.Argv, "-race") {
+	if makeTest < 0 || r.Phases.Full.Commands[makeTest].Rerun == nil || !slices.Contains(r.Phases.Full.Commands[makeTest].Rerun.Argv, "-race") {
 		t.Fatalf("repository recipe lacks its test reruns: %+v", r)
 	}
 	if config.BugRecipeDigest([]byte(rerun("{failures: go-test, argv: [go, '{tests}', '{packages}']}"))) == config.BugRecipeDigest([]byte(bugRecipe("{argv: [go, test, ./...], timeout_seconds: 3600}"))) {

@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"testing/fstest"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -23,8 +23,11 @@ type instructionFailureFixture struct {
 	at           time.Time
 }
 
-func newInstructionFailureFixture(t *testing.T, pkg *instructionpackage.Package, factory bool, invalid string) instructionFailureFixture {
+func newInstructionFailureFixture(t *testing.T, pkg factorylib.Source, factory bool, invalid string) instructionFailureFixture {
 	t.Helper()
+	if pkg == nil {
+		pkg = factorylibtest.Library(t)
+	}
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "instructions.db")
 	db, err := store.Open(ctx, path)
@@ -159,20 +162,7 @@ func TestConversationRestoreCancellationDoesNotPauseBinding(t *testing.T) {
 func TestConversationPackageValidInstructionsStillRespectPromptBudget(t *testing.T) {
 	for _, role := range []string{"conversation-native", "conversation-factory"} {
 		t.Run(role, func(t *testing.T) {
-			roles := instructionpackage.ConversationRoles()
-			baseline := fstest.MapFS{"metadata.yaml": {Data: []byte("schema: 1\nversion: bounds-fixture\n")}, "catalogue.yaml": {Data: []byte("- " + strings.Join(roles, "\n- ") + "\n")}}
-			baseline[instructionpackage.InboxOrganizerSchemaPath] = &fstest.MapFile{Data: []byte("Fixture organizer contract.")}
-			for _, name := range roles {
-				text := "Small " + name + "."
-				if name == role {
-					text = strings.Repeat("x", 256<<10)
-				}
-				baseline["agents/"+name+".md"] = &fstest.MapFile{Data: []byte(text)}
-			}
-			pkg, err := instructionpackage.Load(t.Context(), baseline, "")
-			if err != nil {
-				t.Fatalf("package-valid role rejected prematurely: %v", err)
-			}
+			pkg := factorylibtest.With(t, map[string]string{factorylib.Role(role).Path(): strings.Repeat("x", 256<<10)})
 			f := newInstructionFailureFixture(t, pkg, role == "conversation-factory", "")
 			if role == "conversation-native" {
 				_, stepErr := f.service.ConversationStep(t.Context(), f.at)
@@ -216,7 +206,7 @@ func TestConversationPackageValidInstructionsStillRespectPromptBudget(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			capture, err := instructionpackage.RestoreConversation(raw)
+			capture, err := factorylib.RestoreConversation(raw)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -224,7 +214,7 @@ func TestConversationPackageValidInstructionsStillRespectPromptBudget(t *testing
 			if role == "conversation-factory" {
 				retained = capture.Factory()
 			}
-			if len(retained) != 256<<10 {
+			if !strings.HasPrefix(retained, strings.Repeat("x", 256<<10)) || strings.Count(retained, "x") < 256<<10 {
 				t.Fatal("prompt overflow silently substituted or truncated captured instructions")
 			}
 		})

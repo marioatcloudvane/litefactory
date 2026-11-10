@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"io/fs"
 	"os"
@@ -17,7 +18,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
@@ -39,7 +39,8 @@ type ConversationReasoner struct{ Model, Effort string }
 // ConversationOptions is installed before workers start. Context selection belongs
 // to the caller and conveys data only. Access is rechecked before every external effect.
 type ConversationOptions struct {
-	Instructions *instructionpackage.Package
+	// Instructions is the factory library conversations capture their roles from.
+	Instructions factorylib.Source
 	Factory      bool
 	Bindings     []ConversationBinding
 	StateRoot    string
@@ -63,10 +64,10 @@ type conversationRuntime struct {
 	root, worker string
 	check        func(context.Context, string) error
 	prepared     func(context.Context, string) (string, error)
-	instructions *instructionpackage.Package
+	instructions factorylib.Source
 	// current is the capture of instructions as this daemon started; retained
 	// bindings move onto it at their next turn boundary.
-	current     *instructionpackage.ConversationCapture
+	current     *factorylib.ConversationCapture
 	factory     bool
 	next        int
 	accessMu    sync.Mutex
@@ -81,11 +82,7 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 		return errors.New("conversation private root, protection and authorization are required")
 	}
 	if options.Instructions == nil {
-		var err error
-		options.Instructions, err = instructionpackage.ShippedConversationPackage(ctx)
-		if err != nil {
-			return err
-		}
+		return errors.New("conversation instructions need the factory library")
 	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -108,9 +105,8 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 		}
 	}
 	defer s.conversations.Store(r)
-	if current, diagnostics, err := r.instructions.CaptureConversation(ctx); err == nil {
+	if current, err := r.captureConversation(ctx); err == nil {
 		r.current = current
-		s.logConversationInstructionDiagnostics(ctx, diagnostics)
 	} else if s.Logger != nil {
 		s.Logger.WarnContext(ctx, "conversation instruction capture unavailable; retained bindings keep their instructions")
 	}
@@ -179,11 +175,10 @@ func (s *Service) ensureConversation(ctx context.Context, r *conversationRuntime
 		return readErr
 	}
 	if readErr != nil || old.Provider != b.Provider {
-		capture, diagnostics, err := r.instructions.CaptureConversation(ctx)
+		capture, err := r.captureConversation(ctx)
 		if err != nil {
 			return err
 		}
-		s.logConversationInstructionDiagnostics(ctx, diagnostics)
 		raw, err = capture.Encode()
 		if err != nil {
 			return err
@@ -628,4 +623,13 @@ func (s *Service) logConversationFailure(ctx context.Context, c messagingstate.C
 
 func conversationOperatorInspection(conversationID string) string {
 	return "Ask the factory operator to inspect the retained conversation failure on the factory host: `" + report.TaskInspectionCommand(conversationID) + "`."
+}
+
+// captureConversation captures every conversation role from the current library.
+func (r *conversationRuntime) captureConversation(ctx context.Context) (*factorylib.ConversationCapture, error) {
+	lib, err := r.instructions.Library(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return lib.CaptureConversation(ctx)
 }

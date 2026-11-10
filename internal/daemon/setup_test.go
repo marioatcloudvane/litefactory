@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/launchd"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/repos"
@@ -38,6 +39,7 @@ func (f *fixture) setup(claudeDir string) daemon.Setup {
 	cfg.Webhook.Listen = ""
 
 	return daemon.Setup{
+		Library: factorylibtest.Library(f.t),
 		Paths:   f.paths,
 		Config:  cfg,
 		DB:      f.db,

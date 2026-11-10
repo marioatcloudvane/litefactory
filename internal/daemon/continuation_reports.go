@@ -59,7 +59,7 @@ func (d *Daemon) replayInterruptionReport(ctx context.Context, run store.Run, se
 	if !allowed {
 		return &recoveryPending{}
 	}
-	if !d.enterDoctorGuarded(ctx, session.ID) {
+	if !d.enterSession(ctx, session.ID) {
 		return nil
 	}
 	defer d.inflight.leave(session.ID)

@@ -13,10 +13,12 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 type recoveryJudgeRunner struct {
@@ -79,7 +81,7 @@ func judgeRecoveryFixture(t *testing.T) (*JudgeService, JudgeRequest, store.Resu
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp("/tmp", "lf-jrec-")
+	root, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-jrec-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +94,7 @@ func judgeRecoveryFixture(t *testing.T) (*JudgeService, JudgeRequest, store.Resu
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &JudgeService{DB: db, Config: cfg, Paths: config.NewPaths(root), Executable: "/usr/bin/false", Providers: map[agent.Kind]agent.JudgeRunner{}, Redactor: redact.New(redact.Options{})}
+	service := &JudgeService{Library: factorylibtest.Library(t), DB: db, Config: cfg, Paths: config.NewPaths(root), Executable: "/usr/bin/false", Providers: map[agent.Kind]agent.JudgeRunner{}, Redactor: redact.New(redact.Options{})}
 	request := JudgeRequest{Ref: ref, SessionID: session.ID, CommentID: 9, TicketKey: "qualified-ticket", RemoteCommentID: "comment-9", TaskProvider: config.KindClaude, Options: JudgeCommandOptions{JudgeOptions: config.JudgeOptions{Agent: "other", Thinking: "high"}}}
 	return service, request, binding
 }

@@ -210,7 +210,7 @@ func (s *Service) Start(ctx context.Context, r Request) (out store.DriftAnalysis
 	if err != nil {
 		return a, err
 	}
-	a.Provenance = bytesJSON(map[string]string{"role": "drift-analyst-v1", "profile": profile, "role_digest": digest([]byte(analystRole)), "schema_digest": digest(resultSchema)})
+	a.Provenance = bytesJSON(map[string]string{"role": "drift-analyst-v1", "profile": profile, "role_digest": digest(analystRole(s.Runner)), "schema_digest": digest(resultSchema)})
 	a, err = s.Store.UpdateDriftAnalysis(runCtx, a, a.Generation, a.Version)
 	if err != nil {
 		return a, err
@@ -261,3 +261,11 @@ func (s *Service) ExpireEvidence(ctx context.Context, id string) (failure error)
 
 // NormalizeRequest validates and fills lower-only limits without launching work.
 func NormalizeRequest(q Request) (Request, error) { return normalize(q) }
+
+// analystRole is the captured role of a provider that reports it.
+func analystRole(runner Runner) []byte {
+	if r, ok := runner.(interface{ AnalystRole() []byte }); ok {
+		return r.AnalystRole()
+	}
+	return nil
+}

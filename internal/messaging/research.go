@@ -2,8 +2,6 @@ package messaging
 
 import (
 	"context"
-	"errors"
-	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/factory/owneractions"
@@ -15,25 +13,7 @@ import (
 // DiagnosisRequest contains explicit command input, never repair authority.
 type DiagnosisRequest struct{ Target, Note, SourceID string }
 
-// DiagnosisSummary contains redacted, read-only observations without repair steps.
-type DiagnosisSummary struct {
-	Findings, CoverageGaps, OpenQuestions []string
-	RepairProposed                        bool
-}
-
-// RenderDiagnosis reserves space for every section and the repair boundary.
-func RenderDiagnosis(summary DiagnosisSummary, limit int) string {
-	repair := ""
-	if summary.RepairProposed {
-		repair = "\nA repair was proposed and can only be reviewed on the issue."
-	}
-	fixed := "Findings:\n\nCoverage gaps:\n\nOpen questions:\n" + repair
-	budget := max(0, limit-replySize(fixed))
-	findings, gaps := budget/2, budget/4
-	return "Findings:\n" + shortenLine(strings.Join(summary.Findings, "\n"), findings) + "\nCoverage gaps:\n" + shortenLine(strings.Join(summary.CoverageGaps, "\n"), gaps) + "\nOpen questions:\n" + shortenLine(strings.Join(summary.OpenQuestions, "\n"), budget-findings-gaps) + repair
-}
-
-// Diagnosis queues read-only work; the daemon completes its durable inbox row.
+// Diagnosis starts the Doctor on a task; it refuses with an owner-facing reason.
 type Diagnosis interface {
 	Queue(context.Context, DiagnosisRequest) error
 }
@@ -46,8 +26,6 @@ type ResearchAnswers interface {
 	Current(context.Context, string) (Question, error)
 	Answer(context.Context, string, string, string, time.Time) (Question, error)
 }
-
-var errDeferredDiagnosis = errors.New("messaging: deferred diagnosis")
 
 // EnableResearch installs explicit commands before the chat worker starts.
 func (s *Service) EnableResearch(diagnosis Diagnosis, answers ResearchAnswers) {
@@ -82,16 +60,12 @@ func (s *Service) diagnose(ctx context.Context, m Message, at time.Time) (string
 	if len(m.Arguments["note"]) > 8192 {
 		return assessed(ctx, "diagnosis note is too long", presentation.Refusal)
 	}
-	if err := s.db.DeferChatDiagnosisRepository(ctx, m.Transport, m.ID, ref, at, presentation.AssessedRepository(ctx)); err != nil {
-		return assessed(ctx, "Diagnosis could not be queued. Ask the factory operator to inspect `"+report.TaskInspectionCommand(ref)+"` on the factory host before another request.", presentation.Refusal) //nolint:nilerr // Reply to the owner; never retry a refused command.
-	}
+	// The Doctor runs on the task and reports on its issue; the start is the
+	// whole effect of this command.
 	if err := s.diagnosis.Queue(ctx, DiagnosisRequest{Target: ref, Note: m.Arguments["note"], SourceID: "chat:" + m.Transport + ":" + m.ID}); err != nil {
-		if completeErr := s.db.CompleteChatDiagnosisResult(ctx, m.Transport, m.ID, 0, "diagnosis failed", at, string(presentation.ReportableError)); completeErr != nil {
-			return "", completeErr
-		}
+		return assessed(ctx, err.Error(), presentation.Refusal)
 	}
-	s.Notify()
-	return "", errDeferredDiagnosis
+	return assessed(ctx, "The Doctor started on "+ref+". It reports on the task's issue and asks there when it needs you.", presentation.Success)
 }
 
 func questionText(q Question) string {

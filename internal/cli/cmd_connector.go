@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"io"
 	"io/fs"
 	"os"
@@ -221,15 +222,19 @@ func writeConnectorGrantSummaries(env *Env, home string, snapshot time.Time, gra
 }
 
 // newConnectorSkillCommand prints a client-side skill file built from the same
-// embedded guidance. It needs no database.
+// installed factory library guidance. It needs no database.
 func newConnectorSkillCommand() *Command {
 	cmd := &Command{Name: "connector skill", Usage: "connector skill", Short: "Print a skill file that teaches a chat client the factory"}
 	cmd.Long = "Prints a SKILL.md built from the same guidance the connector sends to clients: the order of calls, approvals and worked workflows. Needs no grant, database or network."
 	cmd.New = func(flags *flag.FlagSet) Handler {
 		return func(ctx context.Context, env *Env, args []string) error {
-			text, err := connector.ComposeSkill()
+			guidance, err := installedConnectorGuidance(ctx)
 			if err != nil {
-				return errors.New("cannot compose the skill: the built-in guidance is missing, empty or too large")
+				return err
+			}
+			text, err := connector.ComposeSkill(guidance)
+			if err != nil {
+				return errors.New("cannot compose the skill: the installed guidance is missing, empty or too large")
 			}
 			_, err = io.WriteString(env.Stdout, text)
 			return err
@@ -239,19 +244,37 @@ func newConnectorSkillCommand() *Command {
 }
 
 // newConnectorTemplateCommand prints the owner's project template, composed from
-// the same embedded guidance the connector tells clients. It needs no database.
+// the same installed factory library guidance the connector tells clients. It needs no database.
 func newConnectorTemplateCommand() *Command {
 	cmd := &Command{Name: "connector template", Usage: "connector template", Short: "Print the project template for chat clients"}
 	cmd.Long = "Prints a markdown project template built from the same guidance the connector sends to clients. Needs no grant, database or network."
 	cmd.New = func(flags *flag.FlagSet) Handler {
 		return func(ctx context.Context, env *Env, args []string) error {
-			text, err := connector.ComposeTemplate()
+			guidance, err := installedConnectorGuidance(ctx)
 			if err != nil {
-				return errors.New("cannot compose the project template: the built-in guidance is missing, empty or too large")
+				return err
+			}
+			text, err := connector.ComposeTemplate(guidance)
+			if err != nil {
+				return errors.New("cannot compose the project template: the installed guidance is missing, empty or too large")
 			}
 			_, err = io.WriteString(env.Stdout, text)
 			return err
 		}
 	}
 	return cmd
+}
+
+// installedConnectorGuidance reads the connector guidance of the installed
+// factory library; without one it fails with the install instruction.
+func installedConnectorGuidance(ctx context.Context) (fs.FS, error) {
+	paths, err := config.Locate()
+	if err != nil {
+		return nil, errors.New("cannot resolve the selected factory home")
+	}
+	source, err := factorylib.Open(ctx, paths)
+	if err != nil {
+		return nil, err
+	}
+	return factorylib.DirFS(source, factorylib.ConnectorDir), nil
 }

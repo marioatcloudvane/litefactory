@@ -25,7 +25,7 @@ provider may still be required. Existing approval gates apply independently.
 | `standards analyze drift` | bare | Local; pinned code analysis and retained evidence | `drift_endtoend_test.go` |
 | `standards analysis` | `list/show/evidence/expire-evidence` | Local; retained analysis inspection and evidence expiration | `drift_endtoend_test.go` |
 | `standards analyze logs` | bare (constructor action `start`); `list/show/reread/recover/file` | Local; bounded log acquisition, analysis, recovery and explicitly requested ticket filing | `log_analysis_endtoend_test.go`, `log_analysis_render_test.go` |
-| `team` | `install/clone/update/list/inspect/remove/link/unlink` | Local; installed immutable team versions and repository bindings | `cmd_team_test.go`, `cmd_team_binding_test.go`, `team_binding_process_test.go`, `team_retirement_io_test.go` |
+| `team` | `install/clone/list/inspect/remove/link/unlink` | Local; team versions installed from `teams/source` and repository bindings | `cmd_team_test.go`, `cmd_team_binding_test.go`, `team_binding_process_test.go`, `team_retirement_io_test.go` |
 | `submission` | `preflight/submit/receipt` | Live attempt descriptor and broker required, rather than remote connector consent; correlation journal and durable result receipt | `cmd_submission_test.go`, `internal/submission/client_test.go`, `internal/submission/broker_test.go` |
 | `mcp` | `serve/logs` | `serve` needs live attempt capability; `logs` uses bounded local evidence; stdio protocol | `cmd_mcp_test.go`, `cmd_mcp_logs_test.go` |
 | `repo` | `add/list/delivery/webhook` | Local; repository registration, delivery settings and legacy webhook setup | `cmd_repo_test.go`, `cmd_repo_webhook_test.go` |
@@ -35,12 +35,11 @@ provider may still be required. Existing approval gates apply independently.
 | `repo webhook` | `list/status/create/repair/update/disable` | Local; owned provider subscription operations (distinct from bare legacy `repo webhook`) | `cmd_repo_subscriptions_test.go` |
 | `daemon` | `run/start/stop/status` | Local lifecycle composition; `run` becomes the daemon, `start` installs/starts service, `stop` stops it, `status` observes it | `cmd_daemon_test.go`, `cmd_daemon_agent_test.go`, `cmd_daemon_run_test.go`, `cmd_daemon_health_test.go` |
 | `logs` | bare | Local; application/run log inspection; following is explicit | `cmd_logs_test.go`, `cmd_logs_app_test.go`, `cmd_logs_tail_test.go`, `cmd_logs_app_follow_test.go` |
-| `doctor` | bare; `status/stop/apply` | Local diagnosis and explicit recovery lifecycle; preserve repair handoff fences | `doctor_unit_test.go`, `cmd_daemon_recovery_test.go` |
+| `doctor` | bare; `stop` | Doctor state of a task; stop a task's running invocation | `maintenance.DoctorState`, `maintenance.StopTask` |
 | `meter` | bare; `export/recover/prices`; `prices list/set` | Local; measured/unknown usage, CSV export, explicit recovery apply and immutable price revisions | `meter_test.go`, `meter_endtoend_test.go`, `meter_recovery_test.go`, `meter_prices_test.go`, `research_meter_csv_test.go` |
 | `task` | `clean/retire` | Local; clean Git worktree/state or explicit task retirement; retain dirty/missing/no-op refusals | `cmd_task_test.go`, `retirement_preview_unit_test.go` |
 | `connector grants` | `list/inspect/revoke/revoke-all` | Local, including with connector disabled; safe summaries and durable grant revocation | `cmd_connector_test.go`, `connector_e2e_test.go` |
-| `rights` | `catalogue/list/grant/revoke/history` | Local; exact repository rights, retained revocation/history; table or explicit JSON | `cmd_rights_test.go` |
-| `reviewer` | `assign/remove/list` | Local; reviewer assignments and retained removal/history | `cmd_rights_test.go` |
+| `repo access` | `grant/revoke/list/history` | Local, owner-only; plain-text grants stored as written, new revision per re-grant, retained revocation/history | `cmd_repo_access.go` |
 
 Test names in this table without a directory are under `internal/cli`.
 General routing preserves exit 0 (success/help), 1 (operation failure), 2 (syntax)
@@ -108,7 +107,7 @@ that fixture's proof.
 ## Delivered consumer cutover
 
 The CLI now uses owned local services for initialization/lifecycle, diagnosis,
-project connections and subscriptions, standards, teams, rights, usage,
+project connections and subscriptions, standards, teams, access grants, usage,
 log analysis, maintenance and story upgrades. Live-attempt submission and MCP
 retain their separate descriptor/broker authority. CLI dependency composition
 can open local dependencies; handlers preserve parsing, rendering and exit

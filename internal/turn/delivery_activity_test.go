@@ -74,7 +74,7 @@ func TestDeliveryWaitsForExactOwnerReview(t *testing.T) {
 			f.opts.WorkflowSource = deliveryWorkflowSource
 			remote := &graphDeliveryForge{issue: github.Issue{ID: 123, Number: 123, State: "open"}}
 			code := checkoutDeliveryForge{graphDeliveryForge: remote, checkout: &checkout}
-			f.opts.Bug = &BugRuntime{cfg: BugRuntimeConfig{Code: code, Tickets: code}}
+			f.opts.DeliveryCode, f.opts.DeliveryTickets = code, code
 			_, err := Execute(t.Context(), f.opts, req)
 			mustProgress(t, err)
 			instance := spikeInstance(t, f)
@@ -237,9 +237,8 @@ func TestDeliveryWaitsForExactOwnerReview(t *testing.T) {
 }
 
 func TestDeliveryPreparationNeverMergesOrCloses(t *testing.T) {
-	f, h, req, forge, head := graphFinalizationFixture(t)
+	f, h, req, forge, _ := graphFinalizationFixture(t)
 	h.Operation = "push"
-	h.Inspect = func(context.Context, GraphDeliveryBinding) (string, string, error) { return head, "base", nil }
 	got, err := h.Execute(t.Context(), f.opts, req)
 	mustProgress(t, err)
 	if got.Outcome != "ready" || forge.merges != 0 || forge.closes != 0 {

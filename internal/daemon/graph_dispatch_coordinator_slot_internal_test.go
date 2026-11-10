@@ -126,7 +126,7 @@ func newCoordinatorSlotFixture(t *testing.T) *coordinatorSlotFixture {
 		t.Fatal(err)
 	}
 	f := &coordinatorSlotFixture{db: db, repo: repo, logs: logs, now: time.Now().UTC(), issueReads: issueReads, turn: &coordinatorSlotExecutor{started: make(chan int64, 32), release: make(chan struct{})}}
-	f.d, err = New(Options{DB: db, Forge: client, Filter: filter, Turn: f.turn, Reporter: stubReporter{}, InstanceID: "coordinator-slot", Logger: logger, Now: func() time.Time { return f.now }, MaxConcurrentRuns: MinConcurrentRuns, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
+	f.d, err = New(Options{ModeRole: testModeRole, DB: db, Forge: client, Filter: filter, Turn: f.turn, Reporter: stubReporter{}, InstanceID: "coordinator-slot", Logger: logger, Now: func() time.Time { return f.now }, MaxConcurrentRuns: MinConcurrentRuns, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -386,7 +386,7 @@ func (h ValidateSuiteActivity) run(ctx context.Context, opts Options, req Activi
 		after = ""
 		state, why = store.SuiteBlocked, "the snapshot could not be observed after the run: "+clipText(obsErr.Error(), 300)
 	case after != before:
-		state, why = store.SuiteBlocked, "snapshot drift: the tested source changed while the suite ran"
+		state, why = store.SuiteBlocked, "snapshot drift: the tested source changed while the suite ran"+snapshotDriftDetail(ctx, scratch)
 	case state == store.SuiteFailed && why == "":
 		why = "a suite command reported test failure"
 	}
@@ -475,6 +475,62 @@ func (s *gitSuiteScratch) Observe(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return id.Digest, nil
+}
+
+// Changes lists the paths the run added, changed or removed in the checkout.
+func (s *gitSuiteScratch) Changes(ctx context.Context) ([]git.FileChange, error) {
+	return s.wt.Status(ctx)
+}
+
+// suiteScratchChanges is the optional listing of what changed in a checkout.
+type suiteScratchChanges interface {
+	Changes(ctx context.Context) ([]git.FileChange, error)
+}
+
+// maxDriftPaths bounds how many changed paths a drift reason names.
+const maxDriftPaths = 10
+
+// snapshotDriftDetail names, bounded, the paths that differ from the tested
+// commit, so a blocked suite says what the run wrote into its source tree.
+// It is empty when the checkout cannot list its changes.
+func snapshotDriftDetail(ctx context.Context, scratch ValidateSuiteScratch) string {
+	lister, ok := scratch.(suiteScratchChanges)
+	if !ok {
+		return ""
+	}
+	changes, err := lister.Changes(context.WithoutCancel(ctx))
+	if err != nil || len(changes) == 0 {
+		return ""
+	}
+	names := make([]string, 0, min(len(changes), maxDriftPaths))
+	for i, c := range changes {
+		if i == maxDriftPaths {
+			names = append(names, fmt.Sprintf("and %d more", len(changes)-maxDriftPaths))
+			break
+		}
+		kind := string(c.Kind)
+		switch c.Kind {
+		case git.ChangeUntracked, git.ChangeAdded:
+			kind = "added"
+		case git.ChangeDeleted:
+			kind = "removed"
+		case git.ChangeModified, git.ChangeTypeChanged:
+			kind = "changed"
+		}
+		names = append(names, kind+" "+clipText(driftPathText(c.Path), 120))
+	}
+	// The whole reason stays within what the reporter and the report show.
+	return "; the suite wrote into the checked-out source tree (" + clipText(strings.Join(names, ", "), 250) + "): the tested code changes its own source tree while its checks run"
+}
+
+// driftPathText keeps a reported path on one printable line.
+func driftPathText(path string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return '?'
+		}
+		return r
+	}, path)
 }
 
 func (s *gitSuiteScratch) Close(ctx context.Context) error {

@@ -24,7 +24,7 @@ func TestTicketDependenciesExcludeCodeDelivery(t *testing.T) {
 			if _, ok := tt.dependency.(turn.CodeDelivery); ok {
 				t.Fatal("ticket dependency acquired code integration authority")
 			}
-			if _, ok := tt.dependency.(turn.BugCodeForge); ok {
+			if _, ok := tt.dependency.(turn.DeliveryCodeForge); ok {
 				t.Fatal("ticket dependency acquired bug integration authority")
 			}
 		})

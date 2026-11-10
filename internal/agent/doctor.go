@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -86,11 +85,4 @@ func validateDoctorTools(launch *MCPLaunchSpec, want []string) error {
 type DoctorRunResult struct {
 	ObservedModel, ProviderVersion string
 	Usage                          *UsageCoverage
-}
-
-// DoctorRunner is the provider-owned isolated execution boundary. Missing
-// verification refuses before process launch; callers cannot request a downgrade.
-type DoctorRunner interface {
-	DoctorIsolation(context.Context) (string, error)
-	RunDoctor(context.Context, DoctorRequest) (DoctorRunResult, error)
 }

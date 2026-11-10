@@ -8,17 +8,11 @@ A repository can tell the factory how to test it with a recipe in `.litefactory/
 
 (The Bug workflow lets its fixer run the project's own commands and runs no recipe of its own; see [Bug](workflow/bug-runtime.md). Spike's agent likewise runs the checks it judges useful; see [Spike](workflow/spike.md).)
 
-A recipe does not grant permission; the operator's `bug_checks` sandbox settings in [config.yaml](configuration/config-yaml.md) do. All three phases must validate before any command runs, even if a workflow only uses one. This is the format (the executable names are placeholders, not a real project recipe):
+A recipe does not grant permission; the operator's `bug_checks` sandbox settings in [config.yaml](configuration/config-yaml.md) do. The `full` phase must validate before any command runs. Older recipes may still carry `regression` and `focused` phases; they are accepted and ignored. This is the format (the executable names are placeholders, not a real project recipe):
 
 ```yaml
 version: 1
 phases:
-  regression:
-    commands:
-      - argv: [./project-regression-wrapper]
-  focused:
-    commands:
-      - argv: [./project-focused-wrapper]
   full:
     commands:
       - argv: [./project-full-wrapper]

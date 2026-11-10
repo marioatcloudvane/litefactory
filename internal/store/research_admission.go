@@ -98,7 +98,10 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 		if in.Workflow == "bug" && (admissionErr != nil || admission.Family != "standalone") {
 			return graphInvariant("Bug launch requires retained standalone admission")
 		}
-		if admissionErr == nil && admission.Family == "standalone" && in.Workflow != "bug" {
+		// The Doctor runs beside any task's own workflow, a standalone Bug
+		// included, and needs no frozen execution path of its own.
+		doctor := in.Mode == "doctor"
+		if admissionErr == nil && admission.Family == "standalone" && in.Workflow != "bug" && in.Mode != "bug" && !doctor {
 			return graphInvariant("mode launch conflicts with standalone admission")
 		}
 		var mode string
@@ -109,7 +112,7 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 			return graphInvariant("workflow definition mode mismatch")
 		}
 		// Research has only the graph path; other modes freeze theirs first.
-		if in.Mode != "research" || (in.Workflow != "" && in.Workflow != "research") {
+		if !doctor && (in.Mode != "research" || (in.Workflow != "" && in.Workflow != "research")) {
 			var path string
 			pathQuery := `SELECT path FROM research_execution_paths WHERE session_id=?`
 			if in.Mode == "plan" {
@@ -269,9 +272,4 @@ func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (Resea
 	}
 	in.Mode = "research"
 	return db.AdmitWorkflowLaunch(ctx, in)
-}
-
-// LatestStandaloneBugInstance recovers only the admitted standalone graph pins.
-func (db *DB) LatestStandaloneBugInstance(ctx context.Context, sessionID int64) (GraphInstance, error) {
-	return scanGraphInstance(db.sql.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? AND definition_id IN (SELECT id FROM graph_definitions WHERE workflow='bug' AND mode=?) ORDER BY id DESC LIMIT 1`, sessionID, standaloneGraphStorageKey))
 }

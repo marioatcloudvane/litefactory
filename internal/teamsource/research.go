@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/render"
 	"github.com/cloudvane/litefactory/internal/skillclosure"
@@ -115,7 +116,7 @@ func CaptureWorkflow(ctx context.Context, source fs.FS, graphPath, teamName stri
 }
 
 // CaptureWorkflowIdentity captures a package using its distinct workflow identity.
-func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamName string, workflow agent.Workflow, registry graphexec.Registry, instructionPaths ...config.Paths) (*WorkflowDefinition, error) {
+func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamName string, workflow agent.Workflow, registry graphexec.Registry, libraries ...factorylib.Source) (*WorkflowDefinition, error) {
 	r := researchReader{ctx: ctx, source: source, files: map[string][]byte{}}
 	raw, err := r.read(graphPath)
 	if err != nil {
@@ -160,7 +161,7 @@ func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamN
 		if declared.Action != graphexec.JudgeAction {
 			continue
 		}
-		if err := captureWorkflowJudge(ctx, source, result, &r.total, instructionPaths); err != nil {
+		if err := captureWorkflowJudge(ctx, source, result, &r.total, libraries); err != nil {
 			faults = append(faults, err)
 		}
 		break

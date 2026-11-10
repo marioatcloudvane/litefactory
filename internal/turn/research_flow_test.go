@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -95,6 +96,8 @@ func TestResearchAskReplyDoneCompletes(t *testing.T) {
 	}
 	intents, err := f.db.ListGraphComments(t.Context(), instance.ID, "", 100)
 	mustProgress(t, err)
+	// ListGraphComments orders by a hashed delivery key, so order by attempt.
+	sort.Slice(intents, func(i, j int) bool { return intents[i].SourceAttemptID < intents[j].SourceAttemptID })
 	if len(intents) != 2 || intents[0].Kind != "question" || intents[1].Kind != "final" {
 		t.Fatalf("want a question then the final report, got %+v", intents)
 	}

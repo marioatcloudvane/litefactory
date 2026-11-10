@@ -211,3 +211,13 @@ type ProjectRegistrationFailure struct{ Err error }
 
 func (e *ProjectRegistrationFailure) Error() string { return e.Err.Error() }
 func (e *ProjectRegistrationFailure) Unwrap() error { return e.Err }
+
+// ProjectAccessGrantView is one revision of a plain-text grant. ClosedAt is the
+// zero time while the revision is in force; CloseReason is replaced or revoked.
+type ProjectAccessGrantView struct {
+	ID, RepoID, Revision int64
+	Actor                ticket.Identity
+	Handle, Text         string
+	CreatedAt, ClosedAt  time.Time
+	CloseReason          string
+}

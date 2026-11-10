@@ -32,6 +32,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -141,7 +142,7 @@ func TestFactoryCoreTicketMainPathWithoutOptionalTransports(t *testing.T) {
 				filter, e := turn.NewFilter(db, turn.Identities{OwnerUserID: actorID, BotUserID: botID, TicketOrigin: origin}, logger)
 				check(e)
 				executor.db = db
-				d, e := New(Options{DB: db, Forge: codeClients.Code, Tickets: startup, Connections: factory, Filter: filter, Turn: executor, Reporter: reporter, DefaultAgent: "claude", Agents: turn.RunnerSet{"claude": nil}, Classifiers: map[agent.Kind]agent.Classifier{"claude": explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions, Logger: logger, InstanceID: "factory-core-main-path"})
+				d, e := New(Options{ModeRole: testModeRole, DB: db, Forge: codeClients.Code, Tickets: startup, Connections: factory, Filter: filter, Turn: executor, Reporter: reporter, DefaultAgent: "claude", Agents: turn.RunnerSet{"claude": nil}, Classifiers: map[agent.Kind]agent.Classifier{"claude": explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions, Logger: logger, InstanceID: "factory-core-main-path"})
 				check(e)
 				if d.chat != nil || d.remoteConnector != nil {
 					t.Fatal("ticket path constructed an optional transport")
@@ -383,7 +384,7 @@ func (e *factoryCoreReceiptExecutor) Execute(ctx context.Context, req turn.Reque
 	if err != nil {
 		return out, err
 	}
-	directory, err := os.MkdirTemp("/tmp", "lf-core-broker-")
+	directory, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-core-broker-")
 	if err != nil {
 		return out, err
 	}

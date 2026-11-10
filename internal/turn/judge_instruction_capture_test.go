@@ -3,6 +3,8 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/factorylib"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 	"os"
 	"path/filepath"
@@ -14,36 +16,28 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 // This path uses production workflow restoration, execution, judge admission and
 // the result broker. Inference and the remote forge are controlled fixtures.
-func TestWorkflowJudgeInstructionsSurvivePackageEditsAndRestore(t *testing.T) {
+func TestWorkflowJudgeInstructionsSurviveLibraryReinstallAndRestore(t *testing.T) {
 	ctx := t.Context()
-	root, err := os.MkdirTemp("/tmp", "lf-jinst-")
+	root, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-jinst-")
 	mustProgress(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	root, err = filepath.EvalSymlinks(root)
 	mustProgress(t, err)
 	paths := config.NewPaths(root)
+	// Every write is an owner edit followed by a reinstall of the library.
 	write := func(name, body string) {
 		t.Helper()
-		filename := filepath.Join(paths.InternalInstructionsDir(), filepath.FromSlash(name))
-		mustProgress(t, os.MkdirAll(filepath.Dir(filename), 0700))
-		mustProgress(t, os.WriteFile(filename, []byte(body), 0600))
+		factorylibtest.InstallWith(t, paths, map[string]string{name: body})
 	}
-	shipped, err := instructionpackage.LoadShipped(ctx, "")
-	mustProgress(t, err)
-	var catalogue strings.Builder
-	for _, role := range shipped.Roles() {
-		catalogue.WriteString("- " + role + "\n")
-	}
-	write(instructionpackage.CataloguePath, catalogue.String())
 	original := map[string]string{
-		instructionpackage.JudgeRolePath: "Captured challenger role.\n",
+		factorylib.Judge.Path(): "Captured judge role.\n",
 	}
 	edited := map[string]string{}
 	for name, body := range original {
@@ -72,7 +66,7 @@ func TestWorkflowJudgeInstructionsSurvivePackageEditsAndRestore(t *testing.T) {
   captured_judge -> report [lf_on="failed"];`, 1))
 	fresh := func() *teamsource.WorkflowDefinition {
 		t.Helper()
-		def, captureErr := teamsource.CaptureWorkflowIdentity(ctx, source, "research.dot", base.Profile.Team, agent.WorkflowResearch, specs, paths)
+		def, captureErr := teamsource.CaptureWorkflowIdentity(ctx, source, "research.dot", base.Profile.Team, agent.WorkflowResearch, specs, factorylib.NewInstalled(paths))
 		mustProgress(t, captureErr)
 		node, exists := def.Profile.Node("captured_judge")
 		if !exists || node.Action != graphexec.JudgeAction {
@@ -142,7 +136,7 @@ func TestWorkflowJudgeInstructionsSurvivePackageEditsAndRestore(t *testing.T) {
 			}
 			var cfg judgeConfiguration
 			mustProgress(t, json.Unmarshal(durable.Configuration, &cfg))
-			capture, restoreErr := instructionpackage.Restore(cfg.Instructions)
+			capture, restoreErr := factorylib.Restore(cfg.Instructions)
 			mustProgress(t, restoreErr)
 			for name, body := range expectedResources {
 				if string(capture.Resource(name)) != body {
@@ -151,7 +145,7 @@ func TestWorkflowJudgeInstructionsSurvivePackageEditsAndRestore(t *testing.T) {
 			}
 			// The provider prompt starts with the retained role bytes; the factory
 			// appends only where to read, never the live package.
-			if role := strings.TrimRight(expectedResources[instructionpackage.JudgeRolePath], "\n"); !strings.HasPrefix(q.Invocation.Prompt, role) {
+			if role := strings.TrimRight(expectedResources[factorylib.Judge.Path()], "\n"); !strings.HasPrefix(q.Invocation.Prompt, role) {
 				t.Fatalf("provider prompt differs from retained role: got %q, want prefix %q", q.Invocation.Prompt, role)
 			}
 			// Admission has already persisted configuration. A package edit between

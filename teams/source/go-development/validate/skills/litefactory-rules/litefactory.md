@@ -34,21 +34,21 @@ Validate. Long package runs use `-timeout=0` and run in the background with thei
 output in a log file the worker reads when they finish; a tool call that blocks on
 a long test can be killed by its host (exit 143) before the test ends. `gofmt -l .` must report nothing. `make lint` runs a pinned
 golangci-lint v2 against a v2 `.golangci.yml`; never an unpinned or v1 linter.
+Inside the agent sandbox, use `make lint PKGS="<changed packages>"`: it runs the
+pinned linter through `go run` when `golangci-lint` is not on `PATH`, so a missing
+binary is no reason to skip lint. The sandbox also refuses to create Unix sockets,
+so tests that start a submission broker or another socket server (many in
+`internal/turn`, `internal/daemon`, `internal/cli`, `internal/submission` and
+`internal/logevidence`) fail there with `cannot create socket` or `operation not
+permitted`. Report those tests or packages plainly as not run in the sandbox;
+never count them as passed. Tests that need a short directory for a socket use
+`os.MkdirTemp(testutil.ShortTempRoot(), …)`, never a fixed `/tmp`.
 Prefer `make build` only as the operator — see the prohibition above.
 
-## Team sources and their releases
+## Team sources
 
-The daemon runs the installed release, not `teams/source`. Any change under
-`teams/source` regenerates `teams/*/v1.0.0` and `teams/teams.json` in the same
-change, with every team source:
-
-```sh
-go run ./cmd/teamrelease -source teams/source/go-development -source teams/source/python-fastapi -source teams/source/dotnet-web -source teams/source/swift-ios -source teams/source/nextjs-web
-```
-
-Teams stay at 1.0.0: regenerate in place, never change a `release.json`
-version. Then run `go test ./internal/teamrelease`; it fails when a published
-release differs from its source.
+Teams are installed from `teams/source` with `litefactory team install`; no
+generated release folders exist. Never change a `release.json` version.
 
 ## Store rules
 

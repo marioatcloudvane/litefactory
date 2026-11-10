@@ -2,24 +2,17 @@ package cli
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
+	"io/fs"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"testing/fstest"
 
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/teampackage"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 )
 
 func teamFiles(t *testing.T, modes ...string) map[string][]byte {
@@ -51,20 +44,56 @@ func teamFiles(t *testing.T, modes ...string) map[string][]byte {
 	files[skillPath] = []byte("---\nname: fixture-stack\ndescription: Synthetic team fixture guidance\n---\nAdvice.\n")
 	return files
 }
-func cliRelease(files map[string][]byte, ver string) teampackage.Release {
-	r := teampackage.Release{Name: "Standard", Slug: "standard", Version: ver, Description: "unchanged builtin fixture", Tags: []string{}, Download: "standard/" + ver}
-	for name, raw := range files {
-		sum := sha256.Sum256(raw)
-		r.Files = append(r.Files, teampackage.File{Path: name, SHA256: hex.EncodeToString(sum[:])})
+
+// teamSourceCopy copies the repository's base-team and go-development source
+// folders into dir/teams/source, optionally at another release version, and
+// returns that teams/source folder.
+func teamSourceCopy(t *testing.T, dir, version string) string {
+	t.Helper()
+	from := filepath.Join(teamsourcetest.RepoRoot(), "teams", "source")
+	to := filepath.Join(dir, "teams", "source")
+	for _, team := range []string{"base-team", teamsourcetest.Go} {
+		err := filepath.WalkDir(filepath.Join(from, team), func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, err := filepath.Rel(from, p)
+			if err != nil {
+				return err
+			}
+			raw, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			if version != "" && rel == filepath.Join(teamsourcetest.Go, "release.json") {
+				raw = bytes.Replace(raw, []byte(`"version": "1.0.0"`), []byte(`"version": "`+version+`"`), 1)
+			}
+			target := filepath.Join(to, rel)
+			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+				return err
+			}
+			return os.WriteFile(target, raw, 0o600)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	slices.SortFunc(r.Files, func(a, b teampackage.File) int { return strings.Compare(a.Path, b.Path) })
-	h := sha256.New()
-	for _, f := range r.Files {
-		_, _ = h.Write([]byte(f.Path + "\x00" + f.SHA256 + "\n"))
-	}
-	r.Checksum = hex.EncodeToString(h.Sum(nil))
-	return r
+	return to
 }
+
+// changeTeamSource edits one installed file of the go-development team.
+func changeTeamSource(t *testing.T, source, line string) {
+	t.Helper()
+	name := filepath.Join(source, "base-team", "research", "skills", "research-evidence", "SKILL.md")
+	raw, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, append(raw, []byte("\n"+line+"\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTeamCommandsOutsideRepository(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -73,49 +102,17 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 	t.Setenv(config.EnvHome, home)
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
-	files := teamFiles(t, "research", "plan", "implement", "validate", "spike", "bug")
+	source := teamSourceCopy(t, filepath.Join(home, "checkout"), "")
+	identity := "file://" + filepath.ToSlash(source)
 	t.Chdir(home)
 	t.Setenv("PATH", home)
-	var mu sync.Mutex
-	versions := []string{"1.0.0"}
-	requests := 0
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		requests++
-		if r.URL.Path == "/teams/teams.json" {
-			c := teampackage.Catalogue{Schema: 1}
-			for _, ver := range versions {
-				c.Releases = append(c.Releases, cliRelease(files, ver))
-			}
-			if err := json.NewEncoder(w).Encode(c); err != nil {
-				t.Error(err)
-			}
-			return
-		}
-		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/teams/standard/"), "/", 2)
-		if len(parts) != 2 {
-			http.NotFound(w, r)
-			return
-		}
-		raw, ok := files[parts[1]]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		if _, err := w.Write(raw); err != nil {
-			t.Error(err)
-		}
-	}))
-	defer server.Close()
-	source := server.URL + "/teams/teams.json"
-	// Configured source is read without resolving bot credentials or opening SQL.
+	// The configured folder is read without resolving bot credentials or opening SQL.
 	body := []byte("settings:\n  team_source: " + source + "\n")
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), body, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	env := &Env{Stdout: &stdout, Stderr: &stderr, Logger: slog.New(slog.DiscardHandler), TeamTransport: server.Client().Transport}
+	env := &Env{Stdout: &stdout, Stderr: &stderr, Logger: slog.New(slog.DiscardHandler)}
 	router := NewRouter("litefactory", env, Commands())
 	run := func(args ...string) string {
 		t.Helper()
@@ -126,39 +123,50 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 		}
 		return stdout.String()
 	}
-	if output := run("team", "install", "standard"); !strings.Contains(output, "Installed standard 1.0.0") {
-		t.Fatal(output)
+	refused := func(want string, args ...string) {
+		t.Helper()
+		stdout.Reset()
+		stderr.Reset()
+		if code := router.Run(t.Context(), args); code == ExitOK || !strings.Contains(stderr.String(), want) {
+			t.Fatalf("%v: exit %d: %s", args, code, stderr.String())
+		}
 	}
-	// An explicit source overrides another configured catalogue without fetching it.
+	installed := run("team", "install", "go-development")
+	for _, want := range []string{"Installed go-development 1.0.0 from " + identity, "Checksum: ", "Source commit: unknown"} {
+		if !strings.Contains(installed, want) {
+			t.Fatalf("install missing %q: %s", want, installed)
+		}
+	}
+	// An explicit folder overrides an old catalogue URL left in config.yaml.
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("settings:\n  team_source: https://unused.example/teams.json\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if output := run("team", "install", "standard", "1.0.0", "--source", source); !strings.Contains(output, "Already installed") {
+	if output := run("team", "install", "go-development", "--source", source+"/"); !strings.Contains(output, "Already installed") {
 		t.Fatal(output)
 	}
-	if err := os.WriteFile(filepath.Join(home, "config.yaml"), body, 0o600); err != nil {
+	folderForm := "--source /absolute/path/to/teams/source"
+	refused(folderForm, "team", "install", "go-development")
+	refused(folderForm, "team", "install", "go-development", "--source", "https://raw.githubusercontent.com/example/repo/main/teams/teams.json")
+	catalogue := filepath.Join(home, "teams.json")
+	if err := os.WriteFile(catalogue, []byte(`{"schema":1,"releases":[]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mu.Lock()
-	versions = append(versions, "1.1.1")
-	mu.Unlock()
-	if output := run("team", "update", "standard", "--source", source); !strings.Contains(output, "Installed update") {
+	refused(folderForm, "team", "install", "go-development", "--source", catalogue)
+	refused(folderForm, "team", "install", "go-development", "--source", "file://"+filepath.ToSlash(catalogue))
+	refused("base", "team", "install", "base-team", "--source", source)
+	refused("no team folder", "team", "install", "missing", "--source", source)
+	// A changed source replaces the installed version in place.
+	changeTeamSource(t, source, "Installed again after an edit.")
+	if output := run("team", "install", "go-development", "--source", source); !strings.Contains(output, "Replaced go-development 1.0.0") {
 		t.Fatal(output)
 	}
-	if output := run("team", "update", "standard"); !strings.Contains(output, "No update") {
-		t.Fatal(output)
-	}
-	mu.Lock()
-	priorRequests := requests
-	mu.Unlock()
-	server.Close()
 	// Offline commands ignore even a now-invalid configuration.
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("broken: config"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	cloned := run("team", "clone", "standard", "1.0.0", "custom", "2.0.0", "--source", source)
-	for _, want := range []string{"Cloned custom 2.0.0", "Editable folder:", "Origin: " + source + " standard 1.0.0"} {
+	cloned := run("team", "clone", "go-development", "1.0.0", "custom", "2.0.0", "--source", identity)
+	for _, want := range []string{"Cloned custom 2.0.0", "Editable folder:", "Origin: " + identity + " go-development 1.0.0"} {
 		if !strings.Contains(cloned, want) {
 			t.Fatal(cloned)
 		}
@@ -169,7 +177,7 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	localInspect := run("team", "inspect", "custom", "2.0.0", "--source", "local")
-	if !strings.Contains(localInspect, "Source: local, editable") || !strings.Contains(localInspect, "Origin: "+source+" standard 1.0.0") {
+	if !strings.Contains(localInspect, "Source: local, editable") || !strings.Contains(localInspect, "Origin: "+identity+" go-development 1.0.0") {
 		t.Fatal(localInspect)
 	}
 	if output := run("team", "list"); !strings.Contains(output, "local custom 2.0.0") {
@@ -181,7 +189,7 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 		{"team", "clone", "custom", "2.0.0", "second", "3.0.0"},
 		{"team", "clone", "custom", "2.0.0", "Bad", "1.0.0"},
 		{"team", "clone", "custom", "2.0.0", "new", "v1"},
-		{"team", "update", "custom", "--source", "local"},
+		{"team", "update", "go-development"},
 	} {
 		stdout.Reset()
 		stderr.Reset()
@@ -194,20 +202,16 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 		t.Fatal(output)
 	}
 	run("team", "remove", "second", "3.0.0", "--source", "local")
-	listed := run("team", "list")
-	if !strings.Contains(listed, "1.0.0") || !strings.Contains(listed, "1.1.1") {
-		t.Fatal(listed)
-	}
-	inspected := run("team", "inspect", "standard", "1.0.0", "--source", source)
-	for _, want := range []string{"Integrity: verified", "Source: " + source, "Checksum:", "Path:", "bug, implement, plan, research, spike, validate"} {
+	inspected := run("team", "inspect", "go-development", "1.0.0", "--source", identity)
+	for _, want := range []string{"Integrity: verified", "Source: " + identity, "Checksum:", "Path:", "bug, implement, plan, research, spike, validate", "Source commit:"} {
 		if !strings.Contains(inspected, want) {
 			t.Fatalf("inspect missing %q: %s", want, inspected)
 		}
 	}
-	if output := run("team", "remove", "standard", "1.0.0"); !strings.Contains(output, "Removed") {
+	if output := run("team", "remove", "go-development", "1.0.0"); !strings.Contains(output, "Removed") {
 		t.Fatal(output)
 	}
-	if output := run("team", "list"); strings.Contains(output, "1.0.0") || !strings.Contains(output, "1.1.1") {
+	if output := run("team", "list"); strings.Contains(output, "1.0.0") {
 		t.Fatal(output)
 	}
 	if _, err := os.Stat(filepath.Join(home, "litefactory.db")); !os.IsNotExist(err) {
@@ -215,11 +219,6 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "daemon.lock")); !os.IsNotExist(err) {
 		t.Fatalf("daemon accessed: %v", err)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if requests != priorRequests {
-		t.Fatal("offline commands fetched")
 	}
 }
 func TestTeamWorkflowValidationRefusesUnknownActionAndMissingResource(t *testing.T) {
@@ -261,13 +260,6 @@ func byteFiles(files map[string][]byte) fstest.MapFS {
 	return result
 }
 
-type teamSourceRequestSpy struct{ called bool }
-
-func (s *teamSourceRequestSpy) RoundTrip(*http.Request) (*http.Response, error) {
-	s.called = true
-	return nil, errors.New("unexpected source request")
-}
-
 func TestTeamSourceSettingsCannotBeSilentlyTruncated(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -278,12 +270,11 @@ func TestTeamSourceSettingsCannotBeSilentlyTruncated(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	spy := &teamSourceRequestSpy{}
 	var stdout, stderr bytes.Buffer
-	env := &Env{Stdout: &stdout, Stderr: &stderr, Logger: slog.New(slog.DiscardHandler), TeamTransport: spy}
+	env := &Env{Stdout: &stdout, Stderr: &stderr, Logger: slog.New(slog.DiscardHandler)}
 	router := NewRouter("litefactory", env, Commands())
-	code := router.Run(t.Context(), []string{"team", "install", "standard"})
-	if code != ExitFailure || !strings.Contains(stderr.String(), "team_source") || spy.called {
-		t.Fatalf("truncated source setting: exit=%d error=%s fetched=%v", code, stderr.String(), spy.called)
+	code := router.Run(t.Context(), []string{"team", "install", "go-development"})
+	if code != ExitFailure || !strings.Contains(stderr.String(), "team_source") {
+		t.Fatalf("truncated source setting: exit=%d error=%s", code, stderr.String())
 	}
 }

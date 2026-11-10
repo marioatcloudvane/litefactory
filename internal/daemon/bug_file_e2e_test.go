@@ -2,7 +2,6 @@ package daemon_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -17,17 +16,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/connector"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
-	"github.com/cloudvane/litefactory/internal/daemon"
-	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/owneraction"
-	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 // AC-001 main path: the owner's bug is proposed through bug_file_propose, the
@@ -60,7 +55,6 @@ func TestBugFileE2E_ProposeConfirmFilesOneLabelledIssueAndStartsAnalysis(t *test
 	f.repo.RemoteURL = realRepo.Origin
 	f.repo, err = f.db.UpsertRepo(ctx, f.repo)
 	btCheck(t, err)
-	runner := bugFileBugRuntime(t, f, realRepo)
 	f.plantCursor()
 	repository := testOwnerName + "/" + testRepoName
 	at := f.clock.Now()
@@ -75,7 +69,7 @@ func TestBugFileE2E_ProposeConfirmFilesOneLabelledIssueAndStartsAnalysis(t *test
 	harness := f.daemon.EnableBugFilingForTest(cfg, f.clock.Now)
 	local, err := connector.NewLocalControl(ctx, connectorstorage.New(f.db), brainstormTasksControl{db: f.db, now: f.clock.Now})
 	btCheck(t, err)
-	server, err := connector.New(ctx, connector.Options{Config: cfg, Storage: connectorstorage.New(f.db), Access: connectorstorage.New(f.db), Logger: slog.New(slog.DiscardHandler), LocalControl: local, GitHubSecret: "fixture-secret", CookieKey: bytes.Repeat([]byte{7}, 32), Now: f.clock.Now, Actions: harness.Actions})
+	server, err := connector.New(ctx, connector.Options{Guidance: factorylibtest.Connector(), Config: cfg, Storage: connectorstorage.New(f.db), Access: connectorstorage.New(f.db), Logger: slog.New(slog.DiscardHandler), LocalControl: local, GitHubSecret: "fixture-secret", CookieKey: bytes.Repeat([]byte{7}, 32), Now: f.clock.Now, Actions: harness.Actions})
 	btCheck(t, err)
 	call := brainstormTasksCaller(t, server.Handler(), cfg.ResourceURL, token)
 
@@ -152,63 +146,24 @@ func TestBugFileE2E_ProposeConfirmFilesOneLabelledIssueAndStartsAnalysis(t *test
 		t.Fatalf("issue labels %+v", issue.Labels)
 	}
 
-	// The recorded result: Bug analysis started, with the issue link.
-	if inspected.Result.State != "succeeded" || inspected.Result.Summary != "Bug analysis started" || inspected.Result.Reference != issue.HTMLURL || filing.IssueLink != issue.HTMLURL {
+	// The recorded result: Bug started, with the issue link.
+	if inspected.Result.State != "succeeded" || inspected.Result.Summary != "Bug started" || inspected.Result.Reference != issue.HTMLURL || filing.IssueLink != issue.HTMLURL {
 		t.Fatalf("result %+v filing %+v link %q logs=%s", inspected.Result, filing, issue.HTMLURL, f.logs)
 	}
 	if filing.State != store.BugFilingDispatched || filing.IssueNumber != issue.Number {
 		t.Fatalf("filing %+v", filing)
 	}
 
-	// Bug analysis started on its own: one standalone Bug on the issue's
-	// session with an analyst attempt, from the one start attempt.
+	// The filing started the Bug as the owner's scheduled work on the issue's
+	// session; the factory posted no start sentence and no command.
 	session := f.sessionOf(issue.Number)
-	instance, err := f.db.LatestStandaloneBugInstance(ctx, session.ID)
-	btCheck(t, err)
-	attempts, err := f.db.ListGraphNodeAttempts(ctx, instance.ID)
-	btCheck(t, err)
-	analysts, fixers := 0, 0
-	for _, a := range attempts {
-		switch a.Node {
-		case "analyst":
-			analysts++
-		case "fixer":
-			fixers++
-		}
-	}
-	starts, err := f.db.BugFilingStartAttempts(ctx, filing.ID)
-	btCheck(t, err)
-	if analysts != 1 || runner.analysts != 1 || len(starts) != 1 || starts[0].State != store.BugStartSucceeded {
-		t.Fatalf("analysis did not start once: attempts=%+v analyst runs=%d starts=%+v logs=%s", attempts, runner.analysts, starts, f.logs)
-	}
-
-	// The start trigger stays private: the factory posted its analysis report
-	// but never the start sentence or a command, and no comment by anyone but
-	// the bot exists on the issue.
-	posted := brainstormTasksComments(f, issue.Number)
-	if len(posted) == 0 {
-		t.Fatal("the analysis report was not delivered on the issue")
-	}
-	for _, body := range posted {
-		if strings.Contains(body, "filed for the owner from a chat client") || strings.HasPrefix(strings.TrimSpace(body), "/") {
-			t.Fatalf("the start trigger or a command was posted: %q", body)
-		}
+	if filing.SessionID != session.ID {
+		t.Fatalf("filing session %d, issue session %d", filing.SessionID, session.ID)
 	}
 	for _, c := range bugFileComments(f, issue.Number) {
-		if c.User.ID != botID {
-			t.Fatalf("a non-bot comment exists on the filed issue: %+v", c)
+		if c.User.ID != botID || strings.HasPrefix(strings.TrimSpace(c.Body), "/") {
+			t.Fatalf("an unexpected comment exists on the filed issue: %+v", c)
 		}
-		if c.ID == starts[0].TriggerID() {
-			t.Fatalf("the private start trigger was posted: %+v", c)
-		}
-	}
-
-	// Repair has not started: no fixer attempt, the Bug waits for the owner's
-	// /approve-bug.
-	wait, err := f.db.GetGraphOwnerWait(ctx, instance.ID)
-	btCheck(t, err)
-	if fixers != 0 || runner.fixers != 0 || wait.State != "waiting" || wait.OriginNode != "conversation" {
-		t.Fatalf("repair passed the approval gate: fixers=%d/%d wait=%+v", fixers, runner.fixers, wait)
 	}
 
 	// The repeated yes and more rounds change nothing.
@@ -216,46 +171,9 @@ func TestBugFileE2E_ProposeConfirmFilesOneLabelledIssueAndStartsAnalysis(t *test
 	for range 3 {
 		round()
 	}
-	if n := len(brainstormTasksIssues(f)); n != 1 || labels.creates() != 1 || len(labels.writes()) != 1 || runner.analysts != 1 {
-		t.Fatalf("replay changed the filing: issues=%d creates=%d label writes=%d analysts=%d", n, labels.creates(), len(labels.writes()), runner.analysts)
+	if n := len(brainstormTasksIssues(f)); n != 1 || labels.creates() != 1 || len(labels.writes()) != 1 {
+		t.Fatalf("replay changed the filing: issues=%d creates=%d label writes=%d", n, labels.creates(), len(labels.writes()))
 	}
-}
-
-// bugFileBugRuntime installs the real Bug graph runtime with the controlled
-// Codex runner on the fixture's daemon, as TestCodexBugAgentMainPath does.
-func bugFileBugRuntime(t *testing.T, f *fixture, repo *gittest.Repo) *bugPathRunner {
-	t.Helper()
-	ctx := t.Context()
-	binary, err := git.Resolve(ctx)
-	btCheck(t, err)
-	home, err := os.MkdirTemp("/tmp", "lf-bug-file-")
-	btCheck(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	home, err = filepath.EvalSymlinks(home)
-	btCheck(t, err)
-	paths := config.NewPaths(home)
-	authority, err := turn.NewAttemptAuthority(ctx, f.db)
-	btCheck(t, err)
-	t.Cleanup(func() { _ = authority.Close(context.WithoutCancel(ctx)) })
-	cfg := config.Defaults()
-	claude, codexConfig := config.DefaultClaude(), config.DefaultCodex()
-	cfg.Agents = config.Agents{Claude: &claude, Codex: &codexConfig}
-	judge := &turn.JudgeService{DB: f.db, Config: &cfg, Providers: map[agent.Kind]agent.JudgeRunner{"codex": &bugPathJudge{controlledJudge: &controlledJudge{}}}, Paths: paths, Executable: "/usr/bin/false", Git: binary, Redactor: redact.New(redact.Options{Logger: f.logger})}
-	runner := &bugPathRunner{repo: repo}
-	runners := turn.RunnerSet{"codex": runner, "claude": bugPathUnexpectedRunner{}}
-	opts := turn.Options{DB: f.db, Git: binary, Runners: runners, CloneGate: &bugPathGate{}, Paths: paths, InstanceID: "daemon-instance-test", Author: git.Author{Name: "Fixture", Email: "fixture@example.invalid"}, Logger: f.logger, ResearchReporter: f.reporter, Judge: judge, ConflictContentMaxBytes: 65536, Tiers: cfg.Tiers,
-		MCP: &turn.MCPRuntime{Authority: authority, Paths: paths, Executable: "/usr/bin/false", Now: time.Now, Comments: f.client, BotID: botID, Redactor: redact.New(redact.Options{Logger: f.logger})}, WorkflowSource: bugPathWorkflowSource}
-	runtime, err := turn.NewGraphBugRuntime(ctx, opts, turn.BugRuntimeConfig{Forge: &bugPathForge{f: f, repo: repo}, OwnerID: ownerID, Permissions: func(_ agent.Kind, role string) (turn.BugRolePermissions, error) {
-		if role == "bug-fixer" {
-			return turn.BugRolePermissions{Sandbox: "workspace-write"}, nil
-		}
-		return turn.BugRolePermissions{Sandbox: "read-only"}, nil
-	}})
-	btCheck(t, err)
-	opts.Bug = runtime
-	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) { return turn.Execute(ctx, opts, req) })
-	f.daemon = f.newDaemon(daemon.Options{Bug: runtime, BugAgent: "codex", Agents: runners, Judge: judge})
-	return runner
 }
 
 func bugFileComments(f *fixture, issue int) []fakeComment {

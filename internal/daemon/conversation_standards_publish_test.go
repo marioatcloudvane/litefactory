@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -56,7 +57,7 @@ func newPublishFlow(t *testing.T) *publishFlow {
 	t.Cleanup(wg.Wait)
 	t.Cleanup(stop)
 	book := &standards.Service{Store: db, OwnerID: 7}
-	f.adapter = &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: f.author}, Analyses: analyses, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
+	f.adapter = &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: f.author}, Analyses: analyses, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 	return f
 }
 

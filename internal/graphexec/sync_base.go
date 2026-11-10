@@ -20,16 +20,9 @@ func SyncBaseSpec(mode agent.Mode) ActionSpec {
 	return ActionSpec{Name: SyncBaseAction, Mode: mode, Outcomes: []string{"synced", "current", "conflict", "retry", "deferred"}}
 }
 
-// SyncBaseWorkflowSpec admits synchronization for a workflow identity, including
-// standalone Bug, whose legacy mode is empty.
+// SyncBaseWorkflowSpec admits synchronization for a workflow identity.
 func SyncBaseWorkflowSpec(workflow agent.Workflow, mode agent.Mode) ActionSpec {
 	spec := SyncBaseSpec(mode)
 	spec.Workflow = workflow
-	if workflow == agent.WorkflowBug {
-		spec.Attributes = OwnerStopAttributes()
-		stop := spec.Attributes["lf_stop"]
-		stop.Values = append(stop.Values, "conflict", "retry")
-		spec.Attributes["lf_stop"] = stop
-	}
 	return spec
 }

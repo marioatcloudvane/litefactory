@@ -55,7 +55,11 @@ func IsAutomaticTrigger(id int64) bool { return id > automaticTriggerBase && id 
 // automatic recovery and schedule) lies above every comment id a forge will
 // ever produce. Code asking "is this a real owner comment" asks this; only code
 // that needs to know which kind of factory work names a band.
-func IsFactoryTrigger(id int64) bool { return id > bugStartTriggerBase }
+func IsFactoryTrigger(id int64) bool { return id > factoryTriggerFloor }
+
+// factoryTriggerFloor is the lowest synthetic band ever minted, the retired
+// Bug start band, whose historical rows still name factory work.
+const factoryTriggerFloor int64 = 1 << 55
 
 // FinishInterruptedRun commits evidence and its optional continuation together.
 // Replayed completion returns the immutable original decision, even after report.
@@ -97,7 +101,7 @@ func (db *DB) FinishInterruptedRun(ctx context.Context, runID int64, outcome Run
 			return e
 		}
 		var graph bool
-		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.run_id=? AND d.mode IN ('research','spike'))`, runID).Scan(&graph); e != nil {
+		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.run_id=? AND d.mode IN ('research','spike','bug'))`, runID).Scan(&graph); e != nil {
 			return e
 		}
 		if intent == nil || graph {

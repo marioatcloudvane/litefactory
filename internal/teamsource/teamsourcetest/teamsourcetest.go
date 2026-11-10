@@ -118,6 +118,13 @@ func CaptureSpike(ctx context.Context, registry graphexec.Registry) (*teamsource
 	return CaptureGo(ctx, agent.WorkflowSpike, registry)
 }
 
+// CaptureDoctor captures the Doctor workflow from the factory library source
+// (teams/source/factory/doctor); the Doctor is not team content.
+func CaptureDoctor(ctx context.Context, registry graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+	source := os.DirFS(filepath.Join(RepoRoot(), "teams", "source", "factory", "doctor"))
+	return teamsource.CaptureWorkflowIdentity(ctx, source, "doctor.dot", "factory", agent.WorkflowDoctor, registry)
+}
+
 // CaptureValidate captures the go team's Validate workflow.
 func CaptureValidate(ctx context.Context, registry graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 	return CaptureGo(ctx, agent.WorkflowValidate, registry)

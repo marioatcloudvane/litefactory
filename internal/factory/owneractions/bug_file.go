@@ -372,12 +372,10 @@ func BugFilingResult(f store.BugFiling) owneraction.Result {
 		res.Summary = "filing; checking whether the issue was created"
 	case store.BugFilingCreated:
 		res.Summary = "filed but not yet labelled"
-	case store.BugFilingLabelled:
+	case store.BugFilingLabelled, store.BugFilingStartAdmitted:
 		res.Summary = orDefault(f.Reason, "labelled but not yet started")
-	case store.BugFilingStartAdmitted:
-		res.Summary = orDefault(f.Reason, "labelled; Bug admitted, analysis not yet dispatched")
 	case store.BugFilingDispatched:
-		res.State, res.Summary = "succeeded", "Bug analysis started"
+		res.State, res.Summary = "succeeded", "Bug started"
 	default:
 		res.State, res.Summary = "failed", orDefault(f.Reason, "the bug filing failed")
 	}

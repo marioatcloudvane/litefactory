@@ -1,37 +1,39 @@
 # Team distribution
 
-The catalogue and the `<slug>/v<version>` releases are generated from the
-canonical team sources by `go run ./cmd/teamrelease`. Do not edit them by hand.
-Any change under `teams/source` regenerates the releases and `teams.json` in the
-same change with the all-teams command below. Teams stay at 1.0.0: regenerate in
-place, never change a `release.json` version. `go test ./internal/teamrelease`
-(part of `make check`) fails when a published release differs from its source.
-Only the owner links versions.
-
-Published releases, one per team, all at version 1.0.0:
-
-| Team | Release |
-|---|---|
-| go-development | `go-development/v1.0.0` |
-| python-fastapi | `python-fastapi/v1.0.0` |
-| dotnet-web | `dotnet-web/v1.0.0` |
-| swift-ios | `swift-ios/v1.0.0` |
-| nextjs-web | `nextjs-web/v1.0.0` |
-
-Versions stay at 1.0.0 until the owner decides otherwise.
-
-To regenerate all five teams at once (add `-check` to report drift without writing):
+Teams are installed straight from `teams/source`. There is no catalogue, no
+`teams.json` and no generated release folder in the repository. Install or
+refresh a team with:
 
 ```sh
-go run ./cmd/teamrelease -source teams/source/go-development -source teams/source/python-fastapi -source teams/source/dotnet-web -source teams/source/swift-ios -source teams/source/nextjs-web
+litefactory team install go-development --source /absolute/path/to/litefactory/teams/source
 ```
 
-Tests read team content from `teams/source` (through `teamsourcetest`), not from a
-published release, so cutting a release does not require changing tests.
+The install reads the team folder and its base, fills the `{{var}}`
+placeholders from `inherit.json`, adds a generated `team.config`, checks the
+workflows, and records a SHA-256 for every file plus one checksum for the set.
+Its receipt also records the git commit of the source and whether the folder
+had uncommitted changes. Installing the same version again after the source
+changed replaces the installed copy in place and moves linked repositories to
+it. Running tasks keep the copy they started with.
+
+The teams, all at version 1.0.0 (the version comes from each `release.json`):
+
+| Team | Source |
+|---|---|
+| go-development | `source/go-development` |
+| python-fastapi | `source/python-fastapi` |
+| dotnet-web | `source/dotnet-web` |
+| swift-ios | `source/swift-ios` |
+| nextjs-web | `source/nextjs-web` |
+
+Versions stay at 1.0.0 until the owner decides otherwise. Only the owner
+installs teams and links versions.
+
+Tests read team content from `teams/source` (through `teamsourcetest`).
 
 ## Base and inheritance
 
-`teams/source/base-team` is the shared, stack-neutral base: the six workflow folders with their graphs, roles and result skills. It holds no `stack-profile.json`, no stack guidance and no stack skill; each team adds its own. It has a `base.json` that declares its variables and no `release.json`, so it is never built, listed or installed; the release build refuses it with "base-team is a base, not a team".
+`teams/source/base-team` is the shared, stack-neutral base: the six workflow folders (bug, implement, plan, research, spike, validate) with their graphs, roles and result skills, and `mode/mode-classifier.md`, the role that picks an issue's workflow mode; a team may replace it through `inherit.json` like any base file. The factory's own agents (judge, chat, advisors, analysts, connector guidance and the Doctor) are not team content: they live in `teams/source/factory` and are installed with `litefactory factory install`. It holds no `stack-profile.json`, no stack guidance and no stack skill; each team adds its own. It has a `base.json` that declares its variables and no `release.json`, so it is never built, listed or installed; `team install` refuses it with "base-team is a base, not a team".
 
 Base variables (declared in `base.json`, set by every team's `inherit.json`):
 
@@ -59,8 +61,7 @@ A team source can name a base in `inherit.json`:
 ## Where each source lives
 
 - Every team inherits `base-team` and keeps only its release metadata, `inherit.json` (variables), `stack-profile.json`, its stack guidance and its stack skill. No team replaces or excludes a base file today.
-- `teams/source/go-development`: also owns `plan-go-guidance`, the `go-stack` skill and the `litefactory-rules` skill (rules for developing litefactory itself, which uses this team). This is the release command's default source.
-- `teams/source/python-fastapi`, `teams/source/swift-ios`, `teams/source/dotnet-web`: their stack profile, plan guidance skill and stack skill (copied under bug/, implement/ and validate/, because a skill is delivered per workflow folder).
+- `teams/source/go-development`: also owns `plan-go-guidance`, the `go-stack` skill and the `litefactory-rules` skill (rules for developing litefactory itself, which uses this team).- `teams/source/python-fastapi`, `teams/source/swift-ios`, `teams/source/dotnet-web`: their stack profile, plan guidance skill and stack skill (copied under bug/, implement/ and validate/, because a skill is delivered per workflow folder).
 - The program holds no team content. Tests load teams from these folders.
 
 ## Owner-facing reporting guidance
@@ -73,8 +74,8 @@ attaches that closure to every admitted workflow node, and native delivery makes
 it available to both supported providers. Reporting roles use it alongside their
 own result contracts; it changes no authority, schema or workflow gate.
 
-These source edits reach installed teams after the 1.0.0 releases are
-regenerated in the same change and the owner refreshes the installed release.
+These source edits reach installed teams after the owner reinstalls the team
+with `litefactory team install`.
 Saved captures and historical reports remain immutable. Cold replay
 uses retained resources, without falling back to mutable source. Delivery checks
 establish availability, not model compliance, publication success or useful prose;

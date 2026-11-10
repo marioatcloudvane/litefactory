@@ -19,14 +19,13 @@ import (
 // GraphStopQuestion is immutable factory reporting data, not a result envelope.
 // The origin and source identity remain fixed across publication recovery.
 type GraphStopQuestion struct {
-	OwnerStop       *store.OwnerStop      `json:"owner_stop,omitempty"`
-	Diagnosis       *store.GraphDiagnosis `json:"diagnosis,omitempty"`
-	Version         int                   `json:"version"`
-	InstanceID      int64                 `json:"instance_id"`
-	SourceAttemptID int64                 `json:"source_attempt_id,omitempty"`
-	Origin          string                `json:"origin"`
-	Cause           string                `json:"cause"`
-	Reason          string                `json:"reason"`
+	OwnerStop       *store.OwnerStop `json:"owner_stop,omitempty"`
+	Version         int              `json:"version"`
+	InstanceID      int64            `json:"instance_id"`
+	SourceAttemptID int64            `json:"source_attempt_id,omitempty"`
+	Origin          string           `json:"origin"`
+	Cause           string           `json:"cause"`
+	Reason          string           `json:"reason"`
 }
 
 // graphBudgetCause is the stop cause of an instance whose step budget ran out.
@@ -191,23 +190,7 @@ func (r *Reporter) RecoverGraphStopQuestion(ctx context.Context, key string) (Po
 		projection = &report.StopRecovery{Step: question.Origin, Reason: question.Reason, Disposition: "stopped", Route: "inspect", Unresolved: "Completion of this step is not confirmed.", NextStep: "Ask the factory operator to inspect on the factory host: `" + report.TaskInspectionCommand(session.TaskRef) + "`."}
 	}
 	return r.deliverRecoveryProjection(ctx, delivery, projection, func() (string, error) {
-		body := fmt.Sprintf("Work stopped at `%s` (%s).\n\n%s", question.Origin, question.Cause, question.Reason)
-		if question.Diagnosis != nil && question.Diagnosis.SourceAttemptID > 0 {
-			source, e := r.db.GetGraphNodeAttempt(ctx, question.Diagnosis.SourceAttemptID)
-			if e != nil {
-				return "", e
-			}
-			run, e := r.db.GetRun(ctx, source.RunID)
-			if e != nil {
-				return "", e
-			}
-			evidence, e := r.executionRunEvidence(ctx, run, source.ID)
-			if e != nil {
-				return "", e
-			}
-			body += "\n\n" + report.RenderExecutions(evidence, report.ExecutionReportLimit)
-		}
-		return body, nil
+		return fmt.Sprintf("Work stopped at `%s` (%s).\n\n%s", question.Origin, question.Cause, question.Reason), nil
 	})
 }
 

@@ -3,7 +3,6 @@ package turn
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -11,24 +10,16 @@ import (
 
 // executionRunEvidence reads recorded provider/model facts. A missing observation
 // stays unknown, including historical runs and unsuccessful provider launches.
-func (r *Reporter) executionRunEvidence(ctx context.Context, run store.Run, attemptID int64) (entries []report.Execution, err error) {
+func (r *Reporter) executionRunEvidence(ctx context.Context, run store.Run) (entries []report.Execution, err error) {
 	if run.ID <= 0 {
 		return nil, nil
 	}
-	entries, err = r.executionMeterEvidence(ctx, store.MeterFilter{RunID: run.ID}, run.Ordinal, attemptID)
+	entries, err = r.executionMeterEvidence(ctx, store.MeterFilter{RunID: run.ID}, run.Ordinal, 0)
 	if err != nil {
 		return nil, err
 	}
 	if len(entries) == 0 {
-		entry := report.Execution{Run: run.Ordinal, Agent: run.Agent}
-		if attemptID > 0 {
-			attempt, e := r.db.GetGraphNodeAttempt(ctx, attemptID)
-			if e != nil {
-				return nil, e
-			}
-			entry.Step, entry.Attempt = attempt.Node, fmt.Sprint(attempt.ID)
-		}
-		entries = append(entries, entry)
+		entries = append(entries, report.Execution{Run: run.Ordinal, Agent: run.Agent})
 	}
 	return entries, nil
 }
@@ -82,7 +73,7 @@ func (r *Reporter) executionGraphEvidence(ctx context.Context, instanceID int64)
 		if err != nil {
 			return nil, err
 		}
-		evidence, err := r.executionRunEvidence(ctx, run, 0)
+		evidence, err := r.executionRunEvidence(ctx, run)
 		if err != nil {
 			return nil, err
 		}

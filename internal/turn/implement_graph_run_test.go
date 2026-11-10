@@ -284,23 +284,17 @@ func TestImplementWorkerIncompleteRetriesWithItsReasonThenParksWithItsOwnWords(t
 	}
 }
 
-// releasedStoppedImplement returns the catalogue's go-development implement
-// package with its graph in the earlier completed,stopped result shape, which
-// running instances captured from older releases still use.
+// releasedStoppedImplement returns the go-development implement package built
+// from teams/source with its graph in the earlier completed,stopped result
+// shape, which running instances captured from older installs still use.
 func releasedStoppedImplement(t *testing.T) fstest.MapFS {
 	t.Helper()
-	var download string
-	for _, d := range catalogueDownloads(t) {
-		if strings.HasPrefix(d, "go-development/") {
-			download = d
-		}
+	dir, err := teamsourcetest.Workflow(t.Context(), teamsourcetest.Go, "implement")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if download == "" {
-		t.Fatal("the catalogue ships no go-development release")
-	}
-	dir := os.DirFS(filepath.Join("..", "..", "teams", filepath.FromSlash(download), "implement"))
 	files := fstest.MapFS{}
-	err := fs.WalkDir(dir, ".", func(name string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(dir, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}

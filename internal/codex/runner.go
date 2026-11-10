@@ -18,7 +18,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/naming"
 	native "github.com/cloudvane/litefactory/pkg/execution/providers/codex"
 )
@@ -30,8 +30,8 @@ const (
 
 // Options configures a Runner.
 type Options struct {
-	// Instructions supplies per-invocation role captures; nil uses the shared package.
-	Instructions  instructionpackage.CaptureSource
+	// Instructions is the factory library roles are captured from; nil reads the installed one.
+	Instructions  factorylib.Source
 	Paths         config.Paths
 	GoBuildCaches config.GoBuildCaches
 	Codex         config.Codex
@@ -45,7 +45,7 @@ type Options struct {
 // Runner executes the Codex CLI for work and classification requests.
 type Runner struct {
 	providerObserver agent.ProviderObserver
-	instructions     instructionpackage.CaptureSource
+	instructions     factorylib.Source
 	paths            config.Paths
 	goBuildCaches    config.GoBuildCaches
 	binary           config.Executable
@@ -156,7 +156,7 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 // ProposeSchedule performs a stateless read-only advisory invocation. It does
 // not allocate a normal run, create run artefacts, or attach to a worktree.
 func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposalRequest) (agent.ScheduleProposal, error) {
-	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "schedule-proposal-advisor")
+	capture, err := factorylib.CaptureRole(ctx, factorylib.Or(r.instructions, r.paths), factorylib.ScheduleProposalAdvisor)
 	if err != nil {
 		return agent.ScheduleProposal{}, err
 	}
@@ -182,6 +182,41 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	return proposal, nil
 }
 
+// CheckAccess performs a stateless read-only access check with the same shape
+// as [Runner.ProposeSchedule]: no run, run artefacts or worktree. It is
+// bounded by [agent.AccessCheckTimeout], not by r.timeout. A blank req.Role
+// is refused: the role is the linked team's access/access-classifier.md.
+func (r *Runner) CheckAccess(ctx context.Context, req agent.AccessCheckRequest) (agent.AccessCheckResult, error) {
+	role := req.Role
+	if strings.TrimSpace(role) == "" {
+		return agent.AccessCheckResult{}, agent.ErrAccessRoleMissing
+	}
+	prompt, err := agent.AccessCheckPrompt(role, req)
+	if err != nil {
+		return agent.AccessCheckResult{}, err
+	}
+	runCtx, cancel := agent.InvocationContext(ctx, agent.AccessCheckTimeout)
+	defer cancel()
+	args := native.AdvisoryArguments(r.model, nil)
+	var stdout, stderr bytes.Buffer
+	if err := native.Buffered(runCtx, r.binary.Path, args, native.Environment(r.environ), filepath.Dir(r.binary.Path), prompt, &stdout, &stderr); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check failed: %w", err)
+	}
+	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
+	if !stream.completed || stream.failed {
+		return agent.AccessCheckResult{}, errors.New("access check returned no successful terminal result")
+	}
+	result, err := agent.ParseAccessCheck(stream.text)
+	if err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check returned invalid answer: %w", err)
+	}
+	result.Model = r.model
+	if result.Model == "" {
+		result.Model = "codex"
+	}
+	return result, nil
+}
+
 // ProposeConflictResolution performs a stateless read-only advisory
 // invocation, mirroring [Runner.ProposeSchedule]'s shape exactly (US-11): no
 // worktree and no run artefacts, so it cannot become an ordinary coding
@@ -190,7 +225,7 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 // turn (see internal/turn's attemptConflictSuggestion, which passes ctx
 // through unbounded on purpose).
 func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
-	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "merge-conflict-advisor")
+	capture, err := factorylib.CaptureRole(ctx, factorylib.Or(r.instructions, r.paths), factorylib.MergeConflictAdvisor)
 	if err != nil {
 		return agent.ConflictResolution{}, err
 	}

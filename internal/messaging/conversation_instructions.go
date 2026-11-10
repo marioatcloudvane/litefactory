@@ -5,46 +5,34 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 )
 
 var errConversationInstructions = errors.New("conversation instruction validation failed")
 
-// Migration uses only the pinned compatibility files, never current owner text.
+// Conversations created before instruction captures existed were backfilled
+// from a pinned baseline by earlier releases. That baseline is gone; a binding
+// still waiting for it pauses instead of running with current text.
 func (s *Service) migrateConversationInstructions(ctx context.Context, at time.Time) error {
 	legacy, err := s.db.ListLegacyConversations(ctx)
 	if err != nil || len(legacy) == 0 {
 		return err
 	}
-	baseline, err := instructionpackage.LegacyConversation(ctx)
-	if err != nil {
-		return err
-	}
-	raw, err := baseline.Encode()
-	if err != nil {
-		return err
-	}
-	expected := messagingstate.ConversationLegacyInstructions{Native: baseline.Native(), Factory: baseline.Factory(), Correction: baseline.Correction(), ActionOutcome: baseline.ActionOutcome()}
 	var failures []error
 	for _, c := range legacy {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := s.db.BackfillLegacyConversationCapture(ctx, c.ID, raw, expected, at); err != nil {
-			failures = append(failures, err)
-		}
+		reason := "conversation predates instruction captures and was never migrated; model calls paused"
+		failures = append(failures, s.db.SetConversationHealth(ctx, c.ID, reason, at))
 	}
 	return errors.Join(failures...)
 }
 
-func (s *Service) restoreConversationInstructions(ctx context.Context, id string, at time.Time) (*instructionpackage.ConversationCapture, error) {
+func (s *Service) restoreConversationInstructions(ctx context.Context, id string, at time.Time) (*factorylib.ConversationCapture, error) {
 	raw, legacy, err := s.db.ReadConversationCapture(ctx, id)
-	var capture *instructionpackage.ConversationCapture
+	var capture *factorylib.ConversationCapture
 	if err == nil {
-		capture, err = instructionpackage.RestoreConversation(raw)
+		capture, err = factorylib.RestoreConversation(raw)
 		if err == nil && capture.Legacy() != legacy {
 			err = errors.New("conversation instruction provenance mismatch")
 		}
@@ -61,18 +49,9 @@ func (s *Service) restoreConversationInstructions(ctx context.Context, id string
 	return nil, errors.Join(fmt.Errorf("%w: %s", errConversationInstructions, reason), healthErr)
 }
 
-func (s *Service) logConversationInstructionDiagnostics(ctx context.Context, diagnostics []instructionpackage.Diagnostic) {
-	if s.Logger == nil {
-		return
-	}
-	for _, d := range diagnostics {
-		s.Logger.WarnContext(ctx, "conversation instruction source fallback", "role", d.Role, "file", d.File, "category", d.Category, "selected_source", d.SelectedSource)
-	}
-}
-
 // Saved prompts remain authoritative. A differing retained instruction identity
 // pauses work instead of rewriting a journaled request from current sources.
-func (s *Service) validateConversationPrompt(ctx context.Context, id, prompt string, capture *instructionpackage.ConversationCapture, factory bool, at time.Time) error {
+func (s *Service) validateConversationPrompt(ctx context.Context, id, prompt string, capture *factorylib.ConversationCapture, factory bool, at time.Time) error {
 	var fields struct{ Instructions, Correction string }
 	err := json.Unmarshal([]byte(prompt), &fields)
 	valid := err == nil && fields.Instructions == capture.Native()
@@ -104,7 +83,7 @@ func (s *Service) refreshConversationInstructions(ctx context.Context, r *conver
 	if err != nil {
 		return
 	}
-	retained, err := instructionpackage.RestoreConversation(raw)
+	retained, err := factorylib.RestoreConversation(raw)
 	if err != nil || !conversationInstructionsDiffer(retained, r.current) {
 		return
 	}
@@ -125,6 +104,6 @@ func (s *Service) refreshConversationInstructions(ctx context.Context, r *conver
 
 // conversationInstructionsDiffer compares the instruction text the model sees,
 // not provenance: equal text needs no refresh.
-func conversationInstructionsDiffer(a, b *instructionpackage.ConversationCapture) bool {
+func conversationInstructionsDiffer(a, b *factorylib.ConversationCapture) bool {
 	return a.Native() != b.Native() || a.Factory() != b.Factory() || a.Correction() != b.Correction() || a.ActionOutcome() != b.ActionOutcome() || a.Reasoner() != b.Reasoner() || a.InboxOrganizer() != b.InboxOrganizer()
 }

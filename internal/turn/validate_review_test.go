@@ -346,3 +346,27 @@ func TestValidateReviewEvidenceCarriesTheFailedOutputTail(t *testing.T) {
 		t.Fatalf("tail is not bounded or not valid UTF-8: %d bytes", len(tail))
 	}
 }
+
+// #1496: when the suite itself wrote into its checkout, a clean review checkout
+// matches the tree the suite started from. The reviewers' reason then says the
+// suite changed the tree, not that the checked-out source is untrustworthy.
+func TestValidateReviewAfterSuiteWroteIntoTreeNamesTheSuite(t *testing.T) {
+	f := newFlowFixture(t)
+	f.suiteRepo.trees = []string{"tree-a", "tree-b", "tree-a"}
+	f.stepTo("review")
+	f.suiteRepo.trees = []string{"tree-a"}
+	f.suiteRepo.observed = 0
+	res, err := f.step()
+	if err != nil || res.Activity.Outcome != "done" {
+		t.Fatalf("%+v %v", res.Activity, err)
+	}
+	rows := f.reviewRows()
+	if len(rows) == 0 {
+		t.Fatal("no review rows")
+	}
+	for role, row := range rows {
+		if row.State != store.ReviewFailed || !strings.Contains(row.Reason, "the suite changed the source tree while it ran") {
+			t.Fatalf("%s %+v", role, row)
+		}
+	}
+}

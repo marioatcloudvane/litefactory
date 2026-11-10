@@ -17,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/gittest"
@@ -27,6 +28,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -121,7 +123,7 @@ func TestJudgeOwnerBareCommandDurableAdvisory(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &controlledJudge{}
-	brokerHome, err := os.MkdirTemp("/tmp", "lf-jtest-")
+	brokerHome, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-jtest-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +132,7 @@ func TestJudgeOwnerBareCommandDurableAdvisory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &turn.JudgeService{DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
+	service := &turn.JudgeService{Library: factorylibtest.Library(t), DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
 	f.daemon = newJudgeDaemon(t, w, origin, service)
 	f.plantCursor()
 	f.issue("Review the saved Plan")
@@ -235,7 +237,7 @@ func TestJudgeNonOwnerDoesNotLaunchAdvisory(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &controlledJudge{}
-	brokerHome, err := os.MkdirTemp("/tmp", "lf-jtest-")
+	brokerHome, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-jtest-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +246,7 @@ func TestJudgeNonOwnerDoesNotLaunchAdvisory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &turn.JudgeService{DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
+	service := &turn.JudgeService{Library: factorylibtest.Library(t), DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
 	f.daemon = newJudgeDaemon(t, w, origin, service)
 	f.plantCursor()
 	f.issue("Owner-only saved challenge")
@@ -328,7 +330,7 @@ func TestJudgeAmbiguousPublicationRemainsPendingWithoutRerun(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &controlledJudge{}
-	brokerHome, err := os.MkdirTemp("/tmp", "lf-jtest-")
+	brokerHome, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-jtest-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +339,7 @@ func TestJudgeAmbiguousPublicationRemainsPendingWithoutRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &turn.JudgeService{DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
+	service := &turn.JudgeService{Library: factorylibtest.Library(t), DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
 	f.daemon = newJudgeDaemon(t, w, origin, service)
 	f.plantCursor()
 	f.issue("Review the saved Plan")

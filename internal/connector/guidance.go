@@ -1,14 +1,13 @@
 package connector
 
 import (
-	"embed"
 	"fmt"
 	"io/fs"
 	"strings"
 )
 
-//go:embed guidance/*.md guidance/overview/*.md guidance/prompts/*.md guidance/guide/*.md guidance/skill/*.md
-var guidanceFiles embed.FS
+// Guidance is read from the factory library's connector directory
+// (teams/source/factory/connector), whose files sit under guidance/.
 
 // loadGuidance accepts only the stable installed tool identifiers. Bounding each
 // resource prevents initialization from becoming an unbounded evidence channel.

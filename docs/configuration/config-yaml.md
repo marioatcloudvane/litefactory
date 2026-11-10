@@ -30,7 +30,7 @@ webhook:
 
 settings:
   worker_timeout_seconds: 1800
-  team_source: "https://raw.githubusercontent.com/marioatcloudvane/litefactory/main/teams/teams.json"
+  team_source: ""
   poll_interval_minutes: 60
   max_concurrent_runs: 3
   default_base_branch: ""
@@ -112,7 +112,7 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 
 | Key | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
-| `settings.team_source` | string | `https://raw.githubusercontent.com/marioatcloudvane/litefactory/main/teams/teams.json` | absolute `https` catalogue URL, or an absolute file path (stored as `file://`); no credentials, query or fragment; no trailing slash; or empty for the default | Where `litefactory team` commands fetch the machine-level team catalogue. See [teams](../cli/teams.md). |
+| `settings.team_source` | string | `""` | the absolute path of a `teams/source` folder, or empty | The folder `litefactory team install` builds teams from when `--source` is left out. Empty means `--source` is required. An old catalogue URL still loads, but installing from it is refused with a message naming the folder form. See [teams](../cli/teams.md). |
 | `settings.worker_timeout_seconds` | integer | `1800` | 60 to 86400 | Default allowance for one worker attempt, in exact seconds. An explicit node `lf_budget` of 1–1440 whole minutes takes precedence. |
 | `settings.poll_interval_minutes` | integer | `60` | 1 to 180 | How often the daemon lists GitHub when no webhook woke it sooner. Webhooks are the fast path; this is the safety net. The old `poll_interval_seconds` is refused and is not converted. |
 | `settings.max_concurrent_runs` | integer | `3` | 1 to 16 | Shared execution capacity in slots. Each step reserves its DOT cost; omitted costs are 1. See [slot costs](../guides/workflow.md#execution-capacity). |
@@ -214,7 +214,7 @@ Only `claude` and `codex` and the three tiers are accepted names. Every agent yo
 
 | Key | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
-| `tool_profiles.permissions.<name>` | mapping | none | `<name>` must be `research`, `plan`, `implement`, `validate` (all four required), or an optional role: `validate-repair`, `bug-analyst`, `bug-fixer`, `spike-investigator`, `spike-fixer` | One profile. Any other name is refused. A missing optional role blocks only that role's work. |
+| `tool_profiles.permissions.<name>` | mapping | none | `<name>` must be `research`, `plan`, `implement`, `validate` (all four required), or an optional role: `validate-repair`, `bug-fixer` (the Bug agent), `spike-investigator`, `spike-fixer` | One profile. The retired `bug-analyst` is accepted and ignored; any other name is refused. A missing optional role blocks only that role's work. |
 | `...<name>.attachments` | boolean | `false` | `true` or `false`; must be `false` for the optional roles | Lets runs in this mode ingest attachments. Init sets `true` for Research and Plan. |
 | `...<name>.claude.tools` | list of strings | none | non-empty; all inside `agents.claude.tool_ceiling` | Tool boundary for this profile. |
 | `...<name>.claude.allowed_tools` | list of strings | empty | same rules as `agents.claude.allowed_tools`; each rule must name a tool in this profile's `tools` | Extra approvals for this profile. |
@@ -224,7 +224,7 @@ Rules the check enforces:
 
 - Each of the four required profiles needs a `claude` cell if Claude is configured and a `codex` cell if Codex is configured, and no cell for an agent that is not configured.
 - `validate` must stay read-only: Codex sandbox `read-only`; Claude tools only `Read`, `Glob`, `Grep`, `Task` and `Bash`, where `Bash` is allowed only with the fixed read-only reviewer rules (`Bash(git diff:*)`, `git log`, `git show`, `git ls-tree`, `git grep`, `git status`, `git rev-parse`, `cat`, `head`, `ls`, `wc`, `rg`).
-- Roles: `bug-analyst` and `spike-investigator` are read-only (Claude `Read`, `Glob`, `Grep`; Codex `read-only`). `bug-fixer` and `validate-repair` need Codex `workspace-write`, with a Claude surface limited to `Read, Glob, Grep, Edit, MultiEdit, Write, Bash, Task, SendMessage, WebFetch, WebSearch`. `spike-fixer` needs `workspace-write` and only `Read, Glob, Grep, Edit, MultiEdit, Write`. A missing `spike-investigator` or `spike-fixer` blocks Spike.
+- Roles: `spike-investigator` is read-only (Claude `Read`, `Glob`, `Grep`; Codex `read-only`). `bug-fixer` and `validate-repair` need Codex `workspace-write`, with a Claude surface limited to `Read, Glob, Grep, Edit, MultiEdit, Write, Bash, Task, SendMessage, WebFetch, WebSearch`. `spike-fixer` needs `workspace-write` and only `Read, Glob, Grep, Edit, MultiEdit, Write`. A missing `spike-investigator` or `spike-fixer` blocks Spike.
 - A profile name must be lower case: letters, digits, `_`, `-`, up to 40 characters.
 - No value may contain the Claude flag that disables permission checks.
 

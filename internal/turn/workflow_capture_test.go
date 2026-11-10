@@ -29,7 +29,7 @@ func TestWorkflowCaptureAllSixSourcesAndRetainedReplay(t *testing.T) {
 		{agent.WorkflowImplement, ImplementSpecs, teamsourcetest.CaptureImplement},
 		{agent.WorkflowValidate, ValidateFlowSpecs, teamsourcetest.CaptureValidate},
 		{agent.WorkflowSpike, SpikeSpecs, teamsourcetest.CaptureSpike},
-		{agent.WorkflowBug, SimplifiedBugSpecs, teamsourcetest.CaptureBug},
+		{agent.WorkflowBug, BugSpecs, teamsourcetest.CaptureBug},
 	}
 	for _, variant := range variants {
 		for _, provenance := range []string{"local", "fetched", "builtin", ""} {
@@ -195,7 +195,7 @@ func TestWorkflowCaptureFreshRefusalsAcrossSixWorkflows(t *testing.T) {
 				case agent.WorkflowSpike:
 					specs, err = SpikeSpecs()
 				case agent.WorkflowBug:
-					specs, err = SimplifiedBugSpecs()
+					specs, err = BugSpecs()
 				}
 				if err != nil {
 					t.Fatal(err)

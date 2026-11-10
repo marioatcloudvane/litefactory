@@ -55,11 +55,10 @@ type BugCheckPhase struct {
 	Commands []BugCheckCommand `yaml:"commands" json:"commands"`
 }
 
-// BugCheckPhases defines the three mandatory sequential evidence phases.
+// BugCheckPhases holds the full phase, the suite Validate runs. Older recipes
+// also carry "regression" and "focused" phases; they parse and are ignored.
 type BugCheckPhases struct {
-	Regression BugCheckPhase `yaml:"regression" json:"regression"`
-	Focused    BugCheckPhase `yaml:"focused" json:"focused"`
-	Full       BugCheckPhase `yaml:"full" json:"full"`
+	Full BugCheckPhase `yaml:"full" json:"full"`
 }
 
 // BugCheckRecipe is the versioned target-owned command authority for Bug checks.
@@ -70,12 +69,7 @@ type BugCheckRecipe struct {
 
 // Phase selects a mandatory phase by its closed factory-owned name.
 func (r BugCheckRecipe) Phase(name string) (BugCheckPhase, error) {
-	switch name {
-	case "regression":
-		return r.Phases.Regression, nil
-	case "focused":
-		return r.Phases.Focused, nil
-	case "full":
+	if name == "full" {
 		return r.Phases.Full, nil
 	}
 	return BugCheckPhase{}, errors.New("unknown Bug check phase")
@@ -151,7 +145,7 @@ func ParseBugCheckRecipe(data []byte) (BugCheckRecipe, error) {
 	if r.Version != 1 {
 		faults = append(faults, errors.New("unsupported Bug recipe version"))
 	}
-	for _, name := range []string{"regression", "focused", "full"} {
+	for _, name := range []string{"full"} {
 		p, _ := r.Phase(name)
 		if len(p.Commands) == 0 || len(p.Commands) > 64 {
 			faults = append(faults, fmt.Errorf("%s requires 1..64 commands", name))

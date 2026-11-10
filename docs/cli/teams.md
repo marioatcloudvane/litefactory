@@ -7,24 +7,22 @@ Without a link, a repository uses the built-in workflows. Teams are not required
 ## Install and look at teams
 
 ```sh
-litefactory team install NAME
+litefactory team install NAME --source /absolute/path/to/litefactory/teams/source
 litefactory team list
 litefactory team inspect NAME VERSION
 ```
 
-The standard catalogue offers one version of each team, 1.0.0. Versions stay at 1.0.0 until the owner decides otherwise.
+Teams are installed straight from a `teams/source` folder on this machine, usually the one in your litefactory checkout. There is no download and no catalogue. Each team is at version 1.0.0, read from its `release.json`. Versions stay at 1.0.0 until the owner decides otherwise.
 
-`team install` downloads the team from the catalogue, checks it, and installs it. Leave out the version to get the highest stable one. It says `Already installed` if you have it. `team list` shows what is installed, from local files only. `team inspect` checks one installed version and shows its folder, checksum and workflows.
+`team install` builds `teams/source/NAME` (with its base and its `inherit.json` values), checks the workflows and installs it. It prints `Installed`, `Already installed` (nothing changed) or `Replaced`, the checksum, and the source commit (with a note when the folder had uncommitted changes). `team list` shows what is installed, from local files only. `team inspect` checks one installed version and shows its folder, checksum, workflows and source commit.
 
-The catalogue address is `settings.team_source` in `config.yaml`. Its default is the standard catalogue. It must be an HTTPS address or an absolute file path (see [config.yaml](../configuration/config-yaml.md)). Use `--source` to pick a different catalogue for one command. Where a team name and version exist in more than one source, add `--source` so the command knows which one you mean.
+`--source` is the absolute path of the `teams/source` folder. Without it, the command uses `settings.team_source` in `config.yaml` (see [config.yaml](../configuration/config-yaml.md)); when that is empty, `--source` is required. A web address or a `teams.json` file is refused: give the folder.
 
-## Update
+On the other commands, `--source` names an installed source: a source folder, an old catalogue address from an earlier install, or `local`. Where a team name and version exist in more than one source, add `--source` so the command knows which one you mean.
 
-```sh
-litefactory team update NAME
-```
+## Refresh after a source change
 
-This installs the newest stable version from the same catalogue if it is newer than the one you have. Older versions stay installed next to it, so repositories linked to them are not changed. Linked repositories keep their link until you link them to the new version.
+Run `team install` again. When the files changed, the installed version is replaced in place and every repository linked to it moves to the new files at once; the command prints a `Relinked:` line for each. Tasks already running keep the files they started with. There is no `team update`.
 
 ## Make your own version
 
@@ -32,7 +30,7 @@ This installs the newest stable version from the same catalogue if it is newer t
 litefactory team clone NAME VERSION NEW-NAME NEW-VERSION
 ```
 
-`team clone` copies an installed team into an editable local team named `NEW-NAME` at `NEW-VERSION`. It prints the folder to edit. Local teams live in the `local` source, are not downloaded again, and cannot be updated. Use `--source local` to name them in other commands.
+`team clone` copies an installed team into an editable local team named `NEW-NAME` at `NEW-VERSION`. It prints the folder to edit. Local teams live in the `local` source; `team install` refuses a name and version that already exist there. Use `--source local` to name them in other commands.
 
 ## Link a team to a repository
 
@@ -53,7 +51,7 @@ A team version that is still linked to a repository is not removed; the command 
 
 ## What a run receives
 
-When a run starts, litefactory reads the team linked to the repository. Starting the daemon or a run does not download team updates. See [coding agents](../configuration/coding-agents.md), [MCP](../guides/mcp.md) and [recovery](../operations/recovery.md).
+When a run starts, litefactory reads the team linked to the repository. Starting the daemon or a run does not read `teams/source`; only `team install` does. See [coding agents](../configuration/coding-agents.md), [MCP](../guides/mcp.md) and [recovery](../operations/recovery.md).
 
 Every flag and exit code is in the [command reference](command-reference.md#teams).
 

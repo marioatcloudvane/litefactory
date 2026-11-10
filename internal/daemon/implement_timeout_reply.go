@@ -120,7 +120,11 @@ func (d *Daemon) handleImplementTimeoutReply(ctx context.Context, t *task, c git
 	if row.TimeoutAttemptID == 0 {
 		return false, nil
 	}
-	if c.Author.ID != d.ticketIdentities(ctx).OwnerUserID {
+	instructed, err := d.mayInstruct(ctx, t.session.ID, c)
+	if err != nil {
+		return true, err
+	}
+	if !instructed {
 		return true, store.ErrImplementConflict
 	}
 	// A reply during an unconfirmed write cannot bypass the unknown-write hold.
@@ -154,7 +158,7 @@ func (d *Daemon) handleImplementTimeoutReply(ctx context.Context, t *task, c git
 	}
 	_, _, err = d.db.ResumeImplementTimeout(ctx, store.ImplementTimeoutReply{
 		Source: source, Task: t.ref.String(), CommentID: strconv.FormatInt(c.ID, 10),
-		AuthorID: strconv.FormatInt(c.Author.ID, 10), OwnerID: strconv.FormatInt(d.ticketIdentities(ctx).OwnerUserID, 10),
+		AuthorID: strconv.FormatInt(c.Author.ID, 10), OwnerID: strconv.FormatInt(c.Author.ID, 10),
 		Parent: parent, Generation: row.Generation, Key: row.Key, TimeoutAttemptID: row.TimeoutAttemptID,
 		ParkRevision: row.TimeoutParkRevision, DeliveryKey: row.TimeoutDeliveryKey, NoticeCommentID: row.TimeoutCommentID,
 		NoticeCreatedAt: noticeAt, NoticePrecedesReply: noticeIndex >= 0 && replyIndex > noticeIndex, ReplyToCommentID: replyTo, Guidance: c.Body, At: c.CreatedAt,

@@ -99,7 +99,7 @@ func newLinearOwnerWait(t *testing.T) *linearOwnerWait {
 		return "offline-token", true
 	}}})
 	w.now = time.Now().Add(2 * time.Hour)
-	w.d, err = New(Options{DB: f.d.db, Forge: f.client, Filter: f.d.filter, Connections: factory, Turn: recoveryHoldExecutor{w.requests}, Reporter: stubReporter{}, InstanceID: "linear-owner-wait", Logger: f.d.log, Now: func() time.Time { return w.now }, DiscoveryInterval: MaxDiscoveryInterval, MaxConcurrentRuns: 4, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
+	w.d, err = New(Options{ModeRole: testModeRole, DB: f.d.db, Forge: f.client, Filter: f.d.filter, Connections: factory, Turn: recoveryHoldExecutor{w.requests}, Reporter: stubReporter{}, InstanceID: "linear-owner-wait", Logger: f.d.log, Now: func() time.Time { return w.now }, DiscoveryInterval: MaxDiscoveryInterval, MaxConcurrentRuns: 4, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
 	linearWorkflowCheck(t, err)
 	_, err = f.d.db.InitPollCursor(ctx, w.now.Add(-time.Minute))
 	linearWorkflowCheck(t, err)
@@ -287,7 +287,7 @@ func newOwnerWaitFleet(t *testing.T, waits int, hooked, delivered bool) *ownerWa
 	t.Cleanup(func() { _ = ln.Close() })
 	w.now = time.Now().Add(2 * time.Hour)
 	resolver := secrets.Resolver{Keychain: func(context.Context, string, string) (string, error) { return "fleet-signing-secret", nil }}
-	w.d, err = New(Options{DB: db, Forge: f.client, Filter: f.d.filter, Turn: recoveryHoldExecutor{w.requests}, Reporter: stubReporter{}, InstanceID: "owner-wait-fleet", Logger: f.d.log, Now: func() time.Time { return w.now }, DiscoveryInterval: MaxDiscoveryInterval, MaxConcurrentRuns: 4, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): capturedClassifierFunc(func(context.Context, agent.Classification) (agent.Mode, error) {
+	w.d, err = New(Options{ModeRole: testModeRole, DB: db, Forge: f.client, Filter: f.d.filter, Turn: recoveryHoldExecutor{w.requests}, Reporter: stubReporter{}, InstanceID: "owner-wait-fleet", Logger: f.d.log, Now: func() time.Time { return w.now }, DiscoveryInterval: MaxDiscoveryInterval, MaxConcurrentRuns: 4, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): capturedClassifierFunc(func(context.Context, agent.Classification) (agent.Mode, error) {
 		w.replies.Add(1)
 		return agent.ModeSpike, nil
 	})}, ToolProfiles: config.DefaultToolProfiles().Permissions,

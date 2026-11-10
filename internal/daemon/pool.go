@@ -201,9 +201,6 @@ func (p *pool) quiesce(ctx context.Context) error {
 // that path must not take a context at all.
 func (d *Daemon) Quiesce(ctx context.Context) error {
 	err := d.pool.quiesce(ctx)
-	if d.doctor.pool != nil {
-		err = errors.Join(err, d.doctor.pool.quiesce(ctx))
-	}
 	if d.coordinator != nil {
 		err = errors.Join(err, d.coordinator.quiesce(ctx))
 	}

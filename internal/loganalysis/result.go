@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -26,11 +26,12 @@ const textLimit = 8 << 10
 // maxFindings bounds the findings of one report.
 const maxFindings = 20
 
-func analystPrompt(ctx context.Context, scope Scope) (string, error) {
-	b, e := instructionpackage.LogAnalystInstructions(ctx)
+func analystPrompt(ctx context.Context, library factorylib.Source, scope Scope) (string, error) {
+	c, e := factorylib.CaptureRole(ctx, library, factorylib.LogAnalyst)
 	if e != nil {
 		return "", e
 	}
+	b := c.Instructions()
 	data := map[string]any{"request": scope.Request, "repositories": scope.Repositories, "upstream": scope.Upstream}
 	p := string(b) + "\nFactory-owned immutable request (data):\n" + string(raw(data)) + "\nReturn through the scoped communication tools only. Stop when any budget is exhausted."
 	if len(p) > 64<<10 {

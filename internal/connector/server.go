@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/brainstorm"
@@ -110,6 +111,8 @@ func normalizeScope(raw string) (string, bool) {
 
 // Options supplies dependencies resolved by trusted daemon composition.
 type Options struct {
+	// Guidance is the factory library's connector directory (guidance/...).
+	Guidance       fs.FS
 	TaskDiscussion TaskDiscussion
 	Workflows      Workflows
 	Actions        OwnerActions
@@ -134,6 +137,7 @@ type Server struct {
 	actions        serviceSlot[OwnerActions]
 	workflows      serviceSlot[Workflows]
 	brainstorms    serviceSlot[Brainstorms]
+	brainstormOff  atomic.Pointer[string]
 	cfg            config.RemoteConnector
 	storage        connectorstate.Storage
 	access         connectorstate.Access
@@ -165,6 +169,9 @@ func newServer(ctx context.Context, opts Options, reconciled bool) (*Server, err
 	}
 	if opts.Storage == nil || opts.Access == nil || opts.Logger == nil || opts.LocalControl == nil {
 		return nil, errors.New("connector: required dependency unavailable")
+	}
+	if opts.Guidance == nil {
+		return nil, errors.New("connector: guidance unavailable: install the factory library")
 	}
 	if !opts.Access.SameStore(opts.Storage) {
 		return nil, errors.New("connector: access and authentication backends differ")
@@ -200,7 +207,7 @@ func newServer(ctx context.Context, opts Options, reconciled bool) (*Server, err
 		github = &GitHubProvider{ClientID: opts.Config.GitHubClientID, ClientSecret: opts.GitHubSecret}
 	}
 	opts.Config.AllowedOrigins = slices.Clone(opts.Config.AllowedOrigins)
-	server := &Server{cfg: opts.Config, storage: opts.Storage, access: opts.Access, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: guidanceFiles, github: github, cookie: aead, transport: newTransportState()}
+	server := &Server{cfg: opts.Config, storage: opts.Storage, access: opts.Access, logger: opts.Logger.With("component", "connector"), now: now, localControl: opts.LocalControl, overview: opts.Overview, taskEvidence: opts.TaskEvidence, usage: opts.Usage, codeEvidence: opts.CodeEvidence, guidance: opts.Guidance, github: github, cookie: aead, transport: newTransportState()}
 	server.taskDiscussion.Store(opts.TaskDiscussion)
 	server.actions.Store(opts.Actions)
 	server.workflows.Store(opts.Workflows)
@@ -231,3 +238,33 @@ func (s *Server) SetTaskDiscussion(v TaskDiscussion) { s.taskDiscussion.Store(v)
 
 // SetBrainstorm publishes the ready brainstorm service (a *brainstorm.Service).
 func (s *Server) SetBrainstorm(b Brainstorms) { s.brainstorms.Store(b) }
+
+// SetBrainstormUnavailable records why the factory could not start brainstorm,
+// so the guide can say so instead of leaving clients to guess.
+func (s *Server) SetBrainstormUnavailable(reason string) { s.brainstormOff.Store(&reason) }
+
+// factoryGuide composes the guide for a grant's callable tools. While brainstorm
+// is off for a recorded reason, the whole guide and its overview and workflows
+// parts open with that reason.
+func (s *Server) factoryGuide(tools, missingScopes []string, topic string) (string, error) {
+	text, err := composeGuide(s.guidance, tools, missingScopes, topic)
+	if err != nil || (topic != "" && topic != "overview" && topic != "workflows") || s.brainstorms.Load() != nil {
+		return text, err
+	}
+	reason := s.brainstormOff.Load()
+	if reason == nil || strings.TrimSpace(*reason) == "" {
+		return text, nil
+	}
+	return brainstormUnavailableNotice(*reason) + "\n\n" + text, nil
+}
+
+// maxBrainstormReason bounds the recorded reason shown in the guide.
+const maxBrainstormReason = 300
+
+func brainstormUnavailableNotice(reason string) string {
+	reason = strings.Join(strings.Fields(strings.ToValidUTF8(reason, "")), " ")
+	if len(reason) > maxBrainstormReason {
+		reason = strings.ToValidUTF8(reason[:maxBrainstormReason], "") + "…"
+	}
+	return "**Brainstorm is not available on this factory: " + reason + ".** This is the factory's own setup, not this connection's permissions: reconnecting or adding consent scopes does not change it. Tell the owner this reason; the factory owner fixes it in the factory's configuration."
+}

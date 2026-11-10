@@ -270,7 +270,7 @@ func TestStandardsGrantFollowsPinnedNode(t *testing.T) {
 		"implement": {"worker_agent": true, "sync_start_resolve": false, "sync_done_resolve": false},
 		"plan":      {"technical_agent": true, "set_agent": false, "story_agent": false, "acceptance_agent": false},
 		"research":  {"research": false},
-		"bug":       {"analyst": false, "fixer": false},
+		"bug":       {"bug": false},
 	} {
 		w := &researchWorkflow{definition: &teamsource.ResearchDefinition{Profile: profileOf(mode)}}
 		for node, granted := range nodes {

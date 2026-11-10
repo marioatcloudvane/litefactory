@@ -29,13 +29,7 @@ type Options struct {
 	Handler           Handler
 	MaxWorkers        int
 	RequestTimeout    time.Duration
-	// RepairTools lets the doctor repair broker run synchronous repair tools,
-	// such as a conflicted sync_branch, for up to RepairToolTimeout.
-	RepairTools bool
 }
-
-// RepairToolTimeout bounds one doctor repair tool call on broker and client.
-const RepairToolTimeout = 10 * time.Minute
 
 // Broker owns every connection and joins every handler during Close.
 type Broker struct {
@@ -59,17 +53,10 @@ type Broker struct {
 	descriptorInfo                  fs.FileInfo
 }
 
-func requestTimeoutBound(repairTools bool) time.Duration {
-	if repairTools {
-		return RepairToolTimeout
-	}
-	return time.Minute
-}
-
 // Start creates a fresh private attempt under the configured base directory.
 // Callers supply an existing owner-only directory and a trusted absolute helper.
 func Start(ctx context.Context, o Options) (_ *Broker, err error) {
-	if o.Handler == nil || o.MaxWorkers < 1 || o.MaxWorkers > 32 || o.RequestTimeout <= 0 || o.RequestTimeout > requestTimeoutBound(o.RepairTools) {
+	if o.Handler == nil || o.MaxWorkers < 1 || o.MaxWorkers > 32 || o.RequestTimeout <= 0 || o.RequestTimeout > time.Minute {
 		return nil, errors.New("submission: invalid broker options")
 	}
 	seen := map[string]bool{}

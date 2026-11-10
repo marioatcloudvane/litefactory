@@ -30,6 +30,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/durableworkflow"
 	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/graphexec"
@@ -43,6 +44,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -136,7 +138,7 @@ func TestBrainstormTasksE2E_SpokenYesCreatesIssuesAndStartsPlanFromBrief(t *test
 	harness := f.daemon.EnableBrainstormTasksForTest(cfg, brainstorms, chat, []string{"3"}, f.clock.Now)
 	local, err := connector.NewLocalControl(ctx, connectorstorage.New(f.db), brainstormTasksControl{db: f.db, now: f.clock.Now})
 	btCheck(t, err)
-	server, err := connector.New(ctx, connector.Options{Config: cfg, Storage: connectorstorage.New(f.db), Access: connectorstorage.New(f.db), Logger: slog.New(slog.DiscardHandler), LocalControl: local, GitHubSecret: "fixture-secret", CookieKey: bytes.Repeat([]byte{7}, 32), Now: f.clock.Now, Actions: harness.Actions})
+	server, err := connector.New(ctx, connector.Options{Guidance: factorylibtest.Connector(), Config: cfg, Storage: connectorstorage.New(f.db), Access: connectorstorage.New(f.db), Logger: slog.New(slog.DiscardHandler), LocalControl: local, GitHubSecret: "fixture-secret", CookieKey: bytes.Repeat([]byte{7}, 32), Now: f.clock.Now, Actions: harness.Actions})
 	btCheck(t, err)
 	server.SetBrainstorm(brainstorms)
 	call := brainstormTasksCaller(t, server.Handler(), cfg.ResourceURL, token)
@@ -375,7 +377,7 @@ func brainstormPlanOptions(t *testing.T, f *fixture, runner agent.Runner) turn.O
 	btCheck(t, err)
 	t.Cleanup(func() { _ = authority.Close(context.WithoutCancel(t.Context())) })
 	// The MCP socket directory stays short, as on a real host.
-	mcpDir, err := os.MkdirTemp("/tmp", "lf-bt-")
+	mcpDir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-bt-")
 	btCheck(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(mcpDir) })
 	mcpDir, err = filepath.EvalSymlinks(mcpDir)
@@ -385,7 +387,7 @@ func brainstormPlanOptions(t *testing.T, f *fixture, runner agent.Runner) turn.O
 	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "brainstorm-tasks-e2e", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{"claude": runner}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, SubIssueCreator: f.client, MCP: &turn.MCPRuntime{Authority: authority, Paths: mcpPaths, Executable: "/factory/litefactory", Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID, Now: time.Now}}
 	judgeConfig, err := config.Decode(strings.NewReader("agents:\n  claude: {}\n"))
 	btCheck(t, err)
-	opts.Judge = &turn.JudgeService{DB: f.db, Config: judgeConfig, Providers: map[agent.Kind]agent.JudgeRunner{}, Paths: mcpPaths, Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{})}
+	opts.Judge = &turn.JudgeService{Library: factorylibtest.Library(t), DB: f.db, Config: judgeConfig, Providers: map[agent.Kind]agent.JudgeRunner{}, Paths: mcpPaths, Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{})}
 	opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "test-model", "flagship": "test-model"}}
 	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 		def, err := teamsourcetest.CapturePlan(ctx, specs)

@@ -14,8 +14,8 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/harness"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -60,7 +60,7 @@ func TestConversationRestartJourney(t *testing.T) {
 				service := messaging.New(db, "discord", "7", []string{"3"}, sent, messaging.FactoryStatus{DB: db})
 				service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 				runner := conversationAdapter(t, provider, executable, root)
-				if err := service.EnableConversations(ctx, messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner-work", Provider: provider, Model: "fixture"}}, StateRoot: stateRoot, Providers: map[string]messaging.ConversationProvider{provider: runner}, CheckAccess: func(context.Context, string) error { return nil }}, at); err != nil {
+				if err := service.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner-work", Provider: provider, Model: "fixture"}}, StateRoot: stateRoot, Providers: map[string]messaging.ConversationProvider{provider: runner}, CheckAccess: func(context.Context, string) error { return nil }}, at); err != nil {
 					t.Fatal(err)
 				}
 				return service
@@ -289,11 +289,7 @@ func (r *journeyReader) ReadIntakePage(_ context.Context, channel, owner, before
 // every conversation prompt carries them.
 func shippedNativeInstructionsEncoded(t *testing.T) string {
 	t.Helper()
-	pkg, err := instructionpackage.ShippedConversationPackage(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	capture, _, err := pkg.CaptureConversation(t.Context())
+	capture, err := factorylibtest.Library(t).CaptureConversation(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

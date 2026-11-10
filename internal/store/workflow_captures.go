@@ -110,9 +110,6 @@ func scanWorkflowCapture(row scanner) (WorkflowCapture, error) {
 // WorkflowCaptureForAdmission recognizes replay, exact dispatch and admitted running
 // work before consulting current repository selection. ErrNotFound means fresh work.
 func (db *DB) WorkflowCaptureForAdmission(ctx context.Context, sessionID, triggerID int64, mode string) (WorkflowCapture, error) {
-	if mode == "bug" {
-		mode = standaloneGraphStorageKey
-	}
 	var id int64
 	err := db.sql.QueryRowContext(ctx, `SELECT id FROM research_launch_definitions WHERE session_id=? AND trigger_id=?`, sessionID, triggerID).Scan(&id)
 	if err == nil {
@@ -133,7 +130,7 @@ func (db *DB) WorkflowCaptureForAdmission(ctx context.Context, sessionID, trigge
 	if err != nil {
 		return WorkflowCapture{}, err
 	}
-	if instance.Status != GraphRunning && mode != standaloneGraphStorageKey {
+	if instance.Status != GraphRunning {
 		return WorkflowCapture{}, ErrNotFound
 	}
 	// Replies bind to the attempt that asked the question, even if this instance

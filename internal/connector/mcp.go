@@ -359,7 +359,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 				refuseParams(err)
 				return
 			}
-			text, err := composeGuide(s.guidance, s.availableTools(grant), s.missingScopes(grant), topic)
+			text, err := s.factoryGuide(s.availableTools(grant), s.missingScopes(grant), topic)
 			if errors.Is(err, errGuideTopic) {
 				refuseParams(invalidArgument("topic", "must be overview, workflows, tools, scopes or the name of a tool in tools/list"))
 				return

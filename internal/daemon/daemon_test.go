@@ -414,7 +414,7 @@ func TestIntervalOutsideTheClampIsAStartupError(t *testing.T) {
 	f := newFixture(t)
 
 	for _, interval := range []time.Duration{time.Second, 9 * time.Second, 61 * time.Second, time.Hour} {
-		_, err := daemon.New(daemon.Options{
+		_, err := daemon.New(daemon.Options{ModeRole: baseTeamModeRole,
 			DB:         f.db,
 			Forge:      f.client,
 			Filter:     f.filter,
@@ -429,7 +429,7 @@ func TestIntervalOutsideTheClampIsAStartupError(t *testing.T) {
 		}
 	}
 
-	inRange, err := daemon.New(daemon.Options{
+	inRange, err := daemon.New(daemon.Options{ModeRole: baseTeamModeRole,
 		DefaultAgent: agent.Kind(store.AgentClaude),
 		ToolProfiles: config.DefaultToolProfiles().Permissions,
 		Agents:       turn.RunnerSet{agent.Kind(store.AgentClaude): nil},
@@ -644,7 +644,7 @@ func TestStartReportsExpiredNonGraphWorkerTiming(t *testing.T) {
 // left by a broker that died without Close is removed when the daemon starts.
 func TestStartRemovesLeftoverSubmissionFolders(t *testing.T) {
 	f := newFixture(t)
-	home, err := os.MkdirTemp("/tmp", "lf1311-")
+	home, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf1311-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,7 +664,7 @@ func TestStartRemovesLeftoverSubmissionFolders(t *testing.T) {
 	if err := os.Chtimes(leftover, old, old); err != nil {
 		t.Fatal(err)
 	}
-	d, err := daemon.New(daemon.Options{
+	d, err := daemon.New(daemon.Options{ModeRole: baseTeamModeRole,
 		DefaultAgent:  agent.Kind(store.AgentClaude),
 		ToolProfiles:  config.DefaultToolProfiles().Permissions,
 		Agents:        turn.RunnerSet{agent.Kind(store.AgentClaude): nil},

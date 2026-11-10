@@ -194,7 +194,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	} else if prep.resultPass != "" {
 		workContext += "#" + prep.resultPass
 	}
-	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement" && !prep.reqAssessment(), Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
+	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "bug" || req.Mode == "doctor" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement" && !prep.reqAssessment(), Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if session != nil {
 		for key, story := range session.scope.Stories {
 			story.Criteria = slices.Clone(story.Criteria)
@@ -237,9 +237,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		}
 		return cloneResultContext(contextValue), nil
 	}, ReadTargets: agentresult.EditTargets(req.Mode), EditTargets: agentresult.EditTargets(req.Mode)}
-	if req.Workflow != agent.WorkflowBug {
-		o.Attempt.Workflow = ""
-	}
+	o.Attempt.Workflow = ""
 	if override != nil {
 		if override.Resolve == nil {
 			return nil, nil, errors.New("result override requires a trusted resolver")
@@ -274,16 +272,6 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 			err = errors.Join(err, p.close(context.WithoutCancel(ctx)))
 		}
 	}()
-	if req.Workflow == agent.WorkflowBug {
-		if req.Mode != "" || override == nil || runtime.DisableMCP {
-			return nil, nil, errors.New("bug analyst requires scoped native result service")
-		}
-		spec, err := prepareBugResultBroker(ctx, p, attempt)
-		if err != nil {
-			return nil, nil, err
-		}
-		return p, spec, nil
-	}
 	projections := map[string]FamilyProjection{"result": ResultReceiptProjection(o.DB, service.Binding()), "tool:issues_comment": CommentReceiptProjection(o.DB)}
 	if runtime.CreationAuthorizer != nil {
 		projections["tool:issues_create_batch"] = CreationPublicationProjection(o.DB, runtime.CreationAuthorizer.store)
@@ -439,33 +427,4 @@ func researchWorkContext(base string, instance int64) string {
 		return base
 	}
 	return fmt.Sprintf("%s#graph-%d", base, instance)
-}
-
-// prepareBugResultBroker exposes only attempt-scoped communication operations.
-// It never constructs issue, publication, checkpoint, or activity families.
-func prepareBugResultBroker(ctx context.Context, p *preparedMCP, attempt string) (*agent.MCPLaunchSpec, error) {
-	runtime := p.runtime
-	now := runtime.Now()
-	expires := now.Add(24 * time.Hour)
-	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
-		expires = deadline
-	}
-	var err error
-	p.guard, err = runtime.Authority.Bind(ctx, p.service.Binding(), p.service.MCPPermissionDigest(), expires)
-	if err != nil {
-		return nil, err
-	}
-	dispatcher, err := NewToolDispatcher(p.guard, p.service)
-	if err != nil {
-		return nil, err
-	}
-	dir := runtime.Paths.SubmissionDir()
-	if err = os.MkdirAll(dir, 0700); err != nil {
-		return nil, err
-	}
-	p.broker, err = submission.Start(ctx, submission.Options{Directory: dir, AllowTools: true, AttemptReference: attempt, MaxWorkers: 4, RequestTimeout: 30 * time.Second, Handler: dispatcher.Handler})
-	if err != nil {
-		return nil, err
-	}
-	return BuildMCPLaunchSpec(ctx, true, runtime.Executable, p.broker, p.guard)
 }

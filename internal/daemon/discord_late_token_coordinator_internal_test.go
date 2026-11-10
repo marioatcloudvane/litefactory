@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/connector"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/standards"
@@ -27,7 +28,7 @@ func TestDiscordLateTokenKeepsCoordinatorAndProtectsCoreRequests(t *testing.T) {
 			setup := remoteSetupFixture(t)
 			d := &Daemon{db: setup.DB, filter: independentActionFilter{}, log: setup.Logger, webhook: &webhookRuntime{}}
 			if remote {
-				server, err := connector.New(t.Context(), connector.Options{Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(setup.DB), Access: connectorstorage.New(setup.DB), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32)})
+				server, err := connector.New(t.Context(), connector.Options{Guidance: factorylibtest.Connector(), Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(setup.DB), Access: connectorstorage.New(setup.DB), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32)})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -42,7 +43,7 @@ func TestDiscordLateTokenKeepsCoordinatorAndProtectsCoreRequests(t *testing.T) {
 					return secrets.NewToken(token), nil
 				}
 				return secrets.Token{}, errors.New("unavailable")
-			}, Standards: &ConversationStandards{DB: setup.DB, Book: &standards.Service{Store: setup.DB, OwnerID: 42}, Authoring: &standards.Authoring{Store: setup.DB, Book: &standards.Service{Store: setup.DB, OwnerID: 42}, Runner: &plainJourneyAuthor{}}}}
+			}, Standards: &ConversationStandards{DB: setup.DB, Book: &standards.Service{Store: setup.DB, OwnerID: 42}, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: setup.DB, Book: &standards.Service{Store: setup.DB, OwnerID: 42}, Runner: &plainJourneyAuthor{}}}}
 			if err := d.initChat(opts); err != nil {
 				t.Fatal(err)
 			}

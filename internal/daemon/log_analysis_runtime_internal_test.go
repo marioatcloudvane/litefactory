@@ -13,7 +13,7 @@ import (
 // The brainstorm issue search picks the project's ticket tracker by the log
 // analysis rule, and a project without a ticket connection is refused plainly.
 func TestLogAnalysisTrackerRuleSelectsBrainstormIssueTracker(t *testing.T) {
-	f := newDoctorProjectFixture(t, false)
+	f := newProjectFixture(t, false)
 	ref := "github:" + f.repo.Owner + "/" + f.repo.Name
 	tracker, err := f.d.brainstormIssueSelector()(t.Context(), ref)
 	if err != nil {
@@ -24,7 +24,7 @@ func TestLogAnalysisTrackerRuleSelectsBrainstormIssueTracker(t *testing.T) {
 		t.Fatalf("tracker %#v", tracker)
 	}
 
-	d, _, repo := doctorDaemonFixture(t)
+	d, _, repo := daemonFixture(t)
 	d.connections = projectconnection.NewFactory(projectconnection.Options{})
 	if _, err = d.brainstormIssueSelector()(t.Context(), "github:"+repo.Owner+"/"+repo.Name); !errors.Is(err, brainstorm.ErrNoTracker) {
 		t.Fatalf("no ticket connection: %v", err)

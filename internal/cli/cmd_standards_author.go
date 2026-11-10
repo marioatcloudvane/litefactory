@@ -13,8 +13,8 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/factory/contracts"
 	"github.com/cloudvane/litefactory/internal/factory/localstandards"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/git"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/projectread"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/standards"
@@ -105,7 +105,7 @@ func newStandardsAuthorCommandWithRunner(action string, runner standards.Authori
 				return err
 			}
 
-			instructions, instructionErr := instructionpackage.New(ctx, rt.paths)
+			instructions, instructionErr := factorylib.Open(ctx, rt.paths)
 			if instructionErr != nil {
 				return instructionErr
 			}

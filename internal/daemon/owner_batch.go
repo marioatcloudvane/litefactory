@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -33,7 +32,62 @@ func ownerInputQueued(trigger turn.Trigger, err error) bool {
 // ends the batch so it still runs on its own. upTo, when positive, ends the
 // batch at that comment and reports whether it was reached, so a replay
 // rebuilds exactly the batch it claimed before.
+//
+// A grantee's batch is the same rule for that author. Its trigger carries the
+// access decision of its first comment, and the batch ends where that decision's
+// covered_through does, so the run's text is exactly the text the gate judged.
 func (d *Daemon) ownerBatch(ctx context.Context, t *task, trigger turn.Trigger, ownerID, upTo int64) (turn.Trigger, bool, error) {
+	if trigger.PlanReply == nil && trigger.CommentID > 0 && !store.IsFactoryTrigger(trigger.CommentID) && trigger.AuthorID == ownerID && ownerID != d.ticketIdentities(ctx).OwnerUserID {
+		bound, err := d.granteeBatchBound(ctx, t, trigger)
+		if err != nil {
+			return trigger, false, err
+		}
+		if bound == 0 {
+			return trigger, upTo == 0 || upTo == trigger.CommentID, nil
+		}
+		if upTo == 0 {
+			upTo = bound
+		} else if upTo > bound {
+			return trigger, false, nil
+		}
+	}
+	return d.authorBatch(ctx, t, trigger, ownerID, upTo)
+}
+
+// granteeBatchBound is the last comment a grantee trigger's allowed decision
+// covers, or zero when the decision covers its source alone.
+func (d *Daemon) granteeBatchBound(ctx context.Context, t *task, trigger turn.Trigger) (int64, error) {
+	if trigger.Grantee == nil || d.access == nil {
+		return 0, nil
+	}
+	decision, err := d.db.AccessDecisionBySource(ctx, t.session.RepoID, trigger.Source)
+	if errors.Is(err, store.ErrNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if decision.ID != trigger.Grantee.DecisionID || decision.CoveredThrough == "" {
+		return 0, nil
+	}
+	for _, c := range t.queue {
+		if c.ID <= trigger.CommentID || c.Author.ID != trigger.AuthorID {
+			continue
+		}
+		_, source, err := d.commentIdentities(ctx, t.session.ID, c)
+		if err != nil {
+			return 0, err
+		}
+		if source.RemoteID == decision.CoveredThrough {
+			return c.ID, nil
+		}
+	}
+	return 0, nil
+}
+
+// authorBatch builds the batch of one authorized author's free-text comments
+// that trigger opens (see [Daemon.ownerBatch]).
+func (d *Daemon) authorBatch(ctx context.Context, t *task, trigger turn.Trigger, ownerID, upTo int64) (turn.Trigger, bool, error) {
 	if trigger.PlanReply != nil || trigger.CommentID <= 0 || store.IsFactoryTrigger(trigger.CommentID) || trigger.AuthorID != ownerID || !batchable(trigger.Body) {
 		return trigger, upTo == 0 || upTo == trigger.CommentID, nil
 	}
@@ -55,7 +109,22 @@ func (d *Daemon) ownerBatch(ctx context.Context, t *task, trigger turn.Trigger, 
 			return trigger, false, err
 		}
 		if !admission.Triggers() {
-			continue
+			// Another grantee's comment is another author's instruction: it
+			// ends the batch and goes through the access gate on its own. The
+			// batch's own grantee author continues it.
+			if admission.Verdict.IsSelf() || d.access == nil {
+				continue
+			}
+			granted, _, _, err := d.hasOpenGrant(ctx, t, c)
+			if err != nil {
+				return trigger, false, err
+			}
+			if !granted {
+				continue
+			}
+			if c.Author.ID != ownerID {
+				break
+			}
 		}
 		if c.Author.ID != ownerID || !batchable(c.Body) {
 			break
@@ -89,7 +158,7 @@ func (d *Daemon) ownerBatch(ctx context.Context, t *task, trigger turn.Trigger, 
 
 // batchable reports a comment that is plain owner input rather than a command.
 func batchable(body string) bool {
-	if _, isDoctor := doctor.ParseCommand(body); isDoctor || isCodeAuthorityBody(body) {
+	if turn.ParseCommand(body).Kind == turn.KindDoctor || isCodeAuthorityBody(body) {
 		return false
 	}
 	command := turn.ParseCommand(body)

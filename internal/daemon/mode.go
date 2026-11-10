@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -92,17 +91,29 @@ func classificationPrompt(roleText, title, body, instruction string) string {
 }
 
 func (d *Daemon) classifyMode(ctx context.Context, t *task, instruction string) (agent.Mode, error) {
+	if picked := t.accessPicked; picked != nil && picked.text == instruction {
+		return picked.mode, nil
+	}
 	classifier := d.classifiers[d.defaultAgent]
 	if classifier == nil {
 		return "", fmt.Errorf("default agent %q has no mode classifier", d.defaultAgent)
 	}
-	capture, err := instructionpackage.CaptureRole(ctx, d.instructions, d.instructionPaths, t.log, "mode-classifier")
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	read := d.modeRole
+	if read == nil {
+		read = repositoryModeClassifier(d.instructionPaths, d.db)
+	}
+	// The role bytes are read once per invocation and held in memory until the
+	// stateless classification returns; a team reinstall reaches the next one.
+	role, err := read(ctx, t.repo)
 	if err != nil {
 		return "", err
 	}
 	return classifier.Classify(ctx, agent.Classification{
 		WorkingDirectory: t.repo.Path,
-		Prompt:           classificationPrompt(string(capture.Instructions()), t.issue.Title, t.issue.Body, instruction),
+		Prompt:           classificationPrompt(string(role), t.issue.Title, t.issue.Body, instruction),
 	})
 }
 
@@ -117,7 +128,7 @@ func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, 
 			return d.reportOwnerInput(ctx, t, trigger.CommentID, false)
 		}
 	}
-	if trigger.CommentID == 0 && kind != report.ReplyBugUnavailable && kind != report.ReplyMissingModeMapping && kind != report.ReplyMissingTeam && kind != report.ReplyUnsupportedWorkflow {
+	if trigger.CommentID == 0 && kind != report.ReplyMissingModeMapping && kind != report.ReplyMissingTeam && kind != report.ReplyUnsupportedWorkflow {
 		t.log.InfoContext(ctx, "refusing issue-body mode selection; there is no comment to answer")
 		return nil
 	}
@@ -344,8 +355,8 @@ func (d *Daemon) markResearchModeApplied(ctx context.Context, t *task, selection
 // generation merged, a new Implement run would only post its completion note
 // again. Zero means the comment continues into Implement as before. Stopped
 // Validate work never reaches here: recoverGraphReply handles it first.
-func (d *Daemon) plainParentCommentRefusal(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, workflow agent.Workflow, command turn.Command) (report.ReplyKind, error) {
-	if mode != agent.ModeImplement || workflow == agent.WorkflowBug || t.continuation != nil || t.implementing ||
+func (d *Daemon) plainParentCommentRefusal(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, command turn.Command) (report.ReplyKind, error) {
+	if mode != agent.ModeImplement || t.continuation != nil || t.implementing ||
 		command.Kind != turn.KindFreeText || command.Name != "" || turn.ManagedReplan(command) ||
 		store.IsFactoryTrigger(trigger.CommentID) {
 		return report.ReplyInvalid, nil

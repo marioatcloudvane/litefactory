@@ -28,6 +28,9 @@ func TestCloneMethodSetIsTheAllowlist(t *testing.T) {
 		"DriftChanges", // Bounded pinned net tree comparison; no worktree or ref writes.
 		"DriftBlob",    // Bounded immutable object read; no LFS expansion.
 		"Fetch",
+		// Team install records HEAD and whether the source folder is dirty:
+		// rev-parse and status --no-optional-locks, which write nothing.
+		"FolderState",
 		// Log analysis reads history, files and matches at one exact commit,
 		// byte bounded. They write no index, worktree, object or ref.
 		"PinnedGrep",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/cloudvane/litefactory/internal/factory/contracts"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"strings"
 	"testing"
 	"time"
@@ -71,7 +72,7 @@ func (s *previewMemory) SaveChatIssuePreview(_ context.Context, p store.ChatIssu
 func TestDraftContextValidationAndCorrection(t *testing.T) {
 	mem := &previewMemory{}
 	model := &draftModel{raw: []byte(`{"wrong":true}`)}
-	d := Drafter{Repositories: catalog{}, Model: model, Store: mem, Redactor: redact.New(redact.Options{Environ: []string{}})}
+	d := Drafter{Instructions: factorylibtest.Library(t), Repositories: catalog{}, Model: model, Store: mem, Redactor: redact.New(redact.Options{Environ: []string{}})}
 	at := time.Date(2026, 10, 10, 19, 0, 0, 0, time.UTC)
 	for _, tc := range []struct{ project, note, want string }{{"missing", "idea", "Registered projects"}, {"app", "", "describe the feature"}} {
 		text, _, err := d.Reply(t.Context(), "test", "channel", "msg", tc.project, tc.note, at)

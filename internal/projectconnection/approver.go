@@ -58,13 +58,35 @@ func (s ApproverService) Inspect(ctx context.Context, projectID int64) (Approver
 // Set verifies the requested handle against the configured origin before the
 // store compares both observed revisions and atomically admits the appointment.
 func (s ApproverService) Set(ctx context.Context, projectID int64, login string, expectedConnectionRevision, expectedAuthorityRevision int64) (store.ApproverAppointment, error) {
+	a, err := s.Resolve(ctx, projectID, login, expectedConnectionRevision)
+	if err != nil {
+		return a, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	return s.DB.SetApprover(ctx, a, expectedConnectionRevision, expectedAuthorityRevision)
+}
+
+// Resolve looks a person up on the project's ticket connection: a GitHub login
+// through the code client, or a Linear user through the connection. It checks
+// the person is a human other than the publishing account and returns the
+// identity bound to the connection's provider and origin. A connection
+// revision of zero or less means the current one. Approver and grant share it.
+func (s ApproverService) Resolve(ctx context.Context, projectID int64, login string, connectionRevision int64) (store.ApproverAppointment, error) {
 	login = strings.TrimSpace(login)
 	if login == "" || strings.ContainsAny(login, "/\\?# \t\r\n") {
 		return store.ApproverAppointment{}, ErrApproverNotHuman
 	}
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	v, clients, err := s.verificationClient(ctx, projectID, expectedConnectionRevision)
+	if connectionRevision <= 0 {
+		current, err := s.DB.CurrentConnection(ctx, projectID, store.TicketConnection)
+		if err != nil {
+			return store.ApproverAppointment{}, err
+		}
+		connectionRevision = current.Revision
+	}
+	v, clients, err := s.verificationClient(ctx, projectID, connectionRevision)
 	if err != nil {
 		return store.ApproverAppointment{}, err
 	}
@@ -73,21 +95,13 @@ func (s ApproverService) Set(ctx context.Context, projectID int64, login string,
 		if e != nil {
 			return store.ApproverAppointment{}, safeFailure(e)
 		}
-		a, e := verifiedLinearAppointment(v, actor, clients.Publisher)
-		if e != nil {
-			return a, e
-		}
-		return s.DB.SetApprover(ctx, a, expectedConnectionRevision, expectedAuthorityRevision)
+		return verifiedLinearAppointment(v, actor, clients.Publisher)
 	}
 	user, err := clients.Code.UserByLogin(ctx, login)
 	if err != nil {
 		return store.ApproverAppointment{}, fmt.Errorf("verify ticket approver: %w", safeFailure(err))
 	}
-	a, err := verifiedAppointment(v, user, clients.Actor)
-	if err != nil {
-		return store.ApproverAppointment{}, err
-	}
-	return s.DB.SetApprover(ctx, a, expectedConnectionRevision, expectedAuthorityRevision)
+	return verifiedAppointment(v, user, clients.Actor)
 }
 
 // Refresh resolves the saved immutable account ID, so a renamed or reassigned

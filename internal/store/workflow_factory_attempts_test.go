@@ -11,13 +11,13 @@ func TestWorkflowFactoryAttemptsRecoveryScopeAndPagination(t *testing.T) {
 	ctx := t.Context()
 	var expected []int64
 	for n, tc := range []struct {
-		mode, state                string
-		run, moved, terminal, held bool
+		mode, state          string
+		run, moved, terminal bool
 	}{
 		{mode: "research", state: GraphRunning}, {mode: "plan", state: GraphPending},
 		{mode: "research", state: GraphRunning, run: true}, {mode: "research", state: GraphRunning, moved: true},
 		{mode: "plan", state: GraphSucceeded}, {mode: "implement", state: GraphRunning},
-		{mode: "plan", state: GraphRunning, terminal: true}, {mode: "research", state: GraphRunning, held: true},
+		{mode: "plan", state: GraphRunning, terminal: true},
 	} {
 		session := testSession(t, db, 8100+n)
 		definition, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "recovery", Mode: tc.mode, ProfileVersion: 1, Path: tc.mode + ".dot", Digest: fmt.Sprintf("%064x", n+1), CreatedAt: graphTestTime()})
@@ -53,12 +53,6 @@ func TestWorkflowFactoryAttemptsRecoveryScopeAndPagination(t *testing.T) {
 		}
 		if tc.terminal {
 			if err = db.SetGraphInstanceStatus(ctx, instance.ID, GraphFailed, time.Time{}, graphTestTime()); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if tc.held {
-			_, presentation := retainedPollProposal(t, db, session)
-			if _, err = db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "factory-attempt-hold", SourceID: "factory-attempt-approval", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
 				t.Fatal(err)
 			}
 		}

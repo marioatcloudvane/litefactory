@@ -185,7 +185,7 @@ func newConnectorFixture(t *testing.T, provider OverviewProvider) *connectorFixt
 	cfg.GitHubSecretRef.Env = "TEST_GITHUB_SECRET"
 	cfg.CookieSecretRef.Env = "TEST_COOKIE_SECRET"
 	cfg.AllowedOrigins = []string{"https://client.example"}
-	fixture.options = Options{Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: slog.New(slog.NewJSONHandler(fixture.logs, nil)), Now: func() time.Time { return fixture.now }, LocalControl: local, Overview: provider, GitHub: connectorFixtureIdentity{}, CookieKey: bytes.Repeat([]byte{7}, 32)}
+	fixture.options = Options{Guidance: guidanceFiles, Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: slog.New(slog.NewJSONHandler(fixture.logs, nil)), Now: func() time.Time { return fixture.now }, LocalControl: local, Overview: provider, GitHub: connectorFixtureIdentity{}, CookieKey: bytes.Repeat([]byte{7}, 32)}
 	return fixture
 }
 func (f *connectorFixture) server(t *testing.T) http.Handler {

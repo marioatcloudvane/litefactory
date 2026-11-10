@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -80,7 +81,7 @@ func newJudgedConversation(t *testing.T) *judgedConversation {
 	f.s.EnableStandards(f.ops)
 	installGateActions(t, f.s, func() time.Time { return f.at })
 	binding := ConversationBinding{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}
-	if err = f.s.EnableConversations(ctx, ConversationOptions{Bindings: []ConversationBinding{binding}, StateRoot: filepath.Join(t.TempDir(), "sessions"), Providers: map[string]ConversationProvider{"claude": f.provider}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, f.at); err != nil {
+	if err = f.s.EnableConversations(ctx, ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []ConversationBinding{binding}, StateRoot: filepath.Join(t.TempDir(), "sessions"), Providers: map[string]ConversationProvider{"claude": f.provider}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, f.at); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.ActivateNaturalScan(ctx, "3", "100"); err != nil {

@@ -1,7 +1,6 @@
 package turn
 
 import (
-	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 )
 
 // checkValidateDot parses a mutated copy of the packaged graph and checks it
@@ -65,44 +65,44 @@ func TestValidateGraphWithoutTheRepairOutcomeStillValidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, release := range catalogueDownloads(t) {
-		raw, err := os.ReadFile(filepath.Join("..", "..", "teams", release, "validate", "validate.dot"))
+	for _, team := range sourceTeams(t) {
+		source, err := teamsourcetest.Workflow(t.Context(), team, "validate")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := fs.ReadFile(source, "validate.dot")
 		if err != nil {
 			t.Fatal(err)
 		}
 		profile, err := graphexec.ParseProfile(raw)
 		if err != nil {
-			t.Fatalf("%s: %v", release, err)
+			t.Fatalf("%s: %v", team, err)
 		}
 		if err := graphexec.Validate(profile, specs); err != nil {
-			t.Errorf("released %s no longer validates: %v", release, err)
+			t.Errorf("team %s no longer validates: %v", team, err)
 		}
 	}
 }
 
-// catalogueDownloads lists the download path of every release teams/teams.json
-// ships, so released-graph tests follow the owner's releases.
-func catalogueDownloads(t *testing.T) []string {
+// sourceTeams lists every installable team folder under teams/source, so
+// team-graph tests follow what `litefactory team install` can install.
+func sourceTeams(t *testing.T) []string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "teams", "teams.json"))
+	entries, err := os.ReadDir(filepath.Join(teamsourcetest.RepoRoot(), "teams", "source"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var catalogue struct {
-		Releases []struct {
-			Slug     string `json:"slug"`
-			Download string `json:"download"`
-		} `json:"releases"`
-	}
-	if err := json.Unmarshal(raw, &catalogue); err != nil || len(catalogue.Releases) == 0 {
-		t.Fatalf("catalogue: %v", err)
-	}
 	var out []string
-	for _, r := range catalogue.Releases {
-		if !fs.ValidPath(r.Download) || !strings.HasPrefix(r.Download, r.Slug+"/") {
-			t.Fatalf("unsafe catalogue download %q", r.Download)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
 		}
-		out = append(out, r.Download)
+		if _, err := os.Stat(filepath.Join(teamsourcetest.RepoRoot(), "teams", "source", entry.Name(), "release.json")); err == nil {
+			out = append(out, entry.Name())
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("teams/source holds no team")
 	}
 	slices.Sort(out)
 	return out

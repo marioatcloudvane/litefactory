@@ -17,7 +17,9 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 func TestRunnerNormalizesCodexIntoSharedResult(t *testing.T) {
@@ -199,17 +201,35 @@ func newRunner(t *testing.T, dir string, writable ...string) (*Runner, error) {
 		}
 	}
 	return New(Options{
-		Paths:   config.NewPaths(filepath.Join(dir, "lfhome")),
-		Codex:   config.Codex{Binary: binary, TimeoutSeconds: 30, WritableRoots: writable},
-		Model:   "gpt-test",
-		Environ: []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "USER=test"},
-		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Instructions: factorylibtest.Library(t),
+		Paths:        config.NewPaths(filepath.Join(dir, "lfhome")),
+		Codex:        config.Codex{Binary: binary, TimeoutSeconds: 30, WritableRoots: writable},
+		Model:        "gpt-test",
+		Environ:      []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "USER=test"},
+		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
+}
+
+// shortWorkDir is a working directory outside GOTMPDIR. Codex scans every
+// ancestor of its working directory for skills, and t.TempDir() can sit below
+// the operator's home, whose ~/.codex an agent sandbox refuses to read.
+func shortWorkDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-codex-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Error(err)
+		}
+	})
+	return dir
 }
 
 func request(t *testing.T, path agent.RunPath) agent.Request {
 	t.Helper()
-	worktree := t.TempDir()
+	worktree := shortWorkDir(t)
 	return agent.Request{Ref: naming.Ref{Forge: "github", Owner: "acme", Repo: "api", Issue: 1}, RunOrdinal: 1,
 		SegmentOrdinal: 1, Session: agent.SessionRef{Ref: "local-ref"}, Mode: "infer", Path: path,
 		WorktreePath: worktree, Prompt: "do the task",

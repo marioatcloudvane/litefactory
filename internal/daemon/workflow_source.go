@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -42,6 +43,7 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 	if err != nil {
 		return nil, err
 	}
+	library := factorylib.NewInstalled(paths)
 	return func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (definition *teamsource.WorkflowDefinition, err error) {
 		err = manager.WithCatalogue(ctx, func(access *teampackage.CatalogueAccess) error {
 			binding, e := db.GetRepositoryTeamBinding(ctx, repo.ID)
@@ -56,6 +58,20 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 					return fmt.Errorf("repository %s linked release digest changed", repo.Path)
 				}
 				graph, ok := entry.Workflows[string(workflow)]
+				root := source
+				if workflow == agent.WorkflowDoctor {
+					// The Doctor is a factory library workflow, not team content:
+					// its graph and role come from the installed library, while
+					// the linked team still supplies team.config and the stack.
+					lib, e := library.Library(ctx)
+					if e != nil {
+						return e
+					}
+					if root, e = lib.FS(factorylib.DoctorDir); e != nil {
+						return e
+					}
+					graph, ok = factorylib.DoctorDir+"/"+factorylib.DoctorGraph, true
+				}
 				if !ok {
 					available := make([]string, 0, len(entry.Workflows))
 					for mode := range entry.Workflows {
@@ -64,7 +80,13 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 					slices.Sort(available)
 					return &workflowRefusal{kind: report.ReplyUnsupportedWorkflow, cause: fmt.Errorf("repository %s: team %s %s from %s lacks requested workflow %s; available workflows: %s", repo.Path, binding.Slug, binding.Version, binding.Source, workflow, strings.Join(available, ", "))}
 				}
-				raw, e := fs.ReadFile(source, graph)
+				if workflow != agent.WorkflowDoctor {
+					var e error
+					if root, e = fs.Sub(source, path.Dir(graph)); e != nil {
+						return e
+					}
+				}
+				raw, e := fs.ReadFile(root, path.Base(graph))
 				if e != nil {
 					return e
 				}
@@ -72,14 +94,10 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 				if e != nil {
 					return e
 				}
-				root, e := fs.Sub(source, path.Dir(graph))
-				if e != nil {
-					return e
-				}
 				// An installed snapshot is fresh input even when a root-level graph
 				// makes fs.Sub preserve its RetainedFiles representation. Only saved
 				// workflow reconstruction may select the retained capture path.
-				definition, e = teamsource.CaptureWorkflowIdentity(ctx, struct{ fs.FS }{root}, path.Base(graph), profile.Team, workflow, specs, paths)
+				definition, e = teamsource.CaptureWorkflowIdentity(ctx, struct{ fs.FS }{root}, path.Base(graph), profile.Team, workflow, specs, library)
 				if e != nil {
 					return e
 				}

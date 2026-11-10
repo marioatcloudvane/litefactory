@@ -1,1 +1,0 @@
-Explain only the saved action outcome below. Return an answer envelope. Do not propose, request lookup or infer unsaved effects.

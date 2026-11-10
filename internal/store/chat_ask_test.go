@@ -28,7 +28,7 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 	for _, m := range migrations {
 		// Judge, authoring and advisory ownership extend the presentation meter
 		// ledger, so they follow the omitted chat migrations in this historical fixture.
-		if (m.name == "judge" || m.name == "workflow_judge" || m.name == "authoring_meter" || m.name == "task_advisory_meter" || m.name == "brainstorm_scan_jobs") || strings.HasPrefix(m.name, "chat_presentation") || strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") || strings.Contains(m.name, "_chat_research.sql") {
+		if (m.name == "judge" || m.name == "workflow_judge" || m.name == "authoring_meter" || m.name == "task_advisory_meter" || m.name == "brainstorm_scan_jobs") || strings.HasPrefix(m.name, "chat_presentation") || strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") || strings.Contains(m.name, "_chat_research.sql") || strings.Contains(m.name, "doctor_holds") || strings.Contains(m.name, "doctor_result_mode") {
 			continue
 		}
 		prior = append(prior, m)
@@ -42,21 +42,11 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.BeginDoctorAttempt(t.Context(), session.TaskRef, DoctorAttempt{ID: "doctor-old", SourceID: "fixture", OwnerText: "read", PromptVersion: "v1", GuideVersion: "v1"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PrepareDoctorAttempt(t.Context(), DoctorAttempt{ID: "doctor-old", Provider: "claude", ConfiguredModel: "fixture", Evidence: "{}"}); err != nil {
-		t.Fatal(err)
-	}
-	diagnosis, err := db.StartDoctorMeterAttempt(t.Context(), "doctor-old", "claude")
-	if err != nil {
-		t.Fatal(err)
-	}
 	chat, err := db.StartChatMeterAttempt(t.Context(), session.RepoID, "claude")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range []MeterAttempt{legacy, diagnosis, chat} {
+	for _, a := range []MeterAttempt{legacy, chat} {
 		if err := db.PutMeterInvocation(t.Context(), MeterInvocation{AttemptID: a.ID, ID: "root", SourceID: "s", SourceInvocationID: "root", Status: "complete"}); err != nil {
 			t.Fatal(err)
 		}
@@ -72,7 +62,7 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 	if err := db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range []MeterAttempt{legacy, diagnosis, chat} {
+	for _, a := range []MeterAttempt{legacy, chat} {
 		stored, err := db.GetMeterAttempt(t.Context(), a.ID)
 		if err != nil || stored.RunID != a.RunID || stored.DoctorAttemptID != a.DoctorAttemptID || stored.ChatRepoID != a.ChatRepoID {
 			t.Fatalf("lost attempt owner: %+v %v", stored, err)

@@ -47,10 +47,6 @@ func (d *Daemon) refreshRecoveries(ctx context.Context, at time.Time) {
 		rows, err := d.db.ListReportRecoveries(ctx)
 		if err == nil {
 			for _, row := range rows {
-				held, e := d.db.DoctorRepairHeldSession(ctx, row.SessionID)
-				if (e != nil || held) && row.State != "resolved" {
-					continue
-				}
 				if _, exists := d.recoveries.items[row.Key]; exists {
 					continue
 				}
@@ -86,10 +82,6 @@ func (d *Daemon) refreshRecoveries(ctx context.Context, at time.Time) {
 	sort.Strings(keys)
 	for _, key := range keys {
 		row := d.recoveries.items[key]
-		held, e := d.doctorHeldSession(ctx, row.SessionID)
-		if e != nil || held {
-			continue
-		}
 		if strings.HasPrefix(key, "stopped:") && row.State == "resolved" && d.recoveries.dirty[strings.TrimPrefix(key, "stopped:")] {
 			continue
 		}
@@ -282,8 +274,7 @@ func (d *Daemon) removeResolvedRecovery(ctx context.Context, row store.ReportRec
 	if d.db == nil {
 		return
 	}
-	held, err := d.doctorHeldSession(ctx, row.SessionID)
-	if err != nil || held || (strings.HasPrefix(row.Key, "stopped:") && d.recoveries.dirty[strings.TrimPrefix(row.Key, "stopped:")]) {
+	if strings.HasPrefix(row.Key, "stopped:") && d.recoveries.dirty[strings.TrimPrefix(row.Key, "stopped:")] {
 		return
 	}
 	if row.NextAt.IsZero() {
@@ -300,28 +291,18 @@ func (d *Daemon) removeResolvedRecovery(ctx context.Context, row store.ReportRec
 	delete(d.recoveries.dirty, row.Key)
 }
 
-// guardedRecoveryAllowed consults durable holds only after the source is due.
-// A failed hold read must never turn each ineligible tick into a new attempt.
+// guardedRecoveryAllowed reports whether the source is due.
 func (d *Daemon) guardedRecoveryAllowed(ctx context.Context, source store.ReportRecovery, at time.Time) (bool, error) {
-	allowed, err := d.recoveryAllowed(ctx, source, at)
-	if err != nil || !allowed {
-		return allowed, err
-	}
-	held, err := d.doctorHeldSession(ctx, source.SessionID)
-	return !held && err == nil, err
+	return d.recoveryAllowed(ctx, source, at)
 }
 
 // guardedReportAttempt keeps persistence/exclusion checks at the production
 // effect boundary. reportAttempt owns cadence and outage debt independently.
 func (d *Daemon) guardedReportAttempt(ctx context.Context, source store.ReportRecovery, attempt func() (turn.Posted, error)) (turn.Posted, error) {
-	return d.reportAttemptWithGuard(ctx, source, attempt, true)
+	return d.reportAttempt(ctx, source, attempt)
 }
 
 func (d *Daemon) reportAttempt(ctx context.Context, source store.ReportRecovery, attempt func() (turn.Posted, error)) (turn.Posted, error) {
-	return d.reportAttemptWithGuard(ctx, source, attempt, false)
-}
-
-func (d *Daemon) reportAttemptWithGuard(ctx context.Context, source store.ReportRecovery, attempt func() (turn.Posted, error), guarded bool) (turn.Posted, error) {
 	at := recoveryTime(ctx)
 	allowed, err := d.recoveryAllowed(ctx, source, at)
 	if err != nil {
@@ -330,16 +311,6 @@ func (d *Daemon) reportAttemptWithGuard(ctx context.Context, source store.Report
 	}
 	if !allowed {
 		return turn.Posted{Skipped: true}, &recoveryPending{}
-	}
-	if guarded {
-		held, guardErr := d.doctorHeldSession(ctx, source.SessionID)
-		if guardErr != nil {
-			d.recoveryFailure(ctx, source, at, guardErr)
-			return turn.Posted{Skipped: true}, &recoveryPending{guardErr}
-		}
-		if held {
-			return turn.Posted{Skipped: true}, &recoveryPending{}
-		}
 	}
 	finish := d.observeRecoveryAttempt(ctx, source)
 	posted, err := attempt()
@@ -411,18 +382,6 @@ func (d *Daemon) observeRecoveryAttempt(ctx context.Context, source store.Report
 	}
 }
 
-// settleDoctorConsume drops a stopped repair's unconfirmed consume reply and
-// releases the recovery hold it kept on its session.
-func (d *Daemon) settleDoctorConsume(ctx context.Context, source store.ReportRecovery, key string, lookupEmpty bool) (bool, error) {
-	settlement, settled, err := d.db.SettleFencedDoctorConsumeDelivery(ctx, key, lookupEmpty)
-	if err != nil || !settled {
-		return false, err
-	}
-	d.log.InfoContext(ctx, "doctor consume reply settled", slog.String("repair_id", settlement.RepairID), slog.Int("step", settlement.Step), slog.String("delivery", key), slog.String("task", source.Task))
-	d.recoverySucceeded(ctx, source.Key)
-	return true, nil
-}
-
 func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bool, error) {
 	pendingDelivery, deliveryFound, deliveryErr := d.db.FindPendingReportDelivery(ctx, t.session.ID, triggerID)
 	if deliveryErr != nil {
@@ -456,19 +415,6 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 		return false, nil
 	}
 	source := store.ReportRecovery{Key: recoveryKey(t.session.ID, triggerID), SessionID: t.session.ID, TriggerID: triggerID, Task: t.ref.String()}
-	// A stopped repair's consume reply that provably was not sent is dropped
-	// before recovery could dispatch, and so post, it.
-	doctorConsume := deliveryFound && strings.HasPrefix(pendingDelivery.Key, "doctor-consume:")
-	if doctorConsume {
-		settled, settleErr := d.settleDoctorConsume(ctx, source, pendingDelivery.Key, false)
-		if settleErr != nil {
-			d.recoveryFailure(ctx, source, t.tickAt, settleErr)
-			return true, &recoveryPending{settleErr}
-		}
-		if settled {
-			return false, nil
-		}
-	}
 	allowed, err := d.guardedRecoveryAllowed(ctx, source, t.tickAt)
 	if err != nil {
 		d.recoveryFailure(ctx, source, t.tickAt, err)
@@ -479,15 +425,6 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 	}
 	finish := d.observeRecoveryAttempt(ctx, source)
 	_, pending, err := reporter.ReportPending(ctx, t.session.ID, triggerID)
-	if err != nil && doctorConsume && errors.Is(err, turn.ErrReportReceiptAbsent) {
-		// A complete lookup found no trace of a stopped repair's reply.
-		settled, settleErr := d.settleDoctorConsume(ctx, source, pendingDelivery.Key, true)
-		if settled {
-			finish("resolved")
-			return false, nil
-		}
-		err = errors.Join(err, settleErr)
-	}
 	if err != nil {
 		d.recoveryFailure(ctx, source, t.tickAt, err)
 		finish("failed")

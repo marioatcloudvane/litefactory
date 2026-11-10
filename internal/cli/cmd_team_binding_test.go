@@ -2,12 +2,9 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,36 +45,13 @@ func TestTeamBindingCommandsOfflineLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := teamFiles(t, "research")
-	r1 := cliRelease(files, "1.0.0")
-	r2 := cliRelease(files, "2.0.0")
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestPath := strings.TrimPrefix(r.URL.Path, "/alias")
-		if requestPath == "/teams.json" {
-			if err := json.NewEncoder(w).Encode(map[string]any{"schema": 1, "releases": []any{r1, r2}}); err != nil {
-				t.Error(err)
-			}
-			return
-		}
-		for _, release := range []string{"1.0.0", "2.0.0"} {
-			prefix := "/standard/" + release + "/"
-			if strings.HasPrefix(requestPath, prefix) {
-				raw, ok := files[strings.TrimPrefix(requestPath, prefix)]
-				if ok {
-					if _, err := w.Write(raw); err != nil {
-						t.Error(err)
-					}
-					return
-				}
-			}
-		}
-		http.NotFound(w, r)
-	}))
-	defer server.Close()
-	source := server.URL + "/teams.json"
-	aliasSource := server.URL + "/alias/teams.json"
+	sourceDir := teamSourceCopy(t, filepath.Join(canonicalHome, "one"), "")
+	aliasDir := teamSourceCopy(t, filepath.Join(canonicalHome, "two"), "")
+	newerDir := teamSourceCopy(t, filepath.Join(canonicalHome, "three"), "2.0.0")
+	source := "file://" + filepath.ToSlash(sourceDir)
+	aliasSource := "file://" + filepath.ToSlash(aliasDir)
 	var output, diagnostic bytes.Buffer
-	env := &Env{Stdout: &output, Stderr: &diagnostic, Logger: slog.New(slog.DiscardHandler), TeamTransport: server.Client().Transport}
+	env := &Env{Stdout: &output, Stderr: &diagnostic, Logger: slog.New(slog.DiscardHandler)}
 	commands := NewRouter("litefactory", env, Commands())
 	run := func(want int, args ...string) string {
 		t.Helper()
@@ -89,73 +63,90 @@ func TestTeamBindingCommandsOfflineLifecycle(t *testing.T) {
 		}
 		return output.String() + diagnostic.String()
 	}
-	run(ExitOK, "team", "install", "standard", "1.0.0", "--source", source)
-	run(ExitOK, "team", "install", "standard", "2.0.0", "--source", source)
-	run(ExitOK, "team", "install", "standard", "1.0.0", "--source", aliasSource)
-	run(ExitOK, "team", "clone", "standard", "1.0.0", "custom", "1.0.0", "--source", source)
+	run(ExitOK, "team", "install", "go-development", "--source", sourceDir)
+	run(ExitOK, "team", "install", "go-development", "--source", newerDir)
+	run(ExitOK, "team", "install", "go-development", "--source", aliasDir)
+	run(ExitOK, "team", "clone", "go-development", "1.0.0", "custom", "1.0.0", "--source", source)
+	installed, err := installedDigest(t, paths, source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	assertProcessLinkProtectsRemoval(t, paths, clone.Dir)
 	run(ExitOK, "team", "unlink", "--repo", clone.Dir)
-	server.Close()
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	// Link/unlink do not read runner configuration or resolve credentials.
 	if err := os.Remove(paths.ConfigPath()); err != nil {
 		t.Fatal(err)
 	}
-	if out := run(ExitFailure, "team", "link", "standard", "1.0.0", "--repo", clone.Dir); !strings.Contains(out, source) || !strings.Contains(out, aliasSource) || !strings.Contains(out, "ambiguous") {
+	if out := run(ExitFailure, "team", "link", "go-development", "1.0.0", "--repo", clone.Dir); !strings.Contains(out, source) || !strings.Contains(out, aliasSource) || !strings.Contains(out, "ambiguous") {
 		t.Fatal(out)
 	}
 	if _, err := db.GetRepositoryTeamBinding(t.Context(), repo.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal(err)
 	}
-	out := run(ExitOK, "team", "link", "standard", "1.0.0", "--repo", clone.Dir, "--source", source)
-	if !strings.Contains(out, repo.Path) || !strings.Contains(out, source) || !strings.Contains(out, "standard 1.0.0") {
+	out := run(ExitOK, "team", "link", "go-development", "1.0.0", "--repo", clone.Dir, "--source", source)
+	if !strings.Contains(out, repo.Path) || !strings.Contains(out, source) || !strings.Contains(out, "go-development 1.0.0") {
 		t.Fatal(out)
 	}
-	if out := run(ExitOK, "team", "link", "standard", "1.0.0", "--repo", clone.Dir, "--source", source); !strings.Contains(out, "Already linked") {
+	if out := run(ExitOK, "team", "link", "go-development", "1.0.0", "--repo", clone.Dir, "--source", source); !strings.Contains(out, "Already linked") {
 		t.Fatal(out)
 	}
 	binding, err := db.GetRepositoryTeamBinding(t.Context(), repo.ID)
-	if err != nil || binding.ReleaseDigest != r1.Checksum {
+	if err != nil || binding.ReleaseDigest != installed {
+		t.Fatal(binding, err)
+	}
+	// Reinstalling changed source replaces the bytes and moves the link with
+	// them, so the next run admits the new digest.
+	changeTeamSource(t, sourceDir, "Reinstalled with the repository still linked.")
+	if out := run(ExitOK, "team", "install", "go-development", "--source", sourceDir); !strings.Contains(out, "Replaced go-development 1.0.0") || !strings.Contains(out, "Relinked: "+repo.Path) {
+		t.Fatal(out)
+	}
+	replaced, err := installedDigest(t, paths, source)
+	if err != nil || replaced == installed {
+		t.Fatal(replaced, err)
+	}
+	binding, err = db.GetRepositoryTeamBinding(t.Context(), repo.ID)
+	if err != nil || binding.ReleaseDigest != replaced {
 		t.Fatal(binding, err)
 	}
 	// Failed linking preserves the prior binding.
-	run(ExitFailure, "team", "link", "standard", "9.0.0", "--repo", clone.Dir)
+	run(ExitFailure, "team", "link", "go-development", "9.0.0", "--repo", clone.Dir)
 	if got, err := db.GetRepositoryTeamBinding(t.Context(), repo.ID); err != nil || got != binding {
 		t.Fatal(got, err)
 	}
-	if out := run(ExitFailure, "team", "link", "standard", "1.0.0", "--repo", clone.Dir); !strings.Contains(out, "ambiguous") {
+	if out := run(ExitFailure, "team", "link", "go-development", "1.0.0", "--repo", clone.Dir); !strings.Contains(out, "ambiguous") {
 		t.Fatal(out)
 	}
 	if got, err := db.GetRepositoryTeamBinding(t.Context(), repo.ID); err != nil || got != binding {
 		t.Fatal(got, err)
 	}
-	run(ExitOK, "team", "link", "standard", "1.0.0", "--repo", clone.Dir, "--source", aliasSource)
+	run(ExitOK, "team", "link", "go-development", "1.0.0", "--repo", clone.Dir, "--source", aliasSource)
 	if got, err := db.GetRepositoryTeamBinding(t.Context(), repo.ID); err != nil || got.Source != aliasSource {
 		t.Fatal(got, err)
 	}
-	run(ExitOK, "team", "link", "standard", "2.0.0", "--repo", clone.Dir)
+	run(ExitOK, "team", "link", "go-development", "2.0.0", "--repo", clone.Dir)
 	// A nested current directory resolves to the registered top level.
 	sub := filepath.Join(clone.Dir, "nested")
 	if err := os.Mkdir(sub, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(sub)
-	if out := run(ExitOK, "team", "link", "standard", "2.0.0"); !strings.Contains(out, "Already linked") {
+	if out := run(ExitOK, "team", "link", "go-development", "2.0.0"); !strings.Contains(out, "Already linked") {
 		t.Fatal(out)
 	}
-	if out := run(ExitFailure, "team", "remove", "standard", "2.0.0"); !strings.Contains(out, repo.Path) || !strings.Contains(out, "unlink") {
+	if out := run(ExitFailure, "team", "remove", "go-development", "2.0.0"); !strings.Contains(out, repo.Path) || !strings.Contains(out, "unlink") {
 		t.Fatal(out)
 	}
-	run(ExitOK, "team", "remove", "standard", "1.0.0", "--source", source)
-	run(ExitOK, "team", "remove", "standard", "1.0.0", "--source", aliasSource)
-	if out := run(ExitOK, "team", "unlink"); !strings.Contains(out, "standard 2.0.0") || !strings.Contains(out, repo.Path) {
+	run(ExitOK, "team", "remove", "go-development", "1.0.0", "--source", source)
+	run(ExitOK, "team", "remove", "go-development", "1.0.0", "--source", aliasSource)
+	if out := run(ExitOK, "team", "unlink"); !strings.Contains(out, "go-development 2.0.0") || !strings.Contains(out, repo.Path) {
 		t.Fatal(out)
 	}
 	if out := run(ExitOK, "team", "unlink", "--repo", clone.Dir); !strings.Contains(out, "already unlinked") {
 		t.Fatal(out)
 	}
-	run(ExitOK, "team", "remove", "standard", "2.0.0")
+	run(ExitOK, "team", "remove", "go-development", "2.0.0")
 	run(ExitOK, "team", "link", "custom", "1.0.0", "--source", "local")
 	if local, err := db.GetRepositoryTeamBinding(t.Context(), repo.ID); err != nil || local.Kind != "local" || local.ReleaseDigest != "" {
 		t.Fatalf("editable binding retained origin digest: %+v %v", local, err)
@@ -174,22 +165,33 @@ func TestTeamBindingCommandsOfflineLifecycle(t *testing.T) {
 		t.Fatal("checkout changed", err)
 	}
 	unregistered := newRepoFixture(t)
-	if out := run(ExitPrecondition, "team", "link", "standard", "1.0.0", "--repo", unregistered.Dir); !strings.Contains(out, "repo add") {
+	if out := run(ExitPrecondition, "team", "link", "go-development", "1.0.0", "--repo", unregistered.Dir); !strings.Contains(out, "repo add") {
 		t.Fatal(out)
 	}
+}
+
+// installedDigest reads the installed go-development 1.0.0 digest of source.
+func installedDigest(t *testing.T, paths config.Paths, source string) (string, error) {
+	t.Helper()
+	manager, err := teampackage.New(teampackage.Options{Paths: paths, Validate: validateTeamPackage})
+	if err != nil {
+		return "", err
+	}
+	entry, err := manager.Inspect(t.Context(), source, "go-development", "1.0.0")
+	return entry.Identity.Digest, err
 }
 
 func TestTeamRemovalGuardAbsentAndInvalidDatabase(t *testing.T) {
 	t.Parallel()
 	paths := config.NewPaths(t.TempDir())
 	guard := teamRemovalGuard(paths)
-	if uses, err := guard(t.Context(), teampackage.Identity{Source: "https://example.com/teams.json", Slug: "standard", Version: "1.0.0"}); err != nil || len(uses) != 0 {
+	if uses, err := guard(t.Context(), teampackage.Identity{Source: "https://example.com/teams.json", Slug: "go-development", Version: "1.0.0"}); err != nil || len(uses) != 0 {
 		t.Fatal(uses, err)
 	}
 	if err := os.WriteFile(paths.DBPath(), []byte("invalid database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := guard(t.Context(), teampackage.Identity{Source: "https://example.com/teams.json", Slug: "standard", Version: "1.0.0"}); err == nil || errors.Is(err, fs.ErrNotExist) {
+	if _, err := guard(t.Context(), teampackage.Identity{Source: "https://example.com/teams.json", Slug: "go-development", Version: "1.0.0"}); err == nil || errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("invalid database allowed removal", err)
 	}
 }

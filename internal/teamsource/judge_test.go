@@ -7,7 +7,8 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 )
 
 func TestWorkflowJudgeResourceCapture(t *testing.T) {
@@ -17,7 +18,8 @@ func TestWorkflowJudgeResourceCapture(t *testing.T) {
  challenge -> end [lf_on="success"];
  challenge -> end [lf_on="failed"];`)
 	registry := researchTestRegistry(t)
-	def, err := CaptureWorkflow(t.Context(), source, "research.dot", "builtin", agent.ModeResearch, registry)
+	lib := factorylibtest.Library(t)
+	def, err := CaptureWorkflowIdentity(t.Context(), source, "research.dot", "builtin", agent.WorkflowResearch, registry, lib)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,11 +27,11 @@ func TestWorkflowJudgeResourceCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shipped, err := JudgeInstructions()
+	shipped, err := lib.Capture(t.Context(), factorylib.Judge)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(role, shipped) || def.Hashes["judge/challenger.md"] == "" {
+	if !bytes.Equal(role, shipped.Instructions()) || def.Hashes["judge/challenger.md"] == "" {
 		t.Fatal("judge role absent from captured identity")
 	}
 	retained := RetainedFiles(def.Files)
@@ -95,14 +97,14 @@ func TestFreshJudgeCaptureFromRootRetainedFiles(t *testing.T) {
 			if _, ok := root.(RetainedFiles); !ok {
 				t.Fatal("fixture does not preserve root retained filesystem type")
 			}
-			paths := config.NewPaths(t.TempDir())
+			lib := factorylibtest.Library(t)
 			if withJudge {
-				if _, err := CaptureWorkflowIdentity(t.Context(), root, "research.dot", "builtin", agent.WorkflowResearch, registry, paths); err == nil {
+				if _, err := CaptureWorkflowIdentity(t.Context(), root, "research.dot", "builtin", agent.WorkflowResearch, registry, lib); err == nil {
 					t.Fatal("retained source without judge closure accepted as fresh")
 				}
 			}
 			freshSource := struct{ fs.FS }{root}
-			fresh, err := CaptureWorkflowIdentity(t.Context(), freshSource, "research.dot", "builtin", agent.WorkflowResearch, registry, paths)
+			fresh, err := CaptureWorkflowIdentity(t.Context(), freshSource, "research.dot", "builtin", agent.WorkflowResearch, registry, lib)
 			if err != nil {
 				t.Fatalf("fresh root capture: %v", err)
 			}

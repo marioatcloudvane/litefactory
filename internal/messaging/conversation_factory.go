@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/messagingstate"
 	"reflect"
 	"slices"
@@ -14,7 +15,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -85,7 +85,7 @@ type conversationReadResult struct {
 
 type factoryConversationRun struct {
 	inboxResume    *conversationReadResult
-	instructions   *instructionpackage.ConversationCapture
+	instructions   *factorylib.ConversationCapture
 	s              *Service
 	c              messagingstate.Conversation
 	b              ConversationBinding

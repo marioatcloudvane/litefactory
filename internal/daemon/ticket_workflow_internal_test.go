@@ -210,7 +210,7 @@ func TestNeutralTicketWorkflow(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			d := &Daemon{db: db, tickets: tickets, filter: filter, classifiers: map[agent.Kind]agent.Classifier{agent.Kind("claude"): explicitWorkflowClassifier{t: t}}}
+			d := &Daemon{db: db, tickets: tickets, filter: filter, modeRole: testModeRole, classifiers: map[agent.Kind]agent.Classifier{agent.Kind("claude"): explicitWorkflowClassifier{t: t}}}
 
 			comments, err := d.readComments(t.Context(), github.Repo{Owner: "owner", Name: "repo"}, 7, 0)
 			if err != nil || len(comments) != 1 {

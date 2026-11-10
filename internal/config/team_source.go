@@ -1,30 +1,62 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-// DefaultTeamSource is the anonymous standard catalogue. Publication is separate
-// from configuration: this constant does not promise that a catalogue exists.
-const DefaultTeamSource = "https://raw.githubusercontent.com/marioatcloudvane/litefactory/main/teams/teams.json"
+// ErrTeamSourceFolder names the one install source form.
+var ErrTeamSourceFolder = errors.New("teams are installed from a teams/source folder: pass --source /absolute/path/to/teams/source, or set settings.team_source to that folder")
+
+// TeamSourceFolder checks a team install source: the absolute path, or file://
+// URL, of an existing teams/source folder. It returns the source identity, a
+// file:// URL that names the installed namespace, and the folder path. Remote
+// catalogue URLs and teams.json files are refused, and so is an empty source:
+// there is no standard catalogue.
+func TeamSourceFolder(source string) (identity, dir string, err error) {
+	lower := strings.ToLower(source)
+	if source == "" || strings.HasPrefix(lower, "https:") || strings.HasPrefix(lower, "http:") {
+		return "", "", ErrTeamSourceFolder
+	}
+	if strings.HasPrefix(source, "/") && len(source) > 1 {
+		source = strings.TrimRight(source, "/")
+	}
+	identity, err = NormalizeTeamSource(source)
+	if err != nil || !strings.HasPrefix(identity, "file://") {
+		return "", "", ErrTeamSourceFolder
+	}
+	u, err := url.Parse(identity)
+	if err != nil {
+		return "", "", ErrTeamSourceFolder
+	}
+	dir = filepath.FromSlash(u.Path)
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", "", fmt.Errorf("team source folder %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return "", "", ErrTeamSourceFolder
+	}
+	return identity, dir, nil
+}
 
 // NormalizeTeamSource returns the canonical source identity used for local
-// namespacing. Errors deliberately exclude the input URL, which may contain
-// credentials. Empty selects the standard source. A catalogue file on this
-// machine is a file:// URL or an absolute path, for teams kept in a private
-// repository.
+// namespacing. Errors deliberately exclude the input, which may contain
+// credentials. A folder on this machine is a file:// URL or an absolute path.
+// HTTPS catalogue URLs are still accepted as identities so teams that earlier
+// versions installed from a remote catalogue can be listed, relinked and
+// removed; new installs go through TeamSourceFolder.
 func NormalizeTeamSource(source string) (string, error) {
-	if source == "" {
-		return DefaultTeamSource, nil
-	}
 	invalid := func() (string, error) {
-		return "", fmt.Errorf("settings.team_source: require an anonymous absolute HTTPS catalogue URL or an absolute catalogue file path, without credentials, query or fragment and with a confined path")
+		return "", errors.New("settings.team_source: require the absolute path of a teams/source folder, without credentials, query or fragment and with a confined path")
 	}
-	if strings.TrimSpace(source) != source || strings.ContainsAny(source, "\x00\r\n\\") {
+	if source == "" || strings.TrimSpace(source) != source || strings.ContainsAny(source, "\x00\r\n\\") {
 		return invalid()
 	}
 	if strings.HasPrefix(source, "/") && !strings.HasPrefix(source, "//") {

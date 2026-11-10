@@ -17,7 +17,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/naming"
 	native "github.com/cloudvane/litefactory/pkg/execution/providers/claude"
 )
@@ -64,7 +64,7 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 // no session id, run ordinal, or worktree and therefore cannot become an
 // ordinary coding workflow or create its run artefacts.
 func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposalRequest) (agent.ScheduleProposal, error) {
-	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "schedule-proposal-advisor")
+	capture, err := factorylib.CaptureRole(ctx, factorylib.Or(r.instructions, r.paths), factorylib.ScheduleProposalAdvisor)
 	if err != nil {
 		return agent.ScheduleProposal{}, err
 	}
@@ -102,6 +102,53 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	return proposal, nil
 }
 
+// CheckAccess performs a stateless, tool-free access check with the same
+// shape as [Runner.ProposeSchedule]: no session id, run ordinal or worktree.
+// It is bounded by [agent.AccessCheckTimeout], not by r.timeout. A blank
+// req.Role is refused: the role is the linked team's access-classifier.
+func (r *Runner) CheckAccess(ctx context.Context, req agent.AccessCheckRequest) (agent.AccessCheckResult, error) {
+	role := req.Role
+	if strings.TrimSpace(role) == "" {
+		return agent.AccessCheckResult{}, agent.ErrAccessRoleMissing
+	}
+	prompt, err := agent.AccessCheckPrompt(role, req)
+	if err != nil {
+		return agent.AccessCheckResult{}, err
+	}
+	if _, err := os.Stat(r.home); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check directory: %w", err)
+	}
+	if _, err := EnsureSettings(r.settingsPath, r.home); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("prepare claude settings: %w", err)
+	}
+	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("prepare claude config dir: %w", err)
+	}
+	runCtx, cancel := agent.InvocationContext(ctx, agent.AccessCheckTimeout)
+	defer cancel()
+	args := native.StatelessArguments(r.settingsPath, r.model)
+	var stdout, stderr bytes.Buffer
+	if err := native.Buffered(runCtx, native.Prepared{Binary: r.binary.Path, Arguments: args, Directory: r.home, Environment: buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), Prompt: prompt, Logger: r.logger}, &stdout, &stderr); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check failed: %w: %s", err, excerpt(stderr.String()))
+	}
+	stream := eventStream{logger: r.logger}
+	if err := stream.consume(bytes.NewReader(stdout.Bytes())); err != nil || stream.result == nil || stream.result.IsError {
+		return agent.AccessCheckResult{}, errors.New("access check returned no successful terminal result")
+	}
+	if len(stream.tools) != 0 {
+		return agent.AccessCheckResult{}, errors.New("access check exposed tools")
+	}
+	result, err := agent.ParseAccessCheck(stream.result.Result)
+	if err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check returned invalid answer: %w", err)
+	}
+	result.Model = r.model
+	if result.Model == "" {
+		result.Model = "claude"
+	}
+	return result, nil
+}
+
 // ProposeConflictResolution performs a stateless, tool-free advisory
 // invocation, mirroring [Runner.ProposeSchedule]'s shape exactly (US-11): no
 // session id, run ordinal, or worktree, so it cannot become an ordinary
@@ -110,7 +157,7 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 // budget already in play for this turn (see internal/turn's
 // attemptConflictSuggestion, which passes ctx through unbounded on purpose).
 func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
-	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "merge-conflict-advisor")
+	capture, err := factorylib.CaptureRole(ctx, factorylib.Or(r.instructions, r.paths), factorylib.MergeConflictAdvisor)
 	if err != nil {
 		return agent.ConflictResolution{}, err
 	}
@@ -190,8 +237,8 @@ const (
 // the environment in particular, because a test that could not choose the
 // parent environment could not assert the boundary that AC-3.13 is about.
 type Options struct {
-	// Instructions supplies per-invocation role captures; nil uses the shared package.
-	Instructions instructionpackage.CaptureSource
+	// Instructions is the factory library roles are captured from; nil reads the installed one.
+	Instructions factorylib.Source
 	// Paths is the resolved $LF_HOME layout. Run artefacts are written beneath
 	// it and the default claude settings file lives in it.
 	Paths         config.Paths
@@ -226,7 +273,7 @@ type Options struct {
 // own point of consumption.
 type Runner struct {
 	providerObserver agent.ProviderObserver
-	instructions     instructionpackage.CaptureSource
+	instructions     factorylib.Source
 	paths            config.Paths
 	goBuildCaches    config.GoBuildCaches
 	binary           config.Executable

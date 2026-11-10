@@ -9,13 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/factorylib"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
@@ -87,9 +88,8 @@ func workflowJudgeFixture(t *testing.T, mode agent.Mode) (*fixture, *fakeForge, 
 	forge := newFakeForge(t)
 	service, judgeContext, _ := judgeRecoveryFixture(t)
 	service.DB = f.db
-	pkg, err := instructionpackage.LoadShipped(t.Context(), "")
-	mustProgress(t, err)
-	judgeContext.Instructions, _, err = pkg.Capture(t.Context(), instructionpackage.JudgeRole)
+	var err error
+	judgeContext.Instructions, err = factorylibtest.Library(t).Capture(t.Context(), factorylib.Judge)
 	mustProgress(t, err)
 	judgeContext.Ref = f.ref()
 	judgeContext.SessionID = f.session.ID
@@ -324,19 +324,12 @@ challenge -> advice [lf_on="success"];
 challenge -> advice [lf_on="failed"];
 advice -> report [lf_on="published"];`, 1)
 			files["research.dot"] = []byte(dot)
-			role, err := teamsource.JudgeInstructions()
+			capture, err := factorylibtest.Library(t).Capture(t.Context(), factorylib.Judge)
 			mustProgress(t, err)
-			files["judge/challenger.md"] = role
+			files["judge/challenger.md"] = capture.Instructions()
 			if retained {
-				pkg, err := instructionpackage.LoadShipped(t.Context(), "")
-				mustProgress(t, err)
-				capture, _, err := pkg.Capture(t.Context(), instructionpackage.JudgeRole)
-				mustProgress(t, err)
 				files["judge/instructions.json"], err = capture.Encode()
 				mustProgress(t, err)
-				for _, resource := range capture.Snapshot().Files {
-					files["judge/"+resource.Path] = resource.Content
-				}
 			}
 			definition, err = teamsource.CaptureWorkflowIdentity(t.Context(), files, "research.dot", definition.Profile.Team, agent.WorkflowResearch, specs)
 			mustProgress(t, err)

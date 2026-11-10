@@ -227,21 +227,30 @@ type grantFailWriter struct{}
 func (grantFailWriter) Write([]byte) (int, error) { return 0, errors.New("sensitive-writer-secret") }
 
 func TestConnectorTemplatePrintsGuidance(t *testing.T) {
-	t.Parallel()
+	newRepoHome(t)
 	var out strings.Builder
 	cmd := newConnectorTemplateCommand()
 	handler := cmd.New(flag.NewFlagSet("t", flag.ContinueOnError))
-	if err := handler(t.Context(), &Env{Stdout: &out}, nil); err != nil || !strings.Contains(out.String(), "Prompts") {
+	if err := handler(t.Context(), &Env{Stdout: &out}, nil); err != nil || strings.TrimSpace(out.String()) == "" {
 		t.Fatalf("template: %v %q", err, out.String())
 	}
 }
 
 func TestConnectorSkillPrintsSkillFile(t *testing.T) {
-	t.Parallel()
+	newRepoHome(t)
 	var out strings.Builder
 	cmd := newConnectorSkillCommand()
 	handler := cmd.New(flag.NewFlagSet("t", flag.ContinueOnError))
-	if err := handler(t.Context(), &Env{Stdout: &out}, nil); err != nil || !strings.HasPrefix(out.String(), "---\nname: litefactory\n") || !strings.Contains(out.String(), "## Workflow: file a bug") {
-		t.Fatalf("skill: %v %.200q", err, out.String())
+	if err := handler(t.Context(), &Env{Stdout: &out}, nil); err != nil || !strings.HasPrefix(out.String(), "---\n") {
+		t.Fatalf("skill: %v %q", err, out.String())
+	}
+}
+
+func TestConnectorSkillNeedsInstalledLibrary(t *testing.T) {
+	t.Setenv(config.EnvHome, t.TempDir())
+	cmd := newConnectorSkillCommand()
+	handler := cmd.New(flag.NewFlagSet("t", flag.ContinueOnError))
+	if err := handler(t.Context(), &Env{Stdout: &strings.Builder{}}, nil); err == nil || !strings.Contains(err.Error(), "factory install") {
+		t.Fatalf("missing library: %v", err)
 	}
 }

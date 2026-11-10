@@ -22,7 +22,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/discordcomponent"
 	"github.com/cloudvane/litefactory/internal/factory"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -61,9 +61,7 @@ func TestDiscordComponentProcessStopDrainRestart(t *testing.T) {
 		}
 	}()
 	processRequire(t, db.Migrate(ctx))
-	pkg, err := instructionpackage.ShippedConversationPackage(ctx)
-	processRequire(t, err)
-	capture, _, err := pkg.CaptureConversation(ctx)
+	capture, err := factorylibtest.Library(t).CaptureConversation(ctx)
 	processRequire(t, err)
 	raw, err := capture.Encode()
 	processRequire(t, err)
@@ -283,7 +281,7 @@ func runDiscordProcessChild(t *testing.T) {
 	component, err := discordcomponent.New(discordcomponent.Options{
 		Credentials: discordcomponent.Credentials{Settings: config.DiscordChat{Enabled: true, ApplicationID: "500", PublicKey: strings.Repeat("00", 32), OwnerID: "100", ChannelIDs: []string{"200", "201"}}, Token: secrets.NewToken("offline-process-token"), APIURL: base, Client: &http.Client{Timeout: 5 * time.Second}},
 		Storage:     messagingstorage.New(db), Factory: factory.NewMessaging(db), Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "200", Name: "saved", Provider: "claude", Model: "offline"}, {Channel: "201", Name: "unfinished", Provider: "claude", Model: "offline"}}, StateRoot: directory},
+		Conversations: &messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "200", Name: "saved", Provider: "claude", Model: "offline"}, {Channel: "201", Name: "unfinished", Provider: "claude", Model: "offline"}}, StateRoot: directory},
 	})
 	processRequire(t, err)
 	component.Serve(ctx)
