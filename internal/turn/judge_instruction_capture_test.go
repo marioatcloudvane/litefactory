@@ -18,13 +18,14 @@ import (
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 // This path uses production workflow restoration, execution, judge admission and
 // the result broker. Inference and the remote forge are controlled fixtures.
 func TestWorkflowJudgeInstructionsSurviveLibraryReinstallAndRestore(t *testing.T) {
 	ctx := t.Context()
-	root, err := os.MkdirTemp("/tmp", "lf-jinst-")
+	root, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-jinst-")
 	mustProgress(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	root, err = filepath.EvalSymlinks(root)

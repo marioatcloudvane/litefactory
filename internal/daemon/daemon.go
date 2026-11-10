@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/access"
 	"log/slog"
 	"maps"
 	"path/filepath"
@@ -190,6 +191,13 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Access is the grantee access gate; nil keeps every non-owner silent, as
+	// before grants existed. Tests inject one with a fake checker here.
+	Access *access.Gate
+	// AccessWorkflows reads a waiting node's installed definition so the gate
+	// knows its approve reply; nil refuses a grantee answer as unchecked.
+	AccessWorkflows access.WorkflowSource
+
 	// Paths locates the owner instruction package.
 	Paths         config.Paths
 	GoBuildCaches config.GoBuildCaches
@@ -414,6 +422,9 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	access          *access.Gate
+	accessWorkflows access.WorkflowSource
+
 	ciMonitor                *cimonitor.Observer
 	alerts                   *alerts.Engine
 	alertClock               func() time.Time
@@ -604,6 +615,8 @@ func New(opts Options) (*Daemon, error) {
 		// back into the registry the process was built with.
 		agents:           maps.Clone(opts.Agents),
 		classifiers:      maps.Clone(opts.Classifiers),
+		access:           opts.Access,
+		accessWorkflows:  opts.AccessWorkflows,
 		instructionPaths: opts.Paths,
 		modeRole:         opts.ModeRole,
 		bugAgent:         opts.BugAgent,

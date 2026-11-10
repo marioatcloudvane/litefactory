@@ -125,6 +125,90 @@ When the ticket approver and code owner differ, acceptance checks and finding
 choices must be settled before the code owner's combined Validate shipping
 approval. The combined command cannot grant the code owner ticket authority.
 
+## Grantee access
+
+The owner can let other people work on a project by giving them an access
+grant: plain text that says what the person may do. Grants are managed with
+[`repo access`](cli/command-reference.md#repository-access-grants).
+
+A person with an active grant can open an issue, comment, give a command, or
+answer or approve at a waiting stage. Each request is checked before anything
+runs. Only a stored grant counts: GitHub collaborator or maintainer roles and
+Linear team membership give no rights. People are matched by provider, origin
+and immutable account ID, never by handle, so a renamed account keeps its grant
+and a new account with an old handle gets nothing.
+
+The owner (the ticket approver above) is never checked, so owner requests have
+no added delay. People without a grant are ignored silently, as before.
+
+### How a request is checked
+
+```mermaid
+flowchart LR
+  R[Request from a grantee] --> F{Owner-only?}
+  F -- yes --> X[Refused: only the owner]
+  F -- no --> L{Size and hourly limit}
+  L -- over --> Y[Refused: try later]
+  L -- ok --> C{Classifier}
+  C -- allow --> Run[Runs like the owner's]
+  C -- deny or error --> Z[Refused]
+```
+
+1. **Owner-only floor.** Some actions belong to the owner alone, whatever the
+   grant says: code-control commands such as `/deliver`, `/merge`,
+   `/validate-ship`, `/validate-push`, `/validate-merge`, `/validate-close` and
+   accepting a Validate repair, and any reply that matches a waiting node's
+   approve reply (`lf_approve_reply`). These are refused with "only the owner
+   can do this" and the classifier is not called. Grant, team, approver and
+   configuration changes have no comment path at all; they stay local CLI
+   commands.
+2. **Limits.** Title, body and comment text are capped at 64 KiB, and each
+   person gets at most 30 checks per project per hour.
+3. **Classifier.** A model with no tools and no session reads the grant text,
+   the request and facts about the target taken from the installed team
+   (workflow, node, kind, action, and whether it reads or writes). It answers
+   allow or deny with one sentence of reason. Anything odd counts as a refusal:
+   an unreadable answer, a timeout, a model error or a missing team.
+
+The classifier's role text is `access/access-classifier.md` in the team. A team
+can edit it to change how grants are read. There is no factory default: a
+repository without a linked team, or a team without the file, is refused as
+"could not be checked" (reinstall the team from `teams/source`).
+
+### What the person sees
+
+An allowed request runs exactly like the owner's, attributed to the person.
+Consecutive free-text comments from one person are judged once, together.
+
+A refused request gets one marked comment on the issue. It names the person,
+says the request was not run and gives the reason. "Could not be checked" says
+the owner can repeat the request; a limit refusal says to try again later.
+Nothing is retried automatically.
+
+### Records and changes
+
+Every decision is recorded once per request in the `project_access_decisions`
+table: who asked, which grant and revision, the target, the result, the
+reason, the model and the time. Changing or revoking a grant affects only the
+next request; work that already started is not undone.
+
+### Try it
+
+As the owner, give a person a grant (`1` is the project ID from `repo list`;
+use the person's GitHub login or Linear user ID for the project's ticket
+connection):
+
+```sh
+litefactory repo access grant 1 helper-login --text "May comment on and answer questions in open issues. May not open new issues."
+litefactory repo access list 1
+```
+
+Ask the person to comment one request the grant covers and one it does not.
+Read the result on the issue: the covered request runs, and the other gets a
+refusal comment with the reason. Remove the grant with
+`litefactory repo access revoke 1 GRANT_ID`, taking the ID from
+`repo access list`.
+
 ## Linear tickets with GitHub code
 
 [Getting started](getting-started/README.md) · [GitHub setup](getting-started/github-setup.md) · [Discord setup](discord.md)

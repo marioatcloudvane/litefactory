@@ -18,6 +18,7 @@ type remoteConnectorServices interface {
 	SetWorkflows(connector.Workflows)
 	SetTaskDiscussion(connector.TaskDiscussion)
 	SetBrainstorm(connector.Brainstorms)
+	SetBrainstormUnavailable(reason string)
 }
 
 type remoteConnectorRuntime struct {

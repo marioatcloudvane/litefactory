@@ -29,7 +29,7 @@ func TestJudgeMigrationPreservesPopulatedLedgers(t *testing.T) {
 	var schema []string
 	// Later migrations drop the never-used Plan feature tables and their guards,
 	// and the Doctor's hold and graph-progress triggers.
-	rows, err := db.sql.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('index','trigger') AND sql IS NOT NULL AND tbl_name NOT IN ('plan_story_owner_edits','story_contract_upgrades','story_contract_upgrade_items','doctor_repair_holds','doctor_repair_write_permits','doctor_scans') AND name NOT LIKE 'story_contract_upgrade_%' AND name NOT LIKE 'doctor_hold_%' AND name NOT LIKE 'doctor_graph_%' ORDER BY name`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('index','trigger') AND sql IS NOT NULL AND tbl_name NOT IN ('plan_story_owner_edits','story_contract_upgrades','story_contract_upgrade_items','doctor_repair_holds','doctor_repair_write_permits','doctor_scans','rights_grants','reviewer_assignments','rights_history') AND name NOT LIKE 'story_contract_upgrade_%' AND name NOT LIKE 'doctor_hold_%' AND name NOT LIKE 'doctor_graph_%' ORDER BY name`)
 	if err != nil {
 		t.Fatal(err)
 	}

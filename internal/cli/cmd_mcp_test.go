@@ -100,7 +100,7 @@ func newMCPCLIFixture(t *testing.T) *mcpCLIFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, err := os.MkdirTemp("/tmp", "lf-mcp-cli-")
+	dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-mcp-cli-")
 	if err != nil {
 		t.Fatal(err)
 	}

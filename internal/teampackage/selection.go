@@ -96,13 +96,6 @@ func (a *CatalogueAccess) withSelected(ctx context.Context, source, slug, versio
 			return fmt.Errorf("%w: stack-profile.guidance: %w", ErrInvalidPackage, err)
 		}
 	}
-	// The mode classifier is a team role outside every workflow; a release
-	// that ships it hands it to the caller with the same integrity check.
-	if _, ok := files.expected[teamsource.ModeClassifierPath]; ok || entry.Editable {
-		if _, err := fs.ReadFile(files, teamsource.ModeClassifierPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-	}
 	mapped := entry.Workflows
 	if workflow != "" {
 		mapped = map[string]string{}
@@ -117,6 +110,43 @@ func (a *CatalogueAccess) withSelected(ctx context.Context, source, slug, versio
 		return err
 	}
 	return use(entry, teamsource.RetainedFiles(files.files))
+}
+
+// ReadSelectedFile reads one file of the selected installed release while the
+// catalogue lock is held. A sealed release must list it in its inventory with
+// the same bytes; a file the release does not hold returns fs.ErrNotExist.
+func (a *CatalogueAccess) ReadSelectedFile(ctx context.Context, source, slug, version, name string) (Installed, []byte, error) {
+	if !a.active {
+		return Installed{}, nil, errors.New("inactive catalogue access")
+	}
+	if !safePath(name) {
+		return Installed{}, nil, &fs.PathError{Op: "read", Path: name, Err: fs.ErrInvalid}
+	}
+	entry, err := a.manager.resolve(ctx, source, slug, version)
+	if err != nil {
+		return Installed{}, nil, err
+	}
+	files := &stablePackageFiles{ctx: ctx, files: map[string][]byte{}, expected: map[string]string{}, editable: entry.Editable}
+	for _, file := range entry.Release.Files {
+		files.expected[file.Path] = file.SHA256
+	}
+	if _, listed := files.expected[name]; !listed && !entry.Editable {
+		return entry, nil, &fs.PathError{Op: "read", Path: name, Err: fs.ErrNotExist}
+	}
+	root, err := os.OpenRoot(entry.Path)
+	if err != nil {
+		return Installed{}, nil, err
+	}
+	defer root.Close()
+	files.source = confinedFS{root: root}
+	raw, err := fs.ReadFile(files, name)
+	if err != nil {
+		return entry, nil, err
+	}
+	if err := files.verify(); err != nil {
+		return entry, nil, err
+	}
+	return entry, raw, nil
 }
 
 // stablePackageFiles reads each file once for validation, then checks the owned

@@ -19,6 +19,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 // Real adapter processes receive a role captured from the installed library on stdin and return the
@@ -27,7 +28,14 @@ func TestCapturedInstructionRolesEndToEnd(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		for _, role := range []string{"merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier"} {
 			t.Run(provider+"/"+role, func(t *testing.T) {
-				root := t.TempDir()
+				// Codex scans every ancestor of its working directory for
+				// skills; t.TempDir() can sit below GOTMPDIR inside the
+				// operator's home, whose ~/.codex a sandbox refuses to read.
+				root, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-roles-")
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.RemoveAll(root) })
 				paths := config.NewPaths(filepath.Join(root, "factory"))
 				if err := paths.EnsureHome(); err != nil {
 					t.Fatal(err)

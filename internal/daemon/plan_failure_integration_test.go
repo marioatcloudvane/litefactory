@@ -34,6 +34,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 	"reflect"
@@ -745,7 +746,7 @@ func TestPlanFailureDaemon_OwnerReplyRunsFreshStoryDraft(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = authority.Close(context.WithoutCancel(t.Context())) })
-			mcpDir, err := os.MkdirTemp("/tmp", "lf-retry-")
+			mcpDir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-retry-")
 			if err != nil {
 				t.Fatal(err)
 			}

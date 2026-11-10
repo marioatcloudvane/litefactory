@@ -644,7 +644,7 @@ func TestStartReportsExpiredNonGraphWorkerTiming(t *testing.T) {
 // left by a broker that died without Close is removed when the daemon starts.
 func TestStartRemovesLeftoverSubmissionFolders(t *testing.T) {
 	f := newFixture(t)
-	home, err := os.MkdirTemp("/tmp", "lf1311-")
+	home, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf1311-")
 	if err != nil {
 		t.Fatal(err)
 	}

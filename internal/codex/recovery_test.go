@@ -184,7 +184,7 @@ func TestStructuredConsumersRecoverableDiagnostics(t *testing.T) {
 		invoke        func(*testing.T, *Runner) error
 	}{
 		{"Classify", "implement", func(t *testing.T, r *Runner) error {
-			got, err := r.Classify(t.Context(), agent.Classification{WorkingDirectory: t.TempDir(), Prompt: "implement"})
+			got, err := r.Classify(t.Context(), agent.Classification{WorkingDirectory: shortWorkDir(t), Prompt: "implement"})
 			if err == nil && got != agent.ModeImplement {
 				t.Fatalf("mode = %q", got)
 			}

@@ -147,7 +147,7 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 		}
 		current, e := snapshot.scratch.Observe(context.WithoutCancel(ctx))
 		if e != nil || current != snapshot.tree {
-			return errors.New("coverage snapshot changed or could not be observed")
+			return errors.New("coverage snapshot changed or could not be observed" + snapshotDriftDetail(ctx, snapshot.scratch))
 		}
 		return nil
 	}
@@ -231,6 +231,9 @@ func (h ValidateSuiteActivity) runCoverage(ctx context.Context, opts Options, re
 			m.Complete = false
 			m.Outcome = "blocked"
 			reason = "tested snapshot changed or could not be observed"
+			if observeErr == nil {
+				reason += snapshotDriftDetail(ctx, scratch)
+			}
 			rawState = store.SuiteBlocked
 		}
 		if finishInputCheck != nil {

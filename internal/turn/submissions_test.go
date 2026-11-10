@@ -26,7 +26,7 @@ import (
 func typedProgressScope(t *testing.T, f *fixture, workflow int) *progressForge {
 	t.Helper()
 	ctx := t.Context()
-	home, err := os.MkdirTemp("/tmp", "lf207-turn-")
+	home, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf207-turn-")
 	mustProgress(t, err)
 	home, err = filepath.EvalSymlinks(home)
 	mustProgress(t, err)

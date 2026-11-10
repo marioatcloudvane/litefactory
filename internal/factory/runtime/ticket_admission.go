@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 
+	"github.com/cloudvane/litefactory/internal/access"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -110,7 +111,8 @@ func (a *TicketAdmission) EligibleComment(ctx context.Context, sessionID int64, 
 	if err != nil {
 		return false, err
 	}
-	if c.Author.ID != ids.OwnerUserID || c.Author.IsBot || turn.HasMarker(c.Body) {
+	owner := c.Author.ID == ids.OwnerUserID
+	if (!owner && c.Author.ID == ids.BotUserID) || c.Author.IsBot || turn.HasMarker(c.Body) {
 		return false, nil
 	}
 	session, err := a.db.GetSession(ctx, sessionID)
@@ -121,6 +123,9 @@ func (a *TicketAdmission) EligibleComment(ctx context.Context, sessionID int64, 
 	if err != nil {
 		return false, err
 	}
+	if !owner && (c.ID <= 0 || c.Author.ID <= 0) {
+		return false, nil
+	}
 	if appointment.RequireFresh && !c.CreatedAt.After(appointment.ActivatedAt) {
 		return false, nil
 	}
@@ -128,9 +133,42 @@ func (a *TicketAdmission) EligibleComment(ctx context.Context, sessionID int64, 
 	if c.QualifiedReply != nil {
 		source = c.QualifiedReply.Identity
 	}
+	if !owner {
+		allowed, err := a.allowedGrantee(ctx, session, appointment.Actor, source, c)
+		if err != nil || !allowed {
+			return false, err
+		}
+		// The access decision row is the grantee's only proof; the approver's
+		// claims ledger is never written for another person.
+		return true, nil
+	}
 	claim, err := a.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: session.RepoID, AppointmentID: appointment.ID, Revision: appointment.Revision, Actor: appointment.Actor, Source: source, CreatedAt: c.CreatedAt, Kind: "child-instruction", Key: source.RemoteID})
 	if err != nil {
 		return false, err
 	}
 	return true, a.db.CompleteProjectAuthority(ctx, claim.ID)
+}
+
+// allowedGrantee reports whether the access gate made a final allow decision
+// for exactly this comment source, actor and body.
+func (a *TicketAdmission) allowedGrantee(ctx context.Context, session store.Session, approver, source ticket.Identity, c github.Comment) (bool, error) {
+	actor := ticket.Identity{Provider: approver.Provider, Origin: approver.Origin, RemoteID: strconv.FormatInt(c.Author.ID, 10)}
+	if c.QualifiedReply != nil {
+		actor = c.QualifiedReply.Author.Identity
+	} else if approver.Provider == ticket.Linear {
+		var err error
+		if actor, err = a.db.TicketIdentityForSlot(ctx, "actor", c.Author.ID); errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+	}
+	decision, err := a.db.AccessDecisionBySource(ctx, session.RepoID, source)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return decision.SessionID == session.ID && decision.State == store.AccessDecisionFinal && decision.Decision == store.AccessAllow && decision.Actor.Equal(actor) && decision.RequestDigest == access.Digest(c.Body), nil
 }

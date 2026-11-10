@@ -20,6 +20,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 type controlledTaskAdvisoryProvider struct {
@@ -122,7 +123,7 @@ func TestTaskAdvisoryRunnerBoundBrokerAndLostReplyRecovery(t *testing.T) {
 	if err = db.ConsentConnectorBrowser(t.Context(), browser.ID, "nonce", 42, now, grant, code, true); err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp("/tmp", "lf-tadv-")
+	root, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-tadv-")
 	if err != nil {
 		t.Fatal(err)
 	}

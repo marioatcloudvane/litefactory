@@ -121,3 +121,6 @@ func (r *Runtime) SetTaskDiscussion(v TaskDiscussion) { r.server.SetTaskDiscussi
 
 // SetBrainstorm installs the repository brainstorm service.
 func (r *Runtime) SetBrainstorm(v Brainstorms) { r.server.SetBrainstorm(v) }
+
+// SetBrainstormUnavailable records why brainstorm could not start.
+func (r *Runtime) SetBrainstormUnavailable(reason string) { r.server.SetBrainstormUnavailable(reason) }

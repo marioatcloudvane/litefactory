@@ -366,8 +366,8 @@ var archiveRetained = map[string]ArchiveClass{
 	"schema_migrations":              ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
 	"retirement_sweep": ArchiveClassGlobal, "archive_sweep": ArchiveClassGlobal,
 	planArchiveGrantsTable: ArchiveClassGlobal,
-	// Rights are keyed by repository, never archived or deleted.
-	"rights_grants": ArchiveClassGlobal, "reviewer_assignments": ArchiveClassGlobal, "rights_history": ArchiveClassGlobal,
+	// Access grants and access decisions are keyed by repository, never archived or deleted.
+	"project_access_grants": ArchiveClassGlobal, "project_access_decisions": ArchiveClassGlobal,
 	"meter_price_revisions": ArchiveClassGlobal, "meter_price_rates": ArchiveClassGlobal,
 	// The standards book and its immutable proposals span every task family.
 	"standards_book": ArchiveClassGlobal, "standards_revisions": ArchiveClassGlobal,

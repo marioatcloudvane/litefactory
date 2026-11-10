@@ -373,7 +373,13 @@ func (h ValidateReviewActivity) start(ctx context.Context, opts Options, req Act
 			continue
 		}
 		if drift {
-			if err := opts.DB.FinishValidateReview(ctx, row.ID, store.ReviewFailed, "snapshot drift: the checked-out source differs from the tested source", nil, b.now(opts)); err != nil {
+			reason := "snapshot drift: the checked-out source differs from the tested source"
+			if suite.Output.TreeBefore != "" && tree == suite.Output.TreeBefore {
+				// A clean checkout matches the tree the suite started from:
+				// the suite's own commands wrote into the tested source.
+				reason = "snapshot drift: the suite changed the source tree while it ran, so the clean checkout differs from the tree it left behind; see the suite's reason"
+			}
+			if err := opts.DB.FinishValidateReview(ctx, row.ID, store.ReviewFailed, reason, nil, b.now(opts)); err != nil {
 				return err
 			}
 			continue

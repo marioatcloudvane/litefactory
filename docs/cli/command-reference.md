@@ -434,73 +434,41 @@ litefactory task retire
 
 Shows, without deleting anything, what automatic cleanup would keep or remove for each registered task's worktrees and branches. It fetches fresh remote refs and checks each issue directly, so it needs the bot credential (exit `3` without it). No flags.
 
-## Rights and reviewers
+## Repository access grants
 
-Rights say who may act on a tagged workflow action. Reviewers are people a task is routed to for attention. A reviewer assignment grants no right. All of these need `--repo owner/name` for a registered repository (exit `3` if it is not registered) and the owner identity from `init`. Without `--json` they print a plain table; with `--json`, indented JSON.
+Access grants record, as plain text, what a person may do in a project. The text is stored exactly as you write it. Each request from the person is checked against it before anything runs; see [Grantee access](../project-connections.md#grantee-access). Only the owner can run these commands from the local CLI. `<project-id>` is the id shown by `repo list`. The person must be a GitHub or Linear user matching the project's ticket connection.
 
-### `rights catalogue`
-
-```text
-litefactory rights catalogue --repo owner/name [--json]
-```
-
-Lists the actions rights can be granted for: one `workflow | stage | action` entry per workflow action that is tagged for rights. Untagged actions are not listed.
-
-### `rights list`
+### `repo access grant`
 
 ```text
-litefactory rights list --repo owner/name [--all] [--json]
+litefactory repo access grant <project-id> <login> (--text TEXT | --file PATH)
 ```
 
-Lists active grants. `--all` also lists revoked ones.
+Grants the person the given text. Give exactly one of `--text` or `--file`. Granting again for the same person adds a new revision that replaces the earlier text; the old revision stays in the history.
 
-### `rights grant`
+### `repo access revoke`
 
 ```text
-litefactory rights grant <login> --repo owner/name --workflow W --stage S --action A [--task REF] [--expires RFC3339] [--json]
+litefactory repo access revoke <project-id> <grant-id>
 ```
 
-Gives a GitHub user the right to take one action. The login is turned into its numeric GitHub ID once, now (this uses the bot credential). `--workflow`, `--stage` and `--action` come from `rights catalogue`; `--action` is `answer`, `request_changes` or `approve`. `--task` limits the grant to one task (a number or a ref such as `github:owner/name#12`). `--expires` is a UTC time in RFC 3339 form. It is refused (exit `3`) for an unknown repository, an action not in the catalogue, an expiry in the past, or a duplicate of an active grant.
+Revokes an active grant. Take the id from `repo access list`. The record stays in the history.
 
-### `rights revoke`
+### `repo access list`
 
 ```text
-litefactory rights revoke <grant-id> --repo owner/name [--json]
+litefactory repo access list <project-id>
 ```
 
-Revokes a grant. The row and its history stay.
+Lists the active grants with their text.
 
-### `rights history`
+### `repo access history`
 
 ```text
-litefactory rights history --repo owner/name [--json]
+litefactory repo access history <project-id>
 ```
 
-Shows who changed which rights and reviewers, and when.
-
-### `reviewer assign`
-
-```text
-litefactory reviewer assign <login> --repo owner/name --task REF --workflow W --stage S [--replace] [--json]
-```
-
-Assigns a reviewer to a task and stage. `--replace` first removes the open reviewers of that task and stage, in one change.
-
-### `reviewer remove`
-
-```text
-litefactory reviewer remove <assignment-id> --repo owner/name [--json]
-```
-
-Removes an assignment. The row and its history stay.
-
-### `reviewer list`
-
-```text
-litefactory reviewer list --repo owner/name [--task REF] [--all] [--json]
-```
-
-Lists open assignments. `--task` limits it to one task; `--all` also lists removed ones.
+Lists every revision and revocation, oldest first.
 
 ## Factory-internal commands (not for everyday use)
 

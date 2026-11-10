@@ -28,6 +28,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/teamsource/teamsourcetest"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -153,7 +154,7 @@ func TestImplementTimeoutStoryReplyResumesWhileSiblingRuns(t *testing.T) {
 		}
 		return &agent.RunResult{Outcome: agent.OutcomeAbandoned, FinishedAt: time.Now()}, nil
 	})
-	home, err := os.MkdirTemp("/tmp", "lf-timeout-")
+	home, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-timeout-")
 	check(err)
 	t.Cleanup(func() { check(os.RemoveAll(home)) })
 	home, err = filepath.EvalSymlinks(home)

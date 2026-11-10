@@ -174,7 +174,13 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			if authorityErr != nil {
 				return false, authorityErr
 			}
-			if !eligible || comment.Author.ID != ids.OwnerUserID || comment.Author.ID == ids.BotUserID || comment.Author.IsBot || turn.HasMarker(comment.Body) {
+			instructed := false
+			if eligible {
+				if instructed, authorityErr = d.mayInstruct(ctx, t.session.ID, comment); authorityErr != nil {
+					return false, authorityErr
+				}
+			}
+			if !eligible || !instructed || comment.Author.ID == ids.BotUserID || comment.Author.IsBot || turn.HasMarker(comment.Body) {
 				if err = d.db.AdvanceStoryDiscovery(ctx, t.session.ID, draft.IssueNumber, comment.ID); err != nil {
 					return false, err
 				}

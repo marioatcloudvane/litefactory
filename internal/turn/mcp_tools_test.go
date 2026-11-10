@@ -19,6 +19,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 // countedMCPService instruments the real service rather than replacing storage
@@ -86,7 +87,7 @@ func mcpToolFixture(t *testing.T, db *store.DB, service *AgentResultService) (su
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, err := os.MkdirTemp("/tmp", "lf-tools-")
+	dir, err := os.MkdirTemp(testutil.ShortTempRoot(), "lf-tools-")
 	if err != nil {
 		t.Fatal(err)
 	}

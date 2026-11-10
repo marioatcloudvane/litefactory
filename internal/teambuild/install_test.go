@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -66,9 +67,13 @@ func TestOutOfGraphSkillClosureIsInstalledAndStraySkillRefused(t *testing.T) {
 	})
 }
 
-// outOfGraphPath reports an installed file of a listed out-of-graph skill; the
-// selected-workflow view exposes only what graph validation read.
+// outOfGraphPath reports an installed file of a listed out-of-graph skill or a
+// team-level file; the selected-workflow view exposes only what graph
+// validation read.
 func outOfGraphPath(name string) bool {
+	if slices.Contains(teamsource.TeamFiles, name) {
+		return true
+	}
 	for w, skills := range outOfGraphSkills {
 		for _, skill := range skills {
 			if strings.HasPrefix(name, w+"/skills/"+skill+"/") {

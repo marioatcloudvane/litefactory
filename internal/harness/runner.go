@@ -102,6 +102,53 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	return proposal, nil
 }
 
+// CheckAccess performs a stateless, tool-free access check with the same
+// shape as [Runner.ProposeSchedule]: no session id, run ordinal or worktree.
+// It is bounded by [agent.AccessCheckTimeout], not by r.timeout. A blank
+// req.Role is refused: the role is the linked team's access-classifier.
+func (r *Runner) CheckAccess(ctx context.Context, req agent.AccessCheckRequest) (agent.AccessCheckResult, error) {
+	role := req.Role
+	if strings.TrimSpace(role) == "" {
+		return agent.AccessCheckResult{}, agent.ErrAccessRoleMissing
+	}
+	prompt, err := agent.AccessCheckPrompt(role, req)
+	if err != nil {
+		return agent.AccessCheckResult{}, err
+	}
+	if _, err := os.Stat(r.home); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check directory: %w", err)
+	}
+	if _, err := EnsureSettings(r.settingsPath, r.home); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("prepare claude settings: %w", err)
+	}
+	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("prepare claude config dir: %w", err)
+	}
+	runCtx, cancel := agent.InvocationContext(ctx, agent.AccessCheckTimeout)
+	defer cancel()
+	args := native.StatelessArguments(r.settingsPath, r.model)
+	var stdout, stderr bytes.Buffer
+	if err := native.Buffered(runCtx, native.Prepared{Binary: r.binary.Path, Arguments: args, Directory: r.home, Environment: buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), Prompt: prompt, Logger: r.logger}, &stdout, &stderr); err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check failed: %w: %s", err, excerpt(stderr.String()))
+	}
+	stream := eventStream{logger: r.logger}
+	if err := stream.consume(bytes.NewReader(stdout.Bytes())); err != nil || stream.result == nil || stream.result.IsError {
+		return agent.AccessCheckResult{}, errors.New("access check returned no successful terminal result")
+	}
+	if len(stream.tools) != 0 {
+		return agent.AccessCheckResult{}, errors.New("access check exposed tools")
+	}
+	result, err := agent.ParseAccessCheck(stream.result.Result)
+	if err != nil {
+		return agent.AccessCheckResult{}, fmt.Errorf("access check returned invalid answer: %w", err)
+	}
+	result.Model = r.model
+	if result.Model == "" {
+		result.Model = "claude"
+	}
+	return result, nil
+}
+
 // ProposeConflictResolution performs a stateless, tool-free advisory
 // invocation, mirroring [Runner.ProposeSchedule]'s shape exactly (US-11): no
 // session id, run ordinal, or worktree, so it cannot become an ordinary

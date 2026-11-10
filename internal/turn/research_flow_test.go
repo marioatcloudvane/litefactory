@@ -1,13 +1,12 @@
 package turn
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -97,8 +96,8 @@ func TestResearchAskReplyDoneCompletes(t *testing.T) {
 	}
 	intents, err := f.db.ListGraphComments(t.Context(), instance.ID, "", 100)
 	mustProgress(t, err)
-	// Intents list in delivery-key (hash) order; the attempt order is the flow order.
-	slices.SortFunc(intents, func(a, b store.GraphCommentIntent) int { return cmp.Compare(a.SourceAttemptID, b.SourceAttemptID) })
+	// ListGraphComments orders by a hashed delivery key, so order by attempt.
+	sort.Slice(intents, func(i, j int) bool { return intents[i].SourceAttemptID < intents[j].SourceAttemptID })
 	if len(intents) != 2 || intents[0].Kind != "question" || intents[1].Kind != "final" {
 		t.Fatalf("want a question then the final report, got %+v", intents)
 	}

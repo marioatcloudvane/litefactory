@@ -91,6 +91,9 @@ func classificationPrompt(roleText, title, body, instruction string) string {
 }
 
 func (d *Daemon) classifyMode(ctx context.Context, t *task, instruction string) (agent.Mode, error) {
+	if picked := t.accessPicked; picked != nil && picked.text == instruction {
+		return picked.mode, nil
+	}
 	classifier := d.classifiers[d.defaultAgent]
 	if classifier == nil {
 		return "", fmt.Errorf("default agent %q has no mode classifier", d.defaultAgent)

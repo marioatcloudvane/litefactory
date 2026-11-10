@@ -42,7 +42,7 @@ The next step may leave `ref` empty only for `ship`, `send-back`, `rerun` or `wa
 
 Classify every item:
 
- - `story-defect`: the story's change causes it. Usually `send-back` or `repair`.
+ - `story-defect`: the story's change causes it. Usually `send-back` or `repair`. A suite blocked because it wrote into the checked-out source tree is a `story-defect` of the tested code, not a factory problem: its reason names the paths ("the suite wrote settings-groups.xml into the source tree"). Name those paths in why and recommend `send-back` with that cause; rerunning Validate on the same commit blocks again, and reviewers reporting snapshot drift after it follow from the same cause.
  - `already-failing`: the same test fails on the base commit or main. Usually `wait-for-main`, or `ship` with a reason.
  - `factory`: the factory or its environment is at fault (a missing tool, a sandbox refusal, a broken probe). Usually `factory-bug`.
  - `flaky`: it passed when re-run on the same commit. Usually `rerun`.
