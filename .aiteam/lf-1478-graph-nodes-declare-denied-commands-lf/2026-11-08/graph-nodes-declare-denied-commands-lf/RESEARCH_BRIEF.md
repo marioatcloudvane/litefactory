@@ -1,70 +1,97 @@
-# RESEARCH_BRIEF — Graph nodes declare denied commands (`lf_deny`) — issue #1478
+# Research brief — #1478 named deny groups
 
-Status: waiting for owner answers (q1–q4). Base commit: `51bf3ddf`.
-
-Permalink base: `https://github.com/marioatcloudvane/litefactory/blob/51bf3ddff155cf0c0f6408c1edc1d9a2dfabde75/`
+Status: incomplete; owner changed the interface and requested a runtime comparison before answering q1–q4; q5 clarifies agent calls. Inspected commit: 9957dd279d5336448c407194f02e33493326dd82. No implementation, builds or test suites run.
 
 ## Outcome ledger
 
-### S-01 mode=feature, size=large — new generic node attribute, two runtime enforcement paths (Claude simple, Codex needs a new delivery route), graph validation, team DOT values
+### S-01 mode=feature, size=large — settings groups, graph references and enforcement across two runtimes
 (agent's call)
 
-### O-01 Any `lf_agent` node may declare `lf_deny`; its entries are added to that node's run deny rules
-Syntax is the shared deny-rule syntax: a comma-separated list of `Tool(pattern)` entries. Splitting on commas happens outside parentheses (agent's call). Go reads the attribute from whatever node is running and knows no mode, workflow, node or step name.
-(owner said: issue #1478 "A generic node attribute … on any `lf_agent` node")
+### O-01 Graph and agent-node lf_deny values contain only group names, and settings hold each group's deny list
+This supersedes inline DOT rules and the original DOT-only configuration requirement; Go remains independent of workflow and step names. (owner said: comment 6763254390)
 
-### O-02 Claude runs enforce node entries through the per-run settings `permissions.deny`, which also binds subagents
-The per-run settings document already exists (`internal/harness/sandbox.go` `prepareSandbox`, written to `<log>.settings.json`). Node entries are appended to the deny list read from the operator settings file. Nothing is removed.
-(owner said: issue #1478 "Claude: settings `permissions.deny`, which also covers subagents")
+### O-02 Claude appends resolved group entries to the existing per-run permissions.deny list
+The rules must also bind subagents; existing shared restrictions remain intact. (owner said: issue #1478)
 
-### O-03 Codex runs enforce node entries, or refuse to start and name the entry they cannot enforce
-How Codex receives the rules is open: see q1. Planned mapping (agent's call, pending q1):
-- `Bash(cmd args:*)` and `Bash(cmd args)` → Codex exec-policy `prefix_rule(pattern=[…], decision="forbidden")`. An exact Claude form turns into a prefix rule on Codex, so Codex denies a little more. That is safe for a deny list.
-- `Bash(…)` with a `*` anywhere except a trailing `:*` → Codex cannot express it (Codex patterns have no wildcards). The launch refuses.
-- `Read(path)` / `Edit(path)` → Codex permission-profile filesystem `deny` globs, if q1 = a. Otherwise the launch refuses.
-(owner said: issue #1478 "If an entry cannot be enforced on a runtime, the run refuses to start and says which entry")
+### O-03 Codex enforces every resolved entry or refuses launch with the group, entry and reason
+A private factory-owned configuration home is recommended, pending q1; command policy, filesystem permissions and subagent controls require distinct translations. The previous full-parity claim is withdrawn: supported mappings require evidence from the actual runtime, not just its policy checker. (owner said: issue #1478)
 
-### O-04 A graph-level `lf_deny` default exists; how nodes combine with it is settled by q3
-(owner said: issue #1478 "It can also be a graph-level default that nodes extend or override")
+### O-04 Graph defaults and node groups combine according to the still-open q3
+Recommend additive union with no node escape from graph defaults. (agent's call)
 
-### O-05 Generic graph checks reject a malformed `lf_deny`
-They reject an empty entry, a missing `Tool(` … `)` wrapper, an empty pattern, unbalanced parentheses, a duplicate, and a tool name outside the known set. The known set is `Bash`, `Read`, `Edit`, the tools the shared deny list uses (agent's call). This applies to node and graph level, in the shared action attribute declaration (`graphexec.AgentAttributes`) and graph validation, with no workflow-specific code.
-(owner said: issue #1478 "syntax and known tool names only")
+### O-05 Graph checks validate group-reference syntax and configured admission resolves groups and validates entries
+Reject raw rules in DOT, malformed references, unknown groups, malformed entries and unknown tool names; syntax validity is separate from runtime support. Static team checks without operator settings cannot check catalogue membership, so configured admission must check it before launch. (agent's call)
 
-### O-06 A node without `lf_deny` (and no graph default) launches exactly as today, byte-identical settings and Codex argv
-(owner said: issue #1478 "A node without it behaves as today")
+### O-06 Nodes with no selected groups retain current permission behavior
+No new private Codex home or deny-related argument changes apply to those runs. (owner said: issue #1478)
 
-### O-07 Team DOT values: which shipped team DOTs carry entries is settled by q2
-(owner said: issue #1478 "Teams set their own values in their DOT files")
+### O-07 Which shipped team graphs select groups remains open in q2
+Recommend no invented stack-specific commands; cockpit defines its own group and selects it in its local team. (agent's call)
 
-### O-08 Docs: one page section on `lf_deny`: syntax, merge rule, Codex mapping and refusals, and its limit (N-02)
-(agent's call)
+### O-08 Documentation explains group syntax, resolution, runtime differences and refusal behavior
+Include a copyable example and native matching limitations. (agent's call)
 
-### N-01 No change to how the factory itself runs checks (Validate, stack-profile checks); those are not agent shell commands and are unaffected
-(agent's call)
+### O-09 Agent-call entries are included once q5 settles what agent calls means
+Recommend native CLI subagent restrictions; shell-launched agent CLIs are already Bash entries, while factory workflow routing is separate. (agent's call)
 
-### N-02 `lf_deny` is a guard rail, not a security boundary
-Both runtimes match the command text by prefix. `./scripts/lf-check.sh`, `bash scripts/lf-check.sh` or a script that calls it can get around an entry. See q4.
-(agent's call, measured: see F-05)
+### O-10 Groups are optional operator settings activated only by graph references
+Propose settings.denyrules, an empty catalogue by default, no nested groups and no implicit script shorthand; see [deny-group contract](DENY_GROUP_CONTRACT.md) for the proposed interface. (agent's call)
 
-### N-03 No Markdown role changes and no tests that pin Markdown wording
-(owner said: issue #1478 "No tests that pin Markdown wording")
+### N-01 Factory-run validation checks are unaffected
+These are not the agent's shell commands. (agent's call)
 
-### N-04 No new tool names beyond Bash/Read/Edit in this issue (WebFetch etc. can follow later)
-(agent's call)
+### N-02 Command matching is a guard rail, not a promise to catch every indirect execution
+Alternate paths and wrappers need explicit coverage; current Claude docs describe wrapper parsing, so the earlier claim that bash wrappers always bypass both runtimes is withdrawn. q4 remains open. (agent's call)
 
-### K-01 The shared credential/state deny list (`denyRules`) and the OS sandbox stanza stay unchanged; node entries only add
-(owner said: issue #1478 "No change to the shared credential and state deny list from #1465")
+### N-03 No Markdown role changes or wording-pinning tests
+(owner said: issue #1478)
 
-### K-02 No Go code names a mode, workflow, node or step for `lf_deny`, and no deny entry is hard-coded in Go
-(owner said: issue #1478 "No Go code that names a mode…")
+### N-04 The earlier Bash/Read/Edit-only exclusion is superseded by O-09
+(owner said: comment 6763254390 explicitly includes agent calls)
 
-### K-03 Codex runs without `lf_deny` keep `--ignore-rules` and ignore the operator's own `~/.codex/rules`
-Loading the operator's rules could add `allow` rules that loosen the sandbox.
-(agent's call)
+### K-01 Shared credential and state restrictions remain intact and selected groups only add restrictions
+(owner said: issue #1478)
 
-### K-04 `make lint` is clean
-(owner said: issue #1478 "`make lint` is clean")
+### K-02 No mode, workflow, step names or team-specific deny entries are hard-coded in Go
+(owner said: issue #1478)
+
+### K-03 Runs without selected groups retain the existing rule-loading behavior
+Do not import unrelated personal or project Codex allow rules when enabling factory restrictions. (agent's call)
+
+### K-04 make lint must pass in later implementation validation
+(owner said: issue #1478)
+
+### K-05 Codex authentication, session resume, usage collection and existing sandbox limits remain functional
+A private home must be stable for its session, protected against agent edits, and receive the correct restrictions on each attempt. (agent's call)
+
+### A-01 Owner changes the interface and requests a comparison before answering
+> some remarks before i answer questions: lf_deny should "only" have groups; we would define a group in the settings under a new setting like this:
+>
+> `denyrules: 
+>     rule_xx:
+>         deny: 
+>             <list of scripts, bash, agent calls, ...>
+> `
+> where the list is what gets denied and thus forwarded to the cli's ... 
+>
+> also, list me how this would work in codex vs. claude!
+
+(owner said: comment 6763254390; q1–q4 remain unanswered)
+
+## Current findings and corrections
+
+Observed at the inspected commit unless labelled otherwise:
+
+- F-10: Config is strictly decoded with KnownFields(true); no deny-group catalogue exists. Optional groups must join the operator configuration schema and validation. Sources: internal/config/config.go:41,578 and docs/configuration/config-yaml.md.
+- F-11: Claude documents Agent and Agent(name) denies; Codex already uses features.multi_agent=false in its adapter, but an equivalent selective named-agent ban has not been established. Sources: internal/codex/runner.go:447 and https://code.claude.com/docs/en/permissions#agent-subagents.
+- F-12: Current Codex rules docs describe forbidden prefix rules and shell-wrapper parsing, but describe their purpose in terms of execution outside the sandbox. The retained checker measurement does not establish every live shell/tool path. Launch support requires live enforcement evidence, otherwise refuse. Sources: https://developers.openai.com/codex/rules and https://code.claude.com/docs/en/permissions.
+- F-13: Team source layout changed since the earlier pass: commit b5eb77e1 deleted generated team releases and cmd/teamrelease. F-09 below is historical, not the current implementation path. Sources: git history and teams/source.
+- F-14: Related #1465 and #1468 appear in repository merge history; issue-summary lookups failed to return summaries, so no refreshed remote status is claimed. Retained request IDs: 33bd85027b1d8149531a1a4c01ce6282 and 0853bef94342e0154153fc3152d60ec3.
+- F-15: Earlier #1268 Research retains neutral graph/provider packages and internal factory policy ownership. Apply plan-go-guidance to preserve these boundaries. Sources: .aiteam/lf-1268-extract-reusable-graph-and-agent/2026-10-31/extract-reusable-graph-and-agent/RESEARCH_BRIEF.md, pkg/execution/graph/validate.go and internal/graphexec/registry.go.
+
+## Retained prior findings
+
+These observations were recorded at 51bf3ddff155cf0c0f6408c1edc1d9a2dfabde75; current corrections above take precedence. The CLI measurements were not rerun. In particular, file denies do not prove identical Read/Edit semantics, and the policy checker does not prove live enforcement.
 
 ## Findings (observed unless marked)
 
@@ -82,16 +109,25 @@ Loading the operator's rules could add `allow` rules that loosen the sandbox.
 - **F-08 Graph validation.** `pkg/execution/graph/validate.go` `validateNode` checks declared attributes against closed value lists. `lf_deny` needs a free-form validator hook. `Graph.Attrs` holds graph-level attributes (`pkg/execution/graph/graph.go`).
 - **F-09 Team DOTs are generated.** `teams/<stack>/v1.0.0/**` comes from `teams/source/base-team` plus a stack overlay via `go run ./cmd/teamrelease`. Spike/implement DOTs come from base-team only, so a per-stack value needs an overlay mechanism or variables (`teams/source/python-fastapi/inherit.json`). Shipped stacks have no `scripts/lf-check.sh`: their full checks are factory-run `python3 -c …` argv in `stack-profile.json`. `scripts/lf-check.sh`, `scripts/ci-test.sh` and the browser check are cockpit's own scripts. Operators make editable local teams with `team clone` (`docs/cli/teams.md`).
 
+
 ## Impact analysis
 
-- **Touched:** `pkg/execution/graph` (validation hook), `internal/graphexec` (attribute declaration, parse/merge helper), `internal/turn` (carry entries onto the request at the five launch sites), `internal/agent` (new request field), `internal/harness/sandbox.go` (merge into per-run deny), `internal/codex` + `pkg/execution/providers/codex` (rules/profile delivery, refusal), docs, team sources if q2 ≠ a.
-- **Depends on it:** every graph agent launch, for Claude and Codex. Judge, advisory, doctor and conversation runs are not graph nodes and stay unaffected (observed: they build their own argv).
-- **Superseded:** none. The Markdown-only request (separate PR) stays.
-- **Data and compatibility:** no DB migration. Existing installed teams have no `lf_deny`, so they behave as today. A team release that adds entries is a new team version.
+- Touched: operator config schema/validation and docs; generic graph attributes and configured group resolution; agent request boundary; Claude settings preparation; Codex rule/profile delivery; team sources only if q2 selects them.
+- Depends on it: every graph agent launch and its descendants; authentication, resume and usage collection depend on Codex home handling. Non-graph doctor, judge and conversation behavior remains unchanged.
+- Superseded: previous inline-DOT proposal, not a shipped implementation; generated teamrelease paths in the earlier findings are obsolete.
+- Data and compatibility: optional settings catalogue with no database migration expected; existing teams without references retain behavior. A team that adds a reference requires a matching operator group. No automatic mutation of installed teams or shared settings.
+- Permission boundary: preserve current sandbox and shared restrictions; freeze resolved rules for a running attempt and resolve current configured rules before each new attempt, including resume. Unsupported semantics must fail before agent launch.
 
-## Open questions (sent to owner)
+## Success evidence required from later work
 
-- q1 technical — the Codex delivery route (F-03, F-04, F-06)
-- q2 business — which shipped teams carry entries (F-09)
-- q3 technical — how a graph default and a node value combine
-- q4 business — whether prefix matching is enough (F-05)
+Show malformed reference/entry rejection, unknown-group refusal, shared-deny preservation, no-group compatibility, supported command failures in both live runtimes, unsupported-entry refusal, descendant enforcement and preserved resume/usage handling. File mappings must preserve read/write intent or refuse, not silently broaden behavior and claim parity. Run make lint during implementation/validation. These are acceptance obligations, not executed checks.
+
+## Open owner choices
+
+- q1 technical: private Codex delivery route versus Claude-only initial support.
+- q2 business: local team groups versus shipped stack groups.
+- q3 technical: additive defaults versus node replacement.
+- q4 business: explicit native matching versus automatic common command variants.
+- q5 business: native CLI subagent calls versus shell CLI calls versus factory routing.
+
+The named-group interface is settled. None of q1–q4 was answered by the owner; do not infer approval from the request for an explanation.
