@@ -39,12 +39,19 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 	saved, err := o.DB.WorkflowCaptureForAdmission(ctx, req.SessionID, req.Trigger.CommentID, string(workflow))
 	if err == nil {
 		definition, restoreErr := restoreWorkflow(ctx, o.DB, saved, workflow, specs)
-		if restoreErr != nil {
+		if restoreErr == nil {
+			return definition, nil
+		}
+		if !supersedesObsoleteCapture(req, saved, workflow, restoreErr) {
 			return fail(restoreErr)
 		}
-		return definition, nil
-	}
-	if !errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrGraphInvariant) {
+		// The owner replied on an instance whose retained graph a rework made
+		// obsolete. Admission starts a successor on the installed graph and
+		// hands it the old instance's saved result and this reply.
+		if o.Logger != nil {
+			o.Logger.WarnContext(ctx, "retained workflow graph is obsolete; starting a successor", "workflow", workflow, "capture", saved.ID, "instance", saved.InstanceID, "error", restoreErr)
+		}
+	} else if !errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrGraphInvariant) {
 		return fail(fmt.Errorf("refuse retained workflow: %w", err))
 	}
 	if o.WorkflowSource == nil {
@@ -101,6 +108,29 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 	return definition, nil
 }
 
+// errObsoleteRetainedGraph marks a retained graph that no longer validates
+// against the current action registry, as after a graph rework.
+var errObsoleteRetainedGraph = errors.New("retained graph no longer validates against the current factory")
+
+// supersedesObsoleteCapture reports whether an obsolete retained graph gives
+// way to a successor on the installed graph. Only a fresh owner comment can
+// do that, never a graph dispatch or a replay of the capture's own trigger,
+// and only for workflows without code delivery; admission still refuses while
+// the old instance has an active attempt or an unsent comment.
+func supersedesObsoleteCapture(req Request, saved store.WorkflowCapture, workflow agent.Workflow, cause error) bool {
+	if !errors.Is(cause, errObsoleteRetainedGraph) {
+		return false
+	}
+	if req.Trigger.CommentID < 1 || store.IsFactoryTrigger(req.Trigger.CommentID) || store.IsGraphTrigger(req.Trigger.CommentID) || saved.TriggerID == req.Trigger.CommentID {
+		return false
+	}
+	switch workflow {
+	case agent.WorkflowResearch, agent.WorkflowSpike, agent.WorkflowDoctor:
+		return true
+	}
+	return false
+}
+
 func restoreWorkflow(ctx context.Context, db *store.DB, saved store.WorkflowCapture, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 	fail := func(e error) (*teamsource.WorkflowDefinition, error) {
 		return nil, fmt.Errorf("refuse retained %s capture %d; original work preserved: %w", workflow, saved.ID, e)
@@ -136,6 +166,13 @@ func restoreWorkflow(ctx context.Context, db *store.DB, saved store.WorkflowCapt
 	if saved.Provenance.Kind == "" {
 		graphFile = path.Base(pin.Path)
 		team = pin.Team
+	}
+	if dot, found := files[graphFile]; found {
+		if profile, parseErr := graphexec.ParseProfile(dot); parseErr == nil {
+			if invalid := graphexec.Validate(profile, specs); invalid != nil {
+				return fail(errors.Join(errObsoleteRetainedGraph, invalid))
+			}
+		}
 	}
 	definition, err := teamsource.CaptureWorkflowIdentity(ctx, teamsource.RetainedFiles(files), graphFile, team, workflow, specs)
 	if err != nil {
